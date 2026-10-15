@@ -787,7 +787,23 @@ export const ASK_TOOL = {
           "When you write this, any part you hold back (`alsoAsked`) is copied from this text. Leave it out whenever " +
           "their message already says everything. NEVER write it from a part of the conversation marked as not " +
           "shown: when what they agreed to is in such a part, or you cannot find it in what is shown, leave this out, " +
-          "answer \"ask\", and ask them to say again what they would like done.",
+          "answer \"ask\", and ask them to say again what they would like done.\n" +
+          "WHAT TO WRITE FOR THE COMMON FOLLOW-UPS: \"use the second idea\" — the second item of the most recent " +
+          "numbered or bulleted list in the conversation, copied out (its words, not \"idea two\"); \"keep that style\" " +
+          "or \"same as before\" — the colours, fonts, wording or layout the conversation actually named, spelled out; " +
+          "\"do that on every page\" — the change, then every page by its address from the site's page list below. When " +
+          "two things in the conversation fit equally (two lists, two styles, two earlier changes), it is not yours to " +
+          "pick: answer \"ask\" and say what is unclear in `unclear`.",
+      },
+      unclear: {
+        type: "string",
+        description:
+          "Only when intent is \"ask\" BECAUSE their message leans on something you cannot pin down: it could mean two " +
+          "or more things in the conversation, or what it points at is not shown or cannot be found. Name in a few words " +
+          "what is unclear and, when you can see them, the candidates — \"which list: the headline ideas or the colour " +
+          "ideas\", \"the earlier style is in a part of the conversation not shown\". The reply they read then asks them " +
+          "one focused question about exactly this. Leave it out for every other \"ask\": a question, an idea, a remark " +
+          "or a plan they are thinking through is not unclear.",
       },
       question: {
         type: "object",
@@ -1115,6 +1131,14 @@ const SYSTEM =
   "in `resolved` — unless what it leans on is in a part of the conversation marked as not shown, or cannot be found " +
   "in what is shown: then it is \"ask\", asking them to say it again. Your \"ask\" answer is only the gist: the " +
   "reply they read is written afterwards, with room.\n\n" +
+  "THINKING IT THROUGH, THEN DOING IT. Asking for ideas, opinions, a review of their site, what to improve first, or " +
+  "a plan — \"what would you change on my home page?\", \"give me three headline ideas\", \"should the menu come " +
+  "first?\" — is \"ask\", however much it talks about changes: they are deciding, not instructing. Refining that " +
+  "plan (\"drop the third one\", \"what if the menu came first?\") is still \"ask\". A plain go-ahead after it — " +
+  "\"go ahead\", \"do it\", \"yes, make those changes\", \"use the second idea\", \"do that on every page\" — is " +
+  "work, written out in `resolved`; never answer it with a question asking them to confirm what they just said. " +
+  "When the go-ahead could mean more than one thing in the conversation, or points at a part not shown, it is " +
+  "\"ask\" with `unclear` saying what — one focused question, not a guess.\n\n" +
   "DECIDE IN THIS ORDER, and stop at the first one that fits.\n" +
   "1. Is the message conversation — a greeting, a thank-you, a question about you or about their site, an idea or a " +
   "plan they are thinking through — \"hi\", \"thanks\", \"what can you do?\", \"can you read a link?\", \"what " +
@@ -1395,6 +1419,11 @@ export const ROUTE_REASONS = Object.freeze({
   "resolved": Object.freeze({ kind: "context", what: "the work was written out in full from the conversation, and runs in place of the message's own words" }),
   "resolved-unread": Object.freeze({ kind: "changed", what: "a written-out request that was not text or was too long, left out: the message's own words run" }),
   "resolved-ignored": Object.freeze({ kind: "changed", what: "a written-out request on an answer that is not work, or with no conversation shown, left out" }),
+  // A REFERENCE IT COULD NOT PIN DOWN (2026-10-15, the conversation batch):
+  // carried to the reply so it asks one focused question about exactly it.
+  "unclear": Object.freeze({ kind: "context", what: "the message leans on something that could not be pinned down, named for the reply's one focused question" }),
+  "unclear-unread": Object.freeze({ kind: "changed", what: "a note of what is unclear that was not text or was too long, left out" }),
+  "unclear-ignored": Object.freeze({ kind: "changed", what: "a note of what is unclear on an answer that is not \"ask\", left out" }),
 });
 
 /** Where a routing answer came from; `routeDecision` derives it from the codes. */
@@ -1469,6 +1498,7 @@ const EDIT_FIELDS = ["layer", "page", "remove", "rename", "tab"];
 function markLeftOut(input, keeps, mark) {
   if (!keeps.includes("answer") && String(input.answer || "").trim()) mark("answer-ignored");
   if (!keeps.includes("resolved") && given(input.resolved)) mark("resolved-ignored");
+  if (!keeps.includes("unclear") && given(input.unclear)) mark("unclear-ignored");
   if (!keeps.includes("question") && given(input.question)) mark("question-ignored");
   if (!keeps.includes("also") && given(input.alsoAsked)) mark("also-ignored");
   if (!keeps.includes("edit") && EDIT_FIELDS.some((k) => given(input[k]))) mark("edit-fields-ignored");
@@ -1699,8 +1729,17 @@ function readDecision(reply, { canClarify = false, picked = false, hasSite = fal
     mark("ask-while-answering");
     return work(fallback);
   }
-  if (intent === "ask") markLeftOut(input, ["answer"], mark);
-  return { intent, answer: intent === "ask" ? answer : "" };
+  if (intent === "ask") markLeftOut(input, ["answer", "unclear"], mark);
+  return { intent, answer: intent === "ask" ? answer : "", ...(intent === "ask" ? readUnclear(input, mark) : {}) };
+}
+
+/** What could not be pinned down, for the reply's focused question: text, at most 300 characters, or nothing. */
+export const MAX_UNCLEAR_CHARS = 300;
+function readUnclear(input, mark) {
+  if (!given(input.unclear)) return {};
+  if (typeof input.unclear !== "string" || !input.unclear.trim() || input.unclear.trim().length > MAX_UNCLEAR_CHARS) { mark("unclear-unread"); return {}; }
+  mark("unclear");
+  return { unclear: input.unclear.trim() };
 }
 
 /**

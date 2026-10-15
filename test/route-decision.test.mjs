@@ -142,6 +142,10 @@ const CASES = [
   ["resolved", () => routed({ intent: "addon", resolved: "Add a gallery page with the photos from the menu" }, { history: [{ role: "assistant", text: "I could add a gallery page." }] }), "model"],
   ["resolved-unread", () => routed({ intent: "addon", resolved: 42 }, { history: [{ role: "assistant", text: "I could add a gallery page." }] }), "model"],
   ["resolved-ignored", () => routed({ intent: "addon", resolved: "Add a gallery" }), "model"],
+  // WHAT COULD NOT BE PINNED DOWN (2026-10-15): read on "ask" only, strictly.
+  ["unclear", () => routed({ intent: "ask", answer: "Which one?", unclear: "which list: the headline ideas or the colour ideas" }, { history: [{ role: "assistant", text: "Two lists." }] }), "model"],
+  ["unclear-unread", () => routed({ intent: "ask", answer: "Which one?", unclear: 42 }), "model"],
+  ["unclear-ignored", () => routed({ intent: "edit", layer: "look", unclear: "which list" }), "model"],
   // A SITE THAT EXISTS (2026-10-02, the owner's second review): a question back
   // the waiting request already asked is sent its answer once — the router's
   // answer then is its own (`clarify-reused`, context) — and one still asked is

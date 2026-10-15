@@ -22,7 +22,7 @@ import { withWire, envFor } from "./fixtures/live-ask.mjs";
 import { mediaBucket } from "./fixtures/r2-media.mjs";
 import { sniffMedia } from "../site-media.mjs";
 import {
-  run, judgeDeleteVsClose, composerAllows, caseHistory, CONVERSE_CASES, wavOf, GUARDED_SITES, ESTIMATES, BROWSER_EXPECT, UNAVAILABLE, MODES,
+  run, judgeDeleteVsClose, composerAllows, FOLLOW_UP_THREADS, caseHistory, CONVERSE_CASES, wavOf, GUARDED_SITES, ESTIMATES, BROWSER_EXPECT, UNAVAILABLE, MODES,
 } from "../scripts/media-verify.mjs";
 
 const FIX = new URL("./fixtures/media/", import.meta.url).pathname;
@@ -134,8 +134,13 @@ test("THE CUT-HISTORY CASE IS CUT BEFORE ANYTHING IS SENT: the page's own histor
   assert.ok(long.full > 4000 && long.text.length === 4000);
   assert.match(long.text, /Version two/);
   assert.doesNotMatch(long.text, /Version three/);
-  // The others send no thread: deterministic, and none relies on a long model answer.
-  for (const x of CONVERSE_CASES.filter((y) => y.id !== c.id)) assert.deepEqual(caseHistory(x).history, []);
+  // The others send no thread, or exactly their own fixed one (the follow-up
+  // cases, 2026-10-15): deterministic, and none relies on a model's earlier answer.
+  for (const x of CONVERSE_CASES.filter((y) => y.id !== c.id)) {
+    const sent = caseHistory(x).history;
+    if (typeof x.thread === "string" && FOLLOW_UP_THREADS[x.thread]) assert.deepEqual(sent.map((t) => t.text), FOLLOW_UP_THREADS[x.thread].map((t) => t.t), x.id);
+    else assert.deepEqual(sent, [], x.id);
+  }
 });
 
 test("THE GENERATED THREE-PART WAV is a WAV the server takes from its bytes", () => {

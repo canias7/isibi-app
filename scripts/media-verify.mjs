@@ -133,6 +133,10 @@ export const UNAVAILABLE = Object.freeze(["Safari on macOS", "Safari on iOS", "C
 export const ESTIMATES = Object.freeze({
   message: { low: 2, high: 6, why: "routing (measured 1–2) plus the reply's own call on grok-4.6 (about 2 typical, 5 at the full window and the 2,400-token ceiling), under one charge" },
   build: { low: 13, high: 47, why: "a first build (measured 11–45) plus its routing (1–2); with IMAGE_PURCHASES off no photograph can be bought" },
+  // A FOLLOW-UP EXPECTED TO ROUTE AS WORK (2026-10-15): routing only — the
+  // harness never sends the work itself — unless the router answers it as talk,
+  // when the reply's own call is added, as for any message.
+  followUp: { low: 1, high: 6, why: "routing only (measured 1–2) when it routes as work; up to a message's cost if it is answered as talk" },
 });
 
 // ── THE DETERMINISTIC CONVERSATION CASES ────────────────────────────────────
@@ -171,7 +175,45 @@ export const CONVERSE_CASES = Object.freeze([
   { id: "C4-missing", message: "What time do we open on Sundays?", thread: [], needs: "absent-hours", expect: "says it was not shown Sunday hours and how to add them; never an invented time" },
   { id: "C5-cut-history", message: "ok, use the third version", thread: "cut", expect: "asks for the third version again (it was past the cut); `resolved` absent; nothing from the hidden part; no work" },
   { id: "C8-attachment", message: "What could I use this clip for on my site?\n\n[Attached video \"clip.webm\"]", thread: [], expect: "talks about the attached clip as a file it was not shown; no claim of having watched it" },
+  // ── THE CONVERSATION BATCH (2026-10-15): advice, plans and follow-ups ──
+  // A case that `route`s as work is sent to the routing route only: the harness
+  // never posts the work, so nothing on the site changes. What it checks is the
+  // boundary — talk stays talk, a clear go-ahead becomes the work written out.
+  { id: "C9-advice", message: "What would you improve first on my site, and why? Just the few things that matter most.", thread: [], needs: "pages", expect: "a few prioritised suggestions grounded in what the stored pages have and lack, each with why, suggestions kept apart from what the site says; no work" },
+  { id: "C10-brainstorm", message: "Give me three ideas for a new headline on my home page. Don't change anything yet.", thread: [], expect: "three numbered headline ideas to choose from; no work" },
+  { id: "C11-second-idea", message: "use the second idea", thread: "ideas", route: "work", expect: "routed as work, the second headline idea written out in full in `resolved`; no question back" },
+  { id: "C12-ambiguous", message: "use the second one", thread: "two-lists", expect: "asks which list is meant (headlines or colours); nothing written out; no work" },
+  { id: "C13-every-page", message: "do that on every page", thread: "footer", route: "work", expect: "routed as work, the footer line written out for every page of the site by its address" },
+  { id: "C15-keep-style", message: "keep that style for the Visit page too", thread: "style", route: "work", expect: "routed as work, the style the conversation named (cream background, dark green serif headings) written out for the Visit page" },
 ]);
+
+/**
+ * THE FIXED THREADS the follow-up cases lean on: earlier turns as the page
+ * keeps them (`{ r, t }`), written here — no model writes them — so the case
+ * says exactly what "the second idea" or "that style" refers to.
+ */
+export const FOLLOW_UP_THREADS = Object.freeze({
+  ideas: [
+    { r: "u", t: "Give me three ideas for a new headline on my home page." },
+    { r: "a", t: "Here are three, each with why it might work:\n\n1. **Bread at dawn** — short, and says when you bake.\n2. **Baked while the harbour sleeps** — gives the bakery a place and a story.\n3. **Your loaf, held for you** — leads with ordering ahead.", md: true },
+  ],
+  "two-lists": [
+    { r: "u", t: "Ideas for a new headline, and for the colours?" },
+    { r: "a", t: "Headlines:\n1. Bread at dawn\n2. Baked while the harbour sleeps\n\nColours:\n1. Harbour blue with white\n2. Cream with dark green", md: true },
+  ],
+  footer: [
+    { r: "u", t: "What could go in the footer of my home page?" },
+    { r: "a", t: "A short line with your opening days and a link to the Visit page would help people who scroll to the bottom looking for when to come." },
+    { r: "u", t: "Good. Put that in the home page footer." },
+    { r: "a", t: "That can be done as a change — just ask for it." },
+  ],
+  style: [
+    { r: "u", t: "How could the home page feel warmer?" },
+    { r: "a", t: "A cream background with dark green serif headings would feel warmer and suit a bakery." },
+    { r: "u", t: "Go ahead on the home page." },
+    { r: "a", t: "Your home page now has a cream background with dark green serif headings." },
+  ],
+});
 
 // ── JUDGING A CONVERSATIONAL ANSWER AGAINST EVIDENCE ────────────────────────
 
@@ -248,6 +290,28 @@ export function judgeCase(c, body, evidence) {
   const put = (name, verdict, detail = "") => checks.push({ name: c.id + ": " + name, verdict, detail: String(detail).slice(0, 400) });
   const b = body && typeof body === "object" ? body : {};
   const answer = typeof b.answer === "string" ? b.answer : null;
+  // A CLEAR GO-AHEAD (2026-10-15): routed as work, the request written out
+  // from the conversation, and no reply asking them to confirm. Whether what
+  // was written out is what they agreed to is a person's reading: the thread
+  // and the request are kept side by side.
+  if (c.route === "work") {
+    const work = b.intent === "edit" || b.intent === "addon";
+    put("routed as work, not answered as talk", work ? "pass" : "fail", b.intent);
+    const written = typeof b.resolved === "string" && b.resolved.trim() ? b.resolved.trim() : "";
+    put("the request was written out from the conversation", written ? "pass" : "fail", written ? "" : "no `resolved`");
+    put("no question back asking them to confirm", b.replyFrom !== "conversation" && !b.question ? "pass" : "fail", b.replyFrom || (b.question ? "question" : ""));
+    const signals = [];
+    const thread = (evidence && evidence.thread) || [];
+    const said = thread.map((t) => (t.r === "u" ? "Owner: " : "Assistant: ") + t.t).join("\n");
+    if (written) {
+      const shared = [...words(written)].filter((w) => words(said).has(w));
+      signals.push("shares " + shared.length + " words with the thread: " + shared.slice(0, 10).join(", "));
+      const pages = Array.isArray(evidence && evidence.pages) ? evidence.pages.map((p) => p.path) : [];
+      if (c.thread === "footer" && pages.length) signals.push("names " + pages.filter((p) => written.includes(p)).length + " of the site's " + pages.length + " page addresses");
+    }
+    put("what was written out is what they agreed to (read it)", "unverified", signals.join("; "));
+    return { checks, review: { case: c.id, expect: c.expect, answer: written || answer, evidence: { thread: said, intent: b.intent, resolved: written || null }, signals } };
+  }
   put("answered as conversation, with nothing started", b.intent === "ask" && !b.job && !b.request && !b.resolved ? "pass" : "fail", b.intent + (b.job ? " job " + b.job : ""));
   put("the reply was written by its own call", b.replyFrom === "conversation" ? "pass" : "fail", b.replyFrom);
   if (answer === null || !answer.trim()) { put("there is an answer to judge", "fail", "no answer"); return { checks, review: null }; }
@@ -273,6 +337,12 @@ export function judgeCase(c, body, evidence) {
   if (INSPECTED.test(answer)) signals.push("reads like a claim of inspection: \"" + answer.match(INSPECTED)[0] + "\"");
   let source = null;
   if (c.id === "C1-greeting") signals.push(answer.length + " characters");
+  if (c.id === "C12-ambiguous") {
+    const reasons = b.decision && Array.isArray(b.decision.reasons) ? b.decision.reasons : [];
+    signals.push(reasons.includes("unclear") ? "the router named what was unclear" : "the router named nothing as unclear");
+    signals.push(/\b(?:headline|colou?r)s?\b/i.test(answer) ? "the reply names a list" : "the reply names neither list");
+  }
+  if (c.id === "C9-advice" || c.id === "C10-brainstorm") signals.push(/(^|\n)\s*\d+[.)]\s/.test(answer) ? "numbered" : "not numbered");
   if (c.id === "C2-compare") {
     signals.push(/\bbook/i.test(answer) ? "mentions booking" : "never says \"book…\" (a paraphrase?)");
     signals.push(/\b(?:enquir|inquir)/i.test(answer) ? "mentions enquiries" : "never says \"enquir…\" (a paraphrase?)");
@@ -327,6 +397,7 @@ export function hoursAbsent(pages) {
  * BEFORE any call that the third version really is past the cut.
  */
 export function caseHistory(c) {
+  if (typeof c.thread === "string" && FOLLOW_UP_THREADS[c.thread]) return { history: ChatTalk.historyWire(FOLLOW_UP_THREADS[c.thread], c.message), cutProven: null };
   if (c.thread !== "cut") return { history: ChatTalk.historyWire([], c.message), cutProven: null };
   const history = ChatTalk.historyWire(cutThread(), c.message);
   const long = history.find((t) => t && t.role === "assistant");
@@ -1051,14 +1122,15 @@ async function converseChecks(ctx) {
       const a = hoursAbsent(ev.pages);
       if (!check(c.id + ": the site really lacks Sunday opening times", a.ok, a.why)) continue;
     }
-    const before = await beforeSend(ctx, c.id, ESTIMATES.message);
+    const est = c.route === "work" ? ESTIMATES.followUp : ESTIMATES.message;
+    const before = await beforeSend(ctx, c.id, est);
     if (before === null) break;
-    const { r } = await paidCall(ctx, c.id, before, ESTIMATES.message, () => call("POST", "/api/site/route", { json: { message: c.message, slug: opts.slug, picker: opts.picker || "grok", hasSite: true, firstBuild: false, picked: false, history, files: [], brief: c.message, qa: [], answering: false } }));
+    const { r } = await paidCall(ctx, c.id, before, est, () => call("POST", "/api/site/route", { json: { message: c.message, slug: opts.slug, picker: opts.picker || "grok", hasSite: true, firstBuild: false, picked: false, history, files: [], brief: c.message, qa: [], answering: false } }));
     if (!r) break;
     const b = r.body || {};
-    await afterSend(ctx, c.id, before, ESTIMATES.message, b.cost);
+    await afterSend(ctx, c.id, before, est, b.cost);
     const hidden = c.thread === "cut" ? cutThread()[1].t.slice(cutThread()[1].t.indexOf("Version three")) : "";
-    const judged = judgeCase(c, r.status === 200 ? b : { ...b, intent: "http " + r.status }, { pages: ev.pages, homePath: ev.homePath, history: history || [], hidden });
+    const judged = judgeCase(c, r.status === 200 ? b : { ...b, intent: "http " + r.status }, { pages: ev.pages, homePath: ev.homePath, history: history || [], hidden, thread: typeof c.thread === "string" && FOLLOW_UP_THREADS[c.thread] ? FOLLOW_UP_THREADS[c.thread] : [] });
     for (const j of judged.checks) verdict(j.name, j.verdict, j.detail);
     // THE WHOLE ANSWER IS KEPT, always — and what a person must still judge,
     // with the source evidence to judge it against, beside it.

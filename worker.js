@@ -27978,6 +27978,8 @@ async function handleRequest(request, env, ctx) {
         rConverse = await converse({ send: quickSend(env, "converse") }, {
           message: rb.message, history: readHistory(rb.history), context: cctx,
           attached: Array.isArray(rb.files) ? rb.files : [], pending, gist: routed.answer, model: rModel,
+          // WHAT THE ROUTER COULD NOT PIN DOWN (2026-10-15): the reply asks about exactly it.
+          unclear: typeof routed.unclear === "string" ? routed.unclear : "",
         });
         if (rConverse.ok) rAnswer = rConverse.answer;
         else console.error("converse failed:", rConverse.stage, rConverse.error ? errorClassForLog(rConverse.error) : "");

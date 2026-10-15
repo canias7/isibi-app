@@ -109,6 +109,13 @@ test("CODEX'S IRRELEVANT ANSWER CANNOT PASS: every case's purpose is left for a 
   const r = await converse(app);
   assert.equal(app.sent.length, CONVERSE_CASES.length, "every case was sent: the evidence admits them all");
   for (const c of CONVERSE_CASES) {
+    // A GO-AHEAD ANSWERED AS TALK IS A FAILURE, NOT A READING (2026-10-15):
+    // the case expected the work, and got a reply.
+    if (c.route === "work") {
+      assert.ok(byCase(r, c.id).some((x) => x.verdict === "fail" && /routed as work/.test(x.name)), c.id + ": talk passed for a go-ahead");
+      assert.equal(r.results.unverified.find((u) => u.case === c.id).answer, CODEX, c.id + ": the answer was not kept whole");
+      continue;
+    }
     const purpose = byCase(r, c.id).filter((x) => /does what the case is for/.test(x.name));
     assert.equal(purpose.length, 1, c.id);
     assert.equal(purpose[0].verdict, "unverified", c.id + ": a purpose the automation cannot establish was decided");
@@ -118,7 +125,7 @@ test("CODEX'S IRRELEVANT ANSWER CANNOT PASS: every case's purpose is left for a 
     assert.ok(review.signals.some((x) => /time 3:17/.test(x)), c.id + ": " + JSON.stringify(review.signals));
   }
   assert.notEqual(r.results.outcome, "passed", "an irrelevant answer passed");
-  assert.equal(r.results.outcome, "needs review");
+  assert.equal(r.results.outcome, "failed", "a run whose go-ahead cases were answered as talk did not fail");
 });
 
 test("NATURAL ANSWERS: the objective checks pass, no case fails on wording, and each purpose waits for a person with its answer kept", async () => {
@@ -129,14 +136,34 @@ test("NATURAL ANSWERS: the objective checks pass, no case fails on wording, and 
     "What time": "I wasn't shown any Sunday opening hours anywhere on your site. If you tell me them, I can add them to the Visit page.",
     "ok, use": "The earlier message was cut off before the third version, so I can't see it. Could you paste the third headline again?",
     "What could I": "I can't watch the clip itself, only its name, but a short video like clip.webm often works at the top of the home page or beside your classes.",
+    "What would you improve": "1. **A clearer headline.** Your home page gives the name and the sourdough, but not why to come. 2. **Opening days on the Visit page** — it gives the street, not when you are open. I'd start with the headline.",
+    "Give me three ideas": "1. Bread at dawn\n2. Baked while the harbour sleeps\n3. Your loaf, held for you",
+    "use the second one": "Do you mean the second headline, or the second colour scheme?",
   };
-  const app = fakeApp({ answer: (b) => ({ answer: Object.entries(say).find(([k]) => b.message.startsWith(k))[1], decision: { reasons: b.message.startsWith("ok, use") ? ["history-cut"] : [] } }) });
+  // THE GO-AHEADS ARE ROUTED AS WORK, the request written out; the harness never sends the work.
+  const work = {
+    "use the second idea": "Change the home page headline to \"Baked while the harbour sleeps\"",
+    "do that on every page": "Add a footer line with the opening days and a link to the Visit page on every page: /, /visit",
+    "keep that style": "Give the Visit page a cream background with dark green serif headings, as on the home page",
+  };
+  const app = fakeApp({ answer: (b) => {
+    const w = Object.entries(work).find(([k]) => b.message.startsWith(k));
+    if (w) return { intent: "edit", replyFrom: undefined, resolved: w[1], cost: 1 };
+    return { answer: Object.entries(say).find(([k]) => b.message.startsWith(k))[1], decision: { reasons: b.message.startsWith("ok, use") ? ["history-cut"] : b.message.startsWith("use the second one") ? ["unclear"] : [] } };
+  } });
   const r = await converse(app);
   assert.deepEqual(r.results.checks.filter((c) => c.verdict === "fail"), []);
   for (const c of CONVERSE_CASES) {
     assert.ok(byCase(r, c.id).some((x) => x.verdict === "pass"), c.id);
-    assert.equal(r.results.unverified.find((u) => u.case === c.id).answer, Object.entries(say).find(([k]) => c.message.startsWith(k))[1]);
+    const kept = r.results.unverified.find((u) => u.case === c.id);
+    const want = c.route === "work" ? Object.entries(work).find(([k]) => c.message.startsWith(k))[1] : Object.entries(say).find(([k]) => c.message.startsWith(k))[1];
+    assert.equal(kept.answer, want, c.id + ": not kept whole");
+    // A GO-AHEAD'S EVIDENCE IS THE THREAD IT LEANED ON, beside what was written out.
+    if (c.route === "work") assert.ok(kept.evidence.thread.length > 0 && kept.evidence.resolved === want, c.id);
   }
+  // NO GO-AHEAD WAS ASKED TO CONFIRM, AND THE AMBIGUOUS ONE WROTE NOTHING OUT.
+  assert.ok(CONVERSE_CASES.filter((c) => c.route === "work").every((c) => byCase(r, c.id).some((x) => /no question back/.test(x.name) && x.verdict === "pass")));
+  assert.ok(byCase(r, "C12-ambiguous").some((x) => /nothing started/.test(x.name) && x.verdict === "pass"));
   assert.equal(r.ok, true);
   assert.equal(r.results.outcome, "needs review");
 });
@@ -393,4 +420,18 @@ test("A BROWSER RUN MISSING A REQUIRED BROWSER FAILS, and one with no browsers a
     assert.ok(r.results.checks.some((c) => c.verdict === "fail" && /composer and Files panel were checked/.test(c.name)));
     assert.equal([...bucket.store.keys()].filter((k) => k.startsWith("uploads/verify-none/")).length, 0, "the fixtures were left behind");
   });
+});
+
+test("THE FOLLOW-UP CASES' OBJECTIVE CHECKS (2026-10-15): a go-ahead with nothing written out fails, a go-ahead answered with a question fails, and the ambiguous case fails if it writes anything out", () => {
+  const c = (id) => CONVERSE_CASES.find((x) => x.id === id);
+  const ev = { pages: pageEvidence(PAGES, extractText), history: [], thread: [] };
+  const failed = (j, re) => j.checks.some((x) => x.verdict === "fail" && re.test(x.name));
+  assert.ok(failed(judgeCase(c("C11-second-idea"), { intent: "edit" }, ev), /written out/));
+  assert.ok(failed(judgeCase(c("C11-second-idea"), { intent: "ask", replyFrom: "conversation", answer: "Do you want the second idea?" }, ev), /routed as work/));
+  assert.ok(failed(judgeCase(c("C13-every-page"), { intent: "edit", resolved: "x", question: { text: "Sure?" } }, ev), /no question back/));
+  assert.ok(failed(judgeCase(c("C12-ambiguous"), { intent: "ask", replyFrom: "conversation", answer: "Done.", resolved: "Change the headline" }, ev), /nothing started/));
+  // AND A CLEAN GO-AHEAD PASSES ITS OBJECTIVE CHECKS, ITS MEANING LEFT FOR A PERSON.
+  const ok = judgeCase(c("C15-keep-style"), { intent: "edit", resolved: "Give the Visit page a cream background with dark green serif headings" }, ev);
+  assert.deepEqual(ok.checks.filter((x) => x.verdict === "fail"), []);
+  assert.equal(ok.checks.filter((x) => x.verdict === "unverified").length, 1);
 });

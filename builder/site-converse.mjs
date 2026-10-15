@@ -51,7 +51,17 @@ export const HISTORY_CHARS = 24000;
 /** The router's smaller window: enough to resolve "do that" and "the second one", never a transcript. */
 export const ROUTER_HISTORY_TURNS = 8;
 export const ROUTER_TURN_CHARS = 800;
-export const ROUTER_HISTORY_CHARS = 4800;
+/**
+ * THE LATEST REPLY IS SHOWN WHOLER (2026-10-15, the conversation batch). A
+ * reply listing five ideas runs past 800 characters, so "use the second idea"
+ * could point past the router's cut while the reply's own call saw the list
+ * whole — and the router, rightly, asked them to say it again. The assistant's
+ * most recent turn — the one a follow-up nearly always leans on — keeps up to
+ * this much; every other turn keeps its 800. The total grows to match, and only
+ * when such a reply is there to show.
+ */
+export const ROUTER_LAST_REPLY_CHARS = 3200;
+export const ROUTER_HISTORY_CHARS = 6400;
 const ROLES = Object.freeze(["user", "assistant"]);
 
 /** The most the page may say it left out: a count beyond this is not a count. */
@@ -74,11 +84,18 @@ const MAX_FULL = 10_000_000;
  * a wrong figure can never make a whole turn look cut or a cut one look
  * whole. A turn cut on either side carries `full`: its length before any cut.
  */
-export function readHistory(v, { turns = HISTORY_TURNS, turnChars = HISTORY_TURN_CHARS, total = HISTORY_CHARS } = {}) {
+export function readHistory(v, { turns = HISTORY_TURNS, turnChars = HISTORY_TURN_CHARS, total = HISTORY_CHARS, lastReplyChars = 0 } = {}) {
   const all = Array.isArray(v) ? v : [];
   const kept = [];
   let left = 0;
   let used = 0;
+  // THE MOST RECENT ASSISTANT TURN, which `lastReplyChars` may show at more
+  // than `turnChars` (the router's window only).
+  let lastReply = -1;
+  for (let i = all.length - 1; i >= 0 && lastReplyChars > 0; i--) {
+    const t = all[i];
+    if (t && typeof t === "object" && !Array.isArray(t) && t.role === "assistant" && typeof t.text === "string" && t.text.trim()) { lastReply = i; break; }
+  }
   for (let i = all.length - 1; i >= 0; i--) {
     const t = all[i];
     if (i === 0 && isOmitted(t)) { left += t.omitted; continue; }
@@ -89,7 +106,7 @@ export function readHistory(v, { turns = HISTORY_TURNS, turnChars = HISTORY_TURN
     const wireFull = Number.isInteger(t.full) && t.full > text.length && t.full <= MAX_FULL ? t.full : 0;
     let cut = wireFull > 0;
     const before = wireFull || text.length;
-    const room = Math.min(turnChars, total - used);
+    const room = Math.min(i === lastReply ? Math.max(turnChars, lastReplyChars) : turnChars, total - used);
     if (text.length > room) { text = text.slice(0, room); cut = true; }
     used += text.length;
     kept.unshift({ role: t.role, text, ...(cut ? { cut: true, full: before } : {}) });
@@ -104,7 +121,7 @@ function isOmitted(t) {
 
 /** The router's window, from the same reading. */
 export function routerHistory(v) {
-  return readHistory(v, { turns: ROUTER_HISTORY_TURNS, turnChars: ROUTER_TURN_CHARS, total: ROUTER_HISTORY_CHARS });
+  return readHistory(v, { turns: ROUTER_HISTORY_TURNS, turnChars: ROUTER_TURN_CHARS, total: ROUTER_HISTORY_CHARS, lastReplyChars: ROUTER_LAST_REPLY_CHARS });
 }
 
 /**
@@ -174,19 +191,39 @@ export const CONVERSE_SYSTEM =
   "a request for work — a question, an idea to think through, a plan, a remark — and your reply is what they read.\n\n" +
   CAPABILITIES + "\n\n" + HONESTY + "\n\n" +
   "HOW TO ANSWER.\n" +
-  "- Answer what they actually said, in the context of the conversation so far. A greeting gets a greeting and an " +
-  "invitation to say what they want; a thank-you gets a short reply; a question gets an answer.\n" +
-  "- Match the length to the question. A greeting, a quick fact or a yes-or-no question: a sentence or two. An " +
-  "explanation, a comparison, ideas to choose from, or a plan: as much as it needs to be genuinely useful, and no " +
-  "padding. You have room for about 1,500 words; most answers need far fewer.\n" +
-  "- Write like a helpful person, warm and direct. No stock openings such as \"Certainly!\" or \"Great question!\".\n" +
+  "- Answer what they actually said, in the context of the conversation so far. A greeting gets a short, friendly " +
+  "greeting and an easy opening to say what they want; a thank-you gets a short reply; a question gets an answer.\n" +
+  "- Match the length to the need. A greeting, a quick fact or a yes-or-no question: a sentence or two. An " +
+  "explanation, a comparison, ideas to choose from, a review of their site or a plan: as much as it needs to be " +
+  "genuinely useful, and no padding. You have room for about 1,500 words; most answers need far fewer.\n" +
+  "- Sound like a thoughtful person who knows websites and small businesses: warm, plain and direct. Be warm by being " +
+  "useful and specific, not by being excited — no stock openings such as \"Certainly!\" or \"Great question!\", no " +
+  "praise of the question, and no exclamation marks unless the moment really calls for one.\n" +
   "- Format only when it helps reading. The chat shows a small set of Markdown: short headings (## or ###), bulleted " +
   "and numbered lists, **bold**, `code`, and links written [like this](https://example.com). Nothing else — no " +
   "tables, images or HTML. A short answer is plain sentences.\n" +
-  "- No emoji and no checkmark or warning symbols, unless they asked for them.\n" +
-  "- You cannot make changes in this reply. When they would like something done, tell them they can just ask for it " +
-  "(for example \"Add a page for our catering menu\") and it will be done as a separate step. Do not claim anything " +
-  "has been or is being done.\n" +
+  "- No emoji and no checkmark or warning symbols, unless they asked for them.\n\n" +
+  "TALKING ABOUT THEIR SITE.\n" +
+  "- Keep three things apart, and let the wording show which is which: what their site says, as written below (say " +
+  "it as fact, and name the page); what you suggest (say it as a suggestion, with the reason); and what you do not " +
+  "know (say so, and what would settle it). Never pass a suggestion off as something already on the site.\n" +
+  "- When they ask what a page does or says, explain it from the words below, page by page, in plain terms.\n" +
+  "- When they ask what to improve, suggest the few changes most likely to matter for their visitors and their " +
+  "business, most important first, each with why — rather than a long list of everything possible. Base them on " +
+  "what the site actually has and lacks.\n" +
+  "- When they compare options, say what each is good for and which you would choose for them and why.\n" +
+  "- When something you would need is missing — not on the site, not said in the conversation — say what is " +
+  "missing and give the most useful answer you can without it, or ask the one thing that would settle it.\n\n" +
+  "PLANS AND FOLLOW-UPS.\n" +
+  "- When you offer several ideas or options, number them, so they can answer \"the second one\".\n" +
+  "- When they are refining a plan with you, build on what was already agreed in the conversation; when the plan " +
+  "changes, say the plan as it now stands.\n" +
+  "- You cannot make changes in this reply. When a plan is ready, tell them in a sentence how to set it going in " +
+  "their own words — for example \"go ahead with the first two\" — and it will be done as a separate step. Do not " +
+  "end every reply with a question or an offer; only when a next step is natural. Do not claim anything has been or " +
+  "is being done.\n" +
+  "- If a note below says their message leans on something that could not be pinned down, do not guess: ask them " +
+  "one short, specific question about exactly that, offering the candidates you can see.\n" +
   "- If a question of ours is waiting for their answer (said below), it stays open: answer what they asked now, and " +
   "you may remind them briefly that the question is still there.";
 
@@ -288,11 +325,18 @@ export function waitingBlock(pending) {
     (typeof p.request === "string" && p.request.trim() ? "\nIt is about their request: " + p.request.trim().slice(0, 2000) : "");
 }
 
+/** What the step that read the message could not pin down: the reply asks about exactly this. */
+export function unclearBlock(unclear) {
+  if (typeof unclear !== "string" || !unclear.trim()) return "";
+  return "THEIR MESSAGE LEANS ON SOMETHING THAT COULD NOT BE PINNED DOWN: " + unclear.trim().slice(0, 300) +
+    "\nAsk them one short, specific question about this — naming the candidates you can see — and do not guess.";
+}
+
 /**
  * The one definition of the conversation call. `gist` is the router's own
  * short reply: shown as a starting point, never as the answer.
  */
-export function converseRequest({ message, history = null, context = null, attached = [], pending = null, gist = "", model } = {}) {
+export function converseRequest({ message, history = null, context = null, attached = [], pending = null, gist = "", unclear = "", model } = {}) {
   const text = String(message || "").trim().slice(0, MAX_INPUT_CHARS);
   const parts = [siteContextBlock(context)];
   const w = waitingBlock(pending);
@@ -302,6 +346,8 @@ export function converseRequest({ message, history = null, context = null, attac
   const a = attachedBlock(attached);
   if (a) parts.push(a);
   parts.push("THEIR LATEST MESSAGE\n" + text);
+  const u = unclearBlock(unclear);
+  if (u) parts.push(u);
   if (typeof gist === "string" && gist.trim()) {
     parts.push("A FIRST THOUGHT ON A REPLY, from the step that read the message (use it only if it helps; it may be too short): " + gist.trim().slice(0, 1500));
   }

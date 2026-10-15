@@ -1024,7 +1024,8 @@ test("a first build asks only when the answer changes the build — with a floor
   // front of a build rather than a wizard.
   // MOVED 2026-10-14 to the reply's own call, which writes what they read; the
   // router is told conversation is not work instead.
-  assert.match(CONVERSE_SYSTEM, /Write like a helpful person/, "the tone instruction is gone");
+  // RESTATED 2026-10-15 (the conversation batch): warm by being useful, not excited.
+  assert.match(CONVERSE_SYSTEM, /warm, plain and direct/, "the tone instruction is gone");
   assert.match(sys, /CONVERSATION IS NOT WORK/, "the router is no longer told conversation is not work");
   const q = ASK_TOOL.input_schema.properties.question.properties.text.description;
   assert.match(q, /TWO SHORT SENTENCES/, "the question went back to a bare one-liner");

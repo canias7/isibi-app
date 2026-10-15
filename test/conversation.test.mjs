@@ -63,7 +63,7 @@ test("the reply's call has its own ceiling, and the router's does not grow witho
 });
 
 test("the reply is told how to answer: length to the question, small Markdown, no stock openings", () => {
-  assert.match(CONVERSE_SYSTEM, /Match the length to the question/);
+  assert.match(CONVERSE_SYSTEM, /Match the length to the need/);
   assert.match(CONVERSE_SYSTEM, /as much as it needs to be genuinely useful/);
   assert.match(CONVERSE_SYSTEM, /headings \(## or ###\), bulleted\s+and numbered lists/);
   assert.match(CONVERSE_SYSTEM, /No emoji/);
