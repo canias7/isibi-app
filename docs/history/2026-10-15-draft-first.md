@@ -513,7 +513,9 @@ the first run's ids.
 
 **A database and a site script cannot switch in one atomic step on this
 platform** (Neon and the Workers dispatch namespace share no transaction).
-The phases make the order safe and the outcome certain, not instant:
+The phases make the order safe, not instant, and completion is not
+guaranteed (corrected in §8: a step whose store keeps refusing keeps the
+window open, and §7's recovery had two holes, now closed):
 
 - **Between the switch and the last finishing step**, visitors see the new
   pages against the old address rows, the old existing-table schema and
@@ -586,8 +588,9 @@ never says "nothing changed on your live site".
 - **The window after the switch** (§7.3): not atomic. Between the switch and
   the last step, visitors get new pages against the old existing-table rows,
   schema and address. On a failure that lasts until a click or the next
-  tick, which is at most about 2 minutes after the runner goes stale (3
-  minutes).
+  tick gets the step through. ~~at most about 2 minutes after the runner
+  goes stale~~ — corrected in §8.5: there is no such bound while the step's
+  store keeps refusing.
 - **Held row changes overwrite the same column** if a visitor changed it
   after the draft was saved (§7.3).
 - **Recovery needs the tick.** `runPublishRecovery` runs only from
@@ -603,3 +606,150 @@ never says "nothing changed on your live site".
 - Unchanged from §6.7: the switch is off by default; owner panels are out of
   scope; the preview shows rows, not rules; filtered preview reads are
   approximate; migration records are not rewritten; billing is at save.
+
+## 8. Recovery at every boundary (2026-10-15, after Codex's review of `af0819bf`)
+
+Codex confirmed the focused tests and CI on `af0819bf`, then reproduced two
+recovery failures with the real Worker functions and network-blocked
+fixtures:
+
+1. **A switch that landed under a `prepared` journal.** The runner stopped
+   after `activateBuild` and before `switched` was stored. The sweep read the
+   stale `prepared` journal as "nothing live" and deleted it: `{finished:0,
+   cleared:1}`, `applied` 0, the row unchanged, the new pages live.
+2. **Cleanup deleting newer work.** The sweep read an expired journal and then
+   deleted the key unconditionally. A fresh journal written in between was
+   removed. `drop()` was also a read-then-delete.
+
+help-needed's recovery-note ownership corrections (`9da48fe2`, `d583030d`)
+were merged first (merge `9c1a5af3`); the Publish path's script upload already
+goes through `putSiteWorker`, so it carries their per-invocation notes.
+
+### 8.1 The design now
+
+- **Every side effect follows a checkpoint that names it.** A new phase,
+  `switching`, is stored with `from` (the live version it replaces) before
+  the pointer and script move. A journal in `switching` may or may not be
+  live.
+- **Every resumption reads the pointer, not its memory.** A click, a
+  takeover or the sweep handles `switching` the same way:
+  - on the approved version: the switch happened, so it continues;
+  - still on `from`: the switch is made (it was approved, and the
+    activation is conditional on the pointer's etag, so two runners cannot
+    both make it);
+  - on anything else: the live site moved on (for example the owner
+    restored a version), so the publication is set aside and nothing is
+    forced over it.
+- **An answer is not an outcome.** When activation answers with a failure,
+  the pointer is read again before anything is retired. A thrown error,
+  or an unreadable pointer, at or after the intent keeps the journal and
+  answers `live: "unknown"` (or `"switched"`), never "nothing changed".
+- **Journals are never deleted.** R2 has no conditional delete, so retiring
+  is a conditional write, on the etag the retiring runner holds, of
+  `finished` or `retired`. A journal another runner wrote meanwhile has
+  another etag and stays whole. A new publication is written conditionally
+  over the tombstone it read. The sweep pages through the whole prefix.
+- **Ownership:** every journal write is conditional on the etag its writer
+  holds. A slow runner whose journal was taken over fails its next
+  checkpoint (`TAKEN_OVER`) before its next side effect, apart from the one
+  already under way. That one is either conditional (the activation) or
+  repeatable (the finish steps; new rows by their `_meta` key).
+
+### 8.2 Every boundary, audited
+
+| Boundary | A stop or lost answer there leaves | Recovery |
+|---|---|---|
+| journal create (lost answer) | `start`, running | the click answers 503 "nothing changed"; once stale, the sweep sets it aside |
+| new tables applied, `prepared` not stored | unused new tables, `start` | set aside; a later run finds the tables, and the finish seeds them |
+| `prepared` stored (lost answer) | `prepared` | set aside: nothing visible was written |
+| pointer read before the intent fails | `prepared` | set aside |
+| `switching` stored (lost answer) | `switching`, pointer on `from` | 502 `unknown`; the click or sweep makes the switch, then finishes |
+| activation: script uploaded, pointer not moved | `switching`, pointer on `from` | the same; help-needed's notes make the script follow the pointer |
+| activation landed, answer lost or failed | `switching`, pointer on the version | the pointer is re-read: continues as switched |
+| activation undone (its own undo) | `switching`, pointer on `from`, new etag | the switch is made again |
+| live site changed by something else | `switching`, pointer elsewhere | set aside, nothing forced |
+| `switched` stored (lost answer) | `switched` | 502 `switched`; finished by a click or the sweep |
+| a finish step done, its mark not stored | `switched`, step not in `done` | the step runs again (upserts, `UPDATE`/`DELETE` by id, new rows by `_meta` key, library copy) |
+| `markApplied` landed, answer lost | `switched`, all steps done | `markApplied` answers `already`; closed |
+| the `finished` tombstone lost | `finished` stored, or `switched` with every step done | closed as is, or closed by the next run doing nothing again |
+| takeover write (click or sweep), lost | the journal, fresh runner | 503; carried on once that window passes |
+
+### 8.3 Tests (offline; real Worker handlers; supplied model answers)
+
+`test/draft-first.test.mjs`. Each case reads the pointer, the live script,
+the rows, the draft record and the stored journal:
+
+| Case | What it shows |
+|---|---|
+| DFR1 | **Codex's first reproduction.** The runner stops after the activation, before `switched`: the journal says `switching` with `from`, the new pages live, the row old, `applied` 0. A fresh sweep leaves it alone. Five minutes on, the sweep finishes it: `{finished:1}`, the new price, `applied` = the revision, the journal `finished`, the panel's state `published` |
+| DFR2 | Stopped right before its pointer write: nothing new is live, then the sweep makes the switch and finishes. Variant: the live site moved to another version meanwhile, and the sweep sets it aside (`cleared:1`): the other version stays live, the row unchanged, `applied` 0 |
+| DFR3 | Lost answers: (a) `switching` → 502, not "unchanged"; a click in the runner's window is 202; the sweep completes it. (b) `switched` → a click after the window finishes it. (c) The runner dies after adding the new loaf and before recording it: finished with one loaf |
+| DFR4 | **Codex's second reproduction.** A fresh journal lands between the sweep's read and its retirement, and is still there, whole. The same for a runner retiring its own journal after a refused switch. Both observers prove they fired |
+| DFR5 | The sweep and a click at once on a stopped publication: finished once (the row, one loaf, the record); then a newer revision publishes over the tombstone; a later sweep over closed journals touches nothing |
+| DFR6 | Lost answers at the ends: the journal create (503 "nothing changed", true; set aside; a fresh click publishes) and the closing tombstone (complete; nothing repeated) |
+| DFR7 | The activation's own answer goes wrong. (a) The pointer write lands with its answer lost: the publication carries on and finishes. (b) The script is refused and the activation's own undo of the pointer also fails, so it answers a failure while the pointer names the new version: the pointer is read again, the publication is not set aside, and it finishes |
+| DFR8 | The pointer cannot be read during a recovery at `switching`: the journal is kept, with `attempts` 1 and never retired on an unknown; the next sweep finishes it |
+
+The earlier DFP cases now expect the closed tombstone instead of a deleted
+journal, and expect the pointer to move under `switching`. `site-draft`
+unit cases cover the phases, `clickPlan` on `switching` and on closed
+journals, and the strict reading of `from`.
+
+**Guard kept, code conformed:** `publish-integrity`'s source guard requires
+every activation's `previous` and `expectEtag` to come from one
+`readPointerTag` statement. The switch reads them that way.
+
+**Mutation sweep** (draft-first, site-draft and turn-fence tests), 14
+product mutants, all killed, the comment control surviving each round:
+- the intent not stored;
+- the sweep retiring `switching`;
+- retire as a delete;
+- the sweep deleting;
+- the failed activation not re-read (it survived until DFR7(b));
+- forcing over a moved site;
+- a throw at the switch retiring;
+- "uncertain" said as unchanged;
+- a new journal written create-only;
+- `journalMayBeLive` without `switching`;
+- a closed journal counted live;
+- `switching` read without `from`;
+- finished retired as `retired`;
+- an unreadable pointer retiring (it survived until DFR8).
+
+**Full suite**, local, on the final tree: 11,260 tests, 11,257 passed,
+2 skipped, 1 failed (the worktree's `node_modules` symlink case,
+environmental).
+
+**Red check:** the new test files, run against the pre-fix product code
+(`9c1a5af3`). All six DFR cases written first (DFR1–DFR6) fail, and so does DFP2 (the order check).
+The `site-draft` file fails there because the new names do not exist yet.
+
+### 8.4 The panel
+
+A publication stopped at its switch reads "Publishing stopped while
+switching your site to this draft", says the live site "may already show
+the new pages", and offers **Finish publishing**. No message says it
+finishes "shortly" any more; they say it is "also retried automatically".
+
+### 8.5 What is still true, and not removed
+
+- **The window between new pages and the backend.** From the switch to the
+  last finishing step, visitors get the new pages against the old rows, the
+  old schema of existing tables and the old address (new tables are in
+  place). Normally that is the rest of one request. After a stop, it lasts
+  until a click or a sweep, and the sweep runs only every 2 minutes and
+  only after a runner has been quiet for 3. **If a step's store keeps
+  refusing, it lasts until the store answers: there is no bound, and
+  completion is not guaranteed in any given time.** Nothing is rolled back
+  to close it.
+- **A stopped switch may be completed by the sweep** without a further
+  click, because the owner's click approved that revision. If the live site
+  moved to another version in the meantime, it is set aside instead.
+- **Held row changes overwrite the same column** that a visitor changed
+  after the draft (§7.3).
+- **Recovery runs only with `DRAFT_FIRST` on** (`scheduled`), handles at
+  most 10 open journals a tick, and keeps one small tombstone per site.
+- **A slow runner, not a dead one,** may still be inside a repeatable finish
+  step when another takes over. Its repeat writes the same approved values,
+  and new rows are exactly-once.
+- **No live verification.**

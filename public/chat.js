@@ -7993,13 +7993,15 @@ function siteDraftPanel(site, d) {
   const version = revision ? String(d.draft || '') : '';
   const head = d.state === 'publishing' ? 'Publishing' : d.state === 'processing' ? 'Still processing' : d.unpublished ? (d.neverPublished ? 'Not published yet' : 'Saved, not published') : 'Published';
   // A PUBLICATION THAT SWITCHED AND STOPPED is finished by the same button.
-  const stalled = d.state === 'publishing' && !!(d.publication && d.publication.finishing && d.publication.running === false);
-  const intro = stalled ? 'Some of this draft is already live.' : d.unpublished
+  const stalled = d.state === 'publishing' && !!(d.publication && (d.publication.finishing || d.publication.checking) && d.publication.running === false);
+  // STOPPED AT ITS SWITCH: whether the new pages went live is read when it is carried on.
+  const checking = stalled && !d.publication.finishing;
+  const intro = stalled ? (checking ? 'Publishing stopped while switching your site to this draft.' : 'Some of this draft is already live.') : d.unpublished
     ? (d.neverPublished ? 'Your site is saved as a draft. Nobody can visit it until you publish.' : 'Your latest changes are saved as a draft. Your live site is unchanged until you publish.')
     : 'Your live site shows your latest saved changes.';
   const busy = d.state === 'processing'
     ? '<p class="sp-intro sp-note">A change is still being made. It will be saved as a later draft \u2014 publishing now releases only the draft below.</p>'
-    : d.state === 'publishing' ? '<p class="sp-intro sp-note">' + (stalled ? 'Your new pages are live, but the rest of this publication stopped before it finished. Press Finish publishing \u2014 it also finishes on its own shortly.' : 'A publication is already under way.') + '</p>' : '';
+    : d.state === 'publishing' ? '<p class="sp-intro sp-note">' + (checking ? 'Your live site may already show the new pages. Press Finish publishing to complete it \u2014 it is also retried automatically.' : stalled ? 'Your new pages are live, but the rest of this publication stopped before it finished. Press Finish publishing \u2014 it is also retried automatically.' : 'A publication is already under way.') + '</p>' : '';
   // THE ADDRESS THE DRAFT HAS, when it differs from the live one: a rename
   // asked in chat moves the live address only at Publish.
   const addr = d.address && d.address.draft && d.address.draft !== d.address.live ? d.address.draft : '';
@@ -8041,7 +8043,7 @@ function siteDraftPanel(site, d) {
       } else {
         again();
         // AFTER THE SWITCH the new pages are live: never say nothing changed.
-        if (typeof sbToast === 'function') sbToast(out && out.live === 'switched' ? 'Your new pages are live, but publishing stopped before it finished \u2014 press Publish again to finish (it also finishes on its own shortly)' : (out && out.error) || 'Could not publish just now \u2014 nothing changed on your live site');
+        if (typeof sbToast === 'function') sbToast(out && out.live === 'switched' ? 'Your new pages are live, but publishing stopped before it finished \u2014 press Publish again to finish (it is also retried automatically)' : out && out.live === 'unknown' ? 'Publishing stopped while switching your site \u2014 press Publish again to finish (it is also retried automatically)' : (out && out.error) || 'Could not publish just now \u2014 nothing changed on your live site');
       }
     } catch (e) {
       again();

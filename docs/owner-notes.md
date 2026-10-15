@@ -1,5 +1,71 @@
 # Owner Notes
 
+## Publishing recovery, corrected (2026-10-15; branch `claude/draft-first-publish`; unmerged, undeployed, `DRAFT_FIRST` off)
+
+**What Codex found** on `af0819bf`, with the real Worker functions:
+1. A runner that stopped after the live switch, but before recording it,
+   left a journal saying `prepared`. The recovery sweep read that as
+   "nothing live" and threw it away. The new pages stayed live and the
+   approved row change never landed (`{finished:0, cleared:1}`).
+2. Cleanup read an old journal and then deleted the key unconditionally,
+   which removed a fresh publication's journal written in between.
+
+**What changed:**
+- **The intent is stored before the switch.** A new `switching` step records
+  which live version is being replaced. Whoever carries the publication on —
+  your next click or the sweep — reads the pointer and acts on what is
+  actually live:
+  - the approved version is live: it finishes;
+  - the old version is still live: it makes the switch, then finishes;
+  - anything else is live: it sets the publication aside and forces nothing.
+- **A reported failure is not taken at its word.** After a failed switch the
+  pointer is read again, and an unknown is never treated as "nothing
+  changed".
+- **Journals are never deleted.** They are closed by a conditional write
+  (`finished` or `retired`), so cleanup, retries, takeovers and completion
+  cannot remove another runner's journal. A new publication is written
+  conditionally over the closed one.
+- **Every place a step and its record can come apart was audited** (the
+  table in `docs/history/2026-10-15-draft-first.md` §8.2).
+- **The panel** shows "Publishing stopped while switching your site to this
+  draft" with **Finish publishing**. No message promises completion
+  "shortly" any more.
+- **help-needed's recovery-note ownership corrections** (`9da48fe2`,
+  `d583030d`) are merged, not rebuilt. Publish's script uploads go through
+  them.
+
+| | Commit |
+|---|---|
+| merge of help-needed `d583030d` | `9c1a5af3` |
+| this fix batch (code, tests, records) | see the push below |
+
+**Checks (offline):**
+- **Tests.** DFR1–DFR8 are the new regressions: both reproductions, lost
+  answers at every checkpoint, the live site moving meanwhile, overlapping
+  sweep and clicks, and positive controls. Each reads the live pointer and
+  script, the database rows, the approved revision and the stored journal.
+  The earlier DFP cases were updated to the closed-journal design.
+- **Red check:** DFR1–DFR6 (the first six written) and DFP2's order check
+  fail on the pre-fix code.
+- **Mutation sweep:** 14 of 14 killed, and the control survived.
+- **Full suite:** 11,260 tests, 11,257 passed, 2 skipped, 1 failed. The
+  failure is the environmental worktree symlink case.
+
+**Not removed, said plainly:**
+- **Publication is not atomic.** Between the switch and the last backend
+  step, visitors get the new pages with the old rows, the old schema of
+  existing tables and the old address.
+- **Completion is not guaranteed in any given time.** After a stop, the
+  next click or sweep resumes the publication; sweeps run every 2 minutes,
+  after the runner has been quiet for 3. If a step's store keeps refusing,
+  the gap stays open until it answers. Nothing is rolled back.
+- **The sweep may complete a stopped switch without another click**,
+  because your click approved that revision.
+- **An approved row change overwrites the same column** if a visitor
+  changed it after the draft was saved.
+- **Recovery runs only with `DRAFT_FIRST` on.**
+- **No live verification.**
+
 ## Publishing, coherent (2026-10-15; branch `claude/draft-first-publish`; unmerged, undeployed, `DRAFT_FIRST` off)
 
 **What you asked for:** Build, Edit and Add-on changes, including a change
@@ -40,7 +106,8 @@ out.
 cannot switch in one atomic step on this platform. Between the switch and
 the last step, visitors see the new pages with the old rows, the old
 existing-table schema and the old address. This normally lasts seconds; if a
-step fails, it lasts until a click or the next tick. Also, an approved row
+step fails, it lasts until a click or the next tick gets it through
+(corrected in the entry above: no bound while a store keeps refusing). Also, an approved row
 change writes its values over the same column if a visitor changed that
 column after the draft was saved.
 

@@ -75,9 +75,9 @@ test("what the owner sees: processing, saved, published", () => {
 });
 
 // ── THE PUBLICATION JOURNAL AND THE HELD ADDRESS (2026-10-15) ────────────────
-import { clickPlan, journalLive, newJournal, readJournal, addressOverlay, forgottenInDraft, publishPlan, PUBLICATION_PHASES, FINISH_STEPS } from "../site-draft.mjs";
+import { clickPlan, journalLive, journalClosed, journalMayBeLive, newJournal, readJournal, addressOverlay, forgottenInDraft, publishPlan, PUBLICATION_PHASES, FINISH_STEPS } from "../site-draft.mjs";
 
-test("a click's plan: none or finished starts; a fresh runner is busy; the same revision stopped resumes; another revision switched is finished first; another before its switch is set aside", () => {
+test("a click's plan: none or finished starts; a fresh runner is busy; the same revision stopped resumes; another revision at or after its intent to switch is finished first; another before it is set aside; closed journals start anew", () => {
   const V = "01790468089054-8btpep", stale = 180000, now = 1e9;
   const j = (o) => ({ ...newJournal({ slug: "s", n: 3, version: V, now: now - 1000, id: "x" }), ...o });
   assert.equal(clickPlan(null, 3, { now, staleMs: stale }), "start");
@@ -89,7 +89,16 @@ test("a click's plan: none or finished starts; a fresh runner is busy; the same 
   assert.equal(clickPlan(j({ running: false, phase: "switched" }), 4, { now, staleMs: stale }), "finishFirst");
   assert.equal(clickPlan(j({ running: false, phase: "prepared" }), 4, { now, staleMs: stale }), "replace");
   assert.equal(journalLive(j({ running: false }), { now, staleMs: stale }), false);
-  assert.deepEqual(PUBLICATION_PHASES, ["start", "prepared", "switched", "finished"]);
+  assert.deepEqual(PUBLICATION_PHASES, ["start", "prepared", "switching", "switched", "finished", "retired"]);
+  // THE INTENT TO SWITCH may be live: another revision stopped there is finished (or reconciled) first.
+  assert.equal(clickPlan(j({ running: false, phase: "switching", from: "" }), 4, { now, staleMs: stale }), "finishFirst");
+  // CLOSED JOURNALS (tombstones) start a new publication, and are never live or running.
+  for (const phase of ["finished", "retired"]) {
+    assert.equal(clickPlan(j({ phase }), 4, { now, staleMs: stale }), "start", phase);
+    assert.equal(journalLive(j({ phase }), { now, staleMs: stale }), false, phase);
+    assert.equal(journalClosed(j({ phase })), true, phase);
+  }
+  assert.deepEqual(["start", "prepared", "switching", "switched"].map((phase) => journalMayBeLive(j({ phase }))), [false, false, true, true]);
   assert.deepEqual(FINISH_STEPS, ["address", "schema", "jobs", "seeds", "changes", "inserts", "library"]);
 });
 
@@ -99,6 +108,11 @@ test("a stored journal is read strictly — not one is null, never a guess", () 
   assert.equal(readJournal({ n: "3", version: V, phase: "start" }), null);
   assert.equal(readJournal({ n: 3, version: "nope", phase: "start" }), null);
   assert.equal(readJournal({ n: 3, version: V, phase: "halfway" }), null);
+  // AN INTENT TO SWITCH THAT DOES NOT SAY WHAT IT REPLACES is not one.
+  assert.equal(readJournal({ n: 3, version: V, phase: "switching" }), null);
+  assert.equal(readJournal({ n: 3, version: V, phase: "switching", from: "nope" }), null);
+  assert.equal(readJournal({ n: 3, version: V, phase: "switching", from: "" }).from, "");
+  assert.equal(readJournal({ n: 3, version: V, phase: "switching", from: V }).from, V);
   const r = readJournal(JSON.stringify({ n: 3, version: V, phase: "switched", running: "yes", done: ["address", 4] }));
   assert.deepEqual([r.running, r.done, r.attempts], [false, ["address"], 0]);
 });
