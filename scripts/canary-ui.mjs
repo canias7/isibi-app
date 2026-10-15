@@ -199,6 +199,10 @@ const A1_ROW = loafRow(1, "Country White", "4.8", "4.9", LOAVES_R4);
 const A2_ROW = loafRow(5, "Walnut Levain", "6.2", "6.3", LOAVES_A2);
 const A3_ROW = loafRow(3, "Seeded Wholemeal", "5.4", "5.5", LOAVES_A3);
 const A4_ROW = loafRow(4, "Olive & Rosemary", "5.8", "5.9", LOAVES_A4);
+// AFTER A4 (Press B, run 38649153034, 2026-10-14): the Olive & Rosemary at
+// 5.9. A4B puts it back to 5.8.
+const LOAVES_A4B = withPrice(LOAVES_A4, 4, 5.9);
+const A4B_ROW = loafRow(4, "Olive & Rosemary", "5.9", "5.8", LOAVES_A4B);
 
 // ── THE RULES TEST ON lido-axes-b ───────────────────────────────────────────
 //
@@ -1153,6 +1157,41 @@ export const UI_SCENARIOS = Object.freeze({
   "acc-mixed-talk": Object.freeze({
     ...ACC_MIXED,
     expect: Object.freeze({ ...ACC_MIXED.expect, talk: true }),
+  }),
+  // A4B — THE APPROVED VERIFICATION BATCH'S MIXED MESSAGE (2026-10-15, the
+  // owner: "Approved — do Step 0 through Press 2 as written"). A new page (the
+  // add-on, no photograph, form or table; a new page gets its menu link by
+  // default, so the reply's menu account is judged against the menus read), a
+  // line on the existing Visit page that links to it (a genuine dependency: it
+  // cannot be written before the page exists), and a price (independent: its
+  // routing prepared beside the add-on's write, shown only its table,
+  // replayed). Inside one request two writes never run at once, so overlap
+  // here is PREPARATION beside a write, never execution. If the real router
+  // folds the Visit line into the add-on, the dependency is "not exercised",
+  // never passed. `/gift-vouchers` answered 404 on 2026-10-15. ABOUT 20-35.
+  "acc-mixed-2": Object.freeze({
+    site: "fold-lane-bakery", request: true, images: "none",
+    budget: 34, cap: ACCEPTANCE_CAP, fundsFirst: true, addon: true,
+    layers: Object.freeze(["text", "data", "nav", "page", "look"]),
+    row: A4B_ROW,
+    expect: Object.freeze({
+      pages: Object.freeze([Object.freeze({ about: Object.freeze(["voucher", "expire"]) })]),
+      menu: Object.freeze({ page: 0 }),
+      sections: Object.freeze([Object.freeze({
+        route: "/visit", says: Object.freeze(["voucher"]),
+        facts: Object.freeze([
+          Object.freeze({ fact: "gift vouchers can be bought", any: Object.freeze(["gift voucher", "gift vouchers"]) }),
+        ]),
+      })]),
+      overlap: true,
+      reuse: Object.freeze({ exact: 1, overlapped: true }),
+      progress: true,
+      talk: true,
+    }),
+    covers: Object.freeze(["edit-and-addon", "several-parts", "waits-for-prerequisite", "closed-tab", "progress-each-part"]),
+    steps: Object.freeze([
+      Object.freeze({ say: "Add a Gift Vouchers page explaining that vouchers come in £10, £25 and £50, are sold at the counter, and never expire. Once that page exists, add a line on the Visit page telling people they can buy gift vouchers, linking to the new page. And change the Olive & Rosemary's price back to £5.80.", away: "fresh", ms: 25 * 60_000 }),
+    ]),
   }),
   // A5 — TWO PAGE HEADINGS, THROUGH THE REAL ROUTER: what it does is recorded,
   // never assumed (`routingShape`). Both headings must land. No concurrency
@@ -2210,7 +2249,10 @@ export function capRefusal({ now, cap }) {
 // `acc-isolation-page` (run 144), `acc-isolation` (run 141), the
 // K0/K/E/M0/M batch and P1/P2, all closed. It admits no press now: every
 // press is bound by its cap until the owner names a new one.
-export const BALANCE_OPT_IN = Object.freeze([]);
+// OPEN FOR ONE RUN (2026-10-15, the owner: "Approved — do Step 0 through
+// Press 2 as written"). It admits `acc-mixed-2` alone, and is closed again
+// by commit after that run.
+export const BALANCE_OPT_IN = Object.freeze(["acc-mixed-2"]);
 
 export function readBalanceOptIn(raw, { probes = "", ui = "" } = {}) {
   const s = typeof raw === "string" ? raw.trim() : "";

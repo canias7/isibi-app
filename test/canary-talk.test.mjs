@@ -220,16 +220,17 @@ test("acc-mixed now carries the reconnect and the progress checks; acc-mixed-tal
   assert.equal(t.images, "none");
 });
 
-test("the paid opt-ins stay closed: no scenario and no Build mode can spend until the owner names it", () => {
-  assert.deepEqual([...BALANCE_OPT_IN], []);
-  assert.deepEqual([...BUILD_BALANCE_OPT_IN], []);
+test("the paid opt-ins are open for the approved verification batch only (2026-10-15): acc-mixed-2 and check-no-images, nothing else", () => {
+  assert.deepEqual([...BALANCE_OPT_IN], ["acc-mixed-2"]);
+  assert.deepEqual([...BUILD_BALANCE_OPT_IN], ["check-no-images"]);
 });
 
-test("the image-free Build check names a fresh slug, never run 117's site", () => {
-  assert.equal(BUILD_CHECK_NO_IMAGES.slug, "saltmarsh-cheese-lewes");
+test("the image-free Build check names a fresh slug, never run 117's or Press A's site", () => {
+  assert.equal(BUILD_CHECK_NO_IMAGES.slug, "ferry-lane-deli");
   const wf = readFileSync(new URL("../.github/workflows/build-as-owner.yml", import.meta.url), "utf8");
-  assert.ok(!wf.includes("saltmarsh-cheese-counter"), "the form names the slug the press uses");
-  assert.ok(wf.includes("saltmarsh-cheese-lewes"));
+  for (const old of ["saltmarsh-cheese-counter", "saltmarsh-cheese-lewes"]) assert.ok(!wf.includes(old), "the form names a slug the press no longer uses: " + old);
+  assert.ok(wf.includes("ferry-lane-deli"));
+  assert.match(BUILD_CHECK_NO_IMAGES.brief, /No photographs/);
 });
 
 test("requestBatchVerdict adds the talk checks only for a press that asks", () => {

@@ -109,12 +109,14 @@ export const BUILD_CHECK_NO_IMAGES = Object.freeze({
   // sends nothing unless the account holds no more than the batch cap
   // (`ACCEPTANCE_CAP` in canary-ui.mjs, 100). And it sends nothing unless an
   // image-free parallel mode is on for this account (`buildFlagsVerdict`).
-  // A FRESH SLUG (2026-10-14): `saltmarsh-cheese-counter` became a site in
-  // run 117, so "the slug is free" refuses it. Read free that day the press's
-  // own three ways: no row in site_backends, site_builds or site_project, and
-  // its address answered 404. Read again by the press before it sends.
-  slug: "saltmarsh-cheese-lewes",
-  brief: "I run a cheese counter called Saltmarsh in the covered market in Lewes. We sell about forty British cheeses, cut to order, and a few chutneys and oatcakes to go with them. We're open Tuesday to Saturday, nine till four, and we make up cheese boards for parties if people order two days ahead. I want one page that tells people what we sell, when we're open, and how to order a board. No photographs please, just words, a clear layout and our prices for the boards: small £25, medium £40, large £60.",
+  // A FRESH SLUG (2026-10-15): `saltmarsh-cheese-lewes` became a site in
+  // Press A (run 38646089624), as `saltmarsh-cheese-counter` did in run 117,
+  // so "the slug is free" refuses it. `ferry-lane-deli` answered 404 on
+  // 2026-10-15; the press reads it free its own three ways (no row in
+  // site_backends, site_builds or site_project, and a 404 address) before it
+  // sends. The approved verification batch's Press 1.
+  slug: "ferry-lane-deli",
+  brief: "I run a small deli called Ferry Lane on the quay in Falmouth. We make sandwiches to order, sell Cornish cheeses, cured meats and a few local ciders, and do party platters if people order a day ahead. We're open Monday to Saturday, eight till four. I want one page that says what we sell, when we're open and how to order a platter. No photographs please, just words, a clear layout and our platter prices: small £30, medium £45, large £65.",
   images: "none",
   runtimeSlug: "fold-lane-bakery",
   budget: 45,
@@ -644,9 +646,11 @@ export function slugFreeVerdict(existing) {
  * CLOSED: it admits no mode. Not a budget: the build may spend up to the
  * whole balance; the server is the only bound.
  */
-// CLOSED (2026-10-14, after its one approved run, run 117). It admitted
-// `check-no-images` alone for that run; it admits no mode now.
-export const BUILD_BALANCE_OPT_IN = Object.freeze([]);
+// OPEN FOR ONE RUN (2026-10-15, the owner: "Approved — do Step 0 through
+// Press 2 as written"). It admits `check-no-images` alone, and is closed
+// again by commit after that run. Before: run 117, then Press A
+// (run 38646089624), each closed after it.
+export const BUILD_BALANCE_OPT_IN = Object.freeze(["check-no-images"]);
 
 /** The box, read before the sign-in: blank (`value` null), a whole number for an admitted mode, or a refusal (`ok` false). */
 export function readBuildOptIn(raw, { mode = "", admitted = BUILD_BALANCE_OPT_IN } = {}) {
