@@ -177,12 +177,16 @@ redo them:
   the same activation.
 - **The live script follows the pointer with a durable note before every
   upload.** That covers the publication's own upload and the uploads made by
-  the follow, an alignment, the takeover repair and the sweep
-  (`noteBeforeUpload`). It does not make a publication atomic. Between a
-  stale upload landing and its correction, visitors can be served the
-  previous version for about one upload plus one read, or until the
-  2-minute sweep after a death or lost answer (notes older than 5 minutes).
-  Publish's own "live at once" claims must not promise more than that.
+  the follow, an alignment, the takeover repair and the sweep. Each one
+  writes or renews its own note (`holdScriptNote`; the earlier
+  `noteBeforeUpload` is gone, see the owned-notes bullet below). It does not
+  make a publication atomic. Between a stale upload landing and its
+  correction, visitors can be served the previous version for about one
+  upload plus one read. After a death or a lost answer, the repair waits
+  for the 2-minute sweep, which acts only once the note's 12-minute window
+  has passed (the upload's 10-minute abort plus 2 minutes), so about 12 to
+  14 minutes. Publish's own "live at once" claims must not promise more
+  than that.
 - **Rollback writes hold keys absent instead of deleting them.** Any undo
   the Publish path adds should use `holdAbsent` (or `POINTER_NONE` for the
   pointer), never `deps.remove`.
@@ -196,3 +200,24 @@ redo them:
   only by a conditional tombstone. Publish's uploads must go through
   `putSiteWorker` (or `followPointer` with their own `ctx`) so they get the
   same ownership. Never delete a `scriptpending/` note you did not write.
+
+## 6. Hand-over from the concurrency chat (2026-10-15, closing)
+
+The concurrency correction batch is closed at `66cbeb55`. Codex's
+overlapping-recovery tests passed on the combined Publish tree.
+- **Reuse:** take the code commits `45c163d3`, `6c492b16`, `9da48fe2` and
+  `d583030d` as they are, with the rules in §5. Do not re-implement them.
+- **Yours:** the newly reported pointer-before-script-upload failure
+  belongs to this branch. The concurrency branch leaves it alone. If the
+  fix changes shared code (`activateBuild`, `putSiteWorker`,
+  `followPointer`, `holdScriptNote`), say so in the record, so that the
+  integration takes it once.
+- **Timing to respect:**
+  - a note's window is `SCRIPT_NOTE_WINDOW_MS` (12 minutes since its last
+    renewal);
+  - the sweep runs on the 2-minute cron;
+  - the bound assumes an aborted upload never takes effect more than 2
+    minutes after its 10-minute abort.
+- **Integration:** `claude/help-needed-ehlwlj-integration` at `c9ef979d`
+  combines the concurrency branch with `main`'s assistant and audio/video
+  work (CI green: 38819883606, 38819883654). Publish is not in it yet.
