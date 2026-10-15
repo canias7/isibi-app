@@ -178,7 +178,7 @@ import { renderNote } from "./builder/site-render.mjs";
 // WHAT A PUBLISH REALLY CHECKED, kept on its answer for every final reply (2026-10-14).
 import { checksOf, readChecks, DRAFT_SAID } from "./builder/check-evidence.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
-import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
+import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker, DISPATCH_CALL_MS } from "./builder/site-dispatch.mjs";
 import { reconcileVerdict, reconcileReply, storedAnswer, publicFacts, findMine, RECONCILE_RETRY_MAX } from "./builder/site-reconcile.mjs";
 import { MIGRATIONS_KEY, readMigrations, newMigration, withApplied, upsertMigration, markMigration, pendingMigration, jobMigration, reconciledMigration, migrationNote, migrationSummary } from "./builder/site-migrations.mjs";
 // ── THE LOOK IS THE STYLESHEET, AND ONE NAME SURVIVES THE ENGINE ────────────
@@ -13363,7 +13363,24 @@ async function scriptStillOurs(env, slug, version, fence) {
  *  4. THE NOTE TAKEN AWAY only when every upload of this call answered and
  *     the live script was seen on the pointer. An upload that did not answer
  *     may still land later (a lost response), so its note is left for the
- *     sweep, which looks again once it is older than `SCRIPT_PENDING_STALE_MS`.
+ *     sweep (`runScriptPendingSweep`).
+ *
+ * EACH NOTE HAS ONE OWNER (2026-10-15, after Codex's fourth review). The
+ * sweep used to upload under the stale notes it had read (`covered`), and a
+ * second sweep that saw the script already on the pointer retired those
+ * same notes while the first sweep's upload was still in flight — which
+ * then landed, its uploader died, and nothing was left to find. Now every
+ * invocation that uploads — a publication, a follow, an alignment, the
+ * takeover repair, a sweep — writes its own note and renews it immediately
+ * before each upload (`holdScriptNote`), and takes away only its own. A note
+ * another invocation owns is retired only once its window has passed
+ * (`SCRIPT_NOTE_WINDOW_MS` since its last renewal: the upload's own hard
+ * abort, `DISPATCH_CALL_MS`, plus the time an accepted script takes to
+ * serve), and only by a sweep whose own follow then settled — by a
+ * conditional tombstone on the etag it listed, so a note renewed meanwhile
+ * is never retired. Neither a note's age alone nor a live script seen on
+ * the pointer proves another invocation's upload has finished; the window
+ * is the bound, and it rests on the upload being aborted when it ends.
  *
  * Only a publication of a version the pointer names follows it (`version`
  * given): a legacy restore serves `sites/<slug>/` with the pointer dropped,
@@ -13376,52 +13393,62 @@ async function scriptStillOurs(env, slug, version, fence) {
 const SCRIPT_PENDING_PREFIX = "scriptpending/";
 const scriptPendingKey = (slug, id) => SCRIPT_PENDING_PREFIX + slug + "/" + id + ".json";
 const SCRIPT_FOLLOW_TRIES = 4;
-const SCRIPT_PENDING_STALE_MS = 5 * 60 * 1000;
+/** How long after its last renewal a note may still cover an upload in flight: the upload's hard abort plus the time an accepted script takes to serve. */
+const SCRIPT_NOTE_WINDOW_MS = DISPATCH_CALL_MS + 2 * 60 * 1000;
+const SCRIPT_NOTE_RETIRED = '{"retired":true}';
+const isRetiredNote = (text) => { try { const v = JSON.parse(text); return !!v && v.retired === true; } catch { return false; } };
+/**
+ * THIS INVOCATION'S OWN NOTE, written or renewed immediately before an
+ * upload. A renewal is conditional on the note as this invocation last wrote
+ * it: one another sweep has retired (its window passed) is never written
+ * again — a fresh note, under a fresh key, takes its place. False when no
+ * note could be written: then nothing is uploaded.
+ */
+async function holdScriptNote(env, slug, ctx, version) {
+  const body = JSON.stringify({ slug, version, at: Date.now(), by: (ctx && ctx.by) || "follow" });
+  const meta = { httpMetadata: { contentType: "application/json" } };
+  try {
+    if (ctx.note && ctx.noteEtag) {
+      const put = await env.SITES_BUCKET.put(ctx.note, body, { ...meta, onlyIf: { etagMatches: ctx.noteEtag } });
+      // R2 ANSWERS NULL for a failed condition — the note was retired.
+      if (put !== null) { ctx.noteEtag = (put && put.etag) || null; return true; }
+    }
+    // A FRESH NOTE UNDER A FRESH KEY: no other invocation can hold it, so it
+    // needs no condition. One whose put answered no etag is not renewed in
+    // place; the next upload writes another, and all of them are this one's.
+    const key = scriptPendingKey(slug, crypto.randomUUID());
+    const put = await env.SITES_BUCKET.put(key, body, meta);
+    ctx.note = key; ctx.noteEtag = (put && put.etag) || null;
+    (ctx.notes = ctx.notes || []).push(key);
+    return true;
+  } catch (e) {
+    console.error("site script: pending note unwritable, nothing uploaded", slug, errorClassForLog(e));
+    return false;
+  }
+}
+/** Take away this invocation's own notes — only once its follow settled with every upload answered. */
+async function retireOwnNotes(env, ctx) {
+  for (const key of (ctx && ctx.notes) || []) {
+    try { await env.SITES_BUCKET.delete(key); } catch { /* the sweep takes it once its window passes */ }
+  }
+  if (ctx) { ctx.notes = []; ctx.note = null; ctx.noteEtag = null; }
+}
 async function putSiteWorker(env, slug, worker, { version = "" } = {}) {
   if (!version || !worker || worker.ok !== true || !worker.code) return uploadScriptOnce(env, slug, worker);
   if (!dispatchCreds(env) || !scriptNameFor(slug)) return uploadScriptOnce(env, slug, worker);
-  const note = scriptPendingKey(slug, crypto.randomUUID());
-  try {
-    await env.SITES_BUCKET.put(note, JSON.stringify({ slug, version, at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
-  } catch (e) {
-    // NO NOTE, NO UPLOAD: an upload nothing could put right after a death is
-    // the defect this exists for. Said as a refused upload, which every
-    // activation already undoes.
-    console.error("site script: pending note unwritable, nothing uploaded", slug, errorClassForLog(e));
+  const ctx = { by: "publish" };
+  // NO NOTE, NO UPLOAD: an upload nothing could put right after a death is
+  // the defect this exists for. Said as a refused upload, which every
+  // activation already undoes.
+  if (!(await holdScriptNote(env, slug, ctx, version))) {
     return { ok: false, stage: "upload", status: 0, error: "the script's pending note could not be written — nothing was uploaded" };
   }
   let first;
   try { first = await uploadScriptOnce(env, slug, worker); }
   catch (e) { first = { ok: false, stage: "upload", status: 0, error: String((e && e.message) || e) }; }
-  const follow = await followPointer(env, slug, { version, answered: !!(first && first.ok === true) }, { note });
-  if (follow.settled && follow.answered) {
-    try { await env.SITES_BUCKET.delete(note); } catch { /* the sweep takes it */ }
-  }
+  const follow = await followPointer(env, slug, { version, answered: !!(first && first.ok === true) }, ctx);
+  if (follow.settled && follow.answered) await retireOwnNotes(env, ctx);
   return first && typeof first === "object" ? { ...first, follow } : first;
-}
-/**
- * A NOTE BEFORE EVERY UPLOAD THAT FOLLOWS THE POINTER (2026-10-15, after
- * Codex's third review). The publication's own upload had one; the uploads
- * the follow makes did not, and neither did an alignment's or the takeover
- * repair's — so a repair that stopped, died or lost an answer after its
- * upload left nothing for the sweep to find (Codex: pointer C, live script
- * B, no note, and the sweep ten minutes later answered `{sites:0}`). The
- * caller's note covers them when it has one (`ctx.note`, or `ctx.covered`
- * for the sweep, whose notes stay until it settles); otherwise one is
- * written here, before the first upload, and handed back on `ctx.note` for
- * the caller to take away only once the follow settled.
- */
-async function noteBeforeUpload(env, slug, ctx, version) {
-  if (!ctx || ctx.covered || ctx.note) return true;
-  const key = scriptPendingKey(slug, crypto.randomUUID());
-  try {
-    await env.SITES_BUCKET.put(key, JSON.stringify({ slug, version, at: Date.now(), by: ctx.by || "follow" }), { httpMetadata: { contentType: "application/json" } });
-  } catch (e) {
-    console.error("site script: pending note unwritable, nothing uploaded", slug, errorClassForLog(e));
-    return false;
-  }
-  ctx.note = key;
-  return true;
 }
 /**
  * READ THE POINTER, ASK THE LIVE SCRIPT, AND PUT THE POINTER'S SCRIPT UP
@@ -13437,14 +13464,12 @@ async function noteBeforeUpload(env, slug, ctx, version) {
  *    the live script was seen serving it. An upload of another version
  *    (the pointer moved after it was sent) is never trusted to be behind
  *    whatever the live script shows now — a script does not serve the
- *    moment its upload is accepted, so a live script seen on the pointer
- *    can still be replaced by the earlier upload when it takes effect. The
- *    pointer's own script is therefore sent again, after that upload's
- *    answer: an upload sent after another's answer is ordered after it.
+ *    moment its upload is accepted — so the pointer's own script is sent
+ *    again after that upload's answer.
  *
- * EVERY UPLOAD HERE HAS A NOTE BEFORE IT (`noteBeforeUpload`), so a follow
- * that stops for any reason — a refusal, a script not staged, a death, a
- * lost answer — leaves the sweep something to find.
+ * EVERY UPLOAD HERE IS PRECEDED BY THIS INVOCATION'S OWN NOTE, written or
+ * renewed (`holdScriptNote`), so a follow that stops for any reason leaves
+ * the sweep something no other invocation can take away early.
  */
 async function followPointer(env, slug, last = null, ctx = {}) {
   let answered = !last || last.answered === true;
@@ -13461,19 +13486,13 @@ async function followPointer(env, slug, last = null, ctx = {}) {
     }
     const mineIsPointer = !!lastUp && lastUp.version === pointer.version;
     const seenOnPointer = liveVersion !== null ? liveVersion === pointer.version : !!(mineIsPointer && lastUp.ok);
-    // AN UPLOAD OF ANOTHER VERSION STANDS BETWEEN THIS READ AND THE TRUTH:
-    // only the pointer's own upload, sent after it, settles anything.
     if (seenOnPointer && (!lastUp || mineIsPointer)) return { settled: true, answered, uploads, version: pointer.version, why: "" };
-    // THE POINTER'S OWN VERSION WAS JUST SENT — refused, or accepted and not
-    // yet answering: sending it again at once only repeats that. Left to the
-    // note and the sweep; only a pointer that moved to another version is
-    // followed here.
     if (mineIsPointer) return { settled: false, answered: lastUp.ok ? answered : false, uploads, version: pointer.version, why: lastUp.ok ? "not-serving" : "upload" };
     if (i === SCRIPT_FOLLOW_TRIES) break;
     let staged = null;
     try { staged = await readBuild(buildDeps(env), slug, pointer.version); } catch { staged = null; }
     if (!staged || !staged.worker) return { settled: false, answered, uploads, version: pointer.version, why: "no-script-staged" };
-    if (!(await noteBeforeUpload(env, slug, ctx, pointer.version))) return { settled: false, answered, uploads, version: pointer.version, why: "note" };
+    if (!(await holdScriptNote(env, slug, ctx, pointer.version))) return { settled: false, answered, uploads, version: pointer.version, why: "note" };
     let put;
     try { put = await uploadScriptOnce(env, slug, { ok: true, code: staged.worker, build: String((staged.manifest && staged.manifest.build) || pointer.build || "") }); }
     catch (e) { put = { ok: false, status: 0, error: String((e && e.message) || e) }; }
@@ -13488,25 +13507,26 @@ async function followPointer(env, slug, last = null, ctx = {}) {
 }
 /**
  * Put the live script on the pointer's version (a takeover, a test).
- * `{ aligned, version, why }`. Its uploads are noted first, like every
- * other; the note goes only when the follow settled with every upload
- * answered, and is otherwise the sweep's to settle.
+ * `{ aligned, version, why }`. Its uploads are under its own note, taken
+ * away only when the follow settled with every upload answered.
  */
 async function alignLiveScript(env, slug) {
   const ctx = { by: "align" };
   const f = await followPointer(env, slug, null, ctx);
-  if (ctx.note && f.settled && f.answered) {
-    try { await env.SITES_BUCKET.delete(ctx.note); } catch { /* the sweep takes it */ }
-  }
-  return { aligned: f.settled === true, version: f.version || "", why: f.settled ? "" : f.why, uploads: f.uploads, answered: f.answered, noted: !!ctx.note };
+  const noted = !!(ctx.notes && ctx.notes.length);
+  if (f.settled && f.answered) await retireOwnNotes(env, ctx);
+  return { aligned: f.settled === true, version: f.version || "", why: f.settled ? "" : f.why, uploads: f.uploads, answered: f.answered, noted };
 }
 /**
- * THE SWEEP OF PENDING SCRIPT NOTES (the 2-minute tick): every site with a
- * note older than `SCRIPT_PENDING_STALE_MS` has its script put on its pointer
- * (`followPointer`), and the notes it read are taken away only when that
- * settled with every upload answered. A site whose script cannot be asked or
- * put right keeps its notes and is looked at again on the next tick. No
- * customer request is needed for any of it.
+ * THE SWEEP OF PENDING SCRIPT NOTES (the 2-minute tick). For every site with
+ * a note whose window has passed (`SCRIPT_NOTE_WINDOW_MS` since its owner
+ * last renewed it), the sweep makes the script follow the pointer under its
+ * OWN note, and only when that settled with every upload answered does it
+ * retire the expired notes it read — each by a conditional tombstone on the
+ * etag listed, so a note its owner renewed meanwhile is left — and its own.
+ * A note still inside its window is never retired by anyone but its owner,
+ * whatever the live script shows. A tombstone left by an interrupted
+ * retirement is cleared on a later tick. No customer request is needed.
  */
 async function runScriptPendingSweep(env, { now = Date.now(), maxSites = 25 } = {}) {
   if (!env.SITES_BUCKET || typeof env.SITES_BUCKET.list !== "function") return { sites: 0, settled: 0 };
@@ -13519,28 +13539,44 @@ async function runScriptPendingSweep(env, { now = Date.now(), maxSites = 25 } = 
         const rest = String(o.key).slice(SCRIPT_PENDING_PREFIX.length);
         const slug = rest.split("/")[0];
         const at = o.uploaded instanceof Date ? o.uploaded.getTime() : Number.NaN;
-        if (!slug || !Number.isFinite(at) || now - at < SCRIPT_PENDING_STALE_MS) continue;
+        if (!slug || !Number.isFinite(at) || now - at < SCRIPT_NOTE_WINDOW_MS) continue;
         if (!bySlug.has(slug)) bySlug.set(slug, []);
-        bySlug.get(slug).push(o.key);
+        bySlug.get(slug).push({ key: o.key, etag: o.etag || null });
       }
       if (!r || !r.truncated || !r.cursor) break;
       cursor = r.cursor;
     }
   } catch (e) { console.error("script sweep: the notes could not be listed", errorClassForLog(e)); }
   let settled = 0, sites = 0;
-  for (const [slug, keys] of bySlug) {
+  for (const [slug, notes] of bySlug) {
     if (sites >= maxSites) break;
-    sites++;
-    let f;
-    // ITS OWN UPLOADS ARE COVERED BY THE NOTES IT READ, which stay until a
-    // follow settles — a sweep that dies or loses an answer leaves them for
-    // the next tick.
-    try { f = await followPointer(env, slug, null, { covered: true }); } catch (e) { f = { settled: false, why: errorClassForLog(e) }; }
-    console.log("script sweep:", slug, f.settled && f.answered ? "on its pointer" : "(" + (f.why || "an upload did not answer") + ")", "notes", keys.length);
-    if (f.settled && f.answered) {
-      settled++;
-      try { await env.SITES_BUCKET.delete(keys); } catch { /* the next tick */ }
+    // TOMBSTONES of an interrupted retirement: their keys are dead (no owner
+    // renews over one), so they go at once.
+    const live = [];
+    for (const n of notes) {
+      let o = null;
+      try { o = await env.SITES_BUCKET.get(n.key); } catch { o = null; }
+      if (!o) continue;
+      const text = await o.text();
+      if (isRetiredNote(text)) { try { await env.SITES_BUCKET.delete(n.key); } catch { /* the next tick */ } continue; }
+      live.push({ key: n.key, etag: o.etag || n.etag });
     }
+    if (!live.length) continue;
+    sites++;
+    const ctx = { by: "sweep" };
+    let f;
+    try { f = await followPointer(env, slug, null, ctx); } catch (e) { f = { settled: false, why: errorClassForLog(e) }; }
+    console.log("script sweep:", slug, f.settled && f.answered ? "on its pointer" : "(" + (f.why || "an upload did not answer") + ")", "notes", live.length);
+    if (!(f.settled && f.answered)) continue;
+    settled++;
+    for (const n of live) {
+      try {
+        // RETIRED ONLY AS LISTED: a note its owner renewed since is not this one.
+        const put = n.etag ? await env.SITES_BUCKET.put(n.key, SCRIPT_NOTE_RETIRED, { httpMetadata: { contentType: "application/json" }, onlyIf: { etagMatches: n.etag } }) : null;
+        if (put) await env.SITES_BUCKET.delete(n.key);
+      } catch { /* the next tick */ }
+    }
+    await retireOwnNotes(env, ctx);
   }
   return { sites, settled };
 }

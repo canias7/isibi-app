@@ -186,6 +186,16 @@ redo them:
 - **Rollback writes hold keys absent instead of deleting them.** Any undo
   the Publish path adds should use `holdAbsent` (or `POINTER_NONE` for the
   pointer), never `deps.remove`.
+- **Recovery notes are owned (2026-10-15, after Codex's fourth review).**
+  Every invocation that uploads a script — publication, follow, alignment,
+  takeover repair, sweep — writes its own note and renews it immediately
+  before each upload (`holdScriptNote`). It takes away only its own
+  (`retireOwnNotes`). Another invocation's note is retired only by a sweep
+  whose follow settled, only after that note's window (`SCRIPT_NOTE_WINDOW_MS`
+  = the upload's 10-minute abort plus 2 minutes) since its last renewal, and
+  only by a conditional tombstone. Publish's uploads must go through
+  `putSiteWorker` (or `followPointer` with their own `ctx`) so they get the
+  same ownership. Never delete a `scriptpending/` note you did not write.
 
 ## 6. The second round: every builder change (2026-10-15, `claude/draft-first-publish`)
 
