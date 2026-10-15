@@ -66,6 +66,11 @@ the product fixes are untouched):
     reported, and a "Closed on Sundays" page. Each got a case.
 - **The focused media, conversation, workflow and build-canary files:**
   217 of 217.
+- **CI.** Unit CI on `6f84607a` (run 38733924840) was cancelled, not failed:
+  the records push `b3f81b44` superseded it, and the unit workflow cancels the
+  older run on a branch. Unit CI on `b3f81b44`, the same code plus documents,
+  is green (run 38734104229). I did not read the per-test totals. Neither
+  commit touches a site-build path, so no site build ran.
 
 **Still unverified, by design:**
 - **Meaning the automation cannot read:**

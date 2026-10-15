@@ -501,6 +501,12 @@ cases.
     reported, and a "Closed on Sundays" page. Each now has a case, and both
     are killed.
 
+- **CI.** Unit CI on `6f84607a` (run 38733924840) was cancelled, not failed:
+  the records push `b3f81b44` superseded it, and the unit workflow cancels the
+  older run on a branch. Unit CI on `b3f81b44`, the same code plus documents,
+  is green (run 38734104229). I did not read the per-test totals. Neither
+  commit touches a site-build path, so no site build ran.
+
 **From the previous round, still standing:**
 
 - **The judge.** It accepts every valid order, including close 200 then delete
