@@ -259,8 +259,13 @@ export async function readPointerTag(deps, slug) {
  */
 export async function activateBuild(deps, {
   slug, version, build = "", parent = "", job = null, expectEtag, previous = null,
-  sidecar, sidecarKey, liveKey, putWorker, commit, afterActivate, assertLease, now,
+  sidecar, sidecarKey, liveKey, putWorker, commit, afterActivate, assertLease, now, asDraft = null,
 } = {}) {
+  // DRAFT-FIRST (owner, 2026-10-15): a caller that hands `asDraft` saves the
+  // staged version as the site's draft with it and moves nothing live — no
+  // pointer, sidecar, live marker or script. Only the owner's Publish calls
+  // this without one.
+  if (typeof asDraft === "function") return asDraft(deps, arguments[1]);
   if (!isVersionId(version)) return { ok: false, error: "bad version id" };
 
   // ── THE LEASE IS RE-ASKED IMMEDIATELY BEFORE THE POINTER MOVES ─────────────

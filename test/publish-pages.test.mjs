@@ -1040,7 +1040,8 @@ test("THE PUBLISH-TIME HEAD IS A SIDECAR, and no document is patched", async () 
   // moves and before the script goes up. This read a direct put of
   // `siteMetaKey(slug)` and went red for the change; the property is that
   // both publish paths hand the key in and the module writes it.
-  assert.equal((src.match(/sidecarKey: siteMetaKey\(slug\)/g) || []).length, 3,
+  // FOUR SINCE 2026-10-15: the owner's Publish under draft-first (`publishDraft`).
+  assert.equal((src.match(/sidecarKey: siteMetaKey\(slug\)/g) || []).length, 4,
     "the meta sidecar's key is not handed to activation on the spine, the build path and the restore");
   const builds = fs.readFileSync(new URL("../site-builds.mjs", import.meta.url), "utf8");
   // RE-ANCHORED 2026-09-06: the direct `deps.put(sidecarKey, …)` became a call

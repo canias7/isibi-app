@@ -15,7 +15,7 @@
 // with the model's answers supplied and each pause placed exactly.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { platform, sendMessage, deliver, settle, T } from "./fixtures/request-flow.mjs";
+import { platform, sendMessage, deliver, settle, T, call } from "./fixtures/request-flow.mjs";
 import { blockNetwork } from "./fixtures/no-network.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { loadWorkerModule } from "./fixtures/worker-harness.mjs";
@@ -856,12 +856,16 @@ test("TS10 EVERY UPLOAD OF A POINTER'S VERSION FOLLOWS THE POINTER — each putS
   const calls = [...src.matchAll(/putSiteWorker\(env, [^\n]*/g)].map((m) => m[0]).filter((c) => !c.includes("{ version = \"\" } = {}) {"));
   assert.ok(calls.length >= 6, "the observer found too few calls: " + calls.length);
   const withVersion = calls.filter((c) => /\{ version(: [^}]+)? \}\)/.test(c));
-  assert.equal(withVersion.length, 4, "pointer publications without their version:\n" + calls.join("\n"));
+  // FIVE SINCE THE OWNER'S PUBLISH (draft-first, `publishDraft`).
+  assert.equal(withVersion.length, 5, "pointer publications without their version:\n" + calls.join("\n"));
   for (const c of calls.filter((x) => !withVersion.includes(x))) {
     assert.ok(/rb\.worker, build: rb\.build/.test(c) || /\{ ok: true, code, build \}/.test(c), "an upload outside the legacy paths follows no pointer: " + c);
   }
-  const raw = [...src.matchAll(/uploadScriptOnce\(/g)].length;
-  assert.equal(raw, 5, "the raw upload is called outside putSiteWorker/followPointer (definition + 4 calls expected): " + raw);
+  // OUTSIDE putSiteWorker/followPointer, ONLY A DRAFT'S PREVIEW, which goes
+  // up under its own script name and never reaches a live address.
+  const raw = [...src.matchAll(/uploadScriptOnce\([^\n]*/g)].map((m) => m[0]);
+  const live = raw.filter((c) => !/^uploadScriptOnce\(env, slug, worker, \{ preview = false \}/.test(c) && !/\{ preview: true \}\)/.test(c));
+  assert.equal(live.length, 4, "a raw upload to a live script outside putSiteWorker/followPointer: " + JSON.stringify(live));
   const body = src.slice(src.indexOf("async function putSiteWorker(env, slug, worker"), src.indexOf("async function alignLiveScript(env, slug)"));
   assert.ok(body.length > 200, "putSiteWorker/followPointer not found");
   assert.equal([...body.matchAll(/uploadScriptOnce\(/g)].length, 4, "the raw upload's calls are not all inside putSiteWorker/followPointer");
@@ -909,4 +913,156 @@ test("TS11 A FAILED ACTIVATION UNDOES ITS OWN FENCED WRITES — a page change be
     assert.deepEqual(JSON.parse(bare(P.readObj(SIDE))), side0, "the failed activation's sidecar was not put back");
     assert.equal(P.liveScript(), v0);
   } finally { await finish(P, compiler, siteTurn, null); }
+});
+
+// ── DRAFT-FIRST PUBLISHING (owner, 2026-10-15): "only an explicit click on
+// the Publish button may make changes live." With `DRAFT_FIRST=on` every
+// task saves its result as the site's draft — the record, the editable copy,
+// a preview under the draft script's own name — and nothing live moves; the
+// owner's Publish releases exactly the version they approved.
+const DRAFT = (P) => "drafts/" + P.slug + ".json";
+const draftOf = (P) => { const t = P.readObj(DRAFT(P)); return t ? JSON.parse(bare(t)) : null; };
+const liveVersion = (P) => JSON.parse(bare(P.readObj(POINTER(P)))).version;
+async function draftSite(name) {
+  const { siteTurn } = await loadWorkerModule();
+  // EACH CHANGE FROM WHAT THE LAST ONE LEFT: the TikTok line moves back and forth.
+  let k = 0;
+  const seq = [[TT_FROM, TT_TO], [TT_TO, TT_LATER], [TT_LATER, TT_TO], [TT_TO, TT_LATER]];
+  const text = async (args) => { const [from, to] = seq[Math.min(k++, seq.length - 1)]; return { edits: [{ id: lineId(args, "visit.tsx", from), to }] }; };
+  const made = visitSite(slugOf(name), [ROUTE_VISIT, ROUTE_VISIT, ROUTE_VISIT], { [T.text]: text }, { liveScripts: true });
+  await publishedOnce(made.P);
+  made.P.env.DRAFT_FIRST = "on";
+  return { ...made, siteTurn, v0: liveVersion(made.P), side0: bare(made.P.readObj("sitemeta/" + made.P.slug + ".json")) };
+}
+
+test("DF1 AN EDIT SAVES A DRAFT AND PUBLISHES NOTHING — the change is in the draft, the editable copy and the preview; the pointer, the live script, the sidecar and the live marker are as they were; the job is charged as delivered and says it is not published", async () => {
+  const { P, compiler, siteTurn, v0, side0 } = await draftSite("df1");
+  try {
+    const live0 = P.liveScript();
+    const r = await runOne(P, TIKTOK_LATER + ".");
+    const job = editJobs(P, r.key)[0];
+    assert.equal(job.state, "done", JSON.stringify([job.state, JSON.stringify(job.result || null).slice(0, 300)]));
+    const d = draftOf(P);
+    assert.ok(d && d.version && d.version !== v0, "no draft was saved: " + JSON.stringify(d));
+    assert.equal(liveVersion(P), v0, "an edit moved the pointer under draft-first");
+    assert.equal(P.liveScript(), live0, "an edit uploaded the live script under draft-first");
+    assert.equal(bare(P.readObj("sitemeta/" + P.slug + ".json")), side0, "an edit wrote the live sidecar under draft-first");
+    assert.equal(P.previewScript(), d.version, "the draft's preview script was not uploaded under its own name");
+    assert.equal(P.page("visit.tsx").includes(TT_LATER), true, "the editable copy does not hold the draft's change");
+    const body = JSON.parse(job.result.body);
+    assert.deepEqual([body.checks && body.checks.published, body.checks && body.checks.draft, body.checks && body.checks.version], [false, true, d.version], "the job's answer does not say the change is saved as a draft and not published: " + JSON.stringify(body.checks));
+  } finally { await finish(P, compiler, siteTurn, null); }
+});
+
+test("DF2 PUBLISH RELEASES EXACTLY THE APPROVED VERSION — the owner approves draft D1; a later edit saves D2 before the click; Publish D1 makes D1 live (pointer and script), D2 stays the draft, unpublished; a version never saved as a draft is refused", async () => {
+  const { P, compiler, siteTurn, v0 } = await draftSite("df2");
+  try {
+    await runOne(P, TIKTOK_LATER + ".");
+    const d1 = draftOf(P).version;
+    // THE OWNER LOOKS AT D1 — then another change lands before they click.
+    await runOne(P, TIKTOK + ".");
+    const d2 = draftOf(P).version;
+    assert.notEqual(d2, d1, "the later edit did not save a later draft");
+    assert.equal(liveVersion(P), v0);
+    const bogus = await call(P, "POST", "/api/site/" + P.slug + "/publish", { version: "01790000000000-zzzzzz" });
+    assert.equal(bogus.status, 409, "a version never saved as a draft was published: " + JSON.stringify(bogus.body));
+    assert.equal(liveVersion(P), v0);
+    const pub = await call(P, "POST", "/api/site/" + P.slug + "/publish", { version: d1 });
+    assert.equal(pub.status, 200, JSON.stringify(pub.body));
+    assert.equal(liveVersion(P), d1, "Publish did not make the approved version live");
+    assert.equal(P.liveScript(), d1, "the live script is not the approved version's");
+    assert.equal(draftOf(P).version, d2, "the later draft was lost or published by the click");
+    // A STAGED VERSION THAT WAS NEVER SAVED AS A DRAFT (the one published
+    // before draft-first) is not publishable through this door.
+    const old = await call(P, "POST", "/api/site/" + P.slug + "/publish", { version: v0 });
+    assert.equal(old.status, 409, "a staged version never saved as a draft was published: " + JSON.stringify(old.body));
+    assert.equal(liveVersion(P), d1);
+    assert.equal(pub.body.state.state, "saved", "the later draft is not shown as saved and unpublished: " + JSON.stringify(pub.body.state));
+    assert.equal(P.page("visit.tsx").includes(TT_TO) && !P.page("visit.tsx").includes(TT_LATER), true, "Publish rewrote the editable copy, losing the later draft");
+    const st = await call(P, "GET", "/api/site/" + P.slug + "/draft");
+    assert.deepEqual([st.status, st.body.state, st.body.live, st.body.draft], [200, "saved", d1, d2]);
+  } finally { await finish(P, compiler, siteTurn, null); }
+});
+
+test("DF3 A TASK RUNNING AT THE CLICK IS NOT IN THE PUBLICATION — an edit is held before it saves; the owner publishes the current draft meanwhile; the held edit then completes: the live site is the approved version, the held edit's result is the new draft", async () => {
+  const { P, compiler, siteTurn, v0 } = await draftSite("df3");
+  try {
+    await runOne(P, TIKTOK_LATER + ".");
+    const d1 = draftOf(P).version;
+    let pub = null;
+    let during = null;
+    P.beforePut((k) => k === DRAFT(P) && inside("saveDraftRecord"), async () => {
+      during = await call(P, "GET", "/api/site/" + P.slug + "/draft");
+      pub = await call(P, "POST", "/api/site/" + P.slug + "/publish", { version: d1 });
+    });
+    await runOne(P, TIKTOK + ".");
+    assert.ok(pub, "the second edit's draft save was never held");
+    assert.equal(during.body.state, "processing", "a running task was not shown as still processing: " + JSON.stringify(during.body));
+    assert.equal(pub.status, 200, JSON.stringify(pub.body));
+    assert.equal(liveVersion(P), d1, "the publication is not the approved version");
+    assert.equal(P.liveScript(), d1);
+    const d2 = draftOf(P).version;
+    assert.notEqual(d2, d1, "the running edit's result did not become a later draft");
+    assert.notEqual(liveVersion(P), d2, "the running edit slipped into the publication");
+  } finally { await finish(P, compiler, siteTurn, null); }
+});
+
+test("DF4 NO AUTOMATIC PATH PUBLISHES — under draft-first a lost-upload recovery uploads nothing, the takeover repair keeps the draft's editable copy (never the live version's), and the script sweep only ever restores the published version", async () => {
+  const { P, compiler, siteTurn, v0 } = await draftSite("df4");
+  let C = null;
+  try {
+    await runOne(P, TIKTOK_LATER + ".");
+    const d1 = draftOf(P).version;
+    const n = P.uploads().filter((u) => !String(u.name).startsWith("draft-")).length;
+    // THE TAKEOVER REPAIR: the draft's copy is what the editable copy must match.
+    C = await siteTurn.tryTurn(P.env, P.slug, "job:c:o3", "c");
+    const st = await P.run(() => siteTurn.ensureEditableState(P.env, P.slug, { turnOwner: C.owner, fence: { gen: C.gen } }));
+    assert.equal(st.ok, true, JSON.stringify(st));
+    assert.equal(P.page("visit.tsx").includes(TT_LATER), true, "the repair put the editable copy back to the live version, erasing the draft");
+    await siteTurn.giveTurn(P.env, P.slug, C); C = null;
+    // THE SWEEP: notes or none, it can only follow the pointer — the published version.
+    P.advance(6 * 60 * 1000);
+    await P.run(() => siteTurn.runScriptPendingSweep(P.env, { now: P.now() }));
+    assert.equal(liveVersion(P), v0);
+    assert.equal(P.liveScript(), v0, "an automatic path made the draft live");
+    assert.equal(P.uploads().filter((u) => !String(u.name).startsWith("draft-")).length, n, "an automatic path uploaded a live script");
+    assert.notEqual(liveVersion(P), d1);
+  } finally { await finish(P, compiler, siteTurn, C); }
+});
+
+test("DF5 THE DRAFT'S PREVIEW — its address serves the draft script with the preview header, a wrong token is 404, and a live address never forwards the preview header to a live script", async () => {
+  const { P, compiler, siteTurn } = await draftSite("df5");
+  try {
+    await runOne(P, TIKTOK_LATER + ".");
+    const d = draftOf(P);
+    assert.match(d.preview, /^[0-9a-f]{12}$/);
+    const { default: worker } = await import("../worker.js");
+    const get = (host, path, headers = {}) => P.run(() => worker.fetch(new Request("https://" + host + path, { headers }), P.env, { waitUntil() {}, passThroughOnException() {} }));
+    const ok = await get(P.slug + "--draft-" + d.preview + ".gofarther.app", "/visit");
+    assert.equal(ok.status, 200);
+    assert.equal(ok.headers.get("x-robots-tag"), "noindex");
+    const last = P.dispatched().at(-1);
+    assert.deepEqual([last.name, last.preview], ["draft-" + P.slug, "1"], "the preview did not reach the draft script with its header");
+    const bad = await get(P.slug + "--draft-000000000000.gofarther.app", "/visit");
+    assert.equal(bad.status, 404, "a wrong preview token was served");
+    await get(P.slug + ".gofarther.app", "/visit", { "x-site-preview": "1" });
+    const liveHit = P.dispatched().filter((x) => x.name === "site-" + P.slug).at(-1);
+    assert.ok(liveHit, "the live address dispatched nothing — the observer is dead");
+    assert.equal(liveHit.preview, null, "a visitor's preview header reached the live script");
+  } finally { await finish(P, compiler, siteTurn, null); }
+});
+
+test("DF6 EVERY ACTIVATION A TASK REACHES CARRIES THE DRAFT GATE — of the activation call sites, only the owner's Publish (publishDraft) and the owner's version restore (restoreVersion) activate without `asDraft`; the edit/add-on publication and the build pass it", async () => {
+  const fs = await import("node:fs");
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const sites = [...src.matchAll(/await activateBuild\(/g)].map((m) => {
+    const fn = src.lastIndexOf("\nasync function ", m.index);
+    const name = /\nasync function ([A-Za-z0-9_]+)/.exec(src.slice(fn, fn + 80))[1];
+    const call = src.slice(m.index, src.indexOf("\n  });", m.index) > 0 ? src.indexOf("});", m.index) : m.index + 400);
+    return { name, gated: /asDraft: toDraft \? saveAsDraft : null,/.test(call) };
+  });
+  assert.equal(sites.length, 4, "the activation call sites moved — rescope this: " + JSON.stringify(sites));
+  const ungated = sites.filter((x) => !x.gated).map((x) => x.name).sort();
+  assert.deepEqual(ungated, ["publishDraft", "restoreVersion"], "an activation a task reaches is not behind the draft gate: " + JSON.stringify(sites));
+  for (const x of sites.filter((y) => y.gated)) assert.ok(["recompileAndPublish", "buildAndPublishPages"].includes(x.name), x.name);
 });

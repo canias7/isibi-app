@@ -543,7 +543,9 @@ test("the collector hands a lease hook in, built from the lease it actually hold
   // a `buildDeps(env)` scan — which is exactly the call site whose undo matters
   // most, since a rollback that half-lands is a site stuck between versions.
   const sites = [...W.matchAll(/await activateBuild\(/g)];
-  assert.equal(sites.length, 3, "the activation call sites moved — rescope this");
+  // FOUR SINCE 2026-10-15: the owner's Publish under draft-first
+  // (`publishDraft`) is an activation too, held to every condition below.
+  assert.equal(sites.length, 4, "the activation call sites moved — rescope this");
   for (const m of sites) {
     const s = W.slice(m.index, W.indexOf("});", m.index));
     // NOT MERELY PRESENT: `previous: null` is the field with the undo removed,

@@ -220,6 +220,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   const afterGets = [];
   const uploads = [];
   const beforeUploads = [];
+  const dispatched = [];
   const afterUploads = [];
   const scriptText = async (body) => {
     try {
@@ -704,7 +705,10 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       const bu = beforeUploads.shift();
       if (bu) await bu(text);
       const v = /\/\/ site-version: (\S*)/.exec(text), b = /\/\/ site-build: (\S*)/.exec(text);
-      uploads.push({ version: v ? v[1] : "", build: b ? b[1] : "", at: now() });
+      // AND WHICH SCRIPT NAME: `site-<slug>` is the live one, `draft-<slug>`
+      // a draft's preview (draft-first, 2026-10-15).
+      const sn = /\/scripts\/([^/?]+)/.exec(url);
+      uploads.push({ version: v ? v[1] : "", build: b ? b[1] : "", at: now(), name: sn ? decodeURIComponent(sn[1]) : "" });
       // LANDED, AND THEN (`afterUpload`): a hook that throws is an upload
       // whose answer was lost; one that never ends is an uploader that died.
       const au = afterUploads.shift();
@@ -723,8 +727,11 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     // THE LIVE SCRIPT, ASKED (`liveScripts`, 2026-10-15): the dispatch stub
     // answers the probe with the last uploaded script's own stamps, as a
     // deployed site script does on every response.
-    ...(liveScripts ? { SITE_WORKERS: { get: () => ({ fetch: async () => {
-      const last = uploads[uploads.length - 1];
+    ...(liveScripts ? { SITE_WORKERS: { get: (name) => ({ fetch: async (req) => {
+      // EVERY DISPATCH, with the script asked and the preview header it carried.
+      try { dispatched.push({ name, path: new URL(req.url).pathname, preview: req.headers.get("x-site-preview") }); } catch { /* a probe without a request */ }
+      const mine = uploads.filter((u) => !u.name || !name || u.name === name);
+      const last = mine[mine.length - 1];
       const h = new Headers();
       if (last) { h.set("x-site-build", last.build); if (last.version) h.set("x-site-version", last.version); }
       return new Response("ok", { status: 200, headers: h });
@@ -843,7 +850,9 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     /** Every site-script upload so far: `{ version, build, at }`, in order. */
     uploads() { return uploads.slice(); },
     /** The live script's version: the last upload's, or null before any. */
-    liveScript() { return uploads.length ? uploads[uploads.length - 1].version : null; },
+    liveScript() { const live = uploads.filter((u) => !String(u.name || "").startsWith("draft-")); return live.length ? live[live.length - 1].version : null; },
+    dispatched() { return dispatched.slice(); },
+    previewScript() { const d = uploads.filter((u) => String(u.name || "").startsWith("draft-")); return d.length ? d[d.length - 1].version : null; },
     /** A stored object's custom metadata, or null. */
     metaOf(key) { const o = objects.get(key); return o && o.customMetadata ? { ...o.customMetadata } : null; },
     /** Before the next delete of a key `match(key)` accepts, run `then(key)`; the delete then goes ahead. */
