@@ -5,8 +5,8 @@
 
 **Where it stands:**
 - **Branch `claude/help-needed-ehlwlj`, unmerged.** Its code head is
-  **`470223cb`**; the records commit on top of it is the pushed head (its
-  id and CI are in the chat report). It sits on `e4e0f944`, the deployed
+  **`470223cb`**; the records are `0f50792a` (CI green, below) and the
+  commit that stamps that CI. It sits on `e4e0f944`, the deployed
   combined code (`main` `f1b81477` merged in).
 - **The commits, oldest first:**
   1. `ce97f0fb`: the fixes and their tests.
@@ -114,8 +114,9 @@ Worker's routing call, fails them.
 - **Full suite:** `10973 / 10963 / 10 / 0` on `ce97f0fb`; `10973 / 10973 /
   0 / 0` on `be922325`; **`10976 / 10976 / 0 / 0` on `470223cb`.**
 - **Unit CI on `45c12a36`** (run 38660652738): `10973 / 10929 / 0 / 44`;
-  site build run 38660652716 green. CI for the pushed head is in the chat
-  report.
+  site build run 38660652716 green.
+- **Unit CI on `0f50792a`** (run 38661901805): **`10976 / 10932 / 0 / 44`**;
+  site build run 38661901792 green. This records commit only stamps it.
 - **Image:** predicted `e1582f6f71a41dfb` → `e420b3c2d3224dd3` for
   `470223cb` (207 inputs). Not built.
 - **Hygiene:** the three `.sweepbak` files committed with `ce97f0fb` are
