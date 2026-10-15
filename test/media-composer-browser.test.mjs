@@ -42,6 +42,72 @@ const SLUG = "media-ui";
 const fixture = (n) => readFileSync(new URL("./fixtures/media/" + n, import.meta.url));
 const SHOTS = process.env.MEDIA_SHOTS || "";
 
+/**
+ * THE APP, OPEN ON THE SITE: the repo's own public/ served, every media request
+ * answered by the real Worker (`gate` can lose the first answers to `complete`
+ * and darken status), the rest supplied. Shared by both cases (2026-10-15).
+ */
+async function openApp(browser, { worker, env, seen, gate, site, onRouted = () => {} }) {
+  const ctx = await browser.newContext({ viewport: { width: 1320, height: 860 } });
+  await ctx.addInitScript(({ site: s }) => {
+    try { localStorage.length; } catch (e) { return; }
+    localStorage.setItem("zephyr_session_v1", JSON.stringify({ access_token: "t", refresh_token: "r", expires_at: Date.now() + 3600 * 1000, user: { id: "u-1", email: "owner@example.com" } }));
+    localStorage.setItem("zephyr_owner_v1", "u-1");
+    if (!localStorage.getItem("zephyr_sites_v1")) localStorage.setItem("zephyr_sites_v1", JSON.stringify([s]));
+  }, { site });
+  const json = (route, body, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+  await ctx.route("**/*", async (route) => {
+    const req = route.request();
+    const url = new URL(req.url());
+    if (url.hostname === SLUG + ".gofarther.app") return route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><h1>Media Bakery</h1>" });
+    if (url.origin !== ORIGIN) return json(route, {});
+    const p = url.pathname;
+    const real = p.startsWith("/api/site/" + SLUG + "/media") || p.startsWith("/api/site/" + SLUG + "/uploads") || p.startsWith("/u/");
+    if (real) {
+      const kind = /\/complete$/.test(p) ? "complete" : req.method() === "GET" && /\/media\/[a-f0-9]{32}$/.test(p) ? "status" : req.method() === "PUT" ? "part" : req.method() === "DELETE" ? "delete" : req.method() + " " + p.split("/").slice(0, 5).join("/");
+      seen.push(kind);
+      if (kind === "status" && gate.darkStatus) return route.abort("connectionreset");
+      const headers = {};
+      for (const [k, v] of Object.entries(req.headers())) if (/^(authorization|content-type|range|if-none-match)$/.test(k)) headers[k] = v;
+      const body = req.postDataBuffer();
+      if (body) headers["content-length"] = String(body.length);
+      const r = await worker.fetch(new Request("https://gofarther.dev" + p + url.search, { method: req.method(), headers, body: body && req.method() !== "GET" && req.method() !== "HEAD" ? body : undefined }), env, makeCtx());
+      const buf = Buffer.from(await r.arrayBuffer());
+      // THE ANSWER IS LOST AFTER THE SERVER HAS DONE THE WORK.
+      if (kind === "complete" && gate.loseComplete > 0) { gate.loseComplete--; return route.abort("connectionreset"); }
+      const out = {};
+      r.headers.forEach((v, k) => { out[k] = v; });
+      return route.fulfill({ status: r.status, headers: out, body: buf });
+    }
+    if (p.startsWith("/api/")) {
+      if (p === "/api/site/route") { onRouted(req.postDataJSON()); return json(route, { ok: true, intent: "ask", answer: "Noted.", replyFrom: "router" }); }
+      if (p === "/api/site/list") return json(route, { ok: true, sites: [] });
+      if (p === "/api/credits" || p === "/api/credits/balance") return json(route, { credits: 48 });
+      if (p.endsWith("/share")) return json(route, { share: "" });
+      return json(route, { ok: true });
+    }
+    const file = p === "/" || p.startsWith("/projects") ? "/index.html" : p;
+    const fp = path.join(PUB, file);
+    if (!existsSync(fp)) return route.fulfill({ status: 404, body: "" });
+    const ct = fp.endsWith(".js") ? "application/javascript" : fp.endsWith(".css") ? "text/css" : fp.endsWith(".html") ? "text/html" : fp.endsWith(".svg") ? "image/svg+xml" : "application/octet-stream";
+    return route.fulfill({ status: 200, contentType: ct, body: readFileSync(fp) });
+  });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(String(e)));
+  page.on("dialog", (d) => d.accept());
+  const chip = () => page.evaluate(() => [...document.querySelectorAll(".st-att-state")].map((e) => e.textContent));
+  const attach = async (name, mimeType) => {
+    const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.click("#stPlus")]);
+    // FROM DISK, as a file chooser gives it: the same file keeps its own
+    // last-modified time, as it does when an owner picks it again.
+    await chooser.setFiles(new URL("./fixtures/media/" + name, import.meta.url).pathname);
+  };
+  await page.goto(ORIGIN + "/projects/" + SITE_ID, { waitUntil: "load" });
+  await page.waitForSelector("#stPlus", { timeout: 20000 });
+  return { ctx, page, errors, chip, attach };
+}
+
 test("THE COMPOSER AND THE FILES PANEL: a lost answer is checked, not failed; a reload reuses; the panel lists, replaces, adds and deletes", { skip: SKIP, timeout: 180000 }, async () => {
   const worker = await loadWorker();
   const store = mediaBucket();
@@ -55,63 +121,7 @@ test("THE COMPOSER AND THE FILES PANEL: a lost answer is checked, not failed; a 
   await withWire({}, async () => {
     const browser = await chromium.launch({ executablePath: EXE });
     try {
-      const ctx = await browser.newContext({ viewport: { width: 1320, height: 860 } });
-      await ctx.addInitScript(({ site: s }) => {
-        try { localStorage.length; } catch (e) { return; }
-        localStorage.setItem("zephyr_session_v1", JSON.stringify({ access_token: "t", refresh_token: "r", expires_at: Date.now() + 3600 * 1000, user: { id: "u-1", email: "owner@example.com" } }));
-        localStorage.setItem("zephyr_owner_v1", "u-1");
-        if (!localStorage.getItem("zephyr_sites_v1")) localStorage.setItem("zephyr_sites_v1", JSON.stringify([s]));
-      }, { site });
-      const json = (route, body, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
-      await ctx.route("**/*", async (route) => {
-        const req = route.request();
-        const url = new URL(req.url());
-        if (url.hostname === SLUG + ".gofarther.app") return route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><h1>Media Bakery</h1>" });
-        if (url.origin !== ORIGIN) return json(route, {});
-        const p = url.pathname;
-        const real = p.startsWith("/api/site/" + SLUG + "/media") || p.startsWith("/api/site/" + SLUG + "/uploads") || p.startsWith("/u/");
-        if (real) {
-          const kind = /\/complete$/.test(p) ? "complete" : req.method() === "GET" && /\/media\/[a-f0-9]{32}$/.test(p) ? "status" : req.method() === "PUT" ? "part" : req.method() === "DELETE" ? "delete" : req.method() + " " + p.split("/").slice(0, 5).join("/");
-          seen.push(kind);
-          if (kind === "status" && gate.darkStatus) return route.abort("connectionreset");
-          const headers = {};
-          for (const [k, v] of Object.entries(req.headers())) if (/^(authorization|content-type|range|if-none-match)$/.test(k)) headers[k] = v;
-          const body = req.postDataBuffer();
-          if (body) headers["content-length"] = String(body.length);
-          const r = await worker.fetch(new Request("https://gofarther.dev" + p + url.search, { method: req.method(), headers, body: body && req.method() !== "GET" && req.method() !== "HEAD" ? body : undefined }), env, makeCtx());
-          const buf = Buffer.from(await r.arrayBuffer());
-          // THE ANSWER IS LOST AFTER THE SERVER HAS DONE THE WORK.
-          if (kind === "complete" && gate.loseComplete > 0) { gate.loseComplete--; return route.abort("connectionreset"); }
-          const out = {};
-          r.headers.forEach((v, k) => { out[k] = v; });
-          return route.fulfill({ status: r.status, headers: out, body: buf });
-        }
-        if (p.startsWith("/api/")) {
-          if (p === "/api/site/route") { routed = req.postDataJSON(); return json(route, { ok: true, intent: "ask", answer: "Noted.", replyFrom: "router" }); }
-          if (p === "/api/site/list") return json(route, { ok: true, sites: [] });
-          if (p === "/api/credits" || p === "/api/credits/balance") return json(route, { credits: 48 });
-          if (p.endsWith("/share")) return json(route, { share: "" });
-          return json(route, { ok: true });
-        }
-        const file = p === "/" || p.startsWith("/projects") ? "/index.html" : p;
-        const fp = path.join(PUB, file);
-        if (!existsSync(fp)) return route.fulfill({ status: 404, body: "" });
-        const ct = fp.endsWith(".js") ? "application/javascript" : fp.endsWith(".css") ? "text/css" : fp.endsWith(".html") ? "text/html" : fp.endsWith(".svg") ? "image/svg+xml" : "application/octet-stream";
-        return route.fulfill({ status: 200, contentType: ct, body: readFileSync(fp) });
-      });
-      const page = await ctx.newPage();
-      const errors = [];
-      page.on("pageerror", (e) => errors.push(String(e)));
-      page.on("dialog", (d) => d.accept());
-      const chip = () => page.evaluate(() => [...document.querySelectorAll(".st-att-state")].map((e) => e.textContent));
-      const attach = async (name, mimeType) => {
-        const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.click("#stPlus")]);
-        // FROM DISK, as a file chooser gives it: the same file keeps its own
-        // last-modified time, as it does when an owner picks it again.
-        await chooser.setFiles(new URL("./fixtures/media/" + name, import.meta.url).pathname);
-      };
-      await page.goto(ORIGIN + "/projects/" + SITE_ID, { waitUntil: "load" });
-      await page.waitForSelector("#stPlus", { timeout: 20000 });
+      const { page, errors, chip, attach } = await openApp(browser, { worker, env, seen, gate, site, onRouted: (b) => { routed = b; } });
 
       // ── 1. THE ANSWER TO `complete` IS LOST, AND STATUS CANNOT BE READ ──
       await attach("clip.webm", "video/webm");
@@ -171,6 +181,80 @@ test("THE COMPOSER AND THE FILES PANEL: a lost answer is checked, not failed; a 
       await page.click('.fl-del[data-file="' + audioName + '"]');
       await page.waitForFunction(() => document.querySelectorAll(".fl-ismedia").length === 1, null, { timeout: 30000 });
       assert.deepEqual(media(), ["uploads/" + SLUG + "/" + name], "the recording was not deleted, or the video went with it");
+      assert.deepEqual(errors, []);
+    } finally {
+      await browser.close();
+    }
+  });
+});
+
+test("REATTACHED AFTER A DELETE OR A REPLACEMENT: the composer sends the file again as its own — never the deleted file, never the replacement's bytes — and reuses it when nothing changed", { skip: SKIP, timeout: 180000 }, async () => {
+  const worker = await loadWorker();
+  const store = mediaBucket();
+  const env = envFor(store);
+  const seen = [];
+  let routed = null;
+  const gate = { loseComplete: 0, darkStatus: false };
+  const site = { id: SITE_ID, slug: SLUG, react: true, name: "Media Bakery", url: "https://" + SLUG + ".gofarther.app/", pages: [{ path: "/", name: "Home" }], msgs: [], updatedAt: Date.now(), createdAt: Date.now() };
+  const media = () => [...store.store.keys()].filter((k) => k.startsWith("uploads/" + SLUG + "/")).map((k) => k.split("/").pop());
+  const original = fixture("clip.webm");
+  const parts = () => seen.filter((k) => k === "part").length;
+  await withWire({}, async () => {
+    const browser = await chromium.launch({ executablePath: EXE });
+    try {
+      const { page, errors, chip, attach } = await openApp(browser, { worker, env, seen, gate, site, onRouted: (b) => { routed = b; } });
+      const ready = () => page.waitForFunction(() => { const c = [...document.querySelectorAll(".st-att-state")]; return c.length === 1 && /ready/.test(c[0].textContent); }, null, { timeout: 30000 });
+      const clear = async () => { while (await page.locator("[data-media]").count()) await page.locator("[data-media]").first().click(); };
+
+      await attach("clip.webm", "video/webm");
+      await ready();
+      const [n1] = media();
+      // THE CONTROL: nothing changed, so attached again it is reused, not sent.
+      await clear();
+      const before = parts();
+      await attach("clip.webm", "video/webm");
+      await ready();
+      assert.equal(parts(), before, "an unchanged file was sent again");
+      assert.deepEqual(media(), [n1]);
+
+      // DELETED in the library, then attached again: sent again, as a new file.
+      await clear();
+      assert.equal(await page.evaluate((u) => apiFetch(u, { method: "DELETE" }).then((r) => r.status), "/api/site/" + SLUG + "/uploads/" + n1), 200);
+      assert.deepEqual(media(), []);
+      await attach("clip.webm", "video/webm");
+      await ready();
+      assert.deepEqual(await chip(), ["Video · ready"]);
+      assert.equal(parts(), before + 1, "a deleted file was reused instead of sent again");
+      const [n2] = media();
+      assert.notEqual(n2, n1);
+
+      // REPLACED at its address with other bytes, by the page's own uploader…
+      const newer = Buffer.concat([Buffer.from(original), Buffer.alloc(64, 7)]);
+      const rep = await page.evaluate(async ({ slug, name, b64 }) => {
+        const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+        const f = new File([bytes], "clip v2.webm", { type: "video/webm", lastModified: 5 });
+        const r = await SiteMedia.upload(f, { api: mediaApi(mediaBase(slug)), base: mediaBase(slug), store: mediaStore(), replace: name });
+        return { ok: r.ok, name: r.file && r.file.name };
+      }, { slug: SLUG, name: n2, b64: newer.toString("base64") });
+      assert.deepEqual(rep, { ok: true, name: n2 });
+      assert.deepEqual(Buffer.from(store.raw("uploads/" + SLUG + "/" + n2)), newer);
+      // …THEN THE ORIGINAL ATTACHED AGAIN: its own bytes at a new address.
+      await clear();
+      const beforeOrig = parts();
+      await attach("clip.webm", "video/webm");
+      await ready();
+      assert.ok(parts() > beforeOrig, "the replacement was reused for the original attachment");
+      const n3 = media().find((n) => n !== n2);
+      assert.ok(n3, "the original was not stored as its own file");
+      assert.deepEqual(Buffer.from(store.raw("uploads/" + SLUG + "/" + n3)), Buffer.from(original), "the original attachment is not its own bytes");
+      assert.deepEqual(Buffer.from(store.raw("uploads/" + SLUG + "/" + n2)), newer, "the replacement was touched");
+      // AND THE MESSAGE NAMES THE ORIGINAL'S ADDRESS, not the replacement's.
+      await page.fill("#stRevise", "Use this clip on the home page");
+      await page.click("#stSend");
+      for (let i = 0; i < 100 && !routed; i++) await page.waitForTimeout(100);
+      assert.ok(routed, "the message was never sent");
+      assert.match(routed.message, new RegExp("/u/" + SLUG + "/" + n3));
+      assert.doesNotMatch(routed.message, new RegExp(n2 + "|" + n1));
       assert.deepEqual(errors, []);
     } finally {
       await browser.close();

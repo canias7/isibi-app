@@ -30,10 +30,12 @@ const json = (v, s = 200) => new Response(JSON.stringify(v), { status: s, header
  * `cursor`, and says `truncated`. `hooks.beforePut(key, value, opts)` lets a
  * test run another writer between a read and a write — the interleavings.
  */
-export function buildBucket(entries = {}, hooks = {}) {
+export function buildBucket(entries = {}, hooks = {}, entriesMeta = {}) {
   const store = new Map(Object.entries(entries));
   const etags = new Map();
-  const meta = new Map();
+  // A SEEDED OBJECT'S CUSTOM METADATA (2026-10-15): a finished upload's file
+  // carries its upload's id, which the status route reads.
+  const meta = new Map(Object.entries(entriesMeta));
   let n = 0;
   const tag = (k) => { if (!etags.has(k)) etags.set(k, "e" + (++n)); return etags.get(k); };
   // A BODY, A SIZE AND ITS METADATA TOO (2026-10-14): a draft video is moved
@@ -62,7 +64,8 @@ export function buildBucket(entries = {}, hooks = {}) {
       const withMeta = Array.isArray(include) && include.includes("customMetadata");
       return { objects: page.map((k) => ({ key: k, size: 1, ...(withMeta && meta.has(k) ? { customMetadata: meta.get(k) } : {}) })), truncated, ...(truncated ? { cursor: String(from + limit) } : {}) };
     },
-    async head(k) { return store.has(k) ? { key: k, size: 1 } : null; },
+    // WITH ITS CUSTOM METADATA, as R2's own `head` answers (2026-10-15).
+    async head(k) { return store.has(k) ? { key: k, size: 1, ...(meta.has(k) ? { customMetadata: meta.get(k) } : {}) } : null; },
   };
 }
 
@@ -73,7 +76,7 @@ export function buildBucket(entries = {}, hooks = {}) {
  * the route answered and everything it was seen doing.
  */
 // `stored` (2026-10-14) seeds the bucket — a draft video kept for the account, say.
-export async function driveBuild({ design, body, ledger = {}, usage = { input_tokens: 100, output_tokens: 50 }, env: extraEnv = {}, onFetch = null, stored = {} } = {}) {
+export async function driveBuild({ design, body, ledger = {}, usage = { input_tokens: 100, output_tokens: 50 }, env: extraEnv = {}, onFetch = null, stored = {}, storedMeta = {} } = {}) {
   const seen = { tools: [], designer: [], rpc: [], neon: 0 };
   let claimed = false;
   globalThis.fetch = async (input, init) => {
@@ -130,7 +133,7 @@ export async function driveBuild({ design, body, ledger = {}, usage = { input_to
     return new Response("not stubbed", { status: 503 });
   };
   const c = installCompiler();
-  const store = buildBucket(stored);
+  const store = buildBucket(stored, {}, storedMeta);
   try {
     const worker = await loadWorker();
     const req = new Request("https://gofarther.dev/api/site/react-build", {
@@ -144,7 +147,9 @@ export async function driveBuild({ design, body, ledger = {}, usage = { input_to
     for (let i = 0; i < 8 && ctx.pending.length; i++) await Promise.allSettled(ctx.pending.splice(0));
     const cfgRaw = store.store.get("config/" + String((reply && reply.slug) || "harbour-loaf") + ".json");
     const config = cfgRaw ? JSON.parse(cfgRaw) : null;
-    return { status: res.status, reply, store: store.store, config, seen };
+    // THE BUCKET AND THE ENV TOO (2026-10-15), so a case can ask the real
+    // routes what became of something after the build.
+    return { status: res.status, reply, store: store.store, config, seen, bucket: store, env };
   } finally { globalThis.fetch = blockedFetch; c.uninstall(); }
 }
 

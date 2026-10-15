@@ -64,7 +64,12 @@
    *   { state: "done", file }          — it finished; the file is there
    *   { state: "open", have, etags, parts, partBytes } — still open: these parts are in
    *   { state: "gone" }               — expired or cancelled; nothing was kept
+   *   { state: "removed" }            — it finished, but the file has since been deleted or moved
+   *   { state: "replaced" }           — it finished, but its address now holds a newer file
    *   { state: "unknown" }            — could not find out (never "failed")
+   * A finished upload is `done` only while its file is still there and still
+   * the one it made (the server checks, 2026-10-15): a receipt is history,
+   * never proof the file exists now.
    */
   function check(api, session, wait, tries) {
     var n = tries == null ? CHECK_TRIES : tries;
@@ -72,6 +77,7 @@
       return Promise.resolve().then(function () { return api.status(session); }).then(function (r) {
         if (r && r.status === 404) return { state: "gone" };
         if (r && r.status < 300 && r.body && r.body.state === "done" && r.body.file) return { state: "done", file: r.body.file };
+        if (r && r.status < 300 && r.body && (r.body.state === "removed" || r.body.state === "replaced")) return { state: r.body.state };
         if (r && r.status < 300 && r.body && r.body.state === "open") return { state: "open", have: r.body.have || [], etags: r.body.etags || [], parts: Number(r.body.parts) || 0, partBytes: Number(r.body.partBytes) || 0 };
         throw new Error("status unreadable");
       }).catch(function () {
@@ -164,6 +170,7 @@
         return check(api, session, wait).then(function (c) {
           if (c.state === "done") return finished(c.file, { session: session, recovered: true });
           if (c.state === "gone") { rec.drop(); return { ok: false, error: "that upload expired before it finished — send the file again", code: "no_session" }; }
+          if (c.state === "removed" || c.state === "replaced") { rec.drop(); return { ok: false, error: c.state === "removed" ? "that file was deleted before its upload could be confirmed — send it again" : "that file was replaced before its upload could be confirmed — send it again", code: c.state }; }
           if (c.state === "open" && ++settles <= 2) {
             var hv = c.have.map(function (n, i) { return { n: n, etag: c.etags[i] }; });
             return run(session, size, parts, hv);
@@ -230,6 +237,10 @@
     };
 
     // ── THIS FILE WAS SENT BEFORE: reuse what it made, or carry on ──
+    // Reused only while the server says its file is still there and still the
+    // one this upload made. Deleted, moved or replaced since: the record is
+    // dropped and the file is sent again as a new file — never the missing
+    // one, and never a replacement's bytes in place of the original.
     var prior = rec.get();
     if (!prior) return begin();
     return check(api, prior.sid, wait, 2).then(function (c) {
@@ -252,7 +263,7 @@
     var wait = opts.wait || function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
     return check(opts.api, session, wait).then(function (c) {
       if (c.state === "done") return { ok: true, file: c.file };
-      if (c.state === "gone") return { ok: false, gone: true };
+      if (c.state === "gone" || c.state === "removed" || c.state === "replaced") return { ok: false, gone: true, why: c.state };
       return { ok: false, uncertain: true, open: c.state === "open" };
     });
   }

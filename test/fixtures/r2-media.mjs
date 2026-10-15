@@ -12,13 +12,25 @@
 // etag, `etagDoesNotMatch: "*"` only where there is no object — answering
 // null when the condition fails (2026-10-15). `lag` yields to the event loop
 // inside every call, so requests sent together really interleave.
+//
+// ETAGS AS R2 GIVES THEM, NO STRONGER (2026-10-15, Codex's review of
+// `673e26cb`): an ordinary write's etag is the MD5 of its bytes — the same
+// bytes written again carry the same etag — and each write gets its own
+// generated `version`. This is what Cloudflare's Miniflare does. An earlier
+// version of this file added a counter to every etag and called that R2's
+// behaviour; it was not, and it hid a race in which a ledger returned to the
+// same bytes. A finished multipart upload's etag here is the MD5 of its
+// parts' MD5s and their count; nothing here relies on that form.
+// `hooks.beforePut(key, value, opts)` runs before a write is decided, so a
+// case can hold one request between its read and its conditional write while
+// another runs whole.
 // `calls` records each call by name, so a case can show what was — and was not —
 // done (a part never reached R2, nothing completed).
 import { randomBytes, createHash } from "node:crypto";
 
 export const MIN_PART = 5 * 1024 * 1024;
 
-export function mediaBucket({ fail = {}, lose = {}, lag = false } = {}) {
+export function mediaBucket({ fail = {}, lose = {}, lag = false, hooks = {} } = {}) {
   const store = new Map();
   const uploads = new Map();
   const calls = [];
@@ -36,7 +48,7 @@ export function mediaBucket({ fail = {}, lose = {}, lag = false } = {}) {
     const all = o.bytes;
     const slice = range ? all.subarray(range.offset, range.offset + range.length) : all;
     return {
-      key, size: all.length, etag: o.etag, httpEtag: '"' + o.etag + '"', uploaded: new Date(o.at),
+      key, size: all.length, etag: o.etag, httpEtag: '"' + o.etag + '"', version: o.version, uploaded: new Date(o.at),
       httpMetadata: { ...o.httpMetadata }, customMetadata: { ...o.customMetadata },
       range: range || undefined,
       body: new Response(slice).body,
@@ -54,17 +66,21 @@ export function mediaBucket({ fail = {}, lose = {}, lag = false } = {}) {
   };
   const b = {
     store, uploads, calls,
+    // STORAGE THAT STOPS ANSWERING from now on, for `n` calls of a name (2026-10-15).
+    failNext: (name, n = 1) => { failing[name] = n; },
     raw: (k) => (store.has(k) ? store.get(k).bytes : null),
     async put(key, value, opts = {}) {
       trip("put");
       const bytes = await toBytes(value);
       await pause();
+      if (hooks.beforePut) await hooks.beforePut(key, bytes, opts);
       const c = opts.onlyIf;
       if (c && c.etagDoesNotMatch === "*" && store.has(key)) return null;
       if (c && typeof c.etagMatches === "string" && (!store.has(key) || store.get(key).etag !== c.etagMatches)) return null;
-      // A NEW ETAG ON EVERY WRITE, as R2's own: the same bytes written twice are two versions.
-      store.set(key, { bytes, etag: etagOf(bytes) + "." + (++n), at: Date.now() + n, httpMetadata: opts.httpMetadata || {}, customMetadata: opts.customMetadata || {} });
-      return { key, size: bytes.length, etag: store.get(key).etag };
+      // THE ETAG IS THE BYTES' MD5; THE VERSION IS NEW EVERY TIME.
+      store.set(key, { bytes, etag: etagOf(bytes), version: randomBytes(16).toString("hex"), at: Date.now() + (++n), httpMetadata: opts.httpMetadata || {}, customMetadata: opts.customMetadata || {} });
+      const o = store.get(key);
+      return { key, size: bytes.length, etag: o.etag, httpEtag: '"' + o.etag + '"', version: o.version };
     },
     async get(key, opts = {}) {
       trip("get");
@@ -122,7 +138,7 @@ export function mediaBucket({ fail = {}, lose = {}, lag = false } = {}) {
           const u = uploads.get(uploadId);
           if (!u || u.key !== key || u.done) throw new Error("no such upload");
           const bytes = await toBytes(value);
-          const etag = etagOf(bytes) + "-" + partNumber;
+          const etag = etagOf(bytes);
           u.parts.set(partNumber, { bytes, etag });
           return { partNumber, etag };
         },
@@ -145,9 +161,10 @@ export function mediaBucket({ fail = {}, lose = {}, lag = false } = {}) {
           for (const c of chunks) { bytes.set(c, at); at += c.length; }
           u.done = true;
           uploads.delete(uploadId);
-          store.set(key, { bytes, etag: etagOf(bytes), at: Date.now() + (++n), httpMetadata: u.opts.httpMetadata || {}, customMetadata: u.opts.customMetadata || {} });
+          const etag = createHash("md5").update(Buffer.concat(list.map((p) => Buffer.from(p.etag, "hex")))).digest("hex") + "-" + list.length;
+          store.set(key, { bytes, etag, version: randomBytes(16).toString("hex"), at: Date.now() + (++n), httpMetadata: u.opts.httpMetadata || {}, customMetadata: u.opts.customMetadata || {} });
           lost("complete");
-          return { key, size: total, etag: etagOf(bytes), httpEtag: '"' + etagOf(bytes) + '"' };
+          return { key, size: total, etag, httpEtag: '"' + etag + '"', version: store.get(key).version };
         },
         async abort() {
           trip("abort");

@@ -4494,7 +4494,7 @@ function mediaRecheck(chip, tries) {
   SiteMedia.confirm(chip.session, { api: mediaApi(chip.base) }).then((c) => {
     if (chip.state !== 'unsure') return;
     if (c.ok) { chip.state = 'done'; chip.ref = c.file.name; chip.url = c.file.url || ''; }
-    else if (c.gone) { chip.state = 'failed'; chip.error = 'That upload expired before it finished \u2014 attach the file again.'; }
+    else if (c.gone) { chip.state = 'failed'; chip.error = c.why === 'removed' ? 'That file was deleted from your library \u2014 attach it again.' : c.why === 'replaced' ? 'That file was replaced in your library \u2014 attach it again.' : 'That upload expired before it finished \u2014 attach the file again.'; }
     else if ((tries || 0) < 6) setTimeout(() => mediaRecheck(chip, (tries || 0) + 1), 5000);
     paintAttachStrip();
   });

@@ -332,8 +332,8 @@ export const partLength = (size, n) => (n < partsFor(size) ? MEDIA_PART_BYTES : 
  *   gate(scope)                         → {error} | {}         ownership
  *   who                                 → the account id this request is for (a session is bound to it)
  *   used(scope)                         → { files, bytes }     the scope's stored media now
- *   readLedger(scope)                   → { held: { id: entry }, etag }   (etag null: none yet)
- *   writeLedger(scope, held, etag)      → true, or false when another writer changed it first
+ *   readLedger(scope)                   → { held: { id: entry }, rev, etag }   (etag null: none yet)
+ *   writeLedger(scope, { held, rev, w }, etag) → true, or false when another writer changed it first
  *   random()                            → 32 hex
  *   now()                               → ms
  *   create(key, { mime, meta })         → uploadId           R2 createMultipartUpload
@@ -349,6 +349,16 @@ export const partLength = (size, n) => (n < partsFor(size) ? MEDIA_PART_BYTES : 
  */
 export const LEDGER_TRIES = 8;
 
+// EVERY WRITE IS A NEW REVISION (2026-10-15, Codex's review of `673e26cb`).
+// R2's etag for an ordinary write is the MD5 of its bytes, so a ledger that
+// returns to the same reservations — empty, say, after an upload took room,
+// finished and gave it back — would carry the etag it had before, and a
+// request that read the scope's usage before all that happened could still
+// write over it as if nothing had: Codex's reproduction admitted a second
+// 60-byte file under a 100-byte, one-file limit. So the record carries a
+// revision that only grows, and the id of the write (`w`): no two writes are
+// ever the same bytes, an etag read once is never matched again, and a stale
+// reading of usage can never be written over a newer ledger.
 /**
  * CHANGE THE LEDGER, ATOMICALLY: `change(live, now)` is shown the live entries
  * (expired ones are dropped from what it sees) and answers `{ refuse }` or
@@ -369,7 +379,8 @@ export async function changeLedger(deps, scope, change) {
     const r = await change(live, now);
     if (r && r.refuse) return r;
     if (r && r.same && !expired.length) return { ok: true };
-    if (await deps.writeLedger(scope, r.held, (read && read.etag) || null)) {
+    const rev = (Number.isSafeInteger(read && read.rev) && read.rev > 0 ? read.rev : 0) + 1;
+    if (await deps.writeLedger(scope, { held: r.held, rev, w: deps.random() }, (read && read.etag) || null)) {
       for (const h of expired) {
         if (h.uploadId && h.key) { try { await deps.abort(h.key, h.uploadId); } catch { /* R2's own expiry aborts it */ } }
         if (h.sid) { try { await deps.dropSession(scope, h.sid); } catch { /* left to expire */ } }
@@ -494,13 +505,41 @@ async function liveSession(deps, scope, sid) {
 /** What a finished upload made, as its completion answered it. */
 const finishedBody = (s, extra = {}) => ({ ok: true, ...s.file, ...extra });
 
+// ── A RECEIPT IS HISTORY; THE FILE IS NOW (2026-10-15, Codex's review of `673e26cb`) ──
+//
+// A finished session says an upload COMPLETED. It does not say the file is
+// still there, or that its address still holds the bytes it made: the owner
+// may have deleted it, a replacement may have written newer bytes at the same
+// address, or a build may have moved a draft into its new site. So every
+// answer that would hand a finished upload's file back — a repeated
+// `complete`, `status`, an abort after the finish — first reads the object as
+// it is NOW (`whereNow`): here and still this upload's (`up` is its id), gone,
+// holding another upload's bytes, or unreadable. Only the first is answered
+// with the file. Gone and replaced are said as such (`removed`, `replaced`),
+// with no file, so a page never reuses a missing file or takes a replacement's
+// bytes for the original; unreadable is said as unreadable (503), never as
+// either. Nothing here writes: a repeated `complete` never closes an upload
+// again, so it cannot bring a deleted file back or write over a newer one.
+async function whereNow(deps, s) {
+  let h;
+  try { h = await deps.exists(s.key); } catch { return { now: "unknown" }; }
+  if (!h) return { now: "missing" };
+  return h.up === s.sid ? { now: "here", size: Number(h.size) || s.size } : { now: "other" };
+}
+/** The answer for a finished upload whose file is not (or cannot be shown to be) the one it made. */
+function notNow(where) {
+  if (where.now === "missing") return res({ error: "that file was uploaded, but it has since been deleted or moved", code: "removed", finished: true }, 410);
+  if (where.now === "other") return res({ error: "that file was uploaded, but its address now holds a newer replacement", code: "replaced", finished: true }, 409);
+  return res({ error: "couldn't check that file just now — try again in a moment", code: "unreadable", retry: true }, 503);
+}
+
 /** One part. The first is read for what the file is; every part's length is exact. */
 export async function handleMediaPart(deps, { scope, sid, n, bytes } = {}) {
   const gate = await deps.gate(scope);
   if (gate && gate.error) return gate.error;
   const s = await liveSession(deps, scope, sid);
   if (!s) return res({ error: "that upload has expired or was cancelled — start it again", code: "no_session" }, 404);
-  if (s.state === "done") return res({ error: "that upload has already finished", code: "done", file: s.file }, 409);
+  if (s.state === "done") return res({ error: "that upload has already finished", code: "done" }, 409);
   if (!Number.isInteger(n) || n < 1 || n > s.parts) return res({ error: "no such part", code: "bad_part" }, 400);
   const want = partLength(s.size, n);
   if (!bytes || bytes.length !== want) return res({ error: "that part arrived incomplete — send it again", code: "bad_length", expected: want }, 400);
@@ -557,7 +596,20 @@ export async function handleMediaComplete(deps, { scope, sid, parts } = {}) {
   if (gate && gate.error) return gate.error;
   const s = await liveSession(deps, scope, sid);
   if (!s) return res({ error: "that upload has expired or was cancelled — start it again", code: "no_session" }, 404);
-  if (s.state === "done") return res(finishedBody(s, { again: true }), 200);
+  if (s.state === "done") {
+    const where = await whereNow(deps, s);
+    return where.now === "here" ? res(finishedBody(s, { again: true }), 200) : notNow(where);
+  }
+  // A REPLACEMENT WHOSE FILE WAS DELETED while it was being sent is not
+  // closed: closing it would bring the deleted file back. Given up instead.
+  if (s.replace) {
+    let h;
+    try { h = await deps.exists(s.key); } catch { return notNow({ now: "unknown" }); }
+    if (!h) {
+      await abortQuietly(deps, s);
+      return res({ error: "the file this was replacing has been deleted — upload it as a new file instead", code: "removed" }, 410);
+    }
+  }
   let saved = {};
   try { saved = (await deps.savedParts(scope, sid)) || {}; } catch { saved = {}; }
   const { list, missing, unrecorded } = partList(s, saved, parts);
@@ -610,9 +662,16 @@ export async function handleMediaStatus(deps, { scope, sid } = {}) {
   if (gate && gate.error) return gate.error;
   const s = await liveSession(deps, scope, sid);
   if (!s) return res({ error: "that upload has expired or was cancelled", code: "no_session" }, 404);
-  if (s.state === "done") return res({ ok: true, state: "done", file: s.file });
-  const own = await ownFile(deps, s);
-  if (own) {
+  if (s.state === "done") {
+    const where = await whereNow(deps, s);
+    if (where.now === "here") return res({ ok: true, state: "done", file: s.file });
+    if (where.now === "unknown") return notNow(where);
+    // FINISHED ONCE, NOT AVAILABLE NOW: said, with no file to reuse.
+    return res({ ok: true, state: where.now === "missing" ? "removed" : "replaced", finished: true });
+  }
+  const where = await whereNow(deps, s);
+  if (where.now === "unknown") return notNow(where);
+  if (where.now === "here") {
     // FINISHED BY R2, RECORD NOT YET WRITTEN: finish the record now.
     return handleMediaComplete(deps, { scope, sid, parts: [] }).then((r) => (r.status < 300 ? res({ ok: true, state: "done", file: stripOk(r.body) }) : r));
   }
@@ -629,7 +688,10 @@ export async function handleMediaAbort(deps, { scope, sid } = {}) {
   if (gate && gate.error) return gate.error;
   const s = await liveSession(deps, scope, sid);
   if (!s) return res({ ok: true, gone: true });
-  if (s.state === "done") return res({ ok: true, done: true, file: s.file });
+  if (s.state === "done") {
+    const where = await whereNow(deps, s);
+    return where.now === "here" ? res({ ok: true, done: true, file: s.file }) : res({ ok: true, finished: true, gone: where.now !== "unknown" });
+  }
   if (await ownFile(deps, s)) {
     const r = await handleMediaComplete(deps, { scope, sid, parts: [] });
     return r.status < 300 ? res({ ok: true, done: true, file: stripOk(r.body) }) : r;

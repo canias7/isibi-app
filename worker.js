@@ -9970,11 +9970,17 @@ function mediaDeps(env, { scope, gate, draftUid = null, slug = "", who = "" }) {
     readLedger: async (sc) => {
       const got = await B.get(MEDIA_LEDGER_KEY(sc));
       if (!got) return { held: {}, etag: null };
-      let held = {};
-      try { const j = JSON.parse(await got.text()); held = j && j.held && typeof j.held === "object" && !Array.isArray(j.held) ? j.held : {}; } catch { held = {}; }
-      return { held, etag: got.etag || got.httpEtag || null };
+      let held = {}, rev = 0;
+      try {
+        const j = JSON.parse(await got.text());
+        held = j && j.held && typeof j.held === "object" && !Array.isArray(j.held) ? j.held : {};
+        rev = j && Number.isSafeInteger(j.rev) && j.rev > 0 ? j.rev : 0;
+      } catch { held = {}; }
+      return { held, rev, etag: got.etag || got.httpEtag || null };
     },
-    writeLedger: async (sc, held, etag) => !!(await B.put(MEDIA_LEDGER_KEY(sc), JSON.stringify({ v: 1, held }), {
+    // THE REVISION AND THE WRITE'S OWN ID GO IN THE BYTES (2026-10-15): R2's
+    // etag is their MD5, so no write's etag is ever another's.
+    writeLedger: async (sc, { held, rev, w }, etag) => !!(await B.put(MEDIA_LEDGER_KEY(sc), JSON.stringify({ v: 2, rev, w, held }), {
       httpMetadata: { contentType: "application/json" },
       onlyIf: etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" },
     })),

@@ -134,9 +134,11 @@ function siteDeps(B, { slug = "fold", owner = true, now = () => Date.now(), who 
     // THE LEDGER OVER THE BUCKET'S OWN CONDITIONAL WRITE, as the Worker's.
     readLedger: async (sc) => {
       const got = await B.get(ledgerKey(sc));
-      return got ? { held: JSON.parse(await got.text()).held, etag: got.etag } : { held: {}, etag: null };
+      if (!got) return { held: {}, rev: 0, etag: null };
+      const j = JSON.parse(await got.text());
+      return { held: j.held, rev: j.rev || 0, etag: got.etag };
     },
-    writeLedger: async (sc, held, etag) => !!(await B.put(ledgerKey(sc), JSON.stringify({ v: 1, held }), { onlyIf: etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" } })),
+    writeLedger: async (sc, { held, rev, w }, etag) => !!(await B.put(ledgerKey(sc), JSON.stringify({ v: 2, rev, w, held }), { onlyIf: etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" } })),
     exists: async (key) => {
       const h = await B.head(key);
       return h ? { size: h.size, kind: MEDIA_FORMATS[key.split(".").pop()].kind, up: h.customMetadata.up || "" } : null;
