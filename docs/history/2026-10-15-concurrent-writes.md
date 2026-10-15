@@ -233,3 +233,26 @@ then wrote over the newer holder's description and CSS while answering ok.
 - **Not fenced:** the site script's upload (not R2); keys that do not exist
   yet (no pointer, no R2 config).
 
+## Follow-up the same night: content etags, keys not there yet, the script
+
+Codex reproduced, with the exported `siteTurn` functions, a stale write
+over an identical-bytes stamp: R2's single-put etag is the body's MD5, so
+the stamp kept the etag and an etag-only condition let the stale put land.
+The fixture's counter etags had hidden it (and TF5/TF6's paths too).
+
+- **The fixture** now derives etags from the body (MD5), keeps a strictly
+  increasing upload clock, and honours `uploadedBefore`/`uploadedAfter`.
+- **`sinceRead`**: every guarded write and stamp is conditional on the
+  etag AND `uploadedBefore` just past the read's upload time.
+- **Held keys**: `POINTER_NONE` (read as no pointer; activations key on
+  `readPointerTag`'s etag; undo restores it) and a created config for a site
+  without one (legacy read or empty; an unreadable legacy read refuses).
+- **Sidecar and live marker** joined the guarded keys and the stamp.
+- **Script**: `scriptStillOurs` before the upload, `alignLiveScript` after
+  it and at takeover (`probeSiteWorker`, where the binding exists).
+- **Cases**: TF11, TA1, TA2, TS1–TS4. Sweep 15 of 15 killed after two
+  added cases; control survived.
+- **Integration with main** (`772bb885`) checked in a local worktree
+  (`d800ad64`): two hand resolutions (Dockerfile union, owner-notes), full
+  suite green apart from one failure caused by the check's own symlink.
+

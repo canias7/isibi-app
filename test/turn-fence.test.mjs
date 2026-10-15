@@ -613,3 +613,28 @@ test("TS3 THE NEW HOLDER PUTS THE SCRIPT RIGHT — the pointer names one version
     assert.equal(P.liveScript(), v0, "the new holder left the live script on another version than the pointer's");
   } finally { await finish(P, compiler, siteTurn, C); }
 });
+
+test("TS4 THE SIDECAR IS GUARDED — a page change's activation moves the pointer and pauses before its sidecar write; B takes the turn and publishes, writing its own sidecar: the stale job writes no sidecar over B's, uploads no script, and the live script stays B's", async () => {
+  const { siteTurn } = await loadWorkerModule();
+  const { P, compiler } = visitSite(slugOf("ts4"), [ROUTE_VISIT], {}, { liveScripts: true });
+  let B = null; let paused = false; let mark = 0;
+  const SIDE = (P) => "sitemeta/" + P.slug + ".json";
+  const B_HEAD = JSON.stringify({ title: "B's published head" });
+  try {
+    await publishedOnce(P);
+    const v0 = JSON.parse(P.readObj(POINTER(P))).version;
+    P.beforePut((k) => k === SIDE(P) && inside("activateBuild"), async () => {
+      paused = true;
+      B = await bPublishes(P, siteTurn, v0);
+      const cur = await P.env.SITES_BUCKET.head(SIDE(P));
+      const put = await siteTurn.fencedPut(P.env, SIDE(P), B_HEAD, { contentType: "application/json", onlyIf: cur ? { etagMatches: cur.etag } : null, fence: { gen: B.gen } });
+      assert.ok(put, "B could not write its sidecar");
+      mark = P.uploads().length;
+    });
+    await runOne(P, TIKTOK_LATER + ".");
+    assert.ok(paused, "the activation was never paused before its sidecar");
+    assert.equal(P.readObj(SIDE(P)), B_HEAD, "the stale job wrote its sidecar over B's");
+    assert.deepEqual(P.uploads().slice(mark).map((u) => u.version), [], "the stale job uploaded a script after the turn passed to B");
+    assert.equal(P.liveScript(), v0);
+  } finally { await finish(P, compiler, siteTurn, B); }
+});

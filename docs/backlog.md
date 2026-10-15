@@ -40,10 +40,12 @@ here; take a closed one out of both.**
   against the new site. (a), a config writer beside a text step through the
   Worker, is covered by CW10/CW11; the turn's ownership review by CW8, CW9,
   CW12; ownership at the write itself by the turn's fence (`b49d8765`,
-  TF1–TF10). Open with it: the site script's upload is not an R2 write and
-  is not fenced; a site with no pointer, or a legacy site with no R2 config
-  object, has nothing to stamp; a refusal after the publish gate is held
-  for review before its refund.
+  TF1–TF10), corrected for R2's content etags (`c47147e6`: writes
+  conditional on the object as read, keys held at takeover, sidecar and
+  live marker guarded, the script following the pointer). Open with it: a
+  newer write in the same millisecond as the previous upload is not told
+  apart; the live script is asked only where the dispatch binding answers;
+  a refusal after the publish gate is held for review before its refund.
 - **A Build send went unanswered for 18 minutes after its build had
   finished** (Press A, run 38646089624, 2026-10-14; recorded 2026-10-15).
   The send went at 22:13:35, the build ended at 22:22:16, and the press gave

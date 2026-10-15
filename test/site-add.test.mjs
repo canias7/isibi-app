@@ -2686,6 +2686,7 @@ test("wordsLanded ties each link to its own occurrence, reads attributes as attr
   assert.equal(wl('<p>Book a <a data-to="/classes" href="/wrong">workshop place</a> by Friday.</p>'), false, "an attribute merely ending in to= was read as the destination");
   // AN UNRELATED LINE BETWEEN, OR A LINK THAT SWALLOWS MORE THAN THE PHRASE.
   assert.equal(wl('<p>Book a <Link to="/classes">workshop place by Friday</Link>.</p>'), false, "a link showing more than the asked phrase answered for it");
+  assert.equal(wl('<p>Book a <Link to="/classes">workshop</Link> <Link to="/classes">place</Link> by Friday.</p>'), false, "one linked phrase split across two links answered for it");
   assert.equal(wl('<p>Book a {name} <Link to="/classes">workshop place</Link> by Friday.</p>'), false, "words joined across unresolved content");
   // A PLAIN LINE: hidden is still hidden.
   assert.equal(wl('{false && <p>Open daily from nine.</p>}', "Open daily from nine."), false);

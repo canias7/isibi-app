@@ -1,5 +1,148 @@
 # Owner Notes
 
+## 2026-10-15 (night) — Codex's two reproductions fixed: identical-bytes stamps and structural link reading; integration with main checked (branch only)
+
+**Nothing paid, deployed, built or switched.** `PARALLEL_WRITES` stays off,
+`supabase/proposed/request_beside.sql` stays unapplied, nothing is merged.
+Branch `claude/help-needed-ehlwlj`, from `699a6900`.
+
+### 1. The publishing fence, under R2's real etags (`c47147e6`)
+
+**Reproduced (Codex, now TF11).** The fixture gave every write a new
+counter etag. R2 (and Miniflare) derives a single put's etag from the
+body's MD5, so the new holder's stamp — the same bytes with a new fence in
+the metadata — keeps the etag. With the Worker's own `siteTurn` functions:
+A took the turn, read the config, paused before its conditional put; A's
+turn lapsed; B took it and its takeover stamped the unchanged config; A
+resumed and answered `ok: true`, writing stale CSS and replacing B's fence
+with its lower one. Under content etags the earlier TF5 and TF6 failed on
+the old code too: the counter mock had hidden the same hole in the repair
+and activation paths.
+
+**Now.**
+
+- The fixture's etag is the body's MD5, its upload time a strictly
+  increasing store clock, and it honours `uploadedBefore`/`uploadedAfter`.
+- Every guarded write and every stamp is conditional on the object AS
+  READ: its etag and `uploadedBefore` just past its upload time
+  (`sinceRead`). Any put since the read — same bytes or not — refuses it.
+- **Keys not there yet are held at takeover.** A site with no pointer gets
+  a held empty pointer (`POINTER_NONE`), read as no pointer everywhere;
+  every activation keys on the etag of whatever stands (`readPointerTag`),
+  and a failed first activation over it puts it back. A site with no config
+  object gets the config as it reads now (legacy fields from the database,
+  or empty); a legacy read that cannot be made refuses the takeover rather
+  than write an empty config.
+- **The sidecar and live marker are guarded keys** (found while tracing
+  the script window): a failed stale activation's put-back could have given
+  the newer holder's live version the old head.
+- **The site script follows the pointer.** The upload cannot be
+  conditional, so: before it, no upload when the pointer no longer names
+  this version under no later turn (the activation then answers not
+  served, as a refused upload does); after it, the pointer is read again
+  and, when another publish moved it, that version's own stored script is
+  uploaded; and a job taking the turn asks the live script which version it
+  serves and uploads the pointer's when they differ.
+
+**Tests (`test/turn-fence.test.mjs`):** TF11 (the reproduction), TA1 (no
+config object: A's create refused, B's stands), TA2 (no pointer: the stale
+first activation refused, no version live), TS1 (pause between pointer and
+upload: the stale job uploads nothing, the live script is B's), TS2
+(upload held in flight while B publishes: the stale job puts the pointer's
+own script back), TS3 (pointer and live script disagree: the next holder
+uploads the pointer's), TS4 (pause before the sidecar write while B
+publishes its own: the stale job writes no sidecar over B's and uploads
+nothing). TF2 re-asserted for the held empty pointer. Three
+source guards re-anchored to "the pointer and its etag from one read".
+
+### 2. Linked words read from the rendered tree (`3104c025`)
+
+**Reproduced (Codex).** `wordsLanded` passed "Book a [workshop place](/classes)
+by Friday" when the line linked to `/wrong` and a new footer linked the same
+words to `/classes`; when the whole line sat inside `{false && …}`; and when
+an anchor's `title` said `href='/classes'` while its real `href` was `/wrong`.
+
+**Now.** The page is parsed into elements with real attributes (a title is
+a title) and walked into the words a visitor meets, each word carrying the
+link element it sits in. Comments drop out; an expression child renders
+only when it is a string, an element, or a condition on a literal
+(`true && …`, `false ? a : b`); any other expression is unresolved, claims
+nothing, and breaks the stream. A requested line counts when its words
+occur in order and every linked phrase is rendered by ONE link element going
+exactly there and showing exactly those words, inside that occurrence — and
+the page renders it once more than before. Kept: `Link` and `a`, quoted,
+braced and plain-template destinations, nested markup, literal strings,
+repeated links, existing-link controls (all earlier cases pass).
+
+**Tests:** six route cases (same-words footer; false condition; condition
+on state; true condition passes; title naming the right address on a wrong
+link; title naming another address on a right link passes) and one unit
+case with fourteen assertions, controls included.
+
+### Verification (measured)
+
+- **Red check**, the new tests and fixtures over the old product code
+  (`699a6900`, throwaway worktree): 14 fail — TF5, TF6, TF11, TA1, TA2,
+  TS1, TS2, TS3, the unit case and five of the six route cases (the
+  true-condition control passes there too). TS1 and TS2 also call the new
+  `fencedPut`/`alignLiveScript` exports, so their red is partly structural;
+  the others fail on behaviour.
+- **Focused:** the 30 related files, 1030 tests, all pass after two more
+  pointer-read guards were re-anchored (TF2's held pointer, the publish
+  integrity and N2 guards).
+- **Full suite** locally on `3104c025`: 11040 / 11040.
+- **CI** on `3104c025`: unit tests green (run 38784050100), site build
+  green (run 38784050316).
+- **Sweep** (15 mutants over `worker.js`, `site-builds.mjs` and
+  `builder/site-add.mjs`, a comment-only control): 13 killed at first; the
+  control survived. Two survivors showed missing tests: S7 (the sidecar and
+  live marker unguarded) and W3 (one linked phrase split across two links to
+  the same address). TS4 and a split-link assertion were added; re-run,
+  both are killed — 15 of 15. Files checked against their pre-sweep
+  checksums after the run.
+- **Images:** `3104c025` → `20f6f0aec07837e4` (208 inputs); current `main`
+  (`772bb885`) is `712a579f8e81a3bb` (209).
+
+### Integration check against current main (local, not pushed)
+
+`main` is now `772bb885` (handoff) over `4a097e6e` (the merge of `new` and
+`candidate/new-on-main`); this branch's base is `c37cbc41`. A throwaway
+worktree merged `origin/main` into `3104c025` (local commit `d800ad64`,
+branch `int-check-3104c025`, not pushed).
+
+- **Conflicts: two.** `Dockerfile` (both sides added modules to the worker
+  image's COPY lines: main `site-media.mjs` and `builder/site-converse.mjs`,
+  this branch `builder/publish-turn.mjs`) resolved as the union; and
+  `docs/owner-notes.md`, both entries kept. `worker.js`,
+  `test/addon-route.test.mjs`, `test/site-apply.test.mjs` and
+  `test/site-busy.test.mjs` merged on their own.
+- **Full suite on the merge:** 11176 tests, 11173 pass, 2 skipped, 1 fail —
+  `no-generated-deps`' node_modules case, caused by the symlink I made to
+  run the suite there (git cannot look through it); without the link it
+  passes. So the assistant/media work and this branch pass together.
+- **Image of the merge:** `657a6c655d7a1ca7` (210 inputs).
+- Not done: CI on the merge (it is not pushed), and no integration branch
+  exists on the remote. To land, the Dockerfile union above is the only
+  hand resolution.
+
+### Remaining gaps
+
+- **Same-millisecond writes.** The read-to-write condition rests on
+  `uploadedBefore` to the millisecond, as R2 documents it; a newer write in
+  the same millisecond as the object's previous upload would not be told
+  apart. Not reproducible here (the fixture's clock is strictly increasing).
+- **The live script is asked only where the dispatch binding answers**
+  (`SITE_WORKERS`). Without it, a stale upload whose holder died before
+  putting it right stays until the next publish.
+- **A refusal after the publish gate is held for review** before its refund.
+- **Unresolved content is not credited.** A line rendered through a
+  variable, a `.map` or a condition on state is refused as not landed, even
+  if it would render; a component defined in code is read wherever it is a
+  return value, without following whether it is used.
+- **Still not shown live:** two real Workers racing the turn, any live
+  overlap of two writing jobs, and R2's own conditional semantics beyond
+  what the fixture models.
+
 ## 2026-10-15 (evening) — Linked words checked link by link; the publish turn enforced at the write (branch only)
 
 **Nothing paid, deployed, built or switched.** `PARALLEL_WRITES` stays off,
