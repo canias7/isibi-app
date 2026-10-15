@@ -637,3 +637,32 @@ test("a page edit that adds nothing and loses nothing reports neither", async ()
     });
   } finally { c.uninstall(); }
 });
+
+// ── THE OWNER'S VIDEO AND AUDIO, BY ADDRESS (2026-10-14) ────────────────────
+test("the edit page writer is given the owner's video and audio by address, with what the browser reported", async () => {
+  const slug = "pix-media";
+  const store = bucket(slug);
+  const VID = "b".repeat(32) + ".mp4";
+  const AUD = "c".repeat(32) + ".mp3";
+  store.list = async ({ prefix } = {}) => ({
+    objects: prefix === "uploads/" + slug + "/" ? [
+      { key: "uploads/" + slug + "/" + VID, size: 12_400_000, customMetadata: { media: "video", dl: encodeURIComponent("Tour.mp4"), dur: "95", w: "1280", h: "720" } },
+      { key: "uploads/" + slug + "/" + AUD, size: 2_000_000, customMetadata: { media: "audio", dl: encodeURIComponent("Welcome.mp3") } },
+    ] : [],
+    truncated: false,
+  });
+  const c = installCompiler();
+  try {
+    await withWire({
+      [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
+      [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: keptBoth(slug) }], parts: [] },
+    }, async (calls) => {
+      await edit(slug, "put our tour video under the opening hours", { store });
+      const prompt = pagePrompt(calls);
+      assert.ok(prompt, "the page writer was never called");
+      assert.ok(prompt.includes(esc('- "Tour.mp4": /u/' + slug + "/" + VID + " (MP4 video, 12.4 MB, 1:35 long, 1280×720)")), "the video is not in the writer's brief by address");
+      assert.ok(prompt.includes(esc('- "Welcome.mp3": /u/' + slug + "/" + AUD + " (MP3 audio, 2 MB)")), "the recording is not in the writer's brief by address");
+      assert.ok(prompt.includes("Nobody has watched or listened to these files"));
+    });
+  } finally { c.uninstall(); }
+});

@@ -382,8 +382,11 @@ test("the serve route decides the disposition rather than hardcoding inline", ()
     "worker.js grew its own copy of the upload path shape again");
   assert.match(read("site-uploads.mjs"), /export const UPLOAD_URL_PATH = \/\^\\\/u\\\//,
     "the shared upload path shape is not where uploadUrl mints the path");
-  const win = w.slice(i, i + 1400);
-  assert.match(win, /"content-disposition": dispositionFor\(/, "the /u/ route still hardcodes a disposition");
+  // TO ITS LANDMARK (2026-10-14: the route grew range serving): the route's own
+  // closing `if (um)`, not a byte count.
+  const win = w.slice(i, w.indexOf('if (um) return new Response("Not found"', i));
+  assert.ok(win.length > 200, "the /u/ route's end moved — re-anchor this check");
+  assert.match(win, /disposition: dispositionFor\(/, "the /u/ route still hardcodes a disposition");
   assert.match(win, /readDownloadName\(/, "the stored name never reaches the header");
   assert.ok(!/"content-disposition": "inline"/.test(win), "a hardcoded inline survives beside the call");
 });

@@ -226,7 +226,12 @@ function bucket(slug, stored, look, parts, css, partsFail, configFail, uploads, 
       store.set(k, String(v));
     },
     async delete(k) { store.delete(k); },
-    async list() { return { objects: [], truncated: false }; },
+    // WHAT IT HOLDS UNDER A PREFIX (2026-10-14): a site's library is listed for
+    // its video and audio now, so a fake that lists nothing would hide them.
+    async list({ prefix = "" } = {}) {
+      if (uploadsFail && prefix.startsWith("uploads/")) throw new Error("R2 ListObjects: connection reset");
+      return { objects: [...store.keys()].filter((k) => k.startsWith(prefix)).sort().map((k) => ({ key: k, size: String(store.get(k)).length })), truncated: false };
+    },
     // ── THE SITE'S UPLOAD STORE (2026-09-19) ────────────────────────────────
     //
     // `head` is how `siteUploadExists` asks whether `/u/<slug>/<file>` really

@@ -955,7 +955,9 @@ test("a typed reply during a round is an ANSWER, not a new brief", () => {
   // from those few words and lose the brief the round was about.
   const src = chat();
   const i = src.indexOf("function siteSend(");
-  const block = src.slice(i, i + 1200);
+  // TO A LANDMARK (2026-10-14: the media block grew above it), not a byte count.
+  const block = src.slice(i, src.indexOf("const isBuild = !sitePages(site).length;", i));
+  assert.ok(block.length > 100, "siteSend's landmark moved — re-anchor this check");
   assert.match(block, /if \(site\.clarify\) \{ siteAnswer\(t\); return; \}/);
   // And on a NEW project skipping goes STRAIGHT to the build — paying a model to
   // reclassify "just build it" is the one question too many the button exists

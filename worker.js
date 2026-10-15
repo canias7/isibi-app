@@ -36,7 +36,8 @@ import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerImport
 import { MAX_IMPORT_BYTES } from "./site-csv.mjs";
 import { takeIdemKey, makeIdem, replayHeaders } from "./site-idem.mjs";
 import { placeAttachedPhotos, attachedFilesNote, ownPhotoFacts, ownPhotoSentence } from "./builder/attached-photos.mjs";
-import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_VISITOR_UPLOAD_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName, dispositionFor, readDownloadName, DOWNLOAD_NAME_KEY, uploadIsImage, UPLOAD_URL_PATH } from "./site-uploads.mjs";
+import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_VISITOR_UPLOAD_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName, dispositionFor, readDownloadName, DOWNLOAD_NAME_KEY, uploadIsImage, uploadKind, UPLOAD_URL_PATH } from "./site-uploads.mjs";
+import { MEDIA_PART_BYTES, MEDIA_DRAFT_MS, MEDIA_CACHE, MEDIA_FORMATS, mediaDesignNote, mediaSentence, mediaLimits, mediaKindOf, isMediaName, draftKey, siteScope, draftScope, readStoredMeta, parseRange, mediaHeaders, etagMatches, handleMediaStart, handleMediaPart, handleMediaComplete, handleMediaAbort, pagesUsing, mediaBlock, mediaForModel } from "./site-media.mjs";
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
@@ -2898,7 +2899,9 @@ async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve
     // A FILE THIS SAME PURCHASE ALREADY STORED (`own`, its purchase ids:
     // bought beside the pages, or by the part's preparation) is one of these
     // photographs, never a second one in the way of them.
-    const room = Math.max(0, MAX_FILES_PER_SITE - objs.filter((o) => !(own && o && own.has(o.purchase))).length);
+    // THE PICTURES' AND DOCUMENTS' OWN ROOM (2026-10-14): video and audio have theirs.
+    const still = stillUploads(objs);
+    const room = Math.max(0, MAX_FILES_PER_SITE - still.filter((o) => !(own && o && own.has(o.purchase))).length);
     libraryRoom = room;
     if (room < affordable) affordable = room;
   } catch (e) { console.error("upload headroom check failed:", slug, e && e.name, e && e.message); }
@@ -8507,7 +8510,9 @@ async function readConverseContext(env, user, rb, digest) {
   const lib = Array.isArray(files)
     ? files.filter((f) => f && !f.visitor && typeof f.key === "string").map((f) => {
       const name = f.key.slice(("uploads/" + slug + "/").length);
-      return { url: uploadUrl(slug, name), name: f.download ? readDownloadName(f.download) || name : name, kind: uploadIsImage(name) ? "image" : "doc", size: f.size };
+      const kind = uploadKind(name) || "doc";
+      const media = kind === "video" || kind === "audio" ? { mime: MEDIA_FORMATS[name.split(".").pop()].mime, ...readStoredMeta(f.meta) } : {};
+      return { url: uploadUrl(slug, name), name: f.download ? readDownloadName(f.download) || name : name, kind, size: f.size, ...media };
     })
     : null;
   return { ...base, pages, tables, files: lib };
@@ -9880,6 +9885,12 @@ async function siteUploadList(env, slug) {
       out.push({
         key: o.key,
         size: o.size,
+        // WHAT IT IS, BY ITS NAME (2026-10-14, `uploadKind`): a picture, a
+        // document, a video or a recording — and a video's or a recording's
+        // stored report (`meta`: its length and frame size, as the owner's
+        // browser read them), for the listings and the models' context.
+        kind: uploadKind(uploadFileName(o.key)),
+        meta: o.customMetadata || {},
         visitor: !!(o.customMetadata && o.customMetadata.visitor),
         // The download name a document was stored under, still encoded — this is
         // transport, and `readDownloadName` is the one thing that decodes it.
@@ -9895,6 +9906,181 @@ async function siteUploadList(env, slug) {
     cursor = page.cursor;
   }
 }
+
+/** The pictures and documents of a listing — what their own limits count (2026-10-14). */
+const stillUploads = (objs) => (Array.isArray(objs) ? objs : []).filter((o) => !(o && (o.kind === "video" || o.kind === "audio")));
+/** A site's video and audio, as the models and the conversation are told them: address, kind, type, size, what the browser reported. */
+async function siteMediaFiles(env, slug) {
+  const objs = await siteUploadList(env, slug);
+  return objs.filter((o) => o && !o.visitor && (o.kind === "video" || o.kind === "audio")).map((o) => {
+    const name = uploadFileName(o.key);
+    return mediaForModel({ url: uploadUrl(slug, name), name, download: readDownloadName(o.download), kind: o.kind, mime: MEDIA_FORMATS[name.split(".").pop()].mime, size: o.size, ...readStoredMeta(o.meta) });
+  });
+}
+
+// ── VIDEO AND AUDIO: THE STORE'S HALF (2026-10-14) ─────────────────────────
+//
+// The R2 calls `site-media.mjs`'s handlers are given, for a site's library
+// (`site-<slug>`) and for an account's files kept before its site exists
+// (`draft-<uid>`). A session is a small JSON record beside the upload, read
+// back on every part — so a part can arrive at any Worker, after any
+// reconnect, and is checked against what was started. Expired sessions are
+// aborted and dropped as they are met; R2 also aborts an unfinished multipart
+// upload on its own after seven days.
+const MEDIA_SESSION_PREFIX = (scope) => "media-sessions/" + scope + "/";
+async function mediaSessions(env, scope) {
+  const out = [];
+  let cursor;
+  for (;;) {
+    const page = await env.SITES_BUCKET.list({ prefix: MEDIA_SESSION_PREFIX(scope), cursor });
+    for (const o of page.objects || []) {
+      try {
+        const got = await env.SITES_BUCKET.get(o.key);
+        const s = got ? JSON.parse(await got.text()) : null;
+        if (s && s.expires > Date.now()) out.push(s);
+        else if (s) {
+          try { await env.SITES_BUCKET.resumeMultipartUpload(s.key, s.uploadId).abort(); } catch { /* already gone */ }
+          await env.SITES_BUCKET.delete(o.key);
+        }
+      } catch { /* a record that will not read reserves nothing */ }
+    }
+    if (!page.truncated || !page.cursor) return out;
+    cursor = page.cursor;
+  }
+}
+/** A draft file (kept before a site exists): its key, size, kind and stored metadata; expired ones removed. */
+async function draftMediaList(env, uid) {
+  const out = [];
+  let cursor;
+  const prefix = "drafts/" + uid + "/";
+  for (;;) {
+    const page = await env.SITES_BUCKET.list({ prefix, cursor, include: ["customMetadata", "httpMetadata"] });
+    for (const o of page.objects || []) {
+      const name = o.key.slice(prefix.length);
+      const at = o.uploaded instanceof Date ? o.uploaded.getTime() : Date.parse(o.uploaded || "");
+      if (Number.isFinite(at) && at + MEDIA_DRAFT_MS < Date.now()) { try { await env.SITES_BUCKET.delete(o.key); } catch { /* next time */ } continue; }
+      if (!isMediaName(name)) continue;
+      const cm = o.customMetadata || {};
+      out.push({ key: o.key, name, size: o.size, kind: mediaKindOf(name.split(".").pop()), mime: MEDIA_FORMATS[name.split(".").pop()].mime, download: readDownloadName(cm.dl), ...readStoredMeta(cm) });
+    }
+    if (!page.truncated || !page.cursor) return out;
+    cursor = page.cursor;
+  }
+}
+function mediaDeps(env, { scope, gate, draftUid = null, slug = "" }) {
+  const B = env.SITES_BUCKET;
+  return {
+    gate,
+    now: () => Date.now(),
+    random: () => [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join(""),
+    objectKey: (sc, name) => (draftUid ? draftKey(draftUid, name) : uploadKey(slug, name)),
+    urlOf: (sc, name) => (draftUid ? "" : uploadUrl(slug, name)),
+    used: async () => {
+      const list = draftUid ? await draftMediaList(env, draftUid) : (await siteUploadList(env, slug)).filter((f) => !f.visitor && f.kind && (f.kind === "video" || f.kind === "audio"));
+      return { files: list.length, bytes: list.reduce((n, f) => n + (Number(f.size) || 0), 0) };
+    },
+    sessions: (sc) => mediaSessions(env, sc),
+    exists: async (key) => {
+      const h = await B.head(key);
+      if (!h) return null;
+      return { size: h.size, kind: mediaKindOf(key.split(".").pop()) };
+    },
+    create: async (key, { mime, meta }) => (await B.createMultipartUpload(key, { httpMetadata: { contentType: mime }, customMetadata: meta })).uploadId,
+    uploadPart: (key, uploadId, n, bytes) => B.resumeMultipartUpload(key, uploadId).uploadPart(n, bytes),
+    complete: async (key, uploadId, parts) => {
+      const o = await B.resumeMultipartUpload(key, uploadId).complete(parts);
+      return { size: o && o.size };
+    },
+    abort: (key, uploadId) => B.resumeMultipartUpload(key, uploadId).abort(),
+    saveSession: (sc, s) => B.put(MEDIA_SESSION_PREFIX(sc) + s.sid + ".json", JSON.stringify(s), { httpMetadata: { contentType: "application/json" } }),
+    loadSession: async (sc, sid) => {
+      const got = await B.get(MEDIA_SESSION_PREFIX(sc) + sid + ".json");
+      if (!got) return null;
+      try { return JSON.parse(await got.text()); } catch { return null; }
+    },
+    dropSession: (sc, sid) => B.delete(MEDIA_SESSION_PREFIX(sc) + sid + ".json"),
+  };
+}
+/**
+ * One media route — start, a part, complete, or abort — for a scope, read off
+ * the request. A part's body is read only within `MEDIA_PART_BYTES` (refused
+ * on its declared length first): nothing larger is ever held.
+ */
+async function mediaRoute(env, request, deps, { scope, sid, step, draft = false }) {
+  const limits = mediaLimits(env);
+  if (!sid && request.method === "POST") {
+    const rd = await readJsonBody(request, { max: 8000 });
+    if (!rd.ok) return { status: rd.status, body: { error: rd.error, code: rd.code } };
+    const b = rd.body;
+    return handleMediaStart(deps, { scope, limits, name: b.name, size: b.size, type: b.type, replace: b.replace, meta: b.meta, draft });
+  }
+  if (sid && /^\d{1,5}$/.test(step || "") && request.method === "PUT") {
+    const cl = Number(request.headers.get("content-length") || 0);
+    if (!cl || cl > MEDIA_PART_BYTES) return { status: 413, body: { error: "a part is at most " + MEDIA_PART_BYTES + " bytes", code: "too_big" } };
+    const buf = await request.arrayBuffer();
+    if (buf.byteLength > MEDIA_PART_BYTES) return { status: 413, body: { error: "a part is at most " + MEDIA_PART_BYTES + " bytes", code: "too_big" } };
+    return handleMediaPart(deps, { scope, sid, n: Number(step), bytes: new Uint8Array(buf) });
+  }
+  if (sid && step === "complete" && request.method === "POST") {
+    const rd = await readJsonBody(request, { max: 200_000 });
+    if (!rd.ok) return { status: rd.status, body: { error: rd.error, code: rd.code } };
+    return handleMediaComplete(deps, { scope, sid, parts: Array.isArray(rd.body.parts) ? rd.body.parts : null });
+  }
+  if (sid && !step && request.method === "DELETE") return handleMediaAbort(deps, { scope, sid });
+  return { status: 405, body: { error: "method not allowed" } };
+}
+
+/**
+ * THE DRAFT FILES A BUILD'S MESSAGE NAMES, for that account only (2026-10-14):
+ * `{ files, missing }` — each name read strictly (a media name this account
+ * holds, at most `draftFiles` of them), and a name it does not hold said as
+ * missing, never looked for anywhere else.
+ */
+async function draftMediaFor(env, uid, names) {
+  const want = (Array.isArray(names) ? names : []).filter((n) => typeof n === "string").map((n) => n.toLowerCase()).slice(0, mediaLimits(env).draftFiles);
+  if (!want.length || !uid || !env.SITES_BUCKET) return { files: [], missing: [] };
+  let have = [];
+  try { have = await draftMediaList(env, String(uid)); } catch (e) { console.error("draft media read:", errorClassForLog(e)); return { files: [], missing: want.map((n) => ({ name: n, why: "it could not be read just now" })) }; }
+  const files = [], missing = [];
+  for (const n of [...new Set(want)]) {
+    const f = isMediaName(n) ? have.find((h) => h.name === n) : null;
+    if (f) files.push(f); else missing.push({ name: n, why: "it was no longer kept" });
+  }
+  return { files, missing };
+}
+/**
+ * MOVED INTO THE SITE'S LIBRARY, once the build holds the address (2026-10-14):
+ * each draft copied to `uploads/<slug>/<same name>` with its type and its
+ * metadata, streamed (never held whole), within the site's media limits, and
+ * only then removed from the drafts. What could not be moved is said, with why.
+ */
+async function adoptDraftMedia(env, uid, slug, files) {
+  const lim = mediaLimits(env);
+  const placed = [], missing = [];
+  let used = { files: 0, bytes: 0 };
+  try {
+    const now = (await siteUploadList(env, slug)).filter((o) => !o.visitor && (o.kind === "video" || o.kind === "audio"));
+    used = { files: now.length, bytes: now.reduce((n, o) => n + (Number(o.size) || 0), 0) };
+  } catch (e) { console.error("site media read:", slug, errorClassForLog(e)); }
+  for (const f of files) {
+    if (used.files + 1 > lim.siteFiles || used.bytes + f.size > lim.siteBytes) { missing.push({ name: f.download || f.name, why: "the site's video and audio storage is full" }); continue; }
+    try {
+      const src = await env.SITES_BUCKET.get(f.key);
+      if (!src) { missing.push({ name: f.download || f.name, why: "it was no longer kept" }); continue; }
+      const FLS = globalThis.FixedLengthStream;
+      const body = typeof FLS === "function" ? src.body.pipeThrough(new FLS(src.size)) : src.body;
+      await env.SITES_BUCKET.put(uploadKey(slug, f.name), body, { httpMetadata: src.httpMetadata, customMetadata: src.customMetadata });
+      try { await env.SITES_BUCKET.delete(f.key); } catch { /* the draft expires on its own */ }
+      used = { files: used.files + 1, bytes: used.bytes + f.size };
+      placed.push(mediaForModel({ url: uploadUrl(slug, f.name), name: f.name, download: f.download, kind: f.kind, mime: f.mime, size: f.size, duration: f.duration, width: f.width, height: f.height }));
+    } catch (e) {
+      console.error("draft media move:", slug, errorClassForLog(e));
+      missing.push({ name: f.download || f.name, why: "it could not be moved just now" });
+    }
+  }
+  return { placed, missing };
+}
+
 
 /**
  * DOES `/u/<slug>/<file>` REALLY SERVE BYTES — `true`, `false`, or `null` for
@@ -13929,7 +14115,7 @@ async function siteOgImage(env, slug, dist) {
       if (cfg.ok) chosen = cfg.config.share || "";
     } catch (e) { /* an unreadable config is no choice, never no image */ }
     if (chosen) {
-      const hit = objs.find((o) => o && !o.visitor && o.key.split("/").pop() === chosen);
+      const hit = objs.find((o) => o && !o.visitor && o.key.split("/").pop() === chosen && uploadIsImage(chosen));
       if (hit) return siteOrigin(slug, "https://" + APP_ZONE) + "/u/" + slug + "/" + chosen;
     }
     // OWNER UPLOADS NEXT — a person's own picture beats the composed card,
@@ -13940,7 +14126,9 @@ async function siteOgImage(env, slug, dist) {
     // preview image on the next publish (2026-08-13 audit). A visitor's
     // upload must not beat the composed card either — the card degrades to
     // OUR OWN artwork now, never to an uncurated stranger's.
-    const first = objs.find((o) => o && !o.visitor);
+    // A PICTURE, NEVER A VIDEO, A RECORDING OR A DOCUMENT (2026-10-14): an
+    // og:image that is not an image renders nothing in a chat app's card.
+    const first = objs.find((o) => o && !o.visitor && uploadIsImage(o.key.split("/").pop()));
     if (!first) return card;
     return siteOrigin(slug, "https://" + APP_ZONE) + "/u/" + slug + "/" + first.key.split("/").pop();
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return card; }
@@ -13954,7 +14142,10 @@ async function siteOgImage(env, slug, dist) {
 // on. `packResume` has stored the two side by side since the day it was written,
 // which is the tell: a bearer token has no `.id`, so anything that asks `auth`
 // for one gets `undefined` and never says so. See the band door below.
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid = "", siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, priorParts = null, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null, resumeFanout = false, picker = null, models = null, billRef = null, jobId = null, assertLease = null, attachmentIds = null }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid = "", siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, priorParts = null, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null, resumeFanout = false, picker = null, models = null, billRef = null, jobId = null, assertLease = null, attachmentIds = null, media = null }) {
+  // `media` (2026-10-14): the owner's video and audio, by address, for the
+  // page writers (`briefWithLayout`) — and on the build's args, so a resumed
+  // build is shown the same files.
   // `attachmentIds` IS CARRIED, NOT READ HERE (2026-10-08): the ids the plan's
   // `attached` entries already name, on the build's args so the resume record
   // and its kept files keep them for a refire. Named so the key is accounted for.
@@ -14343,7 +14534,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
               // THE SAME COMPOSED BRIEF THE ONE CALL GETS, off the one composer,
               // so the layout, the images, the QR bindings and the 3D scene
               // reach a band through the hop the single path already uses.
-              brief: briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief }),
+              brief: briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief, media }),
               spec, brand, attachments, model, kind: plan && plan.kind,
               route: planned[0], chrome: chromeFor(plan, brand, siteDescription), lines: bandLines,
               // AND THE DECLARATIONS THEMSELVES, not only the brief's copy of
@@ -14419,7 +14610,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         // zero imports across the 100-site corpus. Only this call site knows it;
         // the edit and addon rungs pass no plan, and their `kind: ""` keeps the
         // catalogue, which is the safe direction.
-        return await generateSitePages(env, briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief }), spec, brand, attachments, model, priorPages, undefined, undefined, budget, call, plan && plan.kind);
+        return await generateSitePages(env, briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief, media }), spec, brand, attachments, model, priorPages, undefined, undefined, budget, call, plan && plan.kind);
       } catch (e) {
         // THE SENTINEL IS READ BEFORE ANY FAILURE HANDLING, which is not
         // tidiness: `retryHere` would read this as a failure that spent nothing
@@ -21582,6 +21773,11 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // in practice, and for why the third pile has to be reported rather than
       // dropped.
       const attached = attachments(body.images);
+      // AND THE VIDEO AND AUDIO SENT BEFORE THE SITE EXISTED (2026-10-14),
+      // named by the message (`media`) and held for this account: the
+      // designer is told their names and kinds; they move into the site's
+      // library once its address is claimed (`adoptDraftMedia`, below).
+      const bDrafts = await draftMediaFor(env, bu && bu.id, body.media);
 
       // READING THE LINKS IN THE BRIEF. No model call, so no CREDIT gate: if
       // there is a URL in there, somebody meant us to look at it.
@@ -21647,7 +21843,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // designer asked to tie a picture to a file has to be able to say which,
       // and a name — shared, or cut to a common prefix — cannot. The list is
       // the one `attachments()` built from what really reached the model.
-      const designBrief = briefWithLinks + attachedFilesNote(attached.named);
+      const designBrief = briefWithLinks + attachedFilesNote(attached.named) + mediaDesignNote(bDrafts.files);
 
       // A brief means "design the schema"; an explicit schema skips the model.
       let designed = null, seedUsage = null, seedTopUp = null;
@@ -22910,6 +23106,11 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         merged.images = ownPhotos.images;
         if (ownPhotos.placed.length || ownPhotos.missing.length) tr.at("ownphotos", { placed: ownPhotos.placed.length, missing: ownPhotos.missing.length });
       }
+      // THE OWNER'S VIDEO AND AUDIO MOVE IN (2026-10-14), now that the address
+      // is this account's: the drafts the message named, into the library.
+      const bMedia = bDrafts.files.length ? await adoptDraftMedia(env, bu.id, slug, bDrafts.files) : { placed: [], missing: [] };
+      bMedia.missing.push(...bDrafts.missing);
+      if (bMedia.placed.length || bMedia.missing.length) tr.at("media", { placed: bMedia.placed.length, missing: bMedia.missing.length });
       const look = merged;
       // WRITTEN ON EVERY BUILD, not only the first.
       //
@@ -23149,6 +23350,9 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
               files: attached.texts,
             }),
             spec: pageSpec, slug, brand,
+            // THE SITE'S VIDEO AND AUDIO, BY ADDRESS (2026-10-14): what moved in
+            // just now and what the library already held, for the page writers.
+            media: (await withinMs(siteMediaFiles(env, slug), CONVERSE_READ_MS, "build media:", slug)) || bMedia.placed,
             // THE BUILD'S OWN LEDGER REF (stage 1c), so the pages debit lands
             // under `<billRef>:pages` — and, because this object is what the
             // resume record stores, so a resumed build debits under the SAME
@@ -23744,8 +23948,10 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // sentence built there would be a second copy of this logic that drifts
         // — and the direction it drifts in is a build that read nothing while
         // still claiming it did. One function, one answer, rendered verbatim.
-        contextNote: [contextSentence(context), ownPhotoSentence(ownPhotoFacts(ownPhotos), { state: pages.page === "app" ? "published" : pages.stage === "resuming" ? "pending" : "stopped" })].filter(Boolean).join(" ") || undefined,
+        contextNote: [contextSentence(context), ownPhotoSentence(ownPhotoFacts(ownPhotos), { state: pages.page === "app" ? "published" : pages.stage === "resuming" ? "pending" : "stopped" }), mediaSentence(bMedia)].filter(Boolean).join(" ") || undefined,
         ownPhotos: ownPhotoFacts(ownPhotos),
+        // WHAT BECAME OF THE VIDEO AND AUDIO (2026-10-14): moved in, by address, or not, with why.
+        media: bMedia.placed.length || bMedia.missing.length ? { placed: bMedia.placed.map((f) => ({ name: f.name, url: f.url, kind: f.kind })), missing: bMedia.missing } : undefined,
         page: pages.page, files: pages.files, notes: pages.notes || undefined,
         problems: pages.problems.length ? pages.problems : undefined,
         // THE PHOTOGRAPHS, and this field is how "no pictures" stops being
@@ -24599,19 +24805,45 @@ async function handleRequest(request, env, ctx) {
     // served inline is rendered by the browser's own viewer on this origin
     // rather than saved, which is not what a download button means.
     {
+      // ── AND PLAYED, AND SOUGHT (2026-10-14, video and audio) ──────────────
+      // A browser plays a video by asking for byte ranges and seeks by asking
+      // for another, so every file here answers `HEAD`, `Accept-Ranges`, one
+      // range as `206` with its `Content-Range` (`416` past the end), an
+      // `ETag`, and `304` to an `If-None-Match` that names it. Read in two
+      // steps — the object's head, then only the bytes asked for — so a seek
+      // into a long video never reads the rest of it. A picture or a document
+      // keeps its year-long immutable cache (its name is its content); a
+      // video or a recording, which can be replaced at the same address, is
+      // cached briefly and revalidated (`MEDIA_CACHE`).
       const um = url.pathname.match(UPLOAD_URL_PATH);
+      if (um && env.SITES_BUCKET && request.method !== "GET" && request.method !== "HEAD") {
+        return new Response("Method not allowed", { status: 405, headers: { allow: "GET, HEAD" } });
+      }
       if (um && env.SITES_BUCKET) {
-        const obj = await env.SITES_BUCKET.get("uploads/" + um[1].toLowerCase() + "/" + um[2]);
+        const key = "uploads/" + um[1].toLowerCase() + "/" + um[2];
+        const head = await env.SITES_BUCKET.head(key);
+        if (!head) return new Response("Not found", { status: 404 });
+        const ct = (head.httpMetadata && head.httpMetadata.contentType) || "application/octet-stream";
+        const media = !!mediaKindOf(um[2].toLowerCase().split(".").pop());
+        const etag = head.httpEtag || (head.etag ? '"' + head.etag + '"' : "");
+        const base = {
+          mime: ct, size: head.size, etag,
+          cache: media ? MEDIA_CACHE : "public, max-age=31536000, immutable",
+          disposition: dispositionFor(ct, readDownloadName(head.customMetadata && head.customMetadata[DOWNLOAD_NAME_KEY])),
+        };
+        if (etagMatches(request.headers.get("if-none-match"), etag)) {
+          const h = mediaHeaders(base);
+          delete h["content-length"];
+          return new Response(null, { status: 304, headers: h });
+        }
+        const range = parseRange(request.headers.get("range"), head.size);
+        if (range === "unsatisfiable") {
+          return new Response(null, { status: 416, headers: { "content-range": "bytes */" + head.size, "accept-ranges": "bytes", "cache-control": base.cache } });
+        }
+        if (request.method === "HEAD") return new Response(null, { status: 200, headers: mediaHeaders(base) });
+        const obj = await env.SITES_BUCKET.get(key, range ? { range: { offset: range.offset, length: range.length } } : undefined);
         if (!obj) return new Response("Not found", { status: 404 });
-        const ct = (obj.httpMetadata && obj.httpMetadata.contentType) || "application/octet-stream";
-        return new Response(obj.body, {
-          headers: {
-            "content-type": ct,
-            "cache-control": "public, max-age=31536000, immutable",
-            "content-disposition": dispositionFor(ct, readDownloadName(obj.customMetadata && obj.customMetadata[DOWNLOAD_NAME_KEY])),
-            "x-content-type-options": "nosniff",
-          },
-        });
+        return new Response(obj.body, { status: range ? 206 : 200, headers: mediaHeaders({ ...base, range }) });
       }
       if (um) return new Response("Not found", { status: 404 });
     }
@@ -28262,6 +28494,37 @@ async function handleRequest(request, env, ctx) {
     // to the branches below. The site-delete branch is no longer at risk from
     // that (it once matched any DELETE under /api/site/ and now matches exactly
     // /api/site/<slug>, no deeper), so ordering no longer decides anything.
+    // ── VIDEO AND AUDIO BEFORE A SITE EXISTS (2026-10-14) ───────────────────
+    //
+    // A file attached to a first build has no site to belong to yet, so it is
+    // kept for the account that sent it (`drafts/<uid>/`, never served), with
+    // the same upload in parts as a site's library, its own small allowance
+    // (`draftFiles`) and a lifetime (`MEDIA_DRAFT_MS`). The build that claims
+    // the site's address moves the ones its message names into the site's
+    // library (`adoptDraftMedia`). Signed in, and only ever the caller's own.
+    {
+      const dr = url.pathname.match(/^\/api\/media\/drafts(?:\/([a-f0-9]{32})(?:\/(\d{1,5}|complete))?|\/file\/([a-f0-9]{32}\.[a-z0-9]{2,5}))?$/i);
+      if (dr) {
+        const du = await authUser(request, env);
+        if (!du) return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
+        if (!env.SITES_BUCKET) return Response.json({ error: "storage not configured" }, { status: 501 });
+        const uid = String(du.id);
+        if (dr[3]) {
+          if (request.method !== "DELETE" || !isMediaName(dr[3].toLowerCase())) return Response.json({ error: "no such file" }, { status: 404 });
+          await env.SITES_BUCKET.delete(draftKey(uid, dr[3].toLowerCase()));
+          return Response.json({ ok: true });
+        }
+        if (!dr[1] && request.method === "GET") {
+          const lim = mediaLimits(env);
+          const files = (await draftMediaList(env, uid)).map((f) => ({ name: f.name, kind: f.kind, mime: f.mime, size: f.size, ...(f.download ? { download: f.download } : {}), ...(f.duration ? { duration: f.duration } : {}), ...(f.width ? { width: f.width, height: f.height } : {}) }));
+          return Response.json({ files, maxCount: lim.draftFiles });
+        }
+        const ddeps = mediaDeps(env, { scope: draftScope(uid), draftUid: uid, gate: async () => ({}) });
+        const dres = await mediaRoute(env, request, ddeps, { scope: draftScope(uid), sid: dr[1] ? dr[1].toLowerCase() : "", step: dr[2] ? dr[2].toLowerCase() : "", draft: true });
+        return Response.json(dres.body, { status: dres.status });
+      }
+    }
+
     if (url.pathname.startsWith("/api/site/")) {
       const om = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/rows(?:\/([a-z_][a-z0-9_]{0,40})(?:\/([0-9]{1,18}))?)?$/i);
       // A CSV file into one table (owner, 2026-09-03). Its own matcher because
@@ -28272,6 +28535,10 @@ async function handleRequest(request, env, ctx) {
       const mm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/members(?:\/([0-9a-f-]{36}))?$/i);
       const an = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/analytics$/i);
       const uf = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/uploads(?:\/([A-Za-z0-9._-]{1,80}))?$/i);
+      // VIDEO AND AUDIO, IN PARTS (2026-10-14): start (POST), a part (PUT
+      // .../<session>/<n>), finish (POST .../<session>/complete), give up
+      // (DELETE .../<session>) — `site-media.mjs`.
+      const mdr = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/media(?:\/([a-f0-9]{32})(?:\/(\d{1,5}|complete))?)?$/i);
       const xp = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/export$/i);
       const nt = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/notify$/i);
       // Off the web and back, at the same address. The panel had an Unpublish
@@ -28369,10 +28636,10 @@ async function handleRequest(request, env, ctx) {
       // so from outside the two are indistinguishable — which is how this
       // survived a live probe until the dispatch was read.
       // `test/api-auth.test.mjs` holds the list against the matchers now.
-      if (om || im || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || qu) {
+      if (om || im || mm || an || uf || mdr || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || qu) {
         // THE SLUG IS RESOLVED FIRST, because the replay identity below is scoped
         // to it. Nothing about deriving it depends on who is asking.
-        const ownerSlug = (om || im || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || qu)[1].toLowerCase();
+        const ownerSlug = (om || im || mm || an || uf || mdr || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || qu)[1].toLowerCase();
         // ── A QUEUED EDIT'S OWN REPLAY HAS NO BEARER TOKEN ──────────────────
         //
         // The consumer replays the customer's request minutes after they made
@@ -31289,7 +31556,10 @@ async function handleRequest(request, env, ctx) {
                   // listing is the one its first attempt was asked with.
                   const ownPart = eJob && eJob.purchase && eJob.purchase.part ? eJob.purchase.part : eJob && eJob.prepare === true && eJob.rec && eJob.rec.part ? eJob.rec.part : null;
                   const mine = ownPart ? await partPurchases(env, ownPart) : new Set();
+                  // PICTURES ONLY (2026-10-14): a video, a recording or a
+                  // document is never offered as a picture to place.
                   return (await siteUploadList(env, ownerSlug))
+                    .filter((o) => o && uploadIsImage(uploadFileName(o.key)))
                     .map((o) => ({ name: uploadFileName(o.key), url: uploadUrl(ownerSlug, uploadFileName(o.key)), purchase: o.purchase }))
                     // A PICTURE THIS PART'S PREPARATION BOUGHT is not yet the
                     // owner's library (2026-10-08): it is placed by this job.
@@ -32937,8 +33207,12 @@ async function handleRequest(request, env, ctx) {
                 // not know a component's import path, that `SITE_QR` exists, or
                 // that the canvas is deliberate. Read from the stored look, the
                 // same fields the build read from the design.
+                // THE OWNER'S VIDEO AND AUDIO (2026-10-14), by address — read
+                // for this site, and none when the library cannot be read.
+                const eMedia = (await withinMs(siteMediaFiles(env, ownerSlug), CONVERSE_READ_MS, "edit media:", ownerSlug)) || [];
                 eGen = await generateSitePages(env, briefWithLayout({
                   brief: eInstruction,
+                  media: eMedia,
                   // ── THE BUDGET IS STILL ZERO; THE SENTENCE IS NO LONGER A
                   //    CLAIM ABOUT THE SITE ────────────────────────────────
                   //
@@ -37612,7 +37886,7 @@ async function handleRequest(request, env, ctx) {
               })));
               try {
                 const objs = await siteUploadList(env, ownerSlug);
-                aRoom = Math.max(0, MAX_FILES_PER_SITE - objs.filter((o) => !aOwnIds.has(o.purchase)).length);
+                aRoom = Math.max(0, MAX_FILES_PER_SITE - stillUploads(objs).filter((o) => !aOwnIds.has(o.purchase)).length);
               } catch { aRoom = null; }
             }
             const aEarlyOk = !!aEarlyPart && aShots.length > 0 && aRoom !== null && aRoom >= aShots.length && photoWait(aJob && aJob.budget).buy;
@@ -37692,8 +37966,11 @@ async function handleRequest(request, env, ctx) {
               if (aPrep && aJob.designOnly === true) return aPrepStop();
               // THE WRITER SHOWN ONLY THE PART'S PAGES (not widened) is a scoped call too.
               if (aWriterScoped) noteSeen(aJob, "scope");
+              // THE OWNER'S VIDEO AND AUDIO (2026-10-14), by address.
+              const aMedia = (await withinMs(siteMediaFiles(env, ownerSlug), CONVERSE_READ_MS, "addon media:", ownerSlug)) || [];
               aGen = await generateSitePages(env, briefWithLayout({
                 brief: aInstruction + (aFold.directive ? "\n\n" + aFold.directive : ""),
+                media: aMedia,
                 plan: aPlanComponents.length ? { components: aPlanComponents } : null,
                 // ── THE BUDGET IS STILL ZERO; THE SENTENCE IS NO LONGER A
                 // CLAIM ABOUT THE SITE (2026-09-17) ──────────────────────────
@@ -40801,7 +41078,25 @@ async function handleRequest(request, env, ctx) {
               remove: (key) => env.SITES_BUCKET.delete(key),
             };
             if (!env.SITES_BUCKET) return Response.json({ error: "storage not configured" }, { status: 501 });
-            if (request.method === "GET" && !uf[2]) r = await handleUploadList(udeps, { slug: uslug, uid: ou.id });
+            if (request.method === "GET" && !uf[2]) r = await handleUploadList({ ...udeps, mediaLimits: mediaLimits(env) }, { slug: uslug, uid: ou.id });
+            else if (request.method === "DELETE" && uf[2] && isMediaName(uf[2].toLowerCase()) && url.searchParams.get("force") !== "1") {
+              // ── A VIDEO OR A RECORDING A PAGE PLAYS IS NOT DELETED UNASKED
+              //    (2026-10-14) ──────────────────────────────────────────────
+              // Its address is in a page's source: the player there would go
+              // silent. The pages are named and nothing is deleted; the owner
+              // confirms (`force=1`) and it goes. Ownership first, as every
+              // read here; a source that cannot be read is no use found, and the
+              // panel's own confirmation still stands in front of it.
+              const g = await assertOwner(ownerDeps, uslug, ou.id);
+              if (g && g.error) r = g.error;
+              else {
+                const pages = await loadSiteSource(env, uslug).catch(() => null);
+                const using = pagesUsing(pages, uslug, uf[2].toLowerCase()).map((p) => routeOf(p)).filter(Boolean);
+                r = using.length
+                  ? { status: 409, body: { error: "a page plays this file", code: "in_use", pages: using } }
+                  : await handleUploadDelete(udeps, { slug: uslug, uid: ou.id, file: uf[2] });
+              }
+            }
             else if (request.method === "DELETE" && uf[2]) r = await handleUploadDelete(udeps, { slug: uslug, uid: ou.id, file: uf[2] });
             else if (request.method === "POST" && !uf[2]) {
               // Raw bytes, not base64 and not multipart: base64 inflates a photo
@@ -40825,6 +41120,16 @@ async function handleRequest(request, env, ctx) {
                 filename: url.searchParams.get("name") || "",
               });
             } else return Response.json({ error: "method not allowed" }, { status: 405 });
+          } else if (mdr) {
+            if (!env.SITES_BUCKET) return Response.json({ error: "storage not configured" }, { status: 501 });
+            const mslug = mdr[1].toLowerCase();
+            // THE SITE OWNER'S GATE, on every step: a session belongs to its
+            // site's scope, and nobody but that site's owner reaches it.
+            const mdeps = mediaDeps(env, { scope: siteScope(mslug), slug: mslug, gate: async () => {
+              const g = await assertOwner(ownerDeps, mslug, ou.id);
+              return g && g.error ? g : {};
+            } });
+            r = await mediaRoute(env, request, mdeps, { scope: siteScope(mslug), sid: mdr[2] ? mdr[2].toLowerCase() : "", step: mdr[3] ? mdr[3].toLowerCase() : "" });
           } else if (an) {
             if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
             r = await handleOwnerAnalytics(ownerDeps, { slug: an[1].toLowerCase(), uid: ou.id });

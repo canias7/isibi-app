@@ -9709,3 +9709,25 @@ test("a new page placed on one page — a button there — is the page writer's 
   // THE WRITER HERE RETURNED ONLY THE NEW PAGE, so nothing links to it — and the customer is told so.
   assert.deepEqual(r.body.unlinked, ["/classes"]);
 });
+
+// ── THE OWNER'S VIDEO AND AUDIO, BY ADDRESS (2026-10-14) ────────────────────
+//
+// An add-on's page writer is shown the library's video and audio — each
+// file's address, its kind, type and size — and told nobody has watched or
+// listened to them; a video is never offered as a photograph to reuse.
+test("the add-on page writer is given the owner's video by address, and never offered it as a photograph", async () => {
+  const VID = "b".repeat(32) + ".mp4";
+  const r = await photoAsk("fw-media", {
+    kinds: ["page"], storedPages: [photoHome("fw-media")], uploads: ["a1b2c3d4.jpg", VID],
+    written: [galleryWith('<video src="/u/fw-media/' + VID + '" controls playsInline preload="metadata" />'), photoHome("fw-media")],
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const flat = pagePrompt(r).text.replace(/\\n/g, " ").replace(/\\"/g, '"');
+  assert.match(flat, /THE OWNER'S VIDEO AND AUDIO FILES — uploaded by the owner and hosted on the site/, "the writer was not told about the owner's video");
+  assert.ok(flat.includes("/u/fw-media/" + VID + " (MP4 video"), "the video's address and kind are not in the writer's brief");
+  assert.match(flat, /Nobody has watched or listened to these files/);
+  const clause = (flat.match(/This site already shows[^]*?will be emptied\./) || [""])[0];
+  assert.equal(clause.includes(VID), false, "the video was offered as a photograph to reuse");
+  const gal = compiledPages(r).find((f) => /gallery/.test(f.path));
+  assert.ok(gal && gal.source.includes('src="/u/fw-media/' + VID + '"'), "the site's own video was emptied from the page that plays it");
+});

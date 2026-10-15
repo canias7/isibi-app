@@ -483,8 +483,13 @@ test("IMAGE_EXTS is exactly what the sniffer mints as a picture, derived and not
   // It is wrong for a caller holding a url a MODEL wrote: measured,
   // `uploadIsImage("interview.mp3")` is TRUE. So `shownPhotos` needed the
   // positive form, and this asserts the derivation rather than the value.
-  assert.ok(uploadIsImage("interview.mp3"),
-    "the negative reader stopped admitting an mp3 — the reason IMAGE_EXTS exists has changed");
+  // TURNED POSITIVE 2026-10-14 (video and audio hosting): `uploadIsImage` now
+  // reads `uploadKind`, so an mp3 — which the library really stores now — is
+  // not a picture, and an unknown name is not one either. The positive set
+  // below is still derived, and still the same four.
+  assert.equal(uploadIsImage("interview.mp3"), false, "a recording is read as a picture");
+  assert.equal(uploadIsImage("clip.mp4"), false, "a video is read as a picture");
+  assert.equal(uploadIsImage("whatever.xyz"), false, "a name nothing mints is read as a picture");
 
   // ── THE CENSUS, BOTH WAYS ROUND, AGAINST THE SNIFFER ITSELF ──────────────
   //

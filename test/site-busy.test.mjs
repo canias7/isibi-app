@@ -697,7 +697,13 @@ test("the editable copy: four editing readers read through the repairing reader,
   // A message the router answered as conversation is shown the pages' own
   // words (`readConverseContext`). It only reads them for a reply: it never
   // publishes and never opens a page for an edit.
-  assert.equal(bare.length, 9, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
+  //
+  // RE-ANCHORED 2026-10-14 — 9 → 10, AND THE TENTH IS A MEDIA DELETE'S CHECK.
+  // Deleting a video or a recording first reads which pages name its address
+  // (`pagesUsing`), to say so before anything is deleted. It only reads: it
+  // never publishes and never opens a page for an edit.
+  assert.equal(bare.length, 10, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
+  assert.ok(W.includes("const pages = await loadSiteSource(env, uslug).catch(() => null);"), "the media delete's read is gone, or does more than read which pages name a file");
   assert.ok(W.includes("withinMs(loadSiteSource(env, slug), CONVERSE_READ_MS, \"converse pages:\", slug)"), "the conversation's read is gone, or does more than read the pages for a reply");
   assert.ok(W.includes("loadSiteSource(env, slug).then((pp) => pageLabels("), "the request's label read is gone, or does more than read labels");
   assert.ok(bare.includes("readSiteSource(env, sslug)"), "the Code tab's read is gone, or no longer bare");

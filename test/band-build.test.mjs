@@ -254,7 +254,8 @@ test("the fan-out and the single call share one caller, one budget and one senti
     "the two callers are built more than once — a second copy of the fire is a second thing to keep in step");
   // THE SAME COMPOSED BRIEF. A band that got a different brief would be written
   // for a different site's layout, images and bindings.
-  const composed = (blk.match(/briefWithLayout\(\{ brief, plan, tsx, gif, qr, three, images: imgBrief \}\)/g) || []).length;
+  // (2026-10-14: and the owner's video and audio, `media`.)
+  const composed = (blk.match(/briefWithLayout\(\{ brief, plan, tsx, gif, qr, three, images: imgBrief, media \}\)/g) || []).length;
   assert.equal(composed, 1, "the fan-out no longer gets the one composer's brief");
   assert.ok(/brief: briefWithLayout\(/.test(blk), "the fan-out's brief is not the composed one");
 });

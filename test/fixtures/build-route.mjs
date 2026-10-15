@@ -36,7 +36,9 @@ export function buildBucket(entries = {}, hooks = {}) {
   const meta = new Map();
   let n = 0;
   const tag = (k) => { if (!etags.has(k)) etags.set(k, "e" + (++n)); return etags.get(k); };
-  const obj = (k, v) => ({ key: k, etag: tag(k), text: async () => v, json: async () => JSON.parse(v), arrayBuffer: async () => new TextEncoder().encode(v).buffer });
+  // A BODY, A SIZE AND ITS METADATA TOO (2026-10-14): a draft video is moved
+  // into a site's library as a stream, with its type and its metadata.
+  const obj = (k, v) => ({ key: k, etag: tag(k), size: new TextEncoder().encode(v).length, body: new Response(v).body, ...(meta.has(k) ? { customMetadata: meta.get(k) } : {}), text: async () => v, json: async () => JSON.parse(v), arrayBuffer: async () => new TextEncoder().encode(v).buffer });
   return {
     store,
     async get(k) { const v = store.get(k); return v === undefined ? null : obj(k, v); },
@@ -45,7 +47,7 @@ export function buildBucket(entries = {}, hooks = {}) {
       const c = opts && opts.onlyIf;
       if (c && c.etagDoesNotMatch === "*" && store.has(k)) return null;
       if (c && typeof c.etagMatches === "string" && (!store.has(k) || tag(k) !== c.etagMatches)) return null;
-      store.set(k, typeof v === "string" ? v : v instanceof Uint8Array ? "bytes:" + v.length : String(v));
+      store.set(k, typeof v === "string" ? v : v instanceof Uint8Array ? "bytes:" + v.length : v && typeof v.getReader === "function" ? await new Response(v).text() : String(v));
       etags.set(k, "e" + (++n));
       // ITS CUSTOM METADATA KEPT, as R2 keeps it (2026-10-09, round 3).
       if (opts && opts.customMetadata) meta.set(k, opts.customMetadata); else meta.delete(k);
@@ -70,7 +72,8 @@ export function buildBucket(entries = {}, hooks = {}) {
  * overrides any RPC answer by name (a function gets the args). Returns what
  * the route answered and everything it was seen doing.
  */
-export async function driveBuild({ design, body, ledger = {}, usage = { input_tokens: 100, output_tokens: 50 }, env: extraEnv = {}, onFetch = null } = {}) {
+// `stored` (2026-10-14) seeds the bucket — a draft video kept for the account, say.
+export async function driveBuild({ design, body, ledger = {}, usage = { input_tokens: 100, output_tokens: 50 }, env: extraEnv = {}, onFetch = null, stored = {} } = {}) {
   const seen = { tools: [], designer: [], rpc: [], neon: 0 };
   let claimed = false;
   globalThis.fetch = async (input, init) => {
@@ -127,7 +130,7 @@ export async function driveBuild({ design, body, ledger = {}, usage = { input_to
     return new Response("not stubbed", { status: 503 });
   };
   const c = installCompiler();
-  const store = buildBucket();
+  const store = buildBucket(stored);
   try {
     const worker = await loadWorker();
     const req = new Request("https://gofarther.dev/api/site/react-build", {
