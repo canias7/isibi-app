@@ -1,5 +1,70 @@
 # Owner Notes
 
+## Readiness of the combined candidate: ready for review, held; not clear to merge while help-needed's presses run (2026-10-15, read 13:31–13:42 UTC, read-only)
+
+Codex reviewed `candidate/new-on-main` through `047b51eb`, including the
+integration fix in `4fac9f8d`.
+- **The exact candidate:** `047b51eb` on `candidate/new-on-main`. Its code is
+  `4fac9f8d`; the head commit adds records only and gives the same image.
+- **This entry is on `new`,** so the candidate branch stays as reviewed: no
+  commit moves its head.
+
+**The readings, all read-only:**
+- **`main` is still `8e24ca5b`.** Nothing to report: the candidate's base is
+  current.
+- **CI on the candidate head `047b51eb`:** unit green (run 38743464131). On
+  the code commit `4fac9f8d`, unit green (38742153754) and site build green
+  (38742154022). The head is documents only, so it starts no site build. I did
+  not read the per-test totals.
+- **`main`'s Build run 38742390550** ("build as owner", on `8e24ca5b`) is
+  completed and successful.
+- **Actions runs, read twice:**
+  - At 13:37 one was running: `main`'s edit canary 38744259761, dispatched
+    13:37:19. It completed **failed** at 13:38:02, after 43 seconds.
+  - At 13:42 another was running: `main`'s edit canary 38744698638,
+    dispatched 13:40:25.
+  - Both are help-needed's own presses on `8e24ca5b`, and their outcome is
+    theirs to read. Nothing was queued.
+- **Edit jobs** (`edit_jobs`, state and times only):
+  - none open at 13:41 UTC;
+  - in the last 24 hours, every job ended `done` or `failed` (last update
+    13:32:55 UTC);
+  - two `lost` rows date from 2026-09-02.
+- **Build rows** (`site_builds`, rows not done): only seven stale rows from
+  2026-08-22 to 08-30 (`washhouse-2`, `northgroup`, `helm`, `lido-cafe`,
+  `lido-axes`, `css-axes-lido`, `lantern-lido`). None is from today, and none
+  is an active Build.
+
+**Status:** the candidate is ready for review and held, but **not clear to
+merge** while help-needed's edit canary presses are running.
+- **Re-read before any merge:** Actions runs (none running), `edit_jobs`
+  (none open) and `main`'s sha.
+- **If `main` moves,** for example with help-needed's batch commits or its
+  parallel-execution work, the candidate is redone on the new `main` and
+  reviewed again.
+
+**Unchanged from the candidate's record:**
+- the image `e420b3c2d3224dd3` → `01b76fb595ee2600`;
+- the rollback (revert `4fac9f8d`, then `2e5820de -m 1`);
+- no new secret, binding or variable;
+- video and audio limited to the owner's own uploads: hosting, storage,
+  playback, replacement and deletion, with no generation.
+
+**After an explicit merge and deploy approval, in order:**
+1. **Deployment verification:**
+   - the deploy run;
+   - the free runtime canary showing the new sha and image;
+   - the served `public/` files byte-compared with the merged ones;
+   - the 15–20 minute image window.
+2. **The free storage and browser batch** through `media verify`: rehearsal,
+   then storage and browser, on a demo site you name.
+3. **Paid conversation and Build verification,** kept separate and each press
+   approved on its own. `IMAGE_PURCHASES` must be off on the live Worker, with
+   ceilings you set.
+
+No container build, live storage mutation, paid test or image purchase was
+made for this check.
+
 ## Branch `new` — the verification harness stops guessing at meaning, and Build waits for a steady ledger (2026-10-15, after Codex's review of `60c26eff`; harness commit `6661a3cf`; nothing run live, merged or deployed; no storage written, no model called, nothing bought)
 
 **What Codex found:**
