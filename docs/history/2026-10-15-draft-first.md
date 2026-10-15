@@ -665,6 +665,7 @@ goes through `putSiteWorker`, so it carries their per-invocation notes.
 | pointer read before the intent fails | `prepared` | set aside |
 | `switching` stored (lost answer) | `switching`, pointer on `from` | 502 `unknown`; the click or sweep makes the switch, then finishes |
 | activation: script uploaded, pointer not moved | `switching`, pointer on `from` | the same; help-needed's notes make the script follow the pointer |
+| activation: pointer landed, sidecar or script not (§9) | `switching`, pointer on the version, old script running | ~~continues as switched~~ — §9: the sidecar, script and live marker are made true first |
 | activation landed, answer lost or failed | `switching`, pointer on the version | the pointer is re-read: continues as switched |
 | activation undone (its own undo) | `switching`, pointer on `from`, new etag | the switch is made again |
 | live site changed by something else | `switching`, pointer elsewhere | set aside, nothing forced |
@@ -752,4 +753,89 @@ finishes "shortly" any more; they say it is "also retried automatically".
 - **A slow runner, not a dead one,** may still be inside a repeatable finish
   step when another takes over. Its repeat writes the same approved values,
   and new rows are exactly-once.
+- **No live verification.**
+
+## 9. A pointer on the version is not an activation (2026-10-15, after Codex's review of `ea75976f`; fix `71f7d48d`)
+
+**The reproduction.** Old code is live, and a newer draft with held backend
+changes is approved. `activateBuild`'s pointer write lands, and execution
+stops before the call returns and before the script upload starts. The
+journal stays at `switching`. `runPublishRecovery` saw `pointer.version ===
+j.version`, skipped the activation, applied the held changes, and marked
+`draft.applied` and the journal `finished`. The script actually running was
+still the old version.
+
+**Why:** `activateBuild` writes the pointer first. The sidecar, the script
+upload and (on a first site) the live marker come after it. §8 took a
+matching pointer as proof that all of them had happened.
+
+**The fix (`completeActivation`).** Wherever a publication finds the pointer
+on its version, having replaced another version, it makes the activation's
+other effects true before it records `switched`. This covers its own
+activation, one whose answer was lost, and one that stopped part-way:
+- **The sidecar** the version names, with the held address baked in. It is
+  written only after re-reading that the pointer still names the version,
+  and conditionally on the sidecar it read. A newer activation's sidecar is
+  never overwritten.
+- **The live script**, through help-needed's `alignLiveScript`. That follows
+  the pointer, never this version blindly, so newer work wins. It uploads
+  under its own recovery note (`holdScriptNote`), and counts as aligned only
+  when the dispatch probe sees the script serving the pointer's version.
+- **The live marker**, created only if absent, after the script serves.
+
+If any step fails, or the script is accepted but not yet serving, the
+journal is kept at `switching` with the attempt counted and `live:
+"unknown"`. No backend change is made, and the next click or sweep repeats
+the check. If the pointer moved on, that next run sets the publication
+aside. Every step is safe to repeat: a second sweep uploads nothing and
+writes nothing.
+
+A revision of held changes only, on the version already live (`from ===
+version`), has no activation; only its address goes into the live sidecar,
+as before.
+
+### 9.1 Tests (offline; `liveScripts: true`; the running script asked through the dispatch stub)
+
+| Case | What it shows |
+|---|---|
+| DFR9 | **Codex's reproduction, at two points:** (a) stopped after the pointer write, before the sidecar; (b) after the sidecar, before the script's upload note. At the stop the pointer names the new version while the running script is the old one. The sweep uploads the script, sees it serving, writes the sidecar with the held address, then finishes the address, the row, the record and the journal. A second sweep uploads and writes nothing |
+| DFR7 (strengthened) | (a) a lost pointer-write answer: at the stop the running script is still the old one; at the end it serves the new version. (b) the script refused and the pointer's undo failed: at the end the running script serves the new version |
+| DFR1 (strengthened) | the running script is checked at the end |
+| DFR10 | **The outcome stays unknown:** the sweep's upload is accepted but not serving yet, so nothing is recorded, no backend change is made, and the journal keeps the attempt; once it serves, the next sweep finishes. Newer work had moved the pointer: set aside, nothing of the approved version uploaded. Newer work moves the pointer and writes its sidecar during the sweep's reconciliation: that sidecar is never overwritten, and the publication is set aside |
+| DFR11 | a first publication (no pointer, no live marker before) stopped before its script: the sweep uploads the script, creates the live marker and finishes; a second sweep does nothing |
+
+**Red check.** The new test file, run against `ea75976f`'s product code:
+- DFR7 fails: "finished with the old script running".
+- DFR9 fails: `dfr9a`, "finished with the old script running".
+- DFR10 fails: `{finished:1}` while the script was not serving.
+
+**Mutation sweep.** 8 mutants of `completeActivation` and its call site,
+all killed; the comment control survived:
+- effects not reconciled;
+- alignment not required;
+- no alignment;
+- sidecar not reconciled;
+- live marker not made;
+- sidecar written without the pointer check (killed by DFR10's third
+  case);
+- an unreconciled switch recorded as switched;
+- alignment replaced by a constant.
+
+**Full suite**, local: 11,263 tests, 11,260 passed, 2 skipped, 1 failed
+(the worktree's `node_modules` symlink case, environmental). **CI on the
+previous push `ea75976f`:** unit 38823795399 green (11,260 tests, 11,212
+passed, 0 failed, 48 skipped), site build 38823795461 green.
+
+### 9.2 What stays true
+
+- **The window between the new pages and the backend** (§8.5) is unchanged.
+  It now begins only once the new script is seen serving.
+- **The script check reads the dispatch probe.** It cannot see every edge
+  location; it is the same evidence help-needed's follow and sweep rely on.
+  An upload that is accepted but never seen serving keeps the publication at
+  `switching` indefinitely, and it is retried every sweep.
+- **The sidecar is rewritten to the approved version's** while a
+  publication is at `switching`. A change made to the live sidecar in that
+  window by anything other than a newer activation is replaced. (Owner
+  panels that write it are out of scope here.)
 - **No live verification.**

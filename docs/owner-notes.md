@@ -1,5 +1,55 @@
 # Owner Notes
 
+## Publishing: a pointer is not an activation (2026-10-15; branch `claude/draft-first-publish`; unmerged, undeployed, `DRAFT_FIRST` off)
+
+**What Codex found** on `ea75976f`: if a publication stopped right after the
+switch moved the site's pointer to the new version, but before the new
+script was uploaded, recovery took the pointer as proof the switch was done.
+It applied the backend changes and marked the revision published, while
+visitors were still served the old script.
+
+**What changed:** before it records the switch, recovery now completes it.
+This applies after any stop, a lost answer, or a stop part-way through:
+- **the live script:** brought onto the pointer's version through
+  help-needed's own recovery machinery, and confirmed only when the running
+  script is seen serving it;
+- **the site's settings file (the sidecar):** written with the new address,
+  but only while the pointer still names that version, so newer work is
+  never overwritten;
+- **the live marker:** created for a first publication.
+
+If any of these can't be confirmed, nothing in the backend is changed and
+the publication waits to be retried. If newer work took over the site, the
+publication is set aside.
+
+| | Commit |
+|---|---|
+| this fix (code and tests) | `71f7d48d` (records in the commit after it) |
+
+**Checks (offline):**
+- **Tests.** DFR9 is the exact interruption, at two points: before the
+  sidecar, and after it but before the script. DFR10 covers an upload
+  accepted but not yet serving, and newer work moving the pointer before
+  and during recovery. DFR11 covers a first publication. DFR1 and DFR7
+  were strengthened. All of them check the script actually running, as
+  well as the pointer, the backend values, the published revision and the
+  journal, and confirm a repeated recovery does nothing more.
+- **Red check:** DFR7, DFR9 and DFR10 fail on the previous code.
+- **Mutation sweep:** 8 of 8 killed.
+- **Full suite:** 11,263 tests, 11,260 passed, 1 failed (environmental).
+- **CI on the previous push `ea75976f`:** unit and site build green.
+
+**Remaining gaps:**
+- **Publication is still not atomic.** Between the new script serving and
+  the last backend step, visitors get the new pages with the old data.
+- **No completion-time guarantee.** A step whose store keeps refusing, or a
+  script that is never seen serving, keeps the publication waiting, and it
+  is retried every sweep.
+- **The script check relies on the same probe** as help-needed's recovery.
+- **A sidecar change made during a stopped switch is replaced** by the
+  approved version's.
+- **No live verification.**
+
 ## Publishing recovery, corrected (2026-10-15; branch `claude/draft-first-publish`; unmerged, undeployed, `DRAFT_FIRST` off)
 
 **What Codex found** on `af0819bf`, with the real Worker functions:
