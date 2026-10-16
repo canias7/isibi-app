@@ -127,12 +127,17 @@ The live site is made of:
 
 - **The switch is off by default.** Turning it on is the owner's call
   (a Worker variable). With it off, every path publishes as before.
-- **Backend effects are live immediately and cannot be drafted yet.** Schema
-  and grants from builds, add-ons and the `rules` layer, scheduled functions,
-  `data`-layer row writes, seeds and `_errors` all hit the site's one Neon
-  database at once. The smallest sound correction is a Neon branch per draft,
-  promoted on Publish. That is a design decision for the owner; it is
-  proposed, not built.
+- **Backend effects are live immediately in this first round, as it
+  stands on `claude/help-needed-ehlwlj`.** Schema and grants from builds,
+  add-ons and the `rules` layer, scheduled functions, `data`-layer row
+  writes, seeds and `_errors` all hit the site's one Neon database at once.
+  **Superseded on the Publish branch:** `claude/draft-first-publish` has
+  since implemented held changes. With the switch on, a published site's
+  schema, rules, starter rows, row changes and add-on entries are held in a
+  journal per revision and applied at Publish, and scheduled jobs are held
+  always. See §6.2 of that branch's copy of this file. That work is not on
+  help-needed and is not verified here. (A Neon branch per draft, proposed
+  earlier, was not the route taken.)
 - **Edits that write config or the sidecar directly bypass the draft:**
   - the `rename` edit layer patches the live sidecar's `origin`;
   - the social card is read from the editable config at request time.
@@ -184,8 +189,10 @@ redo them:
   correction, visitors can be served the previous version for about one
   upload plus one read. After a death or a lost answer, the repair waits
   for the 2-minute sweep, which acts only once the note's 12-minute window
-  has passed (the upload's 10-minute abort plus 2 minutes), so about 12 to
-  14 minutes. Publish's own "live at once" claims must not promise more
+  has passed (the upload's 10-minute abort plus 2 minutes). About 12 to 14
+  minutes is a conditional estimate, not a guarantee: it assumes the cron
+  fires on time, the sweep's own reads and upload succeed, and no aborted
+  upload takes effect more than 2 minutes after its abort. Publish's own "live at once" claims must not promise more
   than that.
 - **Rollback writes hold keys absent instead of deleting them.** Any undo
   the Publish path adds should use `holdAbsent` (or `POINTER_NONE` for the

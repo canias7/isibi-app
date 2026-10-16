@@ -1,5 +1,47 @@
 # Owner Notes
 
+## 2026-10-16 — Your choice: finish Publish first; help-needed paused (documents only)
+
+**You chose B.** Publish is finished first on its own branch. Then both
+branches are integrated and verified together in **one image-free live
+batch**. Until then **help-needed is paused** at this commit.
+- Nothing merged, deployed or built.
+- No SQL applied, no flag changed, no paid test.
+- Cross-request concurrency and finer same-page merging are **not**
+  started.
+
+**Two documentation corrections, nothing else:**
+- **Backend behaviour, branch by branch.**
+  - On help-needed, schema, rules, rows, seeds and scheduled jobs reach the
+    live database at once. This branch has no draft or held changes.
+  - The Publish branch (`claude/draft-first-publish`) has implemented held
+    changes behind `DRAFT_FIRST`: a journal per revision, applied at
+    Publish; scheduled jobs always held; rows previewed with the held
+    changes laid over them.
+  - Corrected in the closing entry (§6, item 7) and in this branch's copy of
+    `docs/history/2026-10-15-draft-first.md` §4, which had still called it
+    unbuilt.
+  - The held changes are that branch's work and are not verified from here.
+- **Recovery timing is an estimate, not a guarantee.** The closing entry
+  (§4) and the draft-first record (§5) now call 12 to 14 minutes after the
+  last upload a **conditional estimate**. It holds only if:
+  - the cron fires on time;
+  - the sweep's own reads and upload succeed;
+  - an aborted upload never takes effect more than 2 minutes after its
+    10-minute abort.
+  A failed tick, a pointer still moving, or a lost sweep upload each push
+  repair later. The earlier entry's "up to about 12 to 14 minutes"
+  (2026-10-15, early morning, §4) should be read the same way.
+
+**What the combined batch will need**, when Publish is ready:
+- the Publish branch's pointer-before-script-upload fix reviewed: that is
+  `71f7d48d` on that branch, which completes the activation through
+  help-needed's `alignLiveScript`, with its own recovery note;
+- one integration candidate holding `main`, help-needed and Publish;
+- required CI on it;
+- then, each yours: the SQL, the merge and deploy, the free runtime check,
+  `PARALLEL_WRITES` and `DRAFT_FIRST` on, and one image-free paid press.
+
 ## 2026-10-15 (closing) — The concurrency correction batch closed; what remains for parallel work (branch only)
 
 **Nothing paid, deployed, built or switched.** `PARALLEL_WRITES` and
@@ -68,9 +110,12 @@ cover two real isolates racing, or the real dispatch upload.
 - **After a death or a lost answer**, the note stays. A sweep (the cron,
   every 2 minutes) acts on it only after `SCRIPT_NOTE_WINDOW_MS`: the
   upload's own hard abort `DISPATCH_CALL_MS` (10 minutes) plus 2 minutes,
-  counted from the note's last renewal. So repair comes about 12 to 14
-  minutes after the last upload began. Before this batch it was about 5
-  minutes, which was unsafe.
+  counted from the note's last renewal. **12 to 14 minutes after the last
+  upload began is a conditional estimate, not a guarantee.** It holds only
+  if the cron fires on time, the sweep's own reads and upload succeed, and
+  the assumption below holds. A failed sweep tick, a pointer still moving,
+  or a sweep upload that is itself lost each push the repair further out.
+  Before this batch the sweep waited about 5 minutes, which was unsafe.
 - **The assumption the window rests on:** an upload aborted at 10 minutes
   does not take effect more than 2 minutes later. If Cloudflare accepted a
   request after the client gave up and applied it later than that, a sweep
@@ -127,10 +172,19 @@ from there at integration rather than fixing it twice.
 5. **An addition cannot consume an attachment's contents.**
 6. **Automatic photograph placement** is missing for a token inside a
    longer string, and for a job outside a request.
-7. **Backend effects (schema, grants, rows, seeds) take effect on the live
-   database at once**, so they cannot be drafted. That is the Publish
-   branch's open design (a database branch per draft), and it bounds what
-   "nothing changes until Publish" can mean.
+7. **On this branch, backend effects (schema, grants, rows, seeds,
+   scheduled jobs) take effect on the live database at once.** This
+   branch has no draft or held-change mechanism. The Publish branch
+   (`claude/draft-first-publish`) has since implemented held changes for a
+   published site with `DRAFT_FIRST` on:
+   - schema, rules, starter rows, data-step row changes and add-on entries
+     are held in an immutable journal per revision and applied at Publish;
+   - scheduled jobs are held even on a never-published site;
+   - the preview reads rows with the held changes laid over them.
+   That is the Publish branch's work, described in its own record (§6.2 of
+   its `docs/history/2026-10-15-draft-first.md`). It is not part of this
+   branch, and it is not verified here. Until the two are integrated,
+   "nothing changes until Publish" is not true of this branch.
 8. **Two systems, no atomic switch.** The pointer and the live script are
    eventually consistent (§4).
 9. **A stale config write** left by a job that lost its turn between writing
