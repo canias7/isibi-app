@@ -1,5 +1,25 @@
 # Owner Notes
 
+## 2026-10-16 — The tab title and sign-in line now say "website builder", not "video, image & voice"
+
+**What you asked:** *"fix the title text"*, on branch `chris-testing-no-ai`.
+
+The browser tab still read "Go Farther · AI video, image & voice", the
+media side's tagline from before it was deleted on 2026-09-12. Now:
+
+- **Tab title:** "Go Farther · AI website builder".
+- **Link previews** (when the address is shared on social sites or in
+  chat apps): title "Go Farther — AI website builder", description
+  "Describe your business and get a published website."
+- **Install description** (`site.webmanifest`) and the **sign-in screen's
+  subtitle** (in `index.html` and its default in `chat.js`): that same line.
+
+Text only: no layout or style change. **Not changed**: the pricing card's
+"All video, image & voice models" row in `chat.js` — a separate leftover,
+left for you to decide. A new test (`test/site-title.test.mjs`, 5 cases)
+fails on all 5 against the old text and passes on the new. Not merged or
+deployed.
+
 ## 2026-10-16 — Repository consolidated: `main` holds all completed work; deploy 2214
 
 **On the owner's word to consolidate.** `main` is now `d8024d63`, a

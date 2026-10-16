@@ -723,7 +723,7 @@ function renderAuthStep() {
     authStep === 'code' ? 'Enter the code we emailed to ' + pendingEmail + '.' :
     authStep === 'newpass' ? 'Choose a new password for ' + pendingEmail + '.' :
     authMode === 'reset' ? 'We’ll email you a reset code.' :
-    'Create AI video, images, and voice.';
+    'Describe your business and get a published website.';
   authEl('authSwitchText').textContent = authMode === 'up' ? 'Already have an account?' : 'New here?';
   authEl('authToggle').textContent = authMode === 'up' ? 'Sign in' : 'Create an account';
   authEl('authPass').setAttribute('autocomplete', authMode === 'up' ? 'new-password' : 'current-password');
