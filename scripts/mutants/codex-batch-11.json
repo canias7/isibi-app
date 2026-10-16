@@ -1,0 +1,156 @@
+[
+  {
+    "label": "CONTROL: a comment only in site-media.mjs \u2014 must survive",
+    "control": true,
+    "files": [
+      "site-media.mjs"
+    ],
+    "from": "export function ifRangeHolds(header, etag, uploaded) {",
+    "to": "// comment-only control\nexport function ifRangeHolds(header, etag, uploaded) {"
+  },
+  {
+    "label": "CONTROL: a comment only in worker.js \u2014 must survive",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "function meteredBucket(B, limit) {",
+    "to": "// comment-only control\nfunction meteredBucket(B, limit) {"
+  },
+  {
+    "label": "H1 If-Range is ignored",
+    "files": [
+      "worker.js"
+    ],
+    "from": "const asked = ifRangeHolds(request.headers.get(\"if-range\"), etag, head.uploaded) ? request.headers.get(\"range\") : null;",
+    "to": "const asked = request.headers.get(\"range\");"
+  },
+  {
+    "label": "H2 a weak If-Range matches",
+    "files": [
+      "site-media.mjs"
+    ],
+    "from": "  if (/^W\\//.test(h)) return false;",
+    "to": ""
+  },
+  {
+    "label": "H3 any tag matches",
+    "files": [
+      "site-media.mjs"
+    ],
+    "from": "  if (h.startsWith('\"')) return !!etag && !/^W\\//.test(etag) && h === etag;",
+    "to": "  if (h.startsWith('\"')) return true;"
+  },
+  {
+    "label": "H4 any date matches",
+    "files": [
+      "site-media.mjs"
+    ],
+    "from": "  return Number.isFinite(d) && Number.isFinite(u) && Math.floor(u / 1000) * 1000 === d;",
+    "to": "  return Number.isFinite(d);"
+  },
+  {
+    "label": "H5 the range read is not conditional",
+    "files": [
+      "worker.js"
+    ],
+    "from": "...(head.etag ? { onlyIf: { etagMatches: head.etag } } : {}) });",
+    "to": "});"
+  },
+  {
+    "label": "H6 a replaced file's range is served under the old head",
+    "files": [
+      "worker.js"
+    ],
+    "from": "        if (!obj.body) {\n          // REPLACED SINCE THE HEAD",
+    "to": "        if (false) {\n          // REPLACED SINCE THE HEAD"
+  },
+  {
+    "label": "H7 a site's host serves any site's uploads",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      if (um && uploadHost !== \"*\" && uploadHost !== um[1].toLowerCase()) {",
+    "to": "      if (false) {"
+  },
+  {
+    "label": "H8 a custom domain's uploads are not mapped",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if (!isOwnHostname(url.hostname) && UPLOAD_URL_PATH.test(url.pathname)) uploadHost = (await siteForHostname(env, url.hostname)) || null;",
+    "to": "    if (!isOwnHostname(url.hostname) && UPLOAD_URL_PATH.test(url.pathname)) uploadHost = \"*\";"
+  },
+  {
+    "label": "H9 the meter counts nothing",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  const take = () => { if (m.spent >= m.limit) {",
+    "to": "  const take = () => { if (false) {"
+  },
+  {
+    "label": "H10 an item cut short is counted done",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      if (M.m.out) break;\n      done = String(o.key);",
+    "to": "      done = String(o.key);\n      if (M.m.out) break;"
+  },
+  {
+    "label": "H11 a stopped prefix keeps the page's end",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if (cut) { stopped[name] = true; next[name] = done || place[name] || null; }",
+    "to": "    if (cut) { stopped[name] = true; next[name] = step.after; }"
+  },
+  {
+    "label": "H12 a not-yet-due pending entry is asked again",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if (sched && sched.next > now && !known.has(id)) { seen.deferred++; continue; }",
+    "to": ""
+  },
+  {
+    "label": "H13 the waits do not grow",
+    "files": [
+      "worker.js"
+    ],
+    "from": "export const recoveryDelay = (tries) => Math.min(RECOVERY_RETRY_CAP_MS, RECOVERY_RETRY_BASE_MS * 2 ** Math.max(0, Math.min(20, (Number(tries) || 1) - 1)));",
+    "to": "export const recoveryDelay = (tries) => RECOVERY_RETRY_BASE_MS;"
+  },
+  {
+    "label": "H14 the waits are not capped",
+    "files": [
+      "worker.js"
+    ],
+    "from": "export const recoveryDelay = (tries) => Math.min(RECOVERY_RETRY_CAP_MS, RECOVERY_RETRY_BASE_MS",
+    "to": "export const recoveryDelay = (tries) => Math.min(Infinity, RECOVERY_RETRY_BASE_MS"
+  },
+  {
+    "label": "H15 an unknown verdict is not scheduled",
+    "files": [
+      "worker.js"
+    ],
+    "from": "await keepPending(v.why, { waits: true });",
+    "to": "await keepPending(v.why);"
+  },
+  {
+    "label": "H16 a review row not yet due is asked again",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if (sched && sched.next > now) { counts.deferred++; continue; }",
+    "to": ""
+  },
+  {
+    "label": "H17 the review schedule does not grow",
+    "files": [
+      "worker.js"
+    ],
+    "from": "        const tries = ((sched && sched.tries) || 0) + 1, next = now + recoveryDelay(tries);",
+    "to": "        const tries = 1, next = now + recoveryDelay(tries);"
+  }
+]
