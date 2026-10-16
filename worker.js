@@ -17433,7 +17433,15 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         if (fenced) await markPublishFailed(env, jobId);
         throw new Error("the build could not be activated: " + String((act && act.error) || "activate"));
       }
-      if (fenced) await markPublished(env, jobId, bVersion);
+      // SAVED IS NOT PUBLISHED (2026-10-16): a draft save is recorded as one,
+      // with its revision and held journal, so a lost build's recovery never
+      // tells a saved draft as a live site.
+      if (fenced) {
+        if (act.draft === true) {
+          const own = savedRevision(act.record, { job: jobId, version: bVersion });
+          await markSaved(env, jobId, { version: bVersion, revision: (own && own.n) || act.revision || 0, held: (own && own.held) || null });
+        } else await markPublished(env, jobId, bVersion);
+      }
       try { if (!act.draft) await pruneBuilds(buildDeps(env), { slug, keep: [bVersion, bParent] }); }
       catch (e) { console.error("prune failed:", slug, e && e.message); }
       // WHICH VERSION WENT LIVE (2026-10-14), for the build's check evidence —
@@ -19215,7 +19223,13 @@ export async function claimBuildFence(env, id, by) {
     const o = await env.SITES_BUCKET.get(fenceKey(id));
     const v = o ? JSON.parse(await o.text()) : null;
     const owner = v && (v.by === "publish" || v.by === "recovery") ? v.by : null;
-    return { owner, mine: owner === by, failed: !!(v && v.failed === true), published: v && typeof v.published === "string" ? v.published : "" };
+    return {
+      owner, mine: owner === by, failed: !!(v && v.failed === true), published: v && typeof v.published === "string" ? v.published : "",
+      // WHICH KIND OF COMPLETION (2026-10-16): `live` only on a publication
+      // this code recorded; `saved` (and its revision) for a draft save.
+      ...(v && v.live === true ? { live: true } : {}),
+      ...(v && typeof v.saved === "string" && v.saved ? { saved: v.saved, revision: Number.isSafeInteger(v.revision) ? v.revision : 0, held: typeof v.held === "string" ? v.held : null } : {}),
+    };
   } catch (e) {
     console.error("build fence: could not claim", id, by, String((e && e.message) || e));
     return { owner: null, mine: false, failed: false, published: "" };
@@ -19299,9 +19313,26 @@ async function moveFence(env, id, next, what) {
 export async function markPublished(env, id, version) {
   return moveFence(env, id, (cur) => {
     if (!cur || cur.by !== "publish") return null;
-    if (typeof cur.published === "string" && cur.published) return null;
-    return { by: "publish", published: version };
+    if ((typeof cur.published === "string" && cur.published) || (typeof cur.saved === "string" && cur.saved)) return null;
+    // `live: true` — WRITTEN ONLY HERE, ONLY FOR A PUBLICATION (2026-10-16).
+    // A marker without it was written by the earlier code after any
+    // activation, a draft save included, and is read with that doubt.
+    return { by: "publish", published: version, live: true };
   }, "record the publish of");
+}
+
+/**
+ * A BUILD SAVED AS THE SITE'S DRAFT, recorded on its own fence (2026-10-16,
+ * Codex's review of `fd951ba3`): the version and the draft revision it saved,
+ * and its held journal when it carried one — never `published`. The live
+ * site did not move. Written once, over a bare publish claim only.
+ */
+export async function markSaved(env, id, { version, revision = 0, held = null } = {}) {
+  return moveFence(env, id, (cur) => {
+    if (!cur || cur.by !== "publish") return null;
+    if ((typeof cur.published === "string" && cur.published) || (typeof cur.saved === "string" && cur.saved) || cur.failed === true) return null;
+    return { by: "publish", saved: version, revision: Number.isSafeInteger(revision) && revision > 0 ? revision : 0, ...(typeof held === "string" && held ? { held } : {}) };
+  }, "record the draft save of");
 }
 
 /**
@@ -19341,7 +19372,7 @@ async function recoveryOwns(env, id) {
 export async function markPublishFailed(env, id) {
   return moveFence(env, id, (cur) => {
     if (!cur || cur.by !== "publish") return null;
-    if ((typeof cur.published === "string" && cur.published) || cur.failed === true) return null;
+    if ((typeof cur.published === "string" && cur.published) || (typeof cur.saved === "string" && cur.saved) || cur.failed === true) return null;
     return { by: "publish", failed: true };
   }, "mark a failed publish for");
 }
@@ -19503,7 +19534,7 @@ export async function reconcileLostBuilds(env, { now = Date.now() } = {}) {
   const older = pendingIds.filter((x) => !known.has(x));
   const back = older.length ? await read(`op=eq.${BUILD_OP}&id=in.(${older.join(",")})`) : [];
   const rows = [...freshRows, ...(Array.isArray(back) ? back : [])];
-  const seen = { checked: 0, published: 0, refunded: 0, unknown: 0, settled: 0, pending: 0 };
+  const seen = { checked: 0, published: 0, saved: 0, refunded: 0, unknown: 0, settled: 0, pending: 0 };
   for (const row of rows) {
     const id = String((row && row.id) || "");
     const uid = String((row && row.uid) || "");
@@ -19572,7 +19603,22 @@ export async function reconcileLostBuilds(env, { now = Date.now() } = {}) {
     // job, an unreadable record — stays not fenced, so the verdict keeps what
     // it cannot prove unknown.
     const fencedJob = (await jobFenced(env, id)) === true;
-    const v = lostBuildVerdict({ row, pointer, builds, fence, fencedJob });
+    // THE DRAFT RECORD, AND THIS JOB'S HELD JOURNALS (2026-10-16): a build
+    // saved as a draft is proven by its own revision there, never by another
+    // job's; an unreadable record proves nothing either way.
+    let draft = { state: "none" };
+    const journals = {};
+    if (slug) {
+      try { const { draft: d } = await readDraft(buildDeps(env), slug); draft = d ? { state: "read", record: d } : { state: "none" }; }
+      catch { draft = { state: "unreadable" }; }
+      if (draft.state === "read") {
+        for (const r of draft.record.revs || []) {
+          if (!r || r.job !== id || !r.held || Object.hasOwn(journals, r.held)) continue;
+          try { journals[r.held] = !!(await buildDeps(env).get(HELD_KEY(slug, r.held))); } catch { journals[r.held] = undefined; }
+        }
+      }
+    }
+    const v = lostBuildVerdict({ row, pointer, builds, fence, fencedJob, draft, journals });
     if (v.outcome === "unknown") { seen.unknown++; await keepPending(v.why); console.log("lost builds:", id, "unknown —", v.why); continue; }
     let returned = 0;
     let short = false;
@@ -19584,12 +19630,13 @@ export async function reconcileLostBuilds(env, { now = Date.now() } = {}) {
       returned = r.returned;
       short = r.short;
       seen.refunded += returned;
-    } else seen.published++;
+    } else if (v.outcome === "saved") seen.saved++;
+    else seen.published++;
     // THE EXPLANATION SURVIVES THE REWRITE (the eighth batch): a short
     // refund's record is written again on every pass, and `putSettlementMark`
     // carries the explanation the record holds AT THE WRITE — read then, not
     // from this pass's earlier view, which another pass may have overtaken.
-    const settled = { outcome: v.outcome, why: v.why, version: v.version || "", slug, returned, short, settled: !short, delivered: false, at: new Date(now).toISOString() };
+    const settled = { outcome: v.outcome, why: v.why, version: v.version || "", ...(v.outcome === "saved" ? { revision: v.revision || 0 } : {}), slug, returned, short, settled: !short, delivered: false, at: new Date(now).toISOString() };
     try { await putSettlementMark(env, markKey, settled); }
     catch (e) {
       // THE REFUND IS IDEMPOTENT BY (ref, reason), so a record that did not
@@ -19792,10 +19839,17 @@ async function saveNarration(env, id, done) {
  * contended after a few tries) — the row then stays pending.
  */
 async function deliverLostAnswer(env, { id, uid, mark, now }) {
-  const { outcome, slug = "", version = "", returned = 0, short = false } = mark || {};
-  const msg = lostBuildMessage({ outcome, slug, returned, short });
+  const { outcome, slug = "", version = "", returned = 0, short = false, revision = 0 } = mark || {};
+  const msg = lostBuildMessage({ outcome, slug, returned, short, revision });
   const url = slug ? await publicUrlFor(env, slug).catch(() => "") : "";
-  const body = outcome === "published"
+  // SAVED AS A DRAFT (2026-10-16): kept, not live — its draft facts and its
+  // checks say so, as a build that answered would have.
+  const rev = Number.isSafeInteger(revision) && revision > 0 ? revision : 0;
+  const body = outcome === "saved"
+    ? { ok: true, lost: true, recovered: true, stage: "queue", job: id, slug, url: url || undefined, page: "app", version: version || undefined,
+        draft: { version, published: false, revision: rev, previewUploaded: false, previewPending: false },
+        checks: checksOf({ version, published: false, draft: true, revision: rev }), notes: msg, msg }
+    : outcome === "published"
     ? { ok: true, lost: true, recovered: true, stage: "queue", job: id, slug, url: url || undefined, page: "app", version: version || undefined, notes: msg, msg }
     : slug
       ? { ok: false, lost: true, stage: "queue", job: id, slug, url: url || undefined, page: "placeholder", error: "the build was lost", refunded: returned, refundShort: short || undefined, cost: short ? undefined : 0, notes: msg, msg }
@@ -23673,6 +23727,9 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
         ...resumeHeld(claimed),
         ...resumeMedia(claimed),
         ...(rContext ? { context: rContext } : {}),
+        // SAVED AS THE SITE'S DRAFT, NOT PUBLISHED (2026-10-16): the revision
+        // the build saved, which the request reads to settle its part.
+        ...(pages && pages.draft && typeof pages.draft === "object" ? { draft: pages.draft } : {}),
         buildFacts: buildFacts({ images: pages && pages.images, context: rContext, unwritten: pages && pages.unwritten, salvaged: pages && pages.salvaged,
           // WHAT ITS PUBLISH CHECKED (2026-10-14), only for a site that went live.
           checks: buildChecks(pages),
@@ -26682,6 +26739,8 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // the eighth batch): the page writer failed, or the pages did not
         // compile. An outage (the provider out of balance, no room to
         // compile, the live pages unconfirmed) keeps its fixed sentence.
+        // SAVED AS THE SITE'S DRAFT, NOT PUBLISHED (2026-10-16).
+        ...(pages.draft && typeof pages.draft === "object" ? { draft: pages.draft } : {}),
         buildFacts: buildFacts({
           images: pages.images, context: contextOut, unwritten: pages.unwritten, salvaged: pages.salvaged,
           checks: buildChecks(pages),

@@ -634,7 +634,8 @@ test("N2: the build's publish passes the gate right before the pointer, records 
   const ptr = code.indexOf("const t = await readPointerTag(buildDeps(env), slug); before = t.pointer; beforeTag = t.etag;", gate);
   const act = code.indexOf("const act = await activateBuild(buildDeps(env), {", gate);
   assert.ok(gate > 0 && ptr > gate && act > ptr && act - gate < 400, "the gate is not the last step before activation");
-  assert.match(code.slice(act, act + 4000), /if \(!act \|\| act\.ok !== true\) \{\s*if \(fenced\) await markPublishFailed\(env, jobId\);[\s\S]*?\}\s*if \(fenced\) await markPublished\(env, jobId, bVersion\);/);
+  // A DRAFT SAVE IS RECORDED AS SAVED, A PUBLICATION AS PUBLISHED (2026-10-16).
+  assert.match(code.slice(act, act + 4500), /if \(!act \|\| act\.ok !== true\) \{\s*if \(fenced\) await markPublishFailed\(env, jobId\);[\s\S]*?\}\s*if \(fenced\) \{\s*if \(act\.draft === true\) \{[\s\S]*?await markSaved\(env, jobId, \{ version: bVersion,[\s\S]*?\} else await markPublished\(env, jobId, bVersion\);\s*\}/);
 });
 
 test("N2: recovery claiming between the gate's state read and its claim still stops the publish", async () => {

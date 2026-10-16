@@ -826,6 +826,11 @@ function settleRewrite(rec, p, job, row, now) {
   if (!fin) {
     if (row.needs_review === true) { p.status = "unverified"; return; }
     if (!ENDED_JOB.includes(row.state)) { p.status = row.state === "queued" ? "queued" : "started"; return; }
+    // A LOST BUILD IS NOT YET A FAILED ONE (2026-10-16): the lost-build
+    // recovery decides it — saved as a draft, published, or not — and stores
+    // that answer here. Until it does, the part waits (nothing that needs it
+    // runs), never told as failed: under draft-first its save may stand.
+    if (row.state === "lost") { p.status = "unverified"; p.why = "rewrite-recovering"; return; }
     // NO ANSWER, SO NO WORD ON MONEY: what it cost cannot be told.
     job.end = { state: row.state, at: now, cost: null, act: "no-answer" };
     if (row.state === "cancelled") { p.status = "cancelled"; p.why = rec.stop ? "stopped" : "cancelled"; return; }
@@ -833,7 +838,7 @@ function settleRewrite(rec, p, job, row, now) {
       p.status = "done"; p.why = "unrecorded"; p.outcome = { job: job.id, kind: "rewrite" };
       p.done = "rewrote the site for this (what it changed was not recorded)"; return;
     }
-    p.status = "failed"; p.why = row.state === "lost" ? "rewrite-lost" : "rewrite-failed"; return;
+    p.status = "failed"; p.why = "rewrite-failed"; return;
   }
   const b = fin.body;
   // WHAT IT CHARGED, AS THE BUILD ITSELF REPORTS IT: the build path bills by
@@ -844,8 +849,15 @@ function settleRewrite(rec, p, job, row, now) {
   // reads a build. One that salvaged a page it could not write published the
   // rest: partial, so nothing that needs it runs.
   if (b.ok === true && b.page === "app") {
-    p.outcome = { job: job.id, kind: "rewrite" };
-    if (!b.error) { p.status = "done"; p.done = "rewrote the site's pages for this"; return; }
+    // SAVED AS THE SITE'S DRAFT (2026-10-16): done — what needs it may go on
+    // — and said as a draft revision, never as a published site.
+    const saved = b.draft && typeof b.draft === "object" && b.draft.published === false && Number.isSafeInteger(b.draft.revision) && b.draft.revision > 0 ? b.draft : null;
+    p.outcome = { job: job.id, kind: "rewrite", ...(saved ? { draft: { revision: saved.revision, version: typeof saved.version === "string" ? saved.version : "" } } : {}) };
+    if (!b.error) {
+      p.status = "done";
+      p.done = saved ? "rewrote the site's pages for this and saved them as draft revision " + saved.revision + " (not published)" + (b.recovered === true ? "; what it changed was not recorded" : "") : "rewrote the site's pages for this";
+      return;
+    }
     p.status = "partial"; p.why = "partly-done";
     p.notDone = [{ what: "a page of the rewrite", why: String(b.error).slice(0, 60) }]; return;
   }

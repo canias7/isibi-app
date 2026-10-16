@@ -298,13 +298,39 @@ export function genBound(record, token, genId) {
  * `fencedJob`: the job's own record says it was filed by code that claims the
  * fence before activating.
  */
-export function lostBuildVerdict({ row, pointer, builds, fence, fencedJob = false } = {}) {
+export function lostBuildVerdict({ row, pointer, builds, fence, fencedJob = false, draft = { state: "none" }, journals = {} } = {}) {
   const r = row && typeof row === "object" ? row : {};
   const id = typeof r.id === "string" ? r.id : "";
   if (!isRowSlug(r.slug)) return { outcome: "not-published", why: "no-address" };
   const f = fence && typeof fence === "object" ? fence : { owner: null };
   if (f.owner !== "recovery" && f.owner !== "publish") return { outcome: "unknown", why: "fence-unread" };
-  if (typeof f.published === "string" && f.published) return { outcome: "published", why: "activation-recorded", version: f.published };
+  // SAVED AS THE SITE'S DRAFT IS NOT PUBLISHED (2026-10-16, Codex's review of
+  // `fd951ba3`). Under draft-first a build's activation saves a draft
+  // revision and the live site does not move; the fence records it as
+  // `saved` (`markSaved`), never `published`.
+  const own = savedOfJob(draft, id, builds, journals);
+  if (typeof f.saved === "string" && f.saved) {
+    if (own.state === "saved") return { outcome: "saved", why: "save-recorded", version: own.rev.version, revision: own.rev.n };
+    return { outcome: "saved", why: "save-recorded", version: f.saved, revision: Number.isSafeInteger(f.revision) && f.revision > 0 ? f.revision : 0 };
+  }
+  if (typeof f.published === "string" && f.published) {
+    // `live: true` IS WRITTEN ONLY BY A PUBLICATION. A marker without it is
+    // one the earlier code wrote after ANY successful activation — a draft
+    // save included — so it proves publication only once this job's own
+    // revision is shown not to be in the draft record.
+    if (f.live === true) return { outcome: "published", why: "activation-recorded", version: f.published };
+    if (own.state === "saved" && own.rev.version === f.published) return { outcome: "saved", why: "legacy-marker-draft", version: own.rev.version, revision: own.rev.n };
+    if (own.state === "unknown") return { outcome: "unknown", why: "legacy-marker-" + own.why };
+    return { outcome: "published", why: "activation-recorded", version: f.published };
+  }
+  // A SAVE THAT LANDED WITH NO MARKER (the job stopped between its draft
+  // record and `markSaved`): proven only by this job's own revision of a
+  // version this job staged, its held journal read back when it has one. The
+  // save follows the publish claim, so only a publish-held fence can have one.
+  if (f.owner === "publish") {
+    if (own.state === "saved") return { outcome: "saved", why: "draft-revision", version: own.rev.version, revision: own.rev.n };
+    if (own.state === "unknown") return { outcome: "unknown", why: own.why };
+  }
   if (pointer === undefined) return { outcome: "unknown", why: "pointer-unread" };
   if (pointer && id && pointer.job === id) return { outcome: "unknown", why: "activation-unconfirmed" };
   if (f.owner === "publish" && f.failed !== true) return { outcome: "unknown", why: "publish-in-flight" };
@@ -319,8 +345,43 @@ export function lostBuildVerdict({ row, pointer, builds, fence, fencedJob = fals
   return { outcome: "not-published", why: pointer === null ? "no-pointer" : "no-version-of-job" };
 }
 
+/**
+ * THIS JOB'S OWN SAVED REVISION, from the draft record (2026-10-16):
+ * `{ state: "saved", rev }` — a revision naming this job, of a version a
+ * manifest says this job staged, with its held journal read back when it
+ * carries held changes; `{ state: "none" }` — the record read and nothing of
+ * this job in it (and not trimmed past it); `{ state: "unknown", why }` —
+ * the record, the versions or the journal could not be read, or the bounded
+ * list may have dropped it. Another job's revision proves nothing.
+ */
+const MAX_DRAFT_REVS = 60;
+export function savedOfJob(draft, id, builds, journals = {}) {
+  const d = draft && typeof draft === "object" ? draft : { state: "none" };
+  if (d.state === "unreadable") return { state: "unknown", why: "draft-unread" };
+  if (d.state !== "read" || !d.record || !Array.isArray(d.record.revs) || !id) return { state: "none" };
+  const revs = d.record.revs.filter((x) => x && x.job === id);
+  if (revs.length) {
+    if (!Array.isArray(builds)) return { state: "unknown", why: "builds-unread" };
+    // `listBuilds` names a staged version `id`.
+    const rev = revs.find((x) => builds.some((b) => b && b.job === id && (b.id || b.version) === x.version));
+    if (!rev) return { state: "none" };
+    if (rev.held) {
+      const j = journals ? journals[rev.held] : undefined;
+      if (j !== true) return { state: "unknown", why: j === false ? "held-journal-missing" : "held-journal-unread" };
+    }
+    return { state: "saved", rev };
+  }
+  const all = d.record.revs;
+  if (all.length >= MAX_DRAFT_REVS && all[0] && all[0].n > 1) return { state: "unknown", why: "draft-trimmed" };
+  return { state: "none" };
+}
+
 /** The sentences a reconciled lost build answers with, chosen by its outcome. */
-export function lostBuildMessage({ outcome, slug, returned = 0, short = false } = {}) {
+export function lostBuildMessage({ outcome, slug, returned = 0, short = false, revision = 0 } = {}) {
+  if (outcome === "saved") {
+    return "That build lost touch with us near the end, but it was saved as your site's draft" + (Number.isSafeInteger(revision) && revision > 0 ? " (revision " + revision + ")" : "") +
+      " — open the preview to check it. Your live site hasn't changed; press Publish when you want it live. Its own report was lost, so I can't list what it made.";
+  }
   if (outcome === "published") {
     return "That build lost touch with us near the end, but your site did go live at its address — open it to check it. Its own report was lost, so I can't list what it made.";
   }

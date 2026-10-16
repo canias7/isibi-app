@@ -1,0 +1,213 @@
+[
+  {
+    "label": "CONTROL: a comment only in builder/build-lease.mjs \u2014 must survive",
+    "control": true,
+    "files": [
+      "builder/build-lease.mjs"
+    ],
+    "from": "const MAX_DRAFT_REVS = 60;",
+    "to": "// comment-only control\nconst MAX_DRAFT_REVS = 60;"
+  },
+  {
+    "label": "CONTROL: a comment only in worker.js \u2014 must survive",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "export async function markSaved(env, id, {",
+    "to": "// comment-only control\nexport async function markSaved(env, id, {"
+  },
+  {
+    "label": "CONTROL: a comment only in builder/request.mjs \u2014 must survive",
+    "control": true,
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "function settleRewrite(rec, p, job, row, now) {",
+    "to": "// comment-only control\nfunction settleRewrite(rec, p, job, row, now) {"
+  },
+  {
+    "label": "E1 the Build path records a draft save as a publication",
+    "files": [
+      "worker.js"
+    ],
+    "from": "        if (act.draft === true) {\n          const own = savedRevision(act.record, { job: jobId, version: bVersion });",
+    "to": "        if (false) {\n          const own = savedRevision(act.record, { job: jobId, version: bVersion });"
+  },
+  {
+    "label": "E2 a publication's marker without live",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    return { by: \"publish\", published: version, live: true };",
+    "to": "    return { by: \"publish\", published: version };"
+  },
+  {
+    "label": "E3 the earlier marker is published whatever the draft says",
+    "files": [
+      "builder/build-lease.mjs"
+    ],
+    "from": "    if (own.state === \"saved\" && own.rev.version === f.published) return",
+    "to": "    if (false) return"
+  },
+  {
+    "label": "E4 the earlier marker with the draft unreadable is published",
+    "files": [
+      "builder/build-lease.mjs"
+    ],
+    "from": "    if (own.state === \"unknown\") return { outcome: \"unknown\", why: \"legacy-marker-\" + own.why };",
+    "to": ""
+  },
+  {
+    "label": "E5 no draft-revision proof without a marker",
+    "files": [
+      "builder/build-lease.mjs"
+    ],
+    "from": "    if (own.state === \"saved\") return { outcome: \"saved\", why: \"draft-revision\",",
+    "to": "    if (false) return { outcome: \"saved\", why: \"draft-revision\","
+  },
+  {
+    "label": "E6 another job's revision proves this build",
+    "files": [
+      "builder/build-lease.mjs"
+    ],
+    "from": "  const revs = d.record.revs.filter((x) => x && x.job === id);",
+    "to": "  const revs = d.record.revs.filter((x) => x);"
+  },
+  {
+    "label": "E7 a revision of a version this job never staged proves it",
+    "files": [
+      "builder/build-lease.mjs"
+    ],
+    "from": "    const rev = revs.find((x) => builds.some((b) => b && b.job === id && (b.id || b.version) === x.version));",
+    "to": "    const rev = revs[0];"
+  },
+  {
+    "label": "E8 a held revision is proven without its journal",
+    "files": [
+      "builder/build-lease.mjs"
+    ],
+    "from": "      if (j !== true) return { state: \"unknown\", why: j === false ? \"held-journal-missing\" : \"held-journal-unread\" };",
+    "to": ""
+  },
+  {
+    "label": "E9 a trimmed list reads as absence",
+    "files": [
+      "builder/build-lease.mjs"
+    ],
+    "from": "  if (all.length >= MAX_DRAFT_REVS && all[0] && all[0].n > 1) return { state: \"unknown\", why: \"draft-trimmed\" };",
+    "to": ""
+  },
+  {
+    "label": "E10 an unreadable draft reads as no draft",
+    "files": [
+      "builder/build-lease.mjs"
+    ],
+    "from": "  if (d.state === \"unreadable\") return { state: \"unknown\", why: \"draft-unread\" };",
+    "to": ""
+  },
+  {
+    "label": "E11 a saved build is refunded",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if (v.outcome === \"not-published\") {\n      // WHAT CAME BACK, FROM THE LEDGER",
+    "to": "    if (v.outcome !== \"published\") {\n      // WHAT CAME BACK, FROM THE LEDGER"
+  },
+  {
+    "label": "E12 recovery's saved answer is the published one",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  const body = outcome === \"saved\"\n",
+    "to": "  const body = false\n"
+  },
+  {
+    "label": "E13 the settlement facts drop a saved outcome",
+    "files": [
+      "builder/build-job.mjs"
+    ],
+    "from": "  if (!m || (m.outcome !== \"published\" && m.outcome !== \"not-published\" && m.outcome !== \"saved\")) return null;",
+    "to": "  if (!m || (m.outcome !== \"published\" && m.outcome !== \"not-published\")) return null;"
+  },
+  {
+    "label": "E14 a stored saved recovery answer reads as published",
+    "files": [
+      "builder/build-job.mjs"
+    ],
+    "from": "    if (body.recovered === true && body.draft && body.draft.published === false) return",
+    "to": "    if (false) return"
+  },
+  {
+    "label": "E15 the saved message says the site went live",
+    "files": [
+      "builder/build-lease.mjs"
+    ],
+    "from": "  if (outcome === \"saved\") {\n    return \"That build lost touch",
+    "to": "  if (false) {\n    return \"That build lost touch"
+  },
+  {
+    "label": "E16 the reply's note says a saved build went live",
+    "files": [
+      "builder/site-reply.mjs"
+    ],
+    "from": "    if (st.outcome === \"saved\") F.add(",
+    "to": "    if (false) F.add("
+  },
+  {
+    "label": "E17 the request reads a saved rewrite as published",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "    const saved = b.draft && typeof b.draft === \"object\" && b.draft.published === false",
+    "to": "    const saved = false && b.draft && typeof b.draft === \"object\" && b.draft.published === false"
+  },
+  {
+    "label": "E18 a lost rewrite with no answer yet is failed",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "    if (row.state === \"lost\") { p.status = \"unverified\"; p.why = \"rewrite-recovering\"; return; }",
+    "to": ""
+  },
+  {
+    "label": "E19 the resumed build's answer drops its draft",
+    "files": [
+      "worker.js"
+    ],
+    "from": "        ...(pages && pages.draft && typeof pages.draft === \"object\" ? { draft: pages.draft } : {}),",
+    "to": ""
+  },
+  {
+    "label": "E20 the inline build's answer drops its draft",
+    "files": [
+      "worker.js"
+    ],
+    "from": "        ...(pages.draft && typeof pages.draft === \"object\" ? { draft: pages.draft } : {}),",
+    "to": ""
+  },
+  {
+    "label": "E21 a save is recorded over a recorded failure",
+    "files": [
+      "worker.js"
+    ],
+    "from": "(typeof cur.saved === \"string\" && cur.saved) || cur.failed === true) return null;\n    return { by: \"publish\", saved: version,",
+    "to": "(typeof cur.saved === \"string\" && cur.saved)) return null;\n    return { by: \"publish\", saved: version,"
+  },
+  {
+    "label": "E22 a publication is recorded over a save",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if ((typeof cur.published === \"string\" && cur.published) || (typeof cur.saved === \"string\" && cur.saved)) return null;\n    // `live: true`",
+    "to": "    if ((typeof cur.published === \"string\" && cur.published)) return null;\n    // `live: true`"
+  },
+  {
+    "label": "E23 the fence's reader drops the save",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      ...(v && typeof v.saved === \"string\" && v.saved ? {",
+    "to": "      ...(false ? {"
+  }
+]

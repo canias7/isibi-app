@@ -284,13 +284,15 @@ export function resultKind(raw) {
  */
 export function settlementFacts(mark) {
   const m = mark && typeof mark === "object" && !Array.isArray(mark) ? mark : null;
-  if (!m || (m.outcome !== "published" && m.outcome !== "not-published")) return null;
+  if (!m || (m.outcome !== "published" && m.outcome !== "not-published" && m.outcome !== "saved")) return null;
   return {
     recovered: true,
     outcome: m.outcome,
     why: typeof m.why === "string" ? m.why : "",
     refunded: Math.max(0, Number(m.returned) || 0),
     short: m.short === true,
+    // SAVED AS A DRAFT (2026-10-16): which revision, never "live".
+    ...(m.outcome === "saved" ? { version: typeof m.version === "string" ? m.version : "", revision: Number.isSafeInteger(m.revision) && m.revision > 0 ? m.revision : 0 } : {}),
   };
 }
 
@@ -313,11 +315,15 @@ export function knownSettlement(stored) {
   let body;
   try { body = JSON.parse(r.body); } catch { return null; }
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
-  const ok = (f) => f && typeof f === "object" && !Array.isArray(f) && (f.outcome === "published" || f.outcome === "not-published");
-  const tidy = (f) => ({ recovered: true, outcome: f.outcome, why: typeof f.why === "string" ? f.why : "", refunded: Math.max(0, Number(f.refunded) || 0), short: f.short === true });
+  const ok = (f) => f && typeof f === "object" && !Array.isArray(f) && (f.outcome === "published" || f.outcome === "not-published" || f.outcome === "saved");
+  const tidy = (f) => ({ recovered: true, outcome: f.outcome, why: typeof f.why === "string" ? f.why : "", refunded: Math.max(0, Number(f.refunded) || 0), short: f.short === true,
+    ...(f.outcome === "saved" ? { version: typeof f.version === "string" ? f.version : "", revision: Number.isSafeInteger(f.revision) && f.revision > 0 ? f.revision : 0 } : {}) });
   if (ok(body.settlement)) return tidy(body.settlement);
   if (body.buildFacts && ok(body.buildFacts.settlement)) return tidy(body.buildFacts.settlement);
   if (body.lost === true) {
+    // A RECOVERED SAVED DRAFT says so on its own answer (`draft`, published
+    // false); an older recovery answer without it said publication.
+    if (body.recovered === true && body.draft && body.draft.published === false) return { recovered: true, outcome: "saved", why: "", refunded: 0, short: false, version: typeof body.draft.version === "string" ? body.draft.version : "", revision: Number.isSafeInteger(body.draft.revision) && body.draft.revision > 0 ? body.draft.revision : 0 };
     if (body.recovered === true) return { recovered: true, outcome: "published", why: "", refunded: 0, short: false };
     if (Number.isFinite(Number(body.refunded))) return { recovered: true, outcome: "not-published", why: "", refunded: Math.max(0, Number(body.refunded) || 0), short: body.refundShort === true };
   }

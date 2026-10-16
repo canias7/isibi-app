@@ -275,10 +275,10 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       credits.balance += j.cost;
       if (!ledger.some((e) => e.ref === j.id && e.reason === "refund")) ledgerRow(j.uid, "edit", j.id, "refund", j.cost);
       const was = j.cost;
-      j.billing = "refunded"; j.state = state;
+      j.billing = "refunded"; j.state = state; j.updated_at = now();
       return { ok: true, refunded: was, balance: credits.balance };
     }
-    j.state = state;
+    j.state = state; j.updated_at = now();
     return { ok: true, refunded: 0, billing: j.billing };
   };
   // `beside` (2026-10-15): the site's lock as supabase/proposed/request_beside.sql
@@ -636,6 +636,11 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       const q = new URL(url).searchParams;
       let rows = [...jobs.values()];
       const id = q.get("id"); if (id && id.startsWith("eq.")) rows = rows.filter((j) => j.id === id.slice(3));
+      // A SET OF IDS, AN OP AND A STATE (2026-10-16, for the lost-build
+      // recovery's reads), as PostgREST filters them.
+      if (id && id.startsWith("in.(")) { const set = new Set(id.slice(4, -1).split(",")); rows = rows.filter((j) => set.has(j.id)); }
+      const op = q.get("op"); if (op && op.startsWith("eq.")) rows = rows.filter((j) => j.op === op.slice(3));
+      const st = q.get("state"); if (st && st.startsWith("eq.")) rows = rows.filter((j) => j.state === st.slice(3));
       const nr = q.get("needs_review"); if (nr === "eq.true") rows = rows.filter((j) => j.needs_review);
       // WHOSE, WHICH SITE'S AND FILED AFTER WHEN (2026-10-07), as PostgREST
       // filters them: a read asking for one owner's rows on one site since a
@@ -649,7 +654,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       if (ord) rows.sort((a, b) => (a[ord[1]] > b[ord[1]] ? 1 : a[ord[1]] < b[ord[1]] ? -1 : 0) * (ord[2] === "desc" ? -1 : 1));
       const lim = Number(q.get("limit"));
       if (Number.isInteger(lim) && lim > 0) rows = rows.slice(0, lim);
-      return resp(rows.map(({ seqs, ...r }) => ({ ...r, publish_started_at: r.publish_started_at ? new Date(r.publish_started_at).toISOString() : null, published_at: r.published_at ? new Date(r.published_at).toISOString() : null })));
+      return resp(rows.map(({ seqs, ...r }) => ({ ...r, publish_started_at: r.publish_started_at ? new Date(r.publish_started_at).toISOString() : null, published_at: r.published_at ? new Date(r.published_at).toISOString() : null, updated_at: new Date(r.updated_at).toISOString() })));
     }
     if (url.includes("/rest/v1/edit_traces")) return new Response(null, { status: 201 });
     // ── A SITE WITH NO DATABASE YET (`provisions`, 2026-10-07) ───────────────

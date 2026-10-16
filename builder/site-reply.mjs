@@ -1525,7 +1525,8 @@ export function buildReplyFacts(bf) {
   for (const f of checkFacts(bf.checks)) F.add(f.kind, f.text);
   const st = bf.settlement;
   if (st && typeof st === "object") {
-    if (st.outcome === "published") F.add("note", "The build lost touch with us near the end, but its site did go live; nothing was refunded.");
+    if (st.outcome === "saved") F.add("note", "The build lost touch with us near the end, but it was saved as the site's draft" + (Number.isSafeInteger(st.revision) && st.revision > 0 ? " (revision " + st.revision + ")" : "") + "; the live site is unchanged until the owner presses Publish, and nothing was refunded.");
+    else if (st.outcome === "published") F.add("note", "The build lost touch with us near the end, but its site did go live; nothing was refunded.");
     else if (st.short) F.add("not-done", "The build stopped and returning what it charged has not gone through yet; it is being retried.");
     else F.add("changed", "The build stopped; what it charged (" + st.refunded + " credits) has been returned.");
   }
