@@ -13148,6 +13148,8 @@ function confirmFields(wput) {
   return { confirmed: wput.confirmed === true, confirmMs: wput.confirmMs };
 }
 
+/** A draft's preview script, under its own name, which no live address dispatches to (draft-first). */
+const uploadPreviewScript = (env, slug, worker) => putSiteWorker(env, slug, worker, { preview: true });
 async function putSiteWorker(env, slug, worker, { preview = false } = {}) {
   // The container returns `{ok, why, code}` and packages only when asked, so
   // "no worker" is the ordinary answer on every path that did not request one.
@@ -14961,7 +14963,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // THE TASK'S HELD BACKEND AND LIBRARY CHANGES ride its draft revision.
     held: toDraft ? held : null,
     base: pointerBefore ? pointerBefore.version : "",
-    preview: toDraft ? () => putSiteWorker(env, slug, built.worker, { preview: true }) : undefined,
+    preview: toDraft ? () => uploadPreviewScript(env, slug, built.worker) : undefined,
     // THE POINTER AS IT WAS, so an activation whose script never landed can
     // put it back instead of leaving the site pointing at a version nothing
     // serves. Null on a first activation, where the undo is a delete.
@@ -16182,7 +16184,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         asDraft: toDraft ? saveAsDraft : null,
         held: toDraft ? held : null,
         base: before ? before.version : "",
-        preview: toDraft ? () => putSiteWorker(env, slug, worker, { preview: true }) : undefined,
+        preview: toDraft ? () => uploadPreviewScript(env, slug, worker) : undefined,
         // RE-ASKED AT THE POINTER (audit fix): a caller that can lose its lease
         // mid-build — the resumed-build collector — hands one in, and it is
         // asked with no await between it and the conditional write.
