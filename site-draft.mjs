@@ -277,13 +277,13 @@ export function previewOf(label) {
  * sidecar, no live marker, no site script.
  */
 export async function saveAsDraft(deps, { slug, version, build = "", base = "", job = null, afterActivate, commit, preview, held = null } = {}) {
-  let rec;
+  let rec, ref = null;
   try {
     // THE TASK'S HELD BACKEND AND LIBRARY CHANGES go into the same revision as
     // its code (2026-10-15): written first, immutable, named by the record.
     // A HOLD (its ops written now) or a reference already written (a build
     // whose generation finished in a later invocation carries `{ id, ops }`).
-    let ref = held && typeof held.flush === "function" ? await held.flush()
+    ref = held && typeof held.flush === "function" ? await held.flush()
       : held && typeof held.id === "string" && HELD_ID.test(held.id) && Array.isArray(held.ops) ? { id: held.id, ops: held.ops } : null;
     // A REFERENCE CARRIED BY A RECORD (a build's resume) is written here if it
     // is not yet: create-only, so one already there is kept as it is.
@@ -298,6 +298,14 @@ export async function saveAsDraft(deps, { slug, version, build = "", base = "", 
     return { ok: false, error: "draft: " + String((e && e.message) || e) };
   }
   if (!rec.ok) return { ok: false, error: rec.error || "draft" };
+  // A NEWER DRAFT ALREADY STOOD, AND THIS SAVE CARRIED ONLY CODE (2026-10-16):
+  // its version is kept in the history, but the draft the owner will publish
+  // does not hold its change. It is not committed or billed as done; the
+  // caller is told `older`, and the request runs the part again on the newer
+  // draft. (A save that also carried held changes added them as a revision of
+  // the newest code, so it goes on as before: refusing it would refund changes
+  // that are in the draft.)
+  if (rec.older && !ref) return { ok: false, error: "older", older: true, version: rec.draft && rec.draft.version };
   if (!rec.older && typeof afterActivate === "function") await afterActivate();
   let previewed = null;
   if (typeof preview === "function") {

@@ -965,22 +965,27 @@ test("DF2 PUBLISH RELEASES EXACTLY THE APPROVED VERSION — the owner approves d
   try {
     await runOne(P, TIKTOK_LATER + ".");
     const d1 = draftOf(P).version;
+    const r1 = draftOf(P).rev;
     // THE OWNER LOOKS AT D1 — then another change lands before they click.
     await runOne(P, TIKTOK + ".");
     const d2 = draftOf(P).version;
     assert.notEqual(d2, d1, "the later edit did not save a later draft");
     assert.equal(liveVersion(P), v0);
-    const bogus = await call(P, "POST", "/api/site/" + P.slug + "/publish", { version: "01790000000000-zzzzzz" });
+    const bogus = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: 999, version: "01790000000000-zzzzzz" });
     assert.equal(bogus.status, 409, "a version never saved as a draft was published: " + JSON.stringify(bogus.body));
     assert.equal(liveVersion(P), v0);
-    const pub = await call(P, "POST", "/api/site/" + P.slug + "/publish", { version: d1 });
+    // A BARE VERSION IS NO LONGER A CLICK (2026-10-16): the revision is required.
+    const bareV = await call(P, "POST", "/api/site/" + P.slug + "/publish", { version: d1 });
+    assert.equal(bareV.status, 400, "a publish naming no revision was accepted: " + JSON.stringify(bareV.body));
+    assert.equal(liveVersion(P), v0);
+    const pub = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: r1, version: d1 });
     assert.equal(pub.status, 200, JSON.stringify(pub.body));
     assert.equal(liveVersion(P), d1, "Publish did not make the approved version live");
     assert.equal(P.liveScript(), d1, "the live script is not the approved version's");
     assert.equal(draftOf(P).version, d2, "the later draft was lost or published by the click");
     // A STAGED VERSION THAT WAS NEVER SAVED AS A DRAFT (the one published
     // before draft-first) is not publishable through this door.
-    const old = await call(P, "POST", "/api/site/" + P.slug + "/publish", { version: v0 });
+    const old = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: r1, version: v0 });
     assert.equal(old.status, 409, "a staged version never saved as a draft was published: " + JSON.stringify(old.body));
     assert.equal(liveVersion(P), d1);
     assert.equal(pub.body.state.state, "saved", "the later draft is not shown as saved and unpublished: " + JSON.stringify(pub.body.state));
@@ -995,11 +1000,12 @@ test("DF3 A TASK RUNNING AT THE CLICK IS NOT IN THE PUBLICATION — an edit is h
   try {
     await runOne(P, TIKTOK_LATER + ".");
     const d1 = draftOf(P).version;
+    const r1 = draftOf(P).rev;
     let pub = null;
     let during = null;
     P.beforePut((k) => k === DRAFT(P) && inside("saveDraftRecord"), async () => {
       during = await call(P, "GET", "/api/site/" + P.slug + "/draft");
-      pub = await call(P, "POST", "/api/site/" + P.slug + "/publish", { version: d1 });
+      pub = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: r1, version: d1 });
     });
     await runOne(P, TIKTOK + ".");
     assert.ok(pub, "the second edit's draft save was never held");

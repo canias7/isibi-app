@@ -47,7 +47,8 @@ import { anonKeyFromFrontend } from "./anon-key.mjs";
 // that knows what shape `probeHold` and `probeWire` produced, and a second
 // reader in this file is two lists of the same thing with a container between
 // them — the drift being silent, because a wrong verdict still prints.
-import { holdVerdict, wireVerdict, wireCallBoundMs } from "../builder/job-probe.mjs";
+import { holdVerdict, wireVerdict, wireCallBoundMs, envObserved } from "../builder/job-probe.mjs";
+import { switchChecks, combine } from "./canary-draft.mjs";
 
 const t0 = Date.now();
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://ujrqdmmtcptvimazlhom.supabase.co";
@@ -130,7 +131,18 @@ const sayNotJson = (o) =>
 if (!EMAIL) fail("OWNER_EMAIL is not set");
 if (!SERVICE_KEY) fail("SUPABASE_SERVICE_KEY is not set");
 if (!ANON_KEY) fail("SUPABASE_ANON_KEY is not set");
-if (SHAPE !== "hold" && SHAPE !== "wire") fail(`PROBE_SHAPE ${JSON.stringify(SHAPE)} is neither "hold" nor "wire"`);
+if (SHAPE !== "hold" && SHAPE !== "wire" && SHAPE !== "env") fail(`PROBE_SHAPE ${JSON.stringify(SHAPE)} is none of "hold", "wire", "env"`);
+// THE env SHAPE (2026-10-16): what the publishing switches read inside a real
+// job child, beside what the Worker reports and calculates. Free: it runs no
+// customer work and calls no model. The `want` box (`PROBE_WANT`) names the
+// expected values; blank, they are judged against the Worker's own reading.
+const WANT = (v) => { const s = String(v || "").trim().toLowerCase(); return s === "on" ? true : s === "off" ? false : null; };
+// THE ONE BOX, `PROBE_WANT` ("draft=on,parallel=off"), read strictly: a
+// part that does not read is refused, never guessed.
+const WANT_BOX = String(process.env.PROBE_WANT || "").trim().toLowerCase();
+const wantPart = (name) => { const m = new RegExp("(?:^|,)\\s*" + name + "\\s*=\\s*(on|off)\\s*(?:,|$)").exec(WANT_BOX); return m ? m[1] : ""; };
+if (WANT_BOX && !/^\s*(draft|parallel)\s*=\s*(on|off)\s*(,\s*(draft|parallel)\s*=\s*(on|off)\s*)?$/.test(WANT_BOX)) fail(`PROBE_WANT ${JSON.stringify(WANT_BOX)} does not read: write draft=on,parallel=off`);
+const WANT_DRAFT = WANT(wantPart("draft")), WANT_PARALLEL = WANT(wantPart("parallel"));
 
 log(`step 0 — base=${BASE} shape=${SHAPE} ms=${MS} everyMs=${EVERY_MS} site=${SITE}`);
 log(`step 0 — email=${EMAIL} service_key=${desc(SERVICE_KEY)} anon_key=${desc(ANON_KEY)}`);
@@ -243,6 +255,29 @@ if (ended.gone) {
 log(`step 6 — final record: ${JSON.stringify(ended).slice(0, 1200)}`);
 const tail = Array.isArray(ended.tail) ? ended.tail : [];
 for (const t of tail) log(`step 6 — tail: ${t}`);
+
+if (SHAPE === "env") {
+  // THREE READINGS KEPT APART: the Worker's own, the job's as CALCULATED from
+  // what a launch would carry, and the job's as OBSERVED by a real job child.
+  // Only the last is the container's answer; without it nothing is passed.
+  const seen = envObserved(tail);
+  const want = {
+    draftFirst: WANT_DRAFT !== null ? WANT_DRAFT : (rt && typeof rt.draftFirst === "boolean" ? rt.draftFirst : null),
+    parallelWrites: WANT_PARALLEL !== null ? WANT_PARALLEL : (rt && typeof rt.parallelWrites === "boolean" ? rt.parallelWrites : null),
+  };
+  log("");
+  log(`step 6 — observed in a job child: ${seen ? JSON.stringify(seen) : "NOTHING READ"}`);
+  log(`step 6 — wanted: ${JSON.stringify(want)} (${WANT_DRAFT !== null || WANT_PARALLEL !== null ? "from the boxes" : "the Worker's own reading"})`);
+  if (want.draftFirst === null || want.parallelWrites === null) {
+    log("VERDICT — UNVERIFIED: no expected value was given and the runtime route did not report one.");
+    process.exit(1);
+  }
+  const checks = switchChecks(rt && typeof rt === "object" ? rt : {}, seen, want);
+  for (const [k, c] of Object.entries(checks)) log(`step 6 — ${c.verdict.toUpperCase().padEnd(10)} ${k}: ${c.why}`);
+  const all = combine(checks);
+  log(`VERDICT — ${all.verdict.toUpperCase()}: ${all.why}`);
+  process.exit(all.verdict === "pass" ? 0 : 1);
+}
 
 if (SHAPE === "hold") {
   // THE QUESTION IS FIFTEEN MINUTES, so the answer is the elapsed time and the

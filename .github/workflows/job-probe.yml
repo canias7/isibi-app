@@ -31,7 +31,7 @@ on:
   workflow_dispatch:
     inputs:
       probe:
-        description: 'hold (does a job child really run past 15 minutes?) | wire (does a quiet connection die where a streamed one lives?)'
+        description: 'hold (does a job child really run past 15 minutes?) | wire (does a quiet connection die where a streamed one lives?) | env (FREE: what DRAFT_FIRST and PARALLEL_WRITES read inside a real job child, beside the Worker''s own and the calculated job values; ms is ignored)'
         required: true
         default: 'hold'
       ms:
@@ -46,6 +46,10 @@ on:
         description: 'A site the owner owns, read ONLY to ask /api/site/runtime which deploy is live and whether the runner is on.'
         required: false
         default: 'fretwork-1'
+      want:
+        description: 'env only: the switches you expect, as draft=on,parallel=off. Blank = judged against the Worker''s own reading. A probe line that cannot be read is UNVERIFIED, never a pass.'
+        required: false
+        default: ''
       jobId:
         description: 'READ BACK a probe already running instead of firing a new one. Paste the id from an earlier run (step 4 prints it). Leave empty to fire. When set, probe/ms/everyMs are ignored.'
         required: false
@@ -78,6 +82,7 @@ jobs:
           PROBE_EVERY_MS: ${{ github.event.inputs.everyMs }}
           PROBE_SITE: ${{ github.event.inputs.site }}
           PROBE_JOB_ID: ${{ github.event.inputs.jobId }}
+          PROBE_WANT: ${{ github.event.inputs.want }}
         run: node scripts/job-probe.mjs
       # ALWAYS, because the run that FAILED is the one whose log is worth having:
       # a NOT PROVEN or a CANNOT TELL is a reading, and a reading nobody can read

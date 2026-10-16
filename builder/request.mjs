@@ -142,6 +142,10 @@ export function readJobKey(k) {
 
 /** A job that ended with no answer at all is filed once more (D5), its money already back. */
 export const RETRIES = 1;
+/** The refusals a part's run gets only from another part of its own request beside it (2026-10-16). */
+export const OVERLAP_LOSSES = Object.freeze(["conflict", "turn", "turn-lost", "older"]);
+/** How many times a part that lost to such an overlap runs again, alone, before it fails. */
+export const OVERLAP_RETRIES = 2;
 /**
  * A CHECKPOINT THAT COULD NOT BE SAVED OR READ JUST NOW (round 14, after
  * Codex's pass on 29fc95af): the part is `recovering`, durable on its request,
@@ -1160,6 +1164,21 @@ function settle(rec, p, job, row, now) {
     p.status = "uncertain"; p.why = "purchase-unconfirmed";
     p.purchase = { held: heldOf(ans.body), at: now };
     p.outcome = { job: job.id, kind: "uncertain" };
+    return;
+  }
+  // LOST TO ANOTHER PART OF THIS REQUEST (2026-10-16): its publish found
+  // another part's change on the same files (`conflict`), or the site's turn
+  // passed to another part (`turn`, `turn-lost`), or a newer draft already
+  // stood (`older`). Only the publish spine answers these codes (worker.js
+  // `lostOr`); nothing of it went in and it was refunded, so it is not the
+  // customer's to send again: it runs
+  // once more, alone (`serial`), a bounded number of times, then fails as before.
+  if (read.act === "refusal" && OVERLAP_LOSSES.includes(read.error) && !leftOf(ans.body) && !p.left && (Number(p.overlapRuns) || 0) < OVERLAP_RETRIES) {
+    p.overlapRuns = (Number(p.overlapRuns) || 0) + 1;
+    p.serial = true;
+    job.end.act = "overlap";
+    p.outcome = { job: job.id, kind: "overlap" };
+    p.status = "ready"; p.why = null;
     return;
   }
   if (read.act === "refusal") {

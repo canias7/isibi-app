@@ -564,7 +564,7 @@ export function clearToPrepare(parts, n, ended) {
   for (const m of order) {
     if (m === n) return true;
     const q = parts[m];
-    if (!q || ended(q)) continue;
+    if (!q || ended(q) || paused(q)) continue;
     // A ROUTING writes nothing, so only what it reads (the page list) can make
     // it wait; a step that writes waits for any earlier part it conflicts with.
     if (me.phase !== "route" && me.route && conflicts(q, me)) return false;
@@ -635,13 +635,28 @@ export function clearToWrite(parts, n, ended, running) {
   const holds = (q) => (writes ? besideConflict(q, me) : feedsMe(q));
   for (const q of parts) {
     if (!q || q.n === n || ended(q) || !running(q) || !runs(q)) continue;
+    // A PART THAT LOST TO AN OVERLAP RUNS ALONE (2026-10-16, `serial`): it
+    // waits for every running writer, and none is filed beside it, so its
+    // second try cannot lose the same way.
+    if ((writes && me.serial) || q.serial) return false;
     if (holds(q)) return false;
   }
   for (const m of order) {
     if (m === n) return true;
     const q = parts[m];
-    if (!q || ended(q)) continue;
+    if (!q || ended(q) || paused(q)) continue;
     if (holds(q)) return false;
   }
   return true;
 }
+
+/**
+ * PAUSED ON THE CUSTOMER OR ON A PURCHASE (2026-10-16): a part waiting on a
+ * question, an approval, or a purchase nobody can tell. Nothing it writes is
+ * on its way, so it holds no later part back in the apply order, as with one
+ * job at a time, where such a part was never in the way. A real dependency on
+ * it is a `need`, and a part with an unmet need is never ready; a writer that
+ * is actually running still holds back any part it conflicts with.
+ */
+const PAUSED = ["waiting", "approval", "uncertain"];
+function paused(q) { return PAUSED.includes(q && q.status); }

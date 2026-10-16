@@ -512,11 +512,12 @@ test("the edit route keeps a synchronous ledger, hands the spine its reader, and
   const refund = at(route, "refundCredits(env, ou.id, syncLedger.taken)", "the refund");
   // LANDMARK TO LANDMARK (2026-09-25): this was `refund - fail < 900`, a byte
   // window a comment above the refund outran. The branch ends at its own reply.
-  const reply = route.indexOf('error: finalPub.error === "unbilled" ? "unbilled" : "compile"', fail);
+  const reply = route.indexOf('error: finalPub.error === "unbilled" ? "unbilled" : lostOr(finalPub, "compile")', fail);
   assert.ok(reply > fail, "the failed-publish branch's reply is gone — this window is over nothing");
   assert.ok(refund > fail && refund < reply, "the refund of the earlier collects does not sit inside the failed-publish branch");
   assert.match(route.slice(fail, refund), /finalPub\.error === "unbilled" && !eJob && syncLedger\.taken > 0/, "the refund is not gated on an unbilled, synchronous, collected publish");
-  assert.match(route, /error: finalPub\.error === "unbilled" \? "unbilled" : "compile"/, "a refused publish still wears the compile's code");
+  // 2026-10-16: an overlap with another part of the request keeps its own code (`lostOr`).
+  assert.match(route, /error: finalPub\.error === "unbilled" \? "unbilled" : lostOr\(finalPub, "compile"\)/, "a refused publish still wears the compile's code");
   // AND THE REPLY'S COST IS WHAT THE LEDGER STILL HOLDS (2026-09-25): on the
   // synchronous path what the rungs collected and nothing gave back, and on a
   // job 0 — the consumer's refund, whose outcome the poll route reports from

@@ -1515,7 +1515,10 @@ export default {
     ctx.waitUntil(runScriptPendingSweep(env).catch((e) => console.error("script sweep failed", errorClassForLog(e))));
     // A PUBLICATION THAT STOPPED AFTER ITS SWITCH IS FINISHED (draft-first):
     // the approved revision, from its journal; this never begins one.
-    if (draftFirst(env)) ctx.waitUntil(runPublishRecovery(env).catch((e) => console.error("publish recovery failed", errorClassForLog(e))));
+    // WHATEVER THE SWITCH SAYS NOW (2026-10-16): a publication the owner
+    // approved while it was on is finished even if it was turned off since;
+    // with no journal the sweep lists one empty prefix and does nothing.
+    ctx.waitUntil(runPublishRecovery(env).catch((e) => console.error("publish recovery failed", errorClassForLog(e))));
   },
   // ── THE BUILD QUEUE CONSUMER (see wrangler.jsonc for why this exists) ──────
   //
@@ -12895,7 +12898,12 @@ async function applyHeldMedia(env, slug, m, { uid = "" } = {}) {
       // repeat finds the stand-in gone and the address already holding them.
       const src = await B.get(uploadKey(slug, m.with));
       if (src) {
-        await B.put(uploadKey(slug, m.name), src.body, { httpMetadata: src.httpMetadata, customMetadata: src.customMetadata });
+        // A KNOWN LENGTH, as the draft-media move streams it (2026-10-16): R2
+        // refuses a stream whose length it cannot tell, and a video is too big
+        // to read whole into the Worker.
+        const FLS = globalThis.FixedLengthStream;
+        const body = typeof FLS === "function" && src.body && typeof src.body.pipeThrough === "function" && Number.isSafeInteger(src.size) ? src.body.pipeThrough(new FLS(src.size)) : src.body;
+        await B.put(uploadKey(slug, m.name), body, { httpMetadata: src.httpMetadata, customMetadata: src.customMetadata });
         const del = await handleMediaDelete(deps, { scope, name: m.with });
         if (del && del.status && del.status >= 500) return { ok: false, error: "the replaced file's stand-in could not be taken off" };
       }
@@ -14532,6 +14540,20 @@ function keepRefusal(k, slug, extra = {}) {
  */
 const KEPT_CHANGE_NOTE = " The change itself is still saved, though, so it could go out with your next edit.";
 
+/**
+ * THE REFUSALS A JOB GETS ONLY FROM ANOTHER PART OF ITS OWN REQUEST BESIDE IT
+ * (2026-10-16): its publish found that part's change on the same files
+ * (`conflict`), the site's turn passed to it (`turn`, `turn-lost`), or a newer
+ * draft stood when this one was saved (`older`). Every edit rung answered them
+ * as `compile`, with the restarting sentence, so the request could not tell an
+ * overlap it can run again from a failure, and the customer was told a build
+ * service had restarted. The rung's answer now carries the spine's own code.
+ */
+const LOST_TO_OVERLAP = Object.freeze(["conflict", "turn", "turn-lost", "older"]);
+function lostOr(pub, otherwise) {
+  return pub && pub.ok === false && pub.ours === true && LOST_TO_OVERLAP.includes(pub.error) ? pub.error : otherwise;
+}
+
 function compileMsg(pub, theirs, landed = false, kept = false) {
   // ⚠ WHEN PART OF THE MESSAGE ALREADY WENT THROUGH (2026-09-25), "nothing was
   // changed" is false: an address, a row or a table rule is live the moment its
@@ -14610,6 +14632,14 @@ function compileMsg(pub, theirs, landed = false, kept = false) {
   // lost lease, and the same advice; never the restarting sentence.
   if (pub.error === "turn-lost" || pub.error === "turn") {
     return said("That didn't go through — another change in the same request was being published at the same time, " + (landed ? none : "so nothing was published") + ". Send it again.");
+  }
+  // THE SAME FILES, CHANGED BY ANOTHER PART OF THE REQUEST (2026-10-16), and a
+  // newer draft that already stood: refusals of the same kind, never a restart.
+  if (pub.error === "conflict") {
+    return said("That didn't go through — another change in the same request changed the same part of your site at the same time, " + (landed ? none : "so nothing was published") + ". Send it again.");
+  }
+  if (pub.error === "older") {
+    return said("That didn't go through — another change in the same request was saved to your draft after this one began, " + (landed ? none : "so this one wasn't saved") + ". Send it again.");
   }
   // ── OUR FAULT IS TWO DIFFERENT FAULTS (2026-08-29) ──────────────────────
   //
@@ -15912,7 +15942,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     tm("activate", "fail", { why: String((act && act.error) || "activate"), code: (act && act.code) || undefined, key: (act && act.key) || undefined });
     // OURS, and the live site is untouched: a superseded pointer is another
     // job's publish having landed first, never the customer's change.
-    return { ok: false, error: act && (act.error === "superseded" || act.error === "not-served" || act.error === "lease-lost" || act.error === "turn-lost") ? act.error : "activate", ours: true, detail: String((act && act.error) || "the build could not be activated").slice(0, 200), code: (act && act.code) || undefined, key: (act && act.key) || undefined };
+    return { ok: false, error: act && (act.error === "superseded" || act.error === "not-served" || act.error === "lease-lost" || act.error === "turn-lost" || act.error === "older") ? act.error : "activate", ours: true, detail: String((act && act.error) || "the build could not be activated").slice(0, 200), code: (act && act.code) || undefined, key: (act && act.key) || undefined };
   }
   tm("activate", "ok", { uploaded: act.uploaded, draft: act.draft === true });
   // THE PUBLISH, SAID ONCE IT IS DONE (talk, 2026-10-13): `activate`
@@ -33661,7 +33691,7 @@ async function handleRequest(request, env, ctx) {
               });
               if (!nPub.ok) {
                 return Response.json({
-                  ok: false, error: "compile", cost: 0,
+                  ok: false, error: lostOr(nPub, "compile"), cost: 0,
                   msg: compileMsg(nPub, "That menu change didn't compile, so your site is untouched."),
                   detail: nPub.detail,
                 }, { status: 422 });
@@ -33801,7 +33831,7 @@ async function handleRequest(request, env, ctx) {
                 label: versionLabel({ revise: true, changeNote: "photographs placed" }),
               });
               if (!plPub.ok) {
-                return Response.json({ ok: false, error: "compile", cost: 0, msg: compileMsg(plPub, "Those photographs couldn't be placed, so your site is untouched."), detail: plPub.detail }, { status: 422 });
+                return Response.json({ ok: false, error: lostOr(plPub, "compile"), cost: 0, msg: compileMsg(plPub, "Those photographs couldn't be placed, so your site is untouched."), detail: plPub.detail }, { status: 422 });
               }
               // EVERY PHOTOGRAPH PLACED IS CHARGED HERE, ONCE: the addition
               // charged only the photographs it placed itself (`made`), never
@@ -33954,7 +33984,7 @@ async function handleRequest(request, env, ctx) {
               });
               if (!pPub.ok) {
                 return Response.json({
-                  ok: false, error: "compile", cost: 0,
+                  ok: false, error: lostOr(pPub, "compile"), cost: 0,
                   msg: compileMsg(pPub, "That picture change didn't compile, so your site is untouched."),
                   detail: pPub.detail,
                 }, { status: 422 });
@@ -34211,7 +34241,7 @@ async function handleRequest(request, env, ctx) {
               // asked to have rewritten, to fix a typo.
               if (!pub.ok) {
                 return Response.json({
-                  ok: false, error: "compile", cost: 0,
+                  ok: false, error: lostOr(pub, "compile"), cost: 0,
                   msg: compileMsg(pub, "That wording didn't compile, so your site is untouched — try shorter wording."),
                   detail: pub.detail,
                 }, { status: 422 });
@@ -34927,7 +34957,7 @@ async function handleRequest(request, env, ctx) {
                   console.error("look rollback failed:", ownerSlug, e && e.message);
                 }
                 return Response.json({
-                  ok: false, error: "compile", cost: 0,
+                  ok: false, error: lostOr(pub, "compile"), cost: 0,
                   msg: compileMsg(pub, restored
                     ? "That look didn't compile, so your site is untouched."
                     : "That look didn't compile. Your site is still live and unchanged, but the new look is saved — ask for it again and I'll try to apply it."),
@@ -35053,7 +35083,7 @@ async function handleRequest(request, env, ctx) {
                 });
                 if (!cutPub.ok) {
                   return Response.json({
-                    ok: false, error: "compile", cost: 0,
+                    ok: false, error: lostOr(cutPub, "compile"), cost: 0,
                     msg: compileMsg(cutPub, "Taking that page out left the site not compiling, so nothing changed."),
                     detail: cutPub.detail,
                   }, { status: 422 });
@@ -35102,7 +35132,7 @@ async function handleRequest(request, env, ctx) {
                 });
                 if (!mvPub.ok) {
                   return Response.json({
-                    ok: false, error: "compile", cost: 0,
+                    ok: false, error: lostOr(mvPub, "compile"), cost: 0,
                     msg: compileMsg(mvPub, "Moving that page left the site not compiling, so nothing changed."),
                     detail: mvPub.detail,
                   }, { status: 422 });
@@ -36009,7 +36039,7 @@ async function handleRequest(request, env, ctx) {
               if (isPrep) return prepAnswer();
               if (!pPub.ok) {
                 return Response.json({
-                  ok: false, error: "compile", cost: 0,
+                  ok: false, error: lostOr(pPub, "compile"), cost: 0,
                   msg: compileMsg(pPub, "That change didn't compile, so your site is untouched — try describing it differently."),
                   detail: pPub.detail,
                 }, { status: 422 });
@@ -36528,7 +36558,7 @@ async function handleRequest(request, env, ctx) {
                 const landed = done.filter((d) => !d.failed).map((d) => landedNote(d.body)).filter(Boolean);
                 return Response.json({
                   ...(landed.length ? { landed } : {}),
-                  ok: false, error: finalPub.error === "unbilled" ? "unbilled" : "compile", cost: eJob ? 0 : syncKept,
+                  ok: false, error: finalPub.error === "unbilled" ? "unbilled" : lostOr(finalPub, "compile"), cost: eJob ? 0 : syncKept,
                   msg: compileMsg(finalPub, landed.length
                     ? "That didn't compile, so the rest of it wasn't published."
                     : kept ? "That didn't compile, so your live site wasn't changed." : "That didn't compile, so your site is untouched.",
@@ -42467,7 +42497,7 @@ async function handleRequest(request, env, ctx) {
             // broken bundle to fix a typo is the trade nobody would make.
             if (!out.ok) {
               return Response.json({
-                ok: false, error: "compile",
+                ok: false, error: lostOr(out, "compile"),
                 msg: compileMsg(out, "That change didn't compile, so your site is untouched — try shorter wording."),
                 detail: out.detail,
               }, { status: 422 });
@@ -42524,7 +42554,11 @@ async function handleRequest(request, env, ctx) {
               const pbody = await request.json().catch(() => ({}));
               const version = pbody && typeof pbody.version === "string" ? pbody.version : "";
               const revision = pbody && Number.isSafeInteger(pbody.revision) ? pbody.revision : null;
-              if (!version && revision === null) return Response.json({ ok: false, error: "name the revision to publish" }, { status: 400 });
+              // THE REVISION IS REQUIRED (2026-10-16): a bare version once
+              // reached for the newest revision carrying it, which could take
+              // in held changes saved after the click. The version stays a
+              // cross-check only.
+              if (revision === null || revision <= 0) return Response.json({ ok: false, error: "name the revision to publish" }, { status: 400 });
               const r = await publishDraft(env, ownerSlug, { revision, version }, { uid: ou.id });
               if (!r.ok) return Response.json({ ok: false, error: r.error, stage: r.stage, live: r.live || undefined, publishing: r.publishing === true, state: await readState() }, { status: r.status || 409 });
               return Response.json({ ok: true, published: r.version, revision: r.revision, already: r.already === true, worker: r.worker, state: await readState() });
@@ -43056,6 +43090,11 @@ async function handleRequest(request, env, ctx) {
               putWorker: ({ slug, code, build }) => putSiteWorker(env, slug, { ok: true, code, build }),
               dropWorker: ({ slug }) => dropSiteWorker(env, slug),
               recompile: async ({ slug }) => {
+                // NEVER THE DRAFT (2026-10-16): under draft-first the editable
+                // copy is the draft, so it is not recompiled here (`site-live`
+                // says why). Only an activation of a published version brings
+                // the site back.
+                if (draftFirst(env)) return { ok: false, draftOnly: true };
                 // CHECKED (2026-10-08, H5): bringing a site back recompiles its
                 // editable copy, so a copy behind the live version that cannot
                 // be repaired must not be the one published.
@@ -43674,23 +43713,30 @@ async function handleRequest(request, env, ctx) {
             }
             r = await mediaRoute(env, mReq, mdeps, { scope: siteScope(mslug), sid: msid, step: mstep });
             const REPLACING = (sid) => "site-drafts/" + mslug + "/replacing/" + sid + ".json";
-            if (mReplace && r && r.status < 300 && r.body && typeof r.body.sid === "string") {
-              await env.SITES_BUCKET.put(REPLACING(r.body.sid), JSON.stringify({ name: mReplace }), { httpMetadata: { contentType: "application/json" } });
+            // THE HANDLERS' OWN SHAPES (2026-10-16): a start answers `session`,
+            // and a finish answers the file FLAT (`{ ok, name, … }`). This read
+            // `sid` and `file.name`, which no handler sends, so a held
+            // replacement was never paired or held: it landed as a separate
+            // new file while the panel said "Replaced".
+            if (mReplace && r && r.status < 300 && r.body && typeof r.body.session === "string") {
+              await env.SITES_BUCKET.put(REPLACING(r.body.session), JSON.stringify({ name: mReplace }), { httpMetadata: { contentType: "application/json" } });
               r = { ...r, body: { ...r.body, replacesInDraft: mReplace } };
             }
-            if (mHolding && msid && mstep === "complete" && r && r.status < 300 && r.body && r.body.file && typeof r.body.file.name === "string") {
+            if (mHolding && msid && mstep === "complete" && r && r.status < 300 && r.body && r.body.ok === true && typeof r.body.name === "string" && isMediaName(r.body.name)) {
               const pend = await env.SITES_BUCKET.get(REPLACING(msid));
               if (pend) {
                 let target = "";
                 try { target = String((JSON.parse(await pend.text()) || {}).name || ""); } catch { target = ""; }
                 if (isMediaName(target)) {
                   const w = await backendWriter(env, mslug);
-                  w.hold.add({ kind: "media-replace", name: target, with: r.body.file.name });
+                  w.hold.add({ kind: "media-replace", name: target, with: r.body.name });
                   const sealed = await sealHeld(env, mslug, w, {});
                   if (!sealed.ok) r = { status: 503, body: { error: "the new file is uploaded, but it couldn't be saved to your draft — replace the file again", code: "draft", retry: true } };
                   else {
                     await env.SITES_BUCKET.delete(REPLACING(msid)).catch(() => {});
-                    r = { ...r, body: { ...r.body, file: { ...r.body.file, replaces: target, url: uploadUrl(mslug, target) }, held: true, draft: heldDraft(sealed.revision) } };
+                    // FLAT, as every finish answers: the stand-in's own name,
+                    // the address it will play at, and that it is held.
+                    r = { ...r, body: { ...r.body, replaces: target, url: uploadUrl(mslug, target), held: true, draft: heldDraft(sealed.revision) } };
                   }
                 }
               }

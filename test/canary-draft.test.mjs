@@ -96,8 +96,10 @@ test("CD1 THE WHOLE PATH PASSES ON REAL EVIDENCE — two edits saved as drafts (
   const { P, db, compiler } = bakery("cd1");
   try {
     const before = await liveThenDraftFirst(P);
-    await runOne(P, "Change our TikTok link on the Visit page to @harbourloafbakery.");
+    // THE OWNER LOOKS AT REVISION 1 (the row change); revision 2 (the page
+    // line) is saved before the click and must stay out of that approval.
     await runOne(P, "Make the Dark Rye £5.60.");
+    await runOne(P, "Change our TikTok link on the Visit page to @harbourloafbakery.");
     const after = await readDraftEvidence(apiOf(P), P.slug);
     const iso = isolationChecks(before, after, { expectRevisions: 2, expectHeld: ["row"] });
     assert.equal(combine(iso).verdict, "pass", JSON.stringify(iso));
@@ -105,12 +107,18 @@ test("CD1 THE WHOLE PATH PASSES ON REAL EVIDENCE — two edits saved as drafts (
     assert.equal(combine(pv).verdict, "pass", JSON.stringify(pv));
 
     const revs = after.state.revisions;
-    const chosen = { revision: revs[revs.length - 1].revision, version: draftVersion(after.state) };
+    const chosen = { revision: revs[revs.length - 2].revision, version: revs[revs.length - 2].version };
+    const later = [{ revision: revs[revs.length - 1].revision, version: revs[revs.length - 1].version }];
     const press = await publishPress(apiOf(P), P.slug, { ...chosen, confirm: true });
     const published = await readDraftEvidence(apiOf(P), P.slug);
     const repeat = await publishPress(apiOf(P), P.slug, { ...chosen, confirm: true });
-    const pub = publishChecks({ chosen, press, after: published, repeat });
+    const pub = publishChecks({ chosen, press, after: published, repeat, later });
     assert.equal(combine(pub).verdict, "pass", JSON.stringify(pub));
+    // NEGATIVE CONTROL (2026-10-16): the same reading judged as if the later
+    // revision had been published too fails the `later` check, never passes.
+    const swallowed = { ...published, state: { ...published.state, revisions: published.state.revisions.filter((r) => r.revision !== later[0].revision) } };
+    assert.equal(publishChecks({ chosen, press, after: swallowed, repeat, later }).later.verdict, "fail", "a later revision gone from the draft was not caught");
+    assert.equal(publishChecks({ chosen, press, after: published, repeat }).later.verdict, "unverified", "no later revision named must be unverified, never a pass");
     assert.equal(Number(db.rows("loaves").find((l) => l.id === 2).price), 5.6, "the held row change did not reach the database on Publish");
 
     const rec = recoveryChecks(await readDraftEvidence(apiOf(P), P.slug));

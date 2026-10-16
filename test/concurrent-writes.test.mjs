@@ -243,14 +243,18 @@ test("CW4 A JOB RUNNING BESIDE ANOTHER, DELIVERED TWICE AT ONCE — the home job
   });
 });
 
-test("CW5 A REAL OVERLAP CAUGHT AT PUBLISH — the router said the Visit change touches only the Visit page, but its job changed the home page's line too, which the home job had already published differently: the Visit job's publish is refused as a conflict, nothing it held is written, the home change stands, and its reserve is given back", async () => {
-  const seen = { visitHeld: false };
+test("CW5 A REAL OVERLAP CAUGHT AT PUBLISH, THEN RUN AGAIN ALONE — the router said the Visit change touches only the Visit page, but its job changed the home page's line too, which the home job had already published differently: the Visit job's publish is refused as a conflict (said as one, never as a restart), nothing it held is written, the home change stands and its reserve is given back; the part is not left failed for the customer to send again — it runs once more, alone (2026-10-16), and lands beside the home change, charged once", async () => {
+  const seen = { visitHeld: false, visitCalls: 0 };
   await withPlatform({
     slug: slugOf("cw5"), pages: PAGES2, beside: true,
     answers: {
       route: ROUTE_TWO_PAGES,
       [T.text]: async (args) => {
         if (isVisitAsk(args)) {
+          seen.visitCalls++;
+          // THE SECOND TRY reads the site with the home change in it, and
+          // changes only the Visit line.
+          if (seen.visitCalls > 1) return { edits: [{ id: lineId(args, "visit.tsx", TT_FROM), to: TT_TO }] };
           seen.visitHeld = true;
           const P = P_.at;
           await until(() => (P.page("index.tsx") || "").includes(HOME_TO), 6000);
@@ -269,19 +273,30 @@ test("CW5 A REAL OVERLAP CAUGHT AT PUBLISH — the router said the Visit change 
     await drain(P, () => (P.page("index.tsx") || "").includes(HOME_TO), { max: 14 });
     assert.ok(P.page("index.tsx").includes(HOME_TO), "the home job did not publish while the Visit job was held");
     await run0;
-    const { rec } = await settle(P, r.key);
-    assert.equal(rec.parts[1].status, "done");
-    assert.equal(rec.parts[0].status, "failed", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-    // NOTHING OVERWRITTEN, NOTHING OF THE REFUSED JOB WRITTEN.
+    // THE REFUSED TRY, BEFORE ANYTHING RUNS AGAIN: nothing of it written.
     assert.ok(P.page("index.tsx").includes(HOME_TO) && !P.page("index.tsx").includes("Open from 9"), "the home change was overwritten: " + P.page("index.tsx"));
-    assert.ok(P.page("visit.tsx").includes(TT_FROM), "the refused job wrote part of its change");
     const visit = editOfPart(P, r.key, 0)[0];
-    assert.match(JSON.stringify(visit.result || ""), /conflict|at the same time/, "the refusal does not say it was a conflict: " + JSON.stringify(visit.result).slice(0, 300));
+    const vb = JSON.parse((visit.result && visit.result.body) || "{}");
+    assert.equal(vb.error, "conflict", "the refusal does not carry the spine's conflict code: " + JSON.stringify(vb).slice(0, 300));
+    assert.doesNotMatch(String(vb.msg || ""), /restarting/, "an overlap was told as a restarting build service: " + vb.msg);
+    assert.match(String(vb.msg || ""), /same request/, "the refusal does not say another change in the request was the cause: " + vb.msg);
     // RESERVED, THEN GIVEN BACK IN FULL: the refusal is our side, never charged.
     assert.equal(visit.billing, "refunded", "the refused job was not refunded: " + visit.billing);
     const res = reserveOf(P, visit.id).reduce((a, b) => a + b, 0);
     const back = P.ledger.filter((e) => e.ref === visit.id && e.reason === "refund").reduce((a, e) => a + e.delta, 0);
     assert.ok(res > 0 && back === res, "reserved " + res + ", given back " + back);
+    // RUN AGAIN, ALONE, AND KEPT.
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.equal(rec.parts[0].overlapRuns, 1, "the part was not recorded as run again after an overlap");
+    assert.equal(rec.parts[0].serial, true, "the part's second try was not made alone");
+    assert.equal(seen.visitCalls, 2, "the Visit step was not asked again exactly once");
+    const runs = editOfPart(P, r.key, 0);
+    assert.equal(runs.length, 2, "the part's second try is not its own job: " + JSON.stringify(runs.map((j) => j.state)));
+    assert.equal(runs[1].state, "done");
+    assert.equal(reserveOf(P, runs[1].id).length, 1, "the second try was not charged exactly once");
+    assert.ok(P.page("visit.tsx").includes(TT_TO) && !P.page("visit.tsx").includes(TT_FROM), "the Visit change was not kept on its second try");
+    assert.ok(P.page("index.tsx").includes(HOME_TO), "the home change was lost to the second try");
   });
 });
 

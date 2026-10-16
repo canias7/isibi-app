@@ -126,8 +126,14 @@ export async function publishPress(api, slug, { revision, version, confirm = fal
   return { called: true, status: r ? r.status : 0, body: r ? r.body : null };
 }
 
-/** EXPLICIT PUBLISHING: the named revision, and nothing else, went live — once. */
-export function publishChecks({ chosen, press, after, repeat }) {
+/**
+ * EXPLICIT PUBLISHING: the named revision, and nothing else, went live — once.
+ * `later` (2026-10-16): the revisions saved AFTER the click (`{revision,
+ * version}` each), which the approval must not have taken in: each still
+ * reads unpublished, and the live pointer names none of their versions. Not
+ * given, the check says it was not exercised — never a pass.
+ */
+export function publishChecks({ chosen, press, after, repeat, later = null }) {
   const checks = {};
   const want = chosen && chosen.version;
   checks.answer = !press || !press.called ? unverified("Publish was not called: " + ((press && press.refused) || "no press"))
@@ -145,6 +151,16 @@ export function publishChecks({ chosen, press, after, repeat }) {
     checks.journal = j.unreadable ? unverified("the journal could not be read") : j.none || j.closed ? pass("no publication left open") : fail("the publication is still at " + j.phase);
     const left = Array.isArray(after.state.revisions) ? after.state.revisions.filter((r) => r.revision <= chosen.revision) : null;
     checks.drafted = left === null ? unverified("the revisions were not read") : left.length ? fail("revisions up to " + chosen.revision + " still read unpublished") : pass("nothing up to revision " + chosen.revision + " is left unpublished");
+    if (!Array.isArray(later) || !later.length) checks.later = unverified("no revision was saved after the click, so keeping later drafts out was not exercised");
+    else if (!Array.isArray(after.state.revisions)) checks.later = unverified("the revisions were not read");
+    else {
+      const still = new Set(after.state.revisions.map((r) => r && r.revision));
+      const taken = later.filter((l) => !still.has(l.revision));
+      const live = later.filter((l) => l.version && l.version === p && l.version !== want);
+      checks.later = taken.length ? fail("revision(s) " + taken.map((l) => l.revision).join(", ") + ", saved after the click, no longer read unpublished")
+        : live.length ? fail("the live pointer names " + p + ", a version saved after the click")
+        : pass(later.length + " revision(s) saved after the click stay unpublished");
+    }
   }
   checks.repeat = !repeat || !repeat.called ? unverified("the repeated press was not made")
     : repeat.status === 200 && repeat.body && repeat.body.already === true ? pass("pressed again: already published, nothing redone")

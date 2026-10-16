@@ -14269,6 +14269,10 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
       const s = siteById(origin);
       if (s) {
         s.react = true; s.slug = d.slug; s.url = d.url || ('/s/' + d.slug + '/');
+        // THE FILES KEPT BEFORE THE SITE EXISTED HAVE A HOME NOW (2026-10-16):
+        // the build that holds the address moved them (or said which it could
+        // not), so they are not named to a later build as still waiting.
+        if (Array.isArray(s.pendingMedia)) delete s.pendingMedia;
         if (d.backend) s.backend = true; // this site now has its own database
         if (d.brand && typeof d.brand === 'string' && d.brand.trim()) s.name = d.brand.trim().slice(0, 40);
         // EVERY ROUTE IT WROTE, not one hardcoded entry. `filesSeen` is what the
@@ -16117,6 +16121,11 @@ async function siteFiles(site) {
             '<figcaption><span class="fl-nm" title="' + esc(label) + '">' + esc(label) + '</span>' +
             '<span class="fl-sz">' + mb(f.size) + len + '</span>' +
             '<button type="button" class="fl-del" data-file="' + esc(f.name) + '" aria-label="Delete ' + esc(label) + '">\u00d7</button></figcaption>' +
+            // WHAT THE DRAFT WILL DO AT PUBLISH (2026-10-16): the server marks a
+            // file held for removal, and a held replacement's new bytes; the
+            // live site keeps the file as listed until the owner publishes.
+            (f.draft === 'remove' ? '<span class="fl-draft">Removed in your draft \u00b7 still on your live site until you publish</span>'
+              : f.draft === 'replaces' ? '<span class="fl-draft">New version in your draft \u00b7 your live site keeps the old one until you publish</span>' : '') +
             shareBtn + mediaBtns + '</figure>';
         }).join('') +
         '</div>';
@@ -16159,6 +16168,9 @@ async function siteFiles(site) {
           r2 = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/uploads/' + encodeURIComponent(name) + '?force=1', { method: 'DELETE' });
         }
         if (!r2.ok) { b.disabled = false; if (typeof sbToast === 'function') sbToast('Could not delete that file.'); return; }
+        // HELD IN THE DRAFT (draft-first): nothing left the live site yet.
+        const d3 = await r2.json().catch(() => ({}));
+        if (d3 && d3.held && typeof sbToast === 'function') sbToast('Removed in your draft \u2014 your live site keeps it until you publish.');
         list();
       });
       // REPLACE (2026-10-14): the same kind and format, at the same address —
@@ -16174,7 +16186,11 @@ async function siteFiles(site) {
             const r = await siteMediaSend(slug, f, name, (pct) => { b.textContent = pct + '%'; });
             if (!r.ok && r.uncertain) { if (typeof sbToast === 'function') sbToast('Couldn\u2019t confirm the replacement finished yet \u2014 check this list again in a moment.'); list(); return; }
             if (!r.ok) { if (typeof sbToast === 'function') sbToast(r.error); return; }
-            if (typeof sbToast === 'function') sbToast('Replaced \u2014 pages that play it play the new file.');
+            // HELD IN THE DRAFT (draft-first): the preview plays the new file,
+            // and the live site keeps the old one until the owner publishes.
+            if (typeof sbToast === 'function') sbToast(r.file && r.file.held
+              ? 'Saved to your draft \u2014 the preview plays the new file; your live site keeps the old one until you publish.'
+              : 'Replaced \u2014 pages that play it play the new file.');
             list();
           } finally { b.textContent = was; b.disabled = false; }
         };

@@ -87,6 +87,29 @@ export const PROBE_SHAPES = ["hold", "wire", "env"];
 export const ENV_PROBE_NAMES = ["DRAFT_FIRST", "PARALLEL_WRITES"];
 
 /**
+ * THE `env` PROBE'S ANSWER, READ OUT OF A FINISHED RECORD'S TAIL (2026-10-16):
+ * the last line that is the probe's own (`{probe: "env", draftFirst,
+ * parallelWrites}`, a string of JSON or an object), or null when no line
+ * carries one with both switches as booleans. Null is "not observed", never
+ * "off".
+ */
+export function envObserved(tail) {
+  const list = Array.isArray(tail) ? tail : [];
+  for (let i = list.length - 1; i >= 0; i--) {
+    let v = list[i];
+    if (typeof v === "string") {
+      const at = v.indexOf("{");
+      if (at < 0) continue;
+      try { v = JSON.parse(v.slice(at)); } catch { continue; }
+    }
+    if (v && typeof v === "object" && v.probe === "env" && typeof v.draftFirst === "boolean" && typeof v.parallelWrites === "boolean") {
+      return { probe: "env", draftFirst: v.draftFirst, parallelWrites: v.parallelWrites };
+    }
+  }
+  return null;
+}
+
+/**
  * The longest a probe may occupy a lane — under the real setting, so an
  * instrument can never hold a container longer than the work it measures.
  */

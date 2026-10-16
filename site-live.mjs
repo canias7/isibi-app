@@ -206,6 +206,13 @@ export async function putBackOnline(deps, { slug } = {}) {
   }
   let pub = null;
   try { pub = await deps.recompile({ slug }); } catch (e) { pub = { ok: false, error: e }; }
+  // DRAFT-FIRST (2026-10-16): the editable copy follows the DRAFT, so a
+  // recompile from it would put unapproved changes live, and saving it as a
+  // draft would leave the site offline while this said "Back online". The
+  // recompile refuses instead (`draftOnly`), and the owner is told the truth.
+  if (pub && pub.draftOnly === true) {
+    return { ok: false, reason: "draft", msg: "I couldn't restore the last published version of your site. Rebuilding it from your saved changes would publish a draft you haven't approved, so nothing changed: try again in a moment, or press Publish to put your site back online with your draft." };
+  }
   if (!pub || !pub.ok) return { ok: false, reason: "recompile", msg: "Couldn't put it back just now — try again in a moment." };
   // THE SAME HALF-SITE ON THE OTHER BRANCH. `recompileAndPublish` uploads the
   // script itself and reports `worker.uploaded === false` ONLY when the upload
