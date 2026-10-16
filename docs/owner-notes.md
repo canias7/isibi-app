@@ -1,5 +1,97 @@
 # Owner Notes
 
+## 2026-10-16 — Repository consolidated: `main` holds all completed work; deploy 2214
+
+**On the owner's word to consolidate.** `main` is now `d8024d63`, a
+fast-forward from `80910d85`. `claude/chat-session-0nndv1` is the one
+working branch kept, unchanged at `f9f983a3`. No feature switch was
+changed, no SQL applied and no paid test run.
+
+### What `main` now carries
+
+- **`d8024d63`** merges `main`'s draft-first rebuild (`80910d85`) with
+  `chris-1` (formerly `claude/integration-parallel-publish`, tip
+  `3c59cf90`, the deleted integration branch's last commit). That brings:
+  - Publish through `d6515ab4`: draft-first, held changes, coherent and
+    recoverable publishing;
+  - help-needed through `3e721154`: side-by-side writes, the publish turn
+    and its fences, owned recovery notes, the script following the pointer;
+  - the four blockers (`02d2653c`, `e61c1131`): `DRAFT_FIRST` in the job
+    environment and the deploy (default off), the runtime check reading
+    both switches at the Worker, as calculated for a job and as observed
+    in a container (`env` probe), `?inspect=1` and
+    `scripts/canary-draft.mjs`;
+  - their records.
+- **Kept from `main`:** Publish, the assistant, and video/audio hosting.
+  `main`'s owner-notes entry "Draft-first and Publish, rebuilt on main
+  without help-needed" is kept below chris-1's entries.
+
+### Intentionally omitted (superseded, not lost)
+
+`main`'s rebuild had re-done Publish without help-needed, using local
+stand-ins. Where the two met, the merge takes chris-1's versions, which
+are the help-needed originals those stand-ins imitated:
+- `alignScriptToPointer`, the local `readPointerTag` and `sidecarOf`, and
+  `uploadPreviewScript` in `worker.js`/`site-draft.mjs`/`site-builds.mjs`
+  give way to `alignLiveScript`, `followPointer` and the shared readers;
+- `test/draft-first-basics.test.mjs` and the adapted DFR9–11 are removed:
+  they tested the stand-ins. The same behavior is covered by help-needed's
+  own tests, and DF1–6 remain in the turn-fence tests.
+They stay in history at `80910d85` and its parents.
+
+### How each old branch was checked (content, not only ancestry)
+
+- **Ancestors of `main` now:** `candidate/new-on-main` (`a3045317`),
+  `chris-1` (`d8024d63`), `chris-3` (`772bb885`),
+  `claude/draft-first-main` (`80910d85`), `claude/draft-first-publish`
+  (`d6515ab4`), `claude/help-needed-ehlwlj` (`3e721154`),
+  `integ/combined-candidate` (`f1b81477`),
+  `integration/new-and-new-on-main-20261015` (`4a097e6e`), `new`
+  (`c090e50a`).
+- **Not an ancestor:** `claude/help-needed-ehlwlj-integration`
+  (`c9ef979d`). Every line it added is in `main` except six. Those are its
+  older forms of the Dockerfile `COPY` lists, with the same module set as
+  `main`'s, and of the media routes, which `main` carries in their newer,
+  draft-held form. Nothing unique is left.
+- **Checks:** a per-branch, per-file comparison of each branch's added
+  lines with `main`'s files.
+
+### Verification
+
+- **Locally on `d8024d63`:** focused 214/214, and the full suite 11277
+  with one local failure (the `node_modules` symlink guard, a worktree
+  artifact). With the link removed, that guard passes 2/2.
+- **Unit CI** run 38909852790: `11277 / 11229 / 0 / 48`.
+- **Site build:** run 38900493109 green on `c796c2aa`. No file outside
+  the docs has changed since.
+- **Before the merge:** nothing in flight, and the rollback checked
+  (`git revert --no-commit 80910d85..d8024d63` gives back `80910d85`'s
+  tree).
+
+### Deploy 2214
+
+- Run 38910865539, `success`, 13:49:38–13:52:44 UTC.
+- Image **built** `892924bc029456f6` (211 inputs), as predicted; the
+  container moved `24b327329c61237d` → `892924bc029456f6` at 13:52:35.
+- No `public/` asset changed. `DRAFT_FIRST` has no repository secret, so
+  it was uploaded as its `'off'` fallback; every other switch keeps its
+  secret as before.
+- **Deployed, not runtime-confirmed.** That needs the owner's free
+  runtime press after the 15–20 minute image window. It should show both
+  readers on `d8024d63`, a cold container on `892924bc029456f6`, and
+  `draftFirst`/`parallelWrites` off.
+
+### Branches
+
+- **Remaining by intent:** `main`, `claude/chat-session-0nndv1`.
+- **To delete**, each confirmed above as contained in `main`:
+  `candidate/new-on-main`, `chris-1`, `chris-3`, `claude/draft-first-main`,
+  `claude/draft-first-publish`, `claude/help-needed-ehlwlj`,
+  `claude/help-needed-ehlwlj-integration`, `integ/combined-candidate`,
+  `integration/new-and-new-on-main-20261015`, `new`.
+- This session's proxy refuses branch deletion (403), so the owner deletes
+  them in GitHub's branch page.
+
 ## 2026-10-16 — The four integration blockers cleared on the candidate (offline; nothing merged, deployed, built, switched or spent)
 
 **On `claude/integration-parallel-publish` only.**

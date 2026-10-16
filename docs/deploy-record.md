@@ -1969,3 +1969,24 @@ deploy's ignore list, so the push started deploy run 38747702721.
 - **Still on `main`:** the symlink. Removing it is another push to `main`
   that starts one more identical deploy, so it waits for the owner's word.
 
+
+## Deploy 2214 — the consolidation, `d8024d63` (2026-10-16)
+
+- **Commit:** `d8024d63`, a fast-forward of `main` from `80910d85` (deploy
+  2213). It merges chris-1: Publish, help-needed, and the four integration
+  blockers.
+- **Required CI on the candidate:** unit run 38909852790 `11277 / 11229 /
+  0 / 48`. Site build run 38900493109 green on `c796c2aa`, with no file
+  outside the docs changed since.
+- **Predicted image:** `892924bc029456f6`, 211 inputs, against `main`'s
+  `24b327329c61237d` (210).
+- **The run:** 38910865539, `success`, 13:49:38–13:52:44 UTC.
+  - `built isibi-app-sitebuildcontainer:892924bc029456f6` (registry
+    answered 404).
+  - The container moved `24b327329c61237d` → `892924bc029456f6` at
+    13:52:35.
+  - No asset uploaded. Cloudflare version `84b78ad…`.
+- **Switches:** unchanged. `DRAFT_FIRST` now goes through the secret list
+  with no repository secret, so it is `off`.
+- **Deployed, not runtime-confirmed:** no press yet. Wait the 15–20 minute
+  image window first.
