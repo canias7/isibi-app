@@ -1,0 +1,59 @@
+[
+  {
+    "label": "CONTROL: a comment only in worker.js \u2014 must survive",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "const REVIEW_CURSOR = \"recovery/review-cursor.json\";",
+    "to": "// comment-only control\nconst REVIEW_CURSOR = \"recovery/review-cursor.json\";"
+  },
+  {
+    "label": "J1 the cursor is never read",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    cur = j && typeof j.at === \"string\" && typeof j.id === \"string\" && j.at && j.id ? { at: j.at, id: j.id } : null;",
+    "to": "    cur = null;"
+  },
+  {
+    "label": "J2 the cursor is never written",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if (nextCur) await env.SITES_BUCKET.put(REVIEW_CURSOR, JSON.stringify({ ...nextCur, t: now }));",
+    "to": "    if (false) await env.SITES_BUCKET.put(REVIEW_CURSOR, JSON.stringify({ ...nextCur, t: now }));"
+  },
+  {
+    "label": "J3 equal timestamps are not ordered by id",
+    "files": [
+      "worker.js"
+    ],
+    "from": "`(updated_at.gt.${q(cur.at)},and(updated_at.eq.${q(cur.at)},id.gt.${q(cur.id)}))`",
+    "to": "`(updated_at.gt.${q(cur.at)},and(updated_at.eq.${q(cur.at)},id.gt.${q(\"\")}))`"
+  },
+  {
+    "label": "J4 a short page does not wrap to the front",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  const nextCur = rows.length >= REVIEW_PAGE && last",
+    "to": "  const nextCur = last"
+  },
+  {
+    "label": "J5 the order has no id tiebreak",
+    "files": [
+      "worker.js"
+    ],
+    "from": "REVIEW_PAGE, \"updated_at.asc,id.asc\");",
+    "to": "REVIEW_PAGE, \"updated_at.asc\");"
+  },
+  {
+    "label": "J6 the keyset skips rows at the cursor's timestamp",
+    "files": [
+      "worker.js"
+    ],
+    "from": "`(updated_at.gt.${q(cur.at)},and(",
+    "to": "`(updated_at.gt.${q(cur.at)},and(false,"
+  }
+]
