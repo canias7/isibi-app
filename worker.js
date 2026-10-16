@@ -101,7 +101,7 @@ import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
-import { DRAFT_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, addressOverlay, forgottenInDraft, convergePreview, PREVIEW_TRIES, previewBackoff } from "./site-draft.mjs";
+import { DRAFT_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, addressOverlay, forgottenInDraft, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
@@ -12632,58 +12632,75 @@ async function previewVersion(env, slug, version) {
   const r = await uploadScriptOnce(env, slug, { ok: true, code: b.worker, build: (b.manifest && b.manifest.build) || "" }, { preview: true });
   return r || { ok: false, error: "no preview uploaded" };
 }
-// ── A DRAFT'S PREVIEW, RECOVERED (2026-10-16, Codex's review of `ea9a2b71`) ──
+// ── A DRAFT'S PREVIEW, RECOVERED (2026-10-16, Codex's reviews of `ea9a2b71` and `6d075aeb`) ──
 //
-// A draft save marks the preview pending before it puts a script up and ready
-// only once the draft's selected version is confirmed serving
-// (`saveAsDraft`, `PREVIEW_STATE_KEY`). A save whose repair failed, whose
-// upload lost its answer, or which stopped after a stale upload, leaves the
-// mark pending, and this tick finishes it with nobody's browser open:
-//   - it brings the preview to the version the draft selects NOW
-//     (`convergePreview`), so a newer draft saved meanwhile is the one put up;
-//   - from that version's own staged script (`previewVersion`): nothing is
-//     built, asked of a model or charged again;
-//   - a mark younger than a minute is left to the save still at work;
-//   - a try that does not converge waits (doubling from two minutes, at most
-//     an hour) and after `PREVIEW_TRIES` the mark says `stuck`;
-//   - every write of the mark is over the etag read, so a newer save's
-//     pending mark is never overwritten by an older answer;
-//   - it uploads only the preview script: nothing live is touched, and
-//     Publish stays the only way to the live site.
-// The marks are walked fairly by key, a bounded number per tick, as the media
-// sweep walks its prefixes.
+// Every writer that may put a preview script up — a draft save, or this tick
+// — first writes its own claim (`claimPreview`, site-draft.mjs) and removes
+// only its own, and only once the draft's selected version is confirmed up.
+// A claim left standing is the durable evidence that an upload may have
+// landed out of order: a failed or lost repair, or a process that stopped
+// for good after its upload landed — with nothing written after it. This
+// tick, with nobody's browser open:
+//   - walks the claims fairly by key, a bounded number per tick, and looks
+//     at each site they name once;
+//   - waits while any claim of the site could still land an upload (younger
+//     than `PREVIEW_LAND_MS`: its writer's window to start one, the dispatch
+//     call's own limit, and a minute) — so it never confirms ahead of an
+//     upload that can still overwrite it;
+//   - then, under a claim of its own, brings the preview to the version the
+//     draft selects NOW (`convergePreview`) from that version's own staged
+//     script (`previewVersion`): nothing is built, asked of a model or
+//     charged again, and only the preview script is touched — Publish stays
+//     the only way to the live site;
+//   - confirmed, it removes every claim it read and its own; a claim made
+//     meanwhile is not its to remove;
+//   - unconfirmed, its own claim stays too, and it tries again after a
+//     doubling wait (two minutes to an hour, and never before the claims can
+//     no longer land); after `PREVIEW_TRIES` it records `stuck` and stops,
+//     until a newer claim (a new save) unsticks it.
+// Its register (`PREVIEW_STATE_KEY`) is written over the etag read.
 const PREVIEW_SWEEP_CURSOR = "preview-sweep/cursor.json";
-const PREVIEW_SWEEP_PREFIX = "preview-state/";
-export async function runPreviewRecovery(env, { now = Date.now(), budget = 20, fresh = 60 * 1000 } = {}) {
+const PREVIEW_CLAIMS_ROOT = "preview-claims/";
+export async function runPreviewRecovery(env, { now = Date.now(), budget = 50 } = {}) {
   const B = env.SITES_BUCKET;
-  const out = { looked: 0, ready: 0, waiting: 0, stuck: 0, cleared: 0 };
+  const out = { looked: 0, ready: 0, waiting: 0, stuck: 0, failed: 0 };
   if (!B || typeof B.list !== "function") return out;
   let place = null;
   try {
     const c = await B.get(PREVIEW_SWEEP_CURSOR);
     const j = c ? JSON.parse(await c.text()) : null;
-    if (j && typeof j.after === "string" && j.after.startsWith(PREVIEW_SWEEP_PREFIX)) place = j.after;
+    if (j && typeof j.after === "string" && j.after.startsWith(PREVIEW_CLAIMS_ROOT)) place = j.after;
   } catch { place = null; }
-  const step = await sweepStep(B, PREVIEW_SWEEP_PREFIX, place, budget);
+  const step = await sweepStep(B, PREVIEW_CLAIMS_ROOT, place, budget);
   if (!step) return out;
-  for (const o of step.objects) {
+  const slugs = [...new Set(step.objects.map((o) => (/^preview-claims\/([^/]+)\//.exec(String(o.key)) || [])[1]).filter(Boolean))];
+  const deps = buildDeps(env);
+  for (const slug of slugs) {
     out.looked++;
-    const m = /^preview-state\/([^/]+)\.json$/.exec(String(o.key));
-    if (!m) continue;
-    const slug = m[1];
-    let rec = null, etag = null;
-    try { const got = await B.get(o.key); if (!got) continue; etag = got.etag || null; rec = JSON.parse(await got.text()); } catch { continue; }
-    if (!rec || rec.state !== "pending" || !etag) continue;
-    if (Number(rec.at) > now - fresh) continue;
-    if (Number(rec.next) > now) { out.waiting++; continue; }
-    const c = await convergePreview(buildDeps(env), slug, { repreview: (v) => previewVersion(env, slug, v) });
-    const tries = (Number.isSafeInteger(rec.tries) ? rec.tries : 0) + 1;
+    let claims;
+    try { claims = await previewClaims(deps, slug); } catch { continue; }
+    if (!claims.length) continue;
+    if (claims.some((c) => c.at + PREVIEW_LAND_MS > now)) { out.waiting++; continue; }
+    let reg = {}, etag = null;
+    try { const got = await B.get(PREVIEW_STATE_KEY(slug)); if (got) { etag = got.etag || null; reg = JSON.parse(await got.text()) || {}; } } catch { continue; }
+    const newest = Math.max(...claims.map((c) => c.at));
+    if (reg.state === "stuck" && !(newest > Number(reg.at))) { out.stuck++; continue; }
+    const tries0 = reg.state === "stuck" ? 0 : (Number.isSafeInteger(reg.tries) ? reg.tries : 0);
+    if (reg.state !== "stuck" && Number(reg.next) > now) { out.waiting++; continue; }
+    const own = await claimPreview(deps, slug, now);
+    if (!own) continue;
+    const c = await convergePreview(deps, slug, { repreview: (v) => previewVersion(env, slug, v), deadline: now + PREVIEW_UPLOAD_WINDOW_MS, now: () => now });
     let next;
-    if (c.ready) { next = { state: "ready", want: c.version, up: c.version, tries: 0, next: 0 }; out.ready++; }
-    else if (c.version === null && !/could not be read/.test(c.error || "")) { next = { state: "ready", want: null, up: null, tries: 0, next: 0, cleared: true }; out.cleared++; }
-    else if (tries >= PREVIEW_TRIES) { next = { state: "stuck", want: c.version, up: null, tries, next: 0, error: c.error }; out.stuck++; }
-    else { next = { state: "pending", want: c.version, up: null, tries, next: now + previewBackoff(tries), error: c.error }; out.waiting++; }
-    try { await B.put(o.key, JSON.stringify({ v: 1, ...next, at: now }), { httpMetadata: { contentType: "application/json" }, onlyIf: { etagMatches: etag } }); } catch { /* the next lap */ }
+    if (c.ready) {
+      await dropClaims(deps, [...claims.map((x) => x.key), own.key]);
+      next = { state: "ready", up: c.version, tries: 0, next: 0 };
+      out.ready++;
+    } else {
+      const tries = tries0 + 1;
+      if (tries >= PREVIEW_TRIES) { next = { state: "stuck", up: null, tries, next: 0, error: c.error }; out.stuck++; }
+      else { next = { state: "pending", up: null, tries, next: now + previewBackoff(tries), error: c.error }; out.failed++; }
+    }
+    try { await B.put(PREVIEW_STATE_KEY(slug), JSON.stringify({ v: 1, ...next, at: now }), { httpMetadata: { contentType: "application/json" }, onlyIf: etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" } }); } catch { /* the next lap */ }
   }
   try { await B.put(PREVIEW_SWEEP_CURSOR, JSON.stringify({ after: step.after, at: now }), { httpMetadata: { contentType: "application/json" } }); } catch { /* starts again from the front */ }
   return out;

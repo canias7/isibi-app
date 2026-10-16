@@ -383,6 +383,11 @@ export function allowedJobKey(slug, id, key, pre = false) {
   // puts the preview up and ready once it is confirmed (site-draft.mjs
   // `PREVIEW_STATE_KEY`); a job saving its own site's draft writes it.
   if (k === "preview-state/" + slug + ".json") return true;
+  // …AND ITS CLAIMS (2026-10-16): one per writer that may put the preview up,
+  // written before its upload and removed by it once confirmed (site-draft.mjs
+  // `claimPreview`); a job saving its own site's draft writes, lists and
+  // removes them.
+  if (k.startsWith("preview-claims/" + slug + "/")) return true;
   if (k === "orphans/" + slug + ".json") return true;
   // The job's own objects: the request it replays, its result, its resume
   // record — every one named by the job's id, none by anybody else's.

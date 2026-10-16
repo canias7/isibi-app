@@ -130,6 +130,10 @@ here together. The exact commits, results and CI are in owner-notes
 
 ## 4. Completion matrix
 
+**Superseded by `docs/history/2026-10-16-codex-batch-5.md` §4.** The preview
+row below claimed crash recovery finished; it was not until the fifth batch
+(a writer that stopped for good after a stale upload was not recovered).
+
 This replaces the third batch's §4. Rows not named here are unchanged from it.
 
 | Area | Item | Finished (offline) | Deferred implementation | Live-only verification still owed |

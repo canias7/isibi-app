@@ -1,0 +1,164 @@
+[
+  {
+    "label": "CONTROL: a comment only in site-draft.mjs — must survive",
+    "control": true,
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "export const PREVIEW_UPLOAD_WINDOW_MS = 5 * 60 * 1000;",
+    "to": "// comment-only control\nexport const PREVIEW_UPLOAD_WINDOW_MS = 5 * 60 * 1000;"
+  },
+  {
+    "label": "CONTROL: a comment only in worker.js — must survive",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "const PREVIEW_CLAIMS_ROOT = \"preview-claims/\";",
+    "to": "// comment-only control\nconst PREVIEW_CLAIMS_ROOT = \"preview-claims/\";"
+  },
+  {
+    "label": "C1 a save is ready although another claim stands",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "const ready = c.ready && Array.isArray(others) && others.length === 0;",
+    "to": "const ready = c.ready;"
+  },
+  {
+    "label": "C2 a save removes every claim, not only its own",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "          await unclaim();\n          try { others = (await previewClaims(deps, slug)).filter((x) => x.key !== claim.key); } catch { others = null; }",
+    "to": "          await dropClaims(deps, (await previewClaims(deps, slug)).map((x) => x.key));\n          try { others = (await previewClaims(deps, slug)).filter((x) => x.key !== claim.key); } catch { others = null; }"
+  },
+  {
+    "label": "C3 an unconfirmed save removes its claim",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "        let others = null;\n        if (c.ready) {",
+    "to": "        let others = null;\n        if (!c.ready) await unclaim();\n        if (c.ready) {"
+  },
+  {
+    "label": "C4 a save uploads without a claim",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "    if (!claim) previewed = { ok: false, pending: true, recoverable: false,",
+    "to": "    if (false) previewed = { ok: false, pending: true, recoverable: false,"
+  },
+  {
+    "label": "C5 the claim is written after the record",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  const claim = typeof preview === \"function\" ? await claimPreview(deps, slug) : null;",
+    "to": "  let claim = null;"
+  },
+  {
+    "label": "C6 the claim may overwrite another",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "const put = await deps.put(key, JSON.stringify({ v: 1, at }), \"application/json\", { etagDoesNotMatch: \"*\" });",
+    "to": "const put = await deps.put(PREVIEW_CLAIMS_PREFIX(slug) + \"one.json\", JSON.stringify({ v: 1, at }), \"application/json\");"
+  },
+  {
+    "label": "C7 the upload window is not enforced",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "    if (now() > deadline) { up = null; error = \"past the preview's upload window\"; return false; }",
+    "to": ""
+  },
+  {
+    "label": "C8 an unreadable claim list counts as none",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "try { others = (await previewClaims(deps, slug)).filter((x) => x.key !== claim.key); } catch { others = null; }",
+    "to": "try { others = (await previewClaims(deps, slug)).filter((x) => x.key !== claim.key); } catch { others = []; }"
+  },
+  {
+    "label": "T1 the tick acts while a claim can still land",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if (claims.some((c) => c.at + PREVIEW_LAND_MS > now)) { out.waiting++; continue; }",
+    "to": ""
+  },
+  {
+    "label": "T2 the tick acts without a claim of its own",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    const own = await claimPreview(deps, slug, now);\n    if (!own) continue;",
+    "to": "    const own = { key: \"preview-claims/none\" };"
+  },
+  {
+    "label": "T3 the tick clears claims after a failed repair",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      const tries = tries0 + 1;",
+    "to": "      await dropClaims(deps, [...claims.map((x) => x.key), own.key]);\n      const tries = tries0 + 1;"
+  },
+  {
+    "label": "T4 the tick keeps the claims it settled",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      await dropClaims(deps, [...claims.map((x) => x.key), own.key]);\n      next = { state: \"ready\"",
+    "to": "      next = { state: \"ready\""
+  },
+  {
+    "label": "T5 the tick never gives up",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      if (tries >= PREVIEW_TRIES) {",
+    "to": "      if (false) {"
+  },
+  {
+    "label": "T6 a newer claim does not unstick",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if (reg.state === \"stuck\" && !(newest > Number(reg.at))) { out.stuck++; continue; }",
+    "to": "    if (reg.state === \"stuck\") { out.stuck++; continue; }"
+  },
+  {
+    "label": "T7 the tick ignores its backoff",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if (reg.state !== \"stuck\" && Number(reg.next) > now) { out.waiting++; continue; }",
+    "to": ""
+  },
+  {
+    "label": "T8 the tick puts up the version it last saw, not the draft's now",
+    "files": [
+      "worker.js"
+    ],
+    "from": "const c = await convergePreview(deps, slug, { repreview: (v) => previewVersion(env, slug, v), deadline: now + PREVIEW_UPLOAD_WINDOW_MS, now: () => now });",
+    "to": "const c = await convergePreview(deps, slug, { repreview: (v) => previewVersion(env, slug, v), deadline: now + PREVIEW_UPLOAD_WINDOW_MS, now: () => now, checks: 1 });"
+  },
+  {
+    "label": "T9 the gateway refuses claims",
+    "files": [
+      "builder/job-gateway.mjs"
+    ],
+    "from": "  if (k.startsWith(\"preview-claims/\" + slug + \"/\")) return true;",
+    "to": ""
+  },
+  {
+    "label": "T10 the land bound forgets the flight",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "export const PREVIEW_LAND_MS = PREVIEW_UPLOAD_WINDOW_MS + PREVIEW_FLIGHT_MS + 60 * 1000;",
+    "to": "export const PREVIEW_LAND_MS = PREVIEW_UPLOAD_WINDOW_MS + 60 * 1000;"
+  }
+]

@@ -71,6 +71,8 @@ function store() {
       m.set(k, { body: String(body), etag });
       return { etag };
     },
+    list: async (prefix) => [...m.keys()].filter((k) => k.startsWith(prefix)).sort().map((key) => ({ key })),
+    remove: async (k) => { m.delete(k); },
   };
   return deps;
 }

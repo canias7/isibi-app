@@ -1,37 +1,66 @@
-// A DRAFT'S PREVIEW, RECOVERED (2026-10-16, Codex's review of `ea9a2b71`).
+// A DRAFT'S PREVIEW, RECOVERED (2026-10-16, Codex's reviews of `ea9a2b71` and
+// `6d075aeb`).
 //
-// Codex paused an older save inside its preview upload, finished a newer save,
-// resumed the older upload (so OLD landed last) and made the repair answer
-// `{ ok: false, error: "upload failed" }`: the draft selected NEW, the preview
-// served OLD, `previewed` said `{ ok: true, superseded: true, repaired: false }`
-// — so the owner was told the preview was uploaded — and the loop counted the
-// failed repair as NEW being up and stopped after one try. Nothing came back
-// to it later.
+// First review: a failed repair after an older upload landed was reported
+// `{ ok: true }` and nothing came back to it. Second review — the case this
+// file is now built around: an older save paused inside its upload, a newer
+// save finished (upload and ready mark), the older upload landed and its
+// process STOPPED FOR GOOD before running another line. The draft selected
+// NEW, the preview served OLD, the one shared mark still said ready/up=NEW,
+// and three ticks skipped it: zero repairs. One writer's success had erased
+// another writer's obligation.
 //
-//   PR1  Codex's reproduction, deterministic, through the real `saveAsDraft`:
-//        the save stands (`ok`), the preview is NOT ready (`previewed.ok`
-//        false, `pending`, `recoverable`, the error said), the repair was
-//        tried the bounded number of times (not once), and the durable mark
-//        says pending — the owner is not told the preview went up
-//   PR2  a lost answer on the repair: the script went up but its answer was
-//        lost, so nothing is confirmed and the next round confirms it — ready
-//        within the save; lost every time, it stays pending (uncertain)
-//   PR3  interrupted after the stale upload: the save's look at the draft
-//        fails after OLD landed — not ready, mark pending, recoverable
-//   PR4  the Worker's tick on real draft saves, with nobody's browser open:
-//        a normal save leaves the mark ready; a preview left on an older
-//        version with the mark pending is put on the draft's selected version
-//        from its staged script — no model call, no charge, nothing live; a
-//        failed upload in recovery waits (doubling) and is tried again; a lost
-//        answer is confirmed on the next try; a newer draft selected while the
-//        tick is at work is the one it leaves up; a mark a save is still
-//        working on is left alone; after `PREVIEW_TRIES` a mark says stuck;
-//        the tick is wired into the scheduled handler
+// Now every writer that may put a preview script up — a save or the tick —
+// writes its OWN claim first (`preview-claims/<slug>/<at>-<rand>.json`),
+// uploads nothing without one, and removes only its own, only once the
+// selected version is confirmed up. A save is ready only when no other claim
+// stands. The tick waits until every claim of a site can no longer land
+// (`PREVIEW_LAND_MS`), then puts the selected version up under its own claim
+// and clears what it read.
+//
+// The interruptions here are HARD STOPS: the writer's upload function lands
+// its script and then never returns, so no catch, finally or cleanup of the
+// save runs after the upload — the process is simply gone.
+//
+//   PR1  a failed repair: the save stands, the preview not ready (pending,
+//        recoverable, the error said), the repair tried 3 times, its claim
+//        left standing
+//   PR2  a lost answer on the repair: confirmed by the next round (ready, no
+//        claim left); lost every time, pending, its claim standing
+//   PR3  the save's look at the draft fails after the stale upload: pending,
+//        its claim standing
+//   PR3b an older save that confirms while a newer save's claim stands is NOT
+//        ready: another upload may still land over it
+//   PR3c no claim, no upload: a save whose claim cannot be written saves its
+//        draft and puts no script up at all
+//   PR4  CODEX'S REPRODUCTION through the real Worker tick, with a hard stop:
+//        the newer save is not reported ready while the older claim stands;
+//        ticks while that claim could still land repair nothing (waiting);
+//        the first tick after it can no longer land puts the selected version
+//        up and clears every claim; a later tick does nothing; no model call,
+//        no charge, nothing live
+//   PR5  a save that stops for good between recording the draft and its
+//        preview (and one that stops before the record): repaired by the tick
+//   PR6  a newer draft saved while the tick is at work: the tick leaves the
+//        newer version up; the newer save is not ready while the tick's claim
+//        stands; nothing is left claimed
+//   PR7  duplicate ticks at once: the selected version up, nothing left
+//        claimed, the register ready
+//   PR8  the bounded retry policy, explicit: a failing tick leaves its own
+//        claim and waits (never before the claims can no longer land, and the
+//        doubling backoff); `stuck` after PREVIEW_TRIES, then no more tries;
+//        a newer save's claim unsticks it
+//   PR9  storage permissions: a job may write its own site's claims and
+//        register, no other site's; the flight bound is the dispatch call's
+//   PR10 `draftFacts` says ready and pending apart from the save; the tick is
+//        on the scheduled handler
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { saveAsDraft, readDraft, DRAFT_KEY, PREVIEW_STATE_KEY, PREVIEW_TRIES, previewBackoff } from "../site-draft.mjs";
+import { saveAsDraft, readDraft, convergePreview, claimAt, DRAFT_KEY, PREVIEW_STATE_KEY, PREVIEW_TRIES, PREVIEW_LAND_MS, PREVIEW_FLIGHT_MS, PREVIEW_UPLOAD_WINDOW_MS, PREVIEW_CLAIMS_PREFIX, previewBackoff, claimPreview } from "../site-draft.mjs";
 import { stageBuild, readBuild } from "../site-builds.mjs";
+import { DISPATCH_CALL_MS } from "../builder/site-dispatch.mjs";
+import { allowedJobKey } from "../builder/job-gateway.mjs";
 import { platform, sendMessage, settle, T } from "./fixtures/request-flow.mjs";
 import { blockNetwork } from "./fixtures/no-network.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
@@ -44,14 +73,20 @@ const SLUG = "prv";
 const V_LIVE = "01790500000000-aaaaaa";
 const V_OLD = "01790600000000-bbbbbb";
 const V_NEW = "01790600000500-cccccc";
+const never = () => new Promise(() => {});
+const gate = () => { let open; const p = new Promise((r) => { open = r; }); return { wait: () => p, open }; };
+const until = async (f, n = 200) => { for (let i = 0; i < n && !(await f()); i++) await new Promise((r) => setTimeout(r, 2)); return !!(await f()); };
+
+// ── THE SAVE ON ITS OWN, OVER A STORE ───────────────────────────────────────
 
 function store() {
   const m = new Map();
   let n = 0;
   const deps = {
-    m, failGet: null,
+    m, failGet: null, refusePut: null,
     get: async (k) => { if (deps.failGet && deps.failGet(k)) throw new Error("r2 get failed"); return m.has(k) ? { etag: m.get(k).etag, text: async () => m.get(k).body } : null; },
     put: async (k, body, _ct, cond = {}) => {
+      if (deps.refusePut && deps.refusePut(k)) throw new Error("r2 put failed");
       const cur = m.get(k);
       if (cond && cond.etagMatches && (!cur || cur.etag !== cond.etagMatches)) return null;
       if (cond && cond.etagDoesNotMatch === "*" && cur) return null;
@@ -59,6 +94,8 @@ function store() {
       m.set(k, { body: String(body), etag });
       return { etag };
     },
+    list: async (prefix) => [...m.keys()].filter((k) => k.startsWith(prefix)).sort().map((key) => ({ key })),
+    remove: async (k) => { m.delete(k); },
   };
   return deps;
 }
@@ -90,8 +127,8 @@ function slot(deps, repairs = []) {
   };
   return s;
 }
-const gate = () => { let open; const p = new Promise((r) => { open = r; }); return { wait: () => p, open }; };
-/** Codex's interleaving: the older save paused inside its upload, the newer save whole, then the older upload lands. */
+const claimsOf = (deps) => [...deps.m.keys()].filter((k) => k.startsWith(PREVIEW_CLAIMS_PREFIX(SLUG)));
+/** The older save paused inside its upload, the newer save whole, then the older upload lands. */
 async function overlap(deps, sl, { beforeResume = null } = {}) {
   const g = gate();
   let reached = false;
@@ -99,210 +136,339 @@ async function overlap(deps, sl, { beforeResume = null } = {}) {
     slug: SLUG, version: V_OLD, base: V_LIVE, repreview: sl.repreview, commit: async () => {},
     preview: async () => { reached = true; await g.wait(); return sl.previewOf(V_OLD)(); },
   });
-  for (let i = 0; i < 50 && !reached; i++) await new Promise((r) => setTimeout(r, 1));
-  assert.equal(reached, true, "the older save never reached its upload — this case tests nothing");
+  assert.equal(await until(() => reached), true, "the older save never reached its upload — this case tests nothing");
   const newer = await saveAsDraft(deps, { slug: SLUG, version: V_NEW, base: V_LIVE, preview: sl.previewOf(V_NEW), repreview: sl.repreview, commit: async () => {} });
-  assert.deepEqual([newer.ok, newer.previewed.ok], [true, true], JSON.stringify(newer));
+  assert.equal(newer.ok, true, JSON.stringify(newer));
+  assert.equal(newer.previewed.ok, false, "the newer save was reported ready while the older save's claim stood: " + JSON.stringify(newer.previewed));
   if (beforeResume) beforeResume();
   g.open();
   return { older: await older, newer };
 }
-const markOf = (deps) => JSON.parse(deps.m.get(PREVIEW_STATE_KEY(SLUG)).body);
 
-test("PR1 CODEX'S REPRODUCTION — a failed repair after the older upload landed: the save stands, the preview is NOT ready (pending, recoverable, the error said), the repair was tried the bounded number of times, and the durable mark says pending", async () => {
+test("PR1 A FAILED REPAIR — the save stands, the preview is NOT ready (pending, recoverable, the error said), the repair tried 3 times, its claim left standing", async () => {
   const deps = await site();
   const sl = slot(deps, ["fail", "fail", "fail"]);
   const { older } = await overlap(deps, sl);
-  assert.equal(older.ok, true, "the save itself (its record taken first) did not stand: " + JSON.stringify(older));
-  const { draft } = await readDraft(deps, SLUG);
-  assert.equal(draft.version, V_NEW);
+  assert.equal(older.ok, true, JSON.stringify(older));
+  assert.equal((await readDraft(deps, SLUG)).draft.version, V_NEW);
   assert.equal(sl.version, V_OLD, "the case did not leave the older script up — it tests nothing");
   assert.equal(older.previewed.ok, false, "a preview serving the older version was reported ready: " + JSON.stringify(older.previewed));
   assert.deepEqual([older.previewed.pending, older.previewed.recoverable, older.previewed.repaired, older.previewed.version], [true, true, false, V_NEW]);
   assert.match(older.previewed.error, /upload failed/);
   assert.equal(sl.tries, 3, "the repair was not retried within its bound (tried " + sl.tries + ")");
-  const mark = markOf(deps);
-  assert.equal(mark.state, "pending", "the durable mark does not leave the tick a job: " + JSON.stringify(mark));
-  // CONTROL: the newer save's own result was ready, and its mark was overwritten by the older save's pending one only after.
+  assert.equal(claimsOf(deps).length, 1, "the unconfirmed save's claim is not the one left standing: " + JSON.stringify(claimsOf(deps)));
   assert.equal(deps.m.get("current/" + SLUG + ".json").body, JSON.stringify({ version: V_LIVE }), "the live pointer moved");
 });
 
-test("PR2 A LOST ANSWER ON THE REPAIR — the script went up but nothing is confirmed, so the next round confirms it (ready within the save); lost every time, the preview stays pending, never reported ready", async () => {
+test("PR2 A LOST ANSWER ON THE REPAIR — confirmed by the next round (ready, no claim left); lost every time, pending with its claim standing", async () => {
   {
     const deps = await site();
     const sl = slot(deps, ["lost", "ok"]);
     const { older } = await overlap(deps, sl);
     assert.equal(sl.tries, 2, "a lost answer was taken as confirmed: no second round");
     assert.deepEqual([older.previewed.ok, older.previewed.pending, sl.version], [true, false, V_NEW], JSON.stringify(older.previewed));
-    assert.equal(markOf(deps).state, "ready");
+    assert.deepEqual(claimsOf(deps), []);
   }
   {
     const deps = await site();
     const sl = slot(deps, ["lost", "lost", "lost"]);
     const { older } = await overlap(deps, sl);
-    assert.equal(sl.version, V_NEW, "the case did not leave the newer script up");
+    assert.equal(sl.version, V_NEW);
     assert.deepEqual([older.previewed.ok, older.previewed.pending], [false, true], "an unconfirmed upload was reported ready: " + JSON.stringify(older.previewed));
-    assert.equal(markOf(deps).state, "pending");
+    assert.equal(claimsOf(deps).length, 1);
   }
 });
 
-test("PR3 INTERRUPTED AFTER THE STALE UPLOAD — the save's look at the draft fails once the older script landed: not ready, the mark pending, recoverable", async () => {
+test("PR3 THE SAVE'S LOOK AT THE DRAFT FAILS AFTER THE STALE UPLOAD — pending, recoverable, its claim standing", async () => {
   const deps = await site();
   const sl = slot(deps);
   const { older } = await overlap(deps, sl, { beforeResume: () => { deps.failGet = (k) => k === DRAFT_KEY(SLUG) && sl.uploads.length >= 2; } });
   deps.failGet = null;
-  assert.equal(sl.version, V_OLD, "the older script did not land last");
+  assert.equal(sl.version, V_OLD);
   assert.deepEqual([older.previewed.ok, older.previewed.pending, older.previewed.recoverable], [false, true, true], JSON.stringify(older.previewed));
   assert.match(older.previewed.error, /could not be read/);
-  assert.equal(markOf(deps).state, "pending");
+  assert.equal(claimsOf(deps).length, 1);
 });
 
-test("PR3b A NEWER SAVE'S MARK IS NEVER OVERWRITTEN BY AN OLDER SAVE'S READY — the older save confirms its version and, just before it writes ready, a newer save records itself, marks pending and stops before its upload: the mark stays pending", async () => {
+test("PR3b AN OLDER SAVE THAT CONFIRMS WHILE A NEWER SAVE'S CLAIM STANDS IS NOT READY — another upload may still land over it; the newer claim stays", async () => {
   const deps = await site();
   const sl = slot(deps);
-  let newer = null;
-  const realPut = deps.put;
-  deps.put = async (k, body, ct, cond) => {
-    if (k === PREVIEW_STATE_KEY(SLUG) && /"state":"ready"/.test(String(body)) && !newer) {
-      // THE NEWER SAVE: its record and its pending mark, then it stops (its upload never ends).
-      newer = saveAsDraft(deps, { slug: SLUG, version: V_NEW, base: V_LIVE, preview: () => new Promise(() => {}), repreview: sl.repreview, commit: async () => {} });
-      for (let i = 0; i < 50 && JSON.parse(deps.m.get(PREVIEW_STATE_KEY(SLUG)).body).want !== V_NEW; i++) await new Promise((r) => setTimeout(r, 1));
-    }
-    return realPut(k, body, ct, cond);
-  };
-  const older = await saveAsDraft(deps, { slug: SLUG, version: V_OLD, base: V_LIVE, preview: sl.previewOf(V_OLD), repreview: sl.repreview, commit: async () => {} });
-  assert.ok(newer, "the newer save never started — this case tests nothing");
-  assert.equal((await readDraft(deps, SLUG)).draft.version, V_NEW);
+  // THE NEWER SAVE starts while the older one is inside its upload: its claim
+  // and its record, then it stops for good before its own upload.
+  let started = false;
+  const older = await saveAsDraft(deps, {
+    slug: SLUG, version: V_OLD, base: V_LIVE, repreview: sl.repreview, commit: async () => {},
+    preview: async () => {
+      started = true;
+      saveAsDraft(deps, { slug: SLUG, version: V_NEW, base: V_LIVE, preview: never, repreview: sl.repreview, commit: async () => {} });
+      await until(() => /cccccc/.test(deps.m.get(DRAFT_KEY(SLUG)).body));
+      return sl.previewOf(V_OLD)();
+    },
+  });
+  assert.equal(started, true, "the newer save never started — this case tests nothing");
   assert.equal(older.ok, true);
-  assert.deepEqual([markOf(deps).state, markOf(deps).want], ["pending", V_NEW], "an older save's ready overwrote a newer save's pending mark: " + JSON.stringify(markOf(deps)));
+  assert.equal(sl.version, V_NEW, "the older save did not put the selected version up");
+  assert.equal(older.previewed.ok, false, "a save was reported ready while another writer's claim stood: " + JSON.stringify(older.previewed));
+  assert.match(older.previewed.error, /may still land/);
+  assert.equal(claimsOf(deps).length, 1, "the newer save's claim was not the one left: " + JSON.stringify(claimsOf(deps)));
 });
 
-test("PR4 THE WORKER'S TICK ON REAL DRAFT SAVES, BROWSER CLOSED — the selected version put up from its staged script; failed, lost and interrupted uploads retried with backoff; a newer draft during recovery wins; no model call, no charge, nothing live; fresh marks left alone; stuck after the bound; wired into the scheduled handler", async () => {
+test("PR3c NO CLAIM, NO UPLOAD — a save whose claim cannot be written saves its draft and puts no script up, said as not recoverable", async () => {
+  const deps = await site();
+  deps.refusePut = (k) => k.startsWith("preview-claims/");
+  let uploaded = false;
+  const r = await saveAsDraft(deps, { slug: SLUG, version: V_OLD, base: V_LIVE, preview: async () => { uploaded = true; return { ok: true }; }, repreview: async () => { uploaded = true; return { ok: true }; }, commit: async () => {} });
+  assert.equal(r.ok, true, "the draft itself was not saved: " + JSON.stringify(r));
+  assert.equal((await readDraft(deps, SLUG)).draft.version, V_OLD);
+  assert.equal(uploaded, false, "an upload was made with no claim to track it");
+  assert.deepEqual([r.previewed.ok, r.previewed.pending, r.previewed.recoverable], [false, true, false], JSON.stringify(r.previewed));
+});
+
+test("PR3d NO UPLOAD PAST THE CLAIM'S WINDOW, AND AN UNREADABLE CLAIM LIST IS NOT 'NONE' — a writer past its window starts no upload (so its claim can be settled as unable to land); a save that cannot read the other claims is not called ready", async () => {
+  const deps = await site();
+  await deps.put(DRAFT_KEY(SLUG), JSON.stringify({ v: 2, version: V_NEW, build: "", base: "", job: null, at: "x", history: [], preview: "aaaaaaaaaaaa", rev: 1, revs: [{ n: 1, version: V_NEW, at: "x", job: null }], applied: 0, refs: {} }), "application/json");
+  let uploads = 0;
+  const late = await convergePreview(deps, SLUG, { mine: V_NEW, upload: async () => { uploads++; return { ok: true }; }, repreview: async () => { uploads++; return { ok: true }; }, deadline: 1000, now: () => 2000 });
+  assert.equal(uploads, 0, "an upload was started past the claim's window");
+  assert.equal(late.ready, false);
+  assert.match(late.error, /window/);
+  // THE OTHER CLAIMS CANNOT BE READ: not ready.
+  const d2 = await site();
+  const sl = slot(d2);
+  d2.list = async () => { throw new Error("r2 list failed"); };
+  const r = await saveAsDraft(d2, { slug: SLUG, version: V_OLD, base: V_LIVE, preview: sl.previewOf(V_OLD), repreview: sl.repreview, commit: async () => {} });
+  assert.equal(sl.version, V_OLD);
+  assert.deepEqual([r.ok, r.previewed.ok, r.previewed.pending], [true, false, true], "a save that could not read the other claims was called ready: " + JSON.stringify(r.previewed));
+  assert.match(r.previewed.error, /could not be read/);
+});
+
+// ── THROUGH THE REAL WORKER TICK ────────────────────────────────────────────
+
+/** A published bakery with four real draft revisions under draft-first: staged versions v1–v4. */
+async function bakery() {
   const compiler = installCompiler();
-  const bare = (t) => (t == null ? t : String(t).replace(/\n[ \t]+$/, ""));
-  const FROM = ["Follow us on TikTok at @oldloaf", "Come to the bakery", "Open every day", "Fresh bread daily", "Come and see us"];
-  const TO = ["Follow us on TikTok at @harbourloaf", "Come and see us", "Open six days", "Fresh bread at dawn", "Come and say hello"];
-  const VISIT = pageSrc("/visit", "<section className=\"come\"><h1>" + FROM[1] + "</h1><p>" + FROM[0] + "</p><p>" + FROM[2] + "</p><p>" + FROM[3] + "</p></section>");
+  const FROM = ["Follow us on TikTok at @oldloaf", "Come to the bakery", "Open every day", "Fresh bread daily", "Order online"];
+  const TO = ["Follow us on TikTok at @harbourloaf", "Come and see us", "Open six days", "Fresh bread at dawn", "Order by phone"];
+  const VISIT = pageSrc("/visit", "<section className=\"come\"><h1>" + FROM[1] + "</h1>" + FROM.filter((_, i) => i !== 1).map((f) => "<p>" + f + "</p>").join("") + "</section>");
   const HOME = pageSrc("/", "<section className=\"hero\"><h1>Harbour Loaf</h1></section>");
   const said = (args) => String(args.messages[0].content);
   const lineId = (args, line) => Number(String(said(args).split("\n").find((l) => l.includes("[visit.tsx] " + line)) || "-1.").split(".")[0]);
-  let n = 0, modelCalls = 0;
+  let n = 0;
+  const calls = { model: 0 };
   const P = platform({
     slug: "prv-" + Math.random().toString(16).slice(2, 8), pages: [{ path: "index.tsx", source: HOME }, { path: "visit.tsx", source: VISIT }], liveScripts: true, balance: 400,
     answers: {
-      route: () => { modelCalls++; return { intent: "edit", layer: "text", page: "/visit", targets: [{ change: 0, writes: ["page:/visit"] }] }; },
-      [T.text]: (args) => { modelCalls++; const i = Math.min(n++, 4); return { edits: [{ id: lineId(args, FROM[i]), to: TO[i] }] }; },
+      route: () => { calls.model++; return { intent: "edit", layer: "text", page: "/visit", targets: [{ change: 0, writes: ["page:/visit"] }] }; },
+      [T.text]: (args) => { calls.model++; const i = Math.min(n++, 4); return { edits: [{ id: lineId(args, FROM[i]), to: TO[i] }] }; },
     },
   });
-  const { runPreviewRecovery, draftFirstApi } = await loadWorkerModule();
-  const later = () => Date.now() + 10 * 60 * 1000;
-  const mark = () => JSON.parse(bare(P.readObj(PREVIEW_STATE_KEY(P.slug))));
-  const setMark = async (m) => P.bucket.put(PREVIEW_STATE_KEY(P.slug), JSON.stringify({ v: 1, tries: 0, next: 0, at: Date.now() - 5 * 60 * 1000, ...m }));
+  const r0 = await sendMessage(P, { message: "Change our TikTok link." });
+  await settle(P, r0.key, { rounds: 20 });
+  P.env.DRAFT_FIRST = "on";
+  for (const message of ["Change the heading.", "Say six days.", "Say at dawn.", "Say by phone."]) {
+    const r = await sendMessage(P, { message });
+    const { rec } = await settle(P, r.key, { rounds: 20 });
+    assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+  }
+  const bare = (t) => (t == null ? t : String(t).replace(/\n[ \t]+$/, ""));
   const draft = () => JSON.parse(bare(P.readObj(DRAFT_KEY(P.slug))));
-  const setDraftVersion = async (v) => { const d = draft(); await P.bucket.put(DRAFT_KEY(P.slug), JSON.stringify({ ...d, version: v })); };
+  const versions = draft().revs.map((r) => r.version);
+  assert.equal(versions.length, 4, JSON.stringify(draft().revs));
+  const api = await loadWorkerModule();
+  // THE SAVE, CALLED AS THE WORKER CALLS IT, OVER THE PLATFORM'S OWN STORE.
+  const deps = {
+    get: (k) => P.bucket.get(k),
+    put: (k, b, ct, c) => P.bucket.put(k, b, { httpMetadata: { contentType: ct }, ...(c ? { onlyIf: c } : {}) }),
+    list: async (prefix) => (await P.bucket.list({ prefix })).objects.map((o) => ({ key: o.key })),
+    remove: (k) => P.bucket.delete(k),
+  };
+  const up = (v) => P.run(() => api.draftFirstApi.previewVersion(P.env, P.slug, v));
+  const claims = async () => (await P.bucket.list({ prefix: PREVIEW_CLAIMS_PREFIX(P.slug) })).objects.map((o) => o.key);
+  const reg = () => { const t = P.readObj(PREVIEW_STATE_KEY(P.slug)); return t ? JSON.parse(bare(t)) : null; };
+  const setDraft = async (v) => { const d = draft(); await P.bucket.put(DRAFT_KEY(P.slug), JSON.stringify({ ...d, version: v })); };
+  const tick = (now) => P.run(() => api.runPreviewRecovery(P.env, { now }));
+  const before = { live: P.liveScript(), pointer: P.readObj("current/" + P.slug + ".json"), ledger: P.ledger.length, model: calls.model };
+  const untouched = () => {
+    assert.equal(calls.model, before.model, "recovery asked a model");
+    assert.equal(P.ledger.length, before.ledger, "recovery touched the ledger");
+    assert.deepEqual([P.liveScript(), P.readObj("current/" + P.slug + ".json")], [before.live, before.pointer], "recovery touched the live site");
+  };
+  const save = (version, preview) => saveAsDraft(deps, { slug: P.slug, version, base: "", preview, repreview: (v) => up(v), commit: async () => {} });
+  return { P, compiler, api, deps, versions, draft, up, claims, reg, setDraft, tick, untouched, save, done: async () => { await P.settle(); P.close(); compiler.uninstall(); } };
+}
+
+test("PR4 CODEX'S REPRODUCTION, A HARD STOP, THROUGH THE REAL TICK — the newer save is not called ready while the older claim stands; ticks while it could still land wait; the first tick after puts the selected version up and clears every claim; nothing rebuilt, charged or made live", async () => {
+  const B = await bakery();
   try {
-    const r0 = await sendMessage(P, { message: "Change our TikTok link to @harbourloaf." });
-    await settle(P, r0.key, { rounds: 20 });
-    P.env.DRAFT_FIRST = "on";
-    for (const message of ["Change the Visit heading.", "Say we are open six days.", "Say fresh bread at dawn."]) {
-      const r = await sendMessage(P, { message });
-      const { rec } = await settle(P, r.key, { rounds: 20 });
-      assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.deepEqual(await B.claims(), [], "the real saves left a claim behind");
+    const [v1, v2, v3] = B.versions;
+    await B.setDraft(v1);
+    await B.up(v1);
+    // OLD: its claim, its record, then paused inside its upload.
+    const g = gate();
+    let reached = false;
+    B.save(v2, async () => { reached = true; await g.wait(); await B.up(v2); return never(); });
+    assert.equal(await until(() => reached), true, "the older save never reached its upload");
+    // NEW, whole: its upload succeeds.
+    const neu = await B.save(v3, () => B.up(v3));
+    assert.equal(neu.ok, true);
+    assert.equal(B.P.previewScript(), v3);
+    assert.equal(neu.previewed.ok, false, "the newer save was reported ready while the older save's claim stood: " + JSON.stringify(neu.previewed));
+    // OLD's upload lands — and its process is gone: no further line of it runs.
+    const t0 = Date.now();
+    g.open();
+    assert.equal(await until(() => B.P.previewScript() === v2), true, "the older upload never landed");
+    assert.equal(B.draft().version, v3);
+    assert.equal((await B.claims()).length, 1, "the older save's claim is not the evidence left: " + JSON.stringify(await B.claims()));
+    // TICKS WHILE THE OLDER UPLOAD COULD STILL LAND: they wait, and say so.
+    for (const dt of [60e3, 5 * 60e3, PREVIEW_LAND_MS - 60e3]) {
+      const r = await B.tick(t0 + dt);
+      assert.deepEqual([r.waiting, r.ready, B.P.previewScript()], [1, 0, v2], "a tick acted ahead of an upload that could still land: " + JSON.stringify(r));
     }
-    const [v1, v2, v3] = draft().revs.map((r) => r.version);
-    assert.ok(v1 && v2 && v3, JSON.stringify(draft().revs));
-    // A NORMAL SAVE LEAVES THE MARK READY on its own version.
-    assert.deepEqual([mark().state, mark().up, P.previewScript()], ["ready", v3, v3], JSON.stringify(mark()));
-    const live0 = P.liveScript(), pointer0 = P.readObj("current/" + P.slug + ".json"), ledger0 = P.ledger.length, calls0 = modelCalls;
+    // THE FIRST TICK AFTER IT CAN NO LONGER LAND: the selected version up, every claim cleared.
+    const r = await B.tick(t0 + PREVIEW_LAND_MS + 60e3);
+    assert.deepEqual([r.ready, B.P.previewScript()], [1, v3], "the tick did not restore the selected draft: " + JSON.stringify(r));
+    assert.deepEqual(await B.claims(), [], "claims were left after a confirmed repair");
+    assert.deepEqual([B.reg().state, B.reg().up], ["ready", v3]);
+    // A LATER TICK HAS NOTHING TO DO.
+    const quiet = await B.tick(t0 + 2 * PREVIEW_LAND_MS);
+    assert.deepEqual([quiet.looked, B.P.previewScript()], [0, v3]);
+    B.untouched();
+  } finally { await B.done(); }
+});
 
-    // A SAVE THAT STOPPED AFTER A STALE UPLOAD: the preview on v1, the mark pending.
-    await P.run(() => draftFirstApi.previewVersion(P.env, P.slug, v1));
-    assert.equal(P.previewScript(), v1);
-    // A MARK A SAVE IS STILL WORKING ON (younger than a minute) is left alone.
-    await setMark({ state: "pending", want: v1, at: Date.now() });
-    const young = await P.run(() => runPreviewRecovery(P.env, { now: Date.now() }));
-    assert.deepEqual([young.ready, P.previewScript()], [0, v1], "the tick raced a save still at work: " + JSON.stringify(young));
-    await setMark({ state: "pending", want: v1 });
+test("PR5 A SAVE THAT STOPS FOR GOOD BETWEEN RECORDING THE DRAFT AND ITS PREVIEW — and one that stops before its record — is repaired by the tick", async () => {
+  const B = await bakery();
+  try {
+    const [v1, v2] = B.versions;
+    await B.setDraft(v1);
+    await B.up(v1);
+    // AFTER THE RECORD, BEFORE THE PREVIEW: the editable copy never finishes.
+    const t0 = Date.now();
+    saveAsDraft(B.deps, { slug: B.P.slug, version: v2, base: "", afterActivate: never, preview: () => B.up(v2), repreview: (v) => B.up(v), commit: async () => {} });
+    assert.equal(await until(() => B.draft().version === v2), true, "the save never recorded the draft");
+    assert.equal(B.P.previewScript(), v1);
+    assert.equal((await B.claims()).length, 1, "the save left no evidence before its record");
+    const r = await B.tick(t0 + PREVIEW_LAND_MS + 60e3);
+    assert.deepEqual([r.ready, B.P.previewScript()], [1, v2], JSON.stringify(r));
+    assert.deepEqual(await B.claims(), []);
+    // BEFORE THE RECORD: a claim with nothing new to show is settled harmlessly.
+    await claimPreview(B.deps, B.P.slug, t0);
+    const r2 = await B.tick(t0 + PREVIEW_LAND_MS + 60e3);
+    assert.deepEqual([r2.ready, B.P.previewScript(), (await B.claims()).length], [1, v2, 0], JSON.stringify(r2));
+    B.untouched();
+  } finally { await B.done(); }
+});
 
-    // A FAILED UPLOAD IN RECOVERY: it waits (backoff) and is tried again.
-    // EVERY TRY OF THE ROUND refused (the tick itself tries up to three times).
-    for (let i = 0; i < 3; i++) P.beforeUpload(async () => { throw new Error("upload refused"); });
-    const t1 = await P.run(() => runPreviewRecovery(P.env, { now: later() }));
-    assert.deepEqual([t1.ready, t1.waiting, mark().state, mark().tries], [0, 1, "pending", 1], JSON.stringify({ t1, mark: mark() }));
-    assert.ok(mark().next > later() - 60 * 1000, "no backoff was set");
-    assert.equal(P.previewScript(), v1);
-    // PAST "FRESH" (a minute) BUT INSIDE THE BACKOFF (two minutes): not tried.
-    const notYet = await P.run(() => runPreviewRecovery(P.env, { now: later() + 90 * 1000 }));
-    assert.equal(notYet.ready, 0, "the tick did not wait out its backoff");
-    assert.equal(P.previewScript(), v1, "the tick uploaded inside its backoff");
-    // A LOST ANSWER: the upload lands, its answer is lost — not confirmed.
-    for (let i = 0; i < 3; i++) P.afterUpload(async () => { throw new Error("answer lost"); });
-    const t2 = await P.run(() => runPreviewRecovery(P.env, { now: later() + previewBackoff(1) + 1000 }));
-    assert.equal(P.previewScript(), v3, "the lost-answer upload did not land — the case tests nothing");
-    assert.equal(mark().state, "pending", "an upload whose answer was lost was taken as confirmed: " + JSON.stringify({ t2, mark: mark() }));
-    // …the next try confirms it.
-    const t3 = await P.run(() => runPreviewRecovery(P.env, { now: later() + previewBackoff(1) + previewBackoff(2) + 2000 }));
-    assert.deepEqual([t3.ready, mark().state, mark().up, P.previewScript()], [1, "ready", v3, v3], JSON.stringify({ t3, mark: mark() }));
+test("PR6 A NEWER DRAFT SAVED WHILE THE TICK IS AT WORK — the tick leaves the newer version up; the newer save is not ready while the tick's claim stands; nothing is left claimed", async () => {
+  const B = await bakery();
+  try {
+    const [, v2, v3, v4] = B.versions;
+    await B.setDraft(v3);
+    await B.up(v2);
+    const t0 = Date.now();
+    await claimPreview(B.deps, B.P.slug, t0);
+    let newer = null;
+    // WHILE THE TICK'S UPLOAD OF v3 IS IN FLIGHT, A SAVE OF v4 RUNS WHOLE.
+    const tickAt = t0 + PREVIEW_LAND_MS + 60e3;
+    let ownSeen = false;
+    B.P.beforeUpload(async (text) => {
+      if (/site-version: (\S+)/.exec(text)[1] !== v3) return;
+      // THE TICK'S OWN CLAIM STANDS WHILE ITS UPLOAD IS IN FLIGHT.
+      ownSeen = (await B.claims()).some((k) => claimAt(k) === tickAt);
+      newer = await B.save(v4, () => B.up(v4));
+    });
+    const r = await B.tick(tickAt);
+    assert.equal(ownSeen, true, "the tick uploaded with no claim of its own");
+    assert.ok(newer, "the newer save never ran — this case tests nothing");
+    assert.equal(newer.previewed.ok, false, "the newer save was reported ready while the tick's claim stood: " + JSON.stringify(newer.previewed));
+    assert.deepEqual([r.ready, B.draft().version, B.P.previewScript()], [1, v4, v4], "the tick left an older draft's preview up: " + JSON.stringify(r));
+    assert.deepEqual(await B.claims(), [], "a claim was left");
+    B.untouched();
+  } finally { await B.done(); }
+});
 
-    // A NEWER DRAFT SELECTED WHILE THE TICK IS AT WORK: the draft says v2, the
-    // tick puts v2 up, and while that upload is in flight v3 is selected.
-    await setDraftVersion(v2);
-    await P.run(() => draftFirstApi.previewVersion(P.env, P.slug, v1));
-    await setMark({ state: "pending", want: v2 });
-    // …and the save that selected v3 marked the preview pending, as a save does.
-    P.beforeUpload(async (text) => { if (/site-version: (\S+)/.exec(text)[1] === v2) { await setDraftVersion(v3); await setMark({ state: "pending", want: v3 }); } });
-    const t4 = await P.run(() => runPreviewRecovery(P.env, { now: later() }));
-    assert.deepEqual([t4.ready, P.previewScript()], [1, v3], "the tick left an older draft's preview up: " + JSON.stringify({ t4, mark: mark(), up: P.previewScript() }));
-    // THE SAVE'S NEWER MARK IS NOT OVERWRITTEN by the tick's answer; the next tick confirms it.
-    assert.deepEqual([mark().state, mark().want], ["pending", v3], "the tick wrote its answer over a newer save's mark: " + JSON.stringify(mark()));
-    const t4b = await P.run(() => runPreviewRecovery(P.env, { now: later() }));
-    assert.deepEqual([t4b.ready, mark().state, mark().up], [1, "ready", v3], JSON.stringify({ t4b, mark: mark() }));
+test("PR7 DUPLICATE TICKS AT ONCE — the selected version up, nothing left claimed, the register ready", async () => {
+  const B = await bakery();
+  try {
+    const [v1, , v3] = B.versions;
+    await B.setDraft(v3);
+    await B.up(v1);
+    const t0 = Date.now();
+    await claimPreview(B.deps, B.P.slug, t0);
+    const at = t0 + PREVIEW_LAND_MS + 60e3;
+    const rs = await Promise.all([B.tick(at), B.tick(at), B.tick(at)]);
+    assert.ok(rs.some((r) => r.ready === 1), JSON.stringify(rs));
+    assert.equal(B.P.previewScript(), v3);
+    // A claim a concurrent tick made is fresh to the others; the next tick after it settles them.
+    await B.tick(at + PREVIEW_LAND_MS + 60e3);
+    assert.deepEqual(await B.claims(), [], "claims were left by duplicate ticks");
+    assert.deepEqual([B.reg().state, B.P.previewScript()], ["ready", v3]);
+    B.untouched();
+  } finally { await B.done(); }
+});
 
-    // NOTHING REGENERATED, CHARGED OR MADE LIVE by any of it.
-    assert.equal(modelCalls, calls0, "recovery asked a model");
-    assert.equal(P.ledger.length, ledger0, "recovery touched the ledger");
-    assert.deepEqual([P.liveScript(), P.readObj("current/" + P.slug + ".json")], [live0, pointer0], "recovery touched the live site");
+test("PR8 THE BOUNDED RETRY POLICY — a failing tick leaves its own claim and waits for the claims to stop landing and for its doubling backoff; stuck after PREVIEW_TRIES, then no more tries; a newer save's claim unsticks it", async () => {
+  const B = await bakery();
+  try {
+    const [v1, , v3] = B.versions;
+    await B.setDraft(v3);
+    await B.up(v1);
+    const t0 = Date.now();
+    await claimPreview(B.deps, B.P.slug, t0);
+    const step = PREVIEW_LAND_MS + previewBackoff(PREVIEW_TRIES) + 1000;
+    let at = t0 + PREVIEW_LAND_MS + 60e3;
+    for (let i = 1; i <= PREVIEW_TRIES; i++) {
+      for (let k = 0; k < 3; k++) B.P.beforeUpload(async () => { throw new Error("upload refused"); });
+      const r = await B.tick(at);
+      assert.equal(r.ready, 0, "a refused upload was taken as a repair");
+      assert.equal(B.reg().tries, i, "try " + i + " was not counted: " + JSON.stringify(B.reg()));
+      if (i < PREVIEW_TRIES) {
+        assert.equal(B.reg().state, "pending");
+        assert.equal(B.reg().next, at + previewBackoff(i), "the backoff is not the stated doubling");
+        // TOO SOON: inside its own claim's landing time — nothing tried.
+        const soon = await B.tick(at + 60e3);
+        assert.equal(soon.waiting, 1, "a tick tried again before the claims could stop landing");
+        // A BACKOFF LONGER THAN THE LANDING TIME is waited out too.
+        if (previewBackoff(i) > PREVIEW_LAND_MS + 120e3) {
+          const before = B.P.previewScript();
+          const early = await B.tick(at + PREVIEW_LAND_MS + 60e3);
+          assert.deepEqual([early.waiting, early.ready, B.reg().tries, B.P.previewScript()], [1, 0, i, before], "a tick did not wait out its backoff: " + JSON.stringify(early));
+        }
+      }
+      at += step;
+    }
+    assert.equal(B.reg().state, "stuck", JSON.stringify(B.reg()));
+    const stuck = await B.tick(at);
+    assert.deepEqual([stuck.stuck, B.P.previewScript()], [1, v1], "a stuck preview was tried again");
+    // A NEWER SAVE'S CLAIM UNSTICKS IT.
+    await claimPreview(B.deps, B.P.slug, at);
+    const back = await B.tick(at + PREVIEW_LAND_MS + 60e3);
+    assert.deepEqual([back.ready, B.P.previewScript(), B.reg().state], [1, v3, "ready"], JSON.stringify(back));
+    assert.deepEqual(await B.claims(), []);
+    B.untouched();
+  } finally { await B.done(); }
+});
 
-    // STUCK AFTER THE BOUND: every upload refused.
-    await P.run(() => draftFirstApi.previewVersion(P.env, P.slug, v1));
-    await setMark({ state: "pending", want: v3, tries: PREVIEW_TRIES - 1 });
-    for (let i = 0; i < 3; i++) P.beforeUpload(async () => { throw new Error("upload refused"); });
-    const t5 = await P.run(() => runPreviewRecovery(P.env, { now: later() }));
-    assert.deepEqual([t5.stuck, mark().state], [1, "stuck"], JSON.stringify({ t5, mark: mark() }));
-    const t6 = await P.run(() => runPreviewRecovery(P.env, { now: later() + 24 * 3600 * 1000 }));
-    assert.equal(t6.ready + t6.waiting + t6.stuck, 0, "a stuck mark was tried again");
+test("PR9 STORAGE PERMISSIONS AND THE FLIGHT BOUND — a job may write its own site's claims and register, no other site's; the flight bound is the dispatch call's own limit", () => {
+  const id = "a".repeat(32);
+  assert.equal(allowedJobKey("prv", id, PREVIEW_CLAIMS_PREFIX("prv") + "0179060000000-abcdef012345.json"), true, "a job may not claim its own site's preview");
+  assert.equal(allowedJobKey("prv", id, PREVIEW_CLAIMS_PREFIX("other") + "0179060000000-abcdef012345.json"), false, "a job may claim another site's preview");
+  assert.equal(allowedJobKey("prv", id, PREVIEW_STATE_KEY("prv")), true);
+  assert.equal(allowedJobKey("prv", id, PREVIEW_STATE_KEY("other")), false);
+  assert.equal(PREVIEW_FLIGHT_MS, DISPATCH_CALL_MS, "the preview's flight bound is not the dispatch call's limit");
+  assert.ok(PREVIEW_LAND_MS > PREVIEW_UPLOAD_WINDOW_MS + PREVIEW_FLIGHT_MS, "a claim is called unable to land before its last upload could have finished");
+});
 
-    // A REAL SAVE WHOSE PREVIEW CANNOT GO UP: the save stands, its result
-    // says the preview is not uploaded and pending, and the tick finishes it.
-    for (let i = 0; i < 6; i++) P.beforeUpload(async () => { throw new Error("upload refused"); });
-    const r9 = await sendMessage(P, { message: "Change the Visit heading again." });
-    const s9 = await settle(P, r9.key, { rounds: 20 });
-    assert.equal(s9.rec.parts[0].status, "done", "a save whose preview failed was not kept: " + JSON.stringify(s9.rec.parts.map((p) => [p.status, p.why])));
-    // WHAT THE OWNER IS TOLD, from the save's own answer (`draftFacts`): not
-    // uploaded and pending — the saved draft is said apart from its preview.
-    const failed = draftFirstApi.draftFacts(P.slug, "01790600000000-bbbbbb", { draft: true, revision: 4, record: { preview: "abcdefabcdef" }, previewed: { ok: false, pending: true, recoverable: true, superseded: true, version: "x", repaired: false } });
-    assert.deepEqual([failed.published, failed.revision, failed.previewUploaded, failed.previewPending], [false, 4, false, true], JSON.stringify(failed));
-    const fine = draftFirstApi.draftFacts(P.slug, "01790600000000-bbbbbb", { draft: true, revision: 4, record: { preview: "abcdefabcdef" }, previewed: { ok: true, pending: false } });
-    assert.deepEqual([fine.previewUploaded, fine.previewPending], [true, false]);
-    const v9 = draft().version;
-    assert.equal(mark().state, "pending");
-    assert.notEqual(P.previewScript(), v9);
-    const t9 = await P.run(() => runPreviewRecovery(P.env, { now: later() + 24 * 3600 * 1000 }));
-    assert.deepEqual([t9.ready, P.previewScript(), mark().state], [1, v9, "ready"], JSON.stringify({ t9, mark: mark() }));
-    assert.deepEqual([P.liveScript(), P.readObj("current/" + P.slug + ".json")], [live0, pointer0], "the save or its recovery touched the live site");
-    await P.settle();
-  } finally { P.close(); compiler.uninstall(); }
-  // WIRED INTO THE SCHEDULED HANDLER, landmark to landmark.
+test("PR10 WHAT THE OWNER IS TOLD, AND THE SCHEDULE — `draftFacts` says ready and pending apart from the save; the tick is on the scheduled handler", async () => {
+  const { draftFirstApi } = await loadWorkerModule();
+  const failed = draftFirstApi.draftFacts("prv", V_OLD, { draft: true, revision: 4, record: { preview: "abcdefabcdef" }, previewed: { ok: false, pending: true, recoverable: true } });
+  assert.deepEqual([failed.published, failed.revision, failed.previewUploaded, failed.previewPending], [false, 4, false, true], JSON.stringify(failed));
+  const fine = draftFirstApi.draftFacts("prv", V_OLD, { draft: true, revision: 4, record: { preview: "abcdefabcdef" }, previewed: { ok: true, pending: false } });
+  assert.deepEqual([fine.previewUploaded, fine.previewPending], [true, false]);
   const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   const a = w.indexOf("ctx.waitUntil(runMediaSweep(env)");
   const b = w.indexOf("ctx.waitUntil(runPublishRecovery(env)", a);
   assert.ok(a > 0 && b > a, "the scheduled handler moved — rescope this");
   assert.match(w.slice(a, b), /ctx\.waitUntil\(runPreviewRecovery\(env\)/, "the preview recovery is not on the tick");
-});
-
-test("PR5 STORAGE PERMISSIONS — a container job saving its own site's draft may write that site's preview mark, and no other site's", async () => {
-  const { allowedJobKey } = await import("../builder/job-gateway.mjs");
-  const id = "a".repeat(32);
-  assert.equal(allowedJobKey("prv", id, PREVIEW_STATE_KEY("prv")), true, "a job may not mark its own site's preview");
-  assert.equal(allowedJobKey("prv", id, PREVIEW_STATE_KEY("other")), false, "a job may mark another site's preview");
 });

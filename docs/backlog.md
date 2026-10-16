@@ -38,10 +38,11 @@ here; take a closed one out of both.**
 - **The preview script's upload is not conditional** (2026-10-16, third
   batch §2, fourth batch §1): the head is bound to the version, a save puts
   the draft's own version back up, and a failed, lost or interrupted upload
-  is finished by the tick (`runPreviewRecovery`); but between a stale upload
-  landing and its repair the preview can show the older version for moments
-  (up to the tick's backoff when uploads keep failing; a `stuck` mark after
-  12 tries waits for a person). The owner's panel does not yet show
+  is finished by the tick (`runPreviewRecovery`, one claim per uploading
+  writer since the fifth batch); but between a stale upload landing and its
+  repair the preview can show the older version (up to about 16 minutes after
+  a writer stops for good, longer while uploads keep failing; `stuck` after
+  12 tries waits for a person or a new save). The owner's panel does not yet show
   `previewPending` (frontend, deferred). The text edit's job answer carries
   no `draft` facts at all (found in passing). A held rename's address is
   baked in at Publish, so the preview shows the old address.
