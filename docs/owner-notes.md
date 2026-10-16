@@ -88,7 +88,10 @@
   failure is the `node_modules` link guard, which passes 2 of 2 once the
   link is removed.
 - **Image prediction** (not built): `892924bc029456f6`, 211 inputs.
-- **Unit CI:** recorded below once read.
+- **CI on `c796c2aa`** (`e61c1131` plus this record):
+  - unit tests, run 38900493207: 11,277 tests, 11,229 pass, 0 fail, 48
+    skipped;
+  - site build, run 38900493109: success.
 
 ### 3. What stays live-only
 
