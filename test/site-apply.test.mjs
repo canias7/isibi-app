@@ -578,7 +578,9 @@ test("a failed edit publishes nothing and says the site is untouched", () => {
   // DERIVED FROM THE BRANCHES, not a count somebody remembers to bump — this
   // read `=== 2` and went red the day a third layer landed, which is a test
   // about arithmetic rather than about the promise it is protecting.
-  const compiles = (b.match(/error: "compile"/g) || []).length;
+  // 2026-10-16: a branch may keep an overlap's own code (`lostOr(pub, "compile")`).
+  const COMPILE = /error: (?:"compile"|lostOr\(\w+, "compile"\))/g;
+  const compiles = (b.match(COMPILE) || []).length;
   assert.ok(compiles >= 2, "expected a compile-failure branch per publishing layer, found " + compiles);
   // THE PROMISE, NOT THE PHRASE. This counted the literal "site is untouched"
   // and went red on a fifth branch that keeps the promise in different words
@@ -593,7 +595,7 @@ test("a failed edit publishes nothing and says the site is untouched", () => {
   // vacuous shape this file keeps recording, and it went red honestly the day a
   // branch wrote the promise in a ternary with two arms.
   const SURVIVED = /site is untouched|nothing changed|your site is exactly as it was|pages are exactly as they were/;
-  const at = [...b.matchAll(/error: "compile"/g)].map((m) => m.index);
+  const at = [...b.matchAll(COMPILE)].map((m) => m.index);
   for (const i of at) {
     // To the end of that `Response.json`, which is where its message lives.
     const end = b.indexOf("status: 422", i);
@@ -2272,7 +2274,9 @@ test("A FAILED LOOK COMPILE PUTS THE STORED LOOK BACK", () => {
   const b = editBlock();
   const from = b.indexOf('if (eLayer === "look") {');
   assert.ok(from > 0, "the look lane moved — rescope this");
-  const at = b.indexOf('error: "compile"', from);
+  // 2026-10-16: the look lane's answer keeps an overlap's own code (`lostOr`).
+  const firsts = [b.indexOf('error: lostOr(', from), b.indexOf('error: "compile"', from)].filter((i) => i > from);
+  const at = firsts.length ? Math.min(...firsts) : -1;
   assert.ok(at > from, "the look lane has no compile-failure branch");
   const before = b.slice(from, at);
   assert.match(before, /patchSiteConfig\(env, ownerSlug, edb,\s*\n\s*cssMoved \? \{ look: priorLook, css: priorCss \} : \{ look: priorLook \}, jobFence\(env, eJob\)\)/,

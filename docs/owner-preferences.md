@@ -1317,3 +1317,24 @@
   - Preview activity must not touch production data or cause side effects.
   - Status wording is truthful: saved to the preview is not "live".
   - Ordinary conversation changes nothing.
+
+- **One working branch for the three areas, and the other one left alone**
+  (2026-10-16): *"Work only on codex-work-into-claude. Leave
+  claude/chat-session-0nndv1 completely untouched: do not check it out, merge
+  it, change it or delete it."* Parallel tasks, explicit Publish and
+  video/audio hosting are finished together there, for Codex's review.
+  - *"Media hosting"* means user-uploaded video and audio, **not**
+    generation; the model writes the player, with no special component
+    system.
+  - Parallel work covers every supported task type across Build, Edit and
+    Add-on, keeps the Build page/component caps, and does **not** grow into
+    cross-request concurrent writes.
+  - A saved pointer alone is never proof that the script and its activation
+    effects are ready; drafts made after a Publish click are never part of
+    that approval.
+  - Unavailable evidence is unverified, never passed; every live harness has
+    explicit opt-ins for publishing and spending.
+  - Customer-facing progress stays conversational and model-generated,
+    grounded in actual task state.
+  - No merge to `main`, deploy, production SQL, flag change, container build
+    or spending until you say so; no generated images, video or audio.

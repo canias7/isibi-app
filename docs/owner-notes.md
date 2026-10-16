@@ -1,5 +1,88 @@
 # Owner Notes
 
+## 2026-10-16 — Parallel tasks, Publish and video/audio finished together on `codex-work-into-claude` (branch only; nothing merged, deployed, switched, applied, built or spent)
+
+**On your word.** One working branch, **`codex-work-into-claude`**, for
+Codex's review. `claude/chat-session-0nndv1` was not checked out, merged,
+changed or deleted (still `f9f983a3`). No image, video or audio generated.
+
+### Baseline
+
+- The consolidation had finished: `main` was **`c7c3ca44`** (deploy 2214,
+  deployed, not runtime-confirmed). The branch starts there; no other branch
+  had work outside `main`.
+- Three read-only audits of the current code separated what is there (most
+  of it) from what was missing. Old notes were read as claims and checked.
+
+### Commits
+
+- **`672a527a`** — the connected gaps:
+  - **Parallel:** a part refused only because another part of its own
+    request overlapped it (`conflict`, `turn`, `turn-lost`, `older`) runs
+    again, alone, at most twice, instead of ending failed for you to resend;
+    every edit rung reported those refusals as `compile` with "our build
+    service was restarting" — they now keep their own code and say what
+    happened; a part waiting on a question, an approval or an unknown
+    purchase no longer holds later parts back when jobs run side by side; a
+    code-only draft save that landed behind a newer draft is refused
+    (`older`) instead of committed and billed.
+  - **Publish:** the Publish route requires the revision (a bare version
+    could reach for a newer revision saved after the click); the recovery
+    sweep runs whatever `DRAFT_FIRST` says now; "Back online" never
+    recompiles the draft under draft-first; the container `env` probe is
+    pressable (`job probe`, probe `env`, one `want` box); the verifier checks
+    that revisions saved after the click stay unpublished.
+  - **Media:** a held replacement under draft-first was never held — the
+    route read fields no handler sends, so a separate new file appeared
+    while the panel said "Replaced"; fixed. The Files panel shows what the
+    draft will do to a file; publishing a replacement streams with a known
+    length; the composer stops naming moved files as waiting.
+- **`901efc77`** — the tests and the pressable scenario
+  (`scripts/draft-verify.mjs`, `.github/workflows/draft-verify.yml`,
+  dispatch only: rehearsal, send (paid), media (writes), publish
+  (publishes), recovery — each with its own opt-in).
+- **This commit** — two landmark guards in `test/site-apply.test.mjs` that
+  read the old spelling `error: "compile"` (now `lostOr(…, "compile")`),
+  and these records.
+
+### Results (measured after the runs)
+
+- **New tests:** `test/parallel-publish-media.test.mjs` 8 of 8,
+  `test/draft-verify.test.mjs` 5 of 5, DFP4b 1 of 1. Changed: CW5, DF2, DF3,
+  CD1, one `edit-reserve-refused` guard.
+- **Mutation sweep** (`scripts/mutants/parallel-publish-media.json`, from a
+  green baseline over the five files that exercise it): **19 of 19 killed**,
+  0 survived, 0 never applied; both comment-only controls survived; the tree
+  restored.
+- **Full suite locally on `901efc77`:** 11,291 tests, 11,287 pass, **2 fail**,
+  2 skipped. The two failures were the `site-apply` guards above (they were
+  red from `672a527a`: my focused runs did not include that file). Fixed
+  here; `site-apply` 88 of 88. CI is read on this commit (below).
+- **Before:** `c7c3ca44` read 11,277 / 11,275 / 0 / 2 (a near-baseline: the
+  run overlapped my first edits for its last files).
+- **Screenshot:** the Files panel's draft lines, rendered headless from the
+  panel's markup and `public/styles.css`.
+
+### Matrix and the live batch
+
+In `docs/history/2026-10-16-codex-work-into-claude.md`: §6, the matrix
+(implemented · verified offline · verified live · still missing) for all
+three areas; §7, the consolidated image-free live batch (about 6–10 credits,
+one paid press; everything else free), each step yours.
+
+### Remaining blockers
+
+- **Nothing here is verified live.** The steps, all yours: the free runtime
+  press for deploy 2214; the proposed SQL; the merge and deploy; the `env`
+  probe off; the switches on; the `env` probe on; then the batch.
+- **Not changed, recorded in the backlog:** five serializations inside one
+  request that touch refund ordering or the fences; media upkeep (no session
+  sweep, `MEDIA_MAX_*` not in the deploy, `/u/` not tied to the host); the
+  draft-first edges that are yours to decide (owner panels act at once, a
+  platform rebuild leaves a draft, the preview reads the live sidecar).
+- **Not offline-testable:** the `FixedLengthStream` publish copy; real
+  crashes, lost answers and duplicate deliveries; two isolates racing.
+
 ## 2026-10-16 — Repository consolidated: `main` holds all completed work; deploy 2214
 
 **On the owner's word to consolidate.** `main` is now `d8024d63`, a

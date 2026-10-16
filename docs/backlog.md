@@ -20,6 +20,26 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
+- **Serialization left in place inside one request** (2026-10-16, branch
+  `codex-work-into-claude`, `docs/history/2026-10-16-codex-work-into-claude.md`
+  §3.1): a look step or addition holds the publish turn from its first read
+  to its end (`holdsConfig`); every addition counts as both a config and a
+  schema writer whatever its targets; an addition with a backend is not
+  prepared past its design; an addition and a Build provision the database
+  before page writing, which does not need it; the driver reads job rows one
+  at a time. Each touches refund ordering or the fences; not changed.
+- **Media upkeep** (2026-10-16, same record §3.3): no sweep of
+  `media-sessions/`, `media-parts/` and `drafts/` (expiry is lazy, R2's own
+  multipart abort is assumed, not verified); `MEDIA_MAX_*` not passed by the
+  deploy (defaults apply); `/u/<other-slug>` served on a site's own host; a
+  delete that crashed after recording `deleted` still serves the bytes;
+  `If-Range` not read.
+- **Draft-first edges the owner decides** (2026-10-16, same record §6): the
+  owner panels (SEO, share, verify, domains, Data panel, Versions restore)
+  act at once by design; a platform rebuild now leaves an unrequested draft;
+  the preview reads the live sidecar, so a draft-only description or redirect
+  is not shown there; held row updates overwrite a column a visitor changed
+  since the draft.
 - **Verification batch findings** (2026-10-15, runs 38742390550 and
   38744698638): (a), (b), (e) fixed on the branch (`889f9b70`, `50d0aeca`,
   `e49ac856`), offline only; (f)'s cleanup is prepared (`60bdc0cd`) and
@@ -35,9 +55,10 @@ here; take a closed one out of both.**
   on: apply `supabase/proposed/request_beside.sql`, merge and deploy, set
   `PARALLEL_WRITES=on`; no live press has shown two writing jobs of one
   request overlapping. Gaps: (b) the publish turn's exclusion under two
-  real isolates rests on R2's etag write, never raced live; (c) a conflict
+  real isolates rests on R2's etag write, never raced live; (c) ~~a conflict
   caught at publish fails the part (refunded) rather than re-running it
-  against the new site. (a), a config writer beside a text step through the
+  against the new site~~ — closed on `codex-work-into-claude` (2026-10-16):
+  it re-runs alone, bounded (`docs/history/2026-10-16-codex-work-into-claude.md`). (a), a config writer beside a text step through the
   Worker, is covered by CW10/CW11; the turn's ownership review by CW8, CW9,
   CW12; ownership at the write itself by the turn's fence (`b49d8765`,
   TF1–TF10), corrected for R2's content etags (`c47147e6`: writes

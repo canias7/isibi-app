@@ -34,6 +34,17 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 
 ## Where things stand (2026-09-30)
 
+- **2026-10-16: `main` is `c7c3ca44` (deploy 2214, consolidation; deployed,
+  not runtime-confirmed).** The working branch **`codex-work-into-claude`**
+  (from `c7c3ca44`, for Codex's review; not merged or deployed) finishes
+  parallel tasks, explicit Publish and hosted video/audio together: a part
+  lost to its own request's overlap re-runs alone; the held media
+  replacement works (it never did); Publish requires the revision; the
+  recovery sweep always runs; Back online never publishes the draft; the
+  container `env` probe and the `draft verify` scenario are pressable. The
+  matrix and the image-free live batch are
+  `docs/history/2026-10-16-codex-work-into-claude.md`.
+  `claude/chat-session-0nndv1` is untouched. The bullets below are older.
 - **`main` is `8908b59d`, deploy 2173** (2026-09-30 19:48 UTC, a
   fast-forward of 11 commits from `80ece106`, on the owner's word "commit
   and merge"; one deploy run, green, on `8908b59d`; the image
