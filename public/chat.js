@@ -5257,7 +5257,25 @@ function frameSandbox(url) {
 // no site has. Do not "simplify" this away.
 function sitePreviewSrc(site, path) {
   const at = path || '/';
-  return site.url + (at !== '/' ? String(at).replace(/^\//, '') : '') + '?v=' + (site.previewV || 0);
+  // UNDER DRAFT-FIRST THE FRAME SHOWS THE DRAFT (2026-10-16, the frontend
+  // batch): a saved change is not live until Publish, so the live address
+  // (`/s/<slug>/`) shows the site unchanged and the change read as nothing
+  // done. While the draft is ahead of live, the frame points at the draft's
+  // own preview host instead; after Publish (nothing unpublished) it is the
+  // live address again.
+  const d = siteDraftFrame(site);
+  const base = d ? d.preview : site.url;
+  return base + (at !== '/' ? String(at).replace(/^\//, '') : '') + '?v=' + (site.previewV || 0);
+}
+// THE DRAFT THE FRAME SHOWS, or null for the live site: the server's own
+// reading (`GET /api/site/<slug>/draft`) when draft-first is on, the draft is
+// ahead of live, and its preview address is the platform's draft host. Never
+// a guess: no reading, or one that cannot tell, is the live site.
+const SITE_DRAFT_HOST = /^https:\/\/[a-z0-9-]+--draft-[0-9a-f]{12}\.[a-z0-9.-]+\/$/;
+function siteDraftFrame(site) {
+  const d = site && site.slug && typeof siteDraftState === 'object' ? siteDraftState[site.slug] : null;
+  if (!d || d.enabled !== true || d.unpublished !== true || typeof d.preview !== 'string' || !SITE_DRAFT_HOST.test(d.preview)) return null;
+  return d;
 }
 // ── ONE PREVIEW MOVE FOR WORK THAT FINISHES TOGETHER (2026-10-07) ───────────
 //
@@ -5277,6 +5295,10 @@ const SITE_PREVIEW_HOLD_MS = 20000;
 const sitePreviewHolds = new Map();
 function sitePreviewMove(s) {
   if (!s) return;
+  // UNDER DRAFT-FIRST A FINISHED JOB SAVED A DRAFT: read where the site
+  // stands now, so the frame shows that draft (and its readiness) rather than
+  // the unchanged live site.
+  if (globalThis.draftFirstOn === true && s.slug) loadDraftState(s);
   const h = sitePreviewHolds.get(s.id);
   if (h && h.n > 0) { h.moved = true; return; }
   s.previewV = (s.previewV || 0) + 1;
@@ -7977,10 +7999,42 @@ async function loadDraftState(site) {
     const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/draft');
     const d = await r.json().catch(() => null);
     if (!r.ok || !d || d.ok !== true) return null;
+    const was = siteDraftFrameKey(siteDraftState[slug]);
     siteDraftState[slug] = d;
     paintDraftChip(d);
+    siteDraftFollow(site, d, was);
     return d;
   } catch (e) { return null; }
+}
+// WHAT THE FRAME DEPENDS ON in a draft reading: which draft it shows, and
+// whether that draft's preview is ready.
+function siteDraftFrameKey(d) {
+  if (!d || d.enabled !== true || d.unpublished !== true || typeof d.preview !== 'string') return 'live';
+  return d.preview + '|' + d.revision + '|' + (d.previewReady === true ? 'ready' : d.previewReady === false ? 'pending' : 'unknown');
+}
+// FOLLOW A DRAFT READING TO THE FRAME (2026-10-16, the frontend batch): when
+// what the frame should show moved — a newer draft, its preview now ready,
+// or a publication that left nothing unpublished — the frame is moved once
+// and the workspace drawn. While the preview is still being updated it is
+// read again, a bounded number of times, until it is ready.
+const SITE_DRAFT_RECHECK_MS = 15000;
+const SITE_DRAFT_RECHECKS = 20;
+const siteDraftRechecks = {};
+function siteDraftFollow(site, d, was) {
+  const slug = String(site.slug || '');
+  const now = siteDraftFrameKey(d);
+  if (now !== was) {
+    site.previewV = (site.previewV || 0) + 1;
+    if (typeof sitesSave === 'function') sitesSave();
+    if (siteOpenId === site.id && typeof renderSites === 'function') renderSites();
+  }
+  if (d && d.enabled === true && d.unpublished === true && d.previewReady === false) {
+    const n = siteDraftRechecks[slug] || 0;
+    if (n < SITE_DRAFT_RECHECKS && !siteDraftRechecks['t:' + slug]) {
+      siteDraftRechecks[slug] = n + 1;
+      siteDraftRechecks['t:' + slug] = setTimeout(() => { siteDraftRechecks['t:' + slug] = 0; loadDraftState(site); }, SITE_DRAFT_RECHECK_MS);
+    }
+  } else siteDraftRechecks[slug] = 0;
 }
 function siteDraftPanel(site, d) {
   const slug = String(site.slug || '');
@@ -8033,9 +8087,14 @@ function siteDraftPanel(site, d) {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(stalled ? { revision: sendRevision } : { revision, version }),
       });
       const out = await r.json().catch(() => ({}));
+      const frameWas = siteDraftFrameKey(siteDraftState[slug]);
       if (out && out.state) { siteDraftState[slug] = out.state; paintDraftChip(out.state); }
       if (r.ok && out.ok) {
         close();
+        // THE FRAME FOLLOWS THE PUBLICATION, from the state its answer carries:
+        // the live site once nothing is unpublished (or the newer draft that
+        // still is).
+        if (out.state) siteDraftFollow(site, out.state, frameWas);
         if (typeof sbToast === 'function') sbToast(out.state && out.state.unpublished ? 'Published \u2014 a newer draft is still saved, not published' : 'Published \u2014 your live site is up to date');
       } else if (r.status === 202 && out.publishing) {
         go.textContent = 'Publishing\u2026';
@@ -8164,7 +8223,11 @@ function renderSiteWorkspace(view, site) {
   const isReact = !!(site.react && site.url);
   const hasSite = !!curHtml || isReact;
   // Browser-frame URL chip: the live path once published (drafts have a slug too).
-  const previewUrl = siteChipUrl(site, active && active.path);
+  // UNDER DRAFT-FIRST, WHILE THE FRAME SHOWS THE DRAFT, the bar says so —
+  // and says the preview is still being updated until the server reads it
+  // ready (`previewReady`).
+  const draftShown = siteDraftFrame(site);
+  const previewUrl = draftShown ? 'Draft preview \u00b7 not published' + (draftShown.previewReady === false ? ' \u00b7 updating\u2026' : '') : siteChipUrl(site, active && active.path);
   const picker = pages.length > 1
     ? '<div class="st-pagepick"><button type="button" class="st-pagebtn" id="stPageBtn">' + esc(active ? active.name : 'Home') + ' <span class="st-cv">▾</span></button>' +
         '<div class="st-pagemenu" id="stPageMenu" hidden>' + pages.map((p) =>
@@ -10865,6 +10928,17 @@ function siteRequestHTML(m, site) {
     if (left) label = left[status];
     const prep = (status === 'blocked' || status === 'ready' || status === 'queued') && Object.hasOwn(SITE_REQ_PREP, p.prep) ? p.prep : '';
     if (prep) label = SITE_REQ_PREP[prep];
+    // WHAT THE SERVER RECORDS, SAID AS A LABEL (2026-10-16, the frontend
+    // batch): the parts a held part waits for, by their place on this card
+    // (`needs`, numbered from 0 by the server); a lost rewrite being recovered
+    // (`why`); and a part saved as a draft, which is not live until Publish
+    // (`draft`). Labels only — what was done is still each part's own line.
+    const waitsOn = Array.isArray(p.needs) ? p.needs.filter((x) => Number.isInteger(x) && x >= 0).map((x) => x + 1) : [];
+    if (!prep && status === 'blocked' && waitsOn.length) label = 'Waiting for part ' + waitsOn.join(' and ');
+    if (status === 'not-run' && waitsOn.length) label = 'Not run \u2014 part ' + waitsOn.join(' and ') + ' did not finish';
+    if (status === 'unverified' && p.why === 'rewrite-recovering') label = 'Recovering an interrupted rewrite';
+    const drafted = (status === 'done' || status === 'partial') && p.draft && Number.isInteger(p.draft.revision) && p.draft.revision > 0;
+    if (drafted) label = (status === 'partial' ? 'Partly done \u00b7 saved as a draft' : 'Saved as a draft') + (p.draft.preview === 'pending' ? ' \u00b7 preview updating' : '');
     // ITS GO-AHEAD, while it waits for one; gone while a press is in flight.
     const pressing = (st.approving || []).includes(p.n);
     const rewrite = status === 'approval'
@@ -11664,8 +11738,10 @@ function applyEditResult(e, o) {
   let told = false;
   const finish = (t) => { told = true; o.finish(t); };
   try {
-    // PUBLISHED. Bump the cache-buster the same way a revise does, or the preview
-    // keeps showing the old bundle and the change reads as not applied.
+    // PUBLISHED — or, under draft-first, SAVED TO THE DRAFT, which the frame
+    // then shows (`sitePreviewMove` reads the draft). Bump the cache-buster the
+    // same way a revise does, or the preview keeps showing the old bundle and
+    // the change reads as not applied.
     const s = siteById(o.origin);
     if (s) {
       // ONE MOVE FOR WORK THAT FINISHES TOGETHER (2026-10-07, `sitePreviewMove`).
@@ -15997,13 +16073,21 @@ async function siteFunctions(site) {
 // delete. Owner-only (ownership proven server-side via the site's RLS row).
 // ONE VIDEO OR RECORDING INTO A SITE'S LIBRARY, or over one already there
 // (`replace`), with the browser's report of its length and size (2026-10-14).
-async function siteMediaSend(slug, f, replace, onPct) {
+// A CANCEL BESIDE IT (2026-10-16, the frontend batch): `cancel` is the button
+// the panel shows while the file goes up; pressed, the upload stops between
+// parts and its session is aborted, so nothing half-sent is kept.
+async function siteMediaSend(slug, f, replace, onPct, cancel) {
   const meta = await mediaFileMeta(f);
+  let stop = false;
+  if (cancel) { cancel.hidden = false; cancel.disabled = false; cancel.onclick = () => { stop = true; cancel.disabled = true; }; }
   return SiteMedia.upload(f, {
     api: mediaApi(mediaBase(slug)), base: mediaBase(slug), store: mediaStore(), meta, replace: replace || undefined,
+    cancelled: () => stop,
     progress: (sent, total) => { if (typeof onPct === 'function') onPct(total ? Math.round((sent / total) * 100) : 100); },
-  });
+  }).finally(() => { if (cancel) { cancel.hidden = true; cancel.onclick = null; } });
 }
+/** The panel's sentence for a media upload that did not finish. */
+const siteMediaRefused = (r) => (r && r.code === 'cancelled' ? 'Upload cancelled \u2014 nothing was kept.' : (r && r.error) || 'That upload didn\u2019t finish \u2014 try again.');
 async function siteFiles(site) {
   // Repointed 2026-08-07 from `/api/site/files?slug=` — deleted with the D1
   // runtime — to `/api/site/<slug>/uploads`, which has existed all along and is
@@ -16017,6 +16101,7 @@ async function siteFiles(site) {
     'Add a PDF or a video here, then ask me to put a download link or a player on a page. ' +
     'Pick a picture as your <b>link preview</b> — what WhatsApp, iMessage and Slack show when someone shares your site’s link.</p>' +
     '<div class="fl-add"><button type="button" class="st-btn" id="flAdd">Add a file</button>' +
+    '<button type="button" class="st-btn fl-cancel" id="flCancel" hidden>Cancel upload</button>' +
     '<span class="fl-hint" id="flHint">Pictures up to 5 MB \u00b7 PDF, Word, Excel and ZIP up to 10 MB</span></div>' +
     '<div id="flList">Loading…</div>';
   // NO `accept` FILTER, deliberately, and for the reason the composer's own
@@ -16034,9 +16119,9 @@ async function siteFiles(site) {
       // the button and the server's own sentence when it is refused.
       if (typeof SiteMedia !== 'undefined' && SiteMedia.isMedia(f)) {
         try {
-          const r = await siteMediaSend(slug, f, null, (pct) => { addBtn.textContent = 'Uploading ' + pct + '%\u2026'; });
+          const r = await siteMediaSend(slug, f, null, (pct) => { addBtn.textContent = 'Uploading ' + pct + '%\u2026'; }, document.getElementById('flCancel'));
           if (!r.ok && r.uncertain) { if (typeof sbToast === 'function') sbToast('Couldn\u2019t confirm that upload finished yet \u2014 it will show in this list once it has.'); list(); return; }
-          if (!r.ok) { if (typeof sbToast === 'function') sbToast(r.error); return; }
+          if (!r.ok) { if (typeof sbToast === 'function') sbToast(siteMediaRefused(r)); return; }
           list();
         } finally { addBtn.textContent = was; addBtn.disabled = false; }
         return;
@@ -16183,9 +16268,9 @@ async function siteFiles(site) {
           const f = inp.files && inp.files[0]; if (!f) return;
           const was = b.textContent; b.disabled = true;
           try {
-            const r = await siteMediaSend(slug, f, name, (pct) => { b.textContent = pct + '%'; });
+            const r = await siteMediaSend(slug, f, name, (pct) => { b.textContent = pct + '%'; }, document.getElementById('flCancel'));
             if (!r.ok && r.uncertain) { if (typeof sbToast === 'function') sbToast('Couldn\u2019t confirm the replacement finished yet \u2014 check this list again in a moment.'); list(); return; }
-            if (!r.ok) { if (typeof sbToast === 'function') sbToast(r.error); return; }
+            if (!r.ok) { if (typeof sbToast === 'function') sbToast(siteMediaRefused(r)); return; }
             // HELD IN THE DRAFT (draft-first): the preview plays the new file,
             // and the live site keeps the old one until the owner publishes.
             if (typeof sbToast === 'function') sbToast(r.file && r.file.held

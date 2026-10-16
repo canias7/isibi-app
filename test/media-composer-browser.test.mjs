@@ -71,7 +71,10 @@ async function openApp(browser, { worker, env, seen, gate, site, onRouted = () =
       for (const [k, v] of Object.entries(req.headers())) if (/^(authorization|content-type|range|if-none-match)$/.test(k)) headers[k] = v;
       const body = req.postDataBuffer();
       if (body) headers["content-length"] = String(body.length);
+      if (kind === "part" && gate.onPart) await gate.onPart();
       const r = await worker.fetch(new Request("https://gofarther.dev" + p + url.search, { method: req.method(), headers, body: body && req.method() !== "GET" && req.method() !== "HEAD" ? body : undefined }), env, makeCtx());
+      // WHAT `/u/` ANSWERED, and whether the browser asked for a range (2026-10-16).
+      if (p.startsWith("/u/")) seen.push("u " + r.status + (headers.range ? " range" : ""));
       const buf = Buffer.from(await r.arrayBuffer());
       // THE ANSWER IS LOST AFTER THE SERVER HAS DONE THE WORK.
       if (kind === "complete" && gate.loseComplete > 0) { gate.loseComplete--; return route.abort("connectionreset"); }
@@ -255,6 +258,84 @@ test("REATTACHED AFTER A DELETE OR A REPLACEMENT: the composer sends the file ag
       assert.ok(routed, "the message was never sent");
       assert.match(routed.message, new RegExp("/u/" + SLUG + "/" + n3));
       assert.doesNotMatch(routed.message, new RegExp(n2 + "|" + n1));
+      assert.deepEqual(errors, []);
+    } finally {
+      await browser.close();
+    }
+  });
+});
+
+// ── UNDER DRAFT-FIRST, ON A LIVE SITE (2026-10-16, the frontend batch) ───────
+test("DFU5 UNDER DRAFT-FIRST, IN THE PAGE: a video attached in the composer; in the Files panel a replacement and a removal are held in the draft — said so on each tile, the live address keeps both until Publish; the recording plays and seeks from `/u/` (206); and an upload of several parts is cancelled from the panel, nothing kept", { skip: SKIP, timeout: 180000 }, async () => {
+  const worker = await loadWorker();
+  const store = mediaBucket();
+  // A LIVE SITE: its pointer, so library changes are held.
+  await store.put("current/" + SLUG + ".json", JSON.stringify({ version: "01790000000001-aaaaaa", build: "b0", parent: "", job: null, activatedAt: "2026-10-15T00:00:00.000Z" }));
+  const env = { ...envFor(store), DRAFT_FIRST: "on" };
+  const seen = [];
+  const gate = { loseComplete: 0, darkStatus: false, onPart: null };
+  const site = { id: SITE_ID, slug: SLUG, react: true, name: "Media Bakery", url: "https://" + SLUG + ".gofarther.app/", pages: [{ path: "/", name: "Home" }], msgs: [], updatedAt: Date.now(), createdAt: Date.now() };
+  const media = () => [...store.store.keys()].filter((k) => k.startsWith("uploads/" + SLUG + "/")).map((k) => k.split("/").pop()).sort();
+  const live = async (name) => { const r = await worker.fetch(new Request("https://" + SLUG + ".gofarther.app/u/" + SLUG + "/" + name), env, makeCtx()); return { status: r.status, bytes: Buffer.from(await r.arrayBuffer()) }; };
+  await withWire({}, async () => {
+    const browser = await chromium.launch({ executablePath: EXE });
+    try {
+      const { page, errors, chip, attach } = await openApp(browser, { worker, env, seen, gate, site });
+      const toast = () => page.evaluate(() => (document.getElementById("sbToast") || {}).textContent || "");
+      await attach("clip.webm", "video/webm");
+      await page.waitForFunction(() => [...document.querySelectorAll(".st-att-state")].some((e) => /ready/.test(e.textContent)), null, { timeout: 30000 });
+      assert.deepEqual(await chip(), ["Video · ready"]);
+      const [video] = media();
+
+      await page.evaluate((id) => siteFiles(siteById(id)), SITE_ID);
+      await page.waitForSelector(".fl-ismedia", { timeout: 20000 });
+      const [add] = await Promise.all([page.waitForEvent("filechooser"), page.click("#flAdd")]);
+      await add.setFiles({ name: "tone.mp3", mimeType: "audio/mpeg", buffer: fixture("tone.mp3") });
+      await page.waitForFunction(() => document.querySelectorAll(".fl-ismedia").length === 2, null, { timeout: 30000 });
+      const audio = media().find((n) => n.endsWith(".mp3"));
+
+      // PLAYBACK AND SEEKING, from the panel's own player.
+      const played = await page.evaluate(async () => {
+        const el = document.querySelector(".fl-item audio");
+        if (!el) return { error: "no player" };
+        if (el.readyState < 1) await new Promise((r, j) => { el.addEventListener("loadedmetadata", r, { once: true }); el.addEventListener("error", () => j(new Error("media error " + (el.error && el.error.code))), { once: true }); el.load(); });
+        const seeked = new Promise((r) => el.addEventListener("seeked", r, { once: true }));
+        el.currentTime = 1;
+        await seeked;
+        return { duration: el.duration, at: el.currentTime, src: el.currentSrc };
+      });
+      assert.ok(played.duration > 1.5 && Math.abs(played.at - 1) < 0.25, "the recording did not play and seek: " + JSON.stringify(played));
+      assert.match(played.src, new RegExp("/u/" + SLUG + "/" + audio + "$"));
+      assert.ok(seen.includes("u 206 range"), "no range answered 206 by /u/: " + JSON.stringify(seen.filter((k) => k.startsWith("u "))));
+
+      // THE REPLACEMENT, HELD.
+      const original = Buffer.from(store.raw("uploads/" + SLUG + "/" + video));
+      const [rep] = await Promise.all([page.waitForEvent("filechooser"), page.click('.fl-rep[data-replace="' + video + '"]')]);
+      await rep.setFiles({ name: "clip v2.webm", mimeType: "video/webm", buffer: Buffer.concat([fixture("clip.webm"), Buffer.alloc(64, 7)]) });
+      await page.waitForFunction(() => /Saved to your draft/.test((document.getElementById("sbToast") || {}).textContent || ""), null, { timeout: 30000 });
+      await page.waitForFunction(() => [...document.querySelectorAll(".fl-draft")].some((e) => /New version in your draft/.test(e.textContent)), null, { timeout: 30000 });
+      assert.deepEqual(await live(video), { status: 200, bytes: original }, "the live address changed before Publish");
+
+      // THE REMOVAL, HELD.
+      await page.click('.fl-del[data-file="' + audio + '"]');
+      await page.waitForFunction(() => [...document.querySelectorAll(".fl-draft")].some((e) => /Removed in your draft/.test(e.textContent)), null, { timeout: 30000 });
+      assert.equal((await live(audio)).status, 200, "the live address lost the recording before Publish");
+      assert.ok(media().includes(audio), "the recording's bytes went before Publish");
+      if (SHOTS) await page.locator("#flList").screenshot({ path: path.join(SHOTS, "panel-held.png") }).catch(() => {});
+
+      // CANCEL: a file of several parts, stopped from the panel after its first.
+      const kept = media();
+      const big = Buffer.concat([fixture("clip.webm"), Buffer.alloc(17 * 1024 * 1024, 0)]);
+      const abortsBefore = seen.filter((k) => k === "delete").length;
+      gate.onPart = async () => { gate.onPart = null; await page.click("#flCancel"); };
+      const [big1] = await Promise.all([page.waitForEvent("filechooser"), page.click("#flAdd")]);
+      await big1.setFiles({ name: "long.webm", mimeType: "video/webm", buffer: big });
+      await page.waitForFunction(() => /Upload cancelled/.test((document.getElementById("sbToast") || {}).textContent || ""), null, { timeout: 60000 });
+      assert.equal(seen.filter((k) => k === "part").length > 0, true);
+      assert.equal(seen.filter((k) => k === "delete").length, abortsBefore + 1, "the cancelled upload was not aborted");
+      assert.deepEqual(media(), kept, "a cancelled upload left a file");
+      assert.equal(await page.evaluate(() => document.getElementById("flCancel").hidden), true, "the cancel button stayed up");
+      assert.match(await toast(), /nothing was kept/);
       assert.deepEqual(errors, []);
     } finally {
       await browser.close();

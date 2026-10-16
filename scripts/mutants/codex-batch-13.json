@@ -1,0 +1,252 @@
+[
+  {
+    "label": "CONTROL: a comment only in site-draft.mjs \u2014 must survive",
+    "control": true,
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "export const KEEP_PUBLISHED = 20;",
+    "to": "// comment-only control\nexport const KEEP_PUBLISHED = 20;"
+  },
+  {
+    "label": "CONTROL: a comment only in chat.js \u2014 must survive",
+    "control": true,
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "const SITE_DRAFT_RECHECK_MS = 15000;",
+    "to": "// comment-only control\nconst SITE_DRAFT_RECHECK_MS = 15000;"
+  },
+  {
+    "label": "K1 retention drops unpublished revisions too",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  const published = revs.filter((r) => r.n <= applied);",
+    "to": "  const published = revs;"
+  },
+  {
+    "label": "K2 a read cuts the list again (the old limit)",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  return { rev, revs: all, applied, refs, trimmed: readTrimmed(d.trimmed) };",
+    "to": "  return { rev, revs: all.slice(-60), applied, refs, trimmed: readTrimmed(d.trimmed) };"
+  },
+  {
+    "label": "K3 a save cuts the list again",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  return { rev: n, revs: kept.revs, applied: app,",
+    "to": "  return { rev: n, revs: kept.revs.slice(-60), applied: app,"
+  },
+  {
+    "label": "K4 markApplied keeps every published revision (no history bound)",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "    const kept = retain(draft.revs, revision, draft.trimmed);",
+    "to": "    const kept = { revs: draft.revs, trimmed: draft.trimmed };"
+  },
+  {
+    "label": "K5 the trimming is not recorded",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  return { revs: revs.filter((r) => !drop.includes(r)), trimmed: { n: Math.max(last.n, trimmed ? trimmed.n : 0), at } };",
+    "to": "  return { revs: revs.filter((r) => !drop.includes(r)), trimmed };"
+  },
+  {
+    "label": "K6 absence proves nothing ignores the job's start",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  return began <= cut + TRIM_CLOCK_MARGIN_MS;",
+    "to": "  return false;"
+  },
+  {
+    "label": "K7 no clock margin",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  return began <= cut + TRIM_CLOCK_MARGIN_MS;",
+    "to": "  return began <= cut;"
+  },
+  {
+    "label": "K8 a legacy cut record proves absence",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  if (!t) return draft.revs.length > 0 && draft.revs[0].n > 1;",
+    "to": "  if (!t) return false;"
+  },
+  {
+    "label": "K9 the reconcile ignores the reader's trimmed fact",
+    "files": [
+      "builder/site-reconcile.mjs"
+    ],
+    "from": "const trimmedFact = (d, rec) => (typeof d.trimmed === \"boolean\" ? d.trimmed : !!(rec.revs[0] && rec.revs[0].n > 1));",
+    "to": "const trimmedFact = (d, rec) => !!(rec.revs[0] && rec.revs[0].n > 1);"
+  },
+  {
+    "label": "L1 the frame never shows the draft",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  const base = d ? d.preview : site.url;",
+    "to": "  const base = site.url;"
+  },
+  {
+    "label": "L2 any preview host is trusted",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (!d || d.enabled !== true || d.unpublished !== true || typeof d.preview !== 'string' || !SITE_DRAFT_HOST.test(d.preview)) return null;",
+    "to": "  if (!d || d.enabled !== true || d.unpublished !== true || typeof d.preview !== 'string') return null;"
+  },
+  {
+    "label": "L3 a published draft still shows the draft",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (!d || d.enabled !== true || d.unpublished !== true || typeof d.preview !== 'string' || !SITE_DRAFT_HOST.test(d.preview)) return null;",
+    "to": "  if (!d || d.enabled !== true || typeof d.preview !== 'string' || !SITE_DRAFT_HOST.test(d.preview)) return null;"
+  },
+  {
+    "label": "L4 readiness does not move the frame",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  return d.preview + '|' + d.revision + '|' + (d.previewReady === true ? 'ready' : d.previewReady === false ? 'pending' : 'unknown');",
+    "to": "  return d.preview + '|' + d.revision;"
+  },
+  {
+    "label": "L5 an updating preview is never read again",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (d && d.enabled === true && d.unpublished === true && d.previewReady === false) {",
+    "to": "  if (false) {"
+  },
+  {
+    "label": "L6 the re-read has no bound",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    if (n < SITE_DRAFT_RECHECKS && !siteDraftRechecks['t:' + slug]) {",
+    "to": "    if (!siteDraftRechecks['t:' + slug]) {"
+  },
+  {
+    "label": "L7 the card never names the part waited for",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    if (!prep && status === 'blocked' && waitsOn.length) label = 'Waiting for part ' + waitsOn.join(' and ');",
+    "to": ""
+  },
+  {
+    "label": "L8 the card's part numbers start at 0",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "filter((x) => Number.isInteger(x) && x >= 0).map((x) => x + 1) : [];",
+    "to": "filter((x) => Number.isInteger(x) && x >= 0).map((x) => x) : [];"
+  },
+  {
+    "label": "L9 a saved draft is said as done",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    if (drafted) label = ",
+    "to": "    if (false) label = "
+  },
+  {
+    "label": "L10 a preview still updating is not said",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "+ (p.draft.preview === 'pending' ? ' \\u00b7 preview updating' : '');",
+    "to": "+ '';"
+  },
+  {
+    "label": "L11 a lost rewrite reads as an ordinary check",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    if (status === 'unverified' && p.why === 'rewrite-recovering') label = 'Recovering an interrupted rewrite';",
+    "to": ""
+  },
+  {
+    "label": "L12 a cancel is said as any failure",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "const siteMediaRefused = (r) => (r && r.code === 'cancelled' ?",
+    "to": "const siteMediaRefused = (r) => (false ?"
+  },
+  {
+    "label": "M1 the view never says what a part waits for",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "      ...((p.status === \"blocked\" || p.status === \"not-run\") && Array.isArray(p.needs) && p.needs.length ? { needs:",
+    "to": "      ...(false ? { needs:"
+  },
+  {
+    "label": "M2 the view says a draft for a part still running",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "      ...((p.status === \"done\" || p.status === \"partial\") && p.outcome && p.outcome.draft",
+    "to": "      ...(p.outcome && p.outcome.draft"
+  },
+  {
+    "label": "M3 a job's saved draft never reaches the outcome",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "    p.outcome = { job: job.id, kind: \"done\", ...((d) => (d ? { draft: d } : {}))(answerDraft(ans.body)) };\n    p.done = doneSummary(ans.body);",
+    "to": "    p.outcome = { job: job.id, kind: \"done\" };\n    p.done = doneSummary(ans.body);"
+  },
+  {
+    "label": "M4 a published answer is read as a draft",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "  if (!d || typeof d !== \"object\" || d.published !== false ||",
+    "to": "  if (!d || typeof d !== \"object\" ||"
+  },
+  {
+    "label": "N1 readiness ignores standing claims",
+    "files": [
+      "worker.js"
+    ],
+    "from": "previewReady = (await previewClaims(buildDeps(env), ownerSlug)).length === 0;",
+    "to": "previewReady = true;"
+  },
+  {
+    "label": "N2 unreadable claims read as ready",
+    "files": [
+      "worker.js"
+    ],
+    "from": "if (label) { try { previewReady = (await previewClaims(buildDeps(env), ownerSlug)).length === 0; } catch { previewReady = null; } }",
+    "to": "if (label) { try { previewReady = (await previewClaims(buildDeps(env), ownerSlug)).length === 0; } catch { previewReady = true; } }"
+  },
+  {
+    "label": "K10 build recovery ignores the reader's trimmed fact",
+    "files": [
+      "builder/build-lease.mjs"
+    ],
+    "from": "  if (typeof d.trimmed === \"boolean\" ? d.trimmed : !!(all[0] && all[0].n > 1)) return { state: \"unknown\", why: \"draft-trimmed\" };",
+    "to": "  if (!!(all[0] && all[0].n > 1)) return { state: \"unknown\", why: \"draft-trimmed\" };"
+  },
+  {
+    "label": "K11 the edit reconcile never hands over when the job began",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if (d) draft = { state: \"read\", record: d, trimmed: revisionsTrimmed(d, { since: row.created_at || null }) };",
+    "to": "    if (d) draft = { state: \"read\", record: d, trimmed: revisionsTrimmed(d, { since: null }) };"
+  }
+]

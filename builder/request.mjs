@@ -599,6 +599,17 @@ export function readRun(ans) {
   return { act: "success", ask, deferred };
 }
 
+/**
+ * A JOB ANSWER'S SAVED DRAFT (2026-10-16, the frontend batch): its revision,
+ * version and preview readiness as the answer gives them (`draftFacts`), or
+ * null when the answer names no saved, unpublished revision. Read so the
+ * request's card can say "saved as a draft" from the job's own answer.
+ */
+function answerDraft(body) {
+  const d = body && typeof body === "object" ? body.draft : null;
+  if (!d || typeof d !== "object" || d.published !== false || !Number.isSafeInteger(d.revision) || d.revision <= 0) return null;
+  return { revision: d.revision, version: typeof d.version === "string" ? d.version : "", preview: d.previewUploaded === true ? "ready" : d.previewPending === true ? "pending" : "unknown" };
+}
 const SAVED_DONE = (d) => "saved the change as draft revision " + d.revision + " (not published; what it changed was not recorded)";
 
 /**
@@ -852,7 +863,7 @@ function settleRewrite(rec, p, job, row, now) {
     // SAVED AS THE SITE'S DRAFT (2026-10-16): done — what needs it may go on
     // — and said as a draft revision, never as a published site.
     const saved = b.draft && typeof b.draft === "object" && b.draft.published === false && Number.isSafeInteger(b.draft.revision) && b.draft.revision > 0 ? b.draft : null;
-    p.outcome = { job: job.id, kind: "rewrite", ...(saved ? { draft: { revision: saved.revision, version: typeof saved.version === "string" ? saved.version : "" } } : {}) };
+    p.outcome = { job: job.id, kind: "rewrite", ...(saved ? { draft: { revision: saved.revision, version: typeof saved.version === "string" ? saved.version : "", preview: saved.previewUploaded === true ? "ready" : saved.previewPending === true ? "pending" : "unknown" } } : {}) };
     if (!b.error) {
       p.status = "done";
       p.done = saved ? "rewrote the site's pages for this and saved them as draft revision " + saved.revision + " (not published)" + (b.recovered === true ? "; what it changed was not recorded" : "") : "rewrote the site's pages for this";
@@ -1119,14 +1130,14 @@ function settle(rec, p, job, row, now) {
     // stands beside any frame this step could not fill.
     const notDone = [...(p.place.notDone || []), ...notDoneOf(ans.body, "edit")];
     p.place = { ...p.place, placedBy: job.id };
-    p.outcome = { job: job.id, kind: "done" };
+    p.outcome = { job: job.id, kind: "done", ...((d) => (d ? { draft: d } : {}))(answerDraft(ans.body)) };
     if (notDone.length) { p.status = "partial"; p.why = "partly-done"; p.notDone = notDone; return; }
     p.status = "done"; p.why = null; return;
   }
   if (read.act === "success") {
     // A RETRY THAT FINISHED speaks for the whole part: what an earlier try left is in what it did.
     delete p.left;
-    p.outcome = { job: job.id, kind: "done" };
+    p.outcome = { job: job.id, kind: "done", ...((d) => (d ? { draft: d } : {}))(answerDraft(ans.body)) };
     p.done = doneSummary(ans.body);
     if (read.ask) { p.status = "waiting"; p.question = { round: (p.askRound || 0) + 1, ...read.ask, at: now }; p.phase = "answer"; return; }
     // DONE ONLY WHEN NOTHING ASKED FOR WAS LEFT UNDONE: what it named as not
@@ -2216,6 +2227,15 @@ export function requestView(rec, { progress = null, said = null, runs = null, pr
       // for a reader that checks each one's row and ledger (the UI canary).
       ids: p.jobs.filter((j) => j.id).map((j) => j.id),
       ...(p.why ? { why: p.why } : {}),
+      // WHAT IT WAITS FOR (2026-10-16, the frontend batch): the parts it
+      // needs, by number, while it is held for them or was not run because
+      // one of them broke — so the card names the part, not "another part".
+      ...((p.status === "blocked" || p.status === "not-run") && Array.isArray(p.needs) && p.needs.length ? { needs: p.needs.filter((m) => Number.isInteger(m)) } : {}),
+      // SAVED AS A DRAFT, NOT PUBLISHED (2026-10-16, the frontend batch): the
+      // revision its job saved, from the job's own answer or the recovery's
+      // reading of the draft — the card says "saved", never "published".
+      ...((p.status === "done" || p.status === "partial") && p.outcome && p.outcome.draft && Number.isSafeInteger(p.outcome.draft.revision) && p.outcome.draft.revision > 0
+        ? { draft: { revision: p.outcome.draft.revision, preview: ["ready", "pending"].includes(p.outcome.draft.preview) ? p.outcome.draft.preview : "unknown" } } : {}),
       // WHAT ITS TRIES LEFT STANDING (2026-10-07): the reply's facts and the
       // card read it here — dropped from this view, a part stopped after its
       // table went in was told as stopped "before it changed anything".

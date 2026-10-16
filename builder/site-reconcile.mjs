@@ -138,7 +138,11 @@ const answer = (verdict, kind, why, mine, extra = {}) => ({ verdict, kind, why, 
 //   facts.draft     { state: "read", record } | { state: "none" } | { state: "unreadable" }
 //                   — absent: not consulted (a caller from before drafts)
 //   facts.journals  { [heldId]: true (there) | false (missing) | undefined (unreadable) }
-const DRAFT_MAX_REVS = 60;
+//   facts.draft.trimmed  true when this job's revision could have been trimmed
+//                   (only published revisions are, 2026-10-16); absent: a
+//                   record that says it was trimmed, or one the earlier
+//                   60-revision limit cut, proves no absence
+const trimmedFact = (d, rec) => (typeof d.trimmed === "boolean" ? d.trimmed : !!rec.trimmed || (rec.revs.length >= 60 && !!rec.revs[0] && rec.revs[0].n > 1));
 function draftVerdict(facts, job, mine) {
   const d = facts.draft;
   if (!d || !job.id) return null;
@@ -179,8 +183,11 @@ function draftVerdict(facts, job, mine) {
     return answer("kept", "draft-saved", "this job's own revision is in the site's draft: its work was saved, not published", mine,
       { revision: r.n, version: r.version, held: r.held || null, selected: rec.version === r.version });
   }
-  // AN OLD REVISION MAY HAVE FALLEN OFF THE BOUNDED LIST: absence is not proof.
-  if (rec.revs.length >= DRAFT_MAX_REVS && rec.revs[0] && rec.revs[0].n > 1) return answer("unknown", "draft-trimmed", "the draft record keeps only its latest revisions, so this job's absence from it proves nothing", mine);
+  // A PUBLISHED REVISION MAY HAVE BEEN TRIMMED FROM THE LIST: absence is not
+  // proof for a job that began before the trimming (the reader's `trimmed`,
+  // `revisionsTrimmed` in site-draft.mjs); without that fact, a record that
+  // says it was trimmed, or one the earlier limit cut, proves nothing.
+  if (trimmedFact(d, rec)) return answer("unknown", "draft-trimmed", "the draft record keeps only its latest published revisions, so this job's absence from it proves nothing", mine);
   return null;
 }
 

@@ -262,3 +262,43 @@ test("EER7 THE VERDICT OFFLINE — this job's manifest proves its code; another 
   assert.equal(reconcileVerdict(base([], {})).kind, "never-staged");
   assert.equal(reconcileVerdict({ ...base([rev({ held: "h1" })], undefined, { h1: true }), manifests: undefined }).kind, "draft-saved", "the earlier rule without exact reads");
 });
+
+// ── EER8: A DRAFT WHOSE PUBLISHED REVISIONS WERE TRIMMED (2026-10-16) ────────
+// Only published revisions are trimmed now (no count limit on unpublished
+// work), and the record says when (`trimmed`). A lost job that began after the
+// trimmed revisions were saved left nothing trimmed, so its absence is proof
+// and the genuine refusal stands; one that began before may have been
+// dropped, so it is cannot-tell and waits — never refunded on that absence.
+for (const [name, began] of [["after", "began after the trimming: refunded once as never live"], ["before", "began before the trimming: cannot-tell, waiting, not refunded"]]) {
+  test("EER8 " + name.toUpperCase() + " — a lost job beside a draft whose published revisions were trimmed, " + began, async () => {
+    const { P, v0, done } = await bakery();
+    try {
+      await settle(P, (await sendMessage(P, { message: MSG })).key, { rounds: 20 });
+      // THE RECORD AS RETENTION LEAVES IT after many publications: its earliest
+      // revisions trimmed, the trimming's time recorded.
+      const d = draftOf(P);
+      const shift = 30;
+      const at = name === "after" ? "2026-01-01T00:00:00.000Z" : new Date(Date.now() + 24 * 3600 * 1000).toISOString();
+      const rec = { ...d, rev: d.rev + shift, applied: d.applied + shift, revs: d.revs.map((r) => ({ ...r, n: r.n + shift })), trimmed: { n: shift, at } };
+      await P.run(() => P.bucket.put(DRAFT_KEY(P.slug), JSON.stringify(rec)));
+      P.hangPut((k) => k.startsWith("preview-claims/" + P.slug + "/"));
+      const r = await sendMessage(P, { message: "Change our TikTok link on the Visit page to @harbourloaf." });
+      let hung = null;
+      for (let i = 0; i < 12 && !hung; i++) { const x = await pump(P); if (x && x.hung) hung = x.hung; }
+      assert.ok(hung, "the job never reached its claim");
+      const job = P.jobsOf(r.key).find((j) => j.op === "edit");
+      assert.equal(draftOf(P).revs.some((x) => x.job === job.id), false, "the case has a revision of its own");
+      P.recover();
+      await passes(P, 4);
+      const b = bodyOf(P.jobs.get(job.id));
+      if (name === "after") {
+        assert.ok(b && ["never-staged", "never-activated"].includes(b.kind), "a job that began after the trimming was not refused on its absence: " + JSON.stringify(b).slice(0, 300));
+        assert.equal(refunds(P, job.id), 1);
+      } else {
+        assert.equal(refunds(P, job.id), 0, "a job whose revision may have been trimmed was refunded");
+        assert.ok(!b || !["never-staged", "never-activated"].includes(b.kind), "absence from a trimmed list was taken as proof: " + JSON.stringify(b).slice(0, 300));
+      }
+      assert.equal(live(P), v0);
+    } finally { await done(); }
+  });
+}

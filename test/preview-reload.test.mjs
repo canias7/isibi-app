@@ -32,6 +32,11 @@ function fn(head) {
   assert.ok(end > at, head + " has no closing landmark — re-derive this window");
   return CHAT.slice(at, end + 2);
 }
+/** The page's own preview address builder, with the draft reading it consults (none here: the live site). */
+function previewSrcFn() {
+  const line = (head) => { const at = CHAT.indexOf(head); assert.ok(at > 0, head + " is gone"); return CHAT.slice(at, CHAT.indexOf("\n", at) + 1); };
+  return new Function("const siteDraftState = {};\n" + line("const SITE_DRAFT_HOST =") + fn("function siteDraftFrame(site)") + "\n" + fn("function sitePreviewSrc(site, path)") + "; return sitePreviewSrc;")();
+}
 
 /**
  * The handler block, carried out whole.
@@ -70,7 +75,7 @@ function press({ isReact, curHtml, previewV = 1, path = "/", presses = 1, fresh 
     isReact, curHtml, site, active, sitePreviewErrs,
     previewErrKey: () => "s1|" + path,
     // The REAL builder, so the URL under test is the product's own.
-    sitePreviewSrc: new Function(fn("function sitePreviewSrc(site, path)") + "; return sitePreviewSrc;")(),
+    sitePreviewSrc: previewSrcFn(),
     loadSiteFrame: (f, url) => calls.push({ via: "loadSiteFrame", url }),
     loadSitePreview: (f, html, slug, again) => calls.push({ via: "loadSitePreview", html: String(html).slice(0, 12), slug, again }),
     paintPreviewErrBadge: () => calls.push({ via: "paintPreviewErrBadge" }),
@@ -116,7 +121,7 @@ test("A SITE NEVER MOVED: the first press asks for an address the frame has not 
   // `(previewV || 0) + 1`, so the first press on a site with no `previewV`
   // pointed the frame at `?v=1` — the address it already had — and a cache
   // could answer it with the page as it was.
-  const before = new Function(fn("function sitePreviewSrc(site, path)") + "; return sitePreviewSrc;")()({ url: "https://hey.gofarther.app/" }, "/");
+  const before = previewSrcFn()({ url: "https://hey.gofarther.app/" }, "/");
   const { calls, site } = press({ isReact: true, curHtml: "", fresh: true, presses: 2 });
   const urls = calls.filter((c) => c.via === "loadSiteFrame").map((c) => c.url);
   assert.equal(urls.length, 2);
@@ -133,7 +138,7 @@ test("EVERY MOVE IN chat.js changes the frame's address, from any version, a sit
   // more); Refresh and a revise move it themselves.
   assert.ok(moves.length >= 4, "the moves are not where this reads them: " + moves.length);
   assert.ok(moves.some((l) => /s\.previewV = \(s\.previewV \|\| 0\) \+ 1;/.test(l)), "the shared move is not among the moves read");
-  const src = new Function(fn("function sitePreviewSrc(site, path)") + "; return sitePreviewSrc;")();
+  const src = previewSrcFn();
   for (const line of moves) {
     const m = /(\w+)\.previewV = (.+?);/.exec(line);
     assert.ok(m, "a move this cannot read: " + line.trim());
@@ -214,7 +219,7 @@ test("the builder addresses a real path, never a fragment", () => {
   // A fragment is inert under browser history: it was right while the generated
   // app was hash-routed, and became the reason the frame stayed on the home
   // page whatever the picker said.
-  const build = new Function(fn("function sitePreviewSrc(site, path)") + "; return sitePreviewSrc;")();
+  const build = previewSrcFn();
   const site = { url: "https://hey.gofarther.app/", previewV: 2 };
   assert.equal(build(site, "/press"), "https://hey.gofarther.app/press?v=2");
   assert.equal(build(site, "/"), "https://hey.gofarther.app/?v=2", "the home page grew a segment");

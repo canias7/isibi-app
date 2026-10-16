@@ -12440,6 +12440,19 @@ async function sitePointer(env, slug) {
  * script's fallback hop is then the legacy prefix, which is exactly where
  * the restored files are.
  */
+/**
+ * THE VERSIONS A STANDING DRAFT STILL NEEDS (2026-10-16): the draft's own and
+ * every unpublished revision's, kept from the version cap even when
+ * draft-first has been switched off since they were saved — pending work is
+ * never pruned. Null when the draft cannot be read: then nothing is pruned.
+ */
+async function draftKeeps(env, slug) {
+  try {
+    const { draft } = await readDraft(buildDeps(env), slug);
+    if (!draft) return [];
+    return [draft.version, ...draft.revs.filter((r) => r.n > draft.applied).map((r) => r.version)];
+  } catch { return null; }
+}
 /** What a saved draft tells the owner: its version, its preview address, and that it is not live. */
 function draftFacts(slug, version, act) {
   const token = act && act.record && act.record.preview;
@@ -16315,7 +16328,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // NOT UNDER DRAFT-FIRST: the live version, the draft and every draft the
   // owner may still approve by name are all staged builds, and the cap knows
   // only two of them.
-  try { if (!act.draft) pruned = await pruneBuilds(buildDeps(env), { slug, keep: [version, parentVersion] }); }
+  try { if (!act.draft) { const dk = await draftKeeps(env, slug); if (dk) pruned = await pruneBuilds(buildDeps(env), { slug, keep: [version, parentVersion, ...dk] }); } }
   catch (e) { console.error("prune failed:", slug, e && e.message); }
   tm("prune", "ok", { pruned });
   // THE RENDER REPORT REACHES THE CALLER. Every edit lane pays ~6s for the
@@ -17488,7 +17501,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
           await markSaved(env, jobId, { version: bVersion, revision: (own && own.n) || act.revision || 0, held: (own && own.held) || null });
         } else await markPublished(env, jobId, bVersion);
       }
-      try { if (!act.draft) await pruneBuilds(buildDeps(env), { slug, keep: [bVersion, bParent] }); }
+      try { if (!act.draft) { const dk = await draftKeeps(env, slug); if (dk) await pruneBuilds(buildDeps(env), { slug, keep: [bVersion, bParent, ...dk] }); } }
       catch (e) { console.error("prune failed:", slug, e && e.message); }
       // WHICH VERSION WENT LIVE (2026-10-14), for the build's check evidence —
       // or, under draft-first, which version was saved as the draft.
@@ -19681,7 +19694,7 @@ export async function reconcileLostBuilds(env, { now = Date.now() } = {}) {
     let draft = { state: "none" };
     const journals = {};
     if (slug) {
-      try { const { draft: d } = await readDraft(buildDeps(env), slug); draft = d ? { state: "read", record: d } : { state: "none" }; }
+      try { const { draft: d } = await readDraft(buildDeps(env), slug); draft = d ? { state: "read", record: d, trimmed: revisionsTrimmed(d, { since: row.created_at || null }) } : { state: "none" }; }
       catch { draft = { state: "unreadable" }; }
       if (draft.state === "read") {
         for (const r of draft.record.revs || []) {
@@ -20010,7 +20023,7 @@ async function deliverLostAnswer(env, { id, uid, mark, now }) {
 }
 
 /** The columns the reconcile reads off a row — `edit_get` hands back none of the publish marks. */
-const EDIT_ROW_COLS = "id,uid,slug,op,state,phase,cost,billing,needs_review,review_note,artifact_build,worker_status,publish_started_at,published_at,result,updated_at";
+const EDIT_ROW_COLS = "id,uid,slug,op,state,phase,cost,billing,needs_review,review_note,artifact_build,worker_status,publish_started_at,published_at,result,created_at,updated_at";
 
 /**
  * ROWS OF `edit_jobs`, READ WITH THE SERVICE KEY. The one read of that table
@@ -20063,7 +20076,9 @@ async function reconcileFacts(env, row) {
   const journals = {};
   try {
     const d = env.SITES_BUCKET ? (await readDraft(deps, slug)).draft : null;
-    if (d) draft = { state: "read", record: d };
+    // WHETHER THIS JOB'S REVISION COULD HAVE BEEN TRIMMED (2026-10-16): only
+    // published revisions are, and only ones saved before the job began.
+    if (d) draft = { state: "read", record: d, trimmed: revisionsTrimmed(d, { since: row.created_at || null }) };
   } catch { draft = { state: "unreadable" }; }
   // AND, FOR EACH REVISION NAMING THIS JOB, ITS VERSION'S OWN MANIFEST AND
   // ITS HELD JOURNAL (2026-10-16): read exactly, each with its read state, so
@@ -43151,9 +43166,18 @@ async function handleRequest(request, env, ctx) {
                 const ops = draft ? await unpublishedOps(buildDeps(env), ownerSlug, draft) : [];
                 address = { live: liveName, draft: addressOverlay(liveName, ops) };
               } catch { address = null; }
+              // THE PREVIEW'S READINESS, READ (2026-10-16, the frontend batch):
+              // true when no writer's claim stands — every upload that may
+              // land has been confirmed on the draft's selected version —
+              // false while one stands, null when the claims cannot be read
+              // (cannot-tell is never "ready"). The page shows the draft in
+              // its frame and says "updating" until this is true.
+              let previewReady = null;
+              if (label) { try { previewReady = (await previewClaims(buildDeps(env), ownerSlug)).length === 0; } catch { previewReady = null; } }
               return {
                 ...st, runningKnown: running !== null, enabled: draftFirst(env),
                 preview: label ? "https://" + label + "." + SITE_ZONE + "/" : null,
+                previewReady,
                 saved: draft ? draft.history.concat(draft.version) : [],
                 revisions, publishing: publishing ? publishing.revision : null,
                 // THE PUBLICATION STANDING: its revision, its phase, whether a

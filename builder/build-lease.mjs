@@ -357,7 +357,6 @@ export function lostBuildVerdict({ row, pointer, builds, buildsUnread = [], fenc
  * the record, the versions or the journal could not be read, or the bounded
  * list may have dropped it. Another job's revision proves nothing.
  */
-const MAX_DRAFT_REVS = 60;
 export function savedOfJob(draft, id, builds, journals = {}, { manifests = null, unread = [] } = {}) {
   const d = draft && typeof draft === "object" ? draft : { state: "none" };
   if (d.state === "unreadable") return { state: "unknown", why: "draft-unread" };
@@ -391,8 +390,11 @@ export function savedOfJob(draft, id, builds, journals = {}, { manifests = null,
     }
     return { state: "saved", rev };
   }
+  // A PUBLISHED REVISION MAY HAVE BEEN TRIMMED (2026-10-16): the reader's
+  // `trimmed` fact when it has one, else a record that says it was trimmed
+  // or one the earlier 60-revision limit cut.
   const all = d.record.revs;
-  if (all.length >= MAX_DRAFT_REVS && all[0] && all[0].n > 1) return { state: "unknown", why: "draft-trimmed" };
+  if (typeof d.trimmed === "boolean" ? d.trimmed : !!d.record.trimmed || (all.length >= 60 && !!all[0] && all[0].n > 1)) return { state: "unknown", why: "draft-trimmed" };
   return { state: "none" };
 }
 

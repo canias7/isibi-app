@@ -145,7 +145,9 @@ export async function markApplied(deps, slug, { revision, refs = {} } = {}) {
     const { draft, etag } = await readDraft(deps, slug);
     if (!draft) return { ok: false, error: "no draft" };
     if (draft.applied >= revision) return { ok: true, draft, already: true };
-    const rec = { ...draftRecordOut(draft), applied: revision, refs: { ...draft.refs, ...refs } };
+    // PUBLISHED NOW: what falls past the history kept is trimmed (never anything unpublished).
+    const kept = retain(draft.revs, revision, draft.trimmed);
+    const rec = { ...draftRecordOut(draft), revs: kept.revs, ...(kept.trimmed ? { trimmed: kept.trimmed } : {}), applied: revision, refs: { ...draft.refs, ...refs } };
     const put = await deps.put(DRAFT_KEY(slug), JSON.stringify(rec), "application/json", { etagMatches: etag });
     if (put) return { ok: true, draft: readBack(rec) };
   }
@@ -153,32 +155,61 @@ export async function markApplied(deps, slug, { revision, refs = {} } = {}) {
 }
 
 // ── REVISIONS ────────────────────────────────────────────────────────────────
-const MAX_REVS = 60;
+//
+// NO COUNT LIMIT ON WORK NOT YET PUBLISHED (2026-10-16, the owner: *"There must
+// be no artificial change-count limit that forces publication or loses pending
+// work."*). The list was cut to its last 60 revisions on every read and every
+// save, so a draft past 60 changes silently lost its oldest unpublished ones:
+// Codex's reproductions showed 100 held additions publishing only 41–100, and
+// one held addition followed by 99 code saves vanishing from the draft's
+// effective state. Now the record keeps EVERY revision past `applied` — the
+// unpublished work, and so any revision a publication is releasing (it is past
+// `applied` until `markApplied`) — and only revisions already published are
+// trimmed, to the latest `KEEP_PUBLISHED`, for the panel's history. What was
+// trimmed is recorded (`trimmed`: the highest revision dropped and when it was
+// saved), so a reader proving a job's absence from the list knows which jobs
+// could have been dropped (`revisionsTrimmed`).
+export const KEEP_PUBLISHED = 20;
+function readTrimmed(t) {
+  return t && typeof t === "object" && Number.isSafeInteger(t.n) && t.n > 0 ? { n: t.n, at: typeof t.at === "string" ? t.at : "" } : null;
+}
+/** Keep every revision past `applied`, and the latest published ones; `{ revs, trimmed }`. */
+function retain(revs, applied, trimmed) {
+  const published = revs.filter((r) => r.n <= applied);
+  const drop = published.slice(0, Math.max(0, published.length - KEEP_PUBLISHED));
+  if (!drop.length) return { revs, trimmed };
+  const last = drop[drop.length - 1];
+  const at = [trimmed && trimmed.at, ...drop.map((r) => r.at)].filter(Boolean).sort().pop() || "";
+  return { revs: revs.filter((r) => !drop.includes(r)), trimmed: { n: Math.max(last.n, trimmed ? trimmed.n : 0), at } };
+}
 function readRevisions(d) {
-  const revs = (Array.isArray(d.revs) ? d.revs : [])
+  const all = (Array.isArray(d.revs) ? d.revs : [])
     .filter((r) => r && Number.isSafeInteger(r.n) && r.n > 0 && isDraftVersion(r.version))
     .map((r) => ({ n: r.n, version: r.version, at: typeof r.at === "string" ? r.at : "", job: typeof r.job === "string" ? r.job : null, held: typeof r.held === "string" && HELD_ID.test(r.held) ? r.held : null, ops: Number.isSafeInteger(r.ops) ? r.ops : 0 }))
-    .sort((a, b) => a.n - b.n).slice(-MAX_REVS);
+    .sort((a, b) => a.n - b.n);
   // A RECORD WRITTEN BEFORE REVISIONS (the first draft-first commit): its
   // draft is revision 1, nothing published through it.
-  if (!revs.length && isDraftVersion(d.version)) revs.push({ n: 1, version: d.version, at: typeof d.at === "string" ? d.at : "", job: null, held: null, ops: 0 });
-  const rev = Math.max(Number.isSafeInteger(d.rev) ? d.rev : 0, revs.length ? revs[revs.length - 1].n : 0);
+  if (!all.length && isDraftVersion(d.version)) all.push({ n: 1, version: d.version, at: typeof d.at === "string" ? d.at : "", job: null, held: null, ops: 0 });
+  const rev = Math.max(Number.isSafeInteger(d.rev) ? d.rev : 0, all.length ? all[all.length - 1].n : 0);
   const applied = Number.isSafeInteger(d.applied) && d.applied >= 0 ? Math.min(d.applied, rev) : 0;
   const refs = {};
   if (d.refs && typeof d.refs === "object" && !Array.isArray(d.refs)) {
     for (const [k, v] of Object.entries(d.refs)) if (REF.test(k) && Number.isSafeInteger(v)) refs[k] = v;
   }
-  return { rev, revs, applied, refs };
+  // NOTHING PAST `applied` IS DROPPED ON A READ: the record is read as stored.
+  return { rev, revs: all, applied, refs, trimmed: readTrimmed(d.trimmed) };
 }
 function addRevision(draft, { version, held = null, job = null, at, applied = null }) {
   const prev = draft ? draft.revs : [];
   const n = (draft ? draft.rev : 0) + 1;
   const r = { n, version, at, job: job ? String(job) : null, held: held ? held.id : null, ops: held && Array.isArray(held.ops) ? held.ops.length : 0 };
-  return { rev: n, revs: [...prev, r].slice(-MAX_REVS), applied: applied !== null ? applied : draft ? draft.applied : 0, refs: draft ? draft.refs : {} };
+  const app = applied !== null ? applied : draft ? draft.applied : 0;
+  const kept = retain([...prev, r], app, draft ? draft.trimmed : null);
+  return { rev: n, revs: kept.revs, applied: app, refs: draft ? draft.refs : {}, ...(kept.trimmed ? { trimmed: kept.trimmed } : {}) };
 }
 /** The record as stored, from what `readDraft` answered. */
 function draftRecordOut(d) {
-  return { v: 2, version: d.version, build: d.build, base: d.base, job: d.job, at: d.at, history: d.history, preview: d.preview, rev: d.rev, revs: d.revs, applied: d.applied, refs: d.refs };
+  return { v: 2, version: d.version, build: d.build, base: d.base, job: d.job, at: d.at, history: d.history, preview: d.preview, rev: d.rev, revs: d.revs, applied: d.applied, refs: d.refs, ...(d.trimmed ? { trimmed: d.trimmed } : {}) };
 }
 function readBack(rec) {
   return { version: rec.version, build: rec.build || "", base: rec.base || "", job: rec.job || null, at: rec.at || "", history: rec.history || [], preview: rec.preview || "", ...readRevisions(rec) };
@@ -203,8 +234,27 @@ export function savedRevision(draft, { job = null, version = null, held = null }
     && (!version || r.version === version)
     && (!held || r.held === held)) || null;
 }
-/** Whether a record's revision list may have dropped older revisions. */
-export const revisionsTrimmed = (draft) => !!(draft && Array.isArray(draft.revs) && draft.revs.length >= MAX_REVS && draft.revs[0].n > 1);
+/**
+ * WHETHER A JOB'S REVISION COULD HAVE BEEN TRIMMED FROM THE LIST: only
+ * published revisions are ever trimmed, all saved no later than `trimmed.at`.
+ * A job that began (`since`) well after that — past a margin for clocks that
+ * disagree — saved nothing that was trimmed, so its absence is proof; one that
+ * began before, or whose start is not known, may have been dropped. A record
+ * cut by the earlier 60-revision limit carries no `trimmed`: sixty revisions
+ * starting past revision 1 say so, with no time, so nothing is proved by it.
+ */
+export const TRIM_CLOCK_MARGIN_MS = 10 * 60 * 1000;
+/** The earlier code's limit: a record it cut holds exactly this many, from past revision 1. */
+export const LEGACY_MAX_REVS = 60;
+export function revisionsTrimmed(draft, { since = null } = {}) {
+  if (!draft || !Array.isArray(draft.revs)) return false;
+  const t = readTrimmed(draft.trimmed);
+  if (!t) return draft.revs.length >= LEGACY_MAX_REVS && draft.revs[0].n > 1;
+  const began = typeof since === "number" ? since : Date.parse(String(since || ""));
+  const cut = Date.parse(t.at);
+  if (!Number.isFinite(began) || !Number.isFinite(cut)) return true;
+  return began <= cut + TRIM_CLOCK_MARGIN_MS;
+}
 
 /** A revision of this record, by its number, or null. */
 export function revisionOf(draft, n) {

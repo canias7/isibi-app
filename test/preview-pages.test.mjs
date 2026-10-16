@@ -200,7 +200,9 @@ test("the preview follows the picked page", () => {
   const src = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
   const at = src.indexOf("function sitePreviewSrc(");
   assert.ok(at > 0, "sitePreviewSrc is gone — the path arithmetic has no home");
-  const build = new Function(src.slice(at, src.indexOf("\n}", at) + 2) + "; return sitePreviewSrc;")();
+  // WITH THE DRAFT READING IT CONSULTS (2026-10-16): none here, so the live site's address.
+  const piece = (head) => { const i = src.indexOf(head); assert.ok(i > 0, head + " is gone"); return src.slice(i, src.indexOf(head.startsWith("const ") ? "\n" : "\n}", i) + (head.startsWith("const ") ? 1 : 2)); };
+  const build = new Function("const siteDraftState = {};\n" + piece("const SITE_DRAFT_HOST =") + piece("function siteDraftFrame(site)") + "\n" + src.slice(at, src.indexOf("\n}", at) + 2) + "; return sitePreviewSrc;")();
   const site = { url: "https://hey.gofarther.app/", previewV: 3 };
   assert.equal(build(site, "/press"), "https://hey.gofarther.app/press?v=3", "the picked page is not addressed by path");
   assert.equal(build(site, "/"), "https://hey.gofarther.app/?v=3", "the home page grew a segment");

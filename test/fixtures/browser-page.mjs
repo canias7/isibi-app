@@ -93,6 +93,8 @@ const FNS = [...new Set([
   // WHERE THE PREVIEW FRAME POINTS (2026-10-05): its address, its loader and its
   // sandbox, for the render's own frame step below.
   "sitePreviewSrc", "loadSiteFrame", "frameSandbox",
+  // …AND, UNDER DRAFT-FIRST, THE DRAFT IT SHOWS (2026-10-16): none here unless a case reads one.
+  "siteDraftFrame",
   // A SITE'S TABLE LIST, IN ORDER (2026-10-05): every addition's tables, and
   // each routing answer's read, kept by when its call went out.
   "siteTablesAdd", "siteTablesRead",
@@ -121,7 +123,7 @@ const LINES = [...new Set([
   "const SITE_REQ_KEEP_MS =", "const SITE_REQ_MISSES =", "const siteReqFollowing =", "const siteReqChecked =",
   "const SITE_PREVIEW_HOLD_MS =", "const sitePreviewHolds =", "const SITE_LOOK_AGAIN_MS =", "const siteLookedAt =",
   "const siteReqAsked =", "const siteReqSeen =", "const siteRoutesSyncs =",
-  "const editReplyFollowing =", "const FRAME_SANDBOX =", "const siteTablesOrder =",
+  "const editReplyFollowing =", "const FRAME_SANDBOX =", "const siteTablesOrder =", "const SITE_DRAFT_HOST =", "const siteDraftState =",
   "const SITE_JOB_STATUS =", "const SITE_JOB_RUNNING =", "const siteJobFollowing =", "const editWatched =",
   "const SITE_JOB_SAID =",
 ])];
