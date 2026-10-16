@@ -325,3 +325,35 @@ test("SRB7 THE REVIEW RECONCILE WAITS ON THE SAME SCHEDULE — a row it cannot d
   assert.equal(mod.recoveryDelay(1), 2 * 60e3);
   assert.equal(mod.recoveryDelay(50), 30 * 60e3);
 });
+
+test("SRB5b A SHARE SPENT MID-ITEM — small shares cut items short: no tick passes its total share by a single call; every session at or before the kept place is gone, and the first session after it, cut short, is still there and handled from the start next lap; all of it reclaimed in the end", async () => {
+  const mod = await loadWorkerModule();
+  const { store, active } = await fixture();
+  const env = envFor(store);
+  const share = { sessions: 30, parts: 10, drafts: 10, cursor: 1 };
+  const total = share.sessions + share.parts + share.drafts + share.cursor;
+  let cutSeen = false;
+  for (let t = 0; t < 80; t++) {
+    const before = store.calls.length;
+    const r = await mod.runMediaSweep(env, { now: NOW, calls: share });
+    const spent = store.calls.length - before;
+    assert.ok(spent <= total, "tick " + t + " spent " + spent + " calls, past its share of " + total);
+    // EACH PREFIX WITHIN ITS OWN SHARE, and the counts agree with the storage boundary.
+    for (const k of ["sessions", "parts", "drafts", "cursor"]) assert.ok(r.calls[k] <= share[k], "tick " + t + ": " + k + " spent " + r.calls[k] + ", past its share of " + share[k]);
+    assert.equal(r.calls.total, spent);
+    const cur = JSON.parse(store.raw("media-sweep/cursor.json") ? new TextDecoder().decode(store.raw("media-sweep/cursor.json")) : "{}");
+    const kept = cur.after && cur.after.sessions;
+    if (r.stopped && r.stopped.sessions && kept) {
+      const left = (await keys(store, "media-sessions/")).filter((k) => !k.includes(active));
+      assert.ok(left.every((k) => k > kept), "a session at or before the kept place " + kept + " is still there: " + left.filter((k) => k <= kept).join(","));
+      if (left.length) cutSeen = true;
+    }
+    const remaining = (await keys(store, "media-sessions/")).length + (await keys(store, "media-parts/")).length + (await keys(store, "drafts/u-old/")).length;
+    if (remaining === 1 + 3) break;
+  }
+  assert.ok(cutSeen, "no tick stopped mid-sessions — this case tests nothing");
+  assert.deepEqual(await keys(store, "media-sessions/"), ["media-sessions/" + SCOPE + "/" + active + ".json"]);
+  assert.equal((await keys(store, "media-parts/")).length, 3);
+  assert.equal((await keys(store, "drafts/u-old/")).length, 0);
+  assert.equal((await keys(store, "uploads/budget/done")).length, 4);
+});

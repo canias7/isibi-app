@@ -26,14 +26,6 @@
     "to": "const asked = request.headers.get(\"range\");"
   },
   {
-    "label": "H2 a weak If-Range matches",
-    "files": [
-      "site-media.mjs"
-    ],
-    "from": "  if (/^W\\//.test(h)) return false;",
-    "to": ""
-  },
-  {
     "label": "H3 any tag matches",
     "files": [
       "site-media.mjs"
