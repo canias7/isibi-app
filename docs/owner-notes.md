@@ -1,5 +1,83 @@
 # Owner Notes
 
+## 2026-10-16 — Eighth batch on `codex-work-into-claude`, after Codex's reviews of `fd951ba3` and `305c9425` (branch only; nothing merged, deployed, switched, applied, built or spent)
+
+**On your word**, on `codex-work-into-claude` only. `claude/chat-session-0nndv1`
+untouched. No paid test. The record and the matrix are
+`docs/history/2026-10-16-codex-batch-8.md`.
+
+### Commits
+
+- **`02f577d9`**: a lost build that saved a draft is settled as saved, never
+  published (the fixes, BDR1–BDR9, BDL1–BDL6, the sweep spec).
+- **`8dd9328e`**: the history draft; the seventh batch's matrix corrected
+  (Build had been grouped with the verified Edit and Add-on rows).
+- **`305c9425`**: the resumed build's own answer checked; a redundant line
+  removed. Codex passed 190 focused checks here, and the two Build failures
+  were fixed.
+- **`a9db0c1f`**: unreadable manifests are never proof of absence or of
+  publication (BER1–BER8).
+- **`e1c720fe`**: the sweep spec. **`d4289e0b`**: BER9.
+- **`5eca67cb`**, and **this commit**: the records.
+
+### What changed
+
+- **A build saved as a draft is recorded and recovered as saved, not as
+  published.**
+  - The build's completion marker now says `saved`, with its draft
+    revision. A real publication says `published` and `live`.
+  - Recovery settles a lost build as saved from that job's own draft
+    revision, version and held journal. This applies before the marker,
+    after it, and when the marker is one the earlier code wrote. It keeps
+    what the build charged, tells the customer the draft was saved and that
+    the live site is unchanged until Publish, and lets dependent request
+    work continue.
+  - A request part whose rebuild was lost now waits for recovery's decision
+    instead of failing.
+- **Evidence that can't be read is never proof.**
+  - A version's manifest is now read as read, absent or unreadable, and the
+    version list says which ones it couldn't read.
+  - Recovery reads the exact manifest of the job's own version, and waits
+    while anything is unread. It no longer told a draft as live after one
+    failed read (Codex's case).
+  - Two other places used the same list, and both had the same fault. The
+    Edit reconcile refunded a saved edit; the owner's source route said no
+    version existed. Both now wait.
+
+### Results (measured)
+
+- **Red checks:**
+  - on `c77cc4ba`, 12 of 15 Build cases fail; the 3 that pass are controls
+    the old code already got right;
+  - on `305c9425`, the evidence cases fail (Codex's case recorded
+    `published`; a partial listing refunded 6); the controls pass.
+- **Mutation sweeps:**
+  - batch 8: 22 of 22, after a redundant line one mutant exposed was
+    removed;
+  - batch 9: 13 of 13, after one added case;
+  - every control survived.
+- **Related tests together:** 1,139 of 1,139.
+- **Full suite locally:** `305c9425` 11,370 / 11,368 / 0 / 2, and
+  `d4289e0b` 11,379 / 11,377 / 0 / 2.
+- **Unit CI:**
+  - run 38968286798 on `305c9425`: 11,370 / 11,322 / 0 / 48, success;
+  - run 38970266996 on `5eca67cb` (the same code as `d4289e0b`): 11,379 /
+    11,331 / 0 / 48, success;
+  - site build: success on both `305c9425` and `a9db0c1f`;
+  - the other runs were cancelled by the next push.
+
+### Offline only; still owed live
+
+- Everything above is offline: supplied answers, in-process storage and
+  network stand-ins.
+- Not yet run live:
+  - R2's own read failures and listing behaviour;
+  - a real lost build under draft-first;
+  - the new marker fields written by deployed code.
+- **Still open (backlog):** a lost build whose evidence stays unreadable is
+  retried every tick with no limit, and a request part waiting on it waits
+  as long.
+
 ## 2026-10-16 — Seventh batch on `codex-work-into-claude`, after Codex's review of `74cbce6b` (branch only; nothing merged, deployed, switched, applied, built or spent)
 
 **On your word**, on `codex-work-into-claude` only. `claude/chat-session-0nndv1`

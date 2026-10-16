@@ -85,7 +85,15 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   against the draft); revision and preview readiness in every page answer.
   Edit and Add-on only: Build recovery is the eighth batch. Unit CI
   `11355 / 11307 / 0 / 48` (run 38965420327). Matrix:
-  `docs/history/2026-10-16-codex-batch-7.md` §5.
+  `docs/history/2026-10-16-codex-batch-7.md` §5. **Eighth batch**
+  (`02f577d9` … `d4289e0b`, after Codex's reviews of `fd951ba3` and
+  `305c9425`): a build saved as a draft is recorded `saved` (publication
+  `published` + `live`) and recovered as saved from its own revision,
+  version and journal, the earlier code's marker read against the draft;
+  a manifest is read as read/absent/unreadable and an unreadable one is
+  never proof (lost builds, the Edit reconcile, the owner source route).
+  Unit CI `11379 / 11331 / 0 / 48` (run 38970266996). Matrix:
+  `docs/history/2026-10-16-codex-batch-8.md` §6. Offline only.
   `claude/chat-session-0nndv1` is untouched. The bullets below are older.
 - **`main` is `8908b59d`, deploy 2173** (2026-09-30 19:48 UTC, a
   fast-forward of 11 commits from `80ece106`, on the owner's word "commit

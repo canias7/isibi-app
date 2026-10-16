@@ -164,12 +164,20 @@ boundary:
 - **The related suites together:** 1,105 / 1,105 at `02f577d9`, and
   1,139 / 1,139 at `d4289e0b`.
 - **Full suite locally:** `305c9425` 11,370 / 11,368 / 0 / 2. `d4289e0b`:
-  FULL_PENDING.
+  11,379 / 11,377 / 0 / 2.
 - **Unit CI:**
   - run 38968286798 on `305c9425`, 11,370 / 11,322 / 0 / 48, success; site
     build 38968286831 success;
   - runs on `02f577d9` and `8dd9328e` were cancelled by the next push;
-  - CI_PENDING.
+  - run 38970266996 on `5eca67cb` (`d4289e0b`'s code plus records),
+    11,379 / 11,331 / 0 / 48, success; the runs on `a9db0c1f`, `e1c720fe`
+    and `d4289e0b` were cancelled by the next push; site build 38969821436
+    on `a9db0c1f` success.
+- **Offline, not live.** Every result here is offline: supplied model
+  answers, the in-process store and network stand-ins. Live-only and not
+  run: R2's own read failures and listing behaviour, a real lost build
+  under draft-first, and the fence's new `saved` and `live` fields written
+  by deployed code.
 
 ## 6. Completion matrix
 
