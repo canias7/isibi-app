@@ -1,5 +1,401 @@
 # Owner Notes
 
+## 2026-10-16 — Your choice: finish Publish first; help-needed paused (documents only)
+
+**You chose B.** Publish is finished first on its own branch. Then both
+branches are integrated and verified together in **one image-free live
+batch**. Until then **help-needed is paused** at this commit.
+- Nothing merged, deployed or built.
+- No SQL applied, no flag changed, no paid test.
+- Cross-request concurrency and finer same-page merging are **not**
+  started.
+
+**Two documentation corrections, nothing else:**
+- **Backend behaviour, branch by branch.**
+  - On help-needed, schema, rules, rows, seeds and scheduled jobs reach the
+    live database at once. This branch has no draft or held changes.
+  - The Publish branch (`claude/draft-first-publish`) has implemented held
+    changes behind `DRAFT_FIRST`: a journal per revision, applied at
+    Publish; scheduled jobs always held; rows previewed with the held
+    changes laid over them.
+  - Corrected in the closing entry (§6, item 7) and in this branch's copy of
+    `docs/history/2026-10-15-draft-first.md` §4, which had still called it
+    unbuilt.
+  - The held changes are that branch's work and are not verified from here.
+- **Recovery timing is an estimate, not a guarantee.** The closing entry
+  (§4) and the draft-first record (§5) now call 12 to 14 minutes after the
+  last upload a **conditional estimate**. It holds only if:
+  - the cron fires on time;
+  - the sweep's own reads and upload succeed;
+  - an aborted upload never takes effect more than 2 minutes after its
+    10-minute abort.
+  A failed tick, a pointer still moving, or a lost sweep upload each push
+  repair later. The earlier entry's "up to about 12 to 14 minutes"
+  (2026-10-15, early morning, §4) should be read the same way.
+
+**What the combined batch will need**, when Publish is ready:
+- the Publish branch's pointer-before-script-upload fix reviewed: that is
+  `71f7d48d` on that branch, which completes the activation through
+  help-needed's `alignLiveScript`, with its own recovery note;
+- one integration candidate holding `main`, help-needed and Publish;
+- required CI on it;
+- then, each yours: the SQL, the merge and deploy, the free runtime check,
+  `PARALLEL_WRITES` and `DRAFT_FIRST` on, and one image-free paid press.
+
+## 2026-10-15 (closing) — The concurrency correction batch closed; what remains for parallel work (branch only)
+
+**Nothing paid, deployed, built or switched.** `PARALLEL_WRITES` and
+`DRAFT_FIRST` stay off and `supabase/proposed/request_beside.sql` stays
+unapplied. Nothing is merged: `main` is still `772bb885`. No image was
+generated. Codex reviewed `claude/help-needed-ehlwlj` at `66cbeb55`, and the
+overlapping-recovery regression tests passed on the combined Publish tree.
+This entry closes the batch and adds no new code.
+
+### 1. The batch's commits
+
+Code, in order (each reviewed by Codex):
+
+| Commit | What it did |
+|---|---|
+| `b49d8765` | publish-turn fence (`gen`), fenced R2 writes for config, pointer, head, source, parts, kit; new holder stamps first |
+| `1e3c01e8`, `b9ac6ae7`, `70d2425b` | the turn's ownership: refused renewal is a loss, held turn re-read, commit point re-reads, loss refunded |
+| `0bd624f9` | a config writer beside a text job, through the Worker |
+| `50d0aeca`, `0bb6d062`, `3104c025` | the add-on's linked words checked link by link, from the rendered tree, each link bound to its own occurrence (the Visit line, Press 2 part 1) |
+| `1eab61c1` | the logo guard re-anchored to the fenced config write |
+| `c47147e6`, `9186a756` | R2 MD5 etags in the fixture, writes conditional on etag and upload time, held-absent pointer and config, the sidecar guarded, the script follows the pointer |
+| `c124a264` | ownership by R2's real conditions, the align loop and durable pending marker, the mounted root component only |
+| `45c163d3`, `6c492b16` | absent keys held in the store and rollback holds instead of deleting; recovery uploads noted; linked words read along reachable paths only |
+| `9da48fe2`, `d583030d` | recovery notes owned per invocation; others' notes retired only after their window, by conditional tombstone |
+
+Records: `2eee0569`, `66cbeb55` and this entry.
+
+### 2. CI on the final commits
+
+- `9da48fe2`: unit tests 38816828674 **failed** (587 tests, test stores
+  whose `put` answers nothing), fixed by `d583030d`; site build 38816828676
+  success.
+- `d583030d`: unit tests 38818063004 success, site build 38818062911
+  success. Locally, 11,096 of 11,096 pass.
+- `66cbeb55` (records only): unit tests 38820721896 success.
+- Integration candidate `claude/help-needed-ehlwlj-integration` at
+  `c9ef979d` (`d583030d` merged onto `0b8a363e`, with main's assistant and
+  audio/video work): unit tests 38819883606, 11,232 tests, 11,184 pass, 0
+  fail, 48 skipped; site build 38819883654 success.
+
+### 3. Implemented, passed offline, needs live verification
+
+| Correction | Implemented | Passed offline | Live |
+|---|---|---|---|
+| Jobs of one request writing side by side (filing gate, scoped site claim, publish rebase) | yes, behind `PARALLEL_WRITES`, needs the proposed SQL | yes (CW1–CW12) | **not verified** |
+| Publish turn owned and fenced at the write | yes | yes (TF1–TF11) | **not verified** |
+| R2 conditions as R2 applies them (content etags, upload time, held absence, no deletes on rollback) | yes | yes, against a fixture modelled on R2 | **not verified against real R2** |
+| The live script follows the pointer, with owned recovery notes and the 2-minute sweep | yes | yes (TS, TJ, TA, TR1–TR8) | **not verified against real Workers for Platforms** |
+| Linked words checked structurally (link by link, reachable code, unresolved parts unverified) | yes | yes | **not verified** (the Visit line has not been sent again) |
+
+"Offline" means the real Worker functions with supplied model answers, a
+network-blocked fixture, and every test red-checked and swept. It does not
+cover two real isolates racing, or the real dispatch upload.
+
+### 4. Recovery timing assumptions
+
+- **A normal publication**, with nothing dying:
+  - the pointer moves first;
+  - the script is uploaded under the publication's own note;
+  - if the pointer moved again meanwhile, the pointer's version is
+    re-uploaded, up to 4 more times (`SCRIPT_FOLLOW_TRIES`);
+  - the note is taken away once the follow settles with every upload
+    answered.
+  Visitors can see the previous version for about one upload plus one
+  read.
+- **After a death or a lost answer**, the note stays. A sweep (the cron,
+  every 2 minutes) acts on it only after `SCRIPT_NOTE_WINDOW_MS`: the
+  upload's own hard abort `DISPATCH_CALL_MS` (10 minutes) plus 2 minutes,
+  counted from the note's last renewal. **12 to 14 minutes after the last
+  upload began is a conditional estimate, not a guarantee.** It holds only
+  if the cron fires on time, the sweep's own reads and upload succeed, and
+  the assumption below holds. A failed sweep tick, a pointer still moving,
+  or a sweep upload that is itself lost each push the repair further out.
+  Before this batch the sweep waited about 5 minutes, which was unsafe.
+- **The assumption the window rests on:** an upload aborted at 10 minutes
+  does not take effect more than 2 minutes later. If Cloudflare accepted a
+  request after the client gave up and applied it later than that, a sweep
+  could retire its note too early. This cannot be proven from here, and no
+  test can show it.
+- **What is never taken as proof:** a note's age alone, or a matching
+  version answered by the live script. Only the owner's settled follow, or
+  a sweep after the window by a conditional tombstone, retires a note.
+- **Not atomic.** The pointer and the script are two systems. Between them
+  the site is eventually consistent, never all-at-once.
+
+### 5. The Publish branch
+
+The draft/Publish work stays in its own chat. What it must reuse is written
+in `docs/history/2026-10-15-draft-first.md` §5, now corrected (its
+`noteBeforeUpload` and "notes older than 5 minutes" lines were overtaken by
+`9da48fe2`/`d583030d`):
+- held-absent keys and drafts;
+- the live marker only after the script answered;
+- rollback by holding absent, never deleting;
+- every script upload through `putSiteWorker` or `followPointer` with its
+  own context;
+- never retiring a note it did not write.
+
+**The newly reported pointer-before-script-upload failure belongs to that
+branch** and is not touched here. If its fix changes shared code
+(`activateBuild`, `putSiteWorker`, `followPointer`), this branch takes it
+from there at integration rather than fixing it twice.
+
+### 6. What remains before parallel work is complete across Build, Edit and Add-on
+
+**Already shown live:**
+- Build: page bands written at once (Press A, Press 1).
+- Edit: one part's prepared step running inside another part's executing
+  job and replayed exactly (run 119, P2, Press 2).
+- Add-on: two designers at once inside one Add-on (run 150).
+- A dependent part waiting for its prerequisite (Press 2).
+- A closed tab followed to the end from a fresh session (Press B, Press 2).
+
+**Not implemented (missing code or design):**
+1. **Writes from different requests on one site** still run one at a time.
+   The scoped claim covers only jobs of the same request.
+2. **Within one request, these still serialize by design**, with no finer
+   merge:
+   - parts on the same page;
+   - two parts that both write the site's design settings;
+   - two parts that both write the database schema.
+3. **A message mixing a first Build with Edits or Add-ons** is not supported.
+4. **Preparation:**
+   - Preparation does not account for another request's unapplied writes,
+     so it can be wasted. That is safe, and the cost is ours.
+   - The logo step is not prepared.
+   - An addition that needs a new database is not prepared past its design.
+5. **An addition cannot consume an attachment's contents.**
+6. **Automatic photograph placement** is missing for a token inside a
+   longer string, and for a job outside a request.
+7. **On this branch, backend effects (schema, grants, rows, seeds,
+   scheduled jobs) take effect on the live database at once.** This
+   branch has no draft or held-change mechanism. The Publish branch
+   (`claude/draft-first-publish`) has since implemented held changes for a
+   published site with `DRAFT_FIRST` on:
+   - schema, rules, starter rows, data-step row changes and add-on entries
+     are held in an immutable journal per revision and applied at Publish;
+   - scheduled jobs are held even on a never-published site;
+   - the preview reads rows with the held changes laid over them.
+   That is the Publish branch's work, described in its own record (§6.2 of
+   its `docs/history/2026-10-15-draft-first.md`). It is not part of this
+   branch, and it is not verified here. Until the two are integrated,
+   "nothing changes until Publish" is not true of this branch.
+8. **Two systems, no atomic switch.** The pointer and the live script are
+   eventually consistent (§4).
+9. **A stale config write** left by a job that lost its turn between writing
+   and putting back stays until the next publish's editable-state check.
+10. **The image provider offers no idempotency key**, so a lost purchase is
+    bought again only on the customer's say-so.
+
+**Implemented but untested live:**
+1. **Two writing jobs of one request overlapping.** This needs, all yours:
+   the proposed SQL, the merge, the deploy and `PARALLEL_WRITES=on`.
+2. **Real concurrency races:**
+   - two isolates racing the publish turn and the fences;
+   - R2's real conditional writes under a race.
+3. **Real script recovery:**
+   - the real dispatch upload, its abort, and a lost answer;
+   - the cron sweep repairing a site with no customer request.
+4. **Crash recovery live:**
+   - a job dying mid-write;
+   - a duplicate queue delivery;
+   - a lost image purchase.
+5. **Success reused live:**
+   - after a question;
+   - after a restart (Edit and Add-on).
+6. **Add-on across parts live:**
+   - an Add-on part's preparation replayed beside an Edit part's job;
+   - two independent Add-on parts at once. That may be unreachable while
+     the real router batches additions of one kind.
+7. **How much overlaps in practice.** That depends on the real router's
+   targets and the wasted-preparation rate, and has not been measured.
+8. **Narration while two writing jobs overlap.**
+9. **A browser reconnecting mid-Build.** Only the API path was shown.
+10. **Real images on any parallel path.** That is off limits for now.
+11. **The corrected linked-words check on a real add-on.**
+
+### 7. Remaining blockers, plainly
+
+- **No live proof of the batch's main claim**, two writing jobs of one
+  request overlapping. It needs four steps that are yours: the SQL, the
+  merge, the deploy, the switch. Then one paid press.
+- **The Publish branch's pointer-before-script-upload failure** is open on
+  that branch. Integration should wait for it if Publish is to ship with
+  this.
+- **The recovery bound rests on an assumption** about Cloudflare's upload
+  abort (§4) that only production behaviour can bear out.
+- **Integration needs one decision:** `c9ef979d` combines this branch with
+  main's assistant and audio/video work and is green, but the Publish
+  branch is not in it.
+
+### 8. Choices for the next batch
+
+- **A. Live verification of side-by-side writes:**
+  - apply the SQL;
+  - merge `c9ef979d`, or a later candidate, and deploy;
+  - the free runtime check;
+  - `PARALLEL_WRITES=on`;
+  - one paid image-free press with two independent writing parts on
+    different pages.
+  It proves item 1 and parts of items 2, 3 and 11 of the untested list.
+- **B. Finish Publish first**, then integrate both and verify them in one
+  live batch.
+- **C. More implementation:** cross-request writes, or a finer merge for
+  same-page and settings changes (not-implemented items 1 and 2). This is a
+  larger design and is better after A.
+
+## 2026-10-15 (early morning) — Codex's fourth review: recovery notes owned per invocation (branch only)
+
+**Nothing paid, deployed, built or switched.** `PARALLEL_WRITES` and
+`DRAFT_FIRST` stay off, `supabase/proposed/request_beside.sql` stays
+unapplied, nothing is merged. Draft-first stays with its own chat; the
+correction is written for it in `docs/history/2026-10-15-draft-first.md` §5.
+
+Codex verified the missing-key and content-verification fixes on
+`2eee0569`. Its focused run passed 169 of 169. Integration CI on
+`0b8a363e` was green: 11,174 passed, 0 failed, 48 skipped.
+
+### 1. What Codex reproduced
+
+Codex used the Worker's own functions and the network-blocked fixture:
+1. Versions B and C were staged, with C live.
+2. An old note eligible for the sweep was written, and the pointer moved
+   to B.
+3. Sweep A paused immediately before its upload of B.
+4. The pointer moved back to C, and sweep B ran while A was paused. C was
+   already serving, so B settled and deleted the note.
+5. A's upload of B landed, and A died.
+6. Ten minutes later a sweep reported `{sites:0,settled:0}`: pointer C,
+   live script B, no notes.
+
+**Cause.** The sweep uploaded under the stale notes it had read
+(`followPointer({covered:true})`). Another recovery could retire those
+notes while the upload was still in flight.
+
+### 2. The fix (`9da48fe2`, then `d583030d`)
+
+- **Own notes.** Every invocation that uploads writes its own note:
+  publication (`putSiteWorker`), follow, alignment, takeover repair and the
+  sweep. It renews the note immediately before each upload
+  (`holdScriptNote`).
+- **Renewal.** A renewal is conditional on the note as the invocation last
+  wrote it, so it never writes over a note another sweep retired; a fresh
+  note under a fresh key takes its place.
+- **Retiring.** An invocation takes away only its own notes, and only when
+  its follow settled with every upload answered (`retireOwnNotes`). The
+  `covered` mode is gone.
+- **Another invocation's note** is retired only by a sweep, and only when
+  all of these hold:
+  - its own follow settled;
+  - the note's window has passed: `SCRIPT_NOTE_WINDOW_MS`, the upload's own
+    hard abort (`DISPATCH_CALL_MS`, 10 minutes) plus 2 minutes, since its
+    last renewal;
+  - its conditional tombstone on the listed etag lands. A note renewed in
+    the meantime is left, and a tombstone left by an interrupted retirement
+    is cleared on a later tick.
+- **What no longer counts as proof.** Neither a note's age alone nor a live
+  script seen on the pointer is treated as proof that another upload has
+  finished.
+- **`d583030d`.** A fresh note is written without a condition: its key is a
+  new UUID that no other invocation can hold. Only a renewal is
+  conditional, and only an explicit `null` from the store counts as
+  refused. The full suite on `9da48fe2` failed 587 tests, because test
+  stores whose `put` answers nothing were read as an unwritten note and
+  every publication was refused.
+
+### 3. Tests
+
+**New** in `test/turn-fence.test.mjs` (10 cases, all with the real Worker
+functions and the network-blocked fixture):
+- TR1: Codex's sequence.
+  - A's own note survives sweep B.
+  - Ten minutes later it is still inside its window and kept.
+  - After the window a sweep puts C back with no customer request.
+  - The notes are empty at the end.
+- TR2, three cases: an alignment, a publication and the takeover repair,
+  each in flight beside a settling sweep and dying after landing. Each keeps
+  its note and is repaired later.
+- TR3: two overlapping alignments.
+- TR4: a lost answer under overlap.
+- TR5: a note renewed while a sweep retires it.
+- TR6: an interrupted retirement.
+- TR7: normal controls — a publication retires its own note at once, a dead
+  uploader's expired note is settled by one sweep, and a site already on
+  its pointer uploads nothing.
+- TR8: an owner whose note expired between two of its own uploads; the
+  second upload goes up under a fresh note.
+
+**Changed.** The existing sweep tests TS7, TS8 and TJ2–TJ6 now advance past
+the new window. TJ5 and TJ6 now also show that a sweep's own lost upload
+keeps its own note until its window passes. The fixture counts an
+`advance` twice inside a run; the tests say so where it matters.
+
+**Results:**
+- **Red check on `2eee0569`:** TR1, TR4, TR5, TR6 and TR8 fail. TR2 (three
+  cases), TR3 and TR7 pass there too: they are entry-point and normal
+  controls.
+- **Mutation sweep:** 7 of 7 mutants killed after TR8 was added; the
+  comment-only control survived, and the md5 of every file matched after
+  restore. The mutants:
+  - the sweep uploading under no note of its own;
+  - the window back to 5 minutes;
+  - unconditional retirement;
+  - tombstones never cleared;
+  - retirement without settling;
+  - no renewal before later uploads;
+  - own notes kept after settling.
+- **Focused:** 53 of 53 fence tests, then 54 with TR8. The 40 files that
+  failed on `9da48fe2` plus the fence file: 1,458 of 1,458.
+- **Full suite locally:**
+  - `9da48fe2`: 11,096 tests, 10,509 pass, 587 fail, all fixed in
+    `d583030d`;
+  - `d583030d`: 11,096 of 11,096 pass.
+- **CI:**
+  - `9da48fe2`: unit tests run 38816828674 failed (the same cause); site
+    build run 38816828676 succeeded;
+  - `d583030d`: unit tests run 38818063004 and site build run 38818062911,
+    both success.
+- **Integration candidate** `claude/help-needed-ehlwlj-integration` at
+  `c9ef979d`: `d583030d` merged onto `0b8a363e`. Main is unchanged at
+  `772bb885`, so the assistant and audio/video work is kept, and there were
+  no conflicts.
+  - Locally: 11,232 tests, 11,229 pass, 1 fail, 2 skipped. The failure
+    was `no-generated-deps` seeing the `node_modules` link the run needs.
+    With the link removed, that file passes 2 of 2.
+  - CI on `c9ef979d`: unit tests run 38819883606 succeeded, with 11,232
+    tests, 11,184 pass, 0 fail and 48 skipped. Site build run 38819883654
+    also succeeded.
+- **Image predictions (not built):** help-needed `d583030d` `e2ba4d8d1b6c22b2` (209 inputs, 178 paths);
+  integration `c9ef979d` `f674751c7c66449a` (211 inputs, 180 paths).
+
+| Item | Implemented | Locally verified | CI verified | Live verified |
+|---|---|---|---|---|
+| Own note per invocation, renewed before each upload | yes | yes (red check, sweep) | yes | no |
+| Foreign notes retired only after their window, by conditional tombstone, by a settled sweep | yes | yes | yes | no |
+| Recovery completes with no customer request | yes (2-minute cron) | yes (TR1, TR2, TR8) | yes | no |
+| Integration with main | merged on a separate branch (`c9ef979d`) | yes | yes (38819883606, 38819883654) | no |
+
+### 4. Remaining limitations
+
+- **The window is the bound, and it rests on the upload's abort.** The bound
+  assumes an upload aborted by `DISPATCH_CALL_MS` (10 minutes) does not take
+  effect more than 2 minutes after that. A request Cloudflare accepted
+  after the client gave up, or a script that serves later than that, could
+  still land after a sweep retired its note. That is not provable from
+  here.
+- **Recovery after a death or lost answer is slower:** up to about 12 to 14
+  minutes, the window plus a cron tick, where it was about 5 minutes. A
+  sweep's own lost upload keeps its note for a full window too.
+- **Eventual, not atomic.** Visitors can be served the previous version
+  until a follow settles or a sweep repairs it.
+- **Not live verified.** Nothing here has run against real Cloudflare, R2 or
+  a deployed Worker.
+
 ## Publishing: a pointer is not an activation (2026-10-15; branch `claude/draft-first-publish`; unmerged, undeployed, `DRAFT_FIRST` off)
 
 **What Codex found** on `ea75976f`: if a publication stopped right after the

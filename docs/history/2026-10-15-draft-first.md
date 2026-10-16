@@ -127,12 +127,15 @@ The live site is made of:
 
 - **The switch is off by default.** Turning it on is the owner's call
   (a Worker variable). With it off, every path publishes as before.
-- **Backend effects are live immediately and cannot be drafted yet.** Schema
-  and grants from builds, add-ons and the `rules` layer, scheduled functions,
+- **Backend effects were live immediately in this first round.** Schema and
+  grants from builds, add-ons and the `rules` layer, scheduled functions,
   `data`-layer row writes, seeds and `_errors` all hit the site's one Neon
-  database at once. The smallest sound correction is a Neon branch per draft,
-  promoted on Publish. That is a design decision for the owner; it is
-  proposed, not built.
+  database at once. **The second round (§6.2) holds them:** with the switch
+  on, a published site's schema, rules, starter rows, row changes and add-on
+  entries are held in a journal per revision and applied at Publish, and
+  scheduled jobs are always held. (A Neon branch per draft, proposed here
+  earlier, was not the route taken.) On `claude/help-needed-ehlwlj` alone,
+  without this branch, backend effects are still live at once.
 - **Edits that write config or the sidecar directly bypass the draft:**
   - the `rename` edit layer patches the live sidecar's `origin`;
   - the social card is read from the editable config at request time.
@@ -177,12 +180,18 @@ redo them:
   the same activation.
 - **The live script follows the pointer with a durable note before every
   upload.** That covers the publication's own upload and the uploads made by
-  the follow, an alignment, the takeover repair and the sweep
-  (`noteBeforeUpload`). It does not make a publication atomic. Between a
-  stale upload landing and its correction, visitors can be served the
-  previous version for about one upload plus one read, or until the
-  2-minute sweep after a death or lost answer (notes older than 5 minutes).
-  Publish's own "live at once" claims must not promise more than that.
+  the follow, an alignment, the takeover repair and the sweep. Each one
+  writes or renews its own note (`holdScriptNote`; the earlier
+  `noteBeforeUpload` is gone, see the owned-notes bullet below). It does not
+  make a publication atomic. Between a stale upload landing and its
+  correction, visitors can be served the previous version for about one
+  upload plus one read. After a death or a lost answer, the repair waits
+  for the 2-minute sweep, which acts only once the note's 12-minute window
+  has passed (the upload's 10-minute abort plus 2 minutes). About 12 to 14
+  minutes is a conditional estimate, not a guarantee: it assumes the cron
+  fires on time, the sweep's own reads and upload succeed, and no aborted
+  upload takes effect more than 2 minutes after its abort. Publish's own
+  "live at once" claims must not promise more than that.
 - **Rollback writes hold keys absent instead of deleting them.** Any undo
   the Publish path adds should use `holdAbsent` (or `POINTER_NONE` for the
   pointer), never `deps.remove`.
@@ -839,3 +848,25 @@ passed, 0 failed, 48 skipped), site build 38823795461 green.
   window by anything other than a newer activation is replaced. (Owner
   panels that write it are out of scope here.)
 - **No live verification.**
+## 10. The concurrency chat's corrections, as integrated (2026-10-16)
+
+The concurrency correction batch closed at `66cbeb55` (records through
+`3e721154`). This branch took its code by merge `9c1a5af3`: `45c163d3`,
+`6c492b16`, `9da48fe2` and `d583030d`, with the rules in §5.
+- **The pointer-before-script-upload failure** was this branch's to fix,
+  and it did, in `71f7d48d` (§9). It finishes an interrupted activation
+  through the concurrency branch's `alignLiveScript`, which follows the
+  pointer under its own recovery note and settles only once the script is
+  seen serving. Shared code was reused, not forked.
+- **Timing to respect:**
+  - a note's window is `SCRIPT_NOTE_WINDOW_MS` (12 minutes since its last
+    renewal);
+  - the sweep runs on the 2-minute cron;
+  - repair about 12 to 14 minutes after the last upload began is a
+    conditional estimate, not a guarantee (§5).
+  A publication left at `switching` is retried on each sweep under the same
+  bound.
+- **Integration:** both lines of work, with `main` (`772bb885`), are
+  combined on `claude/integration-parallel-publish`. Its commits, CI and
+  the live plan are recorded in owner-notes (2026-10-16, integration
+  candidate) and in `docs/history/2026-10-16-integrated-live-plan.md`.

@@ -256,3 +256,18 @@ The fixture's counter etags had hidden it (and TF5/TF6's paths too).
   (`d800ad64`): two hand resolutions (Dockerfile union, owner-notes), full
   suite green apart from one failure caused by the check's own symlink.
 
+## Closed (2026-10-15): owned recovery notes, and what remains
+
+- **Absent keys and rollback** (`45c163d3`, `6c492b16`): keys are held
+  absent in the store and never deleted on rollback.
+- **Recovery notes** (`9da48fe2`, `d583030d`): owned per invocation; other
+  invocations' notes are retired only after their window, by a conditional
+  tombstone.
+- Codex reviewed the batch at `66cbeb55`. CI: unit 38818063004 and site
+  build 38818062911 on `d583030d`; integration `c9ef979d`, unit 38819883606
+  (11,232 tests, 0 failing) and site build 38819883654.
+- Recovery timing, the open items and the next-batch choices are in
+  owner-notes, 2026-10-15 (closing), §4 to §8.
+- Still nothing live: the SQL is unapplied, `PARALLEL_WRITES` is off, and
+  nothing is merged.
+
