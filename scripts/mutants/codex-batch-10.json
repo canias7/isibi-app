@@ -1,0 +1,76 @@
+[
+  {
+    "label": "CONTROL: a comment only in builder/site-reconcile.mjs \u2014 must survive",
+    "control": true,
+    "files": [
+      "builder/site-reconcile.mjs"
+    ],
+    "from": "const DRAFT_MAX_REVS = 60;",
+    "to": "// comment-only control\nconst DRAFT_MAX_REVS = 60;"
+  },
+  {
+    "label": "CONTROL: a comment only in worker.js \u2014 must survive",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "async function reconcileFacts(env, row) {",
+    "to": "// comment-only control\nasync function reconcileFacts(env, row) {"
+  },
+  {
+    "label": "G1 the reconcile reads no exact manifests",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      if (!Object.hasOwn(manifests, r.version)) manifests[r.version] = await readManifest(deps, slug, r.version);",
+    "to": ""
+  },
+  {
+    "label": "G2 a missing or unreadable manifest falls through",
+    "files": [
+      "builder/site-reconcile.mjs"
+    ],
+    "from": "  if (!r && blocked) return answer(",
+    "to": "  if (false) return answer("
+  },
+  {
+    "label": "G3 another job's manifest proves this job's code",
+    "files": [
+      "builder/site-reconcile.mjs"
+    ],
+    "from": "      if (!theirs || x.held) { r = x; break; }",
+    "to": "      { r = x; break; }"
+  },
+  {
+    "label": "G4 a held revision on another job's version is not proven",
+    "files": [
+      "builder/site-reconcile.mjs"
+    ],
+    "from": "      if (!theirs || x.held) { r = x; break; }",
+    "to": "      if (!theirs) { r = x; break; }"
+  },
+  {
+    "label": "G5 a manifest naming this job does not prove its code",
+    "files": [
+      "builder/site-reconcile.mjs"
+    ],
+    "from": "      const theirs = !(m.manifest && m.manifest.job === job.id);",
+    "to": "      const theirs = true;"
+  },
+  {
+    "label": "G6 an absent manifest is not blocking",
+    "files": [
+      "builder/site-reconcile.mjs"
+    ],
+    "from": "    blocked = blocked || { x, why: m.state === \"absent\" ? \"missing\" : \"unreadable\" };",
+    "to": "    if (m.state !== \"absent\") blocked = blocked || { x, why: \"unreadable\" };"
+  },
+  {
+    "label": "G7 the journals of later revisions are not read",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      if (r.held && !Object.hasOwn(journals, r.held)) {\n        try { journals[r.held] = !!(await deps.get(HELD_KEY(slug, r.held))); } catch { journals[r.held] = undefined; }\n      }",
+    "to": ""
+  }
+]
