@@ -57,7 +57,11 @@ changed or deleted (still `f9f983a3`). No image, video or audio generated.
 - **Full suite locally on `901efc77`:** 11,291 tests, 11,287 pass, **2 fail**,
   2 skipped. The two failures were the `site-apply` guards above (they were
   red from `672a527a`: my focused runs did not include that file). Fixed
-  here; `site-apply` 88 of 88. CI is read on this commit (below).
+  here; `site-apply` 88 of 88.
+- **CI:** unit tests run 38927394396 on `b81294cf`: **11,291 / 11,243 / 0 /
+  48**, success (compare totals; CI skips 48). Site build run 38926066981 on
+  `901efc77`: success (nothing it builds changed since). Unit run
+  38926066792 on `901efc77` failed on the two `site-apply` guards, as above.
 - **Before:** `c7c3ca44` read 11,277 / 11,275 / 0 / 2 (a near-baseline: the
   run overlapped my first edits for its last files).
 - **Screenshot:** the Files panel's draft lines, rendered headless from the

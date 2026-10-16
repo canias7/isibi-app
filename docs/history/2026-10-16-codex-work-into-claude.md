@@ -180,8 +180,9 @@ Commits: `672a527a` (the gaps), `901efc77` (the tests and the scenario),
 then the records commit with two `site-apply` guards. Full suite locally on
 `901efc77`: 11,291 tests, 11,287 pass, 2 fail (those two guards, which read
 the old spelling `error: "compile"`; red since `672a527a`, fixed in the
-records commit), 2 skipped. Sweep: 19 of 19 killed. CI is read on the
-records commit and recorded in owner-notes.
+records commit), 2 skipped. Sweep: 19 of 19 killed. CI: unit tests run
+38927394396 on `b81294cf` 11,291 / 11,243 / 0 / 48, success; site build run
+38926066981 on `901efc77`, success.
 
 ## 6. Status matrix
 
