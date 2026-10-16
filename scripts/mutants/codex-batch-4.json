@@ -1,0 +1,212 @@
+[
+  {
+    "label": "CONTROL: a comment only in site-media.mjs — must survive",
+    "control": true,
+    "files": [
+      "site-media.mjs"
+    ],
+    "from": "export async function abortProven(deps, key, uploadId) {",
+    "to": "// comment-only control\nexport async function abortProven(deps, key, uploadId) {"
+  },
+  {
+    "label": "CONTROL: a comment only in site-draft.mjs — must survive",
+    "control": true,
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "export const PREVIEW_TRIES = 12;",
+    "to": "// comment-only control\nexport const PREVIEW_TRIES = 12;"
+  },
+  {
+    "label": "A1 every abort failure is taken as gone",
+    "files": [
+      "site-media.mjs"
+    ],
+    "from": "try { await deps.abort(key, uploadId); return true; } catch (e) { return uploadGone(e); }",
+    "to": "try { await deps.abort(key, uploadId); return true; } catch (e) { return true; }"
+  },
+  {
+    "label": "A2 NoSuchUpload is not taken as proof",
+    "files": [
+      "site-media.mjs"
+    ],
+    "from": "try { await deps.abort(key, uploadId); return true; } catch (e) { return uploadGone(e); }",
+    "to": "try { await deps.abort(key, uploadId); return true; } catch (e) { return false; }"
+  },
+  {
+    "label": "A3 the sweep drops the session after an unproven abort",
+    "files": [
+      "worker.js"
+    ],
+    "from": "else if (s.uploadId && !(await abortProven(deps, s.key, s.uploadId))) { retried++; continue; }",
+    "to": "else if (s.uploadId) { await abortProven(deps, s.key, s.uploadId); }"
+  },
+  {
+    "label": "A4 the sweep ignores releaseMedia's answer",
+    "files": [
+      "worker.js"
+    ],
+    "from": "if (!rel || rel.ok !== true) { retried++; continue; }",
+    "to": "if (!rel) { retried++; continue; }"
+  },
+  {
+    "label": "A5 the ledger's expiry drops the session after an unproven abort",
+    "files": [
+      "site-media.mjs"
+    ],
+    "from": "if (!(await abortProven(deps, h.key, h.uploadId))) continue;",
+    "to": "await abortProven(deps, h.key, h.uploadId);"
+  },
+  {
+    "label": "A6 a cancel drops the session after an unproven abort",
+    "files": [
+      "site-media.mjs"
+    ],
+    "from": "  if (await abortProven(deps, s.key, s.uploadId)) {\n    try { await deps.dropSession(s.scope, s.sid); }",
+    "to": "  if (await abortProven(deps, s.key, s.uploadId) || true) {\n    try { await deps.dropSession(s.scope, s.sid); }"
+  },
+  {
+    "label": "A7 an aborting session still takes parts",
+    "files": [
+      "site-media.mjs"
+    ],
+    "from": "  if (s.state === \"aborting\") return null;",
+    "to": "  if (false) return null;"
+  },
+  {
+    "label": "A8 an aborting session waits for its expiry",
+    "files": [
+      "worker.js"
+    ],
+    "from": "if (!s || !(s.state === \"aborting\" || Number(s.expires) + MEDIA_SWEEP_GRACE_MS < now)) continue;",
+    "to": "if (!s || !(Number(s.expires) + MEDIA_SWEEP_GRACE_MS < now)) continue;"
+  },
+  {
+    "label": "R1 a failed upload counts as confirmed",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "    up = null;\n    error = String((r && r.error) || \"the preview did not go up\").slice(0, 200);",
+    "to": "    up = v;\n    error = String((r && r.error) || \"the preview did not go up\").slice(0, 200);"
+  },
+  {
+    "label": "R2 a lost answer counts as confirmed",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "try { r = await fn(); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }",
+    "to": "try { r = await fn(); } catch (e) { r = { ok: true }; }"
+  },
+  {
+    "label": "R3 the repair is tried once",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "for (let i = 0; i < checks && s.known && s.v && s.v !== up && typeof repreview === \"function\"; i++) {",
+    "to": "for (let i = 0; i < 1 && s.known && s.v && s.v !== up && typeof repreview === \"function\"; i++) {"
+  },
+  {
+    "label": "R4 ready without the draft still selecting it",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "const ready = !!(s.known && s.v && up === s.v);",
+    "to": "const ready = !!up;"
+  },
+  {
+    "label": "R5 previewed.ok is the old optimistic answer",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "        ok: c.ready, version: c.version,",
+    "to": "        ok: c.ready || c.attempts > 0, version: c.version,"
+  },
+  {
+    "label": "R6 no pending mark before the upload",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "      try { mark = await deps.put(PREVIEW_STATE_KEY(slug), JSON.stringify({ v: 1, state: \"pending\", want: version,",
+    "to": "      try { if (false) mark = await deps.put(PREVIEW_STATE_KEY(slug), JSON.stringify({ v: 1, state: \"pending\", want: version,"
+  },
+  {
+    "label": "R7 an unconfirmed save does not mark pending again",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "      } else if (!c.ready) {",
+    "to": "      } else if (false) {"
+  },
+  {
+    "label": "R8 ready written over whatever stands",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "\"application/json\", { etagMatches: mark.etag }); } catch { /* left pending: the tick confirms it */ }",
+    "to": "\"application/json\"); } catch { /* left pending: the tick confirms it */ }"
+  },
+  {
+    "label": "R9 the tick races a save still at work",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if (Number(rec.at) > now - fresh) continue;",
+    "to": ""
+  },
+  {
+    "label": "R10 the tick ignores its backoff",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if (Number(rec.next) > now) { out.waiting++; continue; }",
+    "to": ""
+  },
+  {
+    "label": "R11 the tick never gives up",
+    "files": [
+      "worker.js"
+    ],
+    "from": "else if (tries >= PREVIEW_TRIES) {",
+    "to": "else if (false) {"
+  },
+  {
+    "label": "R12 the tick puts up the version the mark wanted, not the draft's",
+    "files": [
+      "worker.js"
+    ],
+    "from": "const c = await convergePreview(buildDeps(env), slug, { repreview: (v) => previewVersion(env, slug, v) });",
+    "to": "const c = await convergePreview(buildDeps(env), slug, { mine: rec.want, upload: () => previewVersion(env, slug, rec.want), repreview: null });"
+  },
+  {
+    "label": "R13 the tick writes its answer over a newer mark",
+    "files": [
+      "worker.js"
+    ],
+    "from": "{ httpMetadata: { contentType: \"application/json\" }, onlyIf: { etagMatches: etag } }); } catch { /* the next lap */ }",
+    "to": "{ httpMetadata: { contentType: \"application/json\" } }); } catch { /* the next lap */ }"
+  },
+  {
+    "label": "R14 the tick is not on the schedule",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    ctx.waitUntil(runPreviewRecovery(env).catch(",
+    "to": "    void (() => runPreviewRecovery(env).catch("
+  },
+  {
+    "label": "R15 draftFacts says pending never",
+    "files": [
+      "worker.js"
+    ],
+    "from": "previewPending: !!(act && act.previewed && act.previewed.pending === true),",
+    "to": "previewPending: false,"
+  },
+  {
+    "label": "R16 the gateway refuses the preview mark",
+    "files": [
+      "builder/job-gateway.mjs"
+    ],
+    "from": "  if (k === \"preview-state/\" + slug + \".json\") return true;\n",
+    "to": ""
+  }
+]

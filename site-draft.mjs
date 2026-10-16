@@ -308,6 +308,55 @@ export function previewOf(label) {
  * (`builds/<slug>/<version>/state/sidecar.json`, `server.ts`), immutable.
  */
 const PREVIEW_CHECKS = 3;
+/**
+ * THE PREVIEW'S STATE, DURABLE (2026-10-16, Codex's review of `ea9a2b71`):
+ * `{ v, state: "pending" | "ready" | "stuck", want, up, tries, next, at, error }`.
+ * A save marks it pending BEFORE it puts a script up, so a save that stops
+ * anywhere after — a failed repair, a lost answer, the Worker gone after a
+ * stale upload — leaves the tick a job (`runPreviewRecovery`, worker.js). It
+ * is marked ready only over the etag the save wrote, so a newer save's
+ * pending mark is never overwritten. It names no work to redo: recovery
+ * uploads a staged version's own script, never builds or charges again.
+ */
+export const PREVIEW_STATE_KEY = (slug) => "preview-state/" + String(slug || "") + ".json";
+/** How many times the tick tries one site's preview before calling it stuck. */
+export const PREVIEW_TRIES = 12;
+/** The wait before the tick's next try: doubling from two minutes, at most an hour. */
+export const previewBackoff = (tries) => Math.min(60 * 60 * 1000, 2 * 60 * 1000 * 2 ** Math.max(0, tries - 1));
+
+/**
+ * BRING THE PREVIEW TO THE DRAFT'S SELECTED VERSION: `mine` uploaded first when
+ * an `upload` is given, then — up to `checks` times — the draft read and, when
+ * what was last confirmed up is not its version, that version's own script put
+ * up (`repreview`). An upload that failed or lost its answer confirms nothing:
+ * what serves is then unknown and the next round tries again. `ready` only when
+ * the last upload this call made succeeded AND the draft still selects it.
+ */
+export async function convergePreview(deps, slug, { mine = null, upload = null, repreview = null, checks = PREVIEW_CHECKS } = {}) {
+  const standing = async () => {
+    try { const { draft } = await readDraft(deps, slug); return { known: true, v: draft && typeof draft.version === "string" ? draft.version : null }; }
+    catch { return { known: false, v: null }; }
+  };
+  let up = null, error = "", attempts = 0, repaired = false;
+  const tryUp = async (fn, v) => {
+    attempts++;
+    let r;
+    try { r = await fn(); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+    if (r && r.ok === true) { up = v; return true; }
+    up = null;
+    error = String((r && r.error) || "the preview did not go up").slice(0, 200);
+    return false;
+  };
+  if (mine && typeof upload === "function") await tryUp(upload, mine);
+  let s = await standing();
+  for (let i = 0; i < checks && s.known && s.v && s.v !== up && typeof repreview === "function"; i++) {
+    if ((await tryUp(() => repreview(s.v), s.v)) && s.v !== mine) repaired = true;
+    s = await standing();
+  }
+  const ready = !!(s.known && s.v && up === s.v);
+  if (!ready && !error) error = !s.known ? "the draft could not be read" : !s.v ? "there is no draft" : "the preview is not on the draft's version yet";
+  return { ready, version: s.v, up, attempts, repaired, ...(ready ? {} : { error }) };
+}
 export async function saveAsDraft(deps, { slug, version, build = "", base = "", job = null, afterActivate, commit, preview, repreview = null, held = null } = {}) {
   let rec, ref = null;
   try {
@@ -339,31 +388,37 @@ export async function saveAsDraft(deps, { slug, version, build = "", base = "", 
   if (rec.older) return { ok: false, error: "older", older: true, version: rec.draft && rec.draft.version };
   if (!rec.older && typeof afterActivate === "function") await afterActivate();
   // THE PREVIEW SHOWS THE DRAFT'S VERSION, whichever save finishes last
-  // (2026-10-16, after Codex's review of `fbd53dca`). A save that a newer one
-  // overtook after its record does not put its own script up; and because an
-  // upload is not conditional, every upload is followed by a look at the
-  // draft: if a newer version stood by then, that version's script is put
-  // back up (`repreview`, from its staged prefix), and looked at again. The
-  // last writer to finish therefore leaves the draft's own version up. The
-  // head travels with the script (its version's staged sidecar), so the two
-  // never disagree. Best-effort as before: a preview that did not go up is
-  // said, never a lost change.
+  // (2026-10-16, after Codex's reviews of `fbd53dca` and `ea9a2b71`). A save
+  // that a newer one overtook after its record puts no script up. Otherwise
+  // the preview's state is marked pending (durable) BEFORE the upload, the
+  // preview is brought to the draft's selected version (`convergePreview`),
+  // and the mark is set ready only when that is confirmed — so a failed or
+  // uncertain upload, or a save that stops part-way, is finished by the tick
+  // with the browser closed. `previewed.ok` says the preview is READY, and is
+  // separate from the save, which stands either way (`ok` above).
   let previewed = null;
   if (typeof preview === "function") {
-    const standing = async () => { try { const { draft } = await readDraft(deps, slug); return draft && typeof draft.version === "string" ? draft.version : null; } catch { return null; } };
-    const first = await standing();
-    if (first && first !== version) previewed = { ok: false, superseded: true, version: first };
+    let first = null;
+    try { const { draft } = await readDraft(deps, slug); first = draft && typeof draft.version === "string" ? draft.version : null; } catch { first = null; }
+    if (first && first !== version) previewed = { ok: false, superseded: true, version: first, pending: false };
     else {
-      try { previewed = await preview(rec.draft); } catch (e) { previewed = { ok: false, error: String((e && e.message) || e) }; }
-      let up = version;
-      for (let i = 0; i < PREVIEW_CHECKS; i++) {
-        const now = await standing();
-        if (!now || now === up || typeof repreview !== "function") break;
-        let again = null;
-        try { again = await repreview(now); } catch (e) { again = { ok: false, error: String((e && e.message) || e) }; }
-        previewed = { ...(previewed || {}), superseded: true, version: now, repaired: !!(again && again.ok) };
-        up = now;
+      let mark = null;
+      try { mark = await deps.put(PREVIEW_STATE_KEY(slug), JSON.stringify({ v: 1, state: "pending", want: version, up: null, tries: 0, next: 0, at: Date.now() }), "application/json"); } catch { mark = null; }
+      const c = await convergePreview(deps, slug, { mine: version, upload: () => preview(rec.draft), repreview });
+      if (c.ready && mark && mark.etag) {
+        // READY ONLY OVER OUR OWN MARK: a newer save's pending mark written
+        // since is never overwritten by this answer.
+        try { await deps.put(PREVIEW_STATE_KEY(slug), JSON.stringify({ v: 1, state: "ready", want: c.version, up: c.version, tries: 0, next: 0, at: Date.now() }), "application/json", { etagMatches: mark.etag }); } catch { /* left pending: the tick confirms it */ }
+      } else if (!c.ready) {
+        // NOT CONFIRMED: pending AGAIN, whatever stands. A newer save may have
+        // marked it ready before this save's stale upload landed; pending is
+        // never wrong — at worst the tick puts up what is already there.
+        try { mark = (await deps.put(PREVIEW_STATE_KEY(slug), JSON.stringify({ v: 1, state: "pending", want: c.version || version, up: null, tries: 0, next: 0, at: Date.now(), error: c.error }), "application/json")) || mark; } catch { /* the first mark stands, if it was written */ }
       }
+      previewed = {
+        ok: c.ready, version: c.version, superseded: !!c.version && c.version !== version, repaired: c.repaired,
+        pending: !c.ready, recoverable: !c.ready && !!mark, ...(c.error ? { error: c.error } : {}),
+      };
     }
   }
   if (typeof commit === "function") await commit();

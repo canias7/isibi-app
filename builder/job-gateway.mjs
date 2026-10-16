@@ -379,6 +379,10 @@ export function allowedJobKey(slug, id, key, pre = false) {
   // the preview reads the head staged inside its own version's prefix
   // (`builds/<slug>/<version>/state/sidecar.json`, admitted with `builds/`),
   // so `sitemeta-draft/` is nobody's to write.
+  // THE PREVIEW'S STATE (2026-10-16): a draft save marks it pending before it
+  // puts the preview up and ready once it is confirmed (site-draft.mjs
+  // `PREVIEW_STATE_KEY`); a job saving its own site's draft writes it.
+  if (k === "preview-state/" + slug + ".json") return true;
   if (k === "orphans/" + slug + ".json") return true;
   // The job's own objects: the request it replays, its result, its resume
   // record — every one named by the job's id, none by anybody else's.

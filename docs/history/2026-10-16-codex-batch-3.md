@@ -142,6 +142,9 @@ as its head.
 
 ## 4. Completion matrix
 
+**Superseded by `docs/history/2026-10-16-codex-batch-4.md` §4** (preview
+recovery and proven aborts, after Codex's review of `ea9a2b71`).
+
 This replaces the second batch's §6. Rows not named here are unchanged from it.
 
 | Area | Item | Finished (offline) | Deferred implementation | Live-only verification still owed |

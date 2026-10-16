@@ -37,7 +37,7 @@ import { MAX_IMPORT_BYTES } from "./site-csv.mjs";
 import { takeIdemKey, makeIdem, replayHeaders } from "./site-idem.mjs";
 import { placeAttachedPhotos, attachedFilesNote, ownPhotoFacts, ownPhotoSentence } from "./builder/attached-photos.mjs";
 import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_VISITOR_UPLOAD_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName, dispositionFor, readDownloadName, DOWNLOAD_NAME_KEY, uploadIsImage, uploadKind, UPLOAD_URL_PATH } from "./site-uploads.mjs";
-import { MEDIA_PART_BYTES, MEDIA_DRAFT_MS, MEDIA_SESSION_MS, MEDIA_CACHE, MEDIA_FORMATS, mediaDesignNote, mediaErrorNote, mediaLimits, mediaKindOf, isMediaName, draftKey, siteScope, draftScope, readStoredMeta, parseRange, mediaHeaders, etagMatches, handleMediaStart, handleMediaPart, handleMediaComplete, handleMediaAbort, handleMediaStatus, handleMediaDelete, holdMedia, releaseMedia, pagesUsing, mediaBlock, mediaForModel } from "./site-media.mjs";
+import { MEDIA_PART_BYTES, MEDIA_DRAFT_MS, MEDIA_SESSION_MS, MEDIA_CACHE, MEDIA_FORMATS, mediaDesignNote, mediaErrorNote, mediaLimits, mediaKindOf, isMediaName, draftKey, siteScope, draftScope, readStoredMeta, parseRange, mediaHeaders, etagMatches, handleMediaStart, handleMediaPart, handleMediaComplete, handleMediaAbort, handleMediaStatus, handleMediaDelete, holdMedia, releaseMedia, abortProven, pagesUsing, mediaBlock, mediaForModel } from "./site-media.mjs";
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
@@ -101,7 +101,7 @@ import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
-import { DRAFT_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, addressOverlay, forgottenInDraft } from "./site-draft.mjs";
+import { DRAFT_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, addressOverlay, forgottenInDraft, convergePreview, PREVIEW_TRIES, previewBackoff } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
@@ -1515,6 +1515,9 @@ export default {
     ctx.waitUntil(runScriptPendingSweep(env).catch((e) => console.error("script sweep failed", errorClassForLog(e))));
     // ABANDONED VIDEO AND AUDIO UPLOADS RECLAIMED (2026-10-16): never a file.
     ctx.waitUntil(runMediaSweep(env).catch((e) => console.error("media sweep failed", errorClassForLog(e))));
+    // A DRAFT'S PREVIEW THAT DID NOT REACH ITS VERSION IS PUT THERE (2026-10-16):
+    // a failed, lost or interrupted preview upload, with the browser closed.
+    ctx.waitUntil(runPreviewRecovery(env).catch((e) => console.error("preview recovery failed", errorClassForLog(e))));
     // A PUBLICATION THAT STOPPED AFTER ITS SWITCH IS FINISHED (draft-first):
     // the approved revision, from its journal; this never begins one.
     // WHATEVER THE SWITCH SAYS NOW (2026-10-16): a publication the owner
@@ -10267,7 +10270,7 @@ export async function runMediaSweep(env, { now = Date.now(), max = MEDIA_SWEEP_B
   } catch { place = {}; }
   const next = { ...place };
   const looked = { sessions: 0, parts: 0, drafts: 0 };
-  let reclaimed = 0, kept = 0, drafts = 0, parts = 0;
+  let reclaimed = 0, kept = 0, drafts = 0, parts = 0, retried = 0;
 
   // SESSIONS: expired by an hour and more are reclaimed; the rest are left.
   const ss = await sweepStep(B, MEDIA_SWEEP_PREFIX.sessions, place.sessions, room.sessions);
@@ -10280,16 +10283,24 @@ export async function runMediaSweep(env, { now = Date.now(), max = MEDIA_SWEEP_B
       const [, scope, sid] = m;
       let s = null;
       try { const got = await B.get(o.key); s = got ? JSON.parse(await got.text()) : null; } catch { continue; }
-      if (!s || !(Number(s.expires) + MEDIA_SWEEP_GRACE_MS < now)) continue;
+      // DUE: an hour past its expiry, or marked `aborting` (an abort that was
+      // not confirmed when it was asked for, kept for the tick).
+      if (!s || !(s.state === "aborting" || Number(s.expires) + MEDIA_SWEEP_GRACE_MS < now)) continue;
       const deps = mediaDeps(env, { scope, gate: async () => ({}) });
       if (s.state !== "done" && typeof s.key === "string" && (s.key.startsWith("uploads/") || s.key.startsWith("drafts/"))) {
         let landed = false;
-        try { const h = await B.head(s.key); landed = !!(h && h.customMetadata && h.customMetadata.up === sid); } catch { continue; }
+        try { const h = await B.head(s.key); landed = !!(h && h.customMetadata && h.customMetadata.up === sid); } catch { retried++; continue; }
         if (landed) kept++;
-        else if (s.uploadId) { try { await deps.abort(s.key, s.uploadId); } catch { /* already gone */ } }
+        // STOPPED, PROVEN (2026-10-16, Codex's review of `ea9a2b71`): an
+        // abort that failed or lost its answer proves nothing, so the session
+        // and its parts are KEPT — they are what names the upload — and the
+        // next lap asks again. R2's "no such upload" is proof it is gone.
+        else if (s.uploadId && !(await abortProven(deps, s.key, s.uploadId))) { retried++; continue; }
       }
-      try { await releaseMedia(deps, scope, sid); } catch { continue; }
-      try { await deps.dropParts(scope, sid); await deps.dropSession(scope, sid); reclaimed++; } catch { /* the next lap */ }
+      // THE ROOM, given back by its answer, not by the absence of a throw.
+      const rel = await releaseMedia(deps, scope, sid);
+      if (!rel || rel.ok !== true) { retried++; continue; }
+      try { await deps.dropParts(scope, sid); await deps.dropSession(scope, sid); reclaimed++; } catch { retried++; }
     }
   }
   // PART RECORDS WHOSE SESSION IS GONE, older than a session's life and the
@@ -10320,7 +10331,7 @@ export async function runMediaSweep(env, { now = Date.now(), max = MEDIA_SWEEP_B
     }
   }
   try { await B.put(MEDIA_SWEEP_CURSOR, JSON.stringify({ v: 2, after: { sessions: next.sessions || null, parts: next.parts || null, drafts: next.drafts || null }, at: now }), { httpMetadata: { contentType: "application/json" } }); } catch { /* starts again from the front */ }
-  return { reclaimed, kept, drafts, parts, looked };
+  return { reclaimed, kept, drafts, parts, retried, looked };
 }
 function mediaDeps(env, { scope, gate, draftUid = null, slug = "", who = "" }) {
   const B = env.SITES_BUCKET;
@@ -12362,7 +12373,11 @@ function draftFacts(slug, version, act) {
     // THE REVISION THIS TASK SAVED (draft-first, 2026-10-15): what Publish names.
     revision: Number.isSafeInteger(act && act.revision) ? act.revision : 0,
     preview: label ? "https://" + label + "." + SITE_ZONE + "/" : null,
+    // THE PREVIEW'S READINESS, APART FROM THE SAVE (2026-10-16): true only
+    // when the preview is confirmed on the draft's selected version; a
+    // pending one is finished by the tick (`runPreviewRecovery`).
     previewUploaded: !!(act && act.previewed && act.previewed.ok === true),
+    previewPending: !!(act && act.previewed && act.previewed.pending === true),
   };
 }
 /** How many of the owner's jobs for this site are still running: a count, or null when it cannot be read. */
@@ -12616,6 +12631,62 @@ async function previewVersion(env, slug, version) {
   if (!b || typeof b.worker !== "string" || !b.worker) return { ok: false, error: "the version's script is not staged" };
   const r = await uploadScriptOnce(env, slug, { ok: true, code: b.worker, build: (b.manifest && b.manifest.build) || "" }, { preview: true });
   return r || { ok: false, error: "no preview uploaded" };
+}
+// ── A DRAFT'S PREVIEW, RECOVERED (2026-10-16, Codex's review of `ea9a2b71`) ──
+//
+// A draft save marks the preview pending before it puts a script up and ready
+// only once the draft's selected version is confirmed serving
+// (`saveAsDraft`, `PREVIEW_STATE_KEY`). A save whose repair failed, whose
+// upload lost its answer, or which stopped after a stale upload, leaves the
+// mark pending, and this tick finishes it with nobody's browser open:
+//   - it brings the preview to the version the draft selects NOW
+//     (`convergePreview`), so a newer draft saved meanwhile is the one put up;
+//   - from that version's own staged script (`previewVersion`): nothing is
+//     built, asked of a model or charged again;
+//   - a mark younger than a minute is left to the save still at work;
+//   - a try that does not converge waits (doubling from two minutes, at most
+//     an hour) and after `PREVIEW_TRIES` the mark says `stuck`;
+//   - every write of the mark is over the etag read, so a newer save's
+//     pending mark is never overwritten by an older answer;
+//   - it uploads only the preview script: nothing live is touched, and
+//     Publish stays the only way to the live site.
+// The marks are walked fairly by key, a bounded number per tick, as the media
+// sweep walks its prefixes.
+const PREVIEW_SWEEP_CURSOR = "preview-sweep/cursor.json";
+const PREVIEW_SWEEP_PREFIX = "preview-state/";
+export async function runPreviewRecovery(env, { now = Date.now(), budget = 20, fresh = 60 * 1000 } = {}) {
+  const B = env.SITES_BUCKET;
+  const out = { looked: 0, ready: 0, waiting: 0, stuck: 0, cleared: 0 };
+  if (!B || typeof B.list !== "function") return out;
+  let place = null;
+  try {
+    const c = await B.get(PREVIEW_SWEEP_CURSOR);
+    const j = c ? JSON.parse(await c.text()) : null;
+    if (j && typeof j.after === "string" && j.after.startsWith(PREVIEW_SWEEP_PREFIX)) place = j.after;
+  } catch { place = null; }
+  const step = await sweepStep(B, PREVIEW_SWEEP_PREFIX, place, budget);
+  if (!step) return out;
+  for (const o of step.objects) {
+    out.looked++;
+    const m = /^preview-state\/([^/]+)\.json$/.exec(String(o.key));
+    if (!m) continue;
+    const slug = m[1];
+    let rec = null, etag = null;
+    try { const got = await B.get(o.key); if (!got) continue; etag = got.etag || null; rec = JSON.parse(await got.text()); } catch { continue; }
+    if (!rec || rec.state !== "pending" || !etag) continue;
+    if (Number(rec.at) > now - fresh) continue;
+    if (Number(rec.next) > now) { out.waiting++; continue; }
+    const c = await convergePreview(buildDeps(env), slug, { repreview: (v) => previewVersion(env, slug, v) });
+    const tries = (Number.isSafeInteger(rec.tries) ? rec.tries : 0) + 1;
+    let next;
+    if (c.ready) { next = { state: "ready", want: c.version, up: c.version, tries: 0, next: 0 }; out.ready++; }
+    else if (c.version === null && !/could not be read/.test(c.error || "")) { next = { state: "ready", want: null, up: null, tries: 0, next: 0, cleared: true }; out.cleared++; }
+    else if (tries >= PREVIEW_TRIES) { next = { state: "stuck", want: c.version, up: null, tries, next: 0, error: c.error }; out.stuck++; }
+    else { next = { state: "pending", want: c.version, up: null, tries, next: now + previewBackoff(tries), error: c.error }; out.waiting++; }
+    try { await B.put(o.key, JSON.stringify({ v: 1, ...next, at: now }), { httpMetadata: { contentType: "application/json" }, onlyIf: { etagMatches: etag } }); } catch { /* the next lap */ }
+  }
+  try { await B.put(PREVIEW_SWEEP_CURSOR, JSON.stringify({ after: step.after, at: now }), { httpMetadata: { contentType: "application/json" } }); } catch { /* starts again from the front */ }
+  return out;
 }
 async function completeActivation(env, slug, version, { sidecar } = {}) {
   const deps = buildDeps(env);
@@ -13948,7 +14019,7 @@ async function runScriptPendingSweep(env, { now = Date.now(), maxSites = 25 } = 
  * the same store a job runs on (2026-10-15): nothing in the product calls this.
  */
 /** Draft-first's own pieces, for the tests that drive them directly (`test/draft-first.test.mjs`). */
-export const draftFirstApi = { backendWriter, draftView, sealHeld, publishDraft, runPublication, runPublishRecovery, siteIsLive, heldDeleteOr, previewVersion };
+export const draftFirstApi = { backendWriter, draftView, sealHeld, publishDraft, runPublication, runPublishRecovery, siteIsLive, heldDeleteOr, previewVersion, runPreviewRecovery, draftFacts };
 export const siteTurn = { tryTurn, giveTurn, renewTurn, turnStillMine, mayWriteConfig, patchSiteConfig, ensureEditableState, jobFence, fencedPut, fencedBuildDeps, stampFences, alignLiveScript, putSiteWorker, runScriptPendingSweep };
 /** Renew a held turn (on the job's heartbeat): false when it is no longer this job's. */
 async function renewTurn(env, slug, t) {

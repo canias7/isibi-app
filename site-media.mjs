@@ -382,11 +382,18 @@ export async function changeLedger(deps, scope, change) {
     const rev = (Number.isSafeInteger(read && read.rev) && read.rev > 0 ? read.rev : 0) + 1;
     if (await deps.writeLedger(scope, { held: r.held, rev, w: deps.random() }, (read && read.etag) || null)) {
       for (const h of expired) {
-        if (h.uploadId && h.key) { try { await deps.abort(h.key, h.uploadId); } catch { /* R2's own expiry aborts it */ } }
-        if (h.sid) { try { await deps.dropSession(scope, h.sid); } catch { /* left to expire */ } }
+        // ITS RECORDS GO ONLY ONCE ITS UPLOAD IS PROVEN STOPPED (2026-10-16,
+        // Codex's review of `ea9a2b71`): an abort that failed proves nothing,
+        // and the session record is then the only thing still naming the
+        // upload. Kept, the tick's sweep reads it and tries again. An entry
+        // that never learnt its upload's id leaves the session to the sweep,
+        // which reads the id from the session itself.
+        if (!h.sid || !h.uploadId || !h.key) continue;
+        if (!(await abortProven(deps, h.key, h.uploadId))) continue;
+        try { await deps.dropSession(scope, h.sid); } catch { /* the tick's sweep */ }
         // …AND ITS PART RECORDS (2026-10-16): with its session gone nothing
         // else names them, so they were left for ever.
-        if (h.sid && typeof deps.dropParts === "function") { try { await deps.dropParts(scope, h.sid); } catch { /* the tick's sweep */ } }
+        if (typeof deps.dropParts === "function") { try { await deps.dropParts(scope, h.sid); } catch { /* the tick's sweep */ } }
       }
       return { ok: true };
     }
@@ -508,6 +515,9 @@ async function liveSession(deps, scope, sid) {
   if (!s || s.scope !== scope || s.sid !== sid) return null;
   if (s.by && deps.who && String(deps.who) !== s.by) return null;
   if (!(s.expires > deps.now())) return null;
+  // BEING STOPPED (2026-10-16): its abort was not confirmed; the record is
+  // kept only so the tick can try again. It takes no part and finishes nothing.
+  if (s.state === "aborting") return null;
   return s;
 }
 
@@ -604,6 +614,16 @@ export async function changeAsset(deps, scope, name, change) {
 export function uploadGone(e) {
   const t = String((e && (e.code || "")) + " " + (e && e.message || "") + " " + (e && e.name || ""));
   return /NoSuchUpload|\b10024\b/.test(t);
+}
+/**
+ * ABORT AN UPLOAD, PROVEN (2026-10-16): `true` when it is stopped — the abort
+ * answered, or R2 said the upload no longer exists (`NoSuchUpload`) — and
+ * `false` when the request failed or its answer was lost, which proves
+ * nothing: the caller keeps what names the upload and tries again.
+ */
+export async function abortProven(deps, key, uploadId) {
+  if (!key || !uploadId) return false;
+  try { await deps.abort(key, uploadId); return true; } catch (e) { return uploadGone(e); }
 }
 async function recoverClaim(deps, scope, name, rec) {
   const c = rec.claim || {};
@@ -733,9 +753,16 @@ export async function handleMediaPart(deps, { scope, sid, n, bytes } = {}) {
 }
 
 async function abortQuietly(deps, s) {
-  try { await deps.abort(s.key, s.uploadId); } catch { /* the session's expiry aborts it */ }
-  try { await deps.dropSession(s.scope, s.sid); } catch { /* expires on its own */ }
-  try { await deps.dropParts(s.scope, s.sid); } catch { /* expires on its own */ }
+  // STOPPED, OR MARKED FOR THE TICK (2026-10-16, Codex's review of
+  // `ea9a2b71`): the records go only when the abort is proven; otherwise the
+  // session is kept as `aborting` — it takes no part and finishes nothing
+  // (`liveSession`) — and the tick's sweep tries the abort again.
+  if (await abortProven(deps, s.key, s.uploadId)) {
+    try { await deps.dropSession(s.scope, s.sid); } catch { /* the tick's sweep */ }
+    try { await deps.dropParts(s.scope, s.sid); } catch { /* the tick's sweep */ }
+  } else {
+    try { await deps.saveSession(s.scope, { ...s, state: "aborting" }); } catch { /* still open: it expires to the sweep */ }
+  }
   await releaseMedia(deps, s.scope, s.sid);
 }
 

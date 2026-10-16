@@ -180,9 +180,16 @@ export function mediaBucket({ fail = {}, lose = {}, lag = false, hooks = {}, pag
           lost("complete");
           return { key, size: total, etag, httpEtag: '"' + etag + '"', version: store.get(key).version };
         },
+        // AS R2 ANSWERS (2026-10-16, Codex's review of `ea9a2b71`): an upload
+        // that is not there — never made, already aborted or already
+        // completed — is refused with NoSuchUpload (10024), which proves it is
+        // gone; `lose: { abort: n }` aborts and then loses the answer.
         async abort() {
           trip("abort");
+          const u = uploads.get(uploadId);
+          if (!u || u.done) throw Object.assign(new Error("NoSuchUpload: The specified multipart upload does not exist."), { code: 10024 });
           uploads.delete(uploadId);
+          lost("abort");
         },
       };
     },

@@ -36,12 +36,15 @@ here; take a closed one out of both.**
   assumed, not verified; a tick's subrequest count (about 400 at the default
   budgets, estimated, not measured) against the Worker's limit.
 - **The preview script's upload is not conditional** (2026-10-16, third
-  batch §2): the head is bound to the version (no race), and a save that
-  finishes last puts the draft's own version back up, but between a stale
-  upload landing and that save's look afterwards the preview can show the
-  older version for moments; a save whose look at the draft fails cannot
-  tell, and leaves what it uploaded. A held rename's address is baked in at
-  Publish, so the preview shows the old address.
+  batch §2, fourth batch §1): the head is bound to the version, a save puts
+  the draft's own version back up, and a failed, lost or interrupted upload
+  is finished by the tick (`runPreviewRecovery`); but between a stale upload
+  landing and its repair the preview can show the older version for moments
+  (up to the tick's backoff when uploads keep failing; a `stuck` mark after
+  12 tries waits for a person). The owner's panel does not yet show
+  `previewPending` (frontend, deferred). The text edit's job answer carries
+  no `draft` facts at all (found in passing). A held rename's address is
+  baked in at Publish, so the preview shows the old address.
 - **Draft-first edges the owner decides** (2026-10-16, stated exactly in the
   second batch's record §5): owner panels act at once by design; a platform
   rebuild leaves an unrequested draft; held row updates overwrite a column a
