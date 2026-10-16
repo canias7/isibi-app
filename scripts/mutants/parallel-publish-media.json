@@ -1,0 +1,172 @@
+[
+  {
+    "label": "CONTROL: a comment only in worker.js \u2014 must survive",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "const LOST_TO_OVERLAP = Object.freeze(",
+    "to": "// comment-only control\nconst LOST_TO_OVERLAP = Object.freeze("
+  },
+  {
+    "label": "CONTROL: a comment only in request.mjs \u2014 must survive",
+    "control": true,
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "export const OVERLAP_RETRIES = 2;",
+    "to": "// comment-only control\nexport const OVERLAP_RETRIES = 2;"
+  },
+  {
+    "label": "M1 the held replacement's start reads `sid` again",
+    "files": [
+      "worker.js"
+    ],
+    "from": "r.body && typeof r.body.session === \"string\") {\n              await env.SITES_BUCKET.put(REPLACING(r.body.session)",
+    "to": "r.body && typeof r.body.sid === \"string\") {\n              await env.SITES_BUCKET.put(REPLACING(r.body.sid)"
+  },
+  {
+    "label": "M2 the held replacement's finish reads `file.name` again",
+    "files": [
+      "worker.js"
+    ],
+    "from": "r.body.ok === true && typeof r.body.name === \"string\" && isMediaName(r.body.name)) {",
+    "to": "r.body.file && typeof r.body.file.name === \"string\") {"
+  },
+  {
+    "label": "M3 the held finish answers nested, not flat",
+    "files": [
+      "worker.js"
+    ],
+    "from": "r = { ...r, body: { ...r.body, replaces: target, url: uploadUrl(mslug, target), held: true, draft: heldDraft(sealed.revision) } };",
+    "to": "r = { ...r, body: { ...r.body, file: { replaces: target, url: uploadUrl(mslug, target) }, draft: heldDraft(sealed.revision) } };"
+  },
+  {
+    "label": "M4 a part lost to an overlap is never run again",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "if (read.act === \"refusal\" && OVERLAP_LOSSES.includes(read.error) && !leftOf(ans.body)",
+    "to": "if (false && read.act === \"refusal\" && OVERLAP_LOSSES.includes(read.error) && !leftOf(ans.body)"
+  },
+  {
+    "label": "M5 the overlap bound is zero",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "export const OVERLAP_RETRIES = 2;",
+    "to": "export const OVERLAP_RETRIES = 0;"
+  },
+  {
+    "label": "M6 a part run again after an overlap is filed beside other writers",
+    "files": [
+      "builder/request-plan.mjs"
+    ],
+    "from": "    if ((writes && me.serial) || q.serial) return false;\n",
+    "to": "\n"
+  },
+  {
+    "label": "M7 a paused part holds later writes back again",
+    "files": [
+      "builder/request-plan.mjs"
+    ],
+    "from": "    if (!q || ended(q) || paused(q)) continue;\n    if (holds(q)) return false;",
+    "to": "    if (!q || ended(q)) continue;\n    if (holds(q)) return false;"
+  },
+  {
+    "label": "M8 a paused part holds later preparations back again",
+    "files": [
+      "builder/request-plan.mjs"
+    ],
+    "from": "    if (!q || ended(q) || paused(q)) continue;\n    // A ROUTING writes nothing",
+    "to": "    if (!q || ended(q)) continue;\n    // A ROUTING writes nothing"
+  },
+  {
+    "label": "M9 an older code-only draft save is committed again",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  if (rec.older && !ref) return { ok: false, error: \"older\"",
+    "to": "  if (false && rec.older && !ref) return { ok: false, error: \"older\""
+  },
+  {
+    "label": "M10 an older save with held changes is refused too",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  if (rec.older && !ref) return",
+    "to": "  if (rec.older) return"
+  },
+  {
+    "label": "M11 Publish accepts a bare version again",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              if (revision === null || revision <= 0) return Response.json({ ok: false, error: \"name the revision to publish\" }, { status: 400 });",
+    "to": "              if (!version && revision === null) return Response.json({ ok: false, error: \"name the revision to publish\" }, { status: 400 });"
+  },
+  {
+    "label": "M12 the recovery sweep runs only with the switch on again",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    ctx.waitUntil(runPublishRecovery(env).catch(",
+    "to": "    if (draftFirst(env)) ctx.waitUntil(runPublishRecovery(env).catch("
+  },
+  {
+    "label": "M13 Back online recompiles the draft again",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                if (draftFirst(env)) return { ok: false, draftOnly: true };\n",
+    "to": "\n"
+  },
+  {
+    "label": "M14 site-live reads draftOnly as an ordinary failure",
+    "files": [
+      "site-live.mjs"
+    ],
+    "from": "  if (pub && pub.draftOnly === true) {",
+    "to": "  if (false && pub && pub.draftOnly === true) {"
+  },
+  {
+    "label": "M15 lostOr always answers compile",
+    "files": [
+      "worker.js"
+    ],
+    "from": "LOST_TO_OVERLAP.includes(pub.error) ? pub.error : otherwise;",
+    "to": "LOST_TO_OVERLAP.includes(pub.error) ? otherwise : otherwise;"
+  },
+  {
+    "label": "M16 a conflict wears the restarting sentence again",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (pub.error === \"conflict\") {",
+    "to": "  if (pub.error === \"conflict-never\") {"
+  },
+  {
+    "label": "M17 envObserved takes a line missing a switch",
+    "files": [
+      "builder/job-probe.mjs"
+    ],
+    "from": "typeof v.draftFirst === \"boolean\" && typeof v.parallelWrites === \"boolean\") {",
+    "to": "typeof v.draftFirst === \"boolean\") {"
+  },
+  {
+    "label": "M18 publishChecks misses a later revision taken in",
+    "files": [
+      "scripts/canary-draft.mjs"
+    ],
+    "from": "      checks.later = taken.length ? fail(",
+    "to": "      checks.later = false ? fail("
+  },
+  {
+    "label": "M19 publishChecks passes later when none was exercised",
+    "files": [
+      "scripts/canary-draft.mjs"
+    ],
+    "from": "checks.later = unverified(\"no revision was saved after the click",
+    "to": "checks.later = pass(\"no revision was saved after the click"
+  }
+]

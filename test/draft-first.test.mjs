@@ -28,7 +28,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { platform, sendMessage, settle, call, T } from "./fixtures/request-flow.mjs";
+import { platform, sendMessage, settle, call, tick, T } from "./fixtures/request-flow.mjs";
 import { blockNetwork } from "./fixtures/no-network.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { loadWorker, loadWorkerModule, makeCtx } from "./fixtures/worker-harness.mjs";
@@ -681,6 +681,30 @@ test("DFP4 A FAILURE AFTER THE SWITCH ROLLS FORWARD, NEVER BACK — the address 
     assert.equal(price(db, 5), 6, "the recovery published the newer, unapproved change");
     const after = await call(P, "GET", "/api/site/" + P.slug + "/draft");
     assert.deepEqual([after.body.state, after.body.revision, after.body.applied], ["saved", d.rev + 1, d.rev]);
+  } finally { await finish(P, compiler); }
+});
+
+test("DFP4b THE SWEEP FINISHES AN APPROVED PUBLICATION AFTER THE SWITCH WAS TURNED OFF (2026-10-16) — a publication stopped after its switch, then DRAFT_FIRST off: the two-minute cron (the real `scheduled`) still finishes the approved revision; before this the sweep ran only with the switch on, and the journal was stranded", async () => {
+  const aliases = [];
+  const { P, db, compiler } = bakery("dfp4b", { aliases });
+  try {
+    await runOne(P, TIKTOK);
+    P.env.DRAFT_FIRST = "on";
+    await runOne(P, SPELT);
+    await runOne(P, RENAME("fold-street-bakery"));
+    const d = draftOf(P);
+    aliases.failWrites = true;
+    const stop = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.version });
+    assert.equal(stop.status, 502, JSON.stringify(stop.body));
+    assert.equal(journalOf(P).phase, "switched", JSON.stringify(journalOf(P)));
+    aliases.failWrites = false;
+    // THE SWITCH TURNED OFF while the owner's approved publication stands open.
+    P.env.DRAFT_FIRST = "off";
+    // NOT INSIDE THE RUNNER'S WINDOW: the stopped runner's stamp has gone stale.
+    const real = Date.now; const at = real() + 10 * 60_000; Date.now = () => at;
+    try { await tick(P); } finally { Date.now = real; }
+    assert.equal(openJournal(P), null, "the cron left the approved publication open once the switch was off");
+    assert.deepEqual([draftOf(P).applied, currentAlias(aliases), spelt(db).length], [d.rev, "fold-street-bakery", 1]);
   } finally { await finish(P, compiler); }
 });
 

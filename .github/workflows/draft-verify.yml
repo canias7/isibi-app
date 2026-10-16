@@ -1,0 +1,113 @@
+# THE INTEGRATED DRAFT / PUBLISH / MEDIA VERIFICATION (2026-10-16), PREPARED
+# AND NOT PRESSED.
+#
+# Dispatch only: nothing starts this but the owner's press. It runs
+# scripts/draft-verify.mjs against the deployed Worker, signed in as the
+# building account. Every box is checked before any write, send or publish:
+#
+#   rehearsal  read-only, free
+#   send       PAID: one image-free message; needs spend yes, max credits,
+#              expect revisions, DRAFT_FIRST on and image purchases off
+#   media      WRITES the library (a new recording, then its replacement), no
+#              model call, free; needs mutate yes and DRAFT_FIRST on
+#   publish    PUBLISHES the named revision, pressed twice; needs publish yes
+#   recovery   read-only, free
+#
+# The run goes red unless every check passed: exit 3 means nothing failed and
+# something could not be judged (`unverified` in the evidence), 1 a failure, a
+# stop or an unknown charge, 2 a refusal before anything was done. The evidence
+# is kept either way. The container's own reading of the switches is the job
+# probe's (`job probe`, shape env); this run reports the calculated pair only.
+#
+# A dispatch-only workflow can be pressed only once it is on the default
+# branch, so this becomes usable when the branch carrying it is merged.
+name: draft verify
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Mode: rehearsal (read-only) · send (PAID, one message) · media (writes a test recording) · publish (PUBLISHES the named revision) · recovery (read-only)"
+        required: true
+        default: rehearsal
+        type: choice
+        options: [rehearsal, send, media, publish, recovery]
+      site:
+        description: "Site slug (an existing site of the building account; never a help-needed fixture for send, media or publish)"
+        required: true
+        default: ""
+      message:
+        description: "send only: the one message, image-free"
+        required: false
+        default: ""
+      expect_revisions:
+        description: "send only: how many draft revisions the message should save (e.g. 2 for two independent page changes)"
+        required: false
+        default: ""
+      expect_held:
+        description: "send only: held-change kinds the draft must carry, comma-separated (e.g. row)"
+        required: false
+        default: ""
+      spend:
+        description: "Spend credits? Type yes for send"
+        required: false
+        default: ""
+      max_credits:
+        description: "send only: the harness's ceiling for this press, in credits (an estimate is not a limit; the platform caps nothing)"
+        required: false
+        default: ""
+      mutate:
+        description: "Write a test recording to the site's library? Type yes for media"
+        required: false
+        default: ""
+      publish:
+        description: "Make a revision live? Type yes for publish"
+        required: false
+        default: ""
+      revision:
+        description: "publish only: the revision number the draft panel shows (later revisions must stay unpublished)"
+        required: false
+        default: ""
+      picker:
+        description: "send only: the builder model"
+        required: false
+        default: grok
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: draft verify
+        env:
+          SUPABASE_URL: https://ujrqdmmtcptvimazlhom.supabase.co
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          OWNER_EMAIL: aniascristian@gmail.com
+          OWNER_BASE_URL: https://gofarther.dev
+          DV_MODE: ${{ github.event.inputs.mode }}
+          DV_SITE: ${{ github.event.inputs.site }}
+          DV_MESSAGE: ${{ github.event.inputs.message }}
+          DV_EXPECT_REVISIONS: ${{ github.event.inputs.expect_revisions }}
+          DV_EXPECT_HELD: ${{ github.event.inputs.expect_held }}
+          DV_SPEND: ${{ github.event.inputs.spend }}
+          DV_MAX_CREDITS: ${{ github.event.inputs.max_credits }}
+          DV_MUTATE: ${{ github.event.inputs.mutate }}
+          DV_PUBLISH: ${{ github.event.inputs.publish }}
+          DV_REVISION: ${{ github.event.inputs.revision }}
+          DV_PICKER: ${{ github.event.inputs.picker }}
+        run: node scripts/draft-verify.mjs
+      - name: keep the evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: draft-verify
+          path: draft-verify.json
+          if-no-files-found: warn
