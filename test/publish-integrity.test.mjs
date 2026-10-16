@@ -829,6 +829,9 @@ test("the diagnostic answers the two effective eligibilities and the deploy iden
     jobDesign: false, jobGraph: false, jobBands: false, jobBandsEveryone: false,
     // THE NARRATION SWITCHES, READ LIVE (2026-10-14): neither is set here.
     progressReplies: false, progressTalk: false, jobProgressReplies: false, jobProgressTalk: false,
+    // THE PUBLISHING SWITCHES (2026-10-16): neither is set here, so both
+    // read off at the Worker and as a container job is handed them.
+    draftFirst: false, parallelWrites: false, jobDraftFirst: false, jobParallelWrites: false,
   });
 });
 

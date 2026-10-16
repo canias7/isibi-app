@@ -102,7 +102,12 @@ export function readLaunch(raw) {
   }
   const pre = p.pre === true;
   if (pre && slug) throw new Error("a pre-scope launch names no slug");
-  return { kind, id, gateway: { url: g.url, token: g.token }, sb: { url: new URL(sb.url).origin }, secrets, buildPort, deadlineAt, ...(holder ? { holder } : {}), ...(slug ? { slug } : {}), ...(pre ? { pre: true } : {}) };
+  // A PROBE'S OWN FIELDS (2026-10-16): its shape and its asks, passed on raw
+  // for `readProbe` to check. They were dropped here before, so every probe a
+  // real container ran was the default `hold` whatever it was asked; the test
+  // added them back after reading, which hid it.
+  const probe = kind === PROBE_KIND ? { ...(p.probe !== undefined ? { probe: p.probe } : {}), ...(p.ms !== undefined ? { ms: p.ms } : {}), ...(p.everyMs !== undefined ? { everyMs: p.everyMs } : {}) } : {};
+  return { kind, id, gateway: { url: g.url, token: g.token }, sb: { url: new URL(sb.url).origin }, secrets, buildPort, deadlineAt, ...(holder ? { holder } : {}), ...(slug ? { slug } : {}), ...(pre ? { pre: true } : {}), ...probe };
 }
 
 /**
@@ -154,6 +159,24 @@ export async function runJob(launch, { importWorker, env, ctx, log = () => {}, s
   //
   // THE SAME SENDER A MODEL CALL USES, handed in rather than reached for. A
   // probe with a transport of its own measures the probe.
+  // THE `env` PROBE (2026-10-16): the switches as THIS child reads them — the
+  // launch's secrets through `makeContainerEnv`, asked with the Worker tree's
+  // own readers (`jobSwitches`). One short line, so the five-line tail keeps it.
+  if (kind === PROBE_KIND && launch.probe === "env") {
+    try {
+      const jobEnv = env || makeContainerEnv({ secrets: launch.secrets, gateway: launch.gateway, sb: launch.sb, pre: launch.pre === true, deadlineAt: launch.deadlineAt });
+      const worker = await importWorker();
+      if (!worker || typeof worker.jobSwitches !== "function") throw new Error("the Worker module has no jobSwitches export");
+      const s = worker.jobSwitches(jobEnv);
+      const out = { ok: true, shape: "env", draftFirst: s.draftFirst === true, parallelWrites: s.parallelWrites === true };
+      log({ probe: "env", draftFirst: out.draftFirst, parallelWrites: out.parallelWrites });
+      return { ok: true, kind, id, ms: Date.now() - at, probe: out };
+    } catch (e) {
+      const out = { ok: false, shape: "env", error: String((e && e.message) || e).slice(0, 200) };
+      log({ probe: "env", error: out.error });
+      return { ok: false, kind, id, ms: Date.now() - at, probe: out };
+    }
+  }
   if (kind === PROBE_KIND) {
     const out = await runProbe(launch, { send: longPost, log });
     log({ job: id, kind, ...out });

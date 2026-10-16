@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 import {
-  PROBE_KIND, PROBE_SHAPES, PROBE_MAX_MS, PROBE_SLICE_MS, PROBE_DEFAULT_MS, WIRE_TRICKLE_MS,
+  PROBE_KIND, PROBE_SHAPES, ENV_PROBE_NAMES, PROBE_MAX_MS, PROBE_SLICE_MS, PROBE_DEFAULT_MS, WIRE_TRICKLE_MS,
   readProbe, probeHold, probeWire, wireCall, runProbe, holdVerdict, wireVerdict,
   wireCallBoundMs, WIRE_CALL_SLACK_MS,
 } from "../builder/job-probe.mjs";
@@ -330,6 +330,17 @@ test("the probe has a DOOR the owner can press: dispatch-only, every input wired
   assert.ok(!/log\([^)]*\bjwt\b[^)]*\)/.test(runner.replace(/desc\(jwt\)/g, "")), "the session token reaches a log line");
 });
 
+test("A PROBE'S OWN FIELDS SURVIVE THE CONTAINER'S READER (2026-10-16) — `readLaunch` keeps the shape and the asks a probe was fired with, for probes only; a real job's launch gains none of them", () => {
+  const base = { v: 2, id: "probe-abcd1234", gateway: { url: "https://gofarther.dev/api/job/probe-abcd1234", token: "t" }, sb: { url: "https://x.supabase.co" }, secrets: {}, buildPort: 8080 };
+  for (const shape of ["wire", "env", "hold"]) {
+    const read = readLaunch(JSON.stringify({ ...base, kind: PROBE_KIND, probe: shape, ms: 4000, everyMs: 2000 }));
+    assert.deepEqual([read.probe, read.ms, read.everyMs], [shape, 4000, 2000], "the runner dropped a probe's fields: " + JSON.stringify(read));
+    assert.equal(readProbe(read).shape, shape, "the child would run another shape than the one fired");
+  }
+  const edit = readLaunch(JSON.stringify({ ...base, id: "job-abcd1234", kind: "edit", probe: "wire", ms: 4000 }));
+  assert.ok(!("probe" in edit) && !("ms" in edit), "an edit's launch carries probe fields");
+});
+
 test("a probe launch is admitted by name, and runJob answers it WITHOUT importing the Worker tree", async () => {
   const launch = {
     v: 2, kind: PROBE_KIND, id: "probe-abcd1234", probe: "hold", ms: 3000,
@@ -471,8 +482,15 @@ test("the Worker's probe route: owner-gated, pre-scoped, its own lane, and the j
   // is the whole of what an owner-gated drive costs. The driven case is below,
   // and these text reads are kept for what a drive cannot see — the absence of a
   // producer anywhere in the block.
-  assert.match(block, /secrets: \{\}/, "a probe launch carries secrets");
-  assert.doesNotMatch(block, /jobSecrets/, "the probe route reaches for the platform's secrets — nothing a probe runs needs one");
+  //
+  // THE `env` SHAPE (2026-10-16) is the one exception, and a narrow one: it
+  // carries the publishing switches only, picked by name from `jobSecrets(env)`
+  // so the container answers what a real job is handed. The pick must be the
+  // only use of `jobSecrets` in the block, and every other shape still sends
+  // the empty object.
+  assert.match(block, /secrets: shape === "env" \? Object\.fromEntries\(Object\.entries\(jobSecrets\(env\)\)\.filter\(\(\[k\]\) => ENV_PROBE_NAMES\.includes\(k\)\)\) : \{\},/, "a probe launch carries secrets beyond the env probe's switch names");
+  assert.equal((block.match(/jobSecrets/g) || []).length, 1, "the probe route reaches for the platform's secrets beyond the env probe's pick");
+  assert.deepEqual(ENV_PROBE_NAMES, ["DRAFT_FIRST", "PARALLEL_WRITES"], "the env probe's names grew past the publishing switches");
   assert.match(block, /kind: "probe"/, "the launch is not a probe");
   // AND READING ONE BACK IS THE SAME DOOR — a fire nobody can read is an
   // instrument with no dial.

@@ -361,7 +361,7 @@ import { holdDecision, BUSY_PROBE_MS } from "./builder/container-hold.mjs";
 import { readJobMaxMs } from "./builder/job-duration.mjs";
 // The probe's own reader, shared with the runner so the caller's numbers are
 // clamped by ONE rule — two copies of a bound is how one of them drifts.
-import { readProbe } from "./builder/job-probe.mjs";
+import { readProbe, ENV_PROBE_NAMES } from "./builder/job-probe.mjs";
 
 // Site build-service container. The image (./builder/Dockerfile) bakes the React
 // template and its dependencies, so a per-site build is only `tsr generate` →
@@ -13180,6 +13180,16 @@ const writesBeside = (env) => !!env && typeof env.PARALLEL_WRITES === "string" &
 /** How many jobs of one request may run at once. */
 const WRITE_BESIDE_MAX = 3;
 const writeBesideMax = (env) => (writesBeside(env) ? WRITE_BESIDE_MAX : 1);
+/**
+ * THE TWO PUBLISHING SWITCHES AS AN ENV ANSWERS THEM (2026-10-16): the readers
+ * the code itself uses, never a copy. The runtime route asks it of the
+ * Worker's env and of `jobSecrets(env)` (what a container job is handed, by
+ * calculation); the container's `env` probe asks it of the env a real job
+ * child builds from its launch (observed).
+ */
+export function jobSwitches(env) {
+  return { draftFirst: draftFirst(env), parallelWrites: writesBeside(env) };
+}
 const turnPollMs = (env) => { const n = Number(env && env.PUBLISH_TURN_POLL_MS); return Number.isFinite(n) && n > 0 ? n : TURN_POLL_MS; };
 /** The stored turn and its etag. A store failure throws. */
 async function readTurnObj(env, slug) {
@@ -13536,6 +13546,52 @@ const SCRIPT_FOLLOW_TRIES = 4;
 const SCRIPT_NOTE_WINDOW_MS = DISPATCH_CALL_MS + 2 * 60 * 1000;
 const SCRIPT_NOTE_RETIRED = '{"retired":true}';
 const isRetiredNote = (text) => { try { const v = JSON.parse(text); return !!v && v.retired === true; } catch { return false; } };
+
+/**
+ * WHAT A VERIFIER NEEDS TO JUDGE PUBLISHING, READ ONLY (2026-10-16): the
+ * owner's `GET …/draft?inspect=1`. Each field is what was read, or says why it
+ * could not be — never a guess standing in for a reading:
+ *   pointer     the live version (`{version}`), `{none}`, or `{unreadable}`
+ *   liveScript  what the running site script answers (`{version, build}`),
+ *               `{unanswered}`, or `{unasked}` without a dispatch binding
+ *   journal     the publication journal's revision, phase and whether a
+ *               runner holds it, `{none}`, or `{unreadable}`
+ *   notes       the script recovery notes: how many, the oldest's age and the
+ *               window after which a sweep may retire another's note
+ *   held        each unpublished revision's held changes, counted by kind
+ * Nothing here writes, retires, repairs or uploads.
+ */
+async function inspectPublishing(env, slug) {
+  const deps = buildDeps(env);
+  const out = {};
+  try { const p = await readPointer(deps, slug); out.pointer = p ? { version: p.version } : { none: true }; } catch { out.pointer = { unreadable: true }; }
+  if (env.SITE_WORKERS) {
+    const live = await probeSiteWorker({ stubFor: (nm) => env.SITE_WORKERS.get(nm), name: scriptNameFor(slug) });
+    out.liveScript = live ? { version: live.version || "", build: live.build } : { unanswered: true };
+  } else out.liveScript = { unasked: "no dispatch binding" };
+  try {
+    const r = await readPublication(env, slug);
+    out.journal = r.unreadable ? { unreadable: true }
+      : r.j ? { revision: r.j.n, phase: r.j.phase, closed: journalClosed(r.j), running: journalLive(r.j, { staleMs: PUBLISH_STALE_MS }), error: r.j.error || null }
+      : { none: true };
+  } catch { out.journal = { unreadable: true }; }
+  try {
+    const l = await env.SITES_BUCKET.list({ prefix: SCRIPT_PENDING_PREFIX + slug + "/", include: ["httpMetadata"] });
+    const now = Date.now();
+    const ages = (l.objects || []).map((o) => now - new Date(o.uploaded).getTime()).filter(Number.isFinite);
+    out.notes = { count: (l.objects || []).length, oldestMs: ages.length ? Math.max(...ages) : 0, windowMs: SCRIPT_NOTE_WINDOW_MS, truncated: l.truncated === true };
+  } catch { out.notes = { unreadable: true }; }
+  try {
+    const { draft } = await readDraft(deps, slug);
+    const range = draft ? await heldRange(deps, slug, draft, { from: draft.applied }) : [];
+    out.held = range.map((r) => {
+      const kinds = {};
+      for (const o of r.ops || []) kinds[String((o && o.kind) || "other")] = (kinds[String((o && o.kind) || "other")] || 0) + 1;
+      return { revision: r.n, kinds };
+    });
+  } catch { out.held = { unreadable: true }; }
+  return out;
+}
 /**
  * THIS INVOCATION'S OWN NOTE, written or renewed immediately before an
  * upload. A renewal is conditional on the note as this invocation last wrote
@@ -27453,7 +27509,11 @@ async function handleRequest(request, env, ctx) {
         v: 2, kind: "probe", id, probe: shape, ms, everyMs,
         gateway: { url: "https://" + APP_ZONE + "/api/job/" + id, token },
         sb: { url: SUPABASE_URL },
-        secrets: {},
+        // NO SECRETS, EXCEPT FOR THE `env` SHAPE (2026-10-16): the publishing
+        // switches only, picked from `jobSecrets(env)` — the list a real job's
+        // launch is built from — so a switch missing from that list is missing
+        // here too, and no credential reaches a probe.
+        secrets: shape === "env" ? Object.fromEntries(Object.entries(jobSecrets(env)).filter(([k]) => ENV_PROBE_NAMES.includes(k))) : {},
         buildPort: 8080,
         deadlineAt: Date.now() + budgetMs,
         pre: true,
@@ -28674,6 +28734,18 @@ async function handleRequest(request, env, ctx) {
         progressTalk: talkOn(env),
         jobProgressReplies: progressOn(jobSecrets(env)),
         jobProgressTalk: talkOn(jobSecrets(env)),
+        // THE PUBLISHING SWITCHES (2026-10-16): draft-first (`DRAFT_FIRST`)
+        // and jobs of one request side by side (`PARALLEL_WRITES`), as the
+        // Worker reads them and as a container job is handed them. The `job…`
+        // pair is CALCULATED here from `jobSecrets(env)`, the exact strings a
+        // launch carries; it is not a container's answer. The observed value
+        // is the container's own `env` probe (`/api/site/job-probe`, probe
+        // `env`), which a reader must ask separately. Booleans, like every
+        // field here.
+        draftFirst: draftFirst(env),
+        parallelWrites: writesBeside(env),
+        jobDraftFirst: jobSwitches(jobSecrets(env)).draftFirst,
+        jobParallelWrites: jobSwitches(jobSecrets(env)).parallelWrites,
       });
     }
 
@@ -42440,6 +42512,10 @@ async function handleRequest(request, env, ctx) {
             if (dr && request.method === "GET") {
               const st = await readState();
               if (!st) return Response.json({ ok: false, error: "the draft or the live version could not be read" }, { status: 503 });
+              // `?inspect=1` (2026-10-16): the publishing evidence a verifier
+              // judges by — pointer, running script, journal, recovery notes,
+              // held changes — read only (`inspectPublishing`).
+              if (url.searchParams.get("inspect") === "1") return Response.json({ ok: true, ...st, inspect: await inspectPublishing(env, ownerSlug) });
               return Response.json({ ok: true, ...st });
             }
             if (pb && request.method === "POST") {

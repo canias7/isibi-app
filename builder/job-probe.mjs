@@ -73,7 +73,18 @@ import { JOB_MAX_MS } from "./job-duration.mjs";
 export const PROBE_KIND = "probe";
 
 /** What a probe may be asked to do. Anything else is refused by name. */
-export const PROBE_SHAPES = ["hold", "wire"];
+export const PROBE_SHAPES = ["hold", "wire", "env"];
+
+/**
+ * THE `env` SHAPE (2026-10-16): what a real job child reads its publishing
+ * switches as, after the launch's secrets went through `readLaunch` and
+ * `makeContainerEnv` — the container's own answer, never the Worker's
+ * calculation. It needs the Worker tree's readers (`jobSwitches`), so
+ * `container-job.mjs` runs it beside its Worker import; `runProbe` alone
+ * answers it as not runnable. The launch carries only these names, picked
+ * from `jobSecrets(env)`, so no credential reaches a probe.
+ */
+export const ENV_PROBE_NAMES = ["DRAFT_FIRST", "PARALLEL_WRITES"];
 
 /**
  * The longest a probe may occupy a lane — under the real setting, so an
@@ -309,6 +320,7 @@ export async function runProbe(launch, { send, log = () => {}, now = Date.now, s
   const at = now();
   try {
     const p = readProbe(launch);
+    if (p.shape === "env") return { ok: false, shape: "env", job: launch.id, error: "the env probe runs beside the Worker tree (container-job.mjs), not here" };
     if (p.shape === "hold") return { ...(await probeHold(p.ms, { log, sleep, now, stop })), job: launch.id };
     return { ...(await probeWire(launch.gateway, p, { send, log, now })), job: launch.id };
   } catch (e) {

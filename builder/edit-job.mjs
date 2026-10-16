@@ -1040,6 +1040,12 @@ export const JOB_ENV_NAMES = [
   // takes the site's publish turn and rebases its publish only with it on —
   // so without it here a container job would publish its whole old copy.
   "PARALLEL_WRITES",
+  // DRAFT-FIRST PUBLISHING (2026-10-16): a job in the container saves a draft
+  // instead of publishing only with it on (`draftFirst` in site-draft.mjs) —
+  // so without it here a queued Build, Edit or Add-on run in the container
+  // would publish live while the Worker read the switch on. Off unless the
+  // deploy delivers `on` (deploy.yml falls back to `off`).
+  "DRAFT_FIRST",
   // THE BUILD'S PARALLEL DOORS (2026-10-14, after run 117). Since 2026-09-14
   // (`JOB_RUNNER_EVERYONE` on) a first build runs inside the container, and
   // the design split, the design graph and the page bands are each asked
