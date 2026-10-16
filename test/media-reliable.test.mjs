@@ -292,3 +292,24 @@ test("MR5 THE PREVIEW'S HEAD IS THE DRAFT'S — a draft save writes the draft's 
   assert.equal(allowedJobKey("mr5", "a".repeat(32), "sitemeta-draft/mr5.json"), true, "a container job may not write the draft's sidecar");
   assert.equal(allowedJobKey("mr5", "a".repeat(32), "sitemeta-draft/other.json"), false, "a container job may write another site's draft sidecar");
 });
+
+test("MR2b THE SWEEP ABORTS AN ABANDONED UPLOAD THE LEDGER NO LONGER NAMES — its room entry already gone (a lost ledger write), the tick still aborts the multipart upload and drops its records", async () => {
+  const worker = await loadWorker();
+  const mod = await loadWorkerModule();
+  const slug = "mr-sweep-b";
+  const store = mediaBucket();
+  const env = envFor(store);
+  await withWire({}, async () => {
+    const big = new Uint8Array(MEDIA_PART_BYTES + 1000); big.set(fixture("clip.webm"));
+    const st = await app(worker, env, "POST", "/api/site/" + slug + "/media", { json: { name: "Abandoned.webm", size: big.length, type: "" } });
+    await app(worker, env, "PUT", "/api/site/" + slug + "/media/" + st.body.session + "/1", { body: big.subarray(0, MEDIA_PART_BYTES) });
+    // THE ROOM ENTRY IS GONE: only the session record names the upload now.
+    await store.put("media-ledger/site-" + slug + ".json", JSON.stringify({ v: 2, rev: 9, w: "x", held: {} }));
+    store.calls.length = 0;
+    const r = await mod.runMediaSweep(env, { now: Date.now() + 30 * 3600 * 1000 });
+    assert.equal(r.reclaimed, 1, JSON.stringify(r));
+    assert.ok(store.calls.includes("abort"), "the sweep did not abort an upload only its session names");
+    assert.deepEqual(await allKeys(store, "media-sessions/"), []);
+    assert.deepEqual(await allKeys(store, "media-parts/"), []);
+  });
+});

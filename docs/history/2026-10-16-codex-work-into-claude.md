@@ -186,6 +186,11 @@ records commit), 2 skipped. Sweep: 19 of 19 killed. CI: unit tests run
 
 ## 6. Status matrix
 
+**Superseded by the second batch's matrix**
+(`docs/history/2026-10-16-codex-batch-2.md` §6), which separates finished
+behaviour, deferred implementation and live-only verification. Kept below as
+it stood after the first batch.
+
 | Area | Item | Implemented | Verified offline | Verified live | Still missing |
 |---|---|---|---|---|---|
 | Parallel | independent parts side by side, dependencies waited for | yes (`PARALLEL_WRITES`, needs the proposed SQL) | yes (CW1–CW12, PPM2) | no | live overlap |

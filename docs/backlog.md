@@ -20,26 +20,24 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
-- **Serialization left in place inside one request** (2026-10-16, branch
-  `codex-work-into-claude`, `docs/history/2026-10-16-codex-work-into-claude.md`
-  §3.1): a look step or addition holds the publish turn from its first read
-  to its end (`holdsConfig`); every addition counts as both a config and a
-  schema writer whatever its targets; an addition with a backend is not
-  prepared past its design; an addition and a Build provision the database
-  before page writing, which does not need it; the driver reads job rows one
-  at a time. Each touches refund ordering or the fences; not changed.
-- **Media upkeep** (2026-10-16, same record §3.3): no sweep of
-  `media-sessions/`, `media-parts/` and `drafts/` (expiry is lazy, R2's own
-  multipart abort is assumed, not verified); `MEDIA_MAX_*` not passed by the
-  deploy (defaults apply); `/u/<other-slug>` served on a site's own host; a
-  delete that crashed after recording `deleted` still serves the bytes;
-  `If-Range` not read.
-- **Draft-first edges the owner decides** (2026-10-16, same record §6): the
-  owner panels (SEO, share, verify, domains, Data panel, Versions restore)
-  act at once by design; a platform rebuild now leaves an unrequested draft;
-  the preview reads the live sidecar, so a draft-only description or redirect
-  is not shown there; held row updates overwrite a column a visitor changed
-  since the draft.
+- **Serialization left in place inside one request** (2026-10-16, updated by
+  the second batch, `docs/history/2026-10-16-codex-batch-2.md` §2): additions
+  are now judged by their targets, page-only additions take the turn only at
+  publish, and an addition's provisioning runs beside its page writer.
+  **Still open:** preparing an addition's page writer past its design; the
+  driver's one-at-a-time row reads (latency). A Build's provisioning stays
+  before its pages (a real dependency: the pages read the applied schema).
+- **Media upkeep** (2026-10-16, updated by the second batch, same record
+  §3): interrupted deletes, abandoned sessions and parts, and the limits'
+  deployment are done. **Still open:** `/u/<other-slug>` is served on a
+  site's own host; `If-Range` is not read; R2's own abort of unfinished
+  multipart uploads is assumed, not verified.
+- **Draft-first edges the owner decides** (2026-10-16, stated exactly in the
+  second batch's record §5): owner panels act at once by design; a platform
+  rebuild leaves an unrequested draft; held row updates overwrite a column a
+  visitor changed since the draft; a draft's new redirect is not followed in
+  the preview (its head is the draft's since the second batch); migration
+  records of a held schema that WAS saved still say `applied` until Publish.
 - **Verification batch findings** (2026-10-15, runs 38742390550 and
   38744698638): (a), (b), (e) fixed on the branch (`889f9b70`, `50d0aeca`,
   `e49ac856`), offline only; (f)'s cleanup is prepared (`60bdc0cd`) and

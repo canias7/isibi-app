@@ -1,5 +1,82 @@
 # Owner Notes
 
+## 2026-10-16 — Second batch on `codex-work-into-claude`, after Codex's review of `99021708` (branch only; nothing merged, deployed, switched, applied, built or spent)
+
+**On your word**, on `codex-work-into-claude` only. `claude/chat-session-0nndv1`
+untouched (`f9f983a3`). No paid test. The full record and the matrix are
+`docs/history/2026-10-16-codex-batch-2.md`.
+
+### Commits
+
+- **`87cd91fb`** — the batch:
+  - **The mixed save Codex reproduced**: an older save carrying held changes
+    writes nothing and is refused (`older`), never committed or billed; the
+    part runs again alone and holds its changes once. Versions under
+    draft-first are minted after the draft's, so the re-run wins. The
+    add-on keeps the overlap's code, the review reconcile keeps it as
+    `was`, and a schema only held and never saved is told as nothing changed
+    (migration state `discarded`), never "applied".
+  - **Additions by their targets**: two page additions overlap, a page
+    addition no longer holds the publish turn from its first read, and one
+    that needs more than it was cleared for (a look, a table) is refused at
+    that write at no cost and runs again alone. The database is made beside
+    the page writer, its failure said word for word as before.
+  - **Media**: a delete that stopped half-way answers 404 and is finished;
+    abandoned uploads are reclaimed by the tick, never a file; the five
+    `MEDIA_MAX_*` limits reach the Worker (repository variables, `default`
+    fallback) and container jobs; a limit under 1 MB is said in KB.
+  - **The preview's head is the draft's**: a draft save writes
+    `sitemeta-draft/<slug>.json`, and the site script reads it when
+    previewing. This changes the template, so a merge rolls the image.
+- **`656251df`** — found by an intermittent test: the ledger's own expiry
+  dropped an expired upload's session but not its parts; it drops them now,
+  and the tick clears part records whose session is gone.
+- **This commit** — two cases for the sweep's two survivors (the sweep's
+  abort when the ledger no longer names the upload; a `discarded` record read
+  on its own), and these records.
+
+### Results (measured)
+
+- **New tests:** `draft-mixed-older` (DMO1–3, the end-to-end case through
+  the real add-on job: duplicate delivery and Publish), `draft-mint-after`
+  (DMA1), `addon-beside` (AB1–3), `media-reliable` (MR1–5, MR2b); PPM3b
+  restated for Codex's case.
+- **Guards re-anchored** to the new spellings, each with its reason:
+  `site-add`, `site-addon`, `site-builds`, `site-migrations`,
+  `request-beside` (BC1 now states additions by their targets).
+- **Full suite locally** (on the tree of `87cd91fb`): **11,303 / 11,301 / 0 /
+  2**. The two skipped need the template's own dependencies.
+- **Mutation sweep** (`scripts/mutants/codex-batch-2.json`, green baseline,
+  over the five new test files): **25 of 27 killed** first. The two
+  survivors, N8 and N18, were answered by the two cases in this commit; a
+  follow-up sweep of those two killed both, so all 27 are now killed. Both
+  comment-only controls survived each time.
+  - One mutant (N15, the provision awaited before the page writer)
+    deadlocked its test run, which is how its test fails (the page writer
+    releases the held provision). I ended that one run by its process id,
+    and the sweep recorded it as killed.
+- **CI on `656251df`:** unit tests run 38937615634, **11,303 / 11,255 / 0 /
+  48**, success; site build run 38937615486, success. The runs on
+  `87cd91fb` were cancelled, superseded by the next push.
+- **Not changed by you:** the runtime route stays booleans only; I took the
+  limits back out of it after its own guard test caught them, and the file
+  list reports them instead.
+
+### Remaining blockers
+
+- **Nothing here is live.** The steps, all yours, in order: the free runtime
+  press for deploy 2214; the proposed SQL; the merge and deploy (the image
+  rolls: worker, builder and the template changed); the `env` probe; the
+  switches on; then the image-free batch in
+  `docs/history/2026-10-16-codex-work-into-claude.md` §7. Set the
+  `MEDIA_MAX_*` repository variables first only if you want other limits.
+- **Deferred, stated in the matrix:** preparing an addition's page writer
+  past its design; `/u/` tied to the host; `If-Range`. A Build's provisioning
+  stays before its pages, a real dependency.
+- **Immediate writes under draft-first, stated exactly** (the record §5):
+  owner panels, a never-published site's database and rename, new uploads at
+  their public addresses, and a platform rebuild saving a draft.
+
 ## 2026-10-16 — Parallel tasks, Publish and video/audio finished together on `codex-work-into-claude` (branch only; nothing merged, deployed, switched, applied, built or spent)
 
 **On your word.** One working branch, **`codex-work-into-claude`**, for

@@ -179,3 +179,9 @@ test("DMO2 A VERSION SORTS AFTER THE DRAFT'S — minted by a clock an hour behin
   assert.equal(mintAfter("not-a-version", 1790600000000, "aaaaaa"), "01790600000000-aaaaaa");
   assert.equal(mintAfter(draft, 1790700000000, "cccccc"), "01790700000000-cccccc", "a clock ahead of the draft keeps its own time");
 });
+
+test("DMO3 A HELD SCHEMA THAT WAS NEVER SAVED READS AS NOTHING CHANGED — an answer carrying only its `discarded` record is `none`; the applied record still reads as partial (control)", async () => {
+  const { outcomeOf } = await import("../builder/site-reply.mjs");
+  assert.deepEqual(outcomeOf({ ok: false, error: "reconciled", migration: { status: "discarded", tables: ["signups"] } }), { state: "none", published: false, database: "none" });
+  assert.deepEqual(outcomeOf({ ok: false, error: "reconciled", migration: { status: "applied_without_page", tables: ["signups"] } }), { state: "partial", published: false, database: "applied" });
+});

@@ -43,7 +43,15 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   recovery sweep always runs; Back online never publishes the draft; the
   container `env` probe and the `draft verify` scenario are pressable. The
   matrix and the image-free live batch are
-  `docs/history/2026-10-16-codex-work-into-claude.md`.
+  `docs/history/2026-10-16-codex-work-into-claude.md`. **Second batch**
+  (after Codex's review of `99021708`, through `656251df` and its records):
+  an older save carrying held changes is refused and re-run, never billed;
+  versions under draft-first mint after the draft; additions are judged by
+  their targets and provision beside their page writer; interrupted media
+  deletes answer 404, abandoned uploads are reclaimed, `MEDIA_MAX_*` reach
+  the runtime; the preview's head is the draft's (`sitemeta-draft/`). Unit CI
+  `11303 / 11255 / 0 / 48` (run 38937615634). Matrix:
+  `docs/history/2026-10-16-codex-batch-2.md` §6.
   `claude/chat-session-0nndv1` is untouched. The bullets below are older.
 - **`main` is `8908b59d`, deploy 2173** (2026-09-30 19:48 UTC, a
   fast-forward of 11 commits from `80ece106`, on the owner's word "commit
