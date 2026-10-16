@@ -1,5 +1,98 @@
 # Owner Notes
 
+## 2026-10-16 — Fifth batch on `codex-work-into-claude`, after Codex's review of `6d075aeb` (branch only; nothing merged, deployed, switched, applied, built or spent)
+
+**On your word**, on `codex-work-into-claude` only. `claude/chat-session-0nndv1`
+untouched (`f9f983a3`). No paid test. Codex passed all 45 focused tests on
+`6d075aeb` and found one crash-recovery defect left in the preview. The record
+and the matrix are `docs/history/2026-10-16-codex-batch-5.md`.
+
+**A correction first.** In the fourth batch I called preview crash recovery
+complete. It was not. My test there simulated an error the save caught. It
+never tested a process that dies after its upload lands and runs no further
+code, which is exactly Codex's case. It is fixed and tested now.
+
+### Commits
+
+- **`da645b2a`**: the fix, the rewritten tests, the mutation spec and the
+  records.
+- **This commit**: this entry and CLAUDE.md.
+
+### What was wrong
+
+Two saves raced:
+- the older one was paused while uploading its preview;
+- the newer one finished and marked the preview ready;
+- then the older upload landed, and the older process died before running
+  another line.
+
+The preview showed the older version, the shared status file still said
+"ready, newer version", and the background job skipped it for ever. One
+save's success had wiped out the record that another upload could still land.
+
+### What changed
+
+- **Every writer keeps its own record.** Each save, and the background job
+  itself, writes its own record before uploading a preview: a "claim".
+  - If the claim can't be written, it uploads nothing; the draft itself
+    still saves.
+  - Each writer removes only its own claim, and only once it has seen the
+    right version showing.
+  - A save writes its claim even before it records the draft, so a save
+    that dies in between is covered too.
+- **"Ready" means alone.** A save only reports the preview ready if no other
+  writer's claim is still open.
+- **The background job finishes anything left open,** with nobody's browser
+  open.
+  - It waits until the open claims can no longer land an upload: about 16
+    minutes, because uploads must start within 5 minutes and are cut off
+    after 10.
+  - Then it puts up whichever version the draft selects at that moment,
+    from the already-built script. Nothing is rebuilt, no model is asked,
+    nothing is charged, and the live site is untouched.
+  - It retries with growing waits, says "stuck" after 12 tries, and a new
+    save starts it again.
+- **The cost:** after a crash like this, the preview can show the older
+  version for up to about 16 minutes. Repairing sooner could be overwritten
+  by an upload the job can't see.
+
+### Results (measured)
+
+- **Tests:** the preview recovery tests are rewritten around real hard stops.
+  The upload lands and the code simply never continues; no error handling or
+  cleanup runs. They cover:
+  - Codex's exact case;
+  - a save dying between recording the draft and its preview;
+  - a newer draft arriving during recovery;
+  - three recovery jobs at once;
+  - the retry rules step by step;
+  - "no claim, no upload";
+  - the upload window;
+  - an unreadable claim list, which is not taken as "none".
+  - In every recovery case: no model call, no charge, no live change.
+- **On `6d075aeb`, Codex's case reproduces exactly:** the newer save said
+  ready, the status said ready/newer, the preview showed the older version,
+  and no recovery run repaired it, even after the 16 minutes.
+- **Mutation sweep** (`scripts/mutants/codex-batch-5.json`): 13 of 18 caught
+  on the first pass. Tests were added for the 5 that slipped through, and a
+  follow-up caught all five, so 18 of 18. Both comment-only controls
+  survived.
+- **Related tests together:** 80 of 80.
+- **Full suite locally:** 11,335 / 11,333 / 0 / 2.
+- **CI on `da645b2a`:** unit tests run 38955607361, 11,335 / 11,287 / 0 /
+  48, success; site build run 38955607464, success.
+
+### Remaining gaps
+
+- **The older preview can show for up to about 16 minutes** after a crash
+  like this, longer while uploads keep failing. A "stuck" preview waits for a
+  person or a new save.
+- **The owner's panel doesn't show "preview pending" yet** (frontend,
+  deferred).
+- **Live only:** two real saves racing on Cloudflare, and a real upload's
+  timing against the 10-minute limit.
+- **Deferred as you asked:** the production rollout and frontend narration.
+
 ## 2026-10-16 — Fourth batch on `codex-work-into-claude`, after Codex's review of `ea9a2b71` (branch only; nothing merged, deployed, switched, applied, built or spent)
 
 **On your word**, on `codex-work-into-claude` only. `claude/chat-session-0nndv1`

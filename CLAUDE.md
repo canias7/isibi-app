@@ -64,7 +64,14 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   staged scripts; media aborts are proven (or `NoSuchUpload`) before their
   records go, in the sweep, the ledger's expiry and a cancel. Unit CI
   `11328 / 11280 / 0 / 48` (run 38950874665). Matrix:
-  `docs/history/2026-10-16-codex-batch-4.md` §4.
+  `docs/history/2026-10-16-codex-batch-4.md` §4 (its "crash recovery
+  complete" was premature). **Fifth batch** (`da645b2a`, after Codex's review
+  of `6d075aeb`): one preview claim per uploading writer (saves and the tick),
+  written before the draft record, removed only by its writer once confirmed;
+  no claim, no upload; ready only when no other claim stands; the tick
+  repairs after a claim can no longer land (16 minutes), from staged scripts,
+  bounded. Unit CI `11335 / 11287 / 0 / 48` (run 38955607361). Matrix:
+  `docs/history/2026-10-16-codex-batch-5.md` §4.
   `claude/chat-session-0nndv1` is untouched. The bullets below are older.
 - **`main` is `8908b59d`, deploy 2173** (2026-09-30 19:48 UTC, a
   fast-forward of 11 commits from `80ece106`, on the owner's word "commit
