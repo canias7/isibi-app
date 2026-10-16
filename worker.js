@@ -19996,13 +19996,21 @@ async function reconcileFacts(env, row) {
     const d = env.SITES_BUCKET ? (await readDraft(deps, slug)).draft : null;
     if (d) draft = { state: "read", record: d };
   } catch { draft = { state: "unreadable" }; }
+  // AND, FOR EACH REVISION NAMING THIS JOB, ITS VERSION'S OWN MANIFEST AND
+  // ITS HELD JOURNAL (2026-10-16): read exactly, each with its read state, so
+  // a manifest the listing left out (absent or unreadable) is cannot-tell,
+  // never "never staged".
+  const manifests = {};
   if (draft.state === "read") {
-    const r = draft.record.revs.find((x) => x && x.job === job.id && x.held);
-    if (r) {
-      try { journals[r.held] = !!(await deps.get(HELD_KEY(slug, r.held))); } catch { journals[r.held] = undefined; }
+    for (const r of draft.record.revs) {
+      if (!r || r.job !== job.id) continue;
+      if (!Object.hasOwn(manifests, r.version)) manifests[r.version] = await readManifest(deps, slug, r.version);
+      if (r.held && !Object.hasOwn(journals, r.held)) {
+        try { journals[r.held] = !!(await deps.get(HELD_KEY(slug, r.held))); } catch { journals[r.held] = undefined; }
+      }
     }
   }
-  return { job, pointer, live, builds, buildsUnread, mine, draft, journals };
+  return { job, pointer, live, builds, buildsUnread, mine, draft, journals, manifests };
 }
 
 /** How often this isolate has retried one row's upload — the cap is per isolate, said in the module. */

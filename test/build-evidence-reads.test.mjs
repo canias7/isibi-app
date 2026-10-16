@@ -301,8 +301,9 @@ test("BER7 THE EDIT RECONCILE, THE SAME READER — a text edit stopped after its
     const d = JSON.parse(String(P.readObj(DRAFT_KEY(P.slug))).replace(/\n[ \t]+$/, ""));
     const mine = d.revs.find((x) => x.job === job.id);
     assert.ok(mine);
-    // THE RECONCILE'S LISTING MEETS ONE FAILED READ OF THIS JOB'S MANIFEST.
-    P.failGetFrom((k) => k === manifestKey(mine.version, P.slug), { skip: 0, count: 1 });
+    // THE RECONCILE'S FIRST PASS MEETS FAILED READS OF THIS JOB'S MANIFEST —
+    // the listing's and the exact one (since the ninth batch's exact reads).
+    P.failGetFrom((k) => k === manifestKey(mine.version, P.slug), { skip: 0, count: 2 });
     P.recover();
     const refundOf = () => P.ledger.filter((e) => e.ref === job.id && e.reason === "refund").length;
     let unknownSeen = false;

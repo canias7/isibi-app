@@ -38,7 +38,7 @@ export const RECONCILE_KINDS = Object.freeze([
   "landed", "upload-retried", "lost-upload", "superseded-built-on", "superseded-not-built-on",
   "never-activated", "never-staged", "pointer-unreadable", "builds-unreadable", "live-unreadable",
   "live-ahead", "chain-broken", "retry-exhausted", "no-script-staged", "no-dispatch", "upload-refused", "upload-not-serving",
-  "draft-saved", "draft-unreadable", "draft-held-unreadable", "draft-trimmed", "builds-partly-unread",
+  "draft-saved", "draft-unreadable", "draft-held-unreadable", "draft-trimmed", "builds-partly-unread", "draft-manifest-unread",
 ]);
 
 /**
@@ -145,7 +145,32 @@ function draftVerdict(facts, job, mine) {
   if (d.state === "unreadable") return answer("unknown", "draft-unreadable", "the site's draft record could not be read, so whether this job's work was saved is not known", mine);
   if (d.state !== "read" || !d.record || !Array.isArray(d.record.revs)) return null;
   const rec = d.record;
-  const r = rec.revs.find((x) => x && x.job === job.id && (mine ? x.version === mine.version : !!x.held));
+  // EVERY REVISION NAMING THIS JOB, EACH BY WHAT ITS OWN EVIDENCE SAYS
+  // (2026-10-16, Codex's review of `5eca67cb`). A revision naming this job is
+  // durable evidence that it saved, and contradicts "never staged":
+  //   - of this job's version (`mine`), or of a version whose manifest, read
+  //     on its own (`facts.manifests`), names this job → its code was saved;
+  //   - carrying held changes on a version whose manifest names another job
+  //     (a held-only seal on the draft as it stood) → its held changes were
+  //     saved, proven by the journal below;
+  //   - of a version whose manifest is missing or unreadable → cannot tell,
+  //     unknown and recoverable, never refunded, until it reads.
+  // Without exact reads (an older caller), the earlier rule stands.
+  const own = rec.revs.filter((x) => x && x.job === job.id);
+  const ms = facts.manifests && typeof facts.manifests === "object" ? facts.manifests : null;
+  let r = null, blocked = null;
+  for (const x of own) {
+    if (mine && x.version === mine.version) { r = x; break; }
+    const m = ms && Object.hasOwn(ms, x.version) ? ms[x.version] : null;
+    if (!m) { if (!ms && !mine && x.held) { r = x; break; } continue; }
+    if (m.state === "read") {
+      const theirs = !(m.manifest && m.manifest.job === job.id);
+      if (!theirs || x.held) { r = x; break; }
+      continue;
+    }
+    blocked = blocked || { x, why: m.state === "absent" ? "missing" : "unreadable" };
+  }
+  if (!r && blocked) return answer("unknown", "draft-manifest-unread", "this job's own draft revision names a version whose manifest is " + blocked.why + ", so whether its work was saved cannot be told yet", mine, { revision: blocked.x.n, version: blocked.x.version });
   if (r) {
     if (r.held) {
       const j = facts.journals ? facts.journals[r.held] : undefined;
