@@ -57,7 +57,14 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   preview reads the head staged inside the version it serves (no shared
   `sitemeta-draft/`), and an overtaken save never leaves its script up. Unit
   CI `11316 / 11268 / 0 / 48` (run 38946441984). Matrix:
-  `docs/history/2026-10-16-codex-batch-3.md` §4.
+  `docs/history/2026-10-16-codex-batch-3.md` §4. **Fourth batch**
+  (`2b7f46cd`, after Codex's review of `ea9a2b71`): a preview is ready only
+  when confirmed on the selected draft, a durable pending mark and the tick
+  (`runPreviewRecovery`) finish failed, lost or interrupted updates from
+  staged scripts; media aborts are proven (or `NoSuchUpload`) before their
+  records go, in the sweep, the ledger's expiry and a cancel. Unit CI
+  `11328 / 11280 / 0 / 48` (run 38950874665). Matrix:
+  `docs/history/2026-10-16-codex-batch-4.md` §4.
   `claude/chat-session-0nndv1` is untouched. The bullets below are older.
 - **`main` is `8908b59d`, deploy 2173** (2026-09-30 19:48 UTC, a
   fast-forward of 11 commits from `80ece106`, on the owner's word "commit

@@ -1,5 +1,80 @@
 # Owner Notes
 
+## 2026-10-16 — Fourth batch on `codex-work-into-claude`, after Codex's review of `ea9a2b71` (branch only; nothing merged, deployed, switched, applied, built or spent)
+
+**On your word**, on `codex-work-into-claude` only. `claude/chat-session-0nndv1`
+untouched (`f9f983a3`). No paid test. Codex passed 33 focused tests on
+`ea9a2b71` and found two recovery gaps. Both are closed together. The record
+and the matrix are `docs/history/2026-10-16-codex-batch-4.md`.
+
+### Commits
+
+- **`2b7f46cd`**: both fixes, their tests, the mutation spec and the history.
+- **This commit**: this entry and CLAUDE.md.
+
+### What changed
+
+- **The preview no longer claims to be ready when it isn't.** A preview
+  update now counts as done only when the upload succeeded and the draft
+  still selects that version. Before, a failed repair left the preview on
+  the older version while saying "uploaded".
+  - "Draft saved" and "preview ready" are reported separately.
+  - A preview that isn't ready is marked pending in storage, before the
+    upload even starts.
+  - A background job on the regular tick then puts the preview on whatever
+    version the draft selects at that moment, with nobody's browser open.
+    It re-uploads that version's already-built script: nothing is rebuilt,
+    no model is asked, nothing is charged, and the live site is never
+    touched.
+  - It waits longer between tries, and after 12 tries marks the preview
+    "stuck".
+- **A cancelled video or audio upload is only forgotten once it is proven
+  stopped.** Before, a failed cancel was treated as done: the half-finished
+  upload stayed in storage and nothing named it any more.
+  - Now its records stay until R2 confirms it stopped, or says it no longer
+    exists, and the tick tries again.
+  - The same rule now covers the upload ledger's own expiry and a cancel
+    from the page.
+  - The tick also checks that the upload's reserved room was actually given
+    back.
+  - Finished files and uploads still in progress are never touched.
+
+### Results (measured)
+
+- **New tests:** `preview-recovery` (PR1–PR5 and PR3b) and
+  `media-abort-recovery` (MAR1–MAR6).
+  - They cover: a failed repair, a lost answer, a save interrupted after the
+    stale upload, a newer draft arriving mid-recovery, a real save whose
+    preview cannot go up, a failed cancel then recovery, an upload already
+    gone, a lost cancel answer, the room not given back, the ledger's
+    expiry, a cancel whose stop fails, and the safety of finished files and
+    active uploads.
+  - **Found by the new tests and fixed in this batch:** a newer save could
+    mark the preview ready before an older save's stale upload landed (PR3b).
+- **Red check on `ea9a2b71`:** the new media cases fail there on the defects
+  themselves, and the already-gone control passes there. The preview file
+  cannot load there: the recovery it calls did not exist.
+- **Mutation sweep** (`scripts/mutants/codex-batch-4.json`, from a green
+  baseline): 21 of 24 caught on the first pass. Cases were added for the
+  three that slipped through, and a follow-up caught all three, so 24 of
+  24. Both comment-only controls survived.
+- **Full suite locally:** 11,328 / 11,326 / 0 / 2.
+- **CI on `2b7f46cd`:** unit tests run 38950874665, 11,328 / 11,280 / 0 /
+  48, success; site build run 38950876196, success.
+
+### Remaining gaps
+
+- **Moments of an older preview:** while a repair is under way the older
+  version can show, longer if uploads keep failing. A "stuck" preview waits
+  for a person. The platform has no conditional script upload.
+- **The owner's panel doesn't show "preview pending" yet** (frontend,
+  deferred).
+- **Found in passing:** a text edit's job answer carries no draft facts at
+  all. It is in the backlog.
+- **Live-only:** two real saves racing, Cloudflare's own upload failures, and
+  R2's real "no such upload" code and its own multipart expiry.
+- **Deferred as you asked:** the production rollout and frontend narration.
+
 ## 2026-10-16 — Third batch on `codex-work-into-claude`, after Codex's review of `fbd53dca` (branch only; nothing merged, deployed, switched, applied, built or spent)
 
 **On your word**, on `codex-work-into-claude` only. `claude/chat-session-0nndv1`
