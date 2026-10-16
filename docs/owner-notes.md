@@ -1,5 +1,100 @@
 # Owner Notes
 
+## 2026-10-16 — The integration candidate: main, help-needed and Publish together (unmerged; nothing deployed, built, switched or spent)
+
+Codex reviewed Publish at `d6515ab4`. It replayed the
+pointer-before-script-upload crash independently: recovery now brings the
+running script onto the approved version before finishing, and a repeated
+recovery does nothing extra. Its 90 focused tests passed, with unit and
+site-build CI green.
+
+### 1. The candidate
+
+**Branch `claude/integration-parallel-publish`**, merge commit
+**`247e4b42`**, with this record on top. Its parents are Publish
+`d6515ab4` and help-needed `3e721154`. It contains:
+- **`main` `772bb885`**: already in Publish, which was built on it;
+- **help-needed's code through `d583030d`**, also already in Publish (merge
+  `9c1a5af3`): side-by-side writes, the publish turn and its fences,
+  absent keys held, owned recovery notes;
+- **help-needed's records** `66cbeb55`, `78d3fb26` and `3e721154`, added by
+  this merge;
+- **Publish through `d6515ab4`**: draft-first, held changes, coherent and
+  recoverable publishing, and `71f7d48d`, which completes an activation
+  through help-needed's `alignLiveScript` with its own recovery note.
+
+**The candidate's code tree is identical to `d6515ab4`'s.** The merge
+changed documents only.
+
+### 2. Conflicts resolved (documents only)
+
+- **`docs/owner-notes.md`**: a union of both sides' new entries, nothing
+  dropped. Help-needed's three newest entries sit first, then Publish's.
+- **`docs/history/2026-10-15-draft-first.md`**:
+  - Publish's §6 to §9 are kept as they are.
+  - Help-needed's hand-over (its own §6) becomes **§10**, rewritten for the
+    integrated state: Publish took the code by `9c1a5af3`, `71f7d48d`
+    reuses `alignLiveScript`, the timing is a conditional estimate.
+  - **§4's backend bullet** now says the first round was live-immediately,
+    the second round (§6.2) holds those changes, and help-needed alone
+    still writes live.
+- No code file conflicted.
+
+### 3. Results
+
+- **Focused tests on the candidate:** 306 of 306 pass across:
+  - draft-first, site-draft, publish-button and publish-integrity;
+  - publish-pages, publish-redirects and publish-clock;
+  - turn-fence, concurrent-writes and request-beside.
+- **Full suite locally:** 11,263 tests, 11,260 pass, 1 fail, 2 skipped.
+  - The failure is `no-generated-deps`, which sees the `node_modules` link
+    the local run needs. With the link removed it passes 2 of 2.
+  - The 2 skipped need the template's own dependencies.
+- **Unit CI:** see §6 (filled after the run).
+- **Image prediction** (not built): `a2da2b0277e92979`, 211 inputs, 180
+  paths. Main's is `712a579f8e81a3bb` (209 inputs), so a merge would roll
+  the image.
+
+### 4. Blockers found while preparing the live plan
+
+All four are offline and free; none is fixed here. The full plan is
+`docs/history/2026-10-16-integrated-live-plan.md`.
+1. **`DRAFT_FIRST` never reaches a queued job.**
+   - It is not in `JOB_ENV_NAMES` (`builder/edit-job.mjs`).
+   - Production runs queued jobs in the container
+     (`JOB_RUNNER_EVERYONE`), so a container job would read the switch as
+     off and publish live, bypassing the draft.
+   - The offline tests run jobs in-process and never cross this hop.
+2. **`DRAFT_FIRST` is not delivered by the deploy**
+   (`.github/workflows/deploy.yml` lists `PARALLEL_WRITES`, not it).
+3. **The free runtime check reports neither switch**: `build-health`
+   carries `imagePurchases` and `progressTalk` only.
+4. **No instrument reads drafts, held journals or recovery notes, or
+   presses Publish.**
+
+Blockers 1 to 3 belong on the Publish side of the line, and are offered
+there first so that the fix is made once. Blocker 4 is harness work.
+
+### 5. Live-only gaps (unchanged by integration)
+
+- Two writing jobs of one request overlapping on real infrastructure.
+- Two isolates racing the publish turn.
+- R2's real conditional writes under contention.
+- The real script upload, its abort and a lost answer; the cron sweep
+  repairing without a request.
+- A held change applied by a real Publish to a real Neon database, exactly
+  once.
+- Draft isolation on the real preview host.
+- Crash, duplicate delivery and lost purchase.
+- The 12 to 14 minute repair estimate, which stays conditional.
+
+**Not implemented, still:** writes from different requests; finer merging
+for same-page, settings and schema writers; a first Build mixed with edits.
+
+### 6. CI
+
+Pending at the time of writing; read from the run and recorded in the next commit.
+
 ## 2026-10-16 — Your choice: finish Publish first; help-needed paused (documents only)
 
 **You chose B.** Publish is finished first on its own branch. Then both
