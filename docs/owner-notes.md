@@ -32,9 +32,42 @@ untouched. No paid test. The record and the matrix are
 
 - **`db544075`**: the fix and its tests (EER1–EER7).
 - **`567ada13`**: the mutation sweep spec.
-- **This commit**: the records.
+- **`95974b1b`**: the gap and the fix recorded.
+- **`5f5ecaa3`**: PR6's exact-timestamp check made a window (a test that failed intermittently).
+- **This commit**: the results and the consolidated table.
 
-RESULTS_PENDING
+### Results (measured)
+
+- **Red check on `ff842781`:** 4 of 6 new cases fail there, on the defect
+  itself; the thrown/malformed guard and the genuine control pass.
+- **Mutation sweep:** 7 of 7; both controls survived.
+- **Related tests together:** 1,167 of 1,167.
+- **Full suite locally.**
+  - On `567ada13`: 11,385 / 11,382 / **1 failed** / 2. The failure was an
+    older test, PR6, that checked a timestamp exactly. Since the sixth batch
+    that timestamp comes from a clock that moves, so the test failed about
+    2 runs in 5.
+  - Fixed in **`5f5ecaa3`** (the test only). Then: 12 of 12 alone, and on
+    `5f5ecaa3` the full suite is 11,385 / 11,383 / 0 / 2.
+- **Unit CI:**
+  - run 38971917378 on `95974b1b`: 11,385 / 11,337 / 0 / 48, success;
+  - run 38973278304 on `5f5ecaa3`: 11,385 / 11,337 / 0 / 48, success;
+  - site build on `db544075`: success.
+- **Codex passed 205 focused tests on `95974b1b`**, and its own
+  missing-manifest reproduction now recovers.
+
+### Remaining gaps
+
+- **Backend:**
+  - a lost job whose evidence never becomes readable is retried every tick
+    with no limit, and anything waiting on it waits as long;
+  - the preview script's upload is not conditional.
+- **Production only:**
+  - R2's real read failures;
+  - a real lost edit or build under draft-first.
+
+The consolidated table for the three goals is in
+`docs/history/2026-10-16-codex-batch-9.md` §5.
 
 ## 2026-10-16 — Eighth batch on `codex-work-into-claude`, after Codex's reviews of `fd951ba3` and `305c9425` (branch only; nothing merged, deployed, switched, applied, built or spent)
 

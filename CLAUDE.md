@@ -93,7 +93,12 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   a manifest is read as read/absent/unreadable and an unreadable one is
   never proof (lost builds, the Edit reconcile, the owner source route).
   Unit CI `11379 / 11331 / 0 / 48` (run 38970266996). Matrix:
-  `docs/history/2026-10-16-codex-batch-8.md` §6. Offline only.
+  `docs/history/2026-10-16-codex-batch-8.md` §6. Offline only. **Ninth
+  batch** (`db544075`, `5f5ecaa3`, after Codex's review of `5eca67cb`): Edit
+  and Add-on recovery read each of the job's revisions' manifests exactly;
+  missing or unreadable is unknown, never `never-staged`. Unit CI
+  `11385 / 11337 / 0 / 48` (run 38973278304). **The consolidated table for
+  the three goals: `docs/history/2026-10-16-codex-batch-9.md` §5.**
   `claude/chat-session-0nndv1` is untouched. The bullets below are older.
 - **`main` is `8908b59d`, deploy 2173** (2026-09-30 19:48 UTC, a
   fast-forward of 11 commits from `80ece106`, on the owner's word "commit
