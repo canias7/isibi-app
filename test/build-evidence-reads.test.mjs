@@ -343,3 +343,15 @@ test("BER8 THE OWNER'S SOURCE-BY-JOB ROUTE, THE SAME READER — a version whose 
     assert.equal(ok.body.version, live);
   } finally { await P.settle(); P.close(); compiler.uninstall(); }
 });
+
+test("BER9 A REVISION NAMING THIS JOB ON A VERSION ANOTHER JOB STAGED — the exact manifest, read cleanly, names the other job: it proves nothing for this one (`publish-in-flight`, unknown); the same revision with the manifest naming this job is `saved` (control)", async () => {
+  const { lostBuildVerdict } = await import("../builder/build-lease.mjs");
+  const id = "a".repeat(32), other = "b".repeat(32);
+  const row = { id, slug: SLUG, created_at: "2026-10-08T11:00:00Z" };
+  const draft = { state: "read", record: { version: V2, rev: 1, revs: [{ n: 1, version: V2, at: "x", job: id }] } };
+  const fence = { owner: "publish", failed: false, published: "" };
+  const theirs = lostBuildVerdict({ row, pointer: null, builds: [], fence, fencedJob: true, draft, manifests: { [V2]: { state: "read", manifest: { job: other, files: ["x"] } } } });
+  assert.deepEqual(theirs, { outcome: "unknown", why: "publish-in-flight" });
+  const ours = lostBuildVerdict({ row, pointer: null, builds: [], fence, fencedJob: true, draft, manifests: { [V2]: { state: "read", manifest: { job: id, files: ["x"] } } } });
+  assert.deepEqual(ours, { outcome: "saved", why: "draft-revision", version: V2, revision: 1 });
+});
