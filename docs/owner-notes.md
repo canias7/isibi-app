@@ -1,5 +1,77 @@
 # Owner Notes
 
+## 2026-10-16 — Third batch on `codex-work-into-claude`, after Codex's review of `fbd53dca` (branch only; nothing merged, deployed, switched, applied, built or spent)
+
+**On your word**, on `codex-work-into-claude` only. `claude/chat-session-0nndv1`
+untouched (`f9f983a3`). No paid test. Codex passed all 22 focused tests on
+`fbd53dca` and reproduced two defects; both are fixed as general problems. The
+full record and the matrix are `docs/history/2026-10-16-codex-batch-3.md`.
+
+### Commits
+
+- **`3b2d760a`**: both fixes, their tests, the mutation spec and the history.
+- **This commit**: this entry and CLAUDE.md.
+
+### What changed
+
+- **The media cleanup tick is fair.** It used to get stuck: 25 uploads still
+  in progress at the front of the list kept an expired 26th from ever being
+  looked at, and an expired 101st draft sat behind 100 young ones for ever.
+  - Now each kind of record (upload sessions, upload parts, pre-site drafts)
+    is walked separately, in order, a fixed number per tick. The tick keeps
+    its place and starts again at the end, so everything is looked at within
+    a bounded number of ticks.
+  - Something that failed is looked at again on the next lap.
+  - The place survives restarts and deletions.
+  - Unchanged: uploads still in progress and files are never touched.
+- **The preview shows the right site description.** Every draft save wrote
+  one shared file. An older save finishing late could put the older head
+  (description, address, redirects) under the newer preview, and its older
+  script too.
+  - Now the preview reads the head stored inside the very version it serves.
+    That head is written once and is the same one Publish writes live.
+  - A save that finishes last with an older version puts the newer version's
+    preview back up.
+  - The old shared file is no longer written. Container jobs may no longer
+    write it.
+
+### Results (measured)
+
+- **New tests:**
+  - `media-sweep-fair` (MSF1–7): realistic page sizes, more records than a
+    tick handles, kept records ahead of expired ones, many ticks.
+  - `draft-preview-head` (DPH1–4): the overlapping saves step by step, the
+    real site script's reader, storage permissions, and the Worker's
+    re-preview.
+  - Updated: DMO1 (Publish writes live the head the preview showed) and MR5.
+- **Red check on `fbd53dca`:** all 10 new cases fail there, on the defects
+  themselves. The expired session is not reclaimed over two ticks, the 101st
+  draft is not removed over three, and the older preview is left up.
+- **Mutation sweep** (`scripts/mutants/codex-batch-3.json`, over the four
+  relevant test files, from a green baseline):
+  - the first pass caught 20 of 22;
+  - the two survivors each cost one wasted tick: a finished list not
+    starting again at once, and a foreign place being believed;
+  - MSF7 was added for them, and a follow-up sweep caught both, so all 22
+    are caught;
+  - both comment-only controls survived each time.
+- **Full suite locally:** 11,316 / 11,314 / 0 / 2.
+- **CI on `3b2d760a`:**
+  - unit tests run 38946441984: 11,316 / 11,268 / 0 / 48, success;
+  - site build run 38946441985: success.
+
+### Remaining gaps
+
+- **Live only:** the preview after an image roll, two real saves racing, R2's
+  own listing and multipart behaviour, and a tick's request count (about 400
+  at the default budgets, estimated, not measured).
+- **The preview script's upload is still not conditional.** For a moment the
+  older preview can show before the newer one goes back up. A held rename's
+  new address shows only after Publish. Both are in the backlog.
+- **Deferred as you asked:** frontend narration and the production rollout.
+  The rollout steps are unchanged, and the merge rolls the image (the site
+  template changed again).
+
 ## 2026-10-16 — Second batch on `codex-work-into-claude`, after Codex's review of `99021708` (branch only; nothing merged, deployed, switched, applied, built or spent)
 
 **On your word**, on `codex-work-into-claude` only. `claude/chat-session-0nndv1`

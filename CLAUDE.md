@@ -51,7 +51,13 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   deletes answer 404, abandoned uploads are reclaimed, `MEDIA_MAX_*` reach
   the runtime; the preview's head is the draft's (`sitemeta-draft/`). Unit CI
   `11303 / 11255 / 0 / 48` (run 38937615634). Matrix:
-  `docs/history/2026-10-16-codex-batch-2.md` §6.
+  `docs/history/2026-10-16-codex-batch-2.md` §6. **Third batch**
+  (`3b2d760a`, after Codex's review of `fbd53dca`): the media sweep walks
+  every prefix fairly by key, restartable, failed items revisited; the
+  preview reads the head staged inside the version it serves (no shared
+  `sitemeta-draft/`), and an overtaken save never leaves its script up. Unit
+  CI `11316 / 11268 / 0 / 48` (run 38946441984). Matrix:
+  `docs/history/2026-10-16-codex-batch-3.md` §4.
   `claude/chat-session-0nndv1` is untouched. The bullets below are older.
 - **`main` is `8908b59d`, deploy 2173** (2026-09-30 19:48 UTC, a
   fast-forward of 11 commits from `80ece106`, on the owner's word "commit
