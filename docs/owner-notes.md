@@ -1,5 +1,52 @@
 # Owner Notes
 
+## 2026-10-16 — Eleventh batch on `codex-work-into-claude`: the review sweep reaches every job (branch only; nothing merged, deployed, switched, applied, built or spent)
+
+**On your word**, on `codex-work-into-claude` only, focused on the one defect
+Codex confirmed. `claude/chat-session-0nndv1` untouched. No paid test. The
+record and the updated table are `docs/history/2026-10-16-codex-batch-11.md`.
+
+### What was wrong
+
+- **The defect.** Edit and Add-on recovery looked at the same 20 oldest
+  waiting jobs every time. Jobs it couldn't decide yet stayed at the front
+  forever, so a later job that could be recovered was never reached.
+- **Codex's case:** 20 stuck jobs ahead of a 21st with a perfectly good
+  saved draft; after nine rounds the 21st was still waiting.
+
+### What changed
+
+- **Recovery now walks through all waiting jobs in order, a page at a time.**
+  It remembers where it stopped, even across restarts, then starts again
+  from the beginning, so it reaches every job.
+- **Jobs it couldn't decide** are still asked again only on their schedule.
+- **Nothing about a job is changed to make this work.**
+
+### Commits
+
+- **`3fffbb18`**: the fix, its tests (RVT1–RVT4), and the completed SRB7.
+- **`0b145ab4`**: the mutation sweep spec.
+- **`69a681bf`**: sharper tests, after the sweep found three gaps.
+- **This commit**: the records.
+
+### Results (measured)
+
+- **Red check on `82259f1e`:** the three traversal cases fail there exactly as
+  Codex saw ("the 21st was never reached").
+- **Mutation sweep:** 6 of 6, after sharpening the tests. The control
+  survived.
+- **Related recovery tests together:** 1,091 of 1,091.
+- **Full suite locally on `69a681bf`:** 11,397 / 11,395 / 0 / 2.
+- **Unit CI:** run 38979293716 on `69a681bf`, 11,397 / 11,349 / 0 / 48,
+  success. Site build on `3fffbb18`: success.
+
+### Still only verifiable in production
+
+- The real job table's ordering and filtering under load.
+- A real crash leaving many jobs in review.
+- The other production-only checks in the table: switches, live playback,
+  R2 behaviour, and applying `request_beside.sql` before parallel writes.
+
 ## 2026-10-16 — Tenth batch on `codex-work-into-claude`: the remaining backend items (branch only; nothing merged, deployed, switched, applied, built or spent)
 
 **On your word**, on `codex-work-into-claude` only. `claude/chat-session-0nndv1`

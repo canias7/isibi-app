@@ -103,8 +103,12 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   between requests on hosted media; `/u/` tied to its host; the media sweep
   metered to 200 storage calls a tick (measured 220 → 162/164/45/45/12);
   unresolved recovery on a doubling schedule (≤ 30 min), never a false
-  outcome. Unit CI `11393 / 11345 / 0 / 48` (run 38976215615). **The table
-  now: `docs/history/2026-10-16-codex-batch-10.md` §4.**
+  outcome. Unit CI `11393 / 11345 / 0 / 48` (run 38976215615). **Eleventh
+  batch** (`3fffbb18`, `69a681bf`, after Codex's review of `82259f1e`): the
+  review sweep walks every row under review with a durable keyset cursor
+  (an unresolved row ahead no longer holds a recoverable one back). Unit CI
+  `11397 / 11349 / 0 / 48` (run 38979293716). **The table now:
+  `docs/history/2026-10-16-codex-batch-11.md` §5.**
   `claude/chat-session-0nndv1` is untouched. The bullets below are older.
 - **`main` is `8908b59d`, deploy 2173** (2026-09-30 19:48 UTC, a
   fast-forward of 11 commits from `80ece106`, on the owner's word "commit
