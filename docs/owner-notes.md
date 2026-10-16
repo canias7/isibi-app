@@ -50,7 +50,7 @@ changed documents only.
   - The failure is `no-generated-deps`, which sees the `node_modules` link
     the local run needs. With the link removed it passes 2 of 2.
   - The 2 skipped need the template's own dependencies.
-- **Unit CI:** see §6 (filled after the run).
+- **Unit CI:** green (§6).
 - **Image prediction** (not built): `a2da2b0277e92979`, 211 inputs, 180
   paths. Main's is `712a579f8e81a3bb` (209 inputs), so a merge would roll
   the image.
@@ -93,7 +93,12 @@ for same-page, settings and schema writers; a first Build mixed with edits.
 
 ### 6. CI
 
-Pending at the time of writing; read from the run and recorded in the next commit.
+Both runs on `05f517b5` (`247e4b42` plus this record) succeeded:
+- **unit tests, run 38833829026:** 11,263 tests, 11,215 pass, 0 fail, 48
+  skipped. CI skips 48 that need local browsers or dependencies; compare
+  the totals.
+- **site build, run 38833829172:** every job succeeded (four site-build
+  shards, kit and generator, theme, published-site, all checks).
 
 ## 2026-10-16 — Your choice: finish Publish first; help-needed paused (documents only)
 
