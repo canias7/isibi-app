@@ -381,13 +381,18 @@ export async function convergePreview(deps, slug, { mine = null, upload = null, 
     catch { return { known: false, v: null }; }
   };
   let up = null, error = "", attempts = 0, repaired = false;
+  // NO UPLOAD STARTS PAST THE CLAIM'S WINDOW: past it, the claim may be
+  // settled by the tick as unable to land anything more. Asked here before
+  // each attempt AND handed to the upload itself as `go`, which asks the
+  // advancing clock again immediately before the external call — after any
+  // staged-build read the upload makes first (2026-10-16, Codex's review of
+  // `dbf7a2c8`).
+  const go = () => now() <= deadline;
   const tryUp = async (fn, v) => {
-    // NO UPLOAD STARTS PAST THE CLAIM'S WINDOW: past it, the claim may be
-    // settled by the tick as unable to land anything more.
-    if (now() > deadline) { up = null; error = "past the preview's upload window"; return false; }
+    if (!go()) { up = null; error = "past the preview's upload window"; return false; }
     attempts++;
     let r;
-    try { r = await fn(); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+    try { r = await fn({ go }); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
     if (r && r.ok === true) { up = v; return true; }
     up = null;
     error = String((r && r.error) || "the preview did not go up").slice(0, 200);
@@ -395,15 +400,18 @@ export async function convergePreview(deps, slug, { mine = null, upload = null, 
   };
   if (mine && typeof upload === "function") await tryUp(upload, mine);
   let s = await standing();
-  for (let i = 0; i < checks && s.known && s.v && s.v !== up && typeof repreview === "function"; i++) {
-    if ((await tryUp(() => repreview(s.v), s.v)) && s.v !== mine) repaired = true;
+  for (let i = 0; i < checks && s.known && s.v && s.v !== up && typeof repreview === "function" && go(); i++) {
+    const want = s.v;
+    if ((await tryUp((o) => repreview(want, o), want)) && want !== mine) repaired = true;
     s = await standing();
   }
   const ready = !!(s.known && s.v && up === s.v);
-  if (!ready && !error) error = !s.known ? "the draft could not be read" : !s.v ? "there is no draft" : "the preview is not on the draft's version yet";
-  return { ready, version: s.v, up, attempts, repaired, ...(ready ? {} : { error }) };
+  if (!ready && !error) error = !s.known ? "the draft could not be read" : !s.v ? "there is no draft" : !go() ? "past the preview's upload window" : "the preview is not on the draft's version yet";
+  // `absent`: the draft is READ and there is none — nothing to show, as
+  // opposed to a draft that could not be read.
+  return { ready, version: s.v, up, attempts, repaired, absent: !!(s.known && !s.v), ...(ready ? {} : { error }) };
 }
-export async function saveAsDraft(deps, { slug, version, build = "", base = "", job = null, afterActivate, commit, preview, repreview = null, held = null } = {}) {
+export async function saveAsDraft(deps, { slug, version, build = "", base = "", job = null, afterActivate, commit, preview, repreview = null, held = null, clock = () => Date.now() } = {}) {
   let rec, ref = null;
   // THE PREVIEW'S CLAIM BEFORE THE DRAFT'S RECORD (2026-10-16, Codex's review
   // of `6d075aeb`): a save that stops between recording the draft and putting
@@ -411,8 +419,22 @@ export async function saveAsDraft(deps, { slug, version, build = "", base = "", 
   // up; one that stops before the record leaves a claim with nothing to
   // repair, which the tick settles harmlessly. A claim that cannot be written
   // means no upload at all (below): never an untracked one.
-  const claim = typeof preview === "function" ? await claimPreview(deps, slug) : null;
+  const claim = typeof preview === "function" ? await claimPreview(deps, slug, clock()) : null;
   const unclaim = async () => { if (claim) await dropClaims(deps, [claim.key]); };
+  // AFTER A WRITE WHOSE OUTCOME IS UNCERTAIN (2026-10-16, Codex's review of
+  // `dbf7a2c8`): a record write can land and lose its answer. The claim is
+  // removed only when the durable state shows the write did NOT land — the
+  // draft read, and it selects some other version, or there is none; when it
+  // selects this version, or cannot be read, the claim stays and the tick
+  // puts the selected version's preview up (or, finding no draft at all,
+  // clears it).
+  const settleUncertain = async () => {
+    if (!claim) return { landed: null };
+    let landed = null;
+    try { const { draft } = await readDraft(deps, slug); landed = !!(draft && draft.version === version); } catch { landed = null; }
+    if (landed === false) await unclaim();
+    return { landed };
+  };
   try {
     // THE TASK'S HELD BACKEND AND LIBRARY CHANGES go into the same revision as
     // its code (2026-10-15): written first, immutable, named by the record.
@@ -429,9 +451,9 @@ export async function saveAsDraft(deps, { slug, version, build = "", base = "", 
     rec = await saveDraftRecord(deps, slug, { version, build, base, job, held: ref });
   }
   catch (e) {
-    await unclaim();
+    const { landed } = await settleUncertain();
     if (e && e.code === "TURN_FENCED") throw e;
-    return { ok: false, error: "draft: " + String((e && e.message) || e) };
+    return { ok: false, error: "draft: " + String((e && e.message) || e), ...(landed !== false && claim ? { recoverable: true, landed } : {}) };
   }
   if (!rec.ok) { await unclaim(); return { ok: false, error: rec.error || "draft", ...(rec.older ? { older: true, version: rec.version } : {}) }; }
   // A NEWER DRAFT ALREADY STOOD (2026-10-16): the draft the owner will publish
@@ -462,7 +484,7 @@ export async function saveAsDraft(deps, { slug, version, build = "", base = "", 
         await unclaim();
         previewed = { ok: false, superseded: true, version: first, pending: false };
       } else {
-        const c = await convergePreview(deps, slug, { mine: version, upload: () => preview(rec.draft), repreview, deadline: claim.at + PREVIEW_UPLOAD_WINDOW_MS });
+        const c = await convergePreview(deps, slug, { mine: version, upload: (o) => preview(rec.draft, o), repreview, deadline: claim.at + PREVIEW_UPLOAD_WINDOW_MS, now: clock });
         let others = null;
         if (c.ready) {
           await unclaim();

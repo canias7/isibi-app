@@ -268,6 +268,6 @@ test("DPH4 THE WORKER'S RE-PREVIEW ON REAL DRAFT SAVES — `previewVersion` puts
   } finally { P.close(); compiler.uninstall(); }
   // BOTH ACTIVATION PATHS HAND IT TO THE DRAFT SAVE, landmark to landmark.
   const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const wired = w.split("repreview: toDraft ? (v) => previewVersion(env, slug, v) : undefined,").length - 1;
+  const wired = w.split("repreview: toDraft ? (v, o) => previewVersion(env, slug, v, o) : undefined,").length - 1;
   assert.equal(wired, 2, "the edit and build activations do not both hand the re-preview to the draft save (" + wired + ")");
 });

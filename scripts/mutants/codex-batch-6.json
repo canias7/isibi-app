@@ -1,0 +1,116 @@
+[
+  {
+    "label": "CONTROL: a comment only in site-draft.mjs — must survive",
+    "control": true,
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "export const PREVIEW_UPLOAD_WINDOW_MS = 5 * 60 * 1000;",
+    "to": "// comment-only control\nexport const PREVIEW_UPLOAD_WINDOW_MS = 5 * 60 * 1000;"
+  },
+  {
+    "label": "CONTROL: a comment only in worker.js — must survive",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "const PREVIEW_CLAIMS_ROOT = \"preview-claims/\";",
+    "to": "// comment-only control\nconst PREVIEW_CLAIMS_ROOT = \"preview-claims/\";"
+  },
+  {
+    "label": "K1 the tick's clock is frozen at its start",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  const clock = typeof now === \"function\" ? now : ((offset) => () => Date.now() + offset)(Number(now) - Date.now());",
+    "to": "  const frozen = typeof now === \"function\" ? now() : Number(now);\n  const clock = () => frozen;"
+  },
+  {
+    "label": "K2 the tick's claim is stamped at the tick's start",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    const own = await claimPreview(deps, slug, clock());",
+    "to": "    const own = await claimPreview(deps, slug, (out.t0 ??= clock()));"
+  },
+  {
+    "label": "K3 the upload does not ask the window before the external call",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (typeof go === \"function\" && !go()) return { ok: false, status: 0, error: \"past the preview's upload window\" };",
+    "to": ""
+  },
+  {
+    "label": "K4 the re-preview drops the window",
+    "files": [
+      "worker.js"
+    ],
+    "from": "{ ok: true, code: b.worker, build: (b.manifest && b.manifest.build) || \"\" }, { preview: true, go });",
+    "to": "{ ok: true, code: b.worker, build: (b.manifest && b.manifest.build) || \"\" }, { preview: true });"
+  },
+  {
+    "label": "K5 converge hands no window to the upload",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "    try { r = await fn({ go }); } catch (e)",
+    "to": "    try { r = await fn({}); } catch (e)"
+  },
+  {
+    "label": "K6 converge does not ask before an attempt",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "    if (!go()) { up = null; error = \"past the preview's upload window\"; return false; }",
+    "to": ""
+  },
+  {
+    "label": "K7 the tick's deadline counts from the tick's start",
+    "files": [
+      "worker.js"
+    ],
+    "from": "deadline: own.at + PREVIEW_UPLOAD_WINDOW_MS, now: clock });",
+    "to": "deadline: Infinity, now: clock });"
+  },
+  {
+    "label": "U1 an uncertain record write always removes the claim",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "    if (landed === false) await unclaim();",
+    "to": "    await unclaim();"
+  },
+  {
+    "label": "U2 a write proven not to land keeps its claim",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "    if (landed === false) await unclaim();",
+    "to": "    if (false) await unclaim();"
+  },
+  {
+    "label": "U3 an unreadable draft counts as not landed",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "landed = !!(draft && draft.version === version); } catch { landed = null; }",
+    "to": "landed = !!(draft && draft.version === version); } catch { landed = false; }"
+  },
+  {
+    "label": "U4 the tick keeps working a site with no draft",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    } else if (c.absent) {",
+    "to": "    } else if (false) {"
+  },
+  {
+    "label": "U5 an unreadable draft counts as absent",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "absent: !!(s.known && !s.v),",
+    "to": "absent: !s.v,"
+  }
+]

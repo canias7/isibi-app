@@ -12625,11 +12625,12 @@ async function newTablesOf(db, spec) {
  * that finished last with an older script never leaves it in front of the
  * draft (`saveAsDraft`). The script reads its version's head itself.
  */
-async function previewVersion(env, slug, version) {
+async function previewVersion(env, slug, version, { go = null } = {}) {
   let b = null;
   try { b = await readBuild(buildDeps(env), slug, version); } catch { b = null; }
   if (!b || typeof b.worker !== "string" || !b.worker) return { ok: false, error: "the version's script is not staged" };
-  const r = await uploadScriptOnce(env, slug, { ok: true, code: b.worker, build: (b.manifest && b.manifest.build) || "" }, { preview: true });
+  // THE WINDOW IS ASKED AGAIN AFTER THE STAGED READ, inside the upload itself.
+  const r = await uploadScriptOnce(env, slug, { ok: true, code: b.worker, build: (b.manifest && b.manifest.build) || "" }, { preview: true, go });
   return r || { ok: false, error: "no preview uploaded" };
 }
 // ── A DRAFT'S PREVIEW, RECOVERED (2026-10-16, Codex's reviews of `ea9a2b71` and `6d075aeb`) ──
@@ -12663,7 +12664,12 @@ const PREVIEW_SWEEP_CURSOR = "preview-sweep/cursor.json";
 const PREVIEW_CLAIMS_ROOT = "preview-claims/";
 export async function runPreviewRecovery(env, { now = Date.now(), budget = 50 } = {}) {
   const B = env.SITES_BUCKET;
-  const out = { looked: 0, ready: 0, waiting: 0, stuck: 0, failed: 0 };
+  const out = { looked: 0, ready: 0, waiting: 0, stuck: 0, failed: 0, cleared: 0 };
+  // AN ADVANCING CLOCK THROUGHOUT (2026-10-16, Codex's review of
+  // `dbf7a2c8`): a tick that froze its start time let a slow site's retry
+  // start an upload past its own claim's window. `now` is a clock, or a
+  // starting time from which the real clock advances.
+  const clock = typeof now === "function" ? now : ((offset) => () => Date.now() + offset)(Number(now) - Date.now());
   if (!B || typeof B.list !== "function") return out;
   let place = null;
   try {
@@ -12680,29 +12686,37 @@ export async function runPreviewRecovery(env, { now = Date.now(), budget = 50 } 
     let claims;
     try { claims = await previewClaims(deps, slug); } catch { continue; }
     if (!claims.length) continue;
-    if (claims.some((c) => c.at + PREVIEW_LAND_MS > now)) { out.waiting++; continue; }
+    if (claims.some((c) => c.at + PREVIEW_LAND_MS > clock())) { out.waiting++; continue; }
     let reg = {}, etag = null;
     try { const got = await B.get(PREVIEW_STATE_KEY(slug)); if (got) { etag = got.etag || null; reg = JSON.parse(await got.text()) || {}; } } catch { continue; }
     const newest = Math.max(...claims.map((c) => c.at));
     if (reg.state === "stuck" && !(newest > Number(reg.at))) { out.stuck++; continue; }
     const tries0 = reg.state === "stuck" ? 0 : (Number.isSafeInteger(reg.tries) ? reg.tries : 0);
-    if (reg.state !== "stuck" && Number(reg.next) > now) { out.waiting++; continue; }
-    const own = await claimPreview(deps, slug, now);
+    if (reg.state !== "stuck" && Number(reg.next) > clock()) { out.waiting++; continue; }
+    // THIS WRITER'S CLAIM, STAMPED WHEN IT STARTS on this site (not when the
+    // tick began), and its window counted from there on the advancing clock.
+    const own = await claimPreview(deps, slug, clock());
     if (!own) continue;
-    const c = await convergePreview(deps, slug, { repreview: (v) => previewVersion(env, slug, v), deadline: now + PREVIEW_UPLOAD_WINDOW_MS, now: () => now });
+    const c = await convergePreview(deps, slug, { repreview: (v, o) => previewVersion(env, slug, v, o), deadline: own.at + PREVIEW_UPLOAD_WINDOW_MS, now: clock });
     let next;
     if (c.ready) {
       await dropClaims(deps, [...claims.map((x) => x.key), own.key]);
       next = { state: "ready", up: c.version, tries: 0, next: 0 };
       out.ready++;
+    } else if (c.absent) {
+      // NO DRAFT AT ALL, read as such: nothing to show, and no work to keep.
+      // (Every claim it read could no longer land, so none is still writing one.)
+      await dropClaims(deps, [...claims.map((x) => x.key), own.key]);
+      next = { state: "ready", up: null, tries: 0, next: 0, cleared: true };
+      out.cleared++;
     } else {
       const tries = tries0 + 1;
       if (tries >= PREVIEW_TRIES) { next = { state: "stuck", up: null, tries, next: 0, error: c.error }; out.stuck++; }
-      else { next = { state: "pending", up: null, tries, next: now + previewBackoff(tries), error: c.error }; out.failed++; }
+      else { next = { state: "pending", up: null, tries, next: clock() + previewBackoff(tries), error: c.error }; out.failed++; }
     }
-    try { await B.put(PREVIEW_STATE_KEY(slug), JSON.stringify({ v: 1, ...next, at: now }), { httpMetadata: { contentType: "application/json" }, onlyIf: etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" } }); } catch { /* the next lap */ }
+    try { await B.put(PREVIEW_STATE_KEY(slug), JSON.stringify({ v: 1, ...next, at: clock() }), { httpMetadata: { contentType: "application/json" }, onlyIf: etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" } }); } catch { /* the next lap */ }
   }
-  try { await B.put(PREVIEW_SWEEP_CURSOR, JSON.stringify({ after: step.after, at: now }), { httpMetadata: { contentType: "application/json" } }); } catch { /* starts again from the front */ }
+  try { await B.put(PREVIEW_SWEEP_CURSOR, JSON.stringify({ after: step.after, at: clock() }), { httpMetadata: { contentType: "application/json" } }); } catch { /* starts again from the front */ }
   return out;
 }
 async function completeActivation(env, slug, version, { sidecar } = {}) {
@@ -14162,7 +14176,7 @@ function confirmFields(wput) {
   return { confirmed: wput.confirmed === true, confirmMs: wput.confirmMs };
 }
 
-async function uploadScriptOnce(env, slug, worker, { preview = false } = {}) {
+async function uploadScriptOnce(env, slug, worker, { preview = false, go = null } = {}) {
   // The container returns `{ok, why, code}` and packages only when asked, so
   // "no worker" is the ordinary answer on every path that did not request one.
   //
@@ -14201,6 +14215,11 @@ async function uploadScriptOnce(env, slug, worker, { preview = false } = {}) {
   // dispatches to (draft-first publishing, 2026-10-15).
   const name = preview ? previewScriptName(slug) : scriptNameFor(slug);
   if (!creds || !name) return null;
+  // A PREVIEW WRITER'S WINDOW, ASKED IMMEDIATELY BEFORE THE EXTERNAL CALL
+  // (2026-10-16, Codex's review of `dbf7a2c8`): past it, no upload starts, so
+  // the writer's claim keeps meaning "nothing of mine can land after
+  // claim + PREVIEW_LAND_MS" (`convergePreview`, site-draft.mjs).
+  if (typeof go === "function" && !go()) return { ok: false, status: 0, error: "past the preview's upload window" };
   const r = await uploadSiteWorker({
     ...creds,
     name,
@@ -16076,8 +16095,8 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // THE TASK'S HELD BACKEND AND LIBRARY CHANGES ride its draft revision.
     held: toDraft ? held : null,
     base: pointerBefore ? pointerBefore.version : "",
-    preview: toDraft ? () => uploadScriptOnce(env, slug, built.worker, { preview: true }) : undefined,
-    repreview: toDraft ? (v) => previewVersion(env, slug, v) : undefined,
+    preview: toDraft ? (d, o) => uploadScriptOnce(env, slug, built.worker, { preview: true, go: o && o.go }) : undefined,
+    repreview: toDraft ? (v, o) => previewVersion(env, slug, v, o) : undefined,
     expectEtag: pointerTag,
     // THE POINTER AS IT WAS, so an activation whose script never landed can
     // put it back instead of leaving the site pointing at a version nothing
@@ -17328,8 +17347,8 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         asDraft: toDraft ? saveAsDraft : null,
         held: toDraft ? held : null,
         base: before ? before.version : "",
-        preview: toDraft ? () => uploadScriptOnce(env, slug, worker, { preview: true }) : undefined,
-        repreview: toDraft ? (v) => previewVersion(env, slug, v) : undefined,
+        preview: toDraft ? (d, o) => uploadScriptOnce(env, slug, worker, { preview: true, go: o && o.go }) : undefined,
+        repreview: toDraft ? (v, o) => previewVersion(env, slug, v, o) : undefined,
         // RE-ASKED AT THE POINTER (audit fix): a caller that can lose its lease
         // mid-build — the resumed-build collector — hands one in, and it is
         // asked with no await between it and the conditional write.

@@ -138,6 +138,10 @@ draft-first suites, and the media-abort and sweep suites.
 
 ## 4. Completion matrix
 
+**Superseded by `docs/history/2026-10-16-codex-batch-6.md` §5** (an advancing
+clock, the window asked before the external call, uncertain writes
+reconciled).
+
 This replaces the fourth batch's §4. Rows not named here are unchanged from it.
 
 | Area | Item | Finished (offline) | Deferred implementation | Live-only verification still owed |

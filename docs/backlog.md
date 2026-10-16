@@ -35,6 +35,14 @@ here; take a closed one out of both.**
   `If-Range` is not read; R2's own abort of unfinished multipart uploads is
   assumed, not verified; a tick's subrequest count (about 400 at the default
   budgets, estimated, not measured) against the Worker's limit.
+- **A save whose draft record landed but whose answer was lost answers
+  failure** (2026-10-16, sixth batch §2): its preview is recovered (the claim
+  stays and the tick puts the selected draft up), but the job is told
+  failure and refunded while its code stands as the selected draft.
+  Reconciling the job's own outcome is outside that batch.
+- **The preview's timing assumptions are unmeasured** (sixth batch §1): an
+  upload lands within the dispatch call's 10 minutes plus a one-minute
+  margin of its start, and isolate clocks agree within that minute.
 - **The preview script's upload is not conditional** (2026-10-16, third
   batch §2, fourth batch §1): the head is bound to the version, a save puts
   the draft's own version back up, and a failed, lost or interrupted upload

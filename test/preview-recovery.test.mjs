@@ -425,7 +425,8 @@ test("PR8 THE BOUNDED RETRY POLICY — a failing tick leaves its own claim and w
       assert.equal(B.reg().tries, i, "try " + i + " was not counted: " + JSON.stringify(B.reg()));
       if (i < PREVIEW_TRIES) {
         assert.equal(B.reg().state, "pending");
-        assert.equal(B.reg().next, at + previewBackoff(i), "the backoff is not the stated doubling");
+        // (The tick's clock advances while it works: a few milliseconds past `at`.)
+        assert.ok(B.reg().next >= at + previewBackoff(i) && B.reg().next < at + previewBackoff(i) + 5000, "the backoff is not the stated doubling: " + (B.reg().next - at));
         // TOO SOON: inside its own claim's landing time — nothing tried.
         const soon = await B.tick(at + 60e3);
         assert.equal(soon.waiting, 1, "a tick tried again before the claims could stop landing");
@@ -471,4 +472,260 @@ test("PR10 WHAT THE OWNER IS TOLD, AND THE SCHEDULE — `draftFacts` says ready 
   const b = w.indexOf("ctx.waitUntil(runPublishRecovery(env)", a);
   assert.ok(a > 0 && b > a, "the scheduled handler moved — rescope this");
   assert.match(w.slice(a, b), /ctx\.waitUntil\(runPreviewRecovery\(env\)/, "the preview recovery is not on the tick");
+});
+
+// ── SIXTH ROUND (2026-10-16, Codex's review of `dbf7a2c8`) ──────────────────
+//
+// The tick froze its clock at its start: a slow failed upload at minute six
+// was followed by another upload at "minute zero" — past the writer's
+// five-minute window. And a draft-record write that landed and lost its
+// answer had its claim removed: the new draft stood with no preview and
+// nothing left to repair it.
+//
+//   PR11 a slow failure on an advancing clock: one upload attempt only (the
+//        retry is refused past the window), the claim kept, every upload
+//        started within its writer's window; the next tick waits out that
+//        claim's landing time and then repairs
+//   PR12 several slow retries: only those starting inside the window run
+//   PR13 a delayed staged-build read: the window is asked again after it,
+//        immediately before the upload — no upload starts
+//   PR14 two sites in one tick: the second site's claim is stamped when its
+//        work starts (after the first site's slow work), so it gets its own
+//        window and is repaired in the same tick
+//   PR15 the draft record lands and its answer is lost: the save fails, its
+//        claim stays, and the tick puts the selected draft's preview up
+//   PR16 the record write fails before landing: the claim is removed (the
+//        draft read says it did not land); when the draft cannot be read
+//        to tell, the claim stays and the tick settles it harmlessly
+//   PR17 a genuinely absent draft: the tick clears the claim (no upload, no
+//        permanent work, not stuck); a failed save on a site with no draft
+//        leaves no claim
+//   PR18 hard stops around the boundaries: after the record lands, after the
+//        claim lands, and between a failed record write and its reconciling
+//        read — each repaired (or harmlessly settled) by the tick
+const MIN = 60 * 1000;
+/** A simulated clock the hooks can move. */
+const simClock = (start) => { const c = { t: start }; c.now = () => c.t; return c; };
+const versionOf = (text) => /site-version: (\S+)/.exec(String(text))[1];
+
+test("PR11 A SLOW FAILURE ON AN ADVANCING CLOCK — one upload attempt only, the claim kept, every upload inside its writer's window; the next tick waits out that claim's landing time, then repairs", async () => {
+  const B = await bakery();
+  try {
+    const [v1, , v3] = B.versions;
+    await B.setDraft(v3);
+    await B.up(v1);
+    const t0 = Date.now();
+    await claimPreview(B.deps, B.P.slug, t0);
+    const sim = simClock(t0 + PREVIEW_LAND_MS + MIN);
+    const starts = [];
+    for (let k = 0; k < 3; k++) B.P.beforeUpload(async () => { starts.push(sim.t); sim.t += 6 * MIN; throw new Error("upload failed slowly"); });
+    const r = await B.P.run(() => B.api.runPreviewRecovery(B.P.env, { now: sim.now }));
+    assert.equal(starts.length, 1, "a retry started past the writer's window: " + JSON.stringify(starts.map((s) => s - (t0 + PREVIEW_LAND_MS + MIN))));
+    assert.deepEqual([r.ready, r.failed, B.P.previewScript()], [0, 1, v1], JSON.stringify(r));
+    const own = (await B.claims()).map((k) => claimAt(k)).filter((a) => a > t0);
+    assert.equal(own.length, 1, "the tick's own claim was not kept after an unconfirmed attempt");
+    for (const s of starts) assert.ok(s <= own[0] + PREVIEW_UPLOAD_WINDOW_MS, "an upload started past its writer's window");
+    // ITS CLAIM'S LANDING TIME IS HONOURED: a tick before it waits; one after it repairs.
+    const early = await B.P.run(() => B.api.runPreviewRecovery(B.P.env, { now: own[0] + PREVIEW_LAND_MS - MIN }));
+    assert.deepEqual([early.waiting, early.ready], [1, 0], JSON.stringify(early));
+    const late = await B.P.run(() => B.api.runPreviewRecovery(B.P.env, { now: own[0] + PREVIEW_LAND_MS + previewBackoff(1) + MIN }));
+    assert.deepEqual([late.ready, B.P.previewScript()], [1, v3], JSON.stringify(late));
+    assert.deepEqual(await B.claims(), []);
+    B.untouched();
+  } finally { await B.done(); }
+});
+
+test("PR12 SEVERAL SLOW RETRIES — only the attempts that start inside the window run", async () => {
+  const B = await bakery();
+  try {
+    const [v1, , v3] = B.versions;
+    await B.setDraft(v3);
+    await B.up(v1);
+    const t0 = Date.now();
+    await claimPreview(B.deps, B.P.slug, t0);
+    const start = t0 + PREVIEW_LAND_MS + MIN;
+    const sim = simClock(start);
+    const starts = [];
+    for (let k = 0; k < 3; k++) B.P.beforeUpload(async () => { starts.push(sim.t - start); sim.t += 3 * MIN; throw new Error("upload failed slowly"); });
+    await B.P.run(() => B.api.runPreviewRecovery(B.P.env, { now: sim.now }));
+    assert.deepEqual(starts, [0, 3 * MIN], "the attempts started at " + JSON.stringify(starts.map((s) => s / MIN)) + " minutes, the window is 5");
+    assert.equal(B.P.previewScript(), v1);
+    B.untouched();
+  } finally { await B.done(); }
+});
+
+test("PR13 A DELAYED STAGED-BUILD READ — the window is asked again after it, immediately before the upload: no upload starts", async () => {
+  const B = await bakery();
+  try {
+    const [v1, , v3] = B.versions;
+    await B.setDraft(v3);
+    await B.up(v1);
+    const t0 = Date.now();
+    await claimPreview(B.deps, B.P.slug, t0);
+    const sim = simClock(t0 + PREVIEW_LAND_MS + MIN);
+    const uploads0 = B.P.uploads().length;
+    // THE STAGED BUILD'S MANIFEST READ TAKES SIX MINUTES.
+    B.P.afterGet((k) => k.startsWith("builds/" + B.P.slug + "/" + v3 + "/") && k.endsWith("manifest.json"), async () => { sim.t += 6 * MIN; });
+    const r = await B.P.run(() => B.api.runPreviewRecovery(B.P.env, { now: sim.now }));
+    assert.equal(B.P.uploads().length, uploads0, "an upload started after the window closed during the staged read");
+    assert.deepEqual([r.ready, B.P.previewScript()], [0, v1], JSON.stringify(r));
+    B.untouched();
+  } finally { await B.done(); }
+});
+
+test("PR14 TWO SITES IN ONE TICK — the second site's claim is stamped when its work starts, after the first site's slow work, so it gets its own window and is repaired in the same tick", async () => {
+  const B = await bakery();
+  try {
+    const [v1, , v3] = B.versions;
+    await B.setDraft(v3);
+    await B.up(v1);
+    // A SECOND SITE: the same staged versions and draft under another slug.
+    const slug2 = B.P.slug + "z"; // sorts after the first site: processed second
+    for (const k of B.P.objectKeys("builds/" + B.P.slug + "/")) {
+      await B.P.bucket.put("builds/" + slug2 + k.slice(("builds/" + B.P.slug).length), B.P.readObj(k));
+    }
+    await B.P.bucket.put(DRAFT_KEY(slug2), B.P.readObj(DRAFT_KEY(B.P.slug)));
+    const t0 = Date.now();
+    await claimPreview(B.deps, B.P.slug, t0);
+    await claimPreview(B.deps, slug2, t0);
+    const start = t0 + PREVIEW_LAND_MS + MIN;
+    const sim = simClock(start);
+    let secondClaimAt = null;
+    // THE FIRST SITE'S UPLOAD TAKES SIX MINUTES AND SUCCEEDS.
+    B.P.beforeUpload(async () => { sim.t += 6 * MIN; });
+    B.P.beforeUpload(async () => {
+      const ks = (await B.P.bucket.list({ prefix: PREVIEW_CLAIMS_PREFIX(slug2) })).objects.map((o) => o.key);
+      secondClaimAt = Math.max(...ks.map((k) => claimAt(k)));
+    });
+    const r = await B.P.run(() => B.api.runPreviewRecovery(B.P.env, { now: sim.now }));
+    assert.equal(r.ready, 2, "both sites were not repaired in one tick: " + JSON.stringify(r));
+    assert.ok(secondClaimAt >= start + 6 * MIN, "the second site's claim was stamped at the tick's start, not when its work began (" + ((secondClaimAt - start) / MIN) + " min)");
+    const last = (name) => { const u = B.P.uploads().filter((x) => x.name === name); return u.length ? u[u.length - 1].version : null; };
+    assert.equal(last("draft-" + slug2), v3);
+    assert.equal(B.P.previewScript() && last("draft-" + B.P.slug), v3);
+    B.untouched();
+  } finally { await B.done(); }
+});
+
+test("PR15 THE DRAFT RECORD LANDS AND ITS ANSWER IS LOST — the save fails, its claim stays, and the tick puts the selected draft's preview up with no user message", async () => {
+  const B = await bakery();
+  try {
+    const [v1, v2] = B.versions;
+    await B.setDraft(v1);
+    await B.up(v1);
+    const real = B.deps.put;
+    let lost = 1;
+    B.deps.put = async (k, b, ct, c) => { const r = await real(k, b, ct, c); if (k === DRAFT_KEY(B.P.slug) && lost-- > 0) throw new Error("r2 response lost"); return r; };
+    const t0 = Date.now();
+    const r = await B.save(v2, (d, o) => B.up(v2));
+    B.deps.put = real;
+    assert.equal(r.ok, false, "a save whose record answer was lost was reported done");
+    assert.deepEqual([r.recoverable, r.landed], [true, true], JSON.stringify(r));
+    assert.equal(B.draft().version, v2, "the record did not land — the case tests nothing");
+    assert.equal(B.P.previewScript(), v1);
+    assert.equal((await B.claims()).length, 1, "the save removed its claim although its record had landed");
+    const early = await B.tick(t0 + MIN);
+    assert.equal(early.waiting, 1);
+    const late = await B.tick(t0 + PREVIEW_LAND_MS + MIN);
+    assert.deepEqual([late.ready, B.P.previewScript()], [1, v2], JSON.stringify(late));
+    assert.deepEqual(await B.claims(), []);
+    B.untouched();
+  } finally { await B.done(); }
+});
+
+test("PR16 THE RECORD WRITE FAILS BEFORE LANDING — the claim is removed (the draft read says it did not land); when the draft cannot be read to tell, the claim stays and the tick settles it harmlessly", async () => {
+  const B = await bakery();
+  try {
+    const [v1, v2] = B.versions;
+    await B.setDraft(v1);
+    await B.up(v1);
+    const real = B.deps.put;
+    let fail = 1;
+    B.deps.put = async (k, b, ct, c) => { if (k === DRAFT_KEY(B.P.slug) && fail-- > 0) throw new Error("r2 put failed"); return real(k, b, ct, c); };
+    const r = await B.save(v2, () => B.up(v2));
+    assert.equal(r.ok, false);
+    assert.equal(r.recoverable, undefined, "a refusal proven by the draft was said to be recoverable: " + JSON.stringify(r));
+    assert.equal(B.draft().version, v1);
+    assert.deepEqual(await B.claims(), [], "the claim of a write that did not land was kept");
+    // THE DRAFT CANNOT BE READ TO TELL: the claim stays.
+    fail = 1;
+    const realGet = B.deps.get;
+    B.deps.get = async (k) => { if (k === DRAFT_KEY(B.P.slug) && fail <= 0) throw new Error("r2 get failed"); return realGet(k); };
+    const t0 = Date.now();
+    const r2 = await B.save(v2, () => B.up(v2));
+    B.deps.put = real; B.deps.get = realGet;
+    assert.deepEqual([r2.ok, r2.recoverable, r2.landed], [false, true, null], JSON.stringify(r2));
+    assert.equal((await B.claims()).length, 1, "the claim was removed although nothing could tell whether the record landed");
+    const t = await B.tick(t0 + PREVIEW_LAND_MS + MIN);
+    assert.deepEqual([t.ready, B.P.previewScript(), (await B.claims()).length], [1, v1, 0], JSON.stringify(t));
+    B.untouched();
+  } finally { await B.done(); }
+});
+
+test("PR17 A GENUINELY ABSENT DRAFT — the tick clears the claim (no upload, no permanent work, not stuck); a failed save on a site with no draft leaves no claim", async () => {
+  const B = await bakery();
+  try {
+    const t0 = Date.now();
+    const lonely = B.P.slug + "-none";
+    await claimPreview(B.deps, lonely, t0);
+    const uploads0 = B.P.uploads().length;
+    const r = await B.tick(t0 + PREVIEW_LAND_MS + MIN);
+    assert.deepEqual([r.cleared, r.ready, r.stuck], [1, 0, 0], JSON.stringify(r));
+    assert.equal(B.P.uploads().length, uploads0, "an upload was made for a site with no draft");
+    assert.deepEqual((await B.P.bucket.list({ prefix: PREVIEW_CLAIMS_PREFIX(lonely) })).objects, [], "a claim with nothing to show was kept");
+    const again = await B.tick(t0 + 2 * PREVIEW_LAND_MS);
+    assert.equal(again.looked, 0);
+    // A FAILED SAVE ON A SITE WITH NO DRAFT: no claim left behind.
+    const deps = { ...B.deps, put: async (k, b, ct, c) => (k === DRAFT_KEY(lonely) ? Promise.reject(new Error("r2 put failed")) : B.deps.put(k, b, ct, c)) };
+    const s = await saveAsDraft(deps, { slug: lonely, version: B.versions[1], preview: () => B.up(B.versions[1]), repreview: (v) => B.up(v), commit: async () => {} });
+    assert.equal(s.ok, false);
+    assert.deepEqual((await B.P.bucket.list({ prefix: PREVIEW_CLAIMS_PREFIX(lonely) })).objects, []);
+    // A DRAFT THAT CANNOT BE READ IS NOT "NO DRAFT": the claim stays.
+    await claimPreview(B.deps, B.P.slug, t0);
+    B.P.afterGet((k) => k === DRAFT_KEY(B.P.slug), async () => { throw new Error("r2 get failed"); });
+    const blind = await B.tick(t0 + PREVIEW_LAND_MS + MIN);
+    assert.deepEqual([blind.cleared, blind.ready], [0, 0], "an unreadable draft was taken as no draft: " + JSON.stringify(blind));
+    assert.ok((await B.claims()).length >= 1, "the claim was cleared although the draft could not be read");
+    B.untouched();
+  } finally { await B.done(); }
+});
+
+test("PR18 HARD STOPS AROUND THE BOUNDARIES — after the record lands, after the claim lands, and between a failed record write and its reconciling read: each repaired, or harmlessly settled, by the tick", async () => {
+  const B = await bakery();
+  try {
+    const [v1, v2, v3] = B.versions;
+    // (a) THE RECORD LANDS AND THE SAVE NEVER RUNS ANOTHER LINE.
+    await B.setDraft(v1);
+    await B.up(v1);
+    const real = B.deps.put;
+    const t0 = Date.now();
+    B.deps.put = async (k, b, ct, c) => { const r = await real(k, b, ct, c); if (k === DRAFT_KEY(B.P.slug)) return never(); return r; };
+    B.save(v2, () => B.up(v2));
+    assert.equal(await until(() => B.draft().version === v2), true);
+    B.deps.put = real;
+    const a = await B.tick(t0 + PREVIEW_LAND_MS + MIN);
+    assert.deepEqual([a.ready, B.P.previewScript(), (await B.claims()).length], [1, v2, 0], "(a) " + JSON.stringify(a));
+    // (b) THE CLAIM LANDS AND THE SAVE NEVER RUNS ANOTHER LINE (no record).
+    const t1 = Date.now();
+    B.deps.put = async (k, b, ct, c) => { const r = await real(k, b, ct, c); if (k.startsWith("preview-claims/")) return never(); return r; };
+    B.save(v3, () => B.up(v3));
+    assert.equal(await until(async () => (await B.claims()).length === 1), true);
+    B.deps.put = real;
+    assert.equal(B.draft().version, v2, "the save went past its claim — the case tests nothing");
+    const b = await B.tick(t1 + PREVIEW_LAND_MS + MIN);
+    assert.deepEqual([b.ready, B.P.previewScript(), (await B.claims()).length], [1, v2, 0], "(b) " + JSON.stringify(b));
+    // (c) THE RECORD WRITE FAILS AND THE RECONCILING READ NEVER RETURNS.
+    const t2 = Date.now();
+    const realGet = B.deps.get;
+    let failed = false;
+    B.deps.put = async (k, b2, ct, c) => { if (k === DRAFT_KEY(B.P.slug)) { failed = true; throw new Error("r2 put failed"); } return real(k, b2, ct, c); };
+    B.deps.get = async (k) => (failed && k === DRAFT_KEY(B.P.slug) ? never() : realGet(k));
+    B.save(v3, () => B.up(v3));
+    assert.equal(await until(() => failed), true);
+    B.deps.put = real; B.deps.get = realGet;
+    assert.equal((await B.claims()).length, 1, "(c) no evidence left");
+    const c = await B.tick(t2 + PREVIEW_LAND_MS + MIN);
+    assert.deepEqual([c.ready, B.P.previewScript(), (await B.claims()).length], [1, v2, 0], "(c) " + JSON.stringify(c));
+    B.untouched();
+  } finally { await B.done(); }
 });
