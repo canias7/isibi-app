@@ -99,6 +99,12 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   missing or unreadable is unknown, never `never-staged`. Unit CI
   `11385 / 11337 / 0 / 48` (run 38973278304). **The consolidated table for
   the three goals: `docs/history/2026-10-16-codex-batch-9.md` §5.**
+  **Tenth batch** (`f0079512`, `b4f8eacd`): `If-Range` and replacement
+  between requests on hosted media; `/u/` tied to its host; the media sweep
+  metered to 200 storage calls a tick (measured 220 → 162/164/45/45/12);
+  unresolved recovery on a doubling schedule (≤ 30 min), never a false
+  outcome. Unit CI `11393 / 11345 / 0 / 48` (run 38976215615). **The table
+  now: `docs/history/2026-10-16-codex-batch-10.md` §4.**
   `claude/chat-session-0nndv1` is untouched. The bullets below are older.
 - **`main` is `8908b59d`, deploy 2173** (2026-09-30 19:48 UTC, a
   fast-forward of 11 commits from `80ece106`, on the owner's word "commit

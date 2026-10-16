@@ -1,5 +1,60 @@
 # Owner Notes
 
+## 2026-10-16 — Tenth batch on `codex-work-into-claude`: the remaining backend items (branch only; nothing merged, deployed, switched, applied, built or spent)
+
+**On your word**, on `codex-work-into-claude` only. `claude/chat-session-0nndv1`
+untouched. No paid test. The record, the measurements and the updated
+completion table are `docs/history/2026-10-16-codex-batch-10.md`. The
+recovery cases Codex accepted stay closed and still pass.
+
+### What changed
+
+- **Seeking in hosted video and audio is safe across a replacement.** A
+  player that asks for "the rest of the file I already have" gets that only
+  if it is still the same file. If the file was replaced, even between two
+  steps of one request, the player gets the new file whole and never a mix.
+- **A site's own address only serves its own uploads.** Its label, its
+  current name and its custom domain each serve only that site's files. The
+  app's own address still serves every site's files publicly, and the
+  preview only its own.
+- **Media cleanup stays within a fixed number of storage calls each run**
+  (200). Measured on a large test case: before, one run made 220 calls;
+  now the runs made 162, 164, 45, 45 and 12, and still cleaned everything,
+  in order, without touching uploads in progress or finished files.
+- **Recovery that can't read its evidence now waits longer between tries**:
+  2 minutes, then 4, 8, 16, then every 30 minutes. Waiting never turns into
+  a refund, a failure or a publication. When the evidence comes back, the
+  next try settles it once.
+
+### Commits
+
+- **`f0079512`**: the four changes and their tests.
+- **`21625c94`**: the mutation sweep spec.
+- **`b4f8eacd`**: one more test (a run cut short mid-item resumes at the
+  right place).
+- **This commit**: the records.
+
+### Results (measured)
+
+- **Red check on `68672e86`:** all 8 new cases fail there, on the defects
+  themselves.
+- **Mutation sweep:** 16 of 16, after one added test; one mutant was
+  equivalent and was dropped. Every control survived.
+- **Related tests together:** 1,278 of 1,278.
+- **Full suite locally on `b4f8eacd`:** 11,393 / 11,391 / 0 / 2.
+- **Unit CI:** run 38976215615 on `b4f8eacd`, 11,393 / 11,345 / 0 / 48,
+  success. Site build on `f0079512`: success.
+
+### What remains
+
+- **Nothing required remains to build** offline for the three goals (see the
+  table).
+- **Only production can verify:** live playback, R2's real behaviour, real
+  crashes, and turning the switches on. Applying `request_beside.sql` comes
+  before parallel writes.
+- **Optional performance:** preparing an add-on's page writer earlier; reading
+  rows in parallel; tuning the cleanup's 200-call share.
+
 ## 2026-10-16 — Ninth batch on `codex-work-into-claude`, after Codex's review of `5eca67cb` (branch only; nothing merged, deployed, switched, applied, built or spent)
 
 **On your word**, on `codex-work-into-claude` only. `claude/chat-session-0nndv1`

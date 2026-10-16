@@ -27,14 +27,11 @@ here; take a closed one out of both.**
   **Still open:** preparing an addition's page writer past its design; the
   driver's one-at-a-time row reads (latency). A Build's provisioning stays
   before its pages (a real dependency: the pages read the applied schema).
-- **Media upkeep** (2026-10-16, updated by the second batch, same record
-  §3, and the third, `docs/history/2026-10-16-codex-batch-3.md` §1):
-  interrupted deletes, abandoned sessions and parts, and the limits'
-  deployment are done, and the sweep now walks every prefix fairly by key.
-  **Still open:** `/u/<other-slug>` is served on a site's own host;
-  `If-Range` is not read; R2's own abort of unfinished multipart uploads is
-  assumed, not verified; a tick's subrequest count (about 400 at the default
-  budgets, estimated, not measured) against the Worker's limit.
+- **Media upkeep** (2026-10-16; closed by the tenth batch,
+  `docs/history/2026-10-16-codex-batch-10.md`): `/u/` is tied to its host,
+  `If-Range` is read, and the sweep's storage calls are metered (200 a tick,
+  measured). **Still open (production only):** R2's own abort of unfinished
+  multipart uploads; the Worker's real subrequest headroom for the shares.
 - **A save whose draft record landed but whose answer was lost** (2026-10-16,
   sixth batch §2; **closed by the seventh batch**,
   `docs/history/2026-10-16-codex-batch-7.md`): settled from the job's own
@@ -45,8 +42,9 @@ here; take a closed one out of both.**
   the sweep's bare `recovered` is rewritten only where the request driver
   reads it (the job row itself keeps the SQL's answer); a held revision
   whose journal is missing stays in review for a person. For Build: a lost
-  build whose evidence stays unreadable is retried every tick with no limit,
-  and a request part waiting on it (`rewrite-recovering`) waits as long; the
+  build whose evidence stays unreadable is now retried on a doubling
+  schedule up to 30 minutes (the tenth batch), and a request part waiting on
+  it (`rewrite-recovering`) waits as long, by design; the
   fence's `saved` and `live` fields need no SQL, but nothing live has run
   them yet.
 - **The preview's timing assumptions are unmeasured** (sixth batch §1): an
