@@ -860,6 +860,55 @@ draft path depends on them. The other chat's concurrency work stays theirs.
 - billing happens at save;
 - no live verification.
 
+## Draft-first and Publish, rebuilt on main without help-needed (2026-10-16; branch `claude/draft-first-main`)
+
+**What you asked for:** merge the draft-first Publish work into main
+carefully, without help-needed's work. `claude/draft-first-publish` carried
+33 of help-needed's commits (the publish turn, held-absent keys, recovery
+notes, parallel writes), which the last main merge had kept out, so it
+could not be merged as it was.
+
+**What was done:** the draft-first and Publish commits were replayed onto
+main without help-needed's: `0966ea90`, `5d99cebd`, `27abcaea`, `373ba2ff`
+and `71f7d48d`. Where they called help-needed's functions they now use small
+local ones on main's own primitives:
+- `readPointerTag`, over `readPointer`'s etag;
+- `sidecarOf`;
+- `alignScriptToPointer`, which reads the pointer, asks the live script
+  which version it serves, uploads the pointer's staged script with
+  `putSiteWorker`, and settles only when the script is seen serving it.
+
+DF1–DF6 moved out of help-needed's `turn-fence` test file into
+`test/draft-first-basics.test.mjs`. DF4 was adapted to main's repair and the
+local alignment.
+
+**What main does not get (help-needed's, left out by your choice):**
+- the publish turn and parallel writes;
+- held-absent keys;
+- recovery notes, with a sweep that puts a script back after an uploader
+  dies;
+- the live marker written after the script. On main it is still written
+  before the script, so a first publication stopped between them has its
+  marker but not its script until recovery uploads it.
+
+**Publish recovery here** relies on its own journal plus the local
+alignment: a stopped switch is reconciled with the pointer, the script is
+put up and seen serving before anything is recorded, and journals are never
+deleted.
+
+**Checks (offline):**
+- **Focused:** draft-first, draft-first-basics, site-draft and
+  publish-integrity, 68 of 68.
+- **Mutation sweep** on the new local alignment: 2 of 2 killed, both
+  controls survived.
+- **Full suite** on `69011277`: 11,154 tests, 11,152 passed, 0 failed,
+  2 skipped.
+- Two guards needed the code to follow main's idiom, not a change to the
+  guards: the pointer's etag and undo come from one variable, and the
+  preview upload has its own name, so the live upload stays after the
+  deployment mark.
+
+**`DRAFT_FIRST` stays off.** With it off, every path publishes as before.
 
 ## Merged: `new` and `candidate/new-on-main` (2026-10-15)
 
