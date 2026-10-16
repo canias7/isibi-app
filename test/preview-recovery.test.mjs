@@ -376,7 +376,9 @@ test("PR6 A NEWER DRAFT SAVED WHILE THE TICK IS AT WORK — the tick leaves the 
     B.P.beforeUpload(async (text) => {
       if (/site-version: (\S+)/.exec(text)[1] !== v3) return;
       // THE TICK'S OWN CLAIM STANDS WHILE ITS UPLOAD IS IN FLIGHT.
-      ownSeen = (await B.claims()).some((k) => claimAt(k) === tickAt);
+      // Stamped when the tick starts on this site, on its advancing clock
+      // (the sixth batch): at `tickAt` or a few milliseconds after it.
+      ownSeen = (await B.claims()).some((k) => claimAt(k) >= tickAt && claimAt(k) < tickAt + 60e3);
       newer = await B.save(v4, () => B.up(v4));
     });
     const r = await B.tick(tickAt);
