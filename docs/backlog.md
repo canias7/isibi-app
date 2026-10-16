@@ -20,6 +20,27 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
+- **Unpublished held changes are read one journal at a time** (2026-10-16,
+  the twelfth batch, `docs/history/2026-10-16-codex-batch-12.md` §3): with no
+  count limit on the draft, every read of its unpublished changes (the
+  preview's data, the next task, publication) makes one storage read per
+  revision that holds changes. The Worker's per-request subrequest limit is
+  the real ceiling for a very long draft. **Open:** a cumulative snapshot of
+  the unpublished ops, rewritten on each save and invalidated by Publish.
+- **The data step sees a table's first 60 rows** (2026-10-16, found by DRT5):
+  `MAX_DATA_ROWS` bounds what the model is shown, live or held alike, so a
+  chat change to a row past the 60th cannot find it. A prompt bound, not a
+  draft limit. **Open:** show the rows the message names, or page them.
+- **Frontend pieces left out of the twelfth batch** (2026-10-16,
+  `docs/history/2026-10-16-codex-batch-12.md` §1): media attached before a
+  site exists cannot be listed or removed from the page (`GET
+  /api/media/drafts` and its delete are not called); the composer has no
+  player for an attached file; the Files panel plays video only from its
+  link; Edit and Add-on receive an attached file only as its line in the
+  message; a request whose model-written end reply fails ends with only its
+  card (by design: no hardcoded narration); an add-on's reply can carry
+  builder-facing detail (DFU4 showed "has no `head` on its route" in a
+  customer reply).
 - **Serialization left in place inside one request** (2026-10-16, updated by
   the second batch, `docs/history/2026-10-16-codex-batch-2.md` §2): additions
   are now judged by their targets, page-only additions take the turn only at
