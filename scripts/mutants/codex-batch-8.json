@@ -171,14 +171,6 @@
     "to": ""
   },
   {
-    "label": "E19 the resumed build's answer drops its draft",
-    "files": [
-      "worker.js"
-    ],
-    "from": "        ...(pages && pages.draft && typeof pages.draft === \"object\" ? { draft: pages.draft } : {}),",
-    "to": ""
-  },
-  {
     "label": "E20 the inline build's answer drops its draft",
     "files": [
       "worker.js"

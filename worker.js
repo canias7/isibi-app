@@ -23727,9 +23727,6 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
         ...resumeHeld(claimed),
         ...resumeMedia(claimed),
         ...(rContext ? { context: rContext } : {}),
-        // SAVED AS THE SITE'S DRAFT, NOT PUBLISHED (2026-10-16): the revision
-        // the build saved, which the request reads to settle its part.
-        ...(pages && pages.draft && typeof pages.draft === "object" ? { draft: pages.draft } : {}),
         buildFacts: buildFacts({ images: pages && pages.images, context: rContext, unwritten: pages && pages.unwritten, salvaged: pages && pages.salvaged,
           // WHAT ITS PUBLISH CHECKED (2026-10-14), only for a site that went live.
           checks: buildChecks(pages),

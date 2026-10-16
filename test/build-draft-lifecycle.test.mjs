@@ -232,6 +232,9 @@ test("BDL6 A FIRST BUILD UNDER DRAFT-FIRST, THROUGH THE REAL CONSUMER AND RESUME
     const fenceKey = "jobs/" + id + ".fence.json";
     const f = JSON.parse(b.store.get(fenceKey));
     assert.deepEqual([f.saved, f.revision, f.published], [mine.version, mine.n, undefined], crash + ": the build recorded its draft save as a publication");
+    // THE BUILD'S OWN ANSWER (the resume's) says a saved draft, not a publication.
+    const own = JSON.parse(readResult(JSON.parse(b.store.get(resultKey(id)))).body);
+    assert.deepEqual([own.ok, own.draft && own.draft.published, own.draft && own.draft.revision], [true, false, mine.n], crash + ": the resumed build's own answer carries no draft facts: " + JSON.stringify(Object.keys(own)));
     // THE CRASH'S DURABLE STATE: the answer was never written, and the marker as each case left it.
     b.store.delete(resultKey(id));
     if (crash === "before-marker") b.store.set(fenceKey, JSON.stringify({ by: "publish", at: f.at }));
