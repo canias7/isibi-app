@@ -517,6 +517,36 @@ export async function activateBuild(deps, {
 
 /** Every complete build of a site, newest first. Reads manifests only. */
 export async function listBuilds(deps, slug) {
+  return (await listBuildsRead(deps, slug)).builds;
+}
+
+/**
+ * ONE VERSION'S MANIFEST, READ FOR WHAT IT PROVES (2026-10-16, Codex's review
+ * of `305c9425`): `{ state: "read", manifest }`; `{ state: "absent" }` — the
+ * store answered and there is none (a staging that never finished); or
+ * `{ state: "unreadable", why }` — the read failed, or what came back is not
+ * a manifest. Unreadable is never absence, and never anyone's.
+ */
+export async function readManifest(deps, slug, version) {
+  if (!isVersionId(version)) return { state: "unreadable", why: "bad-version" };
+  let o;
+  try { o = await deps.get(P_BUILDS(slug) + version + "/" + MANIFEST_FILE); } catch { return { state: "unreadable", why: "read-failed" }; }
+  if (!o) return { state: "absent" };
+  let m;
+  try { m = JSON.parse(await o.text()); } catch { return { state: "unreadable", why: "malformed" }; }
+  if (!m || typeof m !== "object" || Array.isArray(m) || !Array.isArray(m.files) || !m.files.length) return { state: "unreadable", why: "malformed" };
+  return { state: "read", manifest: m };
+}
+
+/**
+ * THE STAGED VERSIONS, AND WHAT COULD NOT BE READ (2026-10-16): `builds` as
+ * `listBuilds` answers them, and `unread` — every version whose manifest
+ * failed to read or was malformed. A reader deciding from ABSENCE (no version
+ * of this job, nothing unattributed) must not decide while `unread` is not
+ * empty: any of those may be the one it looks for. A prefix with no manifest
+ * at all never finished staging and is neither.
+ */
+export async function listBuildsRead(deps, slug) {
   const prefix = P_BUILDS(slug);
   const objs = (await deps.list(prefix)) || [];
   const ids = new Set();
@@ -525,12 +555,14 @@ export async function listBuilds(deps, slug) {
     if (isVersionId(id)) ids.add(id);
   }
   const out = [];
+  const unread = [];
   for (const id of ids) {
-    let m = null;
-    try { const o = await deps.get(prefix + id + "/" + MANIFEST_FILE); m = o ? JSON.parse(await o.text()) : null; } catch { m = null; }
-    // A prefix with no readable manifest never finished staging — or lost the
-    // one file that says which of its objects belong to it. Not offered.
-    if (!m || !Array.isArray(m.files) || !m.files.length) continue;
+    const r = await readManifest(deps, slug, id);
+    // A prefix with no manifest never finished staging. Not offered.
+    if (r.state === "absent") continue;
+    // ONE THAT COULD NOT BE READ is not offered either — and is SAID.
+    if (r.state !== "read") { unread.push(id); continue; }
+    const m = r.manifest;
     out.push({
       id, at: Number(m.at) || 0, label: String(m.label || "Build").slice(0, 80), files: m.files.length,
       build: typeof m.build === "string" ? m.build : "", parent: isVersionId(m.parent) ? m.parent : "",
@@ -543,7 +575,7 @@ export async function listBuilds(deps, slug) {
       ...(m.worker === true ? {} : { restorable: false }),
     });
   }
-  return out.sort((a, b) => (a.id < b.id ? 1 : -1));
+  return { builds: out.sort((a, b) => (a.id < b.id ? 1 : -1)), unread: unread.sort() };
 }
 
 /** Everything a restore needs, read off the prefix. Null when there is no such build. */

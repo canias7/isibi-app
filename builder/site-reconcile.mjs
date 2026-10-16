@@ -38,7 +38,7 @@ export const RECONCILE_KINDS = Object.freeze([
   "landed", "upload-retried", "lost-upload", "superseded-built-on", "superseded-not-built-on",
   "never-activated", "never-staged", "pointer-unreadable", "builds-unreadable", "live-unreadable",
   "live-ahead", "chain-broken", "retry-exhausted", "no-script-staged", "no-dispatch", "upload-refused", "upload-not-serving",
-  "draft-saved", "draft-unreadable", "draft-held-unreadable", "draft-trimmed",
+  "draft-saved", "draft-unreadable", "draft-held-unreadable", "draft-trimmed", "builds-partly-unread",
 ]);
 
 /**
@@ -190,6 +190,9 @@ export function reconcileVerdict(facts = {}) {
   // UNDER DRAFT-FIRST, THIS JOB'S OWN SAVED REVISION DECIDES FIRST.
   const dv = draftVerdict(facts, job, mine);
   if (dv) return dv;
+  // NOT FOUND IS NOT ABSENT WHILE A MANIFEST COULD NOT BE READ (2026-10-16,
+  // Codex's review of `305c9425`): it may be this job's version.
+  if (!mine && Array.isArray(facts.buildsUnread) && facts.buildsUnread.length) return answer("unknown", "builds-partly-unread", "some of the site's versions could not be read, so whether this job staged one is not known", null);
   if (!mine) {
     // Nothing of this job's was staged, so nothing of it can be live — unless
     // a legacy-layout upload landed, which only the live build id can say.

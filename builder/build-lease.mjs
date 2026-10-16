@@ -298,7 +298,7 @@ export function genBound(record, token, genId) {
  * `fencedJob`: the job's own record says it was filed by code that claims the
  * fence before activating.
  */
-export function lostBuildVerdict({ row, pointer, builds, fence, fencedJob = false, draft = { state: "none" }, journals = {} } = {}) {
+export function lostBuildVerdict({ row, pointer, builds, buildsUnread = [], fence, fencedJob = false, draft = { state: "none" }, journals = {}, manifests = null } = {}) {
   const r = row && typeof row === "object" ? row : {};
   const id = typeof r.id === "string" ? r.id : "";
   if (!isRowSlug(r.slug)) return { outcome: "not-published", why: "no-address" };
@@ -308,7 +308,7 @@ export function lostBuildVerdict({ row, pointer, builds, fence, fencedJob = fals
   // `fd951ba3`). Under draft-first a build's activation saves a draft
   // revision and the live site does not move; the fence records it as
   // `saved` (`markSaved`), never `published`.
-  const own = savedOfJob(draft, id, builds, journals);
+  const own = savedOfJob(draft, id, builds, journals, { manifests, unread: buildsUnread });
   if (typeof f.saved === "string" && f.saved) {
     if (own.state === "saved") return { outcome: "saved", why: "save-recorded", version: own.rev.version, revision: own.rev.n };
     return { outcome: "saved", why: "save-recorded", version: f.saved, revision: Number.isSafeInteger(f.revision) && f.revision > 0 ? f.revision : 0 };
@@ -339,6 +339,9 @@ export function lostBuildVerdict({ row, pointer, builds, fence, fencedJob = fals
   // absence of anything that could be its publication decides it.
   if (!Array.isArray(builds)) return pointer === null ? { outcome: "not-published", why: "no-pointer" } : { outcome: "unknown", why: "builds-unread" };
   if (id && builds.some((b) => b && b.job === id)) return { outcome: "unknown", why: "staged-unconfirmed" };
+  // DECIDED FROM ABSENCE BELOW, so every manifest must have been read: an
+  // unreadable one may be this job's version, or an unattributed one.
+  if (Array.isArray(buildsUnread) && buildsUnread.length) return { outcome: "unknown", why: "builds-partly-unread" };
   const began = Date.parse(String(r.created_at || ""));
   const unattributed = builds.some((b) => b && (b.job === null || b.job === undefined) && (!Number.isFinite(began) || Number(b.at) >= began));
   if (unattributed) return { outcome: "unknown", why: "unattributed-version" };
@@ -355,16 +358,33 @@ export function lostBuildVerdict({ row, pointer, builds, fence, fencedJob = fals
  * list may have dropped it. Another job's revision proves nothing.
  */
 const MAX_DRAFT_REVS = 60;
-export function savedOfJob(draft, id, builds, journals = {}) {
+export function savedOfJob(draft, id, builds, journals = {}, { manifests = null, unread = [] } = {}) {
   const d = draft && typeof draft === "object" ? draft : { state: "none" };
   if (d.state === "unreadable") return { state: "unknown", why: "draft-unread" };
   if (d.state !== "read" || !d.record || !Array.isArray(d.record.revs) || !id) return { state: "none" };
   const revs = d.record.revs.filter((x) => x && x.job === id);
   if (revs.length) {
-    if (!Array.isArray(builds)) return { state: "unknown", why: "builds-unread" };
-    // `listBuilds` names a staged version `id`.
-    const rev = revs.find((x) => builds.some((b) => b && b.job === id && (b.id || b.version) === x.version));
-    if (!rev) return { state: "none" };
+    // EACH REVISION'S OWN MANIFEST, BY ITS READ STATE (2026-10-16, Codex's
+    // review of `305c9425`): read and naming this job proves the version is
+    // this job's; unreadable, or absent though a revision names it, is
+    // cannot-tell — never "none". Without exact reads, the listing decides,
+    // and a version it could not read is cannot-tell too.
+    const stateOf = (v) => {
+      const m = manifests && Object.hasOwn(manifests, v) ? manifests[v] : null;
+      if (m) return m.state === "read" ? (m.manifest && m.manifest.job === id ? "mine" : "other") : m.state === "absent" ? "missing" : "unread";
+      if (!Array.isArray(builds)) return "unread";
+      if (builds.some((b) => b && b.job === id && (b.id || b.version) === v)) return "mine";
+      if (Array.isArray(unread) && unread.includes(v)) return "unread";
+      return builds.some((b) => b && (b.id || b.version) === v) ? "other" : "missing";
+    };
+    const states = revs.map((x) => ({ x, s: stateOf(x.version) }));
+    const hit = states.find((e) => e.s === "mine");
+    if (!hit) {
+      const blocked = states.find((e) => e.s === "unread" || e.s === "missing");
+      if (blocked) return { state: "unknown", why: blocked.s === "unread" ? "manifest-unread" : "manifest-missing" };
+      return { state: "none" };
+    }
+    const rev = hit.x;
     if (rev.held) {
       const j = journals ? journals[rev.held] : undefined;
       if (j !== true) return { state: "unknown", why: j === false ? "held-journal-missing" : "held-journal-unread" };

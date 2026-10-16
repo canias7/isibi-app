@@ -236,7 +236,7 @@ import { listVersions, rollbackVersion, deleteAllVersions, versionLabel } from "
 // and the id is minted by `mintVersion` before the compile so the container
 // can bake it.
 import {
-  mintVersion, stageBuild, activateBuild, readPointer, readPointerTag, POINTER_NONE, readBuild, listBuilds, pruneBuilds, deleteAllBuilds,
+  mintVersion, stageBuild, activateBuild, readPointer, readPointerTag, POINTER_NONE, readBuild, listBuilds, listBuildsRead, readManifest, pruneBuilds, deleteAllBuilds,
   assetKeyFor, mergeVersions, stateConfigOf, POINTER_KEY, HEAD_KEY,
   // THE EDITABLE COPY KNOWS WHICH BUILD IT CAME FROM (stage 6, 2026-09-05):
   // the marker every state copy ends with, and the repair a job makes before
@@ -11667,10 +11667,13 @@ async function siteSourceByJob(env, sslug, sJob) {
   if (!/^[0-9a-f]{32}$/.test(sJob)) return Response.json({ ok: false, error: "bad job id" }, { status: 400 });
   let sLive = null, sLiveRead = false;
   try { const lp = env.SITES_BUCKET ? await readPointer(buildDeps(env), sslug) : undefined; if (lp !== undefined) { sLive = lp ? { version: String(lp.version || ""), job: typeof lp.job === "string" ? lp.job : null } : null; sLiveRead = true; } } catch { sLive = null; sLiveRead = false; }
-  let sList = null;
-  try { sList = env.SITES_BUCKET ? await listBuilds(buildDeps(env), sslug) : null; } catch { sList = null; }
+  let sList = null, sUnread = [];
+  try { if (env.SITES_BUCKET) { const r = await listBuildsRead(buildDeps(env), sslug); sList = r.builds; sUnread = r.unread; } } catch { sList = null; }
   if (!Array.isArray(sList)) return Response.json({ ok: false, error: "the site's versions could not be read", job: sJob, live: sLive, liveRead: sLiveRead }, { status: 503 });
   const sMine = sList.filter((b) => b && b.job === sJob);
+  // A VERSION WHOSE MANIFEST COULD NOT BE READ MAY BE THIS JOB'S (2026-10-16):
+  // "none" or "one" cannot be said while any is unread.
+  if (sUnread.length) return Response.json({ ok: false, error: "some of the site's versions could not be read", job: sJob, unread: sUnread.length, live: sLive, liveRead: sLiveRead }, { status: 503 });
   if (sMine.length !== 1) return Response.json({ ok: false, error: sMine.length ? "more than one stored version names that job" : "no stored version of this site was staged by that job", job: sJob, versions: sMine.map((b) => b.id), live: sLive, liveRead: sLiveRead }, { status: 404 });
   let sRb = null;
   try { sRb = await readBuild(buildDeps(env), sslug, sMine[0].id); } catch { sRb = null; }
@@ -19593,10 +19596,10 @@ export async function reconcileLostBuilds(env, { now = Date.now() } = {}) {
     // cannot publish after this decides — it finds the claim and stops.
     const fence = await claimBuildFence(env, id, "recovery");
     const slug = isRowSlug(row.slug) ? row.slug : "";
-    let pointer, builds = null;
+    let pointer, builds = null, buildsUnread = [];
     if (slug) {
       try { pointer = await readPointer(buildDeps(env), slug); } catch { pointer = undefined; }
-      try { builds = await listBuilds(buildDeps(env), slug); } catch { builds = null; }
+      try { const lr = await listBuildsRead(buildDeps(env), slug); builds = lr.builds; buildsUnread = lr.unread; } catch { builds = null; }
     }
     // WAS THIS JOB FILED UNDER THE FENCED PROTOCOL? From its protocol record,
     // which outlives the consumed envelope (`jobFenced`); not known — an older
@@ -19618,7 +19621,18 @@ export async function reconcileLostBuilds(env, { now = Date.now() } = {}) {
         }
       }
     }
-    const v = lostBuildVerdict({ row, pointer, builds, fence, fencedJob, draft, journals });
+    // THE EXACT VERSIONS THIS JOB'S REVISIONS NAME, EACH MANIFEST READ ON ITS
+    // OWN (2026-10-16): authoritative for "this job staged that version",
+    // with its read state — never inferred from a listing that leaves an
+    // unreadable manifest out.
+    const manifests = {};
+    if (slug && draft.state === "read") {
+      for (const r of draft.record.revs || []) {
+        if (!r || r.job !== id || Object.hasOwn(manifests, r.version)) continue;
+        manifests[r.version] = await readManifest(buildDeps(env), slug, r.version);
+      }
+    }
+    const v = lostBuildVerdict({ row, pointer, builds, buildsUnread, fence, fencedJob, draft, journals, manifests });
     if (v.outcome === "unknown") { seen.unknown++; await keepPending(v.why); console.log("lost builds:", id, "unknown —", v.why); continue; }
     let returned = 0;
     let short = false;
@@ -19964,7 +19978,11 @@ async function reconcileFacts(env, row) {
   let pointer;
   try { pointer = env.SITES_BUCKET ? await readPointer(deps, slug) : undefined; } catch { pointer = undefined; }
   let builds = null;
-  try { builds = env.SITES_BUCKET ? await listBuilds(deps, slug) : null; } catch { builds = null; }
+  // WHAT COULD NOT BE READ IS CARRIED (2026-10-16, Codex's review of
+  // `305c9425`): a version whose manifest failed to read may be this job's,
+  // so its absence from `builds` proves nothing.
+  let buildsUnread = [];
+  try { if (env.SITES_BUCKET) { const r = await listBuildsRead(deps, slug); builds = r.builds; buildsUnread = r.unread; } } catch { builds = null; }
   const live = env.SITE_WORKERS ? await probeSiteWorker({ stubFor: (n) => env.SITE_WORKERS.get(n), name: scriptNameFor(slug) }) : null;
   const job = { id: String(row.id || ""), build: String(row.artifact_build || "") };
   let mine = findMine(builds, job);
@@ -19984,7 +20002,7 @@ async function reconcileFacts(env, row) {
       try { journals[r.held] = !!(await deps.get(HELD_KEY(slug, r.held))); } catch { journals[r.held] = undefined; }
     }
   }
-  return { job, pointer, live, builds, mine, draft, journals };
+  return { job, pointer, live, builds, buildsUnread, mine, draft, journals };
 }
 
 /** How often this isolate has retried one row's upload — the cap is per isolate, said in the module. */
