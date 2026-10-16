@@ -1,0 +1,124 @@
+[
+  {
+    "label": "CONTROL: a comment only in site-builds.mjs \u2014 must survive",
+    "control": true,
+    "files": [
+      "site-builds.mjs"
+    ],
+    "from": "export async function readManifest(deps, slug, version) {",
+    "to": "// comment-only control\nexport async function readManifest(deps, slug, version) {"
+  },
+  {
+    "label": "CONTROL: a comment only in builder/build-lease.mjs \u2014 must survive",
+    "control": true,
+    "files": [
+      "builder/build-lease.mjs"
+    ],
+    "from": "const MAX_DRAFT_REVS = 60;",
+    "to": "// comment-only control\nconst MAX_DRAFT_REVS = 60;"
+  },
+  {
+    "label": "F1 a failed manifest read is absence",
+    "files": [
+      "site-builds.mjs"
+    ],
+    "from": "  try { o = await deps.get(P_BUILDS(slug) + version + \"/\" + MANIFEST_FILE); } catch { return { state: \"unreadable\", why: \"read-failed\" }; }",
+    "to": "  try { o = await deps.get(P_BUILDS(slug) + version + \"/\" + MANIFEST_FILE); } catch { return { state: \"absent\" }; }"
+  },
+  {
+    "label": "F2 a malformed manifest is absence",
+    "files": [
+      "site-builds.mjs"
+    ],
+    "from": "  try { m = JSON.parse(await o.text()); } catch { return { state: \"unreadable\", why: \"malformed\" }; }",
+    "to": "  try { m = JSON.parse(await o.text()); } catch { return { state: \"absent\" }; }"
+  },
+  {
+    "label": "F3 a manifest with no files is read",
+    "files": [
+      "site-builds.mjs"
+    ],
+    "from": "!Array.isArray(m.files) || !m.files.length) return { state: \"unreadable\", why: \"malformed\" };",
+    "to": "!Array.isArray(m.files)) return { state: \"unreadable\", why: \"malformed\" };"
+  },
+  {
+    "label": "F4 the listing forgets what it could not read",
+    "files": [
+      "site-builds.mjs"
+    ],
+    "from": "    if (r.state !== \"read\") { unread.push(id); continue; }",
+    "to": "    if (r.state !== \"read\") { continue; }"
+  },
+  {
+    "label": "F5 recovery reads no exact manifests",
+    "files": [
+      "worker.js"
+    ],
+    "from": "        manifests[r.version] = await readManifest(buildDeps(env), slug, r.version);",
+    "to": ""
+  },
+  {
+    "label": "F6 recovery forgets the listing's unread versions",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      try { const lr = await listBuildsRead(buildDeps(env), slug); builds = lr.builds; buildsUnread = lr.unread; } catch { builds = null; }",
+    "to": "      try { const lr = await listBuildsRead(buildDeps(env), slug); builds = lr.builds; } catch { builds = null; }"
+  },
+  {
+    "label": "F7 an unreadable exact manifest is none",
+    "files": [
+      "builder/build-lease.mjs"
+    ],
+    "from": "      if (blocked) return { state: \"unknown\", why: blocked.s === \"unread\" ? \"manifest-unread\" : \"manifest-missing\" };",
+    "to": ""
+  },
+  {
+    "label": "F8 a missing exact manifest is none",
+    "files": [
+      "builder/build-lease.mjs"
+    ],
+    "from": "      const blocked = states.find((e) => e.s === \"unread\" || e.s === \"missing\");",
+    "to": "      const blocked = states.find((e) => e.s === \"unread\");"
+  },
+  {
+    "label": "F9 another job's manifest proves this job's revision",
+    "files": [
+      "builder/build-lease.mjs"
+    ],
+    "from": "(m.manifest && m.manifest.job === id ? \"mine\" : \"other\")",
+    "to": "(\"mine\")"
+  },
+  {
+    "label": "F10 a decision from absence with manifests unread",
+    "files": [
+      "builder/build-lease.mjs"
+    ],
+    "from": "  if (Array.isArray(buildsUnread) && buildsUnread.length) return { outcome: \"unknown\", why: \"builds-partly-unread\" };",
+    "to": ""
+  },
+  {
+    "label": "F11 the Edit reconcile decides never-staged with manifests unread",
+    "files": [
+      "builder/site-reconcile.mjs"
+    ],
+    "from": "  if (!mine && Array.isArray(facts.buildsUnread) && facts.buildsUnread.length) return answer(",
+    "to": "  if (false) return answer("
+  },
+  {
+    "label": "F12 the Edit reconcile forgets the unread versions",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  try { if (env.SITES_BUCKET) { const r = await listBuildsRead(deps, slug); builds = r.builds; buildsUnread = r.unread; } } catch { builds = null; }",
+    "to": "  try { if (env.SITES_BUCKET) { const r = await listBuildsRead(deps, slug); builds = r.builds; } } catch { builds = null; }"
+  },
+  {
+    "label": "F13 the owner route says no version while some are unread",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (sUnread.length) return Response.json(",
+    "to": "  if (false) return Response.json("
+  }
+]
