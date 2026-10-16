@@ -50,7 +50,7 @@ async function savedJob(b, slug, id, n) {
 
 /** The job table, answered as PostgREST answers the reads and RPCs the reconcile makes. */
 function jobTable(rows) {
-  const calls = { reconcile: [], finalize: [], reads: [] };
+  const calls = { reconcile: [], finalize: [], reads: [], pages: [] };
   const answer = async (input, init) => {
     const u = String((input && input.url) || input || "");
     const m = u.match(/\/rest\/v1\/rpc\/(\w+)/);
@@ -76,7 +76,10 @@ function jobTable(rows) {
       const kq = /^\(updated_at\.gt\."([^"]*)",and\(updated_at\.eq\."([^"]*)",id\.gt\."([^"]*)"\)\)$/.exec(q.get("or") || "");
       if (kq) out = out.filter((r) => r.updated_at > kq[1] || (r.updated_at === kq[1] && r.id > kq[3]));
       const keys = String(q.get("order") || "").split(",").map((s) => /^([a-z_]+)\.(asc|desc)$/.exec(s)).filter(Boolean);
-      out.sort((a, b) => { for (const o of keys) { const d = (a[o[1]] > b[o[1]] ? 1 : a[o[1]] < b[o[1]] ? -1 : 0) * (o[2] === "desc" ? -1 : 1); if (d) return d; } return 0; });
+      // TIES ARE IN NO PROMISED ORDER unless the order names a key that
+      // breaks them: answered here in the reverse of id, as a database may.
+      out.sort((a, b) => { for (const o of keys) { const d = (a[o[1]] > b[o[1]] ? 1 : a[o[1]] < b[o[1]] ? -1 : 0) * (o[2] === "desc" ? -1 : 1); if (d) return d; } return keys.some((o) => o[1] === "id") ? 0 : (a.id < b.id ? 1 : -1); });
+      calls.pages.push(out.slice(0, Number(q.get("limit")) || out.length).map((r) => r.id));
       const lim = Number(q.get("limit")); if (lim > 0) out = out.slice(0, lim);
       return json(out.map((r) => ({ ...r })));
     }
@@ -124,6 +127,8 @@ test("RVT1 CODEX'S CASE — 20 unreadable jobs ahead of a 21st with a valid save
   assert.equal(last.needs_review, true, "the 21st was reached on the first pass — this case tests nothing");
   await pass(mod, b, table, T0 + MIN);
   assert.equal(last.needs_review, false, "the 21st was never reached");
+  // A SHORT PAGE IS THE END: the next pass starts from the front.
+  assert.equal(b.store.has("recovery/review-cursor.json"), false, "the walk did not wrap to the front after its last page");
   assert.ok(committedOnce(table.calls, last.id), "the 21st was not kept exactly once: " + JSON.stringify(table.calls.reconcile));
   assert.equal(JSON.parse(last.result.body).reconciled, "draft-saved");
   assert.ok(rows.slice(0, 20).every((r) => r.needs_review), "an unresolved job left review");
@@ -139,16 +144,23 @@ test("RVT1 CODEX'S CASE — 20 unreadable jobs ahead of a 21st with a valid save
   assert.equal([...b.store.keys()].filter((k) => k.startsWith("current/")).length, 0, "something went live without Publish");
 });
 
-test("RVT2 MORE THAN ONE PAGE, EQUAL TIMESTAMPS ACROSS THE BOUNDARY, A ROW CHANGING MID-WALK — every recoverable row is reached within a lap and none is reconciled twice", async () => {
+test("RVT2 MORE THAN ONE PAGE, MORE EQUAL TIMESTAMPS THAN A PAGE, TIES IN NO PROMISED ORDER, A ROW CHANGING MID-WALK — every recoverable row is reached, a lap reads each row once, none is reconciled twice", async () => {
   const mod = await loadWorkerModule();
-  // 25 unreadable, then 12 recoverable; rows 18 onward share one timestamp.
-  const { b, rows } = await fixture({ unresolved: 25, recoverable: 12, sameStampFrom: 18 });
+  // 25 unreadable, then 12 recoverable; rows 10 onward (27 of them, more than a page) share one timestamp.
+  const { b, rows } = await fixture({ unresolved: 25, recoverable: 12, sameStampFrom: 10 });
   const table = jobTable(rows);
   // A ROW CHANGES MID-WALK: after the first pass, an early unresolved row's
   // timestamp moves past everything (touched by another process).
   await pass(mod, b, table, T0);
   rows[2].updated_at = new Date(Date.parse("2026-10-08T13:00:00Z")).toISOString();
   for (let i = 1; i < 4; i++) await pass(mod, b, table, T0 + i * MIN);
+  // ONE LAP READS EACH ROW ONCE: the first two pages share no row.
+  const [p1, p2] = table.calls.pages;
+  assert.ok(p1 && p2 && p1.length === 20, "the walk did not read a full first page");
+  // (the row whose timestamp moved after the first page is rightly read again)
+  assert.deepEqual(p2.filter((x) => p1.includes(x) && x !== rows[2].id), [], "the second page repeated rows of the first");
+  // …AND READS EVERY ROW: the two pages of the lap cover all 37.
+  assert.equal(new Set([...p1, ...p2]).size, rows.length, "a lap left rows unread: " + rows.filter((r) => !p1.includes(r.id) && !p2.includes(r.id)).length);
   const good = rows.filter((r) => r.kind === "saved");
   assert.ok(good.every((r) => !r.needs_review), "a recoverable row was never reached: " + good.filter((r) => r.needs_review).map((r) => r.id).join(","));
   assert.ok(good.every((r) => committedOnce(table.calls, r.id)), "a recoverable row was not kept exactly once");
