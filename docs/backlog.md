@@ -40,10 +40,15 @@ here; take a closed one out of both.**
   `docs/history/2026-10-16-codex-batch-7.md`): settled from the job's own
   revision inline, after a stop before its commit (reconcile `draft-saved`)
   and after one after it (the sweep's `recovered` read against the draft).
-  **Still open:** no Build lifecycle case exercises the shared inline proof;
+  **Build recovery** was closed by the eighth batch
+  (`docs/history/2026-10-16-codex-batch-8.md`). **Still open:**
   the sweep's bare `recovered` is rewritten only where the request driver
   reads it (the job row itself keeps the SQL's answer); a held revision
-  whose journal is missing stays in review for a person.
+  whose journal is missing stays in review for a person. For Build: a lost
+  build whose evidence stays unreadable is retried every tick with no limit,
+  and a request part waiting on it (`rewrite-recovering`) waits as long; the
+  fence's `saved` and `live` fields need no SQL, but nothing live has run
+  them yet.
 - **The preview's timing assumptions are unmeasured** (sixth batch §1): an
   upload lands within the dispatch call's 10 minutes plus a one-minute
   margin of its start, and isolate clocks agree within that minute.

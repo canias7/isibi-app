@@ -115,4 +115,6 @@ queue, Worker and draft store:
 | Answers | revision and preview readiness in `checks`, `draft` facts on every page answer (the text edit's gap), builds saved as drafts said as drafts | yes (DOR1, DOR8) | frontend narration (owner) | — |
 | Requests | a reconciled saved draft is a part done as `draft`; dependents wait for the proof and are told it | yes (DOR2, DOR3, DOR7) | — | — |
 | Build | **not verified in this batch**: a build's lost save, and its lost-build recovery | the inline proof is shared (`activateBuild` hands `saveAsDraft` the build's job id) but untested for a build; lost-build recovery still read a draft save as published (Codex, on `fd951ba3`) | the eighth batch | — |
+
+**Corrected by the eighth batch** (`docs/history/2026-10-16-codex-batch-8.md` §4): Build recovery is verified there, separately from the Edit and Add-on rows above.
 | Rollout | merge, SQL, switches, image roll | — | deferred (owner) | — |
