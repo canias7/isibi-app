@@ -1,5 +1,41 @@
 # Owner Notes
 
+## 2026-10-16 — Ninth batch on `codex-work-into-claude`, after Codex's review of `5eca67cb` (branch only; nothing merged, deployed, switched, applied, built or spent)
+
+**On your word**, on `codex-work-into-claude` only. `claude/chat-session-0nndv1`
+untouched. No paid test. The record and the matrix are
+`docs/history/2026-10-16-codex-batch-9.md`.
+
+### The remaining gap Codex found
+
+- **What happened.** A text edit was stopped right after its draft was
+  saved. Its version's manifest went missing, and the edit was then treated
+  as "never saved": refunded, its request failed with "Ask again".
+  Restoring the manifest did not undo that.
+- **Meanwhile** the draft was still there and selected, and the live site
+  had not changed.
+- **Why.** The eighth batch's rule (a missing piece of evidence means "not
+  known yet", never "nothing happened") covered Build but not Edit and
+  Add-on recovery.
+
+### What changed
+
+- **Edit and Add-on recovery now follow the same rule as Build.**
+  - A draft revision naming the job is proof the job saved something.
+  - Recovery checks that revision's own manifest and held changes:
+    - named this job → kept as a saved draft and billed once;
+    - missing or unreadable → it waits, and so does anything depending on
+      it, until it can be read;
+    - no revision of the job at all → the genuine refund still happens.
+
+### Commits
+
+- **`db544075`**: the fix and its tests (EER1–EER7).
+- **`567ada13`**: the mutation sweep spec.
+- **This commit**: the records.
+
+RESULTS_PENDING
+
 ## 2026-10-16 — Eighth batch on `codex-work-into-claude`, after Codex's reviews of `fd951ba3` and `305c9425` (branch only; nothing merged, deployed, switched, applied, built or spent)
 
 **On your word**, on `codex-work-into-claude` only. `claude/chat-session-0nndv1`
