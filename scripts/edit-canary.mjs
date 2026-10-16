@@ -472,6 +472,7 @@ const rRunner = (runtime.json || {}).runner;
 
 console.log(`  build-health  ${health.status}  deploy=${hDeploy.slice(0, 12) || "(none)"}  image=${hImage || "(none/unstamped)"}`);
 console.log(`  runtime       ${runtime.status}  deploy=${rDeploy.slice(0, 12) || "(none)"}  async=${rAsync}  runner=${rRunner}  imagePurchases=${(runtime.json || {}).imagePurchases}  progressTalk=${(runtime.json || {}).progressTalk}  jobProgressTalk=${(runtime.json || {}).jobProgressTalk}`);
+console.log(`  publishing    draftFirst=${(runtime.json || {}).draftFirst}  jobDraftFirst(calculated)=${(runtime.json || {}).jobDraftFirst}  parallelWrites=${(runtime.json || {}).parallelWrites}  jobParallelWrites(calculated)=${(runtime.json || {}).jobParallelWrites}  (observed: the container's env probe, /api/site/job-probe probe=env)`);
 if (CONTROL) console.log(`  control       ${cRuntime.status}  ${CONTROL} async=${cAsync}`);
 
 /** Floored at 7 on BOTH sides, so a short expectation cannot pass by being short. */

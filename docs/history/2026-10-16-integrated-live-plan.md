@@ -14,51 +14,63 @@ Its commit, test results and conflicts are in owner-notes, 2026-10-16
 built. No SQL has been applied, no switch is on, and no credit was spent
 preparing it. Every step below is the owner's to approve and press.
 
-## 1. Blockers to clear first (offline, free, before any merge)
+## 1. The four blockers, cleared offline (2026-10-16)
 
-Each blocker below was found by reading the integrated code. None of them
-is a matter of opinion.
+All four were found by reading the integrated code. All four are now fixed
+on the candidate, offline only, with commits and results in owner-notes,
+2026-10-16 (blockers cleared).
 
-1. **`DRAFT_FIRST` never reaches a queued job.**
-   - The Worker reads it (`draftFirst(env)` in `site-draft.mjs`).
-   - A job running in the site's container only sees the names in
-     `JOB_ENV_NAMES` (`builder/edit-job.mjs`, handed over by
-     `jobSecrets(env)`), and `DRAFT_FIRST` is not among them.
-   - `JOB_RUNNER_EVERYONE` is on in production, so queued edits and builds
-     run in the container. With the switch on at the Worker, such a job
-     would still read it as off and **publish live, bypassing the draft**.
-   - The offline tests run jobs in-process, so they never cross this hop.
-   - **Fix:** add the name to `JOB_ENV_NAMES`, as `PARALLEL_WRITES` and
-     `IMAGE_PURCHASES` were, with a guard test, red-checked.
-2. **`DRAFT_FIRST` is not delivered by the deploy.**
-   - `.github/workflows/deploy.yml` uploads a fixed list of switch secrets.
-     `PARALLEL_WRITES` is on it, with `|| 'off'`; `DRAFT_FIRST` is not.
-   - A GitHub secret named `DRAFT_FIRST` would therefore never reach the
-     Worker.
-   - **Fix:** add it to the list with an `|| 'off'` fallback, the
-     optional-secret rule. The fix touches a workflow, so its push to a
-     feature branch starts no deploy, but the merge does.
-3. **The free runtime check cannot see either switch.**
-   - `/api/site/build-health` reports `imagePurchases` and `progressTalk`,
-     but not `parallelWrites` or `draftFirst`. It does not report how a
-     container job reads them either.
-   - Turning a switch on would be unconfirmable before money is spent.
-   - **Fix:** report both, at the Worker and as a job sees them
-     (`jobSecrets`), as was done for images and talk.
-4. **No instrument reads drafts or presses Publish.**
-   - The canary scripts (`scripts/canary-*.mjs`) send messages and judge
-     live pages, rows, money and replies. None reads the draft record, the
-     preview, the held journal or `scriptpending/`, or calls
-     `POST /api/site/<slug>/publish`.
-   - **Fix:** a request-mode scenario that does those reads and the
-     Publish call, proved offline against the stub network with negative
-     controls. A check it cannot make is reported unverified, never
-     passed.
+1. **`DRAFT_FIRST` reaches a queued job.**
+   - It is now in `JOB_ENV_NAMES`.
+   - `test/draft-handoff.test.mjs` runs Edit, Add-on and Build jobs with
+     only what their launch carried (`test/fixtures/fired-jobs.mjs`, through
+     the container's own `readLaunch`).
+   - With the switch on, each saves a draft and changes nothing live. With
+     it off, each publishes.
+   - Without the name in the list, five of the six cases fail. The
+     container Edit then publishes live, which is the defect reproduced
+     through the real path.
+2. **The deploy delivers `DRAFT_FIRST`.** It is in `deploy.yml`'s secret
+   list with an `|| 'off'` fallback, so it is off by default.
+3. **The free runtime check reports both switches, three ways:**
+   - `draftFirst` and `parallelWrites` at the Worker;
+   - `jobDraftFirst` and `jobParallelWrites` as a job would be handed them.
+     These are **calculated** from `jobSecrets`;
+   - the container's own **observed** answer, from a new job-probe shape,
+     `env`. It runs a real job child through `/job/run`, builds the env
+     from the launch, and asks the Worker tree's readers (`jobSwitches`).
+     Its launch carries only the two switch names, so no credential reaches
+     the probe.
 
-Blockers 1 to 3 are code on the Publish branch's side of the line. They
-are offered there first, so that the fix is made once. Blocker 4 is
-harness work. All four are free and offline, and all four need Codex's
-review before step 2.
+   The probe needed `readLaunch` to keep a probe's own fields. They were
+   dropped before, so every probe a real container ran was the default
+   `hold`; the existing test re-added them after reading, which hid it.
+   That latent defect is fixed with its own test.
+4. **The harness reads drafts and presses Publish.**
+   - `GET …/draft?inspect=1`, owner-only and read-only, adds what was read:
+     - the live pointer;
+     - the running script's version;
+     - the publication journal;
+     - the script recovery notes (count, oldest age, window);
+     - each unpublished revision's held changes by kind.
+
+     A reading that failed says unreadable or unanswered; it is never
+     replaced by a value.
+   - `scripts/canary-draft.mjs` judges these checks, each pass, fail or
+     unverified:
+     - isolation;
+     - the preview;
+     - the explicit Publish (`publishPress` refuses without
+       `confirm: true`), pressed twice;
+     - recovery;
+     - the switches.
+   - `test/canary-draft.test.mjs` proves it against the real Worker, with
+     negative controls.
+
+**Still to do before a press:** the verifier is a module with an offline
+proof. No workflow mode calls it yet. Wiring it into a pressable canary
+scenario (inputs, opt-ins, the money gate) is the next harness step. It
+touches a workflow, so it gets its own review.
 
 ## 2. The steps, in order (each the owner's)
 
@@ -72,11 +84,14 @@ review before step 2.
    - Read the one deploy run. The image rolls, because worker and builder
      modules change, so wait 15 to 20 minutes before container work.
 3. **The free runtime check:** both readers on the new sha, a cold
-   container on the new image, images **off**, and (after blocker 3) both
-   switches still **off**.
+   container on the new image, images **off**, and both switches still
+   **off**. That reading uses `switchChecks`: the Worker, the calculated job
+   value and the container's `env` probe (observed) all read off.
 4. **The switches:** `PARALLEL_WRITES=on`, then `DRAFT_FIRST=on`.
-   - Run the free runtime check again: both read **on**, at the Worker and
-     as a job sees them.
+   - Run the free runtime check again with the `env` probe: both read **on**
+     at the Worker, as calculated for a job, and as observed in a real job
+     child. A missing probe leaves the observed check unverified, never
+     passed.
    - Images stay **off**: `IMAGE_PURCHASES` is read before every send.
 5. **Read the balance** (the ledger, not a figure here).
 6. **The presses below**, each on its own approval.
