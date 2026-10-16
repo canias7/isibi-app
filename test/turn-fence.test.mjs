@@ -870,7 +870,9 @@ test("TS10 EVERY UPLOAD OF A POINTER'S VERSION FOLLOWS THE POINTER — each putS
   // OUTSIDE putSiteWorker/followPointer, ONLY A DRAFT'S PREVIEW, which goes
   // up under its own script name and never reaches a live address.
   const raw = [...src.matchAll(/uploadScriptOnce\([^\n]*/g)].map((m) => m[0]);
-  const live = raw.filter((c) => !/^uploadScriptOnce\(env, slug, worker, \{ preview = false \}/.test(c) && !/\{ preview: true \}\)/.test(c));
+  // A preview upload is marked `preview: true` (since 2026-10-16 it may also
+  // carry its writer's window, `go`); the definition's own signature is not a call.
+  const live = raw.filter((c) => !/^uploadScriptOnce\(env, slug, worker, \{ preview = false\b/.test(c) && !/\{ preview: true[,}\s]/.test(c));
   assert.equal(live.length, 4, "a raw upload to a live script outside putSiteWorker/followPointer: " + JSON.stringify(live));
   const body = src.slice(src.indexOf("async function putSiteWorker(env, slug, worker"), src.indexOf("async function alignLiveScript(env, slug)"));
   assert.ok(body.length > 200, "putSiteWorker/followPointer not found");
