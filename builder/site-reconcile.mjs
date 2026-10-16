@@ -222,6 +222,10 @@ export function reconcileReply(out, row, refunded = 0, { prior = null, migration
     const kept = {};
     if (p && p.ok === false) for (const k of FAILURE_EVIDENCE) if (Object.hasOwn(p, k)) kept[k] = p[k];
     if (p && p.replyFor && typeof p.replyFor === "object" && !Array.isArray(p.replyFor)) kept.replyFor = p.replyFor;
+    // WHAT THE JOB ITSELF ANSWERED (2026-10-16): a refusal the request reads by
+    // its code — another part of the request overlapping it — is kept as
+    // `was`, so it is not lost under "reconciled".
+    if (p && p.ok === false && typeof p.error === "string" && /^[a-z-]{1,40}$/.test(p.error)) kept.was = p.error;
     return { status: 409, type: "application/json", body: JSON.stringify({ ...kept, ...mig, ok: false, error: "reconciled", kind: out.kind, job, refunded: Number(refunded) || 0, msg }) };
   }
   return null;

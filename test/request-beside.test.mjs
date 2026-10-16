@@ -72,21 +72,30 @@ test("NS5 A PART THAT NEEDS ANOTHER IS NOT FILED BESIDE IT — the model said pa
   assert.equal(r.record.parts[1].status, "blocked");
 });
 
-test("BC1 SHARED STORES THE TARGETS DO NOT NAME — two steps that both rewrite the config (a look and an addition) or both the schema (rules and an addition) conflict on disjoint targets; a text change beside an addition does not", () => {
+test("BC1 SHARED STORES THE TARGETS DO NOT NAME — two steps that both rewrite the config (a look and a logo, a look and an addition naming the look) or both the schema (rules and an addition naming a table) conflict on disjoint targets; an addition is judged by its targets (2026-10-16), so one naming only a page conflicts with neither; a text change beside an addition does not", () => {
   const part = (route, writes) => ({ phase: "run", route, targets: { writes, reads: [] } });
   const look = part({ intent: "edit", layer: "look", page: "/visit" }, ["page:/visit"]);
   const addon = part({ intent: "addon", op: "addon" }, ["new-page:/gifts"]);
   const rules = part({ intent: "edit", layer: "rules" }, ["data:bookings"]);
   const words = part(text("/"), ["page:/"]);
   const logo = part({ intent: "edit", layer: "logo" }, []);
-  assert.equal(besideConflict(look, addon), true, "two config writers");
+  const addonLook = part({ intent: "addon", op: "addon" }, ["new-page:/gifts", "theme"]);
+  const addonTable = part({ intent: "addon", op: "addon" }, ["new-page:/gifts", "new-data:gifts"]);
+  const addonBlank = part({ intent: "addon", op: "addon" }, []);
+  assert.equal(besideConflict(look, addonLook), true, "two config writers");
   assert.equal(besideConflict(look, logo), true, "two config writers");
-  assert.equal(besideConflict(rules, addon), true, "two schema writers");
+  assert.equal(besideConflict(rules, addonTable), true, "two schema writers");
+  assert.equal(besideConflict(look, addonBlank), true, "an addition naming nothing is the whole site");
+  // AN ADDITION BY ITS TARGETS (2026-10-16): a page alone is neither store;
+  // one that turns out to need more is refused at that write and runs alone.
+  assert.equal(besideConflict(look, addon), false, "a page addition kept from a look on another page");
+  assert.equal(besideConflict(rules, addon), false, "a page addition kept from a rules step");
   assert.equal(besideConflict(words, addon), false, "a text change and an addition on other pages");
   assert.equal(besideConflict(words, look), false, "a text change and a look on another page");
   assert.equal(besideConflict(words, part(text("/"), ["page:/"])), true, "the same page");
   assert.equal(holdsConfig(look), true);
-  assert.equal(holdsConfig(addon), true);
+  assert.equal(holdsConfig(addon), false, "a page addition holds the turn from its first read");
+  assert.equal(holdsConfig(addonLook), true);
   assert.equal(holdsConfig(logo), true);
   assert.equal(holdsConfig(words), false);
   assert.equal(holdsConfig({ phase: "route", route: null, targets: { writes: ["theme"], reads: [] } }), false, "a routing writes nothing");

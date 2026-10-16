@@ -101,7 +101,7 @@ import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
-import { DRAFT_KEY, PUBLISHING_KEY, draftFirst, readDraft, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, addressOverlay, forgottenInDraft } from "./site-draft.mjs";
+import { DRAFT_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, addressOverlay, forgottenInDraft } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
@@ -304,7 +304,7 @@ import { addedByRoute, publishedTexts, componentEvidence } from "./builder/conte
 import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
-import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig } from "./builder/request-plan.mjs";
+import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig, writesSchema as partWritesSchema } from "./builder/request-plan.mjs";
 import { turnKey, turnRecord, readTurn, turnFree, nextGen, rebaseFiles, TURN_POLL_MS } from "./builder/publish-turn.mjs";
 import { PART_TERMINAL as REQ_PART_TERMINAL, heldFromOf } from "./builder/request.mjs";
 import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, carrySuperseded, supersededNote, holdRequirements, heldCheckpoint, heldDelta, applyHeldDelta, readHeld, sameCheckpoint, heldNote, ownerOf, handoffsByStep, applyVerdicts, COVERAGE_STEPS, linkEvidence } from "./builder/site-requirements.mjs";
@@ -1513,6 +1513,8 @@ export default {
     // pending note and its uploader never took it away (2026-10-15): the
     // uploader died, or an upload's answer was lost.
     ctx.waitUntil(runScriptPendingSweep(env).catch((e) => console.error("script sweep failed", errorClassForLog(e))));
+    // ABANDONED VIDEO AND AUDIO UPLOADS RECLAIMED (2026-10-16): never a file.
+    ctx.waitUntil(runMediaSweep(env).catch((e) => console.error("media sweep failed", errorClassForLog(e))));
     // A PUBLICATION THAT STOPPED AFTER ITS SWITCH IS FINISHED (draft-first):
     // the approved revision, from its journal; this never begins one.
     // WHATEVER THE SWITCH SAYS NOW (2026-10-16): a publication the owner
@@ -10201,6 +10203,65 @@ async function draftMediaList(env, uid) {
     cursor = page.cursor;
   }
 }
+// ── ABANDONED UPLOADS RECLAIMED (2026-10-16) ─────────────────────────────────
+//
+// A session expires 24 h after it starts (`MEDIA_SESSION_MS`); until now its
+// record, its part records and its room in the ledger stayed until the next
+// upload of that scope happened to clear the room, and the record and parts
+// stayed for ever. The two-minute tick now reclaims them, a bounded number per
+// tick, from a cursor kept between ticks — and only past an hour's grace after
+// the session's own expiry:
+//   - an OPEN session whose bytes never landed has its multipart upload
+//     aborted (an abort discards only the unfinished parts; it never removes
+//     an object, so a replacement's target is untouched);
+//   - an open session whose bytes DID land (its object carries its id) is a
+//     finished upload whose record was lost: the file is kept;
+//   - either way its room is released, and its record and part records go.
+// NOTHING UNDER `uploads/` IS EVER DELETED HERE: a file, a held replacement's
+// stand-in and anything a page plays stay. A pre-site draft older than its 7
+// days by another day (a build moving it would long since have finished) goes.
+const MEDIA_SWEEP_MAX = 25;
+const MEDIA_SWEEP_GRACE_MS = 60 * 60 * 1000;
+const MEDIA_SWEEP_CURSOR = "media-sweep/cursor.json";
+export async function runMediaSweep(env, { now = Date.now(), max = MEDIA_SWEEP_MAX } = {}) {
+  const B = env.SITES_BUCKET;
+  if (!B || typeof B.list !== "function") return { reclaimed: 0, kept: 0, drafts: 0 };
+  let cursor;
+  try { const c = await B.get(MEDIA_SWEEP_CURSOR); if (c) cursor = (JSON.parse(await c.text()) || {}).cursor || undefined; } catch { cursor = undefined; }
+  let looked = 0, reclaimed = 0, kept = 0, drafts = 0;
+  const page = await B.list({ prefix: "media-sessions/", limit: 100, ...(cursor ? { cursor } : {}) });
+  for (const o of page.objects || []) {
+    if (looked >= max) break;
+    const m = /^media-sessions\/([^/]+)\/([a-f0-9]{32})\.json$/.exec(String(o.key));
+    if (!m) continue;
+    looked++;
+    const [, scope, sid] = m;
+    let s = null;
+    try { const got = await B.get(o.key); s = got ? JSON.parse(await got.text()) : null; } catch { continue; }
+    if (!s || !(Number(s.expires) + MEDIA_SWEEP_GRACE_MS < now)) continue;
+    const deps = mediaDeps(env, { scope, gate: async () => ({}) });
+    if (s.state !== "done" && typeof s.key === "string" && (s.key.startsWith("uploads/") || s.key.startsWith("drafts/"))) {
+      let landed = false;
+      try { const h = await B.head(s.key); landed = !!(h && h.customMetadata && h.customMetadata.up === sid); } catch { continue; }
+      if (landed) kept++;
+      else if (s.uploadId) { try { await deps.abort(s.key, s.uploadId); } catch { /* already gone */ } }
+    }
+    await releaseMedia(deps, scope, sid);
+    try { await deps.dropParts(scope, sid); await deps.dropSession(scope, sid); reclaimed++; } catch { /* next tick */ }
+  }
+  // THE CURSOR MOVES ON only past what this tick looked at all of.
+  const next = looked >= max ? cursor : page.truncated ? page.cursor : undefined;
+  try { await B.put(MEDIA_SWEEP_CURSOR, JSON.stringify({ cursor: next || null, at: now }), { httpMetadata: { contentType: "application/json" } }); } catch { /* starts over */ }
+  // OLD PRE-SITE DRAFTS, a page a tick.
+  try {
+    const dp = await B.list({ prefix: "drafts/", limit: 100 });
+    for (const d of dp.objects || []) {
+      const at = d.uploaded instanceof Date ? d.uploaded.getTime() : Date.parse(d.uploaded || "");
+      if (Number.isFinite(at) && at + MEDIA_DRAFT_MS + 24 * 60 * 60 * 1000 < now) { try { await B.delete(d.key); drafts++; } catch { /* next tick */ } }
+    }
+  } catch { /* next tick */ }
+  return { reclaimed, kept, drafts };
+}
 function mediaDeps(env, { scope, gate, draftUid = null, slug = "", who = "" }) {
   const B = env.SITES_BUCKET;
   return {
@@ -12329,6 +12390,18 @@ async function backendWriter(env, slug) {
  * `null` off draft-first or with no draft. Throws when the draft or a journal
  * it names cannot be read: a task never acts on the live state in its place.
  */
+/**
+ * THE VERSION A PUBLISH OR A BUILD WILL SAVE AS: with draft-first on, after the
+ * draft's own (`mintAfter`); otherwise, and when the draft cannot be read, the
+ * plain mint (a lost read only costs the ordering guarantee, and a save that
+ * lands older is refused and run again, never billed as done).
+ */
+async function mintForDraft(env, slug) {
+  if (!draftFirst(env) || !env.SITES_BUCKET) return mintVersion();
+  try { const { draft } = await readDraft(buildDeps(env), slug); return mintAfter(draft && draft.version); }
+  catch { return mintVersion(); }
+}
+
 async function draftView(env, slug) {
   if (!draftFirst(env) || !env.SITES_BUCKET) return null;
   const deps = buildDeps(env);
@@ -13262,6 +13335,19 @@ function loseTurn(job, slug, why) {
  * read now — a turn it once held but no longer does is lost (`loseTurn`), and
  * a turn that cannot be read is a no for this write.
  */
+/**
+ * MAY ANOTHER PART OF THIS JOB'S REQUEST BE RUNNING BESIDE IT? (2026-10-16)
+ * True while any other part has not ended — it may be running, or be filed
+ * beside this one — and when the request cannot be read (the safe answer).
+ */
+async function othersOpen(env, slug, request) {
+  if (!request || !request.key) return true;
+  try {
+    const { rec } = await loadRequest(env, slug, request.key);
+    if (!rec || !Array.isArray(rec.parts)) return true;
+    return rec.parts.some((p) => p && p.n !== request.part && !REQ_PART_TERMINAL.includes(p.status));
+  } catch { return true; }
+}
 async function turnStillMine(env, slug, job) {
   if (!job || !job.beside || !writesBeside(env) || !env.SITES_BUCKET) return true;
   if (job.beside.lost || !job.beside.turn) return false;
@@ -15323,7 +15409,9 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // document, and the version pruning keeps beside this one. A pointer that
   // cannot be read is no parent: the new script then falls back to the legacy
   // prefix, which is never wrong, only occasionally empty.
-  const version = mintVersion();
+  // UNDER DRAFT-FIRST, AFTER THE DRAFT (2026-10-16): a clock behind the one
+  // that minted the draft would save this as older and lose its change.
+  const version = await mintForDraft(env, slug);
   let parentVersion = "";
   try { const p = await readPointer(buildDeps(env), slug); parentVersion = p ? p.version : ""; }
   catch (e) { console.error("pointer unreadable before compile:", slug, e && e.message); parentVersion = ""; }
@@ -16330,7 +16418,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   // the script reads its own prefix; the parent is whatever is live now — a
   // revise's previous build, or nothing on a first build — the one fallback
   // hop for a visitor still holding the previous document.
-  const bVersion = mintVersion();
+  const bVersion = await mintForDraft(env, slug);
   let bParent = "";
   try { const p = await readPointer(buildDeps(env), slug); bParent = p ? p.version : ""; }
   catch (e) { console.error("pointer unreadable before build:", slug, e && e.message); bParent = ""; }
@@ -22293,11 +22381,13 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     // starts and holds it to its end; a part that cannot be read is treated
     // as one that does. The turn is renewed with the lease.
     if (requestOf && writesBeside(env)) {
-      jctx.beside = { base: null, baseParts: null, turn: null, holds: true, waits: 0 };
+      // `schema` (2026-10-16): whether the part was cleared to change the
+      // site's schema beside others; unreadable, it was.
+      jctx.beside = { base: null, baseParts: null, turn: null, holds: true, schema: true, waits: 0, request: { key: requestOf.key, part: requestOf.part } };
       try {
         const { rec: rrec } = await loadRequest(env, job.slug, requestOf.key);
         const rp = rrec && Array.isArray(rrec.parts) ? rrec.parts[requestOf.part] : null;
-        if (rp) jctx.beside.holds = partHoldsConfig(rp);
+        if (rp) { jctx.beside.holds = partHoldsConfig(rp); jctx.beside.schema = partWritesSchema(rp) || rp.serial === true; }
       } catch (e) { console.error("edit queue: request unreadable for", id, "— its job holds the site's turn throughout", errorClassForLog(e)); }
     }
     // ITS PART'S PREPARATION, WHEN ONE WAS STAGED FOR IT (2026-10-08): calls
@@ -26972,10 +27062,26 @@ async function handleRequest(request, env, ctx) {
       }
       if (um && env.SITES_BUCKET) {
         const key = "uploads/" + um[1].toLowerCase() + "/" + um[2];
+        const media = !!mediaKindOf(um[2].toLowerCase().split(".").pop());
+        // A VIDEO OR A RECORDING DELETED BY ITS RECORD IS GONE (2026-10-16),
+        // even while a delete that stopped between the record and the object
+        // left the bytes: it answers 404, and the stopped delete is finished
+        // here. A record that cannot be read serves the file as before — the
+        // record is the delete's word, and absent it nothing says gone.
+        if (media && isMediaName(um[2].toLowerCase())) {
+          let gone = false;
+          try {
+            const rec = await env.SITES_BUCKET.get(MEDIA_ASSET_KEY(siteScope(um[1]), um[2].toLowerCase()));
+            if (rec) { const j = JSON.parse(await rec.text()); gone = !!(j && j.state === "deleted"); }
+          } catch { gone = false; }
+          if (gone) {
+            if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(env.SITES_BUCKET.delete(key).catch(() => {}));
+            return new Response("Not found", { status: 404, headers: { "cache-control": "no-store" } });
+          }
+        }
         const head = await env.SITES_BUCKET.head(key);
         if (!head) return new Response("Not found", { status: 404 });
         const ct = (head.httpMetadata && head.httpMetadata.contentType) || "application/octet-stream";
-        const media = !!mediaKindOf(um[2].toLowerCase().split(".").pop());
         const etag = head.httpEtag || (head.etag ? '"' + head.etag + '"' : "");
         const base = {
           mime: ct, size: head.size, etag,
@@ -38780,7 +38886,42 @@ async function handleRequest(request, env, ctx) {
             // exit's, untouched: this only says what happened.
             // THE REQUIREMENT RECORD READ UNDER A FAILURE, once it can be (`aRecord`, below).
             let aRecordFor = null;
+            // A DATABASE BEING MADE BESIDE THE PAGE WRITER (2026-10-16): the
+            // provision started, not yet awaited. Every exit settles it first
+            // (`aProvSettle`), so what is said about the site is what stands.
+            let aProvWait = null;
+            const aProvSettle = async () => { if (!aProvWait) return null; const w = aProvWait; aProvWait = null; return w; };
+            // THE PROVISION'S FAILURE, SAID AS BEFORE (moved here unchanged
+            // when the provision began to run beside the page writer).
+            // NOTHING CHANGED, NOTHING KEPT CHARGED: the reserve a job took
+            // meanwhile is refunded with the rest of an answer that ships
+            // nothing. The status and the stage are the diagnosis, the build
+            // route's own rule — a dead key, a quota and Neon being down each
+            // need a different fix and read alike without them. A PROJECT
+            // STARTED BEFORE THE FAILURE (2026-10-07, the provisioner's
+            // `recorded`) is kept against the site and reused, or written down
+            // to be settled; AN EARLIER ATTEMPT THAT IS NOT SETTLED
+            // (`reconcile`) blocks another until it is checked.
+            const aProvFailed = (e) => {
+              const aProjKept = e && e.recorded === true ? true : e && e.recorded === "unknown" ? "unknown" : false;
+              const aEarlier = !!(e && e.reconcile === true);
+              return aFail({
+                ok: false, error: "provision", cost: 0, ours: true,
+                msg: aProjKept === true
+                  ? "That needed a database for your site and setting it up didn't finish — this is on us. Your site is unchanged; the database that was started is kept, so the next try picks it up. Try again in a few minutes."
+                  : aProjKept === "unknown"
+                    ? "That needed a database for your site and setting it up didn't finish — this is on us. Your site is unchanged; a database may have been started, and it's set aside to be checked before another is made, so trying again may not work until that's done."
+                    : aEarlier
+                      ? "That needed a database for your site, and one an earlier try started still has to be checked before another is made — this is on us. None was made this time and your site is unchanged; trying again may not work until that check is done."
+                      : "That needed a database for your site and one couldn't be made right now — this is on us, and nothing was changed. Try again in a few minutes.",
+                upstream: (e && e.status) || null, stage: (e && e.stage) || null,
+                detail: scrubSecrets(String((e && (e.detail || e.message)) || "")).slice(0, 300),
+              }, 502, { projectKept: aProjKept });
+            };
+            /** Settle the provision: null when it stands (or none ran), else the failure's answer. */
+            const aProvCheck = async () => { const e = await aProvSettle(); return e ? aProvFailed(e) : null; };
             const aFail = async (body, status, { database = "none", saved = false, photos = 0, projectKept = false } = {}) => {
+              await aProvSettle();
               const failed = failureOutcome({
                 database,
                 made: { tables: aTables, altered: aAltered.map((x) => x && x.table), functions: aFunctions, apis: aApis, jobs: aJobs.map((j) => j && j.name) },
@@ -39581,6 +39722,15 @@ async function handleRequest(request, env, ctx) {
             let aApplyBackend = null;
             let aMigration = null;
             const aMigJob = aJob ? String(aJob.id) : "sync:" + String((editTrace && editTrace.cid) || Date.now());
+            // AN ADDITION NOT CLEARED TO CHANGE THE SCHEMA BESIDE OTHERS
+            // (2026-10-16): its targets named no table, so it was filed beside
+            // another part that may be changing the schema. It designed tables
+            // after all: nothing is made, nothing charged, and the request runs
+            // it again alone (`conflict` is the overlap code it re-runs on).
+            if (aBackend.length && aJob && aJob.beside && aJob.beside.schema === false && await othersOpen(env, ownerSlug, aJob.beside.request)) {
+              aMark("schema", "fail", { error: "not cleared beside others" });
+              return aFail({ ok: false, error: "conflict", ours: true, cost: 0, msg: "That addition wasn't made — it needs to change your site's data, and another change in the same request could have been changing it at the same time. Nothing was changed." }, 409);
+            }
             if (aBackend.length) {
               if (!adb) {
                 // MAY THE DATABASE BE MADE? (async path) A cold provision is
@@ -39591,52 +39741,24 @@ async function handleRequest(request, env, ctx) {
                 const aGateProv = aJob ? aJob.gate("editing") : null;
                 if (aGateProv && !aGateProv.go) return await editStopped(env, { job: aJob, why: aGateProv.why, phase: "editing", trace: editTrace, ctx, extra: aStopEvidence() });
                 aMark("provision", "start", { tiers: aBackend });
-                try {
-                  adb = await ensureSiteBackend(env, ownerSlug, ou.id, aInstruction, (n) => aMark("prov:" + n, "ok"));
+                // STARTED BESIDE THE PAGE WRITER, NOT AWAITED HERE (2026-10-16):
+                // nothing before the schema's apply needs the database — the
+                // seed net, the first reserve and the page call read the spec —
+                // so the provision's tens of seconds overlap the page writer's
+                // minutes. It is settled after the page call (`aProvCheck`), at
+                // the top of the pageless path, and before every exit; a failure
+                // answers exactly as it did, and the reserve already taken is
+                // refunded with the rest of a job that did not ship.
+                aProvWait = ensureSiteBackend(env, ownerSlug, ou.id, aInstruction, (n) => aMark("prov:" + n, "ok")).then((db) => {
+                  adb = db;
                   aProvisioned = true;
                   aMark("provision", "ok");
-                } catch (e) {
+                  return null;
+                }, (e) => {
                   aMark("provision", "fail", { stage: (e && e.stage) || null });
                   console.error("addon provision failed:", ownerSlug, e && e.status, e && (e.detail || e.message));
-                  // NOTHING CHARGED, NOTHING CHANGED: the small calls are the
-                  // only spend so far and they are collected only after the
-                  // work lands. The status and the stage are the diagnosis,
-                  // the build route's own rule — a dead key, a quota and Neon
-                  // being down each need a different fix and read alike
-                  // without them. Ours, never "try describing it differently".
-                  // THROUGH THE ONE DOOR (2026-10-06), so the requirements the
-                  // judgment settled are told beside it. Its outcome is no
-                  // change: the provision threw before `aProvisioned`, and
-                  // nothing below it ran. A project a later stage left behind
-                  // is not linked to the site (that is `save_backend`, the
-                  // last stage) and the next ask reuses it, never makes a
-                  // second (`lookupProject`) — the site itself is unchanged.
-                  // A PROJECT STARTED BEFORE THE FAILURE (2026-10-07, the
-                  // provisioner's `recorded`): kept against the site and reused
-                  // by the next try — or, where its recording is unknown,
-                  // written down to be settled before another is made. Either
-                  // way "nothing was changed" is not said over it.
-                  // AN EARLIER ATTEMPT THAT IS NOT SETTLED (2026-10-07,
-                  // `reconcile`): nothing was made this time, and whether the
-                  // next try can go ahead depends on that attempt being
-                  // settled — so neither unsettled state promises that trying
-                  // again fixes it. The notes stay for the next try or the
-                  // owner (`source/<slug>/neon-unrecorded/`).
-                  const aProjKept = e && e.recorded === true ? true : e && e.recorded === "unknown" ? "unknown" : false;
-                  const aEarlier = !!(e && e.reconcile === true);
-                  return aFail({
-                    ok: false, error: "provision", cost: 0, ours: true,
-                    msg: aProjKept === true
-                      ? "That needed a database for your site and setting it up didn't finish — this is on us. Your site is unchanged; the database that was started is kept, so the next try picks it up. Try again in a few minutes."
-                      : aProjKept === "unknown"
-                        ? "That needed a database for your site and setting it up didn't finish — this is on us. Your site is unchanged; a database may have been started, and it's set aside to be checked before another is made, so trying again may not work until that's done."
-                        : aEarlier
-                          ? "That needed a database for your site, and one an earlier try started still has to be checked before another is made — this is on us. None was made this time and your site is unchanged; trying again may not work until that check is done."
-                          : "That needed a database for your site and one couldn't be made right now — this is on us, and nothing was changed. Try again in a few minutes.",
-                    upstream: (e && e.status) || null, stage: (e && e.stage) || null,
-                    detail: scrubSecrets(String((e && (e.detail || e.message)) || "")).slice(0, 300),
-                  }, 502, { projectKept: aProjKept });
-                }
+                  return e || new Error("provision failed");
+                });
                 // A DATABASE JUST MADE STORES NOTHING — the honest spec, the
                 // one a site with no database was described by above.
                 aSpec = { tables: [] };
@@ -39959,6 +40081,7 @@ async function handleRequest(request, env, ctx) {
             // the page path's, with nothing added, changed or moved, so one
             // reader (`addonAnswer`) reads both.
             if (pageless(aAnswers)) {
+              { const pf = await aProvCheck(); if (pf) return pf; }
               // THE APPLY, DIRECTLY (stage 8): nothing to compile, so nothing
               // to wait for — the schema is applied here, under its record,
               // and the record is `applied` the moment it lands: there is no
@@ -40057,6 +40180,7 @@ async function handleRequest(request, env, ctx) {
             // spent only the small calls, refunds through the database and
             // answers the customer honestly, with the site untouched.
             const aGateGen = aJob ? aJob.gate("editing") : null;
+            if (aGateGen && !aGateGen.go) { const pf = await aProvCheck(); if (pf) return pf; }
             if (aGateGen && !aGateGen.go) return await editStopped(env, { job: aJob, why: aGateGen.why, phase: "editing", trace: editTrace, ctx, extra: aStopEvidence() });
             let aGen = null;
             // TIMED, because the repair round below reads it: what the page
@@ -40489,6 +40613,10 @@ async function handleRequest(request, env, ctx) {
                 upstream: (e && e.status) || null, upstreamType: aKind.type, billing: aKind.billing || undefined,
               }, 503);
             }
+            // THE DATABASE MADE BESIDE THE PAGE CALL, SETTLED (2026-10-16):
+            // everything after this may read it — the look's store, the apply,
+            // the seed — and a provision that failed answers as it always did.
+            { const pf = await aProvCheck(); if (pf) return pf; }
             // ── THE PAGE WRITER MAY ASK TOO (2026-10-11, the generality round) ──
             //
             // It was the one writer stage that could not: shown an addition it
@@ -41665,8 +41793,12 @@ async function handleRequest(request, env, ctx) {
               // were. No apply ran (the compile failed before the seam): no
               // record, the compile sentence alone, as before.
               const aSchemaFail = aPub.error === "schema";
+              // HELD, NOT APPLIED (draft-first on a published site, 2026-10-16):
+              // the schema went to the job's held journal, which a failed save
+              // never references — nothing reached the database.
+              const aHeldOnly = !!(aWriter && aWriter.holding);
               if (aMigration && !aSchemaFail && aMigration.status === "pending") {
-                aMigration = (await settleSiteMigration(env, ownerSlug, aMigJob, "applied_without_page", { publish: { ok: false, error: String(aPub.error || ""), detail: String(aPub.detail || "").slice(0, 200) } })) || aMigration;
+                aMigration = (await settleSiteMigration(env, ownerSlug, aMigJob, aHeldOnly ? "discarded" : "applied_without_page", { publish: { ok: false, error: String(aPub.error || ""), detail: String(aPub.detail || "").slice(0, 200) } })) || aMigration;
               }
               // ── WHAT IT LEFT BEHIND, FROM ITS OWN EVIDENCE (2026-10-06) ─────
               //
@@ -41681,14 +41813,14 @@ async function handleRequest(request, env, ctx) {
               // the engine runs one statement at a time, so what went in is not
               // known — and no record is no apply (the compile failed before the
               // seam, or the ledger refused it there).
-              const aDb = aApplied ? "applied" : aMigration ? "unknown" : "none";
+              const aDb = aHeldOnly ? "none" : aApplied ? "applied" : aMigration ? "unknown" : "none";
               // SOMETHING OUTSIDE THE PUBLISH CHANGED — the database's changes,
               // or a database made for the site — so neither "nothing was
               // changed" nor "untouched" is said: each sentence says what did
               // not happen (`compileMsg`'s `landed`), and the outcome what did.
               const aLanded = aDb !== "none" || aProvisioned;
               return aFail({
-                ok: false, error: aSchemaFail ? "schema" : "compile", cost: 0,
+                ok: false, error: aSchemaFail ? "schema" : lostOr(aPub, "compile"), cost: 0,
                 ...(aSchemaFail ? { ours: true } : {}),
                 msg: aSchemaFail
                   ? ADDON_SCHEMA_FAIL_MSG + (aKept ? KEPT_CHANGE_NOTE : "")

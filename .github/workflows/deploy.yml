@@ -189,6 +189,11 @@ jobs:
           # never gated.
           vars: |
             DEPLOY_ID
+            MEDIA_MAX_VIDEO_BYTES
+            MEDIA_MAX_AUDIO_BYTES
+            MEDIA_MAX_SITE_BYTES
+            MEDIA_MAX_SITE_FILES
+            MEDIA_MAX_DRAFT_FILES
           secrets: |
             FAL_KEY
             ANTHROPIC_API_KEY
@@ -222,6 +227,18 @@ jobs:
             DRAFT_FIRST
         env:
           DEPLOY_ID: ${{ github.sha }}
+          # ── VIDEO AND AUDIO LIMITS (2026-10-16) ───────────────────────────
+          #
+          # Plain settings, not secrets: GitHub repository variables of the
+          # same names. Each must read as a positive whole number to count, and
+          # is clamped to its ceiling (site-media.mjs `mediaLimits`); `default`
+          # — the fallback, since an empty value fails the deploy — reads as
+          # the default. They reach container jobs through JOB_ENV_NAMES.
+          MEDIA_MAX_VIDEO_BYTES: ${{ vars.MEDIA_MAX_VIDEO_BYTES || 'default' }}
+          MEDIA_MAX_AUDIO_BYTES: ${{ vars.MEDIA_MAX_AUDIO_BYTES || 'default' }}
+          MEDIA_MAX_SITE_BYTES: ${{ vars.MEDIA_MAX_SITE_BYTES || 'default' }}
+          MEDIA_MAX_SITE_FILES: ${{ vars.MEDIA_MAX_SITE_FILES || 'default' }}
+          MEDIA_MAX_DRAFT_FILES: ${{ vars.MEDIA_MAX_DRAFT_FILES || 'default' }}
           FAL_KEY: ${{ secrets.FAL_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           # REQUIRED FROM 2026-08-22, AND THE FALLBACK IS GONE. It carried

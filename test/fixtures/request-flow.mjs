@@ -547,6 +547,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   // next call a case names.
   const neon = { calls: [], projects: [], project: null, db: "" };
   const neonFaults = [];
+  const neonHolds = [];
   // ── THE WIRE ──────────────────────────────────────────────────────────────
   const imageLog = [];
   const downloadLog = [];
@@ -660,6 +661,9 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       neon.calls.push(method + " " + (url.split("/api/v2")[1] || url));
       const nf = neonFaults.findIndex((x) => x.match(method, url));
       if (nf >= 0) { const x = neonFaults.splice(nf, 1)[0]; if (x.hang) { hung.what = "neon"; die(null); hung.resolve("neon"); return new Promise(() => {}); } return new Response("neon unavailable", { status: 503 }); }
+      // A CREATE HELD UNTIL THE CASE RELEASES IT (`holdNeon`, 2026-10-16): the
+      // provision is still running, so a case can show what runs beside it.
+      if (/\/projects$/.test(url) && method === "POST" && neonHolds.length) { const h = neonHolds.shift(); h.reached = true; await h.gate; }
       if (/\/projects$/.test(url) && method === "POST") {
         const id = "pr-" + (neon.projects.length + 1);
         neon.projects.push(id);
@@ -860,6 +864,8 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     neon,
     /** The next Neon call (or `site_project` claim) `match(method, url)` accepts answers 503 — or, with `hang`, lands and is never answered. */
     failNeon(match, { hang = false } = {}) { neonFaults.push({ match, hang }); if (hang) resetHung(); },
+    /** The next project create waits until `release()`; `reached` says it got there. */
+    holdNeon() { let release; const h = { reached: false, gate: new Promise((ok) => { release = ok; }) }; h.release = release; neonHolds.push(h); return h; },
     /** The next call to `fn` (or the first whose `when(args, out)` holds) lands and never answers. */
     hang(fn, when) { hangs.push({ fn, when }); resetHung(); },
     /** Run `then(args, out)` right after the next call to `fn` lands, before its caller hears. */

@@ -1476,14 +1476,18 @@ test("THE BACKEND HOPS: the site is described with its columns and tiers, design
   // one, before the schema work, gated under a job, and a failure is ours
   // — named, scrubbed, nothing charged.
   const tiers = at(b, "const aBackend = backendDesigned(aDesigned);", "tiers");
-  const prov = at(b, "adb = await ensureSiteBackend(env, ownerSlug, ou.id, aInstruction,", "provision");
+  // RE-ANCHORED 2026-10-16: the provision STARTS here and runs beside the
+  // page writer (`aProvWait`); its failure is said by `aProvFailed`, moved
+  // unchanged, and it is settled after the page call (`aProvCheck`).
+  const prov = at(b, "aProvWait = ensureSiteBackend(env, ownerSlug, ou.id, aInstruction,", "provision");
   const schema = at(b, "const folded = mergeAddonSchema(", "schema");
   assert.ok(tiers < prov && prov < schema, "the provision is not between the fold and the schema work");
   const gate = b.slice(tiers, prov);
   assert.match(gate, /if \(aBackend\.length\) \{/, "the schema block is not gated on a tier being designed");
   assert.match(gate, /if \(!adb\) \{/, "the provision is not gated on there being no database");
   assert.match(gate, /aJob\.gate\("editing"\)/, "a queued provision is not asked cancel and budget first");
-  const fail = b.slice(prov, schema);
+  const fail = b.slice(at(b, "const aProvFailed = (e) => {", "provision failure"), at(b, "const aProvCheck = async () =>", "provision check"));
+  assert.ok(b.indexOf("{ const pf = await aProvCheck(); if (pf) return pf; }", prov) > prov, "the provision is never settled after it starts");
   assert.match(fail, /error: "provision", cost: 0, ours: true,/, "a failed provision is not named as ours at no charge");
   assert.match(fail, /stage: \(e && e\.stage\) \|\| null,/, "a failed provision does not say which call failed");
   assert.match(fail, /detail: scrubSecrets\(/, "the detail is not scrubbed");
@@ -1491,7 +1495,7 @@ test("THE BACKEND HOPS: the site is described with its columns and tiers, design
   // requirements are told beside it; the status is the door's second argument.
   // Its third argument (since 2026-10-07) carries a project the provisioner kept.
   assert.match(fail, /return aFail\(\{\s*ok: false, error: "provision"[\s\S]*?\}, 502(?:, \{[^{}]*\})?\);/, "a failed provision is not answered 502 through the failure door");
-  assert.match(fail, /aSpec = \{ tables: \[\] \};/, "a database just made is not described as empty");
+  assert.match(b.slice(prov, schema), /aSpec = \{ tables: \[\] \};/, "a database just made is not described as empty");
   // RE-ANCHORED, NOT APPEASED (2026-09-15). This was pinned to
   // `let adb = await siteBackendBySlug(env, ownerSlug);` — the SPELLING of a
   // reader that has been replaced. `siteBackendBySlug` collapses four facts
@@ -1603,7 +1607,7 @@ test("THE ROUTE RUNS THE ADD STEP WHERE IT RAN THE BUILD'S DESIGNER, and folds w
   const clean = at(b, "return aFail({ ok: false, error: \"add\", kind: k, reason: clean.why", "clean");
   const fold = at(b, "const aFold = foldAdds(aAnswers, aLook, aSite);", "fold");
   const designed = at(b, "const aDesigned = aFold.designed;", "designed");
-  const prov = at(b, "adb = await ensureSiteBackend(env, ownerSlug, ou.id, aInstruction, (n) => aMark(\"prov:\" + n, \"ok\"));", "provision");
+  const prov = at(b, "aProvWait = ensureSiteBackend(env, ownerSlug, ou.id, aInstruction, (n) => aMark(\"prov:\" + n, \"ok\")).then((db) => {", "provision");
   const schema = at(b, "const folded = mergeAddonSchema(aSpec.tables || [], aDesigned);", "schema");
   const merged = at(b, "const aMerged = mergeLook(aLook, aDesigned, {}, { instructed: true });", "merge");
   assert.ok(pick < hop && hop < run && run < clean && clean < fold && fold < designed && designed < prov && prov < schema && schema < merged, "the addon's steps are out of order");

@@ -86,6 +86,14 @@ export async function saveDraftRecord(deps, slug, { version, build = "", base = 
     if (draft && draft.version === version && !heldRef) return { ok: true, draft, same: true };
     const at = now().toISOString();
     const history = draft ? [...draft.history.filter((v) => v !== draft.version && v !== version), draft.version] : [];
+    // A NEWER DRAFT ALREADY STANDS AND THIS SAVE CARRIES HELD CHANGES
+    // (2026-10-16, Codex's reproduction): its code is not in the newer draft,
+    // so a revision of its held changes on the newer code would publish them
+    // without the code they came with, and the caller would bill both as done.
+    // NOTHING IS WRITTEN: the caller is told `older`, the immutable journal
+    // it flushed stays unreferenced (never applied), and the task runs again
+    // on the newer draft, holding its changes afresh — once.
+    if (draft && draft.version > version && heldRef) return { ok: false, older: true, error: "older", version: draft.version };
     if (draft && draft.version >= version) {
       // A NEWER DRAFT ALREADY STANDS: this version is kept in its history only;
       // its held changes, if any, are the next revision on the newest code.
@@ -182,6 +190,20 @@ export function revisionOf(draft, n) {
   return draft.revs.find((r) => r.n === n) || null;
 }
 
+/**
+ * A VERSION ID THAT SORTS AFTER THE DRAFT'S (2026-10-16): the draft keeps the
+ * newest version it is given, so a version minted by a clock behind another
+ * isolate's would save as older and lose its change. Under draft-first a
+ * publish mints with this: the later of now and one millisecond past `prev`.
+ */
+export function mintAfter(prev, now = Date.now(), rand = Math.random().toString(36).slice(2)) {
+  const m = /^(\d{14})-/.exec(String(prev || ""));
+  const after = m ? Number(m[1]) + 1 : 0;
+  const ms = Math.max(Math.floor(Number(now) || 0), after);
+  const tail = String(rand == null ? "" : rand).replace(/[^a-z0-9]/gi, "").slice(0, 6).toLowerCase();
+  return String(ms).padStart(14, "0") + "-" + (tail || "000000");
+}
+
 /** May `version` be published from this draft record? The draft itself, or one of its saved predecessors. */
 export function publishable(draft, version) {
   if (!draft || !isDraftVersion(version)) return false;
@@ -276,7 +298,15 @@ export function previewOf(label) {
  * change), then the job's commit. Nothing live is touched: no pointer, no
  * sidecar, no live marker, no site script.
  */
-export async function saveAsDraft(deps, { slug, version, build = "", base = "", job = null, afterActivate, commit, preview, held = null } = {}) {
+/**
+ * THE DRAFT'S OWN SIDECAR (2026-10-16): the description, the address and the
+ * redirects as the draft's version composed them. The preview copy of the
+ * site's script reads it (`server.ts`, previewing) in place of the live
+ * `sitemeta/<slug>.json`, which a draft never writes.
+ */
+export const DRAFT_SIDECAR_KEY = (slug) => "sitemeta-draft/" + String(slug || "") + ".json";
+
+export async function saveAsDraft(deps, { slug, version, build = "", base = "", job = null, afterActivate, commit, preview, held = null, sidecar = null } = {}) {
   let rec, ref = null;
   try {
     // THE TASK'S HELD BACKEND AND LIBRARY CHANGES go into the same revision as
@@ -297,16 +327,20 @@ export async function saveAsDraft(deps, { slug, version, build = "", base = "", 
     if (e && e.code === "TURN_FENCED") throw e;
     return { ok: false, error: "draft: " + String((e && e.message) || e) };
   }
-  if (!rec.ok) return { ok: false, error: rec.error || "draft" };
-  // A NEWER DRAFT ALREADY STOOD, AND THIS SAVE CARRIED ONLY CODE (2026-10-16):
-  // its version is kept in the history, but the draft the owner will publish
-  // does not hold its change. It is not committed or billed as done; the
-  // caller is told `older`, and the request runs the part again on the newer
-  // draft. (A save that also carried held changes added them as a revision of
-  // the newest code, so it goes on as before: refusing it would refund changes
-  // that are in the draft.)
-  if (rec.older && !ref) return { ok: false, error: "older", older: true, version: rec.draft && rec.draft.version };
+  if (!rec.ok) return { ok: false, error: rec.error || "draft", ...(rec.older ? { older: true, version: rec.version } : {}) };
+  // A NEWER DRAFT ALREADY STOOD (2026-10-16): the draft the owner will publish
+  // does not hold this save's code. It is not committed or billed as done;
+  // the caller is told `older`, and the request runs the part again on the
+  // newer draft. A save that carried held changes is refused before anything
+  // is written (`saveDraftRecord`); one that carried only code is kept in the
+  // history, still publishable by name, and refused here.
+  if (rec.older) return { ok: false, error: "older", older: true, version: rec.draft && rec.draft.version };
   if (!rec.older && typeof afterActivate === "function") await afterActivate();
+  // THE DRAFT'S SIDECAR BEFORE ITS PREVIEW, best-effort: a preview that read
+  // none falls back to the live one, as it always did.
+  if (typeof sidecar === "string" && sidecar) {
+    try { await deps.put(DRAFT_SIDECAR_KEY(slug), sidecar, "application/json"); } catch { /* the preview reads the live sidecar */ }
+  }
   let previewed = null;
   if (typeof preview === "function") {
     try { previewed = await preview(rec.draft); } catch (e) { previewed = { ok: false, error: String((e && e.message) || e) }; }

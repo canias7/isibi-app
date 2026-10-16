@@ -592,6 +592,8 @@ export function outcomeOf(a) {
   if (outcomeReads(a.outcome)) return a.outcome;
   const m = a.migration && typeof a.migration === "object" && !Array.isArray(a.migration) ? a.migration : null;
   if (m && m.status === "applied_without_page") return { state: "partial", published: false, database: "applied" };
+  // HELD AND NEVER SAVED (2026-10-16): nothing reached the database.
+  if (m && m.status === "discarded") return { state: "none", published: false, database: "none" };
   if (m && (m.status === "pending" || m.status === "failed")) return { state: "unknown", published: false, database: "unknown" };
   if (a.error === "add" || a.error === "declined") return { state: "none", published: false, database: "none" };
   return { state: "unknown", published: false, database: "unknown", recorded: false };

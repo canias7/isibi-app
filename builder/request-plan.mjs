@@ -587,14 +587,22 @@ export function clearToPrepare(parts, n, ended) {
  */
 const CONFIG_LAYERS = ["look", "logo"];
 const SCHEMA_KINDS = ["new-data", "function", "new-function", "api", "new-api", "job", "new-job"];
-function writesConfig(part) {
+// AN ADDITION BY ITS TARGETS (2026-10-16): it used to count as a config AND a
+// schema writer whatever its router targets said, so two additions never
+// overlapped, nor an addition beside a rules or look step. Now an addition
+// writes what its targets name — the whole site when they name nothing — and
+// one that turns out to need more than it was cleared for (a look it was not
+// cleared to write, tables it was not cleared to make) is refused at that
+// write, at no cost, and runs again alone (`serial`): worker.js, the add-on's
+// `turnStillMine` before its look and its schema check before its backend.
+export function writesConfig(part) {
   const r = part && part.route;
-  if (r && (r.op === "addon" || r.intent === "addon" || CONFIG_LAYERS.includes(r.layer))) return true;
+  if (r && CONFIG_LAYERS.includes(r.layer)) return true;
   return effectiveTargets(part).writes.some((w) => w === SITE || kindOf(w) === "theme" || kindOf(w) === "identity");
 }
-function writesSchema(part) {
+export function writesSchema(part) {
   const r = part && part.route;
-  if (r && (r.op === "addon" || r.intent === "addon" || r.layer === "rules")) return true;
+  if (r && r.layer === "rules") return true;
   return effectiveTargets(part).writes.some((w) => w === SITE || SCHEMA_KINDS.includes(kindOf(w)));
 }
 /** May two writing steps run at the same time? Never when their targets conflict, nor when both rewrite the config or both the schema. */
@@ -605,7 +613,7 @@ export function besideConflict(a, b) {
   return false;
 }
 /** Does this step rewrite the site's whole config before it publishes (so it holds the site's publish turn for its whole run)? */
-export function holdsConfig(part) { return !!(part && part.phase !== "route" && part.route) && writesConfig(part); }
+export function holdsConfig(part) { return !!(part && part.phase !== "route" && part.route) && (writesConfig(part) || part.serial === true); }
 
 /**
  * MAY A PART'S JOB BE FILED WHILE OTHER JOBS OF ITS REQUEST RUN? (2026-10-15)

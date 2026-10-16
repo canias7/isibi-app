@@ -384,7 +384,7 @@ test("PPM3a A PART PAUSED ON THE CUSTOMER HOLDS NO LATER PART BACK — side by s
   assert.equal(clearToWrite(free, 1, ended, (q) => q.status === "started"), true, "independent parts no longer run side by side");
 });
 
-test("PPM3b A DRAFT SAVE THAT LANDED BEHIND A NEWER DRAFT IS NOT COMMITTED OR BILLED — code only: refused `older`, its commit never runs, the newer draft stands; with held changes it goes on as before (its changes are a revision of the newest code)", async () => {
+test("PPM3b A DRAFT SAVE THAT LANDED BEHIND A NEWER DRAFT IS NOT COMMITTED OR BILLED — code only: refused `older`, its commit never runs, the newer draft stands; WITH HELD CHANGES (Codex's reproduction, 2026-10-16): refused too, nothing written — no revision of its held changes on the newer code — and its commit never runs", async () => {
   const store = new Map();
   const deps = {
     get: async (k) => (store.has(k) ? { body: store.get(k).body, etag: store.get(k).etag, text: async () => store.get(k).body } : null),
@@ -407,9 +407,18 @@ test("PPM3b A DRAFT SAVE THAT LANDED BEHIND A NEWER DRAFT IS NOT COMMITTED OR BI
   assert.equal(commits, 1, "the older save's job was committed (and so billed) though the draft does not hold its change");
   const rec = JSON.parse(store.get(DRAFT_KEY(slug)).body);
   assert.equal(rec.version, NEW, "the older save replaced the newer draft");
+  const recBefore = store.get(DRAFT_KEY(slug)).body;
   const withHeld = await saveAsDraft(deps, { slug, version: OLD, held: { id: "a".repeat(24), ops: [{ kind: "row", table: "loaves", id: 2, values: { price: 6 } }] }, commit: async () => { commits++; } });
-  assert.equal(withHeld.ok, true, "a save carrying held changes was refused: " + JSON.stringify(withHeld));
+  assert.deepEqual([withHeld.ok, withHeld.error], [false, "older"], "an older save carrying held changes was answered as saved: " + JSON.stringify(withHeld));
+  assert.equal(commits, 1, "the older mixed save was committed (and so billed) though the draft holds neither its code nor, rightly, its held changes");
+  assert.equal(store.get(DRAFT_KEY(slug)).body, recBefore, "the older mixed save wrote the draft record (a revision of its held changes on the newer code)");
+  // CONTROL: the same held save on the NEWEST code is a revision, committed once.
+  const NEWER = "01790700000000-cccccc";
+  const fresh = await saveAsDraft(deps, { slug, version: NEWER, held: { id: "b".repeat(24), ops: [{ kind: "row", table: "loaves", id: 2, values: { price: 6 } }] }, commit: async () => { commits++; } });
+  assert.equal(fresh.ok, true, JSON.stringify(fresh));
   assert.equal(commits, 2);
+  const after = JSON.parse(store.get(DRAFT_KEY(slug)).body);
+  assert.deepEqual(after.revs.map((r) => [r.version, !!r.held]), [[NEW, false], [NEWER, true]], "the revisions are not the newer code and then the held save on the newest code: " + JSON.stringify(after.revs));
 });
 
 test("PPM3c THE OVERLAP RETRY IS BOUNDED", () => {

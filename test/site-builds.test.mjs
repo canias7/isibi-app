@@ -373,7 +373,8 @@ test("both publish paths mint the version before the compile, send it in the pay
   const spineEnd = w.indexOf("\nasync function siteRedirectFor(", spineAt);
   assert.ok(spineAt > 0 && spineEnd > spineAt, "the spine moved — rescope this");
   const spine = w.slice(spineAt, spineEnd);
-  const mint = spine.indexOf("const version = mintVersion();");
+  // RE-ANCHORED 2026-10-16: under draft-first the version is minted after the draft's (`mintForDraft`).
+  const mint = spine.indexOf("const version = await mintForDraft(env, slug);");
   const payload = spine.indexOf("const cPayload = JSON.stringify({");
   const parentRead = spine.indexOf("parentVersion = p ? p.version : \"\";");
   assert.ok(mint > 0 && parentRead > 0 && payload > mint && payload > parentRead, "the spine does not mint the version (and read the parent) before its payload");
@@ -429,7 +430,7 @@ test("both publish paths mint the version before the compile, send it in the pay
   const buildEnd = w.indexOf("\nasync function deleteSiteFor(", buildAt);
   assert.ok(buildAt > 0 && buildEnd > buildAt, "the build path moved — rescope this");
   const build = w.slice(buildAt, buildEnd);
-  const bMint = build.indexOf("const bVersion = mintVersion();");
+  const bMint = build.indexOf("const bVersion = await mintForDraft(env, slug);");
   const bPayload = build.indexOf("const bPayload = JSON.stringify({");
   assert.ok(bMint > 0 && bPayload > bMint, "the build path does not mint the version before its payload");
   assert.match(build, /version: bVersion, parent: bParent \|\| undefined,/, "the build path's payload does not carry the version");

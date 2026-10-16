@@ -440,7 +440,10 @@ export async function handleMediaStart(deps, { scope, limits, name, size, type, 
   if (!Number.isSafeInteger(size) || size <= 0) return res({ error: "the file's size was not sent", code: "no_size" }, 400);
   const cap = maxMediaBytes(limits, kind);
   if (size > cap) {
-    return res({ error: "that " + kind + " is too big — keep it under " + Math.floor(cap / 1e6) + " MB", code: "too_big", max: cap }, 413);
+    // A LIMIT UNDER A MEGABYTE IS SAID IN KILOBYTES (2026-10-16): "under 0 MB"
+    // was the answer for a configured limit below one.
+    const under = cap >= 1e6 ? Math.floor(cap / 1e6) + " MB" : Math.max(1, Math.floor(cap / 1e3)) + " KB";
+    return res({ error: "that " + kind + " is too big — keep it under " + under, code: "too_big", max: cap }, 413);
   }
   let target = null;
   if (replace !== undefined && replace !== null && replace !== "") {

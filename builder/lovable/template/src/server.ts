@@ -83,10 +83,18 @@ export function isAsset(pathname: string): boolean {
 // re-read R2 on every request for exactly those sites.
 let loaded = false;
 
-async function loadMeta(env: Env): Promise<void> {
+async function loadMeta(env: Env, previewing = false): Promise<void> {
   if (loaded) return;
   loaded = true;
   try {
+    // A DRAFT'S PREVIEW READS THE DRAFT'S OWN SIDECAR (2026-10-16): its
+    // description, address and redirects, not the live site's. One preview
+    // copy of this script serves only previews, so the cache is the draft's.
+    // Absent, it reads the live one, as before.
+    if (previewing) {
+      const draft = env.SITES && (await env.SITES.get("sitemeta-draft/" + SITE_SLUG + ".json"));
+      if (draft) { setSiteMeta(JSON.parse(await draft.text()) as SiteMeta); return; }
+    }
     // OUTSIDE `sites/<slug>/`, deliberately. The asset branch below serves that
     // prefix verbatim, so a meta file under it would be fetchable at
     // `/site-meta.json`. Nothing in it is secret, but a file the site never
@@ -207,7 +215,7 @@ const site = {
       if (!live) return new Response("Not found", { status: 404 });
     }
 
-    await loadMeta(env);
+    await loadMeta(env, previewing);
     return startFetch(request);
   },
 };

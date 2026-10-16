@@ -82,7 +82,8 @@ test("the key is the site's own source object, under the gateway wall for that s
   assert.equal(MIGRATIONS_KEY("Fold-Lane"), "source/fold-lane/migrations.json");
   assert.equal(allowedJobKey("fold-lane", ID, MIGRATIONS_KEY("fold-lane")), true, "the container's runner could not write the record");
   assert.equal(allowedJobKey("other-site", ID, MIGRATIONS_KEY("fold-lane")), false, "another site's runner could write this site's record");
-  assert.deepEqual(MIGRATION_STATES, ["pending", "applied", "applied_without_page", "failed"]);
+  // `discarded` (2026-10-16): a schema held under draft-first whose save failed — nothing applied.
+  assert.deepEqual(MIGRATION_STATES, ["pending", "applied", "applied_without_page", "failed", "discarded"]);
   assert.ok(MAX_MIGRATIONS >= 20 && MAX_MIGRATIONS <= 200, "the cap is not a bounded log");
 });
 
@@ -339,9 +340,13 @@ test("after the publish: a refused apply is the schema sentence at 502 and ours;
   const failAt = at(r, "if (!aPub.ok) {", "the failure branch");
   const fail = blockFrom(r, failAt);
   assert.match(fail, /const aSchemaFail = aPub\.error === "schema";/);
-  assert.match(fail, /if \(aMigration && !aSchemaFail && aMigration\.status === "pending"\) \{\s*aMigration = \(await settleSiteMigration\(env, ownerSlug, aMigJob, "applied_without_page", \{ publish: \{ ok: false, error: String\(aPub\.error \|\| ""\), detail: String\(aPub\.detail \|\| ""\)\.slice\(0, 200\) \} \}\)\) \|\| aMigration;/,
+  // RE-ANCHORED 2026-10-16: a schema only HELD (draft-first on a published
+  // site) is `discarded` when its save fails — nothing reached the database.
+  assert.match(fail, /const aHeldOnly = !!\(aWriter && aWriter\.holding\);/, "the failure branch does not tell a held schema from an applied one");
+  assert.match(fail, /if \(aMigration && !aSchemaFail && aMigration\.status === "pending"\) \{\s*aMigration = \(await settleSiteMigration\(env, ownerSlug, aMigJob, aHeldOnly \? "discarded" : "applied_without_page", \{ publish: \{ ok: false, error: String\(aPub\.error \|\| ""\), detail: String\(aPub\.detail \|\| ""\)\.slice\(0, 200\) \} \}\)\) \|\| aMigration;/,
     "a publish that failed after the apply does not mark the record applied_without_page — or marks a refused apply so, or a settled record again");
-  assert.match(fail, /error: aSchemaFail \? "schema" : "compile", cost: 0,/, "a refused apply wears the compile's name");
+  // 2026-10-16: an overlap with another part of the request keeps its own code (`lostOr`).
+  assert.match(fail, /error: aSchemaFail \? "schema" : lostOr\(aPub, "compile"\), cost: 0,/, "a refused apply wears the compile's name");
   assert.match(fail, /\.\.\.\(aSchemaFail \? \{ ours: true \} : \{\}\),/, "a refused apply is not said to be ours");
   // RE-ANCHORED 2026-09-26, when a revert that failed began to be said: the
   // message is still the schema sentence on a refused apply and the database's
@@ -359,7 +364,8 @@ test("after the publish: a refused apply is the schema sentence at 502 and ours;
   assert.match(msg, /: \[migrationNote\(aMigration\), compileMsg\(aPub, aKept\s*\? "[^"]+"\s*: aLanded\s*\? "That addition didn't compile, so it wasn't published — try describing it differently\."\s*: "That addition didn't compile, so your site is untouched — try describing it differently\.", aLanded, aKept\)\]\.filter\(Boolean\)\.join\(" "\),/,
     "the customer is not told what stands in the database before the compile sentence, or the revert's result or what landed does not reach it");
   // WHAT IT LEFT BEHIND IS READ OFF THE APPLY'S OWN FLAG, never the record alone.
-  assert.match(fail, /const aDb = aApplied \? "applied" : aMigration \? "unknown" : "none";/, "the database's outcome is not read off the apply's own flag");
+  // …AND A SCHEMA ONLY HELD (2026-10-16) left nothing: `none`, whatever the apply's flag says.
+  assert.match(fail, /const aDb = aHeldOnly \? "none" : aApplied \? "applied" : aMigration \? "unknown" : "none";/, "the database's outcome is not read off the apply's own flag");
   assert.match(fail, /const aLanded = aDb !== "none" \|\| aProvisioned;/, "a database made for the site does not count as something that changed");
   assert.ok(at(fail, "const aDb =", "the outcome") > at(fail, "const aSchemaFail", "the schema test"), "the outcome is read before the record is settled");
   assert.ok(at(fail, "if (!back.ok) { aKept = true;", "the revert's result") < msgAt, "the revert's result is not known before the sentence is composed");

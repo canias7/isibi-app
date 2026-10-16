@@ -25,7 +25,10 @@
 export const MIGRATIONS_KEY = (slug) => "source/" + String(slug || "").toLowerCase() + "/migrations.json";
 /** How many records a site keeps — the newest; a site with more additions than this has a log, not a ledger. */
 export const MAX_MIGRATIONS = 50;
-export const MIGRATION_STATES = Object.freeze(["pending", "applied", "applied_without_page", "failed"]);
+// `discarded` (2026-10-16): under draft-first on a published site the schema is
+// HELD, not applied; a publish that then fails leaves nothing in the database,
+// so the record says so rather than `applied_without_page`.
+export const MIGRATION_STATES = Object.freeze(["pending", "applied", "applied_without_page", "failed", "discarded"]);
 
 /** The list as stored, tolerant of anything that is not one: junk reads as empty. */
 export function readMigrations(text) {

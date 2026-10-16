@@ -1,0 +1,228 @@
+[
+  {
+    "label": "CONTROL: a comment only in worker.js \u2014 must survive",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "const MEDIA_SWEEP_MAX = 25;",
+    "to": "// comment-only control\nconst MEDIA_SWEEP_MAX = 25;"
+  },
+  {
+    "label": "CONTROL: a comment only in site-draft.mjs \u2014 must survive",
+    "control": true,
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "export const DRAFT_SIDECAR_KEY =",
+    "to": "// comment-only control\nexport const DRAFT_SIDECAR_KEY ="
+  },
+  {
+    "label": "N1 an older save carrying held changes writes a revision again",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "if (draft && draft.version > version && heldRef) return",
+    "to": "if (false && draft && draft.version > version && heldRef) return"
+  },
+  {
+    "label": "N2 the publish mints with the plain clock under draft-first",
+    "files": [
+      "worker.js"
+    ],
+    "from": "try { const { draft } = await readDraft(buildDeps(env), slug); return mintAfter(draft && draft.version); }",
+    "to": "try { return mintVersion(); }"
+  },
+  {
+    "label": "N3 mintAfter lands on the draft's own millisecond",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "const after = m ? Number(m[1]) + 1 : 0;",
+    "to": "const after = m ? Number(m[1]) : 0;"
+  },
+  {
+    "label": "N4 the add-on answers an overlap as compile again",
+    "files": [
+      "worker.js"
+    ],
+    "from": "ok: false, error: aSchemaFail ? \"schema\" : lostOr(aPub, \"compile\"), cost: 0,",
+    "to": "ok: false, error: aSchemaFail ? \"schema\" : \"compile\", cost: 0,"
+  },
+  {
+    "label": "N5 a held schema never saved is told as applied",
+    "files": [
+      "worker.js"
+    ],
+    "from": "const aHeldOnly = !!(aWriter && aWriter.holding);",
+    "to": "const aHeldOnly = false;"
+  },
+  {
+    "label": "N6 the reconcile drops the job's own code",
+    "files": [
+      "builder/site-reconcile.mjs"
+    ],
+    "from": "kept.was = p.error;",
+    "to": "void p;"
+  },
+  {
+    "label": "N7 the request ignores an overlap read back by the reconcile",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "const lostCode = read.act === \"refusal\" && read.error === \"reconciled\"",
+    "to": "const lostCode = false && read.act === \"refusal\" && read.error === \"reconciled\""
+  },
+  {
+    "label": "N8 a discarded migration record reads as unknown",
+    "files": [
+      "builder/site-reply.mjs"
+    ],
+    "from": "if (m && m.status === \"discarded\") return { state: \"none\", published: false, database: \"none\" };",
+    "to": ""
+  },
+  {
+    "label": "N9 every addition is a config writer again",
+    "files": [
+      "builder/request-plan.mjs"
+    ],
+    "from": "  if (r && CONFIG_LAYERS.includes(r.layer)) return true;",
+    "to": "  if (r && (r.op === \"addon\" || CONFIG_LAYERS.includes(r.layer))) return true;"
+  },
+  {
+    "label": "N10 every addition is a schema writer again",
+    "files": [
+      "builder/request-plan.mjs"
+    ],
+    "from": "  if (r && r.layer === \"rules\") return true;",
+    "to": "  if (r && (r.op === \"addon\" || r.layer === \"rules\")) return true;"
+  },
+  {
+    "label": "N11 a part running again alone does not hold the turn",
+    "files": [
+      "builder/request-plan.mjs"
+    ],
+    "from": "(writesConfig(part) || part.serial === true)",
+    "to": "(writesConfig(part))"
+  },
+  {
+    "label": "N12 the add-on's schema check is gone",
+    "files": [
+      "worker.js"
+    ],
+    "from": "if (aBackend.length && aJob && aJob.beside && aJob.beside.schema === false && await othersOpen(",
+    "to": "if (false && aBackend.length && aJob && aJob.beside && aJob.beside.schema === false && await othersOpen("
+  },
+  {
+    "label": "N13 othersOpen says nobody else is open",
+    "files": [
+      "worker.js"
+    ],
+    "from": "return rec.parts.some((p) => p && p.n !== request.part && !REQ_PART_TERMINAL.includes(p.status));",
+    "to": "return false;"
+  },
+  {
+    "label": "N14 every job is cleared to change the schema",
+    "files": [
+      "worker.js"
+    ],
+    "from": "jctx.beside.schema = partWritesSchema(rp) || rp.serial === true;",
+    "to": "jctx.beside.schema = true;"
+  },
+  {
+    "label": "N15 the provision is awaited before the page writer again",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                aProvWait = ensureSiteBackend(",
+    "to": "                aProvWait = await ensureSiteBackend("
+  },
+  {
+    "label": "N16 the provision is not settled after the page call",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            { const pf = await aProvCheck(); if (pf) return pf; }\n            // \u2500\u2500 THE PAGE WRITER MAY ASK TOO",
+    "to": "            // \u2500\u2500 THE PAGE WRITER MAY ASK TOO"
+  },
+  {
+    "label": "N17 a media file deleted by its record still plays",
+    "files": [
+      "worker.js"
+    ],
+    "from": "if (rec) { const j = JSON.parse(await rec.text()); gone = !!(j && j.state === \"deleted\"); }",
+    "to": "if (rec) { gone = false; }"
+  },
+  {
+    "label": "N18 the sweep never aborts an abandoned upload",
+    "files": [
+      "worker.js"
+    ],
+    "from": "else if (s.uploadId) { try { await deps.abort(s.key, s.uploadId); } catch { /* already gone */ } }",
+    "to": "else if (s.uploadId) { /* not aborted */ }"
+  },
+  {
+    "label": "N19 the sweep does not recognise a landed upload",
+    "files": [
+      "worker.js"
+    ],
+    "from": "landed = !!(h && h.customMetadata && h.customMetadata.up === sid);",
+    "to": "landed = false;"
+  },
+  {
+    "label": "N20 the sweep reclaims sessions still in their day",
+    "files": [
+      "worker.js"
+    ],
+    "from": "if (!s || !(Number(s.expires) + MEDIA_SWEEP_GRACE_MS < now)) continue;",
+    "to": "if (!s) continue;"
+  },
+  {
+    "label": "N21 the deploy passes the audio limit with no fallback",
+    "files": [
+      ".github/workflows/deploy.yml"
+    ],
+    "from": "MEDIA_MAX_AUDIO_BYTES: ${{ vars.MEDIA_MAX_AUDIO_BYTES || 'default' }}",
+    "to": "MEDIA_MAX_AUDIO_BYTES: ${{ vars.MEDIA_MAX_AUDIO_BYTES }}"
+  },
+  {
+    "label": "N22 a container job is not handed the media limits",
+    "files": [
+      "builder/edit-job.mjs"
+    ],
+    "from": "  \"MEDIA_MAX_VIDEO_BYTES\", \"MEDIA_MAX_AUDIO_BYTES\", \"MEDIA_MAX_SITE_BYTES\", \"MEDIA_MAX_SITE_FILES\", \"MEDIA_MAX_DRAFT_FILES\",",
+    "to": ""
+  },
+  {
+    "label": "N24 a limit under a megabyte is said as 0 MB again",
+    "files": [
+      "site-media.mjs"
+    ],
+    "from": "const under = cap >= 1e6 ? Math.floor(cap / 1e6) + \" MB\" : Math.max(1, Math.floor(cap / 1e3)) + \" KB\";",
+    "to": "const under = Math.floor(cap / 1e6) + \" MB\";"
+  },
+  {
+    "label": "N25 a draft save writes no sidecar of its own",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "try { await deps.put(DRAFT_SIDECAR_KEY(slug), sidecar, \"application/json\"); } catch { /* the preview reads the live sidecar */ }",
+    "to": "/* no draft sidecar */"
+  },
+  {
+    "label": "N26 the site script reads the live sidecar when previewing",
+    "files": [
+      "builder/lovable/template/src/server.ts"
+    ],
+    "from": "    await loadMeta(env, previewing);",
+    "to": "    await loadMeta(env);"
+  },
+  {
+    "label": "N27 the container may not write the draft's sidecar",
+    "files": [
+      "builder/job-gateway.mjs"
+    ],
+    "from": "  if (k === \"sitemeta-draft/\" + slug + \".json\") return true;",
+    "to": ""
+  }
+]

@@ -1173,7 +1173,10 @@ function settle(rec, p, job, row, now) {
   // `lostOr`); nothing of it went in and it was refunded, so it is not the
   // customer's to send again: it runs
   // once more, alone (`serial`), a bounded number of times, then fails as before.
-  if (read.act === "refusal" && OVERLAP_LOSSES.includes(read.error) && !leftOf(ans.body) && !p.left && (Number(p.overlapRuns) || 0) < OVERLAP_RETRIES) {
+  // …AND THE SAME REFUSAL AFTER THE PUBLISH GATE, read back by the review
+  // reconcile: never activated, refunded, the job's own code kept as `was`.
+  const lostCode = read.act === "refusal" && read.error === "reconciled" && ans.body.kind === "never-activated" && typeof ans.body.was === "string" ? ans.body.was : read.error;
+  if (read.act === "refusal" && OVERLAP_LOSSES.includes(lostCode) && !leftOf(ans.body) && !p.left && (Number(p.overlapRuns) || 0) < OVERLAP_RETRIES) {
     p.overlapRuns = (Number(p.overlapRuns) || 0) + 1;
     p.serial = true;
     job.end.act = "overlap";
