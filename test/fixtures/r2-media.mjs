@@ -33,7 +33,7 @@ import { randomBytes, createHash } from "node:crypto";
 
 export const MIN_PART = 5 * 1024 * 1024;
 
-export function mediaBucket({ fail = {}, lose = {}, lag = false, hooks = {} } = {}) {
+export function mediaBucket({ fail = {}, lose = {}, lag = false, hooks = {}, pageSize = 2 } = {}) {
   const store = new Map();
   const uploads = new Map();
   const calls = [];
@@ -115,19 +115,26 @@ export function mediaBucket({ fail = {}, lose = {}, lag = false, hooks = {} } = 
       if (hooks.beforeDelete) await hooks.beforeDelete(key);
       for (const k of Array.isArray(key) ? key : [key]) store.delete(k);
     },
-    async list({ prefix = "", cursor, include } = {}) {
+    // PAGES AS R2 GIVES THEM (2026-10-16, Codex's review of `fbd53dca`): at most
+    // `limit` keys (R2's default and ceiling 1000), after `startAfter` or after
+    // the cursor's key, in key order. The cursor names the last key served, so
+    // a key deleted between pages does not shift the next one. `pageSize`
+    // (default 2, as before) caps a page further, so the older cases still walk
+    // several pages; a case about realistic pages passes `pageSize: 1000`.
+    async list({ prefix = "", cursor, include, limit, startAfter } = {}) {
       trip("list");
       await pause();
-      const keys = [...store.keys()].filter((k) => k.startsWith(prefix)).sort();
-      const start = cursor ? Number(cursor) : 0;
-      const page = keys.slice(start, start + 2);
-      const truncated = start + 2 < keys.length;
+      const cap = Math.max(1, Math.min(Number.isInteger(limit) && limit > 0 ? limit : 1000, 1000, pageSize));
+      const from = cursor ? Buffer.from(String(cursor), "base64url").toString("utf8") : (typeof startAfter === "string" ? startAfter : "");
+      const keys = [...store.keys()].filter((k) => k.startsWith(prefix) && k > from).sort();
+      const page = keys.slice(0, cap);
+      const truncated = keys.length > cap;
       return {
         objects: page.map((k) => {
           const o = store.get(k);
           return { key: k, size: o.bytes.length, etag: o.etag, uploaded: new Date(o.at), ...(include && include.includes("customMetadata") ? { customMetadata: { ...o.customMetadata } } : {}), ...(include && include.includes("httpMetadata") ? { httpMetadata: { ...o.httpMetadata } } : {}) };
         }),
-        truncated, cursor: truncated ? String(start + 2) : undefined,
+        truncated, cursor: truncated ? Buffer.from(page[page.length - 1], "utf8").toString("base64url") : undefined,
       };
     },
     async createMultipartUpload(key, opts = {}) {

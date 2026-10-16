@@ -23,9 +23,10 @@
 //        video; the preview plays the new recording at the old address and not
 //        the video; Publish of that revision makes both live once, and the tick
 //        afterwards deletes nothing
-//   MR5  the preview's head is the draft's: a draft save writes the draft's own
-//        sidecar, the live one untouched; the site script reads it when
-//        previewing; the container's storage wall admits it
+//   MR5  the preview's head is the draft's version's own: a draft save writes
+//        no shared sidecar and leaves the live one; the site script reads the
+//        head staged with the version it serves; the storage wall admits that
+//        and refuses the old shared key (the overlap: draft-preview-head)
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -33,7 +34,7 @@ import { loadWorker, loadWorkerModule, makeCtx } from "./fixtures/worker-harness
 import { withWire, envFor } from "./fixtures/live-ask.mjs";
 import { mediaBucket } from "./fixtures/r2-media.mjs";
 import { MEDIA_PART_BYTES, MEDIA_DRAFT_MS, mediaLimits, MEDIA_DEFAULTS } from "../site-media.mjs";
-import { DRAFT_KEY, DRAFT_SIDECAR_KEY, saveAsDraft } from "../site-draft.mjs";
+import { DRAFT_KEY, saveAsDraft } from "../site-draft.mjs";
 import { buildPrefix, MANIFEST_FILE, SERVER_FILE } from "../site-builds.mjs";
 import { allowedJobKey } from "../builder/job-gateway.mjs";
 import { jobSecrets, JOB_ENV_NAMES } from "../builder/edit-job.mjs";
@@ -265,7 +266,7 @@ test("MR4 REPLACEMENT, REMOVAL, SEEKING AND PREVIEW-VERSUS-LIVE TOGETHER — hel
 
 // ── MR5 ─────────────────────────────────────────────────────────────────────
 
-test("MR5 THE PREVIEW'S HEAD IS THE DRAFT'S — a draft save writes the draft's own sidecar and leaves the live one; the site script reads it when previewing; the container's storage wall admits it", async () => {
+test("MR5 THE PREVIEW'S HEAD IS THE DRAFT'S VERSION'S OWN — a draft save writes no shared sidecar and leaves the live one; the site script reads the head staged with the version it serves; the container's storage wall admits that and refuses the old shared key (the overlap itself: draft-preview-head DPH1)", async () => {
   const store = new Map();
   const deps = {
     get: async (k) => (store.has(k) ? { etag: store.get(k).etag, text: async () => store.get(k).body } : null),
@@ -277,20 +278,19 @@ test("MR5 THE PREVIEW'S HEAD IS THE DRAFT'S — a draft save writes the draft's 
     },
   };
   store.set("sitemeta/mr5.json", { body: JSON.stringify({ description: "live words" }), etag: "x" });
-  const sidecar = JSON.stringify({ description: "the draft's words", redirects: [["/old", "/"]] });
-  const out = await saveAsDraft(deps, { slug: "mr5", version: "01790600000000-bbbbbb", sidecar, commit: async () => {} });
+  const out = await saveAsDraft(deps, { slug: "mr5", version: "01790600000000-bbbbbb", commit: async () => {} });
   assert.equal(out.ok, true, JSON.stringify(out));
-  assert.equal(store.get(DRAFT_SIDECAR_KEY("mr5")).body, sidecar, "the draft's sidecar was not written");
+  assert.equal([...store.keys()].some((k) => k.startsWith("sitemeta-draft/")), false, "a draft save wrote a shared draft sidecar");
   assert.equal(JSON.parse(store.get("sitemeta/mr5.json").body).description, "live words", "a draft save wrote the live sidecar");
-  // THE SITE SCRIPT, landmark to landmark: previewing reads the draft's sidecar first.
+  // THE SITE SCRIPT, landmark to landmark: previewing reads its own version's staged head first.
   const src = readFileSync(new URL("../builder/lovable/template/src/server.ts", import.meta.url), "utf8");
   const a = src.indexOf("async function loadMeta(env: Env, previewing = false)");
   const b = src.indexOf('env.SITES.get("sitemeta/" + SITE_SLUG + ".json")', a);
   assert.ok(a > 0 && b > a, "the site script's meta reader moved — rescope this");
-  assert.match(src.slice(a, b), /if \(previewing\) \{\s*const draft = env\.SITES && \(await env\.SITES\.get\("sitemeta-draft\/" \+ SITE_SLUG \+ "\.json"\)\);/);
+  assert.match(src.slice(a, b), /if \(previewing && SITE_VERSION\) \{\s*const own = env\.SITES && \(await env\.SITES\.get\("builds\/" \+ SITE_SLUG \+ "\/" \+ SITE_VERSION \+ "\/state\/sidecar\.json"\)\);/);
   assert.match(src, /await loadMeta\(env, previewing\);/, "the preview flag never reaches the meta reader");
-  assert.equal(allowedJobKey("mr5", "a".repeat(32), "sitemeta-draft/mr5.json"), true, "a container job may not write the draft's sidecar");
-  assert.equal(allowedJobKey("mr5", "a".repeat(32), "sitemeta-draft/other.json"), false, "a container job may write another site's draft sidecar");
+  assert.equal(allowedJobKey("mr5", "a".repeat(32), "builds/mr5/01790600000000-bbbbbb/state/sidecar.json"), true, "a container job may not stage its version's head");
+  assert.equal(allowedJobKey("mr5", "a".repeat(32), "sitemeta-draft/mr5.json"), false, "a container job may still write the old shared draft sidecar");
 });
 
 test("MR2b THE SWEEP ABORTS AN ABANDONED UPLOAD THE LEDGER NO LONGER NAMES — its room entry already gone (a lost ledger write), the tick still aborts the multipart upload and drops its records", async () => {

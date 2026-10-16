@@ -27,8 +27,8 @@ import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { page as pageSrc } from "./fixtures/live-ask.mjs";
 import { rowsDb, BAKERY_LOAVES, LOAF_COLUMNS } from "./fixtures/rows-db.mjs";
 import { writtenPage } from "./fixtures/addon-route.mjs";
-import { DRAFT_KEY, HELD_KEY, DRAFT_SIDECAR_KEY, mintAfter } from "../site-draft.mjs";
-import { buildPrefix } from "../site-builds.mjs";
+import { DRAFT_KEY, HELD_KEY, mintAfter } from "../site-draft.mjs";
+import { buildPrefix, STATE_DIR } from "../site-builds.mjs";
 
 blockNetwork();
 
@@ -140,8 +140,13 @@ test("DMO1 AN ADD-ON'S PAGE AND HELD TABLE, SAVED BEHIND A NEWER DRAFT — refus
     const journal = JSON.parse(bare(P.readObj(HELD_KEY(P.slug, mineRev.held))));
     assert.equal(journal.ops.filter((o) => o.kind === "schema").length, 1, "the held schema is not in the revision exactly once: " + JSON.stringify(journal.ops.map((o) => o.kind)));
     assert.ok(P.page("sign-up.tsx"), "the add-on's page is not in the draft's editable copy");
-    // THE PREVIEW'S HEAD IS THE DRAFT'S: its own sidecar written, the live one not.
-    assert.ok(P.readObj(DRAFT_SIDECAR_KEY(P.slug)), "the draft's sidecar was not written");
+    // THE PREVIEW SERVES THE DRAFT'S VERSION, and that version's own staged
+    // head is there for it to read; no shared draft sidecar is written, and
+    // the live one is not touched.
+    assert.equal(P.previewScript(), mineRev.version, "the preview is not the draft's version");
+    const ownHead = P.readObj(buildPrefix(P.slug, mineRev.version) + STATE_DIR + "sidecar.json");
+    assert.ok(ownHead, "the draft's version has no staged head for its preview to read");
+    assert.equal(P.readObj("sitemeta-draft/" + P.slug + ".json"), null, "a shared draft sidecar was written");
     assert.equal(bare(P.readObj("sitemeta/" + P.slug + ".json")), side0, "the live sidecar changed before Publish");
     // NOTHING LIVE before Publish.
     assert.equal(live(), v0, "the live pointer moved before Publish");
@@ -152,6 +157,8 @@ test("DMO1 AN ADD-ON'S PAGE AND HELD TABLE, SAVED BEHIND A NEWER DRAFT — refus
     assert.equal(pub.status, 200, JSON.stringify(pub.body));
     assert.equal(live(), mineRev.version, "Publish did not make the add-on's revision live");
     assert.equal(P.liveScript(), mineRev.version);
+    // PUBLISH WRITES LIVE THE SAME HEAD THE PREVIEW READ.
+    assert.equal(bare(P.readObj("sitemeta/" + P.slug + ".json")), bare(ownHead), "the live head after Publish is not the head the preview showed");
     // THE PUBLICATION APPLIES THE HELD SCHEMA: new tables before the switch,
     // the whole schema after it (both `IF NOT EXISTS`, by design) — from the
     // one revision that carries it, never from a second copy of it.

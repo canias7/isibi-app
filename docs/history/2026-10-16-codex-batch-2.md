@@ -146,6 +146,11 @@ at once, by design or by scope, and are not claimed as drafts:**
 
 ## 6. Completion matrix
 
+**Superseded by `docs/history/2026-10-16-codex-batch-3.md` §4** (the sweep's
+fairness and the preview's head, after Codex's review of `fbd53dca`). §4
+above describes the shared draft sidecar this batch wrote; the third batch
+removed it.
+
 | Area | Item | Finished (offline) | Deferred implementation | Live-only verification still owed |
 |---|---|---|---|---|
 | Parallel | independent parts side by side; dependencies wait | yes (CW1–CW12, PPM2) | — | two writing jobs overlapping on real infrastructure |

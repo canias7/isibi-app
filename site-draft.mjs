@@ -299,14 +299,16 @@ export function previewOf(label) {
  * sidecar, no live marker, no site script.
  */
 /**
- * THE DRAFT'S OWN SIDECAR (2026-10-16): the description, the address and the
- * redirects as the draft's version composed them. The preview copy of the
- * site's script reads it (`server.ts`, previewing) in place of the live
- * `sitemeta/<slug>.json`, which a draft never writes.
+ * THE PREVIEW'S HEAD IS ITS VERSION'S OWN (2026-10-16, after Codex's review of
+ * `fbd53dca`). A draft save used to write the version's sidecar to one shared
+ * `sitemeta-draft/<slug>.json`, unfenced: an older save paused before that
+ * write and resumed after a newer save finished left the draft on the newer
+ * version with the OLDER head. Nothing is written for it now: the preview copy
+ * of the site's script reads the sidecar staged with the version it serves
+ * (`builds/<slug>/<version>/state/sidecar.json`, `server.ts`), immutable.
  */
-export const DRAFT_SIDECAR_KEY = (slug) => "sitemeta-draft/" + String(slug || "") + ".json";
-
-export async function saveAsDraft(deps, { slug, version, build = "", base = "", job = null, afterActivate, commit, preview, held = null, sidecar = null } = {}) {
+const PREVIEW_CHECKS = 3;
+export async function saveAsDraft(deps, { slug, version, build = "", base = "", job = null, afterActivate, commit, preview, repreview = null, held = null } = {}) {
   let rec, ref = null;
   try {
     // THE TASK'S HELD BACKEND AND LIBRARY CHANGES go into the same revision as
@@ -336,14 +338,33 @@ export async function saveAsDraft(deps, { slug, version, build = "", base = "", 
   // history, still publishable by name, and refused here.
   if (rec.older) return { ok: false, error: "older", older: true, version: rec.draft && rec.draft.version };
   if (!rec.older && typeof afterActivate === "function") await afterActivate();
-  // THE DRAFT'S SIDECAR BEFORE ITS PREVIEW, best-effort: a preview that read
-  // none falls back to the live one, as it always did.
-  if (typeof sidecar === "string" && sidecar) {
-    try { await deps.put(DRAFT_SIDECAR_KEY(slug), sidecar, "application/json"); } catch { /* the preview reads the live sidecar */ }
-  }
+  // THE PREVIEW SHOWS THE DRAFT'S VERSION, whichever save finishes last
+  // (2026-10-16, after Codex's review of `fbd53dca`). A save that a newer one
+  // overtook after its record does not put its own script up; and because an
+  // upload is not conditional, every upload is followed by a look at the
+  // draft: if a newer version stood by then, that version's script is put
+  // back up (`repreview`, from its staged prefix), and looked at again. The
+  // last writer to finish therefore leaves the draft's own version up. The
+  // head travels with the script (its version's staged sidecar), so the two
+  // never disagree. Best-effort as before: a preview that did not go up is
+  // said, never a lost change.
   let previewed = null;
   if (typeof preview === "function") {
-    try { previewed = await preview(rec.draft); } catch (e) { previewed = { ok: false, error: String((e && e.message) || e) }; }
+    const standing = async () => { try { const { draft } = await readDraft(deps, slug); return draft && typeof draft.version === "string" ? draft.version : null; } catch { return null; } };
+    const first = await standing();
+    if (first && first !== version) previewed = { ok: false, superseded: true, version: first };
+    else {
+      try { previewed = await preview(rec.draft); } catch (e) { previewed = { ok: false, error: String((e && e.message) || e) }; }
+      let up = version;
+      for (let i = 0; i < PREVIEW_CHECKS; i++) {
+        const now = await standing();
+        if (!now || now === up || typeof repreview !== "function") break;
+        let again = null;
+        try { again = await repreview(now); } catch (e) { again = { ok: false, error: String((e && e.message) || e) }; }
+        previewed = { ...(previewed || {}), superseded: true, version: now, repaired: !!(again && again.ok) };
+        up = now;
+      }
+    }
   }
   if (typeof commit === "function") await commit();
   return { ok: true, draft: true, version, uploaded: false, older: !!rec.older, record: rec.draft, revision: rec.revision || (rec.draft && rec.draft.rev) || 0, previewed };

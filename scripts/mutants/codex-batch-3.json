@@ -1,0 +1,196 @@
+[
+  {
+    "label": "CONTROL: a comment only in worker.js — must survive",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "const MEDIA_SWEEP_GRACE_MS = 60 * 60 * 1000;",
+    "to": "// comment-only control\nconst MEDIA_SWEEP_GRACE_MS = 60 * 60 * 1000;"
+  },
+  {
+    "label": "CONTROL: a comment only in site-draft.mjs — must survive",
+    "control": true,
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "const PREVIEW_CHECKS = 3;",
+    "to": "// comment-only control\nconst PREVIEW_CHECKS = 3;"
+  },
+  {
+    "label": "S1 the sessions pass keeps its incoming place (the old stall)",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    next.sessions = ss.after;",
+    "to": "    next.sessions = place.sessions;"
+  },
+  {
+    "label": "S2 the parts pass always lists from the front",
+    "files": [
+      "worker.js"
+    ],
+    "from": "const ps = await sweepStep(B, MEDIA_SWEEP_PREFIX.parts, place.parts, room.parts);",
+    "to": "const ps = await sweepStep(B, MEDIA_SWEEP_PREFIX.parts, null, room.parts);"
+  },
+  {
+    "label": "S3 the drafts pass always lists from the front",
+    "files": [
+      "worker.js"
+    ],
+    "from": "const ds = await sweepStep(B, MEDIA_SWEEP_PREFIX.drafts, place.drafts, room.drafts);",
+    "to": "const ds = await sweepStep(B, MEDIA_SWEEP_PREFIX.drafts, null, room.drafts);"
+  },
+  {
+    "label": "S4 a listing lists a whole page past its budget",
+    "files": [
+      "worker.js"
+    ],
+    "from": "page = await B.list({ prefix, limit: budget, ...(after ? { startAfter: after } : {}) });",
+    "to": "page = await B.list({ prefix, limit: 1000, ...(after ? { startAfter: after } : {}) });"
+  },
+  {
+    "label": "S5 the end of a prefix never starts again from the front",
+    "files": [
+      "worker.js"
+    ],
+    "from": "return { objects, after: page && page.truncated && last ? last : null };",
+    "to": "return { objects, after: last };"
+  },
+  {
+    "label": "S6 the place ignores startAfter",
+    "files": [
+      "worker.js"
+    ],
+    "from": "...(after ? { startAfter: after } : {}) });",
+    "to": "});"
+  },
+  {
+    "label": "S7 a stored place of another prefix is believed",
+    "files": [
+      "worker.js"
+    ],
+    "from": "if (typeof a === \"string\" && a.startsWith(MEDIA_SWEEP_PREFIX[k])) place[k] = a;",
+    "to": "if (typeof a === \"string\") place[k] = a;"
+  },
+  {
+    "label": "S8 the place is never saved",
+    "files": [
+      "worker.js"
+    ],
+    "from": "try { await B.put(MEDIA_SWEEP_CURSOR, JSON.stringify({ v: 2,",
+    "to": "try { if (false) await B.put(MEDIA_SWEEP_CURSOR, JSON.stringify({ v: 2,"
+  },
+  {
+    "label": "S9 a live session's parts are removed with the orphans",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      if (!alive.get(sk)) { try { await B.delete(pr.key); parts++; }",
+    "to": "      if (true) { try { await B.delete(pr.key); parts++; }"
+  },
+  {
+    "label": "S10 a session whose object check failed is reclaimed anyway",
+    "files": [
+      "worker.js"
+    ],
+    "from": "try { const h = await B.head(s.key); landed = !!(h && h.customMetadata && h.customMetadata.up === sid); } catch { continue; }",
+    "to": "try { const h = await B.head(s.key); landed = !!(h && h.customMetadata && h.customMetadata.up === sid); } catch { landed = false; }"
+  },
+  {
+    "label": "S11 the grace is dropped: a live session is reclaimed",
+    "files": [
+      "worker.js"
+    ],
+    "from": "if (!s || !(Number(s.expires) + MEDIA_SWEEP_GRACE_MS < now)) continue;",
+    "to": "if (!s) continue;"
+  },
+  {
+    "label": "S12 the per-tick session budget is unbounded",
+    "files": [
+      "worker.js"
+    ],
+    "from": "const room = { ...MEDIA_SWEEP_BUDGET, sessions: max, ...budget };",
+    "to": "const room = { ...MEDIA_SWEEP_BUDGET, sessions: 1000, ...budget, sessions: 1000 };"
+  },
+  {
+    "label": "P1 an overtaken save puts its own script up",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "if (first && first !== version) previewed = { ok: false, superseded: true, version: first };",
+    "to": "if (false) previewed = { ok: false, superseded: true, version: first };"
+  },
+  {
+    "label": "P2 no look after the upload",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "for (let i = 0; i < PREVIEW_CHECKS; i++) {",
+    "to": "for (let i = 0; i < 0; i++) {"
+  },
+  {
+    "label": "P3 the look after the upload never puts the draft's version back",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "try { again = await repreview(now); }",
+    "to": "try { again = { ok: true }; }"
+  },
+  {
+    "label": "P4 the site script reads the live head when previewing",
+    "files": [
+      "builder/lovable/template/src/server.ts"
+    ],
+    "from": "if (previewing && SITE_VERSION) {",
+    "to": "if (false) {"
+  },
+  {
+    "label": "P5 the site script reads another version's head (its parent's)",
+    "files": [
+      "builder/lovable/template/src/server.ts"
+    ],
+    "from": "(await env.SITES.get(\"builds/\" + SITE_SLUG + \"/\" + SITE_VERSION + \"/state/sidecar.json\"));",
+    "to": "(await env.SITES.get(\"builds/\" + SITE_SLUG + \"/\" + SITE_PARENT + \"/state/sidecar.json\"));"
+  },
+  {
+    "label": "P6 a visitor's request reads the draft's head",
+    "files": [
+      "builder/lovable/template/src/server.ts"
+    ],
+    "from": "if (previewing && SITE_VERSION) {",
+    "to": "if (SITE_VERSION) {"
+  },
+  {
+    "label": "P7 the gateway admits the old shared draft sidecar again",
+    "files": [
+      "builder/job-gateway.mjs"
+    ],
+    "from": "  if (k === \"orphans/\" + slug + \".json\") return true;",
+    "to": "  if (k === \"sitemeta-draft/\" + slug + \".json\") return true;\n  if (k === \"orphans/\" + slug + \".json\") return true;"
+  },
+  {
+    "label": "P8 the re-preview uploads the live script name",
+    "files": [
+      "worker.js"
+    ],
+    "from": "{ ok: true, code: b.worker, build: (b.manifest && b.manifest.build) || \"\" }, { preview: true });",
+    "to": "{ ok: true, code: b.worker, build: (b.manifest && b.manifest.build) || \"\" }, { preview: false });"
+  },
+  {
+    "label": "P9 the re-preview uploads an unstaged version anyway",
+    "files": [
+      "worker.js"
+    ],
+    "from": "if (!b || typeof b.worker !== \"string\" || !b.worker) return { ok: false, error: \"the version's script is not staged\" };",
+    "to": "if (!b) return { ok: true };"
+  },
+  {
+    "label": "P10 the edit activation hands no re-preview",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    repreview: toDraft ? (v) => previewVersion(env, slug, v) : undefined,\n    expectEtag: pointerTag,",
+    "to": "    expectEtag: pointerTag,"
+  }
+]

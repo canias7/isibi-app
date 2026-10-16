@@ -87,13 +87,18 @@ async function loadMeta(env: Env, previewing = false): Promise<void> {
   if (loaded) return;
   loaded = true;
   try {
-    // A DRAFT'S PREVIEW READS THE DRAFT'S OWN SIDECAR (2026-10-16): its
-    // description, address and redirects, not the live site's. One preview
-    // copy of this script serves only previews, so the cache is the draft's.
-    // Absent, it reads the live one, as before.
-    if (previewing) {
-      const draft = env.SITES && (await env.SITES.get("sitemeta-draft/" + SITE_SLUG + ".json"));
-      if (draft) { setSiteMeta(JSON.parse(await draft.text()) as SiteMeta); return; }
+    // A DRAFT'S PREVIEW READS THE HEAD OF THE VERSION IT SERVES (2026-10-16,
+    // after Codex's review of `fbd53dca`): its description, address and
+    // redirects, not the live site's. They are the bytes staged with that
+    // version (`builds/<slug>/<version>/state/sidecar.json`), written once
+    // before the version was saved and never again, and the ones Publish of
+    // that version writes live — so no later or earlier save can put another
+    // version's head under this script. One preview copy serves only previews,
+    // so the cache is this version's. A version staged without one (or a
+    // script built before versions) reads the live head, as before.
+    if (previewing && SITE_VERSION) {
+      const own = env.SITES && (await env.SITES.get("builds/" + SITE_SLUG + "/" + SITE_VERSION + "/state/sidecar.json"));
+      if (own) { setSiteMeta(JSON.parse(await own.text()) as SiteMeta); return; }
     }
     // OUTSIDE `sites/<slug>/`, deliberately. The asset branch below serves that
     // prefix verbatim, so a meta file under it would be fetchable at

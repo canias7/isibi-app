@@ -375,9 +375,10 @@ export function allowedJobKey(slug, id, key, pre = false) {
   // Spelled here rather than imported (this file is dependency-free for the
   // container's sake) and held to the two key builders by a guard.
   if (k === "sitemeta/" + slug + ".json") return true;
-  // THE DRAFT'S OWN SIDECAR (2026-10-16): what the preview reads, written by
-  // a draft save (site-draft.mjs `DRAFT_SIDECAR_KEY`).
-  if (k === "sitemeta-draft/" + slug + ".json") return true;
+  // NO SHARED DRAFT SIDECAR (2026-10-16, after Codex's review of `fbd53dca`):
+  // the preview reads the head staged inside its own version's prefix
+  // (`builds/<slug>/<version>/state/sidecar.json`, admitted with `builds/`),
+  // so `sitemeta-draft/` is nobody's to write.
   if (k === "orphans/" + slug + ".json") return true;
   // The job's own objects: the request it replays, its result, its resume
   // record — every one named by the job's id, none by anybody else's.

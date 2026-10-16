@@ -28,15 +28,25 @@ here; take a closed one out of both.**
   driver's one-at-a-time row reads (latency). A Build's provisioning stays
   before its pages (a real dependency: the pages read the applied schema).
 - **Media upkeep** (2026-10-16, updated by the second batch, same record
-  §3): interrupted deletes, abandoned sessions and parts, and the limits'
-  deployment are done. **Still open:** `/u/<other-slug>` is served on a
-  site's own host; `If-Range` is not read; R2's own abort of unfinished
-  multipart uploads is assumed, not verified.
+  §3, and the third, `docs/history/2026-10-16-codex-batch-3.md` §1):
+  interrupted deletes, abandoned sessions and parts, and the limits'
+  deployment are done, and the sweep now walks every prefix fairly by key.
+  **Still open:** `/u/<other-slug>` is served on a site's own host;
+  `If-Range` is not read; R2's own abort of unfinished multipart uploads is
+  assumed, not verified; a tick's subrequest count (about 400 at the default
+  budgets, estimated, not measured) against the Worker's limit.
+- **The preview script's upload is not conditional** (2026-10-16, third
+  batch §2): the head is bound to the version (no race), and a save that
+  finishes last puts the draft's own version back up, but between a stale
+  upload landing and that save's look afterwards the preview can show the
+  older version for moments; a save whose look at the draft fails cannot
+  tell, and leaves what it uploaded. A held rename's address is baked in at
+  Publish, so the preview shows the old address.
 - **Draft-first edges the owner decides** (2026-10-16, stated exactly in the
   second batch's record §5): owner panels act at once by design; a platform
   rebuild leaves an unrequested draft; held row updates overwrite a column a
   visitor changed since the draft; a draft's new redirect is not followed in
-  the preview (its head is the draft's since the second batch); migration
+  the preview (its head is the draft's version's own since the third batch); migration
   records of a held schema that WAS saved still say `applied` until Publish.
 - **Verification batch findings** (2026-10-15, runs 38742390550 and
   38744698638): (a), (b), (e) fixed on the branch (`889f9b70`, `50d0aeca`,

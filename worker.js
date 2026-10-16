@@ -10209,8 +10209,7 @@ async function draftMediaList(env, uid) {
 // record, its part records and its room in the ledger stayed until the next
 // upload of that scope happened to clear the room, and the record and parts
 // stayed for ever. The two-minute tick now reclaims them, a bounded number per
-// tick, from a cursor kept between ticks — and only past an hour's grace after
-// the session's own expiry:
+// tick — and only past an hour's grace after the session's own expiry:
 //   - an OPEN session whose bytes never landed has its multipart upload
 //     aborted (an abort discards only the unfinished parts; it never removes
 //     an object, so a replacement's target is untouched);
@@ -10220,60 +10219,108 @@ async function draftMediaList(env, uid) {
 // NOTHING UNDER `uploads/` IS EVER DELETED HERE: a file, a held replacement's
 // stand-in and anything a page plays stay. A pre-site draft older than its 7
 // days by another day (a build moving it would long since have finished) goes.
-const MEDIA_SWEEP_MAX = 25;
+//
+// FAIR, BOUNDED, RESTARTABLE (2026-10-16, Codex's review of `fbd53dca`). The
+// first version listed a page of 100 sessions, looked at 25 and kept its
+// cursor whenever it reached 25 — so 25 live sessions at the front kept an
+// expired 26th from ever being looked at — and the parts and drafts passes
+// always listed their first page, so an expired 101st draft stayed behind 100
+// young ones for ever. Now each prefix is walked on its own, in key order:
+//   - a tick lists exactly its budget after the last key it reached
+//     (`startAfter`), looks at EVERY key it listed, and keeps the last one;
+//   - at the end of the prefix it starts again from the front, so every key is
+//     looked at within ceil(keys / budget) ticks, and an item that failed is
+//     looked at again on the next lap;
+//   - the place is a KEY, not an opaque cursor, kept in `media-sweep/cursor.json`
+//     per prefix: a key deleted meanwhile (by this sweep or by anyone) still
+//     orders the next listing, and a restart, a lost write or an unreadable
+//     file only starts that prefix again from the front;
+//   - a listing that fails keeps that prefix's place; the other prefixes go on.
+const MEDIA_SWEEP_BUDGET = Object.freeze({ sessions: 25, parts: 50, drafts: 50 });
 const MEDIA_SWEEP_GRACE_MS = 60 * 60 * 1000;
 const MEDIA_SWEEP_CURSOR = "media-sweep/cursor.json";
-export async function runMediaSweep(env, { now = Date.now(), max = MEDIA_SWEEP_MAX } = {}) {
+const MEDIA_SWEEP_PREFIX = Object.freeze({ sessions: "media-sessions/", parts: "media-parts/", drafts: "drafts/" });
+/** One bounded step of one prefix: `{ objects, after }`, where `after` is the
+ *  place to keep (null: the prefix was finished, start again), or `null` when
+ *  the listing failed (keep the place you had). */
+async function sweepStep(B, prefix, after, budget) {
+  let page;
+  try { page = await B.list({ prefix, limit: budget, ...(after ? { startAfter: after } : {}) }); } catch { return null; }
+  const objects = (page && page.objects) || [];
+  const last = objects.length ? String(objects[objects.length - 1].key) : null;
+  return { objects, after: page && page.truncated && last ? last : null };
+}
+export async function runMediaSweep(env, { now = Date.now(), max = MEDIA_SWEEP_BUDGET.sessions, budget = {} } = {}) {
   const B = env.SITES_BUCKET;
-  if (!B || typeof B.list !== "function") return { reclaimed: 0, kept: 0, drafts: 0, parts: 0 };
-  let cursor;
-  try { const c = await B.get(MEDIA_SWEEP_CURSOR); if (c) cursor = (JSON.parse(await c.text()) || {}).cursor || undefined; } catch { cursor = undefined; }
-  let looked = 0, reclaimed = 0, kept = 0, drafts = 0, parts = 0;
-  const page = await B.list({ prefix: "media-sessions/", limit: 100, ...(cursor ? { cursor } : {}) });
-  for (const o of page.objects || []) {
-    if (looked >= max) break;
-    const m = /^media-sessions\/([^/]+)\/([a-f0-9]{32})\.json$/.exec(String(o.key));
-    if (!m) continue;
-    looked++;
-    const [, scope, sid] = m;
-    let s = null;
-    try { const got = await B.get(o.key); s = got ? JSON.parse(await got.text()) : null; } catch { continue; }
-    if (!s || !(Number(s.expires) + MEDIA_SWEEP_GRACE_MS < now)) continue;
-    const deps = mediaDeps(env, { scope, gate: async () => ({}) });
-    if (s.state !== "done" && typeof s.key === "string" && (s.key.startsWith("uploads/") || s.key.startsWith("drafts/"))) {
-      let landed = false;
-      try { const h = await B.head(s.key); landed = !!(h && h.customMetadata && h.customMetadata.up === sid); } catch { continue; }
-      if (landed) kept++;
-      else if (s.uploadId) { try { await deps.abort(s.key, s.uploadId); } catch { /* already gone */ } }
-    }
-    await releaseMedia(deps, scope, sid);
-    try { await deps.dropParts(scope, sid); await deps.dropSession(scope, sid); reclaimed++; } catch { /* next tick */ }
-  }
-  // THE CURSOR MOVES ON only past what this tick looked at all of.
-  const next = looked >= max ? cursor : page.truncated ? page.cursor : undefined;
-  try { await B.put(MEDIA_SWEEP_CURSOR, JSON.stringify({ cursor: next || null, at: now }), { httpMetadata: { contentType: "application/json" } }); } catch { /* starts over */ }
-  // PART RECORDS WHOSE SESSION IS GONE, older than a session's life and the
-  // grace: nothing names them any more. A page a tick.
+  if (!B || typeof B.list !== "function") return { reclaimed: 0, kept: 0, drafts: 0, parts: 0, looked: { sessions: 0, parts: 0, drafts: 0 } };
+  const room = { ...MEDIA_SWEEP_BUDGET, sessions: max, ...budget };
+  let place = {};
   try {
-    const pp = await B.list({ prefix: "media-parts/", limit: 100 });
-    for (const pr of pp.objects || []) {
+    const c = await B.get(MEDIA_SWEEP_CURSOR);
+    const j = c ? JSON.parse(await c.text()) : null;
+    if (j && j.v === 2 && j.after && typeof j.after === "object") {
+      for (const k of Object.keys(MEDIA_SWEEP_PREFIX)) {
+        const a = j.after[k];
+        if (typeof a === "string" && a.startsWith(MEDIA_SWEEP_PREFIX[k])) place[k] = a;
+      }
+    }
+  } catch { place = {}; }
+  const next = { ...place };
+  const looked = { sessions: 0, parts: 0, drafts: 0 };
+  let reclaimed = 0, kept = 0, drafts = 0, parts = 0;
+
+  // SESSIONS: expired by an hour and more are reclaimed; the rest are left.
+  const ss = await sweepStep(B, MEDIA_SWEEP_PREFIX.sessions, place.sessions, room.sessions);
+  if (ss) {
+    next.sessions = ss.after;
+    for (const o of ss.objects) {
+      looked.sessions++;
+      const m = /^media-sessions\/([^/]+)\/([a-f0-9]{32})\.json$/.exec(String(o.key));
+      if (!m) continue;
+      const [, scope, sid] = m;
+      let s = null;
+      try { const got = await B.get(o.key); s = got ? JSON.parse(await got.text()) : null; } catch { continue; }
+      if (!s || !(Number(s.expires) + MEDIA_SWEEP_GRACE_MS < now)) continue;
+      const deps = mediaDeps(env, { scope, gate: async () => ({}) });
+      if (s.state !== "done" && typeof s.key === "string" && (s.key.startsWith("uploads/") || s.key.startsWith("drafts/"))) {
+        let landed = false;
+        try { const h = await B.head(s.key); landed = !!(h && h.customMetadata && h.customMetadata.up === sid); } catch { continue; }
+        if (landed) kept++;
+        else if (s.uploadId) { try { await deps.abort(s.key, s.uploadId); } catch { /* already gone */ } }
+      }
+      try { await releaseMedia(deps, scope, sid); } catch { continue; }
+      try { await deps.dropParts(scope, sid); await deps.dropSession(scope, sid); reclaimed++; } catch { /* the next lap */ }
+    }
+  }
+  // PART RECORDS WHOSE SESSION IS GONE, older than a session's life and the
+  // grace: nothing names them any more. A part of a session still there —
+  // live or not yet reclaimed — is left for the session's own reclaim.
+  const ps = await sweepStep(B, MEDIA_SWEEP_PREFIX.parts, place.parts, room.parts);
+  if (ps) {
+    next.parts = ps.after;
+    const alive = new Map();
+    for (const pr of ps.objects) {
+      looked.parts++;
       const pm = /^media-parts\/([^/]+)\/([a-f0-9]{32})\//.exec(String(pr.key));
       const at = pr.uploaded instanceof Date ? pr.uploaded.getTime() : Date.parse(pr.uploaded || "");
       if (!pm || !Number.isFinite(at) || at + MEDIA_SESSION_MS + MEDIA_SWEEP_GRACE_MS >= now) continue;
-      let alive = true;
-      try { alive = !!(await B.head("media-sessions/" + pm[1] + "/" + pm[2] + ".json")); } catch { alive = true; }
-      if (!alive) { try { await B.delete(pr.key); parts++; } catch { /* next tick */ } }
+      const sk = "media-sessions/" + pm[1] + "/" + pm[2] + ".json";
+      if (!alive.has(sk)) { let a = true; try { a = !!(await B.head(sk)); } catch { a = true; } alive.set(sk, a); }
+      if (!alive.get(sk)) { try { await B.delete(pr.key); parts++; } catch { /* the next lap */ } }
     }
-  } catch { /* next tick */ }
-  // OLD PRE-SITE DRAFTS, a page a tick.
-  try {
-    const dp = await B.list({ prefix: "drafts/", limit: 100 });
-    for (const d of dp.objects || []) {
+  }
+  // OLD PRE-SITE DRAFTS.
+  const ds = await sweepStep(B, MEDIA_SWEEP_PREFIX.drafts, place.drafts, room.drafts);
+  if (ds) {
+    next.drafts = ds.after;
+    for (const d of ds.objects) {
+      looked.drafts++;
       const at = d.uploaded instanceof Date ? d.uploaded.getTime() : Date.parse(d.uploaded || "");
-      if (Number.isFinite(at) && at + MEDIA_DRAFT_MS + 24 * 60 * 60 * 1000 < now) { try { await B.delete(d.key); drafts++; } catch { /* next tick */ } }
+      if (Number.isFinite(at) && at + MEDIA_DRAFT_MS + 24 * 60 * 60 * 1000 < now) { try { await B.delete(d.key); drafts++; } catch { /* the next lap */ } }
     }
-  } catch { /* next tick */ }
-  return { reclaimed, kept, drafts, parts };
+  }
+  try { await B.put(MEDIA_SWEEP_CURSOR, JSON.stringify({ v: 2, after: { sessions: next.sessions || null, parts: next.parts || null, drafts: next.drafts || null }, at: now }), { httpMetadata: { contentType: "application/json" } }); } catch { /* starts again from the front */ }
+  return { reclaimed, kept, drafts, parts, looked };
 }
 function mediaDeps(env, { scope, gate, draftUid = null, slug = "", who = "" }) {
   const B = env.SITES_BUCKET;
@@ -12556,6 +12603,20 @@ async function newTablesOf(db, spec) {
  * `{ ok }`, or `{ ok: false, moved, why }`: `moved` when the pointer no longer
  * names the version. Every step is safe to repeat.
  */
+/**
+ * PUT A STAGED VERSION'S SCRIPT UP AS THE PREVIEW (2026-10-16): what a draft
+ * save does when, after its own upload, a newer version stands as the draft —
+ * that version's script goes back up from its own staged prefix, so a save
+ * that finished last with an older script never leaves it in front of the
+ * draft (`saveAsDraft`). The script reads its version's head itself.
+ */
+async function previewVersion(env, slug, version) {
+  let b = null;
+  try { b = await readBuild(buildDeps(env), slug, version); } catch { b = null; }
+  if (!b || typeof b.worker !== "string" || !b.worker) return { ok: false, error: "the version's script is not staged" };
+  const r = await uploadScriptOnce(env, slug, { ok: true, code: b.worker, build: (b.manifest && b.manifest.build) || "" }, { preview: true });
+  return r || { ok: false, error: "no preview uploaded" };
+}
 async function completeActivation(env, slug, version, { sidecar } = {}) {
   const deps = buildDeps(env);
   const pointerStill = async () => {
@@ -13887,7 +13948,7 @@ async function runScriptPendingSweep(env, { now = Date.now(), maxSites = 25 } = 
  * the same store a job runs on (2026-10-15): nothing in the product calls this.
  */
 /** Draft-first's own pieces, for the tests that drive them directly (`test/draft-first.test.mjs`). */
-export const draftFirstApi = { backendWriter, draftView, sealHeld, publishDraft, runPublication, runPublishRecovery, siteIsLive, heldDeleteOr };
+export const draftFirstApi = { backendWriter, draftView, sealHeld, publishDraft, runPublication, runPublishRecovery, siteIsLive, heldDeleteOr, previewVersion };
 export const siteTurn = { tryTurn, giveTurn, renewTurn, turnStillMine, mayWriteConfig, patchSiteConfig, ensureEditableState, jobFence, fencedPut, fencedBuildDeps, stampFences, alignLiveScript, putSiteWorker, runScriptPendingSweep };
 /** Renew a held turn (on the job's heartbeat): false when it is no longer this job's. */
 async function renewTurn(env, slug, t) {
@@ -15928,6 +15989,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     held: toDraft ? held : null,
     base: pointerBefore ? pointerBefore.version : "",
     preview: toDraft ? () => uploadScriptOnce(env, slug, built.worker, { preview: true }) : undefined,
+    repreview: toDraft ? (v) => previewVersion(env, slug, v) : undefined,
     expectEtag: pointerTag,
     // THE POINTER AS IT WAS, so an activation whose script never landed can
     // put it back instead of leaving the site pointing at a version nothing
@@ -17179,6 +17241,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         held: toDraft ? held : null,
         base: before ? before.version : "",
         preview: toDraft ? () => uploadScriptOnce(env, slug, worker, { preview: true }) : undefined,
+        repreview: toDraft ? (v) => previewVersion(env, slug, v) : undefined,
         // RE-ASKED AT THE POINTER (audit fix): a caller that can lose its lease
         // mid-build — the resumed-build collector — hands one in, and it is
         // asked with no await between it and the conditional write.
