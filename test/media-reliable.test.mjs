@@ -67,6 +67,11 @@ async function upload(worker, env, slug, bytes, name, extra = {}) {
   const done = await app(worker, env, "POST", base + "/" + st.body.session + "/complete", { json: { parts } });
   return { st, done };
 }
+/** Every key under a prefix, across every page (the fixture pages by two). */
+async function allKeys(store, prefix) {
+  const out = []; let cursor;
+  for (;;) { const p = await store.list({ prefix, cursor }); out.push(...(p.objects || []).map((o) => o.key)); if (!p.truncated) return out.sort(); cursor = p.cursor; }
+}
 async function liveSite(store, slug) {
   const pre = buildPrefix(slug, V0);
   await store.put(pre + MANIFEST_FILE, JSON.stringify({ files: ["index.html"], worker: true, build: "b0" }));
@@ -128,7 +133,7 @@ test("MR2 ABANDONED UPLOADS RECLAIMED BY THE TICK — an expired open upload abo
     const now0 = Date.now();
     // PRE-SITE DRAFTS: one far past its 7 days, one young.
     await store.put("drafts/u-1/" + "a".repeat(32) + ".mp3", "old", {});
-    const files0 = (await store.list({ prefix: "uploads/" })).objects;
+    const files0 = await allKeys(store, "uploads/");
     const ledgerOf = async () => { const l = await store.get("media-ledger/site-" + slug + ".json"); return l ? JSON.parse(await l.text()).held : {}; };
     assert.ok(Object.hasOwn(await ledgerOf(), aSt.body.session), "the abandoned upload holds no room — this case tests nothing");
 
@@ -147,23 +152,37 @@ test("MR2 ABANDONED UPLOADS RECLAIMED BY THE TICK — an expired open upload abo
         total = { reclaimed: total.reclaimed + r.reclaimed, kept: total.kept + r.kept, drafts: total.drafts + r.drafts };
       }
     } finally { Date.now = dateNow; }
-    assert.equal(total.reclaimed, 3, "not exactly the three expired sessions reclaimed: " + JSON.stringify(total));
+    // EVERY RECORD GONE, read across every page of the listing. (A session the
+    // ledger's own expiry dropped first is not counted by the sweep, so the
+    // count is at least two of the three; what matters is what is left.)
+    assert.ok(total.reclaimed >= 2 && total.reclaimed <= 3, "the sweep reclaimed " + total.reclaimed + " of the three expired sessions");
     assert.equal(total.kept, 1, "the finished upload whose record said open was not recognised as landed");
     assert.ok(store.calls.includes("abort"), "the abandoned multipart upload was never aborted");
     assert.equal(Object.hasOwn(await ledgerOf(), aSt.body.session), false, "the abandoned upload's room was not released");
-    assert.equal((await store.list({ prefix: "media-sessions/" })).objects.length, 0, "a session record was left");
-    assert.equal((await store.list({ prefix: "media-parts/" })).objects.length, 0, "a part record was left");
+    assert.deepEqual(await allKeys(store, "media-sessions/"), [], "a session record was left");
+    assert.deepEqual(await allKeys(store, "media-parts/"), [], "a part record was left");
     // NO FILE DELETED: B and C play.
-    const files1 = (await store.list({ prefix: "uploads/" })).objects;
-    assert.deepEqual(files1.map((o) => o.key).sort(), files0.map((o) => o.key).sort(), "the sweep touched a file");
+    assert.deepEqual(await allKeys(store, "uploads/"), files0, "the sweep touched a file");
     for (const f of [b, c]) assert.equal((await hit(worker, env, "GET", slug + ".gofarther.app", f.done.body.url)).status, 200);
     assert.equal(total.drafts, 1, "the old pre-site draft was not removed");
 
-    // AN UNEXPIRED UPLOAD IS UNTOUCHED.
+    // AN UNEXPIRED UPLOAD IS UNTOUCHED, ITS PARTS TOO.
     const dSt = await app(worker, env, "POST", "/api/site/" + slug + "/media", { json: { name: "Fresh.webm", size: big.length, type: "" } });
+    await app(worker, env, "PUT", "/api/site/" + slug + "/media/" + dSt.body.session + "/1", { body: big.subarray(0, MEDIA_PART_BYTES) });
+    // A PART RECORD WHOSE SESSION IS GONE (as the ledger's own expiry used to leave one).
+    const orphan = "media-parts/site-" + slug + "/" + "c".repeat(32) + "/1";
+    await store.put(orphan, "", { customMetadata: { etag: "x" } });
+    await store.delete("media-sweep/cursor.json");
     const r2 = await mod.runMediaSweep(env, { now: Date.now() });
     assert.equal(r2.reclaimed, 0);
     assert.ok(await store.get("media-sessions/site-" + slug + "/" + dSt.body.session + ".json"), "an upload still in its day was reclaimed");
+    assert.ok(await store.head(orphan), "a young orphaned part was removed");
+    // LONG AFTER: the orphan goes; the live session's own parts went with its session only once it expired.
+    let parts = 0;
+    for (let i = 0; i < 6; i++) parts += (await mod.runMediaSweep(env, { now: Date.now() + 30 * 3600 * 1000 })).parts;
+    assert.equal(await store.head(orphan), null, "a part record whose session is gone was left");
+    assert.ok(parts >= 1, "the orphan was not removed by the parts pass");
+    assert.deepEqual(await allKeys(store, "media-parts/"), [], "part records were left");
   });
 });
 
@@ -237,9 +256,9 @@ test("MR4 REPLACEMENT, REMOVAL, SEEKING AND PREVIEW-VERSUS-LIVE TOGETHER — hel
     const again = await app(worker, env, "POST", "/api/site/" + slug + "/publish", { json: { revision: st.body.revision } });
     assert.equal(again.body.already, true);
     // THE TICK DELETES NOTHING THAT PLAYS.
-    const before = (await store.list({ prefix: "uploads/" })).objects.map((o) => o.key).sort();
-    await mod.runMediaSweep(env, { now: Date.now() + 30 * 3600 * 1000 });
-    assert.deepEqual((await store.list({ prefix: "uploads/" })).objects.map((o) => o.key).sort(), before, "the tick deleted a file");
+    const before = await allKeys(store, "uploads/");
+    for (let i = 0; i < 4; i++) await mod.runMediaSweep(env, { now: Date.now() + 30 * 3600 * 1000 });
+    assert.deepEqual(await allKeys(store, "uploads/"), before, "the tick deleted a file");
     assert.equal((await hit(worker, env, "GET", L, a.done.body.url)).status, 200);
   });
 });

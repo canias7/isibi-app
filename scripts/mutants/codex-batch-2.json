@@ -224,5 +224,13 @@
     ],
     "from": "  if (k === \"sitemeta-draft/\" + slug + \".json\") return true;",
     "to": ""
+  },
+  {
+    "label": "N28 the sweep never removes a part record whose session is gone",
+    "files": [
+      "worker.js"
+    ],
+    "from": "if (!alive) { try { await B.delete(pr.key); parts++; } catch { /* next tick */ } }",
+    "to": "if (!alive) { /* kept */ }"
   }
 ]

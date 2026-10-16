@@ -384,6 +384,9 @@ export async function changeLedger(deps, scope, change) {
       for (const h of expired) {
         if (h.uploadId && h.key) { try { await deps.abort(h.key, h.uploadId); } catch { /* R2's own expiry aborts it */ } }
         if (h.sid) { try { await deps.dropSession(scope, h.sid); } catch { /* left to expire */ } }
+        // …AND ITS PART RECORDS (2026-10-16): with its session gone nothing
+        // else names them, so they were left for ever.
+        if (h.sid && typeof deps.dropParts === "function") { try { await deps.dropParts(scope, h.sid); } catch { /* the tick's sweep */ } }
       }
       return { ok: true };
     }

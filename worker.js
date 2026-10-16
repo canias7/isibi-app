@@ -37,7 +37,7 @@ import { MAX_IMPORT_BYTES } from "./site-csv.mjs";
 import { takeIdemKey, makeIdem, replayHeaders } from "./site-idem.mjs";
 import { placeAttachedPhotos, attachedFilesNote, ownPhotoFacts, ownPhotoSentence } from "./builder/attached-photos.mjs";
 import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_VISITOR_UPLOAD_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName, dispositionFor, readDownloadName, DOWNLOAD_NAME_KEY, uploadIsImage, uploadKind, UPLOAD_URL_PATH } from "./site-uploads.mjs";
-import { MEDIA_PART_BYTES, MEDIA_DRAFT_MS, MEDIA_CACHE, MEDIA_FORMATS, mediaDesignNote, mediaErrorNote, mediaLimits, mediaKindOf, isMediaName, draftKey, siteScope, draftScope, readStoredMeta, parseRange, mediaHeaders, etagMatches, handleMediaStart, handleMediaPart, handleMediaComplete, handleMediaAbort, handleMediaStatus, handleMediaDelete, holdMedia, releaseMedia, pagesUsing, mediaBlock, mediaForModel } from "./site-media.mjs";
+import { MEDIA_PART_BYTES, MEDIA_DRAFT_MS, MEDIA_SESSION_MS, MEDIA_CACHE, MEDIA_FORMATS, mediaDesignNote, mediaErrorNote, mediaLimits, mediaKindOf, isMediaName, draftKey, siteScope, draftScope, readStoredMeta, parseRange, mediaHeaders, etagMatches, handleMediaStart, handleMediaPart, handleMediaComplete, handleMediaAbort, handleMediaStatus, handleMediaDelete, holdMedia, releaseMedia, pagesUsing, mediaBlock, mediaForModel } from "./site-media.mjs";
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
@@ -10225,10 +10225,10 @@ const MEDIA_SWEEP_GRACE_MS = 60 * 60 * 1000;
 const MEDIA_SWEEP_CURSOR = "media-sweep/cursor.json";
 export async function runMediaSweep(env, { now = Date.now(), max = MEDIA_SWEEP_MAX } = {}) {
   const B = env.SITES_BUCKET;
-  if (!B || typeof B.list !== "function") return { reclaimed: 0, kept: 0, drafts: 0 };
+  if (!B || typeof B.list !== "function") return { reclaimed: 0, kept: 0, drafts: 0, parts: 0 };
   let cursor;
   try { const c = await B.get(MEDIA_SWEEP_CURSOR); if (c) cursor = (JSON.parse(await c.text()) || {}).cursor || undefined; } catch { cursor = undefined; }
-  let looked = 0, reclaimed = 0, kept = 0, drafts = 0;
+  let looked = 0, reclaimed = 0, kept = 0, drafts = 0, parts = 0;
   const page = await B.list({ prefix: "media-sessions/", limit: 100, ...(cursor ? { cursor } : {}) });
   for (const o of page.objects || []) {
     if (looked >= max) break;
@@ -10252,6 +10252,19 @@ export async function runMediaSweep(env, { now = Date.now(), max = MEDIA_SWEEP_M
   // THE CURSOR MOVES ON only past what this tick looked at all of.
   const next = looked >= max ? cursor : page.truncated ? page.cursor : undefined;
   try { await B.put(MEDIA_SWEEP_CURSOR, JSON.stringify({ cursor: next || null, at: now }), { httpMetadata: { contentType: "application/json" } }); } catch { /* starts over */ }
+  // PART RECORDS WHOSE SESSION IS GONE, older than a session's life and the
+  // grace: nothing names them any more. A page a tick.
+  try {
+    const pp = await B.list({ prefix: "media-parts/", limit: 100 });
+    for (const pr of pp.objects || []) {
+      const pm = /^media-parts\/([^/]+)\/([a-f0-9]{32})\//.exec(String(pr.key));
+      const at = pr.uploaded instanceof Date ? pr.uploaded.getTime() : Date.parse(pr.uploaded || "");
+      if (!pm || !Number.isFinite(at) || at + MEDIA_SESSION_MS + MEDIA_SWEEP_GRACE_MS >= now) continue;
+      let alive = true;
+      try { alive = !!(await B.head("media-sessions/" + pm[1] + "/" + pm[2] + ".json")); } catch { alive = true; }
+      if (!alive) { try { await B.delete(pr.key); parts++; } catch { /* next tick */ } }
+    }
+  } catch { /* next tick */ }
   // OLD PRE-SITE DRAFTS, a page a tick.
   try {
     const dp = await B.list({ prefix: "drafts/", limit: 100 });
@@ -10260,7 +10273,7 @@ export async function runMediaSweep(env, { now = Date.now(), max = MEDIA_SWEEP_M
       if (Number.isFinite(at) && at + MEDIA_DRAFT_MS + 24 * 60 * 60 * 1000 < now) { try { await B.delete(d.key); drafts++; } catch { /* next tick */ } }
     }
   } catch { /* next tick */ }
-  return { reclaimed, kept, drafts };
+  return { reclaimed, kept, drafts, parts };
 }
 function mediaDeps(env, { scope, gate, draftUid = null, slug = "", who = "" }) {
   const B = env.SITES_BUCKET;
