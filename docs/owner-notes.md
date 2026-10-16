@@ -1,5 +1,111 @@
 # Owner Notes
 
+## 2026-10-16 — The four integration blockers cleared on the candidate (offline; nothing merged, deployed, built, switched or spent)
+
+**On `claude/integration-parallel-publish` only.**
+- help-needed stays paused at `3e721154`, and `main` is still `772bb885`.
+- `DRAFT_FIRST` and `PARALLEL_WRITES` stay off, and no SQL was applied.
+- No container build, no image and no credit.
+- These fixes belong to the Publish side of the line, and the Publish
+  branch can take them from these commits.
+
+### 1. Commits
+
+- **`02d2653c`: `DRAFT_FIRST` reaches container jobs, and both publishing
+  switches are read three ways.**
+  - `builder/edit-job.mjs`: `JOB_ENV_NAMES` carries `DRAFT_FIRST`.
+  - `.github/workflows/deploy.yml`: `DRAFT_FIRST` is in the secret list,
+    with an `|| 'off'` fallback.
+  - `worker.js` `/api/site/runtime` gains four fields:
+    - `draftFirst` and `parallelWrites`, at the Worker;
+    - `jobDraftFirst` and `jobParallelWrites`, **calculated** from
+      `jobSecrets`.
+  - `jobSwitches(env)` is exported: the code's own readers, never a copy.
+  - The job probe gains an **`env` shape** (`builder/job-probe.mjs`,
+    `builder/container-job.mjs`): a real job child builds its env from the
+    launch and answers with `jobSwitches`. That is the **observed** value.
+    Its launch carries only the two switch names, picked from
+    `jobSecrets(env)`, so no credential reaches the probe.
+  - **`readLaunch` now keeps a probe's own fields** (shape, `ms`,
+    `everyMs`). They were dropped before, so every probe a real container
+    ran was the default `hold`, whatever it was asked; the old test re-added
+    them after reading, which hid it.
+  - The draft route's `?inspect=1` read (`inspectPublishing`, below) is in
+    this commit too, because it lives in `worker.js`.
+- **`e61c1131`: the draft-first verifier.**
+  - `GET /api/site/<slug>/draft?inspect=1` is owner-only and read-only. It
+    reports the live pointer, the running script's version, the
+    publication journal, the script recovery notes (count, oldest age,
+    window) and each unpublished revision's held changes by kind. A failed
+    read says unreadable or unanswered; it is never a value.
+  - `scripts/canary-draft.mjs` judges isolation, the preview, the explicit
+    Publish (pressed twice), recovery and the switches. Each check is
+    pass, fail or unverified.
+  - `publishPress` refuses without `confirm: true`.
+  - `edit-canary` prints the switches with the calculated pair labelled.
+
+### 2. Results
+
+- **New tests (14):**
+  - `test/draft-handoff.test.mjs` (6):
+    - DH1, serialization: `jobSecrets` → launch JSON → `readLaunch` →
+      `makeContainerEnv` → `jobSwitches`, for edit, build and resume, on
+      and off;
+    - DH2, the runtime route plus the route's own `env` probe launch, run
+      by the real runner;
+    - DH3 and DH3c, an Edit fired into the container, on and off;
+    - DH4, an Add-on, on and off;
+    - DH5, a first Build's resume, on and off.
+
+    Every job runs on the env its launch carried
+    (`test/fixtures/fired-jobs.mjs`): no Worker string leaks in. Older
+    fired-job tests ran the container side with the Worker's own env, which
+    is how the gap stayed hidden.
+  - `test/canary-draft.test.mjs` (7):
+    - CD1, the whole path on real evidence;
+    - CD2, the switch off makes isolation fail;
+    - CD3, missing evidence stays unverified, including a half-failed read
+      through the real route;
+    - CD4, a claimed publish that moved nothing fails, and so does a
+      repeat that redoes work;
+    - CD5, notes and journals;
+    - CD6, no accidental Publish;
+    - CD7, the switches read three ways.
+  - `test/job-probe.test.mjs` (1): `readLaunch` keeps a probe's fields.
+- **Red check:** with `DRAFT_FIRST` taken out of `JOB_ENV_NAMES`, DH1, DH2,
+  DH3, DH4 and DH5 fail and the DH3c control passes. In DH3 the container
+  Edit then publishes live: the defect, reproduced through the real path.
+- **Mutation sweep:** 14 of 14 mutants killed after one added case; the
+  comment-only control survived; every file restored by md5. The one
+  first-round survivor (an unreadable pointer reported as "no pointer") is
+  killed by CD3's half-failed read.
+- **Focused:**
+  - DH 6 of 6 and CD 7 of 7;
+  - the probe, runtime and canary guards: 56 of 56, then 30 of 30 with the
+    canary test;
+  - the draft and publish files: 306 of 306 before this batch.
+- **Full suite locally:** 11,277 tests, 11,274 pass, 1 fail, 2 skipped. The
+  failure is the `node_modules` link guard, which passes 2 of 2 once the
+  link is removed.
+- **Image prediction** (not built): `892924bc029456f6`, 211 inputs.
+- **Unit CI:** recorded below once read.
+
+### 3. What stays live-only
+
+- The `env` probe in a real deployed container, and the switches read
+  there after a deploy.
+- Draft isolation, the preview and the explicit Publish on real
+  Cloudflare, R2 and Neon.
+- Two writing jobs of one request overlapping; two isolates racing the
+  publish turn.
+- A real script upload timing out or losing its answer, the cron sweep's
+  repair, crashes and duplicate deliveries.
+- The 12 to 14 minute repair estimate, which stays conditional.
+
+**Not done in this batch:** no workflow mode calls the verifier yet. Wiring
+it into a pressable canary scenario (inputs, opt-ins, the money gate)
+touches a workflow and needs its own review.
+
 ## 2026-10-16 — The integration candidate: main, help-needed and Publish together (unmerged; nothing deployed, built, switched or spent)
 
 Codex reviewed Publish at `d6515ab4`. It replayed the
