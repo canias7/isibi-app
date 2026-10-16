@@ -1,5 +1,60 @@
 # Owner Notes
 
+## 2026-10-16 — Sixth batch on `codex-work-into-claude`, after Codex's review of `dbf7a2c8` (branch only; nothing merged, deployed, switched, applied, built or spent)
+
+**On your word**, on `codex-work-into-claude` only. `claude/chat-session-0nndv1`
+untouched (`f9f983a3`). No paid test. The record and the matrix are
+`docs/history/2026-10-16-codex-batch-6.md`.
+
+### Commits
+
+- **`74cbce6b`**: the fixes, the tests and the history.
+- **`cc77eb0d`**: a guard test I broke and did not catch before pushing.
+  - Unit CI on `74cbce6b` failed (run 38958795892: 11,343 tests, 1 failed).
+  - The test (TS10) counts preview uploads by their exact text. The new
+    window argument changed that text, so it miscounted.
+  - It now reads the marking, not the spelling.
+  - My local full run of `74cbce6b` had been lost when the container
+    restarted, so I reported it as "running" without having seen it fail.
+- **This commit**: this entry and CLAUDE.md.
+
+### What changed
+
+- **The recovery job's clock now really moves.** It had frozen the time at
+  its start, so a slow failed upload could be followed by another upload past
+  the five-minute window.
+  - Each site's claim is now timestamped when work on that site begins.
+  - The window is checked again immediately before every upload, even after
+  a slow read.
+- **A draft-record write that lands but loses its answer keeps its recovery
+  record.** The save reads the draft to find out what happened:
+  - the draft is its version: the claim stays and the preview is repaired;
+  - another version, or no draft: the claim goes;
+  - the draft can't be read: the claim stays.
+  - A site with no draft at all is cleared by the recovery job instead of
+    being retried until it is marked stuck.
+
+### Results (measured)
+
+- **New tests:** PR11–PR18. All 8 fail on `dbf7a2c8`; the 13 earlier cases
+  pass there.
+- **Mutation sweep** (`scripts/mutants/codex-batch-6.json`): 11 of 12 on the
+  first pass. A case was added for the one that slipped through, and a
+  follow-up caught it, so 12 of 12. Both controls survived.
+- **Related tests together:** 89 of 89.
+- **Full suite locally on `cc77eb0d`:** 11,343 / 11,341 / 0 / 2.
+- **CI on `cc77eb0d`:** unit tests run 38959940107, 11,343 / 11,295 / 0 / 48,
+  success.
+- **CI on `74cbce6b`:** unit tests failed (TS10, above); site build run
+  38958795978 succeeded.
+
+### Remaining assumptions
+
+- **Unmeasured timing assumptions:** an upload lands within the 10-minute
+  dispatch limit plus a one-minute margin, and server clocks agree within
+  that minute.
+- **The job's own outcome after a lost record answer** is the next batch.
+
 ## 2026-10-16 — Fifth batch on `codex-work-into-claude`, after Codex's review of `6d075aeb` (branch only; nothing merged, deployed, switched, applied, built or spent)
 
 **On your word**, on `codex-work-into-claude` only. `claude/chat-session-0nndv1`

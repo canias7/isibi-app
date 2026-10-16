@@ -71,7 +71,14 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   no claim, no upload; ready only when no other claim stands; the tick
   repairs after a claim can no longer land (16 minutes), from staged scripts,
   bounded. Unit CI `11335 / 11287 / 0 / 48` (run 38955607361). Matrix:
-  `docs/history/2026-10-16-codex-batch-5.md` §4.
+  `docs/history/2026-10-16-codex-batch-5.md` §4. **Sixth batch**
+  (`74cbce6b`, then `cc77eb0d` for the TS10 guard it broke, after Codex's
+  review of `dbf7a2c8`): an advancing clock in the tick, claims stamped when
+  each writer starts, the window asked immediately before the upload;
+  uncertain record writes reconciled against the draft; absent drafts
+  cleared. Unit CI `11343 / 11295 / 0 / 48` (run 38959940107 on
+  `cc77eb0d`; run 38958795892 on `74cbce6b` failed TS10). Matrix:
+  `docs/history/2026-10-16-codex-batch-6.md` §5.
   `claude/chat-session-0nndv1` is untouched. The bullets below are older.
 - **`main` is `8908b59d`, deploy 2173** (2026-09-30 19:48 UTC, a
   fast-forward of 11 commits from `80ece106`, on the owner's word "commit
