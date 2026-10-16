@@ -20020,10 +20020,10 @@ const EDIT_ROW_COLS = "id,uid,slug,op,state,phase,cost,billing,needs_review,revi
  * read failed — cannot-tell must never read as nothing-there, because the
  * verdict on a null list would be "nothing to reconcile".
  */
-async function readEditRows(env, query, limit = 20) {
+async function readEditRows(env, query, limit = 20, order = "updated_at.asc") {
   if (!env.SUPABASE_SERVICE_KEY) return null;
   try {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/edit_jobs?${query}&select=${EDIT_ROW_COLS}&order=updated_at.asc&limit=${Math.max(1, Math.min(50, Number(limit) || 20))}`, { headers: svcHeaders(env) });
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/edit_jobs?${query}&select=${EDIT_ROW_COLS}&order=${order}&limit=${Math.max(1, Math.min(50, Number(limit) || 20))}`, { headers: svcHeaders(env) });
     if (!r.ok) return null;
     const rows = await r.json();
     return Array.isArray(rows) ? rows : null;
@@ -20279,9 +20279,44 @@ async function reconcileAfterRefund(env, id, refund) {
  * unknown is read again every tick — deliberately, since its facts can change
  * (a late upload landing, a newer publish standing) — and said once.
  */
+// THE ROWS UNDER REVIEW ARE WALKED, NOT RE-READ FROM THE FRONT (2026-10-16,
+// Codex's review of `82259f1e`). The read took the oldest 20 by `updated_at`
+// every tick, and an unresolved row changes nothing on its row — only its
+// schedule in R2 — so the same 20 held every pass, deferred or not, and a
+// 21st with good evidence was never reached. Now a durable keyset cursor
+// (`recovery/review-cursor.json`: the last row's `updated_at` and id) walks
+// them in (updated_at, id) order, a page a tick:
+//   - equal timestamps are ordered by id, so none is skipped or repeated;
+//   - a short page is the end: the next tick starts from the front, so an
+//     unresolved row is visited again within ceil(rows / page) ticks, and is
+//     asked only when its schedule is due;
+//   - a row that leaves review, or whose `updated_at` moves on, simply falls
+//     out of, or later into, the walk;
+//   - the cursor survives restarts; an unreadable one starts from the front
+//     (nothing is lost, only re-read); a failed read keeps it.
+// Nothing about a row is changed to move it: its timestamp, its billing and
+// its review state stay as they were until its own verdict decides them.
+const REVIEW_CURSOR = "recovery/review-cursor.json";
+const REVIEW_PAGE = 20;
 export async function runReviewReconcile(env, { now = Date.now() } = {}) {
-  const rows = await readEditRows(env, "needs_review=eq.true", 20);
-  if (!rows || !rows.length) return;
+  let cur = null;
+  try {
+    const o = env.SITES_BUCKET ? await env.SITES_BUCKET.get(REVIEW_CURSOR) : null;
+    const j = o ? JSON.parse(await o.text()) : null;
+    cur = j && typeof j.at === "string" && typeof j.id === "string" && j.at && j.id ? { at: j.at, id: j.id } : null;
+  } catch { cur = null; }
+  const q = (v) => '"' + String(v).replace(/"/g, "") + '"';
+  const after = cur ? "&or=" + encodeURIComponent(`(updated_at.gt.${q(cur.at)},and(updated_at.eq.${q(cur.at)},id.gt.${q(cur.id)}))`) : "";
+  const rows = await readEditRows(env, "needs_review=eq.true" + after, REVIEW_PAGE, "updated_at.asc,id.asc");
+  if (!rows) return;
+  // THE NEXT PLACE: the last row read, or the front again after a short page.
+  const last = rows.length ? rows[rows.length - 1] : null;
+  const nextCur = rows.length >= REVIEW_PAGE && last && typeof last.updated_at === "string" && typeof last.id === "string" ? { at: last.updated_at, id: last.id } : null;
+  try {
+    if (nextCur) await env.SITES_BUCKET.put(REVIEW_CURSOR, JSON.stringify({ ...nextCur, t: now }));
+    else if (cur) await env.SITES_BUCKET.delete(REVIEW_CURSOR);
+  } catch (e) { console.error("reconcile: could not keep the review cursor", errorClassForLog(e)); }
+  if (!rows.length) return;
   const counts = { kept: 0, refunded: 0, unknown: 0, skipped: 0, deferred: 0 };
   // EACH ROW'S SCHEDULE, one listing for the tick; unreadable reads as due.
   const scheduleOf = new Map();

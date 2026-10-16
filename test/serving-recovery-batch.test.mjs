@@ -29,8 +29,9 @@
 //         minutes); however many tries, nothing is settled, refunded or
 //         published; restored, the first due pass settles it once; a
 //         duplicate run at the same time changes nothing.
-//   SRB7  the review reconcile (Edit/Add-on) waits on the same schedule; its
-//         schedule goes once the job is decided.
+//   SRB7  the review reconcile (Edit/Add-on) waits on the same schedule; the
+//         evidence restored, the next due pass keeps the job as a saved draft
+//         once, and its schedule goes.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadWorker, loadWorkerModule, makeCtx } from "./fixtures/worker-harness.mjs";
@@ -297,31 +298,61 @@ test("SRB6 UNRESOLVED LOST-BUILD RECOVERY WAITS ON A SCHEDULE — the evidence u
   assert.deepEqual(refunds, []);
 });
 
-test("SRB7 THE REVIEW RECONCILE WAITS ON THE SAME SCHEDULE — a row it cannot decide is not asked again before its time; the waits double; decided, its schedule goes", async () => {
+test("SRB7 THE REVIEW RECONCILE WAITS ON THE SAME SCHEDULE, THEN RECOVERS — a job stopped after its draft record, the draft unreadable: not asked again before its time; the waits double; restored, the next due pass keeps it as a saved draft, committed once and never refunded, and its schedule goes; nothing goes live", async () => {
   const mod = await loadWorkerModule();
   const b = buildBucket();
-  const row = { id: "r".repeat(32).replace(/r/g, "a"), slug: "", state: "publishing", needs_review: true, op: "edit", uid: BUILD_USER.id };
-  let asks = 0;
+  const slug = "srb7-site";
+  const id = "ab".repeat(16);
+  const version = "01791429281111-srb7aa";
+  await stageBuild(depsOf(b), { slug, version, files: { "index.html": { t: "x" } }, state: { pages: "[]", parts: "[]", config: "{}", sidecar: "{}", kit: "[]" }, manifest: { job: id, at: 1 } });
+  assert.equal((await activateBuild(depsOf(b), { slug, version, job: id, expectEtag: null, asDraft: saveAsDraft, putWorker: async () => ({ ok: true }) })).ok, true);
+  const good = b.store.get(DRAFT_KEY(slug));
+  b.store.set(DRAFT_KEY(slug), "{broken");
+  const row = { id, uid: BUILD_USER.id, slug, op: "edit", state: "publishing", cost: 2, billing: "reserved", needs_review: true, review_note: "died during publish", artifact_build: null, worker_status: null, publish_started_at: "2026-10-08T11:00:00.000Z", published_at: null, result: null, updated_at: "2026-10-08T11:05:00.000Z" };
+  const reconciles = [];
   const pass = async (now) => {
     const real = globalThis.fetch;
-    globalThis.fetch = async (input) => {
+    globalThis.fetch = async (input, init) => {
       const u = String((input && input.url) || input || "");
-      if (u.includes("/rest/v1/edit_jobs") && u.includes("needs_review=eq.true")) return json([row]);
-      if (u.includes("/rest/v1/edit_jobs")) { asks++; return json([row]); }
+      const m = u.match(/\/rest\/v1\/rpc\/(\w+)/);
+      if (m && m[1] === "edit_reconcile") {
+        const a = JSON.parse(String((init && init.body) || "{}"));
+        reconciles.push(a.p_committed);
+        if (!row.needs_review) return json({ ok: false, error: "not-in-review" });
+        row.needs_review = false; row.state = a.p_committed ? "done" : "failed";
+        return json({ ok: true, outcome: a.p_committed ? "kept" : "refunded", refunded: 0 });
+      }
+      if (m && m[1] === "edit_finalize") { row.result = JSON.parse(String((init && init.body) || "{}")).p_result; return json({ ok: true }); }
+      if (m) return json({ ok: true });
+      if (u.includes("/rest/v1/edit_jobs")) return json(row.needs_review ? [{ ...row }] : []);
       return json([]);
     };
-    try { return await mod.runReviewReconcile({ SUPABASE_SERVICE_KEY: "svc", SITES_BUCKET: b }, { now }); }
+    try { return await mod.runReviewReconcile({ SUPABASE_SERVICE_KEY: "svc", CREDITS_MINT_SECRET: "m", SITES_BUCKET: b }, { now }); }
     finally { globalThis.fetch = real; }
   };
   const T0 = Date.parse("2026-10-08T12:00:00Z");
-  const sched = () => { const t = b.store.get("recovery/review/" + row.id + ".json"); return t ? JSON.parse(t) : null; };
+  const sched = () => { const t = b.store.get("recovery/review/" + id + ".json"); return t ? JSON.parse(t) : null; };
   await pass(T0);
   const first = sched();
   assert.ok(first && first.tries === 1 && first.next === T0 + 2 * 60e3, "the unresolved row was not scheduled: " + JSON.stringify(first));
   await pass(T0 + 60e3);
   assert.equal(sched().tries, 1, "a pass before its time asked again");
   await pass(first.next);
-  assert.deepEqual([sched().tries, sched().next - first.next], [2, 4 * 60e3]);
+  assert.deepEqual([sched().tries, sched().next - first.next], [2, 4 * 60e3], "the wait did not double");
+  assert.deepEqual(reconciles, [], "an unresolved job was decided");
+  // RESTORED: the next due pass recovers it.
+  b.store.set(DRAFT_KEY(slug), good);
+  const due = sched().next;
+  await pass(due - 60e3);
+  assert.equal(row.needs_review, true, "it was asked before its time");
+  await pass(due);
+  assert.equal(row.needs_review, false, "the restored evidence was not used");
+  assert.deepEqual(reconciles, [true], "not committed exactly once, or refunded: " + JSON.stringify(reconciles));
+  assert.equal(JSON.parse(row.result.body).reconciled, "draft-saved");
+  assert.equal(sched(), null, "the decided job kept its schedule");
+  await pass(due + 60 * 60e3);
+  assert.deepEqual(reconciles, [true], "decided again");
+  assert.equal([...b.store.keys()].filter((k) => k.startsWith("current/")).length, 0, "something went live without Publish");
   assert.equal(mod.recoveryDelay(1), 2 * 60e3);
   assert.equal(mod.recoveryDelay(50), 30 * 60e3);
 });

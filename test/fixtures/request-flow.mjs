@@ -650,8 +650,12 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       const ca = q.get("created_at"); if (ca && ca.startsWith("gt.")) { const t = Date.parse(ca.slice(3)); rows = rows.filter((j) => j.created_at > t); }
       // ITS ORDER AND ITS LIMIT, AS POSTGREST APPLIES THEM (2026-10-06): a
       // read that asks for the newest twenty gets the newest twenty.
-      const ord = /^([a-z_]+)\.(asc|desc)$/.exec(q.get("order") || "");
-      if (ord) rows.sort((a, b) => (a[ord[1]] > b[ord[1]] ? 1 : a[ord[1]] < b[ord[1]] ? -1 : 0) * (ord[2] === "desc" ? -1 : 1));
+      // A KEYSET PLACE, AS POSTGREST READS IT (2026-10-16): after (updated_at, id).
+      const kq = /^\(updated_at\.gt\."([^"]*)",and\(updated_at\.eq\."([^"]*)",id\.gt\."([^"]*)"\)\)$/.exec(q.get("or") || "");
+      if (kq) { const at = Date.parse(kq[1]); rows = rows.filter((j) => j.updated_at > at || (j.updated_at === at && j.id > kq[3])); }
+      // EVERY KEY OF THE ORDER, in turn.
+      const keysOf = String(q.get("order") || "").split(",").map((s) => /^([a-z_]+)\.(asc|desc)$/.exec(s)).filter(Boolean);
+      if (keysOf.length) rows.sort((a, b) => { for (const o of keysOf) { const d = (a[o[1]] > b[o[1]] ? 1 : a[o[1]] < b[o[1]] ? -1 : 0) * (o[2] === "desc" ? -1 : 1); if (d) return d; } return 0; });
       const lim = Number(q.get("limit"));
       if (Number.isInteger(lim) && lim > 0) rows = rows.slice(0, lim);
       return resp(rows.map(({ seqs, ...r }) => ({ ...r, publish_started_at: r.publish_started_at ? new Date(r.publish_started_at).toISOString() : null, published_at: r.published_at ? new Date(r.published_at).toISOString() : null, updated_at: new Date(r.updated_at).toISOString() })));
