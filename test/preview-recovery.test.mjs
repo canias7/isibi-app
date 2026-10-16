@@ -293,7 +293,8 @@ async function bakery() {
     assert.equal(P.ledger.length, before.ledger, "recovery touched the ledger");
     assert.deepEqual([P.liveScript(), P.readObj("current/" + P.slug + ".json")], [before.live, before.pointer], "recovery touched the live site");
   };
-  const save = (version, preview) => saveAsDraft(deps, { slug: P.slug, version, base: "", preview, repreview: (v) => up(v), commit: async () => {} });
+  // EACH SAVE AS ITS OWN JOB, as a queued job's save is: its revision names it.
+  const save = (version, preview, { job = "job-" + Math.random().toString(16).slice(2, 10) } = {}) => saveAsDraft(deps, { slug: P.slug, version, job, base: "", preview, repreview: (v) => up(v), commit: async () => {} });
   return { P, compiler, api, deps, versions, draft, up, claims, reg, setDraft, tick, untouched, save, done: async () => { await P.settle(); P.close(); compiler.uninstall(); } };
 }
 
@@ -607,7 +608,7 @@ test("PR14 TWO SITES IN ONE TICK — the second site's claim is stamped when its
   } finally { await B.done(); }
 });
 
-test("PR15 THE DRAFT RECORD LANDS AND ITS ANSWER IS LOST — the save fails, its claim stays, and the tick puts the selected draft's preview up with no user message", async () => {
+test("PR15 THE DRAFT RECORD LANDS AND ITS ANSWER IS LOST — the save proves its own revision from the record and settles as SAVED, once: its preview goes up, its claim is cleared, and the commit runs once (since 2026-10-16, after Codex's review of `74cbce6b`; it used to answer failure and leave the tick to repair the preview)", async () => {
   const B = await bakery();
   try {
     const [v1, v2] = B.versions;
@@ -616,18 +617,16 @@ test("PR15 THE DRAFT RECORD LANDS AND ITS ANSWER IS LOST — the save fails, its
     const real = B.deps.put;
     let lost = 1;
     B.deps.put = async (k, b, ct, c) => { const r = await real(k, b, ct, c); if (k === DRAFT_KEY(B.P.slug) && lost-- > 0) throw new Error("r2 response lost"); return r; };
-    const t0 = Date.now();
-    const r = await B.save(v2, (d, o) => B.up(v2));
+    let commits = 0;
+    const r = await saveAsDraft(B.deps, { slug: B.P.slug, version: v2, job: "job-pr15", base: "", preview: () => B.up(v2), repreview: (v) => B.up(v), commit: async () => { commits++; } });
     B.deps.put = real;
-    assert.equal(r.ok, false, "a save whose record answer was lost was reported done");
-    assert.deepEqual([r.recoverable, r.landed], [true, true], JSON.stringify(r));
-    assert.equal(B.draft().version, v2, "the record did not land — the case tests nothing");
-    assert.equal(B.P.previewScript(), v1);
-    assert.equal((await B.claims()).length, 1, "the save removed its claim although its record had landed");
-    const early = await B.tick(t0 + MIN);
-    assert.equal(early.waiting, 1);
-    const late = await B.tick(t0 + PREVIEW_LAND_MS + MIN);
-    assert.deepEqual([late.ready, B.P.previewScript()], [1, v2], JSON.stringify(late));
+    assert.equal(lost, 0, "the record write's answer was never lost — the case tests nothing");
+    assert.deepEqual([r.ok, r.reconciled, r.version], [true, true, v2], "a save whose record landed was not settled as saved: " + JSON.stringify(r));
+    assert.ok(r.revision > 0, "the saved revision is not named");
+    assert.equal(commits, 1, "the commit did not run exactly once");
+    assert.equal(B.draft().version, v2);
+    assert.equal(B.draft().revs.filter((x) => x.job === "job-pr15").length, 1, "the save wrote its revision twice");
+    assert.deepEqual([r.previewed.ok, B.P.previewScript()], [true, v2], JSON.stringify(r.previewed));
     assert.deepEqual(await B.claims(), []);
     B.untouched();
   } finally { await B.done(); }

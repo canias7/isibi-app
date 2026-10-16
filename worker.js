@@ -101,7 +101,7 @@ import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
-import { DRAFT_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, addressOverlay, forgottenInDraft, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims } from "./site-draft.mjs";
+import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
@@ -7092,8 +7092,12 @@ async function narrateBuild(env, body, { picker = "", request = "", name = "", s
  * from the render report of the compile that was published and the version
  * it activated. Null otherwise.
  */
-function buildChecks(pages) {
+export function buildChecks(pages) {
   if (!pages || pages.page !== "app") return null;
+  // A BUILD SAVED AS A DRAFT IS NOT PUBLISHED (2026-10-16): said as its
+  // draft, with its revision and its preview as far as they are known.
+  const d = pages.draft && typeof pages.draft === "object" ? pages.draft : null;
+  if (d) return checksOf({ render: pages.render, version: typeof pages.version === "string" ? pages.version : "", published: false, draft: true, revision: Number(d.revision) || 0, preview: d.previewUploaded === true ? "ready" : d.previewPending === true ? "pending" : null });
   return checksOf({ render: pages.render, version: typeof pages.version === "string" ? pages.version : "", published: true });
 }
 
@@ -12011,6 +12015,32 @@ async function endedEvidence(env, slug, id) {
     return { migration: migrationSummary(settled), note };
   } catch (e) { console.error("ended job: migration record", id, errorClassForLog(e)); return null; }
 }
+/**
+ * A JOB THE SWEEP SAID "RECOVERED", PROVEN SAVED AS A DRAFT (2026-10-16): a
+ * job that died after its draft record and its commit is finalized by the
+ * lost-job sweep with a bare `recovered` answer, which reads as a publish
+ * whose details were lost. Its OWN revision in the draft record — this job's
+ * id, and its held journal present when it carries held changes — proves it
+ * saved, not published; the answer is read with those facts. No revision of
+ * this job, an unreadable record, or a missing journal leaves it as it was.
+ */
+async function draftSavedEvidence(env, slug, id, row) {
+  if (!row || row.state !== "done" || typeof id !== "string" || !id) return null;
+  let body = null;
+  try { body = row.result && typeof row.result.body === "string" ? JSON.parse(row.result.body) : null; } catch { return null; }
+  if (body && !(body.ok === true && body.recovered === true && body.reconciled === undefined)) return null;
+  try {
+    const deps = buildDeps(env);
+    const { draft } = await readDraft(deps, slug);
+    const r = savedRevision(draft, { job: id });
+    if (!r) return null;
+    if (r.held && !(await deps.get(HELD_KEY(slug, r.held)))) return null;
+    let pending = null;
+    try { pending = (await previewClaims(deps, slug)).length > 0; } catch { pending = null; }
+    const saved = { published: false, version: r.version, revision: r.n, selected: !!draft && draft.version === r.version, preview: pending === true ? "pending" : "unknown" };
+    return { status: 200, body: JSON.stringify({ ...(body || {}), ok: true, recovered: true, reconciled: "draft-saved", job: id, draft: saved }) };
+  } catch (e) { console.error("ended job: draft record", id, errorClassForLog(e)); return null; }
+}
 /** File a fresh `pending` record for this job — replacing an earlier record of the same job — and answer it. */
 async function recordSiteMigration(env, slug, entry) {
   const list = upsertMigration(await readSiteMigrations(env, slug), entry);
@@ -12495,14 +12525,24 @@ async function sealHeld(env, slug, writer, { job = null } = {}) {
   const deps = buildDeps(env);
   let liveVersion = "";
   try { const p = await readPointer(deps, slug); liveVersion = p ? p.version : ""; } catch { /* the draft names one */ }
+  let ref = null;
   try {
-    const ref = await writer.hold.flush();
+    ref = await writer.hold.flush();
     const r = await sealHeldRevision(deps, slug, { held: ref, job, liveVersion });
     if (!r.ok) return { ok: false, error: r.error };
     return { ok: true, revision: r.revision };
   } catch (e) {
+    // A REVISION WRITE THAT LANDED AND LOST ITS ANSWER (2026-10-16): proven
+    // by this job's own revision carrying this journal (`savedRevision`), it
+    // is saved — said so, once, never written again.
+    if (ref && ref.id) {
+      try {
+        const proven = savedRevision((await readDraft(deps, slug)).draft, { job, held: ref.id });
+        if (proven) return { ok: true, revision: proven.n, reconciled: true };
+      } catch { /* cannot tell: not saved, said below; the review reads the record again */ }
+    }
     console.error("draft: held changes could not be saved", slug, errorClassForLog(e));
-    return { ok: false, error: "held" };
+    return { ok: false, error: "held", ...(ref && ref.id ? { held: ref.id } : {}) };
   }
 }
 
@@ -16257,7 +16297,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // AND WHAT THIS PUBLISH CHECKED (2026-10-14), always — a clean render
     // report included, which `render` above leaves off the wire — so every
     // final reply reads the checks from the answer, whatever the narration did.
-    checks: checksOf({ render: built.render, version, published: act.draft !== true, draft: act.draft === true, cssChecked: verifyOnly ? verifyOnly.size : 0 }),
+    checks: checksOf({ render: built.render, version, published: act.draft !== true, draft: act.draft === true, cssChecked: verifyOnly ? verifyOnly.size : 0, revision: act.draft === true ? act.revision : 0, preview: act.draft === true && act.previewed ? (act.previewed.ok === true ? "ready" : "pending") : null }),
     // SAVED, NOT PUBLISHED (draft-first): the version is the site's draft,
     // seen at its preview, live only when the owner presses Publish.
     draft: act.draft === true ? draftFacts(slug, version, act) : undefined,
@@ -19875,7 +19915,22 @@ async function reconcileFacts(env, row) {
   const job = { id: String(row.id || ""), build: String(row.artifact_build || "") };
   let mine = findMine(builds, job);
   if (!mine && pointer && pointer.job === job.id) mine = { version: pointer.version, build: String(pointer.build || "") };
-  return { job, pointer, live, builds, mine };
+  // THE DRAFT RECORD, AND THE JOURNAL OF THIS JOB'S OWN REVISION (2026-10-16):
+  // under draft-first this job's saved revision is its outcome
+  // (`reconcileVerdict`'s draft rule). Each read that fails is its own state.
+  let draft = { state: "none" };
+  const journals = {};
+  try {
+    const d = env.SITES_BUCKET ? (await readDraft(deps, slug)).draft : null;
+    if (d) draft = { state: "read", record: d };
+  } catch { draft = { state: "unreadable" }; }
+  if (draft.state === "read") {
+    const r = draft.record.revs.find((x) => x && x.job === job.id && x.held);
+    if (r) {
+      try { journals[r.held] = !!(await deps.get(HELD_KEY(slug, r.held))); } catch { journals[r.held] = undefined; }
+    }
+  }
+  return { job, pointer, live, builds, mine, draft, journals };
 }
 
 /** How often this isolate has retried one row's upload — the cap is per isolate, said in the module. */
@@ -19948,7 +20003,7 @@ async function applyReconcile(env, row, outIn, refundedHint = 0) {
     let mig = null;
     try {
       const entry = jobMigration(await readSiteMigrations(env, row.slug), id);
-      const to = reconciledMigration(entry, out.verdict === "kept");
+      const to = reconciledMigration(entry, out.verdict === "kept", { saved: out.kind === "draft-saved" });
       mig = entry;
       if (to) {
         mig = (await settleSiteMigration(env, row.slug, id, to,
@@ -20003,6 +20058,14 @@ export async function reconcileEditJob(env, id, hint = null) {
   const facts = await reconcileFacts(env, row);
   let out = reconcileVerdict(facts);
   if (out.verdict === "retry") out = await retryLostUpload(env, row, facts, out);
+  // A SAVED DRAFT'S PREVIEW, AS FAR AS IT IS KNOWN: a claim standing for the
+  // site means an upload is unconfirmed and the tick will finish it
+  // (`runPreviewRecovery`); none standing proves nothing either way.
+  if (out.kind === "draft-saved") {
+    let pending = null;
+    try { pending = (await previewClaims(buildDeps(env), String(row.slug || ""))).length > 0; } catch { pending = null; }
+    out = { ...out, preview: pending === true ? "pending" : "unknown" };
+  }
   const applied = await applyReconcile(env, row, out);
   return { ...applied, job: String(row.id), facts: publicFacts(facts) };
 }
@@ -21690,6 +21753,7 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
         // DATABASE RECORD SAYS STANDS, so its part is never told as one that
         // changed nothing (`wantsEvidence`).
         if (wantsEvidence(row)) { const ev = await endedEvidence(env, rec.slug, id); if (ev) row.migration = ev.migration; }
+        if (draftFirst(env)) { const saved = await draftSavedEvidence(env, rec.slug, id, row); if (saved) row.result = { ...(row.result || {}), ...saved }; }
         rows[id] = row;
       }
       const { record, files, prepare } = nextStep(base, rows, Date.now(), { writeMax: writeBesideMax(env) });
@@ -33987,7 +34051,7 @@ async function handleRequest(request, env, ctx) {
               }
               return Response.json({
                 ok: true, layer: "nav", msg: nOut.msg,
-                changed: nOut.changed, files: nPub.files, render: nPub.render, renderNote: nPub.renderNote, checks: nPub.checks,
+                changed: nOut.changed, files: nPub.files, render: nPub.render, renderNote: nPub.renderNote, checks: nPub.checks, draft: nPub.draft,
                 links: nOut.links,
                 // AN ADDITION'S ITEMS THAT WERE THERE ALREADY (2026-10-04), by
                 // list — omitted on every other menu change.
@@ -34127,7 +34191,7 @@ async function handleRequest(request, env, ctx) {
               // one whose purchase it could not tell.
               return Response.json({
                 ok: true, layer: "picture", placed: plPlaced.length, made: plPlaced.length, changed: plPlaced.length,
-                files: plPub.files, render: plPub.render, renderNote: plPub.renderNote, checks: plPub.checks,
+                files: plPub.files, render: plPub.render, renderNote: plPub.renderNote, checks: plPub.checks, draft: plPub.draft,
                 notPlaced: plNot.length ? plNot : undefined,
                 msg: "I put " + (plPlaced.length === 1 ? "the photograph" : plPlaced.length + " photographs") + " into the frame" + (plPlaced.length === 1 ? "" : "s") + " the addition left waiting.",
                 cost: await eCharge([], { images: plPlaced.length }, plPub),
@@ -34295,7 +34359,7 @@ async function handleRequest(request, env, ctx) {
               const pImages = pOut.made.length ? { images: pOut.made.length } : null;
               return Response.json({
                 ok: true, layer: "picture", msg: pOut.msg,
-                changed: pOut.changed, files: pPub.files, render: pPub.render, renderNote: pPub.renderNote, checks: pPub.checks,
+                changed: pOut.changed, files: pPub.files, render: pPub.render, renderNote: pPub.renderNote, checks: pPub.checks, draft: pPub.draft,
                 used: pOut.used.length, made: pOut.made.length, failed: pOut.failed,
                 // THE REMOVALS THIS STEP MADE, counted where they were made —
                 // photographs taken off WITH their space. The browser's undo
@@ -34545,7 +34609,7 @@ async function handleRequest(request, env, ctx) {
               // customer's calls somewhere nobody asked for.
               const staleTel = staleContactLinks(out.pages, out.edits);
               return Response.json({
-                ok: true, layer: "text", applied: out.applied, files: pub.files, render: pub.render, renderNote: pub.renderNote, checks: pub.checks,
+                ok: true, layer: "text", applied: out.applied, files: pub.files, render: pub.render, renderNote: pub.renderNote, checks: pub.checks, draft: pub.draft,
                 changed: out.edits.map((e) => e.to).slice(0, 8),
                 // Omitted when empty, so an ordinary wording change's response
                 // is byte-identical and the field's PRESENCE is the signal.
@@ -35294,7 +35358,7 @@ async function handleRequest(request, env, ctx) {
                 // WHAT A REMOVAL NAMED THAT THE LIST DID NOT HOLD (W2): the rest
                 // came off, and this says which names took nothing off.
                 takeOffNote: takeOffMissed.length ? takeOffMissed.map((m) => takeOffNote(m.field, m.unknown)).join(" ") : undefined,
-                renamed, files: pub.files, render: pub.render, renderNote: pub.renderNote, checks: pub.checks, cost: await eCharge(dUsage), usage: { langUsage: billParts(dUsage) },
+                renamed, files: pub.files, render: pub.render, renderNote: pub.renderNote, checks: pub.checks, draft: pub.draft, cost: await eCharge(dUsage), usage: { langUsage: billParts(dUsage) },
               });
             }
 
@@ -35381,7 +35445,7 @@ async function handleRequest(request, env, ctx) {
                 // decided this was already charged where every routing call is.
                 return Response.json({
                   ok: true, layer: "page", page: wantRoute, removed: cut.removed,
-                  files: cutPub.files, render: cutPub.render, renderNote: cutPub.renderNote, checks: cutPub.checks, cost: 0,
+                  files: cutPub.files, render: cutPub.render, renderNote: cutPub.renderNote, checks: cutPub.checks, draft: cutPub.draft, cost: 0,
                 });
               }
 
@@ -35431,7 +35495,7 @@ async function handleRequest(request, env, ctx) {
                 // where every routing call is.
                 return Response.json({
                   ok: true, layer: "page", page: wantRoute, renamedTo: rn.redirect.to, changed: rn.changed,
-                  files: mvPub.files, render: mvPub.render, renderNote: mvPub.renderNote, checks: mvPub.checks, cost: 0,
+                  files: mvPub.files, render: mvPub.render, renderNote: mvPub.renderNote, checks: mvPub.checks, draft: mvPub.draft, cost: 0,
                 });
               }
 
@@ -35600,7 +35664,7 @@ async function handleRequest(request, env, ctx) {
                   if (twPub.ok) {
                     return Response.json({
                       ok: true, layer: "page", page: wantRoute, tweak: true,
-                      files: twPub.files, render: twPub.render, renderNote: twPub.renderNote, checks: twPub.checks,
+                      files: twPub.files, render: twPub.render, renderNote: twPub.renderNote, checks: twPub.checks, draft: twPub.draft,
                       // THE JUDGE'S TOKENS ARE BILLED WITH THE EDIT, in the one
                       // rounding — only here, on a publish. A refusal above
                       // returned at cost 0 and charged nothing.
@@ -36385,7 +36449,7 @@ async function handleRequest(request, env, ctx) {
                 // precisely so two calls on one path do not each round up — the
                 // lesson `pageCredits` already carries. `twSpent` is null when
                 // the cheap rung never reached the provider.
-                files: pPub.files, render: pPub.render, renderNote: pPub.renderNote, checks: pPub.checks,
+                files: pPub.files, render: pPub.render, renderNote: pPub.renderNote, checks: pPub.checks, draft: pPub.draft,
                 cost: await eCharge(eGen && eGen.usage, twSpent, twJudged, pKeep.usage), usage: eGen && eGen.usage, tweakUsage: twSpent || undefined,
                 keepUsage: pKeep.usage || undefined,
                 // AN UNCERTAIN COMPONENT IS NAMED, never counted as kept and
@@ -37058,6 +37122,9 @@ async function handleRequest(request, env, ctx) {
               render: finalPub ? finalPub.render : (last && last.body.render),
               renderNote: finalPub ? finalPub.renderNote : (last && last.body.renderNote),
               checks: finalPub ? finalPub.checks : (last && last.body.checks),
+              // SAVED AS WHICH DRAFT, from the same publish (2026-10-16): the
+              // text edit's answer carried no `draft` facts at all.
+              draft: finalPub ? finalPub.draft : (last && last.body.draft),
               // WHAT HAPPENED TO EACH LANGUAGE, from the one publish (run 38,
               // 2026-09-04): the spine's account rode its result, the deferred
               // publish's stub answered the look branch first, and the reply
@@ -42738,7 +42805,7 @@ async function handleRequest(request, env, ctx) {
               // nothing, the add step's own rule.
               files: aPub.files, render: aPub.render,
               renderNote: [aPub.renderNote, addRepairNote(aRepairRound)].filter(Boolean).join(" ") || undefined,
-              checks: aPub.checks,
+              checks: aPub.checks, draft: aPub.draft,
               // WHAT THE ROUND DID, for a reader that judges rather than reads:
               // the harness, and the owner-build log. Absent when no round ran.
               repair: aRepairRound ? {
@@ -42818,7 +42885,7 @@ async function handleRequest(request, env, ctx) {
               }, { status: 422 });
             }
 
-            return Response.json({ ok: true, applied: ed.applied, files: out.files, render: out.render, renderNote: out.renderNote, checks: out.checks, cost: Number(out.langCharged) || 0 });
+            return Response.json({ ok: true, applied: ed.applied, files: out.files, render: out.render, renderNote: out.renderNote, checks: out.checks, draft: out.draft, cost: Number(out.langCharged) || 0 });
           }
           if (pb || dr) {
             if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "storage not configured" }, { status: 501 });

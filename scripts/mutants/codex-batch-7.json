@@ -1,0 +1,165 @@
+[
+  {
+    "label": "CONTROL: a comment only in site-draft.mjs \u2014 must survive",
+    "control": true,
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "export const revisionsTrimmed = ",
+    "to": "// comment-only control\nexport const revisionsTrimmed = "
+  },
+  {
+    "label": "CONTROL: a comment only in worker.js \u2014 must survive",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "async function draftSavedEvidence(env, slug, id, row) {",
+    "to": "// comment-only control\nasync function draftSavedEvidence(env, slug, id, row) {"
+  },
+  {
+    "label": "CONTROL: a comment only in builder/request.mjs \u2014 must survive",
+    "control": true,
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "const SAVED_DONE = ",
+    "to": "// comment-only control\nconst SAVED_DONE = "
+  },
+  {
+    "label": "D1 a lost record answer is never proven inline",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "    if (proven) rec = { ok: true, draft: now, revision: proven.n, reconciled: true };",
+    "to": "    if (false) rec = { ok: true, draft: now, revision: proven.n, reconciled: true };"
+  },
+  {
+    "label": "D2 savedRevision takes any job's revision",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  return draft.revs.find((r) => (!job || r.job === String(job))",
+    "to": "  return draft.revs.find((r) => (true)"
+  },
+  {
+    "label": "D3 savedRevision ignores the version",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "    && (!version || r.version === version)",
+    "to": "    && (true)"
+  },
+  {
+    "label": "D4 a held seal's lost answer is never proven",
+    "files": [
+      "worker.js"
+    ],
+    "from": "        if (proven) return { ok: true, revision: proven.n, reconciled: true };",
+    "to": "        if (false) return { ok: true, revision: proven.n, reconciled: true };"
+  },
+  {
+    "label": "D5 the reconcile never reads the draft",
+    "files": [
+      "builder/site-reconcile.mjs"
+    ],
+    "from": "  const dv = draftVerdict(facts, job, mine);",
+    "to": "  const dv = null;"
+  },
+  {
+    "label": "D6 a held revision is kept without its journal",
+    "files": [
+      "builder/site-reconcile.mjs"
+    ],
+    "from": "      if (j !== true) return answer(",
+    "to": "      if (false) return answer("
+  },
+  {
+    "label": "D7 a trimmed list falls through to the live verdicts",
+    "files": [
+      "builder/site-reconcile.mjs"
+    ],
+    "from": "  if (rec.revs.length >= DRAFT_MAX_REVS && rec.revs[0] && rec.revs[0].n > 1) return answer(",
+    "to": "  if (false) return answer("
+  },
+  {
+    "label": "D8 another job's revision proves this job's save",
+    "files": [
+      "builder/site-reconcile.mjs"
+    ],
+    "from": "  const r = rec.revs.find((x) => x && x.job === job.id && (mine ? x.version === mine.version : !!x.held));",
+    "to": "  const r = rec.revs.find((x) => x && (mine ? x.version === mine.version : !!x.held));"
+  },
+  {
+    "label": "D9 the request reader drops the draft facts",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "    const saved = b.reconciled === \"draft-saved\" ? savedDraftOf(b.draft) : null;",
+    "to": "    const saved = null;"
+  },
+  {
+    "label": "D10 the reply facts skip a saved draft",
+    "files": [
+      "builder/site-reply.mjs"
+    ],
+    "from": "  const d = x.reconciled === \"draft-saved\" ? savedDraftOf(x.draft) : null;",
+    "to": "  const d = null;"
+  },
+  {
+    "label": "D11 the sweep's bare recovered is never read against the draft",
+    "files": [
+      "worker.js"
+    ],
+    "from": "        if (draftFirst(env)) { const saved = await draftSavedEvidence(",
+    "to": "        if (false) { const saved = await draftSavedEvidence("
+  },
+  {
+    "label": "D13 the merged answer drops the draft facts",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              draft: finalPub ? finalPub.draft : (last && last.body.draft),",
+    "to": ""
+  },
+  {
+    "label": "D14 an unconfirmed preview is said ready",
+    "files": [
+      "worker.js"
+    ],
+    "from": "(act.previewed.ok === true ? \"ready\" : \"pending\")",
+    "to": "(\"ready\")"
+  },
+  {
+    "label": "D15 a draft build is told as published",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (d) return checksOf({ render: pages.render,",
+    "to": "  if (false) return checksOf({ render: pages.render,"
+  },
+  {
+    "label": "D16 the saved held schema's record is not corrected",
+    "files": [
+      "builder/site-migrations.mjs"
+    ],
+    "from": "  if (live && saved) return",
+    "to": "  if (false) return"
+  },
+  {
+    "label": "D17 a revision on a published answer is read",
+    "files": [
+      "builder/check-evidence.mjs"
+    ],
+    "from": "  if (v.revision !== undefined && !(v.draft === true && posInt(v.revision))) return null;",
+    "to": ""
+  },
+  {
+    "label": "D18 a pending preview is said up to date",
+    "files": [
+      "builder/check-evidence.mjs"
+    ],
+    "from": "  const base = c && c.preview === \"pending\" ? DRAFT_PENDING_SAID : DRAFT_SAID;",
+    "to": "  const base = DRAFT_SAID;"
+  }
+]

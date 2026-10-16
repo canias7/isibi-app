@@ -57,7 +57,7 @@
 import { readContext, MAX_ANSWER_CHARS } from "./site-ask.mjs";
 import { pieceSaid } from "./site-requirements.mjs";
 import { seedRowsOf, rowPlaces } from "./seed-rows.mjs";
-import { checkFacts, browserOnlyFacts } from "./check-evidence.mjs";
+import { checkFacts, browserOnlyFacts, savedDraftOf, savedDraftFacts } from "./check-evidence.mjs";
 
 /** The switch: `MODEL_REPLIES` = "on" in the Worker's vars. Anything else keeps every reply as it was. */
 /** Why a waiting photograph was not placed, from the placement's own reason (round 6). */
@@ -961,6 +961,18 @@ function dataChangeFacts(F, list) {
 }
 
 /**
+ * A RECONCILED ANSWER (2026-10-16): one proven saved by its own draft
+ * revision is said as saved, not published; any other keeps its fixed sentence.
+ */
+function recoveredFacts(x) {
+  const d = x.reconciled === "draft-saved" ? savedDraftOf(x.draft) : null;
+  if (!d) return { skip: "recovered", facts: [] };
+  const F = factList();
+  for (const f of savedDraftFacts(d)) F.add(f.kind, f.text);
+  return { skip: null, facts: F.out };
+}
+
+/**
  * THE FACTS OF AN EDIT'S FINAL ANSWER — the edit route's, synchronous or a
  * queued job's stored one. `skip` says why no reply is written: an answer that
  * is not an ending, or a failure of ours that keeps its fixed sentence.
@@ -969,7 +981,7 @@ export function editReplyFacts(e, { routedCost = null, inRequest = false } = {})
   if (!e || typeof e !== "object" || Array.isArray(e)) return { skip: "unreadable", facts: [] };
   if (e.escalate === true) return { skip: "escalate", facts: [] };
   if (typeof e.job === "string" && typeof e.poll === "string") return { skip: "receipt", facts: [] };
-  if (e.ok === true && e.recovered === true) return { skip: "recovered", facts: [] };
+  if (e.ok === true && e.recovered === true) return recoveredFacts(e);
   if (typeof e.ok !== "boolean") return { skip: "unreadable", facts: [] };
   if (technicalAnswer(e)) return { skip: "technical", facts: [] };
   const F = factList();
@@ -1163,7 +1175,7 @@ export function addonReplyFacts(a, { routedCost = null, inRequest = false } = {}
   if (!a || typeof a !== "object" || Array.isArray(a)) return { skip: "unreadable", facts: [] };
   if (a.escalate === true) return { skip: "escalate", facts: [] };
   if (typeof a.job === "string" && typeof a.poll === "string") return { skip: "receipt", facts: [] };
-  if (a.ok === true && a.recovered === true) return { skip: "recovered", facts: [] };
+  if (a.ok === true && a.recovered === true) return recoveredFacts(a);
   if (typeof a.ok !== "boolean") return { skip: "unreadable", facts: [] };
   if (technicalAnswer(a)) return { skip: "technical", facts: [] };
   const F = factList();

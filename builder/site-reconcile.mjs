@@ -38,6 +38,7 @@ export const RECONCILE_KINDS = Object.freeze([
   "landed", "upload-retried", "lost-upload", "superseded-built-on", "superseded-not-built-on",
   "never-activated", "never-staged", "pointer-unreadable", "builds-unreadable", "live-unreadable",
   "live-ahead", "chain-broken", "retry-exhausted", "no-script-staged", "no-dispatch", "upload-refused", "upload-not-serving",
+  "draft-saved", "draft-unreadable", "draft-held-unreadable", "draft-trimmed",
 ]);
 
 /**
@@ -119,7 +120,44 @@ export function ancestry(pointer, mine, builds) {
   return "broken";
 }
 
-const answer = (verdict, kind, why, mine) => ({ verdict, kind, why, mine: mine || null });
+const answer = (verdict, kind, why, mine, extra = {}) => ({ verdict, kind, why, mine: mine || null, ...extra });
+
+// ── DRAFT-FIRST: A SAVE IS THE OUTCOME (2026-10-16, Codex's review of `74cbce6b`)
+//
+// Under draft-first a job's success is not the live pointer moving — nothing
+// goes live without the owner's Publish — but its own revision in the site's
+// draft record: written in one conditional write naming the job, its code
+// version and its held journal together (`saveDraftRecord`,
+// `sealHeldRevision`). So a job whose record write landed and whose answer
+// was lost, or whose process stopped after it, is SAVED, kept and billed
+// once — never refunded as "never activated". Only this job's own revision
+// counts: a draft merely existing, its selected version, or the job's version
+// in `history` (an older code-only save, kept there and refused) proves
+// nothing, and the live-site verdicts below decide as before.
+//
+//   facts.draft     { state: "read", record } | { state: "none" } | { state: "unreadable" }
+//                   — absent: not consulted (a caller from before drafts)
+//   facts.journals  { [heldId]: true (there) | false (missing) | undefined (unreadable) }
+const DRAFT_MAX_REVS = 60;
+function draftVerdict(facts, job, mine) {
+  const d = facts.draft;
+  if (!d || !job.id) return null;
+  if (d.state === "unreadable") return answer("unknown", "draft-unreadable", "the site's draft record could not be read, so whether this job's work was saved is not known", mine);
+  if (d.state !== "read" || !d.record || !Array.isArray(d.record.revs)) return null;
+  const rec = d.record;
+  const r = rec.revs.find((x) => x && x.job === job.id && (mine ? x.version === mine.version : !!x.held));
+  if (r) {
+    if (r.held) {
+      const j = facts.journals ? facts.journals[r.held] : undefined;
+      if (j !== true) return answer("unknown", "draft-held-unreadable", "this job's revision names held changes that could not be read back" + (j === false ? " (the journal is missing)" : ""), mine);
+    }
+    return answer("kept", "draft-saved", "this job's own revision is in the site's draft: its work was saved, not published", mine,
+      { revision: r.n, version: r.version, held: r.held || null, selected: rec.version === r.version });
+  }
+  // AN OLD REVISION MAY HAVE FALLEN OFF THE BOUNDED LIST: absence is not proof.
+  if (rec.revs.length >= DRAFT_MAX_REVS && rec.revs[0] && rec.revs[0].n > 1) return answer("unknown", "draft-trimmed", "the draft record keeps only its latest revisions, so this job's absence from it proves nothing", mine);
+  return null;
+}
 
 /**
  * The verdict, from facts alone.
@@ -149,6 +187,9 @@ export function reconcileVerdict(facts = {}) {
   // THE POINTER NAMES ITS JOB: a prefix the cap has pruned is still known to be
   // ours when the pointer says so.
   if (!mine && pointer && job.id && pointer.job === job.id) mine = { version: pointer.version, build: String(pointer.build || "") };
+  // UNDER DRAFT-FIRST, THIS JOB'S OWN SAVED REVISION DECIDES FIRST.
+  const dv = draftVerdict(facts, job, mine);
+  if (dv) return dv;
   if (!mine) {
     // Nothing of this job's was staged, so nothing of it can be live — unless
     // a legacy-layout upload landed, which only the live build id can say.
@@ -214,7 +255,13 @@ export function reconcileReply(out, row, refunded = 0, { prior = null, migration
   const job = String((row && row.id) || "");
   const mig = migration && typeof migration === "object" && !Array.isArray(migration) ? { migration } : {};
   if (out && out.verdict === "kept") {
-    return { status: 200, type: "application/json", body: JSON.stringify({ ok: true, recovered: true, reconciled: out.kind, job, cost: Number(row && row.cost) || 0, build: (row && row.artifact_build) || null, ...mig }) };
+    // A SAVED DRAFT IS SAID AS ONE (2026-10-16): its revision and version, not
+    // published, and whether its preview is known ready — never "published,
+    // the details were lost".
+    const saved = out.kind === "draft-saved" && Number.isSafeInteger(out.revision) && out.revision > 0
+      ? { draft: { published: false, version: String(out.version || ""), revision: out.revision, selected: out.selected === true, preview: out.preview === "ready" || out.preview === "pending" ? out.preview : "unknown" } }
+      : {};
+    return { status: 200, type: "application/json", body: JSON.stringify({ ok: true, recovered: true, reconciled: out.kind, job, cost: Number(row && row.cost) || 0, build: (row && row.artifact_build) || null, ...saved, ...mig }) };
   }
   if (out && out.verdict === "refunded") {
     const msg = out.kind === "superseded-not-built-on" ? OVERTAKEN_MSG : NEVER_LIVE_MSG;
@@ -239,5 +286,6 @@ export function publicFacts(facts = {}) {
     live: facts.live ? { build: facts.live.build || "", version: facts.live.version || "" } : null,
     mine: facts.mine || null,
     builds: Array.isArray(facts.builds) ? facts.builds.length : "unreadable",
+    ...(facts.draft ? { draft: facts.draft.state === "read" ? { version: facts.draft.record.version, rev: facts.draft.record.rev } : facts.draft.state } : {}),
   };
 }

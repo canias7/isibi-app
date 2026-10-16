@@ -53,6 +53,7 @@ import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS } from "./input-budget.mjs";
 import { REQUEST_KEY_RE } from "./clarify.mjs";
 import { readMarks } from "./prepared.mjs";
 import { outcomeOf } from "./site-reply.mjs";
+import { savedDraftOf } from "./check-evidence.mjs";
 import { readTargets, inferNeeds, applyOrder, clearToPrepare, clearToWrite, prepScope, addonScope, routeScope } from "./request-plan.mjs";
 
 export const REQUEST_V = 1;
@@ -589,9 +590,16 @@ export function readRun(ans) {
   if (b.ok === false && ask && b.error === "clarify") return { act: "clarify", ask, deferred };
   if (b.ok === false) return { act: "refusal", ask, deferred, error: typeof b.error === "string" ? b.error : "" };
   if (!httpOk) return unknown;
-  if (b.recovered === true) return { act: "recovered" };
+  if (b.recovered === true) {
+    // A RECONCILED SAVE PROVEN BY ITS OWN DRAFT REVISION (2026-10-16): saved,
+    // not published — told apart from a publish whose details were lost.
+    const saved = b.reconciled === "draft-saved" ? savedDraftOf(b.draft) : null;
+    return saved ? { act: "recovered", draft: saved } : { act: "recovered" };
+  }
   return { act: "success", ask, deferred };
 }
+
+const SAVED_DONE = (d) => "saved the change as draft revision " + d.revision + " (not published; what it changed was not recorded)";
 
 /**
  * WHAT AN `ok: true` ANSWER SAYS WAS ASKED FOR AND NOT DONE (2026-10-03, the
@@ -1092,6 +1100,7 @@ function settle(rec, p, job, row, now) {
     if (to.act === "stop") { endUnfinished(p, "", "handed-back", { job: job.id, kind: "escalate" }); return; }
     endUnfinished(p, "", "unreadable"); return;
   }
+  if (read.act === "recovered" && read.draft) { p.status = "done"; p.why = "unrecorded"; p.outcome = { job: job.id, kind: "draft", draft: read.draft }; p.done = SAVED_DONE(read.draft); return; }
   if (read.act === "recovered") { p.status = "done"; p.why = "unrecorded"; p.outcome = { job: job.id, kind: "recovered" }; p.done = "made the change (what it changed was not recorded)"; return; }
   if (read.act === "success" && p.place && p.route && p.route.place) {
     // THE PLACEMENT STEP FINISHED (round 5): the addition's own "not done"

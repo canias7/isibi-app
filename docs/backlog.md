@@ -35,11 +35,15 @@ here; take a closed one out of both.**
   `If-Range` is not read; R2's own abort of unfinished multipart uploads is
   assumed, not verified; a tick's subrequest count (about 400 at the default
   budgets, estimated, not measured) against the Worker's limit.
-- **A save whose draft record landed but whose answer was lost answers
-  failure** (2026-10-16, sixth batch §2): its preview is recovered (the claim
-  stays and the tick puts the selected draft up), but the job is told
-  failure and refunded while its code stands as the selected draft.
-  Reconciling the job's own outcome is outside that batch.
+- **A save whose draft record landed but whose answer was lost** (2026-10-16,
+  sixth batch §2; **closed by the seventh batch**,
+  `docs/history/2026-10-16-codex-batch-7.md`): settled from the job's own
+  revision inline, after a stop before its commit (reconcile `draft-saved`)
+  and after one after it (the sweep's `recovered` read against the draft).
+  **Still open:** no Build lifecycle case exercises the shared inline proof;
+  the sweep's bare `recovered` is rewritten only where the request driver
+  reads it (the job row itself keeps the SQL's answer); a held revision
+  whose journal is missing stays in review for a person.
 - **The preview's timing assumptions are unmeasured** (sixth batch §1): an
   upload lands within the dispatch call's 10 minutes plus a one-minute
   margin of its start, and isolate clocks agree within that minute.
@@ -51,8 +55,7 @@ here; take a closed one out of both.**
   repair the preview can show the older version (up to about 16 minutes after
   a writer stops for good, longer while uploads keep failing; `stuck` after
   12 tries waits for a person or a new save). The owner's panel does not yet show
-  `previewPending` (frontend, deferred). The text edit's job answer carries
-  no `draft` facts at all (found in passing). A held rename's address is
+  `previewPending` (frontend, deferred). A held rename's address is
   baked in at Publish, so the preview shows the old address.
 - **Draft-first edges the owner decides** (2026-10-16, stated exactly in the
   second batch's record §5): owner panels act at once by design; a platform

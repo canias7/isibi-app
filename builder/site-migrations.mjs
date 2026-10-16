@@ -126,8 +126,14 @@ export function jobMigration(list, job) {
  * back from the apply, which is not known to have run: no table is claimed
  * without the engine's own report of it.
  */
-export function reconciledMigration(entry, live) {
+export function reconciledMigration(entry, live, { saved = false } = {}) {
   if (!entry || typeof entry !== "object") return null;
+  // A SAVED DRAFT (2026-10-16): its held schema was saved with the job's
+  // revision, as a save that answered would have recorded it — so a record
+  // its own failure answer marked `discarded` is corrected to the same state
+  // the answered save writes (`applied`; the backlog's "applied until
+  // Publish" gap stands for both alike).
+  if (live && saved) return entry.status === "pending" || entry.status === "applied_without_page" || entry.status === "discarded" ? "applied" : null;
   if (live) return entry.status === "pending" || entry.status === "applied_without_page" ? "applied" : null;
   if (entry.status !== "pending") return null;
   const applied = entry.tables && Array.isArray(entry.tables.applied) ? entry.tables.applied : [];

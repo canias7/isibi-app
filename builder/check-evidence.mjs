@@ -102,8 +102,9 @@ function browserOf(r) {
  * drops), the version it activated, whether activation answered ok, and how
  * many of the change's style rules were checked. Never throws.
  */
-export function checksOf({ render = null, version = "", published = false, cssChecked = 0, draft = false } = {}) {
+export function checksOf({ render = null, version = "", published = false, cssChecked = 0, draft = false, revision = 0, preview = null } = {}) {
   const css = Number.isInteger(cssChecked) && cssChecked > 0 ? cssChecked : 0;
+  const saved = draft === true && published !== true;
   return {
     compiled: true,
     browser: browserOf(render),
@@ -111,7 +112,12 @@ export function checksOf({ render = null, version = "", published = false, cssCh
     published: published === true,
     // SAVED AS THE SITE'S DRAFT (draft-first, 2026-10-15): not published, by
     // design, until the owner presses Publish — never a failure to publish.
-    ...(draft === true && published !== true ? { draft: true } : {}),
+    ...(saved ? { draft: true } : {}),
+    // …AS WHICH REVISION, AND WHETHER ITS PREVIEW IS KNOWN UP TO DATE
+    // (2026-10-16): `ready` once the preview is confirmed on the draft's
+    // version, `pending` while an upload is unconfirmed (the tick finishes it).
+    ...(saved && Number.isSafeInteger(revision) && revision > 0 ? { revision } : {}),
+    ...(saved && (preview === "ready" || preview === "pending") ? { preview } : {}),
     ...(typeof version === "string" && VERSION.test(version) ? { version } : {}),
   };
 }
@@ -137,6 +143,8 @@ export function readChecks(v) {
   } else return null;
   if (v.css !== undefined && !posInt(v.css)) return null;
   if (v.draft !== undefined && !(v.draft === true && v.published === false)) return null;
+  if (v.revision !== undefined && !(v.draft === true && posInt(v.revision))) return null;
+  if (v.preview !== undefined && !(v.draft === true && (v.preview === "ready" || v.preview === "pending"))) return null;
   if (v.version !== undefined && !(typeof v.version === "string" && VERSION.test(v.version))) return null;
   return v;
 }
@@ -197,11 +205,18 @@ export function checkFacts(checks, { scope = "", nth = 0 } = {}) {
   add(c.published
     ? "Published: the new version is now the one the site's address is set to serve. Nobody opened the live address afterwards to confirm it."
     : c.draft === true
-      ? DRAFT_SAID
+      ? draftSaid(c)
       : "Not published: the version this made is not the one the site's address serves.");
   return out;
 }
 export const DRAFT_SAID = "Saved as a draft: the change is in the site's draft and its preview, and the live site is unchanged until the owner presses Publish.";
+/** …and while its preview is not yet confirmed on it (2026-10-16). */
+export const DRAFT_PENDING_SAID = "Saved as a draft: the change is in the site's draft, and the live site is unchanged until the owner presses Publish. The preview is still being brought up to date, so for a few minutes it may show the version before this one.";
+/** The draft sentence for read evidence: its revision when known, and the preview as far as it is known. */
+export function draftSaid(c) {
+  const base = c && c.preview === "pending" ? DRAFT_PENDING_SAID : DRAFT_SAID;
+  return c && posInt(c.revision) ? base.replace("Saved as a draft:", "Saved as draft revision " + c.revision + ":") : base;
+}
 export const COMPILED_SAID = "The site's code compiled without errors. Compiling checks that the code fits together; it is not a look at any page.";
 export const cssSaid = (n) => (n === 1 ? "The one style rule" : "Each of the " + n + " style rules") + " this change wrote was checked to match something on the page.";
 
@@ -214,4 +229,26 @@ export const cssSaid = (n) => (n === 1 ? "The one style rule" : "Each of the " +
 export function browserOnlyFacts(render) {
   if (render === null || render === undefined) return [];
   return [{ kind: "check", text: browserSaid(browserOf(render)) }];
+}
+
+/**
+ * A RECONCILED ANSWER'S DRAFT FACTS (2026-10-16), read strictly, or null: a
+ * job whose own draft revision proved its save after its answer was lost.
+ * Saved, not published; the preview `ready`, `pending` or `unknown`.
+ */
+export function savedDraftOf(d) {
+  if (!plain(d) || d.published !== false) return null;
+  if (!posInt(d.revision) || !Number.isSafeInteger(d.revision)) return null;
+  if (typeof d.version !== "string" || !VERSION.test(d.version)) return null;
+  const preview = d.preview === "ready" || d.preview === "pending" ? d.preview : "unknown";
+  return { revision: d.revision, version: d.version, preview };
+}
+/** The facts said for such an answer: what is known, and nothing it does not know. */
+export function savedDraftFacts(d) {
+  return [
+    { kind: "changed", text: "Saved the change as draft revision " + d.revision + "; what it changed was not recorded, because the answer was lost after the save landed." },
+    { kind: "check", text: d.preview === "ready" ? DRAFT_SAID.replace("Saved as a draft:", "Saved as draft revision " + d.revision + ":")
+      : d.preview === "pending" ? DRAFT_PENDING_SAID.replace("Saved as a draft:", "Saved as draft revision " + d.revision + ":")
+      : "Saved as draft revision " + d.revision + ": the live site is unchanged until the owner presses Publish. Whether the preview shows it yet is not known." },
+  ];
 }

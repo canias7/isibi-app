@@ -409,7 +409,7 @@ test("the store: read and write are best-effort under the answer store's key, a 
   const finalize = at(rec, 'await editRpc(env, "edit_finalize"', "the finalize");
   const mig = at(rec, "const entry = jobMigration(await readSiteMigrations(env, row.slug), id);", "the record read");
   assert.ok(money < mig && mig < finalize, "the record is not settled between the money and the reply");
-  assert.match(rec, /const to = reconciledMigration\(entry, out\.verdict === "kept"\);/, "the verdict and the record's own evidence do not decide the record's state");
+  assert.match(rec, /const to = reconciledMigration\(entry, out\.verdict === "kept"(, \{ saved: out\.kind === "draft-saved" \})?\);/, "the verdict and the record's own evidence do not decide the record's state");
   assert.match(rec, /await settleSiteMigration\(env, row\.slug, id, to,\s*\{ version: \(out\.mine && out\.mine\.version\) \|\| entry\.version \|\| null, publish: \{ ok: out\.verdict === "kept", reconciled: out\.kind \} \}\)/,
     "the version is not the job's own");
   assert.match(rec, /reconcileReply\(out, row, refunded, \{ prior, migration: migrationSummary\(mig\) \}\)/, "the reply is not given the settled record");

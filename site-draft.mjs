@@ -184,6 +184,28 @@ function readBack(rec) {
   return { version: rec.version, build: rec.build || "", base: rec.base || "", job: rec.job || null, at: rec.at || "", history: rec.history || [], preview: rec.preview || "", ...readRevisions(rec) };
 }
 
+/**
+ * THIS JOB'S OWN SAVE, PROVEN FROM THE DURABLE RECORD (2026-10-16, Codex's
+ * review of `74cbce6b`): the revision a save writes names its job, its code
+ * version and its held journal together, in one conditional write. So a
+ * revision carrying this job's id AND its version (a code save) or its held
+ * journal (a held-only save) — or both, when it carried both — is proof that
+ * exactly this job's work became part of the saved draft. A draft merely
+ * existing, its selected version, or this version standing in `history`
+ * (where an older code-only save is kept, refused) proves nothing. Null when
+ * no such revision is there; `trimmed` tells a caller that an old revision
+ * could have fallen off the record's bounded list, so absence is not proof.
+ */
+export function savedRevision(draft, { job = null, version = null, held = null } = {}) {
+  if (!draft || !Array.isArray(draft.revs)) return null;
+  if (!job && !version && !held) return null;
+  return draft.revs.find((r) => (!job || r.job === String(job))
+    && (!version || r.version === version)
+    && (!held || r.held === held)) || null;
+}
+/** Whether a record's revision list may have dropped older revisions. */
+export const revisionsTrimmed = (draft) => !!(draft && Array.isArray(draft.revs) && draft.revs.length >= MAX_REVS && draft.revs[0].n > 1);
+
 /** A revision of this record, by its number, or null. */
 export function revisionOf(draft, n) {
   if (!draft || !Number.isSafeInteger(n)) return null;
@@ -451,9 +473,18 @@ export async function saveAsDraft(deps, { slug, version, build = "", base = "", 
     rec = await saveDraftRecord(deps, slug, { version, build, base, job, held: ref });
   }
   catch (e) {
-    const { landed } = await settleUncertain();
-    if (e && e.code === "TURN_FENCED") throw e;
-    return { ok: false, error: "draft: " + String((e && e.message) || e), ...(landed !== false && claim ? { recoverable: true, landed } : {}) };
+    // THE WRITE'S OUTCOME FROM THE DURABLE RECORD (2026-10-16, Codex's review
+    // of `74cbce6b`): a record write that landed and lost its answer is this
+    // job's save, proven by its own revision (`savedRevision`) — then the save
+    // goes on as saved, once: no resend, no regeneration, no second journal.
+    let proven = null, now = null;
+    try { now = (await readDraft(deps, slug)).draft; proven = savedRevision(now, { job, version, held: ref && ref.ops && ref.ops.length ? ref.id : null }); } catch { proven = null; }
+    if (proven) rec = { ok: true, draft: now, revision: proven.n, reconciled: true };
+    else {
+      const { landed } = await settleUncertain();
+      if (e && e.code === "TURN_FENCED") throw e;
+      return { ok: false, error: "draft: " + String((e && e.message) || e), ...(landed !== false && claim ? { recoverable: true, landed } : {}) };
+    }
   }
   if (!rec.ok) { await unclaim(); return { ok: false, error: rec.error || "draft", ...(rec.older ? { older: true, version: rec.version } : {}) }; }
   // A NEWER DRAFT ALREADY STOOD (2026-10-16): the draft the owner will publish
@@ -463,7 +494,11 @@ export async function saveAsDraft(deps, { slug, version, build = "", base = "", 
   // is written (`saveDraftRecord`); one that carried only code is kept in the
   // history, still publishable by name, and refused here.
   if (rec.older) { await unclaim(); return { ok: false, error: "older", older: true, version: rec.draft && rec.draft.version }; }
-  if (!rec.older && typeof afterActivate === "function") await afterActivate();
+  // THE EDITABLE COPY FOLLOWS ONLY WHILE THIS VERSION IS THE DRAFT'S: a save
+  // proven after the fact that a newer one has since overtaken leaves the
+  // copy to that one (every job puts it back from the draft's version before
+  // it reads, `ensureEditableState`).
+  if (!rec.older && typeof afterActivate === "function" && (!rec.draft || rec.draft.version === version)) await afterActivate();
   // THE PREVIEW SHOWS THE DRAFT'S VERSION, whichever save finishes last
   // (2026-10-16, after Codex's reviews of `fbd53dca`, `ea9a2b71` and
   // `6d075aeb`). A save overtaken after its record puts no script up. Under
@@ -500,7 +535,7 @@ export async function saveAsDraft(deps, { slug, version, build = "", base = "", 
     }
   }
   if (typeof commit === "function") await commit();
-  return { ok: true, draft: true, version, uploaded: false, older: !!rec.older, record: rec.draft, revision: rec.revision || (rec.draft && rec.draft.rev) || 0, previewed };
+  return { ok: true, draft: true, version, uploaded: false, older: !!rec.older, record: rec.draft, revision: rec.revision || (rec.draft && rec.draft.rev) || 0, previewed, ...(rec.reconciled ? { reconciled: true } : {}) };
 }
 
 // ── HELD CHANGES: THE BACKEND AND THE LIBRARY (2026-10-15) ──────────────────
