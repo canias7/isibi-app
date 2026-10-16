@@ -78,7 +78,14 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   uncertain record writes reconciled against the draft; absent drafts
   cleared. Unit CI `11343 / 11295 / 0 / 48` (run 38959940107 on
   `cc77eb0d`; run 38958795892 on `74cbce6b` failed TS10). Matrix:
-  `docs/history/2026-10-16-codex-batch-6.md` §5.
+  `docs/history/2026-10-16-codex-batch-6.md` §5. **Seventh batch**
+  (`1e463350`, `2f3af30a`, `fd951ba3`, after Codex's review of `74cbce6b`):
+  a save that landed and lost its answer is settled from the job's own draft
+  revision (inline, reconcile `draft-saved`, the sweep's `recovered` read
+  against the draft); revision and preview readiness in every page answer.
+  Edit and Add-on only: Build recovery is the eighth batch. Unit CI
+  `11355 / 11307 / 0 / 48` (run 38965420327). Matrix:
+  `docs/history/2026-10-16-codex-batch-7.md` §5.
   `claude/chat-session-0nndv1` is untouched. The bullets below are older.
 - **`main` is `8908b59d`, deploy 2173** (2026-09-30 19:48 UTC, a
   fast-forward of 11 commits from `80ece106`, on the owner's word "commit

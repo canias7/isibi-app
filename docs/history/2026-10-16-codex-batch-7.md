@@ -87,16 +87,32 @@ queue, Worker and draft store:
 - Every lifecycle case also checks billing once and nothing live without
   Publish.
 
-RESULTS: filled after the runs.
+**Results (measured):**
+- Red check on `fbf7da97`: 9 of the 10 lifecycle cases fail there on the
+  defect itself (DOR1 answers Codex's `never-activated`, refunded); DOR4,
+  the failure-before-write control, passes.
+- Sweep `scripts/mutants/codex-batch-7.json`: 15 of 17 on the first pass
+  (D14 an unconfirmed preview said ready, D16 the saved schema's record not
+  corrected survived); DOR1b and DOR6c were added for them and a follow-up
+  killed both; 17 of 17, every comment-only control survived.
+- The related files together: 559 of 559 before the follow-up cases.
+- Full suite locally on `fd951ba3`: 11,355 / 11,353 / 0 / 2. The first full
+  run (on `2f3af30a`) failed one wiring guard that spelled the wording
+  reply's fields exactly; fixed in `fd951ba3`.
+- Unit CI: run 38965420327 on `fd951ba3`, 11,355 / 11,307 / 0 / 48, success;
+  run 38964324452 on `2f3af30a` failed that same guard; run 38964113997 on
+  `1e463350` was cancelled by the next push. Site build run 38964113793 on
+  `1e463350`: success.
+- Codex then passed 121 focused tests on `fd951ba3`.
 
 ## 5. Completion matrix
 
 | Area | Item | Finished (offline) | Deferred | Live-only verification still owed |
 |---|---|---|---|---|
-| Edit/Add-on/Build | a landed save whose answer was lost settles once from the job's own revision: inline, after a stop before the commit, after a stop after it | yes (DOR1–DOR3, DOR6, DOR6b) | — | a real lost R2 answer |
+| Edit/Add-on | a landed save whose answer was lost settles once from the job's own revision: inline, after a stop before the commit, after a stop after it | yes (DOR1–DOR3, DOR6, DOR6b) | — | a real lost R2 answer |
 | Edit/Add-on | genuine refusals and refunds kept: failure before the write, a newer draft without this job's revision, `older` | yes (DOR4, DOR5, DMO1 unchanged) | — | — |
 | Edit/Add-on | unreadable, journal-less or trimmed evidence stays unknown and recoverable | yes (DOR8) | — | — |
 | Answers | revision and preview readiness in `checks`, `draft` facts on every page answer (the text edit's gap), builds saved as drafts said as drafts | yes (DOR1, DOR8) | frontend narration (owner) | — |
 | Requests | a reconciled saved draft is a part done as `draft`; dependents wait for the proof and are told it | yes (DOR2, DOR3, DOR7) | — | — |
-| Build | a first build whose own record answer is lost | the inline proof is shared (`activateBuild` hands `saveAsDraft` the build's job id), but no build lifecycle case exercises it; a build's row has no review reconcile (its money is external) | a build lifecycle case | — |
+| Build | **not verified in this batch**: a build's lost save, and its lost-build recovery | the inline proof is shared (`activateBuild` hands `saveAsDraft` the build's job id) but untested for a build; lost-build recovery still read a draft save as published (Codex, on `fd951ba3`) | the eighth batch | — |
 | Rollout | merge, SQL, switches, image roll | — | deferred (owner) | — |

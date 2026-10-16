@@ -1,5 +1,63 @@
 # Owner Notes
 
+## 2026-10-16 — Seventh batch on `codex-work-into-claude`, after Codex's review of `74cbce6b` (branch only; nothing merged, deployed, switched, applied, built or spent)
+
+**On your word**, on `codex-work-into-claude` only. `claude/chat-session-0nndv1`
+untouched. No paid test. The record and the matrix are
+`docs/history/2026-10-16-codex-batch-7.md`.
+
+### Commits
+
+- **`1e463350`**: the fixes, the tests (DOR1–DOR8b), the sweep spec, the
+  history and the backlog.
+- **`2f3af30a`**: DOR1b and DOR6c, for the two mutants that survived.
+- **`fd951ba3`**: a wiring guard that spelled the wording reply's fields
+  exactly (it failed unit CI on `2f3af30a`).
+- **This commit**: this entry and CLAUDE.md.
+
+### What changed
+
+- **A save that landed but lost its answer is settled from the job's own
+  record**: its revision in the draft (its job id, its version, and its held
+  journal when it has one). "Some draft exists" proves nothing.
+  - While it is still running, the save goes on as saved: committed and
+    billed once, the preview put up, nothing regenerated or resent.
+  - If it stopped before its commit, the review reconcile keeps it as a saved
+    draft (`draft-saved`), billed once and never refunded.
+  - If it stopped after its commit, the lost-job sweep's bare "recovered" is
+    read against the draft record, so it is told as a saved draft.
+  - An unreadable record, a missing journal, or a list trimmed past the job
+    stays unknown and recoverable. A genuine failure before the write, or a
+    newer draft that does not contain this job's revision, is still refused
+    and refunded.
+- **The answers say what happened**: the draft revision and whether the
+  preview is confirmed (`ready`) or still being updated (`pending`), on every
+  page-changing answer, the text edit's included (the backlog gap). A first
+  build saved as a draft is no longer said as published. A request part
+  settled this way is "saved as draft revision N (not published)", and a step
+  that depends on it is told exactly that.
+
+### Results (measured)
+
+- **Red check on `fbf7da97`:** 9 of 10 lifecycle cases fail; the
+  failure-before-write control passes.
+- **Mutation sweep:** 15 of 17 at first; 2 cases added; 17 of 17. Every
+  control survived.
+- **Related tests together:** 559 of 559.
+- **Full suite locally on `fd951ba3`:** 11,355 / 11,353 / 0 / 2.
+- **Unit CI on `fd951ba3`:** run 38965420327, 11,355 / 11,307 / 0 / 48,
+  success. Run 38964324452 on `2f3af30a` failed the wiring guard fixed in
+  `fd951ba3`. Site build run 38964113793 on `1e463350` succeeded.
+- **Codex passed 121 focused tests on `fd951ba3`.**
+
+### Remaining gaps
+
+- **Build recovery is not covered by this batch.** Lost-build recovery reads
+  a draft save as published (Codex's two reproductions); it is the next
+  batch. The completion matrix now says so.
+- **Live-only:** a real lost R2 answer; the preview timing assumptions from
+  the sixth batch.
+
 ## 2026-10-16 — Sixth batch on `codex-work-into-claude`, after Codex's review of `dbf7a2c8` (branch only; nothing merged, deployed, switched, applied, built or spent)
 
 **On your word**, on `codex-work-into-claude` only. `claude/chat-session-0nndv1`
