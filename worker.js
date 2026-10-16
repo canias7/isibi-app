@@ -37,7 +37,7 @@ import { MAX_IMPORT_BYTES } from "./site-csv.mjs";
 import { takeIdemKey, makeIdem, replayHeaders } from "./site-idem.mjs";
 import { placeAttachedPhotos, attachedFilesNote, ownPhotoFacts, ownPhotoSentence } from "./builder/attached-photos.mjs";
 import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_VISITOR_UPLOAD_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName, dispositionFor, readDownloadName, DOWNLOAD_NAME_KEY, uploadIsImage, uploadKind, UPLOAD_URL_PATH } from "./site-uploads.mjs";
-import { MEDIA_PART_BYTES, MEDIA_DRAFT_MS, MEDIA_SESSION_MS, MEDIA_CACHE, MEDIA_FORMATS, mediaDesignNote, mediaErrorNote, mediaLimits, mediaKindOf, isMediaName, draftKey, siteScope, draftScope, readStoredMeta, parseRange, mediaHeaders, etagMatches, handleMediaStart, handleMediaPart, handleMediaComplete, handleMediaAbort, handleMediaStatus, handleMediaDelete, holdMedia, releaseMedia, abortProven, pagesUsing, mediaBlock, mediaForModel } from "./site-media.mjs";
+import { MEDIA_PART_BYTES, MEDIA_DRAFT_MS, MEDIA_SESSION_MS, MEDIA_CACHE, MEDIA_FORMATS, mediaDesignNote, mediaErrorNote, mediaLimits, mediaKindOf, isMediaName, draftKey, siteScope, draftScope, readStoredMeta, parseRange, mediaHeaders, etagMatches, ifRangeHolds, handleMediaStart, handleMediaPart, handleMediaComplete, handleMediaAbort, handleMediaStatus, handleMediaDelete, holdMedia, releaseMedia, abortProven, pagesUsing, mediaBlock, mediaForModel } from "./site-media.mjs";
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
@@ -10244,9 +10244,41 @@ async function draftMediaList(env, uid) {
 //     file only starts that prefix again from the front;
 //   - a listing that fails keeps that prefix's place; the other prefixes go on.
 const MEDIA_SWEEP_BUDGET = Object.freeze({ sessions: 25, parts: 50, drafts: 50 });
+// THE TICK'S STORAGE CALLS, BOUNDED (2026-10-16, Codex's review of
+// `68672e86`): every R2 call the sweep makes — its listings, reads, heads,
+// writes, deletes and multipart aborts — is counted against a share per
+// prefix, so a session with many parts or a page of due items cannot carry
+// one tick past its budget, and the sessions cannot starve the parts and the
+// drafts. When a share is spent the prefix stops BEFORE the item that ran out
+// and keeps its place at the last key fully handled; that item is handled
+// again from the start next lap (every step of it is idempotent: an abort is
+// proven or kept, the room is released by its answer, part and session
+// records are deleted by key). Measured offline at the storage boundary
+// (test/serving-recovery-batch.test.mjs, SRB5): on a fixture of 30 expired
+// sessions with 12 parts each, 60 orphaned parts and 60 old drafts, the
+// unmetered walk spent 220 calls in one tick; metered, the ticks spent 162,
+// 164, 45, 45 and 12, each within the 200 below, and reclaimed all of it.
+// One call is kept for the cursor's own write.
+const MEDIA_SWEEP_CALLS = Object.freeze({ sessions: 120, parts: 40, drafts: 39, cursor: 1 });
 const MEDIA_SWEEP_GRACE_MS = 60 * 60 * 1000;
 const MEDIA_SWEEP_CURSOR = "media-sweep/cursor.json";
 const MEDIA_SWEEP_PREFIX = Object.freeze({ sessions: "media-sessions/", parts: "media-parts/", drafts: "drafts/" });
+/** A storage binding whose every call is counted against `limit`; past it, a call throws (`budgetOut`) before it is made. */
+function meteredBucket(B, limit) {
+  const m = { spent: 0, limit, out: false };
+  const take = () => { if (m.spent >= m.limit) { m.out = true; throw Object.assign(new Error("media sweep: this tick's storage calls are spent"), { budgetOut: true }); } m.spent++; };
+  const call = (name) => (...a) => { take(); return B[name](...a); };
+  const W = {
+    get: call("get"), head: call("head"), put: call("put"), delete: call("delete"), list: call("list"),
+    createMultipartUpload: call("createMultipartUpload"),
+    // RESUMING IS LOCAL; ITS OPERATIONS ARE CALLS.
+    resumeMultipartUpload: (k, id) => {
+      const u = B.resumeMultipartUpload(k, id);
+      return { uploadPart: (...a) => { take(); return u.uploadPart(...a); }, complete: (...a) => { take(); return u.complete(...a); }, abort: (...a) => { take(); return u.abort(...a); } };
+    },
+  };
+  return { B: W, m, room: () => !m.out && m.spent < m.limit };
+}
 /** One bounded step of one prefix: `{ objects, after }`, where `after` is the
  *  place to keep (null: the prefix was finished, start again), or `null` when
  *  the listing failed (keep the place you had). */
@@ -10257,13 +10289,16 @@ async function sweepStep(B, prefix, after, budget) {
   const last = objects.length ? String(objects[objects.length - 1].key) : null;
   return { objects, after: page && page.truncated && last ? last : null };
 }
-export async function runMediaSweep(env, { now = Date.now(), max = MEDIA_SWEEP_BUDGET.sessions, budget = {} } = {}) {
-  const B = env.SITES_BUCKET;
-  if (!B || typeof B.list !== "function") return { reclaimed: 0, kept: 0, drafts: 0, parts: 0, looked: { sessions: 0, parts: 0, drafts: 0 } };
+export async function runMediaSweep(env, { now = Date.now(), max = MEDIA_SWEEP_BUDGET.sessions, budget = {}, calls = {} } = {}) {
+  const raw = env.SITES_BUCKET;
+  if (!raw || typeof raw.list !== "function") return { reclaimed: 0, kept: 0, drafts: 0, parts: 0, looked: { sessions: 0, parts: 0, drafts: 0 }, calls: { sessions: 0, parts: 0, drafts: 0, cursor: 0, total: 0 }, stopped: {} };
   const room = { ...MEDIA_SWEEP_BUDGET, sessions: max, ...budget };
+  const share = { ...MEDIA_SWEEP_CALLS, ...calls };
+  const meters = { sessions: meteredBucket(raw, share.sessions), parts: meteredBucket(raw, share.parts), drafts: meteredBucket(raw, share.drafts), cursor: meteredBucket(raw, share.cursor) };
   let place = {};
+  // THE CURSOR'S READ IS THE SESSIONS' FIRST CALL.
   try {
-    const c = await B.get(MEDIA_SWEEP_CURSOR);
+    const c = await meters.sessions.B.get(MEDIA_SWEEP_CURSOR);
     const j = c ? JSON.parse(await c.text()) : null;
     if (j && j.v === 2 && j.after && typeof j.after === "object") {
       for (const k of Object.keys(MEDIA_SWEEP_PREFIX)) {
@@ -10274,68 +10309,76 @@ export async function runMediaSweep(env, { now = Date.now(), max = MEDIA_SWEEP_B
   } catch { place = {}; }
   const next = { ...place };
   const looked = { sessions: 0, parts: 0, drafts: 0 };
+  const stopped = {};
   let reclaimed = 0, kept = 0, drafts = 0, parts = 0, retried = 0;
+  /** Each prefix walked in key order within its share; `handle` does one item. */
+  const walk = async (name, handle) => {
+    const M = meters[name];
+    if (!M.room()) { stopped[name] = true; return; }
+    const step = await sweepStep(M.B, MEDIA_SWEEP_PREFIX[name], place[name], room[name]);
+    if (!step) return;
+    let done = null;
+    for (const o of step.objects) {
+      if (!M.room()) break;
+      looked[name]++;
+      await handle(o, M);
+      // AN ITEM CUT SHORT BY THE BUDGET IS NOT DONE: the place stays before it.
+      if (M.m.out) break;
+      done = String(o.key);
+    }
+    const cut = M.m.out || (step.objects.length && done !== String(step.objects[step.objects.length - 1].key));
+    if (cut) { stopped[name] = true; next[name] = done || place[name] || null; }
+    else next[name] = step.after;
+  };
 
   // SESSIONS: expired by an hour and more are reclaimed; the rest are left.
-  const ss = await sweepStep(B, MEDIA_SWEEP_PREFIX.sessions, place.sessions, room.sessions);
-  if (ss) {
-    next.sessions = ss.after;
-    for (const o of ss.objects) {
-      looked.sessions++;
-      const m = /^media-sessions\/([^/]+)\/([a-f0-9]{32})\.json$/.exec(String(o.key));
-      if (!m) continue;
-      const [, scope, sid] = m;
-      let s = null;
-      try { const got = await B.get(o.key); s = got ? JSON.parse(await got.text()) : null; } catch { continue; }
-      // DUE: an hour past its expiry, or marked `aborting` (an abort that was
-      // not confirmed when it was asked for, kept for the tick).
-      if (!s || !(s.state === "aborting" || Number(s.expires) + MEDIA_SWEEP_GRACE_MS < now)) continue;
-      const deps = mediaDeps(env, { scope, gate: async () => ({}) });
-      if (s.state !== "done" && typeof s.key === "string" && (s.key.startsWith("uploads/") || s.key.startsWith("drafts/"))) {
-        let landed = false;
-        try { const h = await B.head(s.key); landed = !!(h && h.customMetadata && h.customMetadata.up === sid); } catch { retried++; continue; }
-        if (landed) kept++;
-        // STOPPED, PROVEN (2026-10-16, Codex's review of `ea9a2b71`): an
-        // abort that failed or lost its answer proves nothing, so the session
-        // and its parts are KEPT — they are what names the upload — and the
-        // next lap asks again. R2's "no such upload" is proof it is gone.
-        else if (s.uploadId && !(await abortProven(deps, s.key, s.uploadId))) { retried++; continue; }
-      }
-      // THE ROOM, given back by its answer, not by the absence of a throw.
-      const rel = await releaseMedia(deps, scope, sid);
-      if (!rel || rel.ok !== true) { retried++; continue; }
-      try { await deps.dropParts(scope, sid); await deps.dropSession(scope, sid); reclaimed++; } catch { retried++; }
+  await walk("sessions", async (o, M) => {
+    const B = M.B;
+    const m = /^media-sessions\/([^/]+)\/([a-f0-9]{32})\.json$/.exec(String(o.key));
+    if (!m) return;
+    const [, scope, sid] = m;
+    let s = null;
+    try { const got = await B.get(o.key); s = got ? JSON.parse(await got.text()) : null; } catch { return; }
+    // DUE: an hour past its expiry, or marked `aborting` (an abort that was
+    // not confirmed when it was asked for, kept for the tick).
+    if (!s || !(s.state === "aborting" || Number(s.expires) + MEDIA_SWEEP_GRACE_MS < now)) return;
+    const deps = mediaDeps({ ...env, SITES_BUCKET: B }, { scope, gate: async () => ({}) });
+    if (s.state !== "done" && typeof s.key === "string" && (s.key.startsWith("uploads/") || s.key.startsWith("drafts/"))) {
+      let landed = false;
+      try { const h = await B.head(s.key); landed = !!(h && h.customMetadata && h.customMetadata.up === sid); } catch { retried++; return; }
+      if (landed) kept++;
+      // STOPPED, PROVEN (2026-10-16, Codex's review of `ea9a2b71`): an
+      // abort that failed or lost its answer proves nothing, so the session
+      // and its parts are KEPT — they are what names the upload — and the
+      // next lap asks again. R2's "no such upload" is proof it is gone.
+      else if (s.uploadId && !(await abortProven(deps, s.key, s.uploadId))) { retried++; return; }
     }
-  }
+    // THE ROOM, given back by its answer, not by the absence of a throw.
+    const rel = await releaseMedia(deps, scope, sid);
+    if (!rel || rel.ok !== true) { retried++; return; }
+    try { await deps.dropParts(scope, sid); await deps.dropSession(scope, sid); reclaimed++; } catch { retried++; }
+  });
   // PART RECORDS WHOSE SESSION IS GONE, older than a session's life and the
   // grace: nothing names them any more. A part of a session still there —
   // live or not yet reclaimed — is left for the session's own reclaim.
-  const ps = await sweepStep(B, MEDIA_SWEEP_PREFIX.parts, place.parts, room.parts);
-  if (ps) {
-    next.parts = ps.after;
-    const alive = new Map();
-    for (const pr of ps.objects) {
-      looked.parts++;
-      const pm = /^media-parts\/([^/]+)\/([a-f0-9]{32})\//.exec(String(pr.key));
-      const at = pr.uploaded instanceof Date ? pr.uploaded.getTime() : Date.parse(pr.uploaded || "");
-      if (!pm || !Number.isFinite(at) || at + MEDIA_SESSION_MS + MEDIA_SWEEP_GRACE_MS >= now) continue;
-      const sk = "media-sessions/" + pm[1] + "/" + pm[2] + ".json";
-      if (!alive.has(sk)) { let a = true; try { a = !!(await B.head(sk)); } catch { a = true; } alive.set(sk, a); }
-      if (!alive.get(sk)) { try { await B.delete(pr.key); parts++; } catch { /* the next lap */ } }
-    }
-  }
+  const alive = new Map();
+  await walk("parts", async (pr, M) => {
+    const B = M.B;
+    const pm = /^media-parts\/([^/]+)\/([a-f0-9]{32})\//.exec(String(pr.key));
+    const at = pr.uploaded instanceof Date ? pr.uploaded.getTime() : Date.parse(pr.uploaded || "");
+    if (!pm || !Number.isFinite(at) || at + MEDIA_SESSION_MS + MEDIA_SWEEP_GRACE_MS >= now) return;
+    const sk = "media-sessions/" + pm[1] + "/" + pm[2] + ".json";
+    if (!alive.has(sk)) { let a = true; try { a = !!(await B.head(sk)); } catch { a = true; } if (M.m.out) return; alive.set(sk, a); }
+    if (!alive.get(sk)) { try { await B.delete(pr.key); parts++; } catch { /* the next lap */ } }
+  });
   // OLD PRE-SITE DRAFTS.
-  const ds = await sweepStep(B, MEDIA_SWEEP_PREFIX.drafts, place.drafts, room.drafts);
-  if (ds) {
-    next.drafts = ds.after;
-    for (const d of ds.objects) {
-      looked.drafts++;
-      const at = d.uploaded instanceof Date ? d.uploaded.getTime() : Date.parse(d.uploaded || "");
-      if (Number.isFinite(at) && at + MEDIA_DRAFT_MS + 24 * 60 * 60 * 1000 < now) { try { await B.delete(d.key); drafts++; } catch { /* the next lap */ } }
-    }
-  }
-  try { await B.put(MEDIA_SWEEP_CURSOR, JSON.stringify({ v: 2, after: { sessions: next.sessions || null, parts: next.parts || null, drafts: next.drafts || null }, at: now }), { httpMetadata: { contentType: "application/json" } }); } catch { /* starts again from the front */ }
-  return { reclaimed, kept, drafts, parts, retried, looked };
+  await walk("drafts", async (d, M) => {
+    const at = d.uploaded instanceof Date ? d.uploaded.getTime() : Date.parse(d.uploaded || "");
+    if (Number.isFinite(at) && at + MEDIA_DRAFT_MS + 24 * 60 * 60 * 1000 < now) { try { await M.B.delete(d.key); drafts++; } catch { /* the next lap */ } }
+  });
+  try { await meters.cursor.B.put(MEDIA_SWEEP_CURSOR, JSON.stringify({ v: 2, after: { sessions: next.sessions || null, parts: next.parts || null, drafts: next.drafts || null }, at: now }), { httpMetadata: { contentType: "application/json" } }); } catch { /* starts again from the front */ }
+  const spent = { sessions: meters.sessions.m.spent, parts: meters.parts.m.spent, drafts: meters.drafts.m.spent, cursor: meters.cursor.m.spent };
+  return { reclaimed, kept, drafts, parts, retried, looked, calls: { ...spent, total: spent.sessions + spent.parts + spent.drafts + spent.cursor }, stopped };
 }
 function mediaDeps(env, { scope, gate, draftUid = null, slug = "", who = "" }) {
   const B = env.SITES_BUCKET;
@@ -19473,6 +19516,22 @@ const RECOVERY_CURSOR = "recovery/cursor.json";
 const RECOVERY_PENDING_CURSOR = "recovery/pending-cursor.json";
 const RECOVERY_FRESH_PAGE = 20;
 const RECOVERY_PENDING_PAGE = 50;
+// UNRESOLVED RECOVERY IS ASKED AGAIN ON A SCHEDULE, NOT EVERY TICK (2026-10-16,
+// Codex's review of `68672e86`). Each pass that leaves an item unresolved
+// doubles its wait — two minutes, then four, eight, sixteen — up to half an
+// hour, kept durably beside it (the pending entry's metadata for a lost
+// build, `recovery/review/<id>.json` for a job under review). THE COUNT ONLY
+// SPACES THE ASKING: no number of tries ever settles an item as failed,
+// refunded or published — it stays recoverable, what waits on it waits, and
+// the first pass whose evidence reads decides it.
+const RECOVERY_RETRY_BASE_MS = 2 * 60 * 1000;
+const RECOVERY_RETRY_CAP_MS = 30 * 60 * 1000;
+export const recoveryDelay = (tries) => Math.min(RECOVERY_RETRY_CAP_MS, RECOVERY_RETRY_BASE_MS * 2 ** Math.max(0, Math.min(20, (Number(tries) || 1) - 1)));
+/** A schedule read from metadata, strictly: `{ tries, next }`, or none. */
+const readSchedule = (cm) => {
+  const tries = Number(cm && cm.tries), next = Number(cm && cm.next);
+  return Number.isSafeInteger(tries) && tries > 0 && Number.isFinite(next) ? { tries, next } : null;
+};
 const pendingKey = (id) => RECOVERY_PENDING + id;
 export async function reconcileLostBuilds(env, { now = Date.now() } = {}) {
   if (!env.SUPABASE_SERVICE_KEY || !env.SITES_BUCKET) return { checked: 0 };
@@ -19520,10 +19579,12 @@ export async function reconcileLostBuilds(env, { now = Date.now() } = {}) {
 
   // ── PENDING: one page, resumed where the last tick stopped ──
   let pendingIds = [];
+  const schedules = new Map();
   const pc = await readObj(RECOVERY_PENDING_CURSOR);
   try {
-    const l = await env.SITES_BUCKET.list({ prefix: RECOVERY_PENDING, limit: RECOVERY_PENDING_PAGE, ...(pc && typeof pc.cursor === "string" ? { cursor: pc.cursor } : {}) });
+    const l = await env.SITES_BUCKET.list({ prefix: RECOVERY_PENDING, limit: RECOVERY_PENDING_PAGE, include: ["customMetadata"], ...(pc && typeof pc.cursor === "string" ? { cursor: pc.cursor } : {}) });
     pendingIds = ((l && l.objects) || []).map((o) => String(o.key || "").slice(RECOVERY_PENDING.length)).filter(isResumeId);
+    for (const o of (l && l.objects) || []) { const s = readSchedule(o.customMetadata); if (s) schedules.set(String(o.key || "").slice(RECOVERY_PENDING.length), s); }
     try {
       if (l && l.truncated && typeof l.cursor === "string") await env.SITES_BUCKET.put(RECOVERY_PENDING_CURSOR, JSON.stringify({ cursor: l.cursor }));
       else await env.SITES_BUCKET.delete(RECOVERY_PENDING_CURSOR);
@@ -19537,11 +19598,14 @@ export async function reconcileLostBuilds(env, { now = Date.now() } = {}) {
   const older = pendingIds.filter((x) => !known.has(x));
   const back = older.length ? await read(`op=eq.${BUILD_OP}&id=in.(${older.join(",")})`) : [];
   const rows = [...freshRows, ...(Array.isArray(back) ? back : [])];
-  const seen = { checked: 0, published: 0, saved: 0, refunded: 0, unknown: 0, settled: 0, pending: 0 };
+  const seen = { checked: 0, published: 0, saved: 0, refunded: 0, unknown: 0, settled: 0, pending: 0, deferred: 0 };
   for (const row of rows) {
     const id = String((row && row.id) || "");
     const uid = String((row && row.uid) || "");
     if (!isResumeId(id) || !uid) continue;
+    // NOT YET DUE: an entry whose last pass left it unresolved waits its turn.
+    const sched = schedules.get(id);
+    if (sched && sched.next > now && !known.has(id)) { seen.deferred++; continue; }
     const markKey = "jobs/" + id + ".lost.json";
     if (String(row.state) !== "lost") {
       // LISTED BY A WRITER THAT COULD NOT READ THE SETTLEMENT RECORD (the
@@ -19557,9 +19621,14 @@ export async function reconcileLostBuilds(env, { now = Date.now() } = {}) {
       continue;
     }
     seen.checked++;
-    const keepPending = async (why) => {
+    // `waits`: an outcome NOT YET KNOWN (its evidence unavailable) is put on
+    // the schedule; a decided one still being delivered or refunded (its
+    // write failed) is retried on the next tick, as before.
+    const keepPending = async (why, { waits = false } = {}) => {
       seen.pending++;
-      try { await env.SITES_BUCKET.put(pendingKey(id), JSON.stringify({ id, why, at: new Date(now).toISOString() })); }
+      const tries = waits ? ((sched && sched.tries) || 0) + 1 : 0;
+      const next = waits ? now + recoveryDelay(tries) : 0;
+      try { await env.SITES_BUCKET.put(pendingKey(id), JSON.stringify({ id, why, at: new Date(now).toISOString(), ...(waits ? { tries, next } : {}) }), waits ? { customMetadata: { tries: String(tries), next: String(next) } } : undefined); }
       catch (e) { console.error("lost builds: could not list", id, "as pending", String((e && e.message) || e)); }
     };
     // THE SETTLEMENT RECORD (2026-10-08, Codex's review of `41731e86`: a
@@ -19633,7 +19702,7 @@ export async function reconcileLostBuilds(env, { now = Date.now() } = {}) {
       }
     }
     const v = lostBuildVerdict({ row, pointer, builds, buildsUnread, fence, fencedJob, draft, journals, manifests });
-    if (v.outcome === "unknown") { seen.unknown++; await keepPending(v.why); console.log("lost builds:", id, "unknown —", v.why); continue; }
+    if (v.outcome === "unknown") { seen.unknown++; await keepPending(v.why, { waits: true }); console.log("lost builds:", id, "unknown —", v.why); continue; }
     let returned = 0;
     let short = false;
     if (v.outcome === "not-published") {
@@ -20210,20 +20279,45 @@ async function reconcileAfterRefund(env, id, refund) {
  * unknown is read again every tick — deliberately, since its facts can change
  * (a late upload landing, a newer publish standing) — and said once.
  */
-export async function runReviewReconcile(env) {
+export async function runReviewReconcile(env, { now = Date.now() } = {}) {
   const rows = await readEditRows(env, "needs_review=eq.true", 20);
   if (!rows || !rows.length) return;
-  const counts = { kept: 0, refunded: 0, unknown: 0, skipped: 0 };
+  const counts = { kept: 0, refunded: 0, unknown: 0, skipped: 0, deferred: 0 };
+  // EACH ROW'S SCHEDULE, one listing for the tick; unreadable reads as due.
+  const scheduleOf = new Map();
+  try {
+    let cursor;
+    for (let i = 0; i < 5; i++) {
+      const l = await env.SITES_BUCKET.list({ prefix: REVIEW_RETRY_PREFIX, include: ["customMetadata"], ...(cursor ? { cursor } : {}) });
+      for (const o of (l && l.objects) || []) { const s = readSchedule(o.customMetadata); if (s) scheduleOf.set(String(o.key).slice(REVIEW_RETRY_PREFIX.length).replace(/\.json$/, ""), s); }
+      if (!l || !l.truncated || !l.cursor) break;
+      cursor = l.cursor;
+    }
+  } catch { scheduleOf.clear(); }
   for (const row of rows) {
+    const id = String(row.id || "");
+    const sched = scheduleOf.get(id);
+    if (sched && sched.next > now) { counts.deferred++; continue; }
+    let unresolved = true;
     try {
       const out = await reconcileEditJob(env, row.id, row);
-      if (out.verdict === "skip") counts.skipped++;
-      else if (out.applied) counts[out.verdict]++;
+      if (out.verdict === "skip") { counts.skipped++; unresolved = false; }
+      else if (out.applied) { counts[out.verdict]++; unresolved = false; }
       else counts.unknown++;
     } catch (e) { console.error("reconcile: threw for", row.id, String((e && e.message) || e)); counts.unknown++; }
+    // THE SCHEDULE FOLLOWS THE OUTCOME: unresolved waits longer; decided, its
+    // schedule goes. A schedule that cannot be written only means it is asked
+    // again sooner.
+    try {
+      if (unresolved) {
+        const tries = ((sched && sched.tries) || 0) + 1, next = now + recoveryDelay(tries);
+        await env.SITES_BUCKET.put(REVIEW_RETRY_PREFIX + id + ".json", JSON.stringify({ id, tries, next }), { customMetadata: { tries: String(tries), next: String(next) } });
+      } else if (sched) await env.SITES_BUCKET.delete(REVIEW_RETRY_PREFIX + id + ".json");
+    } catch (e) { console.error("reconcile: could not keep the schedule for", id, errorClassForLog(e)); }
   }
   console.log("review reconcile:", JSON.stringify(counts));
 }
+const REVIEW_RETRY_PREFIX = "recovery/review/";
 
 /**
  * FILE AN EDIT AND WALK AWAY.
@@ -26919,6 +27013,11 @@ async function handleRequest(request, env, ctx) {
       }
       if (out.slug) zoneSlug = out.slug;
     }
+    // WHICH SITE THIS HOST SERVES, for its own uploads (2026-10-16, Codex's
+    // review of `68672e86`): a site's own address — its label, its current
+    // name, a custom domain — serves `/u/<its slug>/…` and no other site's;
+    // only the app's own host serves every site's uploads publicly.
+    let uploadHost = isAppHostname(url.hostname) ? "*" : (zoneSlug || null);
     if (zoneSlug && !servedAtRoot(url.pathname)) {
       url.pathname = "/s/" + zoneSlug + (url.pathname === "/" ? "/" : url.pathname);
       request = new Request(url.toString(), request);
@@ -26939,6 +27038,8 @@ async function handleRequest(request, env, ctx) {
       return Response.redirect("https://" + APP_ZONE + url.pathname + url.search, 301);
     }
 
+    // A CUSTOM DOMAIN'S OWN UPLOADS: its mapped site, read only for `/u/`.
+    if (!isOwnHostname(url.hostname) && UPLOAD_URL_PATH.test(url.pathname)) uploadHost = (await siteForHostname(env, url.hostname)) || null;
     if (!isOwnHostname(url.hostname) && !servedAtRoot(url.pathname)) {
       const mapped = await siteForHostname(env, url.hostname);
       // A hostname Cloudflare routed to us with no row is a domain that was
@@ -27389,6 +27490,12 @@ async function handleRequest(request, env, ctx) {
       if (um && env.SITES_BUCKET && request.method !== "GET" && request.method !== "HEAD") {
         return new Response("Method not allowed", { status: 405, headers: { allow: "GET, HEAD" } });
       }
+      // ANOTHER SITE'S FILE ON THIS SITE'S ADDRESS IS NOT SERVED: a site's own
+      // host (label, current name, custom domain) answers only its own slug;
+      // a host that maps to no site answers none. The app's host serves all.
+      if (um && uploadHost !== "*" && uploadHost !== um[1].toLowerCase()) {
+        return new Response("Not found", { status: 404, headers: { "cache-control": "no-store" } });
+      }
       if (um && env.SITES_BUCKET) {
         const key = "uploads/" + um[1].toLowerCase() + "/" + um[2];
         const media = !!mediaKindOf(um[2].toLowerCase().split(".").pop());
@@ -27422,13 +27529,30 @@ async function handleRequest(request, env, ctx) {
           delete h["content-length"];
           return new Response(null, { status: 304, headers: h });
         }
-        const range = parseRange(request.headers.get("range"), head.size);
+        // `If-Range` (2026-10-16): a range asked for a representation that is
+        // no longer this one is answered with the whole current file (200),
+        // never with bytes of the new file under the old one's ranges. Strong
+        // comparison only; a date holds only when it is the file's own.
+        const asked = ifRangeHolds(request.headers.get("if-range"), etag, head.uploaded) ? request.headers.get("range") : null;
+        const range = parseRange(asked, head.size);
         if (range === "unsatisfiable") {
           return new Response(null, { status: 416, headers: { "content-range": "bytes */" + head.size, "accept-ranges": "bytes", "cache-control": base.cache } });
         }
         if (request.method === "HEAD") return new Response(null, { status: 200, headers: mediaHeaders(base) });
-        const obj = await env.SITES_BUCKET.get(key, range ? { range: { offset: range.offset, length: range.length } } : undefined);
+        // THE BYTES OF THE FILE WHOSE HEAD WAS READ: conditional on its etag,
+        // so a replacement between the head and the read is never served under
+        // the head's length, type and ETag; the read starts again on the new file.
+        const obj = await env.SITES_BUCKET.get(key, { ...(range ? { range: { offset: range.offset, length: range.length } } : {}), ...(head.etag ? { onlyIf: { etagMatches: head.etag } } : {}) });
         if (!obj) return new Response("Not found", { status: 404 });
+        if (!obj.body) {
+          // REPLACED SINCE THE HEAD: answered from the new file whole, never a
+          // range of it under an old validator.
+          const now = await env.SITES_BUCKET.get(key);
+          if (!now || !now.body) return new Response("Not found", { status: 404, headers: { "cache-control": "no-store" } });
+          const nowTag = now.httpEtag || (now.etag ? '"' + now.etag + '"' : "");
+          const nowCt = (now.httpMetadata && now.httpMetadata.contentType) || "application/octet-stream";
+          return new Response(now.body, { status: 200, headers: mediaHeaders({ ...base, mime: nowCt, size: now.size, etag: nowTag, disposition: dispositionFor(nowCt, readDownloadName(now.customMetadata && now.customMetadata[DOWNLOAD_NAME_KEY])) }) });
+        }
         return new Response(obj.body, { status: range ? 206 : 200, headers: mediaHeaders({ ...base, range }) });
       }
       if (um) return new Response("Not found", { status: 404 });

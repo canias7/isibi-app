@@ -92,6 +92,10 @@ export function mediaBucket({ fail = {}, lose = {}, lag = false, hooks = {}, pag
       await pause();
       const o = store.get(key);
       if (!o) return null;
+      // A CONDITIONAL READ AS R2 ANSWERS IT (2026-10-16): a failed
+      // `etagMatches` returns the object's metadata with no body.
+      if (opts.onlyIf && typeof opts.onlyIf.etagMatches === "string" && opts.onlyIf.etagMatches !== o.etag) { const x = objOf(key, o, null); delete x.body; return x; }
+      if (hooks.afterGetCheck) await hooks.afterGetCheck(key);
       let range = null;
       if (opts.range) {
         const r = opts.range;

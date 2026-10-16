@@ -244,6 +244,24 @@ export function mediaHeaders({ mime, size, etag, range = null, cache = MEDIA_CAC
   return h;
 }
 
+/**
+ * WHETHER AN `If-Range` LETS THE RANGE STAND (RFC 9110 §13.1.5): absent, yes;
+ * an entity tag, only a STRONG one equal to this file's (a weak tag never
+ * matches); a date, only one equal to the file's own upload time to the
+ * second. Anything else — another tag, a stale date, nonsense — no: the
+ * whole current file is answered.
+ */
+export function ifRangeHolds(header, etag, uploaded) {
+  if (header == null) return true;
+  const h = String(header).trim();
+  if (!h) return true;
+  if (/^W\//.test(h)) return false;
+  if (h.startsWith('"')) return !!etag && !/^W\//.test(etag) && h === etag;
+  const d = Date.parse(h);
+  const u = uploaded instanceof Date ? uploaded.getTime() : Number(uploaded);
+  return Number.isFinite(d) && Number.isFinite(u) && Math.floor(u / 1000) * 1000 === d;
+}
+
 /** Whether an `If-None-Match` names this ETag (weak or strong, or `*`). */
 export function etagMatches(header, etag) {
   if (typeof header !== "string" || !etag) return false;
