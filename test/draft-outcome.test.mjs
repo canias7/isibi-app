@@ -156,6 +156,26 @@ test("DOR1 CODEX'S REPRODUCTION, INLINE — the draft record lands and its answe
   } finally { await done(); }
 });
 
+test("DOR1b THE SAME, WITH THE PREVIEW NOT CONFIRMED — every preview upload refused: the save still stands (billed once, not refunded), and its answer says draft revision N with the preview `pending`, never `ready`; the claim stays for the tick", async () => {
+  const { P, v0, done } = await bakery();
+  try {
+    P.losePut((k) => k === DRAFT_KEY(P.slug));
+    for (let i = 0; i < 8; i++) P.beforeUpload(async (text) => { if (/draft-|site-version/.test(String(text))) throw new Error("upload refused"); });
+    const r = await sendMessage(P, { message: "Change our TikTok link on the Visit page to @harbourbakes." });
+    await drive(P, r.key);
+    const j = editJobs(P, r.key)[0];
+    const b = bodyOf(j);
+    assert.equal(b.ok, true, "a landed save was told failure: " + j.result.body.slice(0, 300));
+    assert.equal(refunded(P, j.id), 0);
+    const mine = savedRevision(draftOf(P), { job: j.id });
+    assert.ok(mine);
+    assert.deepEqual([b.checks.draft, b.checks.revision, b.checks.preview], [true, mine.n, "pending"], JSON.stringify(b.checks));
+    assert.equal(b.draft.previewUploaded, false);
+    assert.ok(claims(P).length >= 1, "the claim the tick needs was removed");
+    assert.equal(live(P), v0);
+  } finally { await done(); }
+});
+
 test("DOR2 A HARD STOP AFTER THE RECORD LANDS — the review reconcile finds the job's own revision: kept `draft-saved`, billed once and never refunded; the part done as a saved draft with its revision; a second reconcile and a duplicate delivery change nothing; Publish of that revision makes it live", async () => {
   const { P, v0, done } = await bakery();
   try {
@@ -337,6 +357,31 @@ test("DOR6b AN ADD-ON'S PAGE AND HELD TABLE, STOPPED FOR GOOD AFTER ITS RECORD �
     assert.equal(pub.status, 200, JSON.stringify(pub.body));
     assert.equal(live(P), mine.version);
     assert.ok(creates() >= 1, "Publish did not create the held table");
+  } finally { await done(); }
+});
+
+test("DOR6c AN ADD-ON'S HELD SAVE WHOSE PROOF COULD NOT BE READ AT ONCE — its record landed, its answer was lost and the draft could not be read back, so it answered failure (`discarded`); the review reconcile then reads its own revision and journal: kept `draft-saved`, billed once, the migration record corrected to the saved state, nothing live", async () => {
+  const db = rowsDb({ tables: { loaves: { columns: LOAF_COLUMNS, rows: BAKERY_LOAVES, next: 12 } }, meta: { schema: JSON.stringify({ tables: [LOAVES] }) } });
+  const PAGE = { path: "/sign-up", name: "Sign up", purpose: "what Sign up is for", sections: ["a band"], components: ["section-header"] };
+  const { P, v0, done } = await bakery({ db, answers: {
+    route: (args) => (/sign-up/i.test(said(args)) ? { intent: "addon" } : ROUTE_TEXT),
+    [T.adds]: { kinds: ["table", "page"] },
+    "add:table": { table: [{ table: { name: "signups", access: "collect", columns: [{ name: "name", type: "text" }, { name: "email", type: "text" }] }, seed: [] }] },
+    "add:page": { page: [PAGE] },
+    [T.pages]: { pages: [writtenPage("/sign-up")] },
+  } });
+  try {
+    // LANDED, ANSWER LOST, AND THE NEXT READS OF THE DRAFT FAIL.
+    P.losePut((k) => k === DRAFT_KEY(P.slug), () => { P.failGetFrom((k) => k === DRAFT_KEY(P.slug), { skip: 0, count: 3 }); });
+    const r = await sendMessage(P, { message: "Add a sign-up page where people leave their name and email address." });
+    await drive(P, r.key);
+    await afterStop(P, r.key, { rounds: 6 });
+    const a = P.jobsOf(r.key).filter((j) => j.op === "addon")[0];
+    const b = bodyOf(P.jobs.get(a.id));
+    assert.equal(b.reconciled, "draft-saved", JSON.stringify(b).slice(0, 400));
+    assert.equal(refunded(P, a.id), 0, "a landed held save was refunded");
+    assert.equal(b.migration && b.migration.status, "applied", "the saved held schema's record was not corrected: " + JSON.stringify(b.migration));
+    assert.equal(live(P), v0);
   } finally { await done(); }
 });
 
