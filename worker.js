@@ -12545,8 +12545,8 @@ async function runPublication(env, slug, j, etag) {
       const readPtr = async () => { try { return await readPointerTag(deps, slug); } catch { return null; } };
       // ONE READ, TWO USES: the pointer this activation's undo goes back to,
       // and the etag its write is conditional on.
-      let ptr = null; let ptrTag = null; let readOk = true;
-      try { const t = await readPointerTag(deps, slug); ptr = t.pointer; ptrTag = t.etag; } catch { readOk = false; }
+      let ptr = null; let readOk = true;
+      try { ptr = await readPointer(deps, slug); } catch { readOk = false; }
       if (!readOk) return keep("switch", "the site's pointer could not be read", "unknown");
       let liveV = ptr ? String(ptr.version || "") : "";
       // THE ADDRESS THE VERSION NAMES: a held rename is baked into its sidecar.
@@ -12558,7 +12558,7 @@ async function runPublication(env, slug, j, etag) {
         if (liveV !== j.from) return before("the site changed while publishing");
         const act = await activateBuild(deps, {
           slug, version: j.version, build: b.manifest.build || "", parent: liveV, job: null,
-          expectEtag: ptrTag, previous: ptr || null,
+          expectEtag: ptr ? ptr.etag : null, previous: ptr || null,
           sidecar, sidecarKey: siteMetaKey(slug),
           liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
           putWorker: async () => putSiteWorker(env, slug, { ok: true, code: b.worker, build: b.manifest.build || "" }, { version: j.version }),
@@ -12833,6 +12833,9 @@ async function runPublishRecovery(env, { now = Date.now(), max = 10 } = {}) {
   } while (cursor);
   return { finished, cleared };
 }
+
+/** Draft-first's own pieces, for the tests that drive them directly (`test/draft-first.test.mjs`, `test/draft-first-basics.test.mjs`). */
+export const draftFirstApi = { backendWriter, draftView, sealHeld, publishDraft, runPublication, runPublishRecovery, siteIsLive, heldDeleteOr, ensureEditableState, alignScriptToPointer };
 
 /** One held library change, made live. Each is safe to repeat. */
 async function applyHeldMedia(env, slug, m, { uid = "" } = {}) {

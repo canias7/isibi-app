@@ -24,7 +24,7 @@
 // code does with an answer, never what a real model answers.
 import { blockedFetch, noteUnexpected } from "./no-network.mjs";
 import assert from "node:assert/strict";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import vm from "node:vm";
 import { loadWorker, makeCtx } from "./worker-harness.mjs";
@@ -90,13 +90,27 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   const now = () => Date.now() + clock;
   // ── R2 ────────────────────────────────────────────────────────────────────
   const objects = new Map();
-  let etagN = 0;
-  const setObj = (k, v, meta) => { objects.set(k, { body: typeof v === "string" ? v : v instanceof Uint8Array ? v : String(v), etag: "e" + (++etagN), at: now(), ...(meta ? { customMetadata: meta } : {}) }); };
+  // THE ETAG IS THE BODY'S MD5 (2026-10-15, after review), as R2 answers a
+  // single put and as Miniflare derives it: rewriting the same bytes with
+  // only new metadata gives the SAME etag. A counter here once made every
+  // rewrite look like a change and hid a race that real R2 lets through.
+  // THE UPLOAD TIME IS THE STORE'S OWN CLOCK, strictly increasing per write,
+  // so a condition on it (`uploadedBefore`) is deterministic in a case.
+  let lastAt = 0;
+  const md5 = (body) => createHash("md5").update(body instanceof Uint8Array ? body : String(body)).digest("hex");
+  const setObj = (k, v, meta) => {
+    const body = typeof v === "string" ? v : v instanceof Uint8Array ? v : String(v);
+    lastAt = Math.max(now(), lastAt + 1);
+    objects.set(k, { body, etag: md5(body), at: lastAt, ...(meta ? { customMetadata: meta } : {}) });
+  };
   setObj(SOURCE_KEY(slug), JSON.stringify(pages));
   setObj(PARTS_KEY(slug), JSON.stringify([]));
   setObj(CONFIG_KEY(slug), JSON.stringify({ look: { brand: "Harbour Loaf", theme: "broadsheet", description: OLD_DESC }, css: "" }));
   const asObj = (k, o) => ({
     key: k, etag: o.etag, uploaded: new Date(o.at),
+    // ITS CUSTOM METADATA, as R2 answers it on a read (2026-10-15): the turn's
+    // fence a guarded key is stamped with.
+    ...(o.customMetadata ? { customMetadata: { ...o.customMetadata } } : {}),
     text: async () => (o.body instanceof Uint8Array ? new TextDecoder().decode(o.body) : o.body),
     json: async () => JSON.parse(o.body instanceof Uint8Array ? new TextDecoder().decode(o.body) : o.body),
     arrayBuffer: async () => (o.body instanceof Uint8Array ? o.body : new TextEncoder().encode(o.body)).slice().buffer,
@@ -109,9 +123,16 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       // READS LET THROUGH, THEN FAILED (`failGetFrom`, round 14): the first
       // `skip` matching reads answer, the next `count` fail.
       for (const c of countedGets) { if (c.match(k) && c.seen++ >= c.skip && c.failed < c.count) { c.failed++; throw new Error("r2 unavailable"); } }
-      const o = objects.get(k); return o ? asObj(k, o) : null;
+      const o = objects.get(k);
+      const read = o ? asObj(k, o) : null;
+      // A READ HELD AFTER IT WAS TAKEN (`afterGet`, 2026-10-15): the reader has
+      // its snapshot and its etag, and pauses before it goes on — another job
+      // acts meanwhile, and the reader resumes with what it read.
+      const ag = afterGets.findIndex((x) => x.match(k));
+      if (ag >= 0) { const x = afterGets.splice(ag, 1)[0]; await x.then(k); }
+      return read;
     },
-    async head(k) { const o = objects.get(k); return o ? { key: k, etag: o.etag } : null; },
+    async head(k) { const o = objects.get(k); return o ? { key: k, etag: o.etag, uploaded: new Date(o.at), ...(o.customMetadata ? { customMetadata: { ...o.customMetadata } } : {}) } : null; },
     async put(k, v, opts = {}) {
       // SOMETHING ELSE LANDS FIRST (`beforePut`): another tab's call between
       // this writer's read and its write, which then meets what that left.
@@ -121,8 +142,14 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       if (bp >= 0) { const x = beforePuts.splice(bp, 1)[0]; await x.then(k, typeof v === "string" ? v : ""); }
       const cur = objects.get(k);
       const c = opts.onlyIf || {};
-      if (c.etagMatches != null && (!cur || cur.etag !== String(c.etagMatches))) return null;
-      if (c.etagDoesNotMatch != null && cur && (String(c.etagDoesNotMatch) === "*" || cur.etag === String(c.etagDoesNotMatch))) return null;
+      // R2'S CONDITIONS, AS MINIFLARE'S OWN VALIDATOR CHECKS THEM (2026-10-15,
+      // after Codex's review; `_testR2Conditional` in workers-sdk's
+      // miniflare/src/workers/r2/validator.worker.ts): a MATCHING etagMatches
+      // overrides uploadedBefore, a non-matching etagDoesNotMatch overrides
+      // uploadedAfter, and a missing object passes only with neither
+      // etagMatches nor uploadedAfter. So identical bytes — the same etag —
+      // pass an "unmodified since" condition however recent the rewrite.
+      if (!r2Conditional(c, cur)) return null;
       const body = v instanceof ArrayBuffer ? new Uint8Array(v) : v instanceof Uint8Array ? v : String(v);
       // A WRITE THAT FAILS OUTRIGHT (`failPut`), or one that LANDS AND NEVER
       // ANSWERS (`hangPut`): the store down, or the writer evicted after it.
@@ -152,7 +179,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       // EVERY JOB'S STORED REQUEST, KEPT FOR THE CASE: the consumer deletes the
       // object once it has read it, as it should.
       if (k.startsWith("jobs/edit/")) { try { filed.set(k.slice("jobs/edit/".length), JSON.parse(String(body))); } catch { /* not a job */ } }
-      return { key: k, etag: objects.get(k).etag };
+      return { key: k, etag: objects.get(k).etag, uploaded: new Date(objects.get(k).at) };
     },
     async delete(k) {
       for (const x of Array.isArray(k) ? k : [k]) {
@@ -197,6 +224,11 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   const beforeUploads = [];
   const dispatched = [];
   const afterUploads = [];
+  // ACCEPTED, NOT YET SERVING (2026-10-15): an upload the API accepted whose
+  // script the version probe does not show until the case releases it — a
+  // dispatch script does not serve the moment its upload is accepted. The
+  // eventual live script is still the last one ACCEPTED (`liveScript`).
+  const deferLandings = [];
   const scriptText = async (body) => {
     try {
       if (body && typeof body.entries === "function") {
@@ -249,7 +281,12 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     j.state = state;
     return { ok: true, refunded: 0, billing: j.billing };
   };
-  const siteBusy = (slugOf, self) => [...jobs.values()].find((o) => o.slug === slugOf && o.id !== self && live(o) && !o.needs_review && (leased(o) || o.state === "publishing"));
+  // `beside` (2026-10-15): the site's lock as supabase/proposed/request_beside.sql
+  // answers it — another live job of the SAME request and account is not a
+  // blocker; every other job still is. Off, exactly the applied function.
+  const reqGroup = (j) => { const m = j && typeof j.idem_key === "string" ? /^([A-Za-z0-9_-]{16,64})-p\d+-\d+$/.exec(j.idem_key) : null; return m ? m[1] : null; };
+  const sameRequest = (a, b) => beside && !!a && reqGroup(a) !== null && reqGroup(a) === reqGroup(b) && a.uid === b.uid;
+  const siteBusy = (slugOf, self) => [...jobs.values()].find((o) => o.slug === slugOf && o.id !== self && live(o) && !o.needs_review && (leased(o) || o.state === "publishing") && !sameRequest(jobs.get(self), o));
   const rpc = {
     edit_create(a) {
       const blocked = [...jobs.values()].find((o) => o.slug === a.p_slug && o.needs_review);
@@ -712,7 +749,10 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       // AND WHICH SCRIPT NAME: `site-<slug>` is the live one, `draft-<slug>`
       // a draft's preview (draft-first, 2026-10-15).
       const sn = /\/scripts\/([^/?]+)/.exec(url);
-      uploads.push({ version: v ? v[1] : "", build: b ? b[1] : "", at: now(), name: sn ? decodeURIComponent(sn[1]) : "" });
+      const entry = { version: v ? v[1] : "", build: b ? b[1] : "", at: now(), name: sn ? decodeURIComponent(sn[1]) : "" };
+      const dl = deferLandings.shift();
+      if (dl) { entry.hidden = true; dl.entry = entry; }
+      uploads.push(entry);
       // LANDED, AND THEN (`afterUpload`): a hook that throws is an upload
       // whose answer was lost; one that never ends is an uploader that died.
       const au = afterUploads.shift();
@@ -727,14 +767,14 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   };
   const env = {
     SITES_BUCKET: bucket, ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key", SUPABASE_SERVICE_KEY: "svc-test", CREDITS_MINT_SECRET: "mint-test",
-    EDIT_ASYNC: "on", EDIT_ASYNC_EVERYONE: "on", REQUEST_FLOW: "on", ...(replies ? { MODEL_REPLIES: "on" } : {}), ...(progress ? { PROGRESS_REPLIES: "on" } : {}), ...(talk ? { PROGRESS_TALK: "on" } : {}),
+    EDIT_ASYNC: "on", EDIT_ASYNC_EVERYONE: "on", REQUEST_FLOW: "on", ...(replies ? { MODEL_REPLIES: "on" } : {}), ...(progress ? { PROGRESS_REPLIES: "on" } : {}), ...(talk ? { PROGRESS_TALK: "on" } : {}), ...(beside ? { PARALLEL_WRITES: "on", PUBLISH_TURN_POLL_MS: "5" } : {}),
     // THE LIVE SCRIPT, ASKED (`liveScripts`, 2026-10-15): the dispatch stub
     // answers the probe with the last uploaded script's own stamps, as a
     // deployed site script does on every response.
     ...(liveScripts ? { SITE_WORKERS: { get: (name) => ({ fetch: async (req) => {
       // EVERY DISPATCH, with the script asked and the preview header it carried.
       try { dispatched.push({ name, path: new URL(req.url).pathname, preview: req.headers.get("x-site-preview") }); } catch { /* a probe without a request */ }
-      const mine = uploads.filter((u) => !u.name || !name || u.name === name);
+      const mine = uploads.filter((u) => !u.hidden && (!u.name || !name || u.name === name));
       const last = mine[mine.length - 1];
       const h = new Headers();
       if (last) { h.set("x-site-build", last.build); if (last.version) h.set("x-site-version", last.version); }
@@ -851,6 +891,8 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     /** Before the next site-script upload lands, run `then(scriptText)`; the upload then goes ahead. */
     beforeUpload(then) { beforeUploads.push(then); },
     afterUpload(then) { afterUploads.push(then); },
+    /** The next upload is accepted but not yet serving: `release()` lets the probe see it. */
+    deferLanding() { const h = { entry: null, release() { if (h.entry) h.entry.hidden = false; } }; deferLandings.push(h); return h; },
     /** Every site-script upload so far: `{ version, build, at }`, in order. */
     uploads() { return uploads.slice(); },
     /** The live script's version: the last upload's, or null before any. */
