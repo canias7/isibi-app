@@ -119,7 +119,7 @@ reading.
 - **Image, predicted, not built:** `892924bc029456f6` (main) to
   `8278ac9a0bcf0981` (the candidate).
 - **Mutation sweep:** 63 mutants in three groups, each against the tests that bear on it (`scripts/mutants/codex-batch-13-{client,gateway,server}.json`): client 20 of 20 killed; gateway 10 of 11 killed (T2 survived); server 27 of 30 killed (M4 and R4 survived, R3 never applied); every comment-only control survived. **The four gaps were closed on 2026-10-17** (`b64fb517`, tests only): DOR9, DRT10 and DRT11, and R3's anchor updated. `codex-batch-14.json`: 6 of 6 killed, both controls survived (`docs/history/2026-10-16-codex-batch-12.md` §5b).
-CHECK_UNITS_14
+- **On the code of `b64fb517`:** unit CI [run 38990518289](https://github.com/canias7/isibi-app/actions/runs/38990518289) on `668e0a9e`, 11,435 / 11,383 / 0 / 52, success; full suite locally 11,435 / 11,433 / 0 / 2.
 
 ## 7. One combined live verification batch, no image generation
 

@@ -38,7 +38,7 @@ never generated. It now also reads the live pointer after every step, to
 show that nothing publishes by itself. There is no count limit on
 unpublished changes, and capacity is not claimed to be unlimited.
 
-UNITS_14_OWNER
+**Results:** the full suite locally on `b64fb517` is 11,435 / 11,433 / 0 / 2. Unit CI [run 38990518289](https://github.com/canias7/isibi-app/actions/runs/38990518289) (on `668e0a9e`, the same code) is 11,435 / 11,383 / 0 / 52, success.
 
 ## 2026-10-16 — Twelfth batch on `codex-work-into-claude`: the page wired to the three goals, no change-count limit on the draft, readiness from evidence, and container jobs through the real gateway (branch only; nothing merged, deployed, switched, applied, built or spent)
 
