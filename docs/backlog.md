@@ -20,13 +20,11 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
-- **Unpublished held changes are read one journal at a time** (2026-10-16,
-  the twelfth batch, `docs/history/2026-10-16-codex-batch-12.md` §3): with no
-  count limit on the draft, every read of its unpublished changes (the
-  preview's data, the next task, publication) makes one storage read per
-  revision that holds changes. The Worker's per-request subrequest limit is
-  the real ceiling for a very long draft. **Open:** a cumulative snapshot of
-  the unpublished ops, rewritten on each save and invalidated by Publish.
+- **Unpublished held changes read one journal at a time** (2026-10-16;
+  **closed in the same batch**, `docs/history/2026-10-16-codex-batch-12.md`
+  §3b): one cumulative record, each entry used only when it matches its
+  revision's journal. Reads are 1 storage read at any length (measured to
+  1,000 revisions), and a save is 3 reads and 3 writes.
 - **The data step sees a table's first 60 rows** (2026-10-16, found by DRT5):
   `MAX_DATA_ROWS` bounds what the model is shown, live or held alike, so a
   chat change to a row past the 60th cannot find it. A prompt bound, not a

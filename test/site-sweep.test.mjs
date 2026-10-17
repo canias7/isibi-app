@@ -213,8 +213,8 @@ test("BOTH publish paths get the grace period", () => {
   // went red for the change; the legacy sweep stays on the legacy rollback.
   assert.doesNotMatch(worker, /await sweepAfterPublish\(sweepDeps\(env\), \{ slug, wrote \}\)/,
     "the ordinary publish sweeps the live prefix again — a version-aware publish never writes there");
-  assert.match(worker, /keep: \[version, parentVersion\]/, "the spine's prune does not keep the parent");
-  assert.match(worker, /keep: \[bVersion, bParent\]/, "the build path's prune does not keep the parent");
+  assert.match(worker, /keep: \[version, parentVersion(, \.\.\.dk)?\]/, "the spine's prune does not keep the parent");
+  assert.match(worker, /keep: \[bVersion, bParent(, \.\.\.dk)?\]/, "the build path's prune does not keep the parent");
   const entry = fs.readFileSync(new URL("../builder/lovable/template/src/server.ts", import.meta.url), "utf8");
   assert.match(entry, /if \(!obj && PARENT_ASSETS\) obj = env\.SITES && \(await env\.SITES\.get\(PARENT_ASSETS \+ url\.pathname\)\);/,
     "the script no longer falls back to its parent's prefix — an in-session visitor 404s on the first republish");

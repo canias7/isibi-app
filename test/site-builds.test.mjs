@@ -388,7 +388,7 @@ test("both publish paths mint the version before the compile, send it in the pay
   // included (`readPointerTag`), read after the gate.
   assert.match(spine, /expectEtag: pointerTag,/, "the spine's activation is not conditional on the pointer it read after the gate");
   assert.ok(spine.indexOf("readPointerTag(buildDeps(env), slug)") > gate, "the pointer the activation is keyed on is not read after the gate");
-  assert.match(spine, /keep: \[version, parentVersion\]/, "pruning does not keep the pointer's version and its parent");
+  assert.match(spine, /keep: \[version, parentVersion(, \.\.\.dk)?\]/, "pruning does not keep the pointer's version and its parent");
   // A STAGE OR AN ACTIVATION THAT FAILED IS A REFUSAL, named, ours — never a
   // publish reported over a prefix that is not there or a pointer that did
   // not move.
@@ -438,7 +438,7 @@ test("both publish paths mint the version before the compile, send it in the pay
   const bActivate = build.indexOf("await activateBuild(buildDeps(env), {");
   assert.ok(bStage > 0 && bActivate > bStage, "the build path does not stage then activate");
   assert.doesNotMatch(build, /writeSiteDistToR2\(|archiveVersion\(/, "the build path still writes the live prefix or archives by copy");
-  assert.match(build, /keep: \[bVersion, bParent\]/);
+  assert.match(build, /keep: \[bVersion, bParent(, \.\.\.dk)?\]/);
   // On the build path a failed stage or activation THROWS out of the publish
   // dep: `publishPages` reads that as our failure, structurally uncharged.
   assert.match(build, /if \(!staged \|\| staged\.ok !== true\) throw new Error\("the build could not be staged: "/, "a failed stage does not fail the build");
