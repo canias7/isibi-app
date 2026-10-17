@@ -23,8 +23,9 @@ here; take a closed one out of both.**
 - **Unpublished held changes read one journal at a time** (2026-10-16;
   **closed in the same batch**, `docs/history/2026-10-16-codex-batch-12.md`
   §3b): one cumulative record, each entry used only when it matches its
-  revision's journal. Reads are 1 storage read (measured to
-  1,000 revisions), and a save is 3 reads and 3 writes.
+  revision's journal. Reads are 1 storage call (measured to
+  1,000 revisions), and a save is 3 reads and 3 writes; the bytes read and
+  the processing still grow with the draft.
 - **The data step sees a table's first 60 rows** (2026-10-16, found by DRT5):
   `MAX_DATA_ROWS` bounds what the model is shown, live or held alike, so a
   chat change to a row past the 60th cannot find it. A prompt bound, not a

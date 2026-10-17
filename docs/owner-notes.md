@@ -1,5 +1,45 @@
 # Owner Notes
 
+## 2026-10-17 — The four test gaps the last sweep left are closed (branch only; tests and records, no product code; nothing merged, deployed, switched, applied, built or spent)
+
+**On your word**, on `codex-work-into-claude` only; `claude/chat-session-0nndv1`
+untouched. The record is `docs/history/2026-10-16-codex-batch-12.md` §5b and §7.
+
+**What changed:** tests only, in `b64fb517`. None of the four checks found a
+defect, so no product code changed.
+- **A published result is never shown as a draft (M4).** A finished job
+  whose answer carries a revision appears as "Saved as a draft" only when
+  it says it is unpublished. Published, no publication field, or a
+  malformed value: shown as done, never as a draft (DOR9).
+- **A broken record is repaired even with nothing to learn (T2).** A draft
+  with no held changes, or with all of them published, gets its malformed
+  record replaced by an empty one, with no extra reads and no rewrite after
+  (DRT10).
+- **Published changes leave the record; unpublished ones all stay (R4).**
+  Checked by reading what is stored and counting the writes, including a
+  read of older, published revisions (DRT11). Every caller in the product
+  reads from the published point, where this rule changes nothing. That is
+  shown, and the code is left as it is.
+- **The record's write-back is now swept (R3).** The sweep pointed at an old
+  line; it now disables the write-back, and eight tests catch it.
+- **Sweep:** 6 mutants, all killed; both controls survived. The directly
+  affected suites: 77 of 77.
+
+**A wording correction.** The record means one storage call per read
+however long the draft. It is **not** constant time: the bytes read and
+the processing still grow with the draft. Measured offline:
+- 176–179 bytes per held row (179 KB at 1,000 changes);
+- an in-memory read of 0.15 ms at 10 changes and 2.98 ms at 1,000.
+
+**The live plan** (`docs/history/2026-10-16-rollout-checklist.md` §7) is
+still one combined batch for parallel jobs, explicit Publish, and both
+**video and audio** hosting. Media means your own files uploaded and played,
+never generated. It now also reads the live pointer after every step, to
+show that nothing publishes by itself. There is no count limit on
+unpublished changes, and capacity is not claimed to be unlimited.
+
+UNITS_14_OWNER
+
 ## 2026-10-16 — Twelfth batch on `codex-work-into-claude`: the page wired to the three goals, no change-count limit on the draft, readiness from evidence, and container jobs through the real gateway (branch only; nothing merged, deployed, switched, applied, built or spent)
 
 **On your word**, on `codex-work-into-claude` only. `claude/chat-session-0nndv1`
@@ -39,10 +79,12 @@ the rollout handoff is `docs/history/2026-10-16-rollout-checklist.md`.
 - **The page keeps following** a preview that is still updating, on a
   backoff from 5 s to 2 min. It survives failed reads and delays, and stops
   when you switch sites, hide the tab or leave.
-- **Long drafts stay fast.** Reading a draft's unpublished changes used to
-  cost one storage read per change (measured: 1,000 reads for 1,000
-  changes). It is 1 read now (measured from 10 to 1,000 changes), and each save costs 3 reads and
-  3 writes.
+- **Long drafts need far fewer storage calls.** Reading a draft's unpublished
+  changes used to cost one storage read per change (measured: 1,000 reads for
+  1,000 changes). It is 1 read now (measured from 10 to 1,000 changes), and
+  each save costs 3 reads and 3 writes. That is fewer calls, not constant
+  time: the bytes read and the processing still grow with the draft (measured
+  176–179 bytes per held row, 179 KB at 1,000 changes).
 - **Container jobs can save drafts.** In a real container a job's own draft
   records were refused by the job gateway (Codex's finding), so every
   container job's save failed. Exactly those records of the job's own site
@@ -78,7 +120,7 @@ is where it would show.
   - The cache case left the broken record standing.
   - The following stopped at 5 minutes.
 - **Reads:** one storage read per change before; 1 read now
-  (measured to 1,000).
+  (measured to 1,000). The bytes and processing still grow with the draft.
 - **Browser:** the real page against the real Worker, free:
   - the draft page cases 3 of 3;
   - the media cases 3 of 3.

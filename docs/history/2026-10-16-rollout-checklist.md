@@ -7,8 +7,11 @@ to approve and press, in order. The branch is `codex-work-into-claude`;
 
 ## 1. The exact candidate
 
-- **Commit:** `5491e124` (the code and tests of the twelfth batch, all three rounds;
-  the records commits on top change only documents).
+- **Commit:** `b64fb517`: the product code of `5491e124` (the twelfth
+  batch, all three rounds) plus the four gap tests and sweep specs of
+  2026-10-17. No product file changed between them, and no `test/` or
+  `scripts/` path is in the image, so the image prediction below stands.
+  The records commits on top change only documents.
 - **Base:** `main` at `c7c3ca44` (deploy 2214, deployed, not
   runtime-confirmed: its free runtime press is still owed).
 - **Required CI on the candidate:** unit tests and site build, green, read
@@ -115,7 +118,8 @@ reading.
   3 of 3.
 - **Image, predicted, not built:** `892924bc029456f6` (main) to
   `8278ac9a0bcf0981` (the candidate).
-- **Mutation sweep:** 63 mutants in three groups, each against the tests that bear on it (`scripts/mutants/codex-batch-13-{client,gateway,server}.json`): client 20 of 20 killed; gateway 10 of 11 killed (T2 survived); server 27 of 30 killed (M4 and R4 survived, R3 never applied); every comment-only control survived. The survivors and the stale anchor are test gaps, recorded, not fixed in this batch (`docs/history/2026-10-16-codex-batch-12.md` §5).
+- **Mutation sweep:** 63 mutants in three groups, each against the tests that bear on it (`scripts/mutants/codex-batch-13-{client,gateway,server}.json`): client 20 of 20 killed; gateway 10 of 11 killed (T2 survived); server 27 of 30 killed (M4 and R4 survived, R3 never applied); every comment-only control survived. **The four gaps were closed on 2026-10-17** (`b64fb517`, tests only): DOR9, DRT10 and DRT11, and R3's anchor updated. `codex-batch-14.json`: 6 of 6 killed, both controls survived (`docs/history/2026-10-16-codex-batch-12.md` §5b).
+CHECK_UNITS_14
 
 ## 7. One combined live verification batch, no image generation
 
@@ -125,6 +129,13 @@ the live script's version, the five stored pages' hashes, every `loaves`
 row, the sidecar, the draft record, and the open journals.
 `IMAGE_PURCHASES=off` throughout. Estimates are not limits; the balance is
 the only bound.
+
+**Throughout, nothing publishes by itself.** After every step from 4 to 7,
+read the live pointer and the live script's version: they must not move
+until the owner presses Publish (no number of changes, finished jobs,
+retries or recoveries publishes the site). The draft keeps every unpublished
+revision; nothing in the batch tries to show a count limit, because there
+is none to reach (capacity at large sizes is not measured live).
 
 1. **Free:** the runtime press for deploy 2214 (owed), then the merge and
    deploy of the candidate, then the free runtime press with both switches
@@ -157,12 +168,17 @@ the only bound.
    - The card says "Waiting for part 2".
    - The answer is given on the page.
    - Both end saved as a draft.
-6. **Free:** in the Files panel:
-   - add a short recording, play it and seek in it;
-   - replace it (held: live keeps the original, the preview plays the
-     replacement);
-   - remove another (held);
-   - start and cancel a longer upload (nothing kept).
+6. **Free (uploads and playback only; nothing is generated or bought):** in
+   the Files panel, the owner's own files, one short **video** (MP4) and one
+   short **audio** file (MP3 or M4A):
+   - upload each; play each on the draft preview and seek in it (a range
+     request answered 206);
+   - replace the video and replace the audio (held: live keeps each
+     original, the preview plays each replacement);
+   - remove one of them (held: live still serves it until Publish);
+   - start and cancel a longer upload (nothing kept, no orphaned parts);
+   - read the site's media totals before and after (files and bytes inside
+     `MEDIA_MAX_*`).
 7. **Free of model calls:** Publish the revision before the newest, from
    the panel, and press it twice.
    - The later revision stays out.
@@ -177,7 +193,8 @@ the only bound.
 - **Parallel work:** steps 4–5.
 - **Draft isolation, readiness, following and explicit Publish:** steps
   2–5, 7 and 8.
-- **Video/audio hosting:** step 6 and the frame in step 8.
+- **Video and audio hosting (upload and playback, not generation):** step 6,
+  and both files served live after step 8's Publish.
 - **A container job's own draft records through the real gateway:** steps
   4–6, read with step 2's log check.
 
@@ -196,9 +213,10 @@ the only bound.
 | Draft preview in the frame, its readiness, explicit Publish, the frame returning to live | yes (this batch) | yes (DFU1–DFU3, DUI1, DUI2, DUI5) | the real preview host after an image roll; a real browser on the real host (cookies, framing headers) |
 | Readiness from positive evidence (the confirmed version), pending, failed and unknown apart; a refused claim repaired by the owner's read | yes (this batch, second round) | yes (DPS1–DPS3, DFU6) | R2's real conditional writes on `preview-up/`; Cloudflare's own script-upload failures |
 | The page following an unsettled preview through delays and failed reads, cleaned up on a site switch, a hidden tab or leaving | yes (this batch, second round) | yes (DPF1–DPF6, DFU6) | a real tab over a real network for 15+ minutes |
-| No count limit on unpublished changes; partial publication; changes during publication; duplicate clicks; reloads | yes (this batch) | yes (DRT1–DRT6, EER8) | a long-lived real draft |
-| Reads that do not grow with the draft (the cumulative record) | yes (this batch, second round) | yes (DRT7–DRT9; measured 1 read at 10–1,000 revisions) | R2 latency and object size for a record of hundreds of KB |
-| A malformed cumulative record repaired from the journals, the next read using it | yes (third round) | yes (DRT8, JGD5) | — |
+| No count limit on unpublished changes; partial publication; changes during publication; duplicate clicks; reloads | yes (this batch) | yes (DRT1–DRT6, DRT11, EER8) | a long-lived real draft |
+| A published job result never shown as a draft | yes | yes (DOR9; M4 and M4b killed) | — |
+| A read's storage-call count does not grow with the draft (the cumulative record); its bytes and processing do | yes (this batch, second round) | yes (DRT7–DRT9; measured 1 storage call at 10–1,000 revisions) | R2 latency and object size for a record of hundreds of KB |
+| A malformed cumulative record repaired from the journals, the next read using it, also with nothing to learn | yes (third round) | yes (DRT8, DRT10, JGD5) | — |
 | Container jobs (Build after scoping, Edit, Add-on) saving drafts, held changes, the cumulative record and the preview's confirmation through the real gateway; cross-site and pre-scope denials; conditional writes across the wire | yes (third round) | yes (JGD1–JGD5, DH3, DH3c, DH4: the real `GatewayBucket`, `gatewayHandler`, `makeContainerEnv` and the Worker's gateway route) | a real container's HTTP hop to the Worker; Cloudflare's own request limits on that hop |
 | Video/audio upload, placement, playback, seeking, replacement, removal, cancel | yes | yes (media-*, DFU5) | live playback on real devices (H.264/AAC are not decodable in this Chromium); R2's own multipart expiry |
 | Owner panels | unchanged | — | outside this batch |
