@@ -25,7 +25,7 @@ the rollout handoff is `docs/history/2026-10-16-rollout-checklist.md`.
   Each part keeps its own words or the model's own line; no conversational
   text was added.
 - **The Files panel can cancel an upload.**
-- **No limit on unpublished changes.** The draft used to keep only its last
+- **No count limit on unpublished changes.** The draft used to keep only its last
   60 changes and silently lose older unpublished ones (Codex's finding).
   - Every unpublished change is kept now.
   - Only published changes are trimmed, to the last 20, for the history.
@@ -41,7 +41,7 @@ the rollout handoff is `docs/history/2026-10-16-rollout-checklist.md`.
   when you switch sites, hide the tab or leave.
 - **Long drafts stay fast.** Reading a draft's unpublished changes used to
   cost one storage read per change (measured: 1,000 reads for 1,000
-  changes). It is 1 read now at any length, and each save costs 3 reads and
+  changes). It is 1 read now (measured from 10 to 1,000 changes), and each save costs 3 reads and
   3 writes.
 - **Container jobs can save drafts.** In a real container a job's own draft
   records were refused by the job gateway (Codex's finding), so every
@@ -77,7 +77,7 @@ is where it would show.
   - The gateway cases fail on the 403s.
   - The cache case left the broken record standing.
   - The following stopped at 5 minutes.
-- **Reads:** one storage read per change before; 1 read at any size now
+- **Reads:** one storage read per change before; 1 read now
   (measured to 1,000).
 - **Browser:** the real page against the real Worker, free:
   - the draft page cases 3 of 3;
@@ -85,7 +85,7 @@ is where it would show.
 - **Full suite locally on `5491e124`:** 11,432 / 11,430 / 0 / 2.
 - **Unit CI:** run 38987482899, 11,432 / 11,380 / 0 / 52, success.
 - **Site build:** run 38987338040, success.
-- **Mutation sweep:** running after this commit, in three groups (each against the tests that bear on it); stamped when it ends
+- **Mutation sweep:** 63 mutants in three groups, each against the tests that bear on it (`scripts/mutants/codex-batch-13-{client,gateway,server}.json`): client 20 of 20 killed; gateway 10 of 11 killed (T2 survived); server 27 of 30 killed (M4 and R4 survived, R3 never applied); every comment-only control survived. The survivors and the stale anchor are test gaps, recorded, not fixed in this batch (`docs/history/2026-10-16-codex-batch-12.md` §5).
 
 ### Still open, or only verifiable live
 

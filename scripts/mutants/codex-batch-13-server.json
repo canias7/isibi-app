@@ -1,0 +1,251 @@
+[
+  {
+    "label": "CONTROL: a comment only in site-draft.mjs \u2014 must survive",
+    "control": true,
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "export const KEEP_PUBLISHED = 20;",
+    "to": "// comment-only control\nexport const KEEP_PUBLISHED = 20;"
+  },
+  {
+    "label": "K1 retention drops unpublished revisions too",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  const published = revs.filter((r) => r.n <= applied);",
+    "to": "  const published = revs;"
+  },
+  {
+    "label": "K2 a read cuts the list again (the old limit)",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  return { rev, revs: all, applied, refs, trimmed: readTrimmed(d.trimmed) };",
+    "to": "  return { rev, revs: all.slice(-60), applied, refs, trimmed: readTrimmed(d.trimmed) };"
+  },
+  {
+    "label": "K3 a save cuts the list again",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  return { rev: n, revs: kept.revs, applied: app,",
+    "to": "  return { rev: n, revs: kept.revs.slice(-60), applied: app,"
+  },
+  {
+    "label": "K4 markApplied keeps every published revision (no history bound)",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "    const kept = retain(draft.revs, revision, draft.trimmed);",
+    "to": "    const kept = { revs: draft.revs, trimmed: draft.trimmed };"
+  },
+  {
+    "label": "K5 the trimming is not recorded",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  return { revs: revs.filter((r) => !drop.includes(r)), trimmed: { n: Math.max(last.n, trimmed ? trimmed.n : 0), at } };",
+    "to": "  return { revs: revs.filter((r) => !drop.includes(r)), trimmed };"
+  },
+  {
+    "label": "K6 absence proves nothing ignores the job's start",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  return began <= cut + TRIM_CLOCK_MARGIN_MS;",
+    "to": "  return false;"
+  },
+  {
+    "label": "K7 no clock margin",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  return began <= cut + TRIM_CLOCK_MARGIN_MS;",
+    "to": "  return began <= cut;"
+  },
+  {
+    "label": "M1 the view never says what a part waits for",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "      ...((p.status === \"blocked\" || p.status === \"not-run\") && Array.isArray(p.needs) && p.needs.length ? { needs:",
+    "to": "      ...(false ? { needs:"
+  },
+  {
+    "label": "M2 the view says a draft for a part still running",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "      ...((p.status === \"done\" || p.status === \"partial\") && p.outcome && p.outcome.draft",
+    "to": "      ...(p.outcome && p.outcome.draft"
+  },
+  {
+    "label": "M3 a job's saved draft never reaches the outcome",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "    p.outcome = { job: job.id, kind: \"done\", ...((d) => (d ? { draft: d } : {}))(answerDraft(ans.body)) };\n    p.done = doneSummary(ans.body);",
+    "to": "    p.outcome = { job: job.id, kind: \"done\" };\n    p.done = doneSummary(ans.body);"
+  },
+  {
+    "label": "M4 a published answer is read as a draft",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "  if (!d || typeof d !== \"object\" || d.published !== false ||",
+    "to": "  if (!d || typeof d !== \"object\" ||"
+  },
+  {
+    "label": "K11 the edit reconcile never hands over when the job began",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if (d) draft = { state: \"read\", record: d, trimmed: revisionsTrimmed(d, { since: row.created_at || null }) };",
+    "to": "    if (d) draft = { state: \"read\", record: d, trimmed: revisionsTrimmed(d, { since: null }) };"
+  },
+  {
+    "label": "P1 readiness from an empty claim list alone",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  if (up && up.version === draft.version && claims.length === 0) return \"ready\";",
+    "to": "  if (claims.length === 0) return \"ready\";"
+  },
+  {
+    "label": "P2 an older confirmation reads as ready",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  if (up && up.version === draft.version && claims.length === 0) return \"ready\";",
+    "to": "  if (up && claims.length === 0) return \"ready\";"
+  },
+  {
+    "label": "P3 unreadable evidence reads as pending",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  if (up instanceof Error || claims instanceof Error || !Array.isArray(claims)) return \"unknown\";",
+    "to": "  if (claims instanceof Error || !Array.isArray(claims)) return \"pending\";"
+  },
+  {
+    "label": "P4 a stuck register is not failed",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  if (register && register.state === \"stuck\") return \"failed\";",
+    "to": ""
+  },
+  {
+    "label": "P5 the record moves backward",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "    if (cur && isDraftVersion(cur.version) && cur.version >= version) return true;",
+    "to": "    if (cur && isDraftVersion(cur.version) && cur.version === version) return true;"
+  },
+  {
+    "label": "P6 a save drops its claim without recording",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "        const marked = c.ready ? await markPreviewUp(deps, slug, c.version, clock()) : false;",
+    "to": "        const marked = c.ready;"
+  },
+  {
+    "label": "P7 the tick drops claims without recording",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (c.ready && await markPreviewUp(deps, slug, c.version, clock())) {",
+    "to": "  if (c.ready) {"
+  },
+  {
+    "label": "P8 the owner's read never repairs",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (state === \"pending\" && Array.isArray(claims) && claims.length === 0 && ctx && typeof ctx.waitUntil === \"function\") {",
+    "to": "  if (false) {"
+  },
+  {
+    "label": "P9 the route ignores the readiness reader",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              const previewReady = previewState === \"ready\" ? true : previewState === \"unknown\" || previewState === null ? null : false;",
+    "to": "              const previewReady = true;"
+  },
+  {
+    "label": "R1 a record entry is used whatever its journal",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "    if (e && e.held === r.held) { known.set(r.n, e.ops); continue; }",
+    "to": "    if (e) { known.set(r.n, e.ops); continue; }"
+  },
+  {
+    "label": "R2 counts that do not add up are used",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "    if (at !== j.ops.length) return { sum: null, etag };",
+    "to": ""
+  },
+  {
+    "label": "R3 the record is never written back",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  if ((learned || stale) && typeof deps.put === \"function\") {",
+    "to": "  if (false) {"
+  },
+  {
+    "label": "R4 published revisions stay in the record",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  const keep = draft.revs.filter((r) => r.held && r.n > draft.applied && known.has(r.n));",
+    "to": "  const keep = draft.revs.filter((r) => r.held && known.has(r.n));"
+  },
+  {
+    "label": "R5 a save does not fold its revision in",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  try { await heldRange(deps, slug, draft, { from: draft.applied }); } catch { /* the next reader */ }",
+    "to": ""
+  },
+  {
+    "label": "R6 a range returns revisions outside it",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  for (const r of draft.revs) {\n    if (r.n <= from || r.n > to || !r.held) continue;\n    out.push(",
+    "to": "  for (const r of draft.revs) {\n    if (r.n <= from || !r.held) continue;\n    out.push("
+  },
+  {
+    "label": "K8 a legacy cut record proves absence",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  if (!t) return draft.revs.length >= LEGACY_MAX_REVS && draft.revs[0].n > 1;",
+    "to": "  if (!t) return false;"
+  },
+  {
+    "label": "K9 the reconcile ignores the reader's trimmed fact",
+    "files": [
+      "builder/site-reconcile.mjs"
+    ],
+    "from": "const trimmedFact = (d, rec) => (typeof d.trimmed === \"boolean\" ? d.trimmed : !!rec.trimmed || (rec.revs.length >= 60 && !!rec.revs[0] && rec.revs[0].n > 1));",
+    "to": "const trimmedFact = (d, rec) => !!rec.trimmed || (rec.revs.length >= 60 && !!rec.revs[0] && rec.revs[0].n > 1);"
+  },
+  {
+    "label": "K10 build recovery ignores the reader's trimmed fact",
+    "files": [
+      "builder/build-lease.mjs"
+    ],
+    "from": "  if (typeof d.trimmed === \"boolean\" ? d.trimmed : !!d.record.trimmed || (all.length >= 60 && !!all[0] && all[0].n > 1)) return",
+    "to": "  if (!!d.record.trimmed || (all.length >= 60 && !!all[0] && all[0].n > 1)) return"
+  }
+]

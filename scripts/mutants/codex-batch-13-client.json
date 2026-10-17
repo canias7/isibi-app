@@ -1,0 +1,171 @@
+[
+  {
+    "label": "CONTROL: a comment only in chat.js \u2014 must survive",
+    "control": true,
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "const SITE_DRAFT_FOLLOW_MIN_MS = 5000;",
+    "to": "// comment-only control\nconst SITE_DRAFT_FOLLOW_MIN_MS = 5000;"
+  },
+  {
+    "label": "L1 the frame never shows the draft",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  const base = d ? d.preview : site.url;",
+    "to": "  const base = site.url;"
+  },
+  {
+    "label": "L2 any preview host is trusted",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (!d || d.enabled !== true || d.unpublished !== true || typeof d.preview !== 'string' || !SITE_DRAFT_HOST.test(d.preview)) return null;",
+    "to": "  if (!d || d.enabled !== true || d.unpublished !== true || typeof d.preview !== 'string') return null;"
+  },
+  {
+    "label": "L3 a published draft still shows the draft",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (!d || d.enabled !== true || d.unpublished !== true || typeof d.preview !== 'string' || !SITE_DRAFT_HOST.test(d.preview)) return null;",
+    "to": "  if (!d || d.enabled !== true || typeof d.preview !== 'string' || !SITE_DRAFT_HOST.test(d.preview)) return null;"
+  },
+  {
+    "label": "L7 the card never names the part waited for",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    if (!prep && status === 'blocked' && waitsOn.length) label = 'Waiting for part ' + waitsOn.join(' and ');",
+    "to": ""
+  },
+  {
+    "label": "L8 the card's part numbers start at 0",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "filter((x) => Number.isInteger(x) && x >= 0).map((x) => x + 1) : [];",
+    "to": "filter((x) => Number.isInteger(x) && x >= 0).map((x) => x) : [];"
+  },
+  {
+    "label": "L9 a saved draft is said as done",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    if (drafted) label = ",
+    "to": "    if (false) label = "
+  },
+  {
+    "label": "L10 a preview still updating is not said",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "+ (p.draft.preview === 'pending' ? ' \\u00b7 preview updating' : '');",
+    "to": "+ '';"
+  },
+  {
+    "label": "L11 a lost rewrite reads as an ordinary check",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    if (status === 'unverified' && p.why === 'rewrite-recovering') label = 'Recovering an interrupted rewrite';",
+    "to": ""
+  },
+  {
+    "label": "L12 a cancel is said as any failure",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "const siteMediaRefused = (r) => (r && r.code === 'cancelled' ?",
+    "to": "const siteMediaRefused = (r) => (false ?"
+  },
+  {
+    "label": "Q1 a failed read ends the following",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (!d) { siteDraftFollowAgain(site, { failed: true }); return null; }",
+    "to": "  if (!d) return null;"
+  },
+  {
+    "label": "Q2 no backoff (always the shortest wait)",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  const ms = Math.min(SITE_DRAFT_FOLLOW_MAX_MS, SITE_DRAFT_FOLLOW_MIN_MS * 2 ** f.n);",
+    "to": "  const ms = SITE_DRAFT_FOLLOW_MIN_MS;"
+  },
+  {
+    "label": "Q3 no ceiling on the wait",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  const ms = Math.min(SITE_DRAFT_FOLLOW_MAX_MS, SITE_DRAFT_FOLLOW_MIN_MS * 2 ** f.n);",
+    "to": "  const ms = SITE_DRAFT_FOLLOW_MIN_MS * 2 ** f.n;"
+  },
+  {
+    "label": "Q4 a count ends it again",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  f.n++;\n  f.timer = setTimeout(",
+    "to": "  if (f.n++ >= 20) return;\n  f.timer = setTimeout("
+  },
+  {
+    "label": "Q5 a new revision does not start over",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (siteDraftUnsettled(d)) siteDraftFollowAgain(site, { reset: now !== was });",
+    "to": "  if (siteDraftUnsettled(d)) siteDraftFollowAgain(site, { reset: false });"
+  },
+  {
+    "label": "Q6 a timer firing does not check it is watched",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    f.timer = 0;\n    if (!siteDraftWatched(site)) { siteDraftUnfollow(slug); return; }\n    loadDraftState(site);",
+    "to": "    f.timer = 0;\n    loadDraftState(site);"
+  },
+  {
+    "label": "Q7 hiding the tab keeps the timers",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    if (document.visibilityState === 'hidden') { for (const k of Object.keys(siteDraftFollows)) siteDraftUnfollow(k); return; }",
+    "to": "    if (document.visibilityState === 'hidden') return;"
+  },
+  {
+    "label": "Q8 unknown readiness is not followed",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  return d.unpublished === true && typeof d.preview === 'string' && siteDraftPreviewState(d) !== 'ready';",
+    "to": "  return d.unpublished === true && typeof d.preview === 'string' && siteDraftPreviewState(d) === 'pending';"
+  },
+  {
+    "label": "Q9 opening another site keeps the old follow",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (siteDraftWatched(site)) for (const k of Object.keys(siteDraftFollows)) if (k !== slug) siteDraftUnfollow(k);\n  let d = null;",
+    "to": "  let d = null;"
+  },
+  {
+    "label": "Q10 leaving the page keeps the timers",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  window.addEventListener('pagehide', () => { for (const k of Object.keys(siteDraftFollows)) siteDraftUnfollow(k); });",
+    "to": "  window.addEventListener('pagehide', () => {});"
+  },
+  {
+    "label": "L4 readiness does not move the frame",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  return d.preview + '|' + d.revision + '|' + siteDraftPreviewState(d);",
+    "to": "  return d.preview + '|' + d.revision;"
+  }
+]

@@ -102,16 +102,20 @@ Parts are 8 MiB; an upload session lasts 24 hours, a pre-site draft upload
 Every reading below was taken offline on this branch; none is a production
 reading.
 - **Unit CI:**
-  - run 38987482899 on `bd53675c` (the code of `5491e124`): 11,432 /
-    11,380 / 0 / 52, success;
-  - run 38985469462 on `668ebc87`: 11,427 / 11,375 / 0 / 52, success.
-- **Site build:** run 38987338040 on `5491e124`, success.
+  - [run 38987482899](https://github.com/canias7/isibi-app/actions/runs/38987482899)
+    on `bd53675c` (the code of `5491e124`): 11,432 / 11,380 / 0 / 52,
+    success;
+  - [run 38985469462](https://github.com/canias7/isibi-app/actions/runs/38985469462)
+    on `668ebc87`: 11,427 / 11,375 / 0 / 52, success.
+- **Site build:**
+  [run 38987338040](https://github.com/canias7/isibi-app/actions/runs/38987338040)
+  on `5491e124`, success.
 - **Full suite locally on `5491e124`:** 11,432 / 11,430 / 0 / 2.
 - **Browser, local Chromium:** the draft page cases 3 of 3, the media cases
   3 of 3.
 - **Image, predicted, not built:** `892924bc029456f6` (main) to
   `8278ac9a0bcf0981` (the candidate).
-- **Mutation sweep:** running after this commit, in three groups (each against the tests that bear on it); stamped when it ends
+- **Mutation sweep:** 63 mutants in three groups, each against the tests that bear on it (`scripts/mutants/codex-batch-13-{client,gateway,server}.json`): client 20 of 20 killed; gateway 10 of 11 killed (T2 survived); server 27 of 30 killed (M4 and R4 survived, R3 never applied); every comment-only control survived. The survivors and the stale anchor are test gaps, recorded, not fixed in this batch (`docs/history/2026-10-16-codex-batch-12.md` §5).
 
 ## 7. One combined live verification batch, no image generation
 
@@ -126,7 +130,10 @@ the only bound.
    deploy of the candidate, then the free runtime press with both switches
    off (`job probe` env `draft=off,parallel=off`).
 2. **Free:** the SQL, `PARALLEL_WRITES=on`, `DRAFT_FIRST=on`, then `job
-   probe` env `draft=on,parallel=on` (observed in a real job child).
+   probe` env `draft=on,parallel=on` (observed in a real job child). Read
+   the Worker's log for `job gateway refused:` lines throughout the batch:
+   none is expected for a job's own draft records, script notes or build
+   marker (offline: JGD1–JGD5, DH3, DH4).
 3. **Free:** `draft verify`, rehearsal (readings only).
 4. **Paid, about 6–10 credits:** one message with three independent parts
    (the Visit opening line, the Order heading, the Olive & Rosemary at
@@ -165,6 +172,19 @@ the only bound.
    - The chip says Published.
    - Recovery runs, and again 15 minutes later.
 9. **Free:** the restore to `8btpep` and one owner write for the price row.
+
+**What this batch, if every step passes, verifies live:**
+- **Parallel work:** steps 4–5.
+- **Draft isolation, readiness, following and explicit Publish:** steps
+  2–5, 7 and 8.
+- **Video/audio hosting:** step 6 and the frame in step 8.
+- **A container job's own draft records through the real gateway:** steps
+  4–6, read with step 2's log check.
+
+**What it still leaves unverified:**
+- a real crash or lost R2 answer (not induced on a live site);
+- capacity at large draft sizes;
+- playback on other devices and browsers.
 
 ## 8. Implemented, verified offline, still unverified live
 
