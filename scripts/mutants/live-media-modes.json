@@ -1,0 +1,10 @@
+[
+  {"label": "CONTROL: a comment only — must survive", "control": true, "files": ["scripts/draft-verify.mjs"], "from": "const liveUrl = (slug, path) =>", "to": "// comment-only control\nconst liveUrl = (slug, path) =>"},
+  {"label": "L1 a range answered 200 passes as a seek", "files": ["scripts/draft-verify.mjs"], "from": "part.status === 206 && equalBytes(part.bytes, head)", "to": "equalBytes(part.bytes.subarray(0, 100), head)"},
+  {"label": "L2 a held new upload is not caught", "files": ["scripts/draft-verify.mjs"], "from": "d.held === true ? fail(\"a new file was held", "to": "false ? fail(\"a new file was held"},
+  {"label": "L3 the preview's deleted file may answer 200", "files": ["scripts/draft-verify.mjs"], "from": "gone.status === 404 ? pass(\"the preview answers 404", "to": "gone.status < 500 ? pass(\"the preview answers 404"},
+  {"label": "L4 a cancelled upload that completes passes", "files": ["scripts/draft-verify.mjs"], "from": "return late && late.status >= 400 ? pass(", "to": "return late ? pass("},
+  {"label": "L5 the live pointer is never compared", "files": ["scripts/draft-verify.mjs"], "from": ": pointer0 === pointer1 ? pass(", "to": ": true ? pass("},
+  {"label": "L6 the live bytes are not compared", "files": ["scripts/draft-verify.mjs"], "from": "whole.status === 200 && equalBytes(whole.bytes, want)", "to": "whole.status === 200"},
+  {"label": "L7 the disposable may still be live after Publish", "files": ["scripts/draft-verify.mjs"], "from": "gone.status === 404 ? pass(\"the disposable file answers 404 live\")", "to": "gone.status !== 500 ? pass(\"the disposable file answers 404 live\")"}
+]

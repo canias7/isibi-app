@@ -34,6 +34,21 @@
 //              model calls; the balance is read before and after.
 //   recovery   read-only, free: nothing left half-done (recovery notes, an open
 //              journal, the running script against the pointer).
+//   media-setup  STORAGE-WRITING, no model call, free (2026-10-17, the live
+//              batch): the three fixtures uploaded to the site's library — a
+//              video, an audio file and a disposable audio file — each read
+//              back live whole and by range (206). A new file is not a held
+//              change, so it serves at once and saves no draft revision; the
+//              run prints the FILES line the next two modes take.
+//   media-held   STORAGE-WRITING, no model call, free: with the FILES box, the
+//              video and the audio replaced (each held), the disposable file
+//              deleted (held), and a longer upload started and cancelled. Live
+//              keeps every original byte for byte and the disposable file;
+//              the preview plays both replacements and answers 404 for the
+//              deleted one; the cancelled upload cannot be completed.
+//   media-check  read-only, free: with the FILES box, after the owner's
+//              Publish — both replacements play live (whole and by range) and
+//              the disposable file answers 404 live.
 //
 // NOTHING HERE TURNS A SWITCH, APPLIES SQL, BUILDS AN IMAGE OR BUYS A PICTURE.
 import fs from "node:fs";
@@ -42,9 +57,11 @@ import {
   publishPress, publishChecks, recoveryChecks, switchChecks,
 } from "./canary-draft.mjs";
 
-export const MODES = Object.freeze(["rehearsal", "send", "media", "publish", "recovery"]);
+export const MODES = Object.freeze(["rehearsal", "send", "media", "publish", "recovery", "media-setup", "media-held", "media-check"]);
 const PAID = new Set(["send"]);
-const WRITES = new Set(["media"]);
+const WRITES = new Set(["media", "media-setup", "media-held"]);
+/** The modes that read the FILES box (the names `media-setup` printed). */
+const NEEDS_FILES = new Set(["media-held", "media-check"]);
 const PUBLISHES = new Set(["publish"]);
 /** Sites this harness never writes to or spends on (the help-needed fixtures). */
 export const GUARDED_SITES = Object.freeze(["fretwork-1", "lido-axes-b"]);
@@ -67,6 +84,7 @@ export function readBoxes(env) {
     maxCredits: int("DV_MAX_CREDITS"), revision: int("DV_REVISION"), expectRevisions: int("DV_EXPECT_REVISIONS"),
     expectHeld: s("DV_EXPECT_HELD") ? s("DV_EXPECT_HELD").split(",").map((x) => x.trim()).filter(Boolean) : [],
     message: s("DV_MESSAGE"), picker: s("DV_PICKER") || "grok",
+    files: s("DV_FILES"),
   };
   // A BOX FILLED FOR ANOTHER MODE is refused, never quietly ignored: a press
   // that meant to publish and ran a rehearsal would read as a pass of nothing.
@@ -75,8 +93,25 @@ export function readBoxes(env) {
   if (opts.revision !== null && mode !== "publish") filledFor.push("revision");
   if (opts.publish === "yes" && mode !== "publish") filledFor.push("publish");
   if (opts.spend === "yes" && mode !== "send") filledFor.push("spend");
+  if (opts.files && !NEEDS_FILES.has(mode)) filledFor.push("files");
   if (filledFor.length) return { ok: false, refused: "box(es) " + filledFor.join(", ") + " filled beside mode " + mode };
+  if (NEEDS_FILES.has(mode)) {
+    const f = readFiles(opts.files);
+    if (!f) return { ok: false, refused: "the files box must read video=<name>,audio=<name>,disposable=<name> as media-setup printed it" };
+    opts.files = f;
+  }
   return { ok: true, opts };
+}
+
+/** The FILES box, strictly: `{ video, audio, disposable }` (library names), or null. */
+export function readFiles(v) {
+  const out = {};
+  for (const part of String(v || "").split(",").map((x) => x.trim()).filter(Boolean)) {
+    const m = part.match(/^(video|audio|disposable)=([a-f0-9]{32}\.[a-z0-9]{2,5})$/);
+    if (!m || Object.hasOwn(out, m[1])) return null;
+    out[m[1]] = m[2];
+  }
+  return out.video && out.audio && out.disposable ? out : null;
 }
 
 /** What the mode would refuse on, from the readings already taken. Empty means clear. */
@@ -210,6 +245,82 @@ export async function runDraftVerify(opts, io) {
     return finish(results);
   }
 
+  // ── THE LIVE BATCH'S MEDIA (2026-10-17): the owner's video and audio
+  //    hosting, without a hand in the Files panel ─────────────────────────
+  if (opts.mode === "media-setup") {
+    const fx = io.fixtures;
+    if (!fx || !fx.video || !fx.audio || !fx.disposable) { results.refused = ["no media fixtures were given"]; return finish(results); }
+    const files = {};
+    for (const [role, bytes, name] of [["video", fx.video, "draft-verify video.mp4"], ["audio", fx.audio, "draft-verify audio.mp3"], ["disposable", fx.disposable, "draft-verify disposable.m4a"]]) {
+      const up = await uploadMedia(call, opts.slug, bytes, name, {});
+      const d = up.done && up.done.body;
+      if (!d || up.done.status >= 300 || typeof d.name !== "string") { results.checks["setup." + role + ".upload"] = fail("did not upload: " + JSON.stringify((up.done || up.p || up.st || {}).body || {}).slice(0, 200)); return finish(results); }
+      results.checks["setup." + role + ".upload"] = pass("uploaded as " + d.name);
+      results.checks["setup." + role + ".notHeld"] = d.held === true ? fail("a new file was held, which no held kind describes") : pass("a new file serves at once (not a held change)");
+      files[role] = { name: d.name, url: d.url || ("/u/" + opts.slug + "/" + d.name), bytes: bytes.length };
+      Object.assign(results.checks, prefix("setup." + role + ".live", await playsAs(io, liveUrl(opts.slug, files[role].url), bytes)));
+    }
+    const after = await readDraftEvidence(api, opts.slug);
+    const n0 = before.ok ? before.state.revisions.length : null, n1 = after.ok ? after.state.revisions.length : null;
+    results.checks["setup.noRevision"] = n0 === null || n1 === null ? unverified("the draft was not read both times") : n1 === n0 ? pass("no draft revision was saved by the uploads (" + n0 + " before and after)") : fail("the uploads saved " + (n1 - n0) + " draft revision(s)");
+    results.readings.files = files;
+    results.readings.filesBox = "video=" + files.video.name + ",audio=" + files.audio.name + ",disposable=" + files.disposable.name;
+    log("FILES " + results.readings.filesBox);
+    return finish(results);
+  }
+
+  if (opts.mode === "media-held") {
+    const fx = io.fixtures, f = opts.files;
+    if (!fx || !fx.video || !fx.audio || !fx.disposable || !fx.videoB || !fx.audioB) { results.refused = ["no media fixtures were given"]; return finish(results); }
+    const pointer0 = await liveVersion(io, opts.slug);
+    for (const [role, bytes] of [["video", fx.videoB], ["audio", fx.audioB]]) {
+      const ext = f[role].split(".").pop();
+      const rep = await uploadMedia(call, opts.slug, bytes, "draft-verify " + role + " replacement." + ext, { replace: f[role] });
+      const d = rep.done && rep.done.body;
+      results.checks["held." + role + ".replace"] = !d ? fail("the replacement did not finish: " + JSON.stringify((rep.p || rep.st || {}).body || {}).slice(0, 200))
+        : d.held === true && d.replaces === f[role] && d.name !== f[role] ? pass("held in the draft as revision " + (d.draft && d.draft.revision))
+        : fail("the replacement was not held: " + JSON.stringify(d).slice(0, 240));
+      results.readings[role + "Revision"] = d && d.draft ? d.draft.revision : null;
+    }
+    const del = await call("DELETE", "/api/site/" + opts.slug + "/uploads/" + f.disposable);
+    results.checks["held.disposable.delete"] = del && del.status < 300 && del.body && del.body.held === true ? pass("the deletion is held in the draft as revision " + (del.body.draft && del.body.draft.revision))
+      : fail("the deletion was not held: " + (del ? del.status : 0) + " " + JSON.stringify(del && del.body).slice(0, 200));
+    results.readings.deleteRevision = del && del.body && del.body.draft ? del.body.draft.revision : null;
+    // A LONGER UPLOAD STARTED AND CANCELLED: one part sent, then aborted; it
+    // can no longer be completed, so nothing of it is ever kept.
+    results.checks["held.cancel"] = await cancelUpload(call, opts.slug, fx.video);
+    // LIVE: every original, byte for byte, and the disposable file still there.
+    Object.assign(results.checks, prefix("held.live.video", await playsAs(io, liveUrl(opts.slug, "/u/" + opts.slug + "/" + f.video), fx.video)));
+    Object.assign(results.checks, prefix("held.live.audio", await playsAs(io, liveUrl(opts.slug, "/u/" + opts.slug + "/" + f.audio), fx.audio)));
+    Object.assign(results.checks, prefix("held.live.disposable", await playsAs(io, liveUrl(opts.slug, "/u/" + opts.slug + "/" + f.disposable), fx.disposable)));
+    const pointer1 = await liveVersion(io, opts.slug);
+    results.checks["held.pointer"] = !pointer0 || !pointer1 ? unverified("the live version was not read both times") : pointer0 === pointer1 ? pass("the live version did not move (" + pointer0 + ")") : fail("the live version moved: " + pointer0 + " → " + pointer1);
+    // PREVIEW: both replacements at the old addresses; the deleted file gone.
+    const after = await readDraftEvidence(api, opts.slug);
+    const pv = after.ok && typeof after.state.preview === "string" ? after.state.preview.replace(/\/$/, "") : "";
+    results.readings.preview = pv || null;
+    results.readings.draftAfter = after.ok ? { state: after.state.state, revisions: after.state.revisions } : { unreadable: after.why };
+    if (!pv) results.checks["held.preview"] = unverified("the draft has no preview address");
+    else {
+      Object.assign(results.checks, prefix("held.preview.video", await playsAs(io, pv + "/u/" + opts.slug + "/" + f.video, fx.videoB)));
+      Object.assign(results.checks, prefix("held.preview.audio", await playsAs(io, pv + "/u/" + opts.slug + "/" + f.audio, fx.audioB)));
+      const gone = await io.fetchPage(pv + "/u/" + opts.slug + "/" + f.disposable, { bytes: false }).catch(() => null);
+      results.checks["held.preview.disposable"] = !gone ? unverified("the preview was not read") : gone.status === 404 ? pass("the preview answers 404 for the deleted file") : fail("the preview answered " + gone.status + " for the deleted file");
+    }
+    return finish(results);
+  }
+
+  if (opts.mode === "media-check") {
+    const fx = io.fixtures, f = opts.files;
+    if (!fx || !fx.videoB || !fx.audioB) { results.refused = ["no media fixtures were given"]; return finish(results); }
+    Object.assign(results.checks, prefix("check.live.video", await playsAs(io, liveUrl(opts.slug, "/u/" + opts.slug + "/" + f.video), fx.videoB)));
+    Object.assign(results.checks, prefix("check.live.audio", await playsAs(io, liveUrl(opts.slug, "/u/" + opts.slug + "/" + f.audio), fx.audioB)));
+    const gone = await io.fetchPage(liveUrl(opts.slug, "/u/" + opts.slug + "/" + f.disposable), { bytes: false }).catch(() => null);
+    results.checks["check.live.disposable"] = !gone ? unverified("the live address was not read") : gone.status === 404 ? pass("the disposable file answers 404 live") : fail("the disposable file answered " + gone.status + " live");
+    Object.assign(results.checks, prefix("recovery", recoveryChecks(before)));
+    return finish(results);
+  }
+
   if (opts.mode === "publish") {
     const chosen = before.state.revisions.find((r) => r.revision === opts.revision);
     const later = before.state.revisions.filter((r) => r.revision > opts.revision).map((r) => ({ revision: r.revision, version: r.version }));
@@ -229,6 +340,49 @@ export async function runDraftVerify(opts, io) {
 
 const prefix = (p, checks) => Object.fromEntries(Object.entries(checks).map(([k, v]) => [p + "." + k, v]));
 const equalBytes = (a, b) => a && b && a.length === b.length && a.every((x, i) => x === b[i]);
+
+const liveUrl = (slug, path) => "https://" + slug + ".gofarther.app" + path;
+
+/** The live site's version, from its home page's `x-site-version` header, or "". */
+async function liveVersion(io, slug) {
+  try { const r = await io.fetchPage(liveUrl(slug, "/"), { bytes: false }); return (r.headers && r.headers.get && r.headers.get("x-site-version")) || ""; } catch { return ""; }
+}
+
+/**
+ * WHETHER AN ADDRESS PLAYS `want`: the whole file byte for byte, and a range
+ * (the first 100 bytes) answered 206 with exactly those bytes — what a player
+ * asks when it seeks. Each reading not taken is unverified, never a pass.
+ */
+export async function playsAs(io, url, want) {
+  const out = {};
+  const whole = await io.fetchPage(url, { bytes: true }).catch(() => null);
+  out.whole = !whole || !whole.bytes ? unverified("not read: " + url)
+    : whole.status === 200 && equalBytes(whole.bytes, want) ? pass("200, " + want.length + " bytes, byte for byte")
+    : fail("answered " + whole.status + " with " + (whole.bytes ? whole.bytes.length : 0) + " bytes that are not the expected file");
+  const part = await io.fetchPage(url, { bytes: true, range: "bytes=0-99" }).catch(() => null);
+  const head = want.subarray(0, 100);
+  out.range = !part || !part.bytes ? unverified("the range was not read")
+    : part.status === 206 && equalBytes(part.bytes, head) ? pass("206 for bytes 0-99 (" + ((part.headers && part.headers.get && part.headers.get("content-range")) || "no content-range") + ")")
+    : fail("the range answered " + part.status + " with " + part.bytes.length + " bytes");
+  return out;
+}
+
+/** A longer upload started, one part sent, then cancelled; a completion afterwards must be refused. */
+async function cancelUpload(call, slug, head) {
+  const base = "/api/site/" + slug + "/media";
+  const size = 9 * 1024 * 1024;
+  const st = await call("POST", base, { json: { name: "draft-verify cancelled.mp4", size, type: "" } });
+  if (!st || st.status >= 300 || !st.body || typeof st.body.session !== "string") return fail("the longer upload did not start: " + (st ? st.status : 0));
+  const first = Math.min(st.body.partBytes, size);
+  // THE PART BEGINS AS A REAL MP4 DOES (the route checks a file's first bytes).
+  const part = new Uint8Array(first); part.set(head.subarray(0, Math.min(head.length, first)));
+  const p = await call("PUT", base + "/" + st.body.session + "/1", { body: part });
+  if (!p || p.status >= 300) return fail("its first part was not taken: " + (p ? p.status : 0));
+  const ab = await call("DELETE", base + "/" + st.body.session);
+  if (!ab || ab.status >= 300) return fail("the cancel answered " + (ab ? ab.status : 0));
+  const late = await call("POST", base + "/" + st.body.session + "/complete", { json: { parts: [{ n: 1, etag: p.body && p.body.etag }] } });
+  return late && late.status >= 400 ? pass("cancelled after one part; a completion afterwards was refused (" + late.status + ")") : fail("the cancelled upload still completed (" + (late ? late.status : 0) + ")");
+}
 
 async function uploadMedia(call, slug, bytes, name, extra) {
   const base = "/api/site/" + slug + "/media";
@@ -276,13 +430,15 @@ async function main() {
     try { parsed = JSON.parse(text); } catch { parsed = null; }
     return { status: r.status, body: parsed };
   };
-  const fetchPage = async (url, { bytes = false } = {}) => {
-    const r = await fetch(url, { redirect: "manual" });
+  const fetchPage = async (url, { bytes = false, range = "" } = {}) => {
+    const r = await fetch(url, { redirect: "manual", headers: range ? { range } : {} });
     return { status: r.status, headers: r.headers, ...(bytes ? { bytes: new Uint8Array(await r.arrayBuffer()) } : {}) };
   };
   const tone = new Uint8Array(fs.readFileSync(new URL("../test/fixtures/media/tone.mp3", import.meta.url)));
   const other = new Uint8Array(tone); for (let i = other.length - 64; i < other.length; i++) other[i] ^= 0x5a;
-  const r = await runDraftVerify(boxes.opts, { call, fetchPage, sleep: (ms) => new Promise((ok) => setTimeout(ok, ms)), now: () => Date.now(), log: (l) => console.log(l), media: { bytes: tone, other, name: "draft-verify tone.mp3" } });
+  const fixture = (f) => new Uint8Array(fs.readFileSync(new URL("../test/fixtures/media/" + f, import.meta.url)));
+  const fixtures = { video: fixture("clip.mp4"), audio: tone, disposable: fixture("tone.m4a"), videoB: fixture("clip-b.mp4"), audioB: fixture("tone-b.mp3") };
+  const r = await runDraftVerify(boxes.opts, { call, fetchPage, sleep: (ms) => new Promise((ok) => setTimeout(ok, ms)), now: () => Date.now(), log: (l) => console.log(l), media: { bytes: tone, other, name: "draft-verify tone.mp3" }, fixtures });
   out(r);
 }
 

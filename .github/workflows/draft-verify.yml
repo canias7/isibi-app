@@ -27,11 +27,11 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "Mode: rehearsal (read-only) · send (PAID, one message) · media (writes a test recording) · publish (PUBLISHES the named revision) · recovery (read-only)"
+        description: "Mode: rehearsal (read-only) · send (PAID, one message) · media (writes a test recording) · publish (PUBLISHES the named revision) · recovery (read-only) · media-setup (uploads the video, audio and disposable fixtures) · media-held (replaces the two, deletes the disposable, cancels an upload; all held) · media-check (read-only, after Publish)"
         required: true
         default: rehearsal
         type: choice
-        options: [rehearsal, send, media, publish, recovery]
+        options: [rehearsal, send, media, publish, recovery, media-setup, media-held, media-check]
       site:
         description: "Site slug (an existing site of the building account; never a help-needed fixture for send, media or publish)"
         required: true
@@ -57,7 +57,7 @@ on:
         required: false
         default: ""
       mutate:
-        description: "Write a test recording to the site's library? Type yes for media"
+        description: "Write to the site's library? Type yes for media, media-setup and media-held"
         required: false
         default: ""
       publish:
@@ -72,6 +72,10 @@ on:
         description: "send only: the builder model"
         required: false
         default: grok
+      files:
+        description: "media-held and media-check only: the FILES line media-setup printed (video=…,audio=…,disposable=…)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -103,6 +107,7 @@ jobs:
           DV_PUBLISH: ${{ github.event.inputs.publish }}
           DV_REVISION: ${{ github.event.inputs.revision }}
           DV_PICKER: ${{ github.event.inputs.picker }}
+          DV_FILES: ${{ github.event.inputs.files }}
         run: node scripts/draft-verify.mjs
       - name: keep the evidence
         if: always()

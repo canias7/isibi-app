@@ -15,6 +15,9 @@
 //   DV4  media: a recording replaced under draft-first through the real
 //        routes is held, the live address plays the original, the preview the
 //        replacement
+//   DV6  the live batch's media modes: setup, held (replacements, deletion,
+//        cancel), and the check after Publish, through the real Worker
+//   DV7  each new media check fails on the wrong answer it guards against
 //   DV5  missing evidence is unverified, never a pass; moneyCheck reads a
 //        missing balance as unverified and an overspend as a failure
 import test from "node:test";
@@ -180,6 +183,113 @@ test("DV4 MEDIA — a recording replaced under draft-first through the real rout
     const r = await runDraftVerify({ mode: "media", slug, mutate: "yes" }, io);
     for (const k of ["media.upload", "media.held", "media.live", "media.preview"]) assert.equal(r.checks[k] && r.checks[k].verdict, "pass", k + ": " + JSON.stringify(r.checks[k]));
   });
+});
+
+// ── DV6 (2026-10-17, the live batch's media) ─────────────────────────────────
+
+test("DV6 THE LIVE BATCH'S MEDIA — media-setup uploads the video, audio and disposable fixtures (each served live whole and by range, none held, no revision saved, the FILES line printed); media-held holds both replacements and the deletion, cancels a longer upload, keeps live byte for byte and the pointer still, while the preview plays the replacements and 404s the deleted file; media-check reads the published state; refusals write nothing", async () => {
+  const worker = await loadWorker();
+  const slug = "dv-media-batch";
+  const store = mediaBucket();
+  const env = { ...envFor(store), DRAFT_FIRST: "on", IMAGE_PURCHASES: "off", SITE_WORKERS: { get: () => ({ fetch: async () => new Response("page", { headers: { "x-site-version": "01790500000000-aaaaaa" } }) }) } };
+  const pre = buildPrefix(slug, "01790500000000-aaaaaa");
+  await store.put(pre + MANIFEST_FILE, JSON.stringify({ files: ["index.html"], worker: true, build: "b0" }));
+  await store.put(pre + SERVER_FILE, "export default {}");
+  await store.put("current/" + slug + ".json", JSON.stringify({ version: "01790500000000-aaaaaa", build: "b0", parent: "", job: null, activatedAt: "x" }));
+  const fx = (f) => new Uint8Array(readFileSync(new URL("./fixtures/media/" + f, import.meta.url)));
+  const fixtures = { video: fx("clip.mp4"), audio: fx("tone.mp3"), disposable: fx("tone.m4a"), videoB: fx("clip-b.mp4"), audioB: fx("tone-b.mp3") };
+  assert.ok(fixtures.videoB.length !== fixtures.video.length || fixtures.videoB.some((x, i) => x !== fixtures.video[i]), "the replacement video is the original: this case tests nothing");
+  await withWire({}, async () => {
+    const send = async (method, host, path, { json, body, range } = {}) => {
+      const init = { method, headers: { Authorization: "Bearer t" } };
+      if (range) init.headers.range = range;
+      if (json !== undefined) { init.body = JSON.stringify(json); init.headers["content-type"] = "application/json"; }
+      if (body !== undefined) { init.body = body; init.headers["content-length"] = String(body.length); }
+      const res = await worker.fetch(new Request("https://" + host + path, init), env, makeCtx());
+      const buf = new Uint8Array(await res.arrayBuffer());
+      let parsed = null; try { parsed = JSON.parse(new TextDecoder().decode(buf)); } catch { parsed = null; }
+      return { status: res.status, body: parsed, bytes: buf, headers: res.headers };
+    };
+    const lines = [];
+    const io = {
+      call: (method, path, o) => send(method, "gofarther.dev", path, o),
+      fetchPage: async (url, o = {}) => { const u = new URL(url); return send("GET", u.host, u.pathname, { range: o.range }); },
+      sleep: async () => {}, now: () => Date.now(), log: (l) => lines.push(l), fixtures,
+    };
+    // REFUSALS FIRST: no mutate, and the FILES box missing — nothing written.
+    assert.equal((await runDraftVerify({ mode: "media-setup", slug, mutate: "" }, io)).exit, 2);
+    assert.equal(store.calls.filter((c) => c === "createMultipartUpload").length, 0, "a refused setup wrote to the library");
+    assert.equal(readBoxes({ DV_MODE: "media-held", DV_SITE: slug, DV_MUTATE: "yes" }).ok, false, "media-held ran without its FILES box");
+    assert.equal(readBoxes({ DV_MODE: "media-setup", DV_SITE: slug, DV_FILES: "video=" + "a".repeat(32) + ".mp4" }).ok, false, "a FILES box beside media-setup was taken");
+    // SETUP.
+    const set = await runDraftVerify({ mode: "media-setup", slug, mutate: "yes" }, io);
+    for (const [k, c] of Object.entries(set.checks)) if (k.startsWith("setup.")) assert.equal(c.verdict, "pass", k + ": " + JSON.stringify(c));
+    for (const role of ["video", "audio", "disposable"]) for (const k of ["upload", "notHeld", "live.whole", "live.range"]) assert.ok(set.checks["setup." + role + "." + k], "no " + role + " " + k + " check");
+    assert.equal(set.checks["setup.noRevision"].verdict, "pass");
+    const filesLine = lines.find((l) => l.startsWith("FILES "));
+    assert.ok(filesLine, "the FILES line was not printed");
+    const boxes = readBoxes({ DV_MODE: "media-held", DV_SITE: slug, DV_MUTATE: "yes", DV_FILES: filesLine.slice(6) });
+    assert.equal(boxes.ok, true, JSON.stringify(boxes));
+    // HELD.
+    const held = await runDraftVerify(boxes.opts, io);
+    for (const [k, c] of Object.entries(held.checks)) if (k.startsWith("held.")) assert.equal(c.verdict, "pass", k + ": " + JSON.stringify(c));
+    for (const k of ["held.video.replace", "held.audio.replace", "held.disposable.delete", "held.cancel", "held.live.video.whole", "held.live.audio.range", "held.live.disposable.whole", "held.pointer", "held.preview.video.whole", "held.preview.audio.range", "held.preview.disposable"]) assert.ok(held.checks[k], "no " + k + " check");
+    // THE READER IS ALIVE: before Publish, media-check fails (live still plays the originals, the disposable file is still there).
+    const early = await runDraftVerify(readBoxes({ DV_MODE: "media-check", DV_SITE: slug, DV_FILES: filesLine.slice(6) }).opts, io);
+    assert.deepEqual([early.checks["check.live.video.whole"].verdict, early.checks["check.live.audio.whole"].verdict, early.checks["check.live.disposable"].verdict], ["fail", "fail", "fail"], JSON.stringify(early.checks));
+    // PUBLISH THE NEWEST, THEN CHECK.
+    const revs = held.readings.draftAfter.revisions;
+    const newest = revs[revs.length - 1];
+    const pub = await io.call("POST", "/api/site/" + slug + "/publish", { json: { revision: newest.revision, version: newest.version } });
+    assert.ok(pub.status < 300, "publish answered " + pub.status + " " + JSON.stringify(pub.body));
+    await io.call("GET", "/api/site/" + slug + "/draft?inspect=1");
+    const checkBoxes = readBoxes({ DV_MODE: "media-check", DV_SITE: slug, DV_FILES: filesLine.slice(6) });
+    const chk = await runDraftVerify(checkBoxes.opts, io);
+    for (const k of ["check.live.video.whole", "check.live.video.range", "check.live.audio.whole", "check.live.audio.range", "check.live.disposable"]) assert.equal(chk.checks[k] && chk.checks[k].verdict, "pass", k + ": " + JSON.stringify(chk.checks[k]));
+  });
+});
+
+test("DV7 EACH MEDIA CHECK FAILS ON A WRONG ANSWER — a range answered 200 is no seek; a new upload held, a deleted file the preview still serves, a cancelled upload that still completes and a live version that moved each fail, never pass", async () => {
+  const fx = (f) => new Uint8Array(readFileSync(new URL("./fixtures/media/" + f, import.meta.url)));
+  const fixtures = { video: fx("clip.mp4"), audio: fx("tone.mp3"), disposable: fx("tone.m4a"), videoB: fx("clip-b.mp4"), audioB: fx("tone-b.mp3") };
+  const N = (c) => c.repeat(32);
+  const files = { video: N("a") + ".mp4", audio: N("b") + ".mp3", disposable: N("c") + ".m4a" };
+  // ONE SCRIPTED SERVER, WRONG IN EVERY WAY THE CHECKS GUARD.
+  let version = 0;
+  const bytesAt = (url) => /--draft-/.test(url)
+    ? (url.endsWith(files.video) ? fixtures.videoB : url.endsWith(files.audio) ? fixtures.audioB : fixtures.disposable)
+    : (url.endsWith(files.video) ? fixtures.video : url.endsWith(files.audio) ? fixtures.audio : fixtures.disposable);
+  let uploads = 0;
+  const io = {
+    sleep: async () => {}, now: () => Date.now(), log: () => {}, fixtures,
+    call: async (method, path, o = {}) => {
+      if (path.startsWith("/api/site/runtime")) return { status: 200, body: { draftFirst: true, parallelWrites: true, imagePurchases: false } };
+      if (path === "/api/credits") return { status: 200, body: { balance: 50 } };
+      if (path.includes("/draft?inspect=1")) return { status: 200, body: { ok: true, inspect: {}, state: "idle", revision: 3, applied: 0, revisions: [], preview: "https://s--draft-t.gofarther.app/" } };
+      if (method === "POST" && /\/media$/.test(path)) return { status: 200, body: { session: "s" + (++uploads), parts: 1, partBytes: 8 * 1024 * 1024 } };
+      if (method === "PUT") return { status: 200, body: { etag: "e" } };
+      if (method === "DELETE" && path.includes("/media/")) return { status: 200, body: { ok: true } };
+      if (method === "DELETE") return { status: 200, body: { ok: true, held: true, draft: { revision: 4 } } };
+      if (path.endsWith("/complete")) {
+        return { status: 200, body: { ok: true, name: N(String(uploads % 10)) + ".mp4", url: "/u/s/x.mp4", held: true, replaces: uploads <= 2 ? [files.video, files.audio][uploads - 1] : undefined, draft: { revision: 3 } } };
+      }
+      return { status: 404, body: null };
+    },
+    fetchPage: async (url, o = {}) => {
+      if (url.endsWith("/")) return { status: 200, headers: new Headers({ "x-site-version": "v" + (version++) }) };
+      const b = bytesAt(url);
+      // A RANGE ANSWERED 200 WITH THE WHOLE FILE; the deleted file still served.
+      return { status: 200, headers: new Headers(), bytes: o.range ? b : b };
+    },
+  };
+  const held = await runDraftVerify({ mode: "media-held", slug: "s", mutate: "yes", files }, io);
+  assert.equal(held.checks["held.live.video.range"].verdict, "fail", "a range answered 200 passed as a seek");
+  assert.equal(held.checks["held.preview.disposable"].verdict, "fail", "a deleted file the preview still serves passed");
+  assert.equal(held.checks["held.cancel"].verdict, "fail", "a cancelled upload that still completed passed");
+  assert.equal(held.checks["held.pointer"].verdict, "fail", "a live version that moved passed");
+  // A NEW UPLOAD THAT CAME BACK HELD.
+  const set = await runDraftVerify({ mode: "media-setup", slug: "s", mutate: "yes" }, io);
+  assert.equal(set.checks["setup.video.notHeld"].verdict, "fail", "a held new upload passed");
 });
 
 // ── DV5 ─────────────────────────────────────────────────────────────────────
