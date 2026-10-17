@@ -31,7 +31,9 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { blockNetwork } from "./fixtures/no-network.mjs";
 import { gatewayBucketFor } from "./fixtures/job-gateway-wire.mjs";
-import { allowedJobKey, allowedJobPrefix, ownBuildMarker, preScopeSlug } from "../builder/job-gateway.mjs";
+import { allowedJobKey, allowedJobPrefix, ownBuildMarker, preScopeSlug, readableJobKey } from "../builder/job-gateway.mjs";
+import { recordKey } from "../builder/request.mjs";
+import { turnKey } from "../builder/publish-turn.mjs";
 import {
   DRAFT_KEY, HELD_KEY, HELD_SUM_KEY, PREVIEW_UP_KEY, PREVIEW_CLAIMS_PREFIX, PUBLISHING_KEY,
   saveAsDraft, readDraft, newHold, sealHeldRevision, unpublishedOps, markPreviewUp, readPreviewUp,
@@ -88,7 +90,7 @@ function depsOver(b) {
 }
 
 test("JGD1 THE WALL, BY RULE — exactly the job's own draft records; never another site's, a pre-scoped job's, the publication's journal, or a malformed key", () => {
-  const own = [DRAFT_KEY(SLUG), HELD_KEY(SLUG, J24), HELD_SUM_KEY(SLUG), PREVIEW_UP_KEY(SLUG), PREVIEW_CLAIMS_PREFIX(SLUG) + "0179060000000-abcdef012345.json", "scriptpending/" + SLUG + "/0f8fad5b-d9cb-469f-a165-70867728950e.json"];
+  const own = [DRAFT_KEY(SLUG), HELD_KEY(SLUG, J24), HELD_SUM_KEY(SLUG), PREVIEW_UP_KEY(SLUG), PREVIEW_CLAIMS_PREFIX(SLUG) + "0179060000000-abcdef012345.json", "scriptpending/" + SLUG + "/0f8fad5b-d9cb-469f-a165-70867728950e.json", turnKey(SLUG)];
   for (const k of own) assert.equal(allowedJobKey(SLUG, ID, k), true, "the job may not touch its own " + k);
   const refused = [
     DRAFT_KEY("fold-lane-2"), HELD_KEY("fold-lane-2", J24), HELD_SUM_KEY("fold-lane-2"), PREVIEW_UP_KEY("fold-lane-2"),
@@ -96,8 +98,17 @@ test("JGD1 THE WALL, BY RULE — exactly the job's own draft records; never anot
     "site-drafts/" + SLUG + "/held/" + J24 + ".json.bak", "site-drafts/" + SLUG + "/held/x/" + J24 + ".json", "site-drafts/" + SLUG + "/held/../" + SLUG + ".json",
     "site-drafts/" + SLUG + "/replacing/abc.json", "site-drafts/" + SLUG + "/other.json", PUBLISHING_KEY(SLUG), "site-publishing/" + SLUG + "/x.json",
     "preview-up/" + SLUG + "-2.json", "scriptpending/" + SLUG + "/not-a-uuid.json", "scriptpending/fold-lane-2/0f8fad5b-d9cb-469f-a165-70867728950e.json", "scriptpending/" + SLUG + ".json",
+    // THE PUBLISH TURN (2026-10-17): its own site's only, by the real key builder.
+    turnKey("fold-lane-2"), "publish-turn/" + SLUG + "-2.json", "publish-turn/" + SLUG + "/x.json", "publish-turn/" + SLUG + ".json.bak",
   ];
   for (const k of refused) assert.equal(allowedJobKey(SLUG, ID, k), false, "the wall let through " + k);
+  // A REQUEST RECORD OF ITS OWN SITE: READ, NEVER WRITTEN (2026-10-17, found
+  // live). The key is the real producer's (`recordKey`).
+  const rq = recordKey(SLUG, "rq" + "a".repeat(20));
+  assert.equal(readableJobKey(SLUG, rq), true, "a job may not read its own site's request record");
+  assert.equal(allowedJobKey(SLUG, ID, rq), false, "a job may WRITE a request record");
+  for (const k of [recordKey("fold-lane-2", "rq" + "a".repeat(20)), "requests/" + SLUG + "/rq" + "a".repeat(20) + "/reply.json", "requests/" + SLUG + "/rq" + "a".repeat(20) + "/files/1/x.png", "requests/" + SLUG + "/short.json", "requests/" + SLUG + "-2/rq" + "a".repeat(20) + ".json"]) assert.equal(readableJobKey(SLUG, k), false, "the read-only rule let through " + k);
+  assert.equal(readableJobKey(preScopeSlug(ID), recordKey(preScopeSlug(ID), "rq" + "a".repeat(20)), true), false, "a pre-scoped job may read a request record");
   // A PRE-SCOPED JOB (a first build with no name yet) has no site's records at all.
   for (const k of own) assert.equal(allowedJobKey(preScopeSlug(ID), ID, k, true), false, "a pre-scoped job may touch " + k);
   assert.equal(allowedJobKey(preScopeSlug(ID), ID, DRAFT_KEY(preScopeSlug(ID)), true), false);

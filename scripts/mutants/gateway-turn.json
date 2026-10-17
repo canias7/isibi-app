@@ -1,0 +1,8 @@
+[
+  {"label": "CONTROL: a comment only — must survive", "control": true, "files": ["builder/job-gateway.mjs"], "from": "  if (k === \"publish-turn/\" + slug + \".json\") return true;", "to": "  // comment-only control\n  if (k === \"publish-turn/\" + slug + \".json\") return true;"},
+  {"label": "G1 the turn is refused again", "files": ["builder/job-gateway.mjs"], "from": "  if (k === \"publish-turn/\" + slug + \".json\") return true;", "to": ""},
+  {"label": "G2 any site's turn is admitted", "files": ["builder/job-gateway.mjs"], "from": "  if (k === \"publish-turn/\" + slug + \".json\") return true;", "to": "  if (k.startsWith(\"publish-turn/\")) return true;"},
+  {"label": "G3 another site's request record is readable", "files": ["builder/job-gateway.mjs"], "from": "  return !!m && m[1] === slug;", "to": "  return !!m;"},
+  {"label": "G4 a pre-scoped job reads request records", "files": ["builder/job-gateway.mjs"], "from": "  if (pre === true || !SLUG_RE.test(String(slug || \"\"))) return false;", "to": "  if (!SLUG_RE.test(String(slug || \"\"))) return false;"},
+  {"label": "G5 the read-only rule is not consulted on a read", "files": ["builder/job-gateway.mjs"], "from": " && !readableJobKey(who.slug, key, pre)) return refuse(key);", "to": ") return refuse(key);"}
+]

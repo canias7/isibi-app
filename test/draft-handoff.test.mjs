@@ -23,6 +23,7 @@
 // reaches a network, a container, a model or money. Each one fails on the
 // earlier wiring, where `jobSecrets` dropped `DRAFT_FIRST`.
 import test from "node:test";
+import { turnKey } from "../builder/publish-turn.mjs";
 import assert from "node:assert/strict";
 import { platform, sendMessage, settle, tick, pump, call, T } from "./fixtures/request-flow.mjs";
 import { blockNetwork } from "./fixtures/no-network.mjs";
@@ -129,6 +130,10 @@ const LOAVES = { name: "loaves", columns: [{ name: "name", type: "text" }, { nam
 const ROUTE_TEXT = { intent: "edit", layer: "text", page: "/visit", targets: [{ change: 0, writes: ["page:/visit"] }] };
 const ROUTE_DATA = { intent: "edit", layer: "data", targets: [{ change: 0, writes: ["data:loaves"] }] };
 const ROUTE_ADD = { intent: "addon" };
+// MESSAGE A'S SHAPE (2026-10-17, the first live request on deploy 2215): a
+// page line and a price, two parts whose targets do not conflict.
+const RYE_PART = "And make the Dark Rye £5.60.";
+const ROUTE_BOTH = { intent: "edit", layer: "text", page: "/visit", alsoAsked: [RYE_PART], targets: [{ change: 0, writes: ["page:/visit"] }, { change: 1, writes: ["data:loaves"] }] };
 const GIFT = "import { createFileRoute } from '@tanstack/react-router';\nexport const Route = createFileRoute('/gift-vouchers')({ component: Page });\nfunction Page() { return (<main><h1>Gift vouchers</h1><p>Give a loaf.</p></main>); }\n";
 const lineId = (args, file, line) => {
   const at = String(args.messages[0].content).split("\n").find((l) => l.includes("[" + file + "] " + line));
@@ -139,10 +144,13 @@ function firedBakery(name) {
   const compiler = installCompiler();
   const db = rowsDb({ tables: { loaves: { columns: LOAF_COLUMNS, rows: BAKERY_LOAVES, next: 12 } }, meta: { schema: JSON.stringify({ tables: [LOAVES] }) } });
   const said = (args) => String(args.messages[0].content);
+  let bothRouted = 0;
   const P = platform({
     slug: slugOf(name), pages: PAGES2, db, liveScripts: true, balance: 400,
     answers: {
-      route: (args) => (/TikTok/.test(said(args)) ? ROUTE_TEXT : /Gift/.test(said(args)) ? ROUTE_ADD : ROUTE_DATA),
+      // THE WHOLE MESSAGE IS ROUTED ONCE (two parts); the price part's own
+      // routing, which carries the message as context, answers data.
+      route: (args) => (/TikTok/.test(said(args)) && /Dark Rye/.test(said(args)) ? (bothRouted++ === 0 ? ROUTE_BOTH : ROUTE_DATA) : /TikTok/.test(said(args)) ? ROUTE_TEXT : /Gift/.test(said(args)) ? ROUTE_ADD : ROUTE_DATA),
       [T.text]: (args) => (/@harbourloafbakery/.test(said(args)) ? { edits: [{ id: lineId(args, "visit.tsx", TT_TO), to: TT_LATER }] } : { edits: [{ id: lineId(args, "visit.tsx", TT_FROM), to: TT_TO }] }),
       write_row_changes: (args) => {
         const asked = (said(args).split("WHAT THEY ASKED FOR\n")[1] || "").split("\n")[0];
@@ -272,6 +280,32 @@ test("DH3c CONTROL — the same Edit fired into the container with DRAFT_FIRST u
     assert.notEqual(liveVersion(P), v0, "the page change did not go live with the switch off");
     assert.equal(price(db, 2), 5.6, "the row change did not go live with the switch off");
     assert.match(P.page("visit.tsx"), /@harbourloafbakery/, "the page change was not stored with the switch off");
+  } finally { await finished(P, compiler); }
+});
+
+test("DH6 PARALLEL WRITES IN THE CONTAINER, THROUGH THE REAL GATEWAY (found live on deploy 2215) — with DRAFT_FIRST and PARALLEL_WRITES on, one message with a page line and a price becomes two parts whose jobs run in the container beside each other: each takes the site's publish turn through the gateway, nothing is refused, both end done as draft revisions, and nothing live moves", async () => {
+  const { P, db, compiler, ns } = firedBakery("beside-on");
+  try {
+    const worker = await loadWorkerModule();
+    const first = await sendFired(P, ns, worker, TIKTOK);
+    assert.equal(first.jobs[0].state, "done", JSON.stringify(first.jobs[0].result).slice(0, 300));
+    const v0 = liveVersion(P);
+    assert.ok(v0, "the first edit published nothing — nothing here tests a live site");
+    const live0 = P.liveScript();
+    const price0 = price(db, 2);
+    Object.assign(P.env, { DRAFT_FIRST: "on", PARALLEL_WRITES: "on", PUBLISH_TURN_POLL_MS: "5" });
+    const both = await sendFired(P, ns, worker, TIKTOK_LATER + " " + RYE_PART);
+    const keys = both.jobs.map((j) => j.idem_key);
+    assert.ok(keys.some((k) => /-p0-/.test(k)) && keys.some((k) => /-p1-/.test(k)), "the message did not become two parts: " + JSON.stringify(keys));
+    for (const j of both.jobs) assert.equal(j.state, "done", j.op + " " + j.idem_key + ": " + JSON.stringify(j.result).slice(0, 400));
+    assert.deepEqual(P.record(both.r.key).parts.map((p) => p.status), ["done", "done"], JSON.stringify(P.record(both.r.key).parts.map((p) => [p.status, p.why])));
+    // THE TURN WAS TAKEN THROUGH THE GATEWAY (the object exists, written by a container job).
+    assert.ok(P.readObj(turnKey(P.slug)), "no job took the site's publish turn");
+    const d = draftOf(P);
+    assert.ok(d && d.rev === 2, "the two parts did not each save a draft revision: " + JSON.stringify(d && d.revs));
+    assert.equal(liveVersion(P), v0, "the live pointer moved before Publish");
+    assert.equal(P.liveScript(), live0, "the live script changed before Publish");
+    assert.equal(price(db, 2), price0, "the live price changed before Publish");
   } finally { await finished(P, compiler); }
 });
 

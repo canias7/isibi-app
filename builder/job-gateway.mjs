@@ -356,6 +356,21 @@ export function jobPrefixes(slug) {
  * (stage 5b) the answer is the job's own objects and nothing of any site —
  * not even the placeholder's prefixes, since a pre-scoped job has no site.
  */
+/**
+ * WHAT A JOB MAY READ BUT NEVER WRITE (2026-10-17, found live on deploy 2215):
+ * a request record of its own site (`requests/<slug>/<key>.json`,
+ * builder/request.mjs `recordKey`). A job running beside others of its request
+ * reads the record to know which jobs are its request's (`mayWriteSite`); the
+ * Worker alone writes it (the gateway's `next` op asks the Worker to step it).
+ * Never another site's, never a pre-scoped job, never a request's files or
+ * reply under the record's own prefix.
+ */
+const REQUEST_RECORD_RE = /^requests\/([a-z0-9][a-z0-9-]{0,80})\/[A-Za-z0-9_-]{16,64}\.json$/;
+export function readableJobKey(slug, key, pre = false) {
+  if (pre === true || !SLUG_RE.test(String(slug || ""))) return false;
+  const m = REQUEST_RECORD_RE.exec(String(key || ""));
+  return !!m && m[1] === slug;
+}
 export function allowedJobKey(slug, id, key, pre = false) {
   const k = String(key || "");
   if (!k || !SLUG_RE.test(String(slug || "")) || !ID_RE.test(String(id || ""))) return false;
@@ -393,6 +408,14 @@ export function allowedJobKey(slug, id, key, pre = false) {
   // claim (site-draft.mjs `PREVIEW_UP_KEY`); refused here, `markPreviewUp`
   // answered false in every container job.
   if (k === "preview-up/" + slug + ".json") return true;
+  // THE SITE'S PUBLISH TURN (2026-10-17, found live on deploy 2215): with
+  // PARALLEL_WRITES on, a job running beside others of its request takes
+  // the turn (builder/publish-turn.mjs `turnKey`) before it reads the site,
+  // and gives it back after its publish. Refused here, every container job
+  // of such a request waited for a turn it could never read until its budget
+  // ran out — both jobs of the first live request, 30 minutes, nothing done.
+  // Its own site's turn only; another site's stays refused.
+  if (k === "publish-turn/" + slug + ".json") return true;
   // THE SITE'S DRAFT (2026-10-16, Codex's review of `668ebc87`): under
   // draft-first a job saves its work as the draft's next revision — the
   // record (`DRAFT_KEY`), the immutable journal of its held changes
@@ -786,7 +809,7 @@ export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scop
     const refuse = (k) => { log("out-of-scope", { id: who.id, slug: who.slug, key: k, ...(pre ? { pre: true } : {}) }); return json(403, { error: "key not in this job's scope", key: k }); };
 
     if (tail === "/r2" && (request.method === "GET" || request.method === "HEAD")) {
-      if (!allowedJobKey(who.slug, who.id, key, pre) && !ownBuildMarker(who, key)) return refuse(key);
+      if (!allowedJobKey(who.slug, who.id, key, pre) && !ownBuildMarker(who, key) && !readableJobKey(who.slug, key, pre)) return refuse(key);
       const obj = request.method === "HEAD" ? await bucket.head(key) : await bucket.get(key);
       if (!obj) return new Response(null, { status: 404 });
       const headers = metaHeaders(obj);
