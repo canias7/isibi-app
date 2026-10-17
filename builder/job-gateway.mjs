@@ -388,11 +388,48 @@ export function allowedJobKey(slug, id, key, pre = false) {
   // `claimPreview`); a job saving its own site's draft writes, lists and
   // removes them.
   if (k.startsWith("preview-claims/" + slug + "/")) return true;
+  // …AND WHAT IT CONFIRMED (2026-10-16, Codex's review of `668ebc87`): a save
+  // that confirmed its preview records the version as up before it drops its
+  // claim (site-draft.mjs `PREVIEW_UP_KEY`); refused here, `markPreviewUp`
+  // answered false in every container job.
+  if (k === "preview-up/" + slug + ".json") return true;
+  // THE SITE'S DRAFT (2026-10-16, Codex's review of `668ebc87`): under
+  // draft-first a job saves its work as the draft's next revision — the
+  // record (`DRAFT_KEY`), the immutable journal of its held changes
+  // (`HELD_KEY`, named by a 24-hex id) and the cumulative record of the
+  // unpublished ones (`HELD_SUM_KEY`). Each refused here, every container
+  // job failed its save ("draft: gateway get 403"). Exactly those keys of the
+  // job's own site: never the publication's journal (`site-publishing/`,
+  // the owner's Publish only), never another site's, never a pre-scoped job's.
+  if (k === "site-drafts/" + slug + ".json") return true;
+  if (k === "site-drafts/" + slug + "/held-sum.json") return true;
+  if (k.startsWith("site-drafts/" + slug + "/held/") && /^[a-f0-9]{24}\.json$/.test(k.slice(("site-drafts/" + slug + "/held/").length))) return true;
   if (k === "orphans/" + slug + ".json") return true;
+  // A LIVE PUBLICATION'S SCRIPT NOTE (found 2026-10-16 by the fired-job cases
+  // run through the real gateway): written, renewed and retired immediately
+  // around the site script's upload (worker.js `scriptPendingKey`, a UUID
+  // under the site's own prefix); refused, every container job's publish
+  // stopped before uploading. Only that shape, only this site's.
+  if (k.startsWith("scriptpending/" + slug + "/") && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/.test(k.slice(("scriptpending/" + slug + "/").length))) return true;
   // The job's own objects: the request it replays, its result, its resume
   // record — every one named by the job's id, none by anybody else's.
   if (k.startsWith("jobs/") && k.includes(String(id))) return true;
   return false;
+}
+
+/**
+ * A BUILD'S OWN MARKER IN ITS OWNER'S LISTING (found 2026-10-16 by the
+ * container Build run through the real gateway): `builds-live/<uid>/<id>.json`
+ * and its kept answer `<id>.done.json` (builder/build-live.mjs
+ * `buildLiveKey`, `buildKeptKey`) — the job's own id under the uid its token
+ * was minted for, never another account's, never another job's. Refused, a
+ * container build could not keep its final answer for a later read.
+ */
+export function ownBuildMarker(who, key) {
+  if (!who || typeof who.uid !== "string" || !/^[A-Za-z0-9-]{1,64}$/.test(who.uid) || !ID_RE.test(String(who.id || ""))) return false;
+  const root = "builds-live/" + who.uid + "/" + who.id;
+  const k = String(key || "");
+  return k === root + ".json" || k === root + ".done.json";
 }
 
 /** May a job list under `prefix`? Only inside a prefix it may touch at all. */
@@ -401,9 +438,10 @@ export function allowedJobPrefix(slug, id, prefix, pre = false) {
   if (!p) return false;
   if (pre === true) return allowedJobKey(slug, id, p, true);
   if (jobPrefixes(slug).some((own) => p.startsWith(own))) return true;
+  // ITS OWN SITE'S SCRIPT NOTES AND PREVIEW CLAIMS, listed by the site's prefix.
+  if (SLUG_RE.test(String(slug || "")) && (p === "scriptpending/" + slug + "/" || p === "preview-claims/" + slug + "/")) return true;
   return allowedJobKey(slug, id, p);
 }
-
 // ── METADATA ON THE WIRE ────────────────────────────────────────────────────
 
 const HTTP_FIELDS = ["contentType", "contentLanguage", "contentDisposition", "contentEncoding", "cacheControl", "cacheExpiry"];
@@ -748,7 +786,7 @@ export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scop
     const refuse = (k) => { log("out-of-scope", { id: who.id, slug: who.slug, key: k, ...(pre ? { pre: true } : {}) }); return json(403, { error: "key not in this job's scope", key: k }); };
 
     if (tail === "/r2" && (request.method === "GET" || request.method === "HEAD")) {
-      if (!allowedJobKey(who.slug, who.id, key, pre)) return refuse(key);
+      if (!allowedJobKey(who.slug, who.id, key, pre) && !ownBuildMarker(who, key)) return refuse(key);
       const obj = request.method === "HEAD" ? await bucket.head(key) : await bucket.get(key);
       if (!obj) return new Response(null, { status: 404 });
       const headers = metaHeaders(obj);
@@ -756,7 +794,7 @@ export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scop
       return new Response(obj.body, { status: 200, headers });
     }
     if (tail === "/r2" && request.method === "PUT") {
-      if (!allowedJobKey(who.slug, who.id, key, pre)) return refuse(key);
+      if (!allowedJobKey(who.slug, who.id, key, pre) && !ownBuildMarker(who, key)) return refuse(key);
       const meta = readMetaHeaders(request.headers);
       const onlyIf = readOnlyIf(request.headers);
       const opts = {};
@@ -771,7 +809,7 @@ export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scop
       return json(200, listEntry(put));
     }
     if (tail === "/r2" && request.method === "DELETE") {
-      if (!allowedJobKey(who.slug, who.id, key, pre)) return refuse(key);
+      if (!allowedJobKey(who.slug, who.id, key, pre) && !ownBuildMarker(who, key)) return refuse(key);
       await bucket.delete(key);
       return new Response(null, { status: 204 });
     }
@@ -780,7 +818,7 @@ export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scop
       try { body = await request.json(); } catch { body = null; }
       const keys = body && Array.isArray(body.keys) ? body.keys.map(String) : null;
       if (!keys) return json(400, { error: "keys" });
-      for (const k of keys) if (!allowedJobKey(who.slug, who.id, k, pre)) return refuse(k);
+      for (const k of keys) if (!allowedJobKey(who.slug, who.id, k, pre) && !ownBuildMarker(who, k)) return refuse(k);
       if (keys.length) await bucket.delete(keys);
       return new Response(null, { status: 204 });
     }

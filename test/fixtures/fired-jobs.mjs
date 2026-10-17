@@ -14,16 +14,40 @@
 // Supabase pair stays because a container's env carries a marker for each.
 import { readLaunch } from "../../builder/container-job.mjs";
 import { jobSecrets } from "../../builder/edit-job.mjs";
+import { makeContainerEnv } from "../../builder/container-env.mjs";
+import { workerGatewayFetch } from "./job-gateway-wire.mjs";
 
 /** The names a container env sets itself (`makeContainerEnv`), not from the launch. */
 const CONTAINER_OWN = ["SUPABASE_SERVICE_KEY", "CREDITS_MINT_SECRET"];
 
-/** The env a job child builds from `launchBody` (a `/job/run` body), over the platform's bindings. */
-export function containerEnvOf(workerEnv, launchBody) {
+/**
+ * The env a job child builds from `launchBody` (a `/job/run` body), over the
+ * platform's bindings.
+ *
+ * WITH `worker` (2026-10-16, Codex's review of `668ebc87`): the bucket is the
+ * container's own shim (`GatewayBucket`) presenting the token the launch
+ * carries, and every call goes to the Worker's real gateway route
+ * (`worker.fetch` → `jobGateway` → `gatewayHandler` → `allowedJobKey`) over
+ * the platform's bucket — as in a real container, where the job never holds
+ * the bucket. `wire` collects the answers (`calls`) and refusals (`refused`).
+ * Without `worker`, the platform's bucket directly, as before.
+ */
+export function containerEnvOf(workerEnv, launchBody, { worker = null, wire = null } = {}) {
   const launch = readLaunch(typeof launchBody === "string" ? launchBody : JSON.stringify(launchBody));
   const env = {};
   for (const [k, v] of Object.entries(workerEnv)) if (typeof v !== "string" || CONTAINER_OWN.includes(k)) env[k] = v;
   for (const [k, v] of Object.entries(launch.secrets)) env[k] = v;
+  if (worker) {
+    // THE CONTAINER'S OWN ENV (`makeContainerEnv`): the bucket shim on the
+    // launch's token, and the hooks that ask the Worker to move the request on,
+    // write the reply and the progress (`JOB_NEXT`, `JOB_REPLY`,
+    // `JOB_PROGRESS`, or `JOB_SCOPE` for a pre-scoped build) — all through the
+    // gateway. The platform's other bindings (the dispatch stub, the database
+    // stand-ins) and the Supabase pair stay, as above.
+    const w = workerGatewayFetch(worker, workerEnv, wire || {});
+    const own = makeContainerEnv({ secrets: launch.secrets, gateway: { ...launch.gateway }, fetch: w.fetch, pre: launch.pre === true, deadlineAt: launch.deadlineAt || 0 });
+    return { ...env, ...own };
+  }
   return env;
 }
 

@@ -416,5 +416,93 @@
     ],
     "from": "  return d.preview + '|' + d.revision + '|' + siteDraftPreviewState(d);",
     "to": "  return d.preview + '|' + d.revision;"
+  },
+  {
+    "label": "S1 the job's draft record refused",
+    "files": [
+      "builder/job-gateway.mjs"
+    ],
+    "from": "  if (k === \"site-drafts/\" + slug + \".json\") return true;",
+    "to": ""
+  },
+  {
+    "label": "S2 the cumulative record refused",
+    "files": [
+      "builder/job-gateway.mjs"
+    ],
+    "from": "  if (k === \"site-drafts/\" + slug + \"/held-sum.json\") return true;",
+    "to": ""
+  },
+  {
+    "label": "S3 a held journal refused",
+    "files": [
+      "builder/job-gateway.mjs"
+    ],
+    "from": "  if (k.startsWith(\"site-drafts/\" + slug + \"/held/\") && /^[a-f0-9]{24}\\.json$/.test(k.slice((\"site-drafts/\" + slug + \"/held/\").length))) return true;",
+    "to": ""
+  },
+  {
+    "label": "S4 any key under the held prefix admitted",
+    "files": [
+      "builder/job-gateway.mjs"
+    ],
+    "from": "  if (k.startsWith(\"site-drafts/\" + slug + \"/held/\") && /^[a-f0-9]{24}\\.json$/.test(k.slice((\"site-drafts/\" + slug + \"/held/\").length))) return true;",
+    "to": "  if (k.startsWith(\"site-drafts/\" + slug + \"/held/\")) return true;"
+  },
+  {
+    "label": "S5 the preview confirmation refused",
+    "files": [
+      "builder/job-gateway.mjs"
+    ],
+    "from": "  if (k === \"preview-up/\" + slug + \".json\") return true;",
+    "to": ""
+  },
+  {
+    "label": "S6 a script note refused",
+    "files": [
+      "builder/job-gateway.mjs"
+    ],
+    "from": "  if (k.startsWith(\"scriptpending/\" + slug + \"/\") && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.json$/.test(k.slice((\"scriptpending/\" + slug + \"/\").length))) return true;",
+    "to": ""
+  },
+  {
+    "label": "S7 another account's build marker admitted",
+    "files": [
+      "builder/job-gateway.mjs"
+    ],
+    "from": "  const root = \"builds-live/\" + who.uid + \"/\" + who.id;",
+    "to": "  const root = \"builds-live/\" + String(key || \"\").split(\"/\")[1] + \"/\" + who.id;"
+  },
+  {
+    "label": "S8 the build marker refused",
+    "files": [
+      "builder/job-gateway.mjs"
+    ],
+    "from": "  return k === root + \".json\" || k === root + \".done.json\";",
+    "to": "  return false;"
+  },
+  {
+    "label": "S9 the whole site-drafts prefix admitted",
+    "files": [
+      "builder/job-gateway.mjs"
+    ],
+    "from": "  if (k === \"site-drafts/\" + slug + \".json\") return true;",
+    "to": "  if (k.startsWith(\"site-drafts/\")) return true;"
+  },
+  {
+    "label": "T1 a malformed record loses its etag again",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  } catch { return { sum: null, etag }; }\n}",
+    "to": "  } catch { return { sum: null, etag: null }; }\n}"
+  },
+  {
+    "label": "T2 an unusable record is not replaced when nothing new was learned",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  const unusable = !sum && !!etag;",
+    "to": "  const unusable = false;"
   }
 ]

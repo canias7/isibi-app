@@ -114,6 +114,11 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     text: async () => (o.body instanceof Uint8Array ? new TextDecoder().decode(o.body) : o.body),
     json: async () => JSON.parse(o.body instanceof Uint8Array ? new TextDecoder().decode(o.body) : o.body),
     arrayBuffer: async () => (o.body instanceof Uint8Array ? o.body : new TextEncoder().encode(o.body)).slice().buffer,
+    // ITS BYTES AS A STREAM, as R2 hands `body` (2026-10-16): what the job
+    // gateway forwards (`new Response(obj.body)`), so a container job reading
+    // through it gets the object, not an empty answer. Fresh on each read.
+    size: (o.body instanceof Uint8Array ? o.body : new TextEncoder().encode(o.body)).length,
+    get body() { return new Response(o.body instanceof Uint8Array ? o.body.slice() : new TextEncoder().encode(o.body)).body; },
   });
   const bucket = {
     async get(k) {
@@ -935,23 +940,24 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     answerOf(j) {
       try {
         const v = JSON.parse(j.result.body);
-        if (v && v.spilled && typeof v.spilled.key === "string" && objects.has(v.spilled.key)) return JSON.parse(String(objects.get(v.spilled.key).body));
+        if (v && v.spilled && typeof v.spilled.key === "string" && objects.has(v.spilled.key)) return JSON.parse(P.readObj(v.spilled.key));
         return v;
       } catch { return null; }
     },
     record(key) { const o = objects.get("requests/" + slug + "/" + key + ".json"); return o ? JSON.parse(o.body) : null; },
     /** A job's progress record as the bucket holds it (2026-10-06). */
     progressOf(jobId) { const o = objects.get("jobs/" + jobId + ".progress.json"); return o ? JSON.parse(o.body) : null; },
-    question() { const o = objects.get("source/" + slug + "/question.json"); return o ? JSON.parse(o.body) : null; },
+    question() { const t = this.readObj("source/" + slug + "/question.json"); return t ? JSON.parse(t) : null; },
     // STORED OBJECTS, READ AND WRITTEN AS THE BUCKET HOLDS THEM (2026-10-11):
     // a case may age a record into an earlier format, or change a page between
     // a question and its answer, as another writer would.
     objectKeys(prefix = "") { return [...objects.keys()].filter((k) => k.startsWith(prefix)); },
-    readObj(key) { const o = objects.get(key); return o ? o.body : null; },
+    // AS TEXT, whichever way it was written (a container job's write through the gateway arrives as bytes).
+    readObj(key) { const o = objects.get(key); return o ? (o.body instanceof Uint8Array ? new TextDecoder().decode(o.body) : o.body) : null; },
     writeObj(key, body) { setObj(key, body); },
-    page(path) { return (JSON.parse(objects.get(SOURCE_KEY(slug)).body).find((p) => p.path === path) || {}).source; },
-    pages() { return JSON.parse(objects.get(SOURCE_KEY(slug)).body).map((p) => p.path); },
-    look() { return (JSON.parse(objects.get(CONFIG_KEY(slug)).body || "{}").look || {}); },
+    page(path) { return (JSON.parse(this.readObj(SOURCE_KEY(slug))).find((p) => p.path === path) || {}).source; },
+    pages() { return JSON.parse(this.readObj(SOURCE_KEY(slug))).map((p) => p.path); },
+    look() { return (JSON.parse(this.readObj(CONFIG_KEY(slug)) || "{}").look || {}); },
     /** Ledger rows that moved money for this owner: debits negative, refunds positive. */
     spent() { return -ledger.reduce((n, e) => n + e.delta, 0); },
     /**

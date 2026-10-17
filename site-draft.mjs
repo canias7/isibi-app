@@ -737,14 +737,22 @@ export function newHold(deps, slug, { id = randomHex(12) } = {}) {
  * not yet in it.
  */
 export const HELD_SUM_KEY = (slug) => "site-drafts/" + slug + "/held-sum.json";
+// THE OBJECT'S ETAG IS KEPT WHATEVER ITS BODY SAYS (2026-10-16, Codex's review
+// of `668ebc87`): a record that would not parse used to come back with no etag,
+// so the rewrite was create-only against an object that existed — refused
+// every time, and every read paid one journal read per revision for ever. A
+// body that cannot be used is replaced, conditionally on the object read; only
+// a read that failed outright leaves no etag (and then nothing is written over
+// what could not be seen: the create-only write simply loses).
 async function readHeldSum(deps, slug) {
+  let o;
+  try { o = await deps.get(HELD_SUM_KEY(slug)); } catch { return { sum: null, etag: null, unread: true }; }
+  if (!o) return { sum: null, etag: null };
+  const etag = String(o.etag || "") || null;
   try {
-    const o = await deps.get(HELD_SUM_KEY(slug));
-    if (!o) return { sum: null, etag: null };
     const t = await o.text();
-    if (isHeldObject(o, t)) return { sum: null, etag: String(o.etag || "") || null };
+    if (isHeldObject(o, t)) return { sum: null, etag };
     const j = JSON.parse(t);
-    const etag = String(o.etag || "") || null;
     if (!j || !Array.isArray(j.entries) || !Array.isArray(j.ops)) return { sum: null, etag };
     // THE ENTRIES MUST ACCOUNT FOR THE OPS EXACTLY, or none of it is used.
     let at = 0;
@@ -756,7 +764,7 @@ async function readHeldSum(deps, slug) {
     }
     if (at !== j.ops.length) return { sum: null, etag };
     return { sum: map, etag };
-  } catch { return { sum: null, etag: null }; }
+  } catch { return { sum: null, etag }; }
 }
 export async function heldRange(deps, slug, draft, { from = 0, to = Infinity } = {}) {
   const out = [];
@@ -786,7 +794,10 @@ export async function heldRange(deps, slug, draft, { from = 0, to = Infinity } =
   // THE RECORD, REWRITTEN when it learned a revision or holds published ones.
   const keep = draft.revs.filter((r) => r.held && r.n > draft.applied && known.has(r.n));
   const stale = !!sum && [...sum.keys()].some((n) => n <= draft.applied || !keep.some((r) => r.n === n));
-  if ((learned || stale) && typeof deps.put === "function") {
+  // AN UNUSABLE RECORD STANDING (it exists, its body could not be used) is
+  // replaced even when nothing new was learned, so the next read uses it.
+  const unusable = !sum && !!etag;
+  if ((learned || stale || unusable) && typeof deps.put === "function") {
     const body = { v: 1, entries: keep.map((r) => ({ n: r.n, held: r.held, count: known.get(r.n).length })), ops: keep.flatMap((r) => known.get(r.n)) };
     try { await deps.put(HELD_SUM_KEY(slug), JSON.stringify(body), "application/json", etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" }); } catch { /* a cache: the journals stand */ }
   }

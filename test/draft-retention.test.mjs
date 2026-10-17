@@ -363,9 +363,17 @@ test("DRT8 THE RECORD PROVES WHAT IT IS USED FOR — corrupt, it is ignored and 
   g = deps.gets.length;
   assert.deepEqual(await unpublishedOps(deps, slug, draft), want, "an entry for another journal was used");
   assert.equal(journalReads(deps, g), 1);
-  // NOT JSON, OR GONE: rebuilt.
+  // NOT JSON (Codex's reproduction, 2026-10-16): recovered from the journals,
+  // and the object REPLACED on its etag — the next read reads no journal.
   await deps.put(HELD_SUM_KEY(slug), "{");
+  g = deps.gets.length;
   assert.deepEqual(await unpublishedOps(deps, slug, draft), want);
+  assert.equal(journalReads(deps, g), 40);
+  assert.notEqual(deps.m.get(HELD_SUM_KEY(slug)).body, "{", "the malformed record was left standing");
+  g = deps.gets.length;
+  assert.deepEqual(await unpublishedOps(deps, slug, draft), want);
+  assert.equal(journalReads(deps, g), 0, "the read after the repair still read the journals");
+  // GONE: rebuilt the same way.
   deps.m.delete(HELD_SUM_KEY(slug));
   // A JOURNAL MISSING AND NOT IN THE RECORD: cannot-tell, never "nothing held".
   deps.m.delete(HELD_KEY(slug, draft.revs[10].held));

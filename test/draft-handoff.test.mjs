@@ -36,7 +36,7 @@ import { containerEnvOf, launchFor, firingNamespace } from "./fixtures/fired-job
 import { readLaunch, runJob } from "../builder/container-job.mjs";
 import { makeContainerEnv } from "../builder/container-env.mjs";
 import { jobSecrets, JOB_ENV_NAMES } from "../builder/edit-job.mjs";
-import { DRAFT_KEY } from "../site-draft.mjs";
+import { DRAFT_KEY, HELD_KEY, HELD_SUM_KEY, PREVIEW_UP_KEY } from "../site-draft.mjs";
 
 blockNetwork();
 
@@ -160,6 +160,10 @@ function firedBakery(name) {
 }
 
 /** The queue, then every fired job run as its container runs it, until nothing is left. */
+// THROUGH THE REAL GATEWAY (2026-10-16, Codex's review of `668ebc87`): each
+// fired job's bucket is the container's shim, every call answered by the
+// Worker's own gateway route; a key the wall refuses is kept in `wire.refused`.
+const wire = { calls: [], refused: [] };
 async function drive(P, ns, key, worker) {
   const ran = [];
   for (let i = 0; i < 14; i++) {
@@ -170,7 +174,7 @@ async function drive(P, ns, key, worker) {
       ran.push(launch.id);
       await P.run(async () => {
         const ctx = makeCtx();
-        await worker.runContainerJob(containerEnvOf(P.env, l.body), ctx, { kind: launch.kind, id: launch.id, holder: launch.holder || "" });
+        await worker.runContainerJob(containerEnvOf(P.env, l.body, { worker, wire }), ctx, { kind: launch.kind, id: launch.id, holder: launch.holder || "" });
         await Promise.allSettled(ctx.pending);
       });
     }
@@ -195,6 +199,11 @@ async function sendFired(P, ns, worker, message) {
 }
 
 async function finished(P, compiler) {
+  // NOTHING A JOB NEEDED WAS REFUSED BY THE WALL, and the wall was asked.
+  const refused = wire.refused.splice(0);
+  const asked = wire.calls.splice(0).length;
+  assert.ok(asked > 0, "no job storage call went through the gateway — this case watched nothing");
+  assert.deepEqual(refused, [], "the gateway refused a key a job needs");
   await P.settle();
   assert.deepEqual(P.unexpected, [], "requests the stand-ins were not set up for");
   P.close(); compiler.uninstall();
@@ -230,6 +239,20 @@ test("DH3 AN EDIT FIRED INTO THE CONTAINER KEEPS THE DRAFT — published once wi
     const st = await call(P, "GET", "/api/site/" + P.slug + "/draft");
     assert.equal(st.status, 200, JSON.stringify(st.body));
     assert.deepEqual([st.body.state, st.body.unpublished, st.body.revision, st.body.applied], ["saved", true, 2, 0]);
+    // THROUGH THE GATEWAY (2026-10-16): the held row change's journal and the
+    // cumulative record, and the preview's confirmation, were written by the
+    // container jobs themselves.
+    const held = d.revs.find((r) => r.held);
+    assert.ok(held && P.readObj(HELD_KEY(P.slug, held.held)), "the held change's journal was not written");
+    const sum = JSON.parse(bare(P.readObj(HELD_SUM_KEY(P.slug))));
+    assert.deepEqual(sum.entries.map((e) => e.held), [held.held], "the cumulative record was not kept through the gateway");
+    assert.equal(JSON.parse(bare(P.readObj(PREVIEW_UP_KEY(P.slug)))).version, d.version, "the preview's confirmation was not recorded through the gateway");
+    assert.equal(st.body.previewState, "ready");
+    // ONLY THE OWNER'S PUBLISH RELEASES IT.
+    const pub = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.version });
+    assert.equal(pub.status, 200, JSON.stringify(pub.body).slice(0, 300));
+    assert.equal(liveVersion(P), d.version, "Publish did not make the draft live");
+    assert.equal(price(db, 2), 5.6, "Publish did not release the held row change");
   } finally { await finished(P, compiler); }
 });
 

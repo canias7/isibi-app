@@ -96,7 +96,7 @@ export function dispatchOk() {
 // payloads carry `worker: true` and the container packages a script for every
 // one of them. A case that wants a build with no script says `worker: false`
 // and is then testing the shape the pipeline produces when packaging fails.
-export function installCompiler({ ok = true, error = "", render = null, worker = true, frames = null, before = null } = {}) {
+export function installCompiler({ ok = true, error = "", render = null, worker = true, frames = null, before = null, model = null } = {}) {
   const calls = [];
   COMPILER = {
     calls,
@@ -109,6 +109,13 @@ export function installCompiler({ ok = true, error = "", render = null, worker =
       // contains "/build", so it is told apart by its path first. Answered by
       // the case's own handler (the real build service, in the case that
       // drives it) or, with none, refused like any hop this does not stand in for.
+      // THE MODEL DOOR (2026-10-16), for a build running inside its container,
+      // which asks the build service for the page writer's answer
+      // (`containerPagesCall`): answered by the case's own `model(req)`, only
+      // when it gives one — otherwise as before.
+      if (new URL(url).pathname === "/model" && typeof model === "function") {
+        return new Response(JSON.stringify({ ok: true, answer: await model(body.req) }), { status: 200, headers: { "content-type": "application/json" } });
+      }
       if (new URL(url).pathname === "/frames") {
         if (typeof frames === "function") return frames(body);
         return new Response(JSON.stringify({ ok: false, error: "no stub for " + url }), { status: 503 });
