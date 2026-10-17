@@ -107,8 +107,17 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   batch** (`3fffbb18`, `69a681bf`, after Codex's review of `82259f1e`): the
   review sweep walks every row under review with a durable keyset cursor
   (an unresolved row ahead no longer holds a recoverable one back). Unit CI
-  `11397 / 11349 / 0 / 48` (run 38979293716). **The table now:
-  `docs/history/2026-10-16-codex-batch-11.md` §5.**
+  `11397 / 11349 / 0 / 48` (run 38979293716; on `3655cb93` run 38980315896,
+  the same). **Twelfth batch** (three rounds, through `5491e124`): the page
+  wired to the three goals (the frame shows the draft, the card names waits
+  and saved drafts, Files cancel); **no count limit on unpublished changes**
+  (only published revisions trimmed, to 20); preview readiness from positive
+  evidence (`preview-up/`), followed by the page on a backoff; one cumulative
+  record of held changes (1 read at any length); container jobs reach their
+  own draft records through the real gateway (and `main`'s gateway refuses its
+  own script notes: a gap the branch closes). CI: CI_FINAL. **The table now:
+  `docs/history/2026-10-16-codex-batch-12.md` §6; the rollout handoff
+  `docs/history/2026-10-16-rollout-checklist.md`.**
   `claude/chat-session-0nndv1` is untouched. The bullets below are older.
 - **`main` is `8908b59d`, deploy 2173** (2026-09-30 19:48 UTC, a
   fast-forward of 11 commits from `80ece106`, on the owner's word "commit

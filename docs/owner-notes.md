@@ -1,5 +1,89 @@
 # Owner Notes
 
+## 2026-10-16 — Twelfth batch on `codex-work-into-claude`: the page wired to the three goals, no change-count limit on the draft, readiness from evidence, and container jobs through the real gateway (branch only; nothing merged, deployed, switched, applied, built or spent)
+
+**On your word**, on `codex-work-into-claude` only. `claude/chat-session-0nndv1`
+untouched. No paid test and no model call: every model answer was supplied.
+Owner panels were left alone. This batch ran in three rounds, each after one
+of Codex's reviews. The record is `docs/history/2026-10-16-codex-batch-12.md`;
+the rollout handoff is `docs/history/2026-10-16-rollout-checklist.md`.
+
+**The eleventh batch is closed.** Unit CI on `3655cb93`: run 38980315896,
+11,397 / 11,349 / 0 / 48, success.
+
+### What you get
+
+- **The page shows the draft.** Under draft-first, the site frame shows the
+  draft preview while it is ahead of live ("Draft preview · not
+  published"), then the live site again after Publish.
+- **The request card names what is happening:**
+  - "Waiting for part 2";
+  - "Saved as a draft";
+  - "Recovering an interrupted rewrite";
+  - "Not run — part N did not finish".
+
+  Each part keeps its own words or the model's own line; no conversational
+  text was added.
+- **The Files panel can cancel an upload.**
+- **No limit on unpublished changes.** The draft used to keep only its last
+  60 changes and silently lose older unpublished ones (Codex's finding).
+  - Every unpublished change is kept now.
+  - Only published changes are trimmed, to the last 20, for the history.
+  - Nothing ever publishes by itself: no number of changes, jobs, retries
+    or recoveries does it. Only your Publish click releases the revision
+    you chose; later changes stay unpublished.
+- **"Ready" means proven.** The preview counts as ready only when the
+  version it was confirmed serving is the draft's. Pending, failed and
+  unknown are said apart, and a preview nobody would finish is repaired
+  when you look at it.
+- **The page keeps following** a preview that is still updating, on a
+  backoff from 5 s to 2 min. It survives failed reads and delays, and stops
+  when you switch sites, hide the tab or leave.
+- **Long drafts stay fast.** Reading a draft's unpublished changes used to
+  cost one storage read per change (measured: 1,000 reads for 1,000
+  changes). It is 1 read now at any length, and each save costs 3 reads and
+  3 writes.
+- **Container jobs can save drafts.** In a real container a job's own draft
+  records were refused by the job gateway (Codex's finding), so every
+  container job's save failed. Exactly those records of the job's own site
+  are allowed now. Another site's records, a not-yet-named build and the
+  publication's own record stay refused.
+- **A broken cache repairs itself.** A damaged cumulative record of held
+  changes was never replaced (Codex's finding). It is rebuilt from the
+  journals now, and the next read uses it.
+
+### Found on the way, and important for `main`
+
+**`main` (deploy 2214) has a gateway gap.** Its job gateway refuses the
+"script note" its own live publish writes. So a job run in a container
+there cannot write the note and does not upload the site's script. This
+branch fixes it (and admits a build's own marker in your listing too).
+Nothing was changed in production. The first runtime press after a merge
+is where it would show.
+
+### Commits
+
+COMMITS_FINAL
+
+### Results (measured)
+
+RESULTS_FINAL
+
+### Still open, or only verifiable live
+
+- A real container's call to the Worker's gateway, and Cloudflare's limits
+  on it.
+- The real preview host in a real browser over 15+ minutes.
+- R2's real conditional writes and latency on large records.
+- Two jobs truly overlapping.
+- The progress writer with its switch on (paid).
+- Playback on real devices.
+- **The data step sees a table's first 60 rows only** (backlog).
+- **Not built:** media attached before a site exists can't be listed or
+  removed from the page.
+- **Rollout is yours:** the SQL, the switches, the merge and deploy, then
+  the one combined live batch in the checklist.
+
 ## 2026-10-16 — Eleventh batch on `codex-work-into-claude`: the review sweep reaches every job (branch only; nothing merged, deployed, switched, applied, built or spent)
 
 **On your word**, on `codex-work-into-claude` only, focused on the one defect

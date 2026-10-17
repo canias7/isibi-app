@@ -21,6 +21,16 @@ to approve and press, in order. The branch is `codex-work-into-claude`;
 - **The rollback:** `git revert --no-commit c7c3ca44..<candidate>` in a
   throwaway worktree must give back `main`'s own tree.
 
+**A gap on `main` this candidate closes (found 2026-10-16, offline):**
+`main`'s job gateway refuses the script note its own live publish writes
+(`scriptpending/<slug>/<uuid>.json`). So on deploy 2214, a job run in a
+container cannot write the note and does not upload the site's script.
+- **Nothing was changed in production.** If containers run jobs there now,
+  the free runtime press after the merge is where this shows: a container
+  job's publish should move the live script.
+- **The candidate also admits** a container job's own draft records and a
+  build's own marker (the batch record, §3c).
+
 ## 2. The SQL
 
 | File | What it does | Needed for |
@@ -156,5 +166,7 @@ the only bound.
 | The page following an unsettled preview through delays and failed reads, cleaned up on a site switch, a hidden tab or leaving | yes (this batch, second round) | yes (DPF1–DPF6, DFU6) | a real tab over a real network for 15+ minutes |
 | No count limit on unpublished changes; partial publication; changes during publication; duplicate clicks; reloads | yes (this batch) | yes (DRT1–DRT6, EER8) | a long-lived real draft |
 | Reads that do not grow with the draft (the cumulative record) | yes (this batch, second round) | yes (DRT7–DRT9; measured 1 read at 10–1,000 revisions) | R2 latency and object size for a record of hundreds of KB |
+| A malformed cumulative record repaired from the journals, the next read using it | yes (third round) | yes (DRT8, JGD5) | — |
+| Container jobs (Build after scoping, Edit, Add-on) saving drafts, held changes, the cumulative record and the preview's confirmation through the real gateway; cross-site and pre-scope denials; conditional writes across the wire | yes (third round) | yes (JGD1–JGD5, DH3, DH3c, DH4: the real `GatewayBucket`, `gatewayHandler`, `makeContainerEnv` and the Worker's gateway route) | a real container's HTTP hop to the Worker; Cloudflare's own request limits on that hop |
 | Video/audio upload, placement, playback, seeking, replacement, removal, cancel | yes | yes (media-*, DFU5) | live playback on real devices (H.264/AAC are not decodable in this Chromium); R2's own multipart expiry |
 | Owner panels | unchanged | — | outside this batch |
