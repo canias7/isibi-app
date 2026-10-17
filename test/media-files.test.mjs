@@ -29,6 +29,8 @@ const WANT = {
   "clip.mp4": ["mp4", "video/mp4", "video"], "clip.webm": ["webm", "video/webm", "video"], "clip.mov": ["mov", "video/quicktime", "video"],
   "tone.mp3": ["mp3", "audio/mpeg", "audio"], "tone.m4a": ["m4a", "audio/mp4", "audio"], "tone.aac": ["aac", "audio/aac", "audio"],
   "tone.wav": ["wav", "audio/wav", "audio"], "tone.ogg": ["ogg", "audio/ogg", "audio"], "tone.flac": ["flac", "audio/flac", "audio"],
+  // The live batch's replacements (`draft verify` media-held): told from their contents like the rest.
+  "clip-b.mp4": ["mp4", "video/mp4", "video"], "tone-b.mp3": ["mp3", "audio/mpeg", "audio"],
 };
 
 test("every supported format is told from its CONTENTS, whatever it is called", () => {
