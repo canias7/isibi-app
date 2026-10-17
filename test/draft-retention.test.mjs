@@ -320,7 +320,7 @@ async function fromJournals(deps, slug, draft, from, to = Infinity) {
 }
 const journalReads = (deps, from) => deps.gets.slice(from).filter((k) => k.includes("/held/")).length;
 
-test("DRT7 READS DO NOT GROW WITH THE DRAFT — 300 held revisions and 150 code saves mixed: reading the unpublished changes is one storage read however long the draft, and exactly the journals' ops, in order", async () => {
+test("DRT7 A READ'S STORAGE CALLS DO NOT GROW WITH THE DRAFT (its bytes and processing do) — 300 held revisions and 150 code saves mixed: reading the unpublished changes is one storage read however long the draft, and exactly the journals' ops, in order", async () => {
   const deps = memDeps();
   const slug = "drt7";
   let v = V0;
@@ -399,4 +399,94 @@ test("DRT9 PUBLICATION SHRINKS THE RECORD, NEVER INVALIDATES IT — after a part
   const g3 = deps.gets.length;
   const ops2 = await unpublishedOps(deps, slug, d2);
   assert.deepEqual([ops2.length, ops2[50].values.name, journalReads(deps, g3)], [51, "Loaf 121", 0]);
+});
+
+// ── THE CUMULATIVE RECORD'S LAST TWO EDGES (2026-10-17, the T2 and R4 gaps) ──
+// The mutation sweep of `5491e124` left two of the record's rules unproven:
+// a malformed record replaced when there is nothing to learn (T2), and
+// published revisions kept out of it (R4). Both are read from what is stored
+// and from the writes each read makes.
+const sumOf = (deps, slug) => { const o = deps.m.get(HELD_SUM_KEY(slug)); return o ? o.body : null; };
+const sumWrites = (deps) => { const w = []; const put = deps.put.bind(deps); deps.put = async (k, ...rest) => { if (k.includes("/held-sum")) w.push(k); return put(k, ...rest); }; return w; };
+
+test("DRT10 A MALFORMED RECORD WITH NOTHING TO LEARN IS STILL REPLACED — a draft of code saves only, and a fully published draft: no journal is read, the malformed record is replaced by an empty one on its etag, the next read writes nothing; an absent record with nothing held is never created", async () => {
+  // A DRAFT OF CODE SAVES ONLY (no held revision): nothing to learn.
+  const deps = memDeps();
+  const slug = "drt10a";
+  let v = V0;
+  for (let i = 1; i <= 3; i++) { v = mintAfter(v, 0, ("d" + i).padStart(6, "0")); assert.equal((await saveDraftRecord(deps, slug, { version: v, base: V0, job: "d" + i, now })).ok, true); }
+  let { draft } = await readDraft(deps, slug);
+  assert.equal(draft.revs.filter((r) => r.held).length, 0, "this case tests nothing: the draft holds a change");
+  const w = sumWrites(deps);
+  // ABSENT, NOTHING HELD: read, nothing created.
+  assert.deepEqual(await unpublishedOps(deps, slug, draft), []);
+  assert.deepEqual([sumOf(deps, slug), w.length], [null, 0], "a record was created for a draft with nothing held");
+  // MALFORMED: replaced, with no journal read.
+  for (const bad of ["{", "[]", JSON.stringify({ v: 1, entries: [{ n: 1 }], ops: [] })]) {
+    await deps.put(HELD_SUM_KEY(slug), bad);
+    w.length = 0;
+    const g = deps.gets.length;
+    assert.deepEqual(await unpublishedOps(deps, slug, draft), []);
+    assert.equal(journalReads(deps, g), 0);
+    assert.deepEqual(JSON.parse(sumOf(deps, slug)), { v: 1, entries: [], ops: [] }, "the malformed record " + bad + " was left standing");
+    assert.equal(w.length, 1);
+    w.length = 0;
+    assert.deepEqual(await unpublishedOps(deps, slug, draft), []);
+    assert.equal(w.length, 0, "the read after the repair wrote again");
+  }
+  // A FULLY PUBLISHED DRAFT: every held revision at or below `applied`.
+  const pub = memDeps();
+  const ps = "drt10b";
+  for (let i = 1; i <= 12; i++) await holdOne(pub, ps, insertOf(i));
+  await markApplied(pub, ps, { revision: 12 });
+  ({ draft } = await readDraft(pub, ps));
+  assert.deepEqual([draft.applied, draft.revs.filter((r) => r.held && r.n > draft.applied).length], [12, 0], "this case tests nothing: something is unpublished");
+  const pw = sumWrites(pub);
+  await pub.put(HELD_SUM_KEY(ps), "{");
+  pw.length = 0;
+  const g = pub.gets.length;
+  assert.deepEqual(await unpublishedOps(pub, ps, draft), []);
+  assert.equal(journalReads(pub, g), 0, "a published revision's journal was read");
+  assert.deepEqual(JSON.parse(sumOf(pub, ps)), { v: 1, entries: [], ops: [] }, "the malformed record was left standing");
+  assert.equal(pw.length, 1);
+  // THE NEXT SAVE FOLDS ONLY ITS OWN REVISION INTO THE REPAIRED RECORD.
+  const g2 = pub.gets.length;
+  await holdOne(pub, ps, insertOf(13));
+  assert.equal(journalReads(pub, g2), 1);
+  const rec = JSON.parse(sumOf(pub, ps));
+  assert.deepEqual([rec.entries.map((e) => e.n), rec.ops.map((o) => o.values.name)], [[13], ["Loaf 13"]]);
+});
+
+test("DRT11 PUBLISHED REVISIONS LEAVE THE RECORD, EVERY UNPUBLISHED ONE STAYS — after a partial publication the stored record holds exactly the unpublished revisions' entries and ops; a historical range read (from before `applied`) answers the published revisions from their journals and writes none of them into the record; reads after it write nothing", async () => {
+  const deps = memDeps();
+  const slug = "drt11";
+  for (let i = 1; i <= 30; i++) await holdOne(deps, slug, insertOf(i));
+  // THE RECORD AS THE SAVES LEFT IT: all thirty.
+  assert.equal(JSON.parse(sumOf(deps, slug)).entries.length, 30, "this case tests nothing: the saves did not fold in");
+  await markApplied(deps, slug, { revision: 18 });
+  const { draft } = await readDraft(deps, slug);
+  const want = await fromJournals(deps, slug, draft, 18);
+  const w = sumWrites(deps);
+  // THE FIRST READ AFTER PUBLICATION: published entries dropped, rewritten once.
+  assert.deepEqual(await heldRange(deps, slug, draft, { from: draft.applied }), want);
+  const after = JSON.parse(sumOf(deps, slug));
+  assert.deepEqual(after.entries.map((e) => e.n), want.map((r) => r.n), "the record does not hold exactly the unpublished revisions");
+  assert.deepEqual(after.ops, want.flatMap((r) => r.ops), "the record's ops are not exactly the unpublished journals'");
+  assert.equal(w.length, 1);
+  // A HISTORICAL RANGE READ, revisions 5–25 (from before `applied`): the
+  // published ones come from their journals, and none of them is written into
+  // the record.
+  w.length = 0;
+  const g = deps.gets.length;
+  const hist = await heldRange(deps, slug, draft, { from: 4, to: 25 });
+  assert.deepEqual(hist, await fromJournals(deps, slug, draft, 4, 25));
+  assert.equal(journalReads(deps, g), 14, "the published revisions 5–18 were not read from their journals");
+  const kept = JSON.parse(sumOf(deps, slug));
+  assert.deepEqual(kept.entries.map((e) => e.n), want.map((r) => r.n), "a historical read wrote published revisions into the record");
+  assert.deepEqual(kept.ops, want.flatMap((r) => r.ops));
+  // READS AFTER IT: no journal read, and nothing written.
+  w.length = 0;
+  const g2 = deps.gets.length;
+  assert.deepEqual(await unpublishedOps(deps, slug, draft), want.flatMap((r) => r.ops));
+  assert.deepEqual([journalReads(deps, g2), w.length], [0, 0], "the read after a historical read read journals or wrote the record");
 });

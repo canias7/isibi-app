@@ -51,7 +51,7 @@ import { rowsDb, BAKERY_LOAVES, LOAF_COLUMNS } from "./fixtures/rows-db.mjs";
 import { writtenPage } from "./fixtures/addon-route.mjs";
 import { DRAFT_KEY, HELD_KEY, savedRevision, revisionsTrimmed } from "../site-draft.mjs";
 import { reconcileVerdict, reconcileReply } from "../builder/site-reconcile.mjs";
-import { readRun, partOf } from "../builder/request.mjs";
+import { readRun, partOf, planParts, newRequest, nextStep, noteJobId, requestView } from "../builder/request.mjs";
 import { editReplyFacts, addonReplyFacts } from "../builder/site-reply.mjs";
 import { checksOf, readChecks, checkFacts, savedDraftOf, DRAFT_SAID, DRAFT_PENDING_SAID } from "../builder/check-evidence.mjs";
 
@@ -512,4 +512,64 @@ test("DOR8b THE DRAFT SENTENCES", () => {
   // A LEGACY DRAFT ANSWER (no revision, no preview) KEEPS ITS SENTENCE.
   assert.ok(checkFacts(readChecks(checksOf({ version: "v1", draft: true }))).some((x) => x.text === DRAFT_SAID));
   assert.ok(DRAFT_PENDING_SAID.includes("Publish"));
+});
+
+// ── DOR9 A PUBLISHED ANSWER IS NEVER TOLD AS A DRAFT (2026-10-17, the M4 gap) ─
+// The mutation sweep of `5491e124` left `answerDraft`'s `published === false`
+// test unproven: no case handed the request a finished job whose answer
+// carries a revision but is not an unpublished draft. A job's answer is
+// stored data (`edit_jobs.result`), read back by `nextStep` from the
+// database, so the reader alone decides what the card says. Driven through
+// the real `nextStep` and read through the real `requestView`.
+const DOR9_MSG = "Change the opening line on the Visit page to 'Come early, the sourdough goes fast'.";
+const DOR9_KEY = "rq-" + "d".repeat(29);
+const DOR9_JOB = "9".repeat(32);
+const dor9Row = (body) => ({ ok: true, state: "done", billing: "charged", needs_review: false, result: { status: 200, body: JSON.stringify(body) } });
+function dor9Settled(body) {
+  const planned = planParts(DOR9_MSG, { intent: "edit", layer: "text" });
+  assert.equal(planned.ok, true, JSON.stringify(planned));
+  const rec = newRequest({ key: DOR9_KEY, uid: "u1", slug: "fold-lane", message: DOR9_MSG, picker: "sonnet", tz: "Europe/London", accepted: { intent: "edit", layer: "text" }, parts: planned.parts });
+  const first = nextStep(rec, {}, Date.now());
+  assert.ok(first.file && first.file.key, "the part was never filed: this case tests nothing");
+  const filed = noteJobId(first.record, first.file.key, DOR9_JOB);
+  const out = nextStep(filed, { [DOR9_JOB]: dor9Row(body) }, Date.now()).record;
+  return { part: out.parts[0], view: JSON.parse(JSON.stringify(requestView(out))).parts[0] };
+}
+const DOR9_V = "01790000000000-dor9aa";
+
+test("DOR9 A PUBLISHED ANSWER IS NEVER TOLD AS A DRAFT — a finished job whose answer carries a revision is a saved draft only when it says `published: false`; `published: true`, no publication field, a non-boolean, and a revision that is not a positive integer each end done with no draft on the part or the card; a recovered answer is held to the same", () => {
+  // THE VALID CASE FIRST (the observer is alive): a saved, unpublished revision.
+  const saved = dor9Settled({ ok: true, draft: { version: DOR9_V, published: false, revision: 7, previewUploaded: true, previewPending: false } });
+  assert.equal(saved.part.status, "done", JSON.stringify(saved.part));
+  assert.deepEqual(saved.part.outcome.draft, { revision: 7, version: DOR9_V, preview: "ready" });
+  assert.deepEqual(saved.view.draft, { revision: 7, preview: "ready" }, JSON.stringify(saved.view));
+  // EVERY ANSWER THAT IS NOT AN UNPUBLISHED DRAFT: done, and never a draft.
+  const notDraft = {
+    "published: true": { version: DOR9_V, published: true, revision: 7, previewUploaded: true },
+    "no publication evidence": { version: DOR9_V, revision: 7, previewUploaded: true },
+    "published: null": { version: DOR9_V, published: null, revision: 7 },
+    "published: \"false\" (a string)": { version: DOR9_V, published: "false", revision: 7 },
+    "published: 0": { version: DOR9_V, published: 0, revision: 7 },
+    "revision 0": { version: DOR9_V, published: false, revision: 0 },
+    "revision \"7\" (a string)": { version: DOR9_V, published: false, revision: "7" },
+  };
+  for (const [why, draft] of Object.entries(notDraft)) {
+    const { part, view } = dor9Settled({ ok: true, draft });
+    assert.equal(part.status, "done", why + ": " + JSON.stringify(part));
+    assert.equal(part.outcome.kind, "done", why);
+    assert.equal(Object.hasOwn(part.outcome, "draft"), false, why + ": the part was told it saved a draft — " + JSON.stringify(part.outcome));
+    assert.equal(Object.hasOwn(view, "draft"), false, why + ": the card says saved as a draft — " + JSON.stringify(view));
+  }
+  // A RECOVERED ANSWER (`reconciled: "draft-saved"`) IS HELD TO THE SAME: an
+  // unpublished revision is a saved draft; a published one, or one with no
+  // publication field, is "made the change", never a draft.
+  const rec = (draft) => dor9Settled({ ok: true, recovered: true, reconciled: "draft-saved", draft });
+  const recSaved = rec({ version: DOR9_V, published: false, revision: 7, preview: "pending" });
+  assert.deepEqual([recSaved.part.outcome.kind, recSaved.view.draft], ["draft", { revision: 7, preview: "pending" }], JSON.stringify(recSaved));
+  for (const [why, draft] of [["published: true", { version: DOR9_V, published: true, revision: 7 }], ["no publication evidence", { version: DOR9_V, revision: 7 }]]) {
+    const { part, view } = rec(draft);
+    assert.equal(part.outcome.kind, "recovered", why + ": " + JSON.stringify(part.outcome));
+    assert.equal(Object.hasOwn(view, "draft"), false, why + ": " + JSON.stringify(view));
+    assert.doesNotMatch(String(part.done), /draft/, why);
+  }
 });

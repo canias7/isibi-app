@@ -358,7 +358,7 @@
     "files": [
       "site-draft.mjs"
     ],
-    "from": "  if ((learned || stale) && typeof deps.put === \"function\") {",
+    "from": "  if ((learned || stale || unusable) && typeof deps.put === \"function\") {",
     "to": "  if (false) {"
   },
   {

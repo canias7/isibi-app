@@ -1,0 +1,68 @@
+[
+  {
+    "label": "CONTROL: a comment only in site-draft.mjs \u2014 must survive",
+    "control": true,
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "export const KEEP_PUBLISHED = 20;",
+    "to": "// comment-only control\nexport const KEEP_PUBLISHED = 20;"
+  },
+  {
+    "label": "CONTROL: a comment only in builder/request.mjs \u2014 must survive",
+    "control": true,
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "const SAVED_DONE = (d) =>",
+    "to": "// comment-only control\nconst SAVED_DONE = (d) =>"
+  },
+  {
+    "label": "M4 a published answer is read as a draft",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "  if (!d || typeof d !== \"object\" || d.published !== false ||",
+    "to": "  if (!d || typeof d !== \"object\" ||"
+  },
+  {
+    "label": "M4b any falsy publication field reads as a draft",
+    "files": [
+      "builder/request.mjs"
+    ],
+    "from": "  if (!d || typeof d !== \"object\" || d.published !== false ||",
+    "to": "  if (!d || typeof d !== \"object\" || d.published === true ||"
+  },
+  {
+    "label": "T2 an unusable record is not replaced when nothing new was learned",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  const unusable = !sum && !!etag;",
+    "to": "  const unusable = false;"
+  },
+  {
+    "label": "T2b an absent record counts as unusable (created for nothing)",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  const unusable = !sum && !!etag;",
+    "to": "  const unusable = !sum;"
+  },
+  {
+    "label": "R4 published revisions stay in the record",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  const keep = draft.revs.filter((r) => r.held && r.n > draft.applied && known.has(r.n));",
+    "to": "  const keep = draft.revs.filter((r) => r.held && known.has(r.n));"
+  },
+  {
+    "label": "R3 the record is never written back",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  if ((learned || stale || unusable) && typeof deps.put === \"function\") {",
+    "to": "  if (false) {"
+  }
+]
