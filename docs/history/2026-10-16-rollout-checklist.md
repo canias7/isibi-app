@@ -119,6 +119,7 @@ reading.
 - **Image, predicted, not built:** `892924bc029456f6` (main) to
   `8278ac9a0bcf0981` (the candidate).
 - **Mutation sweep:** 63 mutants in three groups, each against the tests that bear on it (`scripts/mutants/codex-batch-13-{client,gateway,server}.json`): client 20 of 20 killed; gateway 10 of 11 killed (T2 survived); server 27 of 30 killed (M4 and R4 survived, R3 never applied); every comment-only control survived. **The four gaps were closed on 2026-10-17** (`b64fb517`, tests only): DOR9, DRT10 and DRT11, and R3's anchor updated. `codex-batch-14.json`: 6 of 6 killed, both controls survived (`docs/history/2026-10-16-codex-batch-12.md` §5b).
+- **On `a65de194` (the records on top of `b64fb517`):** unit CI [run 38991751492](https://github.com/canias7/isibi-app/actions/runs/38991751492), 11,435 / 11,383 / 0 / 52, success.
 - **On the code of `b64fb517`:** unit CI [run 38990518289](https://github.com/canias7/isibi-app/actions/runs/38990518289) on `668e0a9e`, 11,435 / 11,383 / 0 / 52, success; full suite locally 11,435 / 11,433 / 0 / 2.
 
 ## 7. One combined live verification batch, no image generation
@@ -168,17 +169,25 @@ is none to reach (capacity at large sizes is not measured live).
    - The card says "Waiting for part 2".
    - The answer is given on the page.
    - Both end saved as a draft.
-6. **Free (uploads and playback only; nothing is generated or bought):** in
-   the Files panel, the owner's own files, one short **video** (MP4) and one
-   short **audio** file (MP3 or M4A):
-   - upload each; play each on the draft preview and seek in it (a range
-     request answered 206);
-   - replace the video and replace the audio (held: live keeps each
-     original, the preview plays each replacement);
-   - remove one of them (held: live still serves it until Publish);
-   - start and cancel a longer upload (nothing kept, no orphaned parts);
-   - read the site's media totals before and after (files and bytes inside
-     `MEDIA_MAX_*`).
+6. **Free (uploads and playback only; nothing is generated or bought).**
+   The owner's own files, in the Files panel:
+   - **The originals:** one video (MP4) and one audio file (MP3 or M4A)
+     **already published** on the site. If the site has none, upload both
+     and Publish them first as setup, before step 4. Record their keys,
+     sizes and hashes, and play and seek each one live (range answers 206).
+   - **Replacement isolation:** replace the published video and the
+     published audio, each with a different file of the same kind. While
+     held, live still serves each original byte for byte, and the draft
+     preview plays each replacement.
+   - **Deletion, on a separate disposable file:** upload a third, small
+     file (audio is enough) that nothing else uses, Publish it so it is
+     live, then remove it. While held, live still serves it; after step 8's
+     Publish it answers 404. The two originals are never deleted, so both
+     playback examples remain afterwards.
+   - **Cancel:** start a longer upload and cancel it (nothing kept, no
+     orphaned parts).
+   - **Totals:** read the site's media files and bytes before and after,
+     inside `MEDIA_MAX_*`.
 7. **Free of model calls:** Publish the revision before the newest, from
    the panel, and press it twice.
    - The later revision stays out.
@@ -188,13 +197,19 @@ is none to reach (capacity at large sizes is not measured live).
    - The chip says Published.
    - Recovery runs, and again 15 minutes later.
 9. **Free:** the restore to `8btpep` and one owner write for the price row.
+   After the restore, read that the video and audio (the replacements, and
+   the originals by their keys) are still served by their links, so both
+   playback examples remain. A restore puts back pages; whether a page
+   still places the media is read, not assumed.
 
 **What this batch, if every step passes, verifies live:**
 - **Parallel work:** steps 4–5.
 - **Draft isolation, readiness, following and explicit Publish:** steps
   2–5, 7 and 8.
-- **Video and audio hosting (upload and playback, not generation):** step 6,
-  and both files served live after step 8's Publish.
+- **Video and audio hosting (upload and playback, not generation):** step 6;
+  after step 8's Publish both replacements play live, the disposable file
+  answers 404, and both originals' keys stay readable in the version
+  history.
 - **A container job's own draft records through the real gateway:** steps
   4–6, read with step 2's log check.
 
@@ -202,6 +217,43 @@ is none to reach (capacity at large sizes is not measured live).
 - a real crash or lost R2 answer (not induced on a live site);
 - capacity at large draft sizes;
 - playback on other devices and browsers.
+
+## 7b. Readiness and the estimated paid cost (2026-10-17)
+
+**Ready for the combined rollout, waiting on the owner's authorization.**
+- **The candidate:** `b64fb517` (product code of `5491e124`). The records
+  on top (`668e0a9e`, `a65de194`) change documents only.
+- **CI:** green on the candidate's code: unit
+  [run 38990518289](https://github.com/canias7/isibi-app/actions/runs/38990518289)
+  and [run 38991751492](https://github.com/canias7/isibi-app/actions/runs/38991751492),
+  11,435 / 11,383 / 0 / 52 each. Site build
+  [run 38987338040](https://github.com/canias7/isibi-app/actions/runs/38987338040),
+  success (no site-build path changed since).
+- **Codex's review** passed the offline closeout (77 affected tests,
+  independently).
+- **Image:** predicted `892924bc029456f6` → `8278ac9a0bcf0981`, not built.
+- **Not done, every one the owner's to authorize:** merge, deploy, the SQL,
+  the switches, the container build, and any paid press.
+
+**Estimated paid cost (an estimate, not a cap; the balance is the only
+bound):**
+
+| Step | What is paid | Estimate (credits) |
+|---|---|---|
+| 1–3 | runtime presses, SQL, switches, `job probe`, `draft verify` rehearsal | 0 |
+| 4 | three independent parts in one message: routing 1–2, three small edits (text, text, data) 1–2 each, the model-written end reply | 6–10 |
+| 5 | a dependent pair with a clarification: routing 1–2 twice (the answer is a message), two small edits | 3–6 |
+| 6 | media uploads, replacement, deletion, cancel | 0 (no model call) |
+| 7–8 | Publish twice, and the recovery reads | 0 (no model call) |
+| 9 | the restore and the owner's price write | 0 |
+| **Total** | | **about 9–16 credits** (about $0.07–$0.13) |
+
+No image is generated or bought (`IMAGE_PURCHASES=off`), and
+`PROGRESS_REPLIES` and `PROGRESS_TALK` stay off; turning them on would add
+a paid line per progress update. **Read the building account's balance
+first:** the last recorded reading is 13 (2026-09-30), which is below the
+top of this range. If it is still 13, top it up or run step 5 only after
+step 4's actual cost is known.
 
 ## 8. Implemented, verified offline, still unverified live
 

@@ -1,5 +1,20 @@
 # Owner Notes
 
+## 2026-10-17 — Ready for the combined rollout; waiting on your authorization (branch only; nothing merged, deployed, switched, applied, built or spent)
+
+- **Codex passed the offline closeout** (77 affected tests, independently).
+  Unit CI on `a65de194` is green (run 38991751492: 11,435 / 11,383 / 0 / 52).
+  The candidate is `b64fb517`.
+- **The media checks follow your instruction.** Replacement isolation uses
+  a video and an audio file already published on the site. Deletion uses a
+  separate disposable file. Both playback examples remain afterwards.
+- **Estimated paid cost: about 9–16 credits** (about $0.07–$0.13). This is
+  only steps 4 and 5, the two chat messages; everything else is free of
+  model calls. It is an estimate, not a cap. The last balance on record is
+  13 (2026-09-30), so it is read first.
+- Nothing runs until you authorize the rollout. The record is the rollout
+  checklist §7 and §7b.
+
 ## 2026-10-17 — The four test gaps the last sweep left are closed (branch only; tests and records, no product code; nothing merged, deployed, switched, applied, built or spent)
 
 **On your word**, on `codex-work-into-claude` only; `claude/chat-session-0nndv1`
