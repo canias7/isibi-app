@@ -63,11 +63,29 @@ is where it would show.
 
 ### Commits
 
-COMMITS_FINAL
+- **First round:** `86f0002b` (the page wiring and retention), `44676fcd`
+  (records).
+- **Second round:** `46939022` (readiness, following, the cumulative record),
+  `74493b05` (the prune guards), `668ebc87` (records).
+- **Third round:** `5491e124` (the gateway's draft records, the cache repair,
+  the real gateway in the tests), `bd53675c` and this commit (records).
 
 ### Results (measured)
 
-RESULTS_FINAL
+- **Red checks:** every new test fails on the code before its round, on the
+  defect itself.
+  - The gateway cases fail on the 403s.
+  - The cache case left the broken record standing.
+  - The following stopped at 5 minutes.
+- **Reads:** one storage read per change before; 1 read at any size now
+  (measured to 1,000).
+- **Browser:** the real page against the real Worker, free:
+  - the draft page cases 3 of 3;
+  - the media cases 3 of 3.
+- **Full suite locally on `5491e124`:** 11,432 / 11,430 / 0 / 2.
+- **Unit CI:** run 38987482899, 11,432 / 11,380 / 0 / 52, success.
+- **Site build:** run 38987338040, success.
+- **Mutation sweep:** running after this commit, in three groups (each against the tests that bear on it); stamped when it ends
 
 ### Still open, or only verifiable live
 

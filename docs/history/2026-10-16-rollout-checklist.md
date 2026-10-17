@@ -7,8 +7,8 @@ to approve and press, in order. The branch is `codex-work-into-claude`;
 
 ## 1. The exact candidate
 
-- **Commit:** COMMIT_PENDING (the code and tests of the twelfth batch; the
-  records commit on top changes only documents).
+- **Commit:** `5491e124` (the code and tests of the twelfth batch, all three rounds;
+  the records commits on top change only documents).
 - **Base:** `main` at `c7c3ca44` (deploy 2214, deployed, not
   runtime-confirmed: its free runtime press is still owed).
 - **Required CI on the candidate:** unit tests and site build, green, read
@@ -99,7 +99,19 @@ Parts are 8 MiB; an upload session lasts 24 hours, a pre-site draft upload
 
 ## 6. Readings so far (offline; stamped after each run)
 
-READINGS_PENDING
+Every reading below was taken offline on this branch; none is a production
+reading.
+- **Unit CI:**
+  - run 38987482899 on `bd53675c` (the code of `5491e124`): 11,432 /
+    11,380 / 0 / 52, success;
+  - run 38985469462 on `668ebc87`: 11,427 / 11,375 / 0 / 52, success.
+- **Site build:** run 38987338040 on `5491e124`, success.
+- **Full suite locally on `5491e124`:** 11,432 / 11,430 / 0 / 2.
+- **Browser, local Chromium:** the draft page cases 3 of 3, the media cases
+  3 of 3.
+- **Image, predicted, not built:** `892924bc029456f6` (main) to
+  `8278ac9a0bcf0981` (the candidate).
+- **Mutation sweep:** running after this commit, in three groups (each against the tests that bear on it); stamped when it ends
 
 ## 7. One combined live verification batch, no image generation
 

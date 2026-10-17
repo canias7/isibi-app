@@ -115,7 +115,7 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   evidence (`preview-up/`), followed by the page on a backoff; one cumulative
   record of held changes (1 read at any length); container jobs reach their
   own draft records through the real gateway (and `main`'s gateway refuses its
-  own script notes: a gap the branch closes). CI: CI_FINAL. **The table now:
+  own script notes: a gap the branch closes). Unit CI `11432 / 11380 / 0 / 52` (run 38987482899 on `bd53675c`, the code of `5491e124`). **The table now:
   `docs/history/2026-10-16-codex-batch-12.md` §6; the rollout handoff
   `docs/history/2026-10-16-rollout-checklist.md`.**
   `claude/chat-session-0nndv1` is untouched. The bullets below are older.
