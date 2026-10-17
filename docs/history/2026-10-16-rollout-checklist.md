@@ -30,6 +30,17 @@ to approve and press, in order. The branch is `codex-work-into-claude`;
 No other SQL. Draft-first, Publish and hosted media need none: their state
 is in R2.
 
+**New R2 objects this candidate writes (no setup needed):**
+- `preview-up/<slug>.json`: the version a site's preview was confirmed
+  serving.
+- `site-drafts/<slug>/held-sum.json`: the cumulative record of a draft's
+  unpublished held changes.
+
+Both are created on first use. For a draft saved before the deploy, the
+first owner read of its state finds no confirmation. It says the preview is
+pending and starts one repair, which records it. The first read of its held
+changes folds the existing journals into the record, once.
+
 ## 3. The switches (Worker secrets, delivered by `deploy.yml`)
 
 | Switch | Default when unset | Set to | What it does | Order |
@@ -103,7 +114,10 @@ the only bound.
    - parts working alongside;
    - each part "Saved as a draft";
    - the frame on the draft host, showing both texts and £6.00;
-   - the bar saying "Draft preview · not published";
+   - the bar saying "Draft preview · not published", "updating…" until
+     the preview is confirmed, then plain;
+   - the page leaving "updating" by itself, with no reload (DFU6's path,
+     live);
    - a reload showing the same.
 
    Read: the two writing jobs' intervals intersect (`edit canary`
@@ -138,6 +152,9 @@ the only bound.
 | Request progress, model-written lines and end reply | yes (existing; `PROGRESS_REPLIES` off by default) | yes (progress-browser, request-flow) | the real progress writer's lines, with the switch on (paid) |
 | Pending, saved, partly done, failed and recovering shown apart on the card | yes (this batch) | yes (DUI3, DFU1, DFU4) | — |
 | Draft preview in the frame, its readiness, explicit Publish, the frame returning to live | yes (this batch) | yes (DFU1–DFU3, DUI1, DUI2, DUI5) | the real preview host after an image roll; a real browser on the real host (cookies, framing headers) |
-| No count limit on unpublished changes; partial publication; changes during publication; duplicate clicks; reloads | yes (this batch) | yes (DRT1–DRT6, EER8) | a long-lived real draft; storage reads per unpublished held revision against the Worker's real subrequest limit |
+| Readiness from positive evidence (the confirmed version), pending, failed and unknown apart; a refused claim repaired by the owner's read | yes (this batch, second round) | yes (DPS1–DPS3, DFU6) | R2's real conditional writes on `preview-up/`; Cloudflare's own script-upload failures |
+| The page following an unsettled preview through delays and failed reads, cleaned up on a site switch, a hidden tab or leaving | yes (this batch, second round) | yes (DPF1–DPF6, DFU6) | a real tab over a real network for 15+ minutes |
+| No count limit on unpublished changes; partial publication; changes during publication; duplicate clicks; reloads | yes (this batch) | yes (DRT1–DRT6, EER8) | a long-lived real draft |
+| Reads that do not grow with the draft (the cumulative record) | yes (this batch, second round) | yes (DRT7–DRT9; measured 1 read at 10–1,000 revisions) | R2 latency and object size for a record of hundreds of KB |
 | Video/audio upload, placement, playback, seeking, replacement, removal, cancel | yes | yes (media-*, DFU5) | live playback on real devices (H.264/AAC are not decodable in this Chromium); R2's own multipart expiry |
 | Owner panels | unchanged | — | outside this batch |
