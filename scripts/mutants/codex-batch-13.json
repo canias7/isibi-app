@@ -14,8 +14,8 @@
     "files": [
       "public/chat.js"
     ],
-    "from": "const SITE_DRAFT_RECHECK_MS = 15000;",
-    "to": "// comment-only control\nconst SITE_DRAFT_RECHECK_MS = 15000;"
+    "from": "const SITE_DRAFT_FOLLOW_MIN_MS = 5000;",
+    "to": "// comment-only control\nconst SITE_DRAFT_FOLLOW_MIN_MS = 5000;"
   },
   {
     "label": "K1 retention drops unpublished revisions too",
@@ -74,22 +74,6 @@
     "to": "  return began <= cut;"
   },
   {
-    "label": "K8 a legacy cut record proves absence",
-    "files": [
-      "site-draft.mjs"
-    ],
-    "from": "  if (!t) return draft.revs.length > 0 && draft.revs[0].n > 1;",
-    "to": "  if (!t) return false;"
-  },
-  {
-    "label": "K9 the reconcile ignores the reader's trimmed fact",
-    "files": [
-      "builder/site-reconcile.mjs"
-    ],
-    "from": "const trimmedFact = (d, rec) => (typeof d.trimmed === \"boolean\" ? d.trimmed : !!(rec.revs[0] && rec.revs[0].n > 1));",
-    "to": "const trimmedFact = (d, rec) => !!(rec.revs[0] && rec.revs[0].n > 1);"
-  },
-  {
     "label": "L1 the frame never shows the draft",
     "files": [
       "public/chat.js"
@@ -112,30 +96,6 @@
     ],
     "from": "  if (!d || d.enabled !== true || d.unpublished !== true || typeof d.preview !== 'string' || !SITE_DRAFT_HOST.test(d.preview)) return null;",
     "to": "  if (!d || d.enabled !== true || typeof d.preview !== 'string' || !SITE_DRAFT_HOST.test(d.preview)) return null;"
-  },
-  {
-    "label": "L4 readiness does not move the frame",
-    "files": [
-      "public/chat.js"
-    ],
-    "from": "  return d.preview + '|' + d.revision + '|' + (d.previewReady === true ? 'ready' : d.previewReady === false ? 'pending' : 'unknown');",
-    "to": "  return d.preview + '|' + d.revision;"
-  },
-  {
-    "label": "L5 an updating preview is never read again",
-    "files": [
-      "public/chat.js"
-    ],
-    "from": "  if (d && d.enabled === true && d.unpublished === true && d.previewReady === false) {",
-    "to": "  if (false) {"
-  },
-  {
-    "label": "L6 the re-read has no bound",
-    "files": [
-      "public/chat.js"
-    ],
-    "from": "    if (n < SITE_DRAFT_RECHECKS && !siteDraftRechecks['t:' + slug]) {",
-    "to": "    if (!siteDraftRechecks['t:' + slug]) {"
   },
   {
     "label": "L7 the card never names the part waited for",
@@ -218,35 +178,243 @@
     "to": "  if (!d || typeof d !== \"object\" ||"
   },
   {
-    "label": "N1 readiness ignores standing claims",
-    "files": [
-      "worker.js"
-    ],
-    "from": "previewReady = (await previewClaims(buildDeps(env), ownerSlug)).length === 0;",
-    "to": "previewReady = true;"
-  },
-  {
-    "label": "N2 unreadable claims read as ready",
-    "files": [
-      "worker.js"
-    ],
-    "from": "if (label) { try { previewReady = (await previewClaims(buildDeps(env), ownerSlug)).length === 0; } catch { previewReady = null; } }",
-    "to": "if (label) { try { previewReady = (await previewClaims(buildDeps(env), ownerSlug)).length === 0; } catch { previewReady = true; } }"
-  },
-  {
-    "label": "K10 build recovery ignores the reader's trimmed fact",
-    "files": [
-      "builder/build-lease.mjs"
-    ],
-    "from": "  if (typeof d.trimmed === \"boolean\" ? d.trimmed : !!(all[0] && all[0].n > 1)) return { state: \"unknown\", why: \"draft-trimmed\" };",
-    "to": "  if (!!(all[0] && all[0].n > 1)) return { state: \"unknown\", why: \"draft-trimmed\" };"
-  },
-  {
     "label": "K11 the edit reconcile never hands over when the job began",
     "files": [
       "worker.js"
     ],
     "from": "    if (d) draft = { state: \"read\", record: d, trimmed: revisionsTrimmed(d, { since: row.created_at || null }) };",
     "to": "    if (d) draft = { state: \"read\", record: d, trimmed: revisionsTrimmed(d, { since: null }) };"
+  },
+  {
+    "label": "P1 readiness from an empty claim list alone",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  if (up && up.version === draft.version && claims.length === 0) return \"ready\";",
+    "to": "  if (claims.length === 0) return \"ready\";"
+  },
+  {
+    "label": "P2 an older confirmation reads as ready",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  if (up && up.version === draft.version && claims.length === 0) return \"ready\";",
+    "to": "  if (up && claims.length === 0) return \"ready\";"
+  },
+  {
+    "label": "P3 unreadable evidence reads as pending",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  if (up instanceof Error || claims instanceof Error || !Array.isArray(claims)) return \"unknown\";",
+    "to": "  if (claims instanceof Error || !Array.isArray(claims)) return \"pending\";"
+  },
+  {
+    "label": "P4 a stuck register is not failed",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  if (register && register.state === \"stuck\") return \"failed\";",
+    "to": ""
+  },
+  {
+    "label": "P5 the record moves backward",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "    if (cur && isDraftVersion(cur.version) && cur.version >= version) return true;",
+    "to": "    if (cur && isDraftVersion(cur.version) && cur.version === version) return true;"
+  },
+  {
+    "label": "P6 a save drops its claim without recording",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "        const marked = c.ready ? await markPreviewUp(deps, slug, c.version, clock()) : false;",
+    "to": "        const marked = c.ready;"
+  },
+  {
+    "label": "P7 the tick drops claims without recording",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (c.ready && await markPreviewUp(deps, slug, c.version, clock())) {",
+    "to": "  if (c.ready) {"
+  },
+  {
+    "label": "P8 the owner's read never repairs",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (state === \"pending\" && Array.isArray(claims) && claims.length === 0 && ctx && typeof ctx.waitUntil === \"function\") {",
+    "to": "  if (false) {"
+  },
+  {
+    "label": "P9 the route ignores the readiness reader",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              const previewReady = previewState === \"ready\" ? true : previewState === \"unknown\" || previewState === null ? null : false;",
+    "to": "              const previewReady = true;"
+  },
+  {
+    "label": "Q1 a failed read ends the following",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (!d) { siteDraftFollowAgain(site, { failed: true }); return null; }",
+    "to": "  if (!d) return null;"
+  },
+  {
+    "label": "Q2 no backoff (always the shortest wait)",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  const ms = Math.min(SITE_DRAFT_FOLLOW_MAX_MS, SITE_DRAFT_FOLLOW_MIN_MS * 2 ** f.n);",
+    "to": "  const ms = SITE_DRAFT_FOLLOW_MIN_MS;"
+  },
+  {
+    "label": "Q3 no ceiling on the wait",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  const ms = Math.min(SITE_DRAFT_FOLLOW_MAX_MS, SITE_DRAFT_FOLLOW_MIN_MS * 2 ** f.n);",
+    "to": "  const ms = SITE_DRAFT_FOLLOW_MIN_MS * 2 ** f.n;"
+  },
+  {
+    "label": "Q4 a count ends it again",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  f.n++;\n  f.timer = setTimeout(",
+    "to": "  if (f.n++ >= 20) return;\n  f.timer = setTimeout("
+  },
+  {
+    "label": "Q5 a new revision does not start over",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (siteDraftUnsettled(d)) siteDraftFollowAgain(site, { reset: now !== was });",
+    "to": "  if (siteDraftUnsettled(d)) siteDraftFollowAgain(site, { reset: false });"
+  },
+  {
+    "label": "Q6 a timer firing does not check it is watched",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    f.timer = 0;\n    if (!siteDraftWatched(site)) { siteDraftUnfollow(slug); return; }\n    loadDraftState(site);",
+    "to": "    f.timer = 0;\n    loadDraftState(site);"
+  },
+  {
+    "label": "Q7 hiding the tab keeps the timers",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    if (document.visibilityState === 'hidden') { for (const k of Object.keys(siteDraftFollows)) siteDraftUnfollow(k); return; }",
+    "to": "    if (document.visibilityState === 'hidden') return;"
+  },
+  {
+    "label": "Q8 unknown readiness is not followed",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  return d.unpublished === true && typeof d.preview === 'string' && siteDraftPreviewState(d) !== 'ready';",
+    "to": "  return d.unpublished === true && typeof d.preview === 'string' && siteDraftPreviewState(d) === 'pending';"
+  },
+  {
+    "label": "Q9 opening another site keeps the old follow",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (siteDraftWatched(site)) for (const k of Object.keys(siteDraftFollows)) if (k !== slug) siteDraftUnfollow(k);\n  let d = null;",
+    "to": "  let d = null;"
+  },
+  {
+    "label": "Q10 leaving the page keeps the timers",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  window.addEventListener('pagehide', () => { for (const k of Object.keys(siteDraftFollows)) siteDraftUnfollow(k); });",
+    "to": "  window.addEventListener('pagehide', () => {});"
+  },
+  {
+    "label": "R1 a record entry is used whatever its journal",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "    if (e && e.held === r.held) { known.set(r.n, e.ops); continue; }",
+    "to": "    if (e) { known.set(r.n, e.ops); continue; }"
+  },
+  {
+    "label": "R2 counts that do not add up are used",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "    if (at !== j.ops.length) return { sum: null, etag };",
+    "to": ""
+  },
+  {
+    "label": "R3 the record is never written back",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  if ((learned || stale) && typeof deps.put === \"function\") {",
+    "to": "  if (false) {"
+  },
+  {
+    "label": "R4 published revisions stay in the record",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  const keep = draft.revs.filter((r) => r.held && r.n > draft.applied && known.has(r.n));",
+    "to": "  const keep = draft.revs.filter((r) => r.held && known.has(r.n));"
+  },
+  {
+    "label": "R5 a save does not fold its revision in",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  try { await heldRange(deps, slug, draft, { from: draft.applied }); } catch { /* the next reader */ }",
+    "to": ""
+  },
+  {
+    "label": "R6 a range returns revisions outside it",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  for (const r of draft.revs) {\n    if (r.n <= from || r.n > to || !r.held) continue;\n    out.push(",
+    "to": "  for (const r of draft.revs) {\n    if (r.n <= from || !r.held) continue;\n    out.push("
+  },
+  {
+    "label": "K8 a legacy cut record proves absence",
+    "files": [
+      "site-draft.mjs"
+    ],
+    "from": "  if (!t) return draft.revs.length >= LEGACY_MAX_REVS && draft.revs[0].n > 1;",
+    "to": "  if (!t) return false;"
+  },
+  {
+    "label": "K9 the reconcile ignores the reader's trimmed fact",
+    "files": [
+      "builder/site-reconcile.mjs"
+    ],
+    "from": "const trimmedFact = (d, rec) => (typeof d.trimmed === \"boolean\" ? d.trimmed : !!rec.trimmed || (rec.revs.length >= 60 && !!rec.revs[0] && rec.revs[0].n > 1));",
+    "to": "const trimmedFact = (d, rec) => !!rec.trimmed || (rec.revs.length >= 60 && !!rec.revs[0] && rec.revs[0].n > 1);"
+  },
+  {
+    "label": "K10 build recovery ignores the reader's trimmed fact",
+    "files": [
+      "builder/build-lease.mjs"
+    ],
+    "from": "  if (typeof d.trimmed === \"boolean\" ? d.trimmed : !!d.record.trimmed || (all.length >= 60 && !!all[0] && all[0].n > 1)) return",
+    "to": "  if (!!d.record.trimmed || (all.length >= 60 && !!all[0] && all[0].n > 1)) return"
+  },
+  {
+    "label": "L4 readiness does not move the frame",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  return d.preview + '|' + d.revision + '|' + siteDraftPreviewState(d);",
+    "to": "  return d.preview + '|' + d.revision;"
   }
 ]

@@ -101,7 +101,7 @@ import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
-import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims } from "./site-draft.mjs";
+import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
@@ -12761,6 +12761,72 @@ async function previewVersion(env, slug, version, { go = null } = {}) {
 // Its register (`PREVIEW_STATE_KEY`) is written over the etag read.
 const PREVIEW_SWEEP_CURSOR = "preview-sweep/cursor.json";
 const PREVIEW_CLAIMS_ROOT = "preview-claims/";
+/**
+ * THE PREVIEW'S READINESS FOR THE OWNER'S DRAFT STATE (2026-10-16; since
+ * Codex's review of `44676fcd` from POSITIVE evidence): the version the
+ * preview was confirmed serving (`readPreviewUp`) must be the draft's selected
+ * one AND no claim may stand. An empty claim list alone proves nothing (a save
+ * whose claim was refused uploaded nothing). ready, pending, failed (the tick
+ * gave up) or unknown (a read failed). With nothing confirmed for this version
+ * and no upload standing, no writer will finish it, so this read starts one
+ * repair — under its own claim, within the register's backoff, after the
+ * answer has gone.
+ */
+async function readPreviewState(env, slug, draft, ctx) {
+  const dps = buildDeps(env);
+  let up, claims, register = null;
+  try { up = await readPreviewUp(dps, slug); } catch (e) { up = e instanceof Error ? e : new Error(String(e)); }
+  try { claims = await previewClaims(dps, slug); } catch (e) { claims = e instanceof Error ? e : new Error(String(e)); }
+  try { const g = await env.SITES_BUCKET.get(PREVIEW_STATE_KEY(slug)); register = g ? JSON.parse(await g.text()) : null; } catch { register = null; }
+  const state = previewReadiness(draft, { up, claims, register });
+  if (state === "pending" && Array.isArray(claims) && claims.length === 0 && ctx && typeof ctx.waitUntil === "function") {
+    ctx.waitUntil(repairPreview(env, slug, [], () => Date.now()).catch(() => null));
+  }
+  return state;
+}
+/**
+ * ONE SITE'S PREVIEW BROUGHT TO ITS DRAFT (the tick's step, and since
+ * 2026-10-16 the owner's own read of the draft too): under a claim of its
+ * own, the selected version's staged script put up and confirmed; confirmed,
+ * the version is RECORDED as up (`markPreviewUp`) before every claim it read
+ * goes, so readiness rests on positive evidence. Tries, backoff and giving up
+ * are kept in the site's register. Answers what happened ("ready",
+ * "waiting", "stuck", "failed", "cleared"), or null when it did nothing.
+ */
+async function repairPreview(env, slug, claims, clock) {
+  const B = env.SITES_BUCKET;
+  const deps = buildDeps(env);
+  let reg = {}, etag = null;
+  try { const got = await B.get(PREVIEW_STATE_KEY(slug)); if (got) { etag = got.etag || null; reg = JSON.parse(await got.text()) || {}; } } catch { return null; }
+  const newest = claims.length ? Math.max(...claims.map((c) => c.at)) : 0;
+  if (reg.state === "stuck" && !(newest > Number(reg.at))) return "stuck";
+  const tries0 = reg.state === "stuck" ? 0 : (Number.isSafeInteger(reg.tries) ? reg.tries : 0);
+  if (reg.state !== "stuck" && Number(reg.next) > clock()) return "waiting";
+  // THIS WRITER'S CLAIM, STAMPED WHEN IT STARTS on this site (not when the
+  // tick began), and its window counted from there on the advancing clock.
+  const own = await claimPreview(deps, slug, clock());
+  if (!own) return null;
+  const c = await convergePreview(deps, slug, { repreview: (v, o) => previewVersion(env, slug, v, o), deadline: own.at + PREVIEW_UPLOAD_WINDOW_MS, now: clock });
+  let next, said;
+  if (c.ready && await markPreviewUp(deps, slug, c.version, clock())) {
+    await dropClaims(deps, [...claims.map((x) => x.key), own.key]);
+    next = { state: "ready", up: c.version, tries: 0, next: 0 };
+    said = "ready";
+  } else if (c.absent) {
+    // NO DRAFT AT ALL, read as such: nothing to show, and no work to keep.
+    // (Every claim it read could no longer land, so none is still writing one.)
+    await dropClaims(deps, [...claims.map((x) => x.key), own.key]);
+    next = { state: "ready", up: null, tries: 0, next: 0, cleared: true };
+    said = "cleared";
+  } else {
+    const tries = tries0 + 1;
+    const error = c.ready ? "the preview is up, but that could not be recorded" : c.error;
+    if (tries >= PREVIEW_TRIES) { next = { state: "stuck", up: null, tries, next: 0, error }; said = "stuck"; }
+    else { next = { state: "pending", up: null, tries, next: clock() + previewBackoff(tries), error }; said = "failed"; }
+  }
+  try { await B.put(PREVIEW_STATE_KEY(slug), JSON.stringify({ v: 1, ...next, at: clock() }), { httpMetadata: { contentType: "application/json" }, onlyIf: etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" } }); } catch { /* the next lap */ }
+  return said;
+}
 export async function runPreviewRecovery(env, { now = Date.now(), budget = 50 } = {}) {
   const B = env.SITES_BUCKET;
   const out = { looked: 0, ready: 0, waiting: 0, stuck: 0, failed: 0, cleared: 0 };
@@ -12786,34 +12852,8 @@ export async function runPreviewRecovery(env, { now = Date.now(), budget = 50 } 
     try { claims = await previewClaims(deps, slug); } catch { continue; }
     if (!claims.length) continue;
     if (claims.some((c) => c.at + PREVIEW_LAND_MS > clock())) { out.waiting++; continue; }
-    let reg = {}, etag = null;
-    try { const got = await B.get(PREVIEW_STATE_KEY(slug)); if (got) { etag = got.etag || null; reg = JSON.parse(await got.text()) || {}; } } catch { continue; }
-    const newest = Math.max(...claims.map((c) => c.at));
-    if (reg.state === "stuck" && !(newest > Number(reg.at))) { out.stuck++; continue; }
-    const tries0 = reg.state === "stuck" ? 0 : (Number.isSafeInteger(reg.tries) ? reg.tries : 0);
-    if (reg.state !== "stuck" && Number(reg.next) > clock()) { out.waiting++; continue; }
-    // THIS WRITER'S CLAIM, STAMPED WHEN IT STARTS on this site (not when the
-    // tick began), and its window counted from there on the advancing clock.
-    const own = await claimPreview(deps, slug, clock());
-    if (!own) continue;
-    const c = await convergePreview(deps, slug, { repreview: (v, o) => previewVersion(env, slug, v, o), deadline: own.at + PREVIEW_UPLOAD_WINDOW_MS, now: clock });
-    let next;
-    if (c.ready) {
-      await dropClaims(deps, [...claims.map((x) => x.key), own.key]);
-      next = { state: "ready", up: c.version, tries: 0, next: 0 };
-      out.ready++;
-    } else if (c.absent) {
-      // NO DRAFT AT ALL, read as such: nothing to show, and no work to keep.
-      // (Every claim it read could no longer land, so none is still writing one.)
-      await dropClaims(deps, [...claims.map((x) => x.key), own.key]);
-      next = { state: "ready", up: null, tries: 0, next: 0, cleared: true };
-      out.cleared++;
-    } else {
-      const tries = tries0 + 1;
-      if (tries >= PREVIEW_TRIES) { next = { state: "stuck", up: null, tries, next: 0, error: c.error }; out.stuck++; }
-      else { next = { state: "pending", up: null, tries, next: clock() + previewBackoff(tries), error: c.error }; out.failed++; }
-    }
-    try { await B.put(PREVIEW_STATE_KEY(slug), JSON.stringify({ v: 1, ...next, at: clock() }), { httpMetadata: { contentType: "application/json" }, onlyIf: etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" } }); } catch { /* the next lap */ }
+    const r = await repairPreview(env, slug, claims, clock);
+    if (r && Object.hasOwn(out, r)) out[r]++;
   }
   try { await B.put(PREVIEW_SWEEP_CURSOR, JSON.stringify({ after: step.after, at: clock() }), { httpMetadata: { contentType: "application/json" } }); } catch { /* starts again from the front */ }
   return out;
@@ -43166,18 +43206,13 @@ async function handleRequest(request, env, ctx) {
                 const ops = draft ? await unpublishedOps(buildDeps(env), ownerSlug, draft) : [];
                 address = { live: liveName, draft: addressOverlay(liveName, ops) };
               } catch { address = null; }
-              // THE PREVIEW'S READINESS, READ (2026-10-16, the frontend batch):
-              // true when no writer's claim stands — every upload that may
-              // land has been confirmed on the draft's selected version —
-              // false while one stands, null when the claims cannot be read
-              // (cannot-tell is never "ready"). The page shows the draft in
-              // its frame and says "updating" until this is true.
-              let previewReady = null;
-              if (label) { try { previewReady = (await previewClaims(buildDeps(env), ownerSlug)).length === 0; } catch { previewReady = null; } }
+              // THE PREVIEW'S READINESS, from positive evidence (`readPreviewState`).
+              const previewState = label ? await readPreviewState(env, ownerSlug, draft, ctx) : null;
+              const previewReady = previewState === "ready" ? true : previewState === "unknown" || previewState === null ? null : false;
               return {
                 ...st, runningKnown: running !== null, enabled: draftFirst(env),
                 preview: label ? "https://" + label + "." + SITE_ZONE + "/" : null,
-                previewReady,
+                previewReady, previewState,
                 saved: draft ? draft.history.concat(draft.version) : [],
                 revisions, publishing: publishing ? publishing.revision : null,
                 // THE PUBLICATION STANDING: its revision, its phase, whether a

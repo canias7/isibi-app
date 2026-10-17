@@ -36,7 +36,7 @@ import { page as pageSrc } from "./fixtures/live-ask.mjs";
 import { rowsDb, BAKERY_LOAVES, LOAF_COLUMNS } from "./fixtures/rows-db.mjs";
 import { MAX_DATA_ROWS } from "../builder/site-apply.mjs";
 import {
-  DRAFT_KEY, PUBLISHING_KEY, readDraft, saveDraftRecord, sealHeldRevision, newHold, unpublishedOps, publishPlan, markApplied,
+  DRAFT_KEY, PUBLISHING_KEY, HELD_KEY, HELD_SUM_KEY, readDraft, saveDraftRecord, sealHeldRevision, newHold, unpublishedOps, heldRange, publishPlan, markApplied,
   revisionsTrimmed, mintAfter, KEEP_PUBLISHED, TRIM_CLOCK_MARGIN_MS,
 } from "../site-draft.mjs";
 
@@ -48,7 +48,8 @@ function memDeps() {
   let n = 0;
   return {
     m,
-    async get(k) { const o = m.get(k); return o ? { etag: o.etag, text: async () => o.body } : null; },
+    gets: [],
+    async get(k) { this.gets.push(k); const o = m.get(k); return o ? { etag: o.etag, text: async () => o.body } : null; },
     async put(k, body, _ct, onlyIf) {
       const cur = m.get(k);
       if (onlyIf && onlyIf.etagDoesNotMatch === "*" && cur) return null;
@@ -224,6 +225,13 @@ test("DRT5 130 MIXED REVISIONS THROUGH THE REAL WORKER — held additions and co
     const st = await call(P, "GET", "/api/site/" + P.slug + "/draft");
     assert.equal(st.status, 200, JSON.stringify(st.body).slice(0, 300));
     assert.deepEqual([st.body.state, st.body.revision, st.body.applied, st.body.revisions.length, st.body.revisions[0].revision], ["saved", 130, 0, 130, 1]);
+    // AND READING THEM DOES NOT READ ONE JOURNAL PER REVISION (the cumulative record).
+    const realGet = P.bucket.get;
+    let journalsRead = 0;
+    P.bucket.get = async (k, o) => { if (String(k).includes("/held/")) journalsRead++; return realGet.call(P.bucket, k, o); };
+    try { assert.equal((await call(P, "GET", "/api/site/" + P.slug + "/draft")).status, 200); }
+    finally { P.bucket.get = realGet; }
+    assert.equal(journalsRead, 0, "the panel's read read " + journalsRead + " journals");
     // A NEXT TASK IS SHOWN THE DRAFT'S ROWS, THE EARLIEST HELD LOAF INCLUDED.
     const t = await sendMessage(P, { message: "Make the Dark Rye £5.90." });
     await settle(P, t.key, { rounds: 20 });
@@ -298,4 +306,89 @@ test("DRT6 THE RECOVERY READERS TAKE THE TRIMMING FACT — Edit/Add-on reconcile
   const whole = Array.from({ length: 150 }, (_, i) => ({ n: i + 1, version: V0, at: "x", job: "job-other", held: null, ops: 0 }));
   assert.equal(reconcileVerdict({ ...facts(undefined), draft: { state: "read", record: { version: V0, rev: 150, revs: whole } } }).kind, "never-staged", "a long untrimmed list was taken as trimmed");
   assert.deepEqual(savedOfJob({ state: "read", record: { version: V0, rev: 150, revs: whole } }, "job-a", []), { state: "none" });
+});
+
+// ── THE CUMULATIVE RECORD OF HELD CHANGES (2026-10-16, Codex's review of `44676fcd`) ──
+/** The reference: every journal read directly, as the code did before the record. */
+async function fromJournals(deps, slug, draft, from, to = Infinity) {
+  const out = [];
+  for (const r of draft.revs) {
+    if (r.n <= from || r.n > to || !r.held) continue;
+    out.push({ n: r.n, ops: JSON.parse(deps.m.get(HELD_KEY(slug, r.held)).body).ops });
+  }
+  return out;
+}
+const journalReads = (deps, from) => deps.gets.slice(from).filter((k) => k.includes("/held/")).length;
+
+test("DRT7 READS DO NOT GROW WITH THE DRAFT — 300 held revisions and 150 code saves mixed: reading the unpublished changes is one storage read however long the draft, and exactly the journals' ops, in order", async () => {
+  const deps = memDeps();
+  const slug = "drt7";
+  let v = V0;
+  for (let i = 1; i <= 450; i++) {
+    if (i % 3 === 0) { v = mintAfter(v, 0, ("c" + i).padStart(6, "0")); assert.equal((await saveDraftRecord(deps, slug, { version: v, base: V0, job: "c" + i, now })).ok, true); }
+    else await holdOne(deps, slug, insertOf(i));
+  }
+  const { draft } = await readDraft(deps, slug);
+  assert.equal(draft.revs.length, 450);
+  const g0 = deps.gets.length;
+  const ops = await unpublishedOps(deps, slug, draft);
+  assert.deepEqual([deps.gets.length - g0, journalReads(deps, g0)], [1, 0], "reading the draft's changes still reads one journal per revision");
+  assert.deepEqual(ops, (await fromJournals(deps, slug, draft, 0)).flatMap((r) => r.ops), "the record's ops are not exactly the journals'");
+  // A RANGE: exactly the revisions asked for, as the journals have them.
+  const g1 = deps.gets.length;
+  assert.deepEqual(await heldRange(deps, slug, draft, { from: 0, to: 200 }), await fromJournals(deps, slug, draft, 0, 200));
+  assert.equal(journalReads(deps, g1), 0);
+});
+
+test("DRT8 THE RECORD PROVES WHAT IT IS USED FOR — corrupt, it is ignored and rebuilt from the journals; an entry whose journal id does not match its revision is read from the journal; a journal missing and not in the record is still cannot-tell", async () => {
+  const deps = memDeps();
+  const slug = "drt8";
+  for (let i = 1; i <= 40; i++) await holdOne(deps, slug, insertOf(i));
+  const { draft } = await readDraft(deps, slug);
+  const want = (await fromJournals(deps, slug, draft, 0)).flatMap((r) => r.ops);
+  // COUNTS THAT DO NOT ADD UP: ignored whole, rebuilt.
+  const good = JSON.parse(deps.m.get(HELD_SUM_KEY(slug)).body);
+  await deps.put(HELD_SUM_KEY(slug), JSON.stringify({ ...good, ops: good.ops.slice(1) }));
+  let g = deps.gets.length;
+  assert.deepEqual(await unpublishedOps(deps, slug, draft), want);
+  assert.equal(journalReads(deps, g), 40, "a record whose counts do not add up was used");
+  g = deps.gets.length;
+  assert.deepEqual(await unpublishedOps(deps, slug, draft), want);
+  assert.equal(journalReads(deps, g), 0, "it was not rebuilt");
+  // AN ENTRY NAMING ANOTHER JOURNAL for revision 7, with other ops: not used for 7.
+  const rec = JSON.parse(deps.m.get(HELD_SUM_KEY(slug)).body);
+  rec.entries[6] = { ...rec.entries[6], held: "f".repeat(24) };
+  rec.ops[6] = insertOf(999);
+  await deps.put(HELD_SUM_KEY(slug), JSON.stringify(rec));
+  g = deps.gets.length;
+  assert.deepEqual(await unpublishedOps(deps, slug, draft), want, "an entry for another journal was used");
+  assert.equal(journalReads(deps, g), 1);
+  // NOT JSON, OR GONE: rebuilt.
+  await deps.put(HELD_SUM_KEY(slug), "{");
+  assert.deepEqual(await unpublishedOps(deps, slug, draft), want);
+  deps.m.delete(HELD_SUM_KEY(slug));
+  // A JOURNAL MISSING AND NOT IN THE RECORD: cannot-tell, never "nothing held".
+  deps.m.delete(HELD_KEY(slug, draft.revs[10].held));
+  await assert.rejects(unpublishedOps(deps, slug, draft), /held changes missing: revision 11/);
+});
+
+test("DRT9 PUBLICATION SHRINKS THE RECORD, NEVER INVALIDATES IT — after a partial publication the next read uses it with no journal read, and holds only the unpublished revisions; later saves fold in one at a time", async () => {
+  const deps = memDeps();
+  const slug = "drt9";
+  for (let i = 1; i <= 120; i++) await holdOne(deps, slug, insertOf(i));
+  await markApplied(deps, slug, { revision: 70 });
+  const { draft } = await readDraft(deps, slug);
+  const g = deps.gets.length;
+  const ops = await unpublishedOps(deps, slug, draft);
+  assert.deepEqual([ops.length, ops[0].values.name, ops[49].values.name, journalReads(deps, g)], [50, "Loaf 71", "Loaf 120", 0]);
+  const rec = JSON.parse(deps.m.get(HELD_SUM_KEY(slug)).body);
+  assert.deepEqual([rec.entries.length, rec.entries[0].n], [50, 71], "the record still holds published revisions");
+  // A SAVE FOLDS ITS OWN REVISION IN: the next read reads no journal.
+  const g2 = deps.gets.length;
+  await holdOne(deps, slug, insertOf(121));
+  assert.equal(journalReads(deps, g2), 1, "a save read more than its own journal");
+  const d2 = (await readDraft(deps, slug)).draft;
+  const g3 = deps.gets.length;
+  const ops2 = await unpublishedOps(deps, slug, d2);
+  assert.deepEqual([ops2.length, ops2[50].values.name, journalReads(deps, g3)], [51, "Loaf 121", 0]);
 });

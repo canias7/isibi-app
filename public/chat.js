@@ -7995,31 +7995,95 @@ async function loadDraftState(site) {
   const slug = String((site && site.slug) || '');
   if (!slug) return null;
   siteDraftAt[slug] = Date.now();
+  // A SITE OPENED IN THE WORKSPACE LETS GO OF ANY OTHER SITE'S FOLLOW (a job
+  // of another site finishing reads that site's draft without taking over).
+  if (siteDraftWatched(site)) for (const k of Object.keys(siteDraftFollows)) if (k !== slug) siteDraftUnfollow(k);
+  let d = null;
   try {
     const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/draft');
-    const d = await r.json().catch(() => null);
-    if (!r.ok || !d || d.ok !== true) return null;
-    const was = siteDraftFrameKey(siteDraftState[slug]);
-    siteDraftState[slug] = d;
-    paintDraftChip(d);
-    siteDraftFollow(site, d, was);
-    return d;
-  } catch (e) { return null; }
+    d = await r.json().catch(() => null);
+    if (!r.ok || !d || d.ok !== true) d = null;
+  } catch (e) { d = null; }
+  // A READING THAT FAILED IS NOT AN ANSWER (2026-10-16, Codex's review of
+  // `44676fcd`): what the page last read stands, and the reading is tried
+  // again on the follow's backoff while the workspace is watched — one 503
+  // no longer ends the following.
+  if (!d) { siteDraftFollowAgain(site, { failed: true }); return null; }
+  const was = siteDraftFrameKey(siteDraftState[slug]);
+  siteDraftState[slug] = d;
+  paintDraftChip(d);
+  siteDraftFollow(site, d, was);
+  return d;
+}
+// THE PREVIEW'S STATE AS THE SERVER READ IT: `previewState` (ready, pending,
+// failed, unknown), or, from a server before it, `previewReady`.
+function siteDraftPreviewState(d) {
+  if (!d) return 'unknown';
+  if (['ready', 'pending', 'failed', 'unknown'].includes(d.previewState)) return d.previewState;
+  return d.previewReady === true ? 'ready' : d.previewReady === false ? 'pending' : 'unknown';
 }
 // WHAT THE FRAME DEPENDS ON in a draft reading: which draft it shows, and
 // whether that draft's preview is ready.
 function siteDraftFrameKey(d) {
   if (!d || d.enabled !== true || d.unpublished !== true || typeof d.preview !== 'string') return 'live';
-  return d.preview + '|' + d.revision + '|' + (d.previewReady === true ? 'ready' : d.previewReady === false ? 'pending' : 'unknown');
+  return d.preview + '|' + d.revision + '|' + siteDraftPreviewState(d);
 }
 // FOLLOW A DRAFT READING TO THE FRAME (2026-10-16, the frontend batch): when
 // what the frame should show moved — a newer draft, its preview now ready,
 // or a publication that left nothing unpublished — the frame is moved once
-// and the workspace drawn. While the preview is still being updated it is
-// read again, a bounded number of times, until it is ready.
-const SITE_DRAFT_RECHECK_MS = 15000;
-const SITE_DRAFT_RECHECKS = 20;
-const siteDraftRechecks = {};
+// and the workspace drawn.
+//
+// AND KEEP FOLLOWING WHILE IT IS WATCHED (2026-10-16, Codex's review of
+// `44676fcd`): the page used to stop after twenty reads fifteen seconds
+// apart, and at the first failed read, while the server's own recovery can
+// take longer — the preview turned ready at minute 16 and the page stayed on
+// "updating" with no timer. Now a draft whose preview is not ready (pending,
+// failed or unknown), work still being saved or published, or a reading that
+// failed, is read again on a backoff (5 s, doubling, at most 2 minutes) for as
+// long as this site's workspace is open and the tab is visible — no count
+// ends it. Any change in what the frame depends on starts the backoff over.
+// Leaving the site, closing the workspace or hiding the tab stops it (the
+// timer is cleared, and one that fires finds the site no longer watched);
+// coming back reads the draft again.
+const SITE_DRAFT_FOLLOW_MIN_MS = 5000;
+const SITE_DRAFT_FOLLOW_MAX_MS = 120000;
+const siteDraftFollows = {};
+function siteDraftWatched(site) {
+  if (!site || siteOpenId !== site.id) return false;
+  return !(typeof document !== 'undefined' && document && document.visibilityState === 'hidden');
+}
+function siteDraftUnfollow(slug) {
+  const f = siteDraftFollows[slug];
+  if (f && f.timer) clearTimeout(f.timer);
+  delete siteDraftFollows[slug];
+}
+/** Read the draft again later, on the backoff, while this site is watched. */
+function siteDraftFollowAgain(site, { reset = false, failed = false } = {}) {
+  const slug = String((site && site.slug) || '');
+  if (!slug) return;
+  // A FAILED READING IS FOLLOWED ONLY UNDER DRAFT-FIRST (as the page last knew it).
+  const last = siteDraftState[slug];
+  if (failed && !(globalThis.draftFirstOn === true || (last && last.enabled === true))) return;
+  // ONE SITE FOLLOWED AT A TIME: whatever else was followed is let go.
+  for (const k of Object.keys(siteDraftFollows)) if (k !== slug) siteDraftUnfollow(k);
+  if (!siteDraftWatched(site)) { siteDraftUnfollow(slug); return; }
+  const f = siteDraftFollows[slug] || (siteDraftFollows[slug] = { n: 0, timer: 0 });
+  if (reset) f.n = 0;
+  if (f.timer) clearTimeout(f.timer);
+  const ms = Math.min(SITE_DRAFT_FOLLOW_MAX_MS, SITE_DRAFT_FOLLOW_MIN_MS * 2 ** f.n);
+  f.n++;
+  f.timer = setTimeout(() => {
+    f.timer = 0;
+    if (!siteDraftWatched(site)) { siteDraftUnfollow(slug); return; }
+    loadDraftState(site);
+  }, ms);
+}
+/** Whether a reading leaves something to wait for: a preview not ready, or work still being saved or published. */
+function siteDraftUnsettled(d) {
+  if (!d || d.enabled !== true) return false;
+  if (d.state === 'processing' || d.state === 'publishing') return true;
+  return d.unpublished === true && typeof d.preview === 'string' && siteDraftPreviewState(d) !== 'ready';
+}
 function siteDraftFollow(site, d, was) {
   const slug = String(site.slug || '');
   const now = siteDraftFrameKey(d);
@@ -8028,13 +8092,20 @@ function siteDraftFollow(site, d, was) {
     if (typeof sitesSave === 'function') sitesSave();
     if (siteOpenId === site.id && typeof renderSites === 'function') renderSites();
   }
-  if (d && d.enabled === true && d.unpublished === true && d.previewReady === false) {
-    const n = siteDraftRechecks[slug] || 0;
-    if (n < SITE_DRAFT_RECHECKS && !siteDraftRechecks['t:' + slug]) {
-      siteDraftRechecks[slug] = n + 1;
-      siteDraftRechecks['t:' + slug] = setTimeout(() => { siteDraftRechecks['t:' + slug] = 0; loadDraftState(site); }, SITE_DRAFT_RECHECK_MS);
-    }
-  } else siteDraftRechecks[slug] = 0;
+  if (siteDraftUnsettled(d)) siteDraftFollowAgain(site, { reset: now !== was });
+  else siteDraftUnfollow(slug);
+}
+// THE TAB HIDDEN, OR THE PAGE LEFT: every follow let go; the tab shown again
+// reads the open site's draft at once.
+if (typeof document !== 'undefined' && document && typeof document.addEventListener === 'function') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') { for (const k of Object.keys(siteDraftFollows)) siteDraftUnfollow(k); return; }
+    const s = typeof siteById === 'function' && siteOpenId ? siteById(siteOpenId) : null;
+    if (s && s.slug && (globalThis.draftFirstOn === true || (siteDraftState[s.slug] && siteDraftState[s.slug].enabled === true))) loadDraftState(s);
+  });
+}
+if (typeof window !== 'undefined' && window && typeof window.addEventListener === 'function') {
+  window.addEventListener('pagehide', () => { for (const k of Object.keys(siteDraftFollows)) siteDraftUnfollow(k); });
 }
 function siteDraftPanel(site, d) {
   const slug = String(site.slug || '');
@@ -8227,7 +8298,8 @@ function renderSiteWorkspace(view, site) {
   // and says the preview is still being updated until the server reads it
   // ready (`previewReady`).
   const draftShown = siteDraftFrame(site);
-  const previewUrl = draftShown ? 'Draft preview \u00b7 not published' + (draftShown.previewReady === false ? ' \u00b7 updating\u2026' : '') : siteChipUrl(site, active && active.path);
+  const pvState = draftShown ? siteDraftPreviewState(draftShown) : 'ready';
+  const previewUrl = draftShown ? 'Draft preview \u00b7 not published' + (pvState === 'pending' ? ' \u00b7 updating\u2026' : pvState === 'failed' ? ' \u00b7 couldn\u2019t update the preview yet' : pvState === 'unknown' ? ' \u00b7 checking\u2026' : '') : siteChipUrl(site, active && active.path);
   const picker = pages.length > 1
     ? '<div class="st-pagepick"><button type="button" class="st-pagebtn" id="stPageBtn">' + esc(active ? active.name : 'Home') + ' <span class="st-cv">▾</span></button>' +
         '<div class="st-pagemenu" id="stPageMenu" hidden>' + pages.map((p) =>

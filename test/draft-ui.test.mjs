@@ -50,7 +50,8 @@ function cutLine(head) {
 }
 /** The client's frame and card functions, in a VM with the state they read. */
 function client() {
-  const ctx = { EditPoll, globalThis: {}, console, siteDraftState: {}, siteOpenId: null, renders: 0, saves: 0, loads: [], timers: [] };
+  const ctx = { EditPoll, globalThis: {}, console, siteDraftState: {}, siteOpenId: null, renders: 0, saves: 0, loads: [], timers: [], document: { visibilityState: "visible" } };
+  ctx.clearTimeout = () => {};
   ctx.renderSites = () => { ctx.renders++; };
   ctx.sitesSave = () => { ctx.saves++; };
   ctx.loadDraftState = (s) => { ctx.loads.push(s.slug); };
@@ -61,8 +62,10 @@ function client() {
     cut("function sitePreviewSrc(site, path) {"),
     cutLine("const SITE_DRAFT_HOST ="),
     cut("function siteDraftFrame(site) {"),
-    cut("function siteDraftFrameKey(d) {"),
-    cutLine("const SITE_DRAFT_RECHECK_MS ="), cutLine("const SITE_DRAFT_RECHECKS ="), cutLine("const siteDraftRechecks ="),
+    cut("function siteDraftPreviewState(d) {"), cut("function siteDraftFrameKey(d) {"),
+    cutLine("const SITE_DRAFT_FOLLOW_MIN_MS ="), cutLine("const SITE_DRAFT_FOLLOW_MAX_MS ="), cutLine("const siteDraftFollows ="),
+    cut("function siteDraftWatched(site) {"), cut("function siteDraftUnfollow(slug) {"), cut("function siteDraftFollowAgain(site, { reset = false, failed = false } = {}) {"),
+    cut("function siteDraftUnsettled(d) {"),
     cut("function siteDraftFollow(site, d, was) {"),
     cut("const SITE_REQ_STATUS = {"), cut("const SITE_REQ_HELD = {"), cut("const SITE_REQ_HELD_ADDED = {"),
     cut("const SITE_REQ_PREP = {"), cut("const SITE_REQ_LEFT = {"), cut("const SITE_SAID_FOR = {"),
@@ -70,7 +73,7 @@ function client() {
     "function progressListHTML() { return ''; }",
     cut("function siteRequestHTML(m, site) {"),
     cut("const siteMediaRefused ="),
-    "this.api = { sitePreviewSrc, siteDraftFrame, siteDraftFrameKey, siteDraftFollow, siteRequestHTML, siteMediaRefused, siteDraftRechecks };",
+    "this.api = { sitePreviewSrc, siteDraftFrame, siteDraftFrameKey, siteDraftFollow, siteRequestHTML, siteMediaRefused, siteDraftFollows };",
   ].join("\n");
   vm.runInContext(src, ctx);
   return ctx;
@@ -104,7 +107,7 @@ test("DUI1 THE FRAME'S ADDRESS — the draft's preview host while draft-first is
   }
 });
 
-test("DUI2 WHAT MOVES THE FRAME — a newer draft, its preview turning ready, and a publication leaving nothing unpublished each move it once; the same reading moves nothing; a preview still updating is read again, a bounded number of times", () => {
+test("DUI2 WHAT MOVES THE FRAME — a newer draft, its preview turning ready, and a publication leaving nothing unpublished each move it once; the same reading moves nothing; a preview still updating is read again while watched, and a ready one is let go", () => {
   const c = client();
   const { siteDraftFrameKey, siteDraftFollow } = c.api;
   const s = site();
@@ -117,19 +120,15 @@ test("DUI2 WHAT MOVES THE FRAME — a newer draft, its preview turning ready, an
   assert.equal(step(ahead({ revision: 5 }), siteDraftFrameKey(ahead())), 1, "a newer draft did not move it");
   assert.equal(step(ahead({ revision: 5, previewReady: true }), siteDraftFrameKey(ahead({ revision: 5, previewReady: false }))), 1, "the preview turning ready did not move it");
   assert.equal(step({ enabled: true, unpublished: false, preview: PREVIEW }, siteDraftFrameKey(ahead({ revision: 5 }))), 1, "a publication did not move it back");
-  // STILL UPDATING: read again later, at most SITE_DRAFT_RECHECKS times in a row.
+  // STILL UPDATING, WATCHED: read again on the backoff (the whole following is DPF1–DPF6 in
+  // `test/draft-preview-follow.test.mjs`); READY: nothing more is scheduled.
   c.timers.length = 0;
-  for (let i = 0; i < 40; i++) {
-    step(ahead({ previewReady: false }), siteDraftFrameKey(ahead({ previewReady: false })));
-    const t = c.timers.shift();
-    if (!t) break;
-    assert.equal(t.ms, 15000);
-    t.fn();
-  }
-  assert.equal(c.loads.length, 20, "the preview was not read again, or read without bound: " + c.loads.length);
-  // READY AGAIN, THE COUNT STARTS OVER.
+  step(ahead({ previewReady: false }), siteDraftFrameKey(ahead({ previewReady: false })));
+  assert.deepEqual(c.timers.map((t) => t.ms), [5000], "an updating preview was not read again");
+  c.timers[0].fn();
+  assert.deepEqual(c.loads, [SLUG]);
   step(ahead({ previewReady: true }), siteDraftFrameKey(ahead({ previewReady: false })));
-  assert.equal(c.api.siteDraftRechecks[SLUG], 0);
+  assert.equal(Object.keys(c.api.siteDraftFollows).length, 0, "a ready preview is still followed");
 });
 
 test("DUI3 THE CARD'S LABELS FROM THE SERVER'S FIELDS — the part a held part waits for, a part not run for a part that broke, a lost rewrite being recovered, a part saved as a draft (its preview updating said too); each part still named by its own words", () => {

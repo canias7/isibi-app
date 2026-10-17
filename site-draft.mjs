@@ -100,7 +100,7 @@ export async function saveDraftRecord(deps, slug, { version, build = "", base = 
       const keep = { ...draftRecordOut(draft), history: [...draft.history.filter((v) => v !== version), ...(draft.version === version ? [] : [version])].sort().slice(-20) };
       if (heldRef) Object.assign(keep, addRevision(draft, { version: draft.version, held: heldRef, job, at }));
       const put = await deps.put(DRAFT_KEY(slug), JSON.stringify(keep), "application/json", { etagMatches: etag });
-      if (put) return { ok: true, draft: readBack(keep), older: draft.version !== version, revision: keep.rev };
+      if (put) { if (heldRef) await foldHeld(deps, slug, readBack(keep)); return { ok: true, draft: readBack(keep), older: draft.version !== version, revision: keep.rev }; }
       continue;
     }
     const rec = {
@@ -109,9 +109,18 @@ export async function saveDraftRecord(deps, slug, { version, build = "", base = 
       ...addRevision(draft, { version, held: heldRef, job, at }),
     };
     const put = await deps.put(DRAFT_KEY(slug), JSON.stringify(rec), "application/json", etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" });
-    if (put) return { ok: true, draft: readBack(rec), revision: rec.rev };
+    if (put) { if (heldRef) await foldHeld(deps, slug, readBack(rec)); return { ok: true, draft: readBack(rec), revision: rec.rev }; }
   }
   return { ok: false, error: "the draft kept changing under this save" };
+}
+/**
+ * A SAVE THAT HELD CHANGES FOLDS ITS REVISION INTO THE CUMULATIVE RECORD at
+ * once (`heldRange`), so a draft that grows by saves alone never leaves a
+ * long run of journals for the next reader. Best effort: the save stands
+ * whatever happens here, and a reader folds in whatever is missing.
+ */
+async function foldHeld(deps, slug, draft) {
+  try { await heldRange(deps, slug, draft, { from: draft.applied }); } catch { /* the next reader */ }
 }
 
 /**
@@ -130,7 +139,7 @@ export async function sealHeldRevision(deps, slug, { held, job = null, liveVersi
       ? { ...draftRecordOut(draft), ...addRevision(draft, { version, held, job, at }) }
       : { v: 2, version, build: "", base: version, job: job ? String(job) : null, at, history: [], preview: token(), ...addRevision(null, { version, held, job, at, applied: 0 }) };
     const put = await deps.put(DRAFT_KEY(slug), JSON.stringify(rec), "application/json", etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" });
-    if (put) return { ok: true, draft: readBack(rec), revision: rec.rev };
+    if (put) { await foldHeld(deps, slug, readBack(rec)); return { ok: true, draft: readBack(rec), revision: rec.rev }; }
   }
   return { ok: false, error: "the draft kept changing under this save" };
 }
@@ -413,6 +422,61 @@ export const previewBackoff = (tries) => Math.min(60 * 60 * 1000, 2 * 60 * 1000 
 // selected version up under a claim of its own and, confirmed, clears every
 // claim it read. A save is ready only when its own version is confirmed AND no
 // other writer's claim stands.
+// ── WHAT THE PREVIEW IS CONFIRMED TO SERVE (2026-10-16, Codex's review of
+// `44676fcd`) ────────────────────────────────────────────────────────────────
+//
+// An empty claim list is not proof that the selected draft is serving: a save
+// whose claim could not be written uploads nothing and leaves no claim, and
+// the list read empty while the preview still served the version before. So
+// readiness is read from POSITIVE evidence: the version a writer CONFIRMED up
+// (`convergePreview` ready: its own upload succeeded and the draft still
+// selected it), recorded here before that writer drops its claim, and only
+// ever moved forward — versions sort by their minting time and the draft's
+// selected version never goes back, so an older confirmation arriving late
+// never overwrites a newer one. The preview is ready when this record names
+// the draft's selected version AND no writer's claim stands (an upload that
+// may still land out of order).
+export const PREVIEW_UP_KEY = (slug) => "preview-up/" + String(slug || "") + ".json";
+/** The version the preview was last confirmed serving, or null; throws when it cannot be read (cannot-tell is never "none"). */
+export async function readPreviewUp(deps, slug) {
+  const o = await deps.get(PREVIEW_UP_KEY(slug));
+  if (!o) return null;
+  const t = await o.text();
+  if (isHeldObject(o, t)) return null;
+  const j = JSON.parse(t);
+  return j && isDraftVersion(j.version) ? { version: j.version, at: Number(j.at) || 0 } : null;
+}
+/** Record `version` as confirmed up, forward only. True when the record names it (or a newer version) afterwards. */
+export async function markPreviewUp(deps, slug, version, at = Date.now()) {
+  if (!isDraftVersion(version)) return false;
+  for (let i = 0; i < 4; i++) {
+    let cur = null, etag = null, held = false;
+    try {
+      const o = await deps.get(PREVIEW_UP_KEY(slug));
+      if (o) { etag = String(o.etag || "") || null; const t = await o.text(); held = isHeldObject(o, t); if (!held) cur = JSON.parse(t); }
+    } catch { return false; }
+    if (cur && isDraftVersion(cur.version) && cur.version >= version) return true;
+    let put = null;
+    try { put = await deps.put(PREVIEW_UP_KEY(slug), JSON.stringify({ v: 1, version, at }), "application/json", etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" }); } catch { put = null; }
+    if (put) return true;
+  }
+  return false;
+}
+/**
+ * THE PREVIEW'S STATE FOR THE DRAFT AS READ: `ready` (confirmed serving its
+ * selected version, nothing still landing), `pending` (not yet: an upload
+ * standing, or nothing confirmed for this version), `failed` (the tick gave
+ * up on it: `register.state === "stuck"`), `unknown` (the evidence could not
+ * be read), or null when the draft has no preview. `claims` and `up` are the
+ * reads, or an Error when a read failed.
+ */
+export function previewReadiness(draft, { up, claims, register = null } = {}) {
+  if (!draft || !draft.preview || !isDraftVersion(draft.version)) return null;
+  if (up instanceof Error || claims instanceof Error || !Array.isArray(claims)) return "unknown";
+  if (up && up.version === draft.version && claims.length === 0) return "ready";
+  if (register && register.state === "stuck") return "failed";
+  return "pending";
+}
 export const PREVIEW_CLAIMS_PREFIX = (slug) => "preview-claims/" + String(slug || "") + "/";
 export const PREVIEW_UPLOAD_WINDOW_MS = 5 * 60 * 1000;
 /** Kept equal to `DISPATCH_CALL_MS` (builder/site-dispatch.mjs) by a test. */
@@ -571,12 +635,16 @@ export async function saveAsDraft(deps, { slug, version, build = "", base = "", 
       } else {
         const c = await convergePreview(deps, slug, { mine: version, upload: (o) => preview(rec.draft, o), repreview, deadline: claim.at + PREVIEW_UPLOAD_WINDOW_MS, now: clock });
         let others = null;
-        if (c.ready) {
+        // CONFIRMED: recorded as the positive evidence of what serves BEFORE
+        // the claim goes; a record that could not be written keeps the claim,
+        // and the tick puts it up and records it.
+        const marked = c.ready ? await markPreviewUp(deps, slug, c.version, clock()) : false;
+        if (c.ready && marked) {
           await unclaim();
           try { others = (await previewClaims(deps, slug)).filter((x) => x.key !== claim.key); } catch { others = null; }
         }
-        const ready = c.ready && Array.isArray(others) && others.length === 0;
-        const error = c.error || (!ready && c.ready ? (others === null ? "the preview's other uploads could not be read" : "another upload of the preview may still land") : "");
+        const ready = c.ready && marked && Array.isArray(others) && others.length === 0;
+        const error = c.error || (!ready && c.ready ? (!marked ? "the preview is up, but that could not be recorded" : others === null ? "the preview's other uploads could not be read" : "another upload of the preview may still land") : "");
         previewed = {
           ok: ready, version: c.version, superseded: !!c.version && c.version !== version, repaired: c.repaired,
           pending: !ready, recoverable: !ready, ...(error ? { error } : {}),
@@ -649,17 +717,78 @@ export function newHold(deps, slug, { id = randomHex(12) } = {}) {
  * THE HELD OPS OF REVISIONS (from, to], in order: `[{ n, ops }]`. Throws when
  * a journal a revision names cannot be read — cannot-tell is never "nothing
  * held".
+ *
+ * ONE CUMULATIVE RECORD, NOT ONE READ PER REVISION (2026-10-16, Codex's review
+ * of `44676fcd`). With no count limit on the draft, reading every journal on
+ * every read made the preview's data, the next task and publication cost one
+ * storage read per held revision — measured: 10, 100, 500 and 1,000 reads for
+ * as many revisions, on every read. The unpublished held ops are now also kept
+ * together (`HELD_SUM_KEY`): each revision's entry `{ n, held, count }` and
+ * the ops in order. It is a cache that is never trusted beyond what it can
+ * prove: an entry is used for a revision only when both its number and its
+ * journal id match the draft's revision, and journals are immutable and named
+ * by a random id, so a matching entry holds exactly that journal's ops. A
+ * revision with no matching entry is read from its journal, as before, and
+ * the record is rewritten (conditionally; a write that loses is simply not
+ * kept) with every unpublished revision now known — entries at or below
+ * `applied` dropped, so a publication shrinks it rather than invalidating it.
+ * Exact revision ranges, the journals themselves and recovery's reads of
+ * them are unchanged. Reads now cost the record plus one read per revision
+ * not yet in it.
  */
+export const HELD_SUM_KEY = (slug) => "site-drafts/" + slug + "/held-sum.json";
+async function readHeldSum(deps, slug) {
+  try {
+    const o = await deps.get(HELD_SUM_KEY(slug));
+    if (!o) return { sum: null, etag: null };
+    const t = await o.text();
+    if (isHeldObject(o, t)) return { sum: null, etag: String(o.etag || "") || null };
+    const j = JSON.parse(t);
+    const etag = String(o.etag || "") || null;
+    if (!j || !Array.isArray(j.entries) || !Array.isArray(j.ops)) return { sum: null, etag };
+    // THE ENTRIES MUST ACCOUNT FOR THE OPS EXACTLY, or none of it is used.
+    let at = 0;
+    const map = new Map();
+    for (const e of j.entries) {
+      if (!e || !Number.isSafeInteger(e.n) || typeof e.held !== "string" || !HELD_ID.test(e.held) || !Number.isSafeInteger(e.count) || e.count < 0) return { sum: null, etag };
+      map.set(e.n, { held: e.held, ops: j.ops.slice(at, at + e.count) });
+      at += e.count;
+    }
+    if (at !== j.ops.length) return { sum: null, etag };
+    return { sum: map, etag };
+  } catch { return { sum: null, etag: null }; }
+}
 export async function heldRange(deps, slug, draft, { from = 0, to = Infinity } = {}) {
   const out = [];
   if (!draft) return out;
+  const { sum, etag } = await readHeldSum(deps, slug);
+  const known = new Map();
+  let learned = false;
+  // EVERY UNPUBLISHED HELD REVISION is resolved (the range asked for is a
+  // slice of them), so the record written back covers the whole draft.
+  const lo = Math.min(from, draft.applied);
   for (const r of draft.revs) {
-    if (r.n <= from || r.n > to || !r.held) continue;
+    if (r.n <= lo || !r.held) continue;
+    const e = sum && sum.get(r.n);
+    if (e && e.held === r.held) { known.set(r.n, e.ops); continue; }
+    if (r.n <= from || r.n > to) continue;
     const o = await deps.get(HELD_KEY(slug, r.held));
     if (!o) throw new Error("held changes missing: revision " + r.n);
     const j = JSON.parse(await o.text());
     if (!j || !Array.isArray(j.ops)) throw new Error("held changes unreadable: revision " + r.n);
-    out.push({ n: r.n, ops: j.ops.filter((x) => x && HELD_KINDS.includes(x.kind)) });
+    known.set(r.n, j.ops.filter((x) => x && HELD_KINDS.includes(x.kind)));
+    learned = true;
+  }
+  for (const r of draft.revs) {
+    if (r.n <= from || r.n > to || !r.held) continue;
+    out.push({ n: r.n, ops: known.get(r.n) });
+  }
+  // THE RECORD, REWRITTEN when it learned a revision or holds published ones.
+  const keep = draft.revs.filter((r) => r.held && r.n > draft.applied && known.has(r.n));
+  const stale = !!sum && [...sum.keys()].some((n) => n <= draft.applied || !keep.some((r) => r.n === n));
+  if ((learned || stale) && typeof deps.put === "function") {
+    const body = { v: 1, entries: keep.map((r) => ({ n: r.n, held: r.held, count: known.get(r.n).length })), ops: keep.flatMap((r) => known.get(r.n)) };
+    try { await deps.put(HELD_SUM_KEY(slug), JSON.stringify(body), "application/json", etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" }); } catch { /* a cache: the journals stand */ }
   }
   return out;
 }

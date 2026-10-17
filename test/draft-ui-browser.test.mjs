@@ -60,12 +60,12 @@ const bare = (t) => (t == null ? t : String(t).replace(/\n[ \t]+$/, ""));
 
 function bakery() {
   const compiler = installCompiler();
-  let tt = 0;
   const P = platform({
     slug: "dfu-" + Math.random().toString(16).slice(2, 8), pages: [{ path: "index.tsx", source: HOME }, { path: "visit.tsx", source: VISIT }], liveScripts: true,
     answers: {
       route: () => ROUTE_TEXT,
-      [T.text]: (args) => { const pairs = [[TT_FROM, TT_TO], [TT_TO, TT_LATER]]; const [from, to] = pairs[Math.min(tt++, pairs.length - 1)]; return { edits: [{ id: lineId(args, "visit.tsx", from), to }] }; },
+      // WHICHEVER LINE THE PAGE HOLDS NOW, moved on to the next.
+      [T.text]: (args) => { const from = [TT_LATER, TT_TO, TT_FROM].find((l) => lineId(args, "visit.tsx", l) >= 0); const to = from === TT_FROM ? TT_TO : from === TT_TO ? TT_LATER : TT_TO; return { edits: [{ id: lineId(args, "visit.tsx", from), to }] }; },
     },
   });
   return { P, compiler };
@@ -102,6 +102,7 @@ async function forward(P, worker, req, url, host = "gofarther.dev") {
 async function openApp(P, site) {
   const worker = await loadWorker();
   const frames = [];
+  const gates = { draftFailures: 0, failedDraftReads: 0, draftReads: 0 };
   let driving = true;
   const driver = (async () => {
     while (driving) {
@@ -150,6 +151,9 @@ async function openApp(P, site) {
     if (url.origin !== ORIGIN) return json(route, {});
     const p = url.pathname;
     if (REAL.some((re) => re.test(p))) {
+      // A READING OF THE DRAFT THAT FAILS, when a case asks for one (2026-10-16).
+      if (/\/draft$/.test(p) && gates.draftFailures > 0) { gates.draftFailures--; gates.failedDraftReads++; return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ ok: false, error: "unavailable" }) }); }
+      if (/\/draft$/.test(p)) gates.draftReads++;
       const r = await forward(P, worker, req, url);
       return route.fulfill({ status: r.status, headers: r.headers, body: r.body });
     }
@@ -173,7 +177,7 @@ async function openApp(P, site) {
   const shot = async (name) => { if (SHOTS) await page.screenshot({ path: path.join(SHOTS, name + ".png") }); };
   await page.goto(ORIGIN + "/projects/" + site.id, { waitUntil: "load" });
   await page.waitForSelector("#stRevise", { timeout: 20000 });
-  return { worker, page, frames, errors, frameSrc, shot, close };
+  return { worker, page, frames, errors, frameSrc, shot, close, gates };
 }
 
 test("DFU1–DFU3 THE PAGE UNDER DRAFT-FIRST, OVER THE REAL ROUTES: a change saved as a draft shows in the frame from the draft's preview host while live stays put; a reload reads it back; Publish makes it live and the frame returns to the live address", { skip: SKIP, timeout: 240000 }, async () => {
@@ -312,6 +316,54 @@ test("DFU4 ONE MESSAGE, TWO PARTS, UNDER DRAFT-FIRST, ON THE PAGE: the part that
     assert.equal(P.liveScript(), live0, "the live script moved before Publish");
     await page.waitForFunction((slug) => ((document.getElementById("stFrame") || {}).src || "").includes(slug + "--draft-"), P.slug, { timeout: 30000 });
     await shot("dfu4-both-saved");
+    assert.deepEqual(errors, [], "the page threw");
+  } finally {
+    if (app) await app.close();
+    await P.settle();
+    P.close(); compiler.uninstall();
+  }
+});
+
+// ── DFU6: A REFUSED CLAIM, A FAILED READ AND A SECOND REVISION, FOLLOWED WITHOUT A RELOAD ──
+test("DFU6 THE PAGE FOLLOWS THE PREVIEW TO READY ON ITS OWN — a second change whose preview claim is refused, the page's next reading of the draft failing: the page keeps reading on its backoff, the owner's read repairs the preview, and the frame is served the new revision — no reload, nothing live", { skip: SKIP, timeout: 240000 }, async () => {
+  const { P, compiler } = bakery();
+  let app = null;
+  try {
+    const r0 = await sendMessage(P, { message: "Change our TikTok link on the Visit page to @harbourloaf." });
+    await settle(P, r0.key, { rounds: 20 });
+    const v0 = pointerOf(P);
+    P.env.DRAFT_FIRST = "on";
+    const site = { id: "site_1727000000000_draft6", slug: P.slug, react: true, name: "Harbour Loaf", url: "/s/" + P.slug + "/", pages: [{ path: "/", name: "Home" }, { path: "/visit", name: "Visit" }], active: "/visit", msgs: [], updatedAt: Date.now(), createdAt: Date.now() };
+    app = await openApp(P, site);
+    const { page, frames, errors, shot, gates } = app;
+    const draftLoads = () => frames.filter((f) => f.host === "draft");
+    const settledBar = () => page.waitForFunction(() => { const t = (document.querySelector(".st-frame-url") || {}).textContent || ""; return /Draft preview/.test(t) && !/updating|checking|couldn/.test(t); }, null, { timeout: 60000 });
+    // THE FIRST CHANGE: saved, its preview ready.
+    await page.fill("#stRevise", "Change our TikTok link on the Visit page to @harbourloafbakery.");
+    await page.click("#stSend");
+    await page.waitForFunction((slug) => ((document.getElementById("stFrame") || {}).src || "").includes(slug + "--draft-"), P.slug, { timeout: 60000 });
+    await settledBar();
+    const v1 = draftOf(P).version;
+    // THE SECOND: its claim refused (no upload), and the page's next reading of the draft fails.
+    P.failPut((k) => k.startsWith("preview-claims/" + P.slug + "/"));
+    gates.draftFailures = 1;
+    const loadsBefore = draftLoads().length;
+    await page.fill("#stRevise", "Change our TikTok link on the Visit page to @harbourloaf.");
+    await page.click("#stSend");
+    // FOLLOWED TO READY ON ITS OWN: the frame is served the second revision.
+    let v2 = null;
+    for (let i = 0; i < 900; i++) {
+      const d = draftOf(P);
+      if (d.version !== v1) v2 = d.version;
+      if (v2 && draftLoads().slice(loadsBefore).some((f) => f.version === v2)) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    assert.ok(v2, "the second change was not saved");
+    assert.ok(draftLoads().slice(loadsBefore).some((f) => f.status === 200 && f.version === v2), "the frame was never served the second revision: " + JSON.stringify(draftLoads().slice(loadsBefore)));
+    assert.equal(gates.failedDraftReads, 1, "the failed reading was not met");
+    await settledBar();
+    assert.equal(pointerOf(P), v0, "something went live without a click");
+    await shot("dfu6-followed-to-ready");
     assert.deepEqual(errors, [], "the page threw");
   } finally {
     if (app) await app.close();
