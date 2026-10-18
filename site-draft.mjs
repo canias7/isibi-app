@@ -828,11 +828,56 @@ export async function unpublishedOps(deps, slug, draft) {
   return (await heldRange(deps, slug, draft, { from: draft.applied })).flatMap((r) => r.ops);
 }
 
-/** The schema as the draft has it: the latest held schema, or the live one. */
+/**
+ * TWO SPECS AS ONE, BY NAME (2026-10-18, audit A06-3 and A04-1): tables,
+ * functions, outside connections and jobs keyed by lower-cased name, the
+ * later entry winning; every other key from `next`. A held change adds to the
+ * schema the draft already has, never replaces it — so an empty later spec
+ * keeps what came before. No `base` answers `next`.
+ */
+export const SPEC_LISTS = ["tables", "functions", "apis", "jobs"];
+function byName(a, b) {
+  const m = new Map();
+  for (const x of [...(Array.isArray(a) ? a : []), ...(Array.isArray(b) ? b : [])]) {
+    if (x && typeof x === "object" && x.name) m.set(String(x.name).toLowerCase(), x);
+  }
+  return [...m.values()];
+}
+export function mergeSpec(base, next) {
+  if (!base || typeof base !== "object") return next;
+  if (!next || typeof next !== "object") return base;
+  const out = { ...next };
+  for (const k of SPEC_LISTS) {
+    if (!Array.isArray(base[k]) && !Array.isArray(next[k])) continue;
+    out[k] = byName(base[k], next[k]);
+  }
+  return out;
+}
+
+/**
+ * THE HELD OPS COMBINED, ONE FUNCTION FOR EVERY READER (2026-10-18): the
+ * schema over `liveSpec` and the jobs, each merged by name in order, skipping
+ * any op whose `key` is in `setAside` (and every op after `upTo`, when given).
+ * `spec` is `liveSpec` when no schema op is held; `jobs` is null when no jobs
+ * op is held.
+ */
+export function combineHeld(liveSpec, ops, { upTo, setAside = [] } = {}) {
+  const aside = new Set(Array.isArray(setAside) ? setAside : []);
+  let spec = liveSpec, jobs = null, held = false;
+  const list = Array.isArray(ops) ? ops : [];
+  const end = Number.isInteger(upTo) ? Math.min(upTo, list.length) : list.length;
+  for (let i = 0; i < end; i++) {
+    const o = list[i];
+    if (!o || (o.key !== undefined && aside.has(o.key))) continue;
+    if (o.kind === "schema" && o.spec && typeof o.spec === "object") { spec = held ? mergeSpec(spec, o.spec) : mergeSpec(liveSpec, o.spec); held = true; }
+    else if (o.kind === "jobs") jobs = byName(jobs, Array.isArray(o.jobs) ? o.jobs : []);
+  }
+  return { ok: true, spec, jobs, held };
+}
+
+/** The schema as the draft has it: the held schemas merged by name over the live one. */
 export function specOverlay(liveSpec, ops) {
-  let spec = liveSpec;
-  for (const o of ops || []) if (o.kind === "schema" && o.spec && typeof o.spec === "object") spec = o.spec;
-  return spec;
+  return combineHeld(liveSpec, ops).spec;
 }
 
 /**
@@ -869,8 +914,8 @@ export function rowsOverlay(table, rows, ops, { tableExists = true } = {}) {
 }
 
 /**
- * WHAT A PUBLICATION OF THESE OPS DOES, in the order it is done: the latest
- * schema, the latest jobs, the starter rows, the row changes (updates and
+ * WHAT A PUBLICATION OF THESE OPS DOES, in the order it is done: the held
+ * schemas and jobs merged by name, the starter rows, the row changes (updates and
  * removals of rows the live database has, by id; a change to a row held as
  * new folded into its insert, or — when that insert was published earlier —
  * to the id it was given, `refs`), the inserts, and the library changes.
@@ -881,8 +926,10 @@ export function publishPlan(ops, { refs = {} } = {}) {
   const plan = { spec: null, jobs: null, seeds: [], changes: [], inserts: [], media: [], alias: [] };
   const inserts = new Map();
   for (const o of ops || []) {
-    if (o.kind === "schema") plan.spec = o.spec;
-    else if (o.kind === "jobs") plan.jobs = Array.isArray(o.jobs) ? o.jobs : [];
+    // HELD SCHEMAS AND JOBS MERGE BY NAME (2026-10-18, A06-3, A04-1): a later
+    // op adds to the earlier ones, never replaces them.
+    if (o.kind === "schema") plan.spec = plan.spec ? mergeSpec(plan.spec, o.spec) : o.spec;
+    else if (o.kind === "jobs") plan.jobs = byName(plan.jobs, Array.isArray(o.jobs) ? o.jobs : []);
     else if (o.kind === "seed") plan.seeds.push({ spec: o.spec, seed: o.seed });
     else if (o.kind === "media-replace" || o.kind === "media-delete" || o.kind === "upload-delete") plan.media.push(o);
     else if (o.kind === "alias") plan.alias.push(o);

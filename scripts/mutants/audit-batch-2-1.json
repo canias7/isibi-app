@@ -1,0 +1,22 @@
+[
+ {"label": "CONTROL: a comment only — must survive", "control": true, "files": ["site-draft.mjs"],
+  "from": "export const SPEC_LISTS = [", "to": "// control\nexport const SPEC_LISTS = ["},
+ {"label": "M1 specOverlay is last-wins again", "files": ["site-draft.mjs"],
+  "from": "spec = held ? mergeSpec(spec, o.spec) : mergeSpec(liveSpec, o.spec);", "to": "spec = o.spec;"},
+ {"label": "M2 the plan's spec is last-wins again", "files": ["site-draft.mjs"],
+  "from": "plan.spec = plan.spec ? mergeSpec(plan.spec, o.spec) : o.spec;", "to": "plan.spec = o.spec;"},
+ {"label": "M3 the plan's jobs are last-wins again", "files": ["site-draft.mjs"],
+  "from": "plan.jobs = byName(plan.jobs, Array.isArray(o.jobs) ? o.jobs : []);", "to": "plan.jobs = Array.isArray(o.jobs) ? o.jobs : [];"},
+ {"label": "M4 functions are not merged", "files": ["site-draft.mjs"],
+  "from": "[\"tables\", \"functions\", \"apis\", \"jobs\"]", "to": "[\"tables\", \"apis\", \"jobs\"]"},
+ {"label": "M5 names are case-sensitive", "files": ["site-draft.mjs"],
+  "from": "m.set(String(x.name).toLowerCase(), x);", "to": "m.set(String(x.name), x);"},
+ {"label": "M6 the earlier entry wins", "files": ["site-draft.mjs"],
+  "from": "[...(Array.isArray(a) ? a : []), ...(Array.isArray(b) ? b : [])]", "to": "[...(Array.isArray(b) ? b : []), ...(Array.isArray(a) ? a : [])]"},
+ {"label": "M7 combineHeld's jobs are last-wins", "files": ["site-draft.mjs"],
+  "from": "else if (o.kind === \"jobs\") jobs = byName(jobs,", "to": "else if (o.kind === \"jobs\") jobs = byName(null,"},
+ {"label": "M8 set-aside ops are not skipped", "files": ["site-draft.mjs"],
+  "from": "(o.key !== undefined && aside.has(o.key))", "to": "false"},
+ {"label": "M9 upTo is ignored", "files": ["site-draft.mjs"],
+  "from": "Number.isInteger(upTo) ? Math.min(upTo, list.length) : list.length", "to": "list.length"}
+]
