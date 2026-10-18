@@ -8146,6 +8146,9 @@ function siteDraftPanel(site, d) {
     (addr ? '<div class="sp-row"><span class="sp-k">Address after publishing</span><span class="sp-v">' + esc(siteChipUrl({ slug: addr })) + '</span></div>' : '') +
     (blocked ? '' : '<div class="sp-actions">' +
       '<button type="button" class="st-publish" id="spPublishDraft"' + (stalled || (revision && d.state !== 'publishing') ? '' : ' disabled') + '>' + (stalled ? 'Finish publishing' : revision ? 'Publish this draft' : 'Nothing new to publish') + '</button>' +
+      // DISCARD (2026-10-18, the owner's word): only an unpublished draft with
+      // no publication standing, and never the first one (nothing live to go back to).
+      (revision && d.state !== 'publishing' && !d.neverPublished ? '<button type="button" class="st-share" id="spDiscardDraft">Discard draft</button>' : '') +
     '</div>') +
   '</div></div>';
   document.body.appendChild(box);
@@ -8181,6 +8184,28 @@ function siteDraftPanel(site, d) {
     close();
     const inp = document.getElementById('stRevise');
     if (inp) { try { inp.focus({ preventScroll: false }); } catch { inp.focus(); } }
+  };
+  const discard = box.querySelector('#spDiscardDraft');
+  if (discard) discard.onclick = async () => {
+    if (typeof confirm === 'function' && !confirm('Discard your unpublished changes? Your live site stays exactly as it is, and the draft goes back to it. This cannot be undone.')) return;
+    discard.disabled = true; discard.textContent = 'Discarding\u2026';
+    try {
+      const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/draft/discard', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const out = await r.json().catch(() => ({}));
+      const frameWas = siteDraftFrameKey(siteDraftState[slug]);
+      if (out && out.state) { siteDraftState[slug] = out.state; paintDraftChip(out.state); }
+      if (r.ok && out.ok) {
+        close();
+        if (out.state) siteDraftFollow(site, out.state, frameWas);
+        if (typeof sbToast === 'function') sbToast('Draft discarded \u2014 your site is back to what is live');
+      } else {
+        discard.disabled = false; discard.textContent = 'Discard draft';
+        if (typeof sbToast === 'function') sbToast((out && out.error) || 'Could not discard the draft just now \u2014 try again');
+      }
+    } catch (e) {
+      discard.disabled = false; discard.textContent = 'Discard draft';
+      if (typeof sbToast === 'function') sbToast('Could not reach the server \u2014 try again');
+    }
   };
   const go = box.querySelector('#spPublishDraft');
   // ONE CLICK, ONE REQUEST: the button stays down until the answer is in, and

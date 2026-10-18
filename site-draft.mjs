@@ -143,6 +143,33 @@ export async function rebaseDraft(deps, slug, { version, build = "", now = () =>
   return { ok: false, error: "the draft kept changing under this restore" };
 }
 /**
+ * DISCARD THE DRAFT (2026-10-18, the owner's word, after audit A06-2): the
+ * owner's own choice to drop every unpublished revision and start again from
+ * the live version — the one way to restore an older version while changes
+ * are held. The published revisions stay as they were; the dropped ones leave
+ * the list, so nothing reads them as published; their held journals are never
+ * replayed (the next range starts after the new revision). `live` is the live
+ * pointer (`{ version, build }`). Read and written on the etag.
+ */
+export async function discardDraft(deps, slug, { live, now = () => new Date() }) {
+  if (!live || !isDraftVersion(live.version)) return { ok: false, error: "the site has no live version to go back to" };
+  for (let i = 0; i < 6; i++) {
+    const { draft, etag } = await readDraft(deps, slug);
+    if (!draft) return { ok: true, none: true };
+    if (!(draft.rev > draft.applied) && draft.version === live.version) return { ok: true, same: true, draft };
+    const at = now().toISOString();
+    const kept = { ...draft, revs: draft.revs.filter((r) => r.n <= draft.applied) };
+    const rec = {
+      ...draftRecordOut(draft), version: live.version, build: String(live.build || ""), base: live.version, job: null, at,
+      history: [...draft.history.filter((v) => v !== draft.version && v !== live.version), draft.version].slice(-20),
+      ...addRevision(kept, { version: live.version, at, applied: draft.rev + 1 }),
+    };
+    const put = await deps.put(DRAFT_KEY(slug), JSON.stringify(rec), "application/json", { etagMatches: etag });
+    if (put) return { ok: true, draft: readBack(rec), dropped: draft.rev - draft.applied };
+  }
+  return { ok: false, error: "the draft kept changing — try again" };
+}
+/**
  * A SAVE THAT HELD CHANGES FOLDS ITS REVISION INTO THE CUMULATIVE RECORD at
  * once (`heldRange`), so a draft that grows by saves alone never leaves a
  * long run of journals for the next reader. Best effort: the save stands

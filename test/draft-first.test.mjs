@@ -1677,3 +1677,35 @@ test("DFH9 A DELETED SITE'S DRAFT GOES WITH IT (2026-10-18, audit A07-1) — the
   assert.ok(a > 0 && b > a, "deleteSiteFor's landmarks moved");
   assert.match(src.slice(a, b), /await clearSiteDraft\(env, dslug\);/, "the site delete does not clear the draft");
 });
+
+test("DFH10 DISCARD THE DRAFT (2026-10-18, the owner's word) — a held price and a page line discarded: the draft reads published on the live version; the next edit starts from the live pages; its Publish carries none of the discarded changes; an older version can then be restored; with a publication standing, discard is refused and changes nothing", async () => {
+  const { P, db, compiler } = bakery("dfh10", { unique: ["name"] });
+  try {
+    await runOne(P, TIKTOK);
+    const v0 = liveVersion(P);
+    P.env.DRAFT_FIRST = "on";
+    await runOne(P, RYE);
+    await runOne(P, TIKTOK_LATER);
+    assert.equal(draftOf(P).rev, 2);
+    const dc = await call(P, "POST", "/api/site/" + P.slug + "/draft/discard", {});
+    assert.equal(dc.status, 200, JSON.stringify(dc.body).slice(0, 300));
+    assert.equal(dc.body.dropped, 2);
+    assert.deepEqual([dc.body.state.state, dc.body.state.unpublished, dc.body.state.draft], ["published", false, v0]);
+    // THE NEXT EDIT STARTS FROM THE LIVE PAGES, AND ITS PUBLISH CARRIES NOTHING DISCARDED.
+    await runOne(P, WALNUT);
+    assert.equal(P.page("visit.tsx").includes(TT_LATER), false, "the discarded page line came back");
+    const d = draftOf(P);
+    const p = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.revs[d.revs.length - 1].version });
+    assert.equal(p.status, 200, JSON.stringify(p.body).slice(0, 300));
+    assert.deepEqual([price(db, 2), price(db, 5), liveVersion(P)], [5.2, 6.4, v0], "a discarded change was published");
+    // WITH A PUBLICATION STANDING (blocked here), DISCARD IS REFUSED.
+    await runOne(P, SPELT);
+    const d2 = draftOf(P);
+    await addLive(db, "Spelt", 6);
+    db.rehearsalsDown(10);
+    assert.equal((await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d2.rev, version: d2.revs[d2.revs.length - 1].version })).status, 409);
+    const no = await call(P, "POST", "/api/site/" + P.slug + "/draft/discard", {});
+    assert.equal(no.status, 409, JSON.stringify(no.body).slice(0, 300));
+    assert.equal(draftOf(P).rev, d2.rev, "a refused discard changed the draft");
+  } finally { await finish(P, compiler); }
+});

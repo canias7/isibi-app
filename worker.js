@@ -101,7 +101,7 @@ import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
-import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec } from "./site-draft.mjs";
+import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
@@ -31689,6 +31689,8 @@ async function handleRequest(request, env, ctx) {
       const pb = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/publish$/i);
       // SET ASIDE (2026-10-18, audit A06-4): a blocked publication finished without what the database refuses.
       const sa = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/publish\/set-aside$/i);
+      // DISCARD THE DRAFT (2026-10-18, the owner's word): every unpublished revision dropped.
+      const dd = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/draft\/discard$/i);
       const dr = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/draft$/i);
       // THE EDIT LANE. Change what the site already has, and nothing else.
       //
@@ -31766,10 +31768,10 @@ async function handleRequest(request, env, ctx) {
       // so from outside the two are indistinguishable — which is how this
       // survived a live probe until the dispatch was read.
       // `test/api-auth.test.mjs` holds the list against the matchers now.
-      if (om || im || mm || an || uf || mdr || xp || nt || lv || sk || dm2 || vr || pb || sa || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || qu) {
+      if (om || im || mm || an || uf || mdr || xp || nt || lv || sk || dm2 || vr || pb || sa || dd || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || qu) {
         // THE SLUG IS RESOLVED FIRST, because the replay identity below is scoped
         // to it. Nothing about deriving it depends on who is asking.
-        const ownerSlug = (om || im || mm || an || uf || mdr || xp || nt || lv || sk || dm2 || vr || pb || sa || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || qu)[1].toLowerCase();
+        const ownerSlug = (om || im || mm || an || uf || mdr || xp || nt || lv || sk || dm2 || vr || pb || sa || dd || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || qu)[1].toLowerCase();
         // ── A QUEUED EDIT'S OWN REPLAY HAS NO BEARER TOKEN ──────────────────
         //
         // The consumer replays the customer's request minutes after they made
@@ -43480,7 +43482,7 @@ async function handleRequest(request, env, ctx) {
 
             return Response.json({ ok: true, applied: ed.applied, files: out.files, render: out.render, renderNote: out.renderNote, checks: out.checks, draft: out.draft, cost: Number(out.langCharged) || 0 });
           }
-          if (pb || sa || dr) {
+          if (pb || sa || dd || dr) {
             if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "storage not configured" }, { status: 501 });
             const g = await assertOwner(ownerDeps, ownerSlug, ou.id);
             if (g.error) return Response.json(g.error.body, { status: g.error.status });
@@ -43541,6 +43543,19 @@ async function handleRequest(request, env, ctx) {
               const r = await publishDraft(env, ownerSlug, { revision, version }, { uid: ou.id });
               if (!r.ok) return Response.json({ ok: false, error: r.error, stage: r.stage, live: r.live || undefined, publishing: r.publishing === true, ...(r.blocked ? { blocked: true, revision: r.revision } : {}), state: await readState() }, { status: r.status || 409 });
               return Response.json({ ok: true, published: r.version, revision: r.revision, already: r.already === true, worker: r.worker, skipped: r.skipped || [], state: await readState() });
+            }
+            if (dd && request.method === "POST") {
+              // NEVER UNDER A PUBLICATION: one standing (running, stopped or
+              // blocked) is finished or set aside first.
+              if (await publishingNow(env, ownerSlug)) return Response.json({ ok: false, error: "a publication is under way or stopped — finish it (or set it aside) before discarding the draft", state: await readState() }, { status: 409 });
+              let live = null;
+              try { live = await readPointer(buildDeps(env), ownerSlug); }
+              catch { return Response.json({ ok: false, error: "the live version could not be read — nothing was discarded" }, { status: 503 }); }
+              let r;
+              try { r = await discardDraft(buildDeps(env), ownerSlug, { live }); }
+              catch { return Response.json({ ok: false, error: "the draft could not be read — nothing was discarded" }, { status: 503 }); }
+              if (!r.ok) return Response.json({ ok: false, error: r.error, state: await readState() }, { status: 409 });
+              return Response.json({ ok: true, dropped: r.dropped || 0, state: await readState() });
             }
             if (sa && request.method === "POST") {
               // SET ASIDE (2026-10-18, audit A06-4): the owner's word that a
@@ -43610,7 +43625,7 @@ async function handleRequest(request, env, ctx) {
                 let d = null;
                 try { d = (await readDraft(buildDeps(env), ownerSlug)).draft; }
                 catch { return Response.json({ ok: false, error: "the draft could not be read — nothing was restored; try again in a moment" }, { status: 503 }); }
-                if (d && d.rev > d.applied) return Response.json({ ok: false, error: "you have changes saved in your draft that aren't published yet — publish them first, then restore an older version", unpublished: true }, { status: 409 });
+                if (d && d.rev > d.applied) return Response.json({ ok: false, error: "you have changes saved in your draft that aren't published yet — publish them or discard the draft first, then restore an older version", unpublished: true }, { status: 409 });
                 if (d && unpublishedVersions(d).has(String((vb && vb.id) || ""))) return Response.json({ ok: false, error: "that version was never published, so it can't be restored" }, { status: 409 });
               }
               const rb = await restoreVersion(env, ownerSlug, vb && vb.id);

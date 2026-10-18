@@ -1,0 +1,16 @@
+[
+ {"label": "CONTROL: a comment only — must survive", "control": true, "files": ["site-draft.mjs"],
+  "from": "export async function discardDraft(deps, slug, { live, now = () => new Date() }) {", "to": "// control\nexport async function discardDraft(deps, slug, { live, now = () => new Date() }) {"},
+ {"label": "X1 discarded revisions stay listed", "files": ["site-draft.mjs"],
+  "from": "const kept = { ...draft, revs: draft.revs.filter((r) => r.n <= draft.applied) };", "to": "const kept = draft;"},
+ {"label": "X2 the draft keeps its version", "files": ["site-draft.mjs"],
+  "from": "...draftRecordOut(draft), version: live.version, build: String(live.build || \"\"), base: live.version, job: null, at,\n      history: [...draft.history.filter((v) => v !== draft.version && v !== live.version), draft.version].slice(-20),\n      ...addRevision(kept,", "to": "...draftRecordOut(draft), build: String(live.build || \"\"), base: live.version, job: null, at,\n      history: [...draft.history.filter((v) => v !== draft.version && v !== live.version), draft.version].slice(-20),\n      ...addRevision(kept,"},
+ {"label": "X3 the new revision is not published", "files": ["site-draft.mjs"],
+  "from": "...addRevision(kept, { version: live.version, at, applied: draft.rev + 1 }),", "to": "...addRevision(kept, { version: live.version, at }),"},
+ {"label": "X4 discard under a publication", "files": ["worker.js"],
+  "from": "if (await publishingNow(env, ownerSlug)) return Response.json({ ok: false, error: \"a publication is under way or stopped", "to": "if (false) return Response.json({ ok: false, error: \"a publication is under way or stopped"},
+ {"label": "X5 no confirm", "files": ["public/chat.js"],
+  "from": "if (typeof confirm === 'function' && !confirm('Discard your unpublished changes?", "to": "if (false && !confirm('Discard your unpublished changes?"},
+ {"label": "X6 offered on a site never published", "files": ["public/chat.js"],
+  "from": "(revision && d.state !== 'publishing' && !d.neverPublished ?", "to": "(revision && d.state !== 'publishing' ?"}
+]

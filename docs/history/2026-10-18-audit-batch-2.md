@@ -195,3 +195,19 @@ Audit fixes 11–20 from `docs/audits/2026-10-17-builder-audit.md`, one commit e
   - **Not done here:** stamping the draft with its owner's id, as a second guard should a cleanup step fail. That is in the backlog.
 - **Tests.** DFH9: every one of those keys is removed, a neighbour's are kept, the preview script's DELETE is sent, and the site delete calls the cleanup. It was red on the old code.
 - **Sweep and suite.** Sweep `audit-batch-2-12.json`: 6 of 6 killed, control survived. Full suite `11486 / 11484 / 0 / 2`.
+
+## Step 13: Discard draft (the owner's word, after step 11)
+
+- **Why.** Step 11 refuses a restore while unpublished changes are held. The owner asked for a way out: a "Discard draft" button.
+- **The fix.**
+  - `discardDraft` (`site-draft.mjs`) puts the draft back on the live version as a revision already published. The dropped revisions leave the list, and the held journals are never replayed, because the next range starts after the new revision.
+  - The route is `POST /api/site/:slug/draft/discard`, with its own matcher `dd`. It answers 409 while any publication stands (running, stopped or blocked).
+  - The panel's **Discard draft** button appears only on an unpublished draft of a site that has been published before, never while publishing. It asks for confirmation first.
+  - Restore's 409 now says "publish them or discard the draft first".
+  - **Known limit:** the preview link keeps its last upload until the next draft change. The panel stops offering it once nothing is unpublished.
+- **Tests.**
+  - DFH10: a held price and a page line are discarded; the draft reads published on the live version; the next edit starts from the live pages; its Publish carries none of the discarded changes; under a blocked publication, discard is refused.
+  - SB2 (Chromium): the button is shown, asks first, and posts to the route; declined, nothing is sent; it is not offered on a site never published, nor while publishing, nor with nothing unpublished.
+  - SD-X: the record after a discard.
+  - Red on the old code: DFH10 and SB2 fail.
+- **Sweep and suite.** Sweep `audit-batch-2-13.json`: 6 of 6 killed, control survived. X1 and X3 first survived, and SD-X was then added. Full suite `11489 / 11487 / 0 / 2`.

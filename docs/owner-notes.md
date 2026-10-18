@@ -1,5 +1,12 @@
 # Owner Notes
 
+## 2026-10-18 — "Discard draft" button (branch only, on your word)
+
+- The Publish panel now has a **Discard draft** button next to Publish. It asks you to confirm, then throws away every unpublished change and puts the draft back to exactly what's live. The live site never changes.
+- That's also the way to restore an older version when you have unpublished changes: discard, then restore.
+- It's not offered while something is being published or is blocked; finish or set that aside first.
+- Screenshot sent in the chat. Tests DFH10, SB2 and SD-X, sweep 6/6, full suite `11489 / 11487 / 0 / 2`.
+
 ## 2026-10-18 — Fix 12 of 12: deleting a site deletes its draft and preview link (branch only). Findings 11–20 are all fixed.
 
 - Before: deleting a site left its draft behind. A shared preview link kept showing the deleted site, and whoever took the name next inherited the old draft and could get the old owner's unpublished changes pushed into their site.

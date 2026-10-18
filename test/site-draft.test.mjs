@@ -311,3 +311,30 @@ test("SD-R REBASE: THE RESTORED VERSION BECOMES THE DRAFT'S, AS PUBLISHED; A DRA
   assert.ok(d.history.includes(V1), "the version rolled back from left the history");
   assert.equal((await rebaseDraft(deps, "s", { version: V0 })).same, true);
 });
+
+import { discardDraft, unpublishedVersions as unpublishedVersionsX, sealHeldRevision as sealHeldRevisionX } from "../site-draft.mjs";
+test("SD-X DISCARD: THE DROPPED REVISIONS LEAVE THE LIST, THE NEW ONE IS PUBLISHED, NOTHING READS AS UNPUBLISHED (2026-10-18)", async () => {
+  const store = new Map(); let n = 0;
+  const deps = {
+    get: async (k) => (store.has(k) ? { text: async () => store.get(k).v, etag: store.get(k).e } : null),
+    put: async (k, v, ct, only) => {
+      const cur = store.get(k);
+      if (only && only.etagMatches && (!cur || cur.e !== only.etagMatches)) return null;
+      if (only && only.etagDoesNotMatch === "*" && cur) return null;
+      store.set(k, { v, e: "e" + (++n) }); return { etag: "e" + n };
+    },
+  };
+  const V0 = "01790000000000-aaaaaa", V1 = "01790000000100-bbbbbb", V2 = "01790000000200-cccccc";
+  await saveDraftRecordR(deps, "s", { version: V0 });
+  await markAppliedR(deps, "s", { revision: 1 });
+  await saveDraftRecordR(deps, "s", { version: V1 });
+  await saveDraftRecordR(deps, "s", { version: V2 });
+  const r = await discardDraft(deps, "s", { live: { version: V0, build: "b0" } });
+  assert.equal(r.dropped, 2, JSON.stringify(r));
+  const d = (await readDraftR(deps, "s")).draft;
+  assert.deepEqual(d.revs.map((x) => x.n), [1, 4], "the dropped revisions are still listed");
+  assert.deepEqual([d.version, d.applied, d.rev], [V0, 4, 4]);
+  assert.equal(unpublishedVersionsX(d).size, 0);
+  assert.equal(draftStateR({ draft: d, live: { version: V0 } }).state, "published");
+  void sealHeldRevisionX;
+});

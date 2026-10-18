@@ -42,6 +42,7 @@ async function render(state) {
     const siteChipUrl = ({ slug }) => slug + ".gofarther.app";
     const siteDraftState = {}; const paintDraftChip = () => {}; const siteDraftFrameKey = () => ""; const siteDraftFollow = () => {};
     const sbToast = (t) => window.toasts.push(t);
+    window.confirm = () => true;
     const apiFetch = async (url, init) => { window.sent.push({ url, body: JSON.parse(init.body) }); return new Response(JSON.stringify({ ok: true, skipped: [{ stage: "inserts" }], state: { state: "published" } }), { status: 200 }); };
     ${panelSource()}
     window.siteDraftPanel = siteDraftPanel;
@@ -78,4 +79,30 @@ test("SB1 THE BLOCKED CARD NAMES THE CHANGE AND OFFERS SET ASIDE AND EDIT; SET A
     assert.equal(await n.page.locator(".sp-blocked").count(), 0);
     assert.equal(await n.page.locator("#spPublishDraft").count(), 1);
   } finally { await n.b.close(); }
+});
+
+test("SB2 DISCARD DRAFT: OFFERED ON AN UNPUBLISHED DRAFT, ASKS FIRST, SENDS TO THE DISCARD ROUTE; NEVER ON A SITE NOT YET PUBLISHED, NOR WHILE PUBLISHING", { skip: SKIP }, async () => {
+  const saved = { enabled: true, state: "saved", unpublished: true, revision: 2, draft: "01790000000002-bbbbbb", neverPublished: false, publication: null };
+  const { b, page } = await render(saved);
+  try {
+    assert.equal(await page.locator("#spDiscardDraft").isVisible(), true, "no Discard draft button");
+    if (SHOTS) { mkdirSync(SHOTS, { recursive: true }); await page.locator(".si-card").screenshot({ path: path.join(SHOTS, "discard-draft.png") }); }
+    await page.evaluate(() => { window.asked = 0; window.confirm = () => { window.asked++; return true; }; });
+    await page.click("#spDiscardDraft");
+    await page.waitForFunction(() => window.sent.length === 1);
+    assert.deepEqual(await page.evaluate(() => [window.asked, window.sent[0].url]), [1, "/api/site/fold-lane-bakery/draft/discard"]);
+  } finally { await b.close(); }
+  // ASKED AND DECLINED: nothing sent.
+  const c = await render(saved);
+  try {
+    await c.page.evaluate(() => { window.confirm = () => false; });
+    await c.page.click("#spDiscardDraft");
+    await new Promise((r) => setTimeout(r, 200));
+    assert.equal(await c.page.evaluate(() => window.sent.length), 0, "a declined discard was sent");
+  } finally { await c.b.close(); }
+  for (const st of [{ ...saved, neverPublished: true }, { ...saved, state: "publishing" }, { ...saved, unpublished: false, revision: 0 }]) {
+    const n = await render(st);
+    try { assert.equal(await n.page.locator("#spDiscardDraft").count(), 0, "Discard offered for " + JSON.stringify([st.state, st.neverPublished, st.unpublished])); }
+    finally { await n.b.close(); }
+  }
 });
