@@ -31,7 +31,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { blockNetwork } from "./fixtures/no-network.mjs";
 import { gatewayBucketFor } from "./fixtures/job-gateway-wire.mjs";
-import { allowedJobKey, allowedJobPrefix, ownBuildMarker, preScopeSlug, readableJobKey } from "../builder/job-gateway.mjs";
+import { allowedJobKey, allowedJobPrefix, ownBuildMarker, ownAccountKey, preScopeSlug, readableJobKey } from "../builder/job-gateway.mjs";
 import { recordKey } from "../builder/request.mjs";
 import { turnKey } from "../builder/publish-turn.mjs";
 import {
@@ -273,4 +273,42 @@ test("JGD5 A MALFORMED CUMULATIVE RECORD, THROUGH THE GATEWAY — the first read
   assert.deepEqual(second, first, "the repaired record does not hold the same ops");
   assert.equal(journals(g), 0, "the next read did not use the repaired record");
   assert.deepEqual(gw.refused, []);
+});
+
+// ── JGD-M: the account's own pre-site files (audit A01-2/A08-2/A10-1/S1-4) ────
+
+test("JGD-M A FIRST BUILD READS AND MOVES THE ACCOUNT'S OWN PRE-SITE FILES, THROUGH THE GATEWAY — before it has a name (pre-scoped) it lists and reads drafts/<its uid>/; once named it writes the site's library and its own media ledger and removes the moved draft; it never writes a draft, never reads another account's, and a pre-scoped job never touches a ledger", async () => {
+  const b = r2();
+  const UID = "u-gw-1";
+  const CLIP = "0123456789abcdef0123456789abcdef.mp4";
+  await b.put("drafts/" + UID + "/" + CLIP, "video-bytes");
+  await b.put("drafts/someone-else/" + CLIP, "not-yours");
+  // BEFORE THE NAME.
+  const pre = await gatewayBucketFor({ bucket: b, id: ID, slug: null, uid: UID });
+  const listed = await pre.bucket.list({ prefix: "drafts/" + UID + "/" });
+  assert.deepEqual(listed.objects.map((o) => o.key), ["drafts/" + UID + "/" + CLIP]);
+  const got = await pre.bucket.get("drafts/" + UID + "/" + CLIP);
+  assert.equal(await got.text(), "video-bytes");
+  assert.deepEqual(pre.refused, [], "the wall refused the account's own drafts before the name");
+  await assert.rejects(() => pre.bucket.get("drafts/someone-else/" + CLIP), /403/, "another account's draft was read");
+  await assert.rejects(() => pre.bucket.list({ prefix: "drafts/" }), /403/, "every account's drafts were listed");
+  await assert.rejects(() => pre.bucket.put("drafts/" + UID + "/new.mp4", "x"), /403/, "a job wrote a draft");
+  await assert.rejects(() => pre.bucket.get("media-ledger/site-" + SLUG + ".json"), /403/, "a pre-scoped job read a ledger");
+  // ONCE NAMED: the move.
+  const gw = await gatewayBucketFor({ bucket: b, id: ID, slug: SLUG, uid: UID });
+  await gw.bucket.put("media-ledger/site-" + SLUG + ".json", JSON.stringify({ held: {} }));
+  const src = await gw.bucket.get("drafts/" + UID + "/" + CLIP);
+  await gw.bucket.put("uploads/" + SLUG + "/" + CLIP, await src.text());
+  await gw.bucket.delete("drafts/" + UID + "/" + CLIP);
+  assert.deepEqual(gw.refused, [], "the wall refused a key the move needs: " + JSON.stringify(gw.refused));
+  assert.equal(b.text("uploads/" + SLUG + "/" + CLIP), "video-bytes");
+  assert.equal(b.text("drafts/" + UID + "/" + CLIP), null, "the moved draft was not removed");
+  assert.equal(b.text("drafts/someone-else/" + CLIP), "not-yours");
+  await assert.rejects(() => gw.bucket.get("media-ledger/site-fold-lane-2.json"), /403/, "another site's ledger was read");
+  // THE RULE ITSELF, at its edges.
+  const who = { id: ID, slug: SLUG, uid: UID };
+  assert.equal(ownAccountKey(who, "drafts/" + UID + "/../x/" + CLIP, "read"), false);
+  assert.equal(ownAccountKey(who, "drafts/" + UID + "/", "read"), false);
+  assert.equal(ownAccountKey({ ...who, uid: "../evil" }, "drafts/../evil/" + CLIP, "read"), false);
+  assert.equal(ownAccountKey(who, "media-ledger/site-" + SLUG + ".json", "delete"), false);
 });

@@ -148,13 +148,29 @@ export const BUILD_STEP_REFS = (id) => ["deposit", "settle", "pages"].map((step)
  * that must be present as `eq.<the token's field>` (PostgREST ANDs top-level
  * filters, so one bound filter confines every read and every delete, whatever
  * else the query says); `rows` names the fields every row of a write must
- * carry with the token's value. A method not listed is refused; `PATCH` is
- * nowhere, because no job patches a row.
+ * carry with the token's value. A method not listed is refused; the one
+ * `PATCH` is site_backends' blank database name (`unset` names the extra
+ * query the update must carry, `set` the only fields it may write).
  */
 export const SB_TABLES = {
   edit_traces: { POST: { rows: { slug: "slug", uid: "uid" } } },
   edit_jobs: { GET: { filter: { id: "id" } } },
-  site_backends: { GET: { filter: { slug: "slug" } }, POST: { rows: { slug: "slug", uid: "uid" } } },
+  // `exists` (2026-10-18, audit A03-1/S1-1): "is this name a site?" for ANY
+  // name, answering the name alone — never its owner or connection — so a
+  // job's rename check is never blind (a refused lookup read as "free").
+  // PATCH (2026-10-18, audit A04-2/A09-1): the ONE update a job makes — the
+  // database name onto its own site's row, only while that row's name is
+  // still blank (`healSiteBackendDb`). Without it a database first made in a
+  // container left the site's link blank, and every visitor call 404'd.
+  site_backends: {
+    // `own` (2026-10-18, audit A01-1/A08-3/S1-3): the job's OWN ACCOUNT's
+    // rows — `uid` bound to the token, a few plain columns — so a first
+    // build finds its chat's site and the account's names ("you already have
+    // a site in this chat", the fresh-name rule). Never another account's.
+    GET: { filter: { slug: "slug" }, exists: "slug", own: { uid: "uid", select: ["slug", "neon_db", "brief", "chat_id"] } },
+    POST: { rows: { slug: "slug", uid: "uid" } },
+    PATCH: { filter: { slug: "slug", uid: "uid" }, unset: { or: "(neon_db.is.null,neon_db.eq.)" }, set: { neon_db: /^[a-z0-9_]{1,63}$/ } },
+  },
   site_project: { GET: { filter: { slug: "slug" } }, POST: { rows: { slug: "slug", uid: "uid" } } },
   site_aliases: { GET: {}, POST: { rows: { slug: "slug", uid: "uid" } }, DELETE: { filter: { slug: "slug" } } },
   site_functions: { GET: { filter: { slug: "slug" } }, POST: { rows: { slug: "slug", owner_id: "uid" } } },
@@ -175,6 +191,33 @@ export const SB_MAX_BODY = 1 << 20;
 export const SB_TIMEOUT_MS = 20_000;
 
 const NAME_RE = /^[a-z_][a-z0-9_]{0,62}$/;
+
+/** Is this query exactly an existence read of one name in `col`? */
+function existenceRead(params, col) {
+  const keys = [...params.keys()];
+  if (keys.some((k) => k !== col && k !== "select" && k !== "limit")) return false;
+  if (params.getAll(col).length !== 1 || params.getAll("select").length !== 1 || params.getAll("limit").length > 1) return false;
+  if (params.get("select") !== col) return false;
+  if (params.has("limit") && !/^[1-9]$/.test(params.get("limit"))) return false;
+  const v = params.get(col);
+  return typeof v === "string" && v.startsWith("eq.") && SLUG_RE.test(v.slice(3));
+}
+
+/** Is this query a read of the token's own account's rows, in plain columns only? */
+function ownRead(who, params, own) {
+  if (!who || typeof who.uid !== "string" || !who.uid) return false;
+  for (const k of new Set(params.keys())) if (params.getAll(k).length !== 1) return false;
+  if (params.get("uid") !== "eq." + who.uid) return false;
+  const sel = params.get("select");
+  if (!sel || !sel.split(",").every((c) => own.select.includes(c))) return false;
+  for (const k of params.keys()) {
+    if (k === "uid" || k === "select") continue;
+    if (k === "limit") { if (!/^[1-9][0-9]{0,2}$/.test(params.get(k))) return false; continue; }
+    if (k === "order") { if (!/^(created_at|slug)\.(asc|desc)$/.test(params.get(k))) return false; continue; }
+    if (!own.select.includes(k) || !/^eq\./.test(params.get(k))) return false;
+  }
+  return true;
+}
 
 /** The token's field a binding word names. */
 function boundValue(who, word) {
@@ -236,6 +279,11 @@ export function sbDecision(who, method, path, search, text, mint) {
   if (!NAME_RE.test(table) || !Object.hasOwn(SB_TABLES, table)) return { ok: false, why: "table" };
   const rule = SB_TABLES[table][m];
   if (!rule) return { ok: false, why: "method" };
+  // AN EXISTENCE READ: exactly `<col>=eq.<a valid name>`, `select=<col>` and
+  // an optional `limit`, nothing else — it answers which names exist, which
+  // every site's public address already tells.
+  if (rule.exists && (m === "GET" || m === "HEAD") && existenceRead(params, rule.exists)) return { ok: true, body: undefined };
+  if (rule.own && (m === "GET" || m === "HEAD") && ownRead(who, params, rule.own)) return { ok: true, body: undefined };
   for (const [param, word] of Object.entries(rule.filter || {})) {
     if (who.pre === true && word === "slug") return { ok: false, why: "filter:" + param };
     if (word === "build-step-ref") {
@@ -246,6 +294,22 @@ export function sbDecision(who, method, path, search, text, mint) {
     if (params.get(param) !== "eq." + boundValue(who, word)) return { ok: false, why: "filter:" + param };
   }
   if (m === "GET" || m === "HEAD" || m === "DELETE") return { ok: true, body: undefined };
+  if (m === "PATCH") {
+    if (who.pre === true) return { ok: false, why: "method" };
+    const allowed = new Set([...Object.keys(rule.filter || {}), ...Object.keys(rule.unset || {})]);
+    for (const k of params.keys()) if (!allowed.has(k) || params.getAll(k).length !== 1) return { ok: false, why: "query:" + k };
+    for (const [k, v] of Object.entries(rule.unset || {})) if (params.get(k) !== v) return { ok: false, why: "query:" + k };
+    let pb;
+    try { pb = JSON.parse(String(text || "")); } catch { return { ok: false, why: "body" }; }
+    if (!pb || typeof pb !== "object" || Array.isArray(pb)) return { ok: false, why: "body" };
+    const keys = Object.keys(pb);
+    if (!keys.length) return { ok: false, why: "body" };
+    for (const k of keys) {
+      const re = rule.set && Object.hasOwn(rule.set, k) ? rule.set[k] : null;
+      if (!re || typeof pb[k] !== "string" || !re.test(pb[k])) return { ok: false, why: "set:" + k };
+    }
+    return { ok: true, body: JSON.stringify(pb) };
+  }
   let body;
   try { body = JSON.parse(String(text || "")); } catch { return { ok: false, why: "body" }; }
   const rows = Array.isArray(body) ? body : [body];
@@ -453,6 +517,31 @@ export function ownBuildMarker(who, key) {
   const root = "builds-live/" + who.uid + "/" + who.id;
   const k = String(key || "");
   return k === root + ".json" || k === root + ".done.json";
+}
+
+/**
+ * THE ACCOUNT'S OWN PRE-SITE FILES AND ITS SITE'S MEDIA LEDGER (2026-10-18,
+ * audit A01-2/A08-2/A10-1/S1-4): video and audio a customer attached before
+ * the site existed are kept under `drafts/<uid>/` (the uid the token was
+ * minted for), and a first build reads them — before it has a name, so a
+ * pre-scoped job too — and moves each into the site's library, taking room
+ * in the site's ledger (`media-ledger/site-<slug>.json`). `op` is `read`,
+ * `write`, `delete` or `list`: a job reads, lists and removes the account's
+ * drafts, never writes one; it reads and writes its own site's ledger, never
+ * a pre-scoped job and never another site's or account's.
+ */
+export function ownAccountKey(who, key, op) {
+  if (!who || typeof who.uid !== "string" || !/^[A-Za-z0-9-]{1,64}$/.test(who.uid)) return false;
+  const k = String(key || "");
+  if (!k || k.includes("..")) return false;
+  const drafts = "drafts/" + who.uid + "/";
+  if (k.startsWith(drafts)) {
+    if (op === "list") return k === drafts;
+    if (op === "write") return false;
+    return /^[a-z0-9._-]{1,120}$/.test(k.slice(drafts.length));
+  }
+  if (who.pre !== true && SLUG_RE.test(String(who.slug || "")) && k === "media-ledger/site-" + who.slug + ".json") return op === "read" || op === "write";
+  return false;
 }
 
 /** May a job list under `prefix`? Only inside a prefix it may touch at all. */
@@ -809,7 +898,7 @@ export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scop
     const refuse = (k) => { log("out-of-scope", { id: who.id, slug: who.slug, key: k, ...(pre ? { pre: true } : {}) }); return json(403, { error: "key not in this job's scope", key: k }); };
 
     if (tail === "/r2" && (request.method === "GET" || request.method === "HEAD")) {
-      if (!allowedJobKey(who.slug, who.id, key, pre) && !ownBuildMarker(who, key) && !readableJobKey(who.slug, key, pre)) return refuse(key);
+      if (!allowedJobKey(who.slug, who.id, key, pre) && !ownBuildMarker(who, key) && !readableJobKey(who.slug, key, pre) && !ownAccountKey(who, key, "read")) return refuse(key);
       const obj = request.method === "HEAD" ? await bucket.head(key) : await bucket.get(key);
       if (!obj) return new Response(null, { status: 404 });
       const headers = metaHeaders(obj);
@@ -817,7 +906,7 @@ export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scop
       return new Response(obj.body, { status: 200, headers });
     }
     if (tail === "/r2" && request.method === "PUT") {
-      if (!allowedJobKey(who.slug, who.id, key, pre) && !ownBuildMarker(who, key)) return refuse(key);
+      if (!allowedJobKey(who.slug, who.id, key, pre) && !ownBuildMarker(who, key) && !ownAccountKey(who, key, "write")) return refuse(key);
       const meta = readMetaHeaders(request.headers);
       const onlyIf = readOnlyIf(request.headers);
       const opts = {};
@@ -832,7 +921,7 @@ export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scop
       return json(200, listEntry(put));
     }
     if (tail === "/r2" && request.method === "DELETE") {
-      if (!allowedJobKey(who.slug, who.id, key, pre) && !ownBuildMarker(who, key)) return refuse(key);
+      if (!allowedJobKey(who.slug, who.id, key, pre) && !ownBuildMarker(who, key) && !ownAccountKey(who, key, "delete")) return refuse(key);
       await bucket.delete(key);
       return new Response(null, { status: 204 });
     }
@@ -841,7 +930,7 @@ export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scop
       try { body = await request.json(); } catch { body = null; }
       const keys = body && Array.isArray(body.keys) ? body.keys.map(String) : null;
       if (!keys) return json(400, { error: "keys" });
-      for (const k of keys) if (!allowedJobKey(who.slug, who.id, k, pre) && !ownBuildMarker(who, k)) return refuse(k);
+      for (const k of keys) if (!allowedJobKey(who.slug, who.id, k, pre) && !ownBuildMarker(who, k) && !ownAccountKey(who, k, "delete")) return refuse(k);
       if (keys.length) await bucket.delete(keys);
       return new Response(null, { status: 204 });
     }
@@ -849,7 +938,7 @@ export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scop
       let body = null;
       try { body = await request.json(); } catch { body = null; }
       const prefix = String((body && body.prefix) || "");
-      if (!allowedJobPrefix(who.slug, who.id, prefix, pre)) return refuse(prefix);
+      if (!allowedJobPrefix(who.slug, who.id, prefix, pre) && !ownAccountKey(who, prefix, "list")) return refuse(prefix);
       const opts = { prefix };
       if (body.cursor) opts.cursor = String(body.cursor);
       if (body.limit) opts.limit = Number(body.limit);

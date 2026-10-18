@@ -73,11 +73,15 @@ export async function gatewayBucketFor({ bucket, id, slug = null, uid = "u-gw-1"
  * route: each request handed to `worker.fetch` with the platform's env, as
  * Cloudflare hands the container's call to the Worker.
  */
-export function workerGatewayFetch(worker, env, { calls = [], refused = [] } = {}) {
+export function workerGatewayFetch(worker, env, { calls = [], refused = [], refuse = null } = {}) {
   // THE MODULE OR ITS DEFAULT EXPORT: either way, the Worker's own `fetch`.
   const w = worker && typeof worker.fetch === "function" ? worker : worker && worker.default;
   if (!w || typeof w.fetch !== "function") throw new Error("no Worker fetch to reach the gateway through");
   const f = async (url, init = {}) => {
+    // `refuse` (2026-10-18): a key the test makes the wall refuse, as an
+    // older gateway did — answered 403 before the Worker is asked.
+    const k = new URL(String(url)).searchParams.get("key");
+    if (refuse && k && refuse.test(k)) return new Response(JSON.stringify({ error: "key not in this job's scope", key: k }), { status: 403, headers: { "content-type": "application/json" } });
     const ctx = makeCtx();
     const res = await w.fetch(new Request(String(url), { ...init, ...(init && init.body != null && typeof init.body !== "string" ? { duplex: "half" } : {}) }), env, ctx);
     await Promise.allSettled(ctx.pending);

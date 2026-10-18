@@ -14,7 +14,7 @@
 // Supabase pair stays because a container's env carries a marker for each.
 import { readLaunch } from "../../builder/container-job.mjs";
 import { jobSecrets } from "../../builder/edit-job.mjs";
-import { makeContainerEnv } from "../../builder/container-env.mjs";
+import { makeContainerEnv, gatewayFetch } from "../../builder/container-env.mjs";
 import { workerGatewayFetch } from "./job-gateway-wire.mjs";
 
 /** The names a container env sets itself (`makeContainerEnv`), not from the launch. */
@@ -32,7 +32,7 @@ const CONTAINER_OWN = ["SUPABASE_SERVICE_KEY", "CREDITS_MINT_SECRET"];
  * the bucket. `wire` collects the answers (`calls`) and refusals (`refused`).
  * Without `worker`, the platform's bucket directly, as before.
  */
-export function containerEnvOf(workerEnv, launchBody, { worker = null, wire = null } = {}) {
+export function containerEnvOf(workerEnv, launchBody, { worker = null, wire = null, sb = false } = {}) {
   const launch = readLaunch(typeof launchBody === "string" ? launchBody : JSON.stringify(launchBody));
   const env = {};
   for (const [k, v] of Object.entries(workerEnv)) if (typeof v !== "string" || CONTAINER_OWN.includes(k)) env[k] = v;
@@ -45,7 +45,7 @@ export function containerEnvOf(workerEnv, launchBody, { worker = null, wire = nu
     // gateway. The platform's other bindings (the dispatch stub, the database
     // stand-ins) and the Supabase pair stay, as above.
     const w = workerGatewayFetch(worker, workerEnv, wire || {});
-    const own = makeContainerEnv({ secrets: launch.secrets, gateway: { ...launch.gateway }, fetch: w.fetch, pre: launch.pre === true, deadlineAt: launch.deadlineAt || 0 });
+    const own = makeContainerEnv({ secrets: launch.secrets, gateway: { ...launch.gateway }, ...(sb ? { sb: { url: SB_ORIGIN } } : {}), fetch: w.fetch, pre: launch.pre === true, deadlineAt: launch.deadlineAt || 0 });
     return { ...env, ...own };
   }
   return env;
@@ -78,4 +78,24 @@ export function firingNamespace(fallback = null) {
       },
     }),
   };
+}
+
+/**
+ * SUPABASE THROUGH THE GATEWAY, AS THE CONTAINER SENDS IT (2026-10-18, audit
+ * theme 1): `containerEnvOf(…, { sb: true })` puts the marker under the
+ * Supabase key, and this runs `fn` with the container's own shim
+ * (`gatewayFetch`) in front of the process's fetch — a marked call goes to the
+ * Worker's gateway route (`/sb`, recorded in `wire`), everything else to the
+ * stand-ins as before. Without it a fired job's Supabase calls reach the
+ * stand-ins directly, and nothing the `/sb` door refuses is ever seen.
+ */
+export const SB_ORIGIN = "https://ujrqdmmtcptvimazlhom.supabase.co";
+export async function throughGatewaySb(launchBody, worker, workerEnv, wire, fn) {
+  const launch = readLaunch(typeof launchBody === "string" ? launchBody : JSON.stringify(launchBody));
+  const w = workerGatewayFetch(worker, workerEnv, wire || {});
+  const real = globalThis.fetch;
+  const gw = new URL(launch.gateway.url).origin;
+  const inner = (input, init) => (String(typeof input === "string" ? input : input.url).startsWith(gw + "/api/job/") ? w.fetch(input, init) : real(input, init));
+  globalThis.fetch = gatewayFetch({ gateway: launch.gateway, sbUrl: SB_ORIGIN, fetch: inner });
+  try { return await fn(); } finally { globalThis.fetch = real; }
 }

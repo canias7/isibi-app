@@ -1,5 +1,44 @@
 # Owner Notes
 
+## 2026-10-18 — The audit's first ten findings are fixed (branch only; nothing merged, deployed, switched, applied or spent)
+
+**On your word** ("ok start fixing"). Branch `codex-work-into-claude`. The
+record is `docs/history/2026-10-18-audit-batch-1.md`.
+
+- **A rename can no longer take another site's address** (#1, #7). In a
+  container the "is that name taken?" check was refused and read as "free".
+  Now a check that fails refuses the rename, and the gateway allows one
+  narrow read: does this name exist (the name only, never its owner).
+  Publish checks the same way.
+- **A database made by an add-on in a container is now recorded on the
+  site** (#2, #4), so its forms, sign-ins and bookings work. The gateway
+  allows exactly one update: the site's own blank database name.
+- **Production's blocked edits** (#3): the fix is the gateway change already
+  on the branch. Added: a turn that is refused ends the job at once (no
+  30-minute wait, no re-run), and the customer is told "Nothing was changed"
+  instead of "Recovery may already have updated stored state".
+- **Back online never puts the unapproved draft live** (#5, #6). It skips
+  every version the draft has not published.
+- **A first build in a container can see its own chat's site and the
+  account's names** (#8), so "you already have a site in this chat" and the
+  fresh-name rule work again. Only the account's own rows, plain columns.
+- **Video and audio sent before the site existed reach the new site** (#9):
+  the job may read and move the account's own pre-site files.
+- **Visitors' form uploads are never offered as your photos** (#10).
+- **Checked**: every fix has a test that fails on the old code. Sweep: 20
+  mutants, all killed, the comment-only control survived (6 needed extra
+  tests, now in `test/audit-batch-1.test.mjs` and DFR-L). Full suite
+  11,451 tests: 11,448 passed, 1 failed (an assertion that read the old line's
+  spelling, updated; 20 of 20 in its files after), 2 skipped.
+- **Also**: the test fixture can now send a container job's Supabase calls
+  through the gateway's door (the audit's first theme); DH7 and DH8 use it.
+- **Not done in this batch**: a whole first build through the container is not
+  driven (#8 is shown by the gateway's rules and the free-name step on its
+  own); the browser still forgets a pre-site file a build named as not moved,
+  and the gateway still holds a whole file in memory when it is written (#9).
+- **Production is unchanged**: edits there stay blocked until you say to
+  merge and deploy.
+
 ## 2026-10-18 — The builder audit is done, and production edits are blocked until the gateway fix ships (branch only; the audit changed nothing and spent nothing; production untouched, on your word)
 
 **On your word** ("prepare an audit … on the builder, touching all the

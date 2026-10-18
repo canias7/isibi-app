@@ -285,6 +285,25 @@ export function mintAfter(prev, now = Date.now(), rand = Math.random().toString(
   return String(ms).padStart(14, "0") + "-" + (tail || "000000");
 }
 
+/**
+ * THE VERSIONS THIS DRAFT HOLDS THAT WERE NEVER PUBLISHED (2026-10-18, audit
+ * A11-1/A38-1): every version a revision past `applied` carries, the draft's
+ * own and its saved predecessors — less any version a published revision
+ * carries. Back online and a restore never activate one of these: under
+ * draft-first the newest saved build is usually the owner's unapproved draft.
+ * A version the record does not name (built before draft-first, or published
+ * and trimmed) is not in it.
+ */
+export function unpublishedVersions(draft) {
+  const out = new Set();
+  if (!draft || !Array.isArray(draft.revs)) return out;
+  const applied = Number.isSafeInteger(draft.applied) ? draft.applied : 0;
+  const pub = new Set(draft.revs.filter((r) => r.n <= applied).map((r) => r.version));
+  for (const r of draft.revs) if (r.n > applied && !pub.has(r.version)) out.add(r.version);
+  if (isDraftVersion(draft.version) && !pub.has(draft.version)) out.add(draft.version);
+  return out;
+}
+
 /** May `version` be published from this draft record? The draft itself, or one of its saved predecessors. */
 export function publishable(draft, version) {
   if (!draft || !isDraftVersion(version)) return false;

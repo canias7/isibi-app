@@ -108,7 +108,8 @@ test("the table wall: a bound filter must be present as eq., every written row c
   assert.deepEqual(sbDecision(JOB, "POST", "/rest/v1/site_backends", "", JSON.stringify([{ slug: JOB.slug, uid: JOB.uid }, { slug: "other-1", uid: JOB.uid }]), MINT), { ok: false, why: "row:slug" }, "a foreign row hid behind an own one");
   assert.deepEqual(sbDecision(JOB, "POST", "/rest/v1/site_backends", "", "[]", MINT), { ok: false, why: "body" });
   assert.deepEqual(sbDecision(JOB, "POST", "/rest/v1/site_backends", "", "[1]", MINT), { ok: false, why: "body" });
-  assert.deepEqual(sbDecision(JOB, "PATCH", "/rest/v1/site_backends", q("slug=eq.fretwork-1"), JSON.stringify({ notify: true }), MINT), { ok: false, why: "method" }, "no job patches a row");
+  // THE ONE PATCH (2026-10-18) is the blank database name; this is not it.
+  assert.equal(sbDecision(JOB, "PATCH", "/rest/v1/site_backends", q("slug=eq.fretwork-1"), JSON.stringify({ notify: true }), MINT).ok, false, "a job patched a row other than the blank database name");
   assert.deepEqual(sbDecision(JOB, "DELETE", "/rest/v1/site_backends", q("slug=eq.fretwork-1"), "", MINT), { ok: false, why: "method" });
   // A duplicate key: the value CHECKED is the value SENT, because the body is re-serialised.
   const dup = sbDecision(JOB, "POST", "/rest/v1/site_backends", "", '{"slug":"other-1","uid":"' + JOB.uid + '","slug":"fretwork-1"}', MINT);
@@ -582,4 +583,83 @@ test("the Worker mounts the Supabase branch with its own origin, key and mint, a
   assert.match(fire, /v: 2, kind, id,/, "the launch is not v2");
   assert.match(fire, /sb: \{ url: SUPABASE_URL \},/, "the launch does not name the Supabase origin");
   assert.match(fire, /secrets: jobSecrets\(env\),/);
+});
+
+// AUDIT A03-1 / S1-1 (2026-10-18): a job's rename check read every other name
+// as free, because the owner read of another site is refused and the refusal
+// read as "nobody". The gateway now admits the one read that answers "is this
+// name a site?" — the name alone, for any name — and nothing wider.
+test("the existence read: any one name, select=slug alone, nothing that reveals an owner or a list", () => {
+  const q = (s) => "?" + s;
+  const PRE = { ...JOB, slug: "_pre", pre: true };
+  for (const who of [JOB, PRE]) {
+    assert.equal(sbDecision(who, "GET", "/rest/v1/site_backends", q("slug=eq.fold-lane-bakery&select=slug&limit=1"), "", MINT).ok, true);
+    assert.equal(sbDecision(who, "GET", "/rest/v1/site_backends", q("slug=eq.fold-lane-bakery&select=slug"), "", MINT).ok, true);
+  }
+  const refused = [
+    "slug=eq.fold-lane-bakery&select=uid&limit=1",        // the owner
+    "slug=eq.fold-lane-bakery&select=slug,uid",           // the owner beside it
+    "slug=eq.fold-lane-bakery&select=neon_db",            // the connection
+    "slug=eq.fold-lane-bakery",                           // every column
+    "slug=in.(fold-lane-bakery,other-1)&select=slug",     // a list
+    "slug=like.fold*&select=slug",                        // a scan
+    "slug=eq.fold-lane-bakery&slug=eq.other-1&select=slug",
+    "slug=eq.fold-lane-bakery&select=slug&limit=200",
+    "slug=eq.fold-lane-bakery&select=slug&uid=eq.x",      // a second filter
+    "slug=eq.Not_A_Slug&select=slug",
+    "select=slug&limit=1",
+  ];
+  for (const s of refused) assert.equal(sbDecision(JOB, "GET", "/rest/v1/site_backends", q(s), "", MINT).ok, false, s + " was admitted");
+  // Writes and other tables are untouched by it.
+  assert.equal(sbDecision(JOB, "DELETE", "/rest/v1/site_backends", q("slug=eq.fold-lane-bakery&select=slug"), "", MINT).ok, false);
+  assert.equal(sbDecision(JOB, "GET", "/rest/v1/site_project", q("slug=eq.fold-lane-bakery&select=slug"), "", MINT).ok, false);
+});
+
+// AUDIT A04-2 / A09-1 (2026-10-18): a database first made in a container left
+// the site's row blank, because the gateway admitted no PATCH. Exactly the
+// heal's own update is admitted now — and nothing near it.
+test("the one PATCH: the job's own row, only while blank, only the database name", () => {
+  const q = (s) => "?" + s;
+  const BLANK = "or=(neon_db.is.null,neon_db.eq.)";
+  const own = "slug=eq." + JOB.slug + "&uid=eq." + JOB.uid + "&" + BLANK;
+  assert.equal(sbDecision(JOB, "PATCH", "/rest/v1/site_backends", q(own), JSON.stringify({ neon_db: "site_fretwork_1" }), MINT).ok, true);
+  const refused = [
+    [q("slug=eq.other-1&uid=eq." + JOB.uid + "&" + BLANK), { neon_db: "site_x" }],          // another site
+    [q("slug=eq." + JOB.slug + "&uid=eq.someone-else&" + BLANK), { neon_db: "site_x" }],     // another owner
+    [q("slug=eq." + JOB.slug + "&uid=eq." + JOB.uid), { neon_db: "site_x" }],                // not only while blank: overwrites a set name
+    [q(own + "&notify=eq.true"), { neon_db: "site_x" }],                                     // an extra filter
+    [q(own), { neon_db: "site_x", uid: "someone-else" }],                                     // another column
+    [q(own), { offline_at: null }],
+    [q(own), { neon_db: "Robert'); DROP" }],
+    [q(own), { neon_db: 7 }],
+    [q(own), {}],
+  ];
+  for (const [qs, body] of refused) assert.equal(sbDecision(JOB, "PATCH", "/rest/v1/site_backends", qs, JSON.stringify(body), MINT).ok, false, qs + " " + JSON.stringify(body) + " was admitted");
+  assert.equal(sbDecision({ ...JOB, pre: true }, "PATCH", "/rest/v1/site_backends", q(own), JSON.stringify({ neon_db: "site_x" }), MINT).ok, false, "a pre-scoped job patched a row");
+  assert.equal(sbDecision(JOB, "PATCH", "/rest/v1/site_project", q("slug=eq." + JOB.slug + "&uid=eq." + JOB.uid), JSON.stringify({ neon_db: "x" }), MINT).ok, false);
+});
+
+// AUDIT A01-1 / A08-3 / S1-3 (2026-10-18): a first build in the container could
+// not see its chat's site or the account's names. A job may read its OWN
+// account's rows, in plain columns — never another account's, never a secret.
+test("the own-account read: the token's uid, plain columns, never another account", () => {
+  const q = (s) => "?" + s;
+  const PRE = { ...JOB, slug: "_pre", pre: true };
+  for (const who of [JOB, PRE]) {
+    assert.equal(sbDecision(who, "GET", "/rest/v1/site_backends", q("uid=eq." + JOB.uid + "&chat_id=eq.c-123&select=slug,neon_db,brief&limit=1"), "", MINT).ok, true);
+    assert.equal(sbDecision(who, "GET", "/rest/v1/site_backends", q("uid=eq." + JOB.uid + "&slug=eq.harbour-loaf&select=slug&limit=1"), "", MINT).ok, true);
+  }
+  const refused = [
+    "uid=eq.someone-else&chat_id=eq.c-123&select=slug",              // another account
+    "chat_id=eq.c-123&select=slug",                                   // no owner bound
+    "uid=eq." + JOB.uid + "&select=slug,neon_conn",                   // a secret column
+    "uid=eq." + JOB.uid + "&select=*",
+    "uid=eq." + JOB.uid,                                              // every column
+    "uid=eq." + JOB.uid + "&uid=eq.someone-else&select=slug",
+    "uid=eq." + JOB.uid + "&chat_id=like.c*&select=slug",
+    "uid=eq." + JOB.uid + "&offline_at=is.null&select=slug",
+    "uid=eq." + JOB.uid + "&select=slug&limit=5000",
+  ];
+  for (const s of refused) assert.equal(sbDecision(JOB, "GET", "/rest/v1/site_backends", q(s), "", MINT).ok, false, s + " was admitted");
+  assert.equal(sbDecision(JOB, "GET", "/rest/v1/site_project", q("uid=eq." + JOB.uid + "&select=slug"), "", MINT).ok, false);
 });

@@ -33,7 +33,7 @@ import { page as pageSrc } from "./fixtures/live-ask.mjs";
 import { rowsDb, BAKERY_LOAVES, LOAF_COLUMNS } from "./fixtures/rows-db.mjs";
 import { buildBucket, GOOD_DESIGN } from "./fixtures/build-route.mjs";
 import { ledger, fireInterim, finishResume } from "./fixtures/build-lifecycle.mjs";
-import { containerEnvOf, launchFor, firingNamespace } from "./fixtures/fired-jobs.mjs";
+import { containerEnvOf, launchFor, firingNamespace, throughGatewaySb } from "./fixtures/fired-jobs.mjs";
 import { readLaunch, runJob } from "../builder/container-job.mjs";
 import { makeContainerEnv } from "../builder/container-env.mjs";
 import { jobSecrets, JOB_ENV_NAMES } from "../builder/edit-job.mjs";
@@ -140,23 +140,26 @@ const lineId = (args, file, line) => {
   return Number(String(at || "-1.").split(".")[0]);
 };
 
-function firedBakery(name) {
+const ROUTE_RENAME = { intent: "edit", layer: "rename", targets: [{ change: 0, writes: ["address"] }] };
+
+function firedBakery(name, { aliases = null, sites = [] } = {}) {
   const compiler = installCompiler();
   const db = rowsDb({ tables: { loaves: { columns: LOAF_COLUMNS, rows: BAKERY_LOAVES, next: 12 } }, meta: { schema: JSON.stringify({ tables: [LOAVES] }) } });
   const said = (args) => String(args.messages[0].content);
   let bothRouted = 0;
   const P = platform({
-    slug: slugOf(name), pages: PAGES2, db, liveScripts: true, balance: 400,
+    slug: slugOf(name), pages: PAGES2, db, liveScripts: true, balance: 400, aliases, sites,
     answers: {
       // THE WHOLE MESSAGE IS ROUTED ONCE (two parts); the price part's own
       // routing, which carries the message as context, answers data.
-      route: (args) => (/TikTok/.test(said(args)) && /Dark Rye/.test(said(args)) ? (bothRouted++ === 0 ? ROUTE_BOTH : ROUTE_DATA) : /TikTok/.test(said(args)) ? ROUTE_TEXT : /Gift/.test(said(args)) ? ROUTE_ADD : ROUTE_DATA),
+      route: (args) => (/Rename the site/.test(said(args)) ? ROUTE_RENAME : /TikTok/.test(said(args)) && /Dark Rye/.test(said(args)) ? (bothRouted++ === 0 ? ROUTE_BOTH : ROUTE_DATA) : /TikTok/.test(said(args)) ? ROUTE_TEXT : /Gift/.test(said(args)) ? ROUTE_ADD : ROUTE_DATA),
       [T.text]: (args) => (/@harbourloafbakery/.test(said(args)) ? { edits: [{ id: lineId(args, "visit.tsx", TT_TO), to: TT_LATER }] } : { edits: [{ id: lineId(args, "visit.tsx", TT_FROM), to: TT_TO }] }),
       write_row_changes: (args) => {
         const asked = (said(args).split("WHAT THEY ASKED FOR\n")[1] || "").split("\n")[0];
         const m = /£(\d+\.\d+)/.exec(asked);
         return { changes: [{ table: "loaves", id: 2, values: { price: m ? Number(m[1]) : 0 } }] };
       },
+      new_address: (args) => { const asked = (said(args).split("What they asked for:\n")[1] || "").split("\n")[0]; const m = /to ([a-z0-9-]+)\.?\s*$/i.exec(asked); return m ? { name: m[1] } : {}; },
       [T.adds]: { kinds: ["page"] },
       "add:page": { page: [{ path: "/gift-vouchers", name: "Gift vouchers", purpose: "sell gift vouchers", sections: ["what a voucher buys"], components: ["card"] }] },
       [T.pages]: { pages: [{ path: "src/routes/gift-vouchers.tsx", source: GIFT }] },
@@ -172,7 +175,7 @@ function firedBakery(name) {
 // fired job's bucket is the container's shim, every call answered by the
 // Worker's own gateway route; a key the wall refuses is kept in `wire.refused`.
 const wire = { calls: [], refused: [] };
-async function drive(P, ns, key, worker) {
+async function drive(P, ns, key, worker, { sb = false } = {}) {
   const ran = [];
   for (let i = 0; i < 14; i++) {
     await pump(P);
@@ -182,8 +185,11 @@ async function drive(P, ns, key, worker) {
       ran.push(launch.id);
       await P.run(async () => {
         const ctx = makeCtx();
-        await worker.runContainerJob(containerEnvOf(P.env, l.body, { worker, wire }), ctx, { kind: launch.kind, id: launch.id, holder: launch.holder || "" });
-        await Promise.allSettled(ctx.pending);
+        const run = async () => {
+          await worker.runContainerJob(containerEnvOf(P.env, l.body, { worker, wire, sb }), ctx, { kind: launch.kind, id: launch.id, holder: launch.holder || "" });
+          await Promise.allSettled(ctx.pending);
+        };
+        await (sb ? throughGatewaySb(l.body, worker, P.env, wire, run) : run());
       });
     }
     const rec = P.record(key);
@@ -197,10 +203,10 @@ const liveVersion = (P) => { const t = P.readObj("current/" + P.slug + ".json");
 const draftOf = (P) => { const t = P.readObj(DRAFT_KEY(P.slug)); return t ? JSON.parse(bare(t)) : null; };
 const price = (db, id) => Number(db.rows("loaves").find((l) => l.id === id).price);
 
-async function sendFired(P, ns, worker, message) {
+async function sendFired(P, ns, worker, message, opts = {}) {
   const r = await sendMessage(P, { message });
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  const ran = await drive(P, ns, r.key, worker);
+  const ran = await drive(P, ns, r.key, worker, opts);
   const jobs = P.jobsOf(r.key);
   assert.ok(jobs.length > 0 && jobs.every((j) => ran.includes(j.id)), "a job ran in the Worker though the runner names everyone: " + JSON.stringify({ ran, jobs: jobs.map((j) => j.id) }));
   return { r, jobs };
@@ -360,4 +366,90 @@ test("DH5 A FIRST BUILD'S RESUME WITH THE CONTAINER'S ENV — the resume is hand
       assert.equal(b.store.has(DRAFT_KEY(slug)), false, "a draft was saved with the switch off");
     }
   }
+});
+
+// ── DH7: a rename in the container (audit A03-1 / S1-1, 2026-10-18) ─────────
+
+test("DH7 A RENAME IN THE CONTAINER IS NEVER BLIND, THROUGH THE REAL GATEWAY — the owner read of another site is refused there, and it used to read as 'nobody': a rename onto a name another site holds is refused with nothing written to the address store or the draft; a rename to a free name is held in the draft", async () => {
+  const aliases = [];
+  const { P, compiler, ns } = firedBakery("rename-wall", { aliases, sites: ["harbourside-roast"] });
+  try {
+    const worker = await loadWorkerModule();
+    const first = await sendFired(P, ns, worker, TIKTOK);
+    assert.equal(first.jobs[0].state, "done", JSON.stringify(first.jobs[0].result).slice(0, 300));
+    P.env.DRAFT_FIRST = "on";
+    const taken = await sendFired(P, ns, worker, "Rename the site's address to harbourside-roast.", { sb: true });
+    const tb = JSON.parse(taken.jobs[0].result.body);
+    assert.notEqual(tb.ok, true, "a rename onto another site's name went through: " + JSON.stringify(tb).slice(0, 300));
+    assert.match(String(tb.msg), /taken|already/i, tb.msg);
+    assert.deepEqual(aliases, [], "the address store was written for a taken name");
+    assert.equal(draftOf(P), null, "a refused rename saved a draft revision");
+    const free = await sendFired(P, ns, worker, "Rename the site's address to harbour-loaf-lane.", { sb: true });
+    const fb = JSON.parse(free.jobs[0].result.body);
+    assert.equal(fb.renamedInDraft, "harbour-loaf-lane", JSON.stringify(fb).slice(0, 300));
+  } finally { await finished(P, compiler); }
+});
+
+// ── DH8: a site's first database, made in the container (audit A04-2/A09-1) ─
+
+test("DH8 A DATABASE FIRST MADE IN THE CONTAINER IS RECORDED ON THE SITE, THROUGH THE REAL GATEWAY — a site with no database asks for a sign-up list; the add-on job runs in the container, makes the database, and its name is written onto the site's row (the one narrow update the gateway admits), so visitor calls find it; nothing the job needed was refused", async () => {
+  const compiler = installCompiler();
+  const P = platform({
+    slug: slugOf("first-db"), provisions: true, db: rowsDb({ tables: {} }), balance: 400,
+    answers: {
+      route: [{ intent: "addon" }],
+      [T.adds]: { kinds: ["table", "page"] },
+      "add:table": { table: [{ table: { name: "signups", access: "collect", columns: [{ name: "name", type: "text" }] }, seed: [] }] },
+      "add:page": { page: [{ path: "/sign-up", name: "Sign up", purpose: "collect sign-ups", sections: ["a band"], components: ["section-header"] }] },
+      [T.pages]: { pages: [{ path: "src/routes/sign-up.tsx", source: GIFT.replace(/gift-vouchers/g, "sign-up").replace(/Gift vouchers/g, "Sign up") }] },
+    },
+  });
+  const ns = firingNamespace((lane) => getContainer(null, lane));
+  Object.assign(P.env, { JOB_RUNNER_EVERYONE: "on", SITE_SECRETS_KEY: "x".repeat(48), SITE_BUILD_CONTAINER: ns });
+  try {
+    const worker = await loadWorkerModule();
+    assert.equal(P.neon.db, "", "the site already had a database — nothing here tests a first one");
+    const a = await sendFired(P, ns, worker, "Add a sign-up page where people leave their name.", { sb: true });
+    const job = a.jobs.find((j) => j.op === "addon") || a.jobs[0];
+    const body = JSON.parse(job.result.body);
+    assert.equal(body.ok, true, JSON.stringify(body).slice(0, 400));
+    assert.equal(P.neon.projects.length, 1, "not exactly one database project made");
+    assert.match(P.neon.db, /^[a-z0-9_]+$/, "the site's row still has a blank database name — every visitor call would answer 404");
+  } finally { await finished(P, compiler); }
+});
+
+// ── DH9: a refused publish turn fails at once (audit A03-3/A37-2) ───────────
+
+test("DH9 A REFUSED PUBLISH TURN FAILS AT ONCE AND IS NOT RE-RUN — with the wall refusing the turn's key, as deploy 2215's gateway did: each part ends at once as our own refusal ('turn-refused'), never waited out to the budget and never run again as an overlap loss; nothing live or in the draft moves", async () => {
+  const { P, db, compiler, ns } = firedBakery("turn-refused");
+  try {
+    const worker = await loadWorkerModule();
+    const first = await sendFired(P, ns, worker, TIKTOK);
+    assert.equal(first.jobs[0].state, "done", JSON.stringify(first.jobs[0].result).slice(0, 300));
+    const v0 = liveVersion(P);
+    const price0 = price(db, 2);
+    Object.assign(P.env, { DRAFT_FIRST: "on", PARALLEL_WRITES: "on", PUBLISH_TURN_POLL_MS: "5" });
+    wire.refuse = /^publish-turn\//;
+    const t0 = Date.now();
+    const both = await sendFired(P, ns, worker, TIKTOK_LATER + " " + RYE_PART);
+    wire.refuse = null;
+    const refusedTurn = wire.refused.filter((x) => /^publish-turn\//.test(x.key));
+    assert.ok(refusedTurn.length > 0, "the turn was never refused — this case tests nothing");
+    wire.refused.splice(0, wire.refused.length, ...wire.refused.filter((x) => !/^publish-turn\//.test(x.key)));
+    const parts = P.record(both.r.key).parts;
+    const edits = both.jobs.filter((j) => j.op === "edit");
+    assert.equal(edits.length, parts.length, "a part was run again for a refused turn: " + JSON.stringify(edits.map((j) => j.idem_key)));
+    for (const j of edits) {
+      const b = JSON.parse(j.result.body);
+      // THE PART THAT HOLDS THE TURN from its start ends 'turn-refused'; one
+      // that meets it at its first read stops there. Either way: our side,
+      // nothing changed, and never "another change" or "recovery may have".
+      assert.ok(b.error === "turn-refused" || /Nothing was changed/.test(String(b.msg || "")), j.idem_key + ": " + JSON.stringify(b).slice(0, 300));
+      assert.doesNotMatch(String(b.msg || ""), /another change|may already have updated/i, "a refused turn told wrongly: " + b.msg);
+    }
+    assert.ok(Date.now() - t0 < 60_000, "the refusal was waited out");
+    assert.equal(draftOf(P), null, "a draft was saved without the turn");
+    assert.equal(liveVersion(P), v0, "the live pointer moved");
+    assert.equal(price(db, 2), price0, "the live price moved");
+  } finally { wire.refuse = null; await finished(P, compiler); }
 });

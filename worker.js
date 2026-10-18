@@ -101,7 +101,7 @@ import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
-import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness } from "./site-draft.mjs";
+import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
@@ -8898,6 +8898,24 @@ const siteOwnerBySlug = memoize(_ownerCache, async (slug, env) => {
   } catch { return null; }
 });
 
+/**
+ * IS THIS NAME A SITE? true, false, or null when we could not ask (2026-10-18,
+ * audit A03-1/S1-1). `siteOwnerBySlug` answers null for "nobody" and for "the
+ * lookup failed" alike, and in a container job — whose gateway refused the
+ * owner read — every name read as free. This asks for the name alone, which
+ * the gateway admits for any name, and never caches.
+ */
+async function siteNameTaken(env, slug) {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=slug&limit=1`,
+      { headers: svcHeaders(env), signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return null;
+    const rows = await r.json().catch(() => null);
+    if (!Array.isArray(rows)) return null;
+    return rows.length > 0;
+  } catch { return null; }
+}
+
 // The same lookup, keeping the OWNER. Everything that writes needs this: a
 // connection string alone cannot answer "is this site mine?". Throws rather
 // than returning null when the lookup itself fails, so a caller cannot mistake
@@ -9276,14 +9294,23 @@ const MAX_SLUG_TRIES = 25;
  */
 async function freeSlugFor(env, wanted, uid) {
   const base = String(wanted || "").replace(/-\d+$/, "") || String(wanted || "");
+  // ASKED IN WHAT A CONTAINER JOB MAY READ (2026-10-18, audit A01-1/A08-3/
+  // S1-3): whether the account holds `wanted` through its own rows, and each
+  // candidate through the existence read. The full row of another account's
+  // name was refused there, so this answered `wanted` on every first build
+  // and a fresh chat quietly revised the account's earlier site.
   try {
-    const held = await siteBackendRowFresh(env, wanted);
-    if (!held || !held.uid || held.uid !== uid) return wanted;
+    const own = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?uid=eq.${encodeURIComponent(uid)}&slug=eq.${encodeURIComponent(wanted)}&select=slug&limit=1`,
+      { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });
+    if (!own.ok) throw Object.assign(new Error("own name lookup failed"), { detail: String(own.status) });
+    const mine = await own.json();
+    if (!Array.isArray(mine) || !mine.length) return wanted;
     for (let n = 2; n <= MAX_SLUG_TRIES; n++) {
       const candidate = base + "-" + n;
       if (candidate === wanted) continue;
-      const row = await siteBackendRowFresh(env, candidate);
-      if (!row) return candidate;
+      const taken = await siteNameTaken(env, candidate);
+      if (taken === false) return candidate;
+      if (taken === null) throw Object.assign(new Error("name lookup failed"), { detail: candidate });
     }
   } catch (e) {
     console.error("free slug lookup failed:", wanted, e && (e.detail || e.message));
@@ -13126,7 +13153,11 @@ async function runPublication(env, slug, j, etag) {
 /** Is the address `name` taken by anyone but this site? "" when free, else why not. */
 async function addressTaken(env, slug, name) {
   if (!siteHostFor(name)) return "cannot be used";
-  if (name !== slug && await siteOwnerBySlug(name, env)) return "is taken";
+  if (name !== slug) {
+    const taken = await siteNameTaken(env, name);
+    if (taken === null) return "could not be checked";
+    if (taken) return "is taken";
+  }
   const row = await aliasRowFor(env, name);
   if (row === null) return "could not be checked";
   if (row && row !== NO_ALIAS && row.slug !== slug) return "is taken";
@@ -14190,7 +14221,7 @@ async function runScriptPendingSweep(env, { now = Date.now(), maxSites = 25 } = 
  */
 /** Draft-first's own pieces, for the tests that drive them directly (`test/draft-first.test.mjs`). */
 export const draftFirstApi = { backendWriter, draftView, sealHeld, publishDraft, runPublication, runPublishRecovery, siteIsLive, heldDeleteOr, previewVersion, runPreviewRecovery, draftFacts };
-export const siteTurn = { tryTurn, giveTurn, renewTurn, turnStillMine, mayWriteConfig, patchSiteConfig, ensureEditableState, jobFence, fencedPut, fencedBuildDeps, stampFences, alignLiveScript, putSiteWorker, runScriptPendingSweep };
+export const siteTurn = { tryTurn, takeTurn, giveTurn, renewTurn, turnStillMine, mayWriteConfig, patchSiteConfig, ensureEditableState, jobFence, fencedPut, fencedBuildDeps, stampFences, alignLiveScript, putSiteWorker, runScriptPendingSweep };
 /** Renew a held turn (on the job's heartbeat): false when it is no longer this job's. */
 async function renewTurn(env, slug, t) {
   try {
@@ -14219,7 +14250,14 @@ async function takeTurn(env, slug, job) {
   for (;;) {
     let t = null;
     try { t = await tryTurn(env, slug, owner, job.id); }
-    catch (e) { console.error("publish turn: unreadable for", slug, errorClassForLog(e)); }
+    catch (e) {
+      console.error("publish turn: unreadable for", slug, errorClassForLog(e));
+      // A REFUSED TURN IS NEVER WAITED OUT (2026-10-18, audit A03-3/A37-2):
+      // the store said no to this job, and asking again every few seconds
+      // until the budget ends only hides the cause — deploy 2215's jobs
+      // waited 30 minutes this way and were then re-run.
+      if (e && e.name === "GatewayError" && e.code === "forbidden") { bs.refused = true; return null; }
+    }
     if (t) { bs.turn = t; bs.waits = (bs.waits || 0); return t; }
     bs.waits = (bs.waits || 0) + 1;
     if (typeof job.cancelled === "function" && job.cancelled()) return null;
@@ -15036,6 +15074,10 @@ function compileMsg(pub, theirs, landed = false, kept = false) {
   // ITS TURN TO PUBLISH, LOST OR NEVER GOT (2026-10-15): another change of
   // the same request held the site's turn — the same kind of refusal as a
   // lost lease, and the same advice; never the restarting sentence.
+  // REFUSED BY THE STORE (2026-10-18): our fault, never "another change".
+  if (pub.error === "turn-refused") {
+    return said("Something went wrong on our side while publishing, " + (landed ? none : "so nothing was published") + ". Try again in a moment.");
+  }
   if (pub.error === "turn-lost" || pub.error === "turn") {
     return said("That didn't go through — another change in the same request was being published at the same time, " + (landed ? none : "so nothing was published") + ". Send it again.");
   }
@@ -15297,6 +15339,8 @@ async function publishBeside(env, opts) {
   const mine = !bs.turn;
   const t = await takeTurn(env, slug, job);
   if (!t && bs.lost) return { ok: false, error: "turn-lost", ours: true, detail: "another change in this request took the turn to publish — nothing of this change was published" };
+  // NOT AN OVERLAP, so never run again for one (`OVERLAP_LOSSES`).
+  if (!t && bs.refused) return { ok: false, error: "turn-refused", ours: true, detail: "this change could not reach the site's publish turn — nothing was changed" };
   if (!t) return { ok: false, error: "turn", ours: true, detail: "another change in this request is still being published, and this one ran out of time waiting — nothing was changed" };
   tm("publish:turn", "ok", { waits: bs.waits || 0, held: !mine });
   try {
@@ -22959,7 +23003,9 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
         heldSt = await ensureEditableState(env, job.slug, { turnOwner: jctx.beside.turn.owner, fence: jobFence(env, jctx) });
         if (heldSt && heldSt.why === "turn-lost") loseTurn(jctx, job.slug, "found at the editable-state check");
       }
-      if (jctx.beside && jctx.beside.holds && (!jctx.beside.turn || !heldSt || heldSt.ok !== true)) {
+      if (jctx.beside && jctx.beside.holds && jctx.beside.refused) {
+        res = Response.json({ ok: false, error: "turn-refused", ours: true, cost: 0, unchanged: true, msg: "Something went wrong on our side before this change could start. Nothing was changed." }, { status: 503 });
+      } else if (jctx.beside && jctx.beside.holds && (!jctx.beside.turn || !heldSt || heldSt.ok !== true)) {
         res = Response.json({ ok: false, error: "turn", ours: true, cost: 0, unchanged: true, msg: heldSt && !jctx.beside.lost ? "Couldn't check the site's saved state before this change. Nothing was changed." : "Another change in this request is still being published, and this one ran out of time waiting. Nothing was changed." }, { status: 503 });
       } else {
         res = await handleRequest(req, env, ctx);
@@ -29298,7 +29344,8 @@ async function handleRequest(request, env, ctx) {
           // AFTER the switch therefore means the site is up, and comparing the
           // two is what keeps the answer honest without a write from any of the
           // paths that republish — most of which now run inside the site's
-          // container, where the job gateway admits no PATCH at all.
+          // container, where the job gateway admits one PATCH only (the blank
+          // database name, 2026-10-18), never this column.
           //
           // THREE ANSWERS, and `null` is one of them: the build read is
           // enrichment and may fail, and without it a stamped switch cannot be
@@ -32074,7 +32121,11 @@ async function handleRequest(request, env, ctx) {
               : await loadSiteSourceForEdit(env, ownerSlug, { checked: true });
             if (eSource.ok) await noteBase(env, ownerSlug, eJob, eSource.pages);
             if (!eSource.ok) return explain("route/no-source-unreadable", undefined,
-              eSource.why === "editable-state" ? { unchanged: false, msg: "I couldn't recover the editable state of your site, so I've stopped this change. Recovery may already have updated stored state." } : undefined);
+              // A CHECK THAT STOPPED BEFORE ITS FIRST WRITE (the turn could not
+              // be taken, 2026-10-18, audit S1-2) changed nothing, and says so.
+              eSource.why === "editable-state" && eSource.recovery && eSource.recovery.why === "turn"
+                ? { unchanged: true, msg: "I couldn't check your site's saved state just now, so I've stopped this change. Nothing was changed." }
+                : eSource.why === "editable-state" ? { unchanged: false, msg: "I couldn't recover the editable state of your site, so I've stopped this change. Recovery may already have updated stored state." } : undefined);
             let eSrc = eSource.pages;
             eReplyOut.pages = eRoutes;
             // THE JOB'S PROGRESS OPENS (2026-10-06): this run's record, with the
@@ -34169,13 +34220,13 @@ async function handleRequest(request, env, ctx) {
               // the alias row for it, written when the site left, carries this
               // site's own slug, which the alias check below already reads as
               // no conflict. Only the site check needed telling.
-              const takenBySite = wanted === ownerSlug ? null : await siteOwnerBySlug(wanted, env);
+              const takenBySite = wanted === ownerSlug ? false : await siteNameTaken(env, wanted);
               const takenByAlias = await aliasRowFor(env, wanted);
               const aliasConflict = takenByAlias && takenByAlias !== NO_ALIAS && takenByAlias.slug !== ownerSlug;
-              // A LOOKUP WE COULD NOT MAKE IS NOT A FREE NAME. `aliasRowFor`
-              // answers null when it could not ask, and handing out a name on
+              // A LOOKUP WE COULD NOT MAKE IS NOT A FREE NAME. Both lookups
+              // answer null when they could not ask, and handing out a name on
               // that basis is how two sites end up sharing an address.
-              if (takenBySite || aliasConflict || takenByAlias === null) {
+              if (takenBySite !== false || aliasConflict || takenByAlias === null) {
                 return Response.json({ ok: false, layer: "rename", cost: await eCharge(rUsage),
                   msg: aliasRefusal(wanted, { taken: true }) }, { status: 422 });
               }
@@ -34555,8 +34606,11 @@ async function handleRequest(request, env, ctx) {
                   const mine = ownPart ? await partPurchases(env, ownPart) : new Set();
                   // PICTURES ONLY (2026-10-14): a video, a recording or a
                   // document is never offered as a picture to place.
+                  // NEVER A VISITOR'S UPLOAD (2026-10-18, audit A03-2): a
+                  // stranger's file sent through the site's form is not the
+                  // owner's photograph, and was offered as one to place.
                   return (await siteUploadList(env, ownerSlug))
-                    .filter((o) => o && uploadIsImage(uploadFileName(o.key)))
+                    .filter((o) => o && !o.visitor && uploadIsImage(uploadFileName(o.key)))
                     .map((o) => ({ name: uploadFileName(o.key), url: uploadUrl(ownerSlug, uploadFileName(o.key)), purchase: o.purchase }))
                     // A PICTURE THIS PART'S PREPARATION BOUGHT is not yet the
                     // owner's library (2026-10-08): it is placed by this job.
@@ -36023,9 +36077,9 @@ async function handleRequest(request, env, ctx) {
               //    for it too, and changing that is a different decision.
               //    NOTHING IS WRITTEN HERE: this rung needs the connection for one
               //    message and no more. Recording the reference is not its job —
-              //    and from inside the container it may be nobody's, since
-              //    `healSiteBackendDb` is a PATCH and the job gateway admits no
-              //    PATCH for any table (read, not driven).
+              //    the provision that made the database records it
+              //    (`healSiteBackendDb`, admitted by the job gateway since
+              //    2026-10-18, audit A04-2/A09-1).
               let eDb = await siteBackendBySlug(env, ownerSlug);
               let eResolved = false;
               if (!eDb) {
@@ -43728,7 +43782,19 @@ async function handleRequest(request, env, ctx) {
             if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
             const lb = await request.json().catch(() => ({}));
             const liveDeps = {
-              versions: async ({ slug }) => mergeVersions(await listVersions(versionDeps(env), { slug }), await listBuilds(buildDeps(env), slug)),
+              // NEVER AN UNPUBLISHED DRAFT (2026-10-18, audit A11-1/A38-1):
+              // under draft-first the newest staged build is usually the
+              // owner's unapproved draft, and "back online" put it live with
+              // none of its held changes. Its versions are left out; a draft
+              // record that cannot be read leaves out every staged build, so
+              // the recompile's own refusal answers rather than a guess.
+              versions: async ({ slug }) => {
+                const all = mergeVersions(await listVersions(versionDeps(env), { slug }), await listBuilds(buildDeps(env), slug));
+                if (!draftFirst(env)) return all;
+                const { draft } = await readDraft(buildDeps(env), slug);
+                const hold = unpublishedVersions(draft);
+                return all.filter((v) => v && !hold.has(v.id));
+              },
               // The stored page source — the second, independent way back. Read
               // as a COUNT rather than kept, so a large site does not pull its
               // whole source into memory to answer a yes/no question.

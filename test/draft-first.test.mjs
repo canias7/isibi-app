@@ -1275,3 +1275,50 @@ test("DFB11 EVERY BACKEND WRITE A TASK MAKES GOES THROUGH ITS WRITER — in work
   assert.match(src, /held: bWriter\.hold && !bWriter\.hold\.empty \? bWriter\.hold : null,/);
   assert.match(src, /attachmentIds = null, media = null, held = null \}\) \{/);
 });
+
+// ── AUDIT A11-1 / A38-1 (2026-10-18): Back online never activates the draft ──
+
+test("DFO1 BACK ONLINE PUTS BACK THE PUBLISHED VERSION, NEVER THE DRAFT — published once, then (draft-first) a page line saved as an unpublished draft revision; taken offline and put back online through the route: the live pointer is the published version again, the draft's version never goes live, and the draft stays unpublished", async () => {
+  const { P, compiler } = bakery("dfo1");
+  try {
+    await runOne(P, TIKTOK);
+    const v0 = liveVersion(P);
+    assert.ok(v0, "nothing was published — nothing here tests a live site");
+    P.env.DRAFT_FIRST = "on";
+    await runOne(P, TIKTOK_LATER);
+    const d = draftOf(P);
+    assert.ok(d && d.version && d.version !== v0, "no draft version was saved beside the live one");
+    const off = await call(P, "POST", "/api/site/" + P.slug + "/offline", { on: true });
+    assert.equal(off.status, 200, JSON.stringify(off.body));
+    assert.equal(off.body.ok, true, JSON.stringify(off.body));
+    const on = await call(P, "POST", "/api/site/" + P.slug + "/offline", { on: false });
+    assert.equal(on.body.ok, true, "the site did not come back: " + JSON.stringify(on.body));
+    assert.notEqual(liveVersion(P), d.version, "Back online put the unpublished draft live");
+    assert.equal(liveVersion(P), v0, "Back online did not put back the published version");
+    assert.equal(draftOf(P).version, d.version, "the draft itself was lost");
+  } finally { await finish(P, compiler); }
+});
+
+// ── AUDIT BATCH 1's survivors R1 / R4 (2026-10-18) ───────────────────────────
+
+test("DFR-L A NAME LOOKUP THAT FAILS IS NEVER A FREE NAME — the rename refuses with nothing written (R1); a held rename whose name cannot be checked at Publish does not move the live address (R4)", async () => {
+  const aliases = [];
+  const { P, compiler } = bakery("dfrl", { aliases });
+  let failing = true;
+  P.failRest((url) => failing && url.includes("site_backends") && url.includes("slug=eq.fold-street-bakery&select=slug"));
+  try {
+    await runOne(P, TIKTOK);
+    P.env.DRAFT_FIRST = "on";
+    const r1 = await runOne(P, RENAME("fold-street-bakery"));
+    assert.notEqual(r1.body && r1.body.renamedInDraft, "fold-street-bakery", "a rename went through on a lookup that failed: " + JSON.stringify(r1.body).slice(0, 300));
+    assert.deepEqual(aliases, []);
+    // R4: held while the lookup works, then Publish while it fails.
+    failing = false;
+    const r2 = await runOne(P, RENAME("fold-street-bakery"));
+    assert.equal(r2.body.renamedInDraft, "fold-street-bakery", JSON.stringify(r2.body).slice(0, 300));
+    failing = true;
+    const st = await call(P, "GET", "/api/site/" + P.slug + "/draft");
+    await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: st.body.revision, version: st.body.draft });
+    assert.notEqual(currentAlias(aliases), "fold-street-bakery", "Publish moved the live address onto a name it could not check: " + JSON.stringify(aliases));
+  } finally { await finish(P, compiler); }
+});

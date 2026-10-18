@@ -28,7 +28,10 @@ here; take a closed one out of both.**
 - **The builder audit's fix order** (2026-10-18,
   `docs/audits/2026-10-17-builder-audit.md`): 7 critical, 71 high and 166
   medium findings kept after checking, in numbered batches. Each finding is
-  open until its batch ships; the report is the full list.
+  open until its batch ships; the report is the full list. **The first ten
+  (A03-1, A04-2, A05-1, A09-1, A11-1, A38-1, S1-1, A01-1, A01-2, A03-2) are
+  fixed on the branch** (2026-10-18, `docs/history/2026-10-18-audit-batch-1.md`),
+  not deployed.
 
 - **Unpublished held changes read one journal at a time** (2026-10-16;
   **closed in the same batch**, `docs/history/2026-10-16-codex-batch-12.md`

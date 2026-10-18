@@ -85,7 +85,7 @@ export function r2Conditional(cond, cur) {
   return ifMatch && ifNoneMatch && ifModifiedSince && ifUnmodifiedSince;
 }
 
-export function platform({ slug, balance = 50, founder = false, answers = {}, owner = USER.id, replies = false, replyWith = null, pages = PAGES, db = null, progress = false, talk = false, progressWith = null, tasksWith = null, provisions = false, images = false, imageWith = null, usageFor = null, beside = false, liveScripts = false, aliases = null } = {}) {
+export function platform({ slug, balance = 50, founder = false, answers = {}, owner = USER.id, replies = false, replyWith = null, pages = PAGES, db = null, progress = false, talk = false, progressWith = null, tasksWith = null, provisions = false, images = false, imageWith = null, usageFor = null, beside = false, liveScripts = false, aliases = null, sites = [] } = {}) {
   let clock = 0;
   const now = () => Date.now() + clock;
   // ── R2 ────────────────────────────────────────────────────────────────────
@@ -246,6 +246,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   };
   const beforeDeletes = [];
   const rpcFaults = [];
+  const restFaults = [];
   let sendHangs = 0;
   const replyLog = [];
   // EVERY PROGRESS CALL'S FACTS, as the writer was shown them (2026-10-06).
@@ -565,6 +566,9 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     const method = String((init && init.method) || (input && input.method) || "GET").toUpperCase();
     let args = {};
     try { args = JSON.parse(String((init && init.body) || "{}")); } catch { args = {}; }
+    // A TABLE READ THAT FAILS (`failRest`, 2026-10-18): Supabase answering 503
+    // to every request `match(url, method)` accepts, for as long as it does.
+    if (url.includes("/rest/v1/") && restFaults.some((m) => m(url, method))) return new Response("unavailable", { status: 503 });
     if (images && url.startsWith("https://fal.run/")) {
       const entry = { prompt: String(args.prompt || ""), at: now() };
       imageLog.push(entry);
@@ -705,7 +709,12 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     // WITH AN ADDRESS STORE, ANOTHER SLUG IS NOBODY'S SITE — so a rename to a
     // fresh name is free, as on the platform. Without one, every slug answers
     // as before.
-    if (url.includes("/rest/v1/site_backends") && Array.isArray(aliases) && !url.includes("slug=eq." + encodeURIComponent(slug))) return resp([]);
+    // `sites` (2026-10-18): names other sites already hold, answered with the
+    // name alone, as the existence read asks.
+    if (url.includes("/rest/v1/site_backends") && Array.isArray(aliases) && !url.includes("slug=eq." + encodeURIComponent(slug))) {
+      const other = sites.find((s) => url.includes("slug=eq." + encodeURIComponent(s) + "&") || url.endsWith("slug=eq." + encodeURIComponent(s)));
+      return resp(other ? [{ slug: other }] : []);
+    }
     if (url.includes("/rest/v1/site_backends")) return resp([{ uid: owner, brief: "", neon_db: "" }]);
     if (url.includes("/rest/v1/site_project")) return resp(db ? [{ uid: owner, neon_project: "proj-1", neon_branch: "br-1", neon_role: "owner", neon_conn: DB_CONN }] : []);
     // THE SITE'S ADDRESSES (2026-10-15, draft-first's held renames): with
@@ -925,6 +934,8 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     beforeDelete(match, then) { beforeDeletes.push({ match, then }); },
     /** The next call to `fn` (or the first whose `when(args)` holds) is refused before it lands. */
     failRpc(fn, when) { rpcFaults.push({ fn, when }); },
+    /** Every Supabase table request `match(url, method)` accepts answers 503 while it does. */
+    failRest(match) { restFaults.push(match); },
     /** The next queue send lands and its sender never hears. */
     hangSend() { sendHangs++; resetHung(); },
     /** Clear a crash: the next deliveries run normally. */

@@ -48,6 +48,9 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   (`docs/deploy-record.md`, the checklist). **The builder audit**
   (`docs/audits/2026-10-17-builder-audit.md`, offline, nothing spent): 7
   critical, 71 high, 166 medium kept after checking, with a fix order.
+  **Its first ten are fixed on the branch** (`docs/history/2026-10-18-audit-batch-1.md`;
+  sweep 20/20; full suite 11,451 tests, all green after one spelling guard
+  updated), not merged or deployed.
 - **2026-10-16: `main` is `c7c3ca44` (deploy 2214, consolidation; deployed,
   not runtime-confirmed).** The working branch **`codex-work-into-claude`**
   (from `c7c3ca44`, for Codex's review; not merged or deployed) finishes

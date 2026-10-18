@@ -1,0 +1,171 @@
+[
+ {
+  "label": "CONTROL: a comment only — must survive",
+  "control": true,
+  "files": [
+   "builder/job-gateway.mjs"
+  ],
+  "from": "  if (rule.own && (m === \"GET\" || m === \"HEAD\") && ownRead(who, params, rule.own)) return { ok: true, body: undefined };",
+  "to": "  // comment-only control\n  if (rule.own && (m === \"GET\" || m === \"HEAD\") && ownRead(who, params, rule.own)) return { ok: true, body: undefined };"
+ },
+ {
+  "label": "R1 the rename reads a failed lookup as free",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              if (takenBySite !== false || aliasConflict || takenByAlias === null) {",
+  "to": "              if (takenBySite === true || aliasConflict || takenByAlias === null) {"
+ },
+ {
+  "label": "R2 the existence read is not admitted",
+  "files": [
+   "builder/job-gateway.mjs"
+  ],
+  "from": "  if (rule.exists && (m === \"GET\" || m === \"HEAD\") && existenceRead(params, rule.exists)) return { ok: true, body: undefined };",
+  "to": ""
+ },
+ {
+  "label": "R3 the existence read admits any column",
+  "files": [
+   "builder/job-gateway.mjs"
+  ],
+  "from": "  if (params.get(\"select\") !== col) return false;",
+  "to": ""
+ },
+ {
+  "label": "R4 Publish's address check reads a failed lookup as free",
+  "files": [
+   "worker.js"
+  ],
+  "from": "    if (taken === null) return \"could not be checked\";",
+  "to": ""
+ },
+ {
+  "label": "D1 the database-name PATCH is refused",
+  "files": [
+   "builder/job-gateway.mjs"
+  ],
+  "from": "    PATCH: { filter: { slug: \"slug\", uid: \"uid\" }, unset: { or: \"(neon_db.is.null,neon_db.eq.)\" }, set: { neon_db: /^[a-z0-9_]{1,63}$/ } },",
+  "to": ""
+ },
+ {
+  "label": "D2 the PATCH may overwrite a set name",
+  "files": [
+   "builder/job-gateway.mjs"
+  ],
+  "from": "    for (const [k, v] of Object.entries(rule.unset || {})) if (params.get(k) !== v) return { ok: false, why: \"query:\" + k };",
+  "to": ""
+ },
+ {
+  "label": "D3 the PATCH may write any column",
+  "files": [
+   "builder/job-gateway.mjs"
+  ],
+  "from": "      if (!re || typeof pb[k] !== \"string\" || !re.test(pb[k])) return { ok: false, why: \"set:\" + k };",
+  "to": ""
+ },
+ {
+  "label": "T1 a refused turn is waited out again",
+  "files": [
+   "worker.js"
+  ],
+  "from": "      if (e && e.name === \"GatewayError\" && e.code === \"forbidden\") { bs.refused = true; return null; }",
+  "to": ""
+ },
+ {
+  "label": "T2 a check stopped before writing says recovery may have written",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              eSource.why === \"editable-state\" && eSource.recovery && eSource.recovery.why === \"turn\"",
+  "to": "              false"
+ },
+ {
+  "label": "B1 Back online offers the draft's versions",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                return all.filter((v) => v && !hold.has(v.id));",
+  "to": "                return all;"
+ },
+ {
+  "label": "B2 the draft's own version is not held back",
+  "files": [
+   "site-draft.mjs"
+  ],
+  "from": "  if (isDraftVersion(draft.version) && !pub.has(draft.version)) out.add(draft.version);",
+  "to": ""
+ },
+ {
+  "label": "B3 unpublished revisions are not held back",
+  "files": [
+   "site-draft.mjs"
+  ],
+  "from": "  for (const r of draft.revs) if (r.n > applied && !pub.has(r.version)) out.add(r.version);",
+  "to": ""
+ },
+ {
+  "label": "F1 the own-account read is not admitted",
+  "files": [
+   "builder/job-gateway.mjs"
+  ],
+  "from": "  if (rule.own && (m === \"GET\" || m === \"HEAD\") && ownRead(who, params, rule.own)) return { ok: true, body: undefined };",
+  "to": ""
+ },
+ {
+  "label": "F2 the own-account read is not bound to the token's uid",
+  "files": [
+   "builder/job-gateway.mjs"
+  ],
+  "from": "  if (params.get(\"uid\") !== \"eq.\" + who.uid) return false;",
+  "to": ""
+ },
+ {
+  "label": "F3 the free-name walk treats a failed lookup as free",
+  "files": [
+   "worker.js"
+  ],
+  "from": "      if (taken === false) return candidate;",
+  "to": "      if (taken !== true) return candidate;"
+ },
+ {
+  "label": "M1 the account's drafts are refused to a read",
+  "files": [
+   "builder/job-gateway.mjs"
+  ],
+  "from": " && !readableJobKey(who.slug, key, pre) && !ownAccountKey(who, key, \"read\")) return refuse(key);",
+  "to": " && !readableJobKey(who.slug, key, pre)) return refuse(key);"
+ },
+ {
+  "label": "M2 another account's drafts are readable",
+  "files": [
+   "builder/job-gateway.mjs"
+  ],
+  "from": "  const drafts = \"drafts/\" + who.uid + \"/\";",
+  "to": "  const drafts = \"drafts/\";"
+ },
+ {
+  "label": "M3 a job may write a draft",
+  "files": [
+   "builder/job-gateway.mjs"
+  ],
+  "from": "    if (op === \"write\") return false;",
+  "to": ""
+ },
+ {
+  "label": "M4 a pre-scoped job reaches a ledger",
+  "files": [
+   "builder/job-gateway.mjs"
+  ],
+  "from": "  if (who.pre !== true && SLUG_RE.test(String(who.slug || \"\")) && k === \"media-ledger/site-\" + who.slug + \".json\")",
+  "to": "  if (SLUG_RE.test(String(who.slug || \"\")) && k === \"media-ledger/site-\" + who.slug + \".json\")"
+ },
+ {
+  "label": "P1 the picture step offers visitor uploads",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                    .filter((o) => o && !o.visitor && uploadIsImage(uploadFileName(o.key)))",
+  "to": "                    .filter((o) => o && uploadIsImage(uploadFileName(o.key)))"
+ }
+]

@@ -194,7 +194,7 @@ test("THE CHAIN — resolution sits before the rewrite, and a rename republishes
   // another site", because the storage slug IS a site — this one). The site
   // check is skipped for the site's own slug; test/site-public-url.test.mjs
   // drives the way back and reads the rows and the head.
-  assert.match(w, /wanted === ownerSlug \? null : await siteOwnerBySlug\(wanted, env\)/,
+  assert.match(w, /wanted === ownerSlug \? false : await siteNameTaken\(env, wanted\)/,
     "the site check does not exempt the site's own storage name, so a rename cannot be undone");
 
   // hop 4: THE HEAD FOLLOWS THE ADDRESS WITHOUT A COMPILE. The canonical link

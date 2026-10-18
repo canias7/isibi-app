@@ -55,16 +55,26 @@ function loadFree(held) {
   const tries = /const MAX_SLUG_TRIES = (\d+);/.exec(WORKER);
   assert.ok(tries, "MAX_SLUG_TRIES moved — rescope this guard");
   const reads = [];
-  const fn = new Function("siteBackendRowFresh", "console", "reads", [
+  // THE LOOKUPS IT MAKES SINCE 2026-10-18 (audit A01-1): the account's own
+  // row for `wanted` through `fetch`, and each candidate through
+  // `siteNameTaken` — both answered from `held`, every slug asked recorded.
+  const json = (v) => new Response(JSON.stringify(v), { status: 200, headers: { "content-type": "application/json" } });
+  const fn = new Function("fetch", "svcHeaders", "SUPABASE_URL", "siteNameTaken", "AbortSignal", "console", "reads", [
     "const MAX_SLUG_TRIES = " + tries[1] + ";",
     fnSource(WORKER, "freeSlugFor"),
     "return freeSlugFor;",
-  ].join("\n"))(async (env, slug) => {
+  ].join("\n"))(async (url) => {
+    const u = new URL(String(url));
+    const slug = (u.searchParams.get("slug") || "").replace(/^eq\./, "");
+    const uid = (u.searchParams.get("uid") || "").replace(/^eq\./, "");
     reads.push(slug);
-    const uid = held[slug];
-    if (uid === "throw") throw new Error("lookup failed");
-    return uid ? { conn: null, uid, brief: "" } : null;
-  }, { error: () => {} }, reads);
+    if (held[slug] === "throw") throw new Error("lookup failed");
+    return json(held[slug] && held[slug] === uid ? [{ slug }] : []);
+  }, () => ({}), "https://sb.example", async (env, slug) => {
+    reads.push(slug);
+    if (held[slug] === "throw") return null;
+    return !!held[slug];
+  }, AbortSignal, { error: () => {} }, reads);
   return { freeSlugFor: fn, reads, max: Number(tries[1]) };
 }
 
