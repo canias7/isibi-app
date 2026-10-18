@@ -1,0 +1,18 @@
+[
+ {"label": "CONTROL: a comment only — must survive", "control": true, "files": ["site-schema.mjs"],
+  "from": "  let prevRead = await readSiteSchema(uuid);\n", "to": "  // control\n  let prevRead = await readSiteSchema(uuid);\n"},
+ {"label": "S1 the apply's unreadable read is ignored", "files": ["site-schema.mjs"],
+  "from": "  if (!prevRead.ok) throw Object.assign(", "to": "  if (false) throw Object.assign("},
+ {"label": "S2 the apply does not retry", "files": ["site-schema.mjs"],
+  "from": "  if (!prevRead.ok) prevRead = await readSiteSchema(uuid);\n", "to": ""},
+ {"label": "S3 the stop is not temporary", "files": ["site-schema.mjs"],
+  "from": "{ code: \"meta-unreadable\", transient: true });\n  const prevStored", "to": "{ code: \"meta-unreadable\" });\n  const prevStored"},
+ {"label": "S4 a missing _meta table reads as unreadable", "files": ["site-schema.mjs"],
+  "from": "    if (e && (e.code === \"42P01\" || /relation", "to": "    if (false && (e.code === \"42P01\" || /relation"},
+ {"label": "W1 newTablesOf swallows an unreadable read", "files": ["worker.js"],
+  "from": "  if (!r.ok) throw Object.assign(new Error(\"stored schema unreadable (\" + r.why + \")\")", "to": "  if (false) throw Object.assign(new Error(\"stored schema unreadable (\" + r.why + \")\")"},
+ {"label": "W2 the start phase retires and answers 502", "files": ["worker.js"],
+  "from": "          if (e && e.code === \"meta-unreadable\") {", "to": "          if (false) {"},
+ {"label": "W3 the stop answers 409", "files": ["worker.js"],
+  "from": "return { ok: false, status: 503, live: \"unchanged\", stage: \"start\"", "to": "return { ok: false, status: 409, live: \"unchanged\", stage: \"start\""}
+]

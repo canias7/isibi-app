@@ -922,6 +922,19 @@ async function pgTrigger(db, name, { timing, event, table, when, body, returns }
 // a single batch via `extraTaken`). Diacritics are folded; empty → "item".
 
 export async function applySiteSchema(uuid, spec) {
+  // AN UNREADABLE STORE IS NEVER AN EMPTY ONE (2026-10-18, audit A09-4). This
+  // was `loadSiteSchema` inside a try/catch that could never fire: that door
+  // answers `{tables: []}` for a read that THREW, so a cold compute read as an
+  // empty store, the merge below was skipped and the `_meta` write replaced the
+  // stored tables, functions, connections and jobs with this run's partial
+  // list. One short retry (a sleeping database usually answers the second
+  // time), then a temporary `meta-unreadable` stop — FIRST, before any DDL (the
+  // identity functions and grants included) and before `_meta` is written.
+  // "no-row" stays ok with no tables: a new site's answer.
+  let prevRead = await readSiteSchema(uuid);
+  if (!prevRead.ok) prevRead = await readSiteSchema(uuid);
+  if (!prevRead.ok) throw Object.assign(new Error("stored schema unreadable (" + prevRead.why + ")"), { code: "meta-unreadable", transient: true });
+  const prevStored = prevRead.spec;
   // The identity function every policy below is written against. Created once per
   // apply, before any policy references it, and `OR REPLACE` so a revise updates
   // the body rather than failing. Non-fatal: a site whose policies could not be
@@ -995,8 +1008,7 @@ export async function applySiteSchema(uuid, spec) {
   // copies would override that computation. Scalars and feature declarations
   // only; the late merge still owns the columns union and the mergedTables
   // assembly, reusing this same read.
-  let prevStored = null;
-  try { prevStored = await loadSiteSchema(uuid); } catch { prevStored = null; }
+  // (The stored schema was read at the top of this function: see A09-4 there.)
   const prevByName = new Map(((prevStored && Array.isArray(prevStored.tables)) ? prevStored.tables : [])
     .filter((x) => x && x.name).map((x) => [String(x.name).toLowerCase(), x]));
   for (const t of tables) {
@@ -1900,8 +1912,8 @@ export async function applySiteSchema(uuid, spec) {
   // API while its rows sit untouched in Postgres. That was unreachable while an
   // empty spec was refused at the route; a look-only revise ("make the
   // background yellow") now reaches here with zero tables, and the merge above
-  // hands back the stored ones — EXCEPT when its read throws, where `mergedTables`
-  // is still that empty list and this would publish it.
+  // hands back the stored ones. (A read that throws can no longer reach here:
+  // since 2026-10-18 it stops the apply as `meta-unreadable` before any DDL.)
   //
   // Skipped rather than written, because with nothing declared and nothing
   // merged there is genuinely nothing to record: the write could only destroy.
@@ -2002,6 +2014,11 @@ export async function readSiteSchema(uuid) {
     const rows = await sqlQuery(uuid, "SELECT v FROM _meta WHERE k='schema'");
     if (rows[0] && rows[0].v) return { ok: true, spec: _schemaCache.set(uuid, JSON.parse(rows[0].v)), why: "stored" };
   } catch (e) {
+    // NO `_meta` TABLE YET (2026-10-18): a brand-new database, before its first
+    // apply creates it. That is an answer — nothing stored — not a failure,
+    // and the apply now stops on a failed read, so a first build must not.
+    // The SQLSTATE or Postgres's own words, as the Worker's other readers ask.
+    if (e && (e.code === "42P01" || /relation "?_meta"? does not exist/i.test(String(e.message || "")))) return { ok: true, spec: { tables: [] }, why: "no-meta" };
     // NAMED, NOT SWALLOWED. The message can quote the connection string it was
     // handed, so it goes through the one scrubber before it is kept.
     return { ok: false, spec: { tables: [] }, why: "meta-unreadable", detail: scrubSecrets(String((e && e.message) || e)).slice(0, 200) };

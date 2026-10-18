@@ -1322,3 +1322,75 @@ test("DFR-L A NAME LOOKUP THAT FAILS IS NEVER A FREE NAME — the rename refuses
     assert.notEqual(currentAlias(aliases), "fold-street-bakery", "Publish moved the live address onto a name it could not check: " + JSON.stringify(aliases));
   } finally { await finish(P, compiler); }
 });
+
+// ── A09-7: AN UNREADABLE LIVE SCHEMA AT PUBLISH IS NOT "EVERY TABLE IS NEW" ──
+// (2026-10-18.) `newTablesOf` read the live schema through the tolerant door
+// with `.catch(() => null)`, so a failed `_meta` read made every held table
+// count as fresh, and the start phase applied the whole held spec — held access
+// and rules changes included — to the live database before the switch. Now the
+// read that can say "unreadable" stops the start phase: nothing applied, a
+// temporary answer, the journal left open for the next click or the sweep.
+test("DFA7 A PUBLISH WHOSE LIVE SCHEMA CANNOT BE READ CHANGES NOTHING — no DDL, no switch, a retryable 'your database didn't answer' stop; a later Publish with the database answering goes through", async () => {
+  const { invalidateSiteSchema } = await import("../site-schema.mjs");
+  const slug = slugOf("dfa7");
+  const GALLERY_T = { name: "gallery", columns: [{ name: "title", type: "text" }], read: "public", write: "none" };
+  const site = previewSite(slug, [{ kind: "schema", spec: { tables: [{ ...LOAVES, write: "public" }, GALLERY_T] } }]);
+  const sent = [];
+  let down = true;
+  const inner = site.fetchStub;
+  site.fetchStub = async (input, init) => {
+    const url = String((input && input.url) || input || "");
+    if (/neon\.tech\/sql|\/sql$/.test(url) && !url.startsWith(DATA_API)) {
+      let q = "";
+      try { q = String(JSON.parse(String((init && init.body) || "{}")).query || ""); } catch { q = ""; }
+      if (down && /SELECT v FROM _meta WHERE k='schema'/i.test(q)) return new Response("upstream timed out", { status: 500 });
+      sent.push(q);
+    }
+    return inner(input, init);
+  };
+  invalidateSiteSchema("postgres://u:p@ep-draft.neon.tech/neondb");
+  const shown = await hitWith(site, "gofarther.dev", "/api/site/" + slug + "/draft", { auth: true });
+  assert.equal(shown.json.state, "saved", shown.text.slice(0, 200));
+  const pub = await hitWith(site, "gofarther.dev", "/api/site/" + slug + "/publish", { method: "POST", auth: true, body: { revision: shown.json.revision, version: shown.json.draft } });
+  assert.equal(pub.status, 503, pub.text.slice(0, 300));
+  assert.match(String(pub.json && pub.json.error), /database didn't answer/i, pub.text.slice(0, 300));
+  assert.deepEqual(sent.filter((q) => /\b(CREATE|ALTER|GRANT|POLICY)\b|INSERT INTO _meta/i.test(q)), [], "the held schema reached the live database");
+  assert.equal(JSON.parse(bare(site.store.store.get("current/" + slug + ".json"))).version, V0, "the pointer moved");
+  assert.equal(JSON.parse(bare(site.store.store.get(DRAFT_KEY(slug)))).applied, 0, "the revision was counted as published");
+  // THE DATABASE ANSWERS AGAIN: the same Publish goes through.
+  down = false;
+  invalidateSiteSchema("postgres://u:p@ep-draft.neon.tech/neondb");
+  const again = await hitWith(site, "gofarther.dev", "/api/site/" + slug + "/publish", { method: "POST", auth: true, body: { revision: shown.json.revision, version: shown.json.draft } });
+  assert.equal(again.status, 200, again.text.slice(0, 300));
+  assert.ok(sent.some((q) => /CREATE TABLE IF NOT EXISTS gallery|CREATE TABLE IF NOT EXISTS "gallery"/i.test(q)), "the new table was not made once the database answered");
+});
+
+test("DFA7b ONLY THE PUBLISH'S OWN READ FAILS (twice) — the held `loaves` rules change is not taken for a new table and applied: the start phase stops before the apply runs at all", async () => {
+  const { invalidateSiteSchema } = await import("../site-schema.mjs");
+  const slug = slugOf("dfa7");
+  const GALLERY_T = { name: "gallery", columns: [{ name: "title", type: "text" }], read: "public", write: "none" };
+  const site = previewSite(slug, [{ kind: "schema", spec: { tables: [{ ...LOAVES, write: "public" }, GALLERY_T] } }]);
+  const sent = [];
+  let down = 2; // exactly newTablesOf's read and its one retry
+  const inner = site.fetchStub;
+  site.fetchStub = async (input, init) => {
+    const url = String((input && input.url) || input || "");
+    if (/neon\.tech\/sql|\/sql$/.test(url) && !url.startsWith(DATA_API)) {
+      let q = "";
+      try { q = String(JSON.parse(String((init && init.body) || "{}")).query || ""); } catch { q = ""; }
+      if (down > 0 && /SELECT v FROM _meta WHERE k='schema'/i.test(q) && down--) return new Response("upstream timed out", { status: 500 });
+      sent.push(q);
+    }
+    return inner(input, init);
+  };
+  invalidateSiteSchema("postgres://u:p@ep-draft.neon.tech/neondb");
+  const shown = await hitWith(site, "gofarther.dev", "/api/site/" + slug + "/draft", { auth: true });
+  assert.equal(shown.json.state, "saved", shown.text.slice(0, 200));
+  const pub = await hitWith(site, "gofarther.dev", "/api/site/" + slug + "/publish", { method: "POST", auth: true, body: { revision: shown.json.revision, version: shown.json.draft } });
+  assert.equal(pub.status, 503, pub.text.slice(0, 300));
+  assert.match(String(pub.json && pub.json.error), /database didn't answer/i, pub.text.slice(0, 300));
+  assert.deepEqual(sent.filter((q) => /\b(CREATE|ALTER|GRANT|POLICY)\b|INSERT INTO _meta/i.test(q)), [], "the held schema reached the live database");
+  assert.equal(JSON.parse(bare(site.store.store.get("current/" + slug + ".json"))).version, V0, "the pointer moved");
+  assert.equal(JSON.parse(bare(site.store.store.get(DRAFT_KEY(slug)))).applied, 0, "the revision was counted as published");
+  assert.equal(down, 0, "the publish did not read the live schema twice");
+});

@@ -1,5 +1,9 @@
 # Owner Notes
 
+## 2026-10-18 — A database that doesn't answer no longer wipes the site's stored setup (branch only; nothing merged, deployed or spent)
+
+Audit step 5 (A09-4, A09-7). Before this, when a site's database was slow to wake up, the builder sometimes took "no answer" to mean "this site has no tables". It could then write that down, and the site's other tables, connections and scheduled jobs would stop working. At Publish, it could also push every unpublished database change live before switching. Now it asks a second time, and if there is still no answer it stops before changing anything. Publish says "your database didn't answer — nothing was changed on your live site; press Publish again". A brand-new database with nothing in it yet still works as before. Record: `docs/history/2026-10-18-audit-batch-2.md`, step 5.
+
 ## 2026-10-18 — The two open points after batch 1 are closed (branch only; nothing merged, deployed or spent)
 
 - **A job's write to its site's media ledger is now checked against the stored record.** Before, a job could write any conditional record with a `held` object. Now the gateway reads the stored ledger first. The write must be the next revision. Every reservation that is still live must stay exactly as it was. The only thing a job may add is a short "moving a pre-site file" hold: one file, a size, at most ten minutes. It may also drop such holds and expired ones. Anything else is refused with 403, and the ledger does not move. The Worker's real hold and release still pass through it (test JGD-L).

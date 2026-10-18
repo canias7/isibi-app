@@ -162,3 +162,70 @@ test("a stored list that names one column twice does not restore it twice", asyn
   assert.deepEqual(names(t).sort(), ["phone", "slot", "who"],
     "a duplicate in the STORED list was carried into the new one: " + JSON.stringify(t.columns));
 });
+
+// ── AN UNREADABLE STORE IS NEVER AN EMPTY ONE (2026-10-18, audit A09-4) ──────
+//
+// The apply read `_meta.schema` through the tolerant door, which answers
+// `{tables: []}` for a read that THREW as well as for a site with no row. A
+// cold compute or one transient HTTP error therefore looked like an empty
+// store: the merge was skipped and the `_meta` write replaced the stored
+// tables, functions, connections and jobs with this run's partial list. The
+// apply now asks the reader that can say "unreadable", retries once, and stops
+// with `meta-unreadable` before any DDL and before `_meta` is written.
+async function applyUnreadable(spec, { failReads = Infinity, noMeta = false } = {}) {
+  const { invalidateSiteSchema } = await import("../site-schema.mjs");
+  const conn = "postgresql://u:p@ep-unreadable-" + Math.random().toString(16).slice(2, 8) + ".eu-central-1.aws.neon.tech/db?sslmode=require";
+  invalidateSiteSchema(conn);
+  const statements = [];
+  let written = null, reads = 0;
+  const prev = { tables: [{ name: "loaves", access: "display", columns: ["name"] }, { name: "bookings", access: "user", columns: ["who"] }],
+    functions: [{ name: "count_bookings", args: "", returns: "int" }], apis: [{ name: "weather", url: "https://example.com" }], jobs: [{ name: "nightly", fn: "count_bookings", cron: "0 3 * * *" }] };
+  const real = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    let q = "", params = [];
+    try { const b = JSON.parse(String((init && init.body) || "{}")); q = b.query || ""; params = b.params || []; } catch { /* not ours */ }
+    if (/SELECT v FROM _meta WHERE k='schema'/i.test(q)) {
+      reads++;
+      if (noMeta) return new Response(JSON.stringify({ message: "relation \"_meta\" does not exist", code: "42P01", severity: "ERROR" }), { status: 400, headers: { "content-type": "application/json" } });
+      if (reads <= failReads) return new Response("upstream timed out", { status: 500 });
+      return new Response(JSON.stringify({ command: "SELECT", rowCount: 1, rows: [[JSON.stringify(prev)]], fields: [{ name: "v", dataTypeID: 25 }] }),
+        { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (q) statements.push(String(q));
+    if (/INSERT INTO _meta/i.test(q) && /'schema'/.test(q)) { try { written = JSON.parse(params[0]); } catch { written = null; } }
+    return new Response(JSON.stringify({ command: "SELECT", rowCount: 0, rows: [], fields: [] }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  let error = null;
+  try { await applySiteSchema(conn, spec); } catch (e) { error = e; } finally { globalThis.fetch = real; }
+  return { error, statements, written, reads };
+}
+const GALLERY = { tables: [{ name: "gallery", access: "display", columns: [{ name: "title", type: "text" }] }] };
+
+test("A09-4 a _meta read that fails twice stops the apply: meta-unreadable, no DDL, no _meta write", async () => {
+  const r = await applyUnreadable(GALLERY);
+  assert.ok(r.error, "the apply resolved over an unreadable store and wrote " + JSON.stringify(r.written));
+  assert.equal(r.error.code, "meta-unreadable");
+  assert.equal(r.error.transient, true);
+  assert.equal(r.reads, 2, "the read was not retried exactly once");
+  assert.equal(r.written, null, "the stored schema was replaced");
+  assert.deepEqual(r.statements.filter((q) => /\b(CREATE|ALTER|GRANT|POLICY|INSERT INTO _meta)\b/i.test(q)), [], "DDL ran before the store was read");
+});
+
+test("A09-4 CONTROL: one failed read then a good one — the retry reads the store and the merge keeps what was stored", async () => {
+  const r = await applyUnreadable(GALLERY, { failReads: 1 });
+  assert.equal(r.error, null, String(r.error && r.error.message));
+  assert.equal(r.reads, 2);
+  assert.ok(r.statements.length > 20, "the engine sent almost nothing: " + r.statements.length);
+  assert.ok(r.written, "nothing written to _meta");
+  assert.deepEqual(r.written.tables.map((t) => t.name).sort(), ["bookings", "gallery", "loaves"]);
+  assert.deepEqual((r.written.apis || []).map((a) => a.name), ["weather"]);
+  assert.deepEqual((r.written.jobs || []).map((a) => a.name), ["nightly"]);
+});
+
+test("A09-4 CONTROL: a brand-new database with no _meta table is an empty store, not an unreadable one — the first apply runs and writes", async () => {
+  const r = await applyUnreadable(GALLERY, { noMeta: true });
+  assert.equal(r.error, null, String(r.error && r.error.message));
+  assert.equal(r.reads, 1, "a missing table was retried as though it were a failure");
+  assert.ok(r.statements.length > 20, "the engine sent almost nothing: " + r.statements.length);
+  assert.deepEqual(r.written && r.written.tables.map((t) => t.name), ["gallery"]);
+});

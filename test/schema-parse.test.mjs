@@ -212,8 +212,11 @@ test("the fill runs BEFORE the DDL and the policies, and the merge reuses its re
   assert.ok(fill < pol, "the fill runs after the policies are emitted — the delta decides the policy again");
   // ONE read of the stored schema, shared by the fill and the late merge — two
   // reads of one schema are two chances to disagree about what is stored.
-  const loads = [...body.matchAll(/await loadSiteSchema\(uuid\)/g)];
-  assert.equal(loads.length, 1, "the fill and the merge read the schema separately");
+  // (2026-10-18, A09-4: the read is `readSiteSchema` — the door that can say
+  // "unreadable" — with one retry, and the tolerant door is not used here.)
+  assert.equal([...body.matchAll(/await loadSiteSchema\(uuid\)/g)].length, 0, "the apply reads the tolerant door again");
+  assert.equal([...body.matchAll(/prevRead = await readSiteSchema\(uuid\)/g)].length, 2, "the read and its one retry are not both there");
+  assert.match(body, /const prevStored = prevRead\.spec;/, "the fill no longer reads the checked read");
   assert.match(body, /const prev = prevStored;/, "the late merge no longer reuses the fill's read");
 });
 

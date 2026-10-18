@@ -139,7 +139,7 @@ import { drainRebuild, BATCH as REBUILD_BATCH, BUSY_DEFER_SEC as REBUILD_BUSY_SE
 // The litter under `jobs/` (stage 9): what the unhappy paths leave behind.
 import { sweepJobObjects } from "./builder/job-retention.mjs";
 import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite, projectNameForSite, findSiteProjects, siteProjectDetails } from "./site-db.mjs";
-import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields, auditTier, withJobDeps, storedJobFns } from "./site-schema.mjs";
+import { applySiteSchema, loadSiteSchema, readSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields, auditTier, withJobDeps, storedJobFns } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, partsSent, priorPagesSent, pageId, sceneOn, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
@@ -12714,8 +12714,17 @@ async function siteDbFor(env, slug) {
   return back.conn || null;
 }
 /** The tables the plan's schema declares that the live database does not have (by its stored schema). */
+//
+// AN UNREADABLE LIVE SCHEMA IS NEVER AN EMPTY ONE (2026-10-18, audit A09-7).
+// This read used the tolerant door with `.catch(() => null)`, so a failed
+// `_meta` read made EVERY held table count as new and the start phase applied
+// the whole held spec (held access and rules changes too) to the live
+// database. One short retry, then a temporary `meta-unreadable` throw.
 async function newTablesOf(db, spec) {
-  const live = await loadSiteSchema(db).catch(() => null);
+  let r = await readSiteSchema(db);
+  if (!r.ok) r = await readSiteSchema(db);
+  if (!r.ok) throw Object.assign(new Error("stored schema unreadable (" + r.why + ")"), { code: "meta-unreadable", transient: true });
+  const live = r.spec;
   const have = new Set(((live && live.tables) || []).map((t) => String((t && t.name) || "").toLowerCase()));
   return ((spec && spec.tables) || []).filter((t) => t && t.name && !have.has(String(t.name).toLowerCase()));
 }
@@ -12997,7 +13006,17 @@ async function runPublication(env, slug, j, etag) {
               if (Object.keys(only).length) await live.seedSiteRows(db, normalizeSchema({ tables: fresh }), only);
             }
           }
-        } catch (e) { return before("the new tables could not be made (" + errorClassForLog(e) + ")", 502); }
+        } catch (e) {
+          // THE DATABASE DID NOT ANSWER (2026-10-18, A09-4/A09-7): nothing was
+          // applied (both reads stop before any DDL), so the journal is kept
+          // at `start` for the next click or the sweep — not retired as a
+          // permanent failure.
+          if (e && e.code === "meta-unreadable") {
+            try { await save({ running: false, error: "start: the database did not answer", attempts: (j.attempts || 0) + 1 }); } catch { /* another runner has it, or the store is down */ }
+            return { ok: false, status: 503, live: "unchanged", stage: "start", error: "your database didn't answer — nothing was changed on your live site; press Publish again" };
+          }
+          return before("the new tables could not be made (" + errorClassForLog(e) + ")", 502);
+        }
       }
       await save({ phase: "prepared" });
     }
