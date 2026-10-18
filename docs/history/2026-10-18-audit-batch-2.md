@@ -34,3 +34,11 @@ Audit fixes 11–20 from `docs/audits/2026-10-17-builder-audit.md`, one commit e
 - **Red check.** Both AB2-3 cases fail on the code before the change.
 - **Sweep.** `scripts/mutants/audit-batch-2-3.json`: 7 of 7 killed, the comment-only control survived.
 - **Full suite.** `11463 / 11461 / 0 / 2`.
+
+## Step 4 (2026-10-18): the revise Build holds the merged spec, or nothing (A06-3 writer)
+
+- **Finding**: a revise of a published site under draft-first held whatever spec its designer returned, `{tables:[]}` when it declared none, so the held op named fewer tables than the draft had.
+- **Fix**: `reviseHeldSpec(overlay, spec)` in `site-draft.mjs` (`mergeSpec(overlay, spec)`, `null` when no table, function or api is declared, the spec as given when no overlay is readable); the revise in `worker.js` reads the live schema plus the held ops when holding and applies nothing when the answer is `null`.
+- **Red check**: AB4 in `test/site-draft.test.mjs` fails with the product files stashed (1 of 1 fails).
+- **Sweep**: `scripts/mutants/audit-batch-2-4.json`, 7 of 7 killed, the control survived.
+- **Suite**: `11464 / 11462 / 0 / 2`. Two spelling guards updated (`test/frontend-build.test.mjs`, `test/site-access-revise.test.mjs`): the apply is now `applySiteSchema(db, schemaSpec)`, and the guard checks it starts from the guarded `spec`.

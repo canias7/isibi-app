@@ -230,3 +230,40 @@ test("A28-3: a negative id with no ref, or an unknown or removed starter ref, is
   assert.equal(publishPlan([{ kind: "row", table: "services", op: "update", id: 3, values: {} }]).ok, true);
   assert.equal(combineHeld({}, [{ kind: "row", table: "services", op: "update", id: 3, values: {} }]).ok, true);
 });
+
+// AUDIT BATCH 2, STEP 4 (2026-10-18, A06-3 writer): a revise Build of a
+// published site holds the merged spec, or nothing when it declares nothing.
+import { reviseHeldSpec } from "../site-draft.mjs";
+import { readFileSync as readSrcAB4 } from "node:fs";
+test("AB4 THE REVISE BUILD HOLDS mergeSpec(overlay, spec), OR NOTHING WHEN IT DECLARES NOTHING (A06-3 writer)", () => {
+  const live = { tables: [{ name: "loaves", columns: [{ name: "price" }] }], functions: [{ name: "daily_summary" }] };
+  const overlay = specOverlay(live, [{ kind: "schema", spec: { tables: [{ name: "gallery" }] } }]);
+  // NOTHING DECLARED: nothing held.
+  assert.equal(reviseHeldSpec(overlay, { tables: [] }), null);
+  assert.equal(reviseHeldSpec(overlay, {}), null);
+  assert.equal(reviseHeldSpec(overlay, { tables: [], functions: [], apis: [] }), null);
+  // A DECLARED TABLE: held over the overlay, every earlier name kept.
+  const held = reviseHeldSpec(overlay, { tables: [{ name: "Orders" }] });
+  assert.deepEqual(held.tables.map((t) => t.name), ["loaves", "gallery", "Orders"]);
+  assert.deepEqual(held.functions.map((f) => f.name), ["daily_summary"]);
+  // A REDEFINITION WINS (control).
+  const redef = reviseHeldSpec(overlay, { tables: [{ name: "LOAVES", columns: [] }] });
+  assert.deepEqual(redef.tables.find((t) => /loaves/i.test(t.name)).columns, []);
+  // A FUNCTION ALONE COUNTS AS DECLARED.
+  assert.ok(reviseHeldSpec(overlay, { functions: [{ name: "f" }] }));
+  // NO OVERLAY READABLE: the build's own spec, as given.
+  assert.deepEqual(reviseHeldSpec(null, { tables: [{ name: "x" }] }), { tables: [{ name: "x" }] });
+  // "rye £5" after an empty revise: the next task still finds loaves.
+  const h = reviseHeldSpec(overlay, { tables: [] });
+  const next = specOverlay(live, h ? [{ kind: "schema", spec: h }] : []);
+  assert.ok(next.tables.some((t) => t.name === "loaves"));
+  // WIRED: the revise's schema call goes through reviseHeldSpec when holding.
+  const src = readSrcAB4(new URL("../worker.js", import.meta.url), "utf8");
+  const a = src.indexOf("const bWriter = await backendWriter(env, slug);");
+  const b = src.indexOf('tr.at("schema"', a);
+  assert.ok(a > 0 && b > a, "landmarks missing");
+  const seg = src.slice(a, b);
+  assert.match(seg, /bWriter\.holding/);
+  assert.match(seg, /reviseHeldSpec\(/);
+  assert.match(seg, /if \(schemaSpec\) made = await applySiteSchema\(db, schemaSpec\)/);
+});

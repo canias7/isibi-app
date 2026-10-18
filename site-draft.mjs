@@ -855,6 +855,18 @@ export function mergeSpec(base, next) {
 }
 
 /**
+ * WHAT A REVISE BUILD HOLDS (2026-10-18, A06-3 writer): its own spec merged
+ * by name over the draft's overlay, so the held op never names fewer tables
+ * than the draft has; `null` when it declares no table, function or api,
+ * because there is nothing to apply. No overlay readable: its spec as given.
+ */
+export function reviseHeldSpec(overlay, spec) {
+  const s = spec && typeof spec === "object" ? spec : {};
+  if (!["tables", "functions", "apis"].some((k) => Array.isArray(s[k]) && s[k].length)) return null;
+  return overlay && typeof overlay === "object" ? mergeSpec(overlay, s) : s;
+}
+
+/**
  * STARTER ROWS HAVE REFS (2026-10-18, A28-3): each row of a held seed op is
  * `seed:<table>:<n>:<place>` (n: the how-manyth held seed op for that table,
  * place: the row's index in it), so a later held update or removal of a

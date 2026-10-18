@@ -1,0 +1,18 @@
+[
+ {"label": "CONTROL: a comment only — must survive", "control": true, "files": ["site-draft.mjs"],
+  "from": "export function reviseHeldSpec(overlay, spec) {", "to": "// control\nexport function reviseHeldSpec(overlay, spec) {"},
+ {"label": "R1 an empty revise is held", "files": ["site-draft.mjs"],
+  "from": "s[k].length)) return null;", "to": "s[k])) return null;"},
+ {"label": "R2 functions do not count as declared", "files": ["site-draft.mjs"],
+  "from": "if (![\"tables\", \"functions\", \"apis\"].some(", "to": "if (![\"tables\", \"apis\"].some("},
+ {"label": "R3 the overlay is ignored", "files": ["site-draft.mjs"],
+  "from": "? mergeSpec(overlay, s) : s;", "to": "? s : s;"},
+ {"label": "R4 the overlay wins over the build", "files": ["site-draft.mjs"],
+  "from": "? mergeSpec(overlay, s) : s;", "to": "? mergeSpec(s, overlay) : s;"},
+ {"label": "R5 no overlay holds nothing", "files": ["site-draft.mjs"],
+  "from": "? mergeSpec(overlay, s) : s;", "to": "? mergeSpec(overlay, s) : null;"},
+ {"label": "W1 the revise holds its spec raw", "files": ["worker.js"],
+  "from": "          schemaSpec = reviseHeldSpec(overlay, spec);", "to": "          schemaSpec = spec;"},
+ {"label": "W2 the empty skip is dropped", "files": ["worker.js"],
+  "from": "if (db) { if (schemaSpec) made = await applySiteSchema(db, schemaSpec); }", "to": "if (db) { made = await applySiteSchema(db, spec); }"}
+]

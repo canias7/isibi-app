@@ -532,7 +532,7 @@ test("everything downstream asks whether there IS a database, not whether one wa
   // answers with a sentence about `[object Object]` and reads as a schema-engine
   // failure — the misread this repo has recorded three times.
   for (const [call, why] of [
-    [/if \(db\) made = await applySiteSchema\(db, spec\)/, "the schema apply is not gated on the connection"],
+    [/if \(db\) \{ if \(schemaSpec\) made = await applySiteSchema\(db, schemaSpec\)/, "the schema apply is not gated on the connection"],
     [/if \(db\) seeded = await seedSiteRows\(db, /, "seeding is not gated on the connection"],
   ]) assert.match(src, call, why);
   // THE MERGED-SCHEMA READ, RE-ANCHORED 2026-09-25: it is the catalog-aware one

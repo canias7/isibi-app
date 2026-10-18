@@ -204,7 +204,10 @@ const blanked = worker.split("\n").map((l) => (l.trim().startsWith("//") ? " ".r
 test("the build/revise route guards the spec it applies", () => {
   const call = blanked.indexOf("keepStoredAccess(spec,");
   assert.ok(call > 0, "the route does not call keepStoredAccess at all");
-  const apply = blanked.indexOf("applySiteSchema(db, spec)");
+  // AUDIT BATCH 2 STEP 4 (2026-10-18): the revise applies `schemaSpec`, which
+  // starts as the guarded `spec` (merged over the draft when held).
+  const apply = blanked.indexOf("applySiteSchema(db, schemaSpec)");
+  assert.match(blanked.slice(call, apply), /let schemaSpec = spec;/, "the applied spec does not start from the guarded one");
   assert.ok(apply > 0, "could not find the build route's apply");
   assert.ok(call < apply, "the guard must run before the schema is applied");
 
