@@ -521,6 +521,34 @@ export function ownBuildMarker(who, key) {
   return k === root + ".json" || k === root + ".done.json";
 }
 
+// A JOB'S LEDGER WRITE (2026-10-18): the revision is the stored one plus one;
+// every entry still live in the stored record is kept exactly; any entry the
+// write adds or changes is an `adopt` hold — a size, one file, at most ten
+// minutes (and a minute's slack) ahead, nothing else. Expired entries may go,
+// and so may stored `adopt` holds (the release).
+const ADOPT_MS = 11 * 60 * 1000;
+const sameEntry = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const adoptEntry = (h, now) => !!h && typeof h === "object" && !Array.isArray(h)
+  && Object.keys(h).sort().join() === "adopt,expires,files,size"
+  && h.adopt === true && h.files === 1 && Number.isSafeInteger(h.size) && h.size >= 0
+  && Number.isFinite(h.expires) && h.expires <= now + ADOPT_MS;
+export function ledgerWriteAllowed(stored, next, now) {
+  const before = stored && typeof stored === "object" && stored.held && typeof stored.held === "object" && !Array.isArray(stored.held) ? stored.held : {};
+  const rev = stored && Number.isSafeInteger(stored.rev) && stored.rev > 0 ? stored.rev : 0;
+  if (!next || next.v !== 2 || next.rev !== rev + 1 || typeof next.w !== "string") return false;
+  const after = next.held;
+  for (const [id, h] of Object.entries(before)) {
+    const live = h && typeof h === "object" && Number(h.expires) > now;
+    if (!live || h.adopt === true) continue;
+    if (!Object.hasOwn(after, id) || !sameEntry(after[id], h)) return false;
+  }
+  for (const [id, h] of Object.entries(after)) {
+    if (Object.hasOwn(before, id) && sameEntry(before[id], h)) continue;
+    if (!adoptEntry(h, now)) return false;
+  }
+  return true;
+}
+
 /**
  * THE ACCOUNT'S OWN PRE-SITE FILES AND ITS SITE'S MEDIA LEDGER (2026-10-18,
  * audit A01-2/A08-2/A10-1/S1-4): video and audio a customer attached before
@@ -941,6 +969,13 @@ export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scop
           let led = null;
           try { led = JSON.parse(new TextDecoder().decode(body)); } catch { led = null; }
           if (!led || typeof led !== "object" || Array.isArray(led) || !led.held || typeof led.held !== "object" || Array.isArray(led.held)) return json(400, { error: "ledger" });
+          // …AND ONLY AS A HOLD OR RELEASE OF ITS OWN KIND, against the
+          // record as stored (2026-10-18, audit batch 1's open point): a job
+          // may add or drop a short `adopt` entry, never touch another live
+          // reservation, so it cannot free the room an upload is using.
+          let stored = null;
+          try { const got = await bucket.get(key); stored = got ? JSON.parse(await got.text()) : null; } catch { return json(503, { error: "ledger unread" }); }
+          if (!ledgerWriteAllowed(stored, led, Date.now())) return json(403, { error: "ledger change" });
         }
       }
       let put;

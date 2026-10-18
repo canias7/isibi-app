@@ -14260,7 +14260,11 @@ async function takeTurn(env, slug, job) {
       // the store said no to this job, and asking again every few seconds
       // until the budget ends only hides the cause — deploy 2215's jobs
       // waited 30 minutes this way and were then re-run.
-      if (e && e.name === "GatewayError" && e.code === "forbidden") { bs.refused = true; return null; }
+      // ONLY A 403 IS A REFUSAL. A 401 is this job's own token no longer
+      // valid (expired at the budget's end, or the key rotated): not the
+      // store's answer about the turn, so it is waited like any unread turn
+      // and ends with the budget, reported as running out of time.
+      if (e && e.name === "GatewayError" && e.status === 403) { bs.refused = true; return null; }
     }
     if (t) { bs.turn = t; bs.waits = (bs.waits || 0); return t; }
     bs.waits = (bs.waits || 0) + 1;

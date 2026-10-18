@@ -296,7 +296,7 @@ test("JGD-M A FIRST BUILD READS AND MOVES THE ACCOUNT'S OWN PRE-SITE FILES, THRO
   await assert.rejects(() => pre.bucket.get("media-ledger/site-" + SLUG + ".json"), /403/, "a pre-scoped job read a ledger");
   // ONCE NAMED: the move.
   const gw = await gatewayBucketFor({ bucket: b, id: ID, slug: SLUG, uid: UID });
-  await gw.bucket.put("media-ledger/site-" + SLUG + ".json", JSON.stringify({ v: 2, held: {} }), { onlyIf: { etagDoesNotMatch: "*" } });
+  await gw.bucket.put("media-ledger/site-" + SLUG + ".json", JSON.stringify({ v: 2, rev: 1, w: "first", held: {} }), { onlyIf: { etagDoesNotMatch: "*" } });
   // THE LEDGER IS WRITTEN ONLY CONDITIONALLY AND WITH ITS RECORD (review of batch 1).
   await assert.rejects(() => gw.bucket.put("media-ledger/site-" + SLUG + ".json", "{}"), /428/, "an unconditional ledger write was taken");
   await assert.rejects(() => gw.bucket.put("media-ledger/site-" + SLUG + ".json", "{}", { onlyIf: { etagDoesNotMatch: "*" } }), /400/, "a ledger with no record of holds was taken");
@@ -431,4 +431,62 @@ test("JGD5 A FIRST BUILD IN ITS CONTAINER, SUPABASE THROUGH THE GATEWAY'S OWN DO
   assert.deepEqual(claims, [fresh], "the build did not move to the next free name — it would have revised the account's other site: " + JSON.stringify({ claims, answer: String(b.store.get(resultKey(id))).slice(0, 300) }));
   assert.ok(b.store.get(DRAFT_KEY(fresh)), "the build saved no draft under its fresh name");
   assert.equal(b.store.get(DRAFT_KEY(held)), undefined, "the build wrote over the account's other site's draft");
+});
+
+import { holdMedia, releaseMedia } from "../site-media.mjs";
+import { ledgerWriteAllowed } from "../builder/job-gateway.mjs";
+test("JGD-L A JOB'S LEDGER WRITE IS ONLY ITS OWN HOLD OR RELEASE — the Worker's real holdMedia and releaseMedia pass through the gateway; a write that frees an upload's live room, rewinds the revision, or adds a reservation of another kind is refused 403 and the stored ledger is unchanged", async () => {
+  const b = r2();
+  const LKEY = "media-ledger/site-" + SLUG + ".json";
+  const now = Date.now();
+  // AN UPLOAD THE OWNER HAS OPEN: its room is live.
+  const upload = { sid: "s1", size: 500, files: 1, expires: now + 3_600_000, key: "uploads/" + SLUG + "/a.mp4" };
+  await b.put(LKEY, JSON.stringify({ v: 2, rev: 4, w: "owner", held: { s1: upload } }));
+  const gw = await gatewayBucketFor({ bucket: b, id: ID, slug: SLUG, uid: "u-gw-2" });
+  let n = 0;
+  const deps = {
+    now: () => Date.now(), random: () => "r" + (++n).toString().padStart(31, "0"),
+    used: async () => ({ files: 0, bytes: 0 }),
+    readLedger: async () => {
+      const got = await gw.bucket.get(LKEY);
+      if (!got) return { held: {}, etag: null };
+      const j = JSON.parse(await got.text());
+      return { held: j.held, rev: j.rev, etag: got.etag || got.httpEtag || null };
+    },
+    writeLedger: async (sc, { held, rev, w }, etag) => !!(await gw.bucket.put(LKEY, JSON.stringify({ v: 2, rev, w, held }), { onlyIf: etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" } })),
+    dropSession: async () => {}, dropParts: async () => {},
+  };
+  const limits = { siteFiles: 10, draftFiles: 10, siteBytes: 1e9 };
+  // THE REAL PRODUCER'S HOLD AND RELEASE, as adoptDraftMedia makes them.
+  const held = await holdMedia(deps, { scope: "site-" + SLUG, limits, id: "adopt1", entry: { size: 11, files: 1, expires: Date.now() + 10 * 60 * 1000, adopt: true } });
+  assert.deepEqual(held, { ok: true }, JSON.stringify(held));
+  let led = JSON.parse(b.text(LKEY));
+  assert.deepEqual(Object.keys(led.held).sort(), ["adopt1", "s1"]);
+  assert.equal(led.rev, 5);
+  const rel = await releaseMedia(deps, "site-" + SLUG, "adopt1");
+  assert.deepEqual(rel, { ok: true });
+  led = JSON.parse(b.text(LKEY));
+  assert.deepEqual(led.held, { s1: upload }, "the upload's room was not kept exactly");
+  assert.deepEqual(gw.refused, [], "the wall refused the real hold or release: " + JSON.stringify(gw.refused));
+  // WHAT A JOB MAY NOT WRITE — each over the right etag, each refused.
+  const etag = (await gw.bucket.get(LKEY)).etag;
+  const before = b.text(LKEY);
+  const bad = {
+    "frees the upload's room": { v: 2, rev: 7, w: "x", held: {} },
+    "shrinks the upload's room": { v: 2, rev: 7, w: "x", held: { s1: { ...upload, size: 1 } } },
+    "swaps the upload's room for a small hold": { v: 2, rev: 7, w: "x", held: { s1: { size: 1, files: 1, expires: now + 60_000, adopt: true } } },
+    "rewinds the revision": { v: 2, rev: 6, w: "x", held: { s1: upload } },
+    "adds an upload-kind reservation": { v: 2, rev: 7, w: "x", held: { s1: upload, z: { size: 1, files: 1, expires: now + 60_000, key: "k", sid: "z" } } },
+    "adds a long hold": { v: 2, rev: 7, w: "x", held: { s1: upload, z: { size: 1, files: 1, expires: now + 3_600_000, adopt: true } } },
+    "adds a negative size": { v: 2, rev: 7, w: "x", held: { s1: upload, z: { size: -1e9, files: 1, expires: now + 60_000, adopt: true } } },
+  };
+  for (const [why, body] of Object.entries(bad)) {
+    await assert.rejects(() => gw.bucket.put(LKEY, JSON.stringify(body), { onlyIf: { etagMatches: etag } }), /403/, "a write that " + why + " was taken");
+    assert.equal(b.text(LKEY), before, "the ledger moved on a write that " + why);
+  }
+  // EXPIRED ROOM MAY GO (changeLedger drops it).
+  assert.equal(ledgerWriteAllowed({ rev: 1, held: { s: { ...upload, expires: now - 1 } } }, { v: 2, rev: 2, w: "x", held: {} }, now), true);
+  // A FIRST WRITE: revision 1.
+  assert.equal(ledgerWriteAllowed(null, { v: 2, rev: 1, w: "x", held: {} }, now), true);
+  assert.equal(ledgerWriteAllowed(null, { v: 2, rev: 9, w: "x", held: {} }, now), false);
 });

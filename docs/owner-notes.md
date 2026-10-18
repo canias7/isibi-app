@@ -1,5 +1,11 @@
 # Owner Notes
 
+## 2026-10-18 — The two open points after batch 1 are closed (branch only; nothing merged, deployed or spent)
+
+- **A job's write to its site's media ledger is now checked against the stored record.** Before, a job could write any conditional record with a `held` object. Now the gateway reads the stored ledger first. The write must be the next revision. Every reservation that is still live must stay exactly as it was. The only thing a job may add is a short "moving a pre-site file" hold: one file, a size, at most ten minutes. It may also drop such holds and expired ones. Anything else is refused with 403, and the ledger does not move. The Worker's real hold and release still pass through it (test JGD-L).
+- **An expired or rotated job token (401) no longer counts as "the store refused".** Only a 403 ends the part at once. A 401 waits like any unread turn and ends with the budget. It is reported as running out of time, not as "nothing could reach the turn" (test T1b).
+- Red checks: JGD-L fails on the old gateway and T1b fails on the old worker. Sweep `scripts/mutants/audit-batch-1c.json`: 10 of 10 killed, and the control survived. One case was added after L3 first survived. Full suite `11456 / 11454 / 0 / 2` locally.
+
 ## 2026-10-18 — #8 and #9 finished, and all ten double-checked (branch only; nothing merged, deployed or spent)
 
 **On your word** ("the thing in 8 and 9 and then double check").

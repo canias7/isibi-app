@@ -30,3 +30,14 @@ door. DH7 and DH8 use it; the other fired tests are unchanged.
 
 Recorded after the runs: see the owner-notes entry of 2026-10-18 for the
 sweep, the full suite and CI.
+
+## The two open points, closed (2026-10-18)
+
+- **The ledger write.** `ledgerWriteAllowed` in `builder/job-gateway.mjs` checks the write against the stored record:
+  - the revision must be the stored one plus one;
+  - every stored entry that is still live and is not `adopt` must be kept exactly;
+  - every entry added or changed must be an `adopt` hold (`size` ≥ 0, `files` 1, `expires` within 11 minutes, no other keys).
+
+  Anything else gets 403 `ledger change`, and a stored record that cannot be read gets 503. JGD-L runs the real `holdMedia` and `releaseMedia` through the gateway, then sends seven bad writes, each refused with the ledger unchanged.
+- **The 401.** `takeTurn` marks the job refused only on a 403. A 401 means the job's own token is no longer valid; it waits like an unread turn and ends with the budget (T1b).
+- **Sweep:** `audit-batch-1c.json`, 10 of 10 killed, control survived. **Full suite:** `11456 / 11454 / 0 / 2`.

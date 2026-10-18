@@ -32,6 +32,23 @@ test("T1 A TURN THE STORE REFUSES IS NEVER WAITED OUT — takeTurn answers at on
   assert.ok(tgets > 1, "a transient error was not asked again");
 });
 
+test("T1b AN EXPIRED OR ROTATED TOKEN (401) IS NOT A REFUSAL — the turn is asked again until the budget ends, and the part is never told the store refused it", async () => {
+  const { siteTurn } = await loadWorkerModule();
+  let gets = 0;
+  const env = { PUBLISH_TURN_POLL_MS: "1", SITES_BUCKET: { get: async () => { gets++; throw new GatewayError("get", 401, "publish-turn/fold-lane.json"); } } };
+  let asked = 0;
+  const job = { id: "j3", owner: "o", beside: {}, budget: { expired: () => ++asked > 3 } };
+  assert.equal(await siteTurn.takeTurn(env, "fold-lane", job), null);
+  assert.notEqual(job.beside.refused, true, "a 401 was read as the store's refusal");
+  assert.ok(gets > 1, "a 401 was asked only " + gets + " time(s)");
+  // THE OBSERVER IS ALIVE: the same harness with a 403 stops at one ask.
+  let g403 = 0;
+  const env403 = { PUBLISH_TURN_POLL_MS: "1", SITES_BUCKET: { get: async () => { g403++; throw new GatewayError("get", 403, "publish-turn/fold-lane.json"); } } };
+  const job403 = { id: "j4", owner: "o", beside: {}, budget: { expired: () => false } };
+  assert.equal(await siteTurn.takeTurn(env403, "fold-lane", job403), null);
+  assert.equal(job403.beside.refused, true);
+  assert.equal(g403, 1);
+});
 test("B2/B3 unpublishedVersions HOLDS BACK EACH KIND ON ITS OWN — an older unpublished revision's version (not the draft's), and the draft's own version with no revision naming it; never a published one", () => {
   const V = (n) => "0179000000000" + n + "-aaaaaa";
   // B3: revision 3 is unpublished and is not the draft's own version.
