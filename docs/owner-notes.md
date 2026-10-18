@@ -1,5 +1,12 @@
 # Owner Notes
 
+## 2026-10-18 — Fix 12 of 12: deleting a site deletes its draft and preview link (branch only). Findings 11–20 are all fixed.
+
+- Before: deleting a site left its draft behind. A shared preview link kept showing the deleted site, and whoever took the name next inherited the old draft and could get the old owner's unpublished changes pushed into their site.
+- Now the delete removes all of it, so the preview link stops working and a new owner starts clean.
+- Test DFH9 (red on the old code), sweep 6/6, full suite `11486 / 11484 / 0 / 2`.
+- All twelve fixes for findings 11–20 are on `codex-work-into-claude`. None is merged or deployed.
+
 ## 2026-10-18 — Fix 11 of 12: restoring an old version now sticks (branch only)
 
 - Before: restoring an older version from Versions was quietly undone. The draft still pointed at the newer version, so your next edit or Publish brought it back.

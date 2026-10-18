@@ -101,7 +101,7 @@ import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
-import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec } from "./site-draft.mjs";
+import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
@@ -14356,7 +14356,7 @@ async function runScriptPendingSweep(env, { now = Date.now(), maxSites = 25 } = 
  * the same store a job runs on (2026-10-15): nothing in the product calls this.
  */
 /** Draft-first's own pieces, for the tests that drive them directly (`test/draft-first.test.mjs`). */
-export const draftFirstApi = { backendWriter, draftView, sealHeld, publishDraft, runPublication, runPublishRecovery, siteIsLive, heldDeleteOr, previewVersion, runPreviewRecovery, draftFacts };
+export const draftFirstApi = { clearSiteDraft, backendWriter, draftView, sealHeld, publishDraft, runPublication, runPublishRecovery, siteIsLive, heldDeleteOr, previewVersion, runPreviewRecovery, draftFacts };
 export const siteTurn = { turnStop, tryTurn, takeTurn, giveTurn, renewTurn, turnStillMine, mayWriteConfig, patchSiteConfig, ensureEditableState, jobFence, fencedPut, fencedBuildDeps, stampFences, alignLiveScript, putSiteWorker, runScriptPendingSweep };
 /** Renew a held turn (on the job's heartbeat): false when it is no longer this job's. */
 async function renewTurn(env, slug, t) {
@@ -14626,9 +14626,40 @@ async function uploadScriptOnce(env, slug, worker, { preview = false, go = null 
  * 404 IS DONE — most sites have no script, which is the ordinary case rather
  * than a failure. `deleteSiteWorker` owns that rule; this only decides who asks.
  */
-async function dropSiteWorker(env, slug) {
+/**
+ * A DELETED SITE'S DRAFT GOES WITH IT (2026-10-18, audit A07-1). The draft
+ * record, its held journals and summary, the publication journal, the
+ * preview's state, readiness and claims all live outside `sites/<slug>/`, so
+ * the wipe walked past them: the preview link kept serving the deleted site
+ * through its own script, and whoever claimed the name next inherited the old
+ * draft — its preview token, and the old owner's held changes replayed into
+ * the new site at its first Publish. Each step on its own, logged, never
+ * stopping the delete.
+ */
+async function clearSiteDraft(env, slug) {
+  const B = env.SITES_BUCKET;
+  const out = { removed: 0, failed: 0, preview: null };
+  if (!B || !slug) return out;
+  const one = async (k) => { try { await B.delete(k); out.removed++; } catch (e) { out.failed++; console.error("draft cleanup failed:", slug, k, errorClassForLog(e)); } };
+  for (const k of [DRAFT_KEY(slug), PUBLISHING_KEY(slug), PREVIEW_STATE_KEY(slug), PREVIEW_UP_KEY(slug)]) await one(k);
+  for (const prefix of ["site-drafts/" + slug + "/", PREVIEW_CLAIMS_ROOT + slug + "/"]) {
+    let cursor;
+    try {
+      do {
+        const page = await B.list({ prefix, ...(cursor ? { cursor } : {}) });
+        for (const o of page.objects || []) await one(o.key);
+        cursor = page.truncated ? page.cursor : undefined;
+      } while (cursor);
+    } catch (e) { out.failed++; console.error("draft cleanup list failed:", slug, prefix, errorClassForLog(e)); }
+  }
+  // THE PREVIEW'S OWN SCRIPT, which serves without the live marker's check.
+  out.preview = await dropSiteWorker(env, slug, { preview: true });
+  return out;
+}
+async function dropSiteWorker(env, slug, { preview = false } = {}) {
   const creds = dispatchCreds(env);
-  const name = scriptNameFor(slug);
+  // THE DRAFT'S PREVIEW SCRIPT, by its own name (2026-10-18, audit A07-1).
+  const name = preview ? previewScriptName(slug) : scriptNameFor(slug);
   if (!creds || !name) return null;
   const r = await deleteSiteWorker({ ...creds, name })
     .catch((e) => ({ ok: false, status: 0, error: String((e && e.message) || e) }));
@@ -18042,6 +18073,8 @@ async function deleteSiteFor(env, uid, dslug) {
     // design until their first publish, and a stranger's verification tag in
     // their head from the first request, which is a way for the previous owner
     // to keep claiming the new owner's site at Google.
+    // AND THE DRAFT (2026-10-18, audit A07-1): `clearSiteDraft`.
+    await clearSiteDraft(env, dslug);
     try { if (env.SITES_BUCKET) await env.SITES_BUCKET.delete(CONFIG_KEY(dslug)); }
     catch (e) { console.error("site config delete failed:", dslug, e && e.message); }
 

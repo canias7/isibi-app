@@ -1,0 +1,16 @@
+[
+ {"label": "CONTROL: a comment only — must survive", "control": true, "files": ["worker.js"],
+  "from": "async function clearSiteDraft(env, slug) {", "to": "// control\nasync function clearSiteDraft(env, slug) {"},
+ {"label": "D1 the delete does not clear the draft", "files": ["worker.js"],
+  "from": "    await clearSiteDraft(env, dslug);\n", "to": ""},
+ {"label": "D2 the draft record is kept", "files": ["worker.js"],
+  "from": "for (const k of [DRAFT_KEY(slug), PUBLISHING_KEY(slug),", "to": "for (const k of [PUBLISHING_KEY(slug),"},
+ {"label": "D3 the held journals are kept", "files": ["worker.js"],
+  "from": "for (const prefix of [\"site-drafts/\" + slug + \"/\", PREVIEW_CLAIMS_ROOT + slug + \"/\"]) {", "to": "for (const prefix of [PREVIEW_CLAIMS_ROOT + slug + \"/\"]) {"},
+ {"label": "D4 the prefix catches a neighbour", "files": ["worker.js"],
+  "from": "for (const prefix of [\"site-drafts/\" + slug + \"/\", PREVIEW_CLAIMS_ROOT + slug + \"/\"]) {", "to": "for (const prefix of [\"site-drafts/\" + slug, PREVIEW_CLAIMS_ROOT + slug]) {"},
+ {"label": "D5 the preview script stays", "files": ["worker.js"],
+  "from": "out.preview = await dropSiteWorker(env, slug, { preview: true });", "to": "out.preview = { ok: true };"},
+ {"label": "D6 the preview readiness stays", "files": ["worker.js"],
+  "from": "PREVIEW_STATE_KEY(slug), PREVIEW_UP_KEY(slug)]) await one(k);", "to": "PREVIEW_STATE_KEY(slug)]) await one(k);"}
+]

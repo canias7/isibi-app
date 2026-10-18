@@ -37,7 +37,7 @@ import { rowsDb, BAKERY_LOAVES, LOAF_COLUMNS } from "./fixtures/rows-db.mjs";
 import { buildBucket, GOOD_DESIGN } from "./fixtures/build-route.mjs";
 import { ledger, fireInterim, finishResume } from "./fixtures/build-lifecycle.mjs";
 import { buildPrefix, MANIFEST_FILE, SERVER_FILE } from "../site-builds.mjs";
-import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, publishPlan, rowsOverlay } from "../site-draft.mjs";
+import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, publishPlan, rowsOverlay, previewScriptName as previewScriptNameOf } from "../site-draft.mjs";
 import { resultKey } from "../builder/build-job.mjs";
 
 blockNetwork();
@@ -1646,4 +1646,34 @@ test("DFH8b A RESTORE THAT STOPS BEFORE IT MOVES THE DRAFT IS NOT UNDONE BY THE 
     assert.equal(e.jobs[0].state, "done", JSON.stringify(e.jobs[0].result).slice(0, 300));
     assert.equal(P.page("visit.tsx").includes(TT_LATER), false, "the repair copied the published draft's pages back over the restore");
   } finally { await finish(P, compiler); }
+});
+
+test("DFH9 A DELETED SITE'S DRAFT GOES WITH IT (2026-10-18, audit A07-1) — the draft record, its held journals and summary, the publication journal, the preview's state, readiness and claims, and the preview's own script are removed; a neighbour whose name starts the same is untouched; the site delete calls it", async () => {
+  const { draftFirstApi, siteTurn } = await loadWorkerModule();
+  void siteTurn;
+  const store = new Map();
+  const S = "fold-lane", N = "fold-lane-2";
+  const mine = [DRAFT_KEY(S), HELD_KEY(S, "a".repeat(24)), "site-drafts/" + S + "/held-sum.json", PUBLISHING_KEY(S), "preview-state/" + S + ".json", "preview-up/" + S + ".json", "preview-claims/" + S + "/c1.json"];
+  const theirs = [DRAFT_KEY(N), HELD_KEY(N, "b".repeat(24)), PUBLISHING_KEY(N), "preview-claims/" + N + "/c1.json", "sites/" + S + "/index.html"];
+  for (const k of [...mine, ...theirs]) store.set(k, "{}");
+  const bucket = {
+    delete: async (k) => { store.delete(k); },
+    list: async ({ prefix }) => ({ objects: [...store.keys()].filter((k) => k.startsWith(prefix)).map((key) => ({ key })), truncated: false }),
+  };
+  const asked = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url, init) => { asked.push([init && init.method, String(url)]); return new Response(JSON.stringify({ success: true }), { status: 200 }); };
+  try {
+    const out = await draftFirstApi.clearSiteDraft({ SITES_BUCKET: bucket, CLOUDFLARE_ACCOUNT_ID: "acct", CLOUDFLARE_API_TOKEN: "t" }, S);
+    assert.equal(out.failed, 0, JSON.stringify(out));
+  } finally { globalThis.fetch = real; }
+  for (const k of mine) assert.equal(store.has(k), false, k + " was left behind");
+  for (const k of theirs) assert.equal(store.has(k), true, k + " was removed with the wrong site");
+  assert.ok(asked.some(([m, u]) => m === "DELETE" && u.endsWith("/scripts/" + encodeURIComponent(previewScriptNameOf(S)))), "the preview script was not removed: " + JSON.stringify(asked));
+  // THE SITE DELETE CALLS IT, before the ownership row goes.
+  const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const a = src.indexOf("async function deleteSiteFor(env, uid, dslug) {");
+  const b = src.indexOf("\nasync function ", a + 10);
+  assert.ok(a > 0 && b > a, "deleteSiteFor's landmarks moved");
+  assert.match(src.slice(a, b), /await clearSiteDraft\(env, dslug\);/, "the site delete does not clear the draft");
 });

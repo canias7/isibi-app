@@ -179,3 +179,19 @@ Audit fixes 11–20 from `docs/audits/2026-10-17-builder-audit.md`, one commit e
   - SD-R: `rebaseDraft`'s record, its refusal, and its idempotence.
   - Red on the old code: 2 of 2 fail.
 - **Sweep and suite.** Sweep `audit-batch-2-11.json`: 7 of 7 killed, control survived. R6 first survived, and DFH8b was then added. Full suite `11485 / 11483 / 0 / 2`.
+
+## Step 12: a deleted site's draft goes with it (A07-1)
+
+- **The finding.** `deleteSiteFor` removed the live script, the site's files and its rows. The draft lives outside `sites/<slug>/`, and the delete left all of it:
+  - the draft record (its preview token), the held journals and summary, and the publication journal;
+  - the preview's state, readiness and claims;
+  - the preview's own script.
+
+  So a shared preview link kept serving the deleted site, and the next owner of the name inherited the old token and the old owner's held changes, which were replayed into the new site at its first Publish.
+- **The fix.** `clearSiteDraft` removes the draft record, the publication journal, the preview state and readiness, everything under `site-drafts/<slug>/` and `preview-claims/<slug>/` (with the trailing slash, so a neighbour like `fold-lane-2` is untouched), and the preview script.
+  - The script goes through `dropSiteWorker(env, slug, { preview: true })`, so `dispatchCreds` keeps its two readers (`site-worker-wiring`'s guard, which caught a first version that read it here).
+  - The delete calls it beside the config's removal. Each step is logged and never stops the delete.
+  - The preview then answers 404, because its draft record is gone, and a new owner of the name starts a fresh draft and token.
+  - **Not done here:** stamping the draft with its owner's id, as a second guard should a cleanup step fail. That is in the backlog.
+- **Tests.** DFH9: every one of those keys is removed, a neighbour's are kept, the preview script's DELETE is sent, and the site delete calls the cleanup. It was red on the old code.
+- **Sweep and suite.** Sweep `audit-batch-2-12.json`: 6 of 6 killed, control survived. Full suite `11486 / 11484 / 0 / 2`.
