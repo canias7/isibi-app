@@ -299,6 +299,11 @@ export function rowsDb({ tables = {}, meta = {}, failWrite = null, hideMarker = 
       return wire(t.columns.map((c) => ({ name: c.name, type: c.name === "id" ? 23 : 25 })), limit ? sorted.slice(0, Number(limit[1])) : sorted);
     }
 
+    // THE NEXT ROW WRITE FAILS ONCE, with the code given (`failNextWrite`).
+    if (state.nextWriteFails && (/^WITH r0 AS \(INSERT INTO "/.test(q.trim()) || /^INSERT INTO "/.test(q.trim()))) {
+      const code = state.nextWriteFails; state.nextWriteFails = null;
+      return pgError(code, "the write failed (" + code + ")");
+    }
     // THE `row` STEP'S ONE STATEMENT: entries and the request's key together.
     if (/^WITH r0 AS \(INSERT INTO "/.test(q.trim())) {
       state.sent = true;
@@ -373,6 +378,8 @@ export function rowsDb({ tables = {}, meta = {}, failWrite = null, hideMarker = 
     pending: () => state.pending.length,
     /** The table's rows as stored now — a copy. */
     rows: (name) => (state.tables.get(name) ? state.tables.get(name).rows.map((r) => ({ ...r })) : null),
+    /** The next row write (an INSERT, the row step's statement included) fails once with `code`. */
+    failNextWrite: (code) => { state.nextWriteFails = String(code); },
     /** The next `n` rehearsals go unanswered (a 503, no Postgres code). */
     rehearsalsDown: (n) => { state.rehearsalsDown = n; },
     /** Take a table away (a relation Postgres no longer has). */

@@ -112,3 +112,30 @@ Audit fixes 11–20 from `docs/audits/2026-10-17-builder-audit.md`, one commit e
   - DFP4, DFR8 and DFR10 now move their clock past the pause before trying again. That is the new behaviour, and their assertions are otherwise unchanged.
   - Red on the old code: DFH5 and DFH6 fail.
 - **Sweep and suite.** Sweep `audit-batch-2-8.json`: 12 of 12 killed, control survived. B10 and B12 first survived; the attempt cap and the cleared block were then added to DFH5. Full suite `11477 / 11475 / 0 / 2`.
+
+## Step 9: Set aside, and the card that offers it (A06-4 part c)
+
+- **The route.** `POST /api/site/:slug/publish/set-aside {revision}` has its own matcher, `sa`, and its branch sits after Publish's, so DFB8's owner-check guard still holds.
+  - It is accepted only for a blocked journal on the revision it names.
+  - It takes the journal over on its etag with `setAside: true` and runs the publication on.
+- **Under `setAside`:**
+  - a held change the database refuses for good is skipped and recorded in `skipped` (stage, table, reason), and the rest carries on;
+  - new rows go one at a time, each beside its own `_meta` key, so a repeat still adds each row once;
+  - a temporary stop still stops, and nothing is skipped for it;
+  - Publish's and set-aside's answers both carry `skipped`, and `publishingNow` carries `blocked` into the draft state.
+- **The card.** In `siteDraftPanel` (`public/chat.js`), a blocked publication replaces the ordinary panel. It shows "Publishing stopped" and "1 change could not be published", with the reason and **Set aside** and **Edit** buttons. Edit closes the panel and focuses the chat box (`stRevise`). The toast says how many changes were set aside. New styles `.sp-blocked*` are in `styles.css`.
+  - The screenshot is in the session scratchpad, `setaside-card.png`.
+- **Known limit.** A later revision that edits a row that was set aside names a row that never went in; its own publication then stops before its switch with that error, and nothing goes live.
+- **Tests.**
+  - DFH7 starts with Barley, Spelt and Oat held and a live Spelt added, so Publish is blocked:
+    - the draft state names the block;
+    - a temporary fault during set-aside stops it and skips nothing;
+    - pressed again, Barley and Oat go in once each, the Spelt is skipped and named, and the revision is marked published;
+    - a newer revision then publishes, and set-aside with nothing blocked is refused.
+  - SB1 (`test/draft-blocked-card.test.mjs`, Chromium) runs the panel's own function on the app's stylesheet:
+    - the card, both buttons and no ordinary Publish button;
+    - Set aside sends `{ revision: 3 }` to the route;
+    - Edit focuses the chat box;
+    - without a block, there is no card.
+  - Both were red on the old code.
+- **Sweep and suite.** Sweep `audit-batch-2-9.json`: 10 of 10 killed, control survived. S5 and S6 first survived; DFH7 then gained the three-row order and the temporary fault. Full suite `11479 / 11477 / 0 / 2`.

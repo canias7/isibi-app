@@ -12713,7 +12713,7 @@ async function publishingNow(env, slug) {
     if (!live && !journalMayBeLive(j)) return null;
     // `checking`: it stopped at its switch, and whether the new version went
     // live is read from the pointer by whoever carries it on.
-    return { revision: j.n, phase: j.phase, running: live, finishing: j.phase === "switched", checking: j.phase === "switching", error: j.error || null };
+    return { revision: j.n, phase: j.phase, running: live, finishing: j.phase === "switched", checking: j.phase === "switching", error: j.error || null, blocked: journalBlocked(j) ? { stage: String(j.blocked.stage || ""), why: String(j.blocked.why || "") } : null };
   } catch { return null; }
 }
 
@@ -13132,7 +13132,14 @@ async function runPublication(env, slug, j, etag) {
     // mark runs the step again.
     if (j.phase === "switched") {
       const did = (s) => j.done.includes(s);
-      const mark = async (s, extra = {}) => save({ done: [...j.done, s], error: null, ...extra });
+      // WHAT THE OWNER SET ASIDE (2026-10-18, audit A06-4): with `setAside`,
+      // a held change the database refuses for good is skipped and recorded
+      // here — never silently — and the rest carries on. A temporary stop,
+      // or any stop without the owner's word, is kept as before.
+      const skipped = Array.isArray(j.skipped) ? [...j.skipped] : [];
+      const asideOk = (e) => j.setAside === true && (publishStopKind(e) === "permanent" || (e && e.permanent === true));
+      const aside = (stage, e, what = {}) => { skipped.push({ stage, ...what, why: heldRefused({ ok: false, code: e && e.code }) ? heldRefusalSaid({ code: e.code, message: e.message }) : String((e && e.why) || errorClassForLog(e)) }); };
+      const mark = async (s, extra = {}) => save({ done: [...j.done, s], error: null, skipped, ...extra });
       if (!did("address")) {
         for (const a of plan.alias) {
           const r = await applyHeldAlias(env, slug, a, { uid: j.uid });
@@ -13142,15 +13149,15 @@ async function runPublication(env, slug, j, etag) {
       }
       if (wantsDb && !db) { db = await siteDbFor(env, slug); if (!db) return keep("database", "the site's database could not be reached", "switched"); }
       if (!did("schema")) {
-        if (plan.spec) { try { await live.applySiteSchema(db, normalizeSchema(plan.spec)); } catch (e) { return keep("schema", errorClassForLog(e), "switched", e); } }
+        if (plan.spec) { try { await live.applySiteSchema(db, normalizeSchema(plan.spec)); } catch (e) { if (asideOk(e)) aside("schema", e); else return keep("schema", errorClassForLog(e), "switched", e); } }
         await mark("schema");
       }
       if (!did("jobs")) {
-        if (plan.jobs && plan.jobs.length) { try { await live.persistSiteJobs(env, j.uid, slug, plan.jobs); } catch (e) { return keep("jobs", errorClassForLog(e), "switched", e); } }
+        if (plan.jobs && plan.jobs.length) { try { await live.persistSiteJobs(env, j.uid, slug, plan.jobs); } catch (e) { if (asideOk(e)) aside("jobs", e); else return keep("jobs", errorClassForLog(e), "switched", e); } }
         await mark("jobs");
       }
       if (!did("seeds")) {
-        for (const sd of plan.seeds) { try { await live.seedSiteRows(db, sd.spec || plan.spec || {}, sd.seed); } catch (e) { return keep("seeds", errorClassForLog(e), "switched", e); } }
+        for (const sd of plan.seeds) { try { await live.seedSiteRows(db, sd.spec || plan.spec || {}, sd.seed); } catch (e) { if (asideOk(e)) aside("seeds", e); else return keep("seeds", errorClassForLog(e), "switched", e); } }
         await mark("seeds");
       }
       if (!did("changes")) {
@@ -13162,7 +13169,10 @@ async function runPublication(env, slug, j, etag) {
               const cols = Object.keys(c.values || {});
               if (cols.length) await sqlQuery(db, "UPDATE \"" + name + "\" SET " + cols.map((k) => '"' + k.replace(/"/g, "") + '" = ?').join(", ") + " WHERE id = ?", [...cols.map((k) => c.values[k]), c.id]);
             }
-          } catch (e) { return keep("changes", heldRefused({ ok: false, code: e && e.code }) ? heldRefusalSaid({ code: e.code, message: e.message }) : errorClassForLog(e), "switched", e); }
+          } catch (e) {
+            if (asideOk(e)) { aside("changes", e, { table: c.table, id: c.id }); continue; }
+            return keep("changes", heldRefused({ ok: false, code: e && e.code }) ? heldRefusalSaid({ code: e.code, message: e.message }) : errorClassForLog(e), "switched", e);
+          }
         }
         await mark("changes");
       }
@@ -13173,7 +13183,26 @@ async function runPublication(env, slug, j, etag) {
           // collides and rolls back, and reads the first run's ids from the key.
           const key = "draft-publish:" + (draft.preview || slug) + ":" + j.n;
           const rowsOf = (list) => { for (const r of list || []) { const i = Number(r.n); const row = typeof r.row === "string" ? JSON.parse(r.row) : r.row; if (plan.inserts[i] && row && Number.isSafeInteger(row.id)) refs[plan.inserts[i].ref] = row.id; } };
-          try {
+          // SET ASIDE: ONE ROW AT A TIME, each beside its own key, so the one
+          // the list refuses is skipped and the others still go in — once.
+          if (j.setAside === true) {
+            for (let i = 0; i < plan.inserts.length; i++) {
+              const r = plan.inserts[i], k1 = key + ":" + i;
+              const one = (list) => { for (const x of list || []) { const row = typeof x.row === "string" ? JSON.parse(x.row) : x.row; if (row && Number.isSafeInteger(row.id)) refs[r.ref] = row.id; } };
+              const st1 = rowsInsert([{ table: r.table, values: r.values }], { key: k1, cost: 0 });
+              try { one(await sqlQuery(db, st1.sql, st1.params)); }
+              catch (e) {
+                let v = null;
+                if (e && e.code === "23505") {
+                  try { const got = await sqlQuery(db, "SELECT v FROM _meta WHERE k = ?", [k1]); v = got && got[0] && got[0].v ? JSON.parse(got[0].v) : null; }
+                  catch (e2) { return keep("inserts", errorClassForLog(e2), "switched"); }
+                }
+                if (v && Array.isArray(v.rows)) { one(v.rows); continue; }
+                if (asideOk(e)) { aside("inserts", e, { table: r.table }); continue; }
+                return keep("inserts", errorClassForLog(e), "switched", e);
+              }
+            }
+          } else try {
             const st = rowsInsert(plan.inserts.map((r) => ({ table: r.table, values: r.values })), { key, cost: 0 });
             rowsOf(await sqlQuery(db, st.sql, st.params));
           } catch (e) {
@@ -13207,7 +13236,7 @@ async function runPublication(env, slug, j, etag) {
       if (!m.ok) return keep("record", m.error || "the draft could not be marked published", "switched");
       if (!(await retire("finished"))) console.error("publish: finished, the journal not closed", slug, j.n);
     }
-    return { ok: true, version: j.version, revision: j.n };
+    return { ok: true, version: j.version, revision: j.n, skipped: Array.isArray(j.skipped) ? j.skipped : [] };
   } catch (e) {
     if (e && e.code === "TAKEN_OVER") return { ok: false, status: 409, error: "another publication took over — look again in a moment" };
     console.error("publish: stopped", slug, j.n, j.phase, errorClassForLog(e));
@@ -13335,6 +13364,25 @@ async function publishDraft(env, slug, pick, { uid = "" } = {}) {
     return runPublication(env, slug, j, etag);
   }
   return { ok: false, status: 409, error: "the publication kept changing under this click — look again in a moment" };
+}
+
+/**
+ * SET A BLOCKED PUBLICATION'S REFUSED CHANGES ASIDE (2026-10-18, audit A06-4).
+ * Only a journal that is blocked, and only on the revision it names: it is
+ * taken over on the etag read and carried on with `setAside`, so each held
+ * change the database refuses for good (`publishStopKind`) is skipped and
+ * recorded instead of stopping it. A temporary stop still stops it.
+ */
+async function setAsidePublication(env, slug, revision) {
+  let cur;
+  try { cur = await readPublication(env, slug); }
+  catch { return { ok: false, status: 503, error: "the publication record could not be read — nothing was changed" }; }
+  if (!journalBlocked(cur.j) || cur.j.n !== revision) return { ok: false, status: 409, error: "that revision has nothing blocked to set aside" };
+  const j = { ...cur.j, running: true, at: Date.now(), id: crypto.randomUUID(), blocked: null, nextTry: null, setAside: true };
+  let etag = null;
+  try { etag = await writePublication(env, slug, j, cur.etag); } catch { etag = null; }
+  if (!etag) return { ok: false, status: 409, error: "the publication changed while setting it aside — look again in a moment" };
+  return runPublication(env, slug, j, etag);
 }
 
 /**
@@ -31583,6 +31631,8 @@ async function handleRequest(request, env, ctx) {
       // `GET …/draft` says whether changes are saved, still processing or
       // published; `POST …/publish` releases the version the owner approved.
       const pb = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/publish$/i);
+      // SET ASIDE (2026-10-18, audit A06-4): a blocked publication finished without what the database refuses.
+      const sa = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/publish\/set-aside$/i);
       const dr = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/draft$/i);
       // THE EDIT LANE. Change what the site already has, and nothing else.
       //
@@ -31660,10 +31710,10 @@ async function handleRequest(request, env, ctx) {
       // so from outside the two are indistinguishable — which is how this
       // survived a live probe until the dispatch was read.
       // `test/api-auth.test.mjs` holds the list against the matchers now.
-      if (om || im || mm || an || uf || mdr || xp || nt || lv || sk || dm2 || vr || pb || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || qu) {
+      if (om || im || mm || an || uf || mdr || xp || nt || lv || sk || dm2 || vr || pb || sa || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || qu) {
         // THE SLUG IS RESOLVED FIRST, because the replay identity below is scoped
         // to it. Nothing about deriving it depends on who is asking.
-        const ownerSlug = (om || im || mm || an || uf || mdr || xp || nt || lv || sk || dm2 || vr || pb || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || qu)[1].toLowerCase();
+        const ownerSlug = (om || im || mm || an || uf || mdr || xp || nt || lv || sk || dm2 || vr || pb || sa || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || qu)[1].toLowerCase();
         // ── A QUEUED EDIT'S OWN REPLAY HAS NO BEARER TOKEN ──────────────────
         //
         // The consumer replays the customer's request minutes after they made
@@ -43374,7 +43424,7 @@ async function handleRequest(request, env, ctx) {
 
             return Response.json({ ok: true, applied: ed.applied, files: out.files, render: out.render, renderNote: out.renderNote, checks: out.checks, draft: out.draft, cost: Number(out.langCharged) || 0 });
           }
-          if (pb || dr) {
+          if (pb || sa || dr) {
             if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "storage not configured" }, { status: 501 });
             const g = await assertOwner(ownerDeps, ownerSlug, ou.id);
             if (g.error) return Response.json(g.error.body, { status: g.error.status });
@@ -43434,7 +43484,18 @@ async function handleRequest(request, env, ctx) {
               if (revision === null || revision <= 0) return Response.json({ ok: false, error: "name the revision to publish" }, { status: 400 });
               const r = await publishDraft(env, ownerSlug, { revision, version }, { uid: ou.id });
               if (!r.ok) return Response.json({ ok: false, error: r.error, stage: r.stage, live: r.live || undefined, publishing: r.publishing === true, ...(r.blocked ? { blocked: true, revision: r.revision } : {}), state: await readState() }, { status: r.status || 409 });
-              return Response.json({ ok: true, published: r.version, revision: r.revision, already: r.already === true, worker: r.worker, state: await readState() });
+              return Response.json({ ok: true, published: r.version, revision: r.revision, already: r.already === true, worker: r.worker, skipped: r.skipped || [], state: await readState() });
+            }
+            if (sa && request.method === "POST") {
+              // SET ASIDE (2026-10-18, audit A06-4): the owner's word that a
+              // blocked revision may finish without the held changes the
+              // database refuses — each one named in the answer.
+              const sbody = await request.json().catch(() => ({}));
+              const revision = sbody && Number.isSafeInteger(sbody.revision) ? sbody.revision : null;
+              if (revision === null || revision <= 0) return Response.json({ ok: false, error: "name the blocked revision" }, { status: 400 });
+              const r = await setAsidePublication(env, ownerSlug, revision);
+              if (!r.ok) return Response.json({ ok: false, error: r.error, stage: r.stage, live: r.live || undefined, ...(r.blocked ? { blocked: true } : {}), skipped: r.skipped || [], state: await readState() }, { status: r.status || 409 });
+              return Response.json({ ok: true, revision, skipped: r.skipped || [], state: await readState() });
             }
             return Response.json({ ok: false, error: "method not allowed" }, { status: 405 });
           }

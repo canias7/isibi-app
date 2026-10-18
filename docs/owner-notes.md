@@ -1,5 +1,13 @@
 # Owner Notes
 
+## 2026-10-18 — Fix 9 of 12: the "Set aside" button (branch only)
+
+- When one held change can't be published, the Publish panel now shows a card: "1 change could not be published", the reason, and two buttons.
+  - **Set aside** finishes publishing everything else and skips only that change. You're told how many were set aside.
+  - **Edit** closes the panel and puts you in the chat to fix it.
+- Only changes the database refuses for good are ever skipped, and only when you press Set aside. A temporary problem is still retried, never skipped.
+- Screenshot sent in the chat. Tests DFH7 and SB1 (red on the old code), sweep 10/10, full suite `11479 / 11477 / 0 / 2`.
+
 ## 2026-10-18 — Fix 8 of 12: no more endless retries; a stuck change is "blocked" with its reason (branch only)
 
 - Before: a change that could never apply was retried every 2 minutes forever, and every later Publish got stuck behind it.

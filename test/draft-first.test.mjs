@@ -89,6 +89,7 @@ function bakery(name, { draftFirst = false, aliases = null, unique = [] } = {}) 
         const asked = (text.split("WHAT THEY ASKED FOR\n")[1] || "").split("\n")[0];
         if (asked.startsWith("Make the Dark Rye four")) return { changes: [{ table: "loaves", id: 2, values: { price: "£4.20" } }] };
         if (asked.startsWith("Make the Dark Rye")) return { changes: [{ table: "loaves", id: 2, values: { price: 5.6 } }] };
+        if (asked.startsWith("Add Barley, Spelt and Oat")) return { changes: [{ table: "loaves", values: { name: "Barley", price: 4.9 } }, { table: "loaves", values: { name: "Spelt", price: 6.2 } }, { table: "loaves", values: { name: "Oat", price: 4.4 } }] };
         if (asked.startsWith("Add a Spelt")) return { changes: [{ table: "loaves", values: { name: "Spelt", price: 6.2 } }] };
         if (asked.startsWith("Make the Spelt")) {
           // THE HELD NEW ROW, by the id the draft gave it (negative): found in what it was shown.
@@ -1543,5 +1544,47 @@ test("DFH6 A TEMPORARY STOP WAITS A DOUBLING PAUSE, AND BLOCKED OR WAITING SITES
     assert.deepEqual([r.finished, r.cleared], [0, 1], JSON.stringify(r));
     assert.equal(JSON.parse(bare(P.readObj(PUBLISHING_KEY(P.slug)))).phase, "retired", "the stale journal behind the blocked one was not set aside");
     assert.equal(JSON.parse(bare(P.readObj(PUBLISHING_KEY("aaab-waiting")))).attempts, 1, "a journal not yet due was run");
+  } finally { await finish(P, compiler); }
+});
+
+test("DFH7 SET ASIDE FINISHES A BLOCKED PUBLICATION WITHOUT ONLY WHAT THE DATABASE REFUSES (2026-10-18, audit A06-4) — Spelt and Barley held, a live Spelt added, Publish blocked on the clash: set-aside answers ok, names the Spelt it skipped, adds Barley once, marks the revision published and closes the journal; a newer revision then publishes; set-aside with nothing blocked is refused", async () => {
+  const { P, db, compiler } = bakery("dfh7", { unique: ["name"] });
+  try {
+    await runOne(P, TIKTOK);
+    P.env.DRAFT_FIRST = "on";
+    await runOne(P, "Add Barley, Spelt and Oat at £4.90, £6.20 and £4.40.");
+    const d = draftOf(P);
+    await addLive(db, "Spelt", 6);
+    db.rehearsalsDown(10);
+    const p = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.revs[d.rev - 1].version });
+    assert.deepEqual([p.status, p.body.blocked], [409, true], JSON.stringify(p.body).slice(0, 300));
+    // THE OWNER SEES WHAT IS BLOCKED, AND WHY.
+    const st = await call(P, "GET", "/api/site/" + P.slug + "/draft");
+    assert.equal(st.body.publication && st.body.publication.blocked && st.body.publication.blocked.stage, "inserts", JSON.stringify(st.body.publication));
+    // A TEMPORARY FAULT DURING THE SET-ASIDE IS NOT SET ASIDE: it stops, skips nothing.
+    db.failNextWrite("57P01");
+    const t = await call(P, "POST", "/api/site/" + P.slug + "/publish/set-aside", { revision: d.rev });
+    assert.notEqual(t.status, 200, JSON.stringify(t.body).slice(0, 300));
+    assert.deepEqual(t.body.skipped || [], [], "a temporary fault was set aside");
+    assert.equal(db.rows("loaves").filter((r) => r.name === "Barley").length, 0);
+    // PRESSED AGAIN (the owner's own click carries the set-aside on).
+    const sa = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.revs[d.rev - 1].version });
+    assert.equal(sa.status, 200, JSON.stringify(sa.body).slice(0, 400));
+    assert.deepEqual(sa.body.skipped.map((x) => [x.stage, x.table]), [["inserts", "loaves"]], JSON.stringify(sa.body.skipped));
+    assert.match(sa.body.skipped[0].why, /already there/);
+    assert.deepEqual(db.rows("loaves").filter((r) => r.name === "Barley").map((r) => Number(r.price)), [4.9], "the good row was not added once");
+    assert.deepEqual(db.rows("loaves").filter((r) => r.name === "Oat").map((r) => Number(r.price)), [4.4], "the row after the skipped one was not added once");
+    assert.deepEqual(spelt(db).map((r) => Number(r.price)), [6], "the live Spelt was changed or a second added");
+    assert.equal(draftOf(P).applied, d.rev);
+    assert.equal(journalOf(P).phase, "finished");
+    // NOTHING LEFT BLOCKED: a newer revision publishes.
+    await runOne(P, WALNUT);
+    const d2 = draftOf(P);
+    const p2 = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d2.rev, version: d2.revs[d2.rev - 1].version });
+    assert.equal(p2.status, 200, JSON.stringify(p2.body).slice(0, 300));
+    assert.equal(price(db, 5), 6.4);
+    // SET-ASIDE WITH NOTHING BLOCKED IS REFUSED, AND CHANGES NOTHING.
+    const none = await call(P, "POST", "/api/site/" + P.slug + "/publish/set-aside", { revision: d2.rev });
+    assert.equal(none.status, 409, JSON.stringify(none.body));
   } finally { await finish(P, compiler); }
 });

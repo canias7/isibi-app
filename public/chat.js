@@ -8116,7 +8116,11 @@ function siteDraftPanel(site, d) {
   // never slips into this publication. The version rides as a cross-check.
   const revision = d.unpublished && Number.isInteger(d.revision) && d.revision > 0 ? d.revision : 0;
   const version = revision ? String(d.draft || '') : '';
-  const head = d.state === 'publishing' ? 'Publishing' : d.state === 'processing' ? 'Still processing' : d.unpublished ? (d.neverPublished ? 'Not published yet' : 'Saved, not published') : 'Published';
+  // ONE HELD CHANGE THE DATABASE REFUSES FOR GOOD (2026-10-18, audit A06-4):
+  // the publication is blocked on it, and the owner chooses — set it aside,
+  // or change it in the chat. It is never retried on its own.
+  const blocked = d.publication && d.publication.blocked && typeof d.publication.blocked === 'object' ? d.publication.blocked : null;
+  const head = blocked ? 'Publishing stopped' : d.state === 'publishing' ? 'Publishing' : d.state === 'processing' ? 'Still processing' : d.unpublished ? (d.neverPublished ? 'Not published yet' : 'Saved, not published') : 'Published';
   // A PUBLICATION THAT SWITCHED AND STOPPED is finished by the same button.
   const stalled = d.state === 'publishing' && !!(d.publication && (d.publication.finishing || d.publication.checking) && d.publication.running === false);
   // STOPPED AT ITS SWITCH: whether the new pages went live is read when it is carried on.
@@ -8130,19 +8134,54 @@ function siteDraftPanel(site, d) {
   // THE ADDRESS THE DRAFT HAS, when it differs from the live one: a rename
   // asked in chat moves the live address only at Publish.
   const addr = d.address && d.address.draft && d.address.draft !== d.address.live ? d.address.draft : '';
+  const blockedCard = blocked
+    ? '<div class="sp-blocked" role="status"><p class="sp-blocked-t">1 change could not be published</p><p class="sp-blocked-why">' + esc(String(blocked.why || 'the database refused it')) + '</p>' +
+      '<p class="sp-intro sp-note">Your new pages are live. Set this change aside to finish publishing everything else, or edit it in the chat.</p>' +
+      '<div class="sp-actions"><button type="button" class="st-publish" id="spSetAside">Set aside</button><button type="button" class="st-share" id="spEditBlocked">Edit</button></div></div>'
+    : '';
   box.innerHTML = '<div class="si-card"><div class="si-head"><b>' + esc(head) + '</b><button type="button" class="si-x" aria-label="Close">\u00d7</button></div><div class="si-body">' +
-    '<p class="sp-intro">' + esc(intro) + '</p>' + busy +
+    (blocked ? blockedCard : '<p class="sp-intro">' + esc(intro) + '</p>' + busy) +
     (d.preview && d.unpublished ? '<div class="sp-row"><span class="sp-k">Draft preview</span><a class="sp-url" href="' + esc(d.preview) + '" target="_blank" rel="noopener">Open the draft</a></div>' : '') +
     (slug ? '<div class="sp-row"><span class="sp-k">Live site</span><span class="sp-v">' + esc(d.neverPublished ? 'not published yet' : siteChipUrl({ slug })) + '</span></div>' : '') +
     (addr ? '<div class="sp-row"><span class="sp-k">Address after publishing</span><span class="sp-v">' + esc(siteChipUrl({ slug: addr })) + '</span></div>' : '') +
-    '<div class="sp-actions">' +
+    (blocked ? '' : '<div class="sp-actions">' +
       '<button type="button" class="st-publish" id="spPublishDraft"' + (stalled || (revision && d.state !== 'publishing') ? '' : ' disabled') + '>' + (stalled ? 'Finish publishing' : revision ? 'Publish this draft' : 'Nothing new to publish') + '</button>' +
-    '</div>' +
+    '</div>') +
   '</div></div>';
   document.body.appendChild(box);
   const close = () => box.remove();
   box.querySelector('.si-x').onclick = close;
   box.addEventListener('click', (e) => { if (e.target === box) close(); });
+  const aside = box.querySelector('#spSetAside');
+  if (aside && blocked) aside.onclick = async () => {
+    aside.disabled = true; aside.textContent = 'Setting aside\u2026';
+    try {
+      const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/publish/set-aside', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision: d.publication.revision }),
+      });
+      const out = await r.json().catch(() => ({}));
+      const frameWas = siteDraftFrameKey(siteDraftState[slug]);
+      if (out && out.state) { siteDraftState[slug] = out.state; paintDraftChip(out.state); }
+      if (r.ok && out.ok) {
+        close();
+        if (out.state) siteDraftFollow(site, out.state, frameWas);
+        const n = Array.isArray(out.skipped) ? out.skipped.length : 0;
+        if (typeof sbToast === 'function') sbToast('Published \u2014 ' + n + ' change' + (n === 1 ? ' was' : 's were') + ' set aside');
+      } else {
+        aside.disabled = false; aside.textContent = 'Set aside';
+        if (typeof sbToast === 'function') sbToast((out && out.error) || 'Could not set it aside just now \u2014 try again');
+      }
+    } catch (e) {
+      aside.disabled = false; aside.textContent = 'Set aside';
+      if (typeof sbToast === 'function') sbToast('Could not reach the server \u2014 try again');
+    }
+  };
+  const edit = box.querySelector('#spEditBlocked');
+  if (edit && blocked) edit.onclick = () => {
+    close();
+    const inp = document.getElementById('stRevise');
+    if (inp) { try { inp.focus({ preventScroll: false }); } catch { inp.focus(); } }
+  };
   const go = box.querySelector('#spPublishDraft');
   // ONE CLICK, ONE REQUEST: the button stays down until the answer is in, and
   // the server refuses a second publication while one runs.
@@ -8166,7 +8205,8 @@ function siteDraftPanel(site, d) {
         // the live site once nothing is unpublished (or the newer draft that
         // still is).
         if (out.state) siteDraftFollow(site, out.state, frameWas);
-        if (typeof sbToast === 'function') sbToast(out.state && out.state.unpublished ? 'Published \u2014 a newer draft is still saved, not published' : 'Published \u2014 your live site is up to date');
+        const setAside = Array.isArray(out.skipped) ? out.skipped.length : 0;
+        if (typeof sbToast === 'function') sbToast(setAside ? 'Published \u2014 ' + setAside + ' change' + (setAside === 1 ? ' was' : 's were') + ' set aside' : out.state && out.state.unpublished ? 'Published \u2014 a newer draft is still saved, not published' : 'Published \u2014 your live site is up to date');
       } else if (r.status === 202 && out.publishing) {
         go.textContent = 'Publishing\u2026';
         if (typeof sbToast === 'function') sbToast('That draft is already being published.');
