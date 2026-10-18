@@ -1,5 +1,14 @@
 # Owner Notes
 
+## 2026-10-18 — Why big builds failed, and the fix: no build fails on time alone (branch only, not deployed)
+
+- **Why it failed:** inside the container, the build job waited on one connection while the whole five-page site was written. That kind of connection gives up after 5 minutes. Its backup plan hit the same 5-minute wall: 10 minutes, then "fetch failed". Small sites didn't fail because they're generated in pieces.
+- **The fix:**
+  - The job now starts the writing and checks back every few seconds, so no connection waits long.
+  - The backup uses the long-wait setup.
+  - Inside the container the AI's 10-minute stopwatch is gone. A call is only stopped if it goes silent for 5 minutes, and then it's asked again, up to 3 times. Real problems (the model provider down, no credits) still stop a build; time alone never does.
+- Tests red on the old code, sweep 11/11, full suite `11498 / 11496 / 0 / 2`. Needs merge and deploy, then one paid rebuild to prove it live.
+
 ## 2026-10-18 — An independent review of fixes 11–20 found four bugs; all fixed (branch only)
 
 - **Publishing an earlier change separately from a later edit to its starter rows** could leave the later change unpublishable forever. Publish now says which newer revision to publish so they go together, and nothing crashes on the way.

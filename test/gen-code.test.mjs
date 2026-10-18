@@ -444,7 +444,8 @@ test("the container asks for the partial only when it has somewhere to send it, 
   // argument only it passes — `mReq`, where the fan-out passes `r`.
   const oneCall = gen.indexOf("callBuilderModel(keysFrom(BUILD_KEYS), mReq,");
   assert.ok(oneCall > 0, "the single-call path no longer makes its own model call");
-  assert.match(gen.slice(oneCall, oneCall + 200), /code \? \{ stream: true, onPartial: code \} : \{ stream: true \}/,
+  // THE SILENCE LIMIT RIDES WITH IT (2026-10-18, `STREAM_IDLE_MS`).
+  assert.match(gen.slice(oneCall, oneCall + 260), /code \? \{ stream: true, idleMs: STREAM_IDLE_MS, onPartial: code \} : \{ stream: true, idleMs: STREAM_IDLE_MS \}/,
     "the generation call no longer hands the sender to the model call");
   // AND THE FAN-OUT MUST NOT HAVE IT. Eight bands interleaving into one code
   // stream is not a file, and the customer would watch it scramble.

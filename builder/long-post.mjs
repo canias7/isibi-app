@@ -65,6 +65,26 @@ export function longPost(url, init) {
     // could not say which, and the difference is the whole next decision.
     const t0 = Date.now();
     const wire = { headersMs: -1, chars: 0 };
+    // A CONNECTION GONE SILENT (2026-10-18): with `init.idleMs`, no byte for
+    // that long — before the answer begins or between its chunks — stops the
+    // call as an `IdleTimeoutError`, which the caller asks again. Restarted by
+    // every byte, so a generation that keeps writing is never stopped by it.
+    const idleMs = Number.isFinite(init && init.idleMs) && init.idleMs > 0 ? init.idleMs : 0;
+    let idle = null;
+    const quiet = () => {
+      if (!idleMs || settled) return;
+      if (idle) clearTimeout(idle);
+      idle = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        req.destroy();
+        const e = new Error("the model sent nothing for " + Math.round(idleMs / 1000) + "s");
+        try { Object.defineProperty(e, "name", { value: "IdleTimeoutError", configurable: true }); } catch { /* keep Error */ }
+        e.wire = wire;
+        reject(e);
+      }, idleMs);
+      if (idle && typeof idle.unref === "function") idle.unref();
+    };
     // Protocol-faithful, so the harness can drive this against a plain local
     // server. Both provider endpoints are https literals in build-call.mjs —
     // no caller-chosen URL ever reaches here.
@@ -75,6 +95,7 @@ export function longPost(url, init) {
       headers: { ...((init && init.headers) || {}), "content-length": payload.length },
     }, (res) => {
       wire.headersMs = Date.now() - t0;
+      quiet();
       let text = "";
       res.setEncoding("utf8");
       // `init.onData` IS WHERE "SHOW THE CODE AS IT IS WRITTEN" BEGINS. This is
@@ -85,11 +106,13 @@ export function longPost(url, init) {
       // transcript and has no use for a fragment; and it is fenced, because a
       // throw here is an unhandled rejection on the socket carrying the build.
       res.on("data", (c) => {
+        quiet();
         text += c;
         wire.chars += c.length;
         if (onData) { try { onData(text); } catch { /* the view never costs the build */ } }
       });
       res.on("end", () => {
+        if (idle) clearTimeout(idle);
         if (settled) return;
         settled = true;
         const status = res.statusCode || 0;
@@ -104,8 +127,9 @@ export function longPost(url, init) {
     const onAbort = () => { if (settled) return; settled = true; req.destroy(); bail(); };
     if (signal) signal.addEventListener("abort", onAbort, { once: true });
     req.on("error", (e) => { if (settled) return; settled = true; try { e.wire = wire; } catch { /* a frozen error still rejects */ } reject(e); });
-    req.on("close", () => { if (signal) signal.removeEventListener("abort", onAbort); });
+    req.on("close", () => { if (idle) clearTimeout(idle); if (signal) signal.removeEventListener("abort", onAbort); });
     req.write(payload);
+    quiet();
     req.end();
   });
 }

@@ -911,7 +911,8 @@ test("the container beats while it generates — the Worker's cadence, the token
     "the beat timer is not keyed on the beat address at the Worker's cadence");
   assert.match(start, /\} finally \{\s+if \(beat\) clearInterval\(beat\);\s+\}/, "the beat timer is not cleared when the generation settles");
   const timer = start.indexOf("const beat = ");
-  const call = start.indexOf("await callBuilderModel(");
+  // THE CALL, WHETHER OR NOT IT IS ASKED AGAIN ON A SILENT STREAM (2026-10-18, `patientCall`).
+  const call = start.search(/await (?:patientCall\(\(\) => )?callBuilderModel\(/);
   assert.ok(timer > 0 && call > timer, "the timer starts after the call — a long generation would not beat until it ended");
   // EVERY REPORT CARRIES THE ROW'S HALF, after `state`, so the report's own
   // guard (state first) still reads them.

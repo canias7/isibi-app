@@ -427,6 +427,14 @@ test("A BUILDER MODEL CALL IS BOUNDED — every fetch in it, both providers", ()
       // would still pass because a signal is present.
       const def = body.match(new RegExp("\\b(?:const|let)\\s+" + arg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*=([^;]*);"));
       assert.ok(def, `the bound \`${arg}\` is not defined inside callBuilderModel — it could be anything`);
+      // ONE MORE HOP, AND ONLY ONE (2026-10-18): the ceiling may be a local of
+      // its own (`cap`, a caller's container ceiling or `BUILDER_CALL_MS`),
+      // which must itself be defined here and name `BUILDER_CALL_MS`.
+      if (!/\bBUILDER_CALL_MS\b/.test(def[1])) {
+        const via = [...def[1].matchAll(/\b([a-z]\w*)\b/gi)].map((x) => x[1]).find((n) => new RegExp("\\b(?:const|let)\\s+" + n + "\\s*=[^;]*\\bBUILDER_CALL_MS\\b[^;]*;").test(body));
+        assert.ok(via, `the bound \`${arg}\` reaches no local that names BUILDER_CALL_MS`);
+        def[1] = def[1] + " " + "BUILDER_CALL_MS";
+      }
       assert.match(def[1], /\bBUILDER_CALL_MS\b/,
         `the bound \`${arg}\` no longer derives from BUILDER_CALL_MS — the per-call ceiling is gone`);
     }

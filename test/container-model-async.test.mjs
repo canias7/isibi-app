@@ -136,8 +136,10 @@ test("THE CEILING IS OURS: the budget hands out the CAPPED number, not the asked
   // and handed `capMs` the raw `payload.callMs` instead SURVIVED a check that
   // only looked for the expression. A presence standing in for a property is
   // this repo's most-recorded test failure and this was another one.
-  const cap = /const (\w+) = Number\.isFinite\(want\) && want > 0 \? Math\.min\(want, BUILDER_CALL_MS\) : BUILDER_CALL_MS;/.exec(body);
-  assert.ok(cap, "the start route does not cap the caller's callMs at BUILDER_CALL_MS at all");
+  // THE CONTAINER'S CEILING (2026-10-18, owner: no build fails on time alone):
+  // a backstop far past any generation, the call itself judged by its silence.
+  const cap = /const (\w+) = Number\.isFinite\(want\) && want > 0 \? Math\.min\(want, CONTAINER_CALL_CAP_MS\) : CONTAINER_CALL_CAP_MS;/.exec(body);
+  assert.ok(cap, "the start route does not cap the caller's callMs at CONTAINER_CALL_CAP_MS at all");
   const capped = cap[1];
   // The budget must return THAT name — the capped one — and nothing else.
   assert.match(body, new RegExp(`capMs:\\s*\\(\\)\\s*=>\\s*${capped}\\b`),
@@ -281,8 +283,10 @@ test("every model call in the container carries longPost", () => {
   // found one call and reported the other gone. The property — every model call
   // in the container goes through `longPost` — never changed; only the layout
   // did, which is this repository's most-repeated own-goal in a guard.
-  const calls = [...SERVER_SRC.matchAll(/await callBuilderModel\(([\s\S]+?)\);/g)];
-  assert.ok(calls.length >= 2, `expected the two model call sites, found ${calls.length} — rescope this guard`);
+  // EVERY CALL, each to the end of its statement — wrapped in `patientCall` or
+  // not (2026-10-18); the import line names no `keysFrom(BUILD_KEYS)`.
+  const calls = [...SERVER_SRC.matchAll(/callBuilderModel\((keysFrom\(BUILD_KEYS\)[^;]+);/g)];
+  assert.ok(calls.length >= 3, `expected the three model call sites, found ${calls.length} — rescope this guard`);
   for (const c of calls) {
     assert.match(c[1], /longPost/, "a model call site does not pass the transport — that call runs on undici's 300s headers timeout");
     // AND THE STREAM, which is the fix for the wall the transport could not

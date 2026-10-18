@@ -354,7 +354,7 @@ import { newTrace, traceRow } from "./builder/edit-trace.mjs";
 // on the way in because `worker.js` keeps thin `env`-shaped wrappers of the same
 // names — eleven call sites read them, and renaming those would make a move that
 // changes no behaviour look like a change that does.
-import { callBuilderModel as callModel, keysFrom, keyEnv, retryHere, callFailure, BUILDER_CALL_MS } from "./builder/build-call.mjs";
+import { callBuilderModel as callModel, keysFrom, keyEnv, retryHere, callFailure, BUILDER_CALL_MS, CONTAINER_CALL_CAP_MS, STREAM_IDLE_MS, patientCall } from "./builder/build-call.mjs";
 import { holdDecision, BUSY_PROBE_MS } from "./builder/container-hold.mjs";
 // HOW LONG A CONTAINER JOB MAY RUN — the one setting, read here so the deploy
 // can shorten it without a code change. `fireContainerJob` is its one consumer.
@@ -4373,8 +4373,13 @@ const jobRunDetail = (env) => ({
   ...(env && Number.isFinite(env.JOB_DEADLINE_AT) ? { deadlineAt: env.JOB_DEADLINE_AT, deadlineInMs: env.JOB_DEADLINE_AT - Date.now() } : {}),
 });
 const modelSend = (env) => (env && typeof env.MODEL_SEND === "function" ? env.MODEL_SEND : null);
-const modelOpts = (env, opts) => (env && env.MODEL_STREAM === true ? { ...(opts || {}), stream: true } : opts);
-const callBuilderModel = (env, req, budget = null, opts = null) => callModel(keysFrom(env), req, budget, modelSend(env), modelOpts(env, opts));
+// IN THE CONTAINER, NO STOPWATCH (2026-10-18, owner: "no build should ever
+// fail"): a streamed call there is judged by its silence (`STREAM_IDLE_MS`),
+// capped only far past any generation (`CONTAINER_CALL_CAP_MS`), and asked
+// again before its failure is the build's (`patientCall`). The Worker, where
+// neither field exists, makes the call it always made.
+const modelOpts = (env, opts) => (env && env.MODEL_STREAM === true ? { ...(opts || {}), stream: true, idleMs: STREAM_IDLE_MS, capMs: CONTAINER_CALL_CAP_MS } : opts);
+const callBuilderModel = (env, req, budget = null, opts = null) => (modelSend(env) ? patientCall(() => callModel(keysFrom(env), req, budget, modelSend(env), modelOpts(env, opts)), { log: (m) => console.error(m) }) : callModel(keysFrom(env), req, budget, modelSend(env), modelOpts(env, opts)));
 
 // ── THE SMALL CALLS GO TO WHICHEVER PROVIDER THE MODEL BELONGS TO ───────────
 //
@@ -5355,7 +5360,10 @@ function containerPagesCall(env, slug, out) {
     }
     console.error("build: the container could not make the model call —", fail.kind, fail.message, "— making it here instead");
     out.via = "worker";
-    return callModel(keys, req, budget);
+    // WITH THIS PROCESS'S OWN TRANSPORT (2026-10-18, the Harbour Loaf build):
+    // inside the container a bare call is Node's fetch — not streamed, cut by
+    // its 300-second headers wall — the very death this fallback follows.
+    return callModel(keys, req, budget, modelSend(env), modelOpts(env, null));
   };
 }
 
@@ -5497,8 +5505,14 @@ function containerPagesFire(env, slug, out, jobId = null) {
 function containerPagesFanLocal(env, slug, out) {
   const sync = containerPagesCall(env, slug, out);
   return async (keys, req, budget) => {
-    if (!Array.isArray(req)) return sync(keys, req, budget);
-    const callMs = budget && typeof budget.capMs === "function" ? budget.capMs(BUILDER_CALL_MS) : BUILDER_CALL_MS;
+    // ONE REQUEST WAITS THE SAME WAY (2026-10-18, the Harbour Loaf build). A
+    // site of several pages is one call, and held as one synchronous hop it
+    // was cut by Node's 300-second headers wall on this very hop — the build
+    // service answers only when the whole site is written — then its fallback
+    // was cut the same way: 300 + 300 seconds, "fetch failed". Started and
+    // polled like a fan-out, no connection waits more than a moment.
+    const one = !Array.isArray(req);
+    const callMs = budget && typeof budget.capMs === "function" ? budget.capMs(CONTAINER_CALL_CAP_MS) : CONTAINER_CALL_CAP_MS;
     out.tried = 1;
     let c = null;
     let id = "";
@@ -5507,7 +5521,7 @@ function containerPagesFanLocal(env, slug, out) {
       const r = await c.fetch(new Request("http://build/model/start", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ reqs: req, callMs }),
+        body: JSON.stringify(one ? { req, callMs } : { reqs: req, callMs }),
         signal: AbortSignal.timeout(FIRE_HOP_MS),
       }));
       const raw = await r.text().catch(() => "");
@@ -5518,9 +5532,11 @@ function containerPagesFanLocal(env, slug, out) {
     } catch (e) {
       console.error("build: could not start the local fan-out —", String((e && e.name) || "Error"), String((e && e.message) || e));
     }
-    if (!id) throw noFanoutError();
+    // A SINGLE CALL THE SERVICE WOULD NOT START goes the old way — the
+    // synchronous hop, whose own fallback now keeps the long-call transport.
+    if (!id) { if (one) return sync(keys, req, budget); throw noFanoutError(); }
     // THE BOUND IS THE CALLS' OWN: rounds of `MAX_MODEL_FANOUT`, each a call's cap.
-    const rounds = Math.max(1, Math.ceil(req.length / MAX_MODEL_FANOUT));
+    const rounds = one ? 1 : Math.max(1, Math.ceil(req.length / MAX_MODEL_FANOUT));
     const deadline = Date.now() + rounds * callMs + MODEL_HOP_SLACK_MS;
     for (let n = 0; Date.now() < deadline; n++) {
       await new Promise((r) => setTimeout(r, pollDelayMs(n)));
@@ -5530,13 +5546,25 @@ function containerPagesFanLocal(env, slug, out) {
         ans = JSON.parse(await r.text());
       } catch { ans = null; }
       if (!ans || ans.ok !== true) continue;
+      if (one && ans.state === "done" && ans.answer) { out.via = "container"; return ans.answer; }
       if (ans.state === "done" && Array.isArray(ans.answers)) { out.via = "container"; return ans.answers; }
-      if (ans.state === "unknown") throw noFanoutError();
-      if (ans.state === "failed") throw new Error(String(ans.message || "the local fan-out failed"));
+      if (ans.state === "unknown") { if (one) return sync(keys, req, budget); throw noFanoutError(); }
+      if (ans.state === "failed") {
+        // IN `callBuilderModel`'S OWN SHAPE, as the synchronous hop rethrows:
+        // the provider's status, its detail and the error's class all read on.
+        const e = new Error(String(ans.message || "the local fan-out failed"));
+        if (ans.status) e.status = ans.status;
+        if (typeof ans.detail === "string" && ans.detail) e.detail = ans.detail;
+        if (ans.kind) { try { Object.defineProperty(e, "name", { value: String(ans.kind), configurable: true }); } catch { /* keep Error */ } }
+        throw e;
+      }
     }
     throw new Error("the local fan-out did not answer within " + (rounds * callMs + MODEL_HOP_SLACK_MS) + "ms");
   };
 }
+
+/** The page call's two container hops, for the tests that drive them (2026-10-18). */
+export const pagesHopApi = { containerPagesCall, containerPagesFanLocal };
 
 /**
  * WHICH PAGE A SPLIT BUILD SPLITS, as a route.

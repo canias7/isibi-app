@@ -102,17 +102,18 @@ test("EVERY long call reads the job's transport — including the PAGE call, whi
     return src.slice(i, src.indexOf("\n", i));
   };
   const seen = [];
-  const make = new Function("callModel", `
+  // THE CONTAINER'S TIME RULES ARE NAMES THE READER USES (2026-10-18): handed in.
+  const make = new Function("callModel", "STREAM_IDLE_MS", "CONTAINER_CALL_CAP_MS", `
     ${pick("modelSend")}
     ${pick("modelOpts")}
     ${src.slice(at, src.indexOf("\n}", at) + 2)}
     return pagesCall;
-  `)((keys, req, budget, send, opts) => { seen.push({ send, opts }); });
+  `)((keys, req, budget, send, opts) => { seen.push({ send, opts }); }, 300000, 2400000);
 
   const send = () => {};
   make({ MODEL_SEND: send, MODEL_STREAM: true })("k", "r", 1);
   assert.equal(seen[0].send, send, "the page call did not receive the job's sender");
-  assert.deepEqual(seen[0].opts, { stream: true }, "the page call did not ask the provider to stream");
+  assert.deepEqual(seen[0].opts, { stream: true, idleMs: 300000, capMs: 2400000 }, "the page call did not ask the provider to stream, judged by its silence and not a stopwatch");
 
   make({})("k", "r", 1);
   assert.equal(seen[1].send, null, "the Worker's page call invented a sender");

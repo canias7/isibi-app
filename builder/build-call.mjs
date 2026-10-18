@@ -35,6 +35,42 @@ import { XAI_ENDPOINT, isXaiModel, toXaiRequest, fromXaiResponse, xaiErrorDetail
 // that reads it has to learn a second name.
 export const BUILDER_CALL_MS = 600000;
 
+// ── INSIDE THE CONTAINER, TIME ALONE NEVER FAILS A BUILD (2026-10-18, owner:
+// "no build should ever fail, specially when it comes to time") ─────────────
+//
+// The ten minutes above is the Worker's: a consumer is stopped at fifteen, so
+// a bound there has to be one that can fire. The container has no such wall,
+// and a five-page site measured 600s+ of writing (the Harbour Loaf build,
+// 2026-10-18, cut at 300 + 300 seconds). There, a call is judged by whether it
+// is still WORKING, not by how long it has run:
+//   - `STREAM_IDLE_MS`: a streamed call that has sent nothing for this long is
+//     stuck, and is stopped (`IdleTimeoutError`) and asked again;
+//   - `CONTAINER_CALL_CAP_MS`: a backstop far past any generation measured,
+//     inside the job's own deadline, for a call that never ends at all;
+//   - `MODEL_CALL_TRIES`: how many times one call is asked before its failure
+//     is the build's (`patientCall`).
+export const STREAM_IDLE_MS = 5 * 60 * 1000;
+export const CONTAINER_CALL_CAP_MS = 40 * 60 * 1000;
+export const MODEL_CALL_TRIES = 3;
+/**
+ * ASK AGAIN WHAT FAILED FOR A REASON THAT IS NOT AN ANSWER (2026-10-18): a
+ * transport death or a call gone silent. A provider's own status (a 4xx, a
+ * billing refusal, a 5xx it chose to send) is its answer and is thrown at once;
+ * everything else is tried up to `MODEL_CALL_TRIES` times.
+ */
+export async function patientCall(fn, { tries = MODEL_CALL_TRIES, log = () => {} } = {}) {
+  let last;
+  for (let i = 1; i <= tries; i++) {
+    try { return await fn(i); }
+    catch (e) {
+      last = e;
+      if (e && e.status) throw e;
+      if (i < tries) log("model call attempt " + i + " of " + tries + " failed (" + String((e && e.name) || "Error") + ": " + String((e && e.message) || e).slice(0, 120) + ") — asking again");
+    }
+  }
+  throw last;
+}
+
 /** HOW OFTEN THE ANSWER-SO-FAR IS READ while a stream runs (`opts.onPartial`).
  *
  * Four seconds: faster than the build poll the customer's browser makes (six),
@@ -137,7 +173,10 @@ export async function callBuilderModel(keys, req, budget = null, send = null, op
   // The sooner of the call's own ceiling and what is left of the build. See
   // `builder/build-budget.mjs`: the two bounds have to COMPOSE, or a pages call
   // starting at minute fourteen of a fifteen-minute budget gets another ten.
-  const callMs = budget && typeof budget.capMs === "function" ? budget.capMs(BUILDER_CALL_MS) : BUILDER_CALL_MS;
+  // A CALLER IN THE CONTAINER NAMES ITS OWN CEILING (`opts.capMs`, 2026-10-18):
+  // there the call is judged by its silence, and the cap is only a backstop.
+  const cap = Number.isFinite(opts && opts.capMs) && opts.capMs > 0 ? opts.capMs : BUILDER_CALL_MS;
+  const callMs = budget && typeof budget.capMs === "function" ? budget.capMs(cap) : cap;
   if (isXaiModel(req.model)) {
     if (!k.xai) {
       // NO `status`, DELIBERATELY. This used to synthesise 503, and the route
@@ -170,6 +209,9 @@ export async function callBuilderModel(keys, req, budget = null, send = null, op
       body: JSON.stringify(wireBody),
       signal: AbortSignal.timeout(callMs),
       onData,
+      // A STREAM GONE SILENT (2026-10-18): honoured by the container's sender
+      // (`longPost`), ignored by a plain fetch.
+      ...(streaming && Number.isFinite(opts && opts.idleMs) && opts.idleMs > 0 ? { idleMs: opts.idleMs } : {}),
     });
     if (!r.ok) {
       const e = new Error("xai " + r.status);
@@ -208,6 +250,7 @@ export async function callBuilderModel(keys, req, budget = null, send = null, op
     body: JSON.stringify(streaming ? { ...req, stream: true } : req),
     signal: AbortSignal.timeout(callMs),
     onData,
+    ...(streaming && Number.isFinite(opts && opts.idleMs) && opts.idleMs > 0 ? { idleMs: opts.idleMs } : {}),
   });
   if (!r.ok) {
     const e = new Error("anthropic " + r.status);

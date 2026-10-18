@@ -455,9 +455,10 @@ test("A CALLER THAT SENDS `req` IS UNTOUCHED — every existing one does", () =>
   assert.match(start, /if \(!mReqs && \(!mReq \|\| typeof mReq !== "object"\)\) return send\(res, 400, \{ ok: false, error: "no req" \}\)/,
     "a body with neither shape is no longer refused");
   const slot = between("oneAtATime(async () => {", 'req.url.startsWith("/model/result")');
-  assert.match(slot, /const answer = await callBuilderModel\(keysFrom\(BUILD_KEYS\), mReq, budget, longPost,/,
+  // ASKED AGAIN ON A SILENT STREAM OR A TRANSPORT DEATH (2026-10-18, `patientCall`).
+  assert.match(slot, /const answer = await patientCall\(\(\) => callBuilderModel\(keysFrom\(BUILD_KEYS\), mReq, budget, longPost,/,
     "the single-call path no longer makes its own call");
-  assert.match(slot, /code \? \{ stream: true, onPartial: code \} : \{ stream: true \}/,
+  assert.match(slot, /code \? \{ stream: true, idleMs: STREAM_IDLE_MS, onPartial: code \} : \{ stream: true, idleMs: STREAM_IDLE_MS \}/,
     "the single call lost its partial-code stream");
 });
 
@@ -467,7 +468,7 @@ test("NO onPartial ON A FAN-OUT, but every call still streams", () => {
   // call, because that is what keeps the wire from being idle — the reason
   // streaming exists here, not the reason the customer sees anything.
   const fan = between("if (mReqs) {", "MODEL_JOBS.set(id, { state: \"done\", answers");
-  assert.match(fan, /callBuilderModel\(keysFrom\(BUILD_KEYS\), r, budget, longPost, \{ stream: true \}\)/,
+  assert.match(fan, /callBuilderModel\(keysFrom\(BUILD_KEYS\), r, budget, longPost, \{ stream: true, idleMs: STREAM_IDLE_MS \}\)/,
     "a fan-out call does not stream, or was given the partial hook");
   assert.ok(!/onPartial/.test(fan), "the fan-out sends partial code, which interleaves into gibberish");
 });

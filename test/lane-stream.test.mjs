@@ -121,13 +121,15 @@ test("the wrapper FORWARDS opts, and hands over the job's transport — DRIVEN",
     return WORKER.slice(at, WORKER.indexOf("\n", at));
   };
   const seen = [];
-  const scope = new Function("callModel", "keysFrom", `
+  // THE CONTAINER'S TIME RULES AND ITS RETRY ARE NAMES THE READERS USE
+  // (2026-10-18): handed in, the retry as a pass-through that runs the call once.
+  const scope = new Function("callModel", "keysFrom", "STREAM_IDLE_MS", "CONTAINER_CALL_CAP_MS", "patientCall", `
     ${pick("modelSend")}
     ${pick("modelOpts")}
     ${pick("callBuilderModel")}
     return callBuilderModel;
   `)((keys, req, budget, send, opts) => { seen.push({ keys, req, budget, send, opts }); return "called"; },
-     (env) => ({ from: env }));
+     (env) => ({ from: env }), 300000, 2400000, (fn) => fn(1));
 
   // THE WORKER: no transport on the env, so both readers are transparent and
   // the call is byte-for-byte the one that shipped before this change.
@@ -143,7 +145,7 @@ test("the wrapper FORWARDS opts, and hands over the job's transport — DRIVEN",
   const send = () => {};
   scope({ MODEL_SEND: send, MODEL_STREAM: true }, { m: 2 }, null, { onPartial: "keep me" });
   assert.equal(seen[1].send, send, "the job's transport never reached the module — run 45's defect");
-  assert.deepEqual(seen[1].opts, { onPartial: "keep me", stream: true }, "the stream flag replaced the caller's opts instead of joining them");
+  assert.deepEqual(seen[1].opts, { onPartial: "keep me", stream: true, idleMs: 300000, capMs: 2400000 }, "the stream flag replaced the caller's opts instead of joining them");
 
   // A CONTAINER THAT ASKS FOR NO STREAM still gets its sender, and a caller
   // that passes no opts stays null rather than becoming an empty object.

@@ -101,7 +101,7 @@ test("the /model route calls through with the container's own taken keys", () =>
     "a /model call the busy counter cannot see is one onActivityExpired will stop mid-call");
 
   // The caller may ask for LESS (the composed build budget) and never for more.
-  assert.match(body, /Math\.min\(\s*want\s*,\s*BUILDER_CALL_MS\s*\)/,
+  assert.match(body, /Math\.min\(\s*want\s*,\s*CONTAINER_CALL_CAP_MS\s*\)/,
     "the ceiling must be ours; a bound that lives only in the caller is one the next caller forgets");
 });
 

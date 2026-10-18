@@ -40,7 +40,7 @@ import path from "node:path";
 // runs the site's own server bundle in a child), and both spawn paths hand that
 // child the whole environment. See the file for the measurement.
 import { BUILD_KEYS } from "./build-keys.mjs";
-import { callBuilderModel, keysFrom, BUILDER_CALL_MS } from "./build-call.mjs";
+import { callBuilderModel, keysFrom, BUILDER_CALL_MS, CONTAINER_CALL_CAP_MS, STREAM_IDLE_MS, patientCall } from "./build-call.mjs";
 import { longPost } from "./long-post.mjs";
 import { codeUpdate } from "./gen-code.mjs";
 import { resolvePair, resolvePageFonts, resolveFont, fontCss, fontImports } from "./site-fonts.mjs";
@@ -2066,7 +2066,9 @@ const server = http.createServer((req, res) => {
       // The ceiling is ours, not the caller's — the same rule `/model` states.
       // A caller may ask for LESS (the composed build budget) and never more.
       const want = Number(payload.callMs);
-      const callMs = Number.isFinite(want) && want > 0 ? Math.min(want, BUILDER_CALL_MS) : BUILDER_CALL_MS;
+      // THE CONTAINER'S CEILING, NOT THE WORKER'S (2026-10-18): a call here is
+      // judged by its silence (`STREAM_IDLE_MS`), and this is only the backstop.
+      const callMs = Number.isFinite(want) && want > 0 ? Math.min(want, CONTAINER_CALL_CAP_MS) : CONTAINER_CALL_CAP_MS;
       const budget = { capMs: () => callMs };
 
       sweepModelJobs();
@@ -2123,7 +2125,7 @@ const server = http.createServer((req, res) => {
           // leaves `{ i,` on the line above. Both survived a source-read sweep
           // here; both die against a driven one there.
           const results = await runFanout(mReqs, (r) =>
-            callBuilderModel(keysFrom(BUILD_KEYS), r, budget, longPost, { stream: true }));
+            patientCall(() => callBuilderModel(keysFrom(BUILD_KEYS), r, budget, longPost, { stream: true, idleMs: STREAM_IDLE_MS }), { log: (m) => console.error(m) }));
           const tally = fanoutTally(results);
           console.log("fan-out", tally.done + "/" + tally.of, "answered in", Date.now() - at, "ms");
           // THE JOB IS `done` EVEN WHEN EVERY CALL FAILED, and the caller reads
@@ -2146,8 +2148,8 @@ const server = http.createServer((req, res) => {
           return;
         }
         try {
-          const answer = await callBuilderModel(keysFrom(BUILD_KEYS), mReq, budget, longPost,
-            code ? { stream: true, onPartial: code } : { stream: true });
+          const answer = await patientCall(() => callBuilderModel(keysFrom(BUILD_KEYS), mReq, budget, longPost,
+            code ? { stream: true, idleMs: STREAM_IDLE_MS, onPartial: code } : { stream: true, idleMs: STREAM_IDLE_MS }), { log: (m) => console.error(m) });
           MODEL_JOBS.set(id, { state: "done", answer, ms: Date.now() - at, touchedAt: Date.now() });
           await sendModelReport(report, { state: "done", answer, ...genTag(report, id) });
         } catch (e) {
@@ -2283,7 +2285,9 @@ const server = http.createServer((req, res) => {
       // caller forgets, which is the argument `/hold` two routes up already
       // makes about its own lane.
       const want = Number(payload.callMs);
-      const callMs = Number.isFinite(want) && want > 0 ? Math.min(want, BUILDER_CALL_MS) : BUILDER_CALL_MS;
+      // THE CONTAINER'S CEILING, NOT THE WORKER'S (2026-10-18): a call here is
+      // judged by its silence (`STREAM_IDLE_MS`), and this is only the backstop.
+      const callMs = Number.isFinite(want) && want > 0 ? Math.min(want, CONTAINER_CALL_CAP_MS) : CONTAINER_CALL_CAP_MS;
       // `callBuilderModel` reads exactly one thing off a budget, so this is the
       // whole of that interface. A live budget object cannot cross a wire —
       // `capMs` is a function over a clock — so the Worker sends the NUMBER it
@@ -2292,7 +2296,7 @@ const server = http.createServer((req, res) => {
       return oneAtATime(async () => {
         const at = Date.now();
         try {
-          const answer = await callBuilderModel(keysFrom(BUILD_KEYS), mReq, budget, longPost, { stream: true });
+          const answer = await patientCall(() => callBuilderModel(keysFrom(BUILD_KEYS), mReq, budget, longPost, { stream: true, idleMs: STREAM_IDLE_MS }), { log: (m) => console.error(m) });
           send(res, 200, { ok: true, answer, ms: Date.now() - at });
         } catch (e) {
           // THE SHAPE IS PRESERVED, not flattened to a message. `upstreamKind`

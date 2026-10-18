@@ -53,7 +53,7 @@ function localService({ start = "ok", result = "done" } = {}) {
       const u = new URL(req.url);
       let b = {};
       try { b = JSON.parse(await req.text()); } catch { b = {}; }
-      hops.push({ path: u.pathname, n: Array.isArray(b.reqs) ? b.reqs.length : b.req ? 1 : 0 });
+      hops.push({ path: u.pathname, n: Array.isArray(b.reqs) ? b.reqs.length : b.req ? 1 : 0, list: Array.isArray(b.reqs) });
       if (u.pathname === "/model/start") return start === "ok" ? new Response(JSON.stringify({ ok: true, id: "g1" })) : new Response(JSON.stringify({ ok: false, error: "too many" }), { status: 429 });
       if (u.pathname === "/model/result") return new Response(JSON.stringify(result === "done" ? { ok: true, state: "done", answers: [] } : { ok: true, state: result }));
       return new Response(JSON.stringify({ ok: false, message: "stop here", kind: "Error" }));
@@ -129,7 +129,11 @@ test("PR 4 — LEGITIMATELY SEQUENTIAL WORK STAYS SEQUENTIAL, and says why: a th
   const svc = localService();
   const t = await buildIn({ ...jobSecrets(WORKER_ENV), SITE_BUILD_CONTAINER: svc.binding }, thin);
   assert.deepEqual(t.bands.map((s) => s.s), ["bands:thin"], JSON.stringify(t.bands));
-  assert.equal(svc.hops.filter((h) => h.path === "/model/start").length, 0, "a one-band page fanned out");
+  assert.equal(svc.hops.filter((h) => h.path === "/model/start" && h.list).length, 0, "a one-band page fanned out");
+  // ONE CALL, STARTED AND POLLED (2026-10-18, the Harbour Loaf build): never
+  // held as one long synchronous hop, which Node cuts at 300 seconds.
+  assert.ok(svc.hops.some((h) => h.path === "/model/start" && !h.list && h.n === 1), "the one call was not started and polled: " + JSON.stringify(svc.hops));
+  assert.equal(svc.hops.filter((h) => h.path === "/model").length, 0, "the one call was held as a synchronous hop");
   const svc2 = localService();
   const shut = await buildIn({ ...jobSecrets({ JOB_RUNNER_EVERYONE: "on" }), SITE_BUILD_CONTAINER: svc2.binding });
   assert.equal(shut.order.filter((x) => x === "design_schema").length, 1, "a design fanned out with every door shut");
