@@ -49,6 +49,51 @@ test("T1b AN EXPIRED OR ROTATED TOKEN (401) IS NOT A REFUSAL — the turn is ask
   assert.equal(job403.beside.refused, true);
   assert.equal(g403, 1);
 });
+test("T1c THE WAIT FOR A HELD TURN HAS ITS OWN LIMIT (2026-10-18, audit A03-3) — another job holds the turn and the budget never ends: takeTurn gives up after PUBLISH_TURN_WAIT_MS, marked waitedOut, never refused", async () => {
+  const { siteTurn } = await loadWorkerModule();
+  const held = JSON.stringify({ v: 1, owner: "job:other:o", job: "other", at: Date.now(), until: Date.now() + 10 * 60 * 1000, gen: 1 });
+  const env = { PUBLISH_TURN_POLL_MS: "2", PUBLISH_TURN_WAIT_MS: "40", SITES_BUCKET: { get: async () => ({ text: async () => held, etag: "e1", uploaded: new Date() }), put: async () => null } };
+  const job = { id: "j5", owner: "o", beside: {}, budget: { expired: () => false }, cancelled: () => false };
+  let stop = false;
+  job.cancelled = () => stop;
+  const out = await Promise.race([siteTurn.takeTurn(env, "fold-lane", job), new Promise((r) => setTimeout(() => r("still waiting"), 2000))]);
+  stop = true; // A LOOP THAT NEVER ENDED ON ITS OWN IS STOPPED, so the run itself ends.
+  assert.equal(out, null, "the wait never ended");
+  assert.equal(job.beside.waitedOut, true);
+  assert.notEqual(job.beside.refused, true);
+});
+test("T1d A STORE THAT KEEPS FAILING IS NOT WAITED OUT (2026-10-18, audit A03-3) — five failed reads in a row end the wait as unreadable; a good read between failures starts the count again", async () => {
+  const { siteTurn } = await loadWorkerModule();
+  let gets = 0;
+  const env = { PUBLISH_TURN_POLL_MS: "1", PUBLISH_TURN_WAIT_MS: "60000", SITES_BUCKET: { get: async () => { gets++; throw new GatewayError("get", 502, "publish-turn/fold-lane.json"); } } };
+  const job = { id: "j6", owner: "o", beside: {}, budget: { expired: () => false }, cancelled: () => false };
+  let stop = false;
+  job.cancelled = () => stop;
+  const out = await Promise.race([siteTurn.takeTurn(env, "fold-lane", job), new Promise((r) => setTimeout(() => r("still waiting"), 2000))]);
+  stop = true;
+  assert.equal(out, null, "a failing store was waited on forever");
+  assert.deepEqual([job.beside.unreadable, gets], [true, 5]);
+  // A GOOD READ BETWEEN FAILURES RESETS THE COUNT: fail, fail, held, fail ×5.
+  const held = JSON.stringify({ v: 1, owner: "job:other:o", job: "other", at: Date.now(), until: Date.now() + 600000, gen: 1 });
+  let n = 0;
+  const env2 = { PUBLISH_TURN_POLL_MS: "1", PUBLISH_TURN_WAIT_MS: "60000", SITES_BUCKET: { get: async () => { n++; if (n === 3) return { text: async () => held, etag: "e", uploaded: new Date() }; throw new GatewayError("get", 502, "k"); }, put: async () => null } };
+  let stop2 = false;
+  const job2 = { id: "j7", owner: "o", beside: {}, budget: { expired: () => false }, cancelled: () => stop2 };
+  await Promise.race([siteTurn.takeTurn(env2, "fold-lane", job2), new Promise((r) => setTimeout(r, 2000))]);
+  stop2 = true;
+  assert.deepEqual([job2.beside.unreadable, n], [true, 8], "the count did not start again after a good read");
+});
+test("T1e A TURN THAT TIMED OUT OR COULD NOT BE READ IS NOT AN OVERLAP — its answer has its own code, never re-run as an overlap loss, and says nothing of 'another change'", async () => {
+  const { siteTurn } = await loadWorkerModule();
+  const { OVERLAP_LOSSES } = await import("../builder/request.mjs");
+  for (const [flag, code] of [["unreadable", "turn-unreadable"], ["waitedOut", "turn-timeout"]]) {
+    const r = siteTurn.turnStop({ [flag]: true });
+    assert.equal(r.error, code);
+    assert.equal(OVERLAP_LOSSES.includes(code), false, code + " is re-run as an overlap");
+    assert.match(r.detail, /nothing was changed/);
+  }
+  assert.equal(siteTurn.turnStop({}), null);
+});
 test("B2/B3 unpublishedVersions HOLDS BACK EACH KIND ON ITS OWN — an older unpublished revision's version (not the draft's), and the draft's own version with no revision naming it; never a published one", () => {
   const V = (n) => "0179000000000" + n + "-aaaaaa";
   // B3: revision 3 is unpublished and is not the draft's own version.

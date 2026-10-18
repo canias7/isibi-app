@@ -139,3 +139,21 @@ Audit fixes 11–20 from `docs/audits/2026-10-17-builder-audit.md`, one commit e
     - without a block, there is no card.
   - Both were red on the old code.
 - **Sweep and suite.** Sweep `audit-batch-2-9.json`: 10 of 10 killed, control survived. S5 and S6 first survived; DFH7 then gained the three-row order and the temporary fault. Full suite `11479 / 11477 / 0 / 2`.
+
+## Step 10: the publish-turn wait has its own limit (A03-3)
+
+- **The finding.** Parallel parts of one message wait for the site's publish turn. The wait had no limit but the job's 50-minute budget. Every store fault except a 403 was waited as well. The timeout answered `turn`, which is an overlap loss, so the part was re-run up to twice, and its reply blamed "another change".
+- **The fix.**
+  - `builder/publish-turn.mjs` gains `TURN_WAIT_MS`, twice a turn's 10-minute life, overridable with `PUBLISH_TURN_WAIT_MS`.
+  - It also gains `TURN_UNREAD_MAX = 5`: five failed reads in a row end the wait, and a good read starts the count again.
+  - `takeTurn` marks `waitedOut` or `unreadable`. `turnStop` turns those marks into `turn-timeout` and `turn-unreadable`. Neither is in `OVERLAP_LOSSES`, so neither is re-run, and each says "nothing was changed".
+  - The customer's reply uses the "something went wrong on our side" sentence that `turn-refused` uses, never "another change".
+  - The 403 refusal and Stop are unchanged.
+  - **Not done here:** a stuck holder releasing its turn (`renewTurn`), and running a request's parts in turn rather than polling. Both are larger and kept in the backlog.
+- **Tests (`test/audit-batch-1.test.mjs`).**
+  - T1c: a turn held by another job, and a budget that never ends, gives up at the limit as `waitedOut`.
+  - T1d: five failed reads end the wait as `unreadable`; a good read in between starts the count again (8 reads).
+  - T1e: both codes, their sentences, and that neither is an overlap loss.
+  - The tests press Stop once their timer runs out, so a loop that never ends cannot hang the run.
+  - Red on the old code: 3 of 3 fail. The first red run, before Stop was wired in, never finished and was stopped at 300 seconds.
+- **Sweep and suite.** Sweep `audit-batch-2-10.json`: 8 of 8 killed, control survived. Full suite `11482 / 11480 / 0 / 2`.

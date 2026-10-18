@@ -1,0 +1,20 @@
+[
+ {"label": "CONTROL: a comment only — must survive", "control": true, "files": ["builder/publish-turn.mjs"],
+  "from": "export const TURN_UNREAD_MAX = 5;", "to": "// control\nexport const TURN_UNREAD_MAX = 5;"},
+ {"label": "W1 no wait limit", "files": ["worker.js"],
+  "from": "    if (Date.now() - started >= turnWaitMs(env)) { bs.waitedOut = true; return null; }\n", "to": ""},
+ {"label": "W2 the limit is not marked", "files": ["worker.js"],
+  "from": "{ bs.waitedOut = true; return null; }", "to": "{ return null; }"},
+ {"label": "W3 no unreadable cap", "files": ["worker.js"],
+  "from": "    if (unread >= TURN_UNREAD_MAX) { bs.unreadable = true; return null; }\n", "to": ""},
+ {"label": "W4 a good read does not reset the count", "files": ["worker.js"],
+  "from": "unread = failed ? unread + 1 : 0;", "to": "unread = failed ? unread + 1 : unread;"},
+ {"label": "W5 the env override is ignored", "files": ["worker.js"],
+  "from": "const n = Number(env && env.PUBLISH_TURN_WAIT_MS);", "to": "const n = NaN;"},
+ {"label": "W6 a timeout is reported as an overlap", "files": ["worker.js"],
+  "from": "error: \"turn-timeout\"", "to": "error: \"turn\""},
+ {"label": "W7 unreadable is reported as an overlap", "files": ["worker.js"],
+  "from": "error: \"turn-unreadable\"", "to": "error: \"turn\""},
+ {"label": "W8 the cap counts one too many", "files": ["builder/publish-turn.mjs"],
+  "from": "export const TURN_UNREAD_MAX = 5;", "to": "export const TURN_UNREAD_MAX = 6;"}
+]

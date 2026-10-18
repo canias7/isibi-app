@@ -305,7 +305,7 @@ import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig, writesSchema as partWritesSchema } from "./builder/request-plan.mjs";
-import { turnKey, turnRecord, readTurn, turnFree, nextGen, rebaseFiles, TURN_POLL_MS } from "./builder/publish-turn.mjs";
+import { turnKey, turnRecord, readTurn, turnFree, nextGen, rebaseFiles, TURN_POLL_MS, TURN_WAIT_MS, TURN_UNREAD_MAX } from "./builder/publish-turn.mjs";
 import { PART_TERMINAL as REQ_PART_TERMINAL, heldFromOf } from "./builder/request.mjs";
 import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, carrySuperseded, supersededNote, holdRequirements, heldCheckpoint, heldDelta, applyHeldDelta, readHeld, sameCheckpoint, heldNote, ownerOf, handoffsByStep, applyVerdicts, COVERAGE_STEPS, linkEvidence } from "./builder/site-requirements.mjs";
 import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.mjs";
@@ -13742,6 +13742,13 @@ export function jobSwitches(env) {
   return { draftFirst: draftFirst(env), parallelWrites: writesBeside(env) };
 }
 const turnPollMs = (env) => { const n = Number(env && env.PUBLISH_TURN_POLL_MS); return Number.isFinite(n) && n > 0 ? n : TURN_POLL_MS; };
+const turnWaitMs = (env) => { const n = Number(env && env.PUBLISH_TURN_WAIT_MS); return Number.isFinite(n) && n > 0 ? n : TURN_WAIT_MS; };
+/** A turn that was not taken for its own reason (`takeTurn`'s marks): the part's answer, or null. Never an overlap loss. */
+function turnStop(bs) {
+  if (bs && bs.unreadable) return { ok: false, error: "turn-unreadable", ours: true, detail: "this change could not read the site's publish turn — nothing was changed" };
+  if (bs && bs.waitedOut) return { ok: false, error: "turn-timeout", ours: true, detail: "another change kept the site's publish turn for too long, so this one stopped waiting — nothing was changed" };
+  return null;
+}
 /** The stored turn and its etag. A store failure throws. */
 async function readTurnObj(env, slug) {
   const o = await env.SITES_BUCKET.get(turnKey(slug));
@@ -14345,7 +14352,7 @@ async function runScriptPendingSweep(env, { now = Date.now(), maxSites = 25 } = 
  */
 /** Draft-first's own pieces, for the tests that drive them directly (`test/draft-first.test.mjs`). */
 export const draftFirstApi = { backendWriter, draftView, sealHeld, publishDraft, runPublication, runPublishRecovery, siteIsLive, heldDeleteOr, previewVersion, runPreviewRecovery, draftFacts };
-export const siteTurn = { tryTurn, takeTurn, giveTurn, renewTurn, turnStillMine, mayWriteConfig, patchSiteConfig, ensureEditableState, jobFence, fencedPut, fencedBuildDeps, stampFences, alignLiveScript, putSiteWorker, runScriptPendingSweep };
+export const siteTurn = { turnStop, tryTurn, takeTurn, giveTurn, renewTurn, turnStillMine, mayWriteConfig, patchSiteConfig, ensureEditableState, jobFence, fencedPut, fencedBuildDeps, stampFences, alignLiveScript, putSiteWorker, runScriptPendingSweep };
 /** Renew a held turn (on the job's heartbeat): false when it is no longer this job's. */
 async function renewTurn(env, slug, t) {
   try {
@@ -14371,10 +14378,14 @@ async function takeTurn(env, slug, job) {
   // heartbeat that renews it can fail, and the turn lapse to another job.
   if (bs.turn) return (await turnStillMine(env, slug, job)) ? bs.turn : null;
   const owner = "job:" + job.id + ":" + job.owner;
+  const started = Date.now();
+  let unread = 0;
   for (;;) {
     let t = null;
+    let failed = false;
     try { t = await tryTurn(env, slug, owner, job.id); }
     catch (e) {
+      failed = true;
       console.error("publish turn: unreadable for", slug, errorClassForLog(e));
       // A REFUSED TURN IS NEVER WAITED OUT (2026-10-18, audit A03-3/A37-2):
       // the store said no to this job, and asking again every few seconds
@@ -14387,9 +14398,15 @@ async function takeTurn(env, slug, job) {
       if (e && e.name === "GatewayError" && e.status === 403) { bs.refused = true; return null; }
     }
     if (t) { bs.turn = t; bs.waits = (bs.waits || 0); return t; }
+    // THE STORE FAILING READ AFTER READ, and A WAIT PAST ITS OWN LIMIT
+    // (2026-10-18, audit A03-3): each ends the wait with its own reason
+    // (`turnStop`), never as another change's overlap.
+    unread = failed ? unread + 1 : 0;
+    if (unread >= TURN_UNREAD_MAX) { bs.unreadable = true; return null; }
     bs.waits = (bs.waits || 0) + 1;
     if (typeof job.cancelled === "function" && job.cancelled()) return null;
     if (job.budget && typeof job.budget.expired === "function" && job.budget.expired()) return null;
+    if (Date.now() - started >= turnWaitMs(env)) { bs.waitedOut = true; return null; }
     await new Promise((r) => setTimeout(r, turnPollMs(env)));
   }
 }
@@ -15203,7 +15220,7 @@ function compileMsg(pub, theirs, landed = false, kept = false) {
   // the same request held the site's turn — the same kind of refusal as a
   // lost lease, and the same advice; never the restarting sentence.
   // REFUSED BY THE STORE (2026-10-18): our fault, never "another change".
-  if (pub.error === "turn-refused") {
+  if (pub.error === "turn-refused" || pub.error === "turn-unreadable" || pub.error === "turn-timeout") {
     return said("Something went wrong on our side while publishing, " + (landed ? none : "so nothing was published") + ". Try again in a moment.");
   }
   if (pub.error === "turn-lost" || pub.error === "turn") {
@@ -15469,6 +15486,7 @@ async function publishBeside(env, opts) {
   if (!t && bs.lost) return { ok: false, error: "turn-lost", ours: true, detail: "another change in this request took the turn to publish — nothing of this change was published" };
   // NOT AN OVERLAP, so never run again for one (`OVERLAP_LOSSES`).
   if (!t && bs.refused) return { ok: false, error: "turn-refused", ours: true, detail: "this change could not reach the site's publish turn — nothing was changed" };
+  if (!t && turnStop(bs)) return turnStop(bs);
   if (!t) return { ok: false, error: "turn", ours: true, detail: "another change in this request is still being published, and this one ran out of time waiting — nothing was changed" };
   tm("publish:turn", "ok", { waits: bs.waits || 0, held: !mine });
   try {

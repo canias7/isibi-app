@@ -1,5 +1,11 @@
 # Owner Notes
 
+## 2026-10-18 — Fix 10 of 12: parallel parts no longer wait 50 minutes behind a stuck one (branch only)
+
+- When one message asks for several changes, the parts take turns publishing. If one part got stuck, the others used to wait up to 50 minutes each and then run again up to twice, with a reply blaming "another change".
+- Now a part waits at most 20 minutes for its turn, and stops after five failed reads in a row. It is never re-run for that, and the reply says plainly that nothing was changed.
+- Tests T1c, T1d and T1e (red on the old code, where the wait never ended), sweep 8/8, full suite `11482 / 11480 / 0 / 2`.
+
 ## 2026-10-18 — Fix 9 of 12: the "Set aside" button (branch only)
 
 - When one held change can't be published, the Publish panel now shows a card: "1 change could not be published", the reason, and two buttons.

@@ -29,6 +29,12 @@ export const turnKey = (slug) => TURN_ROOT + slug + ".json";
 export const TURN_TTL_MS = 10 * 60 * 1000;
 /** How often a job waiting for the turn looks again. */
 export const TURN_POLL_MS = 3000;
+// THE WAIT HAS ITS OWN LIMIT (2026-10-18, audit A03-3): twice a turn's life.
+// A holder that keeps its turn longer than that is stuck, and waiting the
+// rest of a 50-minute budget behind it only holds the reserve and the reply.
+export const TURN_WAIT_MS = 2 * TURN_TTL_MS;
+// …AND A STORE THAT FAILS THIS MANY READS IN A ROW is not waited on either.
+export const TURN_UNREAD_MAX = 5;
 
 /**
  * A turn record for its holder. `gen` is the turn's FENCE (2026-10-15, after
