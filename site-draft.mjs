@@ -287,10 +287,10 @@ export function mintAfter(prev, now = Date.now(), rand = Math.random().toString(
 
 /**
  * THE VERSIONS THIS DRAFT HOLDS THAT WERE NEVER PUBLISHED (2026-10-18, audit
- * A11-1/A38-1): every version a revision past `applied` carries, the draft's
- * own and its saved predecessors — less any version a published revision
- * carries. Back online and a restore never activate one of these: under
- * draft-first the newest saved build is usually the owner's unapproved draft.
+ * A11-1/A38-1): every version a revision past `applied` carries, and the
+ * draft's own — less any version a published revision carries. Back online
+ * never activates one of these: under draft-first the newest saved build is
+ * usually the owner's unapproved draft. (The Versions restore is batch 2.)
  * A version the record does not name (built before draft-first, or published
  * and trimmed) is not in it.
  */

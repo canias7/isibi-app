@@ -10543,11 +10543,11 @@ async function draftMediaFor(env, uid, names) {
   const want = (Array.isArray(names) ? names : []).filter((n) => typeof n === "string").map((n) => n.toLowerCase()).slice(0, mediaLimits(env).draftFiles);
   if (!want.length || !uid || !env.SITES_BUCKET) return { files: [], missing: [] };
   let have = [];
-  try { have = await draftMediaList(env, String(uid)); } catch (e) { console.error("draft media read:", errorClassForLog(e)); return { files: [], missing: want.map((n) => ({ name: n, why: "it could not be read just now" })) }; }
+  try { have = await draftMediaList(env, String(uid)); } catch (e) { console.error("draft media read:", errorClassForLog(e)); return { files: [], missing: want.map((n) => ({ name: n, file: n, why: "it could not be read just now" })) }; }
   const files = [], missing = [];
   for (const n of [...new Set(want)]) {
     const f = isMediaName(n) ? have.find((h) => h.name === n) : null;
-    if (f) files.push(f); else missing.push({ name: n, why: "it was no longer kept" });
+    if (f) files.push(f); else missing.push({ name: n, file: n, why: "it was no longer kept" });
   }
   return { files, missing };
 }
@@ -10571,24 +10571,28 @@ async function adoptDraftMedia(env, uid, slug, files) {
       held = await holdMedia(deps, { scope: siteScope(slug), limits: lim, id, entry: { size: Number(f.size) || 0, files: 1, expires: Date.now() + 10 * 60 * 1000, adopt: true } });
     } catch (e) {
       console.error("site media hold:", slug, errorClassForLog(e));
-      missing.push({ name: f.download || f.name, why: "it could not be moved just now" });
+      missing.push({ name: f.download || f.name, file: f.name, why: "it could not be moved just now" });
       continue;
     }
     if (held.refuse) {
-      missing.push({ name: f.download || f.name, why: held.refuse.body && held.refuse.body.code === "busy" ? "it could not be moved just now" : "the site's video and audio storage is full" });
+      missing.push({ name: f.download || f.name, file: f.name, why: held.refuse.body && held.refuse.body.code === "busy" ? "it could not be moved just now" : "the site's video and audio storage is full" });
       continue;
     }
     try {
       const src = await env.SITES_BUCKET.get(f.key);
-      if (!src) { missing.push({ name: f.download || f.name, why: "it was no longer kept" }); continue; }
+      if (!src) { missing.push({ name: f.download || f.name, file: f.name, why: "it was no longer kept" }); continue; }
       const FLS = globalThis.FixedLengthStream;
-      const body = typeof FLS === "function" ? src.body.pipeThrough(new FLS(src.size)) : src.body;
+      // IN A CONTAINER (no fixed-length stream there) the length rides on the
+      // stream for the gateway, which streams it into storage.
+      const body = typeof FLS === "function" ? src.body.pipeThrough(new FLS(src.size)) : Object.assign(src.body, { r2Length: src.size });
       await env.SITES_BUCKET.put(uploadKey(slug, f.name), body, { httpMetadata: src.httpMetadata, customMetadata: src.customMetadata });
       try { await env.SITES_BUCKET.delete(f.key); } catch { /* the draft expires on its own */ }
       placed.push(mediaForModel({ url: uploadUrl(slug, f.name), name: f.name, download: f.download, kind: f.kind, mime: f.mime, size: f.size, duration: f.duration, width: f.width, height: f.height }));
     } catch (e) {
       console.error("draft media move:", slug, errorClassForLog(e));
-      missing.push({ name: f.download || f.name, why: "it could not be moved just now" });
+      // A REFUSAL OF THE FILE ITSELF (its length did not match, 400) will not
+      // change on a retry, so it is not said as "just now" — the page lets it go.
+      missing.push({ name: f.download || f.name, file: f.name, why: e && e.status === 400 ? "it could not be read as a whole file" : "it could not be moved just now" });
     } finally {
       await releaseMedia(deps, siteScope(slug), id);
     }
@@ -43786,8 +43790,8 @@ async function handleRequest(request, env, ctx) {
               // under draft-first the newest staged build is usually the
               // owner's unapproved draft, and "back online" put it live with
               // none of its held changes. Its versions are left out; a draft
-              // record that cannot be read leaves out every staged build, so
-              // the recompile's own refusal answers rather than a guess.
+              // record that cannot be read throws here, so no version is
+              // offered and the recompile's own draft-first refusal answers.
               versions: async ({ slug }) => {
                 const all = mergeVersions(await listVersions(versionDeps(env), { slug }), await listBuilds(buildDeps(env), slug));
                 if (!draftFirst(env)) return all;

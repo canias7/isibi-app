@@ -1,0 +1,83 @@
+[
+ {
+  "label": "CONTROL: a comment only — must survive",
+  "control": true,
+  "files": [
+   "builder/job-gateway.mjs"
+  ],
+  "from": "      let put;\n      // A LENGTH THAT DOES NOT MATCH",
+  "to": "      // control\n      let put;\n      // A LENGTH THAT DOES NOT MATCH"
+ },
+ {
+  "label": "S1 a stream is taken outside the library",
+  "files": [
+   "builder/job-gateway.mjs"
+  ],
+  "from": " && key.startsWith(\"uploads/\" + who.slug + \"/\") && declared <= MAX_STREAM_BYTES;",
+  "to": " && declared <= MAX_STREAM_BYTES;"
+ },
+ {
+  "label": "S2 a length mismatch reads as a generic failure",
+  "files": [
+   "builder/job-gateway.mjs"
+  ],
+  "from": "      catch (e) { if (body && typeof body.getReader === \"function\") return json(400, { error: \"length-mismatch\" }); throw e; }",
+  "to": "      catch (e) { throw e; }"
+ },
+ {
+  "label": "S3 the shim sends no length",
+  "files": [
+   "builder/container-env.mjs"
+  ],
+  "from": "    if (len !== null) headers[\"x-r2-length\"] = String(len);",
+  "to": ""
+ },
+ {
+  "label": "S4 a missing length header reads as zero",
+  "files": [
+   "builder/job-gateway.mjs"
+  ],
+  "from": "      const declared = said !== null && /^\\d{1,15}$/.test(said) ? Number(said) : NaN;",
+  "to": "      const declared = Number(said);"
+ },
+ {
+  "label": "L1 an unconditional ledger write is taken",
+  "files": [
+   "builder/job-gateway.mjs"
+  ],
+  "from": "      if (key.startsWith(\"media-ledger/\") && (!onlyIf || (!onlyIf.etagMatches && !onlyIf.etagDoesNotMatch))) return json(428, { error: \"a ledger write must be conditional\" });",
+  "to": ""
+ },
+ {
+  "label": "L2 a ledger with no record is taken",
+  "files": [
+   "builder/job-gateway.mjs"
+  ],
+  "from": " || !led.held || typeof led.held !== \"object\" || Array.isArray(led.held)) return json(400, { error: \"ledger\" });",
+  "to": ") return json(400, { error: \"ledger\" });"
+ },
+ {
+  "label": "D1 a pre-scoped job removes a draft",
+  "files": [
+   "builder/job-gateway.mjs"
+  ],
+  "from": "    if (op === \"delete\" && who.pre === true) return false;",
+  "to": ""
+ },
+ {
+  "label": "P1 the page keeps every missing file",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "&& /just now/.test(String(m.why || '')) && s.pendingMedia.includes(m.file)",
+  "to": "&& s.pendingMedia.includes(m.file)"
+ },
+ {
+  "label": "P2 the page keeps a file it never sent",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "&& /just now/.test(String(m.why || '')) && s.pendingMedia.includes(m.file)",
+  "to": "&& /just now/.test(String(m.why || ''))"
+ }
+]

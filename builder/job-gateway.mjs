@@ -353,6 +353,8 @@ export async function gatewayKey(secretsKey) {
 }
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;
+/** The largest file a job may stream into its library: the media ceiling (site-media.mjs `MEDIA_CEILINGS.videoBytes`). */
+export const MAX_STREAM_BYTES = 2_000_000_000;
 const ID_RE = /^[a-z0-9][a-z0-9_-]{3,80}$/i;
 /** A name the build route claims — lower-case, no edge dash, sixty at most (its `cleanSlug`). */
 const SITE_NAME_RE = /^[a-z0-9](?:[a-z0-9-]{0,58}[a-z0-9])?$/;
@@ -538,6 +540,9 @@ export function ownAccountKey(who, key, op) {
   if (k.startsWith(drafts)) {
     if (op === "list") return k === drafts;
     if (op === "write") return false;
+    // REMOVED ONLY BY A JOB THAT HOLDS A SITE (the build that moved it), never
+    // by a pre-scoped one that has no site to have moved it into.
+    if (op === "delete" && who.pre === true) return false;
     return /^[a-z0-9._-]{1,120}$/.test(k.slice(drafts.length));
   }
   if (who.pre !== true && SLUG_RE.test(String(who.slug || "")) && k === "media-ledger/site-" + who.slug + ".json") return op === "read" || op === "write";
@@ -913,8 +918,36 @@ export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scop
       if (meta.httpMetadata) opts.httpMetadata = meta.httpMetadata;
       if (meta.customMetadata) opts.customMetadata = meta.customMetadata;
       if (onlyIf) opts.onlyIf = onlyIf;
-      const body = await request.arrayBuffer();
-      const put = await bucket.put(key, body, opts);
+      // STREAMED WHEN ITS LENGTH IS KNOWN (2026-10-18, audit S1-4): a moved
+      // video was held whole in the Worker's memory. Storage takes a stream
+      // of a declared length; without one, or without the runtime's
+      // fixed-length stream, the body is read as before.
+      const said = request.headers.get("x-r2-length");
+      const declared = said !== null && /^\d{1,15}$/.test(said) ? Number(said) : NaN;
+      const FLS = globalThis.FixedLengthStream;
+      // ONLY A FILE INTO ITS OWN SITE'S LIBRARY, AND BOUNDED (2026-10-18,
+      // review of batch 1): the stream is the one path with no memory cap,
+      // so it takes the media ceiling and the uploads prefix, nothing else.
+      const streamable = SLUG_RE.test(String(who.slug || "")) && who.pre !== true && key.startsWith("uploads/" + who.slug + "/") && declared <= MAX_STREAM_BYTES;
+      // THE SITE'S MEDIA LEDGER IS WRITTEN ONLY CONDITIONALLY, as a JSON
+      // object — the hold and release the Worker's code makes — so a job
+      // cannot blank the record its media limits are counted in.
+      if (key.startsWith("media-ledger/") && (!onlyIf || (!onlyIf.etagMatches && !onlyIf.etagDoesNotMatch))) return json(428, { error: "a ledger write must be conditional" });
+      let body;
+      if (typeof FLS === "function" && request.body && Number.isSafeInteger(declared) && declared >= 0 && streamable) body = request.body.pipeThrough(new FLS(declared));
+      else {
+        body = await request.arrayBuffer();
+        if (key.startsWith("media-ledger/")) {
+          let led = null;
+          try { led = JSON.parse(new TextDecoder().decode(body)); } catch { led = null; }
+          if (!led || typeof led !== "object" || Array.isArray(led) || !led.held || typeof led.held !== "object" || Array.isArray(led.held)) return json(400, { error: "ledger" });
+        }
+      }
+      let put;
+      // A LENGTH THAT DOES NOT MATCH THE BODY is the caller's fault, said as
+      // such — never a failure that reads as "try again".
+      try { put = await bucket.put(key, body, opts); }
+      catch (e) { if (body && typeof body.getReader === "function") return json(400, { error: "length-mismatch" }); throw e; }
       // R2 answers a failed condition with null, never a throw; the shim on
       // the other side turns this 412 back into that null.
       if (put === null || put === undefined) return json(412, { error: "precondition failed" });

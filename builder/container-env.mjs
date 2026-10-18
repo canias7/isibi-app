@@ -110,6 +110,14 @@ export class GatewayBucket {
     for (const [k, v] of meta.entries()) headers[k] = v;
     if (!headers["content-type"]) headers["content-type"] = "application/octet-stream";
     const body = value == null ? new Uint8Array(0) : value;
+    // ITS LENGTH, WHEN KNOWN (2026-10-18, audit S1-4): so the gateway can
+    // stream a large file into storage rather than hold it whole. A stream
+    // says its length through `r2Length` (set by the caller that knows it).
+    const len = typeof body === "string" ? new TextEncoder().encode(body).byteLength
+      : body instanceof ArrayBuffer ? body.byteLength
+      : ArrayBuffer.isView(body) ? body.byteLength
+      : body && Number.isSafeInteger(body.r2Length) && body.r2Length >= 0 ? body.r2Length : null;
+    if (len !== null) headers["x-r2-length"] = String(len);
     const r = await this._req(this._key(key), { method: "PUT", headers, body, duplex: "half" });
     // A failed condition is R2's null, not a throw — the resume's claim and
     // every `onlyIf` caller reads it that way.

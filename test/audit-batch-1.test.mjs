@@ -52,3 +52,32 @@ test("M4 A PRE-SCOPED JOB NEVER REACHES A LEDGER — even when its token's name 
   assert.equal(ownAccountKey({ ...who, pre: true }, "media-ledger/site-fold-lane.json", "read"), false);
   assert.equal(ownAccountKey({ ...who, pre: true }, "media-ledger/site-fold-lane.json", "write"), false);
 });
+
+// A01-2's last part (2026-10-18): the page forgot every pre-site file after a
+// build, even one the build said it could not move "just now".
+import { readFileSync } from "node:fs";
+test("M5 A PRE-SITE FILE THE BUILD COULD NOT MOVE FOR NOW STAYS WAITING; ONE GONE OR WITH NO ROOM IS LET GO — the page's own block, run", () => {
+  const chat = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  const at = chat.indexOf("if (Array.isArray(s.pendingMedia)) {");
+  assert.ok(at > 0, "the block moved — rescope this guard");
+  let depth = 0, end = -1;
+  for (let i = chat.indexOf("{", at); i < chat.length; i++) { if (chat[i] === "{") depth++; else if (chat[i] === "}" && --depth === 0) { end = i + 1; break; } }
+  const run = new Function("s", "d", chat.slice(at, end));
+  const A = "a".repeat(32) + ".mp4", B = "b".repeat(32) + ".mp3", C = "c".repeat(32) + ".m4a";
+  const s1 = { pendingMedia: [A, B, C] };
+  run(s1, { media: { missing: [
+    { name: "clip.mp4", file: A, why: "it could not be moved just now" },
+    { name: "tone.mp3", file: B, why: "it was no longer kept" },
+    { name: "x.m4a", file: C, why: "the site's video and audio storage is full" },
+  ] } });
+  assert.deepEqual(s1.pendingMedia, [A], "only the file that could not be moved for now should wait");
+  const s2 = { pendingMedia: [A] };
+  run(s2, { media: { missing: [] } });
+  assert.equal(s2.pendingMedia, undefined, "a moved file was kept waiting");
+  const s3 = { pendingMedia: [A] };
+  run(s3, {});
+  assert.equal(s3.pendingMedia, undefined, "an answer without media kept the list");
+  const s4 = { pendingMedia: [A] };
+  run(s4, { media: { missing: [{ file: "zzz.mp4", why: "it could not be read just now" }] } });
+  assert.equal(s4.pendingMedia, undefined, "a file the page never sent was added");
+});

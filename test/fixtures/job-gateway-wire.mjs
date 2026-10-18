@@ -44,7 +44,7 @@ function recording(f, calls, refused) {
  * calls, refused, token }`; `rescope(slug)` runs the real `/scope` op and
  * moves the shim to the token it answers.
  */
-export async function gatewayBucketFor({ bucket, id, slug = null, uid = "u-gw-1", secret = "s".repeat(48), owner = async () => null, exp = Date.now() + 3600_000 } = {}) {
+export async function gatewayBucketFor({ bucket, id, slug = null, uid = "u-gw-1", secret = "s".repeat(48), owner = async () => null, exp = Date.now() + 3600_000, sb = null } = {}) {
   const key = await gatewayKey(secret);
   const pre = !slug;
   const token = await signJobToken({ id, slug: pre ? preScopeSlug(id) : slug, uid, exp, ...(pre ? { pre: true } : {}) }, key);
@@ -53,6 +53,8 @@ export async function gatewayBucketFor({ bucket, id, slug = null, uid = "u-gw-1"
     verify: (t) => verifyJobToken(t, key, Date.now()),
     log: () => {},
     scope: { sign: (p) => signJobToken(p, key), owner },
+    // `sb` (2026-10-18): the gateway's own Supabase door, `{ url, key, mint, fetch }`.
+    ...(sb ? { sb } : {}),
   });
   const calls = [], refused = [];
   const f = recording((url, init) => handle(new Request(url, { ...init, ...(init && init.body != null && typeof init.body !== "string" ? { duplex: "half" } : {}) }), id), calls, refused);

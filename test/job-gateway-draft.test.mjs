@@ -41,7 +41,7 @@ import {
 import { buildBucket, GOOD_DESIGN, BUILD_USER, BRIEF } from "./fixtures/build-route.mjs";
 import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "./fixtures/cf-containers.mjs";
 import { loadWorkerModule, makeCtx } from "./fixtures/worker-harness.mjs";
-import { makeContainerEnv } from "../builder/container-env.mjs";
+import { makeContainerEnv, gatewayFetch } from "../builder/container-env.mjs";
 import { jobKey, packJob, resultKey } from "../builder/build-job.mjs";
 
 blockNetwork();
@@ -296,7 +296,12 @@ test("JGD-M A FIRST BUILD READS AND MOVES THE ACCOUNT'S OWN PRE-SITE FILES, THRO
   await assert.rejects(() => pre.bucket.get("media-ledger/site-" + SLUG + ".json"), /403/, "a pre-scoped job read a ledger");
   // ONCE NAMED: the move.
   const gw = await gatewayBucketFor({ bucket: b, id: ID, slug: SLUG, uid: UID });
-  await gw.bucket.put("media-ledger/site-" + SLUG + ".json", JSON.stringify({ held: {} }));
+  await gw.bucket.put("media-ledger/site-" + SLUG + ".json", JSON.stringify({ v: 2, held: {} }), { onlyIf: { etagDoesNotMatch: "*" } });
+  // THE LEDGER IS WRITTEN ONLY CONDITIONALLY AND WITH ITS RECORD (review of batch 1).
+  await assert.rejects(() => gw.bucket.put("media-ledger/site-" + SLUG + ".json", "{}"), /428/, "an unconditional ledger write was taken");
+  await assert.rejects(() => gw.bucket.put("media-ledger/site-" + SLUG + ".json", "{}", { onlyIf: { etagDoesNotMatch: "*" } }), /400/, "a ledger with no record of holds was taken");
+  // A PRE-SCOPED JOB NEVER REMOVES A DRAFT.
+  await assert.rejects(() => pre.bucket.delete("drafts/" + UID + "/" + CLIP), /403/, "a pre-scoped job removed a draft");
   const src = await gw.bucket.get("drafts/" + UID + "/" + CLIP);
   await gw.bucket.put("uploads/" + SLUG + "/" + CLIP, await src.text());
   await gw.bucket.delete("drafts/" + UID + "/" + CLIP);
@@ -311,4 +316,119 @@ test("JGD-M A FIRST BUILD READS AND MOVES THE ACCOUNT'S OWN PRE-SITE FILES, THRO
   assert.equal(ownAccountKey(who, "drafts/" + UID + "/", "read"), false);
   assert.equal(ownAccountKey({ ...who, uid: "../evil" }, "drafts/../evil/" + CLIP, "read"), false);
   assert.equal(ownAccountKey(who, "media-ledger/site-" + SLUG + ".json", "delete"), false);
+});
+
+test("JGD-S A FILE OF KNOWN LENGTH IS STREAMED INTO STORAGE THROUGH THE GATEWAY (audit S1-4) — with the runtime's fixed-length stream, the bucket is handed a stream, never the whole file read first; the bytes arrive intact; without it, or without a length, the body is read whole as before", async () => {
+  const got = [];
+  const store = new Map();
+  const bucket = {
+    async put(key, body) {
+      const streamed = body && typeof body.getReader === "function";
+      const bytes = streamed ? new Uint8Array(await new Response(body).arrayBuffer()) : new Uint8Array(body);
+      got.push({ key, streamed }); store.set(key, bytes);
+      return { key, size: bytes.byteLength, etag: "e", httpEtag: '"e"', uploaded: new Date() };
+    },
+    async get() { return null; }, async head() { return null; }, async delete() {}, async list() { return { objects: [], truncated: false }; },
+  };
+  const real = globalThis.FixedLengthStream;
+  globalThis.FixedLengthStream = class extends TransformStream { constructor(n) { super(); this.n = n; } };
+  try {
+    const gw = await gatewayBucketFor({ bucket, id: ID, slug: SLUG });
+    const bytes = new Uint8Array(200_000).map((_, i) => i % 251);
+    const stream = Object.assign(new Response(bytes).body, { r2Length: bytes.byteLength });
+    await gw.bucket.put("uploads/" + SLUG + "/clip.mp4", stream, { httpMetadata: { contentType: "video/mp4" } });
+    assert.deepEqual(got.at(-1), { key: "uploads/" + SLUG + "/clip.mp4", streamed: true }, "a file of known length was read whole before storing");
+    assert.deepEqual(store.get("uploads/" + SLUG + "/clip.mp4"), bytes);
+    // A STREAM WITH NO LENGTH: read whole, as before.
+    await gw.bucket.put("uploads/" + SLUG + "/b.mp4", new Response(bytes).body);
+    assert.equal(got.at(-1).streamed, false);
+    // ONLY ITS OWN LIBRARY, AND BOUNDED (review of batch 1): anywhere else, or
+    // past the media ceiling, the body is read whole as before.
+    await gw.bucket.put("source/" + SLUG + "/x.json", Object.assign(new Response(bytes).body, { r2Length: bytes.byteLength }));
+    assert.equal(got.at(-1).streamed, false, "a stream was taken outside the site's library");
+    // A LENGTH THAT DOES NOT MATCH THE BODY: the caller's fault, 400, never "try again".
+    const lying = Object.assign(new Response(bytes).body, { r2Length: 10 });
+    const failing = { ...bucket, put: async (key, body) => { await new Response(body).arrayBuffer(); throw new Error("length mismatch"); } };
+    const gw2 = await gatewayBucketFor({ bucket: failing, id: ID, slug: SLUG });
+    await assert.rejects(() => gw2.bucket.put("uploads/" + SLUG + "/d.mp4", lying), (e) => e && e.status === 400, "a length mismatch was not refused as the caller's fault");
+    delete globalThis.FixedLengthStream;
+    await gw.bucket.put("uploads/" + SLUG + "/c.mp4", bytes);
+    assert.equal(got.at(-1).streamed, false, "without the runtime's stream the body must be read whole");
+    assert.deepEqual(store.get("uploads/" + SLUG + "/c.mp4"), bytes);
+  } finally { if (real) globalThis.FixedLengthStream = real; else delete globalThis.FixedLengthStream; }
+});
+
+test("JGD5 A FIRST BUILD IN ITS CONTAINER, SUPABASE THROUGH THE GATEWAY'S OWN DOOR (audit A01-1, A08-3, S1-3) — the account already holds the name the designer picks, from another chat: the build asks its chat's site and the name's owner through the gateway (its own account's rows, the existence read), moves to the next free name, claims and saves that — never a revise of the other site — and the gateway refuses nothing", async () => {
+  const FIRST_PAGE = "import { createFileRoute } from '@tanstack/react-router';\nexport const Route = createFileRoute('/')({ component: Page });\nfunction Page() { return (<main><h1>Harbour Loaf</h1><p>Loaves from 7.</p></main>); }\n";
+  const b = buildBucket();
+  const id = [...crypto.getRandomValues(new Uint8Array(16))].map((x) => x.toString(16).padStart(2, "0")).join("");
+  b.store.set(jobKey(id), JSON.stringify(packJob({ url: "https://gofarther.dev/api/site/react-build", auth: "Bearer t", body: JSON.stringify({ brief: BRIEF, images: [], qa: [], chat: "chat-bbbbbbbb", picker: "sonnet" }), uid: BUILD_USER.id, at: 1 })));
+  const held = GOOD_DESIGN.slug, fresh = held + "-2";
+  const faithful = {
+    get: (k) => b.get(k),
+    head: async (k) => { const o = await b.get(k); if (!o) return null; const { body, text, json, arrayBuffer, ...rest } = o; return rest; },
+    put: async (k, v, opts) => b.put(k, v instanceof ArrayBuffer || v instanceof Uint8Array ? new TextDecoder().decode(v) : v, opts),
+    delete: (k) => b.delete(k), list: (o) => b.list(o),
+  };
+  const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { "content-type": "application/json" } });
+  const sbSeen = [];
+  const claims = [];
+  // THE PLATFORM'S SUPABASE, as the gateway reaches it with the service key.
+  const supabase = async (input, init) => {
+    const u = new URL(String((input && input.url) || input || ""));
+    const method = String((init && init.method) || "GET").toUpperCase();
+    sbSeen.push(method + " " + u.pathname + u.search);
+    const m = u.pathname.match(/\/rest\/v1\/rpc\/(\w+)/);
+    if (m) {
+      const args = JSON.parse(String((init && init.body) || "{}"));
+      if (m[1] === "edit_handoff") return json({ ok: true, state: "claimed", owner: args.p_next, slug: args.p_slug || null, uid: BUILD_USER.id });
+      if (m[1] === "build_debit" || m[1] === "credit_debit") return json({ ok: true, taken: 2, balance: 400, repeat: false });
+      if (m[1] === "get_credits") return json(400);
+      if (m[1] === "use_quota") return json(true);
+      return json({ ok: true });
+    }
+    if (u.pathname.endsWith("/site_backends")) {
+      if (method === "POST") { const row = JSON.parse(String(init.body)); claims.push(row.slug); return json([{ slug: row.slug, uid: BUILD_USER.id }], 201); }
+      const q = (k) => (u.searchParams.get(k) || "").replace(/^eq\./, "");
+      const rows = [{ slug: held, uid: BUILD_USER.id, chat_id: "chat-aaaaaaaa", neon_db: "", brief: "the other site" }, ...claims.map((s) => ({ slug: s, uid: BUILD_USER.id, chat_id: "chat-bbbbbbbb", neon_db: "", brief: BRIEF }))];
+      const hit = rows.filter((r) => (!u.searchParams.has("slug") || r.slug === q("slug")) && (!u.searchParams.has("uid") || r.uid === q("uid")) && (!u.searchParams.has("chat_id") || r.chat_id === q("chat_id")));
+      const sel = (u.searchParams.get("select") || "uid,neon_db,brief,slug").split(",");
+      return json(hit.map((r) => Object.fromEntries(sel.map((c) => [c, r[c]]))));
+    }
+    if (u.pathname.endsWith("/credits")) return json([{ balance: 400 }]);
+    if (u.pathname.includes("/rest/v1/")) return json([]);
+    return new Response("no", { status: 503 });
+  };
+  const gw = await gatewayBucketFor({ bucket: faithful, id, slug: null, uid: BUILD_USER.id, owner: async (s) => (s === held || s === fresh ? BUILD_USER.id : null),
+    sb: { url: "https://sb.example.co", key: "svc", mint: "m", fetch: supabase } });
+  const env = makeContainerEnv({ secrets: { DRAFT_FIRST: "on", ANTHROPIC_API_KEY: "k", XAI_API_KEY: "k", NEON_API_KEY: "k", ...dispatchEnv() }, gateway: gw.gateway, sb: { url: "https://ujrqdmmtcptvimazlhom.supabase.co" }, fetch: gw.fetch, pre: true });
+  const real = globalThis.fetch;
+  const outside = async (input, init) => {
+    const u = String((input && input.url) || input || "");
+    if (u.startsWith("https://gofarther.dev/api/job/")) return gw.fetch(u, init);
+    if (u.includes("/auth/v1/user")) return json(BUILD_USER);
+    if (u.includes("/v1/messages")) {
+      const bd = JSON.parse(String((init && init.body) || "{}"));
+      if (bd.tool_choice && bd.tool_choice.name === "design_schema") return json({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "t1", name: "design_schema", input: GOOD_DESIGN }], usage: { input_tokens: 100, output_tokens: 50 } });
+      return new Response("stop", { status: 503 });
+    }
+    if (isDispatchUpload(u)) return dispatchOk();
+    return new Response("no", { status: 503 });
+  };
+  globalThis.fetch = gatewayFetch({ gateway: gw.gateway, sbUrl: "https://ujrqdmmtcptvimazlhom.supabase.co", fetch: outside });
+  const c = installCompiler({ worker: true, model: async () => ({ stop_reason: "tool_use", usage: { input_tokens: 10, output_tokens: 10 }, content: [{ type: "tool_use", id: "w1", name: "write_pages", input: { pages: [{ path: "index.tsx", source: FIRST_PAGE }], notes: "" } }] }) });
+  try {
+    const mod = await loadWorkerModule();
+    const ctx = makeCtx();
+    await mod.runContainerJob(env, ctx, { kind: "build", id, holder: "c_consumer1" });
+    for (let i = 0; i < 8 && ctx.pending.length; i++) await Promise.allSettled(ctx.pending.splice(0));
+  } finally { globalThis.fetch = real; c.uninstall(); }
+  const refusedSb = gw.calls.filter((x) => x.status === 403 && x.path.includes("/sb/"));
+  assert.ok(sbSeen.length > 0, "no Supabase call crossed the gateway's door — this case watched nothing");
+  assert.ok(sbSeen.some((x) => x.includes("chat_id=eq.chat-bbbbbbbb")), "the build never asked its chat's site through the gateway");
+  assert.deepEqual(refusedSb, [], "the gateway refused a Supabase call the Build needs: " + JSON.stringify(refusedSb));
+  assert.deepEqual(gw.refused, [], "the wall refused a key the Build needs");
+  assert.deepEqual(claims, [fresh], "the build did not move to the next free name — it would have revised the account's other site: " + JSON.stringify({ claims, answer: String(b.store.get(resultKey(id))).slice(0, 300) }));
+  assert.ok(b.store.get(DRAFT_KEY(fresh)), "the build saved no draft under its fresh name");
+  assert.equal(b.store.get(DRAFT_KEY(held)), undefined, "the build wrote over the account's other site's draft");
 });

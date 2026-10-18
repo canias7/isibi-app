@@ -14420,7 +14420,14 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
         // THE FILES KEPT BEFORE THE SITE EXISTED HAVE A HOME NOW (2026-10-16):
         // the build that holds the address moved them (or said which it could
         // not), so they are not named to a later build as still waiting.
-        if (Array.isArray(s.pendingMedia)) delete s.pendingMedia;
+        // A FILE THE BUILD COULD NOT MOVE FOR NOW (2026-10-18, audit A01-2)
+        // stays waiting, so the next build is handed it again; one that is
+        // gone or had no room is let go, as the reply already said.
+        if (Array.isArray(s.pendingMedia)) {
+          const miss = d.media && Array.isArray(d.media.missing) ? d.media.missing : [];
+          const again = miss.filter((m) => m && typeof m.file === 'string' && /just now/.test(String(m.why || '')) && s.pendingMedia.includes(m.file)).map((m) => m.file);
+          if (again.length) s.pendingMedia = again; else delete s.pendingMedia;
+        }
         if (d.backend) s.backend = true; // this site now has its own database
         if (d.brand && typeof d.brand === 'string' && d.brand.trim()) s.name = d.brand.trim().slice(0, 40);
         // EVERY ROUTE IT WROTE, not one hardcoded entry. `filesSeen` is what the
