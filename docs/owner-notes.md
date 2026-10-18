@@ -1,5 +1,32 @@
 # Owner Notes
 
+## 2026-10-18 — #8 and #9 finished, and all ten double-checked (branch only; nothing merged, deployed or spent)
+
+**On your word** ("the thing in 8 and 9 and then double check").
+- **#9**: a video or audio file a build could not move "just now" now stays
+  waiting for the next build instead of being forgotten; large files are
+  streamed through the gateway instead of held in memory (only into the
+  site's own library, capped at the 2 GB media ceiling, and a file whose
+  length does not match is refused as a bad file, not retried forever).
+- **#8**: a whole first build now runs in a test through the container with
+  Supabase going through the gateway: it finds the account already owns the
+  name and moves to a fresh one instead of rebuilding the other site (JGD5;
+  fails on the old code).
+- **The double-check**: an independent review of all ten found no critical
+  or high problem. Its two medium points are fixed: the site's media ledger
+  (which counts the size limits) can only be written conditionally and with
+  its record, and streamed writes are bounded (above). Also: a first build
+  with no site yet can no longer remove pre-site files, and two comments
+  were corrected.
+- **Checked**: the first sweep re-run on today's code 20 of 20 killed; the
+  follow-up sweep 9 of 9; both controls survived. Full suite 11,454 tests:
+  11,452 passed, 0 failed, 2 skipped (two tests needed updating first for
+  the new `media` field: `file` on missing entries, and the answer's
+  `media` named as composed in worker.js).
+- **Still open, recorded**: a job can still write its own site's ledger
+  with a matching condition (bounded to a well-formed record); a 401 from an
+  expired job token is treated like a refusal (not retried).
+
 ## 2026-10-18 — The audit's first ten findings are fixed (branch only; nothing merged, deployed, switched, applied or spent)
 
 **On your word** ("ok start fixing"). Branch `codex-work-into-claude`. The

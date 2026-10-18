@@ -245,7 +245,8 @@ test("BUILD: the drafts the message names move into the new site's library, and 
   assert.ok(r.store.has("uploads/harbour-loaf/" + name), "the draft did not move into the site's library");
   assert.equal(r.store.has(draft), false, "the draft was kept after it moved");
   assert.deepEqual(r.reply.media.placed, [{ name, url: "/u/harbour-loaf/" + name, kind: "video" }]);
-  assert.deepEqual(r.reply.media.missing, [{ name: "f".repeat(32) + ".mp3", why: "it was no longer kept" }]);
+  // `file` (2026-10-18): the stored name, so the page can keep a file that may be moved later.
+  assert.deepEqual(r.reply.media.missing, [{ name: "f".repeat(32) + ".mp3", file: "f".repeat(32) + ".mp3", why: "it was no longer kept" }]);
   // WHERE THE FILES WENT IS THE WRITER'S OWN REPLY (2026-10-15): it is given
   // the facts — the moved file marked, the missing one with why — and no
   // sentence of ours narrates the move; only the file that could not be

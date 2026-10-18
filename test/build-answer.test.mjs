@@ -385,6 +385,11 @@ test("every answer field chat.js reads on success is composed by somebody — de
     // design step's, and deciding whether a build should carry them is the
     // owner's — but named so the next reader does not take their absence from
     // the answer as this change having dropped them.
+    // COMPOSED IN worker.js ON BOTH SHAPES, not in the shared composer: the
+    // inline answer (`media: { placed, missing }`) and the resumed one
+    // (`resumeMedia`). Read since 2026-10-18 to keep a file that could not be
+    // moved "just now" waiting for the next build (audit A01-2).
+    media: "composed in worker.js on both shapes (inline answer, resumeMedia)",
     styleNote: "dead read: nothing composes it onto a build's answer",
     tokensNote: "dead read: nothing composes it onto a build's answer",
   };
