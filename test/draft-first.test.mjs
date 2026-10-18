@@ -1421,3 +1421,55 @@ test("DFH1 A HELD ROW CHANGE IS CHECKED WHEN IT IS HELD (2026-10-18, audit A09-3
   } finally { await finish(P, compiler); }
 });
 
+
+/** A loaf added on the live site by the owner's own panel, after a draft held one. */
+async function addLive(db, name, price) {
+  const r = db.answer('INSERT INTO "loaves" ("name", "price") VALUES ($1, $2)', [name, String(price)]);
+  assert.equal(r.status, 200, "the live insert was refused: " + (await r.clone().text()));
+}
+test("DFH3 A HELD NEW ROW THAT NOW CLASHES STOPS PUBLISH BEFORE ANYTHING GOES LIVE (2026-10-18, audit A09-2) — Spelt held, then a Spelt added on the live site: Publish refuses with the reason before its switch; the live version, the rows and the record are unchanged; renamed live, the same revision then publishes", async () => {
+  const { P, db, compiler } = bakery("dfh3", { unique: ["name"] });
+  try {
+    await runOne(P, TIKTOK);
+    P.env.DRAFT_FIRST = "on";
+    await runOne(P, RYE);
+    await runOne(P, SPELT);
+    await runOne(P, TIKTOK_LATER);
+    const d = draftOf(P);
+    const v0 = liveVersion(P);
+    await addLive(db, "Spelt", 6);
+    const rows0 = JSON.stringify(db.rows("loaves"));
+    const p = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.revs[d.rev - 1].version });
+    assert.notEqual(p.status, 200, "a clashing publication answered ok: " + JSON.stringify(p.body).slice(0, 300));
+    assert.match(String(p.body && p.body.error), /already there/i, "the stop does not say why: " + JSON.stringify(p.body).slice(0, 300));
+    assert.match(String(p.body && p.body.error), /nothing changed on your live site/i);
+    assert.equal(liveVersion(P), v0, "the new version went live with a clashing row held");
+    assert.equal(JSON.stringify(db.rows("loaves")), rows0, "a row moved");
+    assert.equal(draftOf(P).applied, 0, "the record says published");
+    // THE OBSERVER IS ALIVE: with the clash gone, the same revision publishes.
+    db.answer('UPDATE "loaves" SET "name" = $1 WHERE id = $2', ["Spelt (live)", db.rows("loaves").find((r) => r.name === "Spelt").id]);
+    const again = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.revs[d.rev - 1].version });
+    assert.equal(again.status, 200, JSON.stringify(again.body).slice(0, 300));
+    assert.deepEqual(spelt(db).map((r) => Number(r.price)), [6.2]);
+    assert.equal(price(db, 2), 5.6);
+  } finally { await finish(P, compiler); }
+});
+
+test("DFH4 A UNIQUE CLASH AFTER THE SWITCH IS NEVER TAKEN FOR A REPEAT (2026-10-18, audit A09-2) — the pre-switch check goes unanswered, so the clash meets the insert itself: the publication is not finished, 'inserts' is not marked done, the record is not marked, and nothing reports success", async () => {
+  const { P, db, compiler } = bakery("dfh4", { unique: ["name"] });
+  try {
+    await runOne(P, TIKTOK);
+    P.env.DRAFT_FIRST = "on";
+    await runOne(P, SPELT);
+    const d = draftOf(P);
+    await addLive(db, "Spelt", 6);
+    db.rehearsalsDown(10);
+    const p = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.revs[d.rev - 1].version });
+    assert.notEqual(p.status, 200, "a clash after the switch answered ok: " + JSON.stringify(p.body).slice(0, 300));
+    const jr = journalOf(P);
+    assert.ok(jr && !(jr.done || []).includes("inserts"), "the inserts were marked done: " + JSON.stringify(jr));
+    assert.notEqual(jr.phase, "finished");
+    assert.equal(draftOf(P).applied, 0, "the record says published");
+    assert.equal(spelt(db).length, 1, "the held Spelt went in beside the live one");
+  } finally { await finish(P, compiler); }
+});

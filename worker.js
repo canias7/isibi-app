@@ -13029,6 +13029,26 @@ async function runPublication(env, slug, j, etag) {
           return before("the new tables could not be made (" + errorClassForLog(e) + ")", 502);
         }
       }
+      // EVERY HELD ROW TRIED FIRST (2026-10-18, audit A09-2): the changes and
+      // the new rows are rehearsed on the live database and rolled back, so
+      // one that now clashes — a name added on the live site since it was
+      // held — stops Publish here, named, while nothing is live, rather than
+      // after the switch. Unanswered, the finish below still refuses to take
+      // a clash for done.
+      if (db) {
+        const tries = [
+          ...plan.changes.filter((c) => c.op !== "remove" && Number.isSafeInteger(c.id) && c.id > 0 && Object.keys(c.values || {}).length).map((c) => {
+            const cols = Object.keys(c.values);
+            return { sql: "UPDATE \"" + String(c.table).replace(/"/g, "") + "\" SET " + cols.map((k) => '"' + k.replace(/"/g, "") + '" = ?').join(", ") + " WHERE id = ? RETURNING id", params: [...cols.map((k) => c.values[k]), c.id] };
+          }),
+          ...plan.inserts.map((r) => { const ins = insertStatement(String(r.table).replace(/"/g, ""), r.values || {}); return { sql: ins.sql + " RETURNING id", params: ins.params }; }),
+        ];
+        for (const t of tries) {
+          let tried = null;
+          try { tried = await sqlRehearse(db, t.sql, t.params); } catch (e) { console.error("publish rehearsal unanswered:", slug, errorClassForLog(e)); break; }
+          if (heldRefused(tried)) return before("a held change can't be saved: " + heldRefusalSaid(tried));
+        }
+      }
       await save({ phase: "prepared" });
     }
 
@@ -13150,11 +13170,17 @@ async function runPublication(env, slug, j, etag) {
             rowsOf(await sqlQuery(db, st.sql, st.params));
           } catch (e) {
             if (!(e && e.code === "23505")) return keep("inserts", errorClassForLog(e), "switched");
+            // A REPEAT ONLY WHEN THIS PUBLICATION'S OWN KEY IS THERE
+            // (2026-10-18, audit A09-2): a clash on one of the list's own
+            // values also answers 23505, and was taken for a repeat — the
+            // step marked done, every held new row dropped, Publish "ok".
+            let v = null;
             try {
               const got = await sqlQuery(db, "SELECT v FROM _meta WHERE k = ?", [key]);
-              const v = got && got[0] && got[0].v ? JSON.parse(got[0].v) : null;
-              rowsOf(v && Array.isArray(v.rows) ? v.rows.map((r) => ({ n: r.n, row: r.row })) : []);
+              v = got && got[0] && got[0].v ? JSON.parse(got[0].v) : null;
             } catch (e2) { return keep("inserts", errorClassForLog(e2), "switched"); }
+            if (!v || !Array.isArray(v.rows)) return keep("inserts", "a held entry clashes with one already on the list", "switched");
+            rowsOf(v.rows.map((r) => ({ n: r.n, row: r.row })));
           }
         }
         await mark("inserts", { refs: { ...j.refs, ...refs } });

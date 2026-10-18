@@ -1,0 +1,51 @@
+[
+ {
+  "label": "CONTROL: a comment only — must survive",
+  "control": true,
+  "files": [
+   "worker.js"
+  ],
+  "from": "      if (db) {\n        const tries = [",
+  "to": "      // control\n      if (db) {\n        const tries = ["
+ },
+ {
+  "label": "P1 no pre-switch rehearsal",
+  "files": [
+   "worker.js"
+  ],
+  "from": "      if (db) {\n        const tries = [",
+  "to": "      if (false) {\n        const tries = ["
+ },
+ {
+  "label": "P2 a pre-switch refusal is ignored",
+  "files": [
+   "worker.js"
+  ],
+  "from": "if (heldRefused(tried)) return before(\"a held change can't be saved: \"",
+  "to": "if (false) return before(\"a held change can't be saved: \""
+ },
+ {
+  "label": "P3 the inserts are not rehearsed",
+  "files": [
+   "worker.js"
+  ],
+  "from": "          ...plan.inserts.map((r) =>",
+  "to": "          ...[].map((r) =>"
+ },
+ {
+  "label": "P4 any 23505 is a repeat again",
+  "files": [
+   "worker.js"
+  ],
+  "from": "if (!v || !Array.isArray(v.rows)) return keep(\"inserts\", \"a held entry clashes with one already on the list\", \"switched\");\n            rowsOf(v.rows.map(",
+  "to": "rowsOf(((v && v.rows) || []).map("
+ },
+ {
+  "label": "P5 the reason is not named",
+  "files": [
+   "worker.js"
+  ],
+  "from": "return before(\"a held change can't be saved: \" + heldRefusalSaid(tried));",
+  "to": "return before(\"a held change can't be saved\");"
+ }
+]

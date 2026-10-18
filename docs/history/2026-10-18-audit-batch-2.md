@@ -69,3 +69,15 @@ Audit fixes 11–20 from `docs/audits/2026-10-17-builder-audit.md`, one commit e
   - The stand-in database learnt rehearsals and `dropTable`.
   - Red on the old worker: 3 of 3 fail.
 - **Sweep and suite.** Sweep `audit-batch-2-6.json`: 8 of 8 killed, control survived (H4's anchor was fixed; the not-live case was added after H5 first survived). Full suite `11472 / 11470 / 0 / 2`.
+
+## Step 7: Publish never drops held new rows on a clash (A09-2)
+
+- **The finding.** A held new row clashed with a value added on the live site after it was held, for example a second "Spelt" on a unique list. Publish's insert answered 23505. That was taken for "this publication already ran": the step was marked done, every held new row was dropped, and Publish answered ok.
+- **The fix, in two parts.**
+  - **Before the switch, in the start phase:** every held change and new row is rehearsed with `sqlRehearse`. A class 22 or 23 refusal stops Publish through `before()`. The journal is retired, nothing is live, and the reason is named ("a held change can't be saved: an entry with that value is already there — nothing changed on your live site").
+  - **After the switch:** a 23505 counts as a repeat only when this publication's own `_meta` key is there. Otherwise the step stops (`keep`), unmarked. Step 8 gives such a stop its end state.
+- **Tests.**
+  - DFH3: Spelt held, a live Spelt added, then Publish. It is refused before the switch; the live version, rows and record are unchanged; once the live one is renamed, the same revision publishes.
+  - DFH4: rehearsals unanswered, so the clash meets the insert itself. The publication is not finished, the inserts are not marked done, the record is not marked, and there is still one Spelt.
+  - Both were red on the old code (Publish answered ok).
+- **Sweep and suite.** Sweep `audit-batch-2-7.json`: 5 of 5 killed, control survived. P4 first survived because deleting the line crashed instead of treating the clash as a repeat, so the mutant was rewritten as the old behaviour exactly. Full suite `11474 / 11472 / 0 / 2`.

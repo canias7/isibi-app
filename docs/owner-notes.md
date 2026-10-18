@@ -1,5 +1,11 @@
 # Owner Notes
 
+## 2026-10-18 — Fix 7 of 12: Publish no longer silently drops new rows (branch only)
+
+- Before: if a new loaf held in the draft clashed with one added on the live site afterwards, Publish said "done" and quietly dropped every new row.
+- Now Publish tries every held row first, before anything goes live. A clash stops it with the reason ("an entry with that value is already there"), and nothing on the live site changes. If the clash only shows up later, it is never counted as done.
+- Tests DFH3 and DFH4 (both red on the old code), sweep 5/5, full suite `11474 / 11472 / 0 / 2`.
+
 ## 2026-10-18 — Fix 6 of 12: a row change is checked the moment it's saved to the draft (branch only)
 
 - Before, a price like "£4.20" in a number column, or a loaf name already on the list, was saved to the draft and only failed at Publish.

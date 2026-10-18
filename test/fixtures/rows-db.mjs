@@ -224,6 +224,8 @@ export function rowsDb({ tables = {}, meta = {}, failWrite = null, hideMarker = 
     // that gap is not modelled, so later ids stay as each test expects.)
     const reh = /^WITH rehearsed AS \(([\s\S]+)\) SELECT 1 \/ \(SELECT count\(\*\) - count\(\*\) FROM rehearsed\) AS kept$/.exec(q.trim());
     if (reh) {
+      // A REHEARSAL THE DATABASE DOES NOT ANSWER: not Postgres's refusal.
+      if (state.rehearsalsDown > 0) { state.rehearsalsDown--; return new Response("upstream unavailable", { status: 503 }); }
       state.log.pop();
       const saved = new Map([...state.tables].map(([k, t]) => [k, { ...t, rows: t.rows.map((r) => ({ ...r })) }]));
       const metaSaved = new Map(state.meta);
@@ -371,6 +373,8 @@ export function rowsDb({ tables = {}, meta = {}, failWrite = null, hideMarker = 
     pending: () => state.pending.length,
     /** The table's rows as stored now — a copy. */
     rows: (name) => (state.tables.get(name) ? state.tables.get(name).rows.map((r) => ({ ...r })) : null),
+    /** The next `n` rehearsals go unanswered (a 503, no Postgres code). */
+    rehearsalsDown: (n) => { state.rehearsalsDown = n; },
     /** Take a table away (a relation Postgres no longer has). */
     dropTable: (name) => { state.tables.delete(name); },
     /** A `_meta` value, or `undefined`. */
