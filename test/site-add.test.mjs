@@ -1608,7 +1608,7 @@ test("THE ROUTE RUNS THE ADD STEP WHERE IT RAN THE BUILD'S DESIGNER, and folds w
   const fold = at(b, "const aFold = foldAdds(aAnswers, aLook, aSite);", "fold");
   const designed = at(b, "const aDesigned = aFold.designed;", "designed");
   const prov = at(b, "aProvWait = ensureSiteBackend(env, ownerSlug, ou.id, aInstruction, (n) => aMark(\"prov:\" + n, \"ok\")).then((db) => {", "provision");
-  const schema = at(b, "const folded = mergeAddonSchema(aSpec.tables || [], aDesigned);", "schema");
+  const schema = at(b, "const folded = mergeAddonSchema(aDraftView ? aSpec : (aSpec.tables || []), aDesigned);", "schema");
   const merged = at(b, "const aMerged = mergeLook(aLook, aDesigned, {}, { instructed: true });", "merge");
   assert.ok(pick < hop && hop < run && run < clean && clean < fold && fold < designed && designed < prov && prov < schema && schema < merged, "the addon's steps are out of order");
   assert.ok(!b.includes('error: "no-database"'), "a table is still refused for want of a database — the first backend tier makes one now");

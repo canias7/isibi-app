@@ -193,13 +193,23 @@ export function mergeAddonSchema(prior, designed) {
 
   // The three spec-level tiers, carried only when the designer named one, so a
   // build that declares nothing sends exactly what it sent before.
+  // …AND THE PRIOR SPEC'S OWN, BY NAME (2026-10-18, audit A04-1): handed the
+  // draft's overlay (a spec, not a table list), the held functions, apis and
+  // jobs of earlier add-ons ride along, this message's winning a shared name,
+  // so the held schema and jobs ops are whole. A table list carries none,
+  // exactly as before; `declared` names only what this message designed.
   const spec = { tables: base };
   const declared = [];
+  const priorSpec = prior && !Array.isArray(prior) && typeof prior === "object" ? prior : {};
   for (const k of ADDON_SPEC_FIELDS) {
     const v = designedSpec[k];
-    if (!Array.isArray(v) || !v.length) continue;
-    spec[k] = v;
-    declared.push(k);
+    const had = Array.isArray(priorSpec[k]) ? priorSpec[k] : [];
+    const mine = Array.isArray(v) ? v : [];
+    if (mine.length) declared.push(k);
+    if (!mine.length && !had.length) continue;
+    const byKey = new Map();
+    for (const x of [...had, ...mine]) if (x && typeof x === "object" && x.name) byKey.set(String(x.name).toLowerCase(), x);
+    spec[k] = [...byKey.values()];
   }
   return { spec, tables: base, added, altered, declared };
 }

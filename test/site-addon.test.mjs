@@ -1658,7 +1658,9 @@ test("A DECLARED FUNCTION SURVIVES normalizeSchema — measured, because it did 
 
 test("THE ROUTE HANDS OVER THE WHOLE DESIGNED SPEC", () => {
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(w, /mergeAddonSchema\(aSpec\.tables \|\| \[\], aDesigned\)/,
+  // RE-ANCHORED 2026-10-18 (audit A04-1): under a draft the whole overlay is
+  // the prior; off one the table list, as before. The designed spec is whole.
+  assert.match(w, /mergeAddonSchema\(aDraftView \? aSpec : \(aSpec\.tables \|\| \[\]\), aDesigned\)/,
     "the route still passes aDesigned.tables, so functions and apis are dropped again");
   assert.match(w, /normalizeSchema\(folded\.spec\)/,
     "the route rebuilds a tables-only object, which throws the tiers away after the merge kept them");
@@ -1869,4 +1871,46 @@ test("the live check asks for a page the fixture does NOT have", () => {
   // the site.
   assert.match(t, /if \(a\.ok === true\) \{\s*\n\s*ok\("…and every page it changed was carrying the new link"/,
     "the changed-pages assertion can still pass on a run where the addon did nothing");
+});
+
+// THE ADD-ON CARRIES THE WHOLE OVERLAY (2026-10-18, audit A04-1, the writer).
+// Under a draft, the second add-on's held schema op carried only ITS OWN
+// functions and jobs, and its held jobs op only its own jobs; the first
+// add-on's held function and job reached Publish only because the plan merges
+// by name. Handed the overlay (a spec, not a table list), the merge now
+// unions functions, apis and jobs by name, the later one winning; `declared`
+// still names only what this message designed.
+test("AB2-3 mergeAddonSchema unions the prior spec's functions, apis and jobs with the designed ones, by name", () => {
+  const prior = {
+    tables: [{ name: "bookings", columns: ["name"] }],
+    functions: [{ name: "count_once", sql: "select 1", access: "internal" }],
+    apis: [{ name: "weather", url: "https://example.com" }],
+    jobs: [{ name: "daily", every: "1d", fn: "count_once" }],
+  };
+  const designed = {
+    tables: [],
+    functions: [{ name: "digest", sql: "select 2", access: "internal" }, { name: "COUNT_ONCE", sql: "select 3", access: "internal" }],
+    jobs: [{ name: "weekly_digest", every: "7d", fn: "digest" }],
+  };
+  const r = mergeAddonSchema(prior, designed);
+  assert.deepEqual(r.spec.functions.map((f) => [f.name, f.sql]), [["COUNT_ONCE", "select 3"], ["digest", "select 2"]]);
+  assert.deepEqual(r.spec.jobs.map((j) => j.name), ["daily", "weekly_digest"]);
+  assert.deepEqual(r.spec.apis.map((a) => a.name), ["weather"]);
+  assert.deepEqual(r.declared, ["functions", "jobs"]);
+  assert.deepEqual(r.spec.tables.map((t) => t.name), ["bookings"]);
+  // A TABLE LIST (the live path) carries nothing but tables, exactly as before.
+  const live = mergeAddonSchema(prior.tables, designed);
+  assert.deepEqual(live.spec.functions.map((f) => f.name), ["digest", "COUNT_ONCE"]);
+  assert.deepEqual(live.spec.jobs.map((j) => j.name), ["weekly_digest"]);
+  assert.equal(Object.hasOwn(live.spec, "apis"), false);
+  // CONTROL: nothing prior and nothing designed sends no spec-level key.
+  assert.deepEqual(Object.keys(mergeAddonSchema({ tables: [] }, { tables: [] }).spec), ["tables"]);
+});
+
+test("AB2-3 the add-on route hands the merge the overlay when it read a draft, and the table list otherwise", () => {
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = src.indexOf("const folded = mergeAddonSchema(");
+  assert.ok(at > 0, "the add-on's merge call is gone");
+  const call = src.slice(at, src.indexOf(";", at));
+  assert.match(call, /aDraftView \? aSpec : \(aSpec\.tables \|\| \[\]\)/, "the add-on does not carry the overlay under a draft");
 });

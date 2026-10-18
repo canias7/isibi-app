@@ -25,3 +25,12 @@ Audit fixes 11–20 from `docs/audits/2026-10-17-builder-audit.md`, one commit e
 - **Sweep**: `scripts/mutants/audit-batch-2-2.json`, 12 of 12 killed, the
   control survived.
 - **Suite**: `11461 / 11459 / 0 / 2` locally.
+
+## Step 3 (2026-10-18): the add-on carries the whole overlay; jobs union (A04-1, the writer)
+
+- **Finding.** Under a draft, a second add-on's held schema op carried only its own functions, apis and jobs, and its held jobs op only its own jobs; the first add-on's held function and job reached Publish only because step 1's plan merges by name.
+- **Fix.** `mergeAddonSchema` (`builder/site-addon.mjs`) takes a prior spec as well as a table list and unions `functions`, `apis` and `jobs` by lower-cased name, this message's entry winning; `declared` still names only what this message designed. The add-on route (`worker.js`) hands it the overlay when it read a draft (`aDraftView ? aSpec : aSpec.tables`), and the table list otherwise, so the live path is unchanged (a stored function has no body to re-send). The held jobs op is the overlay's jobs merged with this add-on's, through the same `merged.jobs`.
+- **Tests.** `test/site-addon.test.mjs` AB2-3 (the union, the table-list path unchanged, a control) and the route's call; two spelling guards re-anchored to the new call (`site-addon.test.mjs` "THE ROUTE HANDS OVER THE WHOLE DESIGNED SPEC", `site-add.test.mjs`'s order guard), their expectation superseded. Shown at module and source level; not driven through the add-on route under a draft (the harness has no draft store).
+- **Red check.** Both AB2-3 cases fail on the code before the change.
+- **Sweep.** `scripts/mutants/audit-batch-2-3.json`: 7 of 7 killed, the comment-only control survived.
+- **Full suite.** `11463 / 11461 / 0 / 2`.

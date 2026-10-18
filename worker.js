@@ -40384,7 +40384,12 @@ async function handleRequest(request, env, ctx) {
               // "the model writes the backend" tier unreachable on any site
               // after its first build: no inbound webhook handler, no
               // confirmation computed by SQL, no third-party read.
-              const folded = mergeAddonSchema(aSpec.tables || [], aDesigned);
+              // THE WHOLE OVERLAY UNDER A DRAFT (2026-10-18, audit A04-1): the held
+              // functions, apis and jobs of earlier add-ons are merged in by
+              // name, so this add-on's held schema and jobs ops are whole. Off
+              // a draft the table list alone, as before: a stored function has
+              // no body to re-send.
+              const folded = mergeAddonSchema(aDraftView ? aSpec : (aSpec.tables || []), aDesigned);
               aAltered = folded.altered;
               const merged = normalizeSchema(folded.spec);
               // A JOB THAT RUNS A FUNCTION THE SITE ALREADY HAS (2026-09-03).

@@ -1,0 +1,18 @@
+[
+ {"label": "CONTROL: a comment only — must survive", "control": true, "files": ["builder/site-addon.mjs"],
+  "from": "  const declared = [];\n  const priorSpec", "to": "  const declared = [];\n  // control\n  const priorSpec"},
+ {"label": "M1 the prior spec is never read", "files": ["builder/site-addon.mjs"],
+  "from": "const priorSpec = prior && !Array.isArray(prior) && typeof prior === \"object\" ? prior : {};", "to": "const priorSpec = {};"},
+ {"label": "M2 the prior wins a shared name", "files": ["builder/site-addon.mjs"],
+  "from": "for (const x of [...had, ...mine])", "to": "for (const x of [...mine, ...had])"},
+ {"label": "M3 names compared case-sensitively", "files": ["builder/site-addon.mjs"],
+  "from": "byKey.set(String(x.name).toLowerCase(), x)", "to": "byKey.set(String(x.name), x)"},
+ {"label": "M4 declared counts prior-only lists", "files": ["builder/site-addon.mjs"],
+  "from": "    if (mine.length) declared.push(k);", "to": "    if (mine.length || had.length) declared.push(k);"},
+ {"label": "M5 empty lists are sent", "files": ["builder/site-addon.mjs"],
+  "from": "    if (!mine.length && !had.length) continue;", "to": ""},
+ {"label": "M6 the route sends tables only", "files": ["worker.js"],
+  "from": "mergeAddonSchema(aDraftView ? aSpec : (aSpec.tables || []), aDesigned)", "to": "mergeAddonSchema(aSpec.tables || [], aDesigned)"},
+ {"label": "M7 the route sends the overlay off a draft too", "files": ["worker.js"],
+  "from": "mergeAddonSchema(aDraftView ? aSpec : (aSpec.tables || []), aDesigned)", "to": "mergeAddonSchema(aSpec, aDesigned)"}
+]
