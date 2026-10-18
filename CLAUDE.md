@@ -34,6 +34,20 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 
 ## Where things stand (2026-09-30)
 
+- **2026-10-18: `main` is `01a7d4eb` (deploy 2215, the combined rollout on
+  the owner's word; image `8278ac9a0bcf0981`, runtime-confirmed by canary run
+  38994524351 and probe run 38995040234).** `supabase/proposed/request_beside.sql`
+  applied (2026-10-17); `REQUEST_FLOW`, `PARALLEL_WRITES` and `DRAFT_FIRST`
+  on; `IMAGE_PURCHASES` and the progress switches off. **Container edits and
+  add-ons are blocked on production**: `main`'s gateway refuses the publish
+  turn (audit A05-1, S1-2). The fix is on `codex-work-into-claude` (`db4e73e1`,
+  CI green on `b47ed2a5`), not merged: the owner chose to wait for the audit,
+  and it must ship with the rename and database-link fixes (batch 1). The
+  live batch paused after message A (3 of 16 credits spent; its jobs
+  cancelled, nothing changed); its records are still to write
+  (`docs/deploy-record.md`, the checklist). **The builder audit**
+  (`docs/audits/2026-10-17-builder-audit.md`, offline, nothing spent): 7
+  critical, 71 high, 166 medium kept after checking, with a fix order.
 - **2026-10-16: `main` is `c7c3ca44` (deploy 2214, consolidation; deployed,
   not runtime-confirmed).** The working branch **`codex-work-into-claude`**
   (from `c7c3ca44`, for Codex's review; not merged or deployed) finishes

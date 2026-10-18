@@ -1,5 +1,49 @@
 # Owner Notes
 
+## 2026-10-18 — The builder audit is done, and production edits are blocked until the gateway fix ships (branch only; the audit changed nothing and spent nothing; production untouched, on your word)
+
+**On your word** ("prepare an audit … on the builder, touching all the
+areas"; areas 1–17, 19–24 and 25–38; the lighter check). Branch
+`codex-work-into-claude`; `claude/chat-session-0nndv1` untouched. The
+report is `docs/audits/2026-10-17-builder-audit.md`.
+
+- **How it ran.** One auditor read the code of each of the 37 areas and 7
+  seams between them (offline, read-only, no production call, no model
+  spend). Each critical finding was checked by three independent agents;
+  each area's high and medium findings by one, which judged every finding
+  on its own. It ran from 2026-10-17 14:17 to 2026-10-18 04:39 UTC and was
+  paused three times by your usage limit; nothing finished was lost.
+- **What it found.** 378 findings raised. 262 confirmed, 2 plausible, 1
+  refuted; the 113 lows were left unchecked by design. **Kept: 7 critical,
+  71 high, 166 medium, 20 low.** The checks lowered 41 severities. Every
+  area saw a few more lower-priority findings than the 12 it could list
+  (142 in all, not in the report).
+- **Production edits are blocked now** (A05-1, S1-2, confirmed in the code
+  as well). On `main` (deploy 2215) the job gateway refuses the site's
+  publish turn, so while `PARALLEL_WRITES` is on every container edit and
+  add-on stops at its first step at no cost and changes nothing; a request
+  part that already holds the turn waits 30 minutes instead (message A).
+  The fix is ready on the branch (`db4e73e1`, with `b47ed2a5` for the CI
+  fixture table; unit CI green, run 39077556733). **You chose to wait for
+  the audit before changing production** (2026-10-17).
+- **The fix must not ship alone.** Once container edits work again, two
+  confirmed criticals become reachable: a container rename can take
+  another customer's live address (A03-1, S1-1), and an add-on that gives
+  a site its first database leaves its database link blank, so its forms,
+  sign-ins and bookings answer 404 (A04-2, A09-1). The report's fix order
+  puts all three in batch 1.
+- **Live now, without containers:** under draft-first, Back online and a
+  Versions restore can put the unapproved draft live (A11-1, A38-1).
+- **Also high:** held new rows silently dropped at Publish; one bad held
+  value blocking a site's Publish forever; Publish keeping only the last
+  add-on's backend; every container job holding the key that signs gateway
+  tokens and decrypts sites' secrets; paid orders with no line items or
+  receipt; three-decimal currencies charged a tenth.
+- **Limits.** The checks are agents reading code, not runs of production.
+  The completeness critique at the end of the report lists what only a live
+  check can settle.
+- **Nothing was merged, deployed, switched, applied, built or spent.**
+
 ## 2026-10-17 — Ready for the combined rollout; waiting on your authorization (branch only; nothing merged, deployed, switched, applied, built or spent)
 
 - **Codex passed the offline closeout** (77 affected tests, independently).

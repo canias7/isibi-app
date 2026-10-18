@@ -20,6 +20,16 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
+- **Production container edits and add-ons are blocked** (2026-10-17, live on
+  deploy 2215; audit A05-1, S1-2): `main`'s job gateway refuses the publish
+  turn while `PARALLEL_WRITES` is on. The fix is on `codex-work-into-claude`
+  (`db4e73e1`, CI green on `b47ed2a5`); the owner chose to wait for the audit.
+  It must ship with the rename and database-link fixes (batch 1 below).
+- **The builder audit's fix order** (2026-10-18,
+  `docs/audits/2026-10-17-builder-audit.md`): 7 critical, 71 high and 166
+  medium findings kept after checking, in numbered batches. Each finding is
+  open until its batch ships; the report is the full list.
+
 - **Unpublished held changes read one journal at a time** (2026-10-16;
   **closed in the same batch**, `docs/history/2026-10-16-codex-batch-12.md`
   §3b): one cumulative record, each entry used only when it matches its
@@ -1251,6 +1261,22 @@ here; take a closed one out of both.**
 ---
 
 ## Backlog
+
+- **THE BUILDER AUDIT (2026-10-17/18; `docs/audits/2026-10-17-builder-audit.md`).**
+  Offline and read-only, 37 areas and 7 seams; nothing spent.
+  - **Counts:** 378 raised; 262 confirmed, 2 plausible, 1 refuted, 113 lows
+    unchecked by design. Kept: 7 critical, 71 high, 166 medium, 20 low.
+    Another 142 lower-priority findings were seen but not listed.
+  - **Batch 1 is urgent:** production container edits and add-ons are blocked
+    (A05-1, S1-2). The gateway fix (`db4e73e1`) reopens two criticals with
+    them, the container rename taking another site's address (A03-1, S1-1)
+    and a container add-on's blank database link (A04-2, A09-1), so all three
+    ship together.
+  - **Batch 2:** Back online and Versions restore put the unapproved draft
+    live under draft-first (A11-1, A38-1).
+  - **The rest** are in the report's fix order. A finding closes when its batch
+    ships with tests through the real path (gateway, container, Supabase door)
+    rather than a stand-in.
 
 - **RUN 141'S FOLLOW-UP (2026-10-12/13; `docs/history/2026-10-12-run141-followup.md`, `docs/history/2026-10-13-evidence-round.md`, `docs/history/2026-10-13-correction-reuse.md`).**
   Free; run 141 stays closed.
