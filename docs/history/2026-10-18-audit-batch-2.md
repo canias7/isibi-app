@@ -50,3 +50,22 @@ Audit fixes 11–20 from `docs/audits/2026-10-17-builder-audit.md`, one commit e
 - **Red check**: with `site-schema.mjs` and `worker.js` stashed, 3 of the 4 new cases fail: the apply resolved and wrote `{tables:[gallery]}`, the retry control saw 1 read, and DFA7's Publish answered 200 over an unreadable read. The brand-new-database control passes on both.
 - **Sweep**: `scripts/mutants/audit-batch-2-5.json`, 7 of 7 killed, the control survived.
 - **Suite**: `11469 / 11467 / 0 / 2`. One spelling guard updated (`test/schema-parse.test.mjs`): it counted `await loadSiteSchema(uuid)` once, and the apply now reads `readSiteSchema` with one retry.
+
+## Step 6: held row changes are tried when they are held (A09-3, A09-2 part a)
+
+- **The finding.** Under draft-first, the data step and the add-on's entry step held a row change without asking the database. A price of "£4.20" in a number column, or a name already on a unique list, was held and billed. It then failed only at Publish.
+- **The fix.** `sqlRehearse` (`site-db.mjs`) runs the statement the live path would send, then forces a rollback.
+  - It runs as `WITH rehearsed AS (…) SELECT 1 / (count − count)`, so the closing division always fails after the write, and Postgres keeps nothing.
+  - The data step rehearses an update or insert on a table it read live. A refusal of class 22 or 23 is not held, and the reply says why ("That change couldn't be saved: … Nothing was changed.").
+  - The add-on's entry step rehearses each entry before anything is reserved or marked. A refusal answers 422 `row-refused`, with cost 0.
+  - A missing table (a held new list), or a database that does not answer, still holds the change as before.
+  - Known limits:
+    - an identity column advances on a rehearsed insert, so the ids get a gap but no row is stored;
+    - two held new rows that clash with each other are not caught here; Publish's own check (step 7) covers that;
+    - the data step bills before its writes, on the live path as well, so a refused data change carries the step's usual charge, as a refused live write does.
+- **Tests.**
+  - DFH1 (`test/draft-first.test.mjs`): "£4.20" and a duplicate "Dark Rye" are refused with their reasons; the draft and the live rows are untouched; a good change is still held.
+  - DFH2 (`test/addon-row.test.mjs`, sync and queued): a duplicate entry is refused with no reserve or mark; a new name is not refused; an entry for a table that is not live yet is not refused.
+  - The stand-in database learnt rehearsals and `dropTable`.
+  - Red on the old worker: 3 of 3 fail.
+- **Sweep and suite.** Sweep `audit-batch-2-6.json`: 8 of 8 killed, control survived (H4's anchor was fixed; the not-live case was added after H5 first survived). Full suite `11472 / 11470 / 0 / 2`.

@@ -72,9 +72,9 @@ const WALNUT = "Make the Walnut Levain £6.40.";
 
 /** What the data step's model was shown, per call: the rows of `loaves`, as JSON lines. */
 const shownRows = [];
-function bakery(name, { draftFirst = false, aliases = null } = {}) {
+function bakery(name, { draftFirst = false, aliases = null, unique = [] } = {}) {
   const compiler = installCompiler();
-  const db = rowsDb({ tables: { loaves: { columns: LOAF_COLUMNS, rows: BAKERY_LOAVES, next: 12 } }, meta: { schema: JSON.stringify({ tables: [LOAVES] }) } });
+  const db = rowsDb({ tables: { loaves: { columns: LOAF_COLUMNS, rows: BAKERY_LOAVES, next: 12, unique } }, meta: { schema: JSON.stringify({ tables: [LOAVES] }) } });
   let tt = 0;
   const said = (args) => String(args.messages[0].content);
   const P = platform({
@@ -87,6 +87,7 @@ function bakery(name, { draftFirst = false, aliases = null } = {}) {
         const text = said(args);
         shownRows.push(text);
         const asked = (text.split("WHAT THEY ASKED FOR\n")[1] || "").split("\n")[0];
+        if (asked.startsWith("Make the Dark Rye four")) return { changes: [{ table: "loaves", id: 2, values: { price: "£4.20" } }] };
         if (asked.startsWith("Make the Dark Rye")) return { changes: [{ table: "loaves", id: 2, values: { price: 5.6 } }] };
         if (asked.startsWith("Add a Spelt")) return { changes: [{ table: "loaves", values: { name: "Spelt", price: 6.2 } }] };
         if (asked.startsWith("Make the Spelt")) {
@@ -94,6 +95,7 @@ function bakery(name, { draftFirst = false, aliases = null } = {}) {
           const m = /id (-\d+): name="Spelt"/.exec(text);
           return { changes: [{ table: "loaves", id: m ? Number(m[1]) : 999, values: { price: 6.5 } }] };
         }
+        if (asked.startsWith("Add another Dark Rye")) return { changes: [{ table: "loaves", values: { name: "Dark Rye", price: 5 } }] };
         if (asked.startsWith("Make the Walnut")) return { changes: [{ table: "loaves", id: 5, values: { price: 6.4 } }] };
         return { changes: [] };
       },
@@ -1394,3 +1396,28 @@ test("DFA7b ONLY THE PUBLISH'S OWN READ FAILS (twice) — the held `loaves` rule
   assert.equal(JSON.parse(bare(site.store.store.get(DRAFT_KEY(slug)))).applied, 0, "the revision was counted as published");
   assert.equal(down, 0, "the publish did not read the live schema twice");
 });
+
+test("DFH1 A HELD ROW CHANGE IS CHECKED WHEN IT IS HELD (2026-10-18, audit A09-3, A09-2) — a price the column cannot take and a new loaf whose name is already on the list are refused at once with the reason, nothing held and nothing written; a good change after them is held as before", async () => {
+  const { P, db, compiler } = bakery("dfh1", { unique: ["name"] });
+  try {
+    const first = await runOne(P, TIKTOK);
+    assert.equal(first.jobs[0].state, "done", JSON.stringify(first.jobs[0].result).slice(0, 300));
+    P.env.DRAFT_FIRST = "on";
+    const rows0 = JSON.stringify(db.rows("loaves"));
+    const bad = await runOne(P, "Make the Dark Rye four pounds twenty.");
+    assert.notEqual(bad.body && bad.body.ok, true, "a price the column cannot take was held: " + JSON.stringify(bad.body).slice(0, 300));
+    assert.match(String(bad.body && bad.body.msg), /couldn't be saved: .*(numeric|right kind)/i, "the reply does not say why: " + (bad.body && bad.body.msg));
+    assert.equal(draftOf(P), null, "a refused change was held in the draft: " + JSON.stringify(draftOf(P)));
+    const dup = await runOne(P, "Add another Dark Rye at £5.");
+    assert.notEqual(dup.body && dup.body.ok, true, "a duplicate name was held");
+    assert.match(String(dup.body && dup.body.msg), /already/i, "the reply does not say the name is taken: " + (dup.body && dup.body.msg));
+    assert.equal(draftOf(P), null, "a refused new row was held");
+    assert.equal(JSON.stringify(db.rows("loaves")), rows0, "a check changed the live rows");
+    // THE OBSERVER IS ALIVE: a good change is still held.
+    const good = await runOne(P, RYE);
+    assert.equal(good.jobs[0].state, "done", JSON.stringify(good.jobs[0].result).slice(0, 300));
+    assert.equal(draftOf(P).rev, 1);
+    assert.equal(JSON.stringify(db.rows("loaves")), rows0, "the held change was written live");
+  } finally { await finish(P, compiler); }
+});
+

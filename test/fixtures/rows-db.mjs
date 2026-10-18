@@ -218,6 +218,23 @@ export function rowsDb({ tables = {}, meta = {}, failWrite = null, hideMarker = 
     const p = Array.isArray(params) ? params : [];
     state.log.push({ query: q, params: p });
 
+    // A REHEARSAL (`sqlRehearse`): the write runs, then is rolled back — the
+    // state is put back whatever happened, and the log keeps it as a
+    // rehearsal, never as a write. (Postgres would still advance the identity;
+    // that gap is not modelled, so later ids stay as each test expects.)
+    const reh = /^WITH rehearsed AS \(([\s\S]+)\) SELECT 1 \/ \(SELECT count\(\*\) - count\(\*\) FROM rehearsed\) AS kept$/.exec(q.trim());
+    if (reh) {
+      state.log.pop();
+      const saved = new Map([...state.tables].map(([k, t]) => [k, { ...t, rows: t.rows.map((r) => ({ ...r })) }]));
+      const metaSaved = new Map(state.meta);
+      const res = answer(reh[1], p);
+      state.log.pop();
+      state.log.push({ query: "-- rehearsed: " + reh[1].slice(0, 60), params: p });
+      for (const [k, t] of saved) Object.assign(state.tables.get(k), t);
+      state.meta = metaSaved;
+      if (res && res.status === 400) return res;
+      return pgError("22012", "division by zero");
+    }
     if (/information_schema\.columns/i.test(q)) {
       const rows = [];
       for (const [name, t] of state.tables) for (const c of t.columns) rows.push({ t: name, c: c.name, ty: c.type });
@@ -299,7 +316,7 @@ export function rowsDb({ tables = {}, meta = {}, failWrite = null, hideMarker = 
     // RETURNING: `UPDATE "t" SET "a" = $1, "b" = $2 WHERE id = $3` and
     // `DELETE FROM "t" WHERE id = $1`. A row `vanish` names is gone by the
     // time the first of them runs — taken off since the step read the list.
-    const upd = /^UPDATE "([^"]+)" SET (.+) WHERE id = \$(\d+)( RETURNING \*)?$/.exec(q.trim());
+    const upd = /^UPDATE "([^"]+)" SET (.+) WHERE id = \$(\d+)( RETURNING (?:\*|id))?$/.exec(q.trim());
     const del = /^DELETE FROM "([^"]+)" WHERE id = \$(\d+)( RETURNING id)?$/.exec(q.trim());
     if (upd || del) {
       if (failWrite) return pgError(failWrite.code || "XX000", failWrite.message || "the write failed");
@@ -354,6 +371,8 @@ export function rowsDb({ tables = {}, meta = {}, failWrite = null, hideMarker = 
     pending: () => state.pending.length,
     /** The table's rows as stored now — a copy. */
     rows: (name) => (state.tables.get(name) ? state.tables.get(name).rows.map((r) => ({ ...r })) : null),
+    /** Take a table away (a relation Postgres no longer has). */
+    dropTable: (name) => { state.tables.delete(name); },
     /** A `_meta` value, or `undefined`. */
     meta: (k) => state.meta.get(k),
     metaKeys: () => [...state.meta.keys()],

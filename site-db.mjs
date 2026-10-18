@@ -764,6 +764,28 @@ export async function sqlQuery(conn, sql, params) {
   return (r && r.rows) || [];
 }
 
+// REHEARSE A WRITE, KEEP NOTHING (2026-10-18, audit A09-3/A09-2): a change
+// held in a draft is tried against the live database the moment it is held,
+// as the statement the live path would send, inside one statement that always
+// fails after it — a division by zero once the write has run — so Postgres
+// rolls the write back. `{ ok: true }` when only the closing division failed;
+// `{ ok: false, code, message }` when the write itself was refused. Anything
+// that is not Postgres's answer (the network, a sleeping database) is thrown:
+// that is not the change's fault, and the caller holds it as before. An
+// identity column still advances (a gap in the ids, never a row).
+export async function sqlRehearse(conn, sql, params) {
+  try {
+    await client(conn).query(toPgPlaceholders("WITH rehearsed AS (" + sql + ") SELECT 1 / (SELECT count(*) - count(*) FROM rehearsed) AS kept"), pgParams(params));
+  } catch (e) {
+    const code = e && typeof e.code === "string" ? e.code : "";
+    if (code === "22012") return { ok: true };
+    if (/^[0-9A-Z]{5}$/.test(code)) return { ok: false, code, message: String(e.message || "") };
+    throw e;
+  }
+  // A WRITE THAT RETURNED NO ROW never reached the division: nothing was kept.
+  return { ok: true };
+}
+
 // As sqlQuery, but also reports how many rows the statement changed, so scoped
 // UPDATE/DELETE can tell "done" from "matched nothing" (a visitor trying to edit
 // a row that isn't theirs changes 0). SELECT reports 0 changes, matching what

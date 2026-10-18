@@ -1,5 +1,12 @@
 # Owner Notes
 
+## 2026-10-18 — Fix 6 of 12: a row change is checked the moment it's saved to the draft (branch only)
+
+- Before, a price like "£4.20" in a number column, or a loaf name already on the list, was saved to the draft and only failed at Publish.
+- Now the builder tries the change on the live database straight away and undoes it in the same step. If the database would refuse it, the change isn't saved, and you're told why. Through the add-on it costs nothing. Through the data step the usual small charge for the step stays, the same as a refused live change today.
+- If the database is just slow or not answering, the change is saved as before. An outage never blocks you.
+- Tests DFH1 and DFH2 (red on the old code), sweep 8/8, full suite `11472 / 11470 / 0 / 2`.
+
 ## 2026-10-18 — A database that doesn't answer no longer wipes the site's stored setup (branch only; nothing merged, deployed or spent)
 
 Audit step 5 (A09-4, A09-7). Before this, when a site's database was slow to wake up, the builder sometimes took "no answer" to mean "this site has no tables". It could then write that down, and the site's other tables, connections and scheduled jobs would stop working. At Publish, it could also push every unpublished database change live before switching. Now it asks a second time, and if there is still no answer it stops before changing anything. Publish says "your database didn't answer — nothing was changed on your live site; press Publish again". A brand-new database with nothing in it yet still works as before. Record: `docs/history/2026-10-18-audit-batch-2.md`, step 5.

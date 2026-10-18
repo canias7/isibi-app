@@ -455,13 +455,15 @@ function browserAddonPost(site, d, instruction) {
  * browser composes its add-on POST, the add-on route runs it — inline, or
  * filed and run by the queue consumer — and the browser's composer reads it.
  */
-async function chain({ mode, db, answers, message = ASK, usage }) {
+async function chain({ mode, db, answers, message = ASK, usage, draftFirst = false }) {
   const slug = "addon-row-" + mode + "-" + hex(4);
   const store = bucket(slug);
+  // PUBLISHED, UNDER DRAFT-FIRST: a live pointer, so an entry is held.
+  if (draftFirst) { store.store.set("current/" + slug + ".json", JSON.stringify({ version: "01790000000000-aaaaaa" })); store.store.set("source/" + slug + "/head.json", JSON.stringify({ version: "01790000000000-aaaaaa" })); }
   const w = wire({ db, slug, answers: { [ASK_TOOL.name]: { intent: "addon" }, ...answers }, usage });
   try {
     const worker = await loadWorker();
-    const env = baseEnv(store, mode === "job" ? { EDIT_ASYNC: "1", EDIT_ASYNC_CANARY: slug, BUILD_QUEUE: { send: async (m) => { w.seen.sent = (w.seen.sent || []).concat([m]); } } } : {});
+    const env = { ...baseEnv(store, mode === "job" ? { EDIT_ASYNC: "1", EDIT_ASYNC_CANARY: slug, BUILD_QUEUE: { send: async (m) => { w.seen.sent = (w.seen.sent || []).concat([m]); } } } : {}), ...(draftFirst ? { DRAFT_FIRST: "on" } : {}) };
     const rres = await worker.fetch(new Request("https://gofarther.dev/api/site/route", {
       method: "POST", headers: { "content-type": "application/json", Authorization: TOKEN },
       body: JSON.stringify({ message, site: { name: "Fold Lane Bakery", url: "https://" + slug + ".gofarther.app", pages: ROUTES, tables: ["loaves", "orders"] },
@@ -2146,3 +2148,31 @@ test("the reconcile knows a row write only by its own key on the row, and the ow
     assert.equal(db.meta("addon-row:job:" + id), undefined);
   } finally { w.restore(); }
 });
+
+for (const mode of ["sync", "job"]) {
+  test(`DFH2 AN ENTRY HELD IN A DRAFT IS TRIED FIRST (2026-10-18, audit A09-2): a name already on the list is refused at once with its reason, nothing held, written or charged; a new name passes the check (${mode})`, async () => {
+    const db = bakeryDb({ unique: ["name"] });
+    const rows0 = JSON.stringify(db.rows("loaves"));
+    const dup = { table: "loaves", values: { name: "Dark Rye", price: 5, description: "Again." } };
+    const r = await chain({ mode, db, draftFirst: true, answers: { pick_adds: PICK_ROW, add_to_site: { row: [dup] } } });
+    assert.equal(r.body && r.body.error, "row-refused", JSON.stringify(r.body).slice(0, 400));
+    assert.match(String(r.body.msg), /already there/);
+    assert.equal(Number(r.body.cost) || 0, 0, "a refused entry was charged");
+    assert.equal(JSON.stringify(db.rows("loaves")), rows0, "the live list moved");
+    assert.ok(![...r.store.store.keys()].some((k) => /draft/.test(k)), "a refused entry reached the draft: " + [...r.store.store.keys()].filter((k) => /draft/.test(k)));
+    assert.ok(!r.seen.rpc.some((x) => /edit_reserve|edit_publish_mark/.test(JSON.stringify(x))), "a refused entry reserved or marked: " + JSON.stringify(r.seen.rpc).slice(0, 300));
+    // THE OBSERVER IS ALIVE: a new name is not refused by the check.
+    const db2 = bakeryDb({ unique: ["name"] });
+    const ok = await chain({ mode, db: db2, draftFirst: true, answers: { pick_adds: PICK_ROW, add_to_site: { row: [ENTRY] } } });
+    assert.notEqual(ok.body && ok.body.error, "row-refused", JSON.stringify(ok.body).slice(0, 400));
+    // A LIST NOT LIVE YET (a table Postgres does not have): that is not the
+    // entry's fault, so the check lets it through to be held.
+    const db3 = bakeryDb({ unique: ["name"] });
+    db3.dropTable && db3.dropTable("loaves");
+    const notLive = await chain({ mode, db: db3, draftFirst: true, answers: { pick_adds: PICK_ROW, add_to_site: { row: [ENTRY] } } });
+    assert.notEqual(notLive.body && notLive.body.error, "row-refused", "an entry was refused for a table not live yet: " + JSON.stringify(notLive.body).slice(0, 400));
+    assert.ok(db3.log().some((e) => /^-- rehearsed: INSERT INTO "loaves"/.test(e.query)), "the not-live case never reached the rehearsal — it tests nothing");
+    if (mode === "job") assert.ok(ok.seen.rpc.some((x) => /edit_reserve/.test(JSON.stringify(x))), "the reserve observer sees nothing even when an entry goes ahead: " + JSON.stringify(ok.seen.rpc).slice(0, 300));
+    assert.equal(JSON.stringify(db2.rows("loaves")), rows0, "an entry held in the draft was written live");
+  });
+}

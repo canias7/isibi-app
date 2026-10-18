@@ -138,7 +138,7 @@ import { drainTeardown } from "./site-teardown.mjs";
 import { drainRebuild, BATCH as REBUILD_BATCH, BUSY_DEFER_SEC as REBUILD_BUSY_SEC, REBUILD_OP, REBUILD_START_DELAY_S, rebuildIdem } from "./site-rebuild.mjs";
 // The litter under `jobs/` (stage 9): what the unhappy paths leave behind.
 import { sweepJobObjects } from "./builder/job-retention.mjs";
-import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite, projectNameForSite, findSiteProjects, siteProjectDetails } from "./site-db.mjs";
+import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, sqlRehearse, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite, projectNameForSite, findSiteProjects, siteProjectDetails } from "./site-db.mjs";
 import { applySiteSchema, loadSiteSchema, readSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields, auditTier, withJobDeps, storedJobFns } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
@@ -10218,6 +10218,17 @@ const MEDIA_SESSION_PREFIX = (scope) => "media-sessions/" + scope + "/";
 const MEDIA_PARTS_PREFIX = (scope, sid) => "media-parts/" + scope + "/" + sid + "/";
 const MEDIA_LEDGER_KEY = (scope) => "media-ledger/" + scope + ".json";
 const MEDIA_ASSET_KEY = (scope, name) => "media-assets/" + scope + "/" + name + ".json";
+/** A rehearsal the CHANGE failed (a value or a rule, Postgres classes 22 and 23) — never a table not live yet, never an unanswered one. */
+const heldRefused = (r) => !!(r && r.ok === false && /^2[23]/.test(String(r.code || "")));
+/** What a rehearsal's refusal says to the owner, from Postgres's own code (`sqlRehearse`). */
+function heldRefusalSaid(r) {
+  const code = String((r && r.code) || "");
+  if (code === "23505") return "an entry with that value is already there";
+  if (code === "23502") return "a value it needs is missing";
+  if (code === "23514" || code === "23503") return "a value isn't one the list allows";
+  if (/^22/.test(code)) return "a value isn't the right kind for its column (" + String((r && r.message) || "").slice(0, 160) + ")";
+  return "the database refused it (" + code + ")";
+}
 /** A draft file (kept before a site exists): its key, size, kind and stored metadata; expired ones removed. */
 async function draftMediaList(env, uid) {
   const out = [];
@@ -33622,6 +33633,9 @@ async function handleRequest(request, env, ctx) {
                 catch (e) { console.error("data edit: draft unreadable", ownerSlug, errorClassForLog(e)); return explain("data/backend-unreadable", {}, { backend: "draft" }); }
               }
               const dTemp = new Map();
+              // THE TABLES READ FROM THE LIVE DATABASE: only a change to one of these can
+              // be rehearsed there (a table held new is not live yet).
+              const dLive = new Set();
               let ddb = await siteBackendBySlug(env, ownerSlug);
               let dResolved = false;
               if (!ddb) {
@@ -33700,6 +33714,7 @@ async function handleRequest(request, env, ctx) {
                   // held new row by a negative id that leads back to it.
                   if (dView) { const ov = rowsOverlay(t.name, rows || [], dView.ops); rows = ov.rows; dTemp.set(t.name, ov.tempRefs); }
                   dTables.push({ name: t.name, columns: cols, rows: rows || [] });
+                  dLive.add(t.name);
                 } catch (e) {
                   // A TABLE HELD IN THE DRAFT AND NOT YET LIVE reads as its held rows.
                   if (dView && dView.ops.some((o) => (o.kind === "row" && o.table === t.name) || (o.kind === "seed" && o.seed && Array.isArray(o.seed[t.name])))) {
@@ -33733,6 +33748,7 @@ async function handleRequest(request, env, ctx) {
               // `unbilled` with no row touched. Recorded, so the replies below
               // report this charge rather than placing a second one.
               let dCost = 0, dBilled = false;
+              const dRefused = [];
               const dOut = await runDataEdit({
                 send: eQuick(),
                 // WHAT THE STEP WAS SHOWN (2026-10-11): counted on the job.
@@ -33758,6 +33774,24 @@ async function handleRequest(request, env, ctx) {
                     const ref = c.id !== undefined && Number(c.id) < 0 ? (dTemp.get(c.table) || new Map()).get(Number(c.id)) : null;
                     const target = ref ? { ref } : { id: c.id };
                     if (c.remove) { if (!was) return false; dWriter.hold.add({ kind: "row", table: c.table, op: "remove", ...target }); return true; }
+                    // TRIED BEFORE IT IS HELD (2026-10-18, audit A09-3/A09-2):
+                    // the statement the live path would send, rehearsed on the
+                    // live database and rolled back, so a value the column
+                    // cannot take or a name already on the list is refused now,
+                    // with its reason, and never reaches Publish. A change to a
+                    // held new row or table is not live to try; a database that
+                    // does not answer holds it as before.
+                    if (dLive.has(c.table) && !ref && (c.id === undefined || was)) {
+                      let tried = null;
+                      try {
+                        if (c.id === undefined) { const ins = insertStatement(name, c.values); tried = await sqlRehearse(ddb, ins.sql + " RETURNING id", ins.params); }
+                        else {
+                          const ks = Object.keys(c.values);
+                          tried = await sqlRehearse(ddb, "UPDATE \"" + name + "\" SET " + ks.map((k) => '"' + k.replace(/"/g, "") + '" = ?').join(", ") + " WHERE id = ? RETURNING id", [...ks.map((k) => c.values[k]), c.id]);
+                        }
+                      } catch (e) { console.error("data edit rehearsal unanswered:", ownerSlug, c.table, errorClassForLog(e)); }
+                      if (heldRefused(tried)) { dRefused.push(heldRefusalSaid(tried)); return false; }
+                    }
                     if (c.id === undefined) {
                       const op = dWriter.hold.add({ kind: "row", table: c.table, op: "insert", values: { ...c.values } });
                       return { ...c.values, id: null, held: op.ref };
@@ -33813,7 +33847,7 @@ async function handleRequest(request, env, ctx) {
                     // THE MODULE WRITES THE ORDERING SENTENCE, because it is the
                     // only thing that knows which pages work their own order out
                     // and could not be rewritten from outside.
-                    msg: dOut.msg || (dOut.reason === "no-match"
+                    msg: dOut.msg || (dOut.reason === "write" && dRefused.length ? "That change couldn't be saved: " + dRefused[0] + ". Nothing was changed." : null) || (dOut.reason === "no-match"
                       ? "I couldn't match that to anything the site stores — say which list it's in and I'll have another go."
                       : "That change couldn't be saved — try again."),
                   }, { status: 422 });
@@ -38629,6 +38663,20 @@ async function handleRequest(request, env, ctx) {
               const rowBill = pageCredits(...aDesignUsage);
               // PREPARED: the entry is chosen and checked; nothing is charged or saved.
               if (aPrep) return aPrepStop();
+              if (aWriter.holding) {
+                // EACH ENTRY TRIED BEFORE IT IS HELD (2026-10-18, audit
+                // A09-2/A09-3), as the data step does: one the list refuses is
+                // said now, before anything is reserved or marked, so it costs nothing.
+                for (const r of rowClean.value) {
+                  let tried = null;
+                  try { const ins = insertStatement(String(r.table).replace(/"/g, ""), r.values); tried = await sqlRehearse(adb, ins.sql + " RETURNING id", ins.params); }
+                  catch (e) { console.error("add-on entry rehearsal unanswered:", ownerSlug, r.table, errorClassForLog(e)); }
+                  if (heldRefused(tried)) {
+                    aMark("add:row", "fail", { refused: tried.code });
+                    return Response.json({ ok: false, error: "row-refused", cost: 0, msg: "That entry couldn't be saved: " + heldRefusalSaid(tried) + ". Nothing was added and you won't be charged for it." }, { status: 422 });
+                  }
+                }
+              }
               let rowCost = 0;
               if (aJob) {
                 rowCost = await aCharge(rowBill);

@@ -1,0 +1,20 @@
+[
+ {"label": "CONTROL: a comment only — must survive", "control": true, "files": ["worker.js"],
+  "from": "const heldRefused = (r) =>", "to": "// control\nconst heldRefused = (r) =>"},
+ {"label": "H1 the data step never rehearses", "files": ["worker.js"],
+  "from": "if (dLive.has(c.table) && !ref && (c.id === undefined || was)) {", "to": "if (false) {"},
+ {"label": "H2 a refusal is still held", "files": ["worker.js"],
+  "from": "if (heldRefused(tried)) { dRefused.push(heldRefusalSaid(tried)); return false; }", "to": "if (heldRefused(tried)) { dRefused.push(heldRefusalSaid(tried)); }"},
+ {"label": "H3 the reply does not say why", "files": ["worker.js"],
+  "from": "(dOut.reason === \"write\" && dRefused.length ?", "to": "(false ?"},
+ {"label": "H4 the add-on entry is never rehearsed", "files": ["worker.js"],
+  "from": "                  if (heldRefused(tried)) {\n                    aMark(\"add:row\", \"fail\", { refused: tried.code });", "to": "                  if (false) {\n                    aMark(\"add:row\", \"fail\", { refused: tried.code });"},
+ {"label": "H5 any rehearsal error refuses (a table not yet live too)", "files": ["worker.js"],
+  "from": "/^2[23]/.test(String(r.code || \"\"))", "to": "true"},
+ {"label": "H6 a unique clash is said as a type error", "files": ["worker.js"],
+  "from": "if (code === \"23505\") return \"an entry with that value is already there\";", "to": ""},
+ {"label": "H7 the rehearsal keeps the division's answer as a refusal", "files": ["site-db.mjs"],
+  "from": "if (code === \"22012\") return { ok: true };", "to": ""},
+ {"label": "H8 the update rehearsal skips its values", "files": ["worker.js"],
+  "from": "[...ks.map((k) => c.values[k]), c.id]);", "to": "[...ks.map(() => null), c.id]);"}
+]
