@@ -157,3 +157,25 @@ Audit fixes 11–20 from `docs/audits/2026-10-17-builder-audit.md`, one commit e
   - The tests press Stop once their timer runs out, so a loop that never ends cannot hang the run.
   - Red on the old code: 3 of 3 fail. The first red run, before Stop was wired in, never finished and was stopped at 300 seconds.
 - **Sweep and suite.** Sweep `audit-batch-2-10.json`: 8 of 8 killed, control survived. Full suite `11482 / 11480 / 0 / 2`.
+
+## Step 11: a Versions restore moves the draft with it (A06-2)
+
+- **The finding.** Under draft-first, restoring an older version moved the live site but left the draft record naming the newer version. Three things followed:
+  - the panel offered the newer version as unpublished;
+  - the next edit's repair copied the newer pages back over the restored ones;
+  - the next Publish quietly undid the restore.
+- **The fix.**
+  - `rebaseDraft` (`site-draft.mjs`) makes the restored version the draft's version and base, as a revision already published, on the etag. It writes nothing when unpublished work is held.
+  - The restore route (`/versions/restore`), under draft-first:
+    - answers 409 while the draft holds unpublished changes ("publish them first"), so nothing held is buried;
+    - answers 409 for a version that was never published;
+    - moves the draft after a successful activation.
+  - `ensureEditableState` prefers the draft's version only when it is live or unpublished, so a restore that stops before moving the draft is not undone by the next edit.
+  - Back online, which shares `restoreVersion`, is unchanged: it keeps an unpublished draft (DFO1).
+  - **Kept as is:** restoring while changes are unpublished is refused rather than rebasing them, because their code versions were built on the newer pages. A "discard the draft" action would be the owner's call (backlog).
+- **Tests.**
+  - DFH8: published, then restored, so the draft reads published on the restored version; the next edit starts from the restored pages and its Publish keeps them live; with a change held, a restore is refused and changes nothing.
+  - DFH8b: the draft's move fails after the restore, and the next edit keeps the restored pages.
+  - SD-R: `rebaseDraft`'s record, its refusal, and its idempotence.
+  - Red on the old code: 2 of 2 fail.
+- **Sweep and suite.** Sweep `audit-batch-2-11.json`: 7 of 7 killed, control survived. R6 first survived, and DFH8b was then added. Full suite `11485 / 11483 / 0 / 2`.

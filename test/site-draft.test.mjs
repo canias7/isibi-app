@@ -282,3 +282,32 @@ test("SD-B A STOP'S KIND, ITS PAUSE, AND THE CLICK ON A BLOCKED REVISION (2026-1
   assert.equal(clickPlanB(j, 3, { now: 1e12, staleMs: 1 }), "resume", "the owner's own click on the blocked revision is not a retry");
   assert.equal(clickPlanB({ ...j, blocked: null }, 4, { now: 1e12, staleMs: 1 }), "finishFirst");
 });
+
+import { rebaseDraft, draftState as draftStateR, readDraft as readDraftR, saveDraftRecord as saveDraftRecordR, markApplied as markAppliedR } from "../site-draft.mjs";
+test("SD-R REBASE: THE RESTORED VERSION BECOMES THE DRAFT'S, AS PUBLISHED; A DRAFT WITH UNPUBLISHED WORK IS NEVER REBASED (2026-10-18, audit A06-2)", async () => {
+  const store = new Map(); let n = 0;
+  const deps = {
+    get: async (k) => (store.has(k) ? { text: async () => store.get(k).v, etag: store.get(k).e } : null),
+    put: async (k, v, ct, only) => {
+      const cur = store.get(k);
+      if (only && only.etagMatches && (!cur || cur.e !== only.etagMatches)) return null;
+      if (only && only.etagDoesNotMatch === "*" && cur) return null;
+      store.set(k, { v, e: "e" + (++n) }); return { etag: "e" + n };
+    },
+  };
+  const V0 = "01790000000000-aaaaaa", V1 = "01790000000100-bbbbbb";
+  await saveDraftRecordR(deps, "s", { version: V1 });
+  // UNPUBLISHED: refused, nothing written.
+  const before = JSON.stringify([...store]);
+  const r0 = await rebaseDraft(deps, "s", { version: V0 });
+  assert.equal(r0.unpublished, true);
+  assert.equal(JSON.stringify([...store]), before);
+  await markAppliedR(deps, "s", { revision: 1 });
+  const r = await rebaseDraft(deps, "s", { version: V0 });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  const d = (await readDraftR(deps, "s")).draft;
+  assert.deepEqual([d.version, d.base, d.applied, d.rev], [V0, V0, 2, 2]);
+  assert.equal(draftStateR({ draft: d, live: { version: V0 } }).state, "published");
+  assert.ok(d.history.includes(V1), "the version rolled back from left the history");
+  assert.equal((await rebaseDraft(deps, "s", { version: V0 })).same, true);
+});

@@ -114,6 +114,35 @@ export async function saveDraftRecord(deps, slug, { version, build = "", base = 
   return { ok: false, error: "the draft kept changing under this save" };
 }
 /**
+ * A VERSIONS RESTORE IS THE DRAFT'S NEW STARTING POINT (2026-10-18, audit
+ * A06-2). The restore moves the live site back to `version`; the draft record
+ * still named the newer version, so the panel offered it as unpublished, the
+ * next edit's repair copied its pages back over the restored ones, and the
+ * next Publish quietly undid the restore. Here the restored version becomes
+ * the draft's version and base, as a revision already published. Only on a
+ * draft with nothing unpublished (`unpublished: true` otherwise, nothing
+ * written): held work is never thrown away by a restore. Read and written on
+ * the etag, as every save is.
+ */
+export async function rebaseDraft(deps, slug, { version, build = "", now = () => new Date() }) {
+  if (!isDraftVersion(version)) throw new Error("not a version: " + version);
+  for (let i = 0; i < 6; i++) {
+    const { draft, etag } = await readDraft(deps, slug);
+    if (!draft) return { ok: true, none: true };
+    if (draft.rev > draft.applied) return { ok: false, unpublished: true, error: "the draft has unpublished changes" };
+    if (draft.version === version) return { ok: true, same: true, draft };
+    const at = now().toISOString();
+    const rec = {
+      ...draftRecordOut(draft), version, build: String(build || ""), base: version, job: null, at,
+      history: [...draft.history.filter((v) => v !== draft.version && v !== version), draft.version].slice(-20),
+      ...addRevision(draft, { version, at, applied: draft.rev + 1 }),
+    };
+    const put = await deps.put(DRAFT_KEY(slug), JSON.stringify(rec), "application/json", { etagMatches: etag });
+    if (put) return { ok: true, draft: readBack(rec), revision: rec.rev };
+  }
+  return { ok: false, error: "the draft kept changing under this restore" };
+}
+/**
  * A SAVE THAT HELD CHANGES FOLDS ITS REVISION INTO THE CUMULATIVE RECORD at
  * once (`heldRange`), so a draft that grows by saves alone never leaves a
  * long run of journals for the next reader. Best effort: the save stands

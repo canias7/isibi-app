@@ -101,7 +101,7 @@ import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
-import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec } from "./site-draft.mjs";
+import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
@@ -13666,7 +13666,12 @@ async function ensureEditableState(env, slug, { turnOwner = null, keepConfig = f
     let d = null;
     try { d = (await readDraft(deps, slug)).draft; }
     catch (e) { console.error("editable state: draft unreadable for", slug, e && e.message); return { ok: false, why: "draft" }; }
-    if (d) pointer = { version: d.version, build: d.build };
+    // …UNLESS THE LIVE SITE MOVED PAST A DRAFT THAT WAS ALREADY PUBLISHED
+    // (2026-10-18, audit A06-2): a restore that stopped before it moved the
+    // draft leaves a published draft version beside an older live one, and
+    // copying the draft back would undo the restore. Only an unpublished
+    // draft version outranks the live pointer.
+    if (d && (!livePointer || d.version === livePointer.version || unpublishedVersions(d).has(d.version))) pointer = { version: d.version, build: d.build };
   }
   if (!pointer) return { ok: true, why: "no-pointer" };
   // THE LIVE SCRIPT, ASKED BY THE NEW HOLDER (2026-10-15): a holder that lost
@@ -43563,8 +43568,26 @@ async function handleRequest(request, env, ctx) {
               // version is an activation — its own script is already up when
               // this answers — and a legacy one is the copy path, whose script
               // rides on the return for THIS side to settle.
+              // UNDER DRAFT-FIRST, A RESTORE MOVES THE DRAFT TOO (2026-10-18,
+              // audit A06-2): never while unpublished changes are held (a
+              // restore would bury them), never onto a version that was never
+              // published; afterwards the restored version is the draft's
+              // starting point (`rebaseDraft`).
+              if (draftFirst(env)) {
+                let d = null;
+                try { d = (await readDraft(buildDeps(env), ownerSlug)).draft; }
+                catch { return Response.json({ ok: false, error: "the draft could not be read — nothing was restored; try again in a moment" }, { status: 503 }); }
+                if (d && d.rev > d.applied) return Response.json({ ok: false, error: "you have changes saved in your draft that aren't published yet — publish them first, then restore an older version", unpublished: true }, { status: 409 });
+                if (d && unpublishedVersions(d).has(String((vb && vb.id) || ""))) return Response.json({ ok: false, error: "that version was never published, so it can't be restored" }, { status: 409 });
+              }
               const rb = await restoreVersion(env, ownerSlug, vb && vb.id);
               if (!rb.ok) return Response.json({ ok: false, error: rb.error || "rollback failed" }, { status: rb.status || 500 });
+              if (draftFirst(env) && rb.activated) {
+                try {
+                  const rd = await rebaseDraft(buildDeps(env), ownerSlug, { version: String(vb.id), build: rb.build || "" });
+                  if (!rd.ok) console.error("restore: the draft was not moved", ownerSlug, rd.error);
+                } catch (e) { console.error("restore: the draft was not moved", ownerSlug, errorClassForLog(e)); }
+              }
 
               // AFTER THE FILES, like every other publish: the script serves the
               // site's assets out of R2 and its document names them, so uploading

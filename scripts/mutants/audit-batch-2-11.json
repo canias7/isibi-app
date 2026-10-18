@@ -1,0 +1,18 @@
+[
+ {"label": "CONTROL: a comment only — must survive", "control": true, "files": ["site-draft.mjs"],
+  "from": "export async function rebaseDraft(deps, slug, { version, build = \"\", now = () => new Date() }) {", "to": "// control\nexport async function rebaseDraft(deps, slug, { version, build = \"\", now = () => new Date() }) {"},
+ {"label": "R1 the route never moves the draft", "files": ["worker.js"],
+  "from": "const rd = await rebaseDraft(buildDeps(env), ownerSlug, { version: String(vb.id), build: rb.build || \"\" });", "to": "const rd = { ok: true };"},
+ {"label": "R2 a restore with held changes goes ahead", "files": ["worker.js"],
+  "from": "if (d && d.rev > d.applied) return Response.json({ ok: false, error: \"you have changes saved", "to": "if (false) return Response.json({ ok: false, error: \"you have changes saved"},
+ {"label": "R3 the rebase does not mark it published", "files": ["site-draft.mjs"],
+  "from": "...addRevision(draft, { version, at, applied: draft.rev + 1 }),", "to": "...addRevision(draft, { version, at }),"},
+ {"label": "R4 the rebase keeps the old version", "files": ["site-draft.mjs"],
+  "from": "...draftRecordOut(draft), version, build: String(build || \"\"), base: version,", "to": "...draftRecordOut(draft), build: String(build || \"\"), base: version,"},
+ {"label": "R5 the rebase ignores unpublished work", "files": ["site-draft.mjs"],
+  "from": "    if (draft.rev > draft.applied) return { ok: false, unpublished: true, error: \"the draft has unpublished changes\" };\n", "to": ""},
+ {"label": "R6 the repair always prefers the draft", "files": ["worker.js"],
+  "from": "if (d && (!livePointer || d.version === livePointer.version || unpublishedVersions(d).has(d.version))) pointer =", "to": "if (d) pointer ="},
+ {"label": "R7 the history loses the version rolled back from", "files": ["site-draft.mjs"],
+  "from": "history: [...draft.history.filter((v) => v !== draft.version && v !== version), draft.version].slice(-20),\n      ...addRevision(draft, { version, at, applied: draft.rev + 1 }),", "to": "history: draft.history.filter((v) => v !== version).slice(-20),\n      ...addRevision(draft, { version, at, applied: draft.rev + 1 }),"}
+]

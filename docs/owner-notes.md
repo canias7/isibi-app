@@ -1,5 +1,12 @@
 # Owner Notes
 
+## 2026-10-18 — Fix 11 of 12: restoring an old version now sticks (branch only)
+
+- Before: restoring an older version from Versions was quietly undone. The draft still pointed at the newer version, so your next edit or Publish brought it back.
+- Now the restored version becomes the draft's starting point. The panel says "Published", your next edit builds on the restored pages, and Publish keeps them.
+- If you have unpublished changes saved, Restore asks you to publish them first, so they are never buried. (If you'd like a "discard my draft" button for that case, that's your call — noted in the backlog.)
+- Tests DFH8, DFH8b and SD-R (red on the old code), sweep 7/7, full suite `11485 / 11483 / 0 / 2`.
+
 ## 2026-10-18 — Fix 10 of 12: parallel parts no longer wait 50 minutes behind a stuck one (branch only)
 
 - When one message asks for several changes, the parts take turns publishing. If one part got stuck, the others used to wait up to 50 minutes each and then run again up to twice, with a reply blaming "another change".

@@ -1588,3 +1588,62 @@ test("DFH7 SET ASIDE FINISHES A BLOCKED PUBLICATION WITHOUT ONLY WHAT THE DATABA
     assert.equal(none.status, 409, JSON.stringify(none.body));
   } finally { await finish(P, compiler); }
 });
+
+test("DFH8 A VERSIONS RESTORE MOVES THE DRAFT WITH IT (2026-10-18, audit A06-2) — a page line published as revision 1, then the older version restored: the draft reads published on the restored version; the next edit starts from the restored pages (the repair never copies the newer ones back); its Publish keeps the restored pages live; a restore with unpublished changes held is refused and changes nothing", async () => {
+  const { P, db, compiler } = bakery("dfh8");
+  try {
+    await runOne(P, TIKTOK);
+    const v0 = liveVersion(P);
+    P.env.DRAFT_FIRST = "on";
+    await runOne(P, TIKTOK_LATER);
+    const d1 = draftOf(P);
+    const p1 = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d1.rev, version: d1.version });
+    assert.equal(p1.status, 200, JSON.stringify(p1.body).slice(0, 300));
+    assert.equal(liveVersion(P), d1.version);
+    // THE RESTORE.
+    const rs = await call(P, "POST", "/api/site/" + P.slug + "/versions/restore", { id: v0 });
+    assert.equal(rs.status, 200, JSON.stringify(rs.body).slice(0, 300));
+    assert.equal(liveVersion(P), v0);
+    const st = await call(P, "GET", "/api/site/" + P.slug + "/draft");
+    assert.deepEqual([st.body.state, st.body.unpublished, st.body.draft], ["published", false, v0], "the draft did not follow the restore: " + JSON.stringify([st.body.state, st.body.draft]));
+    // THE NEXT EDIT STARTS FROM THE RESTORED PAGES.
+    const e = await runOne(P, RYE);
+    assert.equal(e.jobs[0].state, "done", JSON.stringify(e.jobs[0].result).slice(0, 300));
+    assert.equal(P.page("visit.tsx").includes(TT_LATER), false, "the repair copied the newer pages back over the restored ones");
+    assert.equal(P.page("visit.tsx").includes(TT_TO), true);
+    const d2 = draftOf(P);
+    const p2 = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d2.rev, version: d2.revs[d2.rev - 1].version });
+    assert.equal(p2.status, 200, JSON.stringify(p2.body).slice(0, 300));
+    assert.equal(liveVersion(P), v0, "the next Publish put the rolled-back version live again");
+    assert.equal(price(db, 2), 5.6);
+    // WITH A CHANGE HELD, A RESTORE IS REFUSED AND CHANGES NOTHING.
+    await runOne(P, WALNUT);
+    const held = draftOf(P);
+    const no = await call(P, "POST", "/api/site/" + P.slug + "/versions/restore", { id: d1.version });
+    assert.equal(no.status, 409, JSON.stringify(no.body).slice(0, 300));
+    assert.match(String(no.body.error), /aren't published yet/);
+    assert.equal(liveVersion(P), v0);
+    assert.deepEqual([draftOf(P).rev, draftOf(P).version], [held.rev, held.version]);
+  } finally { await finish(P, compiler); }
+});
+
+test("DFH8b A RESTORE THAT STOPS BEFORE IT MOVES THE DRAFT IS NOT UNDONE BY THE NEXT EDIT (2026-10-18, audit A06-2) — the draft's read fails right after the pages are restored: the draft still names the newer, published version; the next edit's repair keeps the live, restored pages", async () => {
+  const { P, compiler } = bakery("dfh8b");
+  try {
+    await runOne(P, TIKTOK);
+    const v0 = liveVersion(P);
+    P.env.DRAFT_FIRST = "on";
+    await runOne(P, TIKTOK_LATER);
+    const d1 = draftOf(P);
+    assert.equal((await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d1.rev, version: d1.version })).status, 200);
+    // THE ROUTE'S OWN CHECK READS THE DRAFT; THE MOVE AFTER THE RESTORE CANNOT.
+    P.failGetFrom((k) => k === DRAFT_KEY(P.slug), { skip: 1, count: 1 });
+    const rs = await call(P, "POST", "/api/site/" + P.slug + "/versions/restore", { id: v0 });
+    assert.equal(rs.status, 200, JSON.stringify(rs.body).slice(0, 300));
+    assert.equal(draftOf(P).version, d1.version, "the draft moved: this case tests nothing");
+    assert.equal(liveVersion(P), v0);
+    const e = await runOne(P, RYE);
+    assert.equal(e.jobs[0].state, "done", JSON.stringify(e.jobs[0].result).slice(0, 300));
+    assert.equal(P.page("visit.tsx").includes(TT_LATER), false, "the repair copied the published draft's pages back over the restore");
+  } finally { await finish(P, compiler); }
+});
