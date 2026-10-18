@@ -1990,3 +1990,18 @@ deploy's ignore list, so the push started deploy run 38747702721.
   with no repository secret, so it is `off`.
 - **Deployed, not runtime-confirmed:** no press yet. Wait the 15–20 minute
   image window first.
+
+## Deploy 2216 (2026-10-18) — audit findings 1–20, Discard draft, the review fixes
+
+- **Commit:** `c0c94186`, a fast-forward of `main` from `01a7d4eb` (deploy 2215), 23 commits, on the owner's word "merge to main".
+- **Before the merge:**
+  - Unit CI was green on the candidate: run 39171187319, `fail 0`, `skipped 54`. Site build was green on `f1ee494f` (run 39170721071); only `CLAUDE.md` changed after it.
+  - Nothing was in flight: no Actions runs, and only two `lost` edit jobs from 2026-09-01/02.
+  - The rollback was verified in a throwaway worktree: `git revert --no-commit 01a7d4eb..c0c94186` gives `main`'s own tree.
+- **Predicted image:** `f627bfc5e59cb204`, 211 inputs (180 paths), against `main`'s `8278ac9a0bcf0981`. The predictor reproduced 2215's recorded image, so it reads correctly.
+- **The run:** 39171938230, `success`, 22:22:30–22:25:09 UTC.
+  - `built isibi-app-sitebuildcontainer:f627bfc5e59cb204` (the registry answered 404).
+  - The container moved `8278ac9a0bcf0981` → `f627bfc5e59cb204` at 22:25:00.
+  - Assets uploaded: `/styles.css` and `/chat.js`. Cloudflare version `02ada375…`.
+- **Switches:** unchanged (secrets as before).
+- **Deployed, not runtime-confirmed.** It waits for the 15–20 minute image window, then the owner's free canary press. `public/` changed, so the served `chat.js` and `styles.css` are to be byte-compared with the merged files.
