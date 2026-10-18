@@ -81,3 +81,34 @@ Audit fixes 11–20 from `docs/audits/2026-10-17-builder-audit.md`, one commit e
   - DFH4: rehearsals unanswered, so the clash meets the insert itself. The publication is not finished, the inserts are not marked done, the record is not marked, and there is still one Spelt.
   - Both were red on the old code (Publish answered ok).
 - **Sweep and suite.** Sweep `audit-batch-2-7.json`: 5 of 5 killed, control survived. P4 first survived because deleting the line crashed instead of treating the clash as a repeat, so the mutant was rewritten as the old behaviour exactly. Full suite `11474 / 11472 / 0 / 2`.
+
+## Step 8: no endless retries — temporary stops back off, permanent ones are blocked (A06-4, A09-3 part b)
+
+- **The finding.** Every stop after the switch was kept and retried by the two-minute sweep forever. A held value Postgres refuses never finishes, and every later Publish ran it first (`finishFirst`) and stopped on it again, so Publish was wedged for good. The sweep also counted such sites against its ten turns, so ten stuck sites starved the rest.
+- **The fix.**
+  - `site-draft.mjs`:
+    - `publishStopKind` treats Postgres classes 22 and 23, 42P01 and 42703 as permanent, and everything else as temporary;
+    - `publishNextTry` pauses 2, 4, 8, 16 minutes, then 30 at most;
+    - `PUBLISH_MAX_ATTEMPTS` is 8;
+    - `journalBlocked`;
+    - `clickPlan` answers `blocked` for another revision's click.
+  - `runPublication`'s `keep` takes the error:
+    - a permanent stop, or the eighth try, is stored with `blocked: { stage, why, at }` and answers 409 "…can't be finished: <reason> — it won't be retried on its own; set it aside or change it, then press Publish";
+    - otherwise it stores `nextTry`.
+  - Row refusals name their reason. Step 7's clash is permanent.
+  - The sweep skips blocked journals and ones not yet due, and counts only the ones it runs.
+  - A click on another revision answers 409 naming the blocked one. The owner's own click on the blocked revision clears the block and tries once more.
+  - The route passes `blocked` through.
+  - The design's silent `skipped` was not adopted. Skipping a change without the owner's say would lose it, so step 9's set-aside is the owner's choice instead.
+- **Tests.**
+  - DFH5 covers the clash after the switch:
+    - it is blocked with a 409 and its reason;
+    - an hour on, the sweep runs nothing;
+    - a newer revision's click is told and does not re-run it;
+    - a temporary fault at the eighth try is blocked;
+    - the owner's click, once the clash is gone, finishes it, and the finished journal carries no block.
+  - DFH6: a journal not yet due is not run; with one turn per tick, a blocked site does not keep a stale one behind it.
+  - SD-B: the stop kinds, the pause and the click rule.
+  - DFP4, DFR8 and DFR10 now move their clock past the pause before trying again. That is the new behaviour, and their assertions are otherwise unchanged.
+  - Red on the old code: DFH5 and DFH6 fail.
+- **Sweep and suite.** Sweep `audit-batch-2-8.json`: 12 of 12 killed, control survived. B10 and B12 first survived; the attempt cap and the cleared block were then added to DFH5. Full suite `11477 / 11475 / 0 / 2`.

@@ -1,5 +1,17 @@
 # Owner Notes
 
+## 2026-10-18 — Fix 8 of 12: no more endless retries; a stuck change is "blocked" with its reason (branch only)
+
+- Before: a change that could never apply was retried every 2 minutes forever, and every later Publish got stuck behind it.
+- Now:
+  - **Temporary problems** (the database waking up, a storage hiccup) are retried with growing pauses: 2, 4, 8, 16, then every 30 minutes, at most 8 times.
+  - **A change that can never work** stops at once and is marked blocked, with the reason. It isn't retried on its own.
+  - **Publishing a newer version** tells you about the blocked change instead of getting stuck behind it.
+  - **Pressing Publish on the blocked change yourself** tries it once more, for example after you've fixed the clash.
+  - **Stuck sites no longer slow down everyone else's recovery.**
+- Next (fix 9): the "Set aside" button, so you can drop just that one change and publish the rest.
+- Tests DFH5, DFH6 and SD-B (red on the old code), sweep 12/12, full suite `11477 / 11475 / 0 / 2`.
+
 ## 2026-10-18 — Fix 7 of 12: Publish no longer silently drops new rows (branch only)
 
 - Before: if a new loaf held in the draft clashed with one added on the live site afterwards, Publish said "done" and quietly dropped every new row.

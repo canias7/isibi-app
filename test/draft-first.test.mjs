@@ -674,9 +674,12 @@ test("DFP4 A FAILURE AFTER THE SWITCH ROLLS FORWARD, NEVER BACK — the address 
     // A NEWER DRAFT MEANWHILE is not what any recovery publishes.
     await runOne(P, WALNUT);
     // THE SWEEP, WHILE THE STORE STILL REFUSES: nothing more, nothing undone.
+    P.advance(PAUSE);
     await P.run(() => draftFirstApi.runPublishRecovery(P.env));
     assert.deepEqual([journalOf(P).phase, journalOf(P).attempts, draftOf(P).applied, liveVersion(P)], ["switched", 2, 0, d.version]);
     aliases.failWrites = false;
+    // A TEMPORARY STOP WAITS ITS PAUSE (2026-10-18, audit A06-4) before the next try.
+    P.advance(PAUSE);
     await P.run(() => draftFirstApi.runPublishRecovery(P.env));
     assert.equal(openJournal(P), null, "the sweep did not finish the publication");
     assert.deepEqual([draftOf(P).applied, currentAlias(aliases), spelt(db).length], [d.rev, "fold-street-bakery", 1]);
@@ -820,6 +823,8 @@ const phaseIs = (ph) => (v) => v.includes('"phase":"' + ph + '"');
 /** A publication of `body` started and left running: its promise is never awaited. */
 function clickAway(P, body) { const c = call(P, "POST", "/api/site/" + P.slug + "/publish", body); c.catch(() => {}); return c; }
 const STALE = 5 * 60 * 1000;
+/** Past the longest pause a temporary stop waits before the sweep tries again (30 minutes). */
+const PAUSE = 31 * 60 * 1000;
 /** The approved revision: the Dark Rye's new price (a held row update) and new Visit-page words (new pages). */
 async function approved(P) {
   await runOne(P, TIKTOK);
@@ -1105,6 +1110,7 @@ test("DFR8 THE POINTER CANNOT BE READ WHERE A SWITCH MAY HAVE HAPPENED — the s
     assert.deepEqual([r1.finished, r1.cleared], [0, 0], JSON.stringify(r1));
     const j = journalOf(P);
     assert.deepEqual([j.phase, j.running, j.attempts, draftOf(P).applied, price(db, 2)], ["switching", false, 1, 0, 5.2], "an unknown was read as nothing live: " + JSON.stringify(j));
+    P.advance(PAUSE);
     const r2 = await P.run(() => draftFirstApi.runPublishRecovery(P.env));
     assert.equal(r2.finished, 1, JSON.stringify(r2));
     assert.deepEqual([liveVersion(P), price(db, 2), draftOf(P).applied, journalOf(P).phase], [d.version, 5.6, d.rev, "finished"]);
@@ -1171,6 +1177,7 @@ test("DFR10 THE OUTCOME UNKNOWN STAYS RECOVERABLE — the activation stopped bef
       assert.deepEqual([liveVersion(P), await serving(P), j.phase, j.running, j.attempts, price(db, 2), draftOf(P).applied],
         [d.version, v0, "switching", false, 1, 5.2, 0], "recorded or applied before the script served: " + JSON.stringify(j));
       landing.release();
+      P.advance(PAUSE);
       const r2 = await P.run(() => draftFirstApi.runPublishRecovery(P.env));
       assert.equal(r2.finished, 1, JSON.stringify(r2));
       assert.deepEqual([await serving(P), price(db, 2), draftOf(P).applied, journalOf(P).phase], [d.version, 5.6, d.rev, "finished"]);
@@ -1219,6 +1226,7 @@ test("DFR10 THE OUTCOME UNKNOWN STAYS RECOVERABLE — the activation stopped bef
       assert.equal(moved, true, "the newer work never moved the pointer: the observer is dead");
       assert.equal(bare(P.readObj(SIDECAR(P))), newer, "the newer activation's sidecar was overwritten by an older version's");
       assert.deepEqual([liveVersion(P), price(db, 2), draftOf(P).applied], [other, 5.2, 0], JSON.stringify(r1));
+      P.advance(PAUSE);
       const r2 = await P.run(() => draftFirstApi.runPublishRecovery(P.env));
       assert.deepEqual([journalOf(P).phase, bare(P.readObj(SIDECAR(P))), price(db, 2)], ["retired", newer, 5.2], JSON.stringify(r2));
     } finally { await finish(P, compiler); }
@@ -1471,5 +1479,69 @@ test("DFH4 A UNIQUE CLASH AFTER THE SWITCH IS NEVER TAKEN FOR A REPEAT (2026-10-
     assert.notEqual(jr.phase, "finished");
     assert.equal(draftOf(P).applied, 0, "the record says published");
     assert.equal(spelt(db).length, 1, "the held Spelt went in beside the live one");
+  } finally { await finish(P, compiler); }
+});
+
+test("DFH5 A CHANGE THAT CAN NEVER BE FINISHED IS BLOCKED, NOT RETRIED FOREVER (2026-10-18, audit A06-4) — a clash met after the switch: the stop is a 409 that names it and says it won't be retried; the sweep, even an hour on, runs nothing; a click on a newer revision is told about the blocked one instead of re-running it; the owner's own click on the blocked revision tries once more and, with the clash gone, finishes", async () => {
+  const { P, db, compiler } = bakery("dfh5", { unique: ["name"] });
+  const { draftFirstApi } = await loadWorkerModule();
+  try {
+    await runOne(P, TIKTOK);
+    P.env.DRAFT_FIRST = "on";
+    await runOne(P, SPELT);
+    const d = draftOf(P);
+    await addLive(db, "Spelt", 6);
+    db.rehearsalsDown(10);
+    const p = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.revs[d.rev - 1].version });
+    assert.deepEqual([p.status, p.body.blocked], [409, true], JSON.stringify(p.body).slice(0, 300));
+    assert.match(String(p.body.error), /already on the list.*won't be retried/);
+    const j1 = journalOf(P);
+    assert.ok(j1.blocked && j1.blocked.stage === "inserts", "the journal is not marked blocked: " + JSON.stringify(j1));
+    // THE SWEEP LEAVES IT ALONE, whatever the time.
+    P.advance(60 * 60 * 1000);
+    const writes0 = db.writes().length;
+    const r = await P.run(() => draftFirstApi.runPublishRecovery(P.env));
+    assert.deepEqual([r.finished, r.cleared], [0, 0], JSON.stringify(r));
+    assert.equal(journalOf(P).attempts, j1.attempts, "the sweep ran a blocked publication again");
+    assert.equal(db.writes().length, writes0, "the sweep wrote to the database for a blocked publication");
+    // A NEWER REVISION IS TOLD, NOT WEDGED BEHIND IT.
+    await runOne(P, WALNUT);
+    const d2 = draftOf(P);
+    const p2 = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d2.rev, version: d2.revs[d2.rev - 1].version });
+    assert.deepEqual([p2.status, p2.body.blocked, p2.body.revision], [409, true, d.rev], JSON.stringify(p2.body).slice(0, 300));
+    assert.equal(journalOf(P).attempts, j1.attempts, "another revision's click re-ran the blocked one");
+    // A TEMPORARY FAULT THAT KEEPS COMING BACK IS BLOCKED AT THE CAP: the
+    // journal as if it had failed seven times, due now; the draft unreadable.
+    await P.env.SITES_BUCKET.put(JOURNAL(P), JSON.stringify({ ...journalOf(P), blocked: null, attempts: 7, nextTry: Date.now() - 1 }));
+    P.failGet((k) => k === DRAFT_KEY(P.slug));
+    await P.run(() => draftFirstApi.runPublishRecovery(P.env));
+    const j8 = journalOf(P);
+    assert.ok(j8.blocked && j8.attempts === 8, "the eighth temporary stop was not blocked: " + JSON.stringify(j8));
+    // THE OWNER'S OWN CLICK, once the clash is gone, finishes it — and the
+    // finished journal carries no block.
+    db.answer('UPDATE "loaves" SET "name" = $1 WHERE id = $2', ["Spelt (live)", db.rows("loaves").find((x) => x.name === "Spelt").id]);
+    const p3 = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.revs[d.rev - 1].version });
+    assert.equal(p3.status, 200, JSON.stringify(p3.body).slice(0, 300));
+    assert.equal(draftOf(P).applied, d.rev);
+    assert.ok(!journalOf(P).blocked, "the finished publication still carries its old block: " + JSON.stringify(journalOf(P)));
+    assert.deepEqual(spelt(db).map((x) => Number(x.price)), [6.2]);
+  } finally { await finish(P, compiler); }
+});
+
+test("DFH6 A TEMPORARY STOP WAITS A DOUBLING PAUSE, AND BLOCKED OR WAITING SITES DO NOT TAKE THE SWEEP'S TURNS (2026-10-18, audit A06-4) — a journal not yet due is not run; with one turn per tick, a blocked site listed first does not keep a stale one behind it from being set aside", async () => {
+  const { P, compiler } = bakery("dfh6");
+  const { draftFirstApi } = await loadWorkerModule();
+  try {
+    const now = Date.now();
+    const blocked = { v: 1, slug: "aaaa-blocked", n: 1, version: "01790000000000-bbbbbb", uid: "", id: "x", running: false, at: now - 3600e3, phase: "switched", from: "", done: [], refs: {}, error: "inserts: x", attempts: 1, blocked: { stage: "inserts", why: "x", at: now } };
+    const waiting = { ...blocked, slug: "aaab-waiting", blocked: undefined, nextTry: now + 10 * 60 * 1000 };
+    const stale = { v: 1, slug: P.slug, n: 1, version: "01790000000000-cccccc", uid: "", id: "y", running: false, at: now - 3600e3, phase: "start", from: null, done: [], refs: {}, error: null, attempts: 0 };
+    await P.env.SITES_BUCKET.put(PUBLISHING_KEY("aaaa-blocked"), JSON.stringify(blocked));
+    await P.env.SITES_BUCKET.put(PUBLISHING_KEY("aaab-waiting"), JSON.stringify(waiting));
+    await P.env.SITES_BUCKET.put(PUBLISHING_KEY(P.slug), JSON.stringify(stale));
+    const r = await P.run(() => draftFirstApi.runPublishRecovery(P.env, { now, max: 1 }));
+    assert.deepEqual([r.finished, r.cleared], [0, 1], JSON.stringify(r));
+    assert.equal(JSON.parse(bare(P.readObj(PUBLISHING_KEY(P.slug)))).phase, "retired", "the stale journal behind the blocked one was not set aside");
+    assert.equal(JSON.parse(bare(P.readObj(PUBLISHING_KEY("aaab-waiting")))).attempts, 1, "a journal not yet due was run");
   } finally { await finish(P, compiler); }
 });

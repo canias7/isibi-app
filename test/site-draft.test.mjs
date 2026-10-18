@@ -267,3 +267,18 @@ test("AB4 THE REVISE BUILD HOLDS mergeSpec(overlay, spec), OR NOTHING WHEN IT DE
   assert.match(seg, /reviseHeldSpec\(/);
   assert.match(seg, /if \(schemaSpec\) made = await applySiteSchema\(db, schemaSpec\)/);
 });
+
+import { publishStopKind, publishNextTry, journalBlocked, clickPlan as clickPlanB, PUBLISH_MAX_ATTEMPTS } from "../site-draft.mjs";
+test("SD-B A STOP'S KIND, ITS PAUSE, AND THE CLICK ON A BLOCKED REVISION (2026-10-18, audit A06-4)", () => {
+  for (const c of ["22P02", "23505", "23502", "23514", "42P01", "42703"]) assert.equal(publishStopKind({ code: c }), "permanent", c);
+  for (const e of [{ code: "57P01" }, { code: "08006" }, new Error("fetch failed"), null, { code: 23505 }]) assert.equal(publishStopKind(e), "temporary", JSON.stringify(e));
+  const t0 = 1_000_000;
+  assert.deepEqual([1, 2, 3, 4, 5, 9].map((a) => (publishNextTry(a, t0) - t0) / 60000), [2, 4, 8, 16, 30, 30]);
+  assert.equal(PUBLISH_MAX_ATTEMPTS, 8);
+  const j = { phase: "switched", n: 3, running: false, at: 0, blocked: { stage: "inserts", why: "x" } };
+  assert.equal(journalBlocked(j), true);
+  assert.equal(journalBlocked({ ...j, phase: "finished" }), false);
+  assert.equal(clickPlanB(j, 4, { now: 1e12, staleMs: 1 }), "blocked");
+  assert.equal(clickPlanB(j, 3, { now: 1e12, staleMs: 1 }), "resume", "the owner's own click on the blocked revision is not a retry");
+  assert.equal(clickPlanB({ ...j, blocked: null }, 4, { now: 1e12, staleMs: 1 }), "finishFirst");
+});

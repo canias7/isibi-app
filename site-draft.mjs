@@ -1099,6 +1099,23 @@ export function readJournal(t) {
 }
 /** Is nothing left to do for this journal? */
 export const journalClosed = (j) => !j || CLOSED_PHASES.includes(j.phase);
+// ── A STOP THAT WILL NOT CLEAR ON ITS OWN (2026-10-18, audit A06-4/A09-3) ────
+// Postgres refusing a held value (class 22), a rule (class 23), or a table or
+// column that is not there is the same answer every time it is asked; asked
+// again every two minutes it never finishes, and every later Publish meets
+// it first. Such a stop is BLOCKED: kept with its reason, never retried by the
+// sweep, and said to the owner. Anything else is temporary and is retried on a
+// doubling pause — 2, 4, 8 … minutes, never more than 30 — and blocked after
+// `PUBLISH_MAX_ATTEMPTS`.
+export const PUBLISH_MAX_ATTEMPTS = 8;
+export function publishStopKind(e) {
+  const code = e && typeof e.code === "string" ? e.code : "";
+  return /^(22|23)[0-9A-Z]{3}$/.test(code) || code === "42P01" || code === "42703" ? "permanent" : "temporary";
+}
+/** When a temporary stop is tried again, after its `attempts`-th failure. */
+export const publishNextTry = (attempts, now) => now + Math.min(2 ** Math.max(0, attempts - 1) * 2 * 60 * 1000, 30 * 60 * 1000);
+/** Is this journal stopped on something it cannot finish by itself? */
+export const journalBlocked = (j) => !!(j && !journalClosed(j) && j.blocked && typeof j.blocked === "object");
 /** Is this journal's publication being run right now (a runner that has written within `staleMs`)? */
 export const journalLive = (j, { now = Date.now(), staleMs } = {}) => !!(j && !journalClosed(j) && j.running && j.at > now - staleMs);
 /** May any of this journal's revision be live? (`switching` may; `switched` is.) */
@@ -1117,5 +1134,8 @@ export function clickPlan(j, n, { now = Date.now(), staleMs } = {}) {
   if (journalClosed(j)) return "start";
   if (journalLive(j, { now, staleMs })) return "busy";
   if (j.n === n) return "resume";
+  // A BLOCKED REVISION IS NEVER RUN AGAIN FOR ANOTHER ONE'S CLICK: it would
+  // stop the same way, and the newer revision behind it every time.
+  if (journalBlocked(j)) return "blocked";
   return journalMayBeLive(j) ? "finishFirst" : "replace";
 }

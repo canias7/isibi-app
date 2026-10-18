@@ -101,7 +101,7 @@ import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
-import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec } from "./site-draft.mjs";
+import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
@@ -12961,8 +12961,16 @@ async function runPublication(env, slug, j, etag) {
   // A STOP THAT LEAVES THE JOURNAL for the next click or the sweep: after the
   // switch (`switched`), or where it cannot be told whether it happened
   // (`unknown`). Never "nothing changed".
-  const keep = async (stage, why, live) => {
-    try { await save({ running: false, error: stage + ": " + why, attempts: j.attempts + 1 }); } catch { /* another runner has it, or the store is down: the stored journal still names this revision */ }
+  const keep = async (stage, why, live, err = null) => {
+    // PERMANENT, OR TRIED TOO OFTEN: blocked, with its reason (2026-10-18,
+    // audit A06-4). Otherwise the next try waits its doubling pause.
+    const attempts = (Number(j.attempts) || 0) + 1;
+    const permanent = (err && err.permanent === true) || publishStopKind(err) === "permanent" || attempts >= PUBLISH_MAX_ATTEMPTS;
+    const at = Date.now();
+    try { await save({ running: false, error: stage + ": " + why, attempts, ...(permanent ? { blocked: { stage, why: String(why).slice(0, 300), at } } : { nextTry: publishNextTry(attempts, at) }) }); } catch { /* another runner has it, or the store is down: the stored journal still names this revision */ }
+    if (permanent && live === "switched") {
+      return { ok: false, status: 409, live, stage, blocked: true, error: "your new version is live, but one held change can't be finished: " + why + " — it won't be retried on its own; set it aside or change it, then press Publish" };
+    }
     return live === "switched"
       ? { ok: false, status: 502, live, stage, error: "your new version is live, but finishing its " + stage + " changes stopped — press Publish again to finish; it is also retried automatically" }
       : { ok: false, status: 502, live, stage, error: "publishing stopped while switching your site to the new version, and it is not yet certain whether the new version is live — press Publish again to finish; it is also retried automatically" };
@@ -13134,15 +13142,15 @@ async function runPublication(env, slug, j, etag) {
       }
       if (wantsDb && !db) { db = await siteDbFor(env, slug); if (!db) return keep("database", "the site's database could not be reached", "switched"); }
       if (!did("schema")) {
-        if (plan.spec) { try { await live.applySiteSchema(db, normalizeSchema(plan.spec)); } catch (e) { return keep("schema", errorClassForLog(e), "switched"); } }
+        if (plan.spec) { try { await live.applySiteSchema(db, normalizeSchema(plan.spec)); } catch (e) { return keep("schema", errorClassForLog(e), "switched", e); } }
         await mark("schema");
       }
       if (!did("jobs")) {
-        if (plan.jobs && plan.jobs.length) { try { await live.persistSiteJobs(env, j.uid, slug, plan.jobs); } catch (e) { return keep("jobs", errorClassForLog(e), "switched"); } }
+        if (plan.jobs && plan.jobs.length) { try { await live.persistSiteJobs(env, j.uid, slug, plan.jobs); } catch (e) { return keep("jobs", errorClassForLog(e), "switched", e); } }
         await mark("jobs");
       }
       if (!did("seeds")) {
-        for (const sd of plan.seeds) { try { await live.seedSiteRows(db, sd.spec || plan.spec || {}, sd.seed); } catch (e) { return keep("seeds", errorClassForLog(e), "switched"); } }
+        for (const sd of plan.seeds) { try { await live.seedSiteRows(db, sd.spec || plan.spec || {}, sd.seed); } catch (e) { return keep("seeds", errorClassForLog(e), "switched", e); } }
         await mark("seeds");
       }
       if (!did("changes")) {
@@ -13154,7 +13162,7 @@ async function runPublication(env, slug, j, etag) {
               const cols = Object.keys(c.values || {});
               if (cols.length) await sqlQuery(db, "UPDATE \"" + name + "\" SET " + cols.map((k) => '"' + k.replace(/"/g, "") + '" = ?').join(", ") + " WHERE id = ?", [...cols.map((k) => c.values[k]), c.id]);
             }
-          } catch (e) { return keep("changes", errorClassForLog(e), "switched"); }
+          } catch (e) { return keep("changes", heldRefused({ ok: false, code: e && e.code }) ? heldRefusalSaid({ code: e.code, message: e.message }) : errorClassForLog(e), "switched", e); }
         }
         await mark("changes");
       }
@@ -13169,7 +13177,7 @@ async function runPublication(env, slug, j, etag) {
             const st = rowsInsert(plan.inserts.map((r) => ({ table: r.table, values: r.values })), { key, cost: 0 });
             rowsOf(await sqlQuery(db, st.sql, st.params));
           } catch (e) {
-            if (!(e && e.code === "23505")) return keep("inserts", errorClassForLog(e), "switched");
+            if (!(e && e.code === "23505")) return keep("inserts", heldRefused({ ok: false, code: e && e.code }) ? heldRefusalSaid({ code: e.code, message: e.message }) : errorClassForLog(e), "switched", e);
             // A REPEAT ONLY WHEN THIS PUBLICATION'S OWN KEY IS THERE
             // (2026-10-18, audit A09-2): a clash on one of the list's own
             // values also answers 23505, and was taken for a repeat — the
@@ -13179,7 +13187,7 @@ async function runPublication(env, slug, j, etag) {
               const got = await sqlQuery(db, "SELECT v FROM _meta WHERE k = ?", [key]);
               v = got && got[0] && got[0].v ? JSON.parse(got[0].v) : null;
             } catch (e2) { return keep("inserts", errorClassForLog(e2), "switched"); }
-            if (!v || !Array.isArray(v.rows)) return keep("inserts", "a held entry clashes with one already on the list", "switched");
+            if (!v || !Array.isArray(v.rows)) return keep("inserts", "a held entry clashes with one already on the list", "switched", { permanent: true });
             rowsOf(v.rows.map((r) => ({ n: r.n, row: r.row })));
           }
         }
@@ -13290,8 +13298,13 @@ async function publishDraft(env, slug, pick, { uid = "" } = {}) {
         ? { ok: false, status: 202, publishing: true, error: "that revision is already being published" }
         : { ok: false, status: 409, error: "another revision is being published right now — wait for it to finish" };
     }
+    if (what === "blocked") {
+      return { ok: false, status: 409, blocked: true, revision: cur.j.n, error: "revision " + cur.j.n + " is live but one of its held changes can't be finished (" + String((cur.j.blocked && cur.j.blocked.why) || "") + ") — set it aside or change it before publishing another" };
+    }
     if (what === "resume" || what === "finishFirst") {
-      const j = { ...cur.j, running: true, at: Date.now(), id: crypto.randomUUID(), uid: cur.j.uid || uid };
+      // THE OWNER'S OWN CLICK ON A BLOCKED REVISION tries it once more (they
+      // may have changed the live list since); the sweep never does.
+      const j = { ...cur.j, running: true, at: Date.now(), id: crypto.randomUUID(), uid: cur.j.uid || uid, blocked: null, nextTry: null };
       let etag = null;
       // A TAKEOVER WHOSE ANSWER IS LOST may have landed: the journal then names
       // this revision with a fresh runner, and the next click or the sweep
@@ -13343,6 +13356,9 @@ async function runPublishRecovery(env, { now = Date.now(), max = 10 } = {}) {
       let cur;
       try { cur = await readPublication(env, slug); } catch { continue; }
       if (journalClosed(cur.j) || journalLive(cur.j, { now, staleMs: PUBLISH_STALE_MS })) continue;
+      // BLOCKED, OR NOT YET DUE (2026-10-18, audit A06-4): left alone, and not
+      // counted — so ten stuck sites cannot hold the eleventh's turn.
+      if (journalBlocked(cur.j) || (Number.isFinite(cur.j.nextTry) && cur.j.nextTry > now)) continue;
       looked++;
       // STOPPED BEFORE ITS INTENT TO SWITCH: nothing of it is live. Set aside
       // by a conditional write on the etag just read — a journal that landed
@@ -43417,7 +43433,7 @@ async function handleRequest(request, env, ctx) {
               // cross-check only.
               if (revision === null || revision <= 0) return Response.json({ ok: false, error: "name the revision to publish" }, { status: 400 });
               const r = await publishDraft(env, ownerSlug, { revision, version }, { uid: ou.id });
-              if (!r.ok) return Response.json({ ok: false, error: r.error, stage: r.stage, live: r.live || undefined, publishing: r.publishing === true, state: await readState() }, { status: r.status || 409 });
+              if (!r.ok) return Response.json({ ok: false, error: r.error, stage: r.stage, live: r.live || undefined, publishing: r.publishing === true, ...(r.blocked ? { blocked: true, revision: r.revision } : {}), state: await readState() }, { status: r.status || 409 });
               return Response.json({ ok: true, published: r.version, revision: r.revision, already: r.already === true, worker: r.worker, state: await readState() });
             }
             return Response.json({ ok: false, error: "method not allowed" }, { status: 405 });
