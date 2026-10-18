@@ -211,3 +211,27 @@ Audit fixes 11–20 from `docs/audits/2026-10-17-builder-audit.md`, one commit e
   - SD-X: the record after a discard.
   - Red on the old code: DFH10 and SB2 fail.
 - **Sweep and suite.** Sweep `audit-batch-2-13.json`: 6 of 6 killed, control survived. X1 and X3 first survived, and SD-X was then added. Full suite `11489 / 11487 / 0 / 2`.
+
+## The independent review, and its fixes (2026-10-18)
+
+An independent review read steps 1–12 (code only; nothing run or spent). It found four real bugs and two misleading comments. Everything else was checked and found correct, including `sqlRehearse`'s safety on real Postgres (the closing division always fails after the write, so nothing but a sequence advance is kept).
+
+1. **Starter rows published apart from a later edit to them.** Publishing an earlier revision that adds a new table's starter rows, while a later one edits them, left the later revision naming rows that no longer waited in the draft. It could never be published.
+   - Worse, `combineHeld` answered no schema at all, and the data step crashed on it.
+   - Now `combineHeld` always works the schema out.
+   - Publish refuses such a split with a 409 naming the revision to publish instead (`splitsStarterRows`, checked before any journal).
+   - Tests: SD-S, the updated A28-3 case, and DFH12 (a guard).
+2. **Rehearsals judged changes that need other held changes.** A row valid only after a held schema change, or after a held rename freeing its name, was refused at hold time and at Publish.
+   - Now only a change that stands alone on its list is rehearsed (`heldTouches`; per-table counts before the switch). The rest are left to the finish, where a real refusal is blocked and can be set aside.
+   - DFH3 now holds a lone new loaf, its own subject. DFH11 holds a rename, then a new row taking the old name, and both publish.
+3. **The hold-from-start path still answered a timed-out turn as an overlap.** It now answers the turn's own stop (T1f, a landmark guard).
+   - DH9b drives the other path through the container. It surfaced that `PUBLISH_TURN_POLL_MS` and `PUBLISH_TURN_WAIT_MS` never reached the container; both are now on `JOB_ENV_NAMES` and unset in production.
+4. **The blocked card's Edit led nowhere.** A newer change meets the blocked one first.
+   - The card now offers **Set aside** and **Not now**, and says to ask for the change again after setting it aside.
+   - It says "may already be live" when the publication stopped at its switch.
+   - The server's sentences match. SB1 was updated.
+5. **Comments corrected:** a 401 counts toward the unreadable cap; the rehearsal's division always fails.
+
+Also: once the owner sets a publication aside, a later permanent refusal in the same run is set aside too. It is listed in `skipped`, never silent, so it is kept as is.
+
+Red on the previous commit: T1f, SB1, DFH11, DFH12 and the site-draft file fail. Sweep `audit-batch-2-14.json`: 9 of 9 killed, control survived. Its first baseline run failed once; the same files passed 74/74 alone and on the re-run. Full suite `11494 / 11492 / 0 / 2`.

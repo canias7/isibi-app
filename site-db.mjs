@@ -782,7 +782,8 @@ export async function sqlRehearse(conn, sql, params) {
     if (/^[0-9A-Z]{5}$/.test(code)) return { ok: false, code, message: String(e.message || "") };
     throw e;
   }
-  // A WRITE THAT RETURNED NO ROW never reached the division: nothing was kept.
+  // NOT REACHED ON POSTGRES (the division always fails, even over no rows):
+  // a stand-in that answered without it kept nothing either.
   return { ok: true };
 }
 

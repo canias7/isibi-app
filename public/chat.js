@@ -8136,8 +8136,11 @@ function siteDraftPanel(site, d) {
   const addr = d.address && d.address.draft && d.address.draft !== d.address.live ? d.address.draft : '';
   const blockedCard = blocked
     ? '<div class="sp-blocked" role="status"><p class="sp-blocked-t">1 change could not be published</p><p class="sp-blocked-why">' + esc(String(blocked.why || 'the database refused it')) + '</p>' +
-      '<p class="sp-intro sp-note">Your new pages are live. Set this change aside to finish publishing everything else, or edit it in the chat.</p>' +
-      '<div class="sp-actions"><button type="button" class="st-publish" id="spSetAside">Set aside</button><button type="button" class="st-share" id="spEditBlocked">Edit</button></div></div>'
+      // THE HONEST WAY OUT (2026-10-18, review): a newer change cannot get past
+      // a blocked one — it would meet it first — so the change is set aside,
+      // and then asked for again, differently, in the chat.
+      '<p class="sp-intro sp-note">' + (d.publication.phase === 'switched' ? 'Your new pages are live. ' : 'Your new pages may already be live. ') + 'Set this change aside to finish publishing everything else \u2014 then ask for it again in the chat, with a different value.</p>' +
+      '<div class="sp-actions"><button type="button" class="st-publish" id="spSetAside">Set aside</button><button type="button" class="st-share" id="spNotNow">Not now</button></div></div>'
     : '';
   box.innerHTML = '<div class="si-card"><div class="si-head"><b>' + esc(head) + '</b><button type="button" class="si-x" aria-label="Close">\u00d7</button></div><div class="si-body">' +
     (blocked ? blockedCard : '<p class="sp-intro">' + esc(intro) + '</p>' + busy) +
@@ -8179,12 +8182,8 @@ function siteDraftPanel(site, d) {
       if (typeof sbToast === 'function') sbToast('Could not reach the server \u2014 try again');
     }
   };
-  const edit = box.querySelector('#spEditBlocked');
-  if (edit && blocked) edit.onclick = () => {
-    close();
-    const inp = document.getElementById('stRevise');
-    if (inp) { try { inp.focus({ preventScroll: false }); } catch { inp.focus(); } }
-  };
+  const later = box.querySelector('#spNotNow');
+  if (later && blocked) later.onclick = close;
   const discard = box.querySelector('#spDiscardDraft');
   if (discard) discard.onclick = async () => {
     if (typeof confirm === 'function' && !confirm('Discard your unpublished changes? Your live site stays exactly as it is, and the draft goes back to it. This cannot be undone.')) return;

@@ -1,0 +1,22 @@
+[
+ {"label": "CONTROL: a comment only — must survive", "control": true, "files": ["site-draft.mjs"],
+  "from": "export function splitsStarterRows(ranges, n) {", "to": "// control\nexport function splitsStarterRows(ranges, n) {"},
+ {"label": "F1 a turn timeout on the hold path is an overlap again", "files": ["worker.js"],
+  "from": "      } else if (heldStop) {\n", "to": "      } else if (false) {\n"},
+ {"label": "F2 the data step rehearses beside held changes", "files": ["worker.js"],
+  "from": "const alone = !(dView && heldTouches(dView.ops, c.table)) && !dHeldNow.has(c.table);", "to": "const alone = true;"},
+ {"label": "F3 the pre-switch rehearsal ignores what else is held", "files": ["worker.js"],
+  "from": "const standsAlone = (table) => per.get(String(table).toLowerCase()) === 1 && !schemaTables.has(String(table).toLowerCase());", "to": "const standsAlone = () => true;"},
+ {"label": "F4 a failed row op drops the schema", "files": ["site-draft.mjs"],
+  "from": "return bad ? { ok: false, error: bad, spec, jobs, held } : { ok: true, spec, jobs, held };", "to": "return bad ? { ok: false, error: bad } : { ok: true, spec, jobs, held };"},
+ {"label": "F5 starter rows may be published apart", "files": ["worker.js"],
+  "from": "    if (need) return { ok: false, status: 409, error: \"a later change (revision \"", "to": "    if (false) return { ok: false, status: 409, error: \"a later change (revision \""},
+ {"label": "F6 splitsStarterRows never finds the later edit", "files": ["site-draft.mjs"],
+  "from": "o.kind === \"row\" && typeof o.ref === \"string\" && o.ref.startsWith(\"seed:\"))) need = r.n;", "to": "false)) need = r.n;"},
+ {"label": "F7 heldTouches misses a schema op", "files": ["site-draft.mjs"],
+  "from": "    if (o.kind === \"schema\" && o.spec && Array.isArray(o.spec.tables) && o.spec.tables.some((x) => x && String(x.name || \"\").toLowerCase() === t)) return true;\n", "to": ""},
+ {"label": "F8 the card promises an edit", "files": ["public/chat.js"],
+  "from": "then ask for it again in the chat, with a different value.", "to": "or edit it in the chat."},
+ {"label": "F9 the card always says the pages are live", "files": ["public/chat.js"],
+  "from": "(d.publication.phase === 'switched' ? 'Your new pages are live. ' : 'Your new pages may already be live. ')", "to": "'Your new pages are live. '"}
+]

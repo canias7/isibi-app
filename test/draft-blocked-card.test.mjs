@@ -51,14 +51,15 @@ async function render(state) {
   return { b, page };
 }
 
-test("SB1 THE BLOCKED CARD NAMES THE CHANGE AND OFFERS SET ASIDE AND EDIT; SET ASIDE SENDS THE BLOCKED REVISION; WITHOUT A BLOCK THERE IS NO CARD", { skip: SKIP }, async () => {
+test("SB1 THE BLOCKED CARD NAMES THE CHANGE AND OFFERS SET ASIDE AND NOT NOW; SET ASIDE SENDS THE BLOCKED REVISION; WITHOUT A BLOCK THERE IS NO CARD", { skip: SKIP }, async () => {
   const { b, page } = await render(BLOCKED);
   try {
     const card = page.locator(".sp-blocked");
     assert.equal(await card.count(), 1, "no blocked card");
     assert.match(await card.innerText(), /1 change could not be published[\s\S]*clashes with one already on the list/);
     assert.equal(await page.locator("#spSetAside").isVisible(), true);
-    assert.equal(await page.locator("#spEditBlocked").isVisible(), true);
+    assert.equal(await page.locator("#spNotNow").isVisible(), true);
+    assert.match(await card.innerText(), /ask for it again in the chat/, "the card promises an edit that cannot get past the blocked change");
     assert.equal(await page.locator("#spPublishDraft").count(), 0, "the ordinary Publish button sits beside a blocked change");
     if (SHOTS) { mkdirSync(SHOTS, { recursive: true }); await page.locator(".si-card").screenshot({ path: path.join(SHOTS, "setaside-card.png") }); }
     await page.click("#spSetAside");
@@ -66,13 +67,17 @@ test("SB1 THE BLOCKED CARD NAMES THE CHANGE AND OFFERS SET ASIDE AND EDIT; SET A
     assert.deepEqual(await page.evaluate(() => window.sent), [{ url: "/api/site/fold-lane-bakery/publish/set-aside", body: { revision: 3 } }]);
     assert.match((await page.evaluate(() => window.toasts)).join(" "), /1 change was set aside/);
   } finally { await b.close(); }
-  // EDIT: the panel closes and the chat box has the focus.
+  // NOT NOW: the panel closes and nothing is sent.
   const e = await render(BLOCKED);
   try {
-    await e.page.click("#spEditBlocked");
-    assert.equal(await e.page.locator("#sitePubModal").count(), 0, "Edit did not close the panel");
-    assert.equal(await e.page.evaluate(() => document.activeElement && document.activeElement.id), "stRevise");
+    await e.page.click("#spNotNow");
+    assert.equal(await e.page.locator("#sitePubModal").count(), 0, "Not now did not close the panel");
+    assert.equal(await e.page.evaluate(() => window.sent.length), 0);
   } finally { await e.b.close(); }
+  // STOPPED AT ITS SWITCH, the card does not claim the pages are live.
+  const u = await render({ ...BLOCKED, publication: { ...BLOCKED.publication, phase: "switching", finishing: false, checking: true } });
+  try { assert.match(await u.page.locator(".sp-blocked").innerText(), /may already be live/); }
+  finally { await u.b.close(); }
   // THE OBSERVER IS ALIVE: the same panel without a block has no card and its Publish button.
   const n = await render({ ...BLOCKED, state: "saved", publication: null });
   try {

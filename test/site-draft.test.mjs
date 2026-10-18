@@ -223,7 +223,9 @@ test("A28-3: a negative id with no ref, or an unknown or removed starter ref, is
     { kind: "row", table: "services", op: "update", ref: "seed:services:0:5", values: {} },
   ]) {
     assert.deepEqual(publishPlan([seed, bad]), { ok: false, error: STARTER_MISSING });
-    assert.deepEqual(combineHeld({}, [seed, bad]), { ok: false, error: STARTER_MISSING });
+    // REFUSED, AND THE SCHEMA STILL WORKED OUT (2026-10-18, review): its readers need it.
+    const c = combineHeld({ tables: [{ name: "services" }] }, [seed, bad]);
+    assert.deepEqual([c.ok, c.error, c.spec], [false, STARTER_MISSING, { tables: [{ name: "services" }] }]);
   }
   const twice = [seed, { kind: "row", table: "services", op: "remove", ref: "seed:services:0:0" }, { kind: "row", table: "services", op: "update", ref: "seed:services:0:0", values: {} }];
   assert.deepEqual(publishPlan(twice), { ok: false, error: STARTER_MISSING });
@@ -337,4 +339,23 @@ test("SD-X DISCARD: THE DROPPED REVISIONS LEAVE THE LIST, THE NEW ONE IS PUBLISH
   assert.equal(unpublishedVersionsX(d).size, 0);
   assert.equal(draftStateR({ draft: d, live: { version: V0 } }).state, "published");
   void sealHeldRevisionX;
+});
+
+import { splitsStarterRows, heldTouches, specOverlay as specOverlayS } from "../site-draft.mjs";
+test("SD-S A REVISION THAT ADDS STARTER ROWS IS NEVER PUBLISHED APART FROM A LATER CHANGE TO THEM; THE DRAFT'S SCHEMA IS READ WHATEVER A ROW OP SAYS; WHAT TOUCHES A TABLE (2026-10-18, review of audit batch 2)", () => {
+  const seed = { kind: "seed", spec: {}, seed: { services: [{ name: "Cut" }] } };
+  const edit = { kind: "row", table: "services", op: "update", ref: "seed:services:0:0", values: { price: 2 } };
+  const other = { kind: "row", table: "services", op: "update", id: 3, values: { price: 1 } };
+  assert.equal(splitsStarterRows([{ n: 1, ops: [seed] }, { n: 2, ops: [other] }, { n: 3, ops: [edit] }], 1), 3);
+  assert.equal(splitsStarterRows([{ n: 1, ops: [seed] }, { n: 2, ops: [edit] }], 2), 0, "the newest revision carries both");
+  assert.equal(splitsStarterRows([{ n: 1, ops: [other] }, { n: 2, ops: [edit] }], 1), 0, "no starter rows go out with revision 1");
+  assert.equal(splitsStarterRows([{ n: 1, ops: [seed] }, { n: 2, ops: [other] }], 1), 0, "nothing later names a starter row");
+  // THE SCHEMA, WHATEVER A ROW OP SAYS.
+  assert.deepEqual(specOverlayS({ tables: [{ name: "a" }] }, [{ kind: "row", table: "a", op: "update", id: -4, values: {} }, { kind: "schema", spec: { tables: [{ name: "b" }] } }]), { tables: [{ name: "a" }, { name: "b" }] });
+  // WHAT TOUCHES A TABLE.
+  assert.equal(heldTouches([other], "SERVICES"), true);
+  assert.equal(heldTouches([seed], "services"), true);
+  assert.equal(heldTouches([{ kind: "schema", spec: { tables: [{ name: "Services" }] } }], "services"), true);
+  assert.equal(heldTouches([other, seed], "loaves"), false);
+  assert.equal(heldTouches(null, "loaves"), false);
 });

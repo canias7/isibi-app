@@ -101,7 +101,7 @@ import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
-import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec } from "./site-draft.mjs";
+import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
@@ -12969,7 +12969,7 @@ async function runPublication(env, slug, j, etag) {
     const at = Date.now();
     try { await save({ running: false, error: stage + ": " + why, attempts, ...(permanent ? { blocked: { stage, why: String(why).slice(0, 300), at } } : { nextTry: publishNextTry(attempts, at) }) }); } catch { /* another runner has it, or the store is down: the stored journal still names this revision */ }
     if (permanent && live === "switched") {
-      return { ok: false, status: 409, live, stage, blocked: true, error: "your new version is live, but one held change can't be finished: " + why + " — it won't be retried on its own; set it aside or change it, then press Publish" };
+      return { ok: false, status: 409, live, stage, blocked: true, error: "your new version is live, but one held change can't be finished: " + why + " — it won't be retried on its own; set it aside to publish the rest, then ask for it again" };
     }
     return live === "switched"
       ? { ok: false, status: 502, live, stage, error: "your new version is live, but finishing its " + stage + " changes stopped — press Publish again to finish; it is also retried automatically" }
@@ -13043,13 +13043,21 @@ async function runPublication(env, slug, j, etag) {
       // held — stops Publish here, named, while nothing is live, rather than
       // after the switch. Unanswered, the finish below still refuses to take
       // a clash for done.
+      // ONLY WHAT STANDS ALONE (2026-10-18, review): a row on a table the held
+      // schema changes, or beside another held row change to the same table,
+      // may need those first — it is left to the finish, where a real refusal
+      // is blocked and can be set aside.
+      const per = new Map();
+      for (const x of [...plan.changes, ...plan.inserts]) per.set(String(x.table).toLowerCase(), (per.get(String(x.table).toLowerCase()) || 0) + 1);
+      const schemaTables = new Set(((plan.spec && plan.spec.tables) || []).map((t) => String((t && t.name) || "").toLowerCase()));
+      const standsAlone = (table) => per.get(String(table).toLowerCase()) === 1 && !schemaTables.has(String(table).toLowerCase());
       if (db) {
         const tries = [
-          ...plan.changes.filter((c) => c.op !== "remove" && Number.isSafeInteger(c.id) && c.id > 0 && Object.keys(c.values || {}).length).map((c) => {
+          ...plan.changes.filter((c) => standsAlone(c.table) && c.op !== "remove" && Number.isSafeInteger(c.id) && c.id > 0 && Object.keys(c.values || {}).length).map((c) => {
             const cols = Object.keys(c.values);
             return { sql: "UPDATE \"" + String(c.table).replace(/"/g, "") + "\" SET " + cols.map((k) => '"' + k.replace(/"/g, "") + '" = ?').join(", ") + " WHERE id = ? RETURNING id", params: [...cols.map((k) => c.values[k]), c.id] };
           }),
-          ...plan.inserts.map((r) => { const ins = insertStatement(String(r.table).replace(/"/g, ""), r.values || {}); return { sql: ins.sql + " RETURNING id", params: ins.params }; }),
+          ...plan.inserts.filter((r) => standsAlone(r.table)).map((r) => { const ins = insertStatement(String(r.table).replace(/"/g, ""), r.values || {}); return { sql: ins.sql + " RETURNING id", params: ins.params }; }),
         ];
         for (const t of tries) {
           let tried = null;
@@ -13316,6 +13324,15 @@ async function publishDraft(env, slug, pick, { uid = "" } = {}) {
   const c = chooseRevision(draft, pick || {});
   if (!c.ok) return { ok: false, status: c.status, error: c.error };
   const rev = c.rev;
+  // NEVER APART FROM A LATER CHANGE TO ITS STARTER ROWS (2026-10-18, review):
+  // that change would name rows that no longer wait in the draft.
+  if (rev.n > draft.applied && rev.n < draft.rev) {
+    let ranges = null;
+    try { ranges = await heldRange(deps, slug, draft, { from: draft.applied }); }
+    catch { return { ok: false, status: 503, error: "the draft's held changes could not be read — nothing was published" }; }
+    const need = splitsStarterRows(ranges, rev.n);
+    if (need) return { ok: false, status: 409, error: "a later change (revision " + need + ") edits the starter rows this one adds — publish revision " + need + " to put them live together" };
+  }
   for (let i = 0; i < 4; i++) {
     let cur;
     try { cur = await readPublication(env, slug); }
@@ -13328,7 +13345,7 @@ async function publishDraft(env, slug, pick, { uid = "" } = {}) {
         : { ok: false, status: 409, error: "another revision is being published right now — wait for it to finish" };
     }
     if (what === "blocked") {
-      return { ok: false, status: 409, blocked: true, revision: cur.j.n, error: "revision " + cur.j.n + " is live but one of its held changes can't be finished (" + String((cur.j.blocked && cur.j.blocked.why) || "") + ") — set it aside or change it before publishing another" };
+      return { ok: false, status: 409, blocked: true, revision: cur.j.n, error: "revision " + cur.j.n + " is live but one of its held changes can't be finished (" + String((cur.j.blocked && cur.j.blocked.why) || "") + ") — set it aside before publishing another" };
     }
     if (what === "resume" || what === "finishFirst") {
       // THE OWNER'S OWN CLICK ON A BLOCKED REVISION tries it once more (they
@@ -14398,8 +14415,8 @@ async function takeTurn(env, slug, job) {
       // waited 30 minutes this way and were then re-run.
       // ONLY A 403 IS A REFUSAL. A 401 is this job's own token no longer
       // valid (expired at the budget's end, or the key rotated): not the
-      // store's answer about the turn, so it is waited like any unread turn
-      // and ends with the budget, reported as running out of time.
+      // store's answer about the turn, so it is counted like any unread turn
+      // and ends the wait at the unreadable cap below, never re-run.
       if (e && e.name === "GatewayError" && e.status === 403) { bs.refused = true; return null; }
     }
     if (t) { bs.turn = t; bs.waits = (bs.waits || 0); return t; }
@@ -23187,8 +23204,13 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
         heldSt = await ensureEditableState(env, job.slug, { turnOwner: jctx.beside.turn.owner, fence: jobFence(env, jctx) });
         if (heldSt && heldSt.why === "turn-lost") loseTurn(jctx, job.slug, "found at the editable-state check");
       }
+      // A TURN WAIT THAT TIMED OUT OR COULD NOT BE READ (2026-10-18, review of
+      // step 10) is its own stop here too, never an overlap loss re-run.
+      const heldStop = jctx.beside && jctx.beside.holds && !jctx.beside.turn ? turnStop(jctx.beside) : null;
       if (jctx.beside && jctx.beside.holds && jctx.beside.refused) {
         res = Response.json({ ok: false, error: "turn-refused", ours: true, cost: 0, unchanged: true, msg: "Something went wrong on our side before this change could start. Nothing was changed." }, { status: 503 });
+      } else if (heldStop) {
+        res = Response.json({ ok: false, error: heldStop.error, ours: true, cost: 0, unchanged: true, msg: "Something went wrong on our side before this change could start. Nothing was changed." }, { status: 503 });
       } else if (jctx.beside && jctx.beside.holds && (!jctx.beside.turn || !heldSt || heldSt.ok !== true)) {
         res = Response.json({ ok: false, error: "turn", ours: true, cost: 0, unchanged: true, msg: heldSt && !jctx.beside.lost ? "Couldn't check the site's saved state before this change. Nothing was changed." : "Another change in this request is still being published, and this one ran out of time waiting. Nothing was changed." }, { status: 503 });
       } else {
@@ -33899,6 +33921,7 @@ async function handleRequest(request, env, ctx) {
               // report this charge rather than placing a second one.
               let dCost = 0, dBilled = false;
               const dRefused = [];
+              const dHeldNow = new Set();
               const dOut = await runDataEdit({
                 send: eQuick(),
                 // WHAT THE STEP WAS SHOWN (2026-10-11): counted on the job.
@@ -33931,7 +33954,13 @@ async function handleRequest(request, env, ctx) {
                     // with its reason, and never reaches Publish. A change to a
                     // held new row or table is not live to try; a database that
                     // does not answer holds it as before.
-                    if (dLive.has(c.table) && !ref && (c.id === undefined || was)) {
+                    // ONLY A CHANGE THAT STANDS ALONE ON ITS LIST is judged here
+                    // (2026-10-18, review): one beside other held changes to the
+                    // same table — earlier revisions, or this answer's own — may
+                    // need them, and is left to Publish.
+                    const alone = !(dView && heldTouches(dView.ops, c.table)) && !dHeldNow.has(c.table);
+                    dHeldNow.add(c.table);
+                    if (alone && dLive.has(c.table) && !ref && (c.id === undefined || was)) {
                       let tried = null;
                       try {
                         if (c.id === undefined) { const ins = insertStatement(name, c.values); tried = await sqlRehearse(ddb, ins.sql + " RETURNING id", ins.params); }
@@ -38818,6 +38847,7 @@ async function handleRequest(request, env, ctx) {
                 // A09-2/A09-3), as the data step does: one the list refuses is
                 // said now, before anything is reserved or marked, so it costs nothing.
                 for (const r of rowClean.value) {
+                  if (aDraftView && heldTouches(aDraftView.ops, r.table)) continue;
                   let tried = null;
                   try { const ins = insertStatement(String(r.table).replace(/"/g, ""), r.values); tried = await sqlRehearse(adb, ins.sql + " RETURNING id", ins.params); }
                   catch (e) { console.error("add-on entry rehearsal unanswered:", ownerSlug, r.table, errorClassForLog(e)); }

@@ -885,6 +885,40 @@ export async function unpublishedOps(deps, slug, draft) {
 }
 
 /**
+ * MAY REVISION `n` BE PUBLISHED WITHOUT THE ONES AFTER IT? (2026-10-18,
+ * review of audit batch 2): a later revision's change to a starter row names
+ * it by its place among the starter rows still held; published apart, the
+ * starter rows go live and that name points at nothing — the later revision
+ * could then never be published. `ranges` are `heldRange`'s `{ n, ops }` from
+ * `applied`. Answers the newest revision that must go with it, or 0.
+ */
+export function splitsStarterRows(ranges, n) {
+  const upTo = (ranges || []).filter((r) => r.n <= n);
+  const after = (ranges || []).filter((r) => r.n > n);
+  if (!upTo.some((r) => (r.ops || []).some((o) => o && o.kind === "seed"))) return 0;
+  let need = 0;
+  for (const r of after) if ((r.ops || []).some((o) => o && o.kind === "row" && typeof o.ref === "string" && o.ref.startsWith("seed:"))) need = r.n;
+  return need;
+}
+/**
+ * DOES ANY HELD OP TOUCH THIS TABLE? (2026-10-18, review of audit batch 2):
+ * a held schema op naming it, or a held row or starter-row op on it. A change
+ * to such a table may only work with those changes in place — a widened rule,
+ * a renamed row freeing a name — so rehearsing it alone against the live
+ * database cannot judge it; it is left to Publish, where a real refusal is
+ * blocked and can be set aside.
+ */
+export function heldTouches(ops, table) {
+  const t = String(table || "").toLowerCase();
+  for (const o of Array.isArray(ops) ? ops : []) {
+    if (!o || typeof o !== "object") continue;
+    if (o.kind === "row" && String(o.table || "").toLowerCase() === t) return true;
+    if (o.kind === "seed" && o.seed && Object.keys(o.seed).some((k) => k.toLowerCase() === t)) return true;
+    if (o.kind === "schema" && o.spec && Array.isArray(o.spec.tables) && o.spec.tables.some((x) => x && String(x.name || "").toLowerCase() === t)) return true;
+  }
+  return false;
+}
+/**
  * TWO SPECS AS ONE, BY NAME (2026-10-18, audit A06-3 and A04-1): tables,
  * functions, outside connections and jobs keyed by lower-cased name, the
  * later entry winning; every other key from `next`. A held change adds to the
@@ -950,7 +984,7 @@ function forSeedRows(o, count, each) {
  */
 export function combineHeld(liveSpec, ops, { upTo, setAside = [] } = {}) {
   const aside = new Set(Array.isArray(setAside) ? setAside : []);
-  let spec = liveSpec, jobs = null, held = false;
+  let spec = liveSpec, jobs = null, held = false, bad = "";
   const seedRefs = new Set(), seedCount = new Map();
   const list = Array.isArray(ops) ? ops : [];
   const end = Number.isInteger(upTo) ? Math.min(upTo, list.length) : list.length;
@@ -960,10 +994,13 @@ export function combineHeld(liveSpec, ops, { upTo, setAside = [] } = {}) {
     if (o.kind === "schema" && o.spec && typeof o.spec === "object") { spec = held ? mergeSpec(spec, o.spec) : mergeSpec(liveSpec, o.spec); held = true; }
     else if (o.kind === "jobs") jobs = byName(jobs, Array.isArray(o.jobs) ? o.jobs : []);
     else if (o.kind === "seed") forSeedRows(o, seedCount, (ref) => seedRefs.add(ref));
-    else if (o.kind === "row" && o.op !== "insert" && !o.ref && Number(o.id) < 0) return { ok: false, error: STARTER_MISSING };
-    else if (o.kind === "row" && typeof o.ref === "string" && o.ref.startsWith("seed:") && !seedRefs.has(o.ref)) return { ok: false, error: STARTER_MISSING };
+    // A ROW THAT CANNOT BE FOUND IS SAID, BUT THE SCHEMA IS STILL WORKED OUT
+    // (2026-10-18, review): every reader of the draft's schema — the data
+    // step, the add-on, the revise — needs it whatever a row op says.
+    else if (o.kind === "row" && o.op !== "insert" && !o.ref && Number(o.id) < 0) bad = STARTER_MISSING;
+    else if (o.kind === "row" && typeof o.ref === "string" && o.ref.startsWith("seed:") && !seedRefs.has(o.ref)) bad = STARTER_MISSING;
   }
-  return { ok: true, spec, jobs, held };
+  return bad ? { ok: false, error: bad, spec, jobs, held } : { ok: true, spec, jobs, held };
 }
 
 /** The schema as the draft has it: the held schemas merged by name over the live one. */

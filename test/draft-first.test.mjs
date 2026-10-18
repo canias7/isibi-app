@@ -96,6 +96,7 @@ function bakery(name, { draftFirst = false, aliases = null, unique = [] } = {}) 
           const m = /id (-\d+): name="Spelt"/.exec(text);
           return { changes: [{ table: "loaves", id: m ? Number(m[1]) : 999, values: { price: 6.5 } }] };
         }
+        if (asked.startsWith("Call the Dark Rye")) return { changes: [{ table: "loaves", id: 2, values: { name: "Spelt" } }] };
         if (asked.startsWith("Add another Dark Rye")) return { changes: [{ table: "loaves", values: { name: "Dark Rye", price: 5 } }] };
         if (asked.startsWith("Make the Walnut")) return { changes: [{ table: "loaves", id: 5, values: { price: 6.4 } }] };
         return { changes: [] };
@@ -1441,7 +1442,6 @@ test("DFH3 A HELD NEW ROW THAT NOW CLASHES STOPS PUBLISH BEFORE ANYTHING GOES LI
   try {
     await runOne(P, TIKTOK);
     P.env.DRAFT_FIRST = "on";
-    await runOne(P, RYE);
     await runOne(P, SPELT);
     await runOne(P, TIKTOK_LATER);
     const d = draftOf(P);
@@ -1460,7 +1460,6 @@ test("DFH3 A HELD NEW ROW THAT NOW CLASHES STOPS PUBLISH BEFORE ANYTHING GOES LI
     const again = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.revs[d.rev - 1].version });
     assert.equal(again.status, 200, JSON.stringify(again.body).slice(0, 300));
     assert.deepEqual(spelt(db).map((r) => Number(r.price)), [6.2]);
-    assert.equal(price(db, 2), 5.6);
   } finally { await finish(P, compiler); }
 });
 
@@ -1708,4 +1707,30 @@ test("DFH10 DISCARD THE DRAFT (2026-10-18, the owner's word) — a held price an
     assert.equal(no.status, 409, JSON.stringify(no.body).slice(0, 300));
     assert.equal(draftOf(P).rev, d2.rev, "a refused discard changed the draft");
   } finally { await finish(P, compiler); }
+});
+
+test("DFH11 A CHANGE THAT NEEDS ANOTHER HELD CHANGE IS NOT REFUSED BY A REHEARSAL ALONE (2026-10-18, review of audit batch 2) — Dark Rye renamed to Spelt (held), then a new Dark Rye added (held): the new row clashes with the live name only until the rename lands; it is held, and Publish applies both in order", async () => {
+  const { P, db, compiler } = bakery("dfh11", { unique: ["name"] });
+  try {
+    await runOne(P, TIKTOK);
+    P.env.DRAFT_FIRST = "on";
+    const a = await runOne(P, "Call the Dark Rye Spelt instead.");
+    assert.equal(a.body && a.body.ok, true, JSON.stringify(a.body).slice(0, 300));
+    const b = await runOne(P, "Add another Dark Rye at £5.");
+    assert.equal(b.body && b.body.ok, true, "a change that only needs the held rename was refused: " + JSON.stringify(b.body).slice(0, 300));
+    const d = draftOf(P);
+    const p = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.revs[d.revs.length - 1].version });
+    assert.equal(p.status, 200, JSON.stringify(p.body).slice(0, 300));
+    assert.deepEqual(db.rows("loaves").filter((r) => r.name === "Dark Rye" || r.name === "Spelt").map((r) => r.name).sort(), ["Dark Rye", "Spelt"]);
+  } finally { await finish(P, compiler); }
+});
+
+test("DFH12 PUBLISH CHECKS THE STARTER-ROW RULE BEFORE IT BEGINS (2026-10-18, review of audit batch 2) — an earlier revision is refused, with the revision to publish instead, when a later one edits the starter rows it adds; before any journal is written", () => {
+  const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const a = src.indexOf("async function publishDraft(env, slug, pick, { uid = \"\" } = {}) {");
+  const b = src.indexOf("for (let i = 0; i < 4; i++) {", a);
+  assert.ok(a > 0 && b > a, "publishDraft's landmarks moved");
+  const head = src.slice(a, b);
+  assert.match(head, /const need = splitsStarterRows\(ranges, rev\.n\);\s*if \(need\) return \{ ok: false, status: 409,/, "Publish can split starter rows from a later change to them");
+  assert.match(head, /if \(rev\.n > draft\.applied && rev\.n < draft\.rev\)/);
 });

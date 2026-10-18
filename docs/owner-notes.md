@@ -1,5 +1,13 @@
 # Owner Notes
 
+## 2026-10-18 — An independent review of fixes 11–20 found four bugs; all fixed (branch only)
+
+- **Publishing an earlier change separately from a later edit to its starter rows** could leave the later change unpublishable forever. Publish now says which newer revision to publish so they go together, and nothing crashes on the way.
+- **The "check when you save" step from fix 6** wrongly refused a change that only works together with another saved change (for example, rename a loaf, then add a new one with the old name). Those are now left for Publish to judge.
+- **One more place still blamed "another change"** when waiting for the publish turn timed out. Fixed.
+- **The blocked card's Edit button** couldn't actually get past the blocked change. It's now **Set aside** / **Not now**, and the card tells you to ask for the change again afterwards. Screenshot sent.
+- Tests red on the old code, sweep 9/9, full suite `11494 / 11492 / 0 / 2`.
+
 ## 2026-10-18 — "Discard draft" button (branch only, on your word)
 
 - The Publish panel now has a **Discard draft** button next to Publish. It asks you to confirm, then throws away every unpublished change and puts the draft back to exactly what's live. The live site never changes.

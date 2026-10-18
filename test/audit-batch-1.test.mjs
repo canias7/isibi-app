@@ -143,3 +143,13 @@ test("M5 A PRE-SITE FILE THE BUILD COULD NOT MOVE FOR NOW STAYS WAITING; ONE GON
   run(s4, { media: { missing: [{ file: "zzz.mp4", why: "it could not be read just now" }] } });
   assert.equal(s4.pendingMedia, undefined, "a file the page never sent was added");
 });
+test("T1f THE STEP THAT HOLDS THE TURN FROM ITS START ANSWERS A TIMEOUT OR AN UNREAD TURN AS ITS OWN STOP (2026-10-18, review of step 10) — between the refused answer and the overlap answer, the turn's own stop (`turnStop`) is answered first", () => {
+  const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const a = src.indexOf("if (jctx.beside && jctx.beside.holds && jctx.beside.refused) {");
+  const b = src.indexOf('res = Response.json({ ok: false, error: "turn", ours: true, cost: 0, unchanged: true', a);
+  assert.ok(a > 0 && b > a, "the hold-from-start branch's landmarks are not where they were");
+  const between = src.slice(a, b);
+  assert.match(between, /\} else if \(heldStop\) \{\s*res = Response\.json\(\{ ok: false, error: heldStop\.error,/, "a timed-out or unread turn falls through to the overlap answer");
+  const before = src.slice(Math.max(0, a - 400), a);
+  assert.match(before, /const heldStop = jctx\.beside && jctx\.beside\.holds && !jctx\.beside\.turn \? turnStop\(jctx\.beside\) : null;/);
+});

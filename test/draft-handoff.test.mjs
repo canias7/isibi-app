@@ -453,3 +453,31 @@ test("DH9 A REFUSED PUBLISH TURN FAILS AT ONCE AND IS NOT RE-RUN — with the wa
     assert.equal(price(db, 2), price0, "the live price moved");
   } finally { wire.refuse = null; await finished(P, compiler); }
 });
+
+test("DH9b A TURN HELD TOO LONG BY ANOTHER JOB IS ITS OWN STOP, NEVER AN OVERLAP LOSS (2026-10-18, review of step 10) — the site's turn is held by a job outside this request: the page part ends at its wait limit with that reason, no part is run again, nothing is said of 'another change in this request', and nothing live moves", async () => {
+  const { P, db, compiler, ns } = firedBakery("turn-timeout");
+  try {
+    const worker = await loadWorkerModule();
+    const first = await sendFired(P, ns, worker, TIKTOK);
+    assert.equal(first.jobs[0].state, "done", JSON.stringify(first.jobs[0].result).slice(0, 300));
+    const v0 = liveVersion(P);
+    const price0 = price(db, 2);
+    Object.assign(P.env, { DRAFT_FIRST: "on", PARALLEL_WRITES: "on", PUBLISH_TURN_POLL_MS: "5", PUBLISH_TURN_WAIT_MS: "60" });
+    const now = Date.now();
+    await P.env.SITES_BUCKET.put(turnKey(P.slug), JSON.stringify({ v: 1, owner: "job:elsewhere:x", job: "elsewhere", at: now, until: now + 3600e3, gen: 99 }));
+    const both = await sendFired(P, ns, worker, TIKTOK_LATER + " " + RYE_PART);
+    const parts = P.record(both.r.key).parts;
+    const edits = both.jobs.filter((j) => j.op === "edit");
+    assert.equal(edits.length, parts.length, "a part was run again for a timed-out turn: " + JSON.stringify(edits.map((j) => j.idem_key)));
+    for (const j of edits) {
+      const b = JSON.parse(j.result.body);
+      assert.notEqual(b.error, "turn", j.idem_key + " was answered as an overlap: " + JSON.stringify(b).slice(0, 300));
+      assert.doesNotMatch(String(b.msg || ""), /another change/i);
+    }
+    // THE PAGE PART STOPPED AT ITS WAIT LIMIT (its step answers under its own code, with the turn's reason as its detail).
+    assert.ok(edits.some((j) => /stopped waiting/.test(String(JSON.parse(j.result.body).detail || ""))), "no part ended at its wait limit — this case tests nothing: " + JSON.stringify(edits.map((j) => JSON.parse(j.result.body))).slice(0, 800));
+    // THE ROW PART NEEDS NO TURN to hold its change in the draft; nothing went live.
+    assert.equal(liveVersion(P), v0);
+    assert.equal(price(db, 2), price0);
+  } finally { await finished(P, compiler); }
+});
