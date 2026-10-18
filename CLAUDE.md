@@ -34,6 +34,17 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 
 ## Where things stand (2026-09-30)
 
+- **2026-10-18, later: the builder audit's findings 1–20 are fixed on
+  `codex-work-into-claude`** (batch 1: `e1464d42` … `08efa424`; batch 2:
+  `2b2bb6f9` … `6eb0d509`, plus Discard draft `d3d52e1a` and the independent
+  review's four fixes `f1ee494f`; full suite `11494 / 11492 / 0 / 2`). Not
+  merged or deployed: `main` still refuses the publish turn until the owner
+  says "merge and deploy". **Paused by the owner until the usage resets
+  (next week): findings 21 onward** — 244 kept (7 critical, 71 high, 166
+  medium), 20 fixed; next is 21–30, presented ten at a time in plain
+  English, then fixed one by one in chat (not a workflow), each with a red
+  test, a sweep, the full suite and records. Records:
+  `docs/history/2026-10-18-audit-batch-1.md`, `…-audit-batch-2.md`.
 - **2026-10-18: `main` is `01a7d4eb` (deploy 2215, the combined rollout on
   the owner's word; image `8278ac9a0bcf0981`, runtime-confirmed by canary run
   38994524351 and probe run 38995040234).** `supabase/proposed/request_beside.sql`
