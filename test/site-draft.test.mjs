@@ -188,3 +188,45 @@ test("CONTROL: a later redefinition wins by name (case-insensitive); no schema o
   assert.deepEqual(c.spec.tables.map((t) => t.name), ["loaves"]);  const up = combineHeld(live, [{ kind: "schema", spec: { tables: [{ name: "gallery" }] } }, { kind: "schema", spec: { tables: [{ name: "menu" }] } }], { upTo: 1 });
   assert.deepEqual(up.spec.tables.map((t) => t.name), ["loaves", "gallery"]);
 });
+
+// STARTER ROWS HAVE REFS, AND A HELD CHANGE TO ONE FOLDS INTO IT (2026-10-18,
+// A28-3): before, a starter row showed a negative id with no ref, the change
+// was held by that id, and Publish ran UPDATE/DELETE ... WHERE id = -2.
+import { rowsOverlay, STARTER_MISSING } from "../site-draft.mjs";
+test("A28-3: starter rows carry refs, and Publish folds held changes into them", () => {
+  const seed = { kind: "seed", spec: {}, seed: { services: [{ name: "Cut", price: 20 }, { name: "Fade", price: 25 }] } };
+  const ov = rowsOverlay("services", [], [seed], { tableExists: false });
+  assert.deepEqual(ov.rows.map((r) => r.id), [-1, -2]);
+  assert.equal(ov.tempRefs.get(-1), "seed:services:0:0");
+  assert.equal(ov.tempRefs.get(-2), "seed:services:0:1");
+  const ops = [seed,
+    { kind: "row", table: "services", op: "update", ref: "seed:services:0:1", values: { price: 30 } },
+    { kind: "row", table: "services", op: "remove", ref: "seed:services:0:0" }];
+  assert.deepEqual(rowsOverlay("services", [], ops, { tableExists: false }).rows, [{ name: "Fade", price: 30, id: -2 }]);
+  const p = publishPlan(ops);
+  assert.equal(p.ok, true);
+  assert.deepEqual(p.plan.seeds[0].seed.services, [{ name: "Fade", price: 30 }]);
+  assert.deepEqual(p.plan.changes, []);
+  assert.deepEqual(seed.seed.services, [{ name: "Cut", price: 20 }, { name: "Fade", price: 25 }], "the held op is not mutated");
+  assert.equal(combineHeld({}, ops).ok, true);
+  // a second seed op for the same table numbers its rows apart
+  const two = [seed, { kind: "seed", spec: {}, seed: { services: [{ name: "Shave" }] } },
+    { kind: "row", table: "services", op: "update", ref: "seed:services:1:0", values: { price: 9 } }];
+  assert.deepEqual(publishPlan(two).plan.seeds[1].seed.services, [{ name: "Shave", price: 9 }]);
+  assert.deepEqual(publishPlan(two).plan.seeds[0].seed.services, seed.seed.services);
+});
+test("A28-3: a negative id with no ref, or an unknown or removed starter ref, is refused", () => {
+  const seed = { kind: "seed", spec: {}, seed: { services: [{ name: "Cut" }] } };
+  for (const bad of [
+    { kind: "row", table: "services", op: "update", id: -2, values: { price: 1 } },
+    { kind: "row", table: "services", op: "remove", id: -1 },
+    { kind: "row", table: "services", op: "update", ref: "seed:services:0:5", values: {} },
+  ]) {
+    assert.deepEqual(publishPlan([seed, bad]), { ok: false, error: STARTER_MISSING });
+    assert.deepEqual(combineHeld({}, [seed, bad]), { ok: false, error: STARTER_MISSING });
+  }
+  const twice = [seed, { kind: "row", table: "services", op: "remove", ref: "seed:services:0:0" }, { kind: "row", table: "services", op: "update", ref: "seed:services:0:0", values: {} }];
+  assert.deepEqual(publishPlan(twice), { ok: false, error: STARTER_MISSING });
+  assert.equal(publishPlan([{ kind: "row", table: "services", op: "update", id: 3, values: {} }]).ok, true);
+  assert.equal(combineHeld({}, [{ kind: "row", table: "services", op: "update", id: 3, values: {} }]).ok, true);
+});

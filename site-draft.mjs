@@ -855,6 +855,25 @@ export function mergeSpec(base, next) {
 }
 
 /**
+ * STARTER ROWS HAVE REFS (2026-10-18, A28-3): each row of a held seed op is
+ * `seed:<table>:<n>:<place>` (n: the how-manyth held seed op for that table,
+ * place: the row's index in it), so a later held update or removal of a
+ * starter row names it and is folded into it at Publish, never sent as a
+ * negative id that matches nothing live.
+ */
+const DROPPED = Symbol("dropped");
+export const STARTER_MISSING = "a held change names a starter row that cannot be found";
+function forSeedRows(o, count, each) {
+  if (!o.seed || typeof o.seed !== "object") return;
+  for (const t of Object.keys(o.seed)) {
+    if (!Array.isArray(o.seed[t])) continue;
+    const n = count.get(t) || 0;
+    count.set(t, n + 1);
+    o.seed[t].forEach((v, place) => { if (v && typeof v === "object") each("seed:" + t + ":" + n + ":" + place, t, v, place); });
+  }
+}
+
+/**
  * THE HELD OPS COMBINED, ONE FUNCTION FOR EVERY READER (2026-10-18): the
  * schema over `liveSpec` and the jobs, each merged by name in order, skipping
  * any op whose `key` is in `setAside` (and every op after `upTo`, when given).
@@ -864,6 +883,7 @@ export function mergeSpec(base, next) {
 export function combineHeld(liveSpec, ops, { upTo, setAside = [] } = {}) {
   const aside = new Set(Array.isArray(setAside) ? setAside : []);
   let spec = liveSpec, jobs = null, held = false;
+  const seedRefs = new Set(), seedCount = new Map();
   const list = Array.isArray(ops) ? ops : [];
   const end = Number.isInteger(upTo) ? Math.min(upTo, list.length) : list.length;
   for (let i = 0; i < end; i++) {
@@ -871,6 +891,9 @@ export function combineHeld(liveSpec, ops, { upTo, setAside = [] } = {}) {
     if (!o || (o.key !== undefined && aside.has(o.key))) continue;
     if (o.kind === "schema" && o.spec && typeof o.spec === "object") { spec = held ? mergeSpec(spec, o.spec) : mergeSpec(liveSpec, o.spec); held = true; }
     else if (o.kind === "jobs") jobs = byName(jobs, Array.isArray(o.jobs) ? o.jobs : []);
+    else if (o.kind === "seed") forSeedRows(o, seedCount, (ref) => seedRefs.add(ref));
+    else if (o.kind === "row" && o.op !== "insert" && !o.ref && Number(o.id) < 0) return { ok: false, error: STARTER_MISSING };
+    else if (o.kind === "row" && typeof o.ref === "string" && o.ref.startsWith("seed:") && !seedRefs.has(o.ref)) return { ok: false, error: STARTER_MISSING };
   }
   return { ok: true, spec, jobs, held };
 }
@@ -892,9 +915,17 @@ export function rowsOverlay(table, rows, ops, { tableExists = true } = {}) {
   const tempRefs = new Map();
   const tempOf = new Map();
   let nextTemp = -1;
+  const seedCount = new Map();
   for (const o of ops || []) {
-    if (o.kind === "seed" && !tableExists && !out.length && o.seed && Array.isArray(o.seed[t])) {
-      for (const v of o.seed[t]) if (v && typeof v === "object") out.push({ ...v, id: nextTemp-- });
+    if (o.kind === "seed") {
+      const show = !tableExists && !out.length;
+      forSeedRows(o, seedCount, (ref, st, v) => {
+        if (!show || st !== t) return;
+        const id = nextTemp--;
+        tempRefs.set(id, ref);
+        tempOf.set(ref, id);
+        out.push({ ...v, id });
+      });
       continue;
     }
     if (o.kind !== "row" || o.table !== t) continue;
@@ -925,16 +956,31 @@ export function rowsOverlay(table, rows, ops, { tableExists = true } = {}) {
 export function publishPlan(ops, { refs = {} } = {}) {
   const plan = { spec: null, jobs: null, seeds: [], changes: [], inserts: [], media: [], alias: [] };
   const inserts = new Map();
+  const starters = new Map(), seedCount = new Map();
   for (const o of ops || []) {
     // HELD SCHEMAS AND JOBS MERGE BY NAME (2026-10-18, A06-3, A04-1): a later
     // op adds to the earlier ones, never replaces them.
     if (o.kind === "schema") plan.spec = plan.spec ? mergeSpec(plan.spec, o.spec) : o.spec;
     else if (o.kind === "jobs") plan.jobs = byName(plan.jobs, Array.isArray(o.jobs) ? o.jobs : []);
-    else if (o.kind === "seed") plan.seeds.push({ spec: o.spec, seed: o.seed });
+    else if (o.kind === "seed") {
+      // STARTER ROWS ARE COPIED SO A HELD CHANGE CAN FOLD INTO ONE (A28-3).
+      const seed = {};
+      for (const t of Object.keys(o.seed || {})) seed[t] = Array.isArray(o.seed[t]) ? o.seed[t].map((v) => (v && typeof v === "object" ? { ...v } : v)) : o.seed[t];
+      plan.seeds.push({ spec: o.spec, seed });
+      forSeedRows(o, seedCount, (ref, t, v, place) => starters.set(ref, { rows: seed[t], place }));
+    }
     else if (o.kind === "media-replace" || o.kind === "media-delete" || o.kind === "upload-delete") plan.media.push(o);
     else if (o.kind === "alias") plan.alias.push(o);
     else if (o.kind === "row") {
       if (o.op === "insert") { inserts.set(o.ref, { table: o.table, values: { ...(o.values || {}) }, ref: o.ref }); continue; }
+      if (o.ref && starters.has(o.ref)) {
+        const st = starters.get(o.ref);
+        if (st.rows[st.place] === DROPPED) return { ok: false, error: STARTER_MISSING };
+        if (o.op === "remove") st.rows[st.place] = DROPPED;
+        else Object.assign(st.rows[st.place], o.values || {});
+        continue;
+      }
+      if (typeof o.ref === "string" && o.ref.startsWith("seed:")) return { ok: false, error: STARTER_MISSING };
       if (o.ref) {
         const ins = inserts.get(o.ref);
         if (ins) {
@@ -946,9 +992,12 @@ export function publishPlan(ops, { refs = {} } = {}) {
         plan.changes.push({ table: o.table, op: o.op, id: refs[o.ref], values: o.values || {} });
         continue;
       }
+      // A NEGATIVE ID IS A HELD ROW'S PLACE, NEVER A LIVE ROW (A28-3).
+      if (Number(o.id) < 0) return { ok: false, error: STARTER_MISSING };
       plan.changes.push({ table: o.table, op: o.op, id: o.id, values: o.values || {} });
     }
   }
+  for (const sd of plan.seeds) for (const t of Object.keys(sd.seed)) if (Array.isArray(sd.seed[t])) sd.seed[t] = sd.seed[t].filter((v) => v !== DROPPED);
   plan.inserts = [...inserts.values()];
   // SEVERAL MOVES OF THE ADDRESS ARE ONE: from where it was to where the last
   // one put it — so a name only the draft ever had never becomes a redirect.
