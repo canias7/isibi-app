@@ -1,5 +1,15 @@
 # Owner Notes
 
+## 2026-10-19 — Progress talk round 4: Publish, Restore and Discard talk while they run (option B; branch only, not deployed)
+
+You chose B (live talk while the press runs). Each press now gets a live message in the site's chat that fills with the model's own lines as each step really happens:
+- **Publish:** publishing the draft → checking its database changes can be saved (only when it has some) → switched the live site over → the new tables, starting entries and entry changes made live → anything set aside, or why it stopped.
+- **Restore:** putting the earlier version back → the live site shows it → the draft starts from it too.
+- **Discard:** throwing away the unpublished changes → how many were dropped and that the live site did not change.
+How: the page names each press with a fresh id (`talk`); the route records each step's facts (`actionFacts`), a background writer turns them into lines one after another (`actionTalk`, kept under the caller's own account), and the page reads them every second (`GET /api/site/talk/<id>`, `siteActionTalk`). The press itself never waits for a line. With `PROGRESS_TALK` off nothing changes.
+**Delete is not included:** deleting a site removes it and its chat from the page, so there is nowhere to show the lines. Tell me if you want a different place for it.
+Shown in a stubbed render (the real page, server answers stubbed, nothing spent). Tests: R4 cases in `test/progress-more.test.mjs`; three guards re-anchored (the discard card's request count ignores the talk reads; `publishDraft`'s signature; the route census now reaches `/api/site/talk/`). Full suite `11516 / 11514 / 0 / 2`.
+
 ## 2026-10-19 — Progress talk round 3: edits step by step, and a draft is never said as a publish (branch only, not deployed)
 
 - **Each part of an edit** with several parts is now said as it starts ("working on … part 2 of 3") and as soon as it has its own outcome (made, changed in the database, or could not be made), instead of one line at the plan and one at the publish.

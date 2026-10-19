@@ -8192,7 +8192,8 @@ function siteDraftPanel(site, d) {
     if (typeof confirm === 'function' && !confirm('Discard your unpublished changes? Your live site stays exactly as it is, and the draft goes back to it. This cannot be undone.')) return;
     discard.disabled = true; discard.textContent = 'Discarding\u2026';
     try {
-      const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/draft/discard', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const talk = typeof siteActionTalk === 'function' ? siteActionTalk(slug) : '';
+      const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/draft/discard', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(talk ? { talk } : {}) });
       const out = await r.json().catch(() => ({}));
       const frameWas = siteDraftFrameKey(siteDraftState[slug]);
       if (out && out.state) { siteDraftState[slug] = out.state; paintDraftChip(out.state); }
@@ -8219,9 +8220,10 @@ function siteDraftPanel(site, d) {
     sent = true;
     go.disabled = true; go.textContent = 'Publishing\u2026';
     const again = () => { sent = false; go.disabled = false; go.textContent = 'Publish this draft'; };
+    const talk = typeof siteActionTalk === 'function' ? siteActionTalk(slug) : '';
     try {
       const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/publish', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(stalled ? { revision: sendRevision } : { revision, version }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...(stalled ? { revision: sendRevision } : { revision, version }), ...(talk ? { talk } : {}) }),
       });
       const out = await r.json().catch(() => ({}));
       const frameWas = siteDraftFrameKey(siteDraftState[slug]);
@@ -8745,7 +8747,7 @@ function renderSiteWorkspace(view, site) {
     const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
     thread.innerHTML = (site.msgs || []).map((m) => m.r === 'u'
       ? '<div class="st-msg u">' + esc(m.t) + '</div>'
-      : '<div class="st-msg a">' + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + (Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, false, true) : '') + siteMsgText(m, linkify) + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + (m.build ? reactStepsHTML(m.build) : '') + siteAskHTML(m, site) + (m.request ? siteRequestHTML(m, site) : '') + (m.jobCard ? siteJobCardHTML(m, site) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
+      : '<div class="st-msg a">' + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + (m.talkLive === true ? (Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, true) : '<div class="st-think"><i></i>Working on it</div>') : Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, false, true) : '') + siteMsgText(m, linkify) + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + (m.build ? reactStepsHTML(m.build) : '') + siteAskHTML(m, site) + (m.request ? siteRequestHTML(m, site) : '') + (m.jobCard ? siteJobCardHTML(m, site) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
     ).join('') + (siteBusy
       ? (siteBuild
           ? '<div class="st-msg a st-busy st-busy-react">' + reactLiveStepsHTML() + '</div>'
@@ -11102,6 +11104,43 @@ function progressListHTML(lines, live, done) {
   return '<ul class="st-req-prog' + (done ? ' st-prog-done' : '') + '">' + list.map((l, i) =>
     '<li' + (l.late === true ? ' class="late"' : live && i === list.length - 1 ? ' class="live"' : '') + '>' + esc(l.text) + '</li>').join('') + '</ul>' +
     (why.length ? '<details class="st-req-why"><summary>More detail</summary>' + why.map((t) => '<p>' + esc(t) + '</p>').join('') + '</details>' : '');
+}
+/**
+ * A BUTTON PRESS THAT TALKS (2026-10-19, owner chose "B"): Publish, Restore and
+ * Discard put a live message on the site's thread and fill it with the model's
+ * own lines as the server writes them (`GET /api/site/talk/<id>`), until the
+ * press has ended and its last line is in. The id goes with the press as
+ * `talk`; a server with talk off answers no lines and the message closes empty.
+ */
+function siteActionTalk(slug) {
+  const s = (sitesLoad() || []).find((x) => x && x.slug === slug);
+  if (!s || typeof crypto === 'undefined' || typeof crypto.randomUUID !== 'function') return '';
+  const id = crypto.randomUUID();
+  const m = { r: 'a', t: '', talk: id, talkLive: true, prog: [] };
+  s.msgs = Array.isArray(s.msgs) ? s.msgs : [];
+  s.msgs.push(m);
+  s.updatedAt = Date.now(); sitesSave();
+  if (siteOpenId === s.id) renderSites();
+  const until = Date.now() + 120000;
+  let n = 0;
+  const step = async () => {
+    let d = null;
+    try { const r = await apiFetch('/api/site/talk/' + encodeURIComponent(id)); d = r.ok ? await r.json().catch(() => null) : null; } catch (e) { d = null; }
+    const live = (sitesLoad() || []).find((x) => x && x.id === s.id);
+    const mm = live && Array.isArray(live.msgs) ? live.msgs.find((x) => x && x.talk === id) : null;
+    if (!mm) return;
+    const lines = d && Array.isArray(d.lines) ? d.lines.filter((l) => l && typeof l.text === 'string' && l.text) : [];
+    const ended = (d && d.done === true) || Date.now() > until || (d && d.known === false && ++n > 10);
+    if (lines.length !== mm.prog.length || ended) {
+      mm.prog = lines.map((l) => ({ text: l.text, ...(typeof l.explain === 'string' && l.explain ? { explain: l.explain } : {}) }));
+      if (ended) { mm.talkLive = false; if (!mm.prog.length) live.msgs = live.msgs.filter((x) => x !== mm); }
+      live.updatedAt = Date.now(); sitesSave();
+      if (siteOpenId === live.id) renderSites();
+    }
+    if (!ended) setTimeout(step, 1000);
+  };
+  setTimeout(step, 700);
+  return id;
 }
 /**
  * A JOB THIS PAGE WATCHED HAS ENDED: its lines kept on the reply its finish put
@@ -15606,8 +15645,9 @@ async function siteVersions(site) {
     if (!confirm('Put "' + (label || 'this version') + '" back on the live site?\n\nThe build you are on now stays in the list, so you can come back to it.')) return;
     bodyEl.innerHTML = '<div class="si-empty">Restoring…</div>';
     try {
+      const talk = typeof siteActionTalk === 'function' ? siteActionTalk(slug) : '';
       const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/versions/restore', {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }),
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, ...(talk ? { talk } : {}) }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d.ok) { if (typeof sbToast === 'function') sbToast(d.error || 'Couldn’t restore that version.'); return load(); }

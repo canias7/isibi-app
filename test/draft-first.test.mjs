@@ -1727,7 +1727,8 @@ test("DFH11 A CHANGE THAT NEEDS ANOTHER HELD CHANGE IS NOT REFUSED BY A REHEARSA
 
 test("DFH12 PUBLISH CHECKS THE STARTER-ROW RULE BEFORE IT BEGINS (2026-10-18, review of audit batch 2) — an earlier revision is refused, with the revision to publish instead, when a later one edits the starter rows it adds; before any journal is written", () => {
   const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const a = src.indexOf("async function publishDraft(env, slug, pick, { uid = \"\" } = {}) {");
+  // RE-ANCHORED 2026-10-19: the press's talk (`say`) rides in the options now.
+  const a = src.indexOf("async function publishDraft(env, slug, pick, { uid = \"\", say = null } = {}) {");
   const b = src.indexOf("for (let i = 0; i < 4; i++) {", a);
   assert.ok(a > 0 && b > a, "publishDraft's landmarks moved");
   const head = src.slice(a, b);

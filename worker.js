@@ -267,7 +267,7 @@ import {
   PROGRESS_CALL_MS, PROGRESS_TRIES, PROGRESS_RETRY_MS, PROGRESS_LINES_PER_TASK, PROGRESS_DISCOVERY_MS, PROGRESS_SEND_WAITS_MS,
   // THE BUILDER TALKS WHILE IT WORKS (2026-10-13), behind `PROGRESS_TALK`.
   talkOn, startFacts, spineCheckFacts, publishedFacts, talkBuildStepFacts, waitedFor, PROGRESS_SETTLE_S,
-  addressFacts,
+  addressFacts, actionFacts, actionContext, ACTION_KINDS,
 } from "./builder/site-progress.mjs";
 // ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03): the record,
 // the plan, what a job's answer means for its part, and the next job.
@@ -7631,6 +7631,43 @@ export async function runReplySweep(env) {
 // the ledger never shows it; the log line below is where it is measured.
 const PROGRESS_KIND = "edit-progress";
 const progressBudget = { capMs: () => PROGRESS_CALL_MS };
+
+/**
+ * A BUTTON PRESS THAT TALKS (2026-10-19, owner chose "B"): Publish, Restore and
+ * Discard say what they do as they do it. The page names the press (`id`, a
+ * fresh UUID); the route hands each step's facts to `say`, a writer turns them
+ * into the model's own line in the background, one after another, and the
+ * lines are kept under the caller's own account for the page to read
+ * (`GET /api/site/talk/<id>`). `end` adds the result and closes the record.
+ * The press never waits for a line; with talk off, or no id, both are no-ops.
+ */
+const ACTION_TALK_PREFIX = "action-talk/";
+const actionTalkKey = (uid, id) => ACTION_TALK_PREFIX + uid + "/" + id + ".json";
+function actionTalk(env, ctx, { id, uid, slug, kind }) {
+  const none = { say() {}, end() {}, on: false };
+  if (!talkOn(env) || !env || !env.SITES_BUCKET || !isJobId(id) || typeof uid !== "string" || !uid || !ACTION_KINDS.includes(kind)) return none;
+  const rec = { v: 1, kind, slug: String(slug || ""), lines: [], done: false, at: Date.now() };
+  const put = () => env.SITES_BUCKET.put(actionTalkKey(uid, id), JSON.stringify(rec), { httpMetadata: { contentType: "application/json" } }).catch((e) => console.error("action talk: could not store", id, errorClassForLog(e)));
+  let chain = put();
+  const hold = (p) => { try { if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(p); } catch { /* the talk never costs the press */ } };
+  hold(chain);
+  const model = modelsFor(undefined).quick;
+  const say = (facts) => {
+    if (!Array.isArray(facts) || !facts.length || rec.done) return;
+    chain = chain.then(async () => {
+      let out;
+      try { out = await writeProgress({ send: quickSend(env, "progress", progressBudget) }, { facts, context: actionContext({ kind, slug: rec.slug, lines: rec.lines }), model, talk: true }); }
+      catch { out = { ok: false }; }
+      if (out && out.ok && typeof out.text === "string" && out.text) { rec.lines.push({ n: rec.lines.length + 1, text: out.text, ...(out.explain ? { explain: out.explain } : {}) }); await put(); }
+    }).catch(() => {});
+    hold(chain);
+  };
+  return {
+    on: true,
+    say,
+    end(facts) { say(facts); chain = chain.then(async () => { rec.done = true; await put(); }).catch(() => {}); hold(chain); },
+  };
+}
 /** How long a job's end waits for its progress to close, so a store that hangs never holds the job's outcome. */
 const PROGRESS_CLOSE_MS = 10000;
 
@@ -12994,7 +13031,10 @@ async function completeActivation(env, slug, version, { sidecar } = {}) {
   return { ok: true };
 }
 
-async function runPublication(env, slug, j, etag) {
+async function runPublication(env, slug, j, etag, say = null) {
+  // EACH STAGE, SAID AS IT IS REACHED (2026-10-19): the click's own talk
+  // (`actionTalk`), never the sweep's. Never costs the publication.
+  const tell = (stage, info) => { try { if (typeof say === "function") say(stage, info); } catch { /* the talk never costs the publish */ } };
   const deps = buildDeps(env);
   const save = async (patch) => {
     Object.assign(j, patch, { at: Date.now() });
@@ -13057,6 +13097,7 @@ async function runPublication(env, slug, j, etag) {
     // ── PREFLIGHT AND PREPARE (nothing a visitor of the live version sees) ────
     let db = null;
     if (j.phase === "start") {
+      if (wantsDb) tell("prepare");
       if (wantsDb) { db = await siteDbFor(env, slug); if (!db) return before("the site's database could not be reached", 503); }
       if (rename) {
         const taken = await addressTaken(env, slug, rename.to);
@@ -13120,6 +13161,7 @@ async function runPublication(env, slug, j, etag) {
         }
       }
       await save({ phase: "prepared" });
+      if (wantsDb) tell("prepared");
     }
 
     // ── THE INTENT, STORED BEFORE THE SWITCH ──────────────────────────────────
@@ -13187,6 +13229,7 @@ async function runPublication(env, slug, j, etag) {
         } catch (e) { return keep("switch", "the site's address could not be set (" + errorClassForLog(e) + ")", "unknown"); }
       }
       await save({ phase: "switched", done: [] });
+      tell("switched");
     }
 
     // ── FINISH: roll forward, step by recorded step ──────────────────────────
@@ -13213,6 +13256,7 @@ async function runPublication(env, slug, j, etag) {
       if (!did("schema")) {
         if (plan.spec) { try { await live.applySiteSchema(db, normalizeSchema(plan.spec)); } catch (e) { if (asideOk(e)) aside("schema", e); else return keep("schema", errorClassForLog(e), "switched", e); } }
         await mark("schema");
+        if (plan.spec && !skipped.some((x) => x.stage === "schema")) tell("schema");
       }
       if (!did("jobs")) {
         if (plan.jobs && plan.jobs.length) { try { await live.persistSiteJobs(env, j.uid, slug, plan.jobs); } catch (e) { if (asideOk(e)) aside("jobs", e); else return keep("jobs", errorClassForLog(e), "switched", e); } }
@@ -13221,6 +13265,7 @@ async function runPublication(env, slug, j, etag) {
       if (!did("seeds")) {
         for (const sd of plan.seeds) { try { await live.seedSiteRows(db, sd.spec || plan.spec || {}, sd.seed); } catch (e) { if (asideOk(e)) aside("seeds", e); else return keep("seeds", errorClassForLog(e), "switched", e); } }
         await mark("seeds");
+        if (plan.seeds.length && !skipped.some((x) => x.stage === "seeds")) tell("seeds");
       }
       if (!did("changes")) {
         for (const c of plan.changes) {
@@ -13237,6 +13282,7 @@ async function runPublication(env, slug, j, etag) {
           }
         }
         await mark("changes");
+        tell("changes", { n: plan.changes.length - skipped.filter((x) => x.stage === "changes").length });
       }
       if (!did("inserts")) {
         const refs = {};
@@ -13369,7 +13415,7 @@ async function applyHeldAlias(env, slug, a, { uid = "" } = {}) {
  *      is set aside (nothing of it is live);
  *   3. the phases run (`runPublication`).
  */
-async function publishDraft(env, slug, pick, { uid = "" } = {}) {
+async function publishDraft(env, slug, pick, { uid = "", say = null } = {}) {
   const deps = buildDeps(env);
   if (typeof pick === "string") pick = { version: pick };
   let draft = null;
@@ -13412,7 +13458,7 @@ async function publishDraft(env, slug, pick, { uid = "" } = {}) {
       try { etag = await writePublication(env, slug, j, cur.etag); }
       catch { return { ok: false, status: 503, live: journalMayBeLive(cur.j) ? "unknown" : "unchanged", error: "the publication record could not be written — press Publish again in a moment" }; }
       if (!etag) continue;
-      const r = await runPublication(env, slug, j, etag);
+      const r = await runPublication(env, slug, j, etag, say);
       if (what === "resume") return r;
       // THE OTHER REVISION, FINISHED — or set aside because nothing of it was
       // live — and then this click's own. Any other stop is said as such.
@@ -13432,7 +13478,7 @@ async function publishDraft(env, slug, pick, { uid = "" } = {}) {
     try { etag = await writePublication(env, slug, j, cur.etag); }
     catch { return { ok: false, status: 503, live: "unchanged", error: "the publication record could not be written — nothing changed on your live site; press Publish again in a moment" }; }
     if (!etag) continue;
-    return runPublication(env, slug, j, etag);
+    return runPublication(env, slug, j, etag, say);
   }
   return { ok: false, status: 409, error: "the publication kept changing under this click — look again in a moment" };
 }
@@ -29008,6 +29054,22 @@ async function handleRequest(request, env, ctx) {
       return Response.json({ ok: true, stored: true });
     }
 
+    // GET /api/site/talk/<id> — A BUTTON PRESS'S LINES SO FAR (2026-10-19,
+    // owner chose "B"): only the caller's own (`actionTalk` keeps them under
+    // their account), `done` once the press has ended and its last line is in.
+    {
+      const tk = url.pathname.match(/^\/api\/site\/talk\/([^/]{0,80})$/);
+      if (tk && request.method === "GET") {
+        const tu = await authUser(request);
+        if (!tu) return Response.json({ ok: false, error: "sign in" }, { status: 401 });
+        if (!isJobId(tk[1]) || !env.SITES_BUCKET) return Response.json({ ok: false }, { status: 404 });
+        let rec = null;
+        try { const o = await env.SITES_BUCKET.get(actionTalkKey(tu.id, tk[1])); rec = o ? JSON.parse(await o.text()) : null; } catch { return Response.json({ ok: false, error: "unread" }, { status: 503, headers: { "cache-control": "no-store" } }); }
+        const lines = rec && Array.isArray(rec.lines) ? rec.lines.filter((l) => l && typeof l.text === "string").map((l) => ({ n: l.n, text: l.text, ...(typeof l.explain === "string" && l.explain ? { explain: l.explain } : {}) })) : [];
+        return Response.json({ ok: true, lines, done: !!(rec && rec.done === true), known: !!rec }, { headers: { "cache-control": "no-store" } });
+      }
+    }
+
     if (url.pathname === "/api/site/genprobe" && request.method === "GET") {
       const gu = await authUser(request);
       if (!gu) return UNAUTHED();
@@ -43639,21 +43701,31 @@ async function handleRequest(request, env, ctx) {
               // in held changes saved after the click. The version stays a
               // cross-check only.
               if (revision === null || revision <= 0) return Response.json({ ok: false, error: "name the revision to publish" }, { status: 400 });
-              const r = await publishDraft(env, ownerSlug, { revision, version }, { uid: ou.id });
+              // SAID AS IT HAPPENS (2026-10-19, owner chose "B"), when the page named the press.
+              const talk = actionTalk(env, ctx, { id: pbody && pbody.talk, uid: ou.id, slug: ownerSlug, kind: "publish" });
+              talk.say(actionFacts("publish", "start", { revision }));
+              const r = await publishDraft(env, ownerSlug, { revision, version }, { uid: ou.id, say: (st, info) => talk.say(actionFacts("publish", st, info)) });
+              talk.end(r.ok ? actionFacts("publish", r.already ? "already" : "done", { skipped: Array.isArray(r.skipped) ? r.skipped.length : 0 }) : actionFacts("publish", "failed", { error: r.error }));
               if (!r.ok) return Response.json({ ok: false, error: r.error, stage: r.stage, live: r.live || undefined, publishing: r.publishing === true, ...(r.blocked ? { blocked: true, revision: r.revision } : {}), state: await readState() }, { status: r.status || 409 });
               return Response.json({ ok: true, published: r.version, revision: r.revision, already: r.already === true, worker: r.worker, skipped: r.skipped || [], state: await readState() });
             }
             if (dd && request.method === "POST") {
               // NEVER UNDER A PUBLICATION: one standing (running, stopped or
               // blocked) is finished or set aside first.
-              if (await publishingNow(env, ownerSlug)) return Response.json({ ok: false, error: "a publication is under way or stopped — finish it (or set it aside) before discarding the draft", state: await readState() }, { status: 409 });
+              // SAID AS IT HAPPENS (2026-10-19, owner chose "B"), when the page named the press.
+              const dbody = await request.json().catch(() => ({}));
+              const talk = actionTalk(env, ctx, { id: dbody && dbody.talk, uid: ou.id, slug: ownerSlug, kind: "discard" });
+              talk.say(actionFacts("discard", "start"));
+              const refuse = async (error, status, withState) => { talk.end(actionFacts("discard", "failed", { error })); return Response.json({ ok: false, error, ...(withState ? { state: await readState() } : {}) }, { status }); };
+              if (await publishingNow(env, ownerSlug)) return refuse("a publication is under way or stopped — finish it (or set it aside) before discarding the draft", 409, true);
               let live = null;
               try { live = await readPointer(buildDeps(env), ownerSlug); }
-              catch { return Response.json({ ok: false, error: "the live version could not be read — nothing was discarded" }, { status: 503 }); }
+              catch { return refuse("the live version could not be read — nothing was discarded", 503, false); }
               let r;
               try { r = await discardDraft(buildDeps(env), ownerSlug, { live }); }
-              catch { return Response.json({ ok: false, error: "the draft could not be read — nothing was discarded" }, { status: 503 }); }
-              if (!r.ok) return Response.json({ ok: false, error: r.error, state: await readState() }, { status: 409 });
+              catch { return refuse("the draft could not be read — nothing was discarded", 503, false); }
+              if (!r.ok) return refuse(r.error, 409, true);
+              talk.end(actionFacts("discard", "done", { dropped: r.dropped || 0 }));
               return Response.json({ ok: true, dropped: r.dropped || 0, state: await readState() });
             }
             if (sa && request.method === "POST") {
@@ -43685,6 +43757,10 @@ async function handleRequest(request, env, ctx) {
             }
             if (vr[2] && request.method === "POST") {
               const vb = await request.json().catch(() => ({}));
+              // SAID AS IT HAPPENS (2026-10-19, owner chose "B"), when the page named the press.
+              const talk = actionTalk(env, ctx, { id: vb && vb.talk, uid: ou.id, slug: ownerSlug, kind: "restore" });
+              talk.say(actionFacts("restore", "start"));
+              const refuse = (error, status, extra = {}) => { talk.end(actionFacts("restore", "failed", { error })); return Response.json({ ok: false, error, ...extra }, { status }); };
               // THE SHAPE CHECK LIVES IN `rollbackVersion`, NOT HERE. It runs
               // there before any I/O, so a copy at this layer buys nothing and
               // is a second place the rule can drift — the `hasPublicView`
@@ -43723,16 +43799,18 @@ async function handleRequest(request, env, ctx) {
               if (draftFirst(env)) {
                 let d = null;
                 try { d = (await readDraft(buildDeps(env), ownerSlug)).draft; }
-                catch { return Response.json({ ok: false, error: "the draft could not be read — nothing was restored; try again in a moment" }, { status: 503 }); }
-                if (d && d.rev > d.applied) return Response.json({ ok: false, error: "you have changes saved in your draft that aren't published yet — publish them or discard the draft first, then restore an older version", unpublished: true }, { status: 409 });
-                if (d && unpublishedVersions(d).has(String((vb && vb.id) || ""))) return Response.json({ ok: false, error: "that version was never published, so it can't be restored" }, { status: 409 });
+                catch { return refuse("the draft could not be read — nothing was restored; try again in a moment", 503); }
+                if (d && d.rev > d.applied) return refuse("you have changes saved in your draft that aren't published yet — publish them or discard the draft first, then restore an older version", 409, { unpublished: true });
+                if (d && unpublishedVersions(d).has(String((vb && vb.id) || ""))) return refuse("that version was never published, so it can't be restored", 409);
               }
               const rb = await restoreVersion(env, ownerSlug, vb && vb.id);
-              if (!rb.ok) return Response.json({ ok: false, error: rb.error || "rollback failed" }, { status: rb.status || 500 });
+              if (!rb.ok) return refuse(rb.error || "rollback failed", rb.status || 500);
+              talk.say(actionFacts("restore", "switched"));
               if (draftFirst(env) && rb.activated) {
                 try {
                   const rd = await rebaseDraft(buildDeps(env), ownerSlug, { version: String(vb.id), build: rb.build || "" });
                   if (!rd.ok) console.error("restore: the draft was not moved", ownerSlug, rd.error);
+                  else talk.say(actionFacts("restore", "draft"));
                 } catch (e) { console.error("restore: the draft was not moved", ownerSlug, errorClassForLog(e)); }
               }
 
@@ -43762,6 +43840,7 @@ async function handleRequest(request, env, ctx) {
               if (wput && wput.ok === false) {
                 console.error("ROLLBACK LEFT THE WRONG SCRIPT UP:", ownerSlug, wput.status, wput.error);
               }
+              talk.end([]);
               return Response.json({
                 ok: true, id: rb.id, files: rb.files, swept: rb.swept,
                 worker: wput ? wput.ok !== false : undefined,

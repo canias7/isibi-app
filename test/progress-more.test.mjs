@@ -155,3 +155,41 @@ test("R3 THE WIRING: each part, the build wait and the draft save are marked, an
   assert.match(W, /addonPublishFacts\(aPendingPhotos, \{ draft: draftFirst\(env\) \}\)/, "an add-on's publish facts no longer know a draft");
   assert.match(W, /mark\?\.\("container", draftFirst\(env\) \? \{ draft: 1 \} : undefined\)/, "a build's container step no longer knows a draft");
 });
+
+// ── ROUND 4: THE BUTTONS TALK (owner chose "B") ─────────────────────────────
+import { actionFacts, actionContext, ACTION_KINDS } from "../builder/site-progress.mjs";
+const CHATJS = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+
+test("R4 every step of every press has a fact in a talking state, and nothing is said as live before the switch", () => {
+  const steps = { publish: ["start", "prepare", "prepared", "switched", "schema", "seeds", "already", "failed"], restore: ["start", "switched", "draft", "failed"], discard: ["start", "done", "failed"], delete: ["start", "done", "failed"] };
+  for (const kind of ACTION_KINDS) for (const st of steps[kind]) {
+    const fs = actionFacts(kind, st, { revision: 3, error: "x" });
+    assert.ok(fs.length > 0, kind + ":" + st + " says nothing");
+    for (const f of fs) assert.ok(TALK_STATES.includes(f.state), kind + ":" + st + " " + f.state);
+  }
+  for (const st of ["start", "prepare", "prepared"]) for (const f of actionFacts("publish", st)) assert.notEqual(f.state, "published", "publish:" + st + " says it is live before the switch");
+  assert.equal(actionFacts("publish", "switched")[0].state, "published");
+  assert.match(texts(actionFacts("publish", "changes", { n: 3 })), /3 changes/);
+  assert.deepEqual(actionFacts("publish", "changes", { n: 0 }), []);
+  assert.deepEqual(actionFacts("publish", "done", { skipped: 0 }), []);
+  assert.match(texts(actionFacts("publish", "done", { skipped: 2 })), /2 changes could not be saved/);
+  assert.match(texts(actionFacts("discard", "done", { dropped: 1 })), /Dropped one unpublished change[\s\S]*live site did not change/);
+  assert.deepEqual(actionFacts("nope", "start"), []);
+  assert.match(actionContext({ kind: "publish", slug: "harbour-loaf-3", lines: [{ text: "said before" }] }), /THIS WORK: publishing their draft[\s\S]*said before/);
+});
+
+test("R4 THE WIRING: each route says its steps through the press's own talk, and the page reads them", () => {
+  assert.match(W, /function actionTalk\(env, ctx, \{ id, uid, slug, kind \}\) \{\s*\n\s*const none = \{ say\(\) \{\}, end\(\) \{\}, on: false \};\s*\n\s*if \(!talkOn\(env\)/, "the press talks with talk off, or the helper is gone");
+  assert.match(W, /const talk = actionTalk\(env, ctx, \{ id: pbody && pbody\.talk, uid: ou\.id, slug: ownerSlug, kind: "publish" \}\);/);
+  assert.match(W, /publishDraft\(env, ownerSlug, \{ revision, version \}, \{ uid: ou\.id, say: \(st, info\) => talk\.say\(actionFacts\("publish", st, info\)\) \}\)/);
+  assert.match(W, /const talk = actionTalk\(env, ctx, \{ id: dbody && dbody\.talk, uid: ou\.id, slug: ownerSlug, kind: "discard" \}\);/);
+  assert.match(W, /const talk = actionTalk\(env, ctx, \{ id: vb && vb\.talk, uid: ou\.id, slug: ownerSlug, kind: "restore" \}\);/);
+  assert.match(W, /await save\(\{ phase: "switched", done: \[\] \}\);\s*\n\s*tell\("switched"\);/, "the switch is no longer said when it happens");
+  assert.equal((W.match(/runPublication\(env, slug, j, etag, say\)/g) || []).length, 2, "a click's publication does not carry its talk");
+  assert.match(W, /const o = await env\.SITES_BUCKET\.get\(actionTalkKey\(tu\.id, tk\[1\]\)\)/, "the lines are not read under the caller's own account");
+  for (const route of ["/publish'", "/draft/discard'", "/versions/restore'"]) {
+    const at = CHATJS.indexOf(route);
+    assert.ok(at > 0 && /const talk = typeof siteActionTalk === 'function' \? siteActionTalk\(slug\) : '';/.test(CHATJS.slice(Math.max(0, at - 400), at)), "the page does not name its press before " + route);
+  }
+  assert.match(CHATJS, /m\.talkLive === true \? \(Array\.isArray\(m\.prog\) && m\.prog\.length \? progressListHTML\(m\.prog, true\)/, "a press's lines are not drawn live");
+});

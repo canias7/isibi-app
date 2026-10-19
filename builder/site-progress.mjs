@@ -1558,7 +1558,51 @@ export function progressContext(rec, { others = [], waited = [] } = {}) {
 
 /** What each kind of job's work is, as the writer is told it. */
 const WORK_SAID = Object.freeze({ edit: "a change to what the site already has", addon: "an addition to the site" });
-const TALK_WORK_SAID = Object.freeze({ ...WORK_SAID, build: "a new site, built from their description" });
+const TALK_WORK_SAID = Object.freeze({ ...WORK_SAID, build: "a new site, built from their description",
+  // THE BUTTONS THAT NOW TALK (2026-10-19, owner chose "B"): each press is its
+  // own short piece of work, said as it happens.
+  publish: "publishing their draft: making the changes saved in it live", restore: "putting back an earlier version of their site",
+  discard: "throwing away the unpublished changes in their draft", delete: "taking their site down" });
+
+/**
+ * A BUTTON PRESS, SAID STEP BY STEP (2026-10-19, owner: "B" — live talk while
+ * Publish, Restore, Discard and Delete run). Each fact is one step the route
+ * really reached, from its own result; the model words them. `info` carries
+ * only what that step returned.
+ */
+export const ACTION_KINDS = Object.freeze(["publish", "restore", "discard", "delete"]);
+export function actionFacts(kind, stage, info = {}) {
+  const i = info && typeof info === "object" ? info : {};
+  const k = (v) => (Number.isFinite(v) && v > 0 ? Math.floor(v) : 0);
+  const err = typeof i.error === "string" && i.error ? flat(i.error).slice(0, 240) : "";
+  switch (kind + ":" + stage) {
+    case "publish:start": return [fact("doing", "Publishing their draft now" + (k(i.revision) ? " (version " + k(i.revision) + " of their changes)" : "") + ".")];
+    case "publish:prepare": return [fact("doing", "Checking the draft's database changes can be saved before anything goes live.")];
+    case "publish:prepared": return [fact("checked", "The draft's database changes can be saved; nothing on the live site has changed yet.")];
+    case "publish:switched": return [fact("published", "Switched their live site over to the new version.")];
+    case "publish:schema": return [fact("applied", "Made the draft's new tables live.")];
+    case "publish:seeds": return [fact("applied", "Added the draft's starting entries to the live site.")];
+    case "publish:changes": return k(i.n) ? [fact("applied", "Made " + (k(i.n) === 1 ? "one change" : k(i.n) + " changes") + " to entries on the live site.")] : [];
+    case "publish:already": return [fact("checked", "That version was already live, so nothing needed to change.")];
+    case "publish:done": return k(i.skipped) ? [fact("notdone", (k(i.skipped) === 1 ? "One change" : k(i.skipped) + " changes") + " could not be saved, so " + (k(i.skipped) === 1 ? "it was" : "they were") + " set aside; everything else is live.")] : [];
+    case "publish:failed": return [fact("notdone", "Publishing stopped" + (err ? ": " + err : "") + ".")];
+    case "restore:start": return [fact("doing", "Putting back the earlier version they picked.")];
+    case "restore:switched": return [fact("published", "Their live site now shows that earlier version again.")];
+    case "restore:draft": return [fact("prepared", "Their draft now starts from that version too.")];
+    case "restore:failed": return [fact("notdone", "The earlier version could not be put back" + (err ? ": " + err : "") + ".")];
+    case "discard:start": return [fact("doing", "Throwing away the unpublished changes in their draft.")];
+    case "discard:done": return [fact("prepared", (k(i.dropped) ? "Dropped " + (k(i.dropped) === 1 ? "one unpublished change" : k(i.dropped) + " unpublished changes") + "; " : "") + "their draft is back to what is live. The live site did not change.")];
+    case "discard:failed": return [fact("notdone", "The draft could not be discarded" + (err ? ": " + err : "") + ".")];
+    case "delete:start": return [fact("doing", "Taking their site down.")];
+    case "delete:done": return [fact("applied", "Their site is taken down and its address no longer serves it.")];
+    case "delete:failed": return [fact("notdone", "The site could not be taken down" + (err ? ": " + err : "") + ".")];
+    default: return [];
+  }
+}
+/** The context an action's writer is given: what the work is, and what it already said. */
+export function actionContext({ kind, slug = "", lines = [] } = {}) {
+  return progressContext({ talk: true, op: kind, slug: SLUG_RE.test(slug) ? slug : "", pages: [], words: "", lines: (Array.isArray(lines) ? lines : []).filter((l) => l && typeof l.text === "string"), marks: [] });
+}
 
 /**
  * A REQUEST PART'S STATUS AS A TASK'S STATE — the very map the page uses to

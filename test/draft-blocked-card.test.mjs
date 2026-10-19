@@ -94,8 +94,10 @@ test("SB2 DISCARD DRAFT: OFFERED ON AN UNPUBLISHED DRAFT, ASKS FIRST, SENDS TO T
     if (SHOTS) { mkdirSync(SHOTS, { recursive: true }); await page.locator(".si-card").screenshot({ path: path.join(SHOTS, "discard-draft.png") }); }
     await page.evaluate(() => { window.asked = 0; window.confirm = () => { window.asked++; return true; }; });
     await page.click("#spDiscardDraft");
-    await page.waitForFunction(() => window.sent.length === 1);
-    assert.deepEqual(await page.evaluate(() => [window.asked, window.sent[0].url]), [1, "/api/site/fold-lane-bakery/draft/discard"]);
+    // RE-ANCHORED 2026-10-19: the press now talks, so the page also reads its
+    // lines (`/api/site/talk/…`); the discard itself is still sent once.
+    await page.waitForFunction(() => window.sent.filter((x) => !String(x.url).startsWith("/api/site/talk/")).length === 1);
+    assert.deepEqual(await page.evaluate(() => { const o = window.sent.filter((x) => !String(x.url).startsWith("/api/site/talk/")); return [window.asked, o[0].url]; }), [1, "/api/site/fold-lane-bakery/draft/discard"]);
   } finally { await b.close(); }
   // ASKED AND DECLINED: nothing sent.
   const c = await render(saved);
