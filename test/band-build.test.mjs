@@ -543,8 +543,12 @@ test("both flags are uploaded with a fallback, and the canary names ONE identity
   // which is the recorded "assert the property, not the spelling": the property
   // is that a DEFAULT — what ships when nobody has set a secret — may widen this
   // to exactly one named identity and no further, never to the whole platform.
+  // RE-ANCHORED 2026-10-19 (owner: "cant i just have it there instead of in
+  // secrets, like a default thing"): the shipped default now splits for
+  // everyone; a secret set to `off` still turns it back off.
   const env = { BAND_SPLIT_CANARY: canary[1], BAND_SPLIT_EVERYONE: everyone[1] };
-  assert.equal(bandSplitEveryone(env), false, "the shipped default splits every page on the platform");
+  assert.equal(bandSplitEveryone(env), true, "the shipped default does not split for everyone");
+  assert.equal(bandSplitEveryone({ ...env, BAND_SPLIT_EVERYONE: "off" }), false, "a secret of off does not turn the split back off");
   const named = readCanaryList(canary[1]);
   assert.equal(named.length, 1, "the shipped canary names " + named.length + " identities, not one: " + JSON.stringify(canary[1]));
   // The door reads its list against BOTH halves and does not care which column
@@ -557,9 +561,12 @@ test("both flags are uploaded with a fallback, and the canary names ONE identity
   const uidish = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(named[0]);
   assert.equal(bandSplitFor(env, uidish ? { uid: named[0], slug: "any-site-1" } : { uid: "x", slug: named[0] }), true,
     "the shipped canary does not reach the identity it names");
-  assert.equal(bandSplitFor(env, { uid: "99999999-8888-7777-6666-555555555555", slug: "somebody-else-1" }), false,
-    "the shipped default splits a stranger's page");
-  assert.equal(bandSplitFor(env, {}), false, "the shipped default splits a page with no identity at all");
+  assert.equal(bandSplitFor(env, { uid: "99999999-8888-7777-6666-555555555555", slug: "somebody-else-1" }), true,
+    "the shipped default does not split a stranger's page");
+  const off = { ...env, BAND_SPLIT_EVERYONE: "off" };
+  assert.equal(bandSplitFor(off, { uid: "99999999-8888-7777-6666-555555555555", slug: "somebody-else-1" }), false,
+    "a secret of off still splits a stranger's page");
+  assert.equal(bandSplitFor(off, {}), false, "a secret of off splits a page with no identity at all");
   // And `-` is still what turning it back off looks like, asked of the reader.
   assert.deepEqual(readCanaryList("-"), [], "`-` must stay a value the reader drops");
   assert.equal(bandSplitFor({ BAND_SPLIT_CANARY: "-", BAND_SPLIT_EVERYONE: "off" }, { uid: named[0], slug: named[0] }), false);

@@ -231,6 +231,6 @@ test("REACH — the switch reaches a job the container runs (it is handed only t
   assert.equal(jobSecrets({ PROGRESS_REPLIES: "on", PROGRESS_TALK: "on" }).PROGRESS_TALK, "on");
   const { readFileSync } = await import("node:fs");
   const deploy = readFileSync(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8");
-  assert.match(deploy, /^\s+PROGRESS_TALK: \$\{\{ secrets\.PROGRESS_TALK \|\| 'off' \}\}$/m, "the deploy does not default the switch to off");
+  assert.match(deploy, /^\s+PROGRESS_TALK: \$\{\{ secrets\.PROGRESS_TALK \|\| 'on' \}\}$/m, "the deploy does not default the switch to on");
   assert.match(deploy, /^\s+PROGRESS_TALK$/m, "the deploy does not upload the switch");
 });

@@ -169,8 +169,12 @@ test("the deploy uploads both flags with a fallback, and the canary names ONE ac
   // it is that a DEFAULT may widen a door to exactly one named identity and no
   // further, because a default is what ships when nobody has set a secret.
   // Driven with the shipped values, the runner canary's own shape one file over.
+  // RE-ANCHORED 2026-10-19 (owner: "cant i just have it there instead of in
+  // secrets, like a default thing"): the shipped default now splits for
+  // everyone; a secret set to `off` still turns it back off.
   const env = { DESIGN_SPLIT_CANARY: canary[1], DESIGN_SPLIT_EVERYONE: everyone[1] };
-  assert.equal(designSplitEveryone(env), false, "the shipped default turns the design split on for the whole platform");
+  assert.equal(designSplitEveryone(env), true, "the shipped default does not split the design for everyone");
+  assert.equal(designSplitEveryone({ ...env, DESIGN_SPLIT_EVERYONE: "off" }), false, "a secret of off does not turn the split back off");
   const named = readCanaryList(canary[1]);
   assert.equal(named.length, 1, "the shipped canary names " + named.length + " identities, not one: " + JSON.stringify(canary[1]));
   // A UID, because this door is asked before a first build HAS a slug — a slug
@@ -179,8 +183,10 @@ test("the deploy uploads both flags with a fallback, and the canary names ONE ac
   assert.match(named[0], /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     "the shipped canary names something that is not an account id: " + named[0]);
   assert.equal(designSplitFor(env, { uid: named[0] }), true, "the shipped canary does not reach its own account");
-  assert.equal(designSplitFor(env, { uid: "99999999-8888-7777-6666-555555555555" }), false, "the shipped default splits another account's build");
-  assert.equal(designSplitFor(env, { slug: "fretwork-1" }), false, "the shipped default splits a build by slug, which this door cannot key on");
+  assert.equal(designSplitFor(env, { uid: "99999999-8888-7777-6666-555555555555" }), true, "the shipped default does not split another account's build");
+  const off = { ...env, DESIGN_SPLIT_EVERYONE: "off" };
+  assert.equal(designSplitFor(off, { uid: "99999999-8888-7777-6666-555555555555" }), false, "a secret of off still splits another account's build");
+  assert.equal(designSplitFor(off, { slug: "fretwork-1" }), false, "a secret of off splits a build by slug, which this door cannot key on");
   // And `-` is still what turning it back off looks like, asked of the reader.
   assert.deepEqual(readCanaryList("-"), [], "`-` must stay a value the reader drops");
   assert.equal(designSplitFor({ DESIGN_SPLIT_CANARY: "-", DESIGN_SPLIT_EVERYONE: "off" }, { uid: named[0] }), false);

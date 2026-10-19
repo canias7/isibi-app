@@ -67,9 +67,10 @@ test("DH1 THE SETTING SURVIVES SERIALIZATION INTO A JOB — jobSecrets, the laun
   }
   assert.ok(JOB_ENV_NAMES.includes("DRAFT_FIRST"), "a container job is not handed DRAFT_FIRST");
   assert.ok(JOB_ENV_NAMES.includes("PARALLEL_WRITES"), "a container job is not handed PARALLEL_WRITES");
-  // DEFAULT OFF IN THE DEPLOY: a missing secret falls back to `off`, never `on`.
+  // RE-ANCHORED 2026-10-19 (owner: defaults in code, not secrets): a missing
+  // secret falls back to `on`; a secret of `off` still turns it off.
   const deploy = (await import("node:fs")).readFileSync(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8");
-  assert.match(deploy, /DRAFT_FIRST: \$\{\{ secrets\.DRAFT_FIRST \|\| 'off' \}\}/, "the deploy does not deliver DRAFT_FIRST with an off fallback");
+  assert.match(deploy, /DRAFT_FIRST: \$\{\{ secrets\.DRAFT_FIRST \|\| 'on' \}\}/, "the deploy does not deliver DRAFT_FIRST with an on fallback");
   assert.match(deploy, /\n\s+DRAFT_FIRST\n/, "DRAFT_FIRST is not in the deploy's secret list");
 });
 

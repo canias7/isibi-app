@@ -434,12 +434,14 @@ test("the deploy ships the wide door OPEN, uploads its secret, and keeps the mas
   // A name is a whole line; the last one in the block has no newline after it.
   assert.ok(block.length > 0 && /\n\s+EDIT_ASYNC(?:\n|$)/.test(block), "the secrets block could not be read");
   assert.match(block, /\n\s+EDIT_ASYNC_EVERYONE(?:\n|$)/, "EDIT_ASYNC_EVERYONE is not in the uploaded secrets list");
-  // AND THE MASTER SWITCH'S OWN FALLBACK IS STILL OFF: with nothing set at all,
-  // nothing is queued — the wide door is behind the switch, never beside it.
+  // RE-ANCHORED 2026-10-19 (owner: defaults in code, not secrets): the master
+  // switch ships on too; a secret of `off` on it still queues nothing.
   const f = /EDIT_ASYNC: \$\{\{ secrets\.EDIT_ASYNC \|\| '([^']*)' \}\}/.exec(yml);
   assert.ok(f, "the master switch's fallback is gone or reshaped");
-  assert.equal(editAsyncFor({ EDIT_ASYNC: f[1], EDIT_ASYNC_EVERYONE: m[1], EDIT_ASYNC_CANARY: "-" }, { uid: "someone", slug: "site-1" }), false,
-    "the shipped defaults queue an edit with the master switch unset");
+  assert.equal(editAsyncFor({ EDIT_ASYNC: f[1], EDIT_ASYNC_EVERYONE: m[1], EDIT_ASYNC_CANARY: "-" }, { uid: "someone", slug: "site-1" }), true,
+    "the shipped defaults do not queue an edit");
+  assert.equal(editAsyncFor({ EDIT_ASYNC: "off", EDIT_ASYNC_EVERYONE: m[1], EDIT_ASYNC_CANARY: "-" }, { uid: "someone", slug: "site-1" }), false,
+    "the master switch's off no longer stops the queue");
 });
 
 test("no build route reads the canary configuration", () => {

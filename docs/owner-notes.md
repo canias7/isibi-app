@@ -1,5 +1,9 @@
 # Owner Notes
 
+## 2026-10-19 — The switches are now on by default in the code, not in GitHub secrets (branch only, not deployed)
+
+You asked to have the switches "there instead of in secrets, like a default thing", all of them except the image one. In `.github/workflows/deploy.yml` these now default to `on` when no secret is set: `PROGRESS_REPLIES`, `PROGRESS_TALK`, `BAND_SPLIT_EVERYONE`, `DESIGN_SPLIT_EVERYONE`, `DESIGN_GRAPH_EVERYONE`, `EDIT_ASYNC`, `REQUEST_FLOW`, `PARALLEL_WRITES`, `DRAFT_FIRST` (`MODEL_REPLIES`, `EDIT_ASYNC_EVERYONE` and `JOB_RUNNER_EVERYONE` already defaulted on). `IMAGE_PURCHASES` is left alone and stays controlled by its secret. A secret set to `off` still turns any switch off, and a secret that is already saved wins over the default. `DESIGN_GRAPH_EVERYONE` has never designed a live site. Seven guard tests that pinned "off" were re-anchored to the new defaults, each still proving that `off` turns the switch off. Full suite `11498 / 11496 / 0 / 2`. Takes effect on "merge and deploy".
+
 ## 2026-10-18 — Why big builds failed, and the fix: no build fails on time alone (branch only, not deployed)
 
 - **Why it failed:** inside the container, the build job waited on one connection while the whole five-page site was written. That kind of connection gives up after 5 minutes. Its backup plan hit the same 5-minute wall: 10 minutes, then "fetch failed". Small sites didn't fail because they're generated in pieces.

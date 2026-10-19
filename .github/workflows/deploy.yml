@@ -366,7 +366,7 @@ jobs:
           # — including a typo, a number and a non-string — as off, because an
           # unreadable flag must never turn a customer-facing path on by
           # accident.
-          EDIT_ASYNC: ${{ secrets.EDIT_ASYNC || 'off' }}
+          EDIT_ASYNC: ${{ secrets.EDIT_ASYNC || 'on' }}
           # ── WHO THE FLAG APPLIES TO ────────────────────────────────────────
           #
           # Uids and slugs, comma or space separated. The flag is the master
@@ -428,7 +428,7 @@ jobs:
           # Not charged to the customer. OFF BY DEFAULT: off, nothing is
           # recorded, no task is sent and every answer is as before. Set the
           # secret to `on` and redeploy to switch it on.
-          PROGRESS_REPLIES: ${{ secrets.PROGRESS_REPLIES || 'off' }}
+          PROGRESS_REPLIES: ${{ secrets.PROGRESS_REPLIES || 'on' }}
           # ── THE BUILDER TALKS WHILE IT WORKS (2026-10-13) ──────────────────
           #
           # On top of PROGRESS_REPLIES: a job's record opens conversational —
@@ -437,7 +437,7 @@ jobs:
           # model-written explanation (builder/site-progress.mjs, `talkOn`).
           # Still not charged to the customer. OFF BY DEFAULT: off, every
           # record is written exactly as before.
-          PROGRESS_TALK: ${{ secrets.PROGRESS_TALK || 'off' }}
+          PROGRESS_TALK: ${{ secrets.PROGRESS_TALK || 'on' }}
           # ── ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03) ──
           #
           # With this on, a site's message the routing call accepts is kept as a
@@ -446,7 +446,7 @@ jobs:
           # server with no page open (builder/request.mjs). OFF BY DEFAULT: the
           # page then drives its steps exactly as before, which is what the UI
           # canary checks. Set the secret to `on` and redeploy to switch it on.
-          REQUEST_FLOW: ${{ secrets.REQUEST_FLOW || 'off' }}
+          REQUEST_FLOW: ${{ secrets.REQUEST_FLOW || 'on' }}
           # ── WHETHER A PHOTOGRAPH IS BOUGHT AT ALL (2026-10-11) ─────────────
           #
           # `off` refuses every photograph purchase before it leaves for the
@@ -465,7 +465,7 @@ jobs:
           # of a request at a time, as before. It also needs the proposed SQL
           # (supabase/proposed/request_beside.sql) applied, or the second job
           # waits on the site's own lock as any other job does.
-          PARALLEL_WRITES: ${{ secrets.PARALLEL_WRITES || 'off' }}
+          PARALLEL_WRITES: ${{ secrets.PARALLEL_WRITES || 'on' }}
           # ── DRAFT-FIRST PUBLISHING (2026-10-16) ───────────────────────────
           #
           # `on` saves every builder change (Build, Edit, Add-on) to the site's
@@ -473,7 +473,7 @@ jobs:
           # Publish (site-draft.mjs `draftFirst`). It reaches container jobs
           # through JOB_ENV_NAMES (builder/edit-job.mjs). OFF BY DEFAULT: every
           # path publishes as before.
-          DRAFT_FIRST: ${{ secrets.DRAFT_FIRST || 'off' }}
+          DRAFT_FIRST: ${{ secrets.DRAFT_FIRST || 'on' }}
           # ── WHO RUNS A QUEUED JOB (2026-09-04) ────────────────────────────
           #
           # The job runner: for the uids and slugs the canary names, or for
@@ -551,7 +551,7 @@ jobs:
           # The secret still overrides: set it to `-` in GitHub (readCanaryList
           # drops it) and redeploy to turn the split off without touching code.
           BAND_SPLIT_CANARY: ${{ secrets.BAND_SPLIT_CANARY || '22175f41-6fbf-49d7-b039-a65078a0141c' }}
-          BAND_SPLIT_EVERYONE: ${{ secrets.BAND_SPLIT_EVERYONE || 'off' }}
+          BAND_SPLIT_EVERYONE: ${{ secrets.BAND_SPLIT_EVERYONE || 'on' }}
           # ── A DESIGN ANSWERED BY SEVERAL AGENTS AT ONCE (2026-09-10) ───────
           #
           # The other half of the same ask. The design step answers 23 fields in
@@ -569,7 +569,7 @@ jobs:
           # on"). `-` (nobody) from 2026-09-10 until this, the split never having
           # designed a live site. Every customer still gets the one call.
           DESIGN_SPLIT_CANARY: ${{ secrets.DESIGN_SPLIT_CANARY || '22175f41-6fbf-49d7-b039-a65078a0141c' }}
-          DESIGN_SPLIT_EVERYONE: ${{ secrets.DESIGN_SPLIT_EVERYONE || 'off' }}
+          DESIGN_SPLIT_EVERYONE: ${{ secrets.DESIGN_SPLIT_EVERYONE || 'on' }}
           # THE GRAPH DEFAULTS TO NOBODY, unlike the two canaries above it.
           # Those name the building account because each had been proved live
           # before the default moved; this has never designed a site, so `-`
@@ -577,7 +577,7 @@ jobs:
           # `|| fallback`: a name listed with no value fails the WHOLE deploy,
           # and three merges have shipped nothing that way.
           DESIGN_GRAPH_CANARY: ${{ secrets.DESIGN_GRAPH_CANARY || '-' }}
-          DESIGN_GRAPH_EVERYONE: ${{ secrets.DESIGN_GRAPH_EVERYONE || 'off' }}
+          DESIGN_GRAPH_EVERYONE: ${{ secrets.DESIGN_GRAPH_EVERYONE || 'on' }}
           # Mail needs NO secret here. The Worker sends through Cloudflare Email
           # Service via the `send_email` binding in wrangler.jsonc (2026-07-30,
           # replacing Go Farther) — nothing to mint, upload each deploy, or rotate.

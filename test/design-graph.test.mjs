@@ -564,7 +564,7 @@ test("`readCanaryList` is never imported into worker.js", () => {
 // THE DEPLOY, AND THE IMAGE
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("the deploy ships both flags, each with a `|| fallback`, defaulting to nobody", () => {
+test("the deploy ships both flags, each with a `|| fallback`, canary defaulting to nobody, broad flag on", () => {
   const yml = read(".github/workflows/deploy.yml");
   // A NAME LISTED WITH NO VALUE FAILS THE WHOLE DEPLOY — three merges have
   // shipped nothing that way — so an optional secret must carry a fallback.
@@ -578,8 +578,10 @@ test("the deploy ships both flags, each with a `|| fallback`, defaulting to nobo
   assert.equal(designGraphFor({ DESIGN_GRAPH_CANARY: canary[1] }, { uid: "anyone" }), false);
   const broad = /DESIGN_GRAPH_EVERYONE:\s*\$\{\{\s*secrets\.DESIGN_GRAPH_EVERYONE\s*\|\|\s*'([^']*)'\s*\}\}/.exec(yml);
   assert.ok(broad, "DESIGN_GRAPH_EVERYONE is not uploaded with a fallback");
-  assert.equal(designGraphEveryone({ DESIGN_GRAPH_EVERYONE: broad[1] }), false,
-    "the broad flag's default is an affirmative word");
+  // RE-ANCHORED 2026-10-19 (owner: defaults in code, not secrets): the broad
+  // flag ships on; a secret of `off` still closes it.
+  assert.equal(designGraphEveryone({ DESIGN_GRAPH_EVERYONE: broad[1] }), true,
+    "the broad flag's default is not an affirmative word");
   // AND BOTH NAMES REACH THE WORKER. A flag set and never uploaded is a flag
   // that does nothing, silently.
   assert.match(yml, /^\s+DESIGN_GRAPH_CANARY$/m, "the secret is not in the uploaded list");
