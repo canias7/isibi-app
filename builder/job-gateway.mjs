@@ -908,7 +908,10 @@ export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scop
     // progress. The body is bounded like a Supabase call's.
     if (tail === "/progress" && request.method === "POST") {
       if (typeof progress !== "function") return json(503, { error: "no progress" });
-      if (who.pre === true) return json(403, { error: "not a site job" });
+      // A PRE-SCOPED BUILD TALKS TOO (2026-10-19, after deploy 2220's build
+      // said nothing for its whole design): before the design names the site,
+      // a first build may write its OWN build record only — no site on it
+      // (`slug: ""`), and the Worker refuses it any record that is not a build's.
       const len = Number(request.headers.get("content-length") || 0);
       if (len > SB_MAX_BODY) return json(413, { error: "request too large" });
       const text = await request.text();
@@ -917,7 +920,7 @@ export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scop
       try { body = JSON.parse(text); } catch { body = null; }
       if (!body || typeof body !== "object" || Array.isArray(body) || !["begin", "mark", "close"].includes(body.op)) return json(400, { error: "bad progress" });
       let out = null;
-      try { out = await progress({ id: who.id, slug: who.slug, uid: who.uid }, body); } catch { out = null; }
+      try { out = await progress(who.pre === true ? { id: who.id, slug: "", uid: who.uid, pre: true } : { id: who.id, slug: who.slug, uid: who.uid }, body); } catch { out = null; }
       // A STORE THAT FAILED IS NOT A REFUSAL (2026-10-06): 503, which the job's
       // recorder sends again; a refusal (a closed record, another run's) is 409
       // and never is. A throw here is the Worker's own failure: tried again.

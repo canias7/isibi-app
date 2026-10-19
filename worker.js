@@ -7807,6 +7807,8 @@ async function askProgress(env, job, uid, now = Date.now()) {
  */
 async function progressFromJob(env, ids, body) {
   const { id, uid, slug } = ids || {};
+  // A PRE-SCOPED BUILD (2026-10-19) writes its own build record and nothing else.
+  const pre = !!(ids && ids.pre === true);
   if (!progressOn(env) || !env || !env.SITES_BUCKET || !isJobId(id) || typeof uid !== "string" || !uid) return { ok: false };
   const b = body && typeof body === "object" && !Array.isArray(body) ? body : {};
   const run = typeof b.run === "string" ? b.run : "";
@@ -7824,6 +7826,7 @@ async function progressFromJob(env, ids, body) {
     const r = await progressUpdate(env, id, (rec) => {
       // A BUILD CARRIED ON BY ITS NEXT RUN (round 5) takes its record over.
       if (rec && b.kind === "build" && b.take === true && rec.run !== run) { const t = takeOverRecord(rec, { run, uid }); return t ? { rec: t } : null; }
+      if (pre && (b.kind !== "build" || (rec && rec.op !== "build"))) return null;
       if (rec) return rec.run === run && rec.uid === uid ? { done: true } : null;
       // CONVERSATIONAL ONLY WHEN THE JOB ASKED FOR IT AND THE SWITCH IS ON HERE
       // (talk, 2026-10-13): the record keeps the flag for its whole life.
@@ -7837,7 +7840,7 @@ async function progressFromJob(env, ids, body) {
     let ask = false;
     let settle = 0;
     const r = await progressUpdate(env, id, (rec) => {
-      if (!rec || rec.run !== run || rec.uid !== uid) return null;
+      if (!rec || rec.run !== run || rec.uid !== uid || (pre && rec.op !== "build")) return null;
       const added = appendMark(rec, { stage: b.stage, facts: b.facts, at: now, key: b.seq });
       // A WRITE MADE AGAIN BECAUSE ITS FIRST ANSWER WAS LOST: whether that one
       // asked for a writer cannot be told, so one is asked again — a second
@@ -7859,7 +7862,7 @@ async function progressFromJob(env, ids, body) {
   }
   if (b.op === "close") {
     const r = await progressUpdate(env, id, (rec) => {
-      if (!rec || rec.run !== run || rec.closed) return { done: true };
+      if (!rec || rec.run !== run || rec.closed || (pre && rec.op !== "build")) return { done: true };
       const closed = closeRecord(rec, typeof b.why === "string" ? b.why : "ended", now);
       // …OWING ITS LATE LINE (`lateBatch`): a writer is asked now.
       return lateNeeded(closed) && writerNeeded(closed, now) === "ask" ? { rec: markAsked(closed, now), ask: true } : { rec: closed };

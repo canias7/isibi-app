@@ -729,8 +729,11 @@ test("GATEWAY — FROM THE CONTAINER: the job's recorder writes through /progres
     assert.equal((await call(P, "POST", "/api/job/" + job.id + "/progress", { op: "mark", junk: "x".repeat((1 << 20) + 10) }, "Bearer " + tok)).status, 413);
     assert.equal((await call(P, "POST", "/api/job/" + job.id + "/progress", { op: "mark" }, "Bearer nope")).status, 401);
     const preTok = await signJobToken({ id: job.id, slug: preScopeSlug(job.id), uid: USER.id, exp, pre: true }, gk);
-    assert.equal((await call(P, "POST", "/api/job/" + job.id + "/progress", { op: "mark", run: P.progressOf(job.id).run, stage: "pre", facts: [{ state: "decided", text: "x" }], seq: 98 }, "Bearer " + preTok)).status, 403, "a pre-scoped build wrote progress");
-    assert.equal(P.progressOf(job.id).marks.length, 2, "a pre-scoped build's milestone was recorded");
+    // RE-ANCHORED 2026-10-19: a pre-scoped token reaches the Worker now (a first
+    // build talks before its site is named), and the Worker refuses it any
+    // record that is not a build's — this job is an edit, so nothing is written.
+    assert.equal((await call(P, "POST", "/api/job/" + job.id + "/progress", { op: "mark", run: P.progressOf(job.id).run, stage: "pre", facts: [{ state: "decided", text: "x" }], seq: 98 }, "Bearer " + preTok)).status, 409, "a pre-scoped build wrote to an edit's progress");
+    assert.equal(P.progressOf(job.id).marks.length, 2, "a pre-scoped build's milestone was recorded on an edit's record");
     // A RUN THAT DID NOT OPEN THE RECORD: its milestone is refused, and its close closes nothing.
     const stale = await call(P, "POST", "/api/job/" + job.id + "/progress", { op: "mark", run: "c_stale0001", stage: "stale", facts: [{ state: "decided", text: "x" }], seq: 97 }, "Bearer " + tok);
     assert.equal(stale.status, 409, "a milestone from a run that did not open the record was taken");
@@ -744,6 +747,32 @@ test("GATEWAY — FROM THE CONTAINER: the job's recorder writes through /progres
     assert.equal(P.progressOf(job.id).closed.why, "ended");
     delete P.env.JOB_PROGRESS;
     await settle(P, r.key);
+  });
+});
+
+test("GATEWAY — A FIRST BUILD TALKS BEFORE ITS SITE IS NAMED (2026-10-19, after deploy 2220's build said nothing for its whole design): under its pre-scoped token it opens its own build record with no site on it and adds its milestones; the same token is refused a record that is not a build's", async () => {
+  await withPlatform({ slug: slugOf("pre"), replies: true, progress: true }, async (P) => {
+    P.env.SITE_SECRETS_KEY = "platform-secret";
+    P.env.PROGRESS_TALK = "on";
+    const gk = await gatewayKey("platform-secret");
+    const exp = Math.floor(Date.now() / 1000) + 600;
+    const id = "b".repeat(32);
+    const preTok = await signJobToken({ id, slug: preScopeSlug(id), uid: USER.id, exp, pre: true }, gk);
+    const run = "c_prebuild01";
+    const send = (body) => call(P, "POST", "/api/job/" + id + "/progress", body, "Bearer " + preTok);
+    assert.equal((await send({ op: "begin", run, kind: "build", words: "", talk: true })).status, 200, "a first build could not open its record before its site was named");
+    const opened = P.progressOf(id);
+    assert.ok(opened, "no record was opened");
+    assert.equal(opened.op, "build");
+    assert.equal(opened.slug, "", "the record names a site the build has not been given");
+    assert.equal((await send({ op: "mark", run, stage: "start", facts: [{ state: "decided", text: "Building a new site." }], seq: 1 })).status, 200, "its first milestone was refused");
+    assert.equal(P.progressOf(id).marks.length, 1);
+    // NOT A BUILD'S RECORD: the same token opens nothing else.
+    const other = "e".repeat(32);
+    const otherTok = await signJobToken({ id: other, slug: preScopeSlug(other), uid: USER.id, exp, pre: true }, gk);
+    const edit = await call(P, "POST", "/api/job/" + other + "/progress", { op: "begin", run, kind: "edit", words: "" }, "Bearer " + otherTok);
+    assert.equal(edit.status, 409, "a pre-scoped token opened a record that is not a build's");
+    assert.equal(P.progressOf(other), null);
   });
 });
 
