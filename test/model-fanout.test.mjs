@@ -458,8 +458,10 @@ test("A CALLER THAT SENDS `req` IS UNTOUCHED — every existing one does", () =>
   // ASKED AGAIN ON A SILENT STREAM OR A TRANSPORT DEATH (2026-10-18, `patientCall`).
   assert.match(slot, /const answer = await patientCall\(\(\) => callBuilderModel\(keysFrom\(BUILD_KEYS\), mReq, budget, longPost,/,
     "the single-call path no longer makes its own call");
-  assert.match(slot, /code \? \{ stream: true, idleMs: STREAM_IDLE_MS, onPartial: code \} : \{ stream: true, idleMs: STREAM_IDLE_MS \}/,
+  // RE-ANCHORED 2026-10-19: the hook always rides (`counted`) and forwards to the sender.
+  assert.match(slot, /\{ stream: true, idleMs: STREAM_IDLE_MS, onPartial: counted \}/,
     "the single call lost its partial-code stream");
+  assert.match(slot, /if \(code\) code\(partial\);/, "the partial hook no longer forwards to the code sender");
 });
 
 test("NO onPartial ON A FAN-OUT, but every call still streams", () => {

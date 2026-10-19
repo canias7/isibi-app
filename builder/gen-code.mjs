@@ -121,6 +121,40 @@ export function readCodeSoFar(partial, opts) {
 }
 
 /**
+ * HOW MANY FILES THE ANSWER SO FAR HAS FINISHED (2026-10-19, owner: "it needs
+ * to talk more"): every `source` string that has CLOSED is a file the model
+ * wrote to its end. Read with the same scanner rules as `readCodeSoFar` (a
+ * string still open is not counted), and never a guess: 0 when nothing reads.
+ */
+export function filesDoneSoFar(partial) {
+  if (typeof partial !== "string" || !partial) return 0;
+  let i = 0, done = 0, pendingKey = "", lastKey = "";
+  const n = partial.length;
+  while (i < n) {
+    const c = partial[i];
+    if (c !== '"') {
+      if (c === ":") pendingKey = lastKey;
+      else if (c === "," || c === "{" || c === "[") pendingKey = "";
+      i++;
+      continue;
+    }
+    i++;
+    let raw = "", closed = false;
+    while (i < n) {
+      const ch = partial[i];
+      if (ch === "\\") { raw += ch; if (i + 1 < n) { raw += partial[i + 1]; i += 2; } else { i += 1; } continue; }
+      if (ch === '"') { closed = true; i++; break; }
+      raw += ch;
+      i++;
+    }
+    if (!closed) break;
+    if (pendingKey) { if (pendingKey === CODE_FIELD) done++; pendingKey = ""; lastKey = ""; }
+    else lastKey = unescapeJson(raw);
+  }
+  return done;
+}
+
+/**
  * A JSON string body, unescaped, WITHOUT throwing on a truncated tail.
  *
  * `JSON.parse('"' + raw + '"')` is the obvious implementation and it is the

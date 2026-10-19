@@ -5547,6 +5547,15 @@ function containerPagesFanLocal(env, slug, out) {
         ans = JSON.parse(await r.text());
       } catch { ans = null; }
       if (!ans || ans.ok !== true) continue;
+      // HOW FAR IT HAS GOT, while it runs (2026-10-19, owner: "it needs to talk
+      // more"): a fan-out's calls ended, or a single call's files finished,
+      // handed to the caller each time the count moves (`out.onTick`).
+      if (ans.state === "pending" && typeof out.onTick === "function") {
+        const t = one ? (Number.isInteger(ans.files) && ans.files > 0 ? { files: ans.files } : null)
+          : (Number.isInteger(ans.of) && ans.of > 0 && Number.isInteger(ans.done) && ans.done > 0 ? { sections: ans.done, of: ans.of } : null);
+        const key = t ? JSON.stringify(t) : "";
+        if (t && key !== out.lastTick) { out.lastTick = key; try { out.onTick(t); } catch { /* the talk never costs the build */ } }
+      }
       if (one && ans.state === "done" && ans.answer) { out.via = "container"; return ans.answer; }
       if (ans.state === "done" && Array.isArray(ans.answers)) { out.via = "container"; return ans.answers; }
       if (ans.state === "unknown") { if (one) return sync(keys, req, budget); throw noFanoutError(); }
@@ -17021,6 +17030,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   // cannot live inside the build. A mutable object passed IN is written through
   // by the closure and readable by the caller whether this returns or throws.
   const genPath = genPathOut || {};
+  // HOW FAR THE WRITING HAS GOT (2026-10-19): the container's count, each time
+  // it moves, on the trace — which a build's progress hears as `writing`.
+  genPath.onTick = (t) => { try { mark?.("writing", t); } catch { /* a trace must never break a build */ } };
   // ── THE VERSION THIS BUILD WILL PUBLISH AS (stage 7, 2026-09-05) ─────────
   //
   // Minted BEFORE the compile so the container bakes it (`SITE_VERSION`) and

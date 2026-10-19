@@ -471,6 +471,11 @@ export function buildStepFacts(step) {
       return out;
     }
     case "bands": return n("wrote") ? [fact("prepared", "Wrote the pages in " + pl(n("wrote"), "one section", "sections") + " side by side" + (n("bands") > n("wrote") ? ", " + n("wrote") + " of the " + n("bands") + " planned" : "") + ". Not published yet.")] : [];
+    // THE WRITING AS IT GOES (2026-10-19): the container's own count — sections
+    // of a page written side by side, or parts of the site one call finished.
+    case "writing":
+      if (n("of") && n("sections")) return [fact("doing", "Writing the pages: " + Math.min(n("sections"), n("of")) + " of " + n("of") + " sections finished so far.")];
+      return n("files") ? [fact("doing", "Writing the pages: " + pl(n("files"), "one part", "parts") + " of the site finished so far.")] : [];
     case "fonts": return [fact("doing", "Getting the site's fonts ready.")];
     case "lang-beside": return [fact("doing", "Translating the site's words into its other languages.")];
     case "compile-retry": return [fact("doing", "The first try at putting the site together did not start; trying again.")];

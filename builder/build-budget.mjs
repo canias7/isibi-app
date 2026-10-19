@@ -316,6 +316,11 @@ export function budgetStage(steps) {
     "photos-missing": "publish",
     // From here the pages exist, so the note stops saying they were not written.
     img: "publish", compile: "publish", container: "publish", og: "publish",
+    // THE STEPS THAT NOW TALK (2026-10-19): `writing` is the container's count
+    // while the pages are still being written; the rest happen inside the
+    // compile, where the pages exist.
+    writing: "generate",
+    "compile-retry": "publish", "render-checked": "publish", repairing: "publish", repaired: "publish", salvaged: "publish",
     // The build route's last mark, taken after `buildAndPublishPages` returns.
     // A deadline that lands here is a build that did everything and was not told
     // so — rare, and the note has to be the one that says the pages exist.

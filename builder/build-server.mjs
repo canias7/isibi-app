@@ -42,7 +42,7 @@ import path from "node:path";
 import { BUILD_KEYS } from "./build-keys.mjs";
 import { callBuilderModel, keysFrom, BUILDER_CALL_MS, CONTAINER_CALL_CAP_MS, STREAM_IDLE_MS, patientCall } from "./build-call.mjs";
 import { longPost } from "./long-post.mjs";
-import { codeUpdate } from "./gen-code.mjs";
+import { codeUpdate, filesDoneSoFar } from "./gen-code.mjs";
 import { resolvePair, resolvePageFonts, resolveFont, fontCss, fontImports } from "./site-fonts.mjs";
 import { themeCss, transitionOn } from "./site-theme.mjs";
 import { resolveTheme } from "./site-theme-registry.mjs";
@@ -2084,7 +2084,11 @@ const server = http.createServer((req, res) => {
       // Map below — which is what every caller did before 2026-08-26.
       const report = payload && payload.report && typeof payload.report === "object" ? payload.report : null;
       const id = randomUUID();
-      MODEL_JOBS.set(id, { state: "pending", startedAt: Date.now(), touchedAt: Date.now() });
+      // HOW FAR IT HAS GOT (2026-10-19, owner: "it needs to talk more"): a
+      // fan-out counts its calls as each one ends (`of`, `done`); a single
+      // call counts the files its answer so far has finished (`files`).
+      // `/model/result` hands them back while the job is pending.
+      MODEL_JOBS.set(id, { state: "pending", startedAt: Date.now(), touchedAt: Date.now(), ...(mReqs ? { of: mReqs.length, done: 0 } : { files: 0 }) });
       // NOT AWAITED. The response goes back now; the counter holds until this
       // settles. `_busy` is incremented synchronously inside `oneAtATime`, so it
       // is already up by the time `send` runs — there is no window in which this
@@ -2124,8 +2128,10 @@ const server = http.createServer((req, res) => {
           // rethrowing catch still reads as a catch, and a dropped index still
           // leaves `{ i,` on the line above. Both survived a source-read sweep
           // here; both die against a driven one there.
+          const tick = () => { const j = MODEL_JOBS.get(id); if (j && j.state === "pending") j.done = (j.done || 0) + 1; };
           const results = await runFanout(mReqs, (r) =>
-            patientCall(() => callBuilderModel(keysFrom(BUILD_KEYS), r, budget, longPost, { stream: true, idleMs: STREAM_IDLE_MS }), { log: (m) => console.error(m) }));
+            patientCall(() => callBuilderModel(keysFrom(BUILD_KEYS), r, budget, longPost, { stream: true, idleMs: STREAM_IDLE_MS }), { log: (m) => console.error(m) })
+              .finally(tick));
           const tally = fanoutTally(results);
           console.log("fan-out", tally.done + "/" + tally.of, "answered in", Date.now() - at, "ms");
           // THE JOB IS `done` EVEN WHEN EVERY CALL FAILED, and the caller reads
@@ -2148,8 +2154,13 @@ const server = http.createServer((req, res) => {
           return;
         }
         try {
+          const counted = (partial) => {
+            const j = MODEL_JOBS.get(id);
+            if (j && j.state === "pending") { const k = filesDoneSoFar(partial); if (k > (j.files || 0)) j.files = k; }
+            if (code) code(partial);
+          };
           const answer = await patientCall(() => callBuilderModel(keysFrom(BUILD_KEYS), mReq, budget, longPost,
-            code ? { stream: true, idleMs: STREAM_IDLE_MS, onPartial: code } : { stream: true, idleMs: STREAM_IDLE_MS }), { log: (m) => console.error(m) });
+            { stream: true, idleMs: STREAM_IDLE_MS, onPartial: counted }), { log: (m) => console.error(m) });
           MODEL_JOBS.set(id, { state: "done", answer, ms: Date.now() - at, touchedAt: Date.now() });
           await sendModelReport(report, { state: "done", answer, ...genTag(report, id) });
         } catch (e) {
@@ -2225,7 +2236,7 @@ const server = http.createServer((req, res) => {
     // there polls until its own deadline for an answer that is never coming.
     if (!job) return send(res, 200, { ok: true, state: "unknown" });
     job.touchedAt = Date.now();
-    if (job.state === "pending") return send(res, 200, { ok: true, state: "pending", waitingMs: Date.now() - job.startedAt });
+    if (job.state === "pending") return send(res, 200, { ok: true, state: "pending", waitingMs: Date.now() - job.startedAt, ...(Number.isInteger(job.of) ? { of: job.of, done: job.done || 0 } : {}), ...(Number.isInteger(job.files) ? { files: job.files } : {}) });
     // A FAN-OUT ANSWERS `answers` AND A SINGLE CALL ANSWERS `answer`, and the
     // two are never both present. Reading the list into `answer` would hand
     // every existing caller an array where it expects a message, and the parse

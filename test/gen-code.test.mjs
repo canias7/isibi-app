@@ -445,15 +445,20 @@ test("the container asks for the partial only when it has somewhere to send it, 
   const oneCall = gen.indexOf("callBuilderModel(keysFrom(BUILD_KEYS), mReq,");
   assert.ok(oneCall > 0, "the single-call path no longer makes its own model call");
   // THE SILENCE LIMIT RIDES WITH IT (2026-10-18, `STREAM_IDLE_MS`).
-  assert.match(gen.slice(oneCall, oneCall + 260), /code \? \{ stream: true, idleMs: STREAM_IDLE_MS, onPartial: code \} : \{ stream: true, idleMs: STREAM_IDLE_MS \}/,
-    "the generation call no longer hands the sender to the model call");
+  // RE-ANCHORED 2026-10-19: the partial hook always rides now (`counted`), to
+  // count the files finished for the progress talk, and forwards to the sender
+  // whenever there is one.
+  assert.match(gen.slice(oneCall, oneCall + 260), /\{ stream: true, idleMs: STREAM_IDLE_MS, onPartial: counted \}/,
+    "the generation call no longer hands its partial hook to the model call");
+  assert.match(gen.slice(0, oneCall), /const counted = \(partial\) => \{[\s\S]*if \(code\) code\(partial\);\s*\n\s*\};/,
+    "the partial hook no longer forwards to the code sender");
   // AND THE FAN-OUT MUST NOT HAVE IT. Eight bands interleaving into one code
   // stream is not a file, and the customer would watch it scramble.
   const fan = gen.indexOf("callBuilderModel(keysFrom(BUILD_KEYS), r,");
   if (fan > 0) assert.ok(!/onPartial/.test(gen.slice(fan, fan + 200)),
     "the fan-out hands the code sender to every band at once");
   assert.equal((src.match(/codeSender\(/g) || []).length, 2, "the sender is built somewhere new, or nowhere");
-  assert.match(src, /import \{ codeUpdate \} from "\.\/gen-code\.mjs"/, "the container no longer imports the reader");
+  assert.match(src, /import \{ codeUpdate, filesDoneSoFar \} from "\.\/gen-code\.mjs"/, "the container no longer imports the reader and the file counter");
 });
 
 test("the image carries the new module — the container imports it", () => {

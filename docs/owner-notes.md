@@ -1,5 +1,9 @@
 # Owner Notes
 
+## 2026-10-19 — Progress talk round 2: the writing is told as it goes (branch only, not deployed)
+
+The longest part of a build, writing the pages (about 10 minutes on the recorded build), used to be one line and then silence. The container now counts while it works: a page written in sections counts each section as it finishes, and a single call counts each part of the site its answer has finished so far (`filesDoneSoFar`, only parts that are complete). The server hands each new count to the build's progress (`writing`), and the model words it ("3 of 12 sections done…"). Changes `builder/build-server.mjs` and `builder/gen-code.mjs`, so the next deploy rebuilds the container image. Tests in `test/progress-more.test.mjs` (R2 cases); three guards re-anchored to the always-on partial hook. Full suite `11511 / 11509 / 0 / 2`.
+
 ## 2026-10-19 — The builder talks through every step of a build (round 1 of 4; branch only, not deployed)
 
 You asked for it to "talk more … like literally everything … look at claude code". Every line is still written by the model; the code only hands it more facts, at more moments, each from what really happened. Round 1, first builds:

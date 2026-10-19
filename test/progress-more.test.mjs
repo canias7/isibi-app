@@ -66,3 +66,53 @@ test("THE WIRING: the build opens its record at the start, and the publish's ste
   assert.match(fn, /addressFacts\(slug\)/, "the address the design chose is never said");
   assert.match(W, /repair: quickSend\(env\),\s*\n(?:\s*\/\/.*\n)*\s*note: \(stage, nums\) => \{ try \{ mark\?\.\(stage, nums\); \}/, "the publish's steps no longer reach the build's trace");
 });
+
+// ── ROUND 2: THE WRITING AS IT GOES ─────────────────────────────────────────
+import { filesDoneSoFar } from "../builder/gen-code.mjs";
+import { loadWorkerModule } from "./fixtures/worker-harness.mjs";
+
+const SERVER = readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
+
+test("R2 the answer so far counts only the files it has FINISHED, never one still open", () => {
+  const full = JSON.stringify({ pages: [{ path: "index.tsx", source: 'a "quoted" \\ line' }, { path: "menu.tsx", source: "x" }] });
+  const counts = [];
+  for (let k = 0; k <= full.length; k++) counts.push(filesDoneSoFar(full.slice(0, k)));
+  assert.equal(counts[counts.length - 1], 2);
+  for (let k = 1; k < counts.length; k++) assert.ok(counts[k] >= counts[k - 1], "the count went backwards at " + k);
+  assert.equal(filesDoneSoFar(full.slice(0, full.indexOf("a \\\"quoted"))), 0, "a file still being written was counted");
+  for (const bad of ["", null, 3, "{", '{"path":"x"']) assert.equal(filesDoneSoFar(bad), 0);
+});
+
+test("R2 the writing count is a fact only when it shows something", () => {
+  assert.match(texts(buildStepFacts({ s: "writing", sections: 3, of: 12 })), /3 of 12 sections finished so far/);
+  assert.match(texts(buildStepFacts({ s: "writing", sections: 30, of: 12 })), /12 of 12/, "more sections than planned were claimed");
+  assert.match(texts(buildStepFacts({ s: "writing", files: 2 })), /2 parts of the site finished so far/);
+  for (const z of [{ s: "writing" }, { s: "writing", sections: 0, of: 12 }, { s: "writing", files: 0 }]) assert.deepEqual(buildStepFacts(z), []);
+  for (const f of buildStepFacts({ s: "writing", files: 2 })) assert.ok(!/file|code/i.test(f.text), "the fact names files or code: " + f.text);
+});
+
+test("R2 THE POLL HANDS EACH NEW COUNT TO THE CALLER, ONCE PER CHANGE — and a count that throws never costs the call", async () => {
+  const { pagesHopApi } = await loadWorkerModule();
+  const plan = [{ state: "pending", files: 0 }, { state: "pending", files: 1 }, { state: "pending", files: 1 }, { state: "pending", files: 3 }, { state: "done", answer: { content: [] } }];
+  let i = 0;
+  const box = { fetch: async (req) => {
+    const u = new URL(req.url);
+    if (u.pathname === "/model/start") return new Response(JSON.stringify({ ok: true, id: "g1" }));
+    if (u.pathname === "/model/result") return new Response(JSON.stringify({ ok: true, ...plan[Math.min(i++, plan.length - 1)] }));
+    return new Response("{}", { status: 404 });
+  } };
+  const env = { SITE_BUILD_CONTAINER: { local: true, idFromName: (n) => n, get: () => box } };
+  const ticks = [];
+  const out = { onTick: (t) => { ticks.push(t); if (ticks.length === 1) throw new Error("boom"); } };
+  const ans = await pagesHopApi.containerPagesFanLocal(env, "s", out)({}, { model: "grok-4.6" }, null);
+  assert.deepEqual(ans, { content: [] });
+  assert.deepEqual(ticks, [{ files: 1 }, { files: 3 }], "the counts were not handed over once per change");
+});
+
+test("R2 THE CONTAINER COUNTS WHILE IT WORKS AND SAYS SO WHILE PENDING", () => {
+  assert.match(SERVER, /MODEL_JOBS\.set\(id, \{ state: "pending", startedAt: Date\.now\(\), touchedAt: Date\.now\(\), \.\.\.\(mReqs \? \{ of: mReqs\.length, done: 0 \} : \{ files: 0 \}\) \}\);/, "a pending job no longer carries its count");
+  assert.match(SERVER, /\.finally\(tick\)\);/, "a fan-out's calls no longer count as they end");
+  assert.match(SERVER, /const k = filesDoneSoFar\(partial\); if \(k > \(j\.files \|\| 0\)\) j\.files = k;/, "a single call no longer counts its finished files");
+  assert.match(SERVER, /state: "pending", waitingMs: Date\.now\(\) - job\.startedAt, \.\.\.\(Number\.isInteger\(job\.of\) \? \{ of: job\.of, done: job\.done \|\| 0 \} : \{\}\), \.\.\.\(Number\.isInteger\(job\.files\) \? \{ files: job\.files \} : \{\}\) \}/, "the pending answer no longer hands the count back");
+  assert.match(W, /genPath\.onTick = \(t\) => \{ try \{ mark\?\.\("writing", t\); \}/, "the build no longer puts the count on its trace");
+});
