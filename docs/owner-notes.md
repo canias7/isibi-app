@@ -1,5 +1,12 @@
 # Owner Notes
 
+## 2026-10-19 — Progress talk round 3: edits step by step, and a draft is never said as a publish (branch only, not deployed)
+
+- **Each part of an edit** with several parts is now said as it starts ("working on … part 2 of 3") and as soon as it has its own outcome (made, changed in the database, or could not be made), instead of one line at the plan and one at the publish.
+- **The site being put together** after an edit or add-on is said before the wait (`building`), and **a change saved to the draft** is said as saved, not live (`saved`).
+- **Fixed a false line:** with draft-first on, edits, add-ons and builds said "publishing now" while only saving to the draft (the "✓ published" beside "Saved · not published" you saw). Each now says it is saving to their draft and that visitors keep seeing the published site until they press Publish.
+Tests: R3 cases in `test/progress-more.test.mjs`; one trace guard re-anchored (the container mark now carries `draft`). Full suite `11514 / 11512 / 0 / 2`.
+
 ## 2026-10-19 — Progress talk round 2: the writing is told as it goes (branch only, not deployed)
 
 The longest part of a build, writing the pages (about 10 minutes on the recorded build), used to be one line and then silence. The container now counts while it works: a page written in sections counts each section as it finishes, and a single call counts each part of the site its answer has finished so far (`filesDoneSoFar`, only parts that are complete). The server hands each new count to the build's progress (`writing`), and the model words it ("3 of 12 sections done…"). Changes `builder/build-server.mjs` and `builder/gen-code.mjs`, so the next deploy rebuilds the container image. Tests in `test/progress-more.test.mjs` (R2 cases); three guards re-anchored to the always-on partial hook. Full suite `11511 / 11509 / 0 / 2`.

@@ -116,3 +116,42 @@ test("R2 THE CONTAINER COUNTS WHILE IT WORKS AND SAYS SO WHILE PENDING", () => {
   assert.match(SERVER, /state: "pending", waitingMs: Date\.now\(\) - job\.startedAt, \.\.\.\(Number\.isInteger\(job\.of\) \? \{ of: job\.of, done: job\.done \|\| 0 \} : \{\}\), \.\.\.\(Number\.isInteger\(job\.files\) \? \{ files: job\.files \} : \{\}\) \}/, "the pending answer no longer hands the count back");
   assert.match(W, /genPath\.onTick = \(t\) => \{ try \{ mark\?\.\("writing", t\); \}/, "the build no longer puts the count on its trace");
 });
+
+// ── ROUND 3: EDITS AND ADD-ONS STEP BY STEP ─────────────────────────────────
+import { editStepStartFacts, editStepFacts, editBuildingFacts, draftSavedFacts, editPublishFacts, addonPublishFacts } from "../builder/site-progress.mjs";
+
+test("R3 each part of an edit is said as it starts and as it ends, in its own state", () => {
+  const step = { layer: "look", page: "/visit", fields: ["the band order"] };
+  assert.match(texts(editStepStartFacts(step, 0, 3)), /Working on: the band order on \/visit \(part 1 of 3\)\. Nothing is changed yet\./);
+  assert.ok(!/part/.test(texts(editStepStartFacts(step, 0, 1))), "a one-part edit is numbered");
+  assert.deepEqual(editStepFacts({ step, failed: false }, 1, 3).map((f) => f.state), ["prepared"]);
+  assert.deepEqual(editStepFacts({ step: { layer: "data", fields: ["price"] }, failed: false }, 0, 2).map((f) => f.state), ["applied"]);
+  assert.deepEqual(editStepFacts({ step, failed: true }, 2, 3).map((f) => f.state), ["notdone"]);
+  assert.deepEqual(editStepFacts(null, 0, 2), []);
+  assert.deepEqual(editStepStartFacts(null, 0, 2), []);
+});
+
+test("R3 A DRAFT IS NEVER SAID AS A PUBLISH — edits, add-ons and builds alike", () => {
+  const done = [{ step: { layer: "look", fields: ["x"] }, failed: false }];
+  assert.match(texts(editPublishFacts(done)), /Publishing the site with the changes now/);
+  const d = texts(editPublishFacts(done, { draft: true }));
+  assert.match(d, /Saving the changes to their draft now/);
+  assert.ok(!/Publishing/.test(d), "a draft edit is said as publishing");
+  assert.match(texts(addonPublishFacts([], { draft: true })), /Saving the additions to their draft now/);
+  assert.ok(!/Publishing/.test(texts(addonPublishFacts([], { draft: true }))));
+  assert.match(texts(talkBuildStepFacts({ s: "container", draft: 1 })), /Saving the site as their draft now/);
+  assert.ok(!/Publishing/.test(texts(talkBuildStepFacts({ s: "container", draft: 1 }))));
+  assert.match(texts(talkBuildStepFacts({ s: "container" })), /Publishing the site now/);
+  assert.deepEqual(draftSavedFacts().map((f) => f.state), ["prepared"]);
+  assert.deepEqual(editBuildingFacts().map((f) => f.state), ["doing"]);
+});
+
+test("R3 THE WIRING: each part, the build wait and the draft save are marked, and the publish facts know a draft", () => {
+  assert.match(W, /eJob\.progress\.mark\("part", editStepStartFacts\(step, steps\.indexOf\(step\), steps\.length\)\)/, "a part is no longer said as it starts");
+  assert.match(W, /done\.push\(\{ step, res, body, failed \}\);\s*\n(?:\s*\/\/.*\n)*\s*if \(steps\.length > 1 && eJob && eJob\.progress && eJob\.progress\.talk\) \{ try \{ eJob\.progress\.mark\("part-done", editStepFacts\(done\[done\.length - 1\]/, "a part's outcome is no longer said when it has one");
+  assert.match(W, /job\.progress\.mark\("building", editBuildingFacts\(\)\)/, "the build wait is silent again");
+  assert.match(W, /if \(act\.draft && job && job\.progress && job\.progress\.talk\) job\.progress\.mark\("saved", draftSavedFacts\(\)\)/, "a draft save is no longer said");
+  assert.match(W, /editPublishFacts\(done, \{ draft: draftFirst\(env\) \}\)/, "an edit's publish facts no longer know a draft");
+  assert.match(W, /addonPublishFacts\(aPendingPhotos, \{ draft: draftFirst\(env\) \}\)/, "an add-on's publish facts no longer know a draft");
+  assert.match(W, /mark\?\.\("container", draftFirst\(env\) \? \{ draft: 1 \} : undefined\)/, "a build's container step no longer knows a draft");
+});

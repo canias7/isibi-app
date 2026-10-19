@@ -262,7 +262,7 @@ import {
   claimWriter, batchFor, commitLine, failBatch, releaseWriter, linesOf, confirmLines, unconfirmedLines, jobVerdict, progressContext, writeProgress,
   lateBatch, lateNeeded, commitLate, failLate,
   tasksNeeded, unwrittenTasks, commitTasks, failTasks, addTasks, saidOf, writeTasks, TASK_BATCH, usageLogLine, otherParts,
-  editPlanFacts, editPublishFacts, editAppliedFacts, editCorrectFacts, editRepublishFacts, addonPickedFacts, addonDesignedFacts, addonSchemaFacts, addonPagesFacts, addonPhotosFacts, addonPublishFacts,
+  editPlanFacts, editPublishFacts, editAppliedFacts, editStepStartFacts, editStepFacts, editBuildingFacts, draftSavedFacts, editCorrectFacts, editRepublishFacts, addonPickedFacts, addonDesignedFacts, addonSchemaFacts, addonPagesFacts, addonPhotosFacts, addonPublishFacts,
   takeOverRecord, buildStepFacts, buildPhotoOutcome,
   PROGRESS_CALL_MS, PROGRESS_TRIES, PROGRESS_RETRY_MS, PROGRESS_LINES_PER_TASK, PROGRESS_DISCOVERY_MS, PROGRESS_SEND_WAITS_MS,
   // THE BUILDER TALKS WHILE IT WORKS (2026-10-13), behind `PROGRESS_TALK`.
@@ -16176,6 +16176,9 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
         // `capMs` reserves the publish window as well, so the container can
         // never eat the time the publish itself needs. Null job, flat ceiling:
         // the synchronous path is unchanged.
+      // THE SITE BEING PUT TOGETHER, SAID (2026-10-19): the longest wait of an
+      // edit, which used to pass in silence.
+      try { if (job && job.progress && job.progress.talk) job.progress.mark("building", editBuildingFacts()); } catch { /* the record never costs the build */ }
       const cCap = job && job.budget ? job.budget.capMs(CONTAINER_CALL_MS) : CONTAINER_CALL_MS;
       const cDeadline = Date.now() + cCap;
       // ── A CONTAINER WITH NO ROOM IS WAITED FOR, NOT FAILED (2026-09-04) ──
@@ -16656,6 +16659,8 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // could not undoes itself). Said as published; no live page is fetched.
   // A DRAFT IS NOT A PUBLISH, and is never said as one.
   try { if (!act.draft && job && job.progress && job.progress.talk) job.progress.mark("published", publishedFacts()); } catch { /* the record never costs the publish */ }
+  // AND A DRAFT, SAID AS SAVED (2026-10-19): made, not live.
+  try { if (act.draft && job && job.progress && job.progress.talk) job.progress.mark("saved", draftSavedFacts()); } catch { /* the record never costs the save */ }
   const wrote = staged.files;
   // THE CAP, kept clear of the pointer's version and its parent — the build a
   // visitor's previous document still asks for. Best-effort: storage, never
@@ -17724,7 +17729,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       // the build, when it is one list call on one prefix. Anyone triaging a
       // slow build off that trace optimises the wrong thing. `pages` below
       // carries the real breakdown in its extras.
-      try { mark?.("container"); } catch { /* a trace must never break a build */ }
+      try { mark?.("container", draftFirst(env) ? { draft: 1 } : undefined); } catch { /* a trace must never break a build */ }
       const ogImage = await siteOgImage(env, slug, dist);
       // THE `og` MARK MOVED WITH THE WORK IT TIMES. It used to sit before the
       // build; the lookup is the same R2 list, it just happens after the
@@ -37235,6 +37240,8 @@ async function handleRequest(request, env, ctx) {
               eFill();
               // ITS PREPARED CALLS, HANDED OVER BEFORE ITS TURN.
               if (eAhead.has(eStepAt)) { try { eJob.replay.add(await eAhead.get(eStepAt)); } catch { /* it makes its calls */ } }
+              // EACH PART, SAID AS IT STARTS (2026-10-19), when there are several.
+              if (steps.length > 1 && eJob && eJob.progress && eJob.progress.talk) { try { eJob.progress.mark("part", editStepStartFacts(step, steps.indexOf(step), steps.length)); } catch { /* the record never costs the edit */ } }
               // ── A PAGE OPERATION THAT ALREADY SUCCEEDED IS NOT RUN AGAIN ──
               //
               // ⚠ REPRODUCED THROUGH THIS ROUTE (2026-09-23): `components`,
@@ -37288,6 +37295,8 @@ async function handleRequest(request, env, ctx) {
               // only `failures` stops reporting it.
               if (!failed) for (const d of done) if (d.failed && samePageOperation(d.step, step)) d.superseded = true;
               done.push({ step, res, body, failed });
+              // …AND ITS OWN OUTCOME AS SOON AS IT HAS ONE (2026-10-19).
+              if (steps.length > 1 && eJob && eJob.progress && eJob.progress.talk) { try { eJob.progress.mark("part-done", editStepFacts(done[done.length - 1], steps.indexOf(step), steps.length)); } catch { /* the record never costs the edit */ } }
               // NO `break`. A RUNG THAT FAILED DOES NOT CANCEL THE OTHERS.
               //
               // It did, and that was the same dropped-ask bug one level up:
@@ -37365,7 +37374,7 @@ async function handleRequest(request, env, ctx) {
               const cssVerify = cssCtx ? changedSelectors(cssCtx.before, cssCtx.after) : null;
               editTrace.mark("publish:1", "start", { verifyCss: cssVerify ? cssVerify.length : 0 });
               // EACH STEP'S OUTCOME AND THE PUBLISH STARTING, AS A MILESTONE.
-              if (eJob && eJob.progress) eJob.progress.mark("publish", editPublishFacts(done));
+              if (eJob && eJob.progress) eJob.progress.mark("publish", editPublishFacts(done, { draft: draftFirst(env) }));
               finalPub = await publishSpine(env, { ...pendingPublish, verifyCss: cssVerify, trace: editTrace, job: eJob });
               editTrace.mark("publish:1", finalPub && finalPub.ok ? "ok" : "fail",
                 { err: String((finalPub && finalPub.error) || ""), dead: Array.isArray(finalPub && finalPub.dead) ? finalPub.dead.length : 0 });
@@ -42672,7 +42681,7 @@ async function handleRequest(request, env, ctx) {
               return got;
             };
             aMark("publish:1", "start", { pages: aMerge.pages.length, parts: aParts ? aParts.length : 0 });
-            if (aJob && aJob.progress) aJob.progress.mark("publish", addonPublishFacts(aPendingPhotos));
+            if (aJob && aJob.progress) aJob.progress.mark("publish", addonPublishFacts(aPendingPhotos, { draft: draftFirst(env) }));
             const aPub = await recompileAndPublish(env, {
               slug: ownerSlug, pages: aMerge.pages,
               label: versionLabel({ revise: true, changeNote: aInstruction }),

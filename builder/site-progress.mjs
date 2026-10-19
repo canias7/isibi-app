@@ -929,7 +929,7 @@ export function editPlanFacts(steps) {
  * change is in the database), each that did not, and the publish starting. A
  * failed step a later one did after all (`superseded`) is not told as failed.
  */
-export function editPublishFacts(done) {
+export function editPublishFacts(done, { draft = false } = {}) {
   const out = [];
   for (const d of Array.isArray(done) ? done : []) {
     if (!d || !d.step) continue;
@@ -937,8 +937,35 @@ export function editPublishFacts(done) {
     if (!d.failed) out.push(DB_LAYERS.includes(d.step.layer) ? fact("applied", "Changed in the site's database: " + what + ".") : fact("prepared", "Made, not published yet: " + what + "."));
     else if (!d.superseded) out.push(fact("notdone", "Could not be made: " + what + ". The final message will say why."));
   }
-  out.push(fact("doing", "Publishing the site with the changes now."));
+  // A DRAFT IS NOT A PUBLISH (2026-10-19): with draft-first on, the changes go
+  // to their draft and nothing live moves until they press Publish.
+  out.push(fact("doing", draft ? "Saving the changes to their draft now. Visitors keep seeing the published site until they press Publish." : "Publishing the site with the changes now."));
   return out;
+}
+
+/**
+ * EACH PART OF AN EDIT AS IT HAPPENS (2026-10-19, owner: "it needs to talk
+ * more"): the part starting, then its own outcome — said between the plan and
+ * the publish, where a request of several parts used to be silent.
+ */
+export function editStepStartFacts(step, i, n) {
+  const k = Number.isInteger(n) && n > 1 && Number.isInteger(i) ? " (part " + (i + 1) + " of " + n + ")" : "";
+  return step && typeof step === "object" ? [fact("doing", "Working on: " + stepSaid(step) + k + ". Nothing is changed yet.")] : [];
+}
+export function editStepFacts(d, i, n) {
+  const k = Number.isInteger(n) && n > 1 && Number.isInteger(i) ? " (part " + (i + 1) + " of " + n + ")" : "";
+  if (!d || !d.step) return [];
+  const what = stepSaid(d.step) + k;
+  if (d.failed) return [fact("notdone", "Could not be made: " + what + ". The final message will say why.")];
+  return [DB_LAYERS.includes(d.step.layer) ? fact("applied", "Changed in the site's database: " + what + ".") : fact("prepared", "Made, not published yet: " + what + ".")];
+}
+/** The site being put together with the change, before the browser check. */
+export function editBuildingFacts() {
+  return [fact("doing", "Putting the site together with the change, then an automated check opens its pages in a browser.")];
+}
+/** The changes saved to the draft (draft-first): made, not live. */
+export function draftSavedFacts() {
+  return [fact("prepared", "Saved to their draft. Visitors keep seeing the published site until they press Publish.")];
 }
 
 /**
@@ -1116,8 +1143,8 @@ export function missingFacts(rec) {
 }
 
 /** The add-on's publish starting. */
-export function addonPublishFacts(pending = []) {
-  const out = [fact("doing", "Publishing the site with the additions now.")];
+export function addonPublishFacts(pending = [], { draft = false } = {}) {
+  const out = [fact("doing", draft ? "Saving the additions to their draft now. Visitors keep seeing the published site until they press Publish." : "Publishing the site with the additions now.")];
   // A PHOTOGRAPH STILL WAITING (round 6) is said apart from the addition being
   // published: the page goes live without it, and it is not on the page yet.
   for (const p of (Array.isArray(pending) ? pending : []).slice(0, 6)) {
@@ -1225,7 +1252,7 @@ export function publishedFacts() {
  */
 export function talkBuildStepFacts(step) {
   const name = step && typeof step === "object" && typeof step.s === "string" ? step.s : "";
-  if (name === "container") return [fact("checked", "The site built without errors."), fact("doing", "Publishing the site now.")];
+  if (name === "container") return [fact("checked", "The site built without errors."), fact("doing", step.draft ? "Saving the site as their draft now. It goes live when they press Publish." : "Publishing the site now.")];
   // THE BROWSER CHECK'S OWN RESULT (2026-10-19), as narrow as the check reaches.
   if (name === "render-checked") {
     const k = Number.isFinite(step.pages) && step.pages > 0 ? Math.floor(step.pages) : 0;

@@ -211,7 +211,8 @@ test("the build route actually uses it", () => {
   // Asserted as the ORDER inside the closure rather than on the mark's
   // presence: a `container` mark that lands after the lookup fixes nothing, and
   // matching the string alone would pass on exactly that.
-  const cAt = body.indexOf('mark?.("container")');
+  // RE-ANCHORED 2026-10-19: the mark carries `draft` now, so its arguments are open.
+  const cAt = body.indexOf('mark?.("container"');
   const ogAt = body.indexOf("await siteOgImage(env, slug");
   assert.ok(cAt >= 0, "nothing closes the container's turn, so `og` times the whole build again");
   assert.ok(cAt < ogAt,
