@@ -230,7 +230,7 @@ test("R5 THE WIRING: the build hands the design's talk to the trace's own talk c
   assert.match(W, /designSiteGraph\(env, designBrief, models\.design, attached\.blocks, budget, designGraph, firstBuild, designTalk\)/);
   assert.match(W, /designSiteWaves\(env, designBrief, models\.design, attached\.blocks, budget, designWaves, firstBuild, designTalk\)/);
   assert.match(W, /if \(bProgress\) tr\.say = \(stage, facts\) => bProgress\.say\(stage, facts\);/);
-  assert.match(W, /say\(stage, facts\) \{[\s\S]{0,200}if \(p\) p\.mark\(stage, facts\); else if \(early\.length < 20\) early\.push\(\[stage, facts\]\);/);
+  assert.match(W, /say\(stage, facts\) \{[\s\S]{0,200}if \(p\) mark\(stage, facts\); else if \(early\.length < 20\) early\.push\(\[stage, facts\]\);/);
 });
 
 // ── ROUND 6: EACH SECTION, BY NAME, AS IT STARTS AND AS IT ENDS ──────────────
@@ -633,4 +633,26 @@ test("R17 a progress line and a reply ask Grok for low effort; a Claude call and
   assert.equal(Object.hasOwn(toXaiRequest({ ...grok, effort: "turbo" }).body, "reasoning_effort"), false, "an unknown effort was sent");
   assert.match(W, /const quickSendLive = \(env, what, budget, onPartial\) => \(req\) => callBuilderModel\(env, withTalkEffort\(what, req\),/);
   assert.match(W, /const quickSend = \(env, what = "", budget = null\) => \(req\) => callBuilderModel\(env, withTalkEffort\(what, req\),/);
+});
+
+// ── ROUND 18: THE QUIET STRETCHES ARE SAID AS STILL GOING ────────────────────
+test("R18 stillFacts restates the build's own last 'doing' step with how long it has taken, and claims nothing new", async () => {
+  const { stillFacts } = await import("../builder/site-progress.mjs");
+  assert.deepEqual(stillFacts("", 50_000), []);
+  assert.deepEqual(stillFacts("Designing the layout.", 0), []);
+  assert.deepEqual(stillFacts(null, 50_000), []);
+  const [f] = stillFacts("Designing the layout of each page from top to bottom.", 50_000);
+  assert.equal(f.state, "doing");
+  assert.match(f.text, /^Still on the same step, 50 seconds so far: Designing the layout of each page from top to bottom\. Nothing new is finished yet\.$/);
+  assert.match(stillFacts("Checking the pages", 150_000)[0].text, /about 3 minutes so far/);
+});
+
+test("R18 THE WIRING: every build mark goes through one door that remembers the last 'doing' step; a timer says it again after 40 s of quiet, and stops at close", () => {
+  const fn = W.slice(W.indexOf("function buildProgressFor("), W.indexOf("\n}\n", W.indexOf("function buildProgressFor(")));
+  assert.equal((fn.match(/\bp\.mark\(/g) || []).length, 1, "a mark bypasses the door that keeps the quiet-stretch clock");
+  assert.match(fn, /if \(!p \|\| Date\.now\(\) - lastAt < STILL_AFTER_MS\) return;/);
+  assert.match(fn, /const said = stillFacts\(lastDoing, Date\.now\(\) - stepAt\);\s*\n\s*if \(said\.length\) mark\("still", said\);/);
+  assert.match(fn, /close\(why\) \{ if \(stillTimer\) \{ clearInterval\(stillTimer\); stillTimer = null; \}/, "the timer outlives the build");
+  assert.equal((fn.match(/watchStill\(\);/g) || []).length, 2, "the timer is not started where the record opens");
+  assert.match(W, /const STILL_AFTER_MS = 40_000;/);
 });

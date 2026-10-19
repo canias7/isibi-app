@@ -1178,6 +1178,20 @@ const LAYER_SAID = Object.freeze({
  * `next`. Said once, from what is known now; a later milestone's own facts
  * (the edit's plan, the add-on's picked kinds) revise it.
  */
+/**
+ * STILL ON IT (2026-10-19, owner: "fix the stretches" — deploy 2226's build went
+ * quiet for up to two minutes inside long design and checking steps): the step
+ * the build last said it was doing, said again as still going, with how long it
+ * has taken so far. Only ever a restatement of a "doing" fact the build itself
+ * reported; nothing new is claimed. Empty when there is no such step.
+ */
+export function stillFacts(doing, ms) {
+  if (typeof doing !== "string" || !doing.trim() || !Number.isFinite(ms) || ms <= 0) return [];
+  const secs = Math.round(ms / 1000);
+  const took = secs < 90 ? secs + " seconds" : "about " + Math.round(secs / 60) + " minutes";
+  return [fact("doing", "Still on the same step, " + took + " so far: " + flat(doing).replace(/[.\s]+$/, "") + ". Nothing new is finished yet.")];
+}
+
 export function startFacts({ op, layer = "", page = "", slug = "" } = {}) {
   if (op === "edit") {
     const what = Object.hasOwn(LAYER_SAID, layer) ? LAYER_SAID[layer] : "";

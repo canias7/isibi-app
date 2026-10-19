@@ -267,7 +267,7 @@ import {
   PROGRESS_CALL_MS, PROGRESS_TRIES, PROGRESS_RETRY_MS, PROGRESS_LINES_PER_TASK, PROGRESS_DISCOVERY_MS, PROGRESS_SEND_WAITS_MS,
   // THE BUILDER TALKS WHILE IT WORKS (2026-10-13), behind `PROGRESS_TALK`.
   talkOn, startFacts, spineCheckFacts, publishedFacts, talkBuildStepFacts, waitedFor, PROGRESS_SETTLE_S,
-  addressFacts, actionFacts, actionContext, ACTION_KINDS, designPartFacts, designStartFacts, sectionStartFacts, sectionDoneFacts, writingNowFacts, compileStageFacts,
+  addressFacts, actionFacts, actionContext, ACTION_KINDS, designPartFacts, designStartFacts, stillFacts, sectionStartFacts, sectionDoneFacts, writingNowFacts, compileStageFacts,
 } from "./builder/site-progress.mjs";
 // ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03): the record,
 // the plan, what a job's answer means for its part, and the next job.
@@ -7873,6 +7873,9 @@ const PROGRESS_KIND = "edit-progress";
 const progressBudget = { capMs: () => PROGRESS_CALL_MS };
 /** How often a build says what is going on the page right now, at most (2026-10-19). */
 const LIVE_SAY_MS = 15_000;
+/** A quiet build says its step is still going after this long without anything new, checked this often (2026-10-19). */
+const STILL_AFTER_MS = 40_000;
+const STILL_TICK_MS = 10_000;
 /** The live talk stream: how long one connection stays open, and how often it looks (2026-10-19). */
 const TALK_STREAM_MS = 120_000;
 const TALK_STREAM_TICK_MS = 500;
@@ -8328,13 +8331,34 @@ function makeProgress(env, ctx, { id, run, uid, slug, standalone = false }) {
 function buildProgressFor(env, ctx, { id, run, uid, take = false, words = "" }) {
   let p = null;
   const early = [];
+  // THE QUIET STRETCHES (2026-10-19): when the build has said nothing new for
+  // `STILL_AFTER_MS`, its last "doing" step is said again as still going
+  // (`stillFacts`), at most once per stretch of that length. Stopped at close.
+  let lastAt = Date.now(), lastDoing = "", stepAt = Date.now(), stillTimer = null;
+  const mark = (stage, facts) => {
+    const doing = facts.filter((f) => f && f.state === "doing").pop();
+    if (stage !== "still") { if (doing && doing.text !== lastDoing) { lastDoing = doing.text; stepAt = Date.now(); } }
+    lastAt = Date.now();
+    p.mark(stage, facts);
+  };
+  const watchStill = () => {
+    if (stillTimer || !p || !p.talk) return;
+    stillTimer = setInterval(() => {
+      try {
+        if (!p || Date.now() - lastAt < STILL_AFTER_MS) return;
+        const said = stillFacts(lastDoing, Date.now() - stepAt);
+        if (said.length) mark("still", said);
+      } catch { /* lines never cost the build */ }
+    }, STILL_TICK_MS);
+    try { if (stillTimer && typeof stillTimer.unref === "function") stillTimer.unref(); } catch { /* not every runtime has it */ }
+  };
   const send = (step) => {
     // A CONVERSATIONAL RECORD (talk, 2026-10-13) hears the container's turn
     // as its result — the site built — beside every other step's own facts.
     const facts = (p && p.talk) || (!p && talkOn(env)) ? talkBuildStepFacts(step) : buildStepFacts(step);
     if (!facts.length) return;
     const stage = "build-" + String(step.s || "");
-    if (p) p.mark(stage, facts); else if (early.length < 20) early.push([stage, facts]);
+    if (p) mark(stage, facts); else if (early.length < 20) early.push([stage, facts]);
   };
   return {
     /**
@@ -8354,30 +8378,32 @@ function buildProgressFor(env, ctx, { id, run, uid, take = false, words = "" }) 
       p = makeProgress(env, ctx, { id, run, uid, slug: "", standalone: false });
       if (!p) return;
       p.begin({ op: "build", words, take: false });
-      if (p.talk) p.mark("start", startFacts({ op: "build", slug: "" }));
-      for (const [stage, facts] of early.splice(0)) p.mark(stage, facts);
+      if (p.talk) mark("start", startFacts({ op: "build", slug: "" }));
+      for (const [stage, facts] of early.splice(0)) mark(stage, facts);
+      watchStill();
     },
     identify(slug) {
       if (typeof slug !== "string" || !slug) return;
       // ALREADY OPEN: the address the design chose is one more thing to say.
-      if (p) { const said = p.talk && !take ? addressFacts(slug) : []; if (said.length) p.mark("address", said); return; }
+      if (p) { const said = p.talk && !take ? addressFacts(slug) : []; if (said.length) mark("address", said); return; }
       p = makeProgress(env, ctx, { id, run, uid, slug, standalone: false });
       if (!p) return;
       p.begin({ op: "build", words, take });
       // THE OPENING PLAN (talk, 2026-10-13), once — never again on the run that
       // carries a build on (`take`), whose record already said it.
-      if (p.talk && !take) p.mark("start", startFacts({ op: "build", slug }));
-      for (const [stage, facts] of early.splice(0)) p.mark(stage, facts);
+      if (p.talk && !take) mark("start", startFacts({ op: "build", slug }));
+      for (const [stage, facts] of early.splice(0)) mark(stage, facts);
+      watchStill();
     },
     step(step) { try { if (step && typeof step === "object") send(step); } catch { /* lines never cost the build */ } },
     /** Facts a step has in words (a design part's decisions), marked as they are. */
     say(stage, facts) {
       try {
         if (typeof stage !== "string" || !Array.isArray(facts) || !facts.length) return;
-        if (p) p.mark(stage, facts); else if (early.length < 20) early.push([stage, facts]);
+        if (p) mark(stage, facts); else if (early.length < 20) early.push([stage, facts]);
       } catch { /* lines never cost the build */ }
     },
-    close(why) { return p ? p.close(why) : Promise.resolve(); },
+    close(why) { if (stillTimer) { clearInterval(stillTimer); stillTimer = null; } return p ? p.close(why) : Promise.resolve(); },
   };
 }
 

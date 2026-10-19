@@ -1,5 +1,11 @@
 # Owner Notes
 
+## 2026-10-19 — The quiet stretches: a build that has said nothing new for 40 s says its step is still going (on your word "fix the stretches"; branch only, not deployed)
+
+- Deploy 2226's build went quiet three times for 1½ to 2 minutes (long design and checking steps). Now, after 40 s with nothing new, the last step the build said it was **doing** is said again as still going, with how long it has taken ("Still on the same step, 50 seconds so far: designing the layout… Nothing new is finished yet"). The model words it as usual. It only restates a step the build itself reported, and never claims anything new. At most once every 40 s, and it stops when the build ends. Test R18.
+- **Your answer on one page**: a first build is meant to be one page; earlier builds sometimes skipped the rule, and this one kept it. Not a defect; left alone.
+- **On cost**: lower effort makes each talk call cheaper, because the thinking is billed as output tokens and there's far less of it. The price per token is the same.
+
 ## 2026-10-19 — Deploy 2226's build: the talk works (17 lines, the first at 10 s, each 4 to 9 s)
 
 - **Deploys 2225/2226** (`3f414af1`: the first-build door, and the talk on low effort), on your words. The recorded build, Harbour Loaf 10, said **17 lines** (before it: 4, 2, 3, 5). **The first came at 10 s** (before: 156 to 211 s). **Each line took 4.4 to 9.4 s** to write (before: 19 to 41 s). All 37 steps were said; nothing was dropped or skipped.
