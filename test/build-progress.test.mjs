@@ -366,7 +366,7 @@ test("the rail is one monospace column, and only the LABEL is lower-cased", () =
 
 // ── THE ROWS ────────────────────────────────────────────────────────────────
 
-test("DRIVEN: the rows carry a planning step, a clock on the running one, and no empty pane", () => {
+test("DRIVEN: a running build draws only its progress talk — no stage rows, \"Thinking\" until the first line", () => {
   const rows = new Function("sb",
     decl("const ST_PHASE_ORDER = ") +
     fn("function stStepRow(") + "\n" + fn("function stAgo(") + "\n" +
@@ -383,27 +383,16 @@ test("DRIVEN: the rows carry a planning step, a clock on the running one, and no
     "const esc = (s) => String(s).replace(/[&<>\"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));\n" +
     "const siteBuild = sb;\nreturn reactLiveStepsHTML();");
 
-  const planning = rows({ rphase: "planning", startedAt: Date.now() - 22_000 });
-  assert.match(planning, /Planning your site/, "the planning row is gone — the first minutes have no honest label");
-  assert.match(planning, /st-step-run/, "nothing is marked as running");
-
-  // THE EMPTY PANE, WHICH IS WHAT THE OWNER SAW. `stCodeBody('', true)` renders a
-  // bordered box with one blinking caret, fed from a field only a stream that
-  // never arrives can write.
-  for (const p of ["planning", "generating", "compiling", "publishing"]) {
-    const h = rows({ rphase: p, startedAt: Date.now() - 60_000 });
-    assert.ok(!/st-lc-cur/.test(h), "the empty caret pane is back on the " + p + " row");
-    assert.ok(!/class="st-lc"/.test(h), "a code pane is being drawn from a source that cannot fill it");
+  // RE-ANCHORED 2026-10-19 (owner: "delete the planning your site, writing code
+  // and compiling react, just lets have the progress talks").
+  for (const p of ["planning", "generating", "compiling", "fixing", "publishing", "database"]) {
+    const bare = rows({ rphase: p, startedAt: Date.now() - 60_000 });
+    assert.ok(!/st-step\b|st-step-run|Planning your site|Writing the code|Compiling React/i.test(bare), "a stage row is drawn on " + p);
+    assert.match(bare, /st-think[\s\S]*Thinking/, "nothing is drawn on " + p + " before the first line");
+    const talk = rows({ rphase: p, startedAt: Date.now() - 60_000, code: "const a = 1;", prog: [{ n: 1, text: "I'm writing the pages now." }] });
+    assert.equal((talk.match(/I'm writing the pages now\./g) || []).length, 1, "the line is not drawn exactly once on " + p);
+    assert.ok(!/st-step\b|Thinking|class="st-lc"/.test(talk), "something besides the talk is drawn on " + p);
   }
-
-  // THE CLOCK IS ON THE RUNNING ROW AND NOWHERE ELSE.
-  const gen = rows({ rphase: "generating", startedAt: Date.now() - 252_000 });
-  const running = /<div class="st-step[^"]*">.*?st-step-run.*?<\/div>/s.exec(gen);
-  assert.ok(running, "no row is marked running");
-  assert.match(gen, /4m 12s/, "the running row carries no clock");
-  assert.equal((gen.match(/4m 12s/g) || []).length, 1, "the clock is drawn on more than the running row");
-  // A build with no start time draws no clock at all.
-  assert.ok(!/\ds<\/span>/.test(rows({ rphase: "generating" })), "a clock was drawn with no start time");
 });
 
 // ── THE WIRING, COUNTED ─────────────────────────────────────────────────────

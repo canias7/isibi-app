@@ -744,7 +744,7 @@ test("DRIVEN: the pane numbers its lines from the FILE, and draws no gutter it c
   assert.equal((body("only", false, 9).match(/st-lc-n">/g) || []).length, 1);
 });
 
-test("THE WIRING: the poll opens the envelope, one setter writes it, and the row draws it", () => {
+test("THE WIRING: the poll opens the envelope, one setter writes it, and the thread does not draw it", () => {
   const src = bare(CHAT);
   const fn = (h) => { const a = src.indexOf(h); assert.ok(a > 0, h + " is gone"); return src.slice(a, src.indexOf("\n}", a) + 2); };
 
@@ -764,27 +764,14 @@ test("THE WIRING: the poll opens the envelope, one setter writes it, and the row
   assert.equal((src.match(/siteBuild\.code = /g) || []).length, 2,
     "`siteBuild.code` is assigned somewhere new — the stream reader and the setter are the two");
 
-  // 3. THE ROW DRAWS IT, and the empty caret box cannot come back: the body is
-  // rendered only when there is something in it.
+  // 3. RE-ANCHORED 2026-10-19 (owner: "just lets have the progress talks"):
+  // the thread draws only the progress talk, so the code row is gone and the
+  // rail never reads the code. The poll and the setter above still carry it.
   const rows = fn("function reactLiveStepsHTML(");
-  assert.match(rows, /const codeNow = !wrote && typeof sb\.code === 'string' && sb\.code \? sb\.code : ''/,
-    "the code row no longer reads the code");
-  // RE-ANCHORED 2026-09-07: this pinned `stCodeBody(codeNow, true)`, and the pane
-  // takes a third argument now — the file line the window starts on. The
-  // property is what it always was: a body ONLY when there is code, so the empty
-  // bordered box with one blinking caret cannot come back.
-  assert.match(rows, /open: !!codeNow,\s*\n\s*body: codeNow \? stCodeBody\(codeNow, true, sb\.codeLine\) : ''/,
-    "the row opens or draws a body when there is no code, or draws the pane without its line number");
-  // AND THE FILE IS IN THE LABEL. It rode the whole chain and had no slot: the
-  // meta was `clk(...) || sb.file` and the clock is never empty while the stage
-  // runs, so the name never rendered once.
-  assert.match(rows, /const codeLbl = wrote \? 'Wrote the code' : \(sb\.file \? 'Writing ' \+ sb\.file : 'Writing the code'\)/,
-    "the running row no longer names the file it is writing");
-  assert.match(rows, /label: codeLbl,\s*\n\s*meta: clk\('generating'\),/,
-    "the file is back in the meta, where the clock always wins and it never shows");
+  assert.ok(rows.length > 0 && !/sb\.code|stCodeBody/.test(rows), "the thread draws the code again");
 });
 
-test("DRIVEN: the code row draws real code, and draws no pane at all without it", () => {
+test("DRIVEN: the thread never draws the code, only the progress talk", () => {
   const src = bare(CHAT);
   const cut = (h) => { const a = src.indexOf(h); return src.slice(a, src.indexOf("\n}", a) + 2); };
   const order = src.slice(src.indexOf("const ST_PHASE_ORDER = "), src.indexOf("];", src.indexOf("const ST_PHASE_ORDER = ")) + 2);
@@ -810,20 +797,9 @@ test("DRIVEN: the code row draws real code, and draws no pane at all without it"
   const render = new Function("ctx", "with (ctx) {" + cut("function reactLiveStepsHTML(") + "\n return reactLiveStepsHTML; }")(ctx);
   const draw = (b) => { ctx.siteBuild = b; return render(); };
 
-  const withCode = draw({ rphase: "generating", code: "import { createFileRoute } from 'x'\n" });
-  assert.match(withCode, /PRE\[import \{ createFileRoute \} from 'x'/, "the code is not drawn");
-  assert.match(withCode, /CUR/, "the caret is gone from a row that IS being written");
-  assert.match(withCode, /"open":true/, "the code row did not open");
-
-  // NO CODE, NO PANE — the empty bordered box with one blinking caret is the
-  // thing the owner watched for seventeen minutes, and it must be unrenderable.
-  const without = draw({ rphase: "generating" });
-  assert.ok(!/PRE\[/.test(without), "an empty code pane was drawn");
-  assert.match(without, /"open":false/, "the row opened with nothing in it");
-  assert.ok(!/CUR/.test(without), "a caret was drawn with no code");
-
-  // AND NOT AFTER THE STEP IS PAST. A finished step showing a live tail would
-  // be claiming work that is over.
-  const done = draw({ rphase: "compiling", code: "leftover" });
-  assert.ok(!/PRE\[/.test(done), "the code pane survived into the compile step");
+  // RE-ANCHORED 2026-10-19: only the progress talk is drawn, code or not.
+  for (const p of ["generating", "compiling"]) {
+    const h = draw({ rphase: p, code: "import { createFileRoute } from 'x'\n" });
+    assert.ok(h.length > 0 && !/PRE\[|CUR|createFileRoute/.test(h), "code is drawn in the thread on " + p);
+  }
 });

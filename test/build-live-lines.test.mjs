@@ -26,7 +26,7 @@ test("the repaint swaps the live box, and every live markup ends with that box",
   for (const r of returns) {
     assert.match(r.trim(), /<\/div>';$/, "something is drawn after the live box, and a repaint would leave it behind: " + r.trim());
   }
-  assert.ok(returns.some((r) => r.includes("progressListHTML(sb.prog, true)")), "the build's own lines are no longer in the live box");
+  assert.ok(returns.some((r) => r.includes("progressListHTML(lines, true)")), "the build's own lines are no longer in the live box");
 });
 
 // THE HEADER DURING A BUILD (2026-10-19): it read "Build a website for", the

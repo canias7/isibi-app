@@ -297,50 +297,14 @@ const liveSteps = (() => {
   };
 })();
 
-test("no build step claims to be generating images", () => {
-  // IT DID, ON EVERY BUILD. Nothing on the React path generates an image — the
-  // generator in worker.js is from the static-site era and is unreachable from
-  // here, and nothing emits the `image` stream event this UI listens for. So the
-  // row sat pending and then reported itself DONE: a step claiming work that was
-  // never attempted.
-  for (const rphase of ["generating", "compiling", "fixing", "publishing", "database"]) {
-    const labels = liveSteps({ rphase, images: [] }).join(" ");
-    assert.ok(!/image/i.test(labels), rphase + " still advertises an images step: " + labels);
-  }
-  // The receiving half stays, guarded on there BEING images, so it reports what
-  // happened rather than what was planned — and lights up on its own if
-  // generation is ever wired.
-  assert.match(liveSteps({ rphase: "compiling", images: [{ url: "u", prompt: "p" }] }).join(" "),
-    /Generated images:done/, "a build that really produced images could not show them");
-});
-
-test("every build phase shows the right steps in the right state", () => {
-  // THE ARITHMETIC. Removing a phase from `order` used to silently re-point
-  // three magic indices (`idx > 0`, `idx > 2`, `idx >= 4`) at the wrong steps;
-  // they are named lookups now. This is the table that proves it, and it is the
-  // check that would have caught the off-by-one.
-  //
-  // RE-ANCHORED 2026-09-07: every row gained a `Planning your site` step above it.
-  // That is the change, not a break — the first three minutes of a build are the
-  // design, and the rail used to open on "Writing the code" while nothing had
-  // been written. The property this table asserts is unchanged: each phase shows
-  // the steps at the right state, and nothing claims work it has not reached.
-  assert.deepEqual(liveSteps({ rphase: "planning" }),
-    ["Planning your site:run", "Writing the code:wait", "Compiling React:wait"]);
-  assert.deepEqual(liveSteps({ rphase: "generating" }),
-    ["Planned your site:done", "Writing the code:run", "Compiling React:wait"]);
-  assert.deepEqual(liveSteps({ rphase: "compiling" }),
-    ["Planned your site:done", "Wrote the code:done", "Compiling React:run"]);
-  assert.deepEqual(liveSteps({ rphase: "fixing" }),
-    ["Planned your site:done", "Wrote the code:done", "Fixing a build error:run"]);
-  assert.deepEqual(liveSteps({ rphase: "publishing" }),
-    ["Planned your site:done", "Wrote the code:done", "Compiled React:done", "Publishing:run"]);
-  assert.deepEqual(liveSteps({ rphase: "database" }),
-    ["Planned your site:done", "Wrote the code:done", "Compiled React:done", "Published:done", "Setting up the database:run"]);
-  // A publishing row must not appear before publishing is reached — that was
-  // `idx >= 4` against a list whose indices just moved.
-  for (const rphase of ["generating", "compiling"]) {
-    assert.ok(!liveSteps({ rphase }).some((r) => /^Publish/.test(r)), rphase + " claims to be publishing");
+test("no build phase draws a stage row in the thread, so none can claim images or steps it has not reached", () => {
+  // RE-ANCHORED 2026-10-19 (owner: "delete the planning your site, writing
+  // code and compiling react, just lets have the progress talks"). These two
+  // cases pinned the stage rows phase by phase; the rows are gone, and the
+  // property they guarded (no row claims work it has not reached) now holds
+  // because there is no row at all.
+  for (const rphase of ["planning", "generating", "compiling", "fixing", "publishing", "database"]) {
+    assert.deepEqual(liveSteps({ rphase, images: [{ url: "u", prompt: "p" }] }), [], rphase + " draws a stage row");
   }
 });
 

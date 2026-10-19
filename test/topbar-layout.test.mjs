@@ -370,12 +370,13 @@ test("the thinking state renders NO step rows, and can still be repainted", () =
   // (or the waiting sentence) — so the predicate is still asked once; every
   // return inside it is held to the same property.
   const fn = src.slice(src.indexOf("function reactLiveStepsHTML"));
-  const gate = fn.search(/if \(![A-Za-z]+\(\)\) \{/), maths = fn.indexOf("const order =");
-  // It must come BEFORE the phase-index maths, or `order.indexOf('thinking')` is
-  // -1, clamps to 0, and lands on 'generating' — the exact bug, restored. Both
-  // ends asserted: `indexOf` answering -1 would make this comparison vacuous.
-  assert.ok(gate >= 0 && maths > 0, "reactLiveStepsHTML no longer holds the gate or the phase maths");
-  assert.ok(gate < maths, "the thinking check runs after the phase index and will be bypassed");
+  const gate = fn.search(/if \(![A-Za-z]+\(\)\) \{/);
+  // RE-ANCHORED 2026-10-19 (owner: only the progress talk): the phase-index
+  // maths is gone with the stage rows, so there is nothing for it to clamp to
+  // 'generating'; asserted gone, within this function's own body.
+  assert.ok(gate >= 0, "reactLiveStepsHTML no longer holds the gate");
+  const own = fn.slice(0, fn.indexOf("\n}\n"));
+  assert.ok(own.length > gate && !/const order =|ST_PHASE_ORDER/.test(own), "the phase maths is back in the thread's live steps");
   const block = fn.slice(gate, fn.indexOf("\n  }\n", gate));
   // RE-ANCHORED 2026-10-13: a running job's lines are every line so far, in
   // the progress list (`progressListHTML`), which is that return's indicator;

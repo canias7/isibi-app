@@ -9435,72 +9435,15 @@ function reactLiveStepsHTML() {
     if (!sb.waitNote && Array.isArray(sb.progressLines) && sb.progressLines.length) return '<div class="st-steps st-steps-live">' + progressListHTML(sb.progressLines, true) + '</div>';
     return '<div class="st-steps st-steps-live"><div class="st-think"><i></i>' + (sb.waitNote ? esc(sb.waitNote) : 'Thinking') + '</div></div>';
   }
-  // NO "GENERATING IMAGES" STEP, because nothing generates any (owner's call,
-  // 2026-08-08). The React builder has never produced an image: the generator in
-  // worker.js is from the static-site era and is not reachable from the build
-  // path, and nothing anywhere emits the `image` stream event this UI listens
-  // for. So the row appeared on every build, sat pending, and then reported
-  // itself DONE — a step claiming work that was never even attempted. The same
-  // dead-control shape as the Builder picker and the Attach button, this time
-  // lying rather than merely doing nothing.
-  //
-  // The receiving half is deliberately kept: the ingest below and the finished-
-  // build row are both guarded on there BEING images, so they show nothing today
-  // and light up on their own if generation is ever wired. That is the honest
-  // version — a step that reports what happened rather than what was planned.
-  const order = ST_PHASE_ORDER;
-  const idx = Math.max(0, order.indexOf(sb.rphase || order[0]));
-  const st = (name) => { const i = order.indexOf(name); return i < idx ? 'done' : i === idx ? 'run' : 'wait'; };
-  // BY NAME, NOT BY NUMBER. These were `idx > 0`, `idx > 2`, `idx >= 4` — magic
-  // indices into the array above, so removing one phase from it silently
-  // re-pointed all of them at the wrong step. Named, the list can change without
-  // the labels quietly following it.
-  const past = (name) => order.indexOf(name) < idx;
-  const reached = (name) => order.indexOf(name) <= idx;
-  const rows = [];
-  // THE CLOCK GOES ON THE RUNNING ROW AND NOWHERE ELSE. A time beside work that
-  // has not started is the same lie the images row was removed for — a step
-  // reporting what was planned rather than what happened.
-  const clk = (name) => (st(name) === 'run' && sb.startedAt ? stAgo(Date.now() - sb.startedAt) : '');
-  rows.push(stStepRow({ label: past('planning') ? 'Planned your site' : 'Planning your site', meta: clk('planning'), state: st('planning') }));
-  // NO BODY, AND THE EMPTY PANE IS GONE WITH IT (2026-09-07). This row carried
-  // `open: true` and a `stCodeBody` fed from `siteBuild.code`, which is written
-  // only by `readReactStream` — reachable only from an NDJSON response the site
-  // build route has never sent. So `stCodeBody('', true)` rendered exactly an
-  // empty bordered box with one blinking caret, for the whole build. It was not
-  // an unfed placeholder: it was a real control whose source could not ever be
-  // non-empty. The owner saw it for seventeen minutes and asked what it was.
-  // THE CODE, WHEN THERE IS CODE (2026-09-07, owner: "send the code out as it
-  // writes"). `sb.code` is filled by the build poll from what the container
-  // sends while the model writes; the row opens only when something has
-  // actually arrived, so the empty bordered box with one blinking caret — the
-  // thing that stood here for a seventeen-minute build — cannot render.
-  const wrote = past('generating');
-  const codeNow = !wrote && typeof sb.code === 'string' && sb.code ? sb.code : '';
-  // THE FILE GOES IN THE LABEL, NOT THE META (treatment E). It was
-  // `clk(...) || sb.file`, and the clock is never empty while the stage runs —
-  // so the name was carried the whole way down the chain and then never had a
-  // slot to render in. Here it is part of the sentence: `writing index.tsx`.
-  const codeLbl = wrote ? 'Wrote the code' : (sb.file ? 'Writing ' + sb.file : 'Writing the code');
-  rows.push(stStepRow({
-    label: codeLbl,
-    meta: clk('generating'),
-    state: st('generating'),
-    open: !!codeNow,
-    body: codeNow ? stCodeBody(codeNow, true, sb.codeLine) : '',
-  }));
-  if (sb.images && sb.images.length) rows.push(stStepRow({ label: 'Generated images', meta: sb.images.length + (sb.images.length === 1 ? ' photo' : ' photos'), state: 'done', body: stImgsBody(sb.images) }));
-  if (sb.rphase === 'fixing') rows.push(stStepRow({ label: 'Fixing a build error', state: 'run' }));
-  else rows.push(stStepRow({ label: past('compiling') ? 'Compiled React' : 'Compiling React', meta: clk('compiling'), state: st('compiling') }));
-  if (reached('publishing')) rows.push(stStepRow({ label: globalThis.draftFirstOn === true ? (past('publishing') ? 'Saved to your draft' : 'Saving to your draft') : past('publishing') ? 'Published' : 'Publishing', meta: clk('publishing'), state: st('publishing') }));
-  if (sb.rphase === 'database') rows.push(stStepRow({ label: 'Setting up the database', state: 'run' }));
-  // THE BUILD'S OWN LIVE LINES (2026-10-09, round 5): written by the model from
-  // the steps the build really reached — waiting on a dependency, recovering a
-  // photograph — under the fixed stage rows; the newest one is live.
-  // INSIDE the live box (2026-10-19): `paintReactLive` swaps that box alone, so
-  // a list beside it was left behind on every repaint and a new one added — the
-  // same line drawn nine times on deploy 2218's recorded build.
-  return '<div class="st-steps st-steps-live">' + rows.join('') + progressListHTML(sb.prog, true) + '</div>';
+  // ONLY THE PROGRESS TALK (2026-10-19, owner: "delete the planning your site,
+  // writing code and compiling react, just lets have the progress talks"). The
+  // fixed stage rows are gone from the thread; the stage panel on the right
+  // still shows where the build is. Until the first line arrives, "Thinking".
+  // INSIDE the live box: `paintReactLive` swaps that box alone, so a list beside
+  // it was left behind on every repaint (nine copies on deploy 2218's build).
+  const lines = Array.isArray(sb.prog) ? sb.prog.filter((l) => l && typeof l.text === 'string' && l.text) : [];
+  if (!lines.length) return '<div class="st-steps st-steps-live"><div class="st-think"><i></i>Thinking</div></div>';
+  return '<div class="st-steps st-steps-live">' + progressListHTML(lines, true) + '</div>';
 }
 // ── B1: the stage panel IS the display (owner, 2026-09-07: "OK B1") ─────────
 //

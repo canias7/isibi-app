@@ -1,5 +1,9 @@
 # Owner Notes
 
+## 2026-10-19 — Only the progress talk in the chat while a build runs (branch only, not deployed)
+
+You asked to delete "planning your site", "writing the code" and "compiling react" and keep only the progress talk. While a build runs, the chat now shows only the builder's own progress lines, with "Thinking" until the first one arrives (`reactLiveStepsHTML`). The stage panel on the right is unchanged, and so is the short summary under the finished reply. The live code that used to open under "writing the code" went with that row. The eight guard tests that pinned the rows were re-anchored to the new rule (no stage row is drawn, and each line is drawn exactly once). Full suite `11499 / 11497 / 0 / 0`. In the local render, the routing call before the stand-in build was real: 3 credits from the test account (47 → 44).
+
 ## 2026-10-19 — Three fixes from the recorded build: the repeated line, the title, the handwritten font (branch only, not deployed)
 
 From deploy 2218's recorded build (harbour-loaf-3, about 13½ minutes, 23 credits), you asked for fixes 1, 3 and 5:
