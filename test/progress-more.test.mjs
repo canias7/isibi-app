@@ -408,6 +408,7 @@ function fakeRoomCtx() {
       get: async (k) => (store.has(k) ? structuredClone(store.get(k)) : undefined),
       put: async (k, v) => { store.set(k, structuredClone(v)); },
       setAlarm: async (t) => { alarm = t; },
+      delete: async (k) => store.delete(k),
       deleteAll: async () => { store.clear(); },
     },
     getWebSockets: () => sockets,
@@ -439,6 +440,9 @@ test("R11 the room pushes every telling to every watcher at once, keeps lines fr
   assert.ok(ctx.alarmAt() >= Date.now() + ROOM_KEEP_MS - 5000, "a closed room is never emptied");
   await say(room, { closed: false });
   assert.equal(a.sent.at(-1).closed, true, "a closed job reopened");
+  await room.alarm();
+  assert.ok(ctx.store.size > 0 && !a.closed, "the room was emptied before its keeping time");
+  ctx.store.set("cleanAt", Date.now() - 1);
   await room.alarm();
   assert.equal(ctx.store.size, 0); assert.ok(a.closed && b.closed, "the alarm left watchers connected to an empty room");
 });
@@ -478,14 +482,82 @@ test("R11 THE WIRING: every record write and every line-in-progress tells the ro
   assert.match(W, /tellRoom\(env, job, \{ live: \{ n, text: text\.slice\(0, 600\) \} \}\);/);
   assert.match(W, /const clearLiveLine = \(env, job\) => \{ tellRoom\(env, job, \{ live: null \}\);/);
   const route = W.slice(W.indexOf("const talkLive = url.pathname.match"), W.indexOf("const talkLive = url.pathname.match") + 6000);
-  const iRoom = route.indexOf("const room = await openRoomWatch(env, talkLive[1]);");
+  const iRoom = route.indexOf("const fromRoom = await streamFromRoom(env, ctx, talkLive[1], at0.rec && !forReply ? { lines: linesOf(at0.rec)");
   const iLoop = route.indexOf("const at = await progressRecordAt(env, talkLive[1]);");
   assert.ok(iRoom > 0 && iLoop > iRoom, "the stream no longer tries the room before reading storage");
   assert.ok(route.indexOf("takeStreamLease") < iRoom, "the room is opened before the account's limit is checked");
-  assert.match(route.slice(iRoom, iLoop), /if \(at0\.rec\) await w\.write\(enc\.encode\("data: " \+ JSON\.stringify\(\{ lines: linesOf\(at0\.rec\)/);
-  assert.match(route.slice(iRoom, iLoop), /await lease\.release\(\);/, "the room's stream never gives its lease back");
+  const fn = W.slice(W.indexOf("async function streamFromRoom("), W.indexOf("const actionRoom = "));
+  assert.match(fn, /const room = await openRoomWatch\(env, name\);\s*\n\s*if \(!room\) return null;/, "a room that cannot be reached does not fall back");
+  assert.match(fn, /if \(first\) await w\.write\(enc\.encode\("data: " \+ JSON\.stringify\(first\)/, "what is already written is not sent first");
+  assert.match(fn, /await lease\.release\(\);/, "the room's stream never gives its lease back");
   const WR = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
   assert.match(WR, /\{ "class_name": "TalkRoom", "name": "TALK_ROOM" \}/);
   assert.match(WR, /\{ "tag": "v7", "new_sqlite_classes": \["TalkRoom"\] \}/);
   assert.match(W, /^export class TalkRoom \{/m);
+});
+
+test("R12 THE ROOM RUNS THE LINE WRITER: a write asked of it sets its alarm for the soonest one, the alarm runs it once, and every queue ask also asks the room", async () => {
+  const { talkRoomApi } = await loadWorkerModule();
+  const { TalkRoom, roomWriter } = talkRoomApi;
+  const ctx = fakeRoomCtx(); const room = new TalkRoom(ctx, {});
+  const job = "a".repeat(32);
+  const ask = (delayMs) => room.fetch(new Request("https://room/write", { method: "POST", body: JSON.stringify({ id: job, uid: "u1", delayMs }) }));
+  assert.equal((await room.fetch(new Request("https://room/write", { method: "POST", body: JSON.stringify({ id: "x", uid: "u1" }) }))).status, 400, "a bad job id was taken");
+  const t0 = Date.now();
+  await ask(3000);
+  assert.ok(ctx.alarmAt() >= t0 + 2900 && ctx.alarmAt() <= Date.now() + 3100, "the writer's alarm is not set for its settle");
+  await ask(20000);
+  assert.ok(ctx.alarmAt() <= Date.now() + 3100, "a later ask pushed back a writer already due sooner");
+  ctx.store.set("write", { id: job, uid: "u1", at: Date.now() - 1 });
+  await room.alarm();
+  assert.equal(ctx.store.has("write"), false, "the alarm did not take the writer it ran");
+  const told = [];
+  const env = { TALK_ROOM: { idFromName: (n) => n, get: (id) => ({ fetch: async (u, o) => { told.push([id, u, JSON.parse(o.body)]); return new Response("ok"); } }) } };
+  await roomWriter(env, { id: job, uid: "u1" }, 3);
+  assert.deepEqual(told, [[job, "https://room/write", { id: job, uid: "u1", delayMs: 3000 }]]);
+  assert.equal(roomWriter({}, { id: job, uid: "u1" }), undefined);
+  assert.match(W, /async function sendProgressTask\(env, task, delayS = 0\) \{\s*\n\s*roomWriter\(env, task, delayS\);/, "a queue ask no longer asks the room too");
+  assert.match(W, /try \{ await runProgressTask\(this\.env, \{ id: w\.id, uid: w\.uid \}\); \}/, "the room's alarm does not run the writer");
+});
+
+// ── ROUND 13: EVERYTHING THAT TALKS USES THE ROOM ────────────────────────────
+test("R13 the room carries the final reply as it is written: text so far, then done, and a done reply is never reopened by a late partial", async () => {
+  const { talkRoomApi } = await loadWorkerModule();
+  const { readRoomSay, mergeRoomSay, roomMessage } = talkRoomApi;
+  assert.deepEqual(readRoomSay({ reply: { text: "Your menu" } }), { reply: { text: "Your menu", done: false } });
+  assert.deepEqual(readRoomSay({ reply: { text: "Done.", done: true } }), { reply: { text: "Done.", done: true } });
+  for (const bad of [{ reply: "x" }, { reply: { text: 1 } }, { reply: { text: "a", done: "yes" } }, { reply: null }]) assert.equal(readRoomSay(bad), null, JSON.stringify(bad));
+  let st = { lines: [], live: null, closed: true };
+  st = mergeRoomSay(st, { reply: { text: "Your menu", done: false } });
+  assert.deepEqual(roomMessage(st), { lines: [], live: "", closed: true, reply: "Your menu", replyDone: false });
+  st = mergeRoomSay(st, { reply: { text: "Your menu now has Gallery out.", done: true } });
+  st = mergeRoomSay(st, { reply: { text: "Your menu now", done: false } });
+  assert.equal(roomMessage(st).reply, "Your menu now has Gallery out.", "a late partial reopened a finished reply");
+  assert.equal(roomMessage(st).replyDone, true);
+  assert.equal(Object.hasOwn(roomMessage({ lines: [], live: null, closed: false }), "reply"), false, "a job with no reply grew one");
+});
+
+test("R13 THE WIRING: the reply streams into its job's room and is marked done; a press's talk tells its own room and streams its sentence; the press's stream is its presser's only", () => {
+  assert.match(W, /onPartial: replyLiveWriter\(env, task\.id\) \}\);\s*\n\s*tellRoom\(env, task\.id, \{ reply: \{ text: typed && typed\.ok/, "the final reply is not typed into the job's room");
+  assert.match(W, /send: typeof onPartial === "function" \? quickSendLive\(env, "reply", budget, onPartial\) : quickSend\(env, "reply", budget\)/);
+  assert.match(W, /const \{ code \} = readCodeSoFar\(partial, \{ codeField: "reply" \}\);/, "the reply is not read off the tool's own field");
+  const act = W.slice(W.indexOf("function actionTalk(env, ctx"), W.indexOf("const PROGRESS_CLOSE_MS"));
+  assert.match(act, /tellRoom\(env, actionRoom\(id\), \{ lines: rec\.lines\.map/, "a press's store does not tell its room");
+  assert.match(act, /quickSendLive\(env, "progress", progressBudget, live\)/, "a press's sentence is not streamed");
+  assert.match(W, /const actionRoom = \(id\) => "act:" \+ id;/, "a press's room shares the jobs' name space");
+  const route = W.slice(W.indexOf("const ts = url.pathname.match"), W.indexOf("const ts = url.pathname.match") + 2000);
+  assert.match(route, /^const ts = url\.pathname\.match\(\/\^\\\/api\\\/site\\\/talk\\\/\(\[0-9a-f\]\{32\}\)\\\/stream\$\/\);/);
+  assert.match(route, /actionTalkKey\(su\.id, ts\[1\]\)/, "the press's stream is not its own presser's");
+  assert.match(route, /if \(!rec\) return Response\.json\(\{ error: "not found" \}, \{ status: 404 \}\);/);
+  assert.ok(route.indexOf("takeStreamLease") > 0 && route.indexOf("takeStreamLease") < route.indexOf("streamFromRoom"), "the press's stream skips the account's limit");
+  assert.match(W, /if \(forReply \? m\.replyDone === true : m\.closed === true && !m\.live\)/, "a reply's follower closes when the job closes, before the reply");
+});
+
+test("R13 THE PAGE: a press's id is 32 hex (the dashes were refused), edits and add-ons follow the live connection, and a held reply is typed as it streams", () => {
+  assert.match(CHATJS, /const id = crypto\.randomUUID\(\)\.replace\(\/-\/g, ''\);/, "a press's id carries dashes again, which the server refuses");
+  assert.match(CHATJS, /readTalkStream\('\/api\/site\/talk\/' \+ encodeURIComponent\(id\) \+ '\/stream'/, "a press does not follow its live connection");
+  assert.match(CHATJS, /try \{ followEditTalk\(w\.job, origin, \(\) => !editWatched\.has\(w\.job\)\); \}/, "an edit's watch does not follow its live connection");
+  assert.match(CHATJS, /readTalkStream\('\/api\/site\/build\/' \+ encodeURIComponent\(job\) \+ '\/stream\?reply=1'/, "a held reply is not followed live");
+  assert.match(CHATJS, /if \(r && \(r\.status === 401 \|\| r\.status === 404 \|\| r\.status === 429\)\) return;/);
+  assert.match(CHATJS, /return readTalkStream\('\/api\/site\/build\/' \+ encodeURIComponent\(job\) \+ '\/stream', signal/, "the build no longer reads through the shared reader");
 });

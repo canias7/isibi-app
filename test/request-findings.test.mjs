@@ -334,7 +334,10 @@ test("FIXED (F2): the reply's budgets — written in the background, 90 s per ca
   assert.match(W.slice(bg, W.indexOf("\n", bg)), /\{ capMs: \(\) => REPLY_BG_CALL_MS \}/);
   assert.match(W.slice(inl, W.indexOf("\n", inl)), /\{ capMs: \(\) => REPLY_CALL_MS \}/);
   const body = W.slice(m, W.indexOf("\n}\n", m));
-  assert.match(body, /quickSend\(env, "reply", background \? replyBgBudget : replyBudget\)/);
+  // RE-ANCHORED 2026-10-19 (the reply typed live): the budget is chosen once and
+  // handed to whichever send is used, streamed or not.
+  assert.match(body, /const budget = background \? replyBgBudget : replyBudget;/);
+  assert.match(body, /quickSendLive\(env, "reply", budget, onPartial\) : quickSend\(env, "reply", budget\)/);
   assert.match(body, /background \? \{ deadlineMs: REPLY_BG_DEADLINE_MS \} : \{\}/);
 });
 

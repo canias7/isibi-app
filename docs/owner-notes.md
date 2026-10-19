@@ -1,5 +1,15 @@
 # Owner Notes
 
+## 2026-10-19 — Why the build talked so little, and everything that talks now uses the room (on your word "do 1 and 2"; branch only, not deployed)
+
+- **What the trace showed**: the build *did* report every section as it was written (the trace has "writing 1 of 5" through "4 of 5"), but the lines came out about every 3½ minutes. The only thing that turns reports into lines, the line writer, ran only as a message in the build queue, the same queue the build itself uses. That message can wait. I couldn't read Cloudflare's logs from here to prove whether the wait was the queue or the model call for each line timing out (45 seconds each, tried twice). **The fix**: the build's talk room now also runs the line writer itself, 3 seconds after each report. The queue message still goes too, and whichever arrives second sees the first is already writing and leaves. The next recorded build will show whether lines now arrive every few seconds.
+- **Not fixed by this**: the first ~5 minutes of that build happened before the container started, when nothing yet had a record to talk into. That's a separate item.
+- **Edits and add-ons**: their talk now comes over the same live connection, with the sentence being written shown last.
+- **Publish, Restore, Discard**: **these never talked before.** The page sent the press's id with dashes, and the server only accepts 32 hex characters, so every press was refused as having no id. Fixed. They now also stream into their own room (a separate name space from the jobs), with their own live connection, for the person who pressed only, under the same limit of 3.
+- **The final reply after an edit or add-on is typed out live** into the message that holds its place. The normal check still settles it, so a failed stream changes nothing.
+- **Builder questions are not typed live**: they come whole, inside the router's own answer, so there's no separate writer to stream.
+- **Tests**: R12 (the room runs the writer), R13 (replies in the room, the press room and its route, the page's wiring and the 32-hex id).
+
 ## 2026-10-19 — At most 3 live connections per account, and one Durable Object "room" per build that pushes the talk (on your word "lets do all of this that we planned"; branch only, not deployed)
 
 - **The limit**: an account can have at most 3 live talk connections open at once. A 4th gets a "too many" answer, and its page goes back to checking every few seconds, so it still sees all the talk. Closing a tab frees its slot at once, a slot from a crashed tab frees itself after about 2¼ minutes, and a storage problem never blocks anyone.

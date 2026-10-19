@@ -11118,7 +11118,9 @@ function progressListHTML(lines, live, done) {
 function siteActionTalk(slug) {
   const s = (sitesLoad() || []).find((x) => x && x.slug === slug);
   if (!s || typeof crypto === 'undefined' || typeof crypto.randomUUID !== 'function') return '';
-  const id = crypto.randomUUID();
+  // 32 HEX, THE SHAPE THE SERVER TAKES (2026-10-19): with its dashes every press
+  // was refused as no id, and none of them ever talked.
+  const id = crypto.randomUUID().replace(/-/g, '');
   const m = { r: 'a', t: '', talk: id, talkLive: true, prog: [] };
   s.msgs = Array.isArray(s.msgs) ? s.msgs : [];
   s.msgs.push(m);
@@ -11134,7 +11136,7 @@ function siteActionTalk(slug) {
     if (!mm) return;
     const lines = d && Array.isArray(d.lines) ? d.lines.filter((l) => l && typeof l.text === 'string' && l.text) : [];
     const ended = (d && d.done === true) || Date.now() > until || (d && d.known === false && ++n > 10);
-    if (lines.length !== mm.prog.length || ended) {
+    if (lines.length !== mm.prog.filter((l) => !l.writing).length || ended) {
       mm.prog = lines.map((l) => ({ text: l.text, ...(typeof l.explain === 'string' && l.explain ? { explain: l.explain } : {}) }));
       if (ended) { mm.talkLive = false; if (!mm.prog.length) live.msgs = live.msgs.filter((x) => x !== mm); }
       live.updatedAt = Date.now(); sitesSave();
@@ -11143,6 +11145,20 @@ function siteActionTalk(slug) {
     if (!ended) setTimeout(step, 1000);
   };
   setTimeout(step, 700);
+  // AND PUSHED, WITH THE SENTENCE BEING WRITTEN (2026-10-19): the press's room
+  // on one connection, drawn into the same message; the poll above still ends it.
+  if (typeof ReadableStream !== 'undefined') {
+    const msgOf = () => { const live = (sitesLoad() || []).find((x) => x && x.id === s.id); const mm = live && Array.isArray(live.msgs) ? live.msgs.find((x) => x && x.talk === id) : null; return { live, mm }; };
+    setTimeout(() => readTalkStream('/api/site/talk/' + encodeURIComponent(id) + '/stream', null, () => { const { mm } = msgOf(); return !!(mm && mm.talkLive) && Date.now() < until; }, (lines, said) => {
+      const { live, mm } = msgOf();
+      if (!mm || !mm.talkLive) return;
+      const prog = lines.map((l) => ({ text: l.text, ...(typeof l.explain === 'string' && l.explain ? { explain: l.explain } : {}) })).concat(said ? [{ text: said, writing: true }] : []);
+      if (JSON.stringify(mm.prog) === JSON.stringify(prog)) return;
+      mm.prog = prog;
+      live.updatedAt = Date.now(); sitesSave();
+      if (siteOpenId === live.id) renderSites();
+    }).catch(() => {}), 400);
+  }
   return id;
 }
 /**
@@ -12048,6 +12064,8 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
   if (editWatched.has(w.job)) return;
   editWatched.add(w.job);
   const release = () => { editWatched.delete(w.job); };
+  // ITS TALK ON THE LIVE CONNECTION (2026-10-19), for as long as this watch runs.
+  try { followEditTalk(w.job, origin, () => !editWatched.has(w.job)); } catch (err) { /* the poll still carries the lines */ }
   const apply = (e, r0, held) => {
     // ── EXACTLY ONCE ──────────────────────────────────────────────────────
     //
@@ -12256,6 +12274,18 @@ function editReplyFollow(origin, job) {
     sitesSave();
     if (siteOpenId === origin) renderSites();
   };
+  // THE REPLY TYPED AS IT IS WRITTEN (2026-10-19): the job's room on one
+  // connection, drawn into the held message; the poll below still settles it.
+  if (typeof ReadableStream !== 'undefined') {
+    readTalkStream('/api/site/build/' + encodeURIComponent(job) + '/stream?reply=1', null, () => editReplyFollowing.has(id) && !!heldMsg(), (lines, live, msg) => {
+      const m = heldMsg();
+      const text = msg && typeof msg.reply === 'string' ? msg.reply.trim() : '';
+      if (!m || !text || m.t === text || msg.replyDone === true) return;
+      m.t = text;
+      const s = siteById(origin);
+      if (s && siteOpenId === origin) renderSites();
+    }, true).catch(() => {});
+  }
   const step = async () => {
     const m = heldMsg();
     if (!m) { editReplyFollowing.delete(id); return; }
@@ -14240,14 +14270,19 @@ const BUILD_FOLLOW_MS = 20 * 60 * 1000;
  * still being written, as it grows. Reconnects while the build runs; the poll
  * below still carries the lines if the stream cannot. Ends with the build.
  */
-async function followBuildTalk(job, signal, origin) {
+/**
+ * ONE LIVE TALK CONNECTION, READ (2026-10-19): server-sent events from `url`,
+ * each message handed to `onMsg(lines, live)`, reconnecting while `going()`
+ * holds, until the talk says it is closed. Signed out, not this account's, or
+ * over the account's live-connection limit: it stops, and the poll beside it
+ * carries the talk.
+ */
+async function readTalkStream(url, signal, going, onMsg, forReply) {
   let fails = 0;
-  while (!(signal && signal.aborted) && siteBuild && siteOpenId === origin && fails < 5) {
+  while (!(signal && signal.aborted) && going() && fails < 5) {
     let r = null;
-    try { r = await apiFetch('/api/site/build/' + encodeURIComponent(job) + '/stream', { signal }); } catch (e) { r = null; }
+    try { r = await apiFetch(url, { signal }); } catch (e) { r = null; }
     if (!r || !r.ok || !r.body || typeof r.body.getReader !== 'function') {
-      // SIGNED OUT, NOT THIS ACCOUNT'S, OR OVER THE ACCOUNT'S LIVE-CONNECTION
-      // LIMIT: the poll beside this carries the talk, so stop asking.
       if (r && (r.status === 401 || r.status === 404 || r.status === 429)) return;
       fails++; await new Promise((res) => setTimeout(res, 2000)); continue;
     }
@@ -14268,16 +14303,41 @@ async function followBuildTalk(job, signal, origin) {
           if (!data) continue;
           let m = null; try { m = JSON.parse(data); } catch (e) { m = null; }
           if (!m || !Array.isArray(m.lines)) continue;
-          const lines = m.lines.filter((l) => l && typeof l.text === 'string' && l.text);
-          if (siteBuild && siteOpenId === origin) siteBuild.talkLive = typeof m.live === 'string' ? m.live : '';
-          setBuildProgress(origin, lines);
-          if (m.closed === true && !m.live) closed = true;
+          onMsg(m.lines.filter((l) => l && typeof l.text === 'string' && l.text), typeof m.live === 'string' ? m.live : '', m);
+          if (forReply ? m.replyDone === true : m.closed === true && !m.live) closed = true;
         }
       }
     } catch (e) { /* reconnect below */ }
     if (closed) return;
     await new Promise((res) => setTimeout(res, 800));
   }
+}
+async function followBuildTalk(job, signal, origin, apply) {
+  // WHAT A MESSAGE DOES (2026-10-19): a build's by default; an edit's or an
+  // add-on's watch hands its own (`followEditTalk`) — the same connection.
+  const take = typeof apply === 'function' ? apply : (lines, live) => {
+    if (siteBuild && siteOpenId === origin) siteBuild.talkLive = live;
+    setBuildProgress(origin, lines);
+  };
+  return readTalkStream('/api/site/build/' + encodeURIComponent(job) + '/stream', signal, () => !!siteBuild && siteOpenId === origin, take);
+}
+/**
+ * AN EDIT'S OR AN ADD-ON'S TALK, LIVE (2026-10-19, owner: "do 1 and 2" — the
+ * room for everything that talks): the same connection a build follows, drawn
+ * where the edit's poll draws its lines, with the sentence being written last.
+ * Stops when the edit's watch ends; the poll beside it still carries every line.
+ */
+function followEditTalk(job, origin, isDone) {
+  if (typeof ReadableStream === 'undefined' || typeof AbortController === 'undefined') return;
+  const ctl = new AbortController();
+  const tick = setInterval(() => { if (isDone()) { clearInterval(tick); ctl.abort(); } }, 1000);
+  followBuildTalk(job, ctl.signal, origin, (lines, live) => {
+    if (!siteBuild || siteOpenId !== origin || isDone()) return;
+    const list = live ? lines.concat([{ text: live, writing: true }]) : lines;
+    if (JSON.stringify(siteBuild.progressLines || []) === JSON.stringify(list)) return;
+    siteBuild.progressLines = list;
+    paintReactLive();
+  }).catch(() => {}).finally(() => clearInterval(tick));
 }
 async function followBuildJob(job, signal, origin) {
   // THE TALK RIDES ITS OWN CONNECTION BESIDE THIS POLL (2026-10-19).
