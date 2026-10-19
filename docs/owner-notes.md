@@ -1,5 +1,12 @@
 # Owner Notes
 
+## 2026-10-19 — The real cause: a first build's container had no door to report through the Worker (branch only, not deployed)
+
+- **Deploy 2225's build** (Harbour Loaf 9, 66 credits before it, after you said to top up): **5 lines, and every step said**, an improvement. But the first line still came only at 156 s, written by the 2-minute sweep. The log had no entries at all for the record being opened or for steps reported through the Worker.
+- **Why**: in `builder/container-env.mjs`, the container's progress door (`JOB_PROGRESS`, which reports through the Worker) was set up only for jobs whose site already has its name. A first build hasn't been named yet, so its container wrote the record **directly**, through the storage pass-through. In there, the queue refuses and no room exists, so nothing woke the line writer except the sweep.
+- **Fix**: every job gets the door, a first build included. The gateway has accepted a first build's progress since earlier today. Test R16 fails on the old file and passes on the new one.
+- This changes a container file, so the container image rolls on deploy, and the next build after it needs the usual wait first.
+
 ## 2026-10-19 — The diagnostic found it: the ask from the container never reached the room, and the queue took 3½ minutes (branch only, not deployed)
 
 - **Deploy 2224's build** (Harbour Loaf 8) recorded 35 steps from second 1 onward, but **the first line writer started only at 211 s**. Then 3 lines were written and saved, each model call taking 19 to 37 seconds. The last steps (the browser check, the save) came after that and were never written before the build closed at 389 s.

@@ -600,3 +600,18 @@ test("R15 a writer asked from the gateway's request is asked of the room before 
   const door = W.slice(W.indexOf("async function progressFromJob("), W.indexOf("\n}\n", W.indexOf("async function progressFromJob(")));
   for (const ev of ['await diag(env, id, r ? "begun"', 'await diag(env, id, r ? "marked"', 'await diag(env, id, "close"']) assert.ok(door.includes(ev), ev + " is not awaited");
 });
+
+// ── ROUND 16: A FIRST BUILD'S CONTAINER REPORTS THROUGH THE WORKER ──────────
+test("R16 a pre-scoped (first) build's container env carries JOB_PROGRESS, so its milestones go through the Worker's door (which asks for a writer), not straight into the record", async () => {
+  const { makeContainerEnv } = await import("../builder/container-env.mjs");
+  const calls = [];
+  const f = async (u, o) => { calls.push([String(u), JSON.parse(o.body)]); return new Response("{}", { status: 200 }); };
+  for (const pre of [true, false]) {
+    calls.length = 0;
+    const env = makeContainerEnv({ gateway: { url: "https://gofarther.dev/api/job/" + "c".repeat(32), token: "t" }, fetch: f, pre });
+    assert.equal(typeof env.JOB_PROGRESS, "function", (pre ? "a first build" : "an edit") + " has no progress door");
+    const out = await env.JOB_PROGRESS({ op: "mark", stage: "x" });
+    assert.deepEqual(out, { ok: true, retry: false });
+    assert.equal(calls[0][0], "https://gofarther.dev/api/job/" + "c".repeat(32) + "/progress");
+  }
+});
