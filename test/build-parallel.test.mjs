@@ -460,10 +460,11 @@ test("BLD 10 — MODEL-WRITTEN BUILD PROGRESS FROM ITS REAL STEPS (round 5): the
   const first = stand.recOf();
   assert.ok(first, "the first run opened no progress record");
   assert.equal(first.op, "build");
-  // RE-ANCHORED 2026-10-19 (owner: "it needs to talk more"): the record opens
-  // when the build starts, before the design names the site, so it carries no
-  // address; the talking record says the address as its own milestone.
-  assert.equal(first.slug, "");
+  // A RUN OUTSIDE THE CONTAINER opens the record when the site is named, as
+  // it always did (2026-10-19: opening at the start belongs to the container's
+  // run alone — the Worker's run hands a build over and its record was the
+  // wrong run's on deploy 2219).
+  assert.equal(first.slug, SLUG);
   const stages1 = first.marks.map((m) => m.stage);
   for (const s of ["build-design", "build-photos-alongside", "build-fired"]) assert.ok(stages1.includes(s), "missing " + s + " in " + stages1.join(","));
   assert.ok(stages1.indexOf("build-design") < stages1.indexOf("build-fired"), "the milestones are out of order: " + stages1.join(","));
@@ -653,12 +654,8 @@ test("BLD TALK — A FIRST BUILD THAT TALKS (2026-10-13): its record opens conve
   assert.equal(first.talk, true, "the build's record was not opened conversational");
   assert.equal(first.marks[0].stage, "start", "the opening plan is not the build's first milestone");
   assert.deepEqual(first.marks[0].facts.map((f) => f.state), ["decided", "next"]);
-  // RE-ANCHORED 2026-10-19: the plan is said before the address exists, and
-  // the address the design chose follows as its own milestone.
-  assert.ok(!new RegExp(SLUG).test(first.marks[0].facts[0].text), "the opening plan names an address it cannot know yet");
-  const named = first.marks.find((m) => m.stage === "address");
-  assert.ok(named && new RegExp(SLUG).test(named.facts[0].text), "the address the design chose is never said");
-  assert.ok(first.marks.indexOf(named) > 0, "the address is said before the opening plan");
+  // Outside the container the record opens when the site is named, so the plan names it.
+  assert.match(first.marks[0].facts[0].text, new RegExp(SLUG));
   await deliverProgress(b, q, stand, { env: { PROGRESS_TALK: "on" } });
   assert.ok(stand.recOf().lines.length >= 1, "no line was written for the build's first milestones");
   const rq = taskQueue();

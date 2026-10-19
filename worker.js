@@ -7987,7 +7987,13 @@ function buildProgressFor(env, ctx, { id, run, uid, take = false, words = "" }) 
      * run that carries a build on (`take`): that one opens at `identify`.
      */
     open() {
-      if (p || take) return;
+      // ONLY WHERE THE BUILD WILL RUN TO ITS END (2026-10-19, after deploy
+      // 2219's build said one line and nothing more): the Worker's own run hands
+      // a build to its container, and a record it opened belonged to the wrong
+      // run — every later milestone was refused. Inside the container (its
+      // gateway is the way in) the record opens at the start; elsewhere at
+      // `identify`, as it always did.
+      if (p || take || typeof env.JOB_PROGRESS !== "function") return;
       p = makeProgress(env, ctx, { id, run, uid, slug: "", standalone: false });
       if (!p) return;
       p.begin({ op: "build", words, take: false });

@@ -38,3 +38,14 @@ test("a new project is named neutrally, never from the brief's first words", () 
   assert.ok(!/name: words\.split\(/.test(CHAT), "a build picked up on another page is named from the brief again");
   assert.match(CHAT, /if \(d\.brand && typeof d\.brand === 'string' && d\.brand\.trim\(\)\) s\.name = d\.brand\.trim\(\)/, "the build no longer names the site when it finishes");
 });
+
+// THE FINISHED BUILD'S STEP SUMMARY IS GONE (2026-10-19, owner: "delete this
+// completely" — the "wrote the code · compiled react · published" rows under
+// the reply). The reply and the progress talk are what a finished build shows.
+test("a finished reply no longer draws the build's step summary", () => {
+  const at = CHAT.indexOf("'<div class=\"st-msg a\">' + (m.note");
+  assert.ok(at > 0, "the assistant message markup could not be found");
+  const line = CHAT.slice(at, CHAT.indexOf("\n", at));
+  assert.ok(line.includes("siteMsgText(m, linkify)"), "the landmark is not the message markup");
+  assert.ok(!/reactStepsHTML\(m\.build\)/.test(line), "the finished build's step summary is drawn again");
+});

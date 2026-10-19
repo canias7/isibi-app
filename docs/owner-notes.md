@@ -1,5 +1,11 @@
 # Owner Notes
 
+## 2026-10-19 — Why deploy 2219's build said one line, and the fix; the finished step summary removed (branch only, not deployed)
+
+- **The recorded build on deploy 2219** (harbour-loaf-4, about 10 minutes, 20 credits) said its opening line and nothing more, though its trace holds every step the new talk reads (the four page-writing counts, the browser check, the draft save). The earlier build (harbour-loaf-3) wrote three lines. **Cause (from the code; no Worker logs are readable from here):** round 1 opened the build's progress record at the start of *any* run, and a build's first run is the Worker's, which hands the build to its container. The record then belonged to the wrong run and the container's milestones were refused. **Fix:** the record opens at the start only inside the container (where the build runs to its end); a run outside it opens at the address, as before. Two build guards put back to that.
+- **The finished build's step summary is gone** ("wrote the code · compiled react · published" under the reply), on your word "delete this completely". Guard: `test/build-live-lines.test.mjs`.
+Full suite `11517 / 11515 / 0 / 2`. Not yet shown live: the next recorded build is the check.
+
 ## 2026-10-19 — Progress talk round 4: Publish, Restore and Discard talk while they run (option B; branch only, not deployed)
 
 You chose B (live talk while the press runs). Each press now gets a live message in the site's chat that fills with the model's own lines as each step really happens:

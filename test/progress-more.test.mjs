@@ -62,7 +62,7 @@ test("the address is said only when it is one", () => {
 test("THE WIRING: the build opens its record at the start, and the publish's steps reach the trace", () => {
   assert.match(W, /if \(bProgress\) \{ bProgress\.open\(\);/, "the build no longer opens its record when it starts");
   const fn = W.slice(W.indexOf("function buildProgressFor("), W.indexOf("\n}\n", W.indexOf("function buildProgressFor(")));
-  assert.match(fn, /open\(\) \{\s*\n\s*if \(p \|\| take\) return;/, "the early open is no longer refused on a carried-on run");
+  assert.match(fn, /open\(\) \{(?:\s*\n\s*\/\/.*)*\s*\n\s*if \(p \|\| take \|\| typeof env\.JOB_PROGRESS !== "function"\) return;/, "the early open is no longer kept to the container's own run, or no longer refused on a carried-on run");
   assert.match(fn, /addressFacts\(slug\)/, "the address the design chose is never said");
   assert.match(W, /repair: quickSend\(env\),\s*\n(?:\s*\/\/.*\n)*\s*note: \(stage, nums\) => \{ try \{ mark\?\.\(stage, nums\); \}/, "the publish's steps no longer reach the build's trace");
 });
