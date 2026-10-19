@@ -1822,7 +1822,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    I checked this against, so what I drew and what shipped would have been two
    different typefaces. Naming it here makes the panel render the same wherever
    it is drawn, which is also what lets a screenshot of it be evidence. */
-.st-b1 .st-building-t { font-family: 'Patrick Hand', 'Segoe Print', Inter, system-ui, sans-serif; font-size: 2rem; line-height: 1.1; color: var(--text); }
+.st-b1 .st-building-t { font-family: 'Space Grotesk', Inter, system-ui, sans-serif; font-weight: 600; letter-spacing: -.01em; font-size: 2rem; line-height: 1.1; color: var(--text); }
 .st-bsub { font-size: .8rem; color: var(--muted); margin-top: .35rem; }
 /* TABULAR FIGURES, because this redraws every 1.5s: proportional digits make a
    running clock jitter sideways on every tick, which reads as the page twitching

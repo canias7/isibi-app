@@ -549,7 +549,10 @@ test("the panel's own type and its never-full segment are in the stylesheet", ()
   // the owner and what shipped would have been two different typefaces.
   const hero = /\.st-b1 \.st-building-t \{[^}]*\}/.exec(css);
   assert.ok(hero, "the stage hero has no rule of its own");
-  assert.match(hero[0], /font-family:\s*'Patrick Hand'/, "the hero's display face is inherited again");
+  // NOT HANDWRITTEN (2026-10-19, owner: "fix 5" on the recorded build): the
+  // app's own display face, still named rather than inherited.
+  assert.match(hero[0], /font-family:\s*'Space Grotesk'/, "the hero's display face is inherited again, or no longer the app's");
+  assert.ok(!/Patrick Hand|Segoe Print/.test(hero[0]), "the hero is handwritten again");
   // Tabular figures, because this redraws every 1.5s and proportional digits make
   // a running clock twitch sideways on every tick.
   const clock = /\.st-bclock \{[^}]*\}/.exec(css);

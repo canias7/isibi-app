@@ -1,5 +1,13 @@
 # Owner Notes
 
+## 2026-10-19 — Three fixes from the recorded build: the repeated line, the title, the handwritten font (branch only, not deployed)
+
+From deploy 2218's recorded build (harbour-loaf-3, about 13½ minutes, 23 credits), you asked for fixes 1, 3 and 5:
+1. **The progress line drawn nine times.** The page redraws the live steps every 1.5 seconds by swapping their box, and the build's own lines were drawn just outside that box, so every redraw left the old list and added a new one. The lines now sit inside the box (`reactLiveStepsHTML`). Guard: `test/build-live-lines.test.mjs` (red on the old code).
+3. **"Build a website for" as the title.** A new project was named from the brief's first four words. It is now "New website" until the build names the site.
+5. **The handwritten font on "Planning your site…".** It is now the app's own display face, Space Grotesk (`.st-b1 .st-building-t`); the guard in `test/build-progress.test.mjs` now forbids the handwritten face.
+Shown in a local render (the real page with the new files and a stand-in build, no build bought). That render asked the real clarifying question twice, 6 credits from the test account (53 → 47). Full suite `11500 / 11498 / 0 / 2`.
+
 ## 2026-10-19 — The switches are now on by default in the code, not in GitHub secrets (branch only, not deployed)
 
 You asked to have the switches "there instead of in secrets, like a default thing", all of them except the image one. In `.github/workflows/deploy.yml` these now default to `on` when no secret is set: `PROGRESS_REPLIES`, `PROGRESS_TALK`, `BAND_SPLIT_EVERYONE`, `DESIGN_SPLIT_EVERYONE`, `DESIGN_GRAPH_EVERYONE`, `EDIT_ASYNC`, `REQUEST_FLOW`, `PARALLEL_WRITES`, `DRAFT_FIRST` (`MODEL_REPLIES`, `EDIT_ASYNC_EVERYONE` and `JOB_RUNNER_EVERYONE` already defaulted on). `IMAGE_PURCHASES` is left alone and stays controlled by its secret. A secret set to `off` still turns any switch off, and a secret that is already saved wins over the default. `DESIGN_GRAPH_EVERYONE` has never designed a live site. Seven guard tests that pinned "off" were re-anchored to the new defaults, each still proving that `off` turns the switch off. Full suite `11498 / 11496 / 0 / 2`. Takes effect on "merge and deploy".

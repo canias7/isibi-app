@@ -6085,7 +6085,10 @@ function siteAdopt(entry) {
 }
 function siteCreate(prompt) {
   const id = 'site_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-  const name = prompt.split(/\s+/).slice(0, 4).join(' ').slice(0, 30) || 'New site';
+  // NOT THE BRIEF'S FIRST WORDS (2026-10-19): the header read "Build a website
+  // for" for the whole of deploy 2218's build. A neutral name until the build
+  // names the site (`d.brand`).
+  const name = 'New website';
   sitesLoad().unshift({ id, name, createdAt: Date.now(), updatedAt: Date.now(), html: '', msgs: [] });
   sitesSave();
   // THE START SCREEN'S FILES GO WITH ITS BRIEF. They were attached for this build,
@@ -9494,7 +9497,10 @@ function reactLiveStepsHTML() {
   // THE BUILD'S OWN LIVE LINES (2026-10-09, round 5): written by the model from
   // the steps the build really reached — waiting on a dependency, recovering a
   // photograph — under the fixed stage rows; the newest one is live.
-  return '<div class="st-steps st-steps-live">' + rows.join('') + '</div>' + progressListHTML(sb.prog, true);
+  // INSIDE the live box (2026-10-19): `paintReactLive` swaps that box alone, so
+  // a list beside it was left behind on every repaint and a new one added — the
+  // same line drawn nine times on deploy 2218's recorded build.
+  return '<div class="st-steps st-steps-live">' + rows.join('') + progressListHTML(sb.prog, true) + '</div>';
 }
 // ── B1: the stage panel IS the display (owner, 2026-09-07: "OK B1") ─────────
 //
@@ -13785,7 +13791,7 @@ function siteBuildTake(b) {
     // chat's own id, with the customer's words as its first message, so the
     // finished site belongs to it as it would have to the page that asked.
     const at = Number.isFinite(b.at) ? b.at : Date.now();
-    sitesLoad().unshift({ id: b.chat, name: words.split(/\s+/).slice(0, 4).join(' ').slice(0, 30) || 'New site', createdAt: at, updatedAt: Date.now(), html: '', msgs: words ? [{ r: 'u', t: words }] : [] });
+    sitesLoad().unshift({ id: b.chat, name: 'New website', createdAt: at, updatedAt: Date.now(), html: '', msgs: words ? [{ r: 'u', t: words }] : [] });
     sitesSave();
     s = siteById(b.chat);
     if (!s) return;
