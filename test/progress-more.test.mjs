@@ -193,3 +193,42 @@ test("R4 THE WIRING: each route says its steps through the press's own talk, and
   }
   assert.match(CHATJS, /m\.talkLive === true \? \(Array\.isArray\(m\.prog\) && m\.prog\.length \? progressListHTML\(m\.prog, true\)/, "a press's lines are not drawn live");
 });
+
+// ── ROUND 5: THE DESIGN SAYS WHAT IT IS DOING ───────────────────────────────
+import { designStartFacts, designPartFacts } from "../builder/site-progress.mjs";
+import { designInGraph } from "../builder/design-graph.mjs";
+import { designInWaves } from "../builder/design-waves.mjs";
+
+const TOOL = { name: "design_schema", input_schema: { type: "object", properties: { pages: { type: "array" }, theme: { type: "string" }, brand: { type: "string" } } } };
+const answer = (input) => ({ content: [{ type: "tool_use", name: "design_schema", input }], usage: { input_tokens: 1, output_tokens: 1 } });
+
+test("R5 a design part is said as it starts, by what it works on, and as it ends, by what it decided", () => {
+  assert.match(texts(designStartFacts("shape")), /Now designing the layout of each page[\s\S]*Nothing is decided yet/);
+  assert.match(texts(designStartFacts("theme")), /choosing the site's look/);
+  for (const quiet of ["kind", "web", "lang", "extras", "", null]) assert.deepEqual(designStartFacts(quiet), [], String(quiet));
+  const got = texts(designPartFacts({ brand: "Harbour Loaf", pages: [{ name: "Home", path: "/" }, { name: "Menu", path: "/menu" }], shape: [{ path: "/", sections: ["a", "b"] }], theme: "bakery", wordmark: { x: 1 } }));
+  for (const re of [/Named the site "Harbour Loaf"/, /Planned 2 pages: Home, Menu/, /2 sections in all/, /"bakery" style/, /name as a logo/]) assert.match(got, re);
+  assert.ok(!/photo/i.test(got), "the design is said to choose photographs");
+  assert.deepEqual(designPartFacts({ images: [{ describe: "a loaf" }], kind: "shop" }), [], "a part with nothing a customer would recognise spoke");
+});
+
+test("R5 THE DESIGNERS HAND EACH PART ON AS IT STARTS AND AS IT ENDS — and a throwing listener never costs the design", async () => {
+  const graph = [{ name: "pages", fields: ["pages"], needs: [] }, { name: "theme", fields: ["theme"], needs: ["pages"] }];
+  const seen = [];
+  const onPart = (p) => { seen.push(p.start ? "start:" + p.agent : "done:" + p.agent + ":" + Object.keys(p.got).join(",")); if (seen.length === 1) throw new Error("boom"); };
+  const call = async (req) => answer(JSON.stringify(req).includes('"theme"') && !JSON.stringify(req).includes('"pages":{') ? { theme: "bakery" } : { pages: [{ name: "Home", path: "/" }] });
+  await designInGraph({ tool: TOOL, system: "s", brief: "b", model: "m", maxTokens: 10, graph, onPart }, call);
+  assert.equal(seen[0], "start:pages");
+  assert.ok(seen.indexOf("done:pages:pages") > 0 && seen.indexOf("start:theme") > seen.indexOf("done:pages:pages"), "the parts were not said in their own order: " + seen.join(" "));
+  const wseen = [];
+  await designInWaves({ tool: TOOL, system: "s", brief: "b", model: "m", maxTokens: 10, waves: [[{ name: "identity", fields: ["brand"] }]], onPart: (p) => wseen.push(p.start ? "start:" + p.agent : "done:" + p.agent + ":" + Object.keys(p.got).join(",")) }, async () => answer({ brand: "Harbour Loaf" }));
+  assert.deepEqual(wseen, ["start:identity", "done:identity:brand"]);
+});
+
+test("R5 THE WIRING: the build hands the design's talk to the trace's own talk channel, and the job hooks that channel to the record", () => {
+  assert.match(W, /const designTalk = \(\{ agent, got, start \} = \{\}\) => \{ try \{ if \(typeof tr\.say === "function"\) \{ const f = start \? designStartFacts\(agent\) : designPartFacts\(got\);/);
+  assert.match(W, /designSiteGraph\(env, designBrief, models\.design, attached\.blocks, budget, designGraph, firstBuild, designTalk\)/);
+  assert.match(W, /designSiteWaves\(env, designBrief, models\.design, attached\.blocks, budget, designWaves, firstBuild, designTalk\)/);
+  assert.match(W, /if \(bProgress\) tr\.say = \(stage, facts\) => bProgress\.say\(stage, facts\);/);
+  assert.match(W, /say\(stage, facts\) \{[\s\S]{0,200}if \(p\) p\.mark\(stage, facts\); else if \(early\.length < 20\) early\.push\(\[stage, facts\]\);/);
+});

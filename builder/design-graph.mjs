@@ -341,7 +341,7 @@ export function needKnown(agent, byName, known) {
  * need different sentences and collapsing them is this repository's most
  * recorded failure.
  */
-export async function designInGraph({ tool, system, brief, model, files = [], maxTokens, graph } = {}, call, now = () => Date.now()) {
+export async function designInGraph({ tool, system, brief, model, files = [], maxTokens, graph, onPart = null } = {}, call, now = () => Date.now()) {
   const list = Array.isArray(graph) ? graph : [];
   const byName = new Map(list.map((a) => [a.name, a]));
   const usage = { in: 0, out: 0, cacheRead: 0, cacheWrite: 0, model };
@@ -383,6 +383,8 @@ export async function designInGraph({ tool, system, brief, model, files = [], ma
       known: needKnown(agent, byName, known),
     });
     const release = await pool.take();
+    // THE PART STARTING, SAID AS IT STARTS (2026-10-19, owner: "what its doing … now im designing the layout").
+    if (typeof onPart === "function") { try { onPart({ agent: agent.name, start: true }); } catch { /* the talk never costs the design */ } }
     let out;
     // ONE CALL, THROUGH THE FAN-OUT RATHER THAN BESIDE IT. `runFanout` owns the
     // try/catch that keeps a provider's `status` and `detail` intact and the
@@ -418,6 +420,8 @@ export async function designInGraph({ tool, system, brief, model, files = [], ma
     // list handed in is this agent alone, so they line up by construction.
     const merged = mergeWaves([agent], [{ ...entry, i: 0 }]);
     Object.assign(known, merged.input);
+    // WHAT THIS AGENT DECIDED, HANDED ON AS SOON AS IT IS IN (2026-10-19). Never costs the design.
+    if (typeof onPart === "function" && Object.keys(merged.input).length) { try { onPart({ agent: agent.name, got: { ...merged.input } }); } catch { /* the talk never costs the design */ } }
     lost.push(...merged.failed);
     strayed.push(...merged.strayed);
     // A NEED IS SATISFIED WHEN ITS AGENT DID NOT FAIL, never when it ANSWERED

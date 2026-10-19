@@ -267,7 +267,7 @@ import {
   PROGRESS_CALL_MS, PROGRESS_TRIES, PROGRESS_RETRY_MS, PROGRESS_LINES_PER_TASK, PROGRESS_DISCOVERY_MS, PROGRESS_SEND_WAITS_MS,
   // THE BUILDER TALKS WHILE IT WORKS (2026-10-13), behind `PROGRESS_TALK`.
   talkOn, startFacts, spineCheckFacts, publishedFacts, talkBuildStepFacts, waitedFor, PROGRESS_SETTLE_S,
-  addressFacts, actionFacts, actionContext, ACTION_KINDS,
+  addressFacts, actionFacts, actionContext, ACTION_KINDS, designPartFacts, designStartFacts,
 } from "./builder/site-progress.mjs";
 // ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03): the record,
 // the plan, what a job's answer means for its part, and the next job.
@@ -4876,10 +4876,10 @@ export async function recoverDesign(env, { dz = null, err = null, jobId = null, 
  * and system text a design carries (`designKit`, so a wave's cached prefix IS
  * the single call's by construction), the ceiling, and the caller.
  */
-const designSiteWaves = (env, brief, model, files, budget, waves, frontendOnly) => designInWaves(
+const designSiteWaves = (env, brief, model, files, budget, waves, frontendOnly, onPart = null) => designInWaves(
   {
     ...designKit(frontendOnly),
-    brief, model, files, waves,
+    brief, model, files, waves, onPart,
     // THE SINGLE CALL'S OWN CEILING, PER AGENT, and no number invented. A
     // ceiling is not a reservation — `SITE_PAGES_MAX_TOKENS`' comment settles
     // this one layer over — so a tighter one sized to "an agent only answers a
@@ -4901,10 +4901,10 @@ const designSiteWaves = (env, brief, model, files, budget, waves, frontendOnly) 
  * and false the first time either variant moved, with a cold cached prefix per
  * build as the failure nobody sees.
  */
-const designSiteGraph = (env, brief, model, files, budget, graph, frontendOnly) => designInGraph(
+const designSiteGraph = (env, brief, model, files, budget, graph, frontendOnly, onPart = null) => designInGraph(
   {
     ...designKit(frontendOnly),
-    brief, model, files, graph,
+    brief, model, files, graph, onPart,
     // THE SINGLE CALL'S OWN CEILING, PER AGENT, for `designSiteWaves`' reason:
     // a ceiling is not a reservation, so a tighter one sized to "an agent only
     // answers one field" buys nothing but a cheaper failure — and a cut-off
@@ -8013,6 +8013,13 @@ function buildProgressFor(env, ctx, { id, run, uid, take = false, words = "" }) 
       for (const [stage, facts] of early.splice(0)) p.mark(stage, facts);
     },
     step(step) { try { if (step && typeof step === "object") send(step); } catch { /* lines never cost the build */ } },
+    /** Facts a step has in words (a design part's decisions), marked as they are. */
+    say(stage, facts) {
+      try {
+        if (typeof stage !== "string" || !Array.isArray(facts) || !facts.length) return;
+        if (p) p.mark(stage, facts); else if (early.length < 20) early.push([stage, facts]);
+      } catch { /* lines never cost the build */ }
+    },
     close(why) { return p ? p.close(why) : Promise.resolve(); },
   };
 }
@@ -19281,6 +19288,9 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
   const bProgress = lease ? buildProgressFor(env, ctx, { id, run: lease, uid: job.uid }) : null;
   if (bProgress) { bProgress.open(); const ident = rec.identify.bind(rec); rec.identify = (s, u) => { ident(s, u); bProgress.identify(s); }; }
   const tr = makeTrace(undefined, (snap) => { rec.step(snap); if (bProgress && snap && Array.isArray(snap.steps) && snap.steps.length) bProgress.step(snap.steps[snap.steps.length - 1]); });
+  // FACTS WITH WORDS IN THEM (2026-10-19): the trace keeps numbers only, so a
+  // step that has something to SAY (a design part's decisions) says it here.
+  if (bProgress) tr.say = (stage, facts) => bProgress.say(stage, facts);
   // THE CONTAINER'S LONGER CLOCK, AND THE STOP (stage 5b/5d): inside the
   // container the whole build runs here under `CONTAINER_BUILD_BUDGET_MS`
   // rather than the consumer's ceiling, and the budget reads the runner's
@@ -25276,6 +25286,9 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           // line rather than a side effect of evaluation order.
           const useGraph = designGraph.length > 0 && designGraphFor(env, { uid: bu.id, slug: namedSlug || "" });
           const useWaves = !useGraph && designWaves.length > 0 && designSplitFor(env, { uid: bu.id, slug: namedSlug || "" });
+          // EACH DESIGN PART, SAID AS IT IS DECIDED (2026-10-19), through the
+          // trace's own talk channel (`tr.say`, hooked by the build job).
+          const designTalk = ({ agent, got, start } = {}) => { try { if (typeof tr.say === "function") { const f = start ? designStartFacts(agent) : designPartFacts(got); if (f.length) tr.say(start ? "design-start" : "design-part", f); } } catch { /* the talk never costs the design */ } };
           // `firstBuild` IS THE SEVENTH ARGUMENT AND IT IS THE ONLY CALLER THAT
           // EVER PASSES IT — see `designSiteSchema`, where the default is false
           // so the two edit lanes keep the whole tool by saying nothing.
@@ -25290,9 +25303,9 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           let dzErr = null;
           try {
             dz = useGraph
-              ? await designSiteGraph(env, designBrief, models.design, attached.blocks, budget, designGraph, firstBuild)
+              ? await designSiteGraph(env, designBrief, models.design, attached.blocks, budget, designGraph, firstBuild, designTalk)
               : useWaves
-              ? await designSiteWaves(env, designBrief, models.design, attached.blocks, budget, designWaves, firstBuild)
+              ? await designSiteWaves(env, designBrief, models.design, attached.blocks, budget, designWaves, firstBuild, designTalk)
               : await designSiteSchema(env, designBrief, models.design, editState, attached.blocks, budget, firstBuild);
           } catch (e) { if (!firstBuild) throw e; dzErr = e; }
           if (firstBuild) {

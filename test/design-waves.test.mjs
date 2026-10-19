@@ -624,7 +624,8 @@ test("the build route decides, and the decision reaches the call", () => {
 });
 
 test("the wrapper hands the module the tool, the system, the ceiling and the caller", () => {
-  const block = between(WCODE, "const designSiteWaves = (env, brief, model, files, budget, waves, frontendOnly)", "\n);\n", "the wrapper");
+  // RE-ANCHORED 2026-10-19: the wrapper also hands on the design's talk (`onPart`).
+  const block = between(WCODE, "const designSiteWaves = (env, brief, model, files, budget, waves, frontendOnly, onPart = null)", "\n);\n", "the wrapper");
   assert.ok(/designInWaves\(/.test(block));
   assert.ok(/\.\.\.designKit\(frontendOnly\)/.test(block), "the tool and system must come off the ONE chooser, or 'byte for byte' is a coincidence");
   assert.ok(/maxTokens: SITE_SCHEMA_MAX_TOKENS/.test(block), "the ceiling is the single call's own — no number invented");

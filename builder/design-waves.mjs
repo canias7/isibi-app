@@ -557,7 +557,7 @@ export function waveMarks(shape) {
  * is free and has been since long before this. A design that IS usable bills
  * for every agent, including the ones that failed beside the ones that worked.
  */
-export async function designInWaves({ tool, system, brief, model, files = [], maxTokens, waves } = {}, call, now = () => Date.now()) {
+export async function designInWaves({ tool, system, brief, model, files = [], maxTokens, waves, onPart = null } = {}, call, now = () => Date.now()) {
   const usage = { in: 0, out: 0, cacheRead: 0, cacheWrite: 0, model };
   const known = {};
   const asked = [];
@@ -612,6 +612,8 @@ export async function designInWaves({ tool, system, brief, model, files = [], ma
     // THE WAVE'S OWN WALL CLOCK, and `runFanout` is handed the SAME clock so the
     // two numbers can never be read off two different ones — which is what would
     // make `agentMs - waveMs` a subtraction between incomparable things.
+    // EACH PART OF THE WAVE, SAID AS IT STARTS (2026-10-19).
+    if (typeof onPart === "function") for (const agent of wave) { try { onPart({ agent: agent.name, start: true }); } catch { /* the talk never costs the design */ } }
     const waveAt = now();
     const out = await runFanout(reqs, (r) => call(r), now);
     waveMs += now() - waveAt;
@@ -650,6 +652,13 @@ export async function designInWaves({ tool, system, brief, model, files = [], ma
     // THE NEXT WAVE'S NOTE IS BUILT FROM THIS, which is the whole reason the
     // waves are ordered at all: a mark cannot draw a brand nobody told it.
     Object.assign(known, merged.input);
+    // WHAT THIS WAVE DECIDED, HANDED ON AS SOON AS IT IS IN (2026-10-19): one
+    // call per agent, with only the fields that agent answered. Never costs the design.
+    if (typeof onPart === "function") for (const agent of wave) {
+      const got = {};
+      for (const f of agent.fields) if (Object.hasOwn(merged.input, f)) got[f] = merged.input[f];
+      if (Object.keys(got).length) { try { onPart({ agent: agent.name, got }); } catch { /* the talk never costs the design */ } }
+    }
     lost.push(...merged.failed);
     strayed.push(...merged.strayed);
     for (const agent of wave) asked.push(...agent.fields);

@@ -1202,6 +1202,47 @@ export function startFacts({ op, layer = "", page = "", slug = "" } = {}) {
   return [];
 }
 
+/**
+ * WHAT ONE PART OF THE DESIGN DECIDED, AS SOON AS IT DECIDED IT (2026-10-19,
+ * owner: "it doesnt talk too much … for example while its designing"). Read
+ * off that part's own answer (`got`, the fields it returned) — the name, the
+ * pages, how they are laid out, the look — never anything it did not answer.
+ * No photographs: the design does not choose them (the page writers do, and
+ * the purchase says when one is made).
+ */
+/**
+ * A DESIGN PART STARTING (2026-10-19, owner: "what its doing … now im
+ * designing the layout"): said when its call begins, from the part's own name —
+ * what it is working on, never what it will decide. Parts a customer would not
+ * recognise as work of their own say nothing.
+ */
+const DESIGN_PART_SAID = Object.freeze({
+  identity: "working out the site's name and address", pages: "planning which pages the site has",
+  purpose: "working out what each page is for", theme: "choosing the site's look: its colours and fonts",
+  shape: "designing the layout of each page, top to bottom", components: "choosing the sections each page is made of",
+  wordmark: "drawing the site's name as a logo", css: "fine-tuning the styling", behavior: "planning how the forms and buttons behave",
+  plan: "planning the pages and how each is laid out", look: "choosing the site's look: its colours, fonts and logo", detail: "planning how the forms and buttons behave",
+});
+export function designStartFacts(agent) {
+  return typeof agent === "string" && Object.hasOwn(DESIGN_PART_SAID, agent) ? [fact("doing", "Now " + DESIGN_PART_SAID[agent] + ". Nothing is decided yet.")] : [];
+}
+export function designPartFacts(got) {
+  const g = got && typeof got === "object" ? got : {};
+  const out = [];
+  const brand = typeof g.brand === "string" ? flat(g.brand).slice(0, 80) : "";
+  if (brand) out.push(fact("decided", "Named the site \"" + brand + "\". Nothing is built yet."));
+  const pages = Array.isArray(g.pages) ? g.pages.filter((p) => p && typeof p === "object") : [];
+  const names = pages.map((p) => flat(typeof p.name === "string" ? p.name : typeof p.path === "string" ? p.path : "")).filter(Boolean).slice(0, 12);
+  if (names.length) out.push(fact("designed", "Planned " + (names.length === 1 ? "one page" : names.length + " pages") + ": " + names.join(", ") + ". Nothing is built yet."));
+  const shape = Array.isArray(g.shape) ? g.shape.filter((x) => x && Array.isArray(x.sections)) : [];
+  const bands = shape.reduce((k, x) => k + x.sections.filter((t) => typeof t === "string" && t.trim()).length, 0);
+  if (bands) out.push(fact("designed", "Laid out the pages top to bottom: " + bands + " sections in all. Nothing is built yet."));
+  const theme = typeof g.theme === "string" ? flat(g.theme).slice(0, 40) : "";
+  if (theme) out.push(fact("designed", "Chose the site's look: the \"" + theme + "\" style, its colours and fonts. Nothing is built yet."));
+  if (g.wordmark && typeof g.wordmark === "object") out.push(fact("designed", "Drew the site's name as a logo. Nothing is built yet."));
+  return out;
+}
+
 /** The address a first build's design chose, said once its record is already open (2026-10-19). */
 export function addressFacts(slug) {
   return typeof slug === "string" && SLUG_RE.test(slug) ? [fact("decided", "Chose the address " + slug + " for the site.")] : [];
