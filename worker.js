@@ -267,7 +267,7 @@ import {
   PROGRESS_CALL_MS, PROGRESS_TRIES, PROGRESS_RETRY_MS, PROGRESS_LINES_PER_TASK, PROGRESS_DISCOVERY_MS, PROGRESS_SEND_WAITS_MS,
   // THE BUILDER TALKS WHILE IT WORKS (2026-10-13), behind `PROGRESS_TALK`.
   talkOn, startFacts, spineCheckFacts, publishedFacts, talkBuildStepFacts, waitedFor, PROGRESS_SETTLE_S,
-  addressFacts, actionFacts, actionContext, ACTION_KINDS, designPartFacts, designStartFacts, sectionStartFacts, sectionDoneFacts, writingNowFacts,
+  addressFacts, actionFacts, actionContext, ACTION_KINDS, designPartFacts, designStartFacts, sectionStartFacts, sectionDoneFacts, writingNowFacts, compileStageFacts,
 } from "./builder/site-progress.mjs";
 // ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03): the record,
 // the plan, what a job's answer means for its part, and the next job.
@@ -7639,6 +7639,27 @@ const PROGRESS_KIND = "edit-progress";
 const progressBudget = { capMs: () => PROGRESS_CALL_MS };
 /** How often a build says what is going on the page right now, at most (2026-10-19). */
 const LIVE_SAY_MS = 15_000;
+/**
+ * WHICH STEP THE CONTAINER'S BUILD IS ON, WATCHED WHILE IT RUNS (2026-10-19):
+ * asked every few seconds (`/build/stage`) and handed on once per change.
+ * Returns the stop. Never costs the build.
+ */
+const BUILD_STAGE_EVERY_MS = 4000;
+function watchBuildStage(c, stageId, onStage) {
+  let last = "", stopped = false, timer = null;
+  const tick = async () => {
+    if (stopped) return;
+    try {
+      const r = await c.fetch(new Request("http://build/build/stage?id=" + encodeURIComponent(stageId), { method: "GET", signal: AbortSignal.timeout(3000) }));
+      const a = await r.json().catch(() => null);
+      const st = a && typeof a.stage === "string" ? a.stage : "";
+      if (!stopped && st && st !== "unknown" && st !== last) { last = st; try { onStage(st); } catch { /* the talk never costs the build */ } }
+    } catch { /* the next tick asks again */ }
+    if (!stopped) timer = setTimeout(tick, BUILD_STAGE_EVERY_MS);
+  };
+  timer = setTimeout(tick, 1500);
+  return () => { stopped = true; if (timer) clearTimeout(timer); };
+}
 
 /**
  * A BUTTON PRESS THAT TALKS (2026-10-19, owner chose "B"): Publish, Restore and
@@ -16108,7 +16129,10 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       const c = getContainer(env.SITE_BUILD_CONTAINER, laneName(slug));
       // THE PAYLOAD ONCE, THE CALL AS MANY TIMES AS ROOM TAKES (2026-09-04) —
       // see `withRoom` below the payload.
+      // NAMED, so its steps can be watched while it runs (2026-10-19).
+      const cStageId = crypto.randomUUID();
       const cPayload = JSON.stringify({
+          stageId: cStageId,
           files, slug, title: (look && look.brand) || slug,
           // THE PREFIX THIS SCRIPT WILL SERVE (stage 7) and the one it may fall
           // back to, baked as `SITE_VERSION` / `SITE_PARENT`.
@@ -16260,6 +16284,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       // cap; a JSON body is never a room problem and parses exactly as before.
       // Each attempt is bounded by what is LEFT of the cap, so the wait and
       // the call share one clock. See builder/container-room.mjs.
+      const cStop = job && job.progress && job.progress.talk ? watchBuildStage(c, cStageId, (st) => { const f = compileStageFacts(st); if (f.length) job.progress.mark("compile-stage", f); }) : () => {};
       const { answer: rr, room: cRoom, waited: cWaited, attempts: cTries } = await withRoom(async () => {
         const r = await c.fetch(new Request("http://build/build", {
           method: "POST",
@@ -16268,7 +16293,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
           signal: AbortSignal.timeout(Math.max(1000, cDeadline - Date.now())),
         }));
         return { status: (r && r.status) || 0, text: await r.text().catch(() => "") };
-      }, { deadline: cDeadline, floorMs: MIN_BUILD_MS, onWait: (w) => tm("container", "wait", w) });
+      }, { deadline: cDeadline, floorMs: MIN_BUILD_MS, onWait: (w) => tm("container", "wait", w) }).finally(cStop);
       // ACCEPTED — a response object exists, so the container was reached and
       // answered a status. Distinct from "returned", below, which needs the
       // whole body: a connection cut mid-body lands between these two marks
@@ -17643,7 +17668,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       const c = getContainer(env.SITE_BUILD_CONTAINER, laneName(slug));
       // THE PAYLOAD ONCE, THE CALL AS MANY TIMES AS ROOM TAKES (2026-09-04) —
       // see `withRoom` below the payload.
-      const bPayload = JSON.stringify({ files, slug, title: brand,
+      // NAMED, so its steps can be watched while it runs (2026-10-19).
+      const bStageId = crypto.randomUUID();
+      const bPayload = JSON.stringify({ stageId: bStageId, files, slug, title: brand,
           // THE PREFIX THIS SCRIPT WILL SERVE (stage 7) and its fallback hop.
           version: bVersion, parent: bParent || undefined,
           // THE COMPONENTS THE MODEL JUST WROTE, straight off the `write_pages`
@@ -17732,6 +17759,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       // The spine's copy has the reasoning; here the failure used to be one
       // immediate retry and a placeholder saying "send it again". Bounded by
       // what is LEFT of the build's cap, with a compile's floor kept back.
+      const bStop = typeof say === "function" ? watchBuildStage(c, bStageId, (st) => { const f = compileStageFacts(st); if (f.length) say("compile-stage", f); }) : () => {};
       const { answer: r, room: bRoom, waited: bWaited } = await withRoom(async () => {
         const rr = await c.fetch(new Request("http://build/build", {
           method: "POST",
@@ -17740,7 +17768,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
           signal: AbortSignal.timeout(Math.max(1000, bDeadline - Date.now())),
         }));
         return { status: (rr && rr.status) || 0, text: await rr.text().catch(() => "") };
-      }, { deadline: bDeadline, floorMs: MIN_BUILD_MS, onWait: (w) => console.log("build: waiting for room", slug, JSON.stringify(w)) });
+      }, { deadline: bDeadline, floorMs: MIN_BUILD_MS, onWait: (w) => console.log("build: waiting for room", slug, JSON.stringify(w)) }).finally(bStop);
       if (bRoom) {
         return {
           ok: false, stage: "build", room: bRoom.kind,

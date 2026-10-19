@@ -452,7 +452,8 @@ test("the spine translates, caches, and never fails a publish over it", () => {
   // `cPayload`, because the fetch sits inside a wait for container room and
   // may run more than once. The property — the assembled files are what the
   // container is sent — is read off the payload AND the fetch that carries it.
-  assert.match(body, /const cPayload = JSON\.stringify\(\{\s*files, slug,/, "the container is not sent the assembled files");
+  // RE-ANCHORED 2026-10-19: the payload names its build first (`stageId`), for its watcher.
+  assert.match(body, /const cPayload = JSON\.stringify\(\{\s*stageId: cStageId,\s*files, slug,/, "the container is not sent the assembled files");
   assert.match(body, /body: cPayload,/, "the payload is built and then not the one the fetch carries");
   assert.match(body, /langs: extraLangs\.length \? \{ extra: extraLangs, routes: primaryRoutes \} : undefined/);
   // A FAILED TRANSLATION IS NOT A FAILED PUBLISH: the pages fall back to the

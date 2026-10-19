@@ -1258,6 +1258,20 @@ export function writingNowFacts(now) {
     return fact("doing", (sec ? "Writing the section \"" + sec + "\" now" : "Writing the page now") + "; the words going on it so far include " + words + ". Not finished.");
   });
 }
+/**
+ * THE STEP THE CONTAINER IS ON WHILE IT PUTS THE SITE TOGETHER (2026-10-19,
+ * owner: "the container gotta report everything"), from its own step names.
+ */
+const COMPILE_STAGE_SAID = Object.freeze({
+  queued: "Waiting for the builder to be free, then putting the site together.",
+  routesMs: "Setting up the site's pages and their addresses.",
+  tscMs: "Checking the site's code for mistakes.",
+  viteMs: "Building the site's files.",
+  renderMs: "Opening every page in a real browser to check it shows properly.",
+});
+export function compileStageFacts(stage) {
+  return typeof stage === "string" && Object.hasOwn(COMPILE_STAGE_SAID, stage) ? [fact("doing", COMPILE_STAGE_SAID[stage] + " Not published yet.")] : [];
+}
 export function designPartFacts(got) {
   const g = got && typeof got === "object" ? got : {};
   const out = [];

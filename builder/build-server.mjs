@@ -147,6 +147,8 @@ const REACH_TIMEOUT_MS = 10000;
 // than on disk deliberately: a container that was recycled has LOST the work
 // however it was stored, so persisting it would only make an answer look
 // recoverable when the process that was producing it is gone.
+/** Which step each named build is on (`/build/stage`), dropped when it ends (2026-10-19). */
+const BUILD_STAGES = new Map();
 const MODEL_JOBS = new Map();
 // A lane is one slug, so one live job is the normal state and two means a
 // resume overlapped a start. More than that is something upstream retrying, and
@@ -2232,6 +2234,14 @@ const server = http.createServer((req, res) => {
   // duplicated resume message must find the same answer rather than "unknown
   // job" — which would read as the container having been recycled and lose a
   // generation that really did finish. The sweep is what bounds the store.
+  // ── WHICH STEP A BUILD IS ON, WHILE IT RUNS (2026-10-19, owner: "the container
+  // gotta report everything"): the caller names its build (`stageId`) and asks
+  // here while it waits; `unknown` once it has ended or was never named.
+  if (req.method === "GET" && req.url.startsWith("/build/stage")) {
+    const sid = new URL(req.url, "http://build").searchParams.get("id") || "";
+    const st = BUILD_STAGES.get(sid);
+    return send(res, 200, { ok: true, stage: st && Date.now() - st.at < 20 * 60 * 1000 ? st.stage : "unknown" });
+  }
   if (req.method === "GET" && req.url.startsWith("/model/result")) {
     sweepModelJobs();
     const id = new URL(req.url, "http://build").searchParams.get("id") || "";
@@ -2350,6 +2360,12 @@ const server = http.createServer((req, res) => {
     // investigating. Caught by the guard that requires every timed exit to carry
     // it, not by reading.
     const times = { routesMs: 0, tscMs: 0, viteMs: 0 };
+    const stageId = typeof payload.stageId === "string" && /^[A-Za-z0-9-]{8,64}$/.test(payload.stageId) ? payload.stageId : "";
+    if (stageId) {
+      // BOUNDED: the oldest names go first, so the map never grows with builds.
+      while (BUILD_STAGES.size >= 64) BUILD_STAGES.delete(BUILD_STAGES.keys().next().value);
+      BUILD_STAGES.set(stageId, { stage: "queued", at: Date.now() });
+    }
     return oneAtATime(async () => {
     try {
       resetRoutes();
@@ -2434,6 +2450,7 @@ const server = http.createServer((req, res) => {
       // that died in typecheck still spent that time.
       const timed = async (key, cmd, args, fn) => {
         const t = Date.now();
+        if (stageId) BUILD_STAGES.set(stageId, { stage: key, at: t });
         // `fn` for a step that is not a subprocess — the prerender runs in this
         // process, and giving it its own timing shape would put the same clock
         // in two places.

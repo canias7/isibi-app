@@ -1,5 +1,9 @@
 # Owner Notes
 
+## 2026-10-19 — The container's build steps are told as they run; merged and deployed on your word "finish it then merge"
+
+While the site is put together inside the container, each step is now said as it starts: waiting for the builder, setting up the pages' addresses, checking the code for mistakes, building the files, opening every page in a real browser (`compileStageFacts`). The Worker names each build (`stageId`), the container records which step it is on (`/build/stage`, bounded to 64), and the Worker asks every 4 seconds while it waits (`watchBuildStage`), for first builds and for edits and add-ons alike. Tests: R8 cases in `test/progress-more.test.mjs`; two guards re-anchored. Full suite `11527 / 11525 / 0 / 2`. Merged to `main` with everything since deploy 2219.
+
 ## 2026-10-19 — The page writing is told live: each section by name, and the words going on the page as they are written (branch only, not deployed)
 
 You asked that "the container gotta report everything" and "i dont only want when finished". While the page is written:

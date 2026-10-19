@@ -306,3 +306,29 @@ test("R7 THE POLL HANDS THE LIVE WORDS ON, and the build says them at most every
   assert.match(SERVER, /onPartial: \(partial\) => liveWords\(i, partial\)/, "a section's writer no longer reads its own words");
   assert.match(SERVER, /const w = wordsSoFar\(partial\); if \(w\.length\) j\.words = w;/, "the single call no longer reads its words");
 });
+
+// ── ROUND 8: THE CONTAINER'S BUILD STEPS, WHILE THEY RUN ────────────────────
+import { compileStageFacts } from "../builder/site-progress.mjs";
+
+test("R8 each container build step has its own line, and an unknown step says nothing", () => {
+  for (const [st, re] of [["routesMs", /pages and their addresses/], ["tscMs", /code for mistakes/], ["viteMs", /Building the site's files/], ["renderMs", /real browser/], ["queued", /Waiting for the builder/]]) {
+    const f = compileStageFacts(st);
+    assert.equal(f.length, 1, st);
+    assert.equal(f[0].state, "doing");
+    assert.match(f[0].text, re);
+    assert.match(f[0].text, /Not published yet\./);
+  }
+  for (const quiet of ["unknown", "", null, "preMs"]) assert.deepEqual(compileStageFacts(quiet), [], String(quiet));
+});
+
+test("R8 THE WIRING: the container names its step while it builds, and both build paths watch it while they wait", () => {
+  assert.match(SERVER, /if \(req\.method === "GET" && req\.url\.startsWith\("\/build\/stage"\)\) \{/, "the container no longer answers which step it is on");
+  assert.match(SERVER, /if \(stageId\) BUILD_STAGES\.set\(stageId, \{ stage: key, at: t \}\);/, "a step is no longer named as it starts");
+  assert.match(SERVER, /while \(BUILD_STAGES\.size >= 64\) BUILD_STAGES\.delete/, "the steps map is no longer bounded");
+  assert.match(W, /function watchBuildStage\(c, stageId, onStage\) \{/);
+  assert.match(W, /const bPayload = JSON\.stringify\(\{ stageId: bStageId,/, "the build's compile is not named");
+  assert.match(W, /watchBuildStage\(c, bStageId, \(st\) => \{ const f = compileStageFacts\(st\); if \(f\.length\) say\("compile-stage", f\); \}\)/);
+  assert.match(W, /onWait: \(w\) => console\.log\("build: waiting for room", slug, JSON\.stringify\(w\)\) \}\)\.finally\(bStop\);/, "the build's watcher is not stopped when the compile ends");
+  assert.match(W, /watchBuildStage\(c, cStageId, \(st\) => \{ const f = compileStageFacts\(st\); if \(f\.length\) job\.progress\.mark\("compile-stage", f\); \}\)/);
+  assert.match(W, /onWait: \(w\) => tm\("container", "wait", w\) \}\)\.finally\(cStop\);/, "the edit's watcher is not stopped when the compile ends");
+});

@@ -113,7 +113,8 @@ test("every failure that reports a child process goes through it", () => {
   // assertion has to say that rather than demanding an unconditional `run(`,
   // which is what went red. The property that matters is unchanged: the wrapper
   // must still be capable of spawning, or naming it as a call site is a lie.
-  assert.match(src, /const timed = async \([^)]*\) => \{[\s\S]{0,320}?await run\(/,
+  // RE-ANCHORED 2026-10-19: the step is now named for its watcher first, so the window is wider.
+  assert.match(src, /const timed = async \([^)]*\) => \{[\s\S]{0,480}?await run\(/,
     "timed() no longer spawns anything, so naming it as a subprocess call site is a lie");
   assert.match(src, /const timed = async \(key, cmd, args, fn\)/,
     "the in-process form is gone — if every step is a subprocess again, simplify this back");
