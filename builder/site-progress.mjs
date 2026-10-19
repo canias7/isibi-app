@@ -326,7 +326,10 @@ export function readProgressRecord(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw) || raw.v !== 1) return null;
   if (typeof raw.job !== "string" || !JOB_RE.test(raw.job)) return null;
   if (typeof raw.uid !== "string" || !raw.uid || raw.uid.length > 80) return null;
-  if (typeof raw.slug !== "string" || !SLUG_RE.test(raw.slug)) return null;
+  // A FIRST BUILD'S RECORD OPENS BEFORE ITS ADDRESS EXISTS (2026-10-19): the
+  // design names the site, and the customer is told what is happening from the
+  // start rather than after it — so a build alone may carry no address yet.
+  if (typeof raw.slug !== "string" || !(SLUG_RE.test(raw.slug) || (raw.op === "build" && raw.slug === ""))) return null;
   // A REQUEST'S OWN RECORD (`op: "request"`) holds its parts' task lines and nothing else.
   // A FIRST BUILD'S OWN RECORD (\`op: "build"\`, 2026-10-09, parallel round 5).
   if (raw.op !== "edit" && raw.op !== "addon" && raw.op !== "request" && raw.op !== "build") return null;
@@ -378,7 +381,7 @@ export function readProgressRecord(raw) {
  */
 export function openRecord({ job, uid, slug, op, run, words = "", picker = "", pages = [], tasks = [], at, request = null, talk = false }) {
   if (typeof job !== "string" || !JOB_RE.test(job) || typeof run !== "string" || !RUN_RE.test(run)) return null;
-  if (typeof uid !== "string" || !uid || typeof slug !== "string" || !SLUG_RE.test(slug) || (op !== "edit" && op !== "addon" && op !== "request" && op !== "build")) return null;
+  if (typeof uid !== "string" || !uid || typeof slug !== "string" || !(SLUG_RE.test(slug) || (op === "build" && slug === "")) || (op !== "edit" && op !== "addon" && op !== "request" && op !== "build")) return null;
   const ref = op === "request" ? null : readRequestRef(request);
   return readProgressRecord({
     v: 1, job, uid, slug, op, run, at, words: typeof words === "string" ? words : "",
@@ -447,6 +450,33 @@ export function buildStepFacts(step) {
       return out;
     }
     case "compile": return [fact("doing", "Putting the site together and checking it builds and renders before it is published.")];
+    // THE STEPS THAT USED TO RUN IN SILENCE (2026-10-19, owner: "it needs to
+    // talk more … like literally everything"). Each says only what its own
+    // numbers show; the model words it.
+    case "links": {
+      const out = [];
+      if (n("ok")) out.push(fact("decided", "Read " + pl(n("ok"), "the page", "pages") + " they linked to, to use for their site. Nothing is built yet."));
+      if (n("n") > n("ok")) out.push(fact("notdone", "Could not read " + pl(n("n") - n("ok"), "one page", "pages") + " they linked to."));
+      return out;
+    }
+    case "research": return n("searches") ? [fact("decided", "Looked up " + pl(n("searches"), "one thing", "things") + " about their business on the web, to write the pages with. Nothing is built yet.")] : [];
+    case "attachments": return n("sent") ? [fact("decided", "Read " + pl(n("sent"), "the file", "files") + " they attached. Nothing is built yet.")] : [];
+    case "ownphotos":
+    case "media": {
+      const own = name === "ownphotos";
+      const some = (k) => (k === 1 ? (own ? "one of their own photographs" : "one file from their library") : k + (own ? " of their own photographs" : " files from their library"));
+      const out = [];
+      if (n("placed")) out.push(fact("prepared", "Put " + some(n("placed")) + " on the pages. Not published yet."));
+      if (n("missing")) out.push(fact("notdone", "Could not use " + some(n("missing")) + "."));
+      return out;
+    }
+    case "bands": return n("wrote") ? [fact("prepared", "Wrote the pages in " + pl(n("wrote"), "one section", "sections") + " side by side" + (n("bands") > n("wrote") ? ", " + n("wrote") + " of the " + n("bands") + " planned" : "") + ". Not published yet.")] : [];
+    case "fonts": return [fact("doing", "Getting the site's fonts ready.")];
+    case "lang-beside": return [fact("doing", "Translating the site's words into its other languages.")];
+    case "compile-retry": return [fact("doing", "The first try at putting the site together did not start; trying again.")];
+    case "repairing": return n("pages") ? [fact("doing", "Fixing " + pl(n("pages"), "a page", "pages") + " the browser check found a problem on.")] : [];
+    case "repaired": return n("failed") ? [fact("notdone", "The fix did not build, so the pages stay as they were before it.")] : n("pages") ? [fact("prepared", "Fixed " + pl(n("pages"), "the page", "pages") + " and put the site together again. Not published yet.")] : [];
+    case "salvaged": return n("stubbed") ? [fact("notdone", (n("stubbed") === 1 ? "One page" : n("stubbed") + " pages") + " would not build, so " + (n("stubbed") === 1 ? "it shows" : "they show") + " a simple holding page for now.")] : [];
     default: return [];
   }
 }
@@ -1140,6 +1170,11 @@ export function startFacts({ op, layer = "", page = "", slug = "" } = {}) {
   return [];
 }
 
+/** The address a first build's design chose, said once its record is already open (2026-10-19). */
+export function addressFacts(slug) {
+  return typeof slug === "string" && SLUG_RE.test(slug) ? [fact("decided", "Chose the address " + slug + " for the site.")] : [];
+}
+
 /** The automated browser check's problem kinds, as a fact names them — what it looks for, never more. */
 
 /**
@@ -1186,6 +1221,13 @@ export function publishedFacts() {
 export function talkBuildStepFacts(step) {
   const name = step && typeof step === "object" && typeof step.s === "string" ? step.s : "";
   if (name === "container") return [fact("checked", "The site built without errors."), fact("doing", "Publishing the site now.")];
+  // THE BROWSER CHECK'S OWN RESULT (2026-10-19), as narrow as the check reaches.
+  if (name === "render-checked") {
+    const k = Number.isFinite(step.pages) && step.pages > 0 ? Math.floor(step.pages) : 0;
+    const bad = Number.isFinite(step.problems) && step.problems > 0 ? Math.floor(step.problems) : 0;
+    if (!k) return [];
+    return [fact("checked", "An automated check opened " + (k === 1 ? "the page" : "all " + k + " pages") + " in a browser: " + (bad ? (bad === 1 ? "one page has" : bad + " pages have") + " a problem to fix." : "none showed a problem."))];
+  }
   return buildStepFacts(step);
 }
 

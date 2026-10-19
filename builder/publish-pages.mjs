@@ -18,7 +18,7 @@ import { validatePages, lintPages, repairImports, mergeParts } from "./page-gen.
 // THE REWRITE'S PAGE MERGE AND ITS SENTENCE (2026-10-02, the whole-router
 // audit's W3). `site-addon.mjs` imports nothing, so this adds no cycle.
 import { mergeRevisedPages, keptReply, routeOf } from "./site-addon.mjs";
-import { repairPages } from "./site-repair.mjs";
+import { repairPages, repairBrief } from "./site-repair.mjs";
 // The seed top-up's OWN model and OWN hard output cap, imported rather than
 // restated. `buildFloor` has to price that call (see `SEED_PROFILE`), and a
 // second copy of either number here is a gate that drifts away from the thing
@@ -743,6 +743,11 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
   // closes over this — an empty list until there is an answer, which is exactly
   // right for the placeholder path, where there is no answer and never will be.
   let sitePartsForBuild = [];
+  // WHAT THE CUSTOMER IS TOLD AS IT HAPPENS (2026-10-19, owner: "it needs to
+  // talk more"): each step below that used to run in silence hands its own
+  // numbers to the caller's progress (`deps.note`), which turns them into facts
+  // the model words. Never costs the build.
+  const note = (stage, nums) => { try { if (typeof deps.note === "function") deps.note(stage, nums); } catch { /* the talk never costs the build */ } };
 
   // WHAT THE REPAIR PASS SPENT, collected here so it reaches the ONE
   // `pageCredits` call that prices this build. It is variadic precisely so
@@ -998,6 +1003,7 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
       // rather than the drain that caused the retry — the one thing the field
       // exists to name.
       if (!out.retriedBuild) out.retriedBuild = String(bd.error || "").slice(0, 200);
+      note("compile-retry");
       bd = await compile(pages);
     }
     return bd;
@@ -1512,6 +1518,7 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
       // NO MANUAL COUNT HERE. `compile` counts its own runs now, so this line
       // was adding one to a total the call on the line above had just reset.
       const second = await compileWithRetry(patched);
+      if (second.ok) note("salvaged", { stubbed: plan.stub.length });
       if (second.ok) {
         built = second;
         // THE STUB IS WHAT GETS STORED, and a revise therefore edits the stub
@@ -1559,7 +1566,10 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
    * getting a moment ago — one page rendering an apology — rather than nothing.
    * Never worse, which is the same rule `salvagePlan` lives under.
    */
+  if (built.ok && built.render && built.render.ok !== false) note("render-checked", { pages: pages.length, problems: repairBrief(built.render, pages).work.length });
   if (built.ok && typeof deps.repair === "function") {
+    const toFix = repairBrief(built.render, pages).work.length;
+    if (toFix) note("repairing", { pages: toFix });
     const rep = await repairPages({ report: built.render, pages, send: deps.repair });
     // THE USAGE RIDES BACK ON EVERY PATH, refusals included — these are real
     // model calls and the ledger prices what was used. Pushed into the same list
@@ -1568,6 +1578,7 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
     for (const u of rep.usage) repairUsage.push(u);
     if (rep.repaired.length) {
       const second = await compileWithRetry(rep.pages);
+      note("repaired", second.ok ? { pages: rep.repaired.length } : { failed: 1 });
       if (second.ok) {
         built = second;
         // THE REPAIRED SOURCE IS WHAT GETS STORED, or a revise hands the model

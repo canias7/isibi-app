@@ -267,6 +267,7 @@ import {
   PROGRESS_CALL_MS, PROGRESS_TRIES, PROGRESS_RETRY_MS, PROGRESS_LINES_PER_TASK, PROGRESS_DISCOVERY_MS, PROGRESS_SEND_WAITS_MS,
   // THE BUILDER TALKS WHILE IT WORKS (2026-10-13), behind `PROGRESS_TALK`.
   talkOn, startFacts, spineCheckFacts, publishedFacts, talkBuildStepFacts, waitedFor, PROGRESS_SETTLE_S,
+  addressFacts,
 } from "./builder/site-progress.mjs";
 // ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03): the record,
 // the plan, what a job's answer means for its part, and the next job.
@@ -7933,8 +7934,24 @@ function buildProgressFor(env, ctx, { id, run, uid, take = false, words = "" }) 
     if (p) p.mark(stage, facts); else if (early.length < 20) early.push([stage, facts]);
   };
   return {
+    /**
+     * OPEN AT THE START (2026-10-19, owner: "it needs to talk more"): a first
+     * build's record opens before the design names the site, so its opening
+     * plan is said in the first seconds instead of after the design. Never on a
+     * run that carries a build on (`take`): that one opens at `identify`.
+     */
+    open() {
+      if (p || take) return;
+      p = makeProgress(env, ctx, { id, run, uid, slug: "", standalone: false });
+      if (!p) return;
+      p.begin({ op: "build", words, take: false });
+      if (p.talk) p.mark("start", startFacts({ op: "build", slug: "" }));
+      for (const [stage, facts] of early.splice(0)) p.mark(stage, facts);
+    },
     identify(slug) {
-      if (p || typeof slug !== "string" || !slug) return;
+      if (typeof slug !== "string" || !slug) return;
+      // ALREADY OPEN: the address the design chose is one more thing to say.
+      if (p) { const said = p.talk && !take ? addressFacts(slug) : []; if (said.length) p.mark("address", said); return; }
       p = makeProgress(env, ctx, { id, run, uid, slug, standalone: false });
       if (!p) return;
       p.begin({ op: "build", words, take });
@@ -17667,6 +17684,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
     // repair there would be re-checking pages the customer just changed by hand
     // against a report about the build before it.
     repair: quickSend(env),
+    // THE STEPS INSIDE THE PUBLISH THAT USED TO RUN IN SILENCE (2026-10-19):
+    // their numbers go on the trace, which the build's progress already hears.
+    note: (stage, nums) => { try { mark?.(stage, nums); } catch { /* a trace must never break a build */ } },
     publish: async (dist, pages, worker) => {
       // THE SITE'S EXTRA LANGUAGE PREFIXES, for the sitemap and the route
       // manifest — and RECOMPUTED here rather than reached for, because
@@ -19190,7 +19210,7 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
   });
   // THE BUILD'S LIVE LINES (round 5), from the steps this trace records.
   const bProgress = lease ? buildProgressFor(env, ctx, { id, run: lease, uid: job.uid }) : null;
-  if (bProgress) { const ident = rec.identify.bind(rec); rec.identify = (s, u) => { ident(s, u); bProgress.identify(s); }; }
+  if (bProgress) { bProgress.open(); const ident = rec.identify.bind(rec); rec.identify = (s, u) => { ident(s, u); bProgress.identify(s); }; }
   const tr = makeTrace(undefined, (snap) => { rec.step(snap); if (bProgress && snap && Array.isArray(snap.steps) && snap.steps.length) bProgress.step(snap.steps[snap.steps.length - 1]); });
   // THE CONTAINER'S LONGER CLOCK, AND THE STOP (stage 5b/5d): inside the
   // container the whole build runs here under `CONTAINER_BUILD_BUDGET_MS`

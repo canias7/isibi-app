@@ -1,5 +1,13 @@
 # Owner Notes
 
+## 2026-10-19 — The builder talks through every step of a build (round 1 of 4; branch only, not deployed)
+
+You asked for it to "talk more … like literally everything … look at claude code". Every line is still written by the model; the code only hands it more facts, at more moments, each from what really happened. Round 1, first builds:
+- **From the first seconds.** The build's progress record now opens when the build starts, before the design (it used to open after it, so the whole design phase was silent). The address the design picks is said when it is chosen.
+- **New facts for steps that ran silently:** the pages read from links, the web lookups about the business, attached files, their own photos and library files placed (or not), the pages written in sections side by side, fonts, translations, a compile retry, the browser check's result (talking mode only, as a check), fixing the pages it flagged and whether the fix built, and pages that would not build and show a holding page.
+- Rounds still to do: 2) a line per page as the container writes it; 3) edits and add-ons step by step; 4) publish, restore, delete, discard.
+Tests: `test/progress-more.test.mjs` and three cases in `test/publish-pages.test.mjs` (red on the old code); two build cases re-anchored (the record now opens before it has an address). Full suite `11507 / 11505 / 0 / 2`.
+
 ## 2026-10-19 — Only the progress talk in the chat while a build runs (branch only, not deployed)
 
 You asked to delete "planning your site", "writing the code" and "compiling react" and keep only the progress talk. While a build runs, the chat now shows only the builder's own progress lines, with "Thinking" until the first one arrives (`reactLiveStepsHTML`). The stage panel on the right is unchanged, and so is the short summary under the finished reply. The live code that used to open under "writing the code" went with that row. The eight guard tests that pinned the rows were re-anchored to the new rule (no stage row is drawn, and each line is drawn exactly once). Full suite `11499 / 11497 / 0 / 0`. In the local render, the routing call before the stand-in build was real: 3 credits from the test account (47 → 44).

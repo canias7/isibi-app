@@ -2883,3 +2883,47 @@ test("THE WIRING — the Worker really passes `keep`, and it does not write the 
   assert.match(route, /siteOwnerBySlug\([\s\S]{0,40}\)/, "the answer route checks who is asking but not whose site it is");
   assert.match(route, /loadGenAnswer\(env, aslug\)/, "the answer route does not actually read the store");
 });
+
+/* ------------------------------------------- the steps it now talks about */
+
+// THE STEPS THAT USED TO RUN IN SILENCE (2026-10-19, owner: "it needs to talk
+// more … like literally everything"): the browser check's result, the fix and
+// its outcome, each handed to the caller's progress as numbers.
+const noted = (deps) => { const said = []; deps.note = (s, x) => said.push([s, x || null]); return said; };
+
+test("TALK: the browser check, the fix and the rebuilt site are each told, with their own numbers", async () => {
+  let n = 0;
+  const { deps } = harness({
+    compile: async () => ({ ok: true, files: { "index.html": { t: "<build-" + n++ + ">" } }, render: n === 1 ? crashed("/") : { ok: true, findings: [] } }),
+    repair: async () => repairReply(FIXED),
+  });
+  const said = noted(deps);
+  await publishPages(deps, { spec: SPEC, slug: "s" });
+  assert.deepEqual(said.map((x) => x[0]), ["render-checked", "repairing", "repaired"]);
+  assert.deepEqual(said[0][1], { pages: 1, problems: 1 });
+  assert.deepEqual(said[1][1], { pages: 1 });
+  assert.deepEqual(said[2][1], { pages: 1 });
+});
+
+test("TALK: a fix that does not build is told as such; a clean check is told with no fix", async () => {
+  let n = 0;
+  const bad = harness({
+    compile: async () => (n++ === 0 ? { ok: true, files: { "index.html": { t: "<o>" } }, render: crashed("/") } : { ok: false, stage: "typecheck", error: "x" }),
+    repair: async () => repairReply(FIXED),
+  });
+  const s1 = noted(bad.deps);
+  await publishPages(bad.deps, { spec: SPEC, slug: "s" });
+  assert.deepEqual(s1.find((x) => x[0] === "repaired")[1], { failed: 1 });
+  const clean = harness({ compile: async () => ({ ok: true, files: { "index.html": { t: "<x>" } }, render: { ok: true, findings: [] } }), repair: async () => repairReply(FIXED) });
+  const s2 = noted(clean.deps);
+  await publishPages(clean.deps, { spec: SPEC, slug: "s" });
+  assert.deepEqual(s2, [["render-checked", { pages: 1, problems: 0 }]]);
+});
+
+test("TALK: a note that throws never costs the build", async () => {
+  const { deps, calls } = harness({ compile: async () => ({ ok: true, files: { "index.html": { t: "<x>" } }, render: { ok: true, findings: [] } }) });
+  deps.note = () => { throw new Error("boom"); };
+  const out = await publishPages(deps, { spec: SPEC, slug: "s" });
+  assert.equal(out.page, "app");
+  assert.equal(calls.publish.length, 1);
+});
