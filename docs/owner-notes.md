@@ -1,5 +1,11 @@
 # Owner Notes
 
+## 2026-10-19 — The talk thinks less: Grok's reasoning effort set to low for progress lines and replies (on your word "set the talking to low and lets test it"; branch only, not deployed)
+
+- **What I found**: grok-4.6 takes `reasoning_effort` low / medium / high / xhigh. It can't be switched off, and the default is **high**. We had never sent it, so every call ran at high, and each talk line took 19 to 41 seconds (deploy 2224's and 2225's logs).
+- **The change**: progress lines, a button press's lines and the final reply now ask Grok for `low`. Design, page writing, routing and every other call keep the default. Claude calls are sent unchanged (no extended thinking is asked for there anyway). Test R17.
+- The next recorded build's log gives each line's time, so we compare directly against 19 to 41 s.
+
 ## 2026-10-19 — The real cause: a first build's container had no door to report through the Worker (branch only, not deployed)
 
 - **Deploy 2225's build** (Harbour Loaf 9, 66 credits before it, after you said to top up): **5 lines, and every step said**, an improvement. But the first line still came only at 156 s, written by the 2-minute sweep. The log had no entries at all for the record being opened or for steps reported through the Worker.

@@ -615,3 +615,22 @@ test("R16 a pre-scoped (first) build's container env carries JOB_PROGRESS, so it
     assert.equal(calls[0][0], "https://gofarther.dev/api/job/" + "c".repeat(32) + "/progress");
   }
 });
+
+// ── ROUND 17: THE TALK THINKS LESS (LOW REASONING EFFORT ON GROK) ────────────
+test("R17 a progress line and a reply ask Grok for low effort; a Claude call and every other call are sent unchanged; xAI's request carries it as reasoning_effort", async () => {
+  const { talkEffortApi } = await loadWorkerModule();
+  const { withTalkEffort, TALK_EFFORT } = talkEffortApi;
+  const { toXaiRequest, XAI_EFFORTS } = await import("../builder/model-xai.mjs");
+  assert.equal(TALK_EFFORT, "low");
+  assert.deepEqual([...XAI_EFFORTS], ["low", "medium", "high", "xhigh"]);
+  const grok = { model: "grok-4.6", max_tokens: 100, messages: [{ role: "user", content: "x" }] };
+  for (const what of ["progress", "reply"]) assert.equal(withTalkEffort(what, grok).effort, "low", what + " is not low");
+  for (const what of ["", "route", "design", "lane"]) assert.equal(withTalkEffort(what, grok), grok, what + " was changed");
+  const claude = { model: "claude-sonnet-5", max_tokens: 100, messages: [] };
+  assert.equal(withTalkEffort("progress", claude), claude, "a Claude call gained a field Anthropic refuses");
+  assert.equal(toXaiRequest(withTalkEffort("progress", grok)).body.reasoning_effort, "low");
+  assert.equal(Object.hasOwn(toXaiRequest(grok).body, "reasoning_effort"), false, "a call that named no effort sent one");
+  assert.equal(Object.hasOwn(toXaiRequest({ ...grok, effort: "turbo" }).body, "reasoning_effort"), false, "an unknown effort was sent");
+  assert.match(W, /const quickSendLive = \(env, what, budget, onPartial\) => \(req\) => callBuilderModel\(env, withTalkEffort\(what, req\),/);
+  assert.match(W, /const quickSend = \(env, what = "", budget = null\) => \(req\) => callBuilderModel\(env, withTalkEffort\(what, req\),/);
+});

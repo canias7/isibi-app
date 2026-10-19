@@ -136,6 +136,8 @@ function contentPart(b) {
  * having on its own: it says a translation dropped something, where `skipped`
  * says a customer lost something.
  */
+/** The reasoning efforts xAI accepts (`reasoning_effort`). */
+export const XAI_EFFORTS = Object.freeze(["low", "medium", "high", "xhigh"]);
 export function toXaiRequest(req) {
   const r = req && typeof req === "object" ? req : {};
   const messages = [];
@@ -165,6 +167,10 @@ export function toXaiRequest(req) {
 
   const body = { model: r.model, messages, max_tokens: r.max_tokens };
   if (tools.length) body.tools = tools;
+  // HOW HARD IT THINKS (2026-10-19, owner: "set the talking to low"): grok-4.6
+  // takes low / medium / high (its default) / xhigh. Only a call that names one
+  // carries it; every other call keeps the model's default.
+  if (XAI_EFFORTS.includes(r.effort)) body.reasoning_effort = r.effort;
   // A FORCED TOOL STAYS FORCED. Every builder call uses `tool_choice` to compel
   // one specific tool, and the whole pipeline is built on the answer arriving as
   // structured output — degrading this to "auto" would let the model reply in

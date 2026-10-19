@@ -307,7 +307,8 @@ test("the build route makes ONE budget, and both model calls are given it", () =
   // first, so the job's remaining time can only ever make it smaller.
   const sender = CODE.slice(CODE.indexOf("const quickSend ="), CODE.indexOf("const modelKeyMissing"));
   assert.ok(sender.length > 100, "the small-call sender is gone, or its window closed early");
-  assert.match(sender, /callBuilderModel\(env, req,/, "the small-call sender no longer makes the call");
+  // RE-ANCHORED 2026-10-19: the talk's calls carry a reasoning effort (`withTalkEffort`), every other call its request unchanged.
+  assert.match(sender, /callBuilderModel\(env, withTalkEffort\(what, req\),/, "the small-call sender no longer makes the call");
   assert.match(sender, /quickBudget/, "the small-call sender lost its default ceiling");
   // EITHER SMALL-CALL CEILING (2026-09-06, run 40). The sender grew a second
   // one: a STREAMED call is not bounded by the idle-wire hangup that set

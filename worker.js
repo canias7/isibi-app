@@ -574,6 +574,8 @@ function replyLiveWriter(env, job) {
 /** A button press's room: its own name space, so a press id can never be read as a job's room. */
 const actionRoom = (id) => "act:" + id;
 /** The room's pieces, for its tests. */
+/** The talk's reasoning effort, for its tests (read lazily: it is declared further down). */
+export const talkEffortApi = { withTalkEffort: (what, req) => withTalkEffort(what, req), get TALK_EFFORT() { return TALK_EFFORT; } };
 export const talkRoomApi = { TalkRoom, readRoomSay, mergeRoomSay, roomMessage, tellRoom, openRoomWatch, roomWriter, streamFromRoom, actionRoom, replyLiveWriter, roomLiveWriter, ROOM_KEEP_MS };
 
 // Site build-service container. The image (./builder/Dockerfile) bakes the React
@@ -4689,7 +4691,17 @@ const quickBudget = { capMs: () => QUICK_CALL_MS };
 const QUICK_STREAM_MS = 480000;
 const QUICK_STREAM = { stream: true };
 /** `quickSend` with the answer-so-far handed on as it streams (the live talk line). */
-const quickSendLive = (env, what, budget, onPartial) => (req) => callBuilderModel(env, req,
+/**
+ * THE TALK THINKS LESS (2026-10-19, owner: "set the talking to low"): a
+ * progress line, a press's line and the final reply ask a Grok model for low
+ * reasoning effort; it was the default (high), and each line took 20–40 s.
+ * Only Grok takes the setting: a Claude call is sent unchanged (it runs no
+ * extended thinking unless asked). Every other call keeps its model's default.
+ */
+const TALK_EFFORT = "low";
+const TALK_CALLS = new Set(["progress", "reply"]);
+const withTalkEffort = (what, req) => (TALK_CALLS.has(what) && req && typeof req === "object" && isXaiModel(req.model) ? { ...req, effort: TALK_EFFORT } : req);
+const quickSendLive = (env, what, budget, onPartial) => (req) => callBuilderModel(env, withTalkEffort(what, req),
   budget ? { capMs: (cap) => budget.capMs(Math.min(Number(cap) || QUICK_STREAM_MS, QUICK_STREAM_MS)) } : quickBudget,
   { stream: true, onPartial },
 ).catch((e) => { if (what && e && !e.call) { try { e.call = what; } catch { /* frozen error */ } } throw e; });
@@ -4697,7 +4709,7 @@ const quickSendLive = (env, what, budget, onPartial) => (req) => callBuilderMode
 // caller is unchanged. A queued edit passes its own clock, which composes the
 // two: a lane call started at minute eleven of a thirteen-minute job gets what
 // is left less the publish reserve, not another four minutes.
-const quickSend = (env, what = "", budget = null) => (req) => callBuilderModel(env, req,
+const quickSend = (env, what = "", budget = null) => (req) => callBuilderModel(env, withTalkEffort(what, req),
   // WHICHEVER IS SOONER. The clamp is `QUICK_STREAM_MS` rather than the flat
   // 240s: with the wire kept alive there is no reason left to refuse a call
   // the job can still afford, and the job's own `capMs` is what makes it
