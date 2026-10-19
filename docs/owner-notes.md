@@ -1,5 +1,11 @@
 # Owner Notes
 
+## 2026-10-19 — Deploy 2223's build said only 2 lines, so the talk now keeps a diagnostic log (on your word "ok do that"; branch only, not deployed)
+
+- **Deploy 2223** (`7c08b666`, on your word "merge deploy and build and record"): the deploy went green. The recorded build, Harbour Loaf 7, built fine, but said **2 lines** (at 171 s and 200 s) and nothing after them. So running the writer from the room was not the cause; I'd guessed wrong twice.
+- **The diagnostic**: each event that decides whether a line appears now writes one small entry under `progress-diag/<job>/`. That covers the record opened or refused; each step marked, refused or not written; each writer started (from the queue or the room); its claim; the job-row check before, after and post-commit, with the reason; the model call's result, reason and time; each commit; and the close. The job's owner reads it at `GET /api/site/build/<id>/diag`, together with the record's steps and lines. It never decides anything, and a failure in it costs nothing.
+- **Test R14.** The next recorded build will show where the lines are lost.
+
 ## 2026-10-19 — Why the build talked so little, and everything that talks now uses the room (on your word "do 1 and 2"; branch only, not deployed)
 
 - **What the trace showed**: the build *did* report every section as it was written (the trace has "writing 1 of 5" through "4 of 5"), but the lines came out about every 3½ minutes. The only thing that turns reports into lines, the line writer, ran only as a message in the build queue, the same queue the build itself uses. That message can wait. I couldn't read Cloudflare's logs from here to prove whether the wait was the queue or the model call for each line timing out (45 seconds each, tried twice). **The fix**: the build's talk room now also runs the line writer itself, 3 seconds after each report. The queue message still goes too, and whichever arrives second sees the first is already writing and leaves. The next recorded build will show whether lines now arrive every few seconds.

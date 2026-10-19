@@ -517,7 +517,7 @@ test("R12 THE ROOM RUNS THE LINE WRITER: a write asked of it sets its alarm for 
   assert.deepEqual(told, [[job, "https://room/write", { id: job, uid: "u1", delayMs: 3000 }]]);
   assert.equal(roomWriter({}, { id: job, uid: "u1" }), undefined);
   assert.match(W, /async function sendProgressTask\(env, task, delayS = 0\) \{\s*\n\s*roomWriter\(env, task, delayS\);/, "a queue ask no longer asks the room too");
-  assert.match(W, /try \{ await runProgressTask\(this\.env, \{ id: w\.id, uid: w\.uid \}\); \}/, "the room's alarm does not run the writer");
+  assert.match(W, /try \{ await runProgressTask\(this\.env, \{ id: w\.id, uid: w\.uid \}, "room"\); \}/, "the room's alarm does not run the writer");
 });
 
 // ── ROUND 13: EVERYTHING THAT TALKS USES THE ROOM ────────────────────────────
@@ -560,4 +560,36 @@ test("R13 THE PAGE: a press's id is 32 hex (the dashes were refused), edits and 
   assert.match(CHATJS, /readTalkStream\('\/api\/site\/build\/' \+ encodeURIComponent\(job\) \+ '\/stream\?reply=1'/, "a held reply is not followed live");
   assert.match(CHATJS, /if \(r && \(r\.status === 401 \|\| r\.status === 404 \|\| r\.status === 429\)\) return;/);
   assert.match(CHATJS, /return readTalkStream\('\/api\/site\/build\/' \+ encodeURIComponent\(job\) \+ '\/stream', signal/, "the build no longer reads through the shared reader");
+});
+
+// ── ROUND 14: THE TALK'S DIAGNOSTIC LOG ──────────────────────────────────────
+test("R14 every step where a line can be lost writes a diagnostic event, and only the job's owner can read them", () => {
+  const fn = W.slice(W.indexOf("async function writeProgressLine("), W.indexOf("\n}\n", W.indexOf("async function writeProgressLine(")));
+  for (const ev of ["claim-none", "claimed", "verdict-before", "no-facts", "call", "verdict-after", "committed", "verdict-post", "unconfirmed"]) {
+    assert.ok(fn.includes('diag(env, job, ' + (ev === "committed" ? 'done ? "committed"' : '"' + ev + '"')), "the writer does not log " + ev);
+  }
+  const door = W.slice(W.indexOf("async function progressFromJob("), W.indexOf("\n}\n", W.indexOf("async function progressFromJob(")));
+  for (const ev of ['r ? "begun" : "begin-refused"', '"mark-refused"', 'r ? "marked" : "mark-not-written"', '"close"']) assert.ok(door.includes(ev), "the record's door does not log " + ev);
+  assert.match(W, /diag\(env, task\.id, "writer-start", \{ from \}\);/);
+  assert.match(W, /runProgressTask\(this\.env, \{ id: w\.id, uid: w\.uid \}, "room"\)/, "a room's writer is not told apart from the queue's");
+  const route = W.slice(W.indexOf("const dg = url.pathname.match"), W.indexOf("const dg = url.pathname.match") + 1500);
+  assert.match(route, /if \(!du\) return Response\.json\(\{ error: "sign in first" \}, \{ status: 401 \}\);/);
+  assert.match(route, /if \(!at\.rec \|\| at\.rec\.uid !== du\.id\) return Response\.json\(\{ error: "not found" \}, \{ status: 404 \}\);/, "another account's diagnostics can be read");
+});
+
+test("R14 a diagnostic event is one object under the job's own prefix, and a bad job or a failing store writes nothing and throws nothing", async () => {
+  const src = W.slice(W.indexOf("const progressDiagKey ="), W.indexOf("async function writeProgressLine("));
+  const put = [];
+  // eslint-disable-next-line no-new-func
+  const make = new Function("isJobId", src + "\nreturn { diag, progressDiagKey };");
+  const { diag, progressDiagKey } = make((x) => typeof x === "string" && /^[0-9a-f]{32}$/.test(x));
+  const env = { SITES_BUCKET: { put: async (k, v) => { put.push([k, JSON.parse(v)]); } } };
+  const job = "b".repeat(32);
+  await diag(env, job, "call", { ok: false, why: "timeout", ms: 45000 });
+  assert.equal(put.length, 1);
+  assert.ok(put[0][0].startsWith(progressDiagKey(job)), "the event is not under the job's prefix");
+  assert.equal(put[0][1].ev, "call"); assert.equal(put[0][1].why, "timeout"); assert.ok(put[0][1].at > 0);
+  assert.equal(diag(env, "nope", "x"), undefined); assert.equal(put.length, 1);
+  await diag({ SITES_BUCKET: { put: async () => { throw new Error("down"); } } }, job, "x");
+  assert.equal(diag(null, job, "x"), undefined);
 });

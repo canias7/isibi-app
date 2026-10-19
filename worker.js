@@ -431,7 +431,7 @@ export class TalkRoom {
     const w = await this.ctx.storage.get("write");
     if (w && w.at <= now) {
       await this.ctx.storage.delete("write");
-      try { await runProgressTask(this.env, { id: w.id, uid: w.uid }); } catch { /* the queue's message and the cron are still there */ }
+      try { await runProgressTask(this.env, { id: w.id, uid: w.uid }, "room"); } catch { /* the queue's message and the cron are still there */ }
     }
     const c = await this.ctx.storage.get("cleanAt");
     if (Number.isFinite(c) && c <= Date.now() && !(await this.ctx.storage.get("write"))) {
@@ -8139,6 +8139,7 @@ async function progressFromJob(env, ids, body) {
       const opened = openRecord({ job: id, uid, slug, op: b.kind, run, words: b.words, picker: b.picker, pages: b.pages, tasks: b.task === true && words ? [{ n: 0, words }] : [], at: now, request: b.request, talk: b.talk === true && talkOn(env) });
       return opened ? { rec: opened } : null;
     }, seen);
+    diag(env, id, r ? "begun" : "begin-refused", { kind: String(b.kind || ""), take: b.take === true, pre, store: !!seen.store });
     if (r) await askProgress(env, id, uid, now);
     return answer(r);
   }
@@ -8154,6 +8155,7 @@ async function progressFromJob(env, ids, body) {
       if (added.already) { ask = !writerLive(rec, now) && pendingMarks(rec).length > 0; return { done: true }; }
       if (!added.rec) {
         if (added.refused !== "closed") console.log("progress:", id, "milestone refused —", added.refused);
+        diag(env, id, "mark-refused", { stage: String(b.stage || "").slice(0, 40), why: String(added.refused || "") });
         return null;
       }
       ask = writerNeeded(added.rec, now) === "ask";
@@ -8163,10 +8165,12 @@ async function progressFromJob(env, ids, body) {
       settle = added.rec.talk === true ? PROGRESS_SETTLE_S : 0;
       return { rec: ask ? markAsked(added.rec, now) : added.rec };
     }, seen);
+    diag(env, id, r ? "marked" : "mark-not-written", { stage: String(b.stage || "").slice(0, 40), ask, store: !!seen.store });
     if (r && ask) await sendProgressTask(env, { id, uid }, settle);
     return answer(r);
   }
   if (b.op === "close") {
+    diag(env, id, "close", { why: String(b.why || "").slice(0, 40) });
     const r = await progressUpdate(env, id, (rec) => {
       if (!rec || rec.run !== run || rec.closed || (pre && rec.op !== "build")) return { done: true };
       const closed = closeRecord(rec, typeof b.why === "string" ? b.why : "ended", now);
@@ -8432,6 +8436,25 @@ async function confirmProgressLines(env, job, below) {
  * never shown. The first read confirms, too, any line the claim found whose
  * own confirmation never landed: it was committed before that read.
  */
+/**
+ * THE TALK'S OWN DIAGNOSTIC LOG (2026-10-19, owner: "ok do that" — two recorded
+ * builds said 4 and 2 lines while their traces show every step reported). One
+ * small object per event under `progress-diag/<job>/`, written beside the
+ * record and never read by anything that decides a line: what was marked or
+ * refused, each writer's claim, the job-row verdict, the model call's outcome
+ * and time, each commit. Read by the job's owner only
+ * (`GET /api/site/build/<id>/diag`). A failure here never costs anything.
+ */
+const progressDiagKey = (job) => "progress-diag/" + job + "/";
+function diag(env, job, ev, data = {}) {
+  try {
+    if (!env || !env.SITES_BUCKET || !isJobId(job) || typeof ev !== "string") return;
+    const at = Date.now();
+    const key = progressDiagKey(job) + String(at).padStart(14, "0") + "-" + Math.random().toString(36).slice(2, 8) + ".json";
+    const p = env.SITES_BUCKET.put(key, JSON.stringify({ at, ev, ...data }), { httpMetadata: { contentType: "application/json" } }).catch(() => {});
+    return p;
+  } catch { /* the log never costs the talk */ }
+}
 async function writeProgressLine(env, task, owner) {
   const job = task.id;
   const claimed = await progressUpdate(env, job, (rec) => {
@@ -8439,7 +8462,8 @@ async function writeProgressLine(env, task, owner) {
     const c = claimWriter(rec, owner, Date.now());
     return c ? { rec: c.rec, gaveUp: c.gaveUp === true } : null;
   });
-  if (!claimed) return false;
+  if (!claimed) { diag(env, job, "claim-none", { owner }); return false; }
+  diag(env, job, "claimed", { owner, gaveUp: claimed.gaveUp === true, closed: !!(claimed.rec && claimed.rec.closed), lines: claimed.rec && Array.isArray(claimed.rec.lines) ? claimed.rec.lines.length : -1 });
   // EVERY TRY SPENT — a writer whose lease ran out before it committed spent
   // one too: what waited is given up, at no call, and said here.
   if (claimed.gaveUp) { console.log("progress:", job, "given up after", PROGRESS_TRIES, "tries"); return false; }
@@ -8452,9 +8476,9 @@ async function writeProgressLine(env, task, owner) {
   if (rec.closed) return writeLateLine(env, task, owner, rec);
   const batch = batchFor(rec);
   const before = jobVerdict(await jobRowForProgress(env, job), rec, Date.now());
-  if (!before.ok) { await progressStops(env, job, owner, batch, before.why); return false; }
+  if (!before.ok) { diag(env, job, "verdict-before", { why: before.why, marks: batch.marks.length }); await progressStops(env, job, owner, batch, before.why); return false; }
   if (unconfirmedLines(rec) > 0) await confirmProgressLines(env, job, rec.lines.length);
-  if (!batch.facts.length) { await progressUpdate(env, job, (r) => { const out = releaseWriter(r, owner); return out ? { rec: out } : null; }); return false; }
+  if (!batch.facts.length) { diag(env, job, "no-facts", { marks: batch.marks.length }); await progressUpdate(env, job, (r) => { const out = releaseWriter(r, owner); return out ? { rec: out } : null; }); return false; }
   const model = modelsFor(rec.picker || undefined).quick;
   // THE REQUEST'S OTHER PARTS AS THEY STAND NOW (2026-10-07): read off its
   // record for this line, so the writer is told what is finished and what is
@@ -8478,6 +8502,7 @@ async function writeProgressLine(env, task, owner) {
   try {
     console.log(usageLogLine({ kind: "line", id: job, ok: out.ok, why: out.why, model, milestones: batch.marks.length, facts: batch.facts.length, attempts: out.attempts, usage: out.usage, ms: Date.now() - t0 }));
   } catch { /* a log line never costs the line */ }
+  diag(env, job, "call", { ok: !!out.ok, why: out.why || "", ms: Date.now() - t0, attempts: out.attempts || 0, marks: batch.marks.length, facts: batch.facts.length });
   if (!out.ok) {
     const f = await progressUpdate(env, job, (r) => {
       const failed = failBatch(r, { owner, marks: batch.marks, why: out.why, now: Date.now() });
@@ -8487,11 +8512,12 @@ async function writeProgressLine(env, task, owner) {
     return false;
   }
   const after = jobVerdict(await jobRowForProgress(env, job), rec, Date.now());
-  if (!after.ok) { await progressStops(env, job, owner, batch, after.why); return false; }
+  if (!after.ok) { diag(env, job, "verdict-after", { why: after.why }); await progressStops(env, job, owner, batch, after.why); return false; }
   const done = await progressUpdate(env, job, (r) => {
     const next = commitLine(r, { owner, marks: batch.marks, text: out.text, explain: out.explain || "", now: Date.now() });
     return next ? { rec: next } : null;
   });
+  diag(env, job, done ? "committed" : "commit-refused", {});
   if (!done) return false;
   // CONFIRMED BY A READ MADE AFTER THE COMMIT, covering only the lines this
   // commit's record held — never one a later writer commits meanwhile. A row
@@ -8499,7 +8525,8 @@ async function writeProgressLine(env, task, owner) {
   // job no longer running leaves it unshown, and its record closed.
   const post = jobVerdict(await jobRowForProgress(env, job), rec, Date.now());
   if (post.ok) await confirmProgressLines(env, job, done.rec.lines.length);
-  else if (post.why !== "unread") { await progressStops(env, job, owner, batch, post.why); return false; }
+  else if (post.why !== "unread") { diag(env, job, "verdict-post", { why: post.why }); await progressStops(env, job, owner, batch, post.why); return false; }
+  if (!post.ok) diag(env, job, "unconfirmed", { why: post.why });
   return pendingMarks(done.rec).length > 0;
 }
 
@@ -8621,8 +8648,9 @@ async function writeTaskLines(env, task, owner, rec) {
  * for again (`askProgress`), so nothing this writer leaves waits for another
  * milestone or a page. Never throws.
  */
-async function runProgressTask(env, task) {
+async function runProgressTask(env, task, from = "queue") {
   if (!progressOn(env) || !env || !env.SITES_BUCKET || !task) return;
+  diag(env, task.id, "writer-start", { from });
   const owner = newLeaseOwner();
   try {
     for (let i = 0; i < PROGRESS_LINES_PER_TASK; i++) {
@@ -31807,6 +31835,33 @@ async function handleRequest(request, env, ctx) {
     // lines and the line being written whenever either changes, for up to
     // `TALK_STREAM_MS`; the page reconnects while its build runs. Server-sent
     // events, read by the page with its own credentials (never EventSource).
+    // GET /api/site/build/<id>/diag — THE TALK'S DIAGNOSTIC LOG (2026-10-19),
+    // for the job's owner only: every event `diag` wrote, oldest first.
+    {
+      const dg = url.pathname.match(/^\/api\/site\/build\/([0-9a-f]{32})\/diag$/);
+      if (dg && request.method === "GET") {
+        const du = await authUser(request, env);
+        if (!du) return Response.json({ error: "sign in first" }, { status: 401 });
+        if (!env.SITES_BUCKET) return Response.json({ error: "not available" }, { status: 404 });
+        const at = await progressRecordAt(env, dg[1]);
+        if (!at.rec || at.rec.uid !== du.id) return Response.json({ error: "not found" }, { status: 404 });
+        const events = [];
+        let cursor;
+        try {
+          for (let page = 0; page < 5; page++) {
+            const l = await env.SITES_BUCKET.list({ prefix: progressDiagKey(dg[1]), cursor, limit: 500 });
+            for (const o of l.objects || []) {
+              try { const g = await env.SITES_BUCKET.get(o.key); if (g) events.push(JSON.parse(await g.text())); } catch { /* one unreadable event */ }
+            }
+            if (!l.truncated) break;
+            cursor = l.cursor;
+          }
+        } catch { return Response.json({ error: "unread" }, { status: 503 }); }
+        events.sort((a, b) => (a.at || 0) - (b.at || 0));
+        const rec = at.rec;
+        return Response.json({ ok: true, recAt: rec.at, closed: rec.closed || null, run: typeof rec.run === "string" ? rec.run.slice(0, 12) : "", talk: rec.talk === true, marks: Array.isArray(rec.marks) ? rec.marks.map((m) => ({ stage: m.stage, at: m.at, state: m.state })) : [], lines: Array.isArray(rec.lines) ? rec.lines.map((l) => ({ n: l.n, at: l.at, confirmed: l.confirmed === true })) : [], events }, { headers: { "cache-control": "no-store" } });
+      }
+    }
     {
       const talkLive = url.pathname.match(/^\/api\/site\/build\/([0-9a-f]{32})\/stream$/);
       if (talkLive && request.method === "GET") {
