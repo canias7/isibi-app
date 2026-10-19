@@ -20,6 +20,16 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
+- **An effort control next to the model picker** (2026-10-19, owner: "next to
+  the model we gonna do an effort thing but later on, note it"): a customer-facing
+  setting beside "Builder: Grok 4.6 ▾" for how hard the builder thinks (grok-4.6
+  takes `reasoning_effort` low / medium / high (default) / xhigh). Today only the
+  talk lines and replies send one (`low`, `withTalkEffort` in `worker.js`); design
+  and page calls run at the default. Not started.
+- **Site cards show the stand-in for draft-only sites, and harbour-loaf-9's final
+  reply fell back** (2026-10-19, seen in the owner's screenshots): the home page's
+  thumbnails show "still being put together" for sites saved as drafts and never
+  published; the build's chat showed "I couldn't write up this build's details".
 - **Production container edits and add-ons are blocked** (2026-10-17, live on
   deploy 2215; audit A05-1, S1-2): `main`'s job gateway refuses the publish
   turn while `PARALLEL_WRITES` is on. The fix is on `codex-work-into-claude`
