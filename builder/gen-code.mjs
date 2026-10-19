@@ -155,6 +155,32 @@ export function filesDoneSoFar(partial) {
 }
 
 /**
+ * THE WORDS A VISITOR WILL READ, FROM THE CODE BEING WRITTEN RIGHT NOW
+ * (2026-10-19, owner: "i dont only want when finished"): the page text in the
+ * source so far — words between tags and quoted sentences — newest last, so a
+ * live line can say what is going on the page as it is written. Never code:
+ * a piece with code characters, or too short to be words, is skipped.
+ */
+export function wordsSoFar(partial, { max = 3 } = {}) {
+  const { code } = readCodeSoFar(partial);
+  if (!code) return [];
+  const found = [];
+  const keep = (t, at) => {
+    const w = String(t || "").replace(/\s+/g, " ").trim();
+    if (w.length < 4 || w.length > 160) return;
+    if (/[{}<>;=()\[\]\\$`]|=>|\/\/|\bclass(Name)?\b|\.tsx?\b|^[a-z]+[A-Z]\w*$/.test(w)) return;
+    if (!/[A-Za-z\u00C0-\uFFFF]{3}/.test(w) || !/\s|[£$€]\d/.test(w)) return;
+    found.push({ w, at });
+  };
+  for (const m of code.matchAll(/>([^<>{}]+)</g)) keep(m[1], m.index);
+  for (const m of code.matchAll(/"([^"\n]{4,160})"|'([^'\n]{4,160})'/g)) keep(m[1] || m[2], m.index);
+  found.sort((a, b) => a.at - b.at);
+  const out = [];
+  for (let i = found.length - 1; i >= 0 && out.length < max; i--) if (!out.includes(found[i].w)) out.unshift(found[i].w);
+  return out;
+}
+
+/**
  * A JSON string body, unescaped, WITHOUT throwing on a truncated tail.
  *
  * `JSON.parse('"' + raw + '"')` is the obvious implementation and it is the

@@ -1226,6 +1226,38 @@ const DESIGN_PART_SAID = Object.freeze({
 export function designStartFacts(agent) {
   return typeof agent === "string" && Object.hasOwn(DESIGN_PART_SAID, agent) ? [fact("doing", "Now " + DESIGN_PART_SAID[agent] + ". Nothing is decided yet.")] : [];
 }
+/**
+ * A PAGE'S SECTIONS AS THEY ARE WRITTEN (2026-10-19, owner: "the container
+ * gotta report everything"): the plan's own line for each section, said when
+ * the writers start, then each one by name as it finishes, with how many are done.
+ */
+const sectionSaid = (line) => flat(String(line || "")).replace(/\s+/g, " ").slice(0, 140);
+export function sectionStartFacts(lines) {
+  const list = (Array.isArray(lines) ? lines : []).map(sectionSaid).filter(Boolean).slice(0, 12);
+  if (!list.length) return [];
+  return [fact("doing", "Now writing the page's " + (list.length === 1 ? "one section" : list.length + " sections, all at the same time") + ": " + list.map((t, i) => (i + 1) + ") " + t).join("; ") + ". None is finished yet.")];
+}
+export function sectionDoneFacts(lines, done, of) {
+  const list = (Array.isArray(lines) ? lines : []).map(sectionSaid).filter(Boolean);
+  if (!list.length) return [];
+  const k = Number.isInteger(done) && done > 0 ? done : 0;
+  const n = Number.isInteger(of) && of > 0 ? of : 0;
+  return [fact("prepared", "Finished writing " + (list.length === 1 ? "the section: " : "these sections: ") + list.join("; ") + (k && n ? " (" + Math.min(k, n) + " of " + n + " done)" : "") + ". Not published yet.")];
+}
+/**
+ * WHAT IS GOING ON THE PAGE RIGHT NOW (2026-10-19, owner: "i dont only want
+ * when finished"): for each section still being written, the plan's line for
+ * it and the newest words its writer has put on the page so far — quoted, as
+ * written, so the model says them and invents none.
+ */
+export function writingNowFacts(now) {
+  const list = (Array.isArray(now) ? now : []).filter((x) => x && Array.isArray(x.words) && x.words.length).slice(0, 4);
+  return list.map((x) => {
+    const sec = sectionSaid(x.section);
+    const words = x.words.map((w) => "\"" + flat(String(w)).slice(0, 120) + "\"").slice(0, 3).join(", ");
+    return fact("doing", (sec ? "Writing the section \"" + sec + "\" now" : "Writing the page now") + "; the words going on it so far include " + words + ". Not finished.");
+  });
+}
 export function designPartFacts(got) {
   const g = got && typeof got === "object" ? got : {};
   const out = [];

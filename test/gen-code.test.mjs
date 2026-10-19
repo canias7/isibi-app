@@ -455,10 +455,12 @@ test("the container asks for the partial only when it has somewhere to send it, 
   // AND THE FAN-OUT MUST NOT HAVE IT. Eight bands interleaving into one code
   // stream is not a file, and the customer would watch it scramble.
   const fan = gen.indexOf("callBuilderModel(keysFrom(BUILD_KEYS), r,");
-  if (fan > 0) assert.ok(!/onPartial/.test(gen.slice(fan, fan + 200)),
+  // RE-ANCHORED 2026-10-19: a fan-out call now reads its own page words
+  // (`liveWords`), never the code sender — the property is the sender's.
+  if (fan > 0) assert.ok(!/onPartial: code\b|code\(partial\)/.test(gen.slice(fan, fan + 260)),
     "the fan-out hands the code sender to every band at once");
   assert.equal((src.match(/codeSender\(/g) || []).length, 2, "the sender is built somewhere new, or nowhere");
-  assert.match(src, /import \{ codeUpdate, filesDoneSoFar \} from "\.\/gen-code\.mjs"/, "the container no longer imports the reader and the file counter");
+  assert.match(src, /import \{ codeUpdate, filesDoneSoFar, wordsSoFar \} from "\.\/gen-code\.mjs"/, "the container no longer imports the reader and the file counter");
 });
 
 test("the image carries the new module — the container imports it", () => {

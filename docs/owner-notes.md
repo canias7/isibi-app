@@ -1,5 +1,13 @@
 # Owner Notes
 
+## 2026-10-19 — The page writing is told live: each section by name, and the words going on the page as they are written (branch only, not deployed)
+
+You asked that "the container gotta report everything" and "i dont only want when finished". While the page is written:
+- **As the sections start:** every section by the plan's own line for it ("now writing the page's 5 sections at the same time: 1) welcome banner …"; `sectionStartFacts`).
+- **While each is written:** the container reads the words a visitor will see out of the code being written (headlines, menu items, prices, button text; `wordsSoFar`, never code), keeps the newest per section, and hands them over whenever the Worker checks in. At most every 15 seconds the build says them, quoted as written ("writing the menu now; the words so far include 'Country Sourdough £5', 'Rye £4.50'"; `writingNowFacts`, `LIVE_SAY_MS`).
+- **As each finishes:** that section by name, with how many are done (`sectionDoneFacts`; the container now reports which one ended, not only how many).
+The single-call path (no sections) says its words the same way. Changes the container (`build-server.mjs`, `gen-code.mjs`), so the next deploy rebuilds the image. Tests: R6 and R7 cases in `test/progress-more.test.mjs`; five guards re-anchored (a section's writer now reads its own words; the code panel's sender is still never given to the sections). Full suite `11525 / 11523 / 0 / 2`.
+
 ## 2026-10-19 — The design says what it is doing as it does it (branch only, not deployed)
 
 You asked for "what its doing … now im designing the layout, i will choose this". The design runs as parts (16 on deploy 2219's build, about 5½ minutes), and each part now gives the model two facts: **when it starts**, what it is working on ("now designing the layout of each page", "now choosing the site's look: its colours and fonts"; `designStartFacts`), and **when it ends**, what it decided ("named the site Harbour Loaf", "planned 5 pages: Home, Menu, …", "laid out the pages: 12 sections in all", "chose the bakery style"; `designPartFacts`). Photographs are never said here (the design does not choose them). The facts travel through a new talk channel on the build's trace (`tr.say` → `bProgress.say`), because the trace itself keeps numbers only. The model words every line. Tests: R5 cases in `test/progress-more.test.mjs`, driven through the real designers with a stand-in model; one guard re-anchored. Full suite `11520 / 11518 / 0 / 2`.

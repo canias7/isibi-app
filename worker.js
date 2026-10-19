@@ -267,7 +267,7 @@ import {
   PROGRESS_CALL_MS, PROGRESS_TRIES, PROGRESS_RETRY_MS, PROGRESS_LINES_PER_TASK, PROGRESS_DISCOVERY_MS, PROGRESS_SEND_WAITS_MS,
   // THE BUILDER TALKS WHILE IT WORKS (2026-10-13), behind `PROGRESS_TALK`.
   talkOn, startFacts, spineCheckFacts, publishedFacts, talkBuildStepFacts, waitedFor, PROGRESS_SETTLE_S,
-  addressFacts, actionFacts, actionContext, ACTION_KINDS, designPartFacts, designStartFacts,
+  addressFacts, actionFacts, actionContext, ACTION_KINDS, designPartFacts, designStartFacts, sectionStartFacts, sectionDoneFacts, writingNowFacts,
 } from "./builder/site-progress.mjs";
 // ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03): the record,
 // the plan, what a job's answer means for its part, and the next job.
@@ -5551,8 +5551,14 @@ function containerPagesFanLocal(env, slug, out) {
       // more"): a fan-out's calls ended, or a single call's files finished,
       // handed to the caller each time the count moves (`out.onTick`).
       if (ans.state === "pending" && typeof out.onTick === "function") {
-        const t = one ? (Number.isInteger(ans.files) && ans.files > 0 ? { files: ans.files } : null)
-          : (Number.isInteger(ans.of) && ans.of > 0 && Number.isInteger(ans.done) && ans.done > 0 ? { sections: ans.done, of: ans.of } : null);
+        // WHAT IT IS WRITING RIGHT NOW, beside the count (2026-10-19): each
+        // section's newest page words, or the single call's — strings only.
+        const words = (w) => (Array.isArray(w) ? w.filter((x) => typeof x === "string" && x).map((x) => x.slice(0, 160)).slice(0, 3) : []);
+        const live = one ? (words(ans.words).length ? [{ i: 0, words: words(ans.words) }] : [])
+          : (Array.isArray(ans.live) ? ans.live.filter((l) => l && Number.isInteger(l.i) && l.i >= 0 && l.i < (ans.of || 0)).map((l) => ({ i: l.i, words: words(l.words) })).filter((l) => l.words.length).slice(0, 16) : []);
+        const t0 = one ? (Number.isInteger(ans.files) && ans.files > 0 ? { files: ans.files } : null)
+          : (Number.isInteger(ans.of) && ans.of > 0 && Number.isInteger(ans.done) && ans.done > 0 ? { sections: ans.done, of: ans.of, ...(Array.isArray(ans.doneIdx) ? { idx: ans.doneIdx.filter((x) => Number.isInteger(x) && x >= 0 && x < ans.of).slice(0, 64) } : {}) } : null);
+        const t = t0 || live.length ? { ...(t0 || {}), ...(live.length ? { live } : {}) } : null;
         const key = t ? JSON.stringify(t) : "";
         if (t && key !== out.lastTick) { out.lastTick = key; try { out.onTick(t); } catch { /* the talk never costs the build */ } }
       }
@@ -7631,6 +7637,8 @@ export async function runReplySweep(env) {
 // the ledger never shows it; the log line below is where it is measured.
 const PROGRESS_KIND = "edit-progress";
 const progressBudget = { capMs: () => PROGRESS_CALL_MS };
+/** How often a build says what is going on the page right now, at most (2026-10-19). */
+const LIVE_SAY_MS = 15_000;
 
 /**
  * A BUTTON PRESS THAT TALKS (2026-10-19, owner chose "B"): Publish, Restore and
@@ -16922,7 +16930,7 @@ async function siteOgImage(env, slug, dist) {
 // on. `packResume` has stored the two side by side since the day it was written,
 // which is the tell: a bearer token has no `.id`, so anything that asks `auth`
 // for one gets `undefined` and never says so. See the band door below.
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid = "", siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, priorParts = null, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null, resumeFanout = false, picker = null, models = null, billRef = null, jobId = null, assertLease = null, attachmentIds = null, media = null, held = null }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid = "", siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, priorParts = null, mark, say = null, budget = null, genPathOut = null, canFire = false, resumeCall = null, resumeFanout = false, picker = null, models = null, billRef = null, jobId = null, assertLease = null, attachmentIds = null, media = null, held = null }) {
   // `media` (2026-10-14): the owner's video and audio, by address, for the
   // page writers (`briefWithLayout`) — and on the build's args, so a resumed
   // build is shown the same files.
@@ -17096,7 +17104,30 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   const genPath = genPathOut || {};
   // HOW FAR THE WRITING HAS GOT (2026-10-19): the container's count, each time
   // it moves, on the trace — which a build's progress hears as `writing`.
-  genPath.onTick = (t) => { try { mark?.("writing", t); } catch { /* a trace must never break a build */ } };
+  // AND IN WORDS (2026-10-19, owner: "the container gotta report everything"):
+  // each section that finished, by the plan's own line for it (`genPath.bandLines`).
+  const saidIdx = new Set();
+  let lastCount = "";
+  let liveAt = 0;
+  let liveSaid = "";
+  genPath.onTick = (t) => {
+    const count = JSON.stringify([t.sections, t.of, t.files]);
+    if ((t.sections || t.files) && count !== lastCount) { lastCount = count; try { mark?.("writing", { sections: t.sections, of: t.of, files: t.files }); } catch { /* a trace must never break a build */ } }
+    // WHAT IS GOING ON THE PAGE RIGHT NOW, at most every `LIVE_SAY_MS` (2026-10-19).
+    try {
+      if (typeof say === "function" && Array.isArray(t.live) && t.live.length && Date.now() - liveAt >= LIVE_SAY_MS) {
+        const now = t.live.filter((l) => !saidIdx.has(l.i)).map((l) => ({ section: Array.isArray(genPath.bandLines) && typeof genPath.bandLines[l.i] === "string" ? genPath.bandLines[l.i] : "", words: l.words }));
+        const key = JSON.stringify(now);
+        if (now.length && key !== liveSaid) { liveSaid = key; liveAt = Date.now(); say("writing-now", writingNowFacts(now)); }
+      }
+    } catch { /* the talk never costs the build */ }
+    try {
+      if (typeof say !== "function" || !Array.isArray(t.idx) || !Array.isArray(genPath.bandLines)) return;
+      const fresh = t.idx.filter((i) => !saidIdx.has(i) && typeof genPath.bandLines[i] === "string");
+      for (const i of fresh) saidIdx.add(i);
+      if (fresh.length) say("writing-part", sectionDoneFacts(fresh.map((i) => genPath.bandLines[i]), saidIdx.size, t.of));
+    } catch { /* the talk never costs the build */ }
+  };
   // ── THE VERSION THIS BUILD WILL PUBLISH AS (stage 7, 2026-09-05) ─────────
   //
   // Minted BEFORE the compile so the container bakes it (`SITE_VERSION`) and
@@ -17321,6 +17352,10 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       }
       try {
         if (useBands) {
+          // THE SECTIONS, SAID AS THEY START (2026-10-19): the plan's own lines,
+          // kept for the count to name each one as it finishes.
+          genPath.bandLines = bandLines.slice();
+          try { if (typeof say === "function") say("writing-start", sectionStartFacts(bandLines)); } catch { /* the talk never costs the build */ }
           try {
             // THE SAME `call`. A fan-out is one job holding N requests, so the
             // fire, the report, the lease and the sentinel are the ones the
@@ -24191,6 +24226,7 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
       // layer below the break". `tr.at` already swallows and already keeps
       // finite numbers only, so forwarding is the whole fix.
       mark: (n, x) => { try { tr.at(n, x); } catch { /* a trace must never break a build */ } },
+      say: (stage, facts) => { try { if (typeof tr.say === "function") tr.say(stage, facts); } catch { /* the talk never costs the build */ } },
       budget,
       // THE PICKER'S MODELS, for the build's own translation loop (run 38,
       // 2026-09-04): the picker rides in the stored design; a job stored
@@ -26650,6 +26686,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             // THE SECOND ARGUMENT IS FORWARDED — see the collector's copy of
             // this hook for what it cost to leave it off.
             mark: (n, x) => tr.at(n, x),
+            say: (stage, facts) => { try { if (typeof tr.say === "function") tr.say(stage, facts); } catch { /* the talk never costs the build */ } },
             // WHAT IS LEFT OF THE FIFTEEN MINUTES, not a fresh ten. The pages
             // call is the long one and by the time it starts the design call and
             // provisioning have already spent from the same budget — so it gets

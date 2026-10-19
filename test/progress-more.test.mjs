@@ -110,11 +110,11 @@ test("R2 THE POLL HANDS EACH NEW COUNT TO THE CALLER, ONCE PER CHANGE — and a 
 });
 
 test("R2 THE CONTAINER COUNTS WHILE IT WORKS AND SAYS SO WHILE PENDING", () => {
-  assert.match(SERVER, /MODEL_JOBS\.set\(id, \{ state: "pending", startedAt: Date\.now\(\), touchedAt: Date\.now\(\), \.\.\.\(mReqs \? \{ of: mReqs\.length, done: 0 \} : \{ files: 0 \}\) \}\);/, "a pending job no longer carries its count");
-  assert.match(SERVER, /\.finally\(tick\)\);/, "a fan-out's calls no longer count as they end");
+  assert.match(SERVER, /MODEL_JOBS\.set\(id, \{ state: "pending", startedAt: Date\.now\(\), touchedAt: Date\.now\(\), \.\.\.\(mReqs \? \{ of: mReqs\.length, done: 0, doneIdx: \[\], live: \{\} \} : \{ files: 0, words: \[\] \}\) \}\);/, "a pending job no longer carries its count");
+  assert.match(SERVER, /\.finally\(\(\) => tick\(i\)\)\);/, "a fan-out's calls no longer count, by index, as they end");
   assert.match(SERVER, /const k = filesDoneSoFar\(partial\); if \(k > \(j\.files \|\| 0\)\) j\.files = k;/, "a single call no longer counts its finished files");
-  assert.match(SERVER, /state: "pending", waitingMs: Date\.now\(\) - job\.startedAt, \.\.\.\(Number\.isInteger\(job\.of\) \? \{ of: job\.of, done: job\.done \|\| 0 \} : \{\}\), \.\.\.\(Number\.isInteger\(job\.files\) \? \{ files: job\.files \} : \{\}\) \}/, "the pending answer no longer hands the count back");
-  assert.match(W, /genPath\.onTick = \(t\) => \{ try \{ mark\?\.\("writing", t\); \}/, "the build no longer puts the count on its trace");
+  assert.match(SERVER, /state: "pending", waitingMs: Date\.now\(\) - job\.startedAt, \.\.\.\(Number\.isInteger\(job\.of\) \? \{ of: job\.of, done: job\.done \|\| 0, doneIdx: Array\.isArray\(job\.doneIdx\) \? job\.doneIdx\.slice\(0, 64\) : \[\] \} : \{\}\), \.\.\.\(Number\.isInteger\(job\.files\) \? \{ files: job\.files \} : \{\}\), \.\.\.\(job\.live/, "the pending answer no longer hands the count back");
+  assert.match(W, /if \(\(t\.sections \|\| t\.files\) && count !== lastCount\) \{ lastCount = count; try \{ mark\?\.\("writing", \{ sections: t\.sections, of: t\.of, files: t\.files \}\); \}/, "the build no longer puts the count on its trace, once per change");
 });
 
 // ── ROUND 3: EDITS AND ADD-ONS STEP BY STEP ─────────────────────────────────
@@ -231,4 +231,78 @@ test("R5 THE WIRING: the build hands the design's talk to the trace's own talk c
   assert.match(W, /designSiteWaves\(env, designBrief, models\.design, attached\.blocks, budget, designWaves, firstBuild, designTalk\)/);
   assert.match(W, /if \(bProgress\) tr\.say = \(stage, facts\) => bProgress\.say\(stage, facts\);/);
   assert.match(W, /say\(stage, facts\) \{[\s\S]{0,200}if \(p\) p\.mark\(stage, facts\); else if \(early\.length < 20\) early\.push\(\[stage, facts\]\);/);
+});
+
+// ── ROUND 6: EACH SECTION, BY NAME, AS IT STARTS AND AS IT ENDS ──────────────
+import { sectionStartFacts, sectionDoneFacts } from "../builder/site-progress.mjs";
+
+test("R6 the sections are said by the plan's own lines: all of them as they start, each as it finishes", () => {
+  const lines = ["Welcome banner with the bakery name", "The menu with prices", "Opening hours"];
+  const start = texts(sectionStartFacts(lines));
+  assert.match(start, /Now writing the page's 3 sections, all at the same time: 1\) Welcome banner with the bakery name; 2\) The menu with prices; 3\) Opening hours\. None is finished yet\./);
+  assert.match(texts(sectionDoneFacts(["The menu with prices"], 2, 3)), /Finished writing the section: The menu with prices \(2 of 3 done\)\. Not published yet\./);
+  assert.deepEqual(sectionDoneFacts(["The menu with prices"], 2, 3).map((f) => f.state), ["prepared"]);
+  assert.deepEqual(sectionStartFacts([]), []);
+  assert.deepEqual(sectionDoneFacts([], 1, 3), []);
+  assert.ok(sectionStartFacts(["x".repeat(500)])[0].text.length < 300, "a section's line is not bounded");
+});
+
+test("R6 THE POLL HANDS WHICH SECTIONS ENDED, and the build names each once", async () => {
+  const { pagesHopApi } = await loadWorkerModule();
+  const plan = [{ state: "pending", of: 3, done: 1, doneIdx: [1] }, { state: "pending", of: 3, done: 3, doneIdx: [1, 0, 2, 9] }, { state: "done", answers: [] }];
+  let i = 0;
+  const box = { fetch: async (req) => {
+    const u = new URL(req.url);
+    if (u.pathname === "/model/start") return new Response(JSON.stringify({ ok: true, id: "g1" }));
+    if (u.pathname === "/model/result") return new Response(JSON.stringify({ ok: true, ...plan[Math.min(i++, plan.length - 1)] }));
+    return new Response("{}", { status: 404 });
+  } };
+  const ticks = [];
+  await pagesHopApi.containerPagesFanLocal({ SITE_BUILD_CONTAINER: { local: true, idFromName: (n) => n, get: () => box } }, "s", { onTick: (t) => ticks.push(t) })({}, [{ model: "m" }, { model: "m" }, { model: "m" }], null);
+  assert.deepEqual(ticks, [{ sections: 1, of: 3, idx: [1] }, { sections: 3, of: 3, idx: [1, 0, 2] }], "an out-of-range index was handed on, or the order was lost");
+  const fn = W.slice(W.indexOf("genPath.onTick = (t) => {"), W.indexOf("genPath.onTick = (t) => {") + 2200);
+  assert.match(fn, /const fresh = t\.idx\.filter\(\(i\) => !saidIdx\.has\(i\) && typeof genPath\.bandLines\[i\] === "string"\);/, "a section can be named twice, or by a line that is not the plan's");
+  assert.match(fn, /say\("writing-part", sectionDoneFacts\(fresh\.map\(\(i\) => genPath\.bandLines\[i\]\), saidIdx\.size, t\.of\)\)/);
+  assert.match(W, /genPath\.bandLines = bandLines\.slice\(\);\s*\n\s*try \{ if \(typeof say === "function"\) say\("writing-start", sectionStartFacts\(bandLines\)\); \}/, "the sections are not said as they start");
+  assert.equal((W.match(/say: \(stage, facts\) => \{ try \{ if \(typeof tr\.say === "function"\) tr\.say\(stage, facts\); \}/g) || []).length, 2, "a build path does not hand its talk to buildAndPublishPages");
+});
+
+// ── ROUND 7: WHAT IS GOING ON THE PAGE, WHILE IT IS WRITTEN ─────────────────
+import { wordsSoFar } from "../builder/gen-code.mjs";
+import { writingNowFacts } from "../builder/site-progress.mjs";
+
+test("R7 the words a visitor will read are read off the code as it is written — and never the code itself", () => {
+  const src = 'export default function H(){ return <section className="hero"><h1>Bread worth getting up for</h1><p>Overnight sourdough on Call Lane, Leeds.</p><Price label="Country Sourdough £5" /><Link to="/order">Order for collection</Link></section> }';
+  const full = JSON.stringify({ pages: [{ path: "index.tsx", source: src }] });
+  assert.deepEqual(wordsSoFar(full.slice(0, full.length - 10)), ["Overnight sourdough on Call Lane, Leeds.", "Country Sourdough £5", "Order for collection"]);
+  assert.deepEqual(wordsSoFar(full.slice(0, 40)), [], "words were found before any were written");
+  for (const w of wordsSoFar(full)) assert.ok(!/[{}<>=;]|className|\.tsx/.test(w), "code was read as words: " + w);
+  for (const bad of ["", null, "{"]) assert.deepEqual(wordsSoFar(bad), []);
+});
+
+test("R7 a live line quotes the section's newest words, as written, and says it is not finished", () => {
+  const f = writingNowFacts([{ section: "The menu with prices", words: ["Country Sourdough £5", "Rye £4.50"] }, { section: "", words: [] }]);
+  assert.equal(f.length, 1, "a section with no words yet was said");
+  assert.equal(f[0].state, "doing");
+  assert.match(f[0].text, /Writing the section "The menu with prices" now; the words going on it so far include "Country Sourdough £5", "Rye £4\.50"\. Not finished\./);
+  assert.deepEqual(writingNowFacts([]), []);
+});
+
+test("R7 THE POLL HANDS THE LIVE WORDS ON, and the build says them at most every fifteen seconds", async () => {
+  const { pagesHopApi } = await loadWorkerModule();
+  const plan = [{ state: "pending", of: 2, done: 0, doneIdx: [], live: [{ i: 0, words: ["Bread worth getting up for"] }, { i: 7, words: ["out of range"] }] }, { state: "done", answers: [] }];
+  let i = 0;
+  const box = { fetch: async (req) => {
+    const u = new URL(req.url);
+    if (u.pathname === "/model/start") return new Response(JSON.stringify({ ok: true, id: "g1" }));
+    if (u.pathname === "/model/result") return new Response(JSON.stringify({ ok: true, ...plan[Math.min(i++, plan.length - 1)] }));
+    return new Response("{}", { status: 404 });
+  } };
+  const ticks = [];
+  await pagesHopApi.containerPagesFanLocal({ SITE_BUILD_CONTAINER: { local: true, idFromName: (n) => n, get: () => box } }, "s", { onTick: (t) => ticks.push(t) })({}, [{ model: "m" }, { model: "m" }], null);
+  assert.deepEqual(ticks, [{ live: [{ i: 0, words: ["Bread worth getting up for"] }] }], "the live words were not handed on, or an out-of-range one was");
+  assert.match(W, /const LIVE_SAY_MS = 15_000;/);
+  assert.match(W, /Date\.now\(\) - liveAt >= LIVE_SAY_MS\) \{[\s\S]{0,400}say\("writing-now", writingNowFacts\(now\)\)/, "the live words are not said, or not held to the interval");
+  assert.match(SERVER, /onPartial: \(partial\) => liveWords\(i, partial\)/, "a section's writer no longer reads its own words");
+  assert.match(SERVER, /const w = wordsSoFar\(partial\); if \(w\.length\) j\.words = w;/, "the single call no longer reads its words");
 });

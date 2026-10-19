@@ -61,7 +61,8 @@ test("the fan-out runs inside ONE oneAtATime slot — never as N starts", () => 
   // asserts only what this file is responsible for: that the fan-out happens
   // inside the slot, and that it is awaited — a slot released before the calls
   // settle is a container stopped mid-generation.
-  assert.match(start.slice(fan, fan + 900), /const results = await runFanout\(/, "the calls are not made, or not awaited, inside the slot");
+  // RE-ANCHORED 2026-10-19: the live-words reader sits before the fan-out now.
+  assert.match(start.slice(fan, fan + 1600), /const results = await runFanout\(/, "the calls are not made, or not awaited, inside the slot");
 });
 
 // ── THE TWO PROPERTIES A SOURCE READ CANNOT MAKE ────────────────────────────
@@ -195,7 +196,8 @@ test("the container calls runFanout rather than keeping its own copy", () => {
     assert.ok(fanImport[1].includes(name), "the container stopped importing " + name);
   }
   const start = between("if (mReqs) {", "MODEL_JOBS.set(id, { state: \"done\", answers");
-  assert.match(start, /const results = await runFanout\(mReqs, \(r\) =>/,
+  // RE-ANCHORED 2026-10-19: the callback takes the index too, to say which part ended.
+  assert.match(start, /const results = await runFanout\(mReqs, \(r, i\) =>/,
     "the container does not use runFanout — a second copy of the per-call catch is two things that drift");
   assert.ok(!/Promise\.all\(mReqs\.map\(/.test(bare), "the container kept its own fan-out beside the module's");
 });
@@ -470,9 +472,12 @@ test("NO onPartial ON A FAN-OUT, but every call still streams", () => {
   // call, because that is what keeps the wire from being idle — the reason
   // streaming exists here, not the reason the customer sees anything.
   const fan = between("if (mReqs) {", "MODEL_JOBS.set(id, { state: \"done\", answers");
-  assert.match(fan, /callBuilderModel\(keysFrom\(BUILD_KEYS\), r, budget, longPost, \{ stream: true, idleMs: STREAM_IDLE_MS \}\)/,
-    "a fan-out call does not stream, or was given the partial hook");
-  assert.ok(!/onPartial/.test(fan), "the fan-out sends partial code, which interleaves into gibberish");
+  // RE-ANCHORED 2026-10-19 (owner: "i dont only want when finished"): each
+  // call reads its OWN page words (`liveWords(i, …)`, kept apart by index);
+  // the code sender, whose one stream would interleave, is still never given.
+  assert.match(fan, /callBuilderModel\(keysFrom\(BUILD_KEYS\), r, budget, longPost, \{ stream: true, idleMs: STREAM_IDLE_MS, onPartial: \(partial\) => liveWords\(i, partial\) \}\)/,
+    "a fan-out call does not stream, or does not read its own words");
+  assert.ok(!/onPartial: code\b|code\(partial\)/.test(fan), "the fan-out sends partial code, which interleaves into gibberish");
 });
 
 test("/model/result answers `answers` for a list and `answer` for one, never both", () => {
