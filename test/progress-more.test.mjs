@@ -332,3 +332,19 @@ test("R8 THE WIRING: the container names its step while it builds, and both buil
   assert.match(W, /watchBuildStage\(c, cStageId, \(st\) => \{ const f = compileStageFacts\(st\); if \(f\.length\) job\.progress\.mark\("compile-stage", f\); \}\)/);
   assert.match(W, /onWait: \(w\) => tm\("container", "wait", w\) \}\)\.finally\(cStop\);/, "the edit's watcher is not stopped when the compile ends");
 });
+
+// ── ROUND 9: THE TALK, PUSHED AND STREAMED ───────────────────────────────────
+test("R9 THE WIRING: the writer streams its sentence to a live key, the Worker pushes lines and that sentence on one connection, and the page draws both", () => {
+  assert.match(W, /const live = rec\.talk === true \? liveLineWriter\(env, job, rec\.lines\.length \+ 1\) : null;/, "the writer no longer streams its sentence");
+  assert.match(W, /send: live \? quickSendLive\(env, "progress", progressBudget, live\) : quickSend\(env, "progress", progressBudget\)/);
+  assert.match(W, /if \(rec\.talk === true\) await clearLiveLine\(env, job\);/, "the sentence so far is not cleared after the line");
+  assert.match(W, /const \{ code \} = readCodeSoFar\(partial, \{ codeField: "text" \}\);/, "the sentence is not read off the answer so far");
+  assert.match(W, /const talkLive = url\.pathname\.match\(\/\^\\\/api\\\/site\\\/build\\\/\(\[0-9a-f\]\{32\}\)\\\/stream\$\/\);/, "the live stream route is gone");
+  const route = W.slice(W.indexOf("const talkLive = url.pathname.match"), W.indexOf("const talkLive = url.pathname.match") + 3000);
+  assert.match(route, /const su = await authUser\(request, env\);\s*\n\s*if \(!su\) return Response\.json\(\{ error: "sign in first" \}, \{ status: 401 \}\);/, "the stream is not behind sign-in");
+  assert.match(route, /if \(at0\.rec && at0\.rec\.uid !== su\.id\) return Response\.json\(\{ error: "not found" \}, \{ status: 404 \}\);/, "another account's build can be streamed");
+  assert.match(route, /live\.n === lines\.length \+ 1 \? live\.text : ""/, "a stale sentence can be shown after its line was committed");
+  assert.match(route, /"content-type": "text\/event-stream"/);
+  assert.match(CHATJS, /if \(typeof ReadableStream !== 'undefined'\) followBuildTalk\(job, signal, origin\)\.catch\(\(\) => \{\}\);/, "the page does not open the live stream beside its poll");
+  assert.match(CHATJS, /if \(typeof siteBuild\.talkLive === 'string' && siteBuild\.talkLive\) list = list\.concat\(\[\{ text: siteBuild\.talkLive, writing: true \}\]\);/, "the sentence being written is not drawn, or the poll wipes it");
+});

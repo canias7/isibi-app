@@ -88,7 +88,7 @@ import {
   designSplitFor, designSplitEveryone,
   designGraphFor, designGraphEveryone,
 } from "./builder/edit-job.mjs";
-import { tailOf, clipWithLine, CODE_TAIL_MAX } from "./builder/gen-code.mjs";
+import { tailOf, clipWithLine, CODE_TAIL_MAX, readCodeSoFar } from "./builder/gen-code.mjs";
 import { RESUME_FIRST_SECONDS, genMarks, resumeKey, attachmentsKey, isResumeId, genKey, codeKey, isReportToken, readGenReport, packResume, readResume, readResumeMessage, packResumeMessage, nextLook, queueDelay, resumeDecision, isTerminal, alreadyCharged, withCharged, firedError, readFired, flightOf, noFanoutError, isNoFanout } from "./builder/build-resume.mjs";
 // THE BUILD'S ROW IN edit_jobs AND THE LEASE THAT MOVES ALONG ITS CHAIN
 // (stage 2c, 2026-09-05): consumer, container, collector — see the helpers
@@ -4476,6 +4476,11 @@ const quickBudget = { capMs: () => QUICK_CALL_MS };
 // has been measured end to end, that measurement replaces this.
 const QUICK_STREAM_MS = 480000;
 const QUICK_STREAM = { stream: true };
+/** `quickSend` with the answer-so-far handed on as it streams (the live talk line). */
+const quickSendLive = (env, what, budget, onPartial) => (req) => callBuilderModel(env, req,
+  budget ? { capMs: (cap) => budget.capMs(Math.min(Number(cap) || QUICK_STREAM_MS, QUICK_STREAM_MS)) } : quickBudget,
+  { stream: true, onPartial },
+).catch((e) => { if (what && e && !e.call) { try { e.call = what; } catch { /* frozen error */ } } throw e; });
 // `budget` IS OPTIONAL AND THE DEFAULT IS THE FLAT CEILING, so every existing
 // caller is unchanged. A queued edit passes its own clock, which composes the
 // two: a lane call started at minute eleven of a thirteen-minute job gets what
@@ -7639,6 +7644,9 @@ const PROGRESS_KIND = "edit-progress";
 const progressBudget = { capMs: () => PROGRESS_CALL_MS };
 /** How often a build says what is going on the page right now, at most (2026-10-19). */
 const LIVE_SAY_MS = 15_000;
+/** The live talk stream: how long one connection stays open, and how often it looks (2026-10-19). */
+const TALK_STREAM_MS = 120_000;
+const TALK_STREAM_TICK_MS = 500;
 /**
  * WHICH STEP THE CONTAINER'S BUILD IS ON, WATCHED WHILE IT RUNS (2026-10-19):
  * asked every few seconds (`/build/stage`) and handed on once per change.
@@ -7708,6 +7716,30 @@ export function readProgressTask(body) {
 }
 
 /** A job's progress record: `{ rec, etag, read }` — `read` false when the store could not be read, which is never "none there". */
+/**
+ * THE LINE BEING WRITTEN, AS IT IS WRITTEN (2026-10-19, owner: "do it now" —
+ * the talk streamed like Claude Code's): the writer's sentence so far, kept
+ * apart from the record so it never fights the record's own writes, read by
+ * the live stream (`GET /api/site/build/<id>/stream`) and cleared once the
+ * line is committed. A courtesy: a failure here never costs the line.
+ */
+const progressLiveKey = (job) => "progress-live/" + job + ".json";
+const LIVE_LINE_EVERY_MS = 700;
+function liveLineWriter(env, job, n) {
+  let last = "", at = 0, busy = false;
+  return (partial) => {
+    try {
+      const { code } = readCodeSoFar(partial, { codeField: "text" });
+      const text = typeof code === "string" ? code.trim() : "";
+      if (!text || text === last || busy || Date.now() - at < LIVE_LINE_EVERY_MS) return;
+      last = text; at = Date.now(); busy = true;
+      env.SITES_BUCKET.put(progressLiveKey(job), JSON.stringify({ n, text: text.slice(0, 600), at }), { httpMetadata: { contentType: "application/json" } })
+        .catch(() => {}).finally(() => { busy = false; });
+    } catch { /* the live line never costs the line */ }
+  };
+}
+const clearLiveLine = (env, job) => env.SITES_BUCKET.delete(progressLiveKey(job)).catch(() => {});
+
 async function progressRecordAt(env, job) {
   try {
     const o = await env.SITES_BUCKET.get(progressKey(job));
@@ -8159,8 +8191,12 @@ async function writeProgressLine(env, task, owner) {
   try {
     // A CONVERSATIONAL RECORD (talk, 2026-10-13) is written by its own call:
     // nine states, recorded reasons, and an optional explanation.
-    out = await writeProgress({ send: quickSend(env, "progress", progressBudget) }, { facts: batch.facts, context: progressContext(rec, { others, waited }), model, talk: rec.talk === true });
+    // STREAMED (2026-10-19): the sentence so far goes up as it is written.
+    const live = rec.talk === true ? liveLineWriter(env, job, rec.lines.length + 1) : null;
+    out = await writeProgress({ send: live ? quickSendLive(env, "progress", progressBudget, live) : quickSend(env, "progress", progressBudget) }, { facts: batch.facts, context: progressContext(rec, { others, waited }), model, talk: rec.talk === true });
   } catch { out = { ok: false, why: "send", usage: [], attempts: 0 }; }
+  // AND CLEARED ONCE IT IS DONE, either way — a committed line replaces it.
+  if (rec.talk === true) await clearLiveLine(env, job);
   // WHAT IT COST US, IN THE LOG: a line is not charged to the customer, so the
   // ledger never shows it, and this is where attempts, tokens — fresh and
   // cached — and time are read; one string, the shape the reader reads
@@ -31466,6 +31502,46 @@ async function handleRequest(request, env, ctx) {
       }
       out.sort((a, b) => b.at - a.at);
       return Response.json({ builds: out.slice(0, BUILD_LIVE_MAX) });
+    }
+
+    // GET /api/site/build/<id>/stream — THE BUILD'S TALK, PUSHED AS IT HAPPENS
+    // (2026-10-19, owner: "do it now"): one open connection that sends the
+    // lines and the line being written whenever either changes, for up to
+    // `TALK_STREAM_MS`; the page reconnects while its build runs. Server-sent
+    // events, read by the page with its own credentials (never EventSource).
+    {
+      const talkLive = url.pathname.match(/^\/api\/site\/build\/([0-9a-f]{32})\/stream$/);
+      if (talkLive && request.method === "GET") {
+        const su = await authUser(request, env);
+        if (!su) return Response.json({ error: "sign in first" }, { status: 401 });
+        if (!env.SITES_BUCKET || !progressOn(env)) return Response.json({ error: "not available" }, { status: 404 });
+        const at0 = await progressRecordAt(env, talkLive[1]);
+        if (at0.rec && at0.rec.uid !== su.id) return Response.json({ error: "not found" }, { status: 404 });
+        const { readable, writable } = new TransformStream();
+        const w = writable.getWriter();
+        const enc = new TextEncoder();
+        const pump = (async () => {
+          let sent = "";
+          const until = Date.now() + TALK_STREAM_MS;
+          try {
+            await w.write(enc.encode(": open\n\n"));
+            while (Date.now() < until) {
+              const at = await progressRecordAt(env, talkLive[1]);
+              if (at.rec && at.rec.uid !== su.id) break;
+              let live = null;
+              try { const o = await env.SITES_BUCKET.get(progressLiveKey(talkLive[1])); live = o ? JSON.parse(await o.text()) : null; } catch { live = null; }
+              const lines = at.rec ? linesOf(at.rec) : [];
+              const msg = JSON.stringify({ lines, live: live && typeof live.text === "string" && live.n === lines.length + 1 ? live.text : "", closed: !!(at.rec && at.rec.closed) });
+              if (msg !== sent) { sent = msg; await w.write(enc.encode("data: " + msg + "\n\n")); }
+              if (at.rec && at.rec.closed && !live) break;
+              await new Promise((r) => setTimeout(r, TALK_STREAM_TICK_MS));
+            }
+          } catch { /* the page reconnects */ }
+          try { await w.close(); } catch { /* already gone */ }
+        })();
+        if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(pump);
+        return new Response(readable, { headers: { "content-type": "text/event-stream", "cache-control": "no-store", "x-accel-buffering": "no" } });
+      }
     }
 
     if (url.pathname.startsWith("/api/site/build/") && request.method === "GET") {

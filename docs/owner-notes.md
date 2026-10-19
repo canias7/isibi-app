@@ -1,5 +1,12 @@
 # Owner Notes
 
+## 2026-10-19 — The talk is pushed and streamed, like Claude Code (on your word "do it now")
+
+The talk used to reach the page the long way: the writer's whole sentence saved, then the page asking every second or two. Now:
+- **The sentence streams.** The small model that writes each talk line now streams its answer; the sentence so far is saved about every 0.7 s under its own key (`liveLineWriter`, `progress-live/<job>.json`) and cleared once the line is committed.
+- **One open connection.** `GET /api/site/build/<id>/stream` (signed in, the caller's own build only) pushes the lines and the sentence being written whenever either changes, for up to 2 minutes per connection; the page reconnects while the build runs (`followBuildTalk`). The old poll still runs beside it, so nothing is lost if the stream cannot open, and it never wipes the half-written sentence.
+Builds only for now (edits keep the poll). Tests: R9 in `test/progress-more.test.mjs`; one route-name guard satisfied by renaming. Full suite `11529 / 11527 / 0 / 2`.
+
 ## 2026-10-19 — Found why deploy 2220's build said nothing: the gateway refused a build's progress before its site was named; fixed (branch only, not deployed)
 
 Deploy 2220's recorded build (harbour-loaf-5) showed "Thinking" for its whole design and then stopped for lack of credits (the test account had 21; a build needs about 20 and the design spent first). Its record held **no** progress at all. **Cause, now shown by a test, not guessed:** the container's gateway answered every progress call from a *pre-scoped* build (a first build before the design names its site) with 403 — "a pre-scoped build has no progress" (`builder/job-gateway.mjs`). The earlier fix opened the record at the start, which is exactly that window, so the opening was refused for good and every milestone after it with it. Before the talk work the record opened only once the site was named, after the token was re-scoped, which is why old builds had lines.

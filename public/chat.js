@@ -9406,7 +9406,10 @@ function setBuildCode(origin, got) {
 /** The build's live lines from its poll (round 5): kept, newest last, repainted only when they changed. */
 function setBuildProgress(origin, lines) {
   if (!siteBuild || siteOpenId !== origin || !Array.isArray(lines)) return false;
-  const list = lines.filter((l) => l && typeof l.text === 'string' && l.text).slice(-12);
+  let list = lines.filter((l) => l && typeof l.text === 'string' && l.text && l.writing !== true).slice(-12);
+  // THE LINE STILL BEING WRITTEN (2026-10-19), from the live stream, kept last
+  // whichever source draws — the poll's answer never wipes it mid-sentence.
+  if (typeof siteBuild.talkLive === 'string' && siteBuild.talkLive) list = list.concat([{ text: siteBuild.talkLive, writing: true }]);
   if (!list.length) return false;
   if (JSON.stringify(siteBuild.prog || []) === JSON.stringify(list)) return false;
   siteBuild.prog = list;
@@ -14230,7 +14233,53 @@ const BUILD_POLL_MS = 6000;
 // Past the Worker's own 16-minute queue wait plus the container's tail. A build
 // still unanswered here has not failed — it is told honestly and left running.
 const BUILD_FOLLOW_MS = 20 * 60 * 1000;
+/**
+ * THE BUILD'S TALK, PUSHED (2026-10-19, owner: "do it now"): one open
+ * connection to `/api/site/build/<id>/stream`, read with the page's own
+ * credentials, drawing every line the moment it is written — and the line
+ * still being written, as it grows. Reconnects while the build runs; the poll
+ * below still carries the lines if the stream cannot. Ends with the build.
+ */
+async function followBuildTalk(job, signal, origin) {
+  let fails = 0;
+  while (!(signal && signal.aborted) && siteBuild && siteOpenId === origin && fails < 5) {
+    let r = null;
+    try { r = await apiFetch('/api/site/build/' + encodeURIComponent(job) + '/stream', { signal }); } catch (e) { r = null; }
+    if (!r || !r.ok || !r.body || typeof r.body.getReader !== 'function') {
+      if (r && (r.status === 401 || r.status === 404)) return;
+      fails++; await new Promise((res) => setTimeout(res, 2000)); continue;
+    }
+    fails = 0;
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    let closed = false;
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let cut;
+        while ((cut = buf.indexOf('\n\n')) >= 0) {
+          const chunk = buf.slice(0, cut); buf = buf.slice(cut + 2);
+          const data = chunk.split('\n').filter((l) => l.startsWith('data: ')).map((l) => l.slice(6)).join('');
+          if (!data) continue;
+          let m = null; try { m = JSON.parse(data); } catch (e) { m = null; }
+          if (!m || !Array.isArray(m.lines)) continue;
+          const lines = m.lines.filter((l) => l && typeof l.text === 'string' && l.text);
+          if (siteBuild && siteOpenId === origin) siteBuild.talkLive = typeof m.live === 'string' ? m.live : '';
+          setBuildProgress(origin, lines);
+          if (m.closed === true && !m.live) closed = true;
+        }
+      }
+    } catch (e) { /* reconnect below */ }
+    if (closed) return;
+    await new Promise((res) => setTimeout(res, 800));
+  }
+}
 async function followBuildJob(job, signal, origin) {
+  // THE TALK RIDES ITS OWN CONNECTION BESIDE THIS POLL (2026-10-19).
+  if (typeof ReadableStream !== 'undefined') followBuildTalk(job, signal, origin).catch(() => {});
   const until = Date.now() + BUILD_FOLLOW_MS;
   // A RUN of unreadable answers gives up, a single one does not. The route
   // answers 503 both for "the bucket blinked" and for "the stored answer will
