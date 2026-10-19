@@ -340,11 +340,152 @@ test("R9 THE WIRING: the writer streams its sentence to a live key, the Worker p
   assert.match(W, /if \(rec\.talk === true\) await clearLiveLine\(env, job\);/, "the sentence so far is not cleared after the line");
   assert.match(W, /const \{ code \} = readCodeSoFar\(partial, \{ codeField: "text" \}\);/, "the sentence is not read off the answer so far");
   assert.match(W, /const talkLive = url\.pathname\.match\(\/\^\\\/api\\\/site\\\/build\\\/\(\[0-9a-f\]\{32\}\)\\\/stream\$\/\);/, "the live stream route is gone");
-  const route = W.slice(W.indexOf("const talkLive = url.pathname.match"), W.indexOf("const talkLive = url.pathname.match") + 3000);
+  const route = W.slice(W.indexOf("const talkLive = url.pathname.match"), W.indexOf("const talkLive = url.pathname.match") + 9000);
   assert.match(route, /const su = await authUser\(request, env\);\s*\n\s*if \(!su\) return Response\.json\(\{ error: "sign in first" \}, \{ status: 401 \}\);/, "the stream is not behind sign-in");
   assert.match(route, /if \(at0\.rec && at0\.rec\.uid !== su\.id\) return Response\.json\(\{ error: "not found" \}, \{ status: 404 \}\);/, "another account's build can be streamed");
   assert.match(route, /live\.n === lines\.length \+ 1 \? live\.text : ""/, "a stale sentence can be shown after its line was committed");
   assert.match(route, /"content-type": "text\/event-stream"/);
   assert.match(CHATJS, /if \(typeof ReadableStream !== 'undefined'\) followBuildTalk\(job, signal, origin\)\.catch\(\(\) => \{\}\);/, "the page does not open the live stream beside its poll");
   assert.match(CHATJS, /if \(typeof siteBuild\.talkLive === 'string' && siteBuild\.talkLive\) list = list\.concat\(\[\{ text: siteBuild\.talkLive, writing: true \}\]\);/, "the sentence being written is not drawn, or the poll wipes it");
+});
+
+// ── ROUND 10: AT MOST THREE LIVE CONNECTIONS PER ACCOUNT ─────────────────────
+/** A bucket that keeps etags and honours onlyIf, as R2 does. */
+function leaseBucket() {
+  const m = new Map(); let n = 0; let fail = false;
+  return {
+    m, setFail: (v) => { fail = v; },
+    async get(k) { if (fail) throw new Error("down"); const v = m.get(k); return v ? { etag: v.etag, text: async () => v.body } : null; },
+    async put(k, body, o = {}) {
+      if (fail) throw new Error("down");
+      const cur = m.get(k);
+      if (o.onlyIf && o.onlyIf.etagMatches && (!cur || cur.etag !== o.onlyIf.etagMatches)) return null;
+      if (o.onlyIf && o.onlyIf.etagDoesNotMatch === "*" && cur) return null;
+      const etag = "e" + (++n); m.set(k, { body, etag }); return { etag };
+    },
+  };
+}
+
+test("R10 an account holds at most three live connections; closing one frees a slot; a lease left behind runs out; another account is unaffected; a store that fails never blocks", async () => {
+  const { streamLeaseApi } = await loadWorkerModule();
+  const { takeStreamLease, TALK_STREAMS_PER_ACCOUNT } = streamLeaseApi;
+  assert.equal(TALK_STREAMS_PER_ACCOUNT, 3);
+  const b = leaseBucket();
+  const env = { SITES_BUCKET: b };
+  const held = [];
+  for (let i = 0; i < 3; i++) { const l = await takeStreamLease(env, "u1"); assert.equal(l.ok, true, "slot " + (i + 1) + " refused"); held.push(l); }
+  assert.equal((await takeStreamLease(env, "u1")).ok, false, "a fourth connection was let in");
+  assert.equal((await takeStreamLease(env, "u2")).ok, true, "another account was limited by this one");
+  await held[0].release();
+  assert.equal((await takeStreamLease(env, "u1")).ok, true, "a closed connection did not free its slot");
+  // A LEASE NOBODY GAVE BACK RUNS OUT: an hour later every slot is free.
+  const later = Date.now() + 3600_000;
+  for (let i = 0; i < 3; i++) assert.equal((await takeStreamLease(env, "u1", later)).ok, true, "an expired lease still held a slot");
+  // TWO OPENING AT ONCE FOR THE LAST SLOT: only one gets it.
+  const b2 = leaseBucket(); const env2 = { SITES_BUCKET: b2 };
+  await takeStreamLease(env2, "u3"); await takeStreamLease(env2, "u3");
+  const race = await Promise.all([takeStreamLease(env2, "u3"), takeStreamLease(env2, "u3")]);
+  assert.equal(race.filter((r) => r.ok).length, 1, "two connections both took the last slot");
+  // THE STORE DOWN: the stream opens (the poll carries the talk either way).
+  b.setFail(true);
+  assert.equal((await takeStreamLease(env, "u9")).ok, true, "a failing store blocked a connection");
+});
+
+test("R10 THE WIRING: the stream takes a lease before it opens, answers 429 over the limit, gives the lease back when it ends, and the page stops asking on 429", () => {
+  const route = W.slice(W.indexOf("const talkLive = url.pathname.match"), W.indexOf("const talkLive = url.pathname.match") + 3600);
+  assert.match(route, /const lease = await takeStreamLease\(env, su\.id\);\s*\n\s*if \(!lease\.ok\) return Response\.json\(\{ error: "too many live connections[^"]*" \}, \{ status: 429 \}\);/);
+  assert.ok(route.indexOf("takeStreamLease") < route.indexOf("new TransformStream()"), "the stream opens before its lease is taken");
+  assert.match(route, /try \{ await w\.close\(\); \} catch \{ \/\* already gone \*\/ \}\s*\n\s*await lease\.release\(\);/, "the lease is not given back when the stream ends");
+  assert.match(CHATJS, /if \(r && \(r\.status === 401 \|\| r\.status === 404 \|\| r\.status === 429\)\) return;/, "the page keeps hammering a full account");
+});
+
+// ── ROUND 11: ONE ROOM PER JOB PUSHES THE TALK (DURABLE OBJECTS) ─────────────
+function fakeRoomCtx() {
+  const store = new Map(); const sockets = []; let alarm = null;
+  return {
+    store, sockets, alarmAt: () => alarm,
+    storage: {
+      get: async (k) => (store.has(k) ? structuredClone(store.get(k)) : undefined),
+      put: async (k, v) => { store.set(k, structuredClone(v)); },
+      setAlarm: async (t) => { alarm = t; },
+      deleteAll: async () => { store.clear(); },
+    },
+    getWebSockets: () => sockets,
+    acceptWebSocket: (ws) => sockets.push(ws),
+  };
+}
+const fakeSocket = () => { const sent = []; return { sent, closed: false, send: (m) => sent.push(JSON.parse(m)), close() { this.closed = true; } }; };
+const say = (room, body) => room.fetch(new Request("https://room/say", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
+
+test("R11 the room pushes every telling to every watcher at once, keeps lines from going backwards, drops a stale line-in-progress, and empties itself after the job closes", async () => {
+  const { talkRoomApi } = await loadWorkerModule();
+  const { TalkRoom, ROOM_KEEP_MS } = talkRoomApi;
+  const ctx = fakeRoomCtx(); const room = new TalkRoom(ctx, {});
+  const a = fakeSocket(), b = fakeSocket(); ctx.sockets.push(a, b);
+  const L1 = { n: 1, ms: 0, text: "Choosing warm colours." };
+  const L2 = { n: 2, ms: 900, text: "Writing the menu page." };
+  assert.equal((await say(room, { lines: [L1] })).status, 200);
+  assert.deepEqual(a.sent.at(-1), { lines: [L1], live: "", closed: false });
+  assert.deepEqual(b.sent.at(-1), a.sent.at(-1), "a second watcher was not told");
+  await say(room, { live: { n: 2, text: "Writing the me" } });
+  assert.equal(a.sent.at(-1).live, "Writing the me", "the line being written was not pushed");
+  await say(room, { lines: [L1, L2] });
+  assert.equal(a.sent.at(-1).live, "", "a line-in-progress outlived its own line");
+  await say(room, { lines: [L1] });
+  assert.equal(a.sent.at(-1).lines.length, 2, "a late, older telling took a line back");
+  assert.equal(ctx.alarmAt(), null);
+  await say(room, { closed: true });
+  assert.equal(a.sent.at(-1).closed, true);
+  assert.ok(ctx.alarmAt() >= Date.now() + ROOM_KEEP_MS - 5000, "a closed room is never emptied");
+  await say(room, { closed: false });
+  assert.equal(a.sent.at(-1).closed, true, "a closed job reopened");
+  await room.alarm();
+  assert.equal(ctx.store.size, 0); assert.ok(a.closed && b.closed, "the alarm left watchers connected to an empty room");
+});
+
+test("R11 the room takes only what the Worker sends: lines as linesOf gives them, a numbered line-in-progress, a boolean closed", async () => {
+  const { talkRoomApi } = await loadWorkerModule();
+  const { readRoomSay, TalkRoom } = talkRoomApi;
+  for (const bad of [null, "x", {}, { lines: "a" }, { lines: ["text"] }, { lines: [{ text: 1, n: 1 }] }, { live: { text: "a" } }, { live: { n: 0, text: "a" } }, { closed: "yes" }, { lines: Array.from({ length: 401 }, (_, i) => ({ n: i + 1, text: "a" })) }]) {
+    assert.equal(readRoomSay(bad), null, "accepted " + JSON.stringify(bad).slice(0, 60));
+  }
+  assert.deepEqual(readRoomSay({ lines: [{ n: 1, ms: 5, text: "a", explain: "b", late: true, extra: 1 }] }), { lines: [{ n: 1, ms: 5, text: "a", explain: "b", late: true }] });
+  assert.deepEqual(readRoomSay({ live: null }), { live: null });
+  const ctx = fakeRoomCtx(); const room = new TalkRoom(ctx, {});
+  assert.equal((await say(room, { lines: ["text"] })).status, 400);
+  assert.equal(ctx.store.size, 0, "a refused telling was stored");
+});
+
+test("R11 tellRoom never throws and never waits: no binding is nothing, a failing room is swallowed", async () => {
+  const { talkRoomApi } = await loadWorkerModule();
+  const { tellRoom, openRoomWatch } = talkRoomApi;
+  assert.equal(tellRoom({}, "j", { closed: true }), undefined);
+  assert.equal(tellRoom(null, "j", { closed: true }), undefined);
+  const told = [];
+  const env = { TALK_ROOM: { idFromName: (n) => "id:" + n, get: (id) => ({ fetch: async (u, o) => { told.push([id, u, JSON.parse(o.body)]); return new Response("ok"); } }) } };
+  await tellRoom(env, "job1", { closed: true });
+  assert.deepEqual(told, [["id:job1", "https://room/say", { closed: true }]]);
+  const broken = { TALK_ROOM: { idFromName: () => { throw new Error("x"); } } };
+  assert.equal(tellRoom(broken, "j", {}), undefined);
+  const rejecting = { TALK_ROOM: { idFromName: (n) => n, get: () => ({ fetch: async () => { throw new Error("down"); } }) } };
+  await tellRoom(rejecting, "j", {});
+  assert.equal(await openRoomWatch({}, "j"), null);
+  assert.equal(await openRoomWatch(rejecting, "j"), null, "an unreachable room did not fall back");
+});
+
+test("R11 THE WIRING: every record write and every line-in-progress tells the room; the stream reads the room first, sends the record's lines at once, and falls back to storage; the room is declared with its own migration", () => {
+  assert.match(W, /const etag = await putProgressRecord\(env, job, out\.rec, at\.etag\);\s*\n\s*if \(etag\) \{\s*\n\s*try \{ tellRoom\(env, job, \{ lines: linesOf\(out\.rec\), closed: !!out\.rec\.closed \}\);/);
+  assert.match(W, /tellRoom\(env, job, \{ live: \{ n, text: text\.slice\(0, 600\) \} \}\);/);
+  assert.match(W, /const clearLiveLine = \(env, job\) => \{ tellRoom\(env, job, \{ live: null \}\);/);
+  const route = W.slice(W.indexOf("const talkLive = url.pathname.match"), W.indexOf("const talkLive = url.pathname.match") + 6000);
+  const iRoom = route.indexOf("const room = await openRoomWatch(env, talkLive[1]);");
+  const iLoop = route.indexOf("const at = await progressRecordAt(env, talkLive[1]);");
+  assert.ok(iRoom > 0 && iLoop > iRoom, "the stream no longer tries the room before reading storage");
+  assert.ok(route.indexOf("takeStreamLease") < iRoom, "the room is opened before the account's limit is checked");
+  assert.match(route.slice(iRoom, iLoop), /if \(at0\.rec\) await w\.write\(enc\.encode\("data: " \+ JSON\.stringify\(\{ lines: linesOf\(at0\.rec\)/);
+  assert.match(route.slice(iRoom, iLoop), /await lease\.release\(\);/, "the room's stream never gives its lease back");
+  const WR = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
+  assert.match(WR, /\{ "class_name": "TalkRoom", "name": "TALK_ROOM" \}/);
+  assert.match(WR, /\{ "tag": "v7", "new_sqlite_classes": \["TalkRoom"\] \}/);
+  assert.match(W, /^export class TalkRoom \{/m);
 });

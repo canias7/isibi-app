@@ -14246,7 +14246,9 @@ async function followBuildTalk(job, signal, origin) {
     let r = null;
     try { r = await apiFetch('/api/site/build/' + encodeURIComponent(job) + '/stream', { signal }); } catch (e) { r = null; }
     if (!r || !r.ok || !r.body || typeof r.body.getReader !== 'function') {
-      if (r && (r.status === 401 || r.status === 404)) return;
+      // SIGNED OUT, NOT THIS ACCOUNT'S, OR OVER THE ACCOUNT'S LIVE-CONNECTION
+      // LIMIT: the poll beside this carries the talk, so stop asking.
+      if (r && (r.status === 401 || r.status === 404 || r.status === 429)) return;
       fails++; await new Promise((res) => setTimeout(res, 2000)); continue;
     }
     fails = 0;

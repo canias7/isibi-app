@@ -82,6 +82,8 @@ const GLOBALS = new Set([
   "speechSynthesis", "IDBDatabase", "indexedDB", "caches", "atob", "btoa", "reportError",
   "DataTransfer", "DecompressionStream", "CompressionStream", "self", "top", "parent", "frames",
   "name", "status", "origin", "isSecureContext", "customElements", "Notification", "BroadcastChannel",
+  // The Workers runtime's own (2026-10-19, the talk room)
+  "WebSocketPair",
 ]);
 
 /**

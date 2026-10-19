@@ -364,6 +364,106 @@ import { readJobMaxMs } from "./builder/job-duration.mjs";
 // clamped by ONE rule — two copies of a bound is how one of them drifts.
 import { readProbe, ENV_PROBE_NAMES } from "./builder/job-probe.mjs";
 
+/**
+ * ONE ROOM PER JOB FOR ITS LIVE TALK (2026-10-19, owner: "lets do all of this
+ * that we planned" — the Durable Object version of the live stream). The
+ * Worker tells the room each time the job's lines change (`POST /say`), and the
+ * room pushes them straight to every connection watching that job — no reader
+ * asks storage twice a second. Watchers connect by WebSocket (`/watch`), which
+ * the runtime keeps open while the room sleeps (hibernation: a sleeping room is
+ * not billed for its time); a new watcher is sent what is said so far at once,
+ * so a reconnect never misses a line. The room only ever holds the talk the
+ * Worker already wrote to the job's record: it is a loudspeaker, never the
+ * record, and losing it loses nothing.
+ */
+export class TalkRoom {
+  constructor(ctx, env) { this.ctx = ctx; this.env = env; }
+  async fetch(request) {
+    const url = new URL(request.url);
+    if (url.pathname === "/say" && request.method === "POST") {
+      let said = null;
+      try { said = readRoomSay(await request.json()); } catch { said = null; }
+      if (!said) return new Response("bad", { status: 400 });
+      const was = (await this.ctx.storage.get("said")) || { lines: [], live: null, closed: false };
+      const now = mergeRoomSay(was, said);
+      await this.ctx.storage.put("said", now);
+      const msg = JSON.stringify(roomMessage(now));
+      for (const ws of this.ctx.getWebSockets()) { try { ws.send(msg); } catch { /* it reconnects */ } }
+      // A CLOSED JOB'S ROOM IS EMPTIED A WHILE LATER, so rooms never pile up.
+      if (now.closed) await this.ctx.storage.setAlarm(Date.now() + ROOM_KEEP_MS);
+      return new Response("ok");
+    }
+    if (url.pathname === "/watch" && request.headers.get("Upgrade") === "websocket") {
+      const pair = new WebSocketPair();
+      this.ctx.acceptWebSocket(pair[1]);
+      const now = await this.ctx.storage.get("said");
+      if (now) { try { pair[1].send(JSON.stringify(roomMessage(now))); } catch { /* it reconnects */ } }
+      return new Response(null, { status: 101, webSocket: pair[0] });
+    }
+    return new Response("not found", { status: 404 });
+  }
+  async webSocketMessage() { /* watchers only listen */ }
+  async webSocketClose(ws) { try { ws.close(); } catch { /* already gone */ } }
+  async alarm() {
+    for (const ws of this.ctx.getWebSockets()) { try { ws.close(1000, "done"); } catch { /* already gone */ } }
+    await this.ctx.storage.deleteAll();
+  }
+}
+/** How long a finished job's room keeps its talk for a late reconnect. */
+const ROOM_KEEP_MS = 10 * 60_000;
+/** What the Worker may tell a room: lines (as `linesOf` gives them), the line being written, and whether the job is closed. Anything else is refused. */
+function readRoomSay(j) {
+  if (!j || typeof j !== "object") return null;
+  const out = {};
+  if (Object.hasOwn(j, "lines")) {
+    if (!Array.isArray(j.lines) || j.lines.length > 400 || !j.lines.every((l) => l && typeof l === "object" && typeof l.text === "string" && Number.isInteger(l.n))) return null;
+    out.lines = j.lines.map((l) => ({ n: l.n, ms: Number.isFinite(l.ms) ? l.ms : 0, text: l.text.slice(0, 2000), ...(typeof l.explain === "string" ? { explain: l.explain.slice(0, 2000) } : {}), ...(l.late === true ? { late: true } : {}) }));
+  }
+  if (Object.hasOwn(j, "live")) {
+    if (j.live === null) out.live = null;
+    else if (j.live && typeof j.live.text === "string" && Number.isInteger(j.live.n) && j.live.n > 0) out.live = { n: j.live.n, text: j.live.text.slice(0, 600) };
+    else return null;
+  }
+  if (Object.hasOwn(j, "closed")) { if (typeof j.closed !== "boolean") return null; out.closed = j.closed; }
+  return Object.keys(out).length ? out : null;
+}
+/** The room's state after one telling. Lines never shrink (a late, older telling cannot take a line back); closed stays closed. */
+function mergeRoomSay(was, said) {
+  const lines = said.lines && said.lines.length >= was.lines.length ? said.lines : was.lines;
+  let live = Object.hasOwn(said, "live") ? said.live : was.live;
+  if (live && live.n !== lines.length + 1) live = null;
+  return { lines, live, closed: was.closed || said.closed === true };
+}
+/** What a watcher is sent: the same shape the stream route sends. */
+const roomMessage = (st) => ({ lines: st.lines, live: st.live ? st.live.text : "", closed: !!st.closed });
+/**
+ * TELL THE JOB'S ROOM (2026-10-19). Never awaited by what it reports and never
+ * able to cost it: no room binding, or a room that fails, and the stream falls
+ * back to reading storage as before.
+ */
+function tellRoom(env, job, said) {
+  try {
+    if (!env || !env.TALK_ROOM || typeof env.TALK_ROOM.idFromName !== "function") return;
+    const stub = env.TALK_ROOM.get(env.TALK_ROOM.idFromName(job));
+    const p = stub.fetch("https://room/say", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(said) }).catch(() => {});
+    return p;
+  } catch { /* the room never costs the talk */ }
+}
+/** A WebSocket to the job's room, accepted, or null when there is no room or it would not answer. */
+async function openRoomWatch(env, job) {
+  try {
+    if (!env || !env.TALK_ROOM || typeof env.TALK_ROOM.idFromName !== "function") return null;
+    const stub = env.TALK_ROOM.get(env.TALK_ROOM.idFromName(job));
+    const r = await stub.fetch("https://room/watch", { headers: { Upgrade: "websocket" } });
+    const ws = r && r.webSocket;
+    if (!ws) return null;
+    ws.accept();
+    return ws;
+  } catch (e) { console.error("talk room: unreachable", errorClassForLog(e)); return null; }
+}
+/** The room's pieces, for its tests. */
+export const talkRoomApi = { TalkRoom, readRoomSay, mergeRoomSay, roomMessage, tellRoom, openRoomWatch, ROOM_KEEP_MS };
+
 // Site build-service container. The image (./builder/Dockerfile) bakes the React
 // template and its dependencies, so a per-site build is only `tsr generate` →
 // `tsc --noEmit` → `vite build`. Runs to zero after idle, same as the game one.
@@ -7648,6 +7748,52 @@ const LIVE_SAY_MS = 15_000;
 const TALK_STREAM_MS = 120_000;
 const TALK_STREAM_TICK_MS = 500;
 /**
+ * AT MOST `TALK_STREAMS_PER_ACCOUNT` LIVE CONNECTIONS PER ACCOUNT (2026-10-19,
+ * owner: "what about connection limits"): each open stream holds a lease in
+ * the account's own list, written over what was read (so two opening at once
+ * cannot both take the last slot), and gives it back when it closes; a lease
+ * a crashed stream never returned runs out by itself. Over the limit is 429.
+ * A list that cannot be read or written lets the stream open (logged): the
+ * old poll carries the talk either way, so the limit never blocks a build.
+ */
+const TALK_STREAMS_PER_ACCOUNT = 3;
+/** The live-connection limit, for its tests (2026-10-19). */
+export const streamLeaseApi = { takeStreamLease, giveBackStreamLease, TALK_STREAMS_PER_ACCOUNT };
+const streamLeaseKey = (uid) => "stream-leases/" + uid + ".json";
+async function takeStreamLease(env, uid, now = Date.now()) {
+  const id = crypto.randomUUID();
+  const until = now + TALK_STREAM_MS + 15_000;
+  for (let i = 0; i < 3; i++) {
+    let leases = [], etag = null;
+    try {
+      const o = await env.SITES_BUCKET.get(streamLeaseKey(uid));
+      if (o) { etag = o.etag || o.httpEtag || null; const j = JSON.parse(await o.text()); leases = Array.isArray(j && j.leases) ? j.leases : []; }
+    } catch (e) { console.error("talk stream: leases unread", errorClassForLog(e)); return { ok: true, release: async () => {} }; }
+    leases = leases.filter((l) => l && typeof l.id === "string" && Number.isFinite(l.until) && l.until > now);
+    if (leases.length >= TALK_STREAMS_PER_ACCOUNT) return { ok: false };
+    try {
+      const put = await env.SITES_BUCKET.put(streamLeaseKey(uid), JSON.stringify({ leases: leases.concat([{ id, until }]) }), {
+        httpMetadata: { contentType: "application/json" },
+        onlyIf: etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" },
+      });
+      if (put) return { ok: true, release: () => giveBackStreamLease(env, uid, id) };
+    } catch (e) { console.error("talk stream: lease unwritten", errorClassForLog(e)); return { ok: true, release: async () => {} }; }
+  }
+  return { ok: true, release: async () => {} };
+}
+async function giveBackStreamLease(env, uid, id) {
+  for (let i = 0; i < 3; i++) {
+    try {
+      const o = await env.SITES_BUCKET.get(streamLeaseKey(uid));
+      if (!o) return;
+      const j = JSON.parse(await o.text());
+      const left = (Array.isArray(j && j.leases) ? j.leases : []).filter((l) => l && l.id !== id && l.until > Date.now());
+      const put = await env.SITES_BUCKET.put(streamLeaseKey(uid), JSON.stringify({ leases: left }), { httpMetadata: { contentType: "application/json" }, onlyIf: { etagMatches: o.etag || o.httpEtag } });
+      if (put) return;
+    } catch { return; /* it runs out by itself */ }
+  }
+}
+/**
  * WHICH STEP THE CONTAINER'S BUILD IS ON, WATCHED WHILE IT RUNS (2026-10-19):
  * asked every few seconds (`/build/stage`) and handed on once per change.
  * Returns the stop. Never costs the build.
@@ -7733,12 +7879,13 @@ function liveLineWriter(env, job, n) {
       const text = typeof code === "string" ? code.trim() : "";
       if (!text || text === last || busy || Date.now() - at < LIVE_LINE_EVERY_MS) return;
       last = text; at = Date.now(); busy = true;
+      tellRoom(env, job, { live: { n, text: text.slice(0, 600) } });
       env.SITES_BUCKET.put(progressLiveKey(job), JSON.stringify({ n, text: text.slice(0, 600), at }), { httpMetadata: { contentType: "application/json" } })
         .catch(() => {}).finally(() => { busy = false; });
     } catch { /* the live line never costs the line */ }
   };
 }
-const clearLiveLine = (env, job) => env.SITES_BUCKET.delete(progressLiveKey(job)).catch(() => {});
+const clearLiveLine = (env, job) => { tellRoom(env, job, { live: null }); return env.SITES_BUCKET.delete(progressLiveKey(job)).catch(() => {}); };
 
 async function progressRecordAt(env, job) {
   try {
@@ -7789,7 +7936,10 @@ async function progressUpdate(env, job, decide, seen = null) {
     if (out.done) return out;
     if (!out.rec) return null;
     const etag = await putProgressRecord(env, job, out.rec, at.etag);
-    if (etag) return { ...out, etag };
+    if (etag) {
+      try { tellRoom(env, job, { lines: linesOf(out.rec), closed: !!out.rec.closed }); } catch { /* the room never costs the record */ }
+      return { ...out, etag };
+    }
   }
   console.error("progress: six writes in a row lost to other changes on", job);
   if (seen) seen.store = true;
@@ -31517,9 +31667,42 @@ async function handleRequest(request, env, ctx) {
         if (!env.SITES_BUCKET || !progressOn(env)) return Response.json({ error: "not available" }, { status: 404 });
         const at0 = await progressRecordAt(env, talkLive[1]);
         if (at0.rec && at0.rec.uid !== su.id) return Response.json({ error: "not found" }, { status: 404 });
+        const lease = await takeStreamLease(env, su.id);
+        if (!lease.ok) return Response.json({ error: "too many live connections — the page keeps checking instead" }, { status: 429 });
         const { readable, writable } = new TransformStream();
         const w = writable.getWriter();
         const enc = new TextEncoder();
+        // FROM THE ROOM WHEN THERE IS ONE (2026-10-19): the Worker holds one
+        // WebSocket to the job's room and passes each message on as it comes;
+        // no storage reads while it waits. A room that cannot be reached falls
+        // through to the storage loop below, as before.
+        const room = await openRoomWatch(env, talkLive[1]);
+        if (room) {
+          const pumpRoom = (async () => {
+            try {
+              await w.write(enc.encode(": open\n\n"));
+              // WHAT IS ALREADY WRITTEN, FROM THE RECORD, so a room that has not
+              // heard this job yet (one begun before rooms) still starts right.
+              if (at0.rec) await w.write(enc.encode("data: " + JSON.stringify({ lines: linesOf(at0.rec), live: "", closed: !!at0.rec.closed }) + "\n\n"));
+              await new Promise((done) => {
+                const stop = setTimeout(done, TALK_STREAM_MS);
+                room.addEventListener("message", (ev) => {
+                  const text = typeof ev.data === "string" ? ev.data : "";
+                  if (!text) return;
+                  w.write(enc.encode("data: " + text + "\n\n")).catch(() => { clearTimeout(stop); done(); });
+                  try { if (JSON.parse(text).closed === true && !JSON.parse(text).live) { clearTimeout(stop); done(); } } catch { /* not ours */ }
+                });
+                room.addEventListener("close", () => { clearTimeout(stop); done(); });
+                room.addEventListener("error", () => { clearTimeout(stop); done(); });
+              });
+            } catch { /* the page reconnects */ }
+            try { room.close(1000, "done"); } catch { /* already gone */ }
+            try { await w.close(); } catch { /* already gone */ }
+            await lease.release();
+          })();
+          if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(pumpRoom);
+          return new Response(readable, { headers: { "content-type": "text/event-stream", "cache-control": "no-store", "x-accel-buffering": "no" } });
+        }
         const pump = (async () => {
           let sent = "";
           const until = Date.now() + TALK_STREAM_MS;
@@ -31538,6 +31721,7 @@ async function handleRequest(request, env, ctx) {
             }
           } catch { /* the page reconnects */ }
           try { await w.close(); } catch { /* already gone */ }
+          await lease.release();
         })();
         if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(pump);
         return new Response(readable, { headers: { "content-type": "text/event-stream", "cache-control": "no-store", "x-accel-buffering": "no" } });

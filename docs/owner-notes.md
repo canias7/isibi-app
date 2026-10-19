@@ -1,5 +1,12 @@
 # Owner Notes
 
+## 2026-10-19 — At most 3 live connections per account, and one Durable Object "room" per build that pushes the talk (on your word "lets do all of this that we planned"; branch only, not deployed)
+
+- **The limit**: an account can have at most 3 live talk connections open at once. A 4th gets a "too many" answer, and its page goes back to checking every few seconds, so it still sees all the talk. Closing a tab frees its slot at once, a slot from a crashed tab frees itself after about 2¼ minutes, and a storage problem never blocks anyone.
+- **The room**: each build gets one Durable Object, `TalkRoom`. The Worker tells the room each time the build's lines change, and the room pushes them to whoever is watching, so the stream no longer asks storage twice a second. A sleeping room costs nothing. A room that can't be reached falls back to the old storage reading. A finished build's room empties itself after 10 minutes. It needs a new Cloudflare migration, `v7`.
+- **Tests**: R10 (the limit, including two connections racing for the last slot) and R11 (the room: pushing, lines never going backwards, refusing bad input, emptying, and the wiring). Plus one test taught the runtime's `WebSocketPair` name.
+- **The recorded build on deploy 2222** (Harbour Loaf, 21 credits, 75 → 54): built and saved as a draft, but **only 4 lines of talk**, at 209 s, 436 s, 460 s and 496 s. Nothing came during the first 3½ minutes or while the pages were being written. That's a real gap, still to be traced. Separately, it planned **one page**, not the five asked for, and two photographs weren't made (picture buying is off).
+
 ## 2026-10-19 — The talk is pushed and streamed, like Claude Code (on your word "do it now")
 
 The talk used to reach the page the long way: the writer's whole sentence saved, then the page asking every second or two. Now:

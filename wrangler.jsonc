@@ -186,7 +186,8 @@
   ],
   "durable_objects": {
     "bindings": [
-      { "class_name": "SiteBuildContainer", "name": "SITE_BUILD_CONTAINER" }
+      { "class_name": "SiteBuildContainer", "name": "SITE_BUILD_CONTAINER" },
+      { "class_name": "TalkRoom", "name": "TALK_ROOM" }
     ]
   },
   "migrations": [
@@ -202,7 +203,8 @@
     // deleted_classes migration FAILS THE DEPLOY. v2 above STAYS — migration
     // history is append-only, so the tag that created the class cannot be taken
     // back out even though the class is gone.
-    { "tag": "v6", "deleted_classes": ["GameBuildContainer"] }
+    { "tag": "v6", "deleted_classes": ["GameBuildContainer"] },
+    { "tag": "v7", "new_sqlite_classes": ["TalkRoom"] }
   ],
   // Auto-reply engine: wake every 2 minutes to answer new inbound DMs for
   // accounts that have DM auto-reply switched on (see scheduled() in worker.js).
