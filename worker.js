@@ -8071,7 +8071,10 @@ async function progressUpdate(env, job, decide, seen = null) {
 
 /** One message to the queue that writes progress; false when there is no queue or it would not take it. */
 async function sendProgressTask(env, task, delayS = 0) {
-  roomWriter(env, task, delayS);
+  // AWAITED (2026-10-19, deploy 2224's diagnostic): asked from the container's
+  // gateway, an unawaited call to the room died with the request, and the
+  // queue's message took 3½ minutes to come — the first line waited 211 s.
+  await roomWriter(env, task, delayS);
   if (!env || !env.BUILD_QUEUE || typeof env.BUILD_QUEUE.send !== "function") return false;
   try {
     await env.BUILD_QUEUE.send({ kind: PROGRESS_KIND, id: task.id, uid: task.uid }, delayS > 0 ? { delaySeconds: queueDelay(delayS) } : undefined);
@@ -8139,7 +8142,7 @@ async function progressFromJob(env, ids, body) {
       const opened = openRecord({ job: id, uid, slug, op: b.kind, run, words: b.words, picker: b.picker, pages: b.pages, tasks: b.task === true && words ? [{ n: 0, words }] : [], at: now, request: b.request, talk: b.talk === true && talkOn(env) });
       return opened ? { rec: opened } : null;
     }, seen);
-    diag(env, id, r ? "begun" : "begin-refused", { kind: String(b.kind || ""), take: b.take === true, pre, store: !!seen.store });
+    await diag(env, id, r ? "begun" : "begin-refused", { kind: String(b.kind || ""), take: b.take === true, pre, store: !!seen.store });
     if (r) await askProgress(env, id, uid, now);
     return answer(r);
   }
@@ -8165,12 +8168,12 @@ async function progressFromJob(env, ids, body) {
       settle = added.rec.talk === true ? PROGRESS_SETTLE_S : 0;
       return { rec: ask ? markAsked(added.rec, now) : added.rec };
     }, seen);
-    diag(env, id, r ? "marked" : "mark-not-written", { stage: String(b.stage || "").slice(0, 40), ask, store: !!seen.store });
+    await diag(env, id, r ? "marked" : "mark-not-written", { stage: String(b.stage || "").slice(0, 40), ask, store: !!seen.store });
     if (r && ask) await sendProgressTask(env, { id, uid }, settle);
     return answer(r);
   }
   if (b.op === "close") {
-    diag(env, id, "close", { why: String(b.why || "").slice(0, 40) });
+    await diag(env, id, "close", { why: String(b.why || "").slice(0, 40) });
     const r = await progressUpdate(env, id, (rec) => {
       if (!rec || rec.run !== run || rec.closed || (pre && rec.op !== "build")) return { done: true };
       const closed = closeRecord(rec, typeof b.why === "string" ? b.why : "ended", now);

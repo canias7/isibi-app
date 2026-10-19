@@ -516,7 +516,7 @@ test("R12 THE ROOM RUNS THE LINE WRITER: a write asked of it sets its alarm for 
   await roomWriter(env, { id: job, uid: "u1" }, 3);
   assert.deepEqual(told, [[job, "https://room/write", { id: job, uid: "u1", delayMs: 3000 }]]);
   assert.equal(roomWriter({}, { id: job, uid: "u1" }), undefined);
-  assert.match(W, /async function sendProgressTask\(env, task, delayS = 0\) \{\s*\n\s*roomWriter\(env, task, delayS\);/, "a queue ask no longer asks the room too");
+  assert.match(W, /async function sendProgressTask\(env, task, delayS = 0\) \{[\s\S]{0,400}?\n\s*await roomWriter\(env, task, delayS\);/, "a queue ask no longer asks the room too");
   assert.match(W, /try \{ await runProgressTask\(this\.env, \{ id: w\.id, uid: w\.uid \}, "room"\); \}/, "the room's alarm does not run the writer");
 });
 
@@ -592,4 +592,11 @@ test("R14 a diagnostic event is one object under the job's own prefix, and a bad
   assert.equal(diag(env, "nope", "x"), undefined); assert.equal(put.length, 1);
   await diag({ SITES_BUCKET: { put: async () => { throw new Error("down"); } } }, job, "x");
   assert.equal(diag(null, job, "x"), undefined);
+});
+
+// ── ROUND 15: THE ASK FROM THE CONTAINER'S GATEWAY REACHES THE ROOM ──────────
+test("R15 a writer asked from the gateway's request is asked of the room before the request ends (awaited), and the door's diagnostics are awaited too", () => {
+  assert.match(W, /async function sendProgressTask\(env, task, delayS = 0\) \{[\s\S]{0,400}?\n\s*await roomWriter\(env, task, delayS\);/, "the room is asked without waiting, and dies with the gateway's request");
+  const door = W.slice(W.indexOf("async function progressFromJob("), W.indexOf("\n}\n", W.indexOf("async function progressFromJob(")));
+  for (const ev of ['await diag(env, id, r ? "begun"', 'await diag(env, id, r ? "marked"', 'await diag(env, id, "close"']) assert.ok(door.includes(ev), ev + " is not awaited");
 });

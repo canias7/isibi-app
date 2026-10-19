@@ -1,5 +1,12 @@
 # Owner Notes
 
+## 2026-10-19 — The diagnostic found it: the ask from the container never reached the room, and the queue took 3½ minutes (branch only, not deployed)
+
+- **Deploy 2224's build** (Harbour Loaf 8) recorded 35 steps from second 1 onward, but **the first line writer started only at 211 s**. Then 3 lines were written and saved, each model call taking 19 to 37 seconds. The last steps (the browser check, the save) came after that and were never written before the build closed at 389 s.
+- **Why**: each ask comes from the container's gateway request. The call to the room was sent without waiting, so it died when that request ended, and the queue's own message took about 3½ minutes to arrive. At 211 s the 2-minute cron asked again, and that time both arrived together.
+- **Fix**: the room is now asked and waited for before the request ends. The door's own diagnostic entries are waited for too, so the next log will show every step. Test R15; full suite 11,542 / 11,540 / 0 / 2.
+- **Still true after the fix**: each line takes 19 to 37 seconds to write (the same grok-4.6 model as the build, which is your rule). So at best about one line every half minute, with steps that land close together said together.
+
 ## 2026-10-19 — Deploy 2223's build said only 2 lines, so the talk now keeps a diagnostic log (on your word "ok do that"; branch only, not deployed)
 
 - **Deploy 2223** (`7c08b666`, on your word "merge deploy and build and record"): the deploy went green. The recorded build, Harbour Loaf 7, built fine, but said **2 lines** (at 171 s and 200 s) and nothing after them. So running the writer from the room was not the cause; I'd guessed wrong twice.
