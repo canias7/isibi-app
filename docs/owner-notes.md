@@ -1,5 +1,11 @@
 # Owner Notes
 
+## 2026-10-19 — Deploy 2226's build: the talk works (17 lines, the first at 10 s, each 4 to 9 s)
+
+- **Deploys 2225/2226** (`3f414af1`: the first-build door, and the talk on low effort), on your words. The recorded build, Harbour Loaf 10, said **17 lines** (before it: 4, 2, 3, 5). **The first came at 10 s** (before: 156 to 211 s). **Each line took 4.4 to 9.4 s** to write (before: 19 to 41 s). All 37 steps were said; nothing was dropped or skipped.
+- The quiet stretches (58 to 157 s, 164 to 280 s, 386 to 506 s) are where the build itself reported no new step, during long design and checking work. Not the talk.
+- The log shows the room's writer starting first every time, and the queue's arriving after it and leaving (claim-none). The design still planned **one page, not the five asked for**: separate, in the backlog.
+
 ## 2026-10-19 — The talk thinks less: Grok's reasoning effort set to low for progress lines and replies (on your word "set the talking to low and lets test it"; branch only, not deployed)
 
 - **What I found**: grok-4.6 takes `reasoning_effort` low / medium / high / xhigh. It can't be switched off, and the default is **high**. We had never sent it, so every call ran at high, and each talk line took 19 to 41 seconds (deploy 2224's and 2225's logs).
