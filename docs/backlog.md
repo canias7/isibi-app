@@ -20,6 +20,17 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
+- **Audit the sites the builder makes with Cloudflare's security-audit skill**
+  (2026-10-19, owner: "save it for later to audit the sites the builder does,
+  not my platform"): `github.com/cloudflare/security-audit-skill` (MIT; install
+  `npx skills add https://github.com/cloudflare/security-audit-skill --skill
+  security-audit`). Six phases: reconnaissance, hunting by attack class,
+  validation by a fresh agent trying to disprove each finding, `findings.json`,
+  independent verification, report. Needs parallel sub-agents, Node, and an
+  OS-enforced sandbox to run target code (without one, leads stay
+  `needs_validation`). The target is a customer's generated site (its pages,
+  forms, data rules, payments), not the platform. Not started; how it would
+  run (per site, on demand, or after each build) and its cost are open.
 - **An effort control next to the model picker** (2026-10-19, owner: "next to
   the model we gonna do an effort thing but later on, note it"): a customer-facing
   setting beside "Builder: Grok 4.6 ▾" for how hard the builder thinks (grok-4.6
