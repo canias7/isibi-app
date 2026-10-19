@@ -2005,3 +2005,20 @@ deploy's ignore list, so the push started deploy run 38747702721.
   - Assets uploaded: `/styles.css` and `/chat.js`. Cloudflare version `02ada375…`.
 - **Switches:** unchanged (secrets as before).
 - **Deployed, not runtime-confirmed.** It waits for the 15–20 minute image window, then the owner's free canary press. `public/` changed, so the served `chat.js` and `styles.css` are to be byte-compared with the merged files.
+
+## Deploy 2217 (2026-10-19) — no build fails on time alone
+
+- **Commit:** `d2ba84be`, a fast-forward of `main` from `e2a8d1d8`, on the owner's word "yes go".
+- **Before the merge:**
+  - Unit CI was green on the candidate (run 39178710167).
+  - Nothing was in flight.
+  - The rollback was verified in a throwaway worktree.
+- **Predicted image:** `8f2aee8779c7808a`, 211 inputs.
+- **The run:** 39179295898, `success`, 00:06:56–00:09:44 UTC.
+  - The container moved `f627bfc5e59cb204` → `8f2aee8779c7808a` at 00:09:40.
+  - No assets uploaded.
+- **Live proof:** the test account's paid rebuild of the 317-word Harbour Loaf prompt, recorded.
+  - Started at 00:31:37; the build row is `ok: true` at 00:43:39 on `harbour-loaf-2`.
+  - `genMs` was 441,623, past the 300-second wall that killed the first build. `genVia` was 1 (the container's started-and-polled call), with `tsc` 16,305, `vite` 41,999, render 29,510 and publish 19,138.
+  - Cost 18 credits (97 → 79).
+  - Before the fix, the same prompt failed at 602,445 ms with `fetch failed` (2026-10-18, build `11a381e8`).
