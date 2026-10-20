@@ -197,30 +197,9 @@ function wireBuildPicker() {
   menu.querySelectorAll('.build-item').forEach((it) => { it.onclick = () => setBuildPicker(it.dataset.pick); });
 }
 
-// ── Effort — PARKED 2026-09-07 (owner: "DELETE THE EFFORT THING FOR NOW"), BACK
-// 2026-10-19 on Grok's own levels and wired end to end (below). The history:
-//
-// It used to sit beside the model picker in the site-builder composer and ride the
-// build and revise as `effort`. It is off the row, off the wiring and off both
-// request bodies; the table and these three functions stay, because "for now" is
-// what the owner said and this is the `gif` precedent — the mechanism kept, the
-// door removed, and the way back written down rather than remembered.
-//
-// WHY IT WENT, and it is not that nobody used it: it had been VISIBLE AND INERT
-// since 2026-08-08 by the owner's own call ("leave the effort thing off, leave it
-// there but doesn't work, i want it like that"). The build route says so in as
-// many words — `body.effort` stays unread — so what a customer saw was a
-// five-level dial that changed nothing. That is this repo's open dead-control
-// finding, in its own chrome for the third time in a fortnight (`stMembers`, the
-// Security panel's Run scan, this). A disabled control earns its place by SAYING
-// something true; "not built yet" does, a dial with no effect does not.
-//
-// TO PUT IT BACK, three lines and nothing else: `buildEffortHTML() +` after
-// `buildPickerHTML() +` in the composer row, `wireBuildEffort();` beside
-// `wireBuildPicker();` at the end of that render, and `effort: buildEffort` on
-// the two bodies in `reactSend`. Then wire `body.effort` on the build route, or
-// it comes back exactly as inert as it went.
-//
+// ── Effort: Grok's own reasoning levels (owner, 2026-10-20: "the old picker
+// for effort… forget it, use the effort levels from xai"). Nothing of the old
+// 1–5 dial (output size, the multi-agent fan-out) is kept or meant.
 // BACK, AND REAL (2026-10-19, owner: "let's do the effort levels on the side
 // screen and on the preview screen… the other stuff user can change"): the
 // levels are Grok's own (`reasoning_effort`: low / medium / high / xhigh), sent
