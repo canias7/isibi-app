@@ -20,42 +20,34 @@ const ROOT = path.join(import.meta.dirname, "..");
 const PUB = path.join(ROOT, "public");
 const read = (f) => fs.readFileSync(path.join(PUB, f), "utf8");
 
-// The geometry, as the drawing primitives inside the mark's own group.
+// The geometry: the leaning GF, as the one transform that places the letters
+// and every stroke drawn under it (the wide letter pass and the thin inline).
 //
-// The close has to be found by DEPTH, not by searching for the next (or last)
-// </g>. The mark is three nested groups, and index.html carries dozens of other
-// inline icons: a flat scan for the closing tag either stops inside the mark or
-// — as the first version of this did — runs to the end of the file and compares
-// the logo against every icon in the app. The shapes are normalised for
-// whitespace, so re-indenting a file is not a failure; the drawing is the
-// property.
+// The mark is a tile with the letters taken out of it. The documents that use
+// it as currentColor art (logo.svg, index.html, confirm.html) cut the letters
+// with a <mask id="gfCut">, so whatever colour the app paints shows through
+// the letters correctly; favicon.svg paints the same letters solid on its own
+// tile, because a tab strip is not ours to colour. The drawing is the same in
+// all of them, and that is what is compared: the placing transform, then each
+// pass's stroke width and paths, whitespace normalised.
 const geometryOf = (src, label) => {
-  // Two spellings carry the mark: the HTML documents wrap it in <g id="gfMark">,
-  // while logo.svg and favicon.svg wrap it in a plain stroked group (favicon's
-  // also carries a transform and a literal colour, because it sits on a plate).
-  // Anchor on the id when there is one and on the stroked group otherwise —
-  // matching one exact opening tag reported favicon.svg as having no mark at all.
-  const at = src.indexOf('id="gfMark"');
-  const from = at >= 0 ? src.lastIndexOf("<g", at) : (() => {
-    const g = [...src.matchAll(/<g\b[^>]*fill="none"[^>]*>/g)];
-    assert.equal(g.length, 1, label + " should hold exactly one stroked mark group, saw " + g.length);
-    return g[0].index;
-  })();
-  assert.ok(from >= 0, label + " must contain the mark");
+  const groups = [...src.matchAll(/<g\b[^>]*transform="([^"]*skewX[^"]*)"[^>]*>/g)];
+  assert.equal(groups.length, 1, label + " should place the letters exactly once, saw " + groups.length);
+  const from = groups[0].index;
   let i = src.indexOf(">", from) + 1, depth = 1, end = -1;
   while (i < src.length && depth > 0) {
     const openTag = src.indexOf("<g", i), closeTag = src.indexOf("</g>", i);
-    assert.ok(closeTag >= 0, label + "'s mark group is never closed");
+    assert.ok(closeTag >= 0, label + "'s letter group is never closed");
     if (openTag >= 0 && openTag < closeTag) { depth++; i = openTag + 2; continue; }
     depth--; end = closeTag; i = closeTag + 4;
   }
-  assert.equal(depth, 0, label + "'s mark group is unbalanced");
+  assert.equal(depth, 0, label + "'s letter group is unbalanced");
   const inner = src.slice(src.indexOf(">", from) + 1, end);
-  const shapes = [...inner.matchAll(/<(path|circle|g)\b([^>]*)>/g)]
-    .map((m) => m[1] + " " + m[2].replace(/\s+/g, " ").trim());
-  assert.equal(shapes.length, 12,
-    label + " should carry the mark's twelve primitives (3 groups, 3 arcs, 3 circles, 3 stems), saw " + shapes.length);
-  return shapes.join("|");
+  const passes = [...inner.matchAll(/<g\b[^>]*stroke-width="([^"]+)"[^>]*>([\s\S]*?)<\/g>/g)]
+    .map((m) => m[1] + ":" + [...m[2].matchAll(/<path\b[^>]*\bd="([^"]+)"/g)].map((d) => d[1].replace(/\s+/g, " ").trim()).join("|"));
+  assert.equal(passes.length, 2, label + " should draw the letters in two passes (the letter and its inline), saw " + passes.length);
+  for (const pass of passes) assert.equal(pass.split("|").length, 4, label + " should draw the G, the F's stem and top, its middle bar and the arrow: " + pass);
+  return groups[0][1].replace(/\s+/g, " ").trim() + "#" + passes.join("#");
 };
 
 const CANON = read("logo.svg");
@@ -79,7 +71,7 @@ test("every inline copy of the mark is the same drawing as logo.svg", () => {
   // A carrier is any page or asset that draws this exact artwork — probed with
   // the mark's own first path, taken from the canonical file rather than typed
   // here, so a file that starts carrying the mark is covered the day it does.
-  const probe = /d="([^"]+)"/.exec(CANON)[1];
+  const probe = /<path\b[^>]*\bd="([^"]+)"/.exec(CANON)[1];
   const carriers = fs.readdirSync(PUB)
     .filter((f) => /\.(html|svg)$/.test(f) && f !== "logo.svg")
     .filter((f) => read(f).includes(probe));
@@ -131,23 +123,41 @@ test("no page reaches for a raster copy of the logo any more", () => {
   }
 });
 
-test("the favicon carries its own ground, and the mark does not", () => {
-  // A tab strip follows the OS, not the site, and the mark is one colour — so
-  // on a dark strip it was black on near-black and simply vanished (rendered,
-  // not guessed). The fix is a plate: an opaque ground under the drawing, which
-  // reads on any strip with nothing to get wrong at 16px.
+test("the favicon carries its own ground, and logo.svg is transparent around its tile", () => {
+  // A tab strip follows the OS, not the site. The favicon therefore paints
+  // everything itself: an opaque tile and solid letters in stated colours. Cut
+  // letters (logo.svg's mask) would show the strip through them and vanish on a
+  // dark one.
   const fav = read("favicon.svg");
-  assert.match(fav, /<rect[^>]*fill="#(fff|ffffff)"/i,
-    "favicon.svg needs an opaque plate or it disappears on a dark tab strip");
+  assert.match(fav, /<rect[^>]*fill="#[0-9a-f]{6}"/i,
+    "favicon.svg needs an opaque tile in a stated colour or it disappears on a dark tab strip");
   assert.match(fav, /stroke="#[0-9a-f]{6}"/i,
-    "on its own plate the mark must state a colour; currentColor would follow the renderer");
+    "on its own tile the letters must state a colour; currentColor would follow the renderer");
+  assert.equal(/currentColor|mask=/.test(fav), false,
+    "favicon.svg must not depend on the page's colour or cut its letters out");
 
-  // And the exact opposite for logo.svg, for a reason that is easy to undo by
-  // accident: the in-app avatar MASKS it, and a mask reads alpha. Give this file
-  // a background and the avatar stops being a logo and becomes a filled square.
-  assert.equal(/<rect|<style|prefers-color-scheme/.test(CANON), false,
-    "public/logo.svg must stay a bare transparent mark — the avatar masks it, and a mask " +
-    "takes alpha, so any opaque background here renders as a solid block");
+  // logo.svg is the opposite, for a reason that is easy to undo by accident:
+  // the in-app avatar MASKS it, and a mask reads alpha. Its one painted shape is
+  // the rounded tile in currentColor, with the letters cut by the mask; outside
+  // the tile the file must stay transparent, or the avatar becomes a square.
+  const outsideMask = CANON.replace(/<mask\b[\s\S]*?<\/mask>/g, "");
+  const rects = [...outsideMask.matchAll(/<rect\b[^>]*>/g)].map((m) => m[0]);
+  assert.equal(rects.length, 1, "logo.svg should paint exactly one shape, its tile, saw " + rects.length);
+  assert.match(rects[0], /rx="\d/, "the tile must keep its rounded corners, which are transparent");
+  assert.match(rects[0], /fill="currentColor"/, "the tile takes the app's own ink");
+  assert.match(rects[0], /mask="url\(#gfCut\)"/, "the letters must be cut out of the tile, not painted on it");
+  assert.equal(/<style|prefers-color-scheme/.test(CANON), false,
+    "public/logo.svg must not restyle itself — the avatar masks it and the app colours it");
+});
+
+test("each document that cuts the letters declares its cut", () => {
+  // THE WIRING LAYER again: mask="url(#gfCut)" against a document with no such
+  // mask paints the tile with no letters at all, and nothing errors.
+  for (const f of ["logo.svg", ...fs.readdirSync(PUB).filter((x) => x.endsWith(".html"))]) {
+    const src = read(f);
+    if (!src.includes("url(#gfCut)")) continue;
+    assert.equal((src.match(/<mask id="gfCut"/g) || []).length, 1, f + " uses #gfCut and must declare it exactly once");
+  }
 });
 
 test("nothing paints logo.svg as an image onto a fixed-colour surface", () => {
