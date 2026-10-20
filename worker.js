@@ -599,10 +599,54 @@ function readChatPut(b) {
     slug: typeof b.slug === "string" ? b.slug.slice(0, 80) : "",
     clarify: b.clarify && typeof b.clarify === "object" && !Array.isArray(b.clarify) ? b.clarify : null,
     jobCards: b.jobCards && typeof b.jobCards === "object" && !Array.isArray(b.jobCards) ? b.jobCards : null,
+    ask: b.ask && typeof b.ask === "object" && !Array.isArray(b.ask) ? b.ask : null,
   };
 }
+// ── THE ACCOUNT'S OWN SETTINGS AND WORK IN PROGRESS, ON THE SERVER (2026-10-20,
+// owner: "fix, do it server side") ───────────────────────────────────────────
+//
+// What the page used to keep only in one browser: the builder model and effort
+// picked, the sidebar, the last screen, the welcome and offer marks, the credit
+// gauge's high mark, the edits it is following and the uploads it has under
+// way. One record per account (`acct/<uid>.json`), each value kept with the
+// time it was set, and a write keeps a value only when it is newer than the one
+// stored, so two devices settle on the last choice made. The names are a fixed
+// list: nothing else is stored.
+const acctStateKey = (uid) => "acct/" + uid + ".json";
+const ACCT_STATE_NAMES = ["picker", "effort", "view", "side", "credMax", "offerEnd", "welcome", "editWatch", "mediaUploads"];
+const ACCT_VALUE_MAX = 200_000;
+/** A write's values, read strictly: `{ name: { v: string|null, at: ms } }`, known names only. Null for anything else. */
+function readAcctPut(b) {
+  if (!b || typeof b !== "object" || Array.isArray(b) || !b.set || typeof b.set !== "object" || Array.isArray(b.set)) return null;
+  const out = {};
+  for (const [k, e] of Object.entries(b.set)) {
+    if (!ACCT_STATE_NAMES.includes(k)) return null;
+    if (!e || typeof e !== "object" || !Number.isFinite(e.at) || e.at <= 0) return null;
+    if (e.v !== null && (typeof e.v !== "string" || e.v.length > ACCT_VALUE_MAX)) return null;
+    out[k] = { v: e.v, at: Math.floor(e.at) };
+  }
+  return Object.keys(out).length ? out : null;
+}
+/** The stored values with the newer of each laid over them. */
+function mergeAcctState(cur, incoming) {
+  const next = { ...(cur || {}) };
+  for (const [k, e] of Object.entries(incoming)) if (!next[k] || !(next[k].at > e.at)) next[k] = e;
+  return next;
+}
+// ── A QUESTION'S FILES, ON THE SERVER (2026-10-20) ──────────────────────────
+// The pictures a message carried while the builder asks its question, kept a
+// day (`ASK_FILES_TTL_MS`) under the account so the answer can send them from
+// any device. At most three, and `ASK_FILES_MAX_BYTES` together.
+const askFilesKey = (uid, id) => "askfiles/" + uid + "/" + id + ".json";
+const ASK_FILES_TTL_MS = 24 * 60 * 60 * 1000;
+const ASK_FILES_MAX_BYTES = 20_000_000;
+function readAskFilesPut(b) {
+  if (!b || typeof b !== "object" || !Array.isArray(b.imgs) || !b.imgs.length || b.imgs.length > 3) return null;
+  if (!b.imgs.every((x) => (typeof x === "string" && x.length > 0) || (x && typeof x === "object" && !Array.isArray(x)))) return null;
+  return { imgs: b.imgs };
+}
 /** The chat store's pieces, for its tests. */
-export const chatStoreApi = { chatStoreKey, chatStoreRead, readChatPut, CHAT_MAX_BYTES, CHAT_MAX_MSGS };
+export const chatStoreApi = { chatStoreKey, chatStoreRead, readChatPut, CHAT_MAX_BYTES, CHAT_MAX_MSGS, readAcctPut, mergeAcctState, ACCT_STATE_NAMES, readAskFilesPut, ASK_FILES_TTL_MS };
 /** A button press's room: its own name space, so a press id can never be read as a job's room. */
 const actionRoom = (id) => "act:" + id;
 /** The room's pieces, for its tests. */
@@ -29624,6 +29668,69 @@ async function handleRequest(request, env, ctx) {
       return Response.json({ ok: true, stored: true });
     }
 
+    // GET/PUT /api/site/account-state — the account's settings and work in
+    // progress (2026-10-20): every value newer than the stored one is kept.
+    if (url.pathname === "/api/site/account-state" && (request.method === "GET" || request.method === "PUT")) {
+      const au = await authUser(request, env);
+      if (!au) return Response.json({ error: "sign in first" }, { status: 401 });
+      if (!env.SITES_BUCKET) return Response.json({ error: "not available" }, { status: 503 });
+      const key = acctStateKey(au.id);
+      const readIt = async () => {
+        const o = await env.SITES_BUCKET.get(key);
+        if (!o) return { state: {}, etag: null };
+        let j = null;
+        try { j = JSON.parse(await o.text()); } catch { j = null; }
+        return { state: j && j.v === 1 && j.state && typeof j.state === "object" && !Array.isArray(j.state) ? j.state : {}, etag: o.etag || o.httpEtag || null };
+      };
+      let cur;
+      try { cur = await readIt(); } catch { return Response.json({ error: "unread" }, { status: 503 }); }
+      if (request.method === "GET") return Response.json({ ok: true, state: cur.state }, { headers: { "cache-control": "no-store" } });
+      let body = null;
+      try { body = JSON.parse((await request.text().catch(() => "")).slice(0, 4_000_000)); } catch { body = null; }
+      const incoming = readAcctPut(body);
+      if (!incoming) return Response.json({ error: "bad state" }, { status: 400 });
+      // TWO DEVICES AT ONCE: a write that lost the race reads again and merges again.
+      for (let tries = 0; tries < 4; tries++) {
+        const next = mergeAcctState(cur.state, incoming);
+        let put = null;
+        try { put = await env.SITES_BUCKET.put(key, JSON.stringify({ v: 1, state: next }), { httpMetadata: { contentType: "application/json" }, onlyIf: cur.etag ? { etagMatches: cur.etag } : { etagDoesNotMatch: "*" } }); }
+        catch { return Response.json({ error: "not saved" }, { status: 503 }); }
+        if (put) return Response.json({ ok: true, state: next });
+        try { cur = await readIt(); } catch { return Response.json({ error: "unread" }, { status: 503 }); }
+      }
+      return Response.json({ error: "busy" }, { status: 503 });
+    }
+
+    // GET/PUT/DELETE /api/site/ask-files/<id> — a question's files, a day (2026-10-20).
+    {
+      const af = url.pathname.match(/^\/api\/site\/ask-files\/([^/]*)$/);
+      if (af && ["GET", "PUT", "DELETE"].includes(request.method)) {
+        const fu = await authUser(request, env);
+        if (!fu) return Response.json({ error: "sign in first" }, { status: 401 });
+        if (!/^[A-Za-z0-9_-]{4,80}$/.test(af[1])) return Response.json({ error: "bad id" }, { status: 400 });
+        if (!env.SITES_BUCKET) return Response.json({ error: "not available" }, { status: 503 });
+        const key = askFilesKey(fu.id, af[1]);
+        try {
+          if (request.method === "DELETE") { await env.SITES_BUCKET.delete(key); return Response.json({ ok: true }); }
+          if (request.method === "GET") {
+            const o = await env.SITES_BUCKET.get(key);
+            let j = null;
+            if (o) { try { j = JSON.parse(await o.text()); } catch { j = null; } }
+            if (!j || !Array.isArray(j.imgs) || !(Date.now() - j.at < ASK_FILES_TTL_MS)) return Response.json({ ok: true, imgs: [] }, { headers: { "cache-control": "no-store" } });
+            return Response.json({ ok: true, imgs: j.imgs }, { headers: { "cache-control": "no-store" } });
+          }
+          const raw = await request.text().catch(() => "");
+          if (raw.length > ASK_FILES_MAX_BYTES) return Response.json({ error: "too large" }, { status: 413 });
+          let b = null;
+          try { b = JSON.parse(raw); } catch { b = null; }
+          const got = readAskFilesPut(b);
+          if (!got) return Response.json({ error: "bad files" }, { status: 400 });
+          await env.SITES_BUCKET.put(key, JSON.stringify({ at: Date.now(), imgs: got.imgs }), { httpMetadata: { contentType: "application/json" } });
+          return Response.json({ ok: true });
+        } catch { return Response.json({ error: "not available" }, { status: 503 }); }
+      }
+    }
+
     // /api/site/chat/<chat> — A CHAT KEPT ON THE SERVER (2026-10-20, owner:
     // "nothing can be local, it needs to be seen from every device"). One object
     // per account and chat (`chat/<uid>/<chat>.json`): the messages, the
@@ -29656,7 +29763,7 @@ async function handleRequest(request, env, ctx) {
         const have = cur.chat ? cur.chat.rev : 0;
         // OVER THE REVISION THE PAGE LAST READ, or the copy that stands comes back.
         if (next.baseRev !== have) return Response.json({ ok: false, conflict: true, chat: cur.chat }, { status: 409 });
-        const rec = { v: 1, rev: have + 1, updatedAt: Date.now(), name: next.name, slug: next.slug, msgs: next.msgs, clarify: next.clarify, jobCards: next.jobCards };
+        const rec = { v: 1, rev: have + 1, updatedAt: Date.now(), name: next.name, slug: next.slug, msgs: next.msgs, clarify: next.clarify, jobCards: next.jobCards, ask: next.ask };
         try {
           const put = await env.SITES_BUCKET.put(key, JSON.stringify(rec), { httpMetadata: { contentType: "application/json" }, onlyIf: cur.etag ? { etagMatches: cur.etag } : { etagDoesNotMatch: "*" } });
           if (!put) { const now = await chatStoreRead(env, key); return Response.json({ ok: false, conflict: true, chat: now.chat }, { status: 409 }); }

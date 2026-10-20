@@ -232,14 +232,19 @@ function loadBoot(pathname, storedView) {
   assert.ok(at > 0, "the boot no longer starts from a remembered view");
   const endAt = chat.indexOf("showView(lastView);", at);
   assert.ok(endAt > at, "the boot no longer shows a view after choosing one");
-  const body = chat.slice(at, chat.indexOf("\n", endAt));
+  // THE LANDING WAITS FOR THE ACCOUNT'S SETTINGS (2026-10-20): `acctPull(uid)`
+  // then the landing, so the block runs to the close of that callback, with
+  // the read answered at once.
+  const closeAt = chat.indexOf("\n  });", endAt);
+  assert.ok(closeAt > endAt, "the landing is no longer inside the account read's callback");
+  const body = chat.slice(at, closeAt + 6);
   const shown = [];
   // `siteOpenId` is a module variable in chat.js; declared here so the block's
   // own assignment lands somewhere a test can read rather than on the global.
-  const fn = new Function("projectFromPath", "localStorage", "VIEW_KEY", "showView",
+  const fn = new Function("projectFromPath", "localStorage", "VIEW_KEY", "showView", "acctPull", "uid",
     "let siteOpenId = null;\n" + body + "\nreturn siteOpenId;");
   const id = fn(() => (pathname === undefined ? undefined : pathname),
-    { getItem: () => storedView }, "zephyr_view_v1", (v) => shown.push(v));
+    { getItem: () => storedView }, "zephyr_view_v1", (v) => shown.push(v), () => ({ then: (f) => f() }), "u1");
   return { id, shown, body };
 }
 

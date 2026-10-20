@@ -1,5 +1,7 @@
 # What the app keeps in the browser (2026-10-20)
 
+**Done the same day**: the chat (`/api/site/chat/<chat>`), every key in the three tables below except the agents (already on `/api/agent/*`) and the two that must stay (`/api/site/account-state`), and the question's files (`/api/site/ask-files/<id>`). Branch `codex-work-into-claude`, not deployed.
+
 Owner: "nothing can be local, it needs to be seen from every device, so server side stuff."
 Audit of every `localStorage`, `sessionStorage` and IndexedDB use in `public/*.js`.
 

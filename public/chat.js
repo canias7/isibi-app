@@ -854,8 +854,9 @@ function enterApp() {
   if (uid) {
     const prevOwner = localStorage.getItem('zephyr_owner_v1');
     if (prevOwner && prevOwner !== uid) {
+      acctFor = ''; // the wipe below is never sent to the new account as removals
       try {
-        [SITES_KEY, CRED_MAX_KEY, WELCOME_KEY, VIEW_KEY,
+        [SITES_KEY, CRED_MAX_KEY, WELCOME_KEY, VIEW_KEY, ...acctWipeKeys(),
          'zephyr_chats_v1', 'zephyr_memory_v1', 'zephyr_studio_v1',
          'zephyr_avatars_v1', 'zephyr_products_v1']
           .forEach((k) => localStorage.removeItem(k));
@@ -933,9 +934,15 @@ function enterApp() {
   // `siteOpenId` is set BEFORE showView because showView('sites') renders
   // immediately and reads it; setting it after would paint the list first and
   // the project a frame later, or not at all.
-  const bootProject = projectFromPath();
-  if (bootProject !== undefined) { siteOpenId = bootProject; lastView = 'sites'; }
-  showView(lastView);
+  // THE ACCOUNT'S SETTINGS FIRST (2026-10-20): the screen, the model, the
+  // followed edits another device left are read before the page lands, a few
+  // seconds at most; the browser's own copy stands when the server cannot say.
+  acctPull(uid).then(() => {
+    try { lastView = localStorage.getItem(VIEW_KEY) || lastView; } catch {}
+    const bootProject = projectFromPath();
+    if (bootProject !== undefined) { siteOpenId = bootProject; lastView = 'sites'; }
+    showView(lastView);
+  });
 }
 
 // Signed in via the nav buttons (not the chatbox): stay on the landing but flip
@@ -985,11 +992,12 @@ async function doSignOut(everywhere) {
   // one authority on whose these are, everywhere. An absent marker claims
   // nothing, which leaves the records hidden from everyone rather than given to
   // the account that happens to be signing out.
+  acctFor = ''; // nothing the wipe below removes is written to the server as a removal
   let outgoing = '';
   try { outgoing = localStorage.getItem('zephyr_owner_v1') || ''; } catch {}
   const claimed = agentsClaimFor(outgoing);
   try {
-    [SITES_KEY, CRED_MAX_KEY, WELCOME_KEY, VIEW_KEY,
+    [SITES_KEY, CRED_MAX_KEY, WELCOME_KEY, VIEW_KEY, ...acctWipeKeys(),
      'zephyr_chats_v1', 'zephyr_memory_v1', 'zephyr_studio_v1',
      'zephyr_avatars_v1', 'zephyr_products_v1']
       .forEach((k) => localStorage.removeItem(k));
@@ -4847,12 +4855,13 @@ const chatPulled = new Set();
 const chatSentSig = new Map();
 const chatTimers = new Map();
 function chatKeyOf(s) { const k = String((s && (s.chat || s.id)) || ''); return CHAT_KEY_RE.test(k) ? k : ''; }
-function chatSig(s) { const m = Array.isArray(s.msgs) ? s.msgs : []; return m.length + '|' + (m.length ? JSON.stringify(m[m.length - 1]).length : 0) + '|' + (s.name || '') + '|' + (s.slug || '') + '|' + JSON.stringify(s.clarify || null).length + '|' + JSON.stringify(s.jobCards || null).length; }
+function chatSig(s) { const m = Array.isArray(s.msgs) ? s.msgs : []; return m.length + '|' + (m.length ? JSON.stringify(m[m.length - 1]).length : 0) + '|' + (s.name || '') + '|' + (s.slug || '') + '|' + JSON.stringify(s.clarify || null).length + '|' + JSON.stringify(s.jobCards || null).length + '|' + JSON.stringify(s.ask || null).length; }
 function chatAdopt(s, c) {
   if (!s || !c || !Array.isArray(c.msgs)) return;
   s.msgs = c.msgs.slice();
   if (c.clarify && typeof c.clarify === 'object') s.clarify = c.clarify;
   if (c.jobCards && typeof c.jobCards === 'object') s.jobCards = c.jobCards;
+  if ('ask' in c) s.ask = c.ask && typeof c.ask === 'object' ? c.ask : null;
   if (c.name && (!s.name || s.name === 'New website')) s.name = c.name;
   s.chatRev = c.rev;
 }
@@ -4889,7 +4898,7 @@ async function chatPush(key, again = 0) {
   const s = (sitesCache || []).find((x) => chatKeyOf(x) === key);
   if (!s) return;
   const sig = chatSig(s);
-  const body = { baseRev: Number(s.chatRev) || 0, msgs: Array.isArray(s.msgs) ? s.msgs : [], name: s.name || '', slug: s.slug || '', clarify: s.clarify || null, jobCards: s.jobCards || null };
+  const body = { baseRev: Number(s.chatRev) || 0, msgs: Array.isArray(s.msgs) ? s.msgs : [], name: s.name || '', slug: s.slug || '', clarify: s.clarify || null, jobCards: s.jobCards || null, ask: s.ask || null };
   let r = null, d = null;
   try { r = await apiFetch('/api/site/chat/' + encodeURIComponent(key), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); d = await r.json().catch(() => null); } catch (e) { r = null; }
   if (r && r.ok && d && Number.isInteger(d.rev)) { s.chatRev = d.rev; chatSentSig.set(key, sig); return; }
@@ -15166,6 +15175,17 @@ function askFilesStore(id, imgs) {
       st.put({ at: Date.now(), imgs: list }, id);
     } catch (e) { /* kept in memory */ }
   });
+  // AND ON THE SERVER (2026-10-20), so the answer can send them from any device.
+  if (typeof askFilesServer === 'function') askFilesServer(id, 'PUT', list);
+}
+function askFilesServer(id, method, imgs) {
+  if (!/^[A-Za-z0-9_-]{4,80}$/.test(String(id))) return Promise.resolve([]);
+  return apiFetch('/api/site/ask-files/' + encodeURIComponent(id), method === 'PUT'
+    ? { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imgs }) }
+    : { method })
+    .then((r) => (r.ok ? r.json().catch(() => null) : null))
+    .then((d) => (d && Array.isArray(d.imgs) ? d.imgs.slice(0, 3) : []))
+    .catch(() => []);
 }
 function askFilesFor(id) {
   if (!id) return Promise.resolve([]);
@@ -15177,7 +15197,7 @@ function askFilesFor(id) {
       rq.onsuccess = () => { const v = rq.result; resolve(v && Array.isArray(v.imgs) ? v.imgs.slice(0, 3) : []); };
       rq.onerror = () => resolve([]);
     } catch (e) { resolve([]); }
-  }));
+  })).then((got) => (got.length || typeof askFilesServer !== 'function' ? got : askFilesServer(id, 'GET')));
 }
 function askFilesDrop(id) {
   if (!id) return;
@@ -15186,6 +15206,7 @@ function askFilesDrop(id) {
     if (!db) return;
     try { db.transaction('files', 'readwrite').objectStore('files').delete(id); } catch (e) { /* expires */ }
   });
+  if (typeof askFilesServer === 'function') askFilesServer(id, 'DELETE');
 }
 // A REPLY ON THE THREAD: a sentence, or a sentence with the question card under
 // it — `{ t, q, opts, ask }` from `askReplyMsg`. Every `finish` that writes the
@@ -16854,6 +16875,102 @@ function toggleSidebar() {
     }
   } catch {}
 })();
+
+// ── THE ACCOUNT'S SETTINGS AND WORK IN PROGRESS, ON THE SERVER (2026-10-20,
+// owner: "fix, do it server side") ─────────────────────────────────────────
+//
+// Each key below used to live in this browser alone. Now every change to one
+// is written to the account (`/api/site/account-state`) a moment later, with
+// the time it was made, and read back when the app opens, so another device
+// opens on the same model, effort, screen and sidebar, follows the same edits
+// and resumes the same uploads. The newer value wins on both ends.
+//
+// CAUGHT WHERE IT IS WRITTEN: `localStorage.setItem`/`removeItem` for these
+// keys, wherever in the page they are called (edit-poll.js included), so no
+// writer can forget to send. Only after the account's copy was read in this
+// page and only for that account: the sign-out wipe and the account-switch
+// wipe are never sent as removals.
+const ACCT_KEYS = {
+  picker: 'zephyr_build_picker_v1', effort: 'zephyr_build_effort_v2', view: 'zephyr_view_v1',
+  side: 'zephyr_side_v1', credMax: 'zephyr_cred_max_v1', offerEnd: 'zephyr_offer_end_v1',
+  welcome: 'zephyr_welcome_v1', editWatch: 'gf.edit.watch.v1', mediaUploads: 'gf-media-uploads',
+};
+const ACCT_AT_KEY = 'gf.acct.at.v1';
+var ACCT_WIPE_KEYS = Object.values(ACCT_KEYS).concat(ACCT_AT_KEY);
+/** The keys both wipes clear: every one sent to the account, and their times. */
+function acctWipeKeys() { return typeof ACCT_WIPE_KEYS !== 'undefined' && ACCT_WIPE_KEYS ? ACCT_WIPE_KEYS : []; }
+const acctNameOf = {};
+for (const n of Object.keys(ACCT_KEYS)) acctNameOf[ACCT_KEYS[n]] = n;
+var acctFor = '';
+let acctApplying = false;
+const acctDirty = new Set();
+let acctTimer = null;
+// A PAGE WITHOUT STORAGE (a sandbox, a test) keeps nothing to send.
+const acctHasStorage = typeof Storage !== 'undefined' && typeof window !== 'undefined' && !!window.localStorage;
+const acctRawSet = acctHasStorage ? Storage.prototype.setItem : function () {};
+const acctRawRemove = acctHasStorage ? Storage.prototype.removeItem : function () {};
+function acctAts() { try { const v = JSON.parse(localStorage.getItem(ACCT_AT_KEY) || '{}'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch (e) { return {}; } }
+function acctStamp(name, at) { const all = acctAts(); all[name] = at; try { acctRawSet.call(localStorage, ACCT_AT_KEY, JSON.stringify(all)); } catch (e) { /* stamped next time */ } }
+function acctTouched(key) {
+  const name = acctNameOf[key];
+  if (!name || !acctFor || acctApplying) return;
+  acctStamp(name, Date.now());
+  acctDirty.add(name);
+  clearTimeout(acctTimer);
+  acctTimer = setTimeout(acctPush, 1000);
+}
+if (acctHasStorage) {
+  Storage.prototype.setItem = function (k, v) { const r = acctRawSet.call(this, k, v); if (this === window.localStorage) acctTouched(String(k)); return r; };
+  Storage.prototype.removeItem = function (k) { const r = acctRawRemove.call(this, k); if (this === window.localStorage) acctTouched(String(k)); return r; };
+}
+function acctPush() {
+  if (!acctFor || !acctDirty.size) return;
+  const ats = acctAts(), set = {};
+  for (const n of acctDirty) { let v = null; try { v = localStorage.getItem(ACCT_KEYS[n]); } catch (e) { v = null; } set[n] = { v, at: ats[n] || Date.now() }; }
+  acctDirty.clear();
+  const who = acctFor;
+  apiFetch('/api/site/account-state', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ set }) })
+    .then((r) => { if (!r.ok) throw new Error('not saved'); })
+    .catch(() => { if (who === acctFor) { Object.keys(set).forEach((n) => acctDirty.add(n)); clearTimeout(acctTimer); acctTimer = setTimeout(acctPush, 15000); } });
+}
+/** What a value read from the account changes on the screen already drawn. */
+function acctApply(name, v) {
+  if (name === 'picker' && v && typeof setBuildPicker === 'function') setBuildPicker(v);
+  else if (name === 'effort' && v && typeof setBuildEffort === 'function') setBuildEffort(v);
+  else if (name === 'side') {
+    const sb = document.getElementById('sideBar');
+    if (sb && sb.classList.contains('collapsed') !== (v === 'collapsed')) toggleSidebar();
+  }
+}
+/** Reads the account's copy into this browser, sends what this browser has newer, and from then on sends every change. */
+function acctPull(uid) {
+  if (!uid) return Promise.resolve();
+  const read = apiFetch('/api/site/account-state', { cache: 'no-store' })
+    .then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  const late = new Promise((res) => setTimeout(() => res('late'), 4000));
+  return Promise.race([read, late]).then((first) => (first === 'late' ? null : first)).then((d) => {
+    acctFor = uid;
+    if (!d || d.ok !== true || !d.state || typeof d.state !== 'object') return; // the next change still goes up
+    const ats = acctAts();
+    for (const name of Object.keys(ACCT_KEYS)) {
+      const e = d.state[name];
+      const mine = ats[name] || 0;
+      if (e && typeof e === 'object' && Number.isFinite(e.at) && e.at > mine) {
+        acctApplying = true;
+        try {
+          if (e.v === null) acctRawRemove.call(localStorage, ACCT_KEYS[name]);
+          else acctRawSet.call(localStorage, ACCT_KEYS[name], e.v);
+          acctStamp(name, e.at);
+          acctApply(name, e.v);
+        } catch (er) { /* the browser's copy stands */ } finally { acctApplying = false; }
+      } else if (!e || mine > (e.at || 0)) {
+        let has = null; try { has = localStorage.getItem(ACCT_KEYS[name]); } catch (er) { has = null; }
+        if (has !== null || mine) { if (!mine) acctStamp(name, Date.now()); acctDirty.add(name); }
+      }
+    }
+    if (acctDirty.size) acctPush();
+  });
+}
 
 // ── Declarative event wiring (CSP-safe) ───────────────────────────────────
 // The HTML carries data-act / data-change / data-input / data-keydown hooks

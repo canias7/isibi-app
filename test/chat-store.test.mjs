@@ -46,11 +46,12 @@ test("a chat written on one device is read back on another, under the account's 
   const env = { SITES_BUCKET: bucket() }; signIn("u1");
   const none = await (await call(env, "GET", "site_abcd")).json();
   assert.equal(none.ok, true); assert.equal(none.chat, null);
-  const w = await call(env, "PUT", "site_abcd", { baseRev: 0, msgs: [{ role: "user", text: "a bakery" }], name: "Bakery", slug: "bakery-1" });
+  const w = await call(env, "PUT", "site_abcd", { baseRev: 0, msgs: [{ role: "user", text: "a bakery" }], name: "Bakery", slug: "bakery-1", ask: { id: "q1", text: "Which colours?" } });
   assert.equal(w.status, 200); assert.equal((await w.json()).rev, 1);
   assert.deepEqual([...env.SITES_BUCKET.m.keys()], ["chat/u1/site_abcd.json"]);
   const back = await (await call(env, "GET", "site_abcd")).json();
   assert.equal(back.chat.rev, 1); assert.equal(back.chat.name, "Bakery");
+  assert.deepEqual(back.chat.ask, { id: "q1", text: "Which colours?" }, "the open question goes with the chat");
   assert.deepEqual(back.chat.msgs, [{ role: "user", text: "a bakery" }]);
   signIn("u2");
   assert.equal((await (await call(env, "GET", "site_abcd")).json()).chat, null, "another account never reads it");
