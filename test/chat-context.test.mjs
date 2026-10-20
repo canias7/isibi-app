@@ -291,3 +291,35 @@ test("WIRING: the route hands the router the kept chat, and the reply a test win
   assert.match(src, /history: rb\.history,\s*kept: rKept,/);
   assert.match(src, /window: testWindowFor\(ru\.id, rb\.testWindow\) \}\) : null;/);
 });
+
+test("ROUTER: the window's start moves in steps of 20, so the next message's prompt starts the same", async () => {
+  const mk = (n) => Array.from({ length: n }, (_, i) => ({ role: i % 2 ? "assistant" : "user", text: "turn " + i }));
+  const shown = async (n) => { let sent = null; await routeMessage({ send: async (req) => { sent = req; return { content: [], usage: {} }; } }, { message: "next", site: { name: "x", pages: ["/"] }, hasSite: true, kept: { turns: mk(n) } }).catch(() => null); return sent.messages[0].content; };
+  const a = await shown(61), b = await shown(62), c = await shown(80);
+  const head = (t) => t.slice(0, t.indexOf("turn 60"));
+  assert.equal(head(a), head(b), "one more message changed what comes before it, so the cache cannot match");
+  assert.ok(a.includes("Owner: turn 20\n") && !a.includes("Owner: turn 18\n"), "the window starts at turn 20");
+  assert.ok(c.includes("Owner: turn 40\n") && !c.includes("Owner: turn 38\n"), "at 80 messages it has stepped to 40");
+  assert.match(a, /20 earlier messages are not shown/, "the messages before the window are said, never passed off as the whole");
+});
+
+test("GROK'S CACHE KEY GOES AS THE x-grok-conv-id HEADER, the documented route on Chat Completions", async () => {
+  const { xaiHeaders } = await import("../builder/build-call.mjs");
+  const h = xaiHeaders("K", { prompt_cache_key: "gofarther-chat-site_abcd" });
+  assert.equal(h["x-grok-conv-id"], "gofarther-chat-site_abcd");
+  assert.equal(h.Authorization, "Bearer K");
+  assert.equal(xaiHeaders("K", {})["x-grok-conv-id"], undefined);
+  assert.equal(xaiHeaders("K", { prompt_cache_key: "bad\nvalue" })["x-grok-conv-id"], undefined, "a value a header cannot carry is never sent");
+  const src = readFileSync(new URL("../builder/build-call.mjs", import.meta.url), "utf8");
+  assert.match(src, /doFetch\(XAI_ENDPOINT, \{\s*method: "POST",\s*headers: xaiHeaders\(k\.xai, body\),/);
+});
+
+test("GROK GETS THE REPLY AS ONE STRING: the blocks joined, the words unchanged; pictures still go as parts", () => {
+  const h = { turns: [{ role: "user", text: "one" }, { role: "assistant", text: "two" }], left: 0 };
+  const req = converseRequest({ message: "now", history: h, model: "grok-4.6" });
+  const x = toXaiRequest(req).body.messages.find((m) => m.role === "user");
+  assert.equal(typeof x.content, "string");
+  assert.equal(x.content, req.messages[0].content.map((b) => b.text).join("\n"));
+  const pic = toXaiRequest({ model: "grok-4.6", messages: [{ role: "user", content: [{ type: "text", text: "a" }, { type: "image", source: { type: "base64", media_type: "image/png", data: "AA" } }] }] }).body.messages[0];
+  assert.ok(Array.isArray(pic.content), "a message with a picture keeps its parts");
+});

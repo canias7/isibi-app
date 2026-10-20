@@ -158,6 +158,11 @@ export function toXaiRequest(req) {
     // that uses no attachment produces, and the plainer body is the one least
     // likely to meet an edge in somebody else's parser.
     if (parts.length === 1 && parts[0].type === "text") messages.push({ role: m.role || "user", content: parts[0].text });
+    // ALL TEXT, IN SEVERAL BLOCKS (the conversation's reply, split for Claude's
+    // cache marks, 2026-10-20): one string here, the blocks joined by a line
+    // break. Measured live, Grok's cache matched the router's one-string prompt
+    // and missed the reply's list of parts with the same words, call after call.
+    else if (parts.length > 1 && parts.every((p) => p.type === "text")) messages.push({ role: m.role || "user", content: parts.map((p) => p.text).join("\n") });
     else if (parts.length) messages.push({ role: m.role || "user", content: parts });
   }
 
