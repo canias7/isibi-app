@@ -5867,6 +5867,7 @@ function renderSites() {
   // returns to `renderSiteWorkspace` before drawing anything when a site is open.
   wireBuildPicker();
   wireBuildEffort();
+  if (typeof wireCtxLine === 'function') wireCtxLine();
   // THE START SCREEN'S COMPOSER IS ITS OWN: its strip draws its own draft, never
   // one a site's workspace left behind, and a file chosen here goes into it.
   siteAttachFor = '';
@@ -7236,9 +7237,9 @@ function stSaveBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(u), 5000);
 }
 function siteMoreView(site) {
-  const items = [['analytics', 'chart', 'Analytics'], ['cloud', 'cloud', 'Cloud'], ['security', 'shield', 'Security'], ['seo', 'search', 'SEO & AI search'], ['context', 'gauge', 'Model context']];
+  const items = [['analytics', 'chart', 'Analytics'], ['cloud', 'cloud', 'Cloud'], ['security', 'shield', 'Security'], ['seo', 'search', 'SEO & AI search']];
   const nav = items.map((it) => '<button type="button" class="st-mnav' + (siteMoreTab === it[0] ? ' on' : '') + '" data-more="' + it[0] + '"><span class="st-mnav-ic">' + ic(it[1], 17) + '</span>' + it[2] + '</button>').join('');
-  const body = siteMoreTab === 'cloud' ? moreCloud(site) : siteMoreTab === 'security' ? moreSecurity(site) : siteMoreTab === 'seo' ? moreSeo(site) : siteMoreTab === 'context' ? moreContext(site) : moreAnalytics(site);
+  const body = siteMoreTab === 'cloud' ? moreCloud(site) : siteMoreTab === 'security' ? moreSecurity(site) : siteMoreTab === 'seo' ? moreSeo(site) : moreAnalytics(site);
   return '<div class="st-more"><div class="st-mnav-col">' + nav + '</div><div class="st-more-body">' + body + '</div></div>';
 }
 function moreAnalytics(site) {
@@ -7496,8 +7497,10 @@ async function loadSiteData(site) {
 const siteCtx = {};
 const siteCtxAsked = new Set();
 function siteCtxFetch(site) {
-  if (!site || !site.slug || siteCtxAsked.has(site.slug)) return;
-  siteCtxAsked.add(site.slug);
+  // ASKED AGAIN WHEN THE SITE CHANGES (a build or an edit landed), never on every paint.
+  const askKey = site && site.slug ? site.slug + '|' + (site.updatedAt || 0) : '';
+  if (!askKey || siteCtxAsked.has(askKey)) return;
+  siteCtxAsked.add(askKey);
   apiFetch('/api/site/context?slug=' + encodeURIComponent(site.slug)).then(async (r) => {
     const d = await r.json().catch(() => null);
     if (!r.ok || !d || d.ok !== true || !Array.isArray(d.shapes)) return;
@@ -7505,7 +7508,8 @@ function siteCtxFetch(site) {
     // Only redraw if this is still the panel being looked at — the answer can
     // land after the customer has moved on, and rebuilding the workspace under
     // them to paint a tab they left is the twitch the Code tab already records.
-    if (siteOpenId === site.id && siteView === 'more' && siteMoreTab === 'context') renderSites();
+    // THE BAR ABOVE THE MESSAGE BOX IS WHAT READS IT NOW (2026-10-20).
+    if (siteOpenId === site.id) paintCtxLine(site);
   }).catch(() => {});
 }
 // 31915 -> "31,915". Plain grouping: these are counts, and a reader comparing
@@ -7557,53 +7561,60 @@ function ctxBar(parts, used) {
   }).join('');
   return '<div class="st-ctx-bar">' + seg + '</div>';
 }
-function moreContext(site) {
-  const head = '<div class="st-panel"><div class="st-panel-head"><h3>Model context</h3></div>';
-  if (!site.slug) {
-    return head + '<p class="st-ctx-none">Build your site to see what its next call carries.</p></div>';
-  }
-  const d = siteCtx[site.slug];
-  if (!d) {
-    siteCtxFetch(site);
-    return head + '<p class="st-ctx-none">Reading what this site sends…</p></div>';
-  }
-
-  const shapes = d.shapes.map((s) => {
-    const rows = (s.models || []).map((m) => {
-      const pct = typeof m.used === 'number' ? (m.used * 100) : null;
-      return '<div class="st-ctx-row">'
-        + '<span class="st-ctx-model">' + esc(String(m.model || '')) + '</span>'
-        + ctxBar(s.parts, m.used)
-        + '<span class="st-ctx-of">' + ctxNum(m.tokens) + ' / ' + ctxCap(m.window) + '</span>'
-        // A window we do not know gets an em dash, never 0% — a bar at zero says
-        // "nothing was sent", which is the opposite of "we cannot say".
-        + '<span class="st-ctx-pct">' + (pct === null ? '—' : pct.toFixed(1) + '%') + '</span>'
-        + '</div>';
-    }).join('');
-    const legend = CTX_PARTS.map(([key, label, tone]) => {
-      const p = (s.parts || []).find((x) => x && x.name === key);
-      const share = p ? p.share * 100 : 0;
-      return '<div class="st-ctx-key">'
-        + '<span class="st-ctx-dot st-ctx-' + tone + '"></span>'
-        + '<span class="st-ctx-key-l">' + label + '</span>'
-        + '<span class="st-ctx-key-v">' + ctxNum(p ? p.chars : 0) + ' chars</span>'
-        + '<span class="st-ctx-key-p">' + share.toFixed(1) + '%</span>'
-        + '</div>';
-    }).join('');
-    return '<div class="st-ctx-shape"><h4 class="st-ctx-h">' + esc(String(s.name || '')) + '</h4>'
-      + rows + '<div class="st-ctx-legend">' + legend + '</div></div>';
+// ── THE CONTEXT BAR ABOVE THE MESSAGE BOX (2026-10-20, owner chose "C" from three
+// designs, holding up Claude's own context panel; the "Model context" page under
+// More is gone). One line — how full the picked model's window is for this
+// chat's next message — and a click opens what fills it. Per chat: each site's
+// chat reads its own site. The numbers are the same route's (`/api/site/context`):
+// what the next call really carries, estimated at three characters a token.
+let ctxOpen = false;
+// The model the next message runs on, by the picker — `BUILD_MODELS`' design column.
+const CTX_MODEL_OF = { grok: 'grok-4.6', sonnet: 'claude-sonnet-5', opus: 'claude-opus-5' };
+function ctxNow(site) {
+  const d = site && site.slug ? siteCtx[site.slug] : null;
+  if (!d || !Array.isArray(d.shapes)) return null;
+  // A site that has pages sends the revise shape; one that does not, the first build's.
+  const want = sitePages(site).length ? 'revise' : 'first build';
+  const shape = d.shapes.find((x) => x && x.name === want) || d.shapes[0];
+  const model = CTX_MODEL_OF[buildPicker] || '';
+  const m = shape && Array.isArray(shape.models) ? (shape.models.find((x) => x && x.model === model) || shape.models[0]) : null;
+  return shape && m ? { shape, m } : null;
+}
+function ctxLineHTML(site) {
+  if (!site || !site.slug) return '';
+  const now = ctxNow(site);
+  if (!now) { siteCtxFetch(site); return '<div class="st-ctxl" id="stCtxLine"><div class="st-ctxl-top"><span>Context · this chat</span><span>reading…</span></div><div class="st-ctx-bar"></div></div>'; }
+  const { shape, m } = now;
+  const pct = typeof m.used === 'number' ? m.used * 100 : null;
+  const rows = CTX_PARTS.map(([key, label, tone]) => {
+    const p = (shape.parts || []).find((x) => x && x.name === key);
+    const tok = p ? Math.round(p.share * (m.tokens || 0)) : 0;
+    const of = m.window ? (tok / m.window) * 100 : 0;
+    return '<div class="st-ctx-key"><span class="st-ctx-dot st-ctx-' + tone + '"></span><span class="st-ctx-key-l">' + label + '</span>'
+      + '<span class="st-ctx-key-v">' + ctxCap(tok) + '</span><span class="st-ctx-key-p">' + of.toFixed(1) + '%</span></div>';
   }).join('');
-
-  // THE HONESTY LINE, and it is not decoration. Every number above is characters
-  // divided by three, because there is no tokenizer in a browser or a Worker for
-  // either provider. Saying so is what keeps this from being the SEO tab, which
-  // stated three confident falsehoods about a customer's own business.
-  const note = '<p class="st-ctx-note">Estimated from what we send — characters at three per token. '
-    + 'A build measures it exactly.</p>';
-  const measured = d.measured && typeof d.measured === 'object'
-    ? '<p class="st-ctx-note">Last build measured ' + ctxNum(d.measured.tokens) + ' tokens.</p>'
-    : '';
-  return head + shapes + note + measured + '</div>';
+  const free = m.window ? Math.max(0, m.window - (m.tokens || 0)) : 0;
+  const freeRow = m.window ? '<div class="st-ctx-key"><span class="st-ctx-dot st-ctx-free"></span><span class="st-ctx-key-l">Free space</span><span class="st-ctx-key-v">' + ctxCap(free) + '</span><span class="st-ctx-key-p">' + (100 - pct).toFixed(1) + '%</span></div>' : '';
+  return '<div class="st-ctxl' + (ctxOpen ? ' open' : '') + '" id="stCtxLine" role="button" tabindex="0" title="What the next message carries">'
+    + '<div class="st-ctxl-more"><div class="st-ctx-legend">' + rows + freeRow + '</div>'
+    + '<p class="st-ctx-note">' + esc(String(m.model || '')) + ' · estimated from what we send, three characters a token.</p></div>'
+    + '<div class="st-ctxl-top"><span>Context · this chat</span><span>' + (pct === null ? '—' : pct.toFixed(1) + '%') + ' · ' + ctxCap(m.tokens) + ' / ' + ctxCap(m.window) + ' <span class="st-ctxl-car">⌃</span></span></div>'
+    + ctxBar(shape.parts, m.used) + '</div>';
+}
+function paintCtxLine(site) {
+  const host = document.getElementById('stCtxLine');
+  if (!host) return;
+  const html = ctxLineHTML(site);
+  if (!html) return;
+  host.outerHTML = html;
+  wireCtxLine();
+}
+function wireCtxLine() {
+  const el = document.getElementById('stCtxLine');
+  if (!el) return;
+  const flip = () => { ctxOpen = !ctxOpen; el.classList.toggle('open', ctxOpen); };
+  el.onclick = flip;
+  el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } };
 }
 
 function moreCloud(site) {
@@ -8596,6 +8607,7 @@ function renderSiteWorkspace(view, site) {
             ? siteHistoryRail(site)
             : '<div class="st-date">' + esc(stStamp(site.updatedAt || site.createdAt)) + '</div>' +
               '<div class="st-thread" id="stThread"></div>' +
+              ctxLineHTML(site) +
               '<div class="st-comp">' +
                 '<textarea id="stRevise" class="st-comp-in" rows="2" placeholder="Ask Go Farther…"></textarea>' +
                 '<div class="st-attach" id="stAttach"></div>' +
@@ -9148,6 +9160,7 @@ function renderSiteWorkspace(view, site) {
   wireSiteComposer(site);
   wireBuildPicker();
   wireBuildEffort();
+  if (typeof wireCtxLine === 'function') wireCtxLine();
 }
 // THE WORKSPACE COMPOSER'S WIRING, lifted out of `renderSiteWorkspace` so the
 // one place a held message comes back (`siteUnsentBack`) is driven together

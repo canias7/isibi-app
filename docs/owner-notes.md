@@ -1,5 +1,10 @@
 # Owner Notes
 
+## 2026-10-20 — The context bar above the message box (you chose "C" of three designs; the "Model context" page under More is gone; branch only, not deployed)
+
+- One line above the message box: **"Context · this chat — 7.1% · 35K / 500K"** and a thin bar. A click opens what fills it: design tool, system rules, brief + stored state, attachments, free space, and the model. Per chat: each site's chat reads its own site. It follows the picked model (Grok 4.6 500K, Claude 1M), uses the revise shape once the site has pages and the first build's before, and is read again whenever the site changes.
+- The numbers are the same route's as the old page (`/api/site/context`): what the next call really carries, estimated at three characters a token. Screenshots sent. Full suite 11,553 / 11,551 / 0 / 2.
+
 ## 2026-10-20 — Deploy 2231: Low and High side by side, Effort on every call (merged, deployed and tested on your word; topped up 60, balance 133 before it)
 
 | | Low (harbour-loaf-17) | High (harbour-loaf-18) |

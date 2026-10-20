@@ -233,20 +233,19 @@ test("the numbers read as counts, and the window as a headline", () => {
   assert.equal(ctxCap(0), "0");
 });
 
-test("the panel says it is estimated, and says something rather than nothing with no slug", () => {
-  // A panel that presents an estimate as a measurement is this repository's own
-  // SEO-tab finding, where three hardcoded claims about a customer's business
-  // read as facts.
-  const i = BARE_CHAT.indexOf("function moreContext(");
-  assert.ok(i > 0, "moreContext moved");
+test("the context bar says it is estimated, reads the picked model, sits above the message box, and the More page is gone", () => {
+  // MOVED 2026-10-20 (owner chose "C"): the "Model context" page under More is
+  // gone; one line above the message box carries it, per chat.
+  const i = BARE_CHAT.indexOf("function ctxLineHTML(");
+  assert.ok(i > 0, "the context bar is gone");
   const fn = BARE_CHAT.slice(i, BARE_CHAT.indexOf("\n}\n", i));
-  assert.match(fn, /Estimated from what we send/, "the panel must say the numbers are estimated");
-  assert.match(fn, /three per token/, "and say what the estimate is");
-  assert.match(fn, /Build your site/, "a site with no slug must be told what to do, not shown an empty panel");
-  // The tab is wired into the nav and the dispatch — a renderer nothing reaches
-  // is this repository's most repeated defect.
-  assert.match(BARE_CHAT, /\['context', 'gauge', 'Model context'\]/, "the tab is not in the More nav");
-  assert.match(BARE_CHAT, /siteMoreTab === 'context' \? moreContext\(site\)/, "the tab is drawn by nothing");
+  assert.match(fn, /estimated from what we send, three characters a token/, "the bar must say the numbers are estimated");
+  assert.match(fn, /Context · this chat/, "the bar does not say whose context it is");
+  assert.match(fn, /if \(!site \|\| !site\.slug\) return '';/, "a chat with no site yet draws a bar with nothing to read");
+  assert.match(BARE_CHAT, /const model = CTX_MODEL_OF\[buildPicker\]/, "the bar does not follow the picked model");
+  assert.match(BARE_CHAT, /'<div class="st-thread" id="stThread"><\/div>' \+\s*\n\s*ctxLineHTML\(site\) \+\s*\n\s*'<div class="st-comp">'/, "the bar is not above the message box");
+  assert.ok(!/\['context', 'gauge', 'Model context'\]/.test(BARE_CHAT), "the old More page is back");
+  assert.ok(!/function moreContext\(/.test(BARE_CHAT), "the old More page's renderer is back");
 });
 
 test("every band and the track are real ink on this paper", () => {

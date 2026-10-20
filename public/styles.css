@@ -5392,3 +5392,14 @@ body::after { display: none; }
 .st-att-media { flex-direction: column; align-items: flex-start; justify-content: center; gap: .15rem; }
 .st-att-media .st-att-state { font-size: .66rem; opacity: .75; white-space: nowrap; }
 .st-att-bad { outline: 1px solid currentColor; }
+
+/* THE CONTEXT BAR ABOVE THE MESSAGE BOX (2026-10-20, owner chose "C"). */
+.st-ctxl { margin: 0 .75rem .5rem; cursor: pointer; user-select: none; }
+.st-ctxl-top { display: flex; justify-content: space-between; font-size: .74rem; color: var(--muted); margin-bottom: .3rem; font-variant-numeric: tabular-nums; }
+.st-ctxl .st-ctx-bar { height: 5px; flex: none; width: 100%; }
+.st-ctxl-car { display: inline-block; transition: transform .15s; }
+.st-ctxl.open .st-ctxl-car { transform: rotate(180deg); }
+.st-ctxl-more { display: none; border: 1px solid var(--line); border-radius: 12px; padding: .7rem .8rem .55rem; margin-bottom: .5rem; background: var(--bg, #fff); }
+.st-ctxl.open .st-ctxl-more { display: block; }
+.st-ctxl-more .st-ctx-legend { margin-top: 0; padding-top: 0; border-top: 0; }
+.st-ctx-free { background: var(--panel-2); }
