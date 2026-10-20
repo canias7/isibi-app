@@ -1,5 +1,16 @@
 # Owner Notes
 
+## 2026-10-20 — Deploy 2231: Low and High side by side, Effort on every call (merged, deployed and tested on your word; topped up 60, balance 133 before it)
+
+| | Low (harbour-loaf-17) | High (harbour-loaf-18) |
+|---|---|---|
+| Credits | **25** (design 14) | **67** (design 41) |
+| Build time | **2 min 30 s** | **8 min 25 s** |
+| Talk lines / first | 11 / at 10 s | 19 / at 21 s |
+| Billed output: design / pages | 7,040 / 3,059 | 42,954 / 24,170 |
+
+- Both built and saved with the same sections (hero, the sisters' story, three loaves, hours, order). High's copy and layout are a little richer ("Two sisters, one starter, and a well-worn bench", a darker hero band); Low's are plainer. One build each.
+
 ## 2026-10-20 — The audit of every model call ("double check every model call and the efforts"; branch only, not deployed)
 
 Every door from our code to a model, checked:
