@@ -946,7 +946,8 @@ test("THE FIRE MINTS A NAME FOR THE ANSWER AND TELLS BOTH SIDES", () => {
   // AND THE REQUEST STILL RIDES ON IT, one field or the other and never both —
   // the shape is what tells the container which kind of job this is, and a
   // payload carrying neither is a fire with nothing to generate.
-  assert.match(fire, /\.\.\.\(Array\.isArray\(req\) \? \{ reqs: req \} : \{ req \}\)/,
+  // RE-ANCHORED 2026-10-20: each request carries the customer's effort (`withEffortAll`).
+  assert.match(fire, /\.\.\.\(Array\.isArray\(req\) \? \{ reqs: withEffortAll\(env, req\) \} : \{ req: withEffortAll\(env, req\) \}\)/,
     "the fire no longer sends the request as `reqs` for a list and `req` for one");
   const reportObj = fire.slice(reportAt, close(fire, fire.indexOf("report: {", reportAt) + "report: ".length));
   const url = /url: `([^`]+)`/.exec(reportObj);

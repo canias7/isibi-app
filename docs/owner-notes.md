@@ -1,5 +1,10 @@
 # Owner Notes
 
+## 2026-10-20 — Effort reaches page writing too ("effort to everything"; branch only, not deployed)
+
+- **Deploy 2229's Low build** (harbour-loaf-15, topped up 80, balance 96 before it): **53 credits** against High's 66. The design thought about 6 times less (7,123 billed output tokens against 43,120; 15 credits against 37), but **page writing didn't change** (39,391 against 24,416 output). Its calls go to the container's own model service (`/model`, `/model/start`), not through `callBuilderModel`, so they never carried the effort.
+- **Fix**: all three doors to the container's model service now put the customer's effort on each request (`withEffortAll`, for one request or a list of bands). Test in R19; two guards re-anchored. Full suite 11,550 / 11,548 / 0 / 2 after the re-anchors.
+
 ## 2026-10-20 — Every token charged, measured; and why Low didn't reach the design (on your word "do 1"; the fix is on the branch, not deployed)
 
 - **Deploy 2228** (`7beb5f2a`, every token charged), with two builds at once on the same prompt (topped up 60, balance 88). **High** (harbour-loaf-13): **66 credits** (design 37, deposit 2, pages 27), against 19 before the change. The design's billed output was 43,120 tokens against 2,613, so the thinking had been about 16 times the visible output. **Low** (harbour-loaf-14): its design charged 41, leaving the shared balance at 0; there was nothing left for the pages, the build stopped at `stage: credits`, and **all 43 credits were refunded**. An ordinary Grok site now costs about 60 to 70 credits, against a new account's grant of 20 (a decision for you before launch).

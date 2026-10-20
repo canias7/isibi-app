@@ -297,7 +297,8 @@ test("a container that will not take a fan-out falls through to the one call", (
 
 test("the fire sends a list as `reqs` and one request as `req`, never both", () => {
   const fire = between(WCODE, "body: JSON.stringify({ ...(Array.isArray(req)", "signal: AbortSignal.timeout(FIRE_HOP_MS)", "the fire body");
-  assert.ok(/\{ reqs: req \} : \{ req \}/.test(fire), "the fire no longer picks one field by shape");
+  // RE-ANCHORED 2026-10-20: each request carries the customer's effort (`withEffortAll`).
+  assert.ok(/\{ reqs: withEffortAll\(env, req\) \} : \{ req: withEffortAll\(env, req\) \}/.test(fire), "the fire no longer picks one field by shape");
   // The container's own reader takes them apart the same way — the two ends of
   // one wire, so a rename on either side has to move both.
   const srv = code(read("builder/build-server.mjs"));

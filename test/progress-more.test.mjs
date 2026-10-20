@@ -683,3 +683,17 @@ test("R19 A REPLAYED BUILD CARRIES ITS EFFORT TOO: runSiteBuild reads it off the
   assert.match(W, /async function runSiteBuild\(request, env, \{[^}]*\}\) \{\n(?:\s*\/\/[^\n]*\n)*\s*env = await withBuildEffort\(request, env\);/, "a replayed build ignores its effort");
   assert.match(W, /const res = await runSiteBuild\(replayRequest\(job\), env,/, "the container build no longer replays through runSiteBuild");
 });
+
+test("R19 EFFORT TO EVERYTHING: page writing's calls to the container's model service carry the customer's effort, one request or a list", async () => {
+  const { customerEffortApi } = await loadWorkerModule();
+  const { withEffortAll } = customerEffortApi;
+  const env = { BUILD_EFFORT: "low" };
+  const g = { model: "grok-4.6" };
+  assert.equal(withEffortAll(env, g).effort, "low");
+  assert.deepEqual(withEffortAll(env, [g, g, { model: "claude-sonnet-5" }]).map((r) => r.effort), ["low", "low", undefined], "a band in the list lost the effort, or a Claude call gained one");
+  assert.equal(withEffortAll({}, g), g, "a build with no effort changed its calls");
+  for (const body of ["body: JSON.stringify({ req: withEffortAll(env, req), callMs }),", "{ reqs: withEffortAll(env, req) } : { req: withEffortAll(env, req) }", "one ? { req: withEffortAll(env, req), callMs } : { reqs: withEffortAll(env, req), callMs }"]) {
+    assert.ok(W.includes(body), "a door to the container's model service sends its requests without the effort: " + body);
+  }
+  assert.ok(!/JSON\.stringify\(\{ req, callMs \}\)|reqs: req, callMs|\{ reqs: req \} : \{ req \}/.test(W), "a door to the container's model service still sends the bare request");
+});

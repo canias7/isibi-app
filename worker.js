@@ -575,7 +575,7 @@ function replyLiveWriter(env, job) {
 const actionRoom = (id) => "act:" + id;
 /** The room's pieces, for its tests. */
 /** The talk's reasoning effort, for its tests (read lazily: it is declared further down). */
-export const customerEffortApi = { withCustomerEffort: (e, r) => withCustomerEffort(e, r), withBuildEffort: (q, e) => withBuildEffort(q, e) };
+export const customerEffortApi = { withCustomerEffort: (e, r) => withCustomerEffort(e, r), withBuildEffort: (q, e) => withBuildEffort(q, e), withEffortAll: (e, r) => withEffortAll(e, r) };
 export const talkEffortApi = { withTalkEffort: (what, req) => withTalkEffort(what, req), get TALK_EFFORT() { return TALK_EFFORT; } };
 export const talkRoomApi = { TalkRoom, readRoomSay, mergeRoomSay, roomMessage, tellRoom, openRoomWatch, roomWriter, streamFromRoom, actionRoom, replyLiveWriter, roomLiveWriter, ROOM_KEEP_MS };
 
@@ -4613,6 +4613,14 @@ async function withBuildEffort(request, env) {
     return XAI_EFFORTS.includes(e) ? { ...env, BUILD_EFFORT: e } : env;
   } catch { return env; }
 }
+/**
+ * THE CUSTOMER'S EFFORT ON THE CONTAINER'S OWN MODEL CALLS (2026-10-20, owner:
+ * "effort to everything" — deploy 2229's Low build: the design thought 6× less,
+ * the pages not at all). Page writing is sent to the container's model service
+ * (`/model`, `/model/start`, one request or a list), never through
+ * `callBuilderModel`, so each request carries the effort here.
+ */
+const withEffortAll = (env, req) => (Array.isArray(req) ? req.map((r) => withCustomerEffort(env, r)) : withCustomerEffort(env, req));
 const callBuilderModel = (env, req0, budget = null, opts = null) => { const req = withCustomerEffort(env, req0); return modelSend(env) ? patientCall(() => callModel(keysFrom(env), req, budget, modelSend(env), modelOpts(env, opts)), { log: (m) => console.error(m) }) : callModel(keysFrom(env), req, budget, modelSend(env), modelOpts(env, opts)); };
 
 // ── THE SMALL CALLS GO TO WHICHEVER PROVIDER THE MODEL BELONGS TO ───────────
@@ -5565,7 +5573,7 @@ function containerPagesCall(env, slug, out) {
       const r = await c.fetch(new Request("http://build/model", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ req, callMs }),
+        body: JSON.stringify({ req: withEffortAll(env, req), callMs }),
         signal: AbortSignal.timeout(callMs + MODEL_HOP_SLACK_MS),
       }));
       // READ AS TEXT FIRST, like the compile hop below it. A 502 from the
@@ -5677,7 +5685,7 @@ function containerPagesFire(env, slug, out, jobId = null) {
         // request; the container reads `reqs` and `req` as the same job either
         // way, so the report, the lease, the beat and the sentinel below are
         // untouched by the difference.
-        body: JSON.stringify({ ...(Array.isArray(req) ? { reqs: req } : { req }), callMs, report: {
+        body: JSON.stringify({ ...(Array.isArray(req) ? { reqs: withEffortAll(env, req) } : { req: withEffortAll(env, req) }), callMs, report: {
           url: `https://${APP_ZONE}/api/site/genresult`, token: report,
           // THE ROW'S HALF (stage 2c): which job this generation belongs to,
           // and where to beat while it runs. The container echoes `job` and
@@ -5770,7 +5778,7 @@ function containerPagesFanLocal(env, slug, out) {
       const r = await c.fetch(new Request("http://build/model/start", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(one ? { req, callMs } : { reqs: req, callMs }),
+        body: JSON.stringify(one ? { req: withEffortAll(env, req), callMs } : { reqs: withEffortAll(env, req), callMs }),
         signal: AbortSignal.timeout(FIRE_HOP_MS),
       }));
       const raw = await r.text().catch(() => "");
