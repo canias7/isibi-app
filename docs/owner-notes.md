@@ -1,5 +1,40 @@
 # Owner Notes
 
+## 2026-10-20 — New logo: a leaning "GF" in a black rounded square (V1)
+
+**What you asked:** a new logo. We went through eight rounds of options: the
+GF monogram (D), then in a tile (D3), leaning (F3), spaced (S5), redrawn
+letters (U8, outlined), and finally *"u8 but the g a bit more up, make it look
+like its in the middle"* — you picked **V1** (G raised a little, mark centred).
+On branch `chris-testing-no-ai`; not merged or deployed.
+
+**What it is:** a black rounded square with "GF" leaning forward 12°, the
+letters drawn as white outlines with a thin dark line through them, and the
+F's top bar ending in an arrow.
+
+**What changed in the app:**
+
+- `public/logo.svg` — the canonical mark. The letters are *cut out* of the
+  square (an SVG mask), so the app can colour it with its own ink and the
+  chat's small avatar, which masks this file, still works.
+- The copies in `index.html` and `confirm.html` (the landing, sign-in card,
+  sidebar and sites screen all use it) — the same drawing, checked by test.
+- `favicon.svg` — the same square with solid white letters, so it stays
+  readable on a dark browser tab.
+- Every picture icon, redrawn from the same drawing: `favicon.ico` (16/32/48),
+  `favicon-16/32.png`, `apple-touch-icon.png`, `icon-192/512.png` (also the
+  link-preview image), `app-icon-1024.png`, `logo.png`, `logo-tile.png`.
+
+**Tests:** `test/brand-mark.test.mjs` was rewritten for the new drawing (it
+counted the old logo's twelve parts). It still checks that every copy is the
+same drawing as `logo.svg`, that a copy edited on its own is caught (tried:
+caught), that the favicon has its own ground, and that `logo.svg` stays
+transparent around the square. On the old logo it fails 2 of 9.
+
+**One thing to know:** on a dark surface the in-app logo turns into a light
+square with dark letters, because it takes the app's ink colour. The app is
+light-only today, so nowhere shows that yet.
+
 ## 2026-10-20 — One-click domain setup (Domain Connect): checked, and what is left (you: "lets start setting that up and checking")
 
 **Already done before today:**
