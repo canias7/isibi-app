@@ -144,6 +144,22 @@ export function historyBlock(h, heading = "THE CONVERSATION SO FAR") {
     : "";
   return heading + " — oldest first, their latest message is below, not here.\n" + note + (lines.length ? lines.join("\n") : "(nothing shown)") + gap;
 }
+/** The conversation as `historyBlock` writes it, one piece per turn: the heading first, any note on what is not shown last. */
+export function historyParts(h) {
+  const turns = h && Array.isArray(h.turns) ? h.turns : [];
+  const left = h && Number.isInteger(h.left) && h.left > 0 ? h.left : 0;
+  if (!turns.length && !left) return [];
+  const whole = historyBlock(h);
+  const lines = turns.map((t) => (t.role === "user" ? "Owner: " : "Assistant (you): ") + t.text + (t.cut ? cutNote(t) : ""));
+  if (!lines.length) return [whole];
+  const start = whole.indexOf(lines[0]);
+  const out = [whole.slice(0, start).replace(/\n$/, "")];
+  let at = start;
+  for (const l of lines) { out.push(l); at += l.length + 1; }
+  const rest = whole.slice(at - 1).replace(/^\n/, "");
+  if (rest) out.push(rest);
+  return out.filter((x) => x.length);
+}
 function cutNote(t) {
   return Number.isInteger(t.full) && t.full > t.text.length
     ? " [cut: only the first " + t.text.length + " of its " + t.full + " characters are shown; the rest is not]"
@@ -337,7 +353,7 @@ export function unclearBlock(unclear) {
  * The one definition of the conversation call. `gist` is the router's own
  * short reply: shown as a starting point, never as the answer.
  */
-export function converseRequest({ message, history = null, summary = null, context = null, attached = [], pending = null, gist = "", unclear = "", model } = {}) {
+export function converseRequest({ message, history = null, summary = null, context = null, attached = [], pending = null, gist = "", unclear = "", model, cacheKey = "" } = {}) {
   const text = String(message || "").trim().slice(0, MAX_INPUT_CHARS);
   const parts = [siteContextBlock(context)];
   const w = waitingBlock(pending);
@@ -346,21 +362,48 @@ export function converseRequest({ message, history = null, summary = null, conte
   const sb = summaryBlock(summary);
   if (sb) parts.push(sb);
   const hb = historyBlock(history);
+  const head = parts.slice();
   if (hb) parts.push(hb);
+  const tail = [];
   const a = attachedBlock(attached);
-  if (a) parts.push(a);
-  parts.push("THEIR LATEST MESSAGE\n" + text);
+  if (a) tail.push(a);
+  tail.push("THEIR LATEST MESSAGE\n" + text);
   const u = unclearBlock(unclear);
-  if (u) parts.push(u);
+  if (u) tail.push(u);
   if (typeof gist === "string" && gist.trim()) {
-    parts.push("A FIRST THOUGHT ON A REPLY, from the step that read the message (use it only if it helps; it may be too short): " + gist.trim().slice(0, 1500));
+    tail.push("A FIRST THOUGHT ON A REPLY, from the step that read the message (use it only if it helps; it may be too short): " + gist.trim().slice(0, 1500));
   }
+  // ── CACHED FROM ONE REPLY TO THE NEXT (2026-10-20, owner: "but the catching
+  // is in place too right?") ─────────────────────────────────────────────────
+  // With a conversation, the message is sent as blocks: the site and the
+  // summary, then each turn of the conversation as its own block, the last of
+  // them marked for the cache, then the new message. The next reply's request
+  // starts with the same blocks, so Claude reads them from its cache (a tenth
+  // of the price) instead of paying for them again; Grok caches the same
+  // prefix by itself, kept on one server by `cacheKey` (`prompt_cache_key`).
+  // Without a conversation it stays one string, as it always was.
+  const turns = hb ? historyParts(history) : [];
+  const content = turns.length
+    ? [
+        ...(head.length ? [{ type: "text", text: head.join("\n\n") }] : []),
+        ...turns.map((t, i) => (i === turns.length - 1 ? { type: "text", text: t, cache_control: { type: "ephemeral" } } : { type: "text", text: t })),
+        { type: "text", text: tail.join("\n\n") },
+      ]
+    : parts.concat(tail).join("\n\n");
   return {
     model,
     max_tokens: CONVERSE_MAX_TOKENS,
-    system: [{ type: "text", text: CONVERSE_SYSTEM }],
-    messages: [{ role: "user", content: parts.join("\n\n") }],
+    system: [{ type: "text", text: CONVERSE_SYSTEM, cache_control: { type: "ephemeral" } }],
+    messages: [{ role: "user", content }],
+    ...(typeof cacheKey === "string" && cacheKey ? { cacheKey } : {}),
   };
+}
+/** All the characters a request carries to the model, whichever shape its message took. */
+export function requestChars(req) {
+  const sys = req && Array.isArray(req.system) ? req.system.reduce((n, b) => n + (b && typeof b.text === "string" ? b.text.length : 0), 0) : 0;
+  const msgs = req && Array.isArray(req.messages) ? req.messages : [];
+  return sys + msgs.reduce((n, m) => n + (typeof m.content === "string" ? m.content.length
+    : Array.isArray(m.content) ? m.content.reduce((k, b) => k + (b && typeof b.text === "string" ? b.text.length : 0), 0) : 0), 0);
 }
 
 /**

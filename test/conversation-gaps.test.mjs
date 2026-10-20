@@ -15,6 +15,9 @@ import { loadWorker } from "./fixtures/worker-harness.mjs";
 import { freshSlug, bucket, withWire, envFor, routeCall } from "./fixtures/live-ask.mjs";
 import { readHistory, routerHistory, historyBlock, HISTORY_TURN_CHARS } from "../builder/site-converse.mjs";
 import { askRequest } from "../builder/site-ask.mjs";
+// THE REPLY'S MESSAGE IS BLOCKS WHEN IT CARRIES A CONVERSATION (2026-10-20, so
+// each reply reuses the last one's cache); its words are the blocks' words, in order.
+const textOf = (req) => { const c = req.messages[0].content; return typeof c === "string" ? c : c.map((b) => b.text).join("\n"); };
 
 const ChatTalk = createRequire(import.meta.url)("../public/chat-talk.js");
 const workStarted = (seen) => seen.rpc.filter((r) => /edit_(claim|reserve|publish|create)/.test(r.fn)).length + seen.lanes.length + seen.writers.length + seen.pageWriters.length + seen.designers.length + seen.picks.length;
@@ -94,7 +97,7 @@ test("THROUGH THE ROUTE: a reference into the cut part is asked about — both m
     assert.match(routed, /\[cut: only the first \d+ of its \d{4,} characters are shown; the rest is not\]/, "the router took a cut turn for the whole");
     assert.match(routed, /earlier messages are not shown here/);
     assert.match(routed, /PARTS OF THIS CONVERSATION ARE NOT SHOWN/);
-    const said = seen.converse[0].messages[0].content;
+    const said = textOf(seen.converse[0]);
     assert.match(said, /\(3 earlier messages are not shown here/, "the reply was not told the page dropped turns");
     assert.match(said, /\[cut: only the first 4000 of its \d{4,} characters are shown; the rest is not\]/, "the reply took a cut turn for the whole");
     assert.doesNotMatch(said, /Version three/);

@@ -22,6 +22,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { loadWorker } from "./fixtures/worker-harness.mjs";
 import { freshSlug, bucket, question, seedQuestion, withWire, envFor, routeCall } from "./fixtures/live-ask.mjs";
+// THE REPLY'S MESSAGE IS BLOCKS WHEN IT CARRIES A CONVERSATION (2026-10-20, so
+// each reply reuses the last one's cache); its words are the blocks' words, in order.
+const textOf = (req) => { const c = req.messages[0].content; return typeof c === "string" ? c : c.map((b) => b.text).join("\n"); };
 
 const HISTORY = [
   { role: "user", text: "Could my site take bookings for bread-making classes?" },
@@ -46,7 +49,7 @@ test("A MULTI-TURN CONVERSATION: the reply is shown the history, its roles and c
     assert.equal(seen.converse.length, 1, "the reply's own call was not made once");
     const asked = seen.converse[0];
     assert.ok(asked.max_tokens > seen.routerAsked[0].max_tokens * 2, "the reply has no more room than the router");
-    const text = asked.messages[0].content;
+    const text = textOf(asked);
     assert.match(text, /Owner: Could my site take bookings for bread-making classes\?/);
     assert.match(text, /Assistant \(you\): Yes — a booking page/);
     assert.match(text, /1 earlier message is not shown here/, "the window's cut was not said");
@@ -80,7 +83,7 @@ test("A SIDE QUESTION SENT AS A REPLY TO A WAITING QUESTION leaves it waiting, a
     assert.deepEqual(r.body.ask, { answered: false, waiting: true }, "the page is not told the question still waits");
     assert.equal(question(store, slug).status, "pending", "a side question closed the waiting question");
     assert.equal(question(store, slug).id, q.id);
-    assert.match(seen.converse[0].messages[0].content, /A QUESTION OF OURS IS WAITING FOR THEIR ANSWER, and stays open: Which page should the band move on/);
+    assert.match(textOf(seen.converse[0]), /A QUESTION OF OURS IS WAITING FOR THEIR ANSWER, and stays open: Which page should the band move on/);
     assert.equal(workStarted(seen), 0);
   });
 });
@@ -137,7 +140,7 @@ test("TALK ABOUT AN ATTACHED FILE stays talk, and the file is named as unseen", 
   await withWire({ route: { intent: "ask", answer: "It could go in the header." }, converse: "A logo like that usually sits top left in the header. Want me to put it there?" }, async (seen) => {
     const r = await routeCall(worker, envFor(store), { slug, message: "What do you think — where would this logo go?", attached: true, extra: { files: [{ name: "logo.png", kind: "image" }] } });
     assert.equal(r.body.intent, "ask", "a file made talk into work");
-    const text = seen.converse[0].messages[0].content;
+    const text = textOf(seen.converse[0]);
     assert.match(text, /FILES THEY ATTACHED TO THIS MESSAGE — you were not shown their contents/);
     assert.match(text, /"logo\.png" \(image\)/);
     assert.equal(workStarted(seen), 0);
@@ -152,7 +155,7 @@ test("MISSING INFORMATION: a site whose pages cannot be read is described as not
   await withWire({ route: { intent: "ask", answer: "I can't see that." }, converse: "I can't see your pages' words right now." }, async (seen) => {
     const r = await routeCall(worker, envFor(store), { slug, message: "What does my home page say?" });
     assert.equal(r.body.intent, "ask");
-    const text = seen.converse[0].messages[0].content;
+    const text = textOf(seen.converse[0]);
     assert.match(text, /Their words could not be read for this answer/);
     assert.doesNotMatch(text, /Page \/:/);
   });
@@ -165,7 +168,7 @@ test("A FIRST BUILD'S CONVERSATION is told there is no site yet, and what was de
   await withWire({ route: { intent: "ask", answer: "Yes." }, converse: "Yes — once it's built, people can book classes on it." }, async (seen) => {
     const r = await routeCall(worker, envFor(store), { slug, message: "Could it take bookings?", firstBuild: true, hasSite: false, extra: { brief: "A bakery in Bristol that runs bread classes" } });
     assert.equal(r.body.intent, "ask");
-    assert.match(seen.converse[0].messages[0].content, /No site has been built for this project yet\.\n\nWhat they first described: A bakery in Bristol that runs bread classes/);
+    assert.match(textOf(seen.converse[0]), /No site has been built for this project yet\.\n\nWhat they first described: A bakery in Bristol that runs bread classes/);
   });
 });
 
@@ -210,7 +213,7 @@ test("THE SITE'S CONTEXT IS READ FOR ITS OWNER ONLY, AND NEVER READS A ROW", asy
   const store = bucket(slug);
   await withWire({ route: { intent: "ask", answer: "Hm." }, converse: "I can't see that site." }, async (seen) => {
     await routeCall(worker, envFor(store), { slug, message: "What does my home page say?" });
-    const text = seen.converse[0].messages[0].content;
+    const text = textOf(seen.converse[0]);
     assert.doesNotMatch(text, /Bread from the harbour/, "another owner's pages were shown");
     assert.match(text, /could not be read for this answer/);
   }, { owner: "someone-else" });

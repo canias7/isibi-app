@@ -181,7 +181,9 @@ export function toXaiRequest(req) {
   // Sticky routing for the prefix cache. Keyed on the tool, which is what
   // identifies a call site here: the design call and the pages call have
   // different invariant prefixes and should not chase each other's cache.
-  const key = (r.tool_choice && r.tool_choice.name) || (tools[0] && tools[0].function.name);
+  // A CALL WITH NO TOOL NAMES ITS OWN (2026-10-20): the conversation's reply
+  // sends its chat's key, so each chat's growing prefix stays on one server.
+  const key = (typeof r.cacheKey === "string" && r.cacheKey) || (r.tool_choice && r.tool_choice.name) || (tools[0] && tools[0].function.name);
   if (key) body.prompt_cache_key = `gofarther-${key}`;
   // ONE SENTENCE, from one place, so the count the log prints and the refusal
   // the customer reads can never describe different work.

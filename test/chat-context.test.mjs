@@ -63,7 +63,7 @@ test("after a compaction the call carries the summary and only the messages afte
   assert.ok(after.used < plan.used);
   assert.deepEqual(c.usage, { in: 9, out: 3, cacheRead: 0, cacheWrite: 0, model: "grok-4.6" }, "every token of it is billed");
   const req = converseRequest({ message: "next", history: { turns: after.turns, left: 0 }, summary: after.summary, model: "grok-4.6" });
-  assert.match(req.messages[0].content, /EARLIER IN THIS CONVERSATION[\s\S]*SUMMARY[\s\S]*THE CONVERSATION SO FAR/);
+  assert.match(req.messages[0].content.map((b) => b.text).join("\n"), /EARLIER IN THIS CONVERSATION[\s\S]*SUMMARY[\s\S]*THE CONVERSATION SO FAR/);
 });
 
 test("a second compaction folds the first summary in", () => {
@@ -152,4 +152,50 @@ test("WIRING: the route reads the kept chat for the reply, bills the compaction,
   assert.match(page, /chat: \(typeof chatKeyOf === 'function' && chatKeyOf\(siteById\(origin\) \|\| site\)\) \|\| undefined,/);
   assert.match(page, /if \(d && d\.compacted === true\)/);
   assert.match(page, /'\/context\?picker='/);
+});
+
+// ── CACHING (2026-10-20, owner: "but the catching is in place too right?") ──
+import { historyBlock, historyParts, requestChars } from "../builder/site-converse.mjs";
+import { toXaiRequest } from "../builder/model-xai.mjs";
+import { anthropicWire } from "../builder/build-call.mjs";
+
+test("CACHE: each turn is its own block, the last marked, the new message after it; the words are the same", () => {
+  const h = { turns: [{ role: "user", text: "one" }, { role: "assistant", text: "two" }, { role: "user", text: "three" }], left: 0 };
+  assert.equal(historyParts(h).join("\n"), historyBlock(h), "the conversation reads exactly as it did");
+  const gap = { turns: [{ role: "user", text: "one" }, { role: "assistant", text: "two", cut: true, full: 900 }], left: 3 };
+  assert.equal(historyParts(gap).join("\n"), historyBlock(gap), "with parts not shown, it still reads exactly as it did");
+  const req = converseRequest({ message: "now", history: h, model: "claude-sonnet-5", cacheKey: "chat-site_abcd" });
+  const c = req.messages[0].content;
+  const marked = c.filter((b) => b.cache_control);
+  assert.equal(marked.length, 1);
+  assert.equal(marked[0].text, "Owner: three", "the mark is on the newest turn of the conversation");
+  assert.match(c[c.length - 1].text, /THEIR LATEST MESSAGE\nnow/, "the new message comes after the cached part");
+  assert.ok(req.system[0].cache_control, "the instructions are cached too");
+  // THE NEXT REPLY STARTS WITH THE SAME BLOCKS, so the cache is read.
+  const h2 = { turns: [...h.turns, { role: "assistant", text: "four" }, { role: "user", text: "five" }], left: 0 };
+  const c2 = converseRequest({ message: "later", history: h2, model: "claude-sonnet-5" }).messages[0].content;
+  const strip = (b) => b.text;
+  assert.deepEqual(c2.slice(0, c.length - 1).map(strip), c.slice(0, -1).map(strip), "the earlier request's blocks are the next one's prefix");
+  assert.ok(requestChars(req) > 0);
+});
+
+test("CACHE: without a conversation the message stays one string, as before", () => {
+  assert.equal(typeof converseRequest({ message: "hi", model: "m" }).messages[0].content, "string");
+});
+
+test("CACHE: Grok gets the chat's own cache key; Anthropic never sees our field", () => {
+  const h = { turns: [{ role: "user", text: "one" }], left: 0 };
+  const req = converseRequest({ message: "now", history: h, model: "grok-4.6", cacheKey: "chat-site_abcd" });
+  assert.equal(toXaiRequest(req).body.prompt_cache_key, "gofarther-chat-site_abcd");
+  assert.equal(Object.hasOwn(anthropicWire(req), "cacheKey"), false);
+  assert.ok(anthropicWire(req).messages[0].content.some((b) => b.cache_control), "the cache marks still go to Anthropic");
+  const plain = { model: "m", messages: [] };
+  assert.equal(anthropicWire(plain), plain);
+});
+
+test("CACHE WIRING: the reply is sent its chat's key, and the Anthropic call strips it", () => {
+  const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(src, /cacheKey: typeof rb\.chat === "string" && \/\^\[A-Za-z0-9_-\]\{4,80\}\$\/\.test\(rb\.chat\) \? "chat-" \+ rb\.chat : "",/);
+  const call = readFileSync(new URL("../builder/build-call.mjs", import.meta.url), "utf8");
+  assert.match(call, /JSON\.stringify\(streaming \? \{ \.\.\.anthropicWire\(req\), stream: true \} : anthropicWire\(req\)\)/);
 });

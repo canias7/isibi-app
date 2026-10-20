@@ -247,7 +247,8 @@ export async function callBuilderModel(keys, req, budget = null, send = null, op
     // OpenAI-compatible spelling and an unknown top-level field here. This API
     // 400s unknown fields, so gaining it would refuse every Anthropic build on
     // the platform (the exact reason `budget` is an argument, not a field).
-    body: JSON.stringify(streaming ? { ...req, stream: true } : req),
+    // `cacheKey` IS OURS (xAI's `prompt_cache_key`): never sent here, where an unknown field is a 400.
+    body: JSON.stringify(streaming ? { ...anthropicWire(req), stream: true } : anthropicWire(req)),
     signal: AbortSignal.timeout(callMs),
     onData,
     ...(streaming && Number.isFinite(opts && opts.idleMs) && opts.idleMs > 0 ? { idleMs: opts.idleMs } : {}),
@@ -686,4 +687,11 @@ export function callFailure(e) {
     if (Number.isFinite(w.chars)) out.chars = w.chars;
   }
   return out;
+}
+
+/** A request as Anthropic takes it: our own `cacheKey` taken off. */
+export function anthropicWire(req) {
+  if (!req || typeof req !== "object" || !Object.hasOwn(req, "cacheKey")) return req;
+  const { cacheKey, ...rest } = req;
+  return rest;
 }

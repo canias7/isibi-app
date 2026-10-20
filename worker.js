@@ -221,7 +221,7 @@ import { runLogoEdit } from "./builder/site-logo.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
 import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings } from "./site-access.mjs";
-import { converse, readHistory, converseRequest, CONTEXT_CHARS } from "./builder/site-converse.mjs";
+import { converse, readHistory, converseRequest, requestChars, CONTEXT_CHARS } from "./builder/site-converse.mjs";
 import { planWindow, compact as compactChat, COMPACT_AT } from "./builder/chat-context.mjs";
 // The pair a `display` table resolves to. Named once, from the presets, so the
 // data layer's gate cannot drift from the vocabulary again — it was compared
@@ -29778,7 +29778,7 @@ async function handleRequest(request, env, ctx) {
         if (!cur.read) return Response.json({ error: "unread" }, { status: 503 });
         const bare = converseRequest({ message: "", model });
         // THE SITE'S PART IS ITS CEILING: what the reply is shown of the site is cut to `CONTEXT_CHARS`.
-        const fixedChars = bare.system[0].text.length + bare.messages[0].content.length + CONTEXT_CHARS;
+        const fixedChars = requestChars(bare) + CONTEXT_CHARS;
         const plan = planWindow({ msgs: cur.chat ? cur.chat.msgs : [], summary: cur.chat ? cur.chat.summary : null, window: contextWindow(model) || 0, fixedChars });
         return Response.json({
           ok: true, model, window: plan.window, tokens: plan.tokens, used: plan.used, compactAt: COMPACT_AT,
@@ -31667,13 +31667,15 @@ async function handleRequest(request, env, ctx) {
         let rWin = null;
         try {
           const bare = converseRequest({ message: rb.message, context: cctx, attached: Array.isArray(rb.files) ? rb.files : [], pending, gist: routed.answer, model: rModel });
-          const fixedChars = bare.system[0].text.length + bare.messages[0].content.length;
+          const fixedChars = requestChars(bare);
           rWin = ru && ru.id ? await chatWindowFor(env, ru.id, rb.chat, { model: rModel, fixedChars, current: rb.message }) : null;
         } catch (e) { console.error("chat window:", errorClassForLog(e)); rWin = null; }
         rCompact = rWin && rWin.usage ? rWin.usage : null;
         rCompacted = !!(rWin && rWin.compacted);
         rConverse = await converse({ send: quickSend(env, "converse") }, {
           message: rb.message, history: rWin ? rWin.history : readHistory(rb.history), summary: rWin ? rWin.summary : null, context: cctx,
+          // EACH CHAT ITS OWN CACHE LANE (2026-10-20): Grok keeps its prefix on one server.
+          cacheKey: typeof rb.chat === "string" && /^[A-Za-z0-9_-]{4,80}$/.test(rb.chat) ? "chat-" + rb.chat : "",
           attached: Array.isArray(rb.files) ? rb.files : [], pending, gist: routed.answer, model: rModel,
           // WHAT THE ROUTER COULD NOT PIN DOWN (2026-10-15): the reply asks about exactly it.
           unclear: typeof routed.unclear === "string" ? routed.unclear : "",

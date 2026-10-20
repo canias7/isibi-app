@@ -25,6 +25,9 @@ import assert from "node:assert/strict";
 import { loadWorker } from "./fixtures/worker-harness.mjs";
 import { freshSlug, bucket, question, seedQuestion, withWire, envFor, routeCall, ROUTES } from "./fixtures/live-ask.mjs";
 import { ROUTER_TURN_CHARS, ROUTER_LAST_REPLY_CHARS, routerHistory, CONVERSE_SYSTEM } from "../builder/site-converse.mjs";
+// THE REPLY'S MESSAGE IS BLOCKS WHEN IT CARRIES A CONVERSATION (2026-10-20, so
+// each reply reuses the last one's cache); its words are the blocks' words, in order.
+const textOf = (req) => { const c = req.messages[0].content; return typeof c === "string" ? c : c.map((b) => b.text).join("\n"); };
 
 const workStarted = (seen) => seen.rpc.filter((r) => /edit_(claim|reserve|publish|create)/.test(r.fn)).length + seen.lanes.length + seen.writers.length + seen.pageWriters.length + seen.designers.length + seen.picks.length;
 
@@ -135,7 +138,7 @@ test("AN AMBIGUOUS REFERENCE IS ASKED ABOUT: nothing runs, nothing is written ou
     assert.equal(r.body.intent, "ask");
     assert.equal(r.body.resolved, undefined, "an ambiguous reference was written out as work");
     assert.ok(r.body.decision.reasons.includes("unclear"), JSON.stringify(r.body.decision));
-    const text = seen.converse[0].messages[0].content;
+    const text = textOf(seen.converse[0]);
     assert.match(text, /THEIR MESSAGE LEANS ON SOMETHING THAT COULD NOT BE PINNED DOWN: which list: the headline ideas or the colour ideas/);
     assert.match(text, /Ask them one short, specific question/);
     assert.equal(r.body.answer, "Do you mean the second headline or the second colour?", "the reply is not the model's own");
@@ -144,7 +147,7 @@ test("AN AMBIGUOUS REFERENCE IS ASKED ABOUT: nothing runs, nothing is written ou
   // WITHOUT AN UNCLEAR NOTE, THE REPLY IS NOT TOLD TO ASK.
   await withWire({ route: { intent: "ask", answer: "Sure." }, converse: "Sure." }, async (seen) => {
     await routeCall(worker, envFor(store), { slug, message: "what do you think of the second one?", extra: { history: thread } });
-    assert.doesNotMatch(seen.converse[0].messages[0].content, /COULD NOT BE PINNED DOWN/, "the unclear note is sent when nothing was unclear");
+    assert.doesNotMatch(textOf(seen.converse[0]), /COULD NOT BE PINNED DOWN/, "the unclear note is sent when nothing was unclear");
   });
   // ON WORK, A NOTE OF WHAT IS UNCLEAR IS LEFT OUT.
   await withWire({ route: { intent: "edit", layer: "text", unclear: "which list", resolved: "Change the headline to Baked while the harbour sleeps" } }, async () => {
@@ -168,7 +171,7 @@ test("CUT HISTORY: a reference into a part the page cut is said to both models â
     assert.equal(r.body.intent, "ask");
     assert.equal(r.body.resolved, undefined);
     assert.match(seen.routerAsked[0].messages[0].content, /PARTS OF THIS CONVERSATION ARE NOT SHOWN/);
-    const text = seen.converse[0].messages[0].content;
+    const text = textOf(seen.converse[0]);
     assert.match(text, /PARTS OF THIS CONVERSATION ARE NOT SHOWN/);
     assert.match(text, /COULD NOT BE PINNED DOWN: the third version is in a part of the conversation not shown/);
     assert.ok(r.body.decision.reasons.includes("history-cut"));
@@ -187,7 +190,7 @@ test("RETURNING FROM A SIDE QUESTION: the waiting question survives the side tal
     assert.equal(side.body.intent, "ask");
     assert.deepEqual(side.body.ask, { answered: false, waiting: true });
     assert.equal(question(store, slug).status, "pending", "the side question closed the waiting question");
-    assert.match(seen.converse[0].messages[0].content, /A QUESTION OF OURS IS WAITING FOR THEIR ANSWER, and stays open/);
+    assert.match(textOf(seen.converse[0]), /A QUESTION OF OURS IS WAITING FOR THEIR ANSWER, and stays open/);
     assert.equal(workStarted(seen), 0);
   });
   // 2. BACK TO IT: the answer, typed under the same question.
