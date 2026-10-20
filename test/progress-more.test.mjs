@@ -624,6 +624,7 @@ test("R17 a progress line and a reply ask Grok for low effort; a Claude call and
   assert.equal(TALK_EFFORT, "low");
   assert.deepEqual([...XAI_EFFORTS], ["low", "medium", "high", "xhigh"]);
   const grok = { model: "grok-4.6", max_tokens: 100, messages: [{ role: "user", content: "x" }] };
+  // WITH NO CUSTOMER EFFORT KNOWN (R20 covers the customer's own winning).
   for (const what of ["progress", "reply"]) assert.equal(withTalkEffort(what, grok).effort, "low", what + " is not low");
   for (const what of ["", "route", "design", "lane"]) assert.equal(withTalkEffort(what, grok), grok, what + " was changed");
   const claude = { model: "claude-sonnet-5", max_tokens: 100, messages: [] };
@@ -631,8 +632,8 @@ test("R17 a progress line and a reply ask Grok for low effort; a Claude call and
   assert.equal(toXaiRequest(withTalkEffort("progress", grok)).body.reasoning_effort, "low");
   assert.equal(Object.hasOwn(toXaiRequest(grok).body, "reasoning_effort"), false, "a call that named no effort sent one");
   assert.equal(Object.hasOwn(toXaiRequest({ ...grok, effort: "turbo" }).body, "reasoning_effort"), false, "an unknown effort was sent");
-  assert.match(W, /const quickSendLive = \(env, what, budget, onPartial\) => \(req\) => callBuilderModel\(env, withTalkEffort\(what, req\),/);
-  assert.match(W, /const quickSend = \(env, what = "", budget = null\) => \(req\) => callBuilderModel\(env, withTalkEffort\(what, req\),/);
+  assert.match(W, /const quickSendLive = \(env, what, budget, onPartial\) => \(req\) => callBuilderModel\(env, withTalkEffort\(what, req, env\),/);
+  assert.match(W, /const quickSend = \(env, what = "", budget = null\) => \(req\) => callBuilderModel\(env, withTalkEffort\(what, req, env\),/);
 });
 
 // ── ROUND 18: THE QUIET STRETCHES ARE SAID AS STILL GOING ────────────────────
@@ -696,4 +697,33 @@ test("R19 EFFORT TO EVERYTHING: page writing's calls to the container's model se
     assert.ok(W.includes(body), "a door to the container's model service sends its requests without the effort: " + body);
   }
   assert.ok(!/JSON\.stringify\(\{ req, callMs \}\)|reqs: req, callMs|\{ reqs: req \} : \{ req \}/.test(W), "a door to the container's model service still sends the bare request");
+});
+
+// ── ROUND 20: EVERYTHING FOLLOWS THE EFFORT, THE TALK INCLUDED ───────────────
+test("R20 the talk and the reply follow the customer's effort when there is one, and are low only when none is known", async () => {
+  const { talkEffortApi } = await loadWorkerModule();
+  const { withTalkEffort, withJobEffort, withKeptEffort } = talkEffortApi;
+  const grok = { model: "grok-4.6" };
+  assert.equal(withTalkEffort("progress", grok, { BUILD_EFFORT: "high" }), grok, "the talk overrode the customer's High");
+  assert.equal(withTalkEffort("reply", grok, { BUILD_EFFORT: "xhigh" }), grok, "the reply overrode the customer's effort");
+  assert.equal(withTalkEffort("progress", grok, {}).effort, "low", "with no effort known the talk is not low");
+  assert.equal(withJobEffort({ X: 1 }, JSON.stringify({ effort: "high", brief: "x" })).BUILD_EFFORT, "high");
+  assert.equal(withJobEffort({ X: 1 }, "{not json").BUILD_EFFORT, undefined);
+  assert.equal(withJobEffort({ X: 1 }, JSON.stringify({ effort: "turbo" })).BUILD_EFFORT, undefined, "an unknown level was taken");
+  const job = "d".repeat(32);
+  const store = new Map([["progress-effort/" + job, "medium"]]);
+  const env = { SITES_BUCKET: { get: async (k) => (store.has(k) ? { text: async () => store.get(k) } : null) } };
+  assert.equal((await withKeptEffort(env, job)).BUILD_EFFORT, "medium", "the writer does not use the kept effort");
+  assert.equal((await withKeptEffort(env, "e".repeat(32))).BUILD_EFFORT, undefined);
+  assert.equal((await withKeptEffort({ SITES_BUCKET: { get: async () => { throw new Error("down"); } } }, job)).BUILD_EFFORT, undefined, "a store that fails broke the writer");
+});
+
+test("R20 THE WIRING: the job's effort rides its record's opening, is kept beside it, and the writer, the reply and the presses use it", () => {
+  assert.match(W, /\.\.\.\(env && XAI_EFFORTS\.includes\(env\.BUILD_EFFORT\) \? \{ effort: env\.BUILD_EFFORT \} : \{\}\),\n\s*\/\/ THE JOB'S PLACE IN ITS REQUEST/, "the record's opening does not carry the effort");
+  assert.match(W, /if \(r && XAI_EFFORTS\.includes\(b\.effort\)\) \{ try \{ await env\.SITES_BUCKET\.put\(progressEffortKey\(id\), b\.effort\); \}/, "the door does not keep the effort");
+  assert.match(W, /async function writeProgressLine\(env0, task, owner\) \{\n\s*const job = task\.id;\n\s*const env = await withKeptEffort\(env0, job\);/, "the writer does not read the kept effort");
+  assert.match(W, /env = withJobEffort\(env, job\.body\);\n\s*\/\/ THE BUILD'S LIVE LINES/, "a queued build's record does not know its effort");
+  assert.match(W, /progress = makeProgress\(withJobEffort\(env, job\.body\), ctx,/, "a queued edit's record does not know its effort");
+  assert.match(W, /const env = env0 && !env0\.BUILD_EFFORT && ask && XAI_EFFORTS\.includes\(ask\.effort\) \? \{ \.\.\.env0, BUILD_EFFORT: ask\.effort \} : env0;/, "a reply written later ignores the effort");
+  assert.equal((CHATJS.match(/\.\.\.\(talk \? \{ talk \} : \{\}\), \.\.\.\(typeof sendEffort === 'function' \? sendEffort\(\) : null\)/g) || []).length, 3, "a press does not send the effort");
 });

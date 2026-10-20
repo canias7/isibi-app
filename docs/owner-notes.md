@@ -1,5 +1,12 @@
 # Owner Notes
 
+## 2026-10-20 — The Effort button now sets the talk and the replies too ("if they have low everything is on low, if they have high everything is on high"; branch only, not deployed)
+
+- **Progress talk**: the job's effort is read off its stored request when the job starts (`withJobEffort`), carried in its record's opening, and kept beside the record (`progress-effort/<job>`). The talk writer, which runs with no request of its own, reads it (`withKeptEffort`). On High each line takes 20 to 40 s again (deploys 2222–2225 measured that), so there are fewer, later lines. On Low it stays a few seconds.
+- **Final replies**: the effort is kept in the reply's context and used when it is written later off the queue.
+- **Publish, Restore, Discard**: their requests now send the effort, so their talk follows it.
+- Low is still the fallback when no customer effort is known. Tests R20; four guards re-anchored. Full suite: 1 failure on the first run (a test anchored to the old writer signature), fixed; that file passes.
+
 ## 2026-10-20 — Deploy 2230: Effort Low reaches everything; a build in about 2 minutes for 24 credits (merged, deployed and tested on your word; topped up 60, balance 100 before it)
 
 - **harbour-loaf-16 on Low**: **24 credits** (design 14, deposit 2, pages about 8), against **66 on High** (harbour-loaf-13) and 53 when only the design was on Low. The pages' billed output was 3,221 tokens, against 24,416 on High and 39,391 before the fix. **About 2 minutes** on the build's clock (130 s), against about 8½ minutes on High. 13 lines, the first at 10 s. The site built and saved: hero, story, three loaves, hours, order band.

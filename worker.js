@@ -576,7 +576,7 @@ const actionRoom = (id) => "act:" + id;
 /** The room's pieces, for its tests. */
 /** The talk's reasoning effort, for its tests (read lazily: it is declared further down). */
 export const customerEffortApi = { withCustomerEffort: (e, r) => withCustomerEffort(e, r), withBuildEffort: (q, e) => withBuildEffort(q, e), withEffortAll: (e, r) => withEffortAll(e, r) };
-export const talkEffortApi = { withTalkEffort: (what, req) => withTalkEffort(what, req), get TALK_EFFORT() { return TALK_EFFORT; } };
+export const talkEffortApi = { withTalkEffort: (what, req, env) => withTalkEffort(what, req, env), withKeptEffort: (env, job) => withKeptEffort(env, job), withJobEffort: (env, body) => withJobEffort(env, body), get TALK_EFFORT() { return TALK_EFFORT; } };
 export const talkRoomApi = { TalkRoom, readRoomSay, mergeRoomSay, roomMessage, tellRoom, openRoomWatch, roomWriter, streamFromRoom, actionRoom, replyLiveWriter, roomLiveWriter, ROOM_KEEP_MS };
 
 // Site build-service container. The image (./builder/Dockerfile) bakes the React
@@ -4602,6 +4602,14 @@ const modelOpts = (env, opts) => (env && env.MODEL_STREAM === true ? { ...(opts 
  * progress talk names `low` and keeps it. A Claude call is sent unchanged.
  */
 const withCustomerEffort = (env, req) => (env && XAI_EFFORTS.includes(env.BUILD_EFFORT) && req && typeof req === "object" && req.effort === undefined && isXaiModel(req.model) ? { ...req, effort: env.BUILD_EFFORT } : req);
+/** A stored job's `effort`, read off its JSON body string: the env with it, or the env unchanged (2026-10-20). */
+function withJobEffort(env, body) {
+  try {
+    const b = typeof body === "string" ? JSON.parse(body) : body;
+    const e = b && typeof b === "object" && typeof b.effort === "string" ? b.effort : "";
+    return env && XAI_EFFORTS.includes(e) && env.BUILD_EFFORT !== e ? { ...env, BUILD_EFFORT: e } : env;
+  } catch { return env; }
+}
 /** A site request's `effort`, read off its JSON body: this request's env with it, or the env unchanged. */
 async function withBuildEffort(request, env) {
   try {
@@ -4727,8 +4735,21 @@ const QUICK_STREAM = { stream: true };
  */
 const TALK_EFFORT = "low";
 const TALK_CALLS = new Set(["progress", "reply"]);
-const withTalkEffort = (what, req) => (TALK_CALLS.has(what) && req && typeof req === "object" && isXaiModel(req.model) ? { ...req, effort: TALK_EFFORT } : req);
-const quickSendLive = (env, what, budget, onPartial) => (req) => callBuilderModel(env, withTalkEffort(what, req),
+// THE CUSTOMER'S EFFORT WINS WHEN THERE IS ONE (2026-10-20, owner: "if they have
+// low everything is on low, if they have high everything is on high"): the talk's
+// low is only for a call that knows no effort of the customer's.
+const withTalkEffort = (what, req, env = null) => (TALK_CALLS.has(what) && !(env && XAI_EFFORTS.includes(env.BUILD_EFFORT)) && req && typeof req === "object" && isXaiModel(req.model) ? { ...req, effort: TALK_EFFORT } : req);
+/** Where a job's effort is kept beside its progress record, for its writer. */
+const progressEffortKey = (job) => "progress-effort/" + job;
+/** The env a job's talk writer runs with: the customer's effort, when it was kept. */
+async function withKeptEffort(env, job) {
+  try {
+    const o = await env.SITES_BUCKET.get(progressEffortKey(job));
+    const e = o ? (await o.text()).trim() : "";
+    return XAI_EFFORTS.includes(e) ? { ...env, BUILD_EFFORT: e } : env;
+  } catch { return env; }
+}
+const quickSendLive = (env, what, budget, onPartial) => (req) => callBuilderModel(env, withTalkEffort(what, req, env),
   budget ? { capMs: (cap) => budget.capMs(Math.min(Number(cap) || QUICK_STREAM_MS, QUICK_STREAM_MS)) } : quickBudget,
   { stream: true, onPartial },
 ).catch((e) => { if (what && e && !e.call) { try { e.call = what; } catch { /* frozen error */ } } throw e; });
@@ -4736,7 +4757,7 @@ const quickSendLive = (env, what, budget, onPartial) => (req) => callBuilderMode
 // caller is unchanged. A queued edit passes its own clock, which composes the
 // two: a lane call started at minute eleven of a thirteen-minute job gets what
 // is left less the publish reserve, not another four minutes.
-const quickSend = (env, what = "", budget = null) => (req) => callBuilderModel(env, withTalkEffort(what, req),
+const quickSend = (env, what = "", budget = null) => (req) => callBuilderModel(env, withTalkEffort(what, req, env),
   // WHICHEVER IS SOONER. The clamp is `QUICK_STREAM_MS` rather than the flat
   // 240s: with the wire kept alive there is no reason left to refuse a call
   // the job can still afford, and the job's own `capMs` is what makes it
@@ -7313,7 +7334,9 @@ async function writeModelReply(env, kind, body, ask) {
  * (`runReplyTask`) — with the background's budget instead of the customer's
  * connection's.
  */
-async function composeModelReply(env, kind, body, ask, { background = false, onPartial = null } = {}) {
+async function composeModelReply(env0, kind, body, ask, { background = false, onPartial = null } = {}) {
+  // THE EFFORT THE REPLY WAS ASKED WITH, when it is written off the queue (2026-10-20).
+  const env = env0 && !env0.BUILD_EFFORT && ask && XAI_EFFORTS.includes(ask.effort) ? { ...env0, BUILD_EFFORT: ask.effort } : env0;
   // THE CHECKS A PUBLISH MADE ARE AMONG THESE FACTS (`k`, 2026-10-14), read
   // off the answer's own `checks` by the fact builders — not off the progress
   // record, which is not there when narration was off, failed or came late.
@@ -7490,6 +7513,8 @@ async function keepReplyFor(env, res, kind, ask) {
     request: String(ask.request || ""),
     answers: readContext(ask.answers) || [],
     picker: typeof ask.picker === "string" ? ask.picker : undefined,
+    // THE CUSTOMER'S EFFORT, KEPT FOR THE REPLY WRITTEN LATER OFF THE QUEUE (2026-10-20).
+    ...(env && XAI_EFFORTS.includes(env.BUILD_EFFORT) ? { effort: env.BUILD_EFFORT } : {}),
     routedCost: ask.routedCost,
     slug: typeof ask.slug === "string" ? ask.slug : undefined,
     pages: Array.isArray(pages) ? pages : [],
@@ -7700,6 +7725,7 @@ async function runReplyTask(env, task) {
 function askOfReplyFor(replyFor) {
   return {
     request: replyFor.request, answers: replyFor.answers, picker: replyFor.picker,
+    effort: XAI_EFFORTS.includes(replyFor.effort) ? replyFor.effort : undefined,
     routedCost: Number.isInteger(replyFor.routedCost) ? replyFor.routedCost : null,
     slug: replyFor.slug, pages: Array.isArray(replyFor.pages) ? replyFor.pages : [],
     inRequest: replyFor.inRequest === true,
@@ -8184,6 +8210,7 @@ async function progressFromJob(env, ids, body) {
       const opened = openRecord({ job: id, uid, slug, op: b.kind, run, words: b.words, picker: b.picker, pages: b.pages, tasks: b.task === true && words ? [{ n: 0, words }] : [], at: now, request: b.request, talk: b.talk === true && talkOn(env) });
       return opened ? { rec: opened } : null;
     }, seen);
+    if (r && XAI_EFFORTS.includes(b.effort)) { try { await env.SITES_BUCKET.put(progressEffortKey(id), b.effort); } catch { /* the talk falls back to low */ } }
     await diag(env, id, r ? "begun" : "begin-refused", { kind: String(b.kind || ""), take: b.take === true, pre, store: !!seen.store });
     if (r) await askProgress(env, id, uid, now);
     return answer(r);
@@ -8322,6 +8349,10 @@ function makeProgress(env, ctx, { id, run, uid, slug, standalone = false }) {
         ...(take === true ? { take: true } : {}),
         ...(standalone ? { task: true } : {}),
         ...(talk ? { talk: true } : {}),
+        // THE CUSTOMER'S EFFORT (2026-10-20, owner: "if they have low everything
+        // is on low, if they have high everything is on high"): kept beside the
+        // record, so its writer — which runs with no request of its own — uses it.
+        ...(env && XAI_EFFORTS.includes(env.BUILD_EFFORT) ? { effort: env.BUILD_EFFORT } : {}),
         // THE JOB'S PLACE IN ITS REQUEST (2026-10-07): its writer reads the
         // request's other parts by it, as they stand when each line is written.
         ...(request && typeof request === "object" ? { request: { key: request.key, part: request.part } } : {}),
@@ -8523,8 +8554,9 @@ function diag(env, job, ev, data = {}) {
     return p;
   } catch { /* the log never costs the talk */ }
 }
-async function writeProgressLine(env, task, owner) {
+async function writeProgressLine(env0, task, owner) {
   const job = task.id;
+  const env = await withKeptEffort(env0, job);
   const claimed = await progressUpdate(env, job, (rec) => {
     if (!rec || rec.uid !== task.uid) return null;
     const c = claimWriter(rec, owner, Date.now());
@@ -19756,6 +19788,9 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
     write: (row) => writeBuildRecord(env, row),
     hold: (p) => { try { if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(p); } catch { /* never */ } },
   });
+  // THE CUSTOMER'S EFFORT, off the job's own stored request (2026-10-20), so
+  // its record — and the talk written from it — knows the level too.
+  env = withJobEffort(env, job.body);
   // THE BUILD'S LIVE LINES (round 5), from the steps this trace records.
   const bProgress = lease ? buildProgressFor(env, ctx, { id, run: lease, uid: job.uid }) : null;
   if (bProgress) { bProgress.open(); const ident = rec.identify.bind(rec); rec.identify = (s, u) => { ident(s, u); bProgress.identify(s); }; }
@@ -23716,7 +23751,7 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     let partOfRequest = false;
     let requestOf = null;
     try { requestOf = readRequestOf(JSON.parse(String(job.body || "")).request); partOfRequest = !!requestOf; } catch { partOfRequest = false; }
-    progress = makeProgress(env, ctx, { id, run: owner, uid: job.uid, slug: job.slug, standalone: !partOfRequest });
+    progress = makeProgress(withJobEffort(env, job.body), ctx, { id, run: owner, uid: job.uid, slug: job.slug, standalone: !partOfRequest });
     const wantMs = inlineBudgetMs(0, capMs);
     const budgetMs = inlineBudgetMs(startedAt, capMs);
     if (budgetMs < wantMs) console.log("edit queue:", id, "inline budget cut to", Math.round(budgetMs / 1000) + "s — this delivery has already spent", Math.round((Date.now() - startedAt) / 1000) + "s");

@@ -8184,7 +8184,7 @@ function siteDraftPanel(site, d) {
     discard.disabled = true; discard.textContent = 'Discarding\u2026';
     try {
       const talk = typeof siteActionTalk === 'function' ? siteActionTalk(slug) : '';
-      const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/draft/discard', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(talk ? { talk } : {}) });
+      const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/draft/discard', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...(talk ? { talk } : {}), ...(typeof sendEffort === 'function' ? sendEffort() : null) }) });
       const out = await r.json().catch(() => ({}));
       const frameWas = siteDraftFrameKey(siteDraftState[slug]);
       if (out && out.state) { siteDraftState[slug] = out.state; paintDraftChip(out.state); }
@@ -8214,7 +8214,7 @@ function siteDraftPanel(site, d) {
     const talk = typeof siteActionTalk === 'function' ? siteActionTalk(slug) : '';
     try {
       const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/publish', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...(stalled ? { revision: sendRevision } : { revision, version }), ...(talk ? { talk } : {}) }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...(stalled ? { revision: sendRevision } : { revision, version }), ...(talk ? { talk } : {}), ...(typeof sendEffort === 'function' ? sendEffort() : null) }),
       });
       const out = await r.json().catch(() => ({}));
       const frameWas = siteDraftFrameKey(siteDraftState[slug]);
@@ -15750,7 +15750,7 @@ async function siteVersions(site) {
     try {
       const talk = typeof siteActionTalk === 'function' ? siteActionTalk(slug) : '';
       const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/versions/restore', {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, ...(talk ? { talk } : {}) }),
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, ...(talk ? { talk } : {}), ...(typeof sendEffort === 'function' ? sendEffort() : null) }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d.ok) { if (typeof sbToast === 'function') sbToast(d.error || 'Couldn’t restore that version.'); return load(); }

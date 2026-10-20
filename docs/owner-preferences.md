@@ -157,7 +157,7 @@
 
 ## Effort (2026-10-20)
 
-- **The Effort button sets every model call**: Low is Low everywhere, High is High everywhere (design, page writing, routing, edits, additions). **Two exceptions stay on Low whatever the button says: the progress talk and the final replies** (owner: "you can leave that one on low").
+- **The Effort button sets every model call**, the progress talk and the final replies included (owner: "if they have low everything is on low, if they have high everything is on high"). Only a call that knows no customer effort (a Claude picker, an older page) falls back: the talk and replies to Low, everything else to the model's default. This replaces the earlier "talk and replies stay on Low".
 
 ## Approval boundaries
 

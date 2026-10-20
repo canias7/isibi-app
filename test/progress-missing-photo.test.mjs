@@ -273,7 +273,7 @@ test("MPH 9 — THE WIRING: the Worker's writer hands the record it claimed (wit
     assert.ok(b > a, "landmark missing after " + from + ": " + to);
     return src.slice(a, b);
   };
-  const writer = between("async function writeProgressLine(env, task, owner) {", "\n}\n");
+  const writer = between("async function writeProgressLine(env0, task, owner) {", "\n}\n");
   assert.match(writer, /const rec = claimed\.rec;/);
   assert.match(writer, /context: progressContext\(rec, \{ others, waited \}\)/, "the writer does not hand its claimed record to the context");
   // THE ADD-ON: the success path, the thrown path and the nothing-affordable path.
