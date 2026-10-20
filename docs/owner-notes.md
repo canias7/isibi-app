@@ -1,5 +1,20 @@
 # Owner Notes
 
+## 2026-10-20 — One-click domain setup (Domain Connect): checked, and what is left (you: "lets start setting that up and checking")
+
+**Already done before today:**
+- The template (`domain-connect/gofarther.dev.site.json`) was merged into the official community repository on 2026-08-09 (pull request #1543), and it is identical to ours.
+- The signing public key at `_dck1.gofarther.dev` matches `domain-connect/dck1.pub`.
+- `_domainconnect.gofarther.dev` and `saas.gofarther.dev` resolve.
+- The logo the template names is served.
+- The app's half (finding the provider, the signed link, the button in Cloud → Domains) is built.
+
+**Not live yet:** GoDaddy and IONOS still answer "template not found" for ours, while answering normally for the long-standing example template, so their endpoints work. A merge doesn't switch a template on: each provider does that under its own policy, after being asked. Cloudflare's endpoint answers "not found" even for the example template, so it couldn't be checked from outside.
+
+**Unchecked:** whether the private key `DOMAIN_CONNECT_KEY` is set on the server. Reading the secret is off limits; the Domains panel only signs a button when it is set, so a real domain will show it.
+
+**Next:** `domain-connect/ONBOARDING.md` has the free check to rerun, each provider's contact, and the request email to send from your address. Nothing has been sent.
+
 ## 2026-10-20 — Deploys 2233–2234: the cache on every call, measured live (you: "yes do that")
 
 Merged and deployed: the cache on every model call (`ca77b3a4`, deploy 2233), and the route now reports each call's tokens and how many came from the cache (`9c13396d`, deploy 2234, green). Full suite 11588 / 11586 / 0 / 2. **Live, on Grok, two replies in one 80-message chat**:
