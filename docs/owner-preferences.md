@@ -155,6 +155,10 @@
 
 - **"We gotta charge for every token."** Every token a model bills us for is charged to the customer's build or edit, including a reasoning model's hidden thinking (Grok's `reasoning_tokens`). Only what we chose not to charge stays free: the progress talk and replies.
 
+## Effort (2026-10-20)
+
+- **The Effort button sets every model call**: Low is Low everywhere, High is High everywhere (design, page writing, routing, edits, additions). **Two exceptions stay on Low whatever the button says: the progress talk and the final replies** (owner: "you can leave that one on low").
+
 ## Approval boundaries
 
 - **Spending.** Nothing paid (a run, a model call, a fal purchase) without your
