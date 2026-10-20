@@ -5472,7 +5472,9 @@ export async function siteWebResearch(env, brief, queries) {
 // drop-in shape `callBuilderModel` has — `(keys, req, budget)` — and this file's
 // guard derives that contract to prove no call site invents its keys.
 function pagesCall(env) {
-  return (keys, req, budget) => callModel(keys, req, budget, modelSend(env), modelOpts(env, null));
+  // THE CUSTOMER'S EFFORT (2026-10-20, the audit of every model call): an edit's
+  // page rung and an addition's pages come through here, not `callBuilderModel`.
+  return (keys, req, budget) => callModel(keys, withCustomerEffort(env, req), budget, modelSend(env), modelOpts(env, null));
 }
 // `kind` AND `keep` RIDE THE TAIL, in the module's own order. The wrapper had
 // stopped one argument short of the module's signature twice before — the
@@ -5641,7 +5643,7 @@ function containerPagesCall(env, slug, out) {
     // WITH THIS PROCESS'S OWN TRANSPORT (2026-10-18, the Harbour Loaf build):
     // inside the container a bare call is Node's fetch — not streamed, cut by
     // its 300-second headers wall — the very death this fallback follows.
-    return callModel(keys, req, budget, modelSend(env), modelOpts(env, null));
+    return callModel(keys, withCustomerEffort(env, req), budget, modelSend(env), modelOpts(env, null));
   };
 }
 
@@ -23007,6 +23009,7 @@ async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, 
     labels,
     key, uid, slug, message,
     picker: typeof rb.picker === "string" ? rb.picker : "",
+    effort: env && XAI_EFFORTS.includes(env.BUILD_EFFORT) ? env.BUILD_EFFORT : "",
     tz: typeof rb.tz === "string" ? rb.tz : "",
     digest: rb.site && typeof rb.site === "object" && !Array.isArray(rb.site) ? rb.site : null,
     recent: Array.isArray(rb.recent) ? rb.recent : null,
@@ -23361,6 +23364,7 @@ async function rewriteJob(env, rec, n, auth) {
   const files = await requestFiles(env, rec);
   const body = JSON.stringify({
     slug: rec.slug, instruction: p.resume || p.words, picker: rec.picker || undefined,
+    effort: XAI_EFFORTS.includes(rec.effort) ? rec.effort : undefined,
     images: files.length ? files.slice(0, MAX_ATTACHMENTS) : undefined,
     // WHICH REQUEST AND PART, for the consumer's stop check and its next step.
     request: { key: rec.key, part: n },
@@ -23575,7 +23579,7 @@ async function writeRequestReply(env, task) {
   if (!rec) return settleReply(env, k, claim, task, { ok: false, why: "request" });
   const place = requestReplyPlace(rec);
   if (!place || place.forKey !== task.for) return settleReply(env, k, claim, task, { ok: false, skip: "moved-on" });
-  const ask = { request: rec.message, answers: rec.context, picker: rec.picker, routedCost: rec.routedCost, slug: rec.slug, pages: [] };
+  const ask = { request: rec.message, answers: rec.context, picker: rec.picker, effort: XAI_EFFORTS.includes(rec.effort) ? rec.effort : undefined, routedCost: rec.routedCost, slug: rec.slug, pages: [] };
   const view = requestView(rec);
   await partChecksFor(env, rec, view);
   return settleReply(env, k, claim, task, await composeModelReply(env, "request", view, ask, { background: true }));

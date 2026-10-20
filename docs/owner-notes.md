@@ -1,5 +1,13 @@
 # Owner Notes
 
+## 2026-10-20 — The audit of every model call ("double check every model call and the efforts"; branch only, not deployed)
+
+Every door from our code to a model, checked:
+- **Already right**: `callBuilderModel` (design, routing, lanes, edits, the talk, replies, presses); the container's model service (`/model`, `/model/start`, page writing, fixed earlier today); the container's own calls (they send the requests the Worker gave them).
+- **Found and fixed (3)**: (1) `pagesCall`, the page writer's own call, used by an **edit's page rung and an addition's pages**, skipped the effort; (2) the **fallback** used when the container cannot make a call (the Worker makes it instead) skipped it; (3) a **request with several parts** filed each part's job without it, so those parts, their talk and the request's own reply ran at the default. The request now keeps the effort and every part is filed with it.
+- **Not affected**: the research call (Claude with web search, which has no Grok effort) and pictures (fal). The Effort button shows only for Grok; a Claude picker's calls are sent unchanged.
+- Test R21 (each `callModel` line must apply the effort; the request filing); one transport guard updated. **Full suite 11,553 / 11,551 / 0 / 2.**
+
 ## 2026-10-20 — The Effort button now sets the talk and the replies too ("if they have low everything is on low, if they have high everything is on high"; branch only, not deployed)
 
 - **Progress talk**: the job's effort is read off its stored request when the job starts (`withJobEffort`), carried in its record's opening, and kept beside the record (`progress-effort/<job>`). The talk writer, which runs with no request of its own, reads it (`withKeptEffort`). On High each line takes 20 to 40 s again (deploys 2222–2225 measured that), so there are fewer, later lines. On Low it stays a few seconds.

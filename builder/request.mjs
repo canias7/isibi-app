@@ -263,7 +263,9 @@ const clone = (v) => JSON.parse(JSON.stringify(v));
  * the routing call's own answer, handed back whole to a retry of the same
  * message (the same key) so a lost response is never routed or charged twice.
  */
-export function newRequest({ key, uid, slug, message, picker = "", tz = "", digest = null, recent = null, files = [], attached = false, context = [], accepted = null, routedCost = null, parts = [], attempt = "", labels = null, at = Date.now() } = {}) {
+/** The reasoning efforts a request may carry (xAI's own). */
+const REQUEST_EFFORTS = ["low", "medium", "high", "xhigh"];
+export function newRequest({ key, uid, slug, message, picker = "", effort = "", tz = "", digest = null, recent = null, files = [], attached = false, context = [], accepted = null, routedCost = null, parts = [], attempt = "", labels = null, at = Date.now() } = {}) {
   if (!isRequestKey(key) || typeof uid !== "string" || !uid || !isRequestSlug(slug)) return null;
   const text = typeof message === "string" ? message.trim() : "";
   if (!text || text.length > MAX_INPUT_CHARS) return null;
@@ -273,6 +275,8 @@ export function newRequest({ key, uid, slug, message, picker = "", tz = "", dige
     v: REQUEST_V, key, uid, slug, at, updatedAt: at, rev: 1,
     message: text,
     picker: typeof picker === "string" ? picker : "",
+    // THE CUSTOMER'S EFFORT (2026-10-20): every part's job is filed with it.
+    ...(REQUEST_EFFORTS.includes(effort) ? { effort } : {}),
     tz: typeof tz === "string" ? tz.slice(0, 64) : "",
     digest: plain(digest) ? digest : null,
     // WHAT EACH PAGE CALLED ITSELF WHEN THE MESSAGE WAS UNDERSTOOD (2026-10-11,
@@ -2015,7 +2019,7 @@ export function jobBody(rec, n, kind, key, { files = [] } = {}) {
     return {
       url: "/api/site/route",
       body: {
-        message: words, site: digest, picker: rec.picker, firstBuild: false, brief: words, qa: [],
+        message: words, site: digest, picker: rec.picker, ...(REQUEST_EFFORTS.includes(rec.effort) ? { effort: rec.effort } : {}), firstBuild: false, brief: words, qa: [],
         answering: false, attached: rec.files.length > 0 || rec.attached, slug: rec.slug, hasSite: true, idem: key, request,
         ...(scope ? { scope } : {}),
       },
@@ -2044,7 +2048,7 @@ export function jobBody(rec, n, kind, key, { files = [] } = {}) {
     return {
       url: "/api/site/" + encodeURIComponent(rec.slug) + "/addon",
       body: {
-        instruction: runs, picker: rec.picker, idem: key, tz: rec.tz,
+        instruction: runs, picker: rec.picker, ...(REQUEST_EFFORTS.includes(rec.effort) ? { effort: rec.effort } : {}), idem: key, tz: rec.tz,
         // THE PAGES AS THEY WERE IDENTIFIED (`labels`, round 11), on its
         // preparation and its job alike, so both make the same request.
         ...(readLabels(rec.labels) ? { labels: readLabels(rec.labels) } : {}),
@@ -2082,7 +2086,7 @@ export function jobBody(rec, n, kind, key, { files = [] } = {}) {
       handOver: plain(d.handOver) ? d.handOver : undefined,
       askRound, putOff, context,
       attached: rec.files.length || rec.attached ? true : undefined,
-      picker: rec.picker,
+      picker: rec.picker, ...(REQUEST_EFFORTS.includes(rec.effort) ? { effort: rec.effort } : {}),
       routedCost: Number.isInteger(d.cost) && d.cost >= 0 ? d.cost : undefined,
       recent: d.layer === "data" && Array.isArray(rec.recent) && rec.recent.length ? rec.recent.slice(0, 3) : undefined,
       scope: scope || undefined,

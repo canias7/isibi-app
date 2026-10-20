@@ -727,3 +727,22 @@ test("R20 THE WIRING: the job's effort rides its record's opening, is kept besid
   assert.match(W, /const env = env0 && !env0\.BUILD_EFFORT && ask && XAI_EFFORTS\.includes\(ask\.effort\) \? \{ \.\.\.env0, BUILD_EFFORT: ask\.effort \} : env0;/, "a reply written later ignores the effort");
   assert.equal((CHATJS.match(/\.\.\.\(talk \? \{ talk \} : \{\}\), \.\.\.\(typeof sendEffort === 'function' \? sendEffort\(\) : null\)/g) || []).length, 3, "a press does not send the effort");
 });
+
+// ── ROUND 21: THE AUDIT OF EVERY MODEL CALL ──────────────────────────────────
+test("R21 THE AUDIT: every door to a model applies the customer's effort — callBuilderModel, the page writer's own call, the container fallback, the container's model service — and a request's parts are filed with it", async () => {
+  // Every call to the shared model module in worker.js passes a request that took the effort.
+  const lines = W.split("\n").filter((l) => /\bcallModel\(/.test(l) && !/^\s*\/\//.test(l) && !/^import /.test(l));
+  assert.ok(lines.length >= 3, "the model calls could not be found");
+  for (const l of lines) assert.ok(l.includes("withCustomerEffort(env, req") , "a model call sends a request that skipped the effort: " + l.trim().slice(0, 140));
+  assert.ok(!/callModel\(keys, req, budget/.test(W), "a model call sends the bare request");
+  assert.match(W, /const callBuilderModel = \(env, req0, budget = null, opts = null\) => \{ const req = withCustomerEffort\(env, req0\);/);
+  // The request's parts.
+  const { newRequest } = await import("../builder/request.mjs");
+  const rec = newRequest({ key: "a".repeat(16), uid: "u1", slug: "site-1", message: "Do two things", picker: "grok", effort: "low" });
+  if (rec) assert.equal(rec.effort, "low", "a request does not keep its effort");
+  const R = readFileSync(new URL("../builder/request.mjs", import.meta.url), "utf8");
+  assert.equal((R.match(/picker: rec\.picker, \.\.\.\(REQUEST_EFFORTS\.includes\(rec\.effort\) \? \{ effort: rec\.effort \} : \{\}\),/g) || []).length, 3, "a part's job is filed without the effort");
+  assert.match(W, /effort: env && XAI_EFFORTS\.includes\(env\.BUILD_EFFORT\) \? env\.BUILD_EFFORT : "",/, "the request is made without the customer's effort");
+  assert.match(W, /picker: rec\.picker \|\| undefined,\n\s*effort: XAI_EFFORTS\.includes\(rec\.effort\) \? rec\.effort : undefined,/, "a resumed part is filed without the effort");
+  assert.match(W, /picker: rec\.picker, effort: XAI_EFFORTS\.includes\(rec\.effort\) \? rec\.effort : undefined, routedCost/, "the request's own reply ignores the effort");
+});

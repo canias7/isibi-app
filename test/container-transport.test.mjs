@@ -85,7 +85,7 @@ test("EVERY long call reads the job's transport — including the PAGE call, whi
   const at = src.indexOf("function pagesCall(env) {");
   assert.ok(at > 0, "pagesCall is gone — rescope this guard");
   const body = src.slice(at, src.indexOf("\n}", at));
-  assert.match(body, /callModel\(keys, req, budget, modelSend\(env\), modelOpts\(env, null\)\)/,
+  assert.match(body, /callModel\(keys, withCustomerEffort\(env, req\), budget, modelSend\(env\), modelOpts\(env, null\)\)/,
     "the page call is back on the module's default transport — exactly run 45's defect");
   // …AND IT IS THE CALL `generateSitePages` REALLY HANDS DOWN.
   // RE-ANCHORED 2026-09-17: the forwarder gained `kind` and `keep` after the
@@ -103,12 +103,13 @@ test("EVERY long call reads the job's transport — including the PAGE call, whi
   };
   const seen = [];
   // THE CONTAINER'S TIME RULES ARE NAMES THE READER USES (2026-10-18): handed in.
-  const make = new Function("callModel", "STREAM_IDLE_MS", "CONTAINER_CALL_CAP_MS", `
+  // THE CUSTOMER'S EFFORT (2026-10-20) is a name the reader uses: handed in as a pass-through.
+  const make = new Function("callModel", "STREAM_IDLE_MS", "CONTAINER_CALL_CAP_MS", "withCustomerEffort", `
     ${pick("modelSend")}
     ${pick("modelOpts")}
     ${src.slice(at, src.indexOf("\n}", at) + 2)}
     return pagesCall;
-  `)((keys, req, budget, send, opts) => { seen.push({ send, opts }); }, 300000, 2400000);
+  `)((keys, req, budget, send, opts) => { seen.push({ send, opts }); }, 300000, 2400000, (env, req) => req);
 
   const send = () => {};
   make({ MODEL_SEND: send, MODEL_STREAM: true })("k", "r", 1);
