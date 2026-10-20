@@ -20,6 +20,13 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
+- **Nothing account-specific may live only in the browser** (2026-10-20, owner:
+  "nothing can be local, it needs to be seen from every device"). The audit is
+  `docs/investigations/2026-10-20-local-state-audit.md`: the chat (every site's
+  messages, questions and answers, job cards), the followed edit jobs, attached
+  files waiting on a question, media upload records and the preferences are
+  local today. Move them to the server first, then build the context window on
+  the server-side chat. Not started.
 - **Audit the sites the builder makes with Cloudflare's security-audit skill**
   (2026-10-19, owner: "save it for later to audit the sites the builder does,
   not my platform"): `github.com/cloudflare/security-audit-skill` (MIT; install
