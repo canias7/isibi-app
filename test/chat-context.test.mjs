@@ -302,3 +302,14 @@ test("ROUTER: the window's start moves in steps of 20, so the next message's pro
   assert.ok(c.includes("Owner: turn 40\n") && !c.includes("Owner: turn 38\n"), "at 80 messages it has stepped to 40");
   assert.match(a, /20 earlier messages are not shown/, "the messages before the window are said, never passed off as the whole");
 });
+
+test("GROK'S CACHE KEY GOES AS THE x-grok-conv-id HEADER, the documented route on Chat Completions", async () => {
+  const { xaiHeaders } = await import("../builder/build-call.mjs");
+  const h = xaiHeaders("K", { prompt_cache_key: "gofarther-chat-site_abcd" });
+  assert.equal(h["x-grok-conv-id"], "gofarther-chat-site_abcd");
+  assert.equal(h.Authorization, "Bearer K");
+  assert.equal(xaiHeaders("K", {})["x-grok-conv-id"], undefined);
+  assert.equal(xaiHeaders("K", { prompt_cache_key: "bad\nvalue" })["x-grok-conv-id"], undefined, "a value a header cannot carry is never sent");
+  const src = readFileSync(new URL("../builder/build-call.mjs", import.meta.url), "utf8");
+  assert.match(src, /doFetch\(XAI_ENDPOINT, \{\s*method: "POST",\s*headers: xaiHeaders\(k\.xai, body\),/);
+});

@@ -205,7 +205,7 @@ export async function callBuilderModel(keys, req, budget = null, send = null, op
     const wireBody = streaming ? { ...body, stream: true, stream_options: { include_usage: true } } : body;
     const r = await doFetch(XAI_ENDPOINT, {
       method: "POST",
-      headers: { Authorization: `Bearer ${k.xai}`, "content-type": "application/json" },
+      headers: xaiHeaders(k.xai, body),
       body: JSON.stringify(wireBody),
       signal: AbortSignal.timeout(callMs),
       onData,
@@ -725,4 +725,19 @@ function marksCache(req) {
   if (Array.isArray(req.system) && req.system.some(has)) return true;
   if (Array.isArray(req.tools) && req.tools.some(has)) return true;
   return (Array.isArray(req.messages) ? req.messages : []).some((m) => m && Array.isArray(m.content) && m.content.some(has));
+}
+
+/**
+ * The xAI call's headers (2026-10-20). THE CACHE KEY GOES AS `x-grok-conv-id`:
+ * xAI keeps a prompt's cache on one server, and on the Chat Completions API
+ * this header is what sends calls sharing it to that server
+ * (docs.x.ai, prompt caching). `prompt_cache_key` in the body is the Responses
+ * API's spelling; sent alone here it was not the documented route, and the
+ * same chat's reply hit the cache in one live run and missed in the next.
+ */
+export function xaiHeaders(key, body) {
+  const h = { Authorization: `Bearer ${key}`, "content-type": "application/json" };
+  const conv = body && typeof body.prompt_cache_key === "string" ? body.prompt_cache_key : "";
+  if (conv && /^[\x21-\x7e]{1,200}$/.test(conv)) h["x-grok-conv-id"] = conv;
+  return h;
 }
