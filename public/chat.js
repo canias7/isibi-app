@@ -4123,6 +4123,8 @@ function openProject(id, mode) {
   // things here and the empty one is what the defect looked like.
   if ((id || null) !== siteOpenId) siteCodeFolds = null;
   siteOpenId = id || null;
+  // THE SERVER'S COPY OF THIS CHAT (2026-10-20): what another device said is here too.
+  try { const os = id ? siteById(id) : null; if (os) chatPull(os); } catch (e) { /* the local copy stands */ }
   const path = siteOpenId ? '/projects/' + siteOpenId : '/projects';
   // A PUSH TO THE PATH WE ARE ALREADY ON IS A REPLACE. Re-opening the site that
   // is already open (the Data button on the open project, a re-render) would
@@ -4776,6 +4778,8 @@ function sitesSave() {
       pages: (h.pages || []).slice(0, 6).map((p) => ({ path: p.path, name: p.name, html: (p.html || '').slice(0, 300000) })),
     })) : undefined,
   }));
+  // EVERY CHAT THAT CHANGED GOES TO THE SERVER TOO (2026-10-20).
+  try { chatPushChanged(); } catch (e) { /* the server copy catches up on the next save */ }
   try { localStorage.setItem(SITES_KEY, JSON.stringify(build(true))); }
   catch (e) {
     try { localStorage.setItem(SITES_KEY, JSON.stringify(build(false))); } // drop history to fit; current state still persists
@@ -4822,6 +4826,90 @@ function siteRestore(id, idx) {
   sitesSave(); renderSites();
 }
 function siteById(id) { return sitesLoad().find((s) => s.id === id) || null; }
+// ── THE CHAT, KEPT ON THE SERVER (2026-10-20, owner: "nothing can be local, it
+// needs to be seen from every device") ───────────────────────────────────────
+//
+// Every chat — its messages, the builder's questions and answers, its job cards
+// and its name — is written to the server (`/api/site/chat/<chat>`) a moment
+// after it changes, and read back when its site is opened, so a phone and a
+// laptop show the same conversation. The browser's copy is only a cache now.
+//
+// WRITTEN ONLY AFTER IT WAS READ IN THIS TAB: the browser keeps the last forty
+// messages, and writing that tail before reading the server's would cut the
+// server's longer history to forty. A chat the server has never seen reads as
+// none, and is written from then on.
+//
+// OVER THE REVISION IT READ (`chatRev`): a write that finds a newer copy gets it
+// back (409) and keeps both — the server's messages, then any of this tab's it
+// does not have — and writes again.
+const CHAT_KEY_RE = /^[A-Za-z0-9_-]{4,80}$/;
+const chatPulled = new Set();
+const chatSentSig = new Map();
+const chatTimers = new Map();
+function chatKeyOf(s) { const k = String((s && (s.chat || s.id)) || ''); return CHAT_KEY_RE.test(k) ? k : ''; }
+function chatSig(s) { const m = Array.isArray(s.msgs) ? s.msgs : []; return m.length + '|' + (m.length ? JSON.stringify(m[m.length - 1]).length : 0) + '|' + (s.name || '') + '|' + (s.slug || '') + '|' + JSON.stringify(s.clarify || null).length + '|' + JSON.stringify(s.jobCards || null).length; }
+function chatAdopt(s, c) {
+  if (!s || !c || !Array.isArray(c.msgs)) return;
+  s.msgs = c.msgs.slice();
+  if (c.clarify && typeof c.clarify === 'object') s.clarify = c.clarify;
+  if (c.jobCards && typeof c.jobCards === 'object') s.jobCards = c.jobCards;
+  if (c.name && (!s.name || s.name === 'New website')) s.name = c.name;
+  s.chatRev = c.rev;
+}
+async function chatPull(s) {
+  const key = chatKeyOf(s);
+  if (!key || chatPulled.has(key)) return;
+  let d = null;
+  try { const r = await apiFetch('/api/site/chat/' + encodeURIComponent(key)); d = r.ok ? await r.json().catch(() => null) : null; } catch (e) { d = null; }
+  if (!d || d.ok !== true) return; // could not say: the local copy stands, and it is asked again on the next open
+  chatPulled.add(key);
+  const live = sitesLoad().find((x) => chatKeyOf(x) === key);
+  if (!live) return;
+  if (d.chat && Number.isInteger(d.chat.rev) && d.chat.rev > (Number(live.chatRev) || 0)) {
+    chatAdopt(live, d.chat);
+    chatSentSig.set(key, chatSig(live));
+    sitesSave();
+    if (siteOpenId === live.id && typeof renderSites === 'function') renderSites();
+  } else {
+    // NOTHING NEWER THERE: this tab's copy is written up if it differs.
+    chatPushChanged();
+  }
+}
+function chatPushChanged() {
+  for (const s of (sitesCache || [])) {
+    const key = chatKeyOf(s);
+    if (!key || !chatPulled.has(key)) continue;
+    const sig = chatSig(s);
+    if (chatSentSig.get(key) === sig) continue;
+    clearTimeout(chatTimers.get(key));
+    chatTimers.set(key, setTimeout(() => chatPush(key), 1500));
+  }
+}
+async function chatPush(key, again = 0) {
+  const s = (sitesCache || []).find((x) => chatKeyOf(x) === key);
+  if (!s) return;
+  const sig = chatSig(s);
+  const body = { baseRev: Number(s.chatRev) || 0, msgs: Array.isArray(s.msgs) ? s.msgs : [], name: s.name || '', slug: s.slug || '', clarify: s.clarify || null, jobCards: s.jobCards || null };
+  let r = null, d = null;
+  try { r = await apiFetch('/api/site/chat/' + encodeURIComponent(key), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); d = await r.json().catch(() => null); } catch (e) { r = null; }
+  if (r && r.ok && d && Number.isInteger(d.rev)) { s.chatRev = d.rev; chatSentSig.set(key, sig); return; }
+  if (r && r.status === 409 && d && again < 2) {
+    // A NEWER COPY STANDS: kept, with this tab's messages it lacks after it.
+    const theirs = d.chat && Array.isArray(d.chat.msgs) ? d.chat.msgs : [];
+    const seen = new Set(theirs.map((m) => JSON.stringify(m)));
+    const mine = (s.msgs || []).filter((m) => !seen.has(JSON.stringify(m)));
+    chatAdopt(s, d.chat || { msgs: [], rev: 0 });
+    if (!d.chat) s.chatRev = 0;
+    s.msgs = theirs.concat(mine);
+    chatPush(key, again + 1);
+    if (siteOpenId === s.id && typeof renderSites === 'function') renderSites();
+  }
+}
+function chatDelete(s) {
+  const key = chatKeyOf(s);
+  if (!key) return;
+  apiFetch('/api/site/chat/' + encodeURIComponent(key), { method: 'DELETE' }).catch(() => {});
+}
 // Multi-page model: a site holds `pages` [{path,name,html}] with an `active`
 // path. Legacy single-`html` sites read as one Home page (backward-compat).
 function sitePages(site) {
@@ -6004,6 +6092,8 @@ function renderSites() {
         return;
       }
     }
+    // AND ITS CHAT ON THE SERVER (2026-10-20), so no other device keeps showing it.
+    try { const gone = sitesLoad().find((x) => x.id === id); if (gone) chatDelete(gone); } catch (e) { /* the chat is the server's to clear */ }
     sitesCache = sitesLoad().filter((x) => x.id !== id);
     sitesSave(); renderSites();
   });

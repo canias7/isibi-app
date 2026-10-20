@@ -571,6 +571,38 @@ function replyLiveWriter(env, job) {
     } catch { /* the typed reply never costs the reply */ }
   };
 }
+/** Where an account's chat is kept (2026-10-20). */
+const chatStoreKey = (uid, chat) => "chat/" + uid + "/" + chat + ".json";
+/** A chat's largest stored size, and its most messages kept. */
+const CHAT_MAX_BYTES = 4_000_000;
+const CHAT_MAX_MSGS = 1000;
+/** The chat as stored: `{ chat, etag, read }` — `read` false when the store could not say. */
+async function chatStoreRead(env, key) {
+  try {
+    const o = await env.SITES_BUCKET.get(key);
+    if (!o) return { chat: null, etag: null, read: true };
+    let j = null;
+    try { j = JSON.parse(await o.text()); } catch { j = null; }
+    if (!j || j.v !== 1 || !Number.isInteger(j.rev) || !Array.isArray(j.msgs)) return { chat: null, etag: o.etag || o.httpEtag || null, read: true };
+    return { chat: j, etag: o.etag || o.httpEtag || null, read: true };
+  } catch { return { chat: null, etag: null, read: false }; }
+}
+/** A chat written by the page, read strictly: the revision it was based on, and what it holds. Null for anything else. */
+function readChatPut(b) {
+  if (!b || typeof b !== "object" || Array.isArray(b)) return null;
+  if (!Number.isInteger(b.baseRev) || b.baseRev < 0) return null;
+  if (!Array.isArray(b.msgs) || !b.msgs.every((m) => m && typeof m === "object" && !Array.isArray(m))) return null;
+  return {
+    baseRev: b.baseRev,
+    msgs: b.msgs.slice(-CHAT_MAX_MSGS),
+    name: typeof b.name === "string" ? b.name.slice(0, 200) : "",
+    slug: typeof b.slug === "string" ? b.slug.slice(0, 80) : "",
+    clarify: b.clarify && typeof b.clarify === "object" && !Array.isArray(b.clarify) ? b.clarify : null,
+    jobCards: b.jobCards && typeof b.jobCards === "object" && !Array.isArray(b.jobCards) ? b.jobCards : null,
+  };
+}
+/** The chat store's pieces, for its tests. */
+export const chatStoreApi = { chatStoreKey, chatStoreRead, readChatPut, CHAT_MAX_BYTES, CHAT_MAX_MSGS };
 /** A button press's room: its own name space, so a press id can never be read as a job's room. */
 const actionRoom = (id) => "act:" + id;
 /** The room's pieces, for its tests. */
@@ -29590,6 +29622,47 @@ async function handleRequest(request, env, ctx) {
         await env.SITES_BUCKET.put(codeKey(bind.id), JSON.stringify({ code, file, chars, line: clipped.line, at: Date.now() }));
       } catch { return Response.json({ ok: false }, { status: 200 }); }
       return Response.json({ ok: true, stored: true });
+    }
+
+    // /api/site/chat/<chat> — A CHAT KEPT ON THE SERVER (2026-10-20, owner:
+    // "nothing can be local, it needs to be seen from every device"). One object
+    // per account and chat (`chat/<uid>/<chat>.json`): the messages, the
+    // builder's questions and answers, the job cards and the name. GET reads it
+    // (null when none); PUT writes it over the revision the page last read, or
+    // answers 409 with the copy that stands; DELETE removes it. Only ever the
+    // caller's own: the account is in the key.
+    {
+      const ch = url.pathname.match(/^\/api\/site\/chat\/([^/]*)$/);
+      if (ch && ["GET", "PUT", "DELETE"].includes(request.method)) {
+        const cu = await authUser(request, env);
+        if (!cu) return Response.json({ error: "sign in first" }, { status: 401 });
+        // A CHAT ID THE PAGE COULD HAVE MINTED, or a plain refusal: never the router's not-found.
+        if (!/^[A-Za-z0-9_-]{4,80}$/.test(ch[1])) return Response.json({ error: "bad chat id" }, { status: 400 });
+        if (!env.SITES_BUCKET) return Response.json({ error: "not available" }, { status: 503 });
+        const key = chatStoreKey(cu.id, ch[1]);
+        const cur = await chatStoreRead(env, key);
+        if (!cur.read) return Response.json({ error: "unread" }, { status: 503 });
+        if (request.method === "GET") return Response.json({ ok: true, chat: cur.chat }, { headers: { "cache-control": "no-store" } });
+        if (request.method === "DELETE") {
+          try { await env.SITES_BUCKET.delete(key); } catch { return Response.json({ error: "not deleted" }, { status: 503 }); }
+          return Response.json({ ok: true });
+        }
+        const raw = await request.text().catch(() => "");
+        if (raw.length > CHAT_MAX_BYTES) return Response.json({ error: "too large" }, { status: 413 });
+        let body = null;
+        try { body = JSON.parse(raw); } catch { body = null; }
+        const next = readChatPut(body);
+        if (!next) return Response.json({ error: "bad chat" }, { status: 400 });
+        const have = cur.chat ? cur.chat.rev : 0;
+        // OVER THE REVISION THE PAGE LAST READ, or the copy that stands comes back.
+        if (next.baseRev !== have) return Response.json({ ok: false, conflict: true, chat: cur.chat }, { status: 409 });
+        const rec = { v: 1, rev: have + 1, updatedAt: Date.now(), name: next.name, slug: next.slug, msgs: next.msgs, clarify: next.clarify, jobCards: next.jobCards };
+        try {
+          const put = await env.SITES_BUCKET.put(key, JSON.stringify(rec), { httpMetadata: { contentType: "application/json" }, onlyIf: cur.etag ? { etagMatches: cur.etag } : { etagDoesNotMatch: "*" } });
+          if (!put) { const now = await chatStoreRead(env, key); return Response.json({ ok: false, conflict: true, chat: now.chat }, { status: 409 }); }
+        } catch { return Response.json({ error: "not saved" }, { status: 503 }); }
+        return Response.json({ ok: true, rev: rec.rev });
+      }
     }
 
     // GET /api/site/talk/<id>/stream — A BUTTON PRESS'S TALK, PUSHED (2026-10-19):

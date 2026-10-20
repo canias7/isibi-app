@@ -1,5 +1,9 @@
 # Owner Notes
 
+## 2026-10-20 — The chat lives on the server now (you: "nothing can be local, it needs to be seen from every device"; branch only, not deployed)
+
+Each chat (its messages, the builder's questions, its job cards and its name) is now saved to the server a second and a half after it changes, under your own account (`chat/<account>/<chat>.json` in R2). When you open a site, the server's copy is read first, so a phone and a laptop show the same conversation. The browser's copy is now only a cache. The browser keeps only the last 40 messages, and the server keeps up to 1,000. A chat is never written up until it has been read, so the browser's 40 can never cut the server's longer history. If two devices write at once, the later one gets the newer copy back, keeps both sets of messages and writes again. Deleting a site deletes its chat too. Another account can never read it. Tests: `test/chat-store.test.mjs` (7 cases, the real route end to end). Sweep: 9 of 9 killed, the comment control survived. Full suite: 11560 / 11558 / 0 / 2. Still local (next, from the audit): followed edits, pending attachments, media uploads, then preferences.
+
 ## 2026-10-20 — The context bar above the message box (you chose "C" of three designs; the "Model context" page under More is gone; branch only, not deployed)
 
 - One line above the message box: **"Context · this chat — 7.1% · 35K / 500K"** and a thin bar. A click opens what fills it: design tool, system rules, brief + stored state, attachments, free space, and the model. Per chat: each site's chat reads its own site. It follows the picked model (Grok 4.6 500K, Claude 1M), uses the revise shape once the site has pages and the first build's before, and is read again whenever the site changes.
