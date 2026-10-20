@@ -151,6 +151,10 @@
 - **The media product was deleted on 2026-09-12.** Its preferences above are
   kept as you wrote them.
 
+## Charging (2026-10-20)
+
+- **"We gotta charge for every token."** Every token a model bills us for is charged to the customer's build or edit, including a reasoning model's hidden thinking (Grok's `reasoning_tokens`). Only what we chose not to charge stays free: the progress talk and replies.
+
 ## Approval boundaries
 
 - **Spending.** Nothing paid (a run, a model call, a fal purchase) without your

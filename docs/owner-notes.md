@@ -1,5 +1,11 @@
 # Owner Notes
 
+## 2026-10-20 — Grok's thinking is now charged ("we gotta charge for every token"; branch only, not deployed)
+
+- **Found**: the Low build cost 25 and the High build 19. The difference was the design size (27 sections against fewer, and fewer cache hits), not the effort. The credits never counted Grok's **thinking**: `fromXaiResponse` read only `completion_tokens`, and xAI bills reasoning at the output price, reported apart (`completion_tokens_details.reasoning_tokens`). Nothing in the code read it. The High build's design was billed for only 2,613 output tokens.
+- **Fix**: each call's output is now charged as xAI's own `total_tokens` less the prompt, which is the answer and the thinking together, counted **once** whether or not `completion_tokens` already contains the thinking (so it can't double-charge). Only a response with no usable total falls back to answer + thinking. Builds and edits on Grok are charged for the thinking. **Builds will cost more, most at High.** Talk lines and replies are still not charged to the customer. Test in `test/model-xai.test.mjs`.
+- **Not yet seen live**: no raw Grok usage was logged before this. The next build's `schemaUsage.out` / `pagesUsage.out` will show the thinking included, and should match xAI's own count for those calls.
+
 ## 2026-10-20 — Deploy 2227's build on Effort: Low (merged and deployed on your word; topped up 60, balance 78 before it)
 
 - **Harbour Loaf 11, Effort Low**: about **7 minutes**, from send at 00:50:13 to saved; the build's own clock reads 428 s. The builds before it took about 10 to 14 minutes. **26 lines**: the first at 10 s, each written in 3 to 7 s.

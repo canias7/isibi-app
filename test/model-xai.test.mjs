@@ -549,3 +549,26 @@ test("a timeout is told from a provider outage, by NAME", () => {
   assert.match(seg, /cost: owed\(\),/, "the design refusal is silent about money again, or answers a literal instead of the ledger");
   assert.match(seg, /refundShort: refundShort \|\| undefined,/, "the design refusal does not say when its reversal did not land");
 });
+
+// EVERY TOKEN IS CHARGED (2026-10-20, owner: "we gotta charge for every token").
+test("a reasoning model's thinking is counted as output, wherever xAI reports it; none reported changes nothing", async () => {
+  const { fromXaiResponse } = await import("../builder/model-xai.mjs");
+  const base = { choices: [{ message: { content: "x" }, finish_reason: "stop" }] };
+  const nested = fromXaiResponse({ ...base, usage: { prompt_tokens: 100, completion_tokens: 50, completion_tokens_details: { reasoning_tokens: 900 } } });
+  assert.equal(nested.usage.output_tokens, 950, "the thinking was not charged");
+  assert.equal(nested.usage.reasoning_tokens, 900);
+  const top = fromXaiResponse({ ...base, usage: { prompt_tokens: 100, completion_tokens: 50, reasoning_tokens: 300 } });
+  assert.equal(top.usage.output_tokens, 350, "thinking reported at the top of usage was not charged");
+  const none = fromXaiResponse({ ...base, usage: { prompt_tokens: 100, completion_tokens: 50 } });
+  assert.equal(none.usage.output_tokens, 50);
+  assert.equal(none.usage.reasoning_tokens, 0);
+  // THE TOTAL DECIDES, SO NOTHING IS COUNTED TWICE: thinking already inside
+  // completion_tokens (total = prompt + completion) is charged once…
+  const inside = fromXaiResponse({ ...base, usage: { prompt_tokens: 100, completion_tokens: 950, completion_tokens_details: { reasoning_tokens: 900 }, total_tokens: 1050 } });
+  assert.equal(inside.usage.output_tokens, 950, "thinking already in the answer's count was charged twice");
+  // …and thinking reported apart (total = prompt + completion + thinking) is charged once too.
+  const apart = fromXaiResponse({ ...base, usage: { prompt_tokens: 100, completion_tokens: 50, completion_tokens_details: { reasoning_tokens: 900 }, total_tokens: 1050 } });
+  assert.equal(apart.usage.output_tokens, 950, "thinking reported apart was not charged");
+  const junk = fromXaiResponse({ ...base, usage: { prompt_tokens: 100, completion_tokens: 50, completion_tokens_details: { reasoning_tokens: "lots" } } });
+  assert.equal(junk.usage.output_tokens, 50, "a non-number was charged");
+});

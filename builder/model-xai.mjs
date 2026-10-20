@@ -218,9 +218,26 @@ export function fromXaiResponse(j) {
   const u = res.usage || {};
   const cached = Math.max(0, Number((u.prompt_tokens_details && u.prompt_tokens_details.cached_tokens) || 0) || 0);
   const prompt = Math.max(0, Number(u.prompt_tokens || 0) || 0);
+  // EVERY TOKEN IS CHARGED (2026-10-20, owner: "we gotta charge for every
+  // token"): xAI bills a reasoning model's thinking at the output price and
+  // reports it apart from the answer (`completion_tokens_details.reasoning_tokens`,
+  // or `reasoning_tokens` at the top of usage), so it is added to the output
+  // here — read only `completion_tokens` and the thinking, the larger part at
+  // high effort, was paid to xAI and charged to nobody. `reasoning` keeps the
+  // thinking's own count, for the log.
+  //
+  // NEVER TWICE: xAI's own `total_tokens` is what it bills, so the output is
+  // that total less the prompt — the answer and the thinking together, counted
+  // once whether or not `completion_tokens` already holds the thinking. Only an
+  // answer with no usable total falls back to answer + thinking.
+  const reasoning = Math.max(0, Number((u.completion_tokens_details && u.completion_tokens_details.reasoning_tokens) || u.reasoning_tokens || 0) || 0);
+  const answer = Math.max(0, Number(u.completion_tokens || 0) || 0);
+  const total = Number(u.total_tokens);
+  const billedOut = Number.isFinite(total) && total >= prompt + answer ? total - prompt : answer + reasoning;
   const usage = {
     input_tokens: Math.max(0, prompt - cached),
-    output_tokens: Math.max(0, Number(u.completion_tokens || 0) || 0),
+    output_tokens: billedOut,
+    reasoning_tokens: reasoning,
     cache_read_input_tokens: cached,
     cache_creation_input_tokens: 0,
   };
