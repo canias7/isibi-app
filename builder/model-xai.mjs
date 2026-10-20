@@ -183,7 +183,10 @@ export function toXaiRequest(req) {
   // different invariant prefixes and should not chase each other's cache.
   // A CALL WITH NO TOOL NAMES ITS OWN (2026-10-20): the conversation's reply
   // sends its chat's key, so each chat's growing prefix stays on one server.
-  const key = (typeof r.cacheKey === "string" && r.cacheKey) || (r.tool_choice && r.tool_choice.name) || (tools[0] && tools[0].function.name);
+  // AND A CALL WITH NEITHER (2026-10-20: the progress talk, the reply writer,
+  // the summary) is keyed on its own instructions, so each call site keeps its
+  // prefix on one server instead of none.
+  const key = (typeof r.cacheKey === "string" && r.cacheKey) || (r.tool_choice && r.tool_choice.name) || (tools[0] && tools[0].function.name) || (sys ? "p" + promptKey(sys) : "");
   if (key) body.prompt_cache_key = `gofarther-${key}`;
   // ONE SENTENCE, from one place, so the count the log prints and the refusal
   // the customer reads can never describe different work.
@@ -319,4 +322,12 @@ export function xaiErrorDetail(text) {
   const candidate = objErr.code || body.code || objErr.type || "";
   const type = typeof candidate === "string" && /^[a-z_]{1,40}$/.test(candidate) ? candidate : null;
   return JSON.stringify({ error: { type, message } });
+}
+
+/** A short, stable name for a set of instructions (FNV-1a, hex): the same words always give the same key. */
+export function promptKey(text) {
+  let h = 0x811c9dc5;
+  const s = String(text);
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(16).padStart(8, "0");
 }

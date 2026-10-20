@@ -69,6 +69,9 @@ import {
 import { PROSE_WITHHELD, preservePageProse, proseInventory, sitePageNames, pageKey } from "../builder/page-prose.mjs";
 import { renderPart } from "./fixtures/render-part.mjs";
 import { editBrowserReply } from "../scripts/addon-sweep.mjs";
+// THE INSTRUCTIONS AS ANTHROPIC RECEIVES THEM (2026-10-20): one block marked for
+// the cache, the same words — read as text whichever shape they went in.
+const sysText = (req) => (typeof req.system === "string" ? req.system : req.system.map((b) => b.text).join(""));
 
 const T = {
   pick: pickTool().name, tweak: TWEAK_TOOL.name, pages: SITE_PAGES_TOOL.name,
@@ -826,7 +829,7 @@ test("PROTECTED: intended hero edit plus unrelated plain hours deletion stops be
 test("NEGATIVE: “and keep the order form” is not permission to drop it — no code path treats a mention as a yes", async () => {
   const r = await drive({ route: { layer: "page" }, ask: KEEP_ASK, answer: DROPS_ORDER, judge: judged(no(1)) });
   refused(r, { calls: PAGE_JUDGED });
-  assert.ok(r.judged[0].system.includes("A message that asks to KEEP something, or only mentions it, does not ask for it to go."),
+  assert.ok(sysText(r.judged[0]).includes("A message that asks to KEEP something, or only mentions it, does not ask for it to go."),
     "the rule the judge was given");
 });
 
@@ -969,7 +972,7 @@ test("GROUP: “remove all links, keeping their text” publishes — each link 
   const shown = r.judged[0].messages[0].content;
   assert.ok(shown.includes(ALL_LINKS_ASK), "the judge saw the customer's message verbatim");
   assert.ok(shown.includes("“See the menu”") && shown.includes("“Directions”"), shown);
-  assert.ok(r.judged[0].system.includes("A message can ask for a whole group at once"), "the judge is told a group is a way to answer");
+  assert.ok(sysText(r.judged[0]).includes("A message can ask for a whole group at once"), "the judge is told a group is a way to answer");
   assert.equal(itemsShown(r).length, 2, "the two links, and nothing else, were asked about");
   assert.ok(JSON.stringify(r.judged[0].tools).includes('"enum":["links","sections"]'), "the tool on the wire offers the groups");
 });

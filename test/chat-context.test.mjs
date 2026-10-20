@@ -199,3 +199,37 @@ test("CACHE WIRING: the reply is sent its chat's key, and the Anthropic call str
   const call = readFileSync(new URL("../builder/build-call.mjs", import.meta.url), "utf8");
   assert.match(call, /JSON\.stringify\(streaming \? \{ \.\.\.anthropicWire\(req\), stream: true \} : anthropicWire\(req\)\)/);
 });
+
+// ── CACHING ON EVERY CALL (2026-10-20, owner: "go look for the caching and fix") ──
+import { promptKey } from "../builder/model-xai.mjs";
+
+test("EVERY ANTHROPIC CALL: unmarked instructions are marked, a call's own marks are left alone", () => {
+  const s1 = anthropicWire({ model: "m", system: "RULES", messages: [{ role: "user", content: "hi" }] });
+  assert.deepEqual(s1.system, [{ type: "text", text: "RULES", cache_control: { type: "ephemeral" } }]);
+  const s2 = anthropicWire({ model: "m", system: [{ type: "text", text: "A" }, { type: "text", text: "B" }], messages: [] });
+  assert.equal(s2.system[0].cache_control, undefined); assert.deepEqual(s2.system[1].cache_control, { type: "ephemeral" }, "the mark covers all the instructions");
+  const own = { model: "m", system: [{ type: "text", text: "A" }], tools: [{ name: "t", cache_control: { type: "ephemeral" } }], messages: [] };
+  assert.equal(anthropicWire(own), own, "a call that chose its own marks is sent exactly as it was");
+  const inMsg = { model: "m", system: [{ type: "text", text: "A" }], messages: [{ role: "user", content: [{ type: "text", text: "x", cache_control: { type: "ephemeral" } }] }] };
+  assert.equal(anthropicWire(inMsg), inMsg);
+  const none = { model: "m", messages: [] };
+  assert.equal(anthropicWire(none), none, "no instructions, nothing to mark");
+  const orig = { model: "m", system: "R", cacheKey: "k", messages: [] };
+  anthropicWire(orig);
+  assert.equal(orig.system, "R", "the caller's request is never changed in place");
+});
+
+test("EVERY GROK CALL: one without a tool or a key is keyed on its own instructions", () => {
+  const a = toXaiRequest({ model: "grok-4.6", system: [{ type: "text", text: "TALK RULES" }], messages: [{ role: "user", content: "x" }] }).body;
+  const b = toXaiRequest({ model: "grok-4.6", system: [{ type: "text", text: "TALK RULES" }], messages: [{ role: "user", content: "y" }] }).body;
+  const c = toXaiRequest({ model: "grok-4.6", system: [{ type: "text", text: "OTHER RULES" }], messages: [{ role: "user", content: "x" }] }).body;
+  assert.equal(a.prompt_cache_key, "gofarther-p" + promptKey("TALK RULES"));
+  assert.equal(a.prompt_cache_key, b.prompt_cache_key, "the same call site keeps one key");
+  assert.notEqual(a.prompt_cache_key, c.prompt_cache_key);
+  assert.equal(toXaiRequest({ model: "grok-4.6", messages: [{ role: "user", content: "x" }] }).body.prompt_cache_key, undefined);
+});
+
+test("WIRING: the web research call goes through the same door", () => {
+  const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(src, /body: JSON\.stringify\(anthropicWire\(\{\s*model: RESEARCH_MODEL,/);
+});

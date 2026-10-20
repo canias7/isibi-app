@@ -689,9 +689,40 @@ export function callFailure(e) {
   return out;
 }
 
-/** A request as Anthropic takes it: our own `cacheKey` taken off. */
+/**
+ * A request as Anthropic takes it: our own `cacheKey` taken off, and — for a
+ * call that marks nothing for the cache — its instructions marked (2026-10-20,
+ * owner: "go look for the caching and fix").
+ *
+ * WHY HERE: sixteen calls (the router that reads every message, the progress
+ * talk, the replies, the data, rules, nav, picture and seed steps, the keep and
+ * tweak passes, the summary) sent their instructions unmarked, so on a Claude
+ * model each paid full price for the same instructions on every call. Marking
+ * them at the one door every Anthropic call goes through covers each of them
+ * and any call written later. A call that already marks its own blocks is left
+ * exactly as it is (Anthropic allows four marks, and those calls chose theirs).
+ * Instructions shorter than Anthropic's minimum are simply not cached, at no
+ * cost; a longer one is written to the cache once (a quarter more than plain
+ * input) and read at a tenth of the price on every call within five minutes.
+ */
 export function anthropicWire(req) {
-  if (!req || typeof req !== "object" || !Object.hasOwn(req, "cacheKey")) return req;
-  const { cacheKey, ...rest } = req;
-  return rest;
+  if (!req || typeof req !== "object") return req;
+  let out = req;
+  if (Object.hasOwn(out, "cacheKey")) { const { cacheKey, ...rest } = out; out = rest; }
+  if (!marksCache(out)) {
+    if (typeof out.system === "string" && out.system) out = { ...out, system: [{ type: "text", text: out.system, cache_control: { type: "ephemeral" } }] };
+    else if (Array.isArray(out.system) && out.system.length) {
+      const sys = out.system.slice();
+      const last = sys.length - 1;
+      if (sys[last] && typeof sys[last] === "object") { sys[last] = { ...sys[last], cache_control: { type: "ephemeral" } }; out = { ...out, system: sys }; }
+    }
+  }
+  return out;
+}
+/** Whether a request already marks any of its blocks for the cache. */
+function marksCache(req) {
+  const has = (b) => !!(b && typeof b === "object" && b.cache_control);
+  if (Array.isArray(req.system) && req.system.some(has)) return true;
+  if (Array.isArray(req.tools) && req.tools.some(has)) return true;
+  return (Array.isArray(req.messages) ? req.messages : []).some((m) => m && Array.isArray(m.content) && m.content.some(has));
 }

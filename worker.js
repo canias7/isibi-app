@@ -356,7 +356,7 @@ import { newTrace, traceRow } from "./builder/edit-trace.mjs";
 // on the way in because `worker.js` keeps thin `env`-shaped wrappers of the same
 // names — eleven call sites read them, and renaming those would make a move that
 // changes no behaviour look like a change that does.
-import { callBuilderModel as callModel, keysFrom, keyEnv, retryHere, callFailure, BUILDER_CALL_MS, CONTAINER_CALL_CAP_MS, STREAM_IDLE_MS, patientCall } from "./builder/build-call.mjs";
+import { callBuilderModel as callModel, keysFrom, keyEnv, retryHere, callFailure, BUILDER_CALL_MS, CONTAINER_CALL_CAP_MS, STREAM_IDLE_MS, patientCall, anthropicWire } from "./builder/build-call.mjs";
 import { holdDecision, BUSY_PROBE_MS } from "./builder/container-hold.mjs";
 // HOW LONG A CONTAINER JOB MAY RUN — the one setting, read here so the deploy
 // can shorten it without a code change. `fireContainerJob` is its one consumer.
@@ -5479,13 +5479,14 @@ export async function siteWebResearch(env, brief, queries) {
       r = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-        body: JSON.stringify({
+        // ITS INSTRUCTIONS CACHED ACROSS THE ROUNDS (2026-10-20), as every other Anthropic call's.
+        body: JSON.stringify(anthropicWire({
           model: RESEARCH_MODEL,
           max_tokens: 1200,
           system,
           tools: [{ type: "web_search_20250305", name: "web_search", max_uses: Math.max(1, searchBudget - spent) }],
           messages: msgs,
-        }),
+        })),
         signal: AbortSignal.timeout(120000),
       });
     } catch { break; }
