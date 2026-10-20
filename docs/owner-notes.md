@@ -1,5 +1,28 @@
 # Owner Notes
 
+## 2026-10-20 — Deploys 2237–2238: Grok's cache, done the documented way; hits are still the provider's call (you: "fix that yea")
+
+**What changed.**
+- **Deploy 2237:** Grok calls now carry the cache key as the `x-grok-conv-id` header. That is xAI's documented route on the Chat Completions API we use; `prompt_cache_key` is their other API's field.
+- **Deploy 2238:** a message made only of text blocks goes to Grok as one joined string, with the same words. Claude keeps the blocks and their cache marks.
+
+Offline, the reply's two prompts share 12,839 of their 13,103 characters, so our side sends a cacheable prompt. Tests 11596 / 11594 / 0 / 2.
+
+**Measured live (second message of a chat), after the new image was confirmed in the deploy log:**
+
+| Run | Router | Reply |
+|---|---|---|
+| 1 | 4% | 13% |
+| 2 | 97% | 96% |
+
+Earlier runs on the old code were mixed in the same way. The same prompt hit the cache in one run and missed in the next, which matches xAI's docs: cache entries can be dropped at any time. Nothing more on our side is known to raise it.
+
+**My mistakes:**
+- I first blamed the container's rollout, but it was already on the new image.
+- A cleanup command stopped my own shell.
+
+**Spent:** 48 credits of live tests in this round. **The test account is at 11** and needs a top-up before the next paid test.
+
 ## 2026-10-20 — Deploys 2235–2236: the router reads the kept chat, and compaction proven live (you: "do 1 and 2")
 
 **1. The router reads the kept chat.** The router decides what each message is. It used to see the page's last 8 messages; now it is shown the chat's summary and 40 to 60 recent messages. The window's start moves in steps of 20 messages, not one at a time, so its prompt stays cacheable. That step was found live: in the first run (deploy 2235) the window slid by one message every time, and the router read 11,238 of 11,750 tokens at full price on the second message. After the fix (deploy 2236) it read **9,984 of 11,775 from the cache (85%)**.
