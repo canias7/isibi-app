@@ -4452,8 +4452,25 @@ export function pageRulesFor(spec, kind = "") {
   // callable function is a backend a page may reach, and the frontend rules
   // forbid reaching for either in as many words.
   const rules = siteHasBackend(spec) ? PAGE_RULES : FRONTEND_PAGE_RULES;
-  return String(kind) === "shopfront" ? withoutCharts(rules) : rules;
+  const base = String(kind) === "shopfront" ? withoutCharts(rules) : rules;
+  // A PHONE APP (2026-10-20): the same rules, and these last, which win.
+  return spec && spec.surface === "app" ? base + APP_PAGE_RULES : base;
 }
+
+/**
+ * THE APP'S SCREENS (2026-10-20, owner: "everything the same as the site …
+ * it's literally just the same process"). Read last, so where they differ from
+ * the site rules above — the chrome, the widths, the footer — these win.
+ */
+export const APP_PAGE_RULES = `
+
+━━━ THIS IS A PHONE APP, NOT A WEBSITE — THESE RULES WIN OVER ANYTHING ABOVE ━━━
+Every page you write is a SCREEN of an app that runs full-screen on a phone, about 390px wide.
+- Wrap every screen in \`AppChrome\` from "@/components/ui/app-chrome", never \`SiteChrome\`. It takes \`name\`, \`links\` and \`action\` exactly as SiteChrome does; \`links\` become the tabs at the bottom (the home screen first, five at most). Pass no tagline, contact, legal, social or layout: an app has no footer.
+- One column. No multi-column grids, no max-width containers, no hover-only behaviour. Controls at least 44px tall, generous spacing, short text.
+- The first screen shows what the app is for straight away — today's menu, the booking form, the list — not a marketing hero, testimonials or "as seen in".
+- Never mention a website, "visit our site", search engines or a sitemap.
+`;
 
 export function pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode = "revise", target = "", kind = "", keep = [] } = {}) {
   // THE ATTACHED FILES \u2014 images and PDFs \u2014 and where they sit is load-bearing

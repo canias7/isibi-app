@@ -644,6 +644,12 @@ async function siteAppFiles(env, slug) {
   if (!files.has("index.html")) return { error: "This site has no published home page to put in an app." };
   return { files: [...files.values()], bytes };
 }
+/** What the design step is told first when it designs a phone app, not a website (2026-10-20). */
+const APP_DESIGN_NOTE =
+  "THIS IS A PHONE APP, NOT A WEBSITE. Design it as an app that runs full-screen on a phone: its pages are the app's " +
+  "SCREENS (a home screen first, then at most four more, each a tab at the bottom), its sections are what fits a phone " +
+  "screen, and it has no footer, no search-engine copy and no 'visit our website'. Everything else — the look, the " +
+  "data it keeps, what visitors do — is decided exactly as for a site.\n\n";
 /** Where an account's chat is kept (2026-10-20). */
 const chatStoreKey = (uid, chat) => "chat/" + uid + "/" + chat + ".json";
 /** A chat's largest stored size, and its most messages kept. */
@@ -673,6 +679,8 @@ function readChatPut(b) {
     clarify: b.clarify && typeof b.clarify === "object" && !Array.isArray(b.clarify) ? b.clarify : null,
     jobCards: b.jobCards && typeof b.jobCards === "object" && !Array.isArray(b.jobCards) ? b.jobCards : null,
     ask: b.ask && typeof b.ask === "object" && !Array.isArray(b.ask) ? b.ask : null,
+    // A PHONE APP'S PROJECT (2026-10-20), kept with its chat so every device opens it as one.
+    surface: b.surface === "app" ? "app" : undefined,
   };
 }
 // ── THE ACCOUNT'S OWN SETTINGS AND WORK IN PROGRESS, ON THE SERVER (2026-10-20,
@@ -25445,6 +25453,10 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // already lives under, and the direction that costs a bigger prompt rather
       // than a revise whose designer cannot declare what it was asked for.
       const namedSlug = cleanSlug(body.slug);
+      // A PHONE APP OR A WEBSITE (2026-10-20, owner: "everything the same as the
+      // site … it's literally just the same process"): the same pipeline, told
+      // which it makes. Strictly "app"; anything else is a website, as before.
+      const surface = body && body.surface === "app" ? "app" : "site";
       let namedRow;
       if (namedSlug) {
         namedRow = await siteBackendRowFresh(env, namedSlug).catch(() => undefined);
@@ -25682,7 +25694,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // designer asked to tie a picture to a file has to be able to say which,
       // and a name — shared, or cut to a common prefix — cannot. The list is
       // the one `attachments()` built from what really reached the model.
-      const designBrief = briefWithLinks + attachedFilesNote(attached.named) + mediaDesignNote(bDrafts.files);
+      const designBrief = (surface === "app" ? APP_DESIGN_NOTE : "") + briefWithLinks + attachedFilesNote(attached.named) + mediaDesignNote(bDrafts.files);
 
       // A brief means "design the schema"; an explicit schema skips the model.
       let designed = null, seedUsage = null, seedTopUp = null;
@@ -26527,6 +26539,8 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       }
 
       let spec = normalizeSchema(body.schema || designed || {});
+      // THE PAGES ARE WRITTEN AS AN APP'S SCREENS when this is an app (`pageRulesFor`).
+      if (surface === "app") spec.surface = "app";
       tr.at("normalize");
       // A BOOKING TABLE WITH NOTHING STOPPING A DOUBLE BOOKING, named rather
       // than discovered by a customer. Making the four constraints declarable
@@ -29997,7 +30011,7 @@ async function handleRequest(request, env, ctx) {
         // THE SUMMARY IS THE SERVER'S (2026-10-20): kept across the page's writes while
         // the messages it covers are still there.
         const keptSum = cur.chat && cur.chat.summary && Number.isInteger(cur.chat.summary.upTo) && cur.chat.summary.upTo <= next.msgs.length ? cur.chat.summary : undefined;
-        const rec = { v: 1, rev: have + 1, updatedAt: Date.now(), name: next.name, slug: next.slug, msgs: next.msgs, clarify: next.clarify, jobCards: next.jobCards, ask: next.ask, ...(keptSum ? { summary: keptSum } : {}) };
+        const rec = { v: 1, rev: have + 1, updatedAt: Date.now(), name: next.name, slug: next.slug, msgs: next.msgs, clarify: next.clarify, jobCards: next.jobCards, ask: next.ask, ...(next.surface ? { surface: next.surface } : {}), ...(keptSum ? { summary: keptSum } : {}) };
         try {
           const put = await env.SITES_BUCKET.put(key, JSON.stringify(rec), { httpMetadata: { contentType: "application/json" }, onlyIf: cur.etag ? { etagMatches: cur.etag } : { etagDoesNotMatch: "*" } });
           if (!put) { const now = await chatStoreRead(env, key); return Response.json({ ok: false, conflict: true, chat: now.chat }, { status: 409 }); }

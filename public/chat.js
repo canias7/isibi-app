@@ -4904,6 +4904,7 @@ function chatAdopt(s, c) {
   if (c.clarify && typeof c.clarify === 'object') s.clarify = c.clarify;
   if (c.jobCards && typeof c.jobCards === 'object') s.jobCards = c.jobCards;
   if ('ask' in c) s.ask = c.ask && typeof c.ask === 'object' ? c.ask : null;
+  if (c.surface === 'app') s.surface = 'app';
   if (c.name && (!s.name || s.name === 'New website')) s.name = c.name;
   s.chatRev = c.rev;
 }
@@ -4940,7 +4941,7 @@ async function chatPush(key, again = 0) {
   const s = (sitesCache || []).find((x) => chatKeyOf(x) === key);
   if (!s) return;
   const sig = chatSig(s);
-  const body = { baseRev: Number(s.chatRev) || 0, msgs: Array.isArray(s.msgs) ? s.msgs : [], name: s.name || '', slug: s.slug || '', clarify: s.clarify || null, jobCards: s.jobCards || null, ask: s.ask || null };
+  const body = { baseRev: Number(s.chatRev) || 0, msgs: Array.isArray(s.msgs) ? s.msgs : [], name: s.name || '', slug: s.slug || '', clarify: s.clarify || null, jobCards: s.jobCards || null, ask: s.ask || null, surface: s.surface === 'app' ? 'app' : undefined };
   let r = null, d = null;
   try { r = await apiFetch('/api/site/chat/' + encodeURIComponent(key), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); d = await r.json().catch(() => null); } catch (e) { r = null; }
   if (r && r.ok && d && Number.isInteger(d.rev)) { s.chatRev = d.rev; chatSentSig.set(key, sig); return; }
@@ -6236,9 +6237,14 @@ function siteCreate(prompt) {
   const name = 'New website';
   // WHAT THE PICKER SAID TO MAKE (2026-10-20): an app is made from the website,
   // so the website is built first and the app follows it (`wantApp`).
+  // AN APP IS ITS OWN PRODUCT (2026-10-20, owner: "you don't need to have a
+  // website. You can just build an app"): picked from the start screen, the
+  // project IS the app — built by the same pipeline, told so (`surface`), and
+  // shown in the phones.
   const kindNow = typeof buildKind === 'string' ? buildKind : 'site';
-  const wantApp = kindNow === 'android' || kindNow === 'ios' ? kindNow : undefined;
-  sitesLoad().unshift({ id, name, createdAt: Date.now(), updatedAt: Date.now(), html: '', msgs: [], ...(wantApp ? { wantApp } : {}) });
+  const isApp = kindNow === 'android' || kindNow === 'ios';
+  sitesLoad().unshift({ id, name: isApp ? 'New app' : name, createdAt: Date.now(), updatedAt: Date.now(), html: '', msgs: [], ...(isApp ? { surface: 'app', appOs: kindNow } : {}) });
+  if (isApp) { siteMobileOpen = true; siteMobileOs = kindNow; }
   sitesSave();
   // THE START SCREEN'S FILES GO WITH ITS BRIEF. They were attached for this build,
   // so they move to the new project's draft, which the send below takes; the
@@ -7065,7 +7071,7 @@ function setMobileOs(os) {
 // be evaluated and driven in a bare scope — a free identifier resolves when the
 // line runs, not when the file loads, which is how four misses reached main in
 // one session.
-function siteMobilePanel(hasSite, os) {
+function siteMobilePanel(hasSite, os, appSrc) {
   const on = MOBILE_OSES.includes(os) ? os : MOBILE_OSES[0];
   // THE MARK AND THE WORD, not the mark alone (owner: "instead of the names, the
   // names plus their logo") — so the button keeps an accessible name in text and
@@ -7075,12 +7081,18 @@ function siteMobilePanel(hasSite, os) {
   const seg = (v) =>
     '<button type="button" class="st-mob-osbtn' + (on === v ? ' on' : '') + '" data-os="' + v + '">'
       + brandMark(v, 13) + MOBILE_LABELS[v] + '</button>';
+  // AN APP NEEDS NO WEBSITE (2026-10-20, owner: "you don't need to have a
+  // website. You can just build an app"), so the empty phone never says to
+  // build one first.
   const words = '<div class="st-mob-empty">' +
     '<h4>No mobile app yet</h4>' +
-    '<p>' + (hasSite
-      ? 'Ask in the chat and I’ll build one from this site.'
-      : 'Build your website first, then ask me for the app.') + '</p>' +
+    '<p>Ask in the chat and I\u2019ll build it.</p>' +
   '</div>';
+  // THE APP ITSELF, once one is built (2026-10-20): its screens, running in each
+  // phone, from the same preview a site's frame shows.
+  const inside = typeof appSrc === 'string' && appSrc
+    ? '<iframe class="st-mob-frame" title="The app" src="' + esc(appSrc) + '" loading="lazy" referrerpolicy="no-referrer"></iframe>'
+    : words;
   // BOTH PHONES ARE ALWAYS RENDERED, AND CSS DECIDES HOW MANY SHOW (owner,
   // 2026-09-09: "when is open until the chatbox … it can show the two layouts
   // one next to each other"). Wide enough and they sit side by side; narrow and
@@ -7095,10 +7107,12 @@ function siteMobilePanel(hasSite, os) {
   // what shapes it.
   const one = (v) =>
     '<div class="st-mob-one" data-os="' + v + '">' +
-      '<div class="st-mob-device" data-os="' + v + '">' + words + '</div>' +
+      '<div class="st-mob-device" data-os="' + v + '">' + inside + '</div>' +
       // Named only when BOTH are on screen — with one phone the switch above
       // already says which, and a second label would be the same fact twice.
       '<span class="st-mob-cap">' + brandMark(v, 12) + MOBILE_LABELS[v] + '</span>' +
+      // GET THE APP (2026-10-20): Android's is made by our app builder now; Apple's says when.
+      (inside !== words ? '<button type="button" class="st-mob-dl" data-app-dl="' + v + '">' + (v === 'android' ? 'Download Android app' : 'iPhone app: coming soon') + '</button>' : '') +
     '</div>';
   return '<div class="st-mob" data-os="' + on + '">' +
     '<div class="st-mob-head"><span class="st-mob-title">Mobile app</span>' +
@@ -8913,7 +8927,7 @@ function renderSiteWorkspace(view, site) {
               '<div class="st-err-row"><button type="button" class="st-err-logs" id="stErrLogs">Dismiss</button><button type="button" class="st-err-fix" id="stErrFix">Try to fix ⏎</button></div></div>'
             : '') +
         '</div>' +
-        siteMobilePanel(hasSite, siteMobileOs) +
+        siteMobilePanel(hasSite, siteMobileOs, site.surface === 'app' && site.slug && typeof sitePreviewSrc === 'function' ? sitePreviewSrc(site) : '') +
         // THE PANEL'S OWN EDGE (owner, 2026-09-09: "it gotta show it like a
         // hidden sidebar tho, not like a button opens it"). A tab on the
         // workspace's right border, so a closed panel is VISIBLY there — before
@@ -9161,6 +9175,23 @@ function renderSiteWorkspace(view, site) {
   // it to what fits now and is a no-op when it already does. `mobRoom` needs
   // the row on screen, which is why it is here and not in the markup.
   if (Number.isFinite(siteMobileW)) setMobileW(siteMobileW);
+  // THE PHONES' "GET THE APP" BUTTONS (2026-10-20): the reply lands on the thread.
+  view.querySelectorAll('[data-app-dl]').forEach((b) => {
+    b.onclick = () => {
+      const s0 = siteById(siteOpenId);
+      if (!s0 || siteBusy) return;
+      const origin = s0.id;
+      siteBusy = true;
+      if (typeof siteBuildStart === 'function') siteBuildStart(true);
+      siteMakeApp(s0, b.dataset.appDl, (reply) => {
+        siteBusy = false;
+        if (typeof siteBuildStop === 'function') siteBuildStop();
+        const t = siteById(origin); if (!t) return;
+        t.msgs.push(siteReplyMsg(reply)); t.updatedAt = Date.now(); sitesSave();
+        if (siteOpenId === origin) renderSites();
+      });
+    };
+  });
   const mobTab = document.getElementById('stMobileTab');
   if (mobTab) {
     let from = null;                           // { x, w } while a drag is live
@@ -12660,7 +12691,7 @@ function siteMakeApp(site, platform, finish) {
     return;
   }
   const slug = site.slug;
-  apiFetch('/api/site/' + encodeURIComponent(slug) + '/app/android', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: site.name || slug }) })
+  apiFetch('/api/site/' + encodeURIComponent(slug) + '/app/android', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: site.name || slug, ...(site.surface === 'app' ? { mode: 'bundled' } : {}) }) })
     .then(async (r) => {
       const d = await r.json().catch(() => null);
       if (!r.ok || !d || d.ok !== true) { finish(((d && typeof d.error === 'string' && d.error) || 'The app could not be made just now. Nothing on your site changed \u2014 try again in a minute.')); return; }
@@ -14707,6 +14738,8 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
   // unanswered for 18 minutes after its build had finished).
   const body = mode === 'build'
     ? { brief: t, images: imgs, picker: buildPicker, ...(typeof sendEffort === 'function' ? sendEffort() : null), qa: qa || [], chat: origin, accept: 'early',
+      // A PHONE APP, built by the same pipeline (2026-10-20).
+      surface: site.surface === 'app' ? 'app' : undefined,
       // THE VIDEO AND AUDIO KEPT FOR THIS PROJECT BEFORE IT HAD A SITE (2026-10-14):
       // the build moves them into the new site's library once it holds the address.
       media: Array.isArray(site.pendingMedia) && site.pendingMedia.length ? site.pendingMedia.slice(0, 20) : undefined }
@@ -14825,12 +14858,6 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
       const s = siteById(origin);
       if (s) {
         s.react = true; s.slug = d.slug; s.url = d.url || ('/s/' + d.slug + '/');
-        // THE APP THE PICKER ASKED FOR follows the website it is made from (2026-10-20).
-        if (s.wantApp) {
-          const want = s.wantApp;
-          delete s.wantApp;
-          setTimeout(() => siteMakeApp(s, want, (reply) => { const t = siteById(origin); if (!t) return; t.msgs.push(siteReplyMsg(reply)); t.updatedAt = Date.now(); sitesSave(); if (siteOpenId === origin) renderSites(); }), 0);
-        }
         // THE FILES KEPT BEFORE THE SITE EXISTED HAVE A HOME NOW (2026-10-16):
         // the build that holds the address moved them (or said which it could
         // not), so they are not named to a later build as still waiting.

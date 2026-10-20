@@ -5407,3 +5407,7 @@ body::after { display: none; }
 /* The tick where the chat compacts (2026-10-20). */
 .st-ctxl .st-ctx-bar-chat { position: relative; overflow: visible; }
 .st-ctx-mark { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--muted, #8a8a8a); opacity: .7; }
+
+/* The app itself, running in each phone (2026-10-20). */
+.st-mob-frame { flex: 1 1 auto; width: 100%; height: 100%; border: 0; background: #fff; display: block; }
+.st-mob-dl { margin-top: 8px; font: 600 12px/1 inherit; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line, #ddd); background: var(--panel, #fff); cursor: pointer; }

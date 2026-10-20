@@ -1,4 +1,4 @@
-# Components (2112 built, 25 to go)
+# Components (2113 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -74,6 +74,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ anonymised-toggle
 ✓ answer-review
 ✓ api-key-row
+✓ app-chrome
 ✓ app-shell
 ✓ appeal-form
 ✓ appeal-route

@@ -162,7 +162,7 @@ test("ROUTER: \"app\" is one of its answers, with the phone named; with no site 
   assert.equal(said({ intent: "app", platform: "android" }, { hasSite: false }).intent, "build", "with no site, there is a website to build first");
 });
 
-test("WIRING: the route tells the page which phone; the page makes the app, waits for the website first, and the picker is drawn and kept", () => {
+test("WIRING: the route tells the page which phone; the page makes the app, and the picker is drawn and kept", () => {
   const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(src, /platform: routed\.intent === "app" \? routed\.platform : undefined,/);
   assert.match(src, /sleepAfter = "1m";/);
@@ -171,8 +171,6 @@ test("WIRING: the route tells the page which phone; the page makes the app, wait
   assert.match(page, /if \(d\.intent === 'app' && site\.slug\) return siteMakeApp\(site, d\.platform, finish\);/);
   assert.match(page, /apiFetch\('\/api\/site\/' \+ encodeURIComponent\(slug\) \+ '\/app\/android', \{ method: 'POST'/);
   assert.match(page, /Apple apps are on the way, but not ready yet/);
-  assert.match(page, /const wantApp = kindNow === 'android' \|\| kindNow === 'ios' \? kindNow : undefined;/);
-  assert.match(page, /if \(s\.wantApp\) \{[\s\S]{0,120}siteMakeApp\(s, want,/);
   assert.match(page, /buildKindHTML\('down'\) \+ buildPickerHTML\('down'\) \+ buildEffortHTML\('down'\)/);
   assert.match(page, /wireBuildKind\(\);\s*wireBuildPicker\(\);/);
   assert.match(page, /kind: 'zephyr_build_kind_v1',/);
