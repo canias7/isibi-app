@@ -223,8 +223,7 @@ export function fromXaiResponse(j) {
   // reports it apart from the answer (`completion_tokens_details.reasoning_tokens`,
   // or `reasoning_tokens` at the top of usage), so it is added to the output
   // here — read only `completion_tokens` and the thinking, the larger part at
-  // high effort, was paid to xAI and charged to nobody. `reasoning` keeps the
-  // thinking's own count, for the log.
+  // high effort, was paid to xAI and charged to nobody.
   //
   // NEVER TWICE: xAI's own `total_tokens` is what it bills, so the output is
   // that total less the prompt — the answer and the thinking together, counted
@@ -237,7 +236,6 @@ export function fromXaiResponse(j) {
   const usage = {
     input_tokens: Math.max(0, prompt - cached),
     output_tokens: billedOut,
-    reasoning_tokens: reasoning,
     cache_read_input_tokens: cached,
     cache_creation_input_tokens: 0,
   };

@@ -556,12 +556,10 @@ test("a reasoning model's thinking is counted as output, wherever xAI reports it
   const base = { choices: [{ message: { content: "x" }, finish_reason: "stop" }] };
   const nested = fromXaiResponse({ ...base, usage: { prompt_tokens: 100, completion_tokens: 50, completion_tokens_details: { reasoning_tokens: 900 } } });
   assert.equal(nested.usage.output_tokens, 950, "the thinking was not charged");
-  assert.equal(nested.usage.reasoning_tokens, 900);
   const top = fromXaiResponse({ ...base, usage: { prompt_tokens: 100, completion_tokens: 50, reasoning_tokens: 300 } });
   assert.equal(top.usage.output_tokens, 350, "thinking reported at the top of usage was not charged");
   const none = fromXaiResponse({ ...base, usage: { prompt_tokens: 100, completion_tokens: 50 } });
   assert.equal(none.usage.output_tokens, 50);
-  assert.equal(none.usage.reasoning_tokens, 0);
   // THE TOTAL DECIDES, SO NOTHING IS COUNTED TWICE: thinking already inside
   // completion_tokens (total = prompt + completion) is charged once…
   const inside = fromXaiResponse({ ...base, usage: { prompt_tokens: 100, completion_tokens: 950, completion_tokens_details: { reasoning_tokens: 900 }, total_tokens: 1050 } });
