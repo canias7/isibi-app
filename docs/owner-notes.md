@@ -1,5 +1,22 @@
 # Owner Notes
 
+## 2026-10-20 — Deploys 2235–2236: the router reads the kept chat, and compaction proven live (you: "do 1 and 2")
+
+**1. The router reads the kept chat.** The router decides what each message is. It used to see the page's last 8 messages; now it is shown the chat's summary and 40 to 60 recent messages. The window's start moves in steps of 20 messages, not one at a time, so its prompt stays cacheable. That step was found live: in the first run (deploy 2235) the window slid by one message every time, and the router read 11,238 of 11,750 tokens at full price on the second message. After the fix (deploy 2236) it read **9,984 of 11,775 from the cache (85%)**.
+
+**2. Compaction, run live.** A test-only setting lets the QA account, and no one else, name a smaller window. With a 15,000-token window, an 80-message chat went over 75% on the first message:
+- Messages 1–69 were summarized into 812 characters, starting "Secret off-menu item: Blue Fig Tart, £7.25".
+- The summary was saved on the chat and kept through the page's next write.
+- The newest messages stayed word for word.
+
+Both answers named the Blue Fig Tart at £7.25 (in the second run the first answer hedged, "I only have a later note…", before giving it). The summary call was billed by its tokens.
+
+**Spent:** 20 credits across the two runs (12, then 8). Test account balance 59.
+
+**Seen, not fixed:** the reply writer's cache hit was 96% in one run and missed in another (512 tokens). That's the provider's server choice, and the cache key is in place.
+
+Full suite 11594 / 11592 / 0 / 2.
+
 ## 2026-10-20 — One-click domain setup (Domain Connect): checked, and what is left (you: "lets start setting that up and checking")
 
 **Already done before today:**
