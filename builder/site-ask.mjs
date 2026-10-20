@@ -2954,7 +2954,8 @@ export function routeFailure(stage, e, { model, classify } = {}) {
 /** The router's window over the kept chat: recent messages, each and all capped. */
 export const KEPT_TURNS = 40;
 export const KEPT_TURN_CHARS = 2000;
-export const KEPT_CHARS = 24000;
+export const KEPT_STEP = 20;
+export const KEPT_CHARS = 40000;
 const ROUTER_LAST_REPLY = 3200;
 export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, picked = false, hasSite = false, model = ASK_MODEL, tablesFilled = false, tablesNone = false, pagesFilled = false, pagesComplete = true, canAsk: askable = false, context = [], pending = null, part = null, history = null, kept = null } = {}) {
   const text = String(message || "").trim();
@@ -3000,8 +3001,16 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
   // request that leans on something said earlier is read with it; cached from
   // one message to the next. The page's short window otherwise, as before.
   const keptSummary = kept && kept.summary && typeof kept.summary.text === "string" ? kept.summary : null;
+  //
+  // THE WINDOW MOVES IN STEPS OF `KEPT_STEP`, NOT ONE MESSAGE AT A TIME, and
+  // that is what lets it be cached: measured live, a window that slid by one
+  // message per message changed its own start every time, so the provider's
+  // cache never matched past the instructions (11,238 of 11,750 tokens read at
+  // full price). Starting on a multiple of 20, the prefix holds for 20 messages
+  // and between 40 and 60 recent ones are shown.
+  const keptStart = kept && Array.isArray(kept.turns) ? Math.floor(Math.max(0, kept.turns.length - KEPT_TURNS) / KEPT_STEP) * KEPT_STEP : 0;
   const shownHistory = kept && Array.isArray(kept.turns)
-    ? readHistory(kept.turns, { turns: KEPT_TURNS, turnChars: KEPT_TURN_CHARS, total: KEPT_CHARS, lastReplyChars: ROUTER_LAST_REPLY })
+    ? readHistory((keptStart ? [{ omitted: keptStart }] : []).concat(kept.turns.slice(keptStart)), { turns: KEPT_TURNS + KEPT_STEP, turnChars: KEPT_TURN_CHARS, total: KEPT_CHARS, lastReplyChars: ROUTER_LAST_REPLY })
     : routerHistory(history);
   // A THROW IS THE BOTTOM OF THE LADDER FOR THIS STATE, not unconditionally a
   // build. On an existing site an unreachable router used to mean the customer

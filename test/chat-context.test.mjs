@@ -291,3 +291,14 @@ test("WIRING: the route hands the router the kept chat, and the reply a test win
   assert.match(src, /history: rb\.history,\s*kept: rKept,/);
   assert.match(src, /window: testWindowFor\(ru\.id, rb\.testWindow\) \}\) : null;/);
 });
+
+test("ROUTER: the window's start moves in steps of 20, so the next message's prompt starts the same", async () => {
+  const mk = (n) => Array.from({ length: n }, (_, i) => ({ role: i % 2 ? "assistant" : "user", text: "turn " + i }));
+  const shown = async (n) => { let sent = null; await routeMessage({ send: async (req) => { sent = req; return { content: [], usage: {} }; } }, { message: "next", site: { name: "x", pages: ["/"] }, hasSite: true, kept: { turns: mk(n) } }).catch(() => null); return sent.messages[0].content; };
+  const a = await shown(61), b = await shown(62), c = await shown(80);
+  const head = (t) => t.slice(0, t.indexOf("turn 60"));
+  assert.equal(head(a), head(b), "one more message changed what comes before it, so the cache cannot match");
+  assert.ok(a.includes("Owner: turn 20\n") && !a.includes("Owner: turn 18\n"), "the window starts at turn 20");
+  assert.ok(c.includes("Owner: turn 40\n") && !c.includes("Owner: turn 38\n"), "at 80 messages it has stepped to 40");
+  assert.match(a, /20 earlier messages are not shown/, "the messages before the window are said, never passed off as the whole");
+});
