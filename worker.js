@@ -646,6 +646,15 @@ function readAskFilesPut(b) {
   if (!b.imgs.every((x) => (typeof x === "string" && x.length > 0) || (x && typeof x === "object" && !Array.isArray(x)))) return null;
   return { imgs: b.imgs };
 }
+/** Each call's tokens, `{ in, cached, written, out }`: `in` is what was read at the full price. */
+function tokensReport(calls) {
+  const out = {};
+  for (const [k, u] of Object.entries(calls)) {
+    if (!u) continue;
+    out[k] = { in: Number(u.in) || 0, cached: Number(u.cacheRead) || 0, written: Number(u.cacheWrite) || 0, out: Number(u.out) || 0 };
+  }
+  return out;
+}
 /** The chat store's pieces, for its tests. */
 /**
  * THE CONVERSATION THE REPLY IS SHOWN (2026-10-20): the chat as the server
@@ -677,7 +686,7 @@ async function chatWindowFor(env, uid, chatId, { model, fixedChars = 0, current 
   }
   return { history: { turns: plan.turns.map((t) => ({ role: t.role, text: t.text })), left: 0 }, summary: plan.summary, usage, compacted, plan };
 }
-export const chatStoreApi = { chatStoreKey, chatStoreRead, readChatPut, CHAT_MAX_BYTES, CHAT_MAX_MSGS, readAcctPut, mergeAcctState, ACCT_STATE_NAMES, readAskFilesPut, ASK_FILES_TTL_MS, chatWindowFor };
+export const chatStoreApi = { chatStoreKey, chatStoreRead, readChatPut, CHAT_MAX_BYTES, CHAT_MAX_MSGS, readAcctPut, mergeAcctState, ACCT_STATE_NAMES, readAskFilesPut, ASK_FILES_TTL_MS, chatWindowFor, tokensReport };
 /** A button press's room: its own name space, so a press id can never be read as a job's room. */
 const actionRoom = (id) => "act:" + id;
 /** The room's pieces, for its tests. */
@@ -31724,6 +31733,10 @@ async function handleRequest(request, env, ctx) {
         replyCut: rConverse && rConverse.ok && rConverse.cut ? true : undefined,
         // THE CONVERSATION WAS COMPACTED FOR THIS REPLY (2026-10-20): the page says so on the thread.
         compacted: rCompacted ? true : undefined,
+        // THE TOKENS EACH CALL CARRIED, AND HOW MANY CAME FROM THE CACHE (2026-10-20,
+        // owner: "yes do that"): counts only, the caller's own calls, so a live
+        // test can see a cache hit instead of inferring one from the price.
+        tokens: routed.usage ? tokensReport({ route: routed.usage, reply: rConverse && rConverse.ok ? rConverse.usage : null, compact: rCompact }) : undefined,
         // WHICH LAYER, AND WHICH PAGE — and without them the entire edit lane is
         // unreachable. Measured live 2026-08-11, first run of `edit smoke`:
         // `intent=edit layer=undefined`. `readEdit` decides the layer, this

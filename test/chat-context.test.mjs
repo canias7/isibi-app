@@ -233,3 +233,10 @@ test("WIRING: the web research call goes through the same door", () => {
   const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(src, /body: JSON\.stringify\(anthropicWire\(\{\s*model: RESEARCH_MODEL,/);
 });
+
+test("CACHE HITS ARE REPORTED: each call's tokens, with what came from the cache", () => {
+  assert.deepEqual(api.tokensReport({ route: { in: 900, out: 40, cacheRead: 3100, cacheWrite: 0 }, reply: null, compact: { in: 5, out: 1, cacheRead: 0, cacheWrite: 7 } }),
+    { route: { in: 900, cached: 3100, written: 0, out: 40 }, compact: { in: 5, cached: 0, written: 7, out: 1 } });
+  const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(src, /tokens: routed\.usage \? tokensReport\(\{ route: routed\.usage, reply: rConverse && rConverse\.ok \? rConverse\.usage : null, compact: rCompact \}\) : undefined,/);
+});
