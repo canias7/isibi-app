@@ -865,7 +865,7 @@ test("the composer keeps the ORIGINAL brief across the round", () => {
 test("only a build sends the answers, and only the live question keeps its buttons", () => {
   const src = chat();
   const i = src.indexOf("const body = mode === 'build'");
-  const body = src.slice(i, i + 460);
+  const body = src.slice(i, i + 900);
   const halves = body.split("slug: site.slug");
   assert.equal(halves.length, 2, "the build/revise split is no longer recognisable");
   assert.match(halves[0], /qa: qa \|\| \[\]/, "a build does not send the answers");

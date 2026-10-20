@@ -186,6 +186,7 @@ function setBuildPicker(p) {
   buildPicker = p;
   localStorage.setItem(BUILD_PICKER_KEY, p);
   const lbl = document.getElementById('stBuildLabel'); if (lbl) lbl.textContent = BUILD_PICKERS[p].label;
+  const eff = document.getElementById('stEffSel'); if (eff) eff.hidden = !effortApplies();
   const menu = document.getElementById('stBuildMenu');
   if (menu) { menu.classList.remove('open'); menu.querySelectorAll('.build-item').forEach((it) => it.classList.toggle('selected', it.dataset.pick === p)); }
 }
@@ -196,7 +197,8 @@ function wireBuildPicker() {
   menu.querySelectorAll('.build-item').forEach((it) => { it.onclick = () => setBuildPicker(it.dataset.pick); });
 }
 
-// ── Effort dial (1→5) — PARKED 2026-09-07, owner: "DELETE THE EFFORT THING FOR NOW".
+// ── Effort — PARKED 2026-09-07 (owner: "DELETE THE EFFORT THING FOR NOW"), BACK
+// 2026-10-19 on Grok's own levels and wired end to end (below). The history:
 //
 // It used to sit beside the model picker in the site-builder composer and ride the
 // build and revise as `effort`. It is off the row, off the wiring and off both
@@ -219,26 +221,35 @@ function wireBuildPicker() {
 // the two bodies in `reactSend`. Then wire `body.effort` on the build route, or
 // it comes back exactly as inert as it went.
 //
-// Levels 1–4 keep the picked model and just raise tokens-out; level 5 ("Max") trips the multi-agent
-// fan-out, which inherits the model picker (Sonnet→all-Sonnet, Opus→all-Opus, Auto→mixed per task).
+// BACK, AND REAL (2026-10-19, owner: "let's do the effort levels on the side
+// screen and on the preview screen… the other stuff user can change"): the
+// levels are Grok's own (`reasoning_effort`: low / medium / high / xhigh), sent
+// as `effort` on every build, edit and addition, and applied by the server to
+// every Grok call but the progress talk, which stays on low. High is Grok's own
+// default, so "High" sends exactly what was sent before. A Claude picker has no
+// such setting here: the chip hides for it.
 const BUILD_EFFORTS = {
-  low:    { lvl: 1, label: 'Low',    desc: 'Smallest output — quick drafts' },
-  medium: { lvl: 2, label: 'Medium', desc: 'More output — simple sites' },
-  high:   { lvl: 3, label: 'High',   desc: 'Big output — most sites' },
-  ultra:  { lvl: 4, label: 'Ultra',  desc: 'Max single-shot output' },
-  max:    { lvl: 5, label: 'Max',    desc: 'Multi-agent fan-out — nothing truncates' },
+  low:    { label: 'Low',        desc: 'Thinks least — fastest builds' },
+  medium: { label: 'Medium',     desc: 'In between' },
+  high:   { label: 'High',       desc: 'The model\u2019s default — most sites' },
+  xhigh:  { label: 'Extra high', desc: 'Thinks longest — slowest' },
 };
-const BUILD_EFFORT_KEY = 'zephyr_build_effort_v1';
+const BUILD_EFFORT_KEY = 'zephyr_build_effort_v2';
 let buildEffort = localStorage.getItem(BUILD_EFFORT_KEY) || 'high';
 if (!BUILD_EFFORTS[buildEffort]) buildEffort = 'high';
-function buildEffortHTML() {
+/** Only Grok takes the setting; the chip is shown for it alone. */
+const effortApplies = () => buildPicker === 'grok';
+/** What a request carries for the effort: the level, for Grok only; nothing otherwise. */
+function sendEffort() { return effortApplies() ? { effort: buildEffort } : {}; }
+function buildEffortHTML(dir) {
+  const up = dir !== 'down';
   return '<span class="st-buildsel-wrap">' +
-    '<button type="button" class="st-buildsel" id="stEffSel" title="Effort — how much output; Level 5 (Max) fans out to multi-agent">Effort: <b id="stEffLabel">' + BUILD_EFFORTS[buildEffort].label + '</b> ▾</button>' +
+    '<button type="button" class="st-buildsel" id="stEffSel" title="How hard the builder thinks — lower is faster"' + (effortApplies() ? '' : ' hidden') + '>Effort: <b id="stEffLabel">' + BUILD_EFFORTS[buildEffort].label + '</b> ▾</button>' +
     // Anchored to its RIGHT edge — this chip sits near the end of the composer
     // row, and the shared `.drop-up` rule pins menus to `left: 0`, which ran the
     // panel 72px past the rail. Measured at the rail's real 450px width.
-    '<div class="model-menu drop-up build-menu build-menu-end" id="stEffMenu">' +
-      ['low', 'medium', 'high', 'ultra', 'max'].map((k) => { const m = BUILD_EFFORTS[k]; return '<div class="model-item build-item' + (k === buildEffort ? ' selected' : '') + '" data-eff="' + k + '"><span class="txt"><b>' + m.lvl + ' · ' + m.label + '</b><small>' + m.desc + '</small></span><span class="check">✓</span></div>'; }).join('') +
+    '<div class="model-menu ' + (up ? 'drop-up ' : '') + 'build-menu build-menu-end" id="stEffMenu">' +
+      Object.keys(BUILD_EFFORTS).map((k) => { const m = BUILD_EFFORTS[k]; return '<div class="model-item build-item' + (k === buildEffort ? ' selected' : '') + '" data-eff="' + k + '"><span class="txt"><b>' + m.label + '</b><small>' + m.desc + '</small></span><span class="check">✓</span></div>'; }).join('') +
     '</div></span>';
 }
 function setBuildEffort(e) {
@@ -5820,7 +5831,7 @@ function renderSites() {
           // row sits under the hero rather than at the foot of a rail. The row is
           // `space-between` and the wrap carries `margin-right: auto`, so the free
           // space lands there and it reads Attach · Builder ————— ↑.
-          buildPickerHTML('down') +
+          buildPickerHTML('down') + buildEffortHTML('down') +
           '<button type="button" class="st-gen" id="stGen" aria-label="Build it" title="Build it"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>' +
         '</div>' +
       '</div></div>' +
@@ -5876,6 +5887,7 @@ function renderSites() {
   // chip is safe; the ids are never on the page twice because this function
   // returns to `renderSiteWorkspace` before drawing anything when a site is open.
   wireBuildPicker();
+  wireBuildEffort();
   // THE START SCREEN'S COMPOSER IS ITS OWN: its strip draws its own draft, never
   // one a site's workspace left behind, and a file chosen here goes into it.
   siteAttachFor = '';
@@ -8610,7 +8622,7 @@ function renderSiteWorkspace(view, site) {
                 '<div class="st-attach" id="stAttach"></div>' +
                 '<div class="st-comp-row">' +
                   '<button type="button" class="st-plus" id="stPlus" title="Attach a logo, a photo, a PDF menu or price list" aria-label="Attach a file">+</button>' +
-                  buildPickerHTML() +
+                  buildPickerHTML() + buildEffortHTML() +
                   // THE EFFORT DIAL IS OFF THE ROW (2026-09-07, owner: "DELETE THE
                   // EFFORT THING FOR NOW"). It had been visible-and-inert by an
                   // earlier call of theirs — 2026-08-08, "leave it there but
@@ -9156,6 +9168,7 @@ function renderSiteWorkspace(view, site) {
   // that describes what it opens.
   wireSiteComposer(site);
   wireBuildPicker();
+  wireBuildEffort();
 }
 // THE WORKSPACE COMPOSER'S WIRING, lifted out of `renderSiteWorkspace` so the
 // one place a held message comes back (`siteUnsentBack`) is driven together
@@ -10155,7 +10168,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // Pinned to the default, the router is that shape again with a different
     // provider in the seat, and a dead one sends every customer to the fallback
     // intent: a build on an empty project, an add-on on a live site.
-    body: JSON.stringify({ message: t, site: digest, picker: buildPicker, firstBuild: !!isBuild, brief: brief, qa: qa, answering: !!answering, picked: !!picked, attached: !!((imgs && imgs.length) || keptImgs.length), slug: site.slug || '', hasSite: !!(site.slug && sitePages(site).length),
+    body: JSON.stringify({ message: t, site: digest, picker: buildPicker, ...(typeof sendEffort === 'function' ? sendEffort() : null), firstBuild: !!isBuild, brief: brief, qa: qa, answering: !!answering, picked: !!picked, attached: !!((imgs && imgs.length) || keptImgs.length), slug: site.slug || '', hasSite: !!(site.slug && sitePages(site).length),
       // ── THE CONVERSATION SO FAR, AND THE FILES BY NAME (2026-10-14) ───────
       // This project's own thread, never another's, without the message being
       // sent; the server windows it and says what it left out. The files go by
@@ -11552,7 +11565,7 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
       // AND THE QUESTIONS IT HAS ASKED (2026-10-02), so no step asks one again.
       context: EditPoll.contextWire(d.context),
       attached: Array.isArray(imgs) && imgs.length ? true : undefined,
-      picker: buildPicker,
+      picker: buildPicker, ...(typeof sendEffort === 'function' ? sendEffort() : null),
       // WHAT READING THE MESSAGE COST (2026-10-03): the routing reply's own
       // `cost`, so a refusal the Worker writes in words can state it beside
       // the edit's, as `wholeRequestNote` does. Only ever said, never billed.
@@ -12472,7 +12485,7 @@ function siteAddon(site, instruction, origin, finish, fallback, d, imgs) {
     // ("every day at 09:00") is read in it, and only the browser knows it.
     // WHAT THE ROUTER HELD BACK rides with the message, as on the edit route
     // (2026-09-29): the add-on route takes it out before anything runs.
-    body: JSON.stringify({ instruction: instruction, picker: buildPicker, idem: idem, tz: browserTimeZone(),
+    body: JSON.stringify({ instruction: instruction, picker: buildPicker, ...(typeof sendEffort === 'function' ? sendEffort() : null), idem: idem, tz: browserTimeZone(),
       alsoAsked: EditPoll.heldWire(d && d.alsoAsked),
       handOver: d && d.handOver && typeof d.handOver === 'object' && !Array.isArray(d.handOver) ? d.handOver : undefined,
       // A REQUEST RESUMED FROM A QUESTION (2026-10-02) — `siteEdit`'s three.
@@ -14461,12 +14474,12 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
   // send being held open while the build runs (run 38646089624's send went
   // unanswered for 18 minutes after its build had finished).
   const body = mode === 'build'
-    ? { brief: t, images: imgs, picker: buildPicker, qa: qa || [], chat: origin, accept: 'early',
+    ? { brief: t, images: imgs, picker: buildPicker, ...(typeof sendEffort === 'function' ? sendEffort() : null), qa: qa || [], chat: origin, accept: 'early',
       // THE VIDEO AND AUDIO KEPT FOR THIS PROJECT BEFORE IT HAD A SITE (2026-10-14):
       // the build moves them into the new site's library once it holds the address.
       media: Array.isArray(site.pendingMedia) && site.pendingMedia.length ? site.pendingMedia.slice(0, 20) : undefined }
     : {
-      slug: site.slug, instruction: t, images: imgs, picker: buildPicker,
+      slug: site.slug, instruction: t, images: imgs, picker: buildPicker, ...(typeof sendEffort === 'function' ? sendEffort() : null),
       alsoAsked: EditPoll.heldWire(h.alsoAsked),
       handOver: h.handOver && typeof h.handOver === 'object' && !Array.isArray(h.handOver) ? h.handOver : undefined,
     };
@@ -15270,7 +15283,7 @@ function siteAskCancel() {
   apiFetch('/api/site/' + encodeURIComponent(site.slug) + '/question', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     // THE PICKED MODEL, for the acknowledgement the route has it write.
-    body: JSON.stringify({ id: asked.id, cancel: true, picker: buildPicker }),
+    body: JSON.stringify({ id: asked.id, cancel: true, picker: buildPicker, ...(typeof sendEffort === 'function' ? sendEffort() : null) }),
   }).then(async (r) => {
     const c = await r.json().catch(() => null);
     if (!r.ok || !c || c.ok !== true || typeof c.cancelled !== 'boolean') {

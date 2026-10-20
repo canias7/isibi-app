@@ -398,7 +398,7 @@ test("siteAddon mints one key per POST and watches a filed job with the addon's 
   assert.ok(mint < post, "the key is not minted before the POST");
   // RE-ANCHORED 2026-09-03: the body gained the browser's zone (`tz`) for a
   // job's clock time; the property is that the minted key rides the POST.
-  assert.match(fn, /body: JSON\.stringify\(\{ instruction: instruction, picker: buildPicker, idem: idem\b[^}]*\}\)/, "the key does not ride the POST");
+  assert.match(fn, /body: JSON\.stringify\(\{ instruction: instruction, picker: buildPicker, \.\.\.\(typeof sendEffort === 'function' \? sendEffort\(\) : null\), idem: idem\b[^}]*\}\)/, "the key does not ride the POST");
   // A RECEIPT IS NOT AN OUTCOME: a job with no result is watched, not applied.
   // RE-ANCHORED 2026-09-24 (the owner's validation round): this pinned
   // `if (a && a.ok && a.job && !a.result)`, a truthiness reading that watched

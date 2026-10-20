@@ -656,3 +656,25 @@ test("R18 THE WIRING: every build mark goes through one door that remembers the 
   assert.equal((fn.match(/watchStill\(\);/g) || []).length, 2, "the timer is not started where the record opens");
   assert.match(W, /const STILL_AFTER_MS = 40_000;/);
 });
+
+// ── ROUND 19: THE CUSTOMER'S EFFORT ──────────────────────────────────────────
+test("R19 a site request's effort rides its env; a Grok call takes it unless it names its own (the talk keeps low); a Claude call and an unknown level change nothing", async () => {
+  const { customerEffortApi, talkEffortApi } = await loadWorkerModule();
+  const { withCustomerEffort, withBuildEffort } = customerEffortApi;
+  const env = { X: 1 };
+  const post = (path, body, type = "application/json") => new Request("https://gofarther.dev" + path, { method: "POST", headers: { "content-type": type }, body: JSON.stringify(body) });
+  const e1 = await withBuildEffort(post("/api/site/react-build", { brief: "x", effort: "low" }), env);
+  assert.equal(e1.BUILD_EFFORT, "low"); assert.equal(e1.X, 1); assert.equal(env.BUILD_EFFORT, undefined, "the shared env was written");
+  assert.equal(await withBuildEffort(post("/api/site/react-build", { effort: "turbo" }), env), env, "an unknown level was taken");
+  assert.equal(await withBuildEffort(post("/api/site/react-build", { effort: ["low"] }), env), env, "a non-string was coerced");
+  assert.equal(await withBuildEffort(post("/api/credits", { effort: "low" }), env), env, "a request outside the site API was read");
+  const req = post("/api/site/edit", { effort: "xhigh" });
+  const e2 = await withBuildEffort(req, env);
+  assert.equal(e2.BUILD_EFFORT, "xhigh");
+  assert.equal((await req.json()).effort, "xhigh", "the route could not read its own body after the peek");
+  const grok = { model: "grok-4.6", messages: [] };
+  assert.equal(withCustomerEffort(e1, grok).effort, "low");
+  assert.equal(withCustomerEffort(e2, talkEffortApi.withTalkEffort("progress", grok)).effort, "low", "the customer's effort overrode the talk's low");
+  assert.equal(withCustomerEffort(e1, { model: "claude-sonnet-5" }).effort, undefined, "a Claude call gained a field Anthropic refuses");
+  assert.equal(withCustomerEffort(env, grok), grok, "a request with no effort changed the call");
+});

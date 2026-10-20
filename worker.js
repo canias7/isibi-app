@@ -311,7 +311,7 @@ import { PART_TERMINAL as REQ_PART_TERMINAL, heldFromOf } from "./builder/reques
 import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, carrySuperseded, supersededNote, holdRequirements, heldCheckpoint, heldDelta, applyHeldDelta, readHeld, sameCheckpoint, heldNote, ownerOf, handoffsByStep, applyVerdicts, COVERAGE_STEPS, linkEvidence } from "./builder/site-requirements.mjs";
 import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.mjs";
 import { contextReport } from "./builder/context-report.mjs";
-import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
+import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT, XAI_EFFORTS } from "./builder/model-xai.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
 import { selectPurchase, checkoutForm, LIVE_SUBSCRIPTION_STATUSES, falRequestId, refundVerdict, refundOnResultStatus } from "./billing.mjs";
 import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS, hasValue, keepStoredAccess, mergeLook, movedFields } from "./builder/site-edit.mjs";
@@ -575,6 +575,7 @@ function replyLiveWriter(env, job) {
 const actionRoom = (id) => "act:" + id;
 /** The room's pieces, for its tests. */
 /** The talk's reasoning effort, for its tests (read lazily: it is declared further down). */
+export const customerEffortApi = { withCustomerEffort: (e, r) => withCustomerEffort(e, r), withBuildEffort: (q, e) => withBuildEffort(q, e) };
 export const talkEffortApi = { withTalkEffort: (what, req) => withTalkEffort(what, req), get TALK_EFFORT() { return TALK_EFFORT; } };
 export const talkRoomApi = { TalkRoom, readRoomSay, mergeRoomSay, roomMessage, tellRoom, openRoomWatch, roomWriter, streamFromRoom, actionRoom, replyLiveWriter, roomLiveWriter, ROOM_KEEP_MS };
 
@@ -4594,7 +4595,25 @@ const modelSend = (env) => (env && typeof env.MODEL_SEND === "function" ? env.MO
 // again before its failure is the build's (`patientCall`). The Worker, where
 // neither field exists, makes the call it always made.
 const modelOpts = (env, opts) => (env && env.MODEL_STREAM === true ? { ...(opts || {}), stream: true, idleMs: STREAM_IDLE_MS, capMs: CONTAINER_CALL_CAP_MS } : opts);
-const callBuilderModel = (env, req, budget = null, opts = null) => (modelSend(env) ? patientCall(() => callModel(keysFrom(env), req, budget, modelSend(env), modelOpts(env, opts)), { log: (m) => console.error(m) }) : callModel(keysFrom(env), req, budget, modelSend(env), modelOpts(env, opts)));
+/**
+ * THE CUSTOMER'S EFFORT (2026-10-19, owner: "the other stuff user can change"):
+ * the level their composer sent (`effort` on the request, kept on this request's
+ * env by `withBuildEffort`) on every Grok call that names none of its own — the
+ * progress talk names `low` and keeps it. A Claude call is sent unchanged.
+ */
+const withCustomerEffort = (env, req) => (env && XAI_EFFORTS.includes(env.BUILD_EFFORT) && req && typeof req === "object" && req.effort === undefined && isXaiModel(req.model) ? { ...req, effort: env.BUILD_EFFORT } : req);
+/** A site request's `effort`, read off its JSON body: this request's env with it, or the env unchanged. */
+async function withBuildEffort(request, env) {
+  try {
+    if (!env || request.method !== "POST" || !/^application\/json/i.test(request.headers.get("content-type") || "")) return env;
+    const path = new URL(request.url).pathname;
+    if (!path.startsWith("/api/site/")) return env;
+    const b = await request.clone().json().catch(() => null);
+    const e = b && typeof b === "object" && typeof b.effort === "string" ? b.effort : "";
+    return XAI_EFFORTS.includes(e) ? { ...env, BUILD_EFFORT: e } : env;
+  } catch { return env; }
+}
+const callBuilderModel = (env, req0, budget = null, opts = null) => { const req = withCustomerEffort(env, req0); return modelSend(env) ? patientCall(() => callModel(keysFrom(env), req, budget, modelSend(env), modelOpts(env, opts)), { log: (m) => console.error(m) }) : callModel(keysFrom(env), req, budget, modelSend(env), modelOpts(env, opts)); };
 
 // ── THE SMALL CALLS GO TO WHICHEVER PROVIDER THE MODEL BELONGS TO ───────────
 //
@@ -27805,6 +27824,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
 }
 
 async function handleRequest(request, env, ctx) {
+  env = await withBuildEffort(request, env);
     const url = new URL(request.url);
 
     // ── THE JOB GATEWAY (2026-09-04) ─────────────────────────────────────

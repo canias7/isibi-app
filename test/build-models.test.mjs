@@ -187,7 +187,7 @@ test("the composer sends the picker on a build AND on a revise", () => {
   // could not ask for one — a gap that looks exactly like the feature working.
   const i = chat.indexOf("const body = mode === 'build'");
   assert.ok(i > 0, "the send body moved; this guard is now watching nothing");
-  const block = chat.slice(i, i + 500);
+  const block = chat.slice(i, i + 900);
   const halves = block.split("slug: site.slug");
   assert.equal(halves.length, 2, "the build/revise split is no longer recognisable here");
   assert.match(halves[0], /picker: buildPicker/, "a build sends no picker");
@@ -306,62 +306,28 @@ test("the response says which models actually ran", () => {
   assert.ok(!/picker: body\.picker/.test(workerCode), "the response echoes the request instead of the resolution");
 });
 
-test("Effort is PARKED — off the screen and off the wire — and that is a DECISION", () => {
-  // THE DECISION THIS PINS WAS REVERSED BY THE PERSON WHO MADE IT, so this case
-  // is rewritten rather than re-anchored. It used to read "Effort is visible and
-  // inert, and that is a DECISION" — owner, 2026-08-08: "leave the effort thing
-  // off, leave it there but doesn't work, i want it like that" — and on
-  // 2026-09-07 the same owner said "DELETE THE EFFORT THING FOR NOW". A guard
-  // that went red here would be reporting the new instruction as a regression.
-  // What has NOT changed is why the case exists at all: "we forgot" and "we
-  // decided" look identical in a list of controls a year later.
-  //
-  // OFF THE SCREEN. Windowed from the Builder chip, which is its neighbour, so
-  // this reads the composer row and not the function's own definition — the
-  // first draft of the old case matched `buildEffortHTML()` anywhere in the file,
-  // which its definition satisfies, and a mutant dropping it from the markup
-  // survived with the control gone from the screen.
-  // COMMENTS BLANKED FIRST, and BOTH landmarks asserted. The comment left in the
-  // composer row where the chip used to be NAMES `buildEffortHTML` — it has to,
-  // to say what was removed and how to put it back — so an unblanked scan reads
-  // the note about the removal as the chip itself. "Prose contains the thing it
-  // forbids", met in a guard rewritten for exactly this removal. And the window
-  // runs landmark to landmark rather than a byte count: this file's comments
-  // outrun any number, which is the trap one line up wearing its other face.
+test("Effort is BACK — on both composers, on the wire, and applied by the server — and that is a DECISION", () => {
+  // REVERSED A SECOND TIME BY THE PERSON WHO PARKED IT (2026-10-19, owner: "let's
+  // do the effort levels on the side screen and on the preview screen… the other
+  // stuff user can change"). It was parked on 2026-09-07 as a dial that changed
+  // nothing; it comes back only because the server now applies it, which is the
+  // half this case pins hardest.
   const rowSrc = chat.split("\n").map((l) => (/^\s*\/\//.test(l) ? " ".repeat(l.length) : l)).join("\n");
-  const render = rowSrc.indexOf("buildPickerHTML() +");
-  assert.ok(render > 0, "the composer no longer renders the Builder control — this window has no anchor");
-  const rowEnd = rowSrc.indexOf("id=\"stSend\"", render);
-  assert.ok(rowEnd > render, "the composer row's send button is gone — this window has no end");
-  assert.ok(!/buildEffortHTML\(\)/.test(rowSrc.slice(render, rowEnd)),
-    "the Effort chip is back in the composer row");
-  assert.ok(!/wireBuildEffort\(\);/.test(rowSrc), "the Effort dial is wired to a chip that is not drawn");
-
-  // OFF THE WIRE, and this is the half that is not cosmetic. `buildEffort` still
-  // reads a stored value, so a chip-less send would carry whatever that browser
-  // last chose — this account's is `max`, the multi-agent fan-out — invisible and
-  // unchangeable. Nothing reads it today; the point is that nothing later picks
-  // up a choice made by a control that no longer exists.
-  // Blanked, for the third time in this one case: the parked block's own note
-  // spells the field, because saying how to put it back means naming it.
-  assert.ok(!/effort: buildEffort/.test(rowSrc), "a build or revise still sends an effort nobody can see or change");
-
-  // PARKED, NOT DELETED: "for now" was the instruction, so the machinery stays
-  // and the way back is written down beside it.
-  assert.match(chat, /function buildEffortHTML\(/, "the parked Effort markup was deleted — putting it back is no longer three lines");
-  assert.match(chat, /function setBuildEffort\(/, "the parked Effort writer was deleted");
-  assert.match(chat, /function wireBuildEffort\(/, "the parked Effort wiring was deleted");
-  assert.match(chat, /TO PUT IT BACK, three lines/, "the note saying how to restore it is gone");
-
-  // And the build route still does not read it. `/api/direct` does — that is a
-  // different feature with its own dial — so this is scoped to the builder's own
-  // handler. Kept from the old case unchanged: it is the fact that made the
-  // control dead, and it is what a restore would have to fix.
-  const i = workerCode.indexOf("const models = modelsFor(body.picker)");
-  assert.ok(i > 0);
-  const route = workerCode.slice(i, workerCode.indexOf("models: { picker: models.picker", i));
-  assert.ok(route.length > 1000, "the build route block could not be located");
-  assert.ok(!/body\.effort/.test(route), "the build route now reads body.effort — was that deliberate?");
+  assert.match(rowSrc, /buildPickerHTML\('down'\) \+ buildEffortHTML\('down'\) \+/, "the start screen has no Effort chip");
+  assert.match(rowSrc, /buildPickerHTML\(\) \+ buildEffortHTML\(\) \+/, "the workspace composer has no Effort chip");
+  assert.equal((rowSrc.match(/wireBuildEffort\(\);/g) || []).length, 2, "a drawn chip is not wired");
+  // GROK'S OWN LEVELS, and only for Grok.
+  assert.match(chat, /low: +\{ label: 'Low'/); assert.match(chat, /xhigh: +\{ label: 'Extra high'/);
+  assert.ok(!/ultra:|max: +\{ lvl/.test(chat), "the old 1–5 dial's levels came back");
+  assert.match(chat, /const effortApplies = \(\) => buildPicker === 'grok';/);
+  // ON EVERY BODY THAT CARRIES THE PICKER, and never for a picker it does nothing for.
+  const bodies = (rowSrc.match(/picker: buildPicker, \.\.\.\(typeof sendEffort === 'function' \? sendEffort\(\) : null\)/g) || []).length;
+  assert.ok(bodies >= 6, "a request that carries the picker does not carry the effort");
+  assert.ok(!/picker: buildPicker(?!, \.\.\.\(typeof sendEffort)/.test(rowSrc), "a request carries the picker without the effort");
+  assert.match(chat, /function sendEffort\(\) \{ return effortApplies\(\) \? \{ effort: buildEffort \} : \{\}; \}/);
+  // APPLIED: the request's effort kept on its env, and every Grok call that names none takes it.
+  assert.match(workerCode, /async function handleRequest\(request, env, ctx\) \{\n  env = await withBuildEffort\(request, env\);/);
+  assert.match(workerCode, /const callBuilderModel = \(env, req0, budget = null, opts = null\) => \{ const req = withCustomerEffort\(env, req0\);/);
 });
 
 test("the whole build is affordable before anything is spent", () => {

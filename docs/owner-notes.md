@@ -1,5 +1,12 @@
 # Owner Notes
 
+## 2026-10-20 — The Effort button is back beside Builder, and it really changes the build now (on your word "let's do the effort levels on the side screen and on the preview screen"; branch only, not deployed)
+
+- **Where**: next to "Builder: Grok 4.6 ▾", on the start page and in the workspace composer beside the preview. **Levels**: Low ("thinks least, fastest builds"), Medium, High (Grok's default), Extra high, which are Grok's own `reasoning_effort` levels. Remembered in the browser. Shown only when Grok is the builder (Claude has no such setting here).
+- **What it changes**: it rides every build, edit and addition (`effort`), and the server applies it to every Grok call: design, page writing, routing, edits. **The progress talk stays on low whatever is picked.** High sends exactly what was sent before.
+- It is the control parked on 2026-09-07 ("delete the effort thing for now"), brought back on Grok's levels. It used to be a 1 to 5 dial that changed nothing; the parked-test is rewritten to pin the new decision. Grok 4.7 has the same four levels (xAI's docs); the model itself was not switched.
+- Tests: R19 and the rewritten build-models case; 5 guards updated for the new request shape. Full suite 11,547 / 11,545 / 0 / 2. Screenshots sent.
+
 ## 2026-10-19 — The quiet stretches: a build that has said nothing new for 40 s says its step is still going (on your word "fix the stretches"; branch only, not deployed)
 
 - Deploy 2226's build went quiet three times for 1½ to 2 minutes (long design and checking steps). Now, after 40 s with nothing new, the last step the build said it was **doing** is said again as still going, with how long it has taken ("Still on the same step, 50 seconds so far: designing the layout… Nothing new is finished yet"). The model words it as usual. It only restates a step the build itself reported, and never claims anything new. At most once every 40 s, and it stops when the build ends. Test R18.
