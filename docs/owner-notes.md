@@ -1,5 +1,11 @@
 # Owner Notes
 
+## 2026-10-20 — Deploy 2227's build on Effort: Low (merged and deployed on your word; topped up 60, balance 78 before it)
+
+- **Harbour Loaf 11, Effort Low**: about **7 minutes**, from send at 00:50:13 to saved; the build's own clock reads 428 s. The builds before it took about 10 to 14 minutes. **26 lines**: the first at 10 s, each written in 3 to 7 s.
+- **The quiet stretches are filled**: 5 "still" lines ("I'm still designing each page's layout…", "I'm still working out how the forms and buttons should behave…", "I'm still building the site…"). The longest gap is now about 45 s (before: up to 2 minutes).
+- One run, one prompt: the speed-up from Low is measured once, not averaged. The site looked right in the preview; it was not checked in depth against a High build.
+
 ## 2026-10-20 — The Effort button is back beside Builder, and it really changes the build now (on your word "let's do the effort levels on the side screen and on the preview screen"; branch only, not deployed)
 
 - **Where**: next to "Builder: Grok 4.6 ▾", on the start page and in the workspace composer beside the preview. **Levels**: Low ("thinks least, fastest builds"), Medium, High (Grok's default), Extra high, which are Grok's own `reasoning_effort` levels. Remembered in the browser. Shown only when Grok is the builder (Claude has no such setting here).
