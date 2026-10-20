@@ -44,8 +44,11 @@ test("the real config names the Worker and its Dockerfile-backed container, with
   // The multi-image behaviour it used to give these checks for free is covered
   // deliberately now, by TWO_CONTAINERS below: the script has to keep working for
   // N images whatever the product happens to ship today.
+  // AND THE APP BUILDER SINCE 2026-10-20 (owner: "yea separate container for
+  // the app"), from its own directory, so the two images never share a context.
   assert.deepEqual(containers.map((c) => [c.class_name, c.image, c.context]), [
     ["SiteBuildContainer", "./Dockerfile", "."],
+    ["AppBuildContainer", "./app-builder/Dockerfile", "./app-builder"],
   ]);
   // A container already on a registry reference is NOT one this step touches.
   const { containers: none } = readContainers('{"name":"w","containers":[{"class_name":"A","image":"w-a:abc"}]}');
@@ -307,8 +310,9 @@ test("an image already in the registry is REUSED: no build, the config reference
   // Learn the ids from a first run against an empty registry, then answer them.
   const first = harness({ files: TWO_CONTAINERS });
   const out1 = await main(first.deps);
-  assert.equal(out1.images.length, 2);
-  assert.equal(first.calls.builds.length, 2, "an empty registry builds both");
+  // THREE: the fixture's added container and the two real ones (the site and, since 2026-10-20, the app builder).
+  assert.equal(out1.images.length, 3);
+  assert.equal(first.calls.builds.length, 3, "an empty registry builds them all");
   // The registry is asked by the short name and the tag — the two halves of
   // the build tag, which is what `wrangler containers build -t` pushed.
   const known = new Set(out1.images.map((i) => i.tag));
@@ -316,9 +320,9 @@ test("an image already in the registry is REUSED: no build, the config reference
   const { deps, calls } = harness({ answer: (name, tag) => (known.has(`${name}:${tag}`) ? THERE : ABSENT), files: TWO_CONTAINERS });
   const out = await main(deps);
   assert.equal(calls.builds.length, 0, "an image already there was built again");
-  assert.deepEqual(out.images.map((i) => i.action), ["reused", "reused"]);
-  assert.deepEqual(out.images.map((i) => i.status), [200, 200], "the registry's answer does not ride the result");
-  assert.equal(calls.asked.length, 2, "each image is asked for once");
+  assert.deepEqual(out.images.map((i) => i.action), ["reused", "reused", "reused"]);
+  assert.deepEqual(out.images.map((i) => i.status), [200, 200, 200], "the registry's answer does not ride the result");
+  assert.equal(calls.asked.length, 3, "each image is asked for once");
   assert.ok(calls.logs.some((l) => /IMAGE SiteBuildContainer: reused isibi-app-sitebuildcontainer:[0-9a-f]{16}  \(registry answered 200;/.test(l)), "the log does not say what the registry answered");
   assert.equal(calls.writes.length, 1);
   assert.equal(calls.writes[0][0], "wrangler.jsonc");
@@ -329,7 +333,7 @@ test("an image already in the registry is REUSED: no build, the config reference
   // 2026-09-04: Wrangler's config validator parses the image as a URL, and a
   // bare `name:tag` is an invalid one — the tag reads as a port).
   for (const i of out.images) {
-    assert.match(i.ref, new RegExp(`^registry\\.cloudflare\\.com/${ACCOUNT}/isibi-app-(other|site)buildcontainer:[0-9a-f]{16}$`), `not a full registry reference: ${i.ref}`);
+    assert.match(i.ref, new RegExp(`^registry\\.cloudflare\\.com/${ACCOUNT}/isibi-app-(other|site|app)buildcontainer:[0-9a-f]{16}$`), `not a full registry reference: ${i.ref}`);
     assert.doesNotThrow(() => new URL(`https://${i.ref}`), "Wrangler's validator would refuse this reference");
     assert.equal(i.tag, i.ref.slice(i.ref.lastIndexOf("/") + 1), "the build tag is not the reference's own name:tag");
   }
@@ -347,12 +351,12 @@ test("without an account id nothing is asked, built or written — the reference
 test("an image the registry lacks is BUILT under its id, from its own context, and pushed — each asked for BEFORE its own build", async () => {
   const { deps, calls } = harness({ answer: () => ABSENT, files: TWO_CONTAINERS });
   const out = await main(deps);
-  assert.deepEqual(out.images.map((i) => i.action), ["built", "built"]);
+  assert.deepEqual(out.images.map((i) => i.action), ["built", "built", "built"]);
   // The site image's context is the REPOSITORY ROOT since 2026-09-04 — its
   // Dockerfile moved there so the image can carry the Worker's module graph.
-  assert.deepEqual(calls.builds.map(([ctx]) => ctx), ["other", "."], "the build context is the Dockerfile's directory");
-  for (const [, ref] of calls.builds) assert.match(ref, /^isibi-app-(other|site)buildcontainer:[0-9a-f]{16}$/);
-  assert.deepEqual(calls.seq.map(([k]) => k), ["ask", "build", "ask", "build"], "an image is built before the registry is asked for it");
+  assert.deepEqual(calls.builds.map(([ctx]) => ctx), ["other", ".", "app-builder"], "the build context is the Dockerfile's directory");
+  for (const [, ref] of calls.builds) assert.match(ref, /^isibi-app-(other|site|app)buildcontainer:[0-9a-f]{16}$/);
+  assert.deepEqual(calls.seq.map(([k]) => k), ["ask", "build", "ask", "build", "ask", "build"], "an image is built before the registry is asked for it");
   for (const [i, [name, tag]] of calls.asked.entries()) assert.equal(`${name}:${tag}`, calls.builds[i][1], "the tag asked for is not the tag built");
   assert.ok(!calls.logs.some((l) => /could not be asked/.test(l)), "a plain 404 was reported as a registry that could not be asked");
 });
@@ -362,11 +366,11 @@ test("a registry that CANNOT be asked builds — never skips — and the log say
   // probe throws when the credential call fails). Both are "could not tell".
   const { deps, calls } = harness({ answer: (name) => { if (name.includes("other")) return { present: null, status: 401 }; throw new Error("registry credentials: 403"); }, files: TWO_CONTAINERS });
   const out = await main(deps);
-  assert.deepEqual(out.images.map((i) => i.action), ["built", "built"], "an unanswered registry was read as an image being there");
-  assert.equal(calls.builds.length, 2);
-  assert.deepEqual(out.images.map((i) => i.status), [401, "registry credentials: 403"]);
-  const said = calls.logs.filter((l) => /registry could not be asked for isibi-app-(other|site)buildcontainer:[0-9a-f]{16} \((401|registry credentials: 403)\) — building/.test(l));
-  assert.equal(said.length, 2, "the two unanswered asks were not both said out loud, with their reasons");
+  assert.deepEqual(out.images.map((i) => i.action), ["built", "built", "built"], "an unanswered registry was read as an image being there");
+  assert.equal(calls.builds.length, 3);
+  assert.deepEqual(out.images.map((i) => i.status), [401, "registry credentials: 403", "registry credentials: 403"]);
+  const said = calls.logs.filter((l) => /registry could not be asked for isibi-app-(other|site|app)buildcontainer:[0-9a-f]{16} \((401|registry credentials: 403)\) — building/.test(l));
+  assert.equal(said.length, 3, "the unanswered asks were not all said out loud, with their reasons");
   // RE-ANCHORED 2026-09-10 (the image-id stamp). This counted writes — `=== 1`
   // — which was true while `wrangler.jsonc` was the only file the script wrote
   // and went red the moment an honest second write arrived. Being the only
@@ -378,8 +382,8 @@ test("a registry that CANNOT be asked builds — never skips — and the log say
 test("a failed build is tried once more; a second failure fails the deploy and writes nothing", async () => {
   const once = harness({ buildOk: (n) => n !== 1, files: TWO_CONTAINERS });
   const out = await main(once.deps);
-  assert.equal(once.calls.builds.length, 3, "the first image's failed build was not retried exactly once");
-  assert.equal(out.images.length, 2);
+  assert.equal(once.calls.builds.length, 4, "the first image's failed build was not retried exactly once");
+  assert.equal(out.images.length, 3);
   const never = harness({ buildOk: () => false, files: TWO_CONTAINERS });
   await assert.rejects(() => main(never.deps), /could not build and push/);
   // RE-ANCHORED 2026-09-10, same reason and the same property. What must not

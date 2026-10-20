@@ -1,5 +1,33 @@
 # Owner Notes
 
+## 2026-10-20 — The app builder: a separate container that makes a site into an Android app (you: "yea separate container for the app"; branch only, not deployed)
+
+**What it is:** a new container class, `AppBuildContainer`, with its own image (`app-builder/`), so the website builder's image is unchanged. The image carries Java 21, the Android SDK and Gradle's libraries, warmed once at image build, so a customer's build downloads nothing.
+
+**The route:** `POST /api/site/<slug>/app/android` builds the site's Android app, keeps it in R2 (`apps/<slug>/android.apk`) and answers its size and download link. `GET` on the same address downloads it. Owner only; anyone else gets "not found".
+
+**Two kinds of app:**
+- **live** (the default) opens the site's own address, so data, forms and orders work as in a browser, and every edit shows in the app without rebuilding it;
+- **bundled** carries the site's files inside for offline use; calls back to the server don't work there.
+
+**Proven on this machine with the real build code:**
+- live: "Fold Lane Bakery", `dev.gofarther.foldlanebakery`, 4.1 MB, 27 s;
+- bundled: 9.7 MB, 28 s, pages and photos inside.
+
+The first run caught a real bug: every app installed as the template ("Go Farther app"). The builder now writes the app's own name and id into the Android project.
+
+**Not done yet:**
+- the image itself hasn't been built: Docker isn't available here, so the first deploy builds it;
+- no button in the app yet (design is yours);
+- debug builds only, which install directly on a phone; Play Store builds need a signing key;
+- no charge for a build yet (your call);
+- iPhone apps go through Codemagic once you have the accounts.
+
+**Tests:**
+- `test/app-builder.test.mjs` (8): the request rules, the app's own names, the configuration, file gathering, and the route end to end with a stand-in container.
+- Updated with their reasons: `container-images` (the deploy now sees two real images), and `build-lane` (the new class allows 100 instances and names its container through `laneName`).
+- Sweep: 6 of 6 killed, the control survived. Full suite 11604 / 11602 / 0 / 2.
+
 ## 2026-10-20 — Android apps from our containers: measured (you: "yes run the measurement")
 
 The live `fold-lane-bakery` site was wrapped with Capacitor 8 and built into a working Android app file (9.7 MB, "Fold Lane Bakery", Android 7 and up) on this session's Linux machine. No credits spent.
