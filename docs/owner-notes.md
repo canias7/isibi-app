@@ -1,5 +1,10 @@
 # Owner Notes
 
+## 2026-10-20 — Deploy 2230: Effort Low reaches everything; a build in about 2 minutes for 24 credits (merged, deployed and tested on your word; topped up 60, balance 100 before it)
+
+- **harbour-loaf-16 on Low**: **24 credits** (design 14, deposit 2, pages about 8), against **66 on High** (harbour-loaf-13) and 53 when only the design was on Low. The pages' billed output was 3,221 tokens, against 24,416 on High and 39,391 before the fix. **About 2 minutes** on the build's clock (130 s), against about 8½ minutes on High. 13 lines, the first at 10 s. The site built and saved: hero, story, three loaves, hours, order band.
+- One build each, one prompt: Low's quality against High's is not judged in depth here.
+
 ## 2026-10-20 — Effort reaches page writing too ("effort to everything"; branch only, not deployed)
 
 - **Deploy 2229's Low build** (harbour-loaf-15, topped up 80, balance 96 before it): **53 credits** against High's 66. The design thought about 6 times less (7,123 billed output tokens against 43,120; 15 credits against 37), but **page writing didn't change** (39,391 against 24,416 output). Its calls go to the container's own model service (`/model`, `/model/start`), not through `callBuilderModel`, so they never carried the effort.
