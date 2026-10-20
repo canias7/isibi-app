@@ -572,6 +572,75 @@ function replyLiveWriter(env, job) {
     } catch { /* the typed reply never costs the reply */ }
   };
 }
+// ── AN ANDROID APP FROM A PUBLISHED SITE (2026-10-20, owner: "yea separate
+// container for the app") ─────────────────────────────────────────────────────
+// POST /api/site/<slug>/app/android builds it in the app builder's container
+// and keeps it at `apps/<slug>/android.apk`; GET downloads it. Owner only.
+// "live" (the default) opens the site's address; "bundled" carries its files.
+const appKey = (slug) => "apps/" + slug + "/android.apk";
+/** An Android application id from a slug: `dev.gofarther.<letters and digits>`, as the builder checks it. */
+function appIdFor(slug) {
+  const part = String(slug || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  return part ? "dev.gofarther." + (/^[a-z]/.test(part) ? part : "s" + part) : null;
+}
+/** What a bundled app carries, together, read in the Worker. */
+const APP_FILES_MAX_BYTES = 30_000_000;
+/** Bytes as base64, in pieces small enough for `btoa`. */
+function bytesB64(buf) {
+  const u = new Uint8Array(buf);
+  let out = "";
+  for (let i = 0; i < u.length; i += 0x8000) out += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+  return btoa(out);
+}
+/**
+ * Every file the live site serves, as `{ path, data }`: the build's assets, the
+ * pages (`sites/<slug>/*.html`, served for `/` and each page) and the uploads
+ * (served at `/u/<slug>/`). `{ error }` when there are none, or too many bytes.
+ */
+async function siteAppFiles(env, slug) {
+  const bucket = env.SITES_BUCKET;
+  const files = new Map();
+  let bytes = 0;
+  const listAll = async (prefix) => {
+    const keys = [];
+    let cursor;
+    do {
+      const page = await bucket.list({ prefix, cursor });
+      for (const o of page.objects || []) keys.push(o.key);
+      cursor = page.truncated ? page.cursor : undefined;
+    } while (cursor);
+    return keys;
+  };
+  const take = async (key, path) => {
+    const o = await bucket.get(key);
+    if (!o) return;
+    const buf = await o.arrayBuffer();
+    bytes += buf.byteLength;
+    if (bytes > APP_FILES_MAX_BYTES) throw Object.assign(new Error("too large"), { tooLarge: true });
+    files.set(path, { path, data: bytesB64(buf) });
+  };
+  try {
+    const ptr = await sitePointer(env, slug);
+    if (ptr && !ptr.none && ptr.version) {
+      const pre = buildPrefix(slug, ptr.version) + "client/";
+      for (const k of await listAll(pre)) await take(k, k.slice(pre.length));
+    }
+    const sp = "sites/" + slug + "/";
+    for (const k of await listAll(sp)) {
+      const rel = k.slice(sp.length);
+      if (!rel || rel === "site.live") continue;
+      if (ptr && !ptr.none && ptr.version && !rel.endsWith(".html")) continue;
+      await take(k, rel);
+    }
+    const up = "uploads/" + slug + "/";
+    for (const k of await listAll(up)) await take(k, "u/" + slug + "/" + k.slice(up.length));
+  } catch (e) {
+    if (e && e.tooLarge) return { error: "This site's files are more than an app can carry offline. Build the live app instead." };
+    throw e;
+  }
+  if (!files.has("index.html")) return { error: "This site has no published home page to put in an app." };
+  return { files: [...files.values()], bytes };
+}
 /** Where an account's chat is kept (2026-10-20). */
 const chatStoreKey = (uid, chat) => "chat/" + uid + "/" + chat + ".json";
 /** A chat's largest stored size, and its most messages kept. */
@@ -708,7 +777,7 @@ async function chatRouterWindow(env, uid, chatId, current) {
   const plan = planWindow({ msgs: cur.chat.msgs, summary: cur.chat.summary, window: 0, current });
   return { turns: plan.turns.map((t) => ({ role: t.role, text: t.text })), summary: plan.summary };
 }
-export const chatStoreApi = { chatStoreKey, chatStoreRead, readChatPut, CHAT_MAX_BYTES, CHAT_MAX_MSGS, readAcctPut, mergeAcctState, ACCT_STATE_NAMES, readAskFilesPut, ASK_FILES_TTL_MS, chatWindowFor, tokensReport, chatRouterWindow, testWindowFor };
+export const chatStoreApi = { chatStoreKey, chatStoreRead, readChatPut, CHAT_MAX_BYTES, CHAT_MAX_MSGS, readAcctPut, mergeAcctState, ACCT_STATE_NAMES, readAskFilesPut, ASK_FILES_TTL_MS, chatWindowFor, tokensReport, chatRouterWindow, testWindowFor, siteAppFiles, appIdFor };
 /** A button press's room: its own name space, so a press id can never be read as a job's room. */
 const actionRoom = (id) => "act:" + id;
 /** The room's pieces, for its tests. */
@@ -720,6 +789,15 @@ export const talkRoomApi = { TalkRoom, readRoomSay, mergeRoomSay, roomMessage, t
 // Site build-service container. The image (./builder/Dockerfile) bakes the React
 // template and its dependencies, so a per-site build is only `tsr generate` →
 // `tsc --noEmit` → `vite build`. Runs to zero after idle, same as the game one.
+/**
+ * THE APP BUILDER (2026-10-20): a customer's published site made into an
+ * Android app, in its own image (`app-builder/`). It needs no keys: it is
+ * handed the site's address, or its files, and answers the app file.
+ */
+export class AppBuildContainer extends Container {
+  defaultPort = 8080;
+  sleepAfter = "5m";
+}
 export class SiteBuildContainer extends Container {
   defaultPort = 8080;
   sleepAfter = "5m";
@@ -29729,6 +29807,53 @@ async function handleRequest(request, env, ctx) {
         await env.SITES_BUCKET.put(codeKey(bind.id), JSON.stringify({ code, file, chars, line: clipped.line, at: Date.now() }));
       } catch { return Response.json({ ok: false }, { status: 200 }); }
       return Response.json({ ok: true, stored: true });
+    }
+
+    // POST|GET /api/site/<slug>/app/android — build the site's Android app, or download it (2026-10-20).
+    {
+      const ap = url.pathname.match(/^\/api\/site\/([a-z0-9-]{1,60})\/app\/android$/);
+      if (ap && (request.method === "POST" || request.method === "GET")) {
+        const au = await authUser(request, env);
+        if (!au) return Response.json({ error: "sign in first" }, { status: 401 });
+        const aslug = ap[1];
+        const own = await siteOwnerBySlug(aslug, env);
+        if (!own || own !== au.id) return Response.json({ error: "not found" }, { status: 404 });
+        if (!env.SITES_BUCKET) return Response.json({ error: "not available" }, { status: 503 });
+        if (request.method === "GET") {
+          const o = await env.SITES_BUCKET.get(appKey(aslug));
+          if (!o) return Response.json({ error: "no app built yet" }, { status: 404 });
+          return new Response(o.body, { headers: { "content-type": "application/vnd.android.package-archive", "content-disposition": 'attachment; filename="' + aslug + '.apk"', "cache-control": "no-store" } });
+        }
+        if (!env.APP_BUILD_CONTAINER) return Response.json({ error: "The app builder is not available yet." }, { status: 503 });
+        let ab = {};
+        try { ab = await request.json(); } catch { ab = {}; }
+        const mode = ab && ab.mode === "bundled" ? "bundled" : "live";
+        const appId = appIdFor(aslug);
+        let name = typeof (ab && ab.name) === "string" && ab.name.trim() ? ab.name.trim().slice(0, 60) : aslug;
+        const req = { mode, appId, name, url: "https://" + aslug + ".gofarther.app/" };
+        if (mode === "bundled") {
+          const got = await siteAppFiles(env, aslug);
+          if (got.error) return Response.json({ ok: false, error: got.error }, { status: 422 });
+          req.files = got.files;
+        }
+        const started = Date.now();
+        let r;
+        try {
+          const c = getContainer(env.APP_BUILD_CONTAINER, laneName("app-" + aslug));
+          r = await c.fetch(new Request("http://app/build", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(req), signal: AbortSignal.timeout(16 * 60 * 1000) }));
+        } catch (e) {
+          console.error("app build:", aslug, errorClassForLog(e));
+          return Response.json({ ok: false, error: "The app builder could not be reached. Try again in a minute." }, { status: 503 });
+        }
+        if (r.status === 409) return Response.json({ ok: false, error: "An app for this site is already being built." }, { status: 409 });
+        if (!r.ok || !(r.headers.get("content-type") || "").includes("android")) {
+          const d = await r.json().catch(() => null);
+          return Response.json({ ok: false, error: (d && typeof d.error === "string" ? d.error : "the app could not be built") }, { status: 502 });
+        }
+        const apk = await r.arrayBuffer();
+        await env.SITES_BUCKET.put(appKey(aslug), apk, { httpMetadata: { contentType: "application/vnd.android.package-archive" }, customMetadata: { mode, appId, builtAt: String(Date.now()) } });
+        return Response.json({ ok: true, mode, appId, name, bytes: apk.byteLength, ms: Date.now() - started, download: "/api/site/" + aslug + "/app/android" });
+      }
     }
 
     // GET/PUT /api/site/account-state — the account's settings and work in
