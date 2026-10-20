@@ -24,7 +24,7 @@ says nothing about Cloudflare; ask them instead.
 
 | Provider | Where | Note |
 |---|---|---|
-| Cloudflare | Domain Connect onboarding: see developers.cloudflare.com/dns/reference/domain-connect | One developer reported approval within minutes of contacting them. |
+| Cloudflare | **domain-connect@cloudflare.com** (their docs: email only, after the merge) | Include: the GitHub link to the template, `_dck1.gofarther.dev` as the `syncPubKeyDomain` record, a logo (SVG preferred), the default proxy status for the CNAME (proxied off: it points at our SaaS hostname), and optionally a Cloudflare account id to test on first. One developer reported approval within minutes. |
 | IONOS | domain_connect_admin@domain.ionos.com | No published turnaround. |
 | GoDaddy | domainconnect@godaddy.com | Reported elsewhere to onboard only through Entri (a paid broker); ask anyway. |
 
