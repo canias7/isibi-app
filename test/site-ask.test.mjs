@@ -411,7 +411,13 @@ test("an answer renders as an ordinary message, with no build attached", () => {
   // A steps block over an answer claims a build that did not happen, and a
   // `build` field is what makes the thread render one.
   const block = routeBlock();
-  const pushes = block.match(/s0?\.msgs\.push\(\{[^}]*\}\)/g) || [];
+  // THE COMPACTION NOTE (2026-10-20) is a third push, said above a reply when the
+  // chat was summarized for it: a plain line marked `compact`, never a build.
+  const all = block.match(/s0?\.msgs\.push\(\{[^}]*\}\)/g) || [];
+  const notes = all.filter((p) => /compact: true/.test(p));
+  assert.equal(notes.length, 1, "the compaction note is gone from the route's reply");
+  assert.ok(!/build:/.test(notes[0]), "the compaction note carries build steps");
+  const pushes = all.filter((p) => !notes.includes(p));
   assert.equal(pushes.length, 2, "expected exactly the question push and the answer push: " + pushes.length);
   for (const p of pushes) {
     assert.ok(!/build:/.test(p), "neither a question nor an answer may carry build steps: " + p);

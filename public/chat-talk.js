@@ -45,7 +45,7 @@
     for (var j = 0; j < list.length; j++) {
       var x = list[j];
       if (!x || typeof x !== "object" || typeof x.t !== "string") continue;
-      if (x.held) continue;
+      if (x.held || x.compact) continue;
       var text = x.t.trim();
       if (x.r === "a" && Array.isArray(x.opts) && x.opts.length) {
         var opts = x.opts.filter(function (o) { return typeof o === "string" && o; });

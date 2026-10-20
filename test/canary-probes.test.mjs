@@ -401,7 +401,11 @@ test("each probe is posted as the browser posts it, with the site's real page li
   // AND LESS THE FILES' NAMES (2026-10-14): sent only beside files the page
   // holds, which a probe never has.
   assert.match(line, /files: typeof ChatTalk !== 'undefined' && \(\(imgs && imgs\.length\) \|\| keptImgs\.length\)/, "the browser sends file names with no file — the observer is stale");
-  const fields = [...code.replace(/ask: !isBuild && answer[^}]*\} : undefined/, "").matchAll(/([a-zA-Z]+):/g)].map((m) => m[1]).filter((k) => k !== "picker" && k !== "files" && !REQUEST_FLOW.includes(k));
+  const fields = [...code.replace(/ask: !isBuild && answer[^}]*\} : undefined/, "").matchAll(/([a-zA-Z]+):/g)].map((m) => m[1]).filter((k) => k !== "picker" && k !== "files" && k !== "chat" && !REQUEST_FLOW.includes(k));
+  // AND LESS THE CHAT'S ID (2026-10-20): it makes the reply read the account's
+  // kept conversation, and a probe has none of its own; it sends `history: []`.
+  assert.match(line, /chat: \(typeof chatKeyOf === 'function' && chatKeyOf\(/, "the browser no longer sends its chat's id — the observer is stale");
+  assert.equal(Object.hasOwn(body, "chat"), false, "a routing probe sends a chat id, and would read a kept conversation");
   assert.deepEqual(Object.keys(body).sort(), [...new Set(fields)].sort(), "the probe does not post the fields the browser posts");
   for (const f of REQUEST_FLOW) assert.equal(Object.hasOwn(body, f), false, "a routing probe sends `" + f + "`, and would have the server run the work it only routes");
 });

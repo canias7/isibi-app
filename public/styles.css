@@ -5403,3 +5403,7 @@ body::after { display: none; }
 .st-ctxl.open .st-ctxl-more { display: block; }
 .st-ctxl-more .st-ctx-legend { margin-top: 0; padding-top: 0; border-top: 0; }
 .st-ctx-free { background: var(--panel-2); }
+
+/* The tick where the chat compacts (2026-10-20). */
+.st-ctxl .st-ctx-bar-chat { position: relative; overflow: visible; }
+.st-ctx-mark { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--muted, #8a8a8a); opacity: .7; }

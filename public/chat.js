@@ -4914,6 +4914,15 @@ async function chatPush(key, again = 0) {
     if (siteOpenId === s.id && typeof renderSites === 'function') renderSites();
   }
 }
+/** Writes this chat up now if it changed, and answers when it is up (or in 4 s at most). */
+function chatFlushFor(s) {
+  const key = chatKeyOf(s);
+  if (!key || !chatPulled.has(key)) return Promise.resolve();
+  const live = (sitesCache || []).find((x) => chatKeyOf(x) === key);
+  if (!live || chatSentSig.get(key) === chatSig(live)) return Promise.resolve();
+  clearTimeout(chatTimers.get(key));
+  return Promise.race([chatPush(key).catch(() => {}), new Promise((res) => setTimeout(res, 4000))]);
+}
 function chatDelete(s) {
   const key = chatKeyOf(s);
   if (!key) return;
@@ -7681,8 +7690,53 @@ function ctxNow(site) {
   const m = shape && Array.isArray(shape.models) ? (shape.models.find((x) => x && x.model === model) || shape.models[0]) : null;
   return shape && m ? { shape, m } : null;
 }
+// ── THE BAR MEASURES THE CONVERSATION (2026-10-20, owner: "lets do the context
+// window … auto compact at 75 percent"). What the next reply is shown: the
+// instructions and the site, the summary when the chat was compacted, and the
+// conversation, against the picked model's window; the tick is where it compacts.
+const ctxChat = {};
+const ctxChatAsked = new Map();
+function ctxChatFetch(site, again) {
+  const key = typeof chatKeyOf === 'function' ? chatKeyOf(site) : '';
+  if (!key) return;
+  const ask = key + '|' + buildPicker + '|' + ((site.msgs || []).length);
+  if (!again && ctxChatAsked.get(key) === ask) return;
+  ctxChatAsked.set(key, ask);
+  apiFetch('/api/site/chat/' + encodeURIComponent(key) + '/context?picker=' + encodeURIComponent(buildPicker)).then(async (r) => {
+    const d = await r.json().catch(() => null);
+    if (!r.ok || !d || d.ok !== true || !(d.window > 0)) return;
+    ctxChat[key] = d;
+    if (siteOpenId === site.id) paintCtxLine(site);
+  }).catch(() => {});
+}
+const CTX_CHAT_PARTS = [['fixed', 'Instructions + your site', 'b'], ['summary', 'Summary of earlier messages', 'c'], ['conversation', 'Conversation', 'a']];
+function ctxChatHTML(site, d) {
+  const pct = d.used * 100;
+  const seg = CTX_CHAT_PARTS.map(([k, , tone]) => {
+    const w = d.window ? ((d.parts[k] || 0) / d.window) * 100 : 0;
+    return w > 0 ? '<span class="st-ctx-seg st-ctx-' + tone + '" style="width:' + Math.min(100, w).toFixed(3) + '%"></span>' : '';
+  }).join('');
+  const rows = CTX_CHAT_PARTS.filter(([k]) => k !== 'summary' || d.parts.summary > 0).map(([k, label, tone]) =>
+    '<div class="st-ctx-key"><span class="st-ctx-dot st-ctx-' + tone + '"></span><span class="st-ctx-key-l">' + label + '</span>'
+    + '<span class="st-ctx-key-v">' + ctxCap(d.parts[k] || 0) + '</span><span class="st-ctx-key-p">' + ((d.parts[k] || 0) / d.window * 100).toFixed(1) + '%</span></div>').join('');
+  const free = Math.max(0, d.window - d.tokens);
+  const note = (d.summarized ? 'Earlier messages are summarized. ' : '') + 'Compacts automatically at ' + Math.round(d.compactAt * 100) + '%. ' + esc(String(d.model || '')) + ' \u00b7 estimated, three characters a token.';
+  return '<div class="st-ctxl' + (ctxOpen ? ' open' : '') + '" id="stCtxLine" role="button" tabindex="0" title="What the next reply is shown">'
+    + '<div class="st-ctxl-more"><div class="st-ctx-legend">' + rows
+    + '<div class="st-ctx-key"><span class="st-ctx-dot st-ctx-free"></span><span class="st-ctx-key-l">Free space</span><span class="st-ctx-key-v">' + ctxCap(free) + '</span><span class="st-ctx-key-p">' + Math.max(0, 100 - pct).toFixed(1) + '%</span></div>'
+    + '</div><p class="st-ctx-note">' + note + '</p></div>'
+    + '<div class="st-ctxl-top"><span>Context \u00b7 this chat</span><span>' + pct.toFixed(1) + '% \u00b7 ' + ctxCap(d.tokens) + ' / ' + ctxCap(d.window) + ' <span class="st-ctxl-car">\u2303</span></span></div>'
+    + '<div class="st-ctx-bar st-ctx-bar-chat">' + seg + '<i class="st-ctx-mark" style="left:' + (d.compactAt * 100) + '%" title="Compacts here"></i></div></div>';
+}
 function ctxLineHTML(site) {
   if (!site || !site.slug) return '';
+  // THE CONVERSATION'S OWN MEASURE, once the server has answered for this chat.
+  const ck = typeof chatKeyOf === 'function' ? chatKeyOf(site) : '';
+  if (ck) {
+    ctxChatFetch(site);
+    const d = ctxChat[ck];
+    if (d && d.model === CTX_MODEL_OF[buildPicker]) return ctxChatHTML(site, d);
+  }
   const now = ctxNow(site);
   if (!now) { siteCtxFetch(site); return '<div class="st-ctxl" id="stCtxLine"><div class="st-ctxl-top"><span>Context · this chat</span><span>reading…</span></div><div class="st-ctx-bar"></div></div>'; }
   const { shape, m } = now;
@@ -10224,7 +10278,9 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
   // put in order by (2026-10-05, `siteTablesOrder`): it decides whether this
   // call's answer is taken, and which additions are kept with it (below).
   const tablesSent = ++siteTablesOrder.clock;
-  apiFetch('/api/site/route', {
+  // THE SERVER READS THE CONVERSATION FROM THE CHAT IT KEEPS (2026-10-20), so
+  // the chat is written up first, a few seconds at most.
+  (typeof chatFlushFor === 'function' ? chatFlushFor(siteById(origin) || site) : Promise.resolve()).then(() => apiFetch('/api/site/route', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     // `firstBuild` is what opens the question path at all, and it is `isBuild` —
     // the same flag that decides build-vs-revise — so a revise can never be
@@ -10267,6 +10323,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
       // sent; the server windows it and says what it left out. The files go by
       // name and kind only, for a reply about them — never as if seen.
       history: typeof ChatTalk !== 'undefined' ? ChatTalk.historyWire((siteById(origin) || site).msgs, t) : undefined,
+      chat: (typeof chatKeyOf === 'function' && chatKeyOf(siteById(origin) || site)) || undefined,
       files: typeof ChatTalk !== 'undefined' && ((imgs && imgs.length) || keptImgs.length) ? ChatTalk.fileWire(keptImgs.concat(Array.isArray(imgs) ? imgs : [])) : undefined,
       ask: !isBuild && answer && typeof answer.id === 'string' ? { id: answer.id, chosen: answer.chosen === true } : undefined,
       // ── WHAT THE SERVER KEEPS WHEN IT TAKES THE WORK ON (2026-10-03) ──────
@@ -10280,8 +10337,14 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
       images: !isBuild && (keptImgs.length || (imgs && imgs.length)) ? keptImgs.concat(Array.isArray(imgs) ? imgs.slice(0, 3) : []) : undefined,
       tz: !isBuild ? browserTimeZone() : undefined,
       recent: !isBuild && Array.isArray(site.undoRows) && site.undoRows.length ? site.undoRows.slice(0, 3) : undefined }),
-  }).then(async (r) => {
+  })).then(async (r) => {
     const d = await r.json().catch(() => null);
+    // THE CONVERSATION WAS COMPACTED FOR THIS REPLY (2026-10-20): said on the thread, above the reply.
+    if (d && d.compacted === true) {
+      const cs = siteById(origin);
+      if (cs && Array.isArray(cs.msgs)) { cs.msgs.push({ r: 'a', t: 'This chat grew long, so its earlier messages were summarized to keep it within the model\u2019s memory. The summary and every newer message are still read.', compact: true }); }
+    }
+    try { const cs2 = siteById(origin); if (cs2 && typeof ctxChatFetch === 'function') setTimeout(() => ctxChatFetch(cs2, true), 2500); } catch (e) { /* the bar updates on the next message */ }
     // ── AN ANSWER THE ROUTE WOULD NOT ACT ON (2026-10-02) ─────────────────
     // The question was already answered, cancelled, replaced or has expired —
     // its card comes off and nothing is sent — or the answer is longer than a

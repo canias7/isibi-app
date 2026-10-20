@@ -37,6 +37,7 @@ import { MAX_INPUT_CHARS } from "./input-budget.mjs";
  * costs what a greeting costs. The model is told the room it has, so a long
  * answer is planned to fit rather than cut.
  */
+import { summaryBlock } from "./chat-context.mjs";
 export const CONVERSE_MAX_TOKENS = 2400;
 
 // ── THE CONVERSATION WINDOW ─────────────────────────────────────────────────
@@ -336,11 +337,14 @@ export function unclearBlock(unclear) {
  * The one definition of the conversation call. `gist` is the router's own
  * short reply: shown as a starting point, never as the answer.
  */
-export function converseRequest({ message, history = null, context = null, attached = [], pending = null, gist = "", unclear = "", model } = {}) {
+export function converseRequest({ message, history = null, summary = null, context = null, attached = [], pending = null, gist = "", unclear = "", model } = {}) {
   const text = String(message || "").trim().slice(0, MAX_INPUT_CHARS);
   const parts = [siteContextBlock(context)];
   const w = waitingBlock(pending);
   if (w) parts.push(w);
+  // THE SUMMARY OF WHAT CAME BEFORE (2026-10-20), when the conversation was compacted.
+  const sb = summaryBlock(summary);
+  if (sb) parts.push(sb);
   const hb = historyBlock(history);
   if (hb) parts.push(hb);
   const a = attachedBlock(attached);

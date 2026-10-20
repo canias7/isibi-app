@@ -221,7 +221,8 @@ import { runLogoEdit } from "./builder/site-logo.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
 import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings } from "./site-access.mjs";
-import { converse, readHistory } from "./builder/site-converse.mjs";
+import { converse, readHistory, converseRequest, CONTEXT_CHARS } from "./builder/site-converse.mjs";
+import { planWindow, compact as compactChat, COMPACT_AT } from "./builder/chat-context.mjs";
 // The pair a `display` table resolves to. Named once, from the presets, so the
 // data layer's gate cannot drift from the vocabulary again — it was compared
 // against "anyone", which is a WRITE level, and matched nothing on any site.
@@ -575,7 +576,7 @@ function replyLiveWriter(env, job) {
 const chatStoreKey = (uid, chat) => "chat/" + uid + "/" + chat + ".json";
 /** A chat's largest stored size, and its most messages kept. */
 const CHAT_MAX_BYTES = 4_000_000;
-const CHAT_MAX_MSGS = 1000;
+const CHAT_MAX_MSGS = 5000;
 /** The chat as stored: `{ chat, etag, read }` — `read` false when the store could not say. */
 async function chatStoreRead(env, key) {
   try {
@@ -646,7 +647,37 @@ function readAskFilesPut(b) {
   return { imgs: b.imgs };
 }
 /** The chat store's pieces, for its tests. */
-export const chatStoreApi = { chatStoreKey, chatStoreRead, readChatPut, CHAT_MAX_BYTES, CHAT_MAX_MSGS, readAcctPut, mergeAcctState, ACCT_STATE_NAMES, readAskFilesPut, ASK_FILES_TTL_MS };
+/**
+ * THE CONVERSATION THE REPLY IS SHOWN (2026-10-20): the chat as the server
+ * keeps it, whole, up to `COMPACT_AT` of the model's window, and compacted
+ * once past it — the summary kept on the chat, the newest turns whole. Null
+ * when there is no kept chat to read; the page's own window is used then.
+ */
+async function chatWindowFor(env, uid, chatId, { model, fixedChars = 0, current = "", send = null } = {}) {
+  if (typeof chatId !== "string" || !/^[A-Za-z0-9_-]{4,80}$/.test(chatId) || !env.SITES_BUCKET) return null;
+  const key = chatStoreKey(uid, chatId);
+  const cur = await chatStoreRead(env, key);
+  if (!cur.read || !cur.chat) return null;
+  const window = contextWindow(model) || 0;
+  let plan = planWindow({ msgs: cur.chat.msgs, summary: cur.chat.summary, window, fixedChars, current });
+  let usage = null;
+  let compacted = false;
+  if (plan.over) {
+    const c = await compactChat({ send: send || quickSend(env, "compact") }, { plan, model });
+    if (c.ok) {
+      usage = c.usage;
+      compacted = true;
+      // KEPT ON THE CHAT, over the copy it was read from; a write that lost
+      // the race leaves the summary for the next message to make again.
+      try {
+        await env.SITES_BUCKET.put(key, JSON.stringify({ ...cur.chat, summary: c.summary }), { httpMetadata: { contentType: "application/json" }, onlyIf: cur.etag ? { etagMatches: cur.etag } : { etagDoesNotMatch: "*" } });
+      } catch (e) { console.error("chat summary not kept:", errorClassForLog(e)); }
+      plan = planWindow({ msgs: cur.chat.msgs, summary: c.summary, window, fixedChars, current });
+    } else console.error("compact failed:", c.stage);
+  }
+  return { history: { turns: plan.turns.map((t) => ({ role: t.role, text: t.text })), left: 0 }, summary: plan.summary, usage, compacted, plan };
+}
+export const chatStoreApi = { chatStoreKey, chatStoreRead, readChatPut, CHAT_MAX_BYTES, CHAT_MAX_MSGS, readAcctPut, mergeAcctState, ACCT_STATE_NAMES, readAskFilesPut, ASK_FILES_TTL_MS, chatWindowFor };
 /** A button press's room: its own name space, so a press id can never be read as a job's room. */
 const actionRoom = (id) => "act:" + id;
 /** The room's pieces, for its tests. */
@@ -29731,6 +29762,31 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
+    // GET /api/site/chat/<chat>/context?picker= — HOW FULL THE NEXT REPLY'S
+    // WINDOW IS (2026-10-20): the conversation as the server keeps it, the
+    // summary if it was compacted, and the instructions and site around them,
+    // against the picked model's window; compaction at `COMPACT_AT`.
+    {
+      const cx = url.pathname.match(/^\/api\/site\/chat\/([^/]*)\/context$/);
+      if (cx && request.method === "GET") {
+        const xu = await authUser(request, env);
+        if (!xu) return Response.json({ error: "sign in first" }, { status: 401 });
+        if (!/^[A-Za-z0-9_-]{4,80}$/.test(cx[1])) return Response.json({ error: "bad chat id" }, { status: 400 });
+        if (!env.SITES_BUCKET) return Response.json({ error: "not available" }, { status: 503 });
+        const model = modelsFor(url.searchParams.get("picker") || undefined).quick;
+        const cur = await chatStoreRead(env, chatStoreKey(xu.id, cx[1]));
+        if (!cur.read) return Response.json({ error: "unread" }, { status: 503 });
+        const bare = converseRequest({ message: "", model });
+        // THE SITE'S PART IS ITS CEILING: what the reply is shown of the site is cut to `CONTEXT_CHARS`.
+        const fixedChars = bare.system[0].text.length + bare.messages[0].content.length + CONTEXT_CHARS;
+        const plan = planWindow({ msgs: cur.chat ? cur.chat.msgs : [], summary: cur.chat ? cur.chat.summary : null, window: contextWindow(model) || 0, fixedChars });
+        return Response.json({
+          ok: true, model, window: plan.window, tokens: plan.tokens, used: plan.used, compactAt: COMPACT_AT,
+          parts: plan.parts, summarized: plan.summary ? plan.summary.upTo : 0, turns: plan.turns.length, estimated: true,
+        }, { headers: { "cache-control": "no-store" } });
+      }
+    }
+
     // /api/site/chat/<chat> — A CHAT KEPT ON THE SERVER (2026-10-20, owner:
     // "nothing can be local, it needs to be seen from every device"). One object
     // per account and chat (`chat/<uid>/<chat>.json`): the messages, the
@@ -29763,7 +29819,10 @@ async function handleRequest(request, env, ctx) {
         const have = cur.chat ? cur.chat.rev : 0;
         // OVER THE REVISION THE PAGE LAST READ, or the copy that stands comes back.
         if (next.baseRev !== have) return Response.json({ ok: false, conflict: true, chat: cur.chat }, { status: 409 });
-        const rec = { v: 1, rev: have + 1, updatedAt: Date.now(), name: next.name, slug: next.slug, msgs: next.msgs, clarify: next.clarify, jobCards: next.jobCards, ask: next.ask };
+        // THE SUMMARY IS THE SERVER'S (2026-10-20): kept across the page's writes while
+        // the messages it covers are still there.
+        const keptSum = cur.chat && cur.chat.summary && Number.isInteger(cur.chat.summary.upTo) && cur.chat.summary.upTo <= next.msgs.length ? cur.chat.summary : undefined;
+        const rec = { v: 1, rev: have + 1, updatedAt: Date.now(), name: next.name, slug: next.slug, msgs: next.msgs, clarify: next.clarify, jobCards: next.jobCards, ask: next.ask, ...(keptSum ? { summary: keptSum } : {}) };
         try {
           const put = await env.SITES_BUCKET.put(key, JSON.stringify(rec), { httpMetadata: { contentType: "application/json" }, onlyIf: cur.etag ? { etagMatches: cur.etag } : { etagDoesNotMatch: "*" } });
           if (!put) { const now = await chatStoreRead(env, key); return Response.json({ ok: false, conflict: true, chat: now.chat }, { status: 409 }); }
@@ -31592,6 +31651,8 @@ async function handleRequest(request, env, ctx) {
       // routing job never gets here: its answer is read, never shown.
       let rAnswer = routed.intent === "ask" ? routed.answer : undefined;
       let rConverse = null;
+      let rCompact = null;
+      let rCompacted = false;
       if (routed.failed !== true && routed.intent === "ask" && !rJob) {
         const firstBuild = !(rb.hasSite === true && rb.firstBuild !== true);
         const cctx = firstBuild
@@ -31601,8 +31662,18 @@ async function handleRequest(request, env, ctx) {
         const lastQ = firstBuild && rb.answering === true && Array.isArray(rb.qa) && rb.qa.length ? rb.qa[rb.qa.length - 1] : null;
         const pending = wq && wq.question && typeof wq.question.text === "string" ? { question: wq.question.text, request: wq.request }
           : lastQ && typeof lastQ.q === "string" ? { question: lastQ.q } : null;
+        // THE WHOLE CONVERSATION, FROM THE CHAT THE SERVER KEEPS (2026-10-20),
+        // compacted past 75% of the window; the page's own window when there is none.
+        let rWin = null;
+        try {
+          const bare = converseRequest({ message: rb.message, context: cctx, attached: Array.isArray(rb.files) ? rb.files : [], pending, gist: routed.answer, model: rModel });
+          const fixedChars = bare.system[0].text.length + bare.messages[0].content.length;
+          rWin = ru && ru.id ? await chatWindowFor(env, ru.id, rb.chat, { model: rModel, fixedChars, current: rb.message }) : null;
+        } catch (e) { console.error("chat window:", errorClassForLog(e)); rWin = null; }
+        rCompact = rWin && rWin.usage ? rWin.usage : null;
+        rCompacted = !!(rWin && rWin.compacted);
         rConverse = await converse({ send: quickSend(env, "converse") }, {
-          message: rb.message, history: readHistory(rb.history), context: cctx,
+          message: rb.message, history: rWin ? rWin.history : readHistory(rb.history), summary: rWin ? rWin.summary : null, context: cctx,
           attached: Array.isArray(rb.files) ? rb.files : [], pending, gist: routed.answer, model: rModel,
           // WHAT THE ROUTER COULD NOT PIN DOWN (2026-10-15): the reply asks about exactly it.
           unclear: typeof routed.unclear === "string" ? routed.unclear : "",
@@ -31616,7 +31687,9 @@ async function handleRequest(request, env, ctx) {
       // build path does: our fault, our cost. THE REPLY'S CALL IS BILLED WITH
       // IT, under the same charge (2026-10-14), only when it answered.
       if (routed.usage) {
-        rCost = pageCredits(routed.usage) + (rConverse && rConverse.ok && rConverse.usage ? pageCredits(rConverse.usage) : 0);
+        rCost = pageCredits(routed.usage) + (rConverse && rConverse.ok && rConverse.usage ? pageCredits(rConverse.usage) : 0)
+          // AND THE COMPACTION'S CALL (2026-10-20), every token of it, when it ran.
+          + (rCompact ? pageCredits(rCompact) : 0);
         // ── CHARGED ONCE, HOWEVER OFTEN IT ARRIVES (2026-10-03) ─────────────
         //
         // A part's routing job pays through the job's own reserve (`job#1`):
@@ -31646,6 +31719,8 @@ async function handleRequest(request, env, ctx) {
         // when it could not answer — the router's gist, said so.
         replyFrom: routed.intent === "ask" && rConverse ? (rConverse.ok ? "conversation" : "router") : undefined,
         replyCut: rConverse && rConverse.ok && rConverse.cut ? true : undefined,
+        // THE CONVERSATION WAS COMPACTED FOR THIS REPLY (2026-10-20): the page says so on the thread.
+        compacted: rCompacted ? true : undefined,
         // WHICH LAYER, AND WHICH PAGE — and without them the entire edit lane is
         // unreachable. Measured live 2026-08-11, first run of `edit smoke`:
         // `intent=edit layer=undefined`. `readEdit` decides the layer, this
