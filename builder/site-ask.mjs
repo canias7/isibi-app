@@ -3,7 +3,8 @@ import { readTargets } from "./request-plan.mjs";
 import { modelsFor } from "./build-models.mjs";
 import { isXaiModel } from "./model-xai.mjs";
 import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS, echoTokens } from "./input-budget.mjs";
-import { CAPABILITIES, historyBlock, routerHistory } from "./site-converse.mjs";// Telling a question from an instruction — and answering the question.
+import { CAPABILITIES, historyBlock, routerHistory, readHistory } from "./site-converse.mjs";
+import { summaryBlock } from "./chat-context.mjs";// Telling a question from an instruction — and answering the question.
 //
 // THE BUILDER COULD NOT BE ASKED ANYTHING. `siteSend` had exactly one decision
 // in it — `isBuild = !sitePages(site).length` — so the FIRST message on a project
@@ -1222,7 +1223,7 @@ function liveBlock({ canAsk = false, pending = null, context = [], part = null }
   return waiting + (told ? "\n" + told : "") + asking;
 }
 
-export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false, model = ASK_MODEL, live = false, canAsk = false, pending = null, context = [], part = null, tablesNone = false, history = null, answering = false } = {}) {
+export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false, model = ASK_MODEL, live = false, canAsk = false, pending = null, context = [], part = null, tablesNone = false, history = null, summary = null, answering = false } = {}) {
   // A FIRST BUILD'S MESSAGE IS CUT TO ITS OWN BOUND, AS IT ALWAYS WAS; a site
   // that exists sends it whole (2026-10-03, the size policy): the route has
   // already refused one past `MAX_INPUT_CHARS`, so nothing here shortens what
@@ -1303,7 +1304,7 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
     // THE CONVERSATION SO FAR (2026-10-14), its small window only — enough to
     // tell "do that" from a question and to write `resolved` — before their
     // message. Absent when the page sent none.
-    messages: [{ role: "user", content: "THEIR SITE\n" + siteDigest(site, { tablesNone }) + state + round + (historyBlock(history) ? "\n\n" + historyBlock(history) : "") + "\n\nTHEIR MESSAGE\n" + text + (live && partBlock(part) ? "\n\n" + partBlock(part) : "") }],
+    messages: [{ role: "user", content: "THEIR SITE\n" + siteDigest(site, { tablesNone }) + state + round + (summaryBlock(summary) ? "\n\n" + summaryBlock(summary) : "") + (historyBlock(history) ? "\n\n" + historyBlock(history) : "") + "\n\nTHEIR MESSAGE\n" + text + (live && partBlock(part) ? "\n\n" + partBlock(part) : "") }],
   };
 }
 
@@ -2950,7 +2951,12 @@ export function routeFailure(stage, e, { model, classify } = {}) {
  * for a call that failed — the same our-fault rule the build path follows. And
  * it says why, as `failure` (`routeFailure` above).
  */
-export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, picked = false, hasSite = false, model = ASK_MODEL, tablesFilled = false, tablesNone = false, pagesFilled = false, pagesComplete = true, canAsk: askable = false, context = [], pending = null, part = null, history = null } = {}) {
+/** The router's window over the kept chat: recent messages, each and all capped. */
+export const KEPT_TURNS = 40;
+export const KEPT_TURN_CHARS = 2000;
+export const KEPT_CHARS = 24000;
+const ROUTER_LAST_REPLY = 3200;
+export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, picked = false, hasSite = false, model = ASK_MODEL, tablesFilled = false, tablesNone = false, pagesFilled = false, pagesComplete = true, canAsk: askable = false, context = [], pending = null, part = null, history = null, kept = null } = {}) {
   const text = String(message || "").trim();
   // AN EMPTY MESSAGE NEVER REACHES THE MODEL. The composer will not send one, but
   // this is a paid call behind a public route and "the client wouldn't do that"
@@ -2989,7 +2995,14 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
   // values the request does: a brief whose `toString` throws must still end as
   // `request-failed`, exactly as it did before these were named.
   const shown = [];
-  const shownHistory = routerHistory(history);
+  // THE CHAT THE SERVER KEEPS, WHEN IT SENT IT (2026-10-20, owner: "do 1"): the
+  // summary of what came before and up to `KEPT_TURNS` recent messages, so a
+  // request that leans on something said earlier is read with it; cached from
+  // one message to the next. The page's short window otherwise, as before.
+  const keptSummary = kept && kept.summary && typeof kept.summary.text === "string" ? kept.summary : null;
+  const shownHistory = kept && Array.isArray(kept.turns)
+    ? readHistory(kept.turns, { turns: KEPT_TURNS, turnChars: KEPT_TURN_CHARS, total: KEPT_CHARS, lastReplyChars: ROUTER_LAST_REPLY })
+    : routerHistory(history);
   // A THROW IS THE BOTTOM OF THE LADDER FOR THIS STATE, not unconditionally a
   // build. On an existing site an unreachable router used to mean the customer
   // paid ~25 credits and had every page rewritten because a Haiku call timed
@@ -3024,7 +3037,7 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
     // reply's call uses, and said in the decision when shown or cut.
     if (shownHistory.turns.length) shown.push("history-shown");
     if (shownHistory.turns.length && (shownHistory.left > 0 || shownHistory.turns.some((t) => t.cut))) shown.push("history-cut");
-    request = askRequest({ message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, context: waiting ? told : (partOf ? (readContext(context) || []) : told), part: partOf, tablesNone: tablesNone === true, history: shownHistory.turns.length ? shownHistory : null, answering: canClarify && answering === true && picked !== true });
+    request = askRequest({ message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, context: waiting ? told : (partOf ? (readContext(context) || []) : told), part: partOf, tablesNone: tablesNone === true, history: shownHistory.turns.length ? shownHistory : null, summary: keptSummary, answering: canClarify && answering === true && picked !== true });
   } catch (e) {
     return fail("request", e);
   }
@@ -3088,7 +3101,7 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
     } else if (hit.length) {
       let again;
       try {
-        again = withReuse(askRequest({ message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, context: told, history: shownHistory.turns.length ? shownHistory : null }), hit);
+        again = withReuse(askRequest({ message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, context: told, history: shownHistory.turns.length ? shownHistory : null, summary: keptSummary }), hit);
       } catch (e) {
         return fail("request", e);
       }

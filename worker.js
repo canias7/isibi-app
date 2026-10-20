@@ -662,12 +662,26 @@ function tokensReport(calls) {
  * once past it — the summary kept on the chat, the newest turns whole. Null
  * when there is no kept chat to read; the page's own window is used then.
  */
-async function chatWindowFor(env, uid, chatId, { model, fixedChars = 0, current = "", send = null } = {}) {
+// ── A SMALL WINDOW, FOR THE TEST ACCOUNT ONLY (2026-10-20, owner: "do 1 and 2") ──
+// Reaching 75% of Grok's 500K tokens takes a chat of about 1.1 million
+// characters, more than a live test can pay for. A request from an account in
+// this list may name a smaller window (`testWindow`, in tokens), so the whole
+// compaction cycle runs live on a chat of a few dozen messages. Anybody else's
+// `testWindow` is ignored; the list is the QA account alone.
+const CONTEXT_TEST_UIDS = ["7b306795-8a84-4a29-88a8-e0f1018444d5"];
+const TEST_WINDOW_MIN = 4000;
+const TEST_WINDOW_MAX = 200000;
+/** The window a request may use instead of the model's own: only for a listed account, only a whole number in range. */
+function testWindowFor(uid, v) {
+  if (!CONTEXT_TEST_UIDS.includes(uid) || !Number.isInteger(v) || v < TEST_WINDOW_MIN || v > TEST_WINDOW_MAX) return 0;
+  return v;
+}
+async function chatWindowFor(env, uid, chatId, { model, fixedChars = 0, current = "", send = null, window: forced = 0 } = {}) {
   if (typeof chatId !== "string" || !/^[A-Za-z0-9_-]{4,80}$/.test(chatId) || !env.SITES_BUCKET) return null;
   const key = chatStoreKey(uid, chatId);
   const cur = await chatStoreRead(env, key);
   if (!cur.read || !cur.chat) return null;
-  const window = contextWindow(model) || 0;
+  const window = forced || contextWindow(model) || 0;
   let plan = planWindow({ msgs: cur.chat.msgs, summary: cur.chat.summary, window, fixedChars, current });
   let usage = null;
   let compacted = false;
@@ -686,7 +700,15 @@ async function chatWindowFor(env, uid, chatId, { model, fixedChars = 0, current 
   }
   return { history: { turns: plan.turns.map((t) => ({ role: t.role, text: t.text })), left: 0 }, summary: plan.summary, usage, compacted, plan };
 }
-export const chatStoreApi = { chatStoreKey, chatStoreRead, readChatPut, CHAT_MAX_BYTES, CHAT_MAX_MSGS, readAcctPut, mergeAcctState, ACCT_STATE_NAMES, readAskFilesPut, ASK_FILES_TTL_MS, chatWindowFor, tokensReport };
+/** The kept chat as the router reads it: the summary and every message after it, the one being sent left out. Null when there is none. */
+async function chatRouterWindow(env, uid, chatId, current) {
+  if (typeof chatId !== "string" || !/^[A-Za-z0-9_-]{4,80}$/.test(chatId) || !env.SITES_BUCKET) return null;
+  const cur = await chatStoreRead(env, chatStoreKey(uid, chatId));
+  if (!cur.read || !cur.chat) return null;
+  const plan = planWindow({ msgs: cur.chat.msgs, summary: cur.chat.summary, window: 0, current });
+  return { turns: plan.turns.map((t) => ({ role: t.role, text: t.text })), summary: plan.summary };
+}
+export const chatStoreApi = { chatStoreKey, chatStoreRead, readChatPut, CHAT_MAX_BYTES, CHAT_MAX_MSGS, readAcctPut, mergeAcctState, ACCT_STATE_NAMES, readAskFilesPut, ASK_FILES_TTL_MS, chatWindowFor, tokensReport, chatRouterWindow, testWindowFor };
 /** A button press's room: its own name space, so a press id can never be read as a job's room. */
 const actionRoom = (id) => "act:" + id;
 /** The room's pieces, for its tests. */
@@ -31349,6 +31371,13 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: false, error: rGate.why === "cancelled" ? "cancelled" : "stopped", cost: 0 });
         }
       }
+      // THE ROUTER READS THE KEPT CHAT TOO (2026-10-20): its summary and recent
+      // messages, never compacted here (the reply's call does that), and never
+      // for a part's routing job, which carries its own request.
+      let rKept = null;
+      if (!rJob && ru && ru.id) {
+        try { rKept = await chatRouterWindow(env, ru.id, rb.chat, rb.message); } catch (e) { console.error("chat window:", errorClassForLog(e)); rKept = null; }
+      }
       const rRoute = async (rDigest) => await routeMessage(
         // `classify` IS THE BUILD PATH'S OWN READER of a provider's error body
         // (`upstreamKind`), so a failed route names the provider's token and
@@ -31389,6 +31418,7 @@ async function handleRequest(request, env, ctx) {
           // THE CONVERSATION SO FAR (2026-10-14): the page's own copy of this
           // project's thread, read and windowed by `readHistory` there.
           history: rb.history,
+          kept: rKept,
           // DOES THIS PROJECT ALREADY HAVE A SITE — the flag that opens `edit`
           // and `addon` at all, and the one that stops a colour change on a live
           // site costing a full rewrite of every page.
@@ -31678,7 +31708,7 @@ async function handleRequest(request, env, ctx) {
         try {
           const bare = converseRequest({ message: rb.message, context: cctx, attached: Array.isArray(rb.files) ? rb.files : [], pending, gist: routed.answer, model: rModel });
           const fixedChars = requestChars(bare);
-          rWin = ru && ru.id ? await chatWindowFor(env, ru.id, rb.chat, { model: rModel, fixedChars, current: rb.message }) : null;
+          rWin = ru && ru.id ? await chatWindowFor(env, ru.id, rb.chat, { model: rModel, fixedChars, current: rb.message, window: testWindowFor(ru.id, rb.testWindow) }) : null;
         } catch (e) { console.error("chat window:", errorClassForLog(e)); rWin = null; }
         rCompact = rWin && rWin.usage ? rWin.usage : null;
         rCompacted = !!(rWin && rWin.compacted);

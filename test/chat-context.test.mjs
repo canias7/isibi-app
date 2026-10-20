@@ -240,3 +240,54 @@ test("CACHE HITS ARE REPORTED: each call's tokens, with what came from the cache
   const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(src, /tokens: routed\.usage \? tokensReport\(\{ route: routed\.usage, reply: rConverse && rConverse\.ok \? rConverse\.usage : null, compact: rCompact \}\) : undefined,/);
 });
+
+// ── THE ROUTER READS THE KEPT CHAT; A TEST WINDOW (2026-10-20, owner: "do 1 and 2") ──
+import { routeMessage, askRequest, KEPT_TURNS } from "../builder/site-ask.mjs";
+
+test("ROUTER: given the kept chat, it is shown the summary and up to 40 recent messages, not 8", async () => {
+  const turns = Array.from({ length: 60 }, (_, i) => ({ role: i % 2 ? "assistant" : "user", text: "turn " + i }));
+  let sent = null;
+  const send = async (req) => { sent = req; return { content: [{ type: "tool_use", name: "route", input: { intent: "ask", answer: "ok" } }], usage: {} }; };
+  await routeMessage({ send }, { message: "do the thing we said", site: { name: "x", pages: ["/"] }, hasSite: true, kept: { turns, summary: { text: "THEY WANT A BLUE HEADER", upTo: 10 } } }).catch(() => null);
+  const text = sent.messages[0].content;
+  assert.match(text, /EARLIER IN THIS CONVERSATION[\s\S]*THEY WANT A BLUE HEADER[\s\S]*THE CONVERSATION SO FAR/);
+  assert.equal(KEPT_TURNS, 40);
+  assert.ok(text.includes("turn 59") && text.includes("turn 20\n"), "the newest 40 turns are shown");
+  assert.ok(!text.includes("turn 19\n"), "older ones are left to the summary");
+  let plain = null;
+  await routeMessage({ send: async (req) => { plain = req; return { content: [], usage: {} }; } }, { message: "hi", site: { name: "x", pages: ["/"] }, hasSite: true, history: turns }).catch(() => null);
+  assert.ok(!plain.messages[0].content.includes("turn 40\n"), "without the kept chat the page's short window stays");
+  assert.ok(!/EARLIER IN THIS CONVERSATION/.test(askRequest({ message: "m", site: { name: "x", pages: [] } }).messages[0].content));
+});
+
+test("SERVER: the router's window is the kept chat after its summary, the message being sent left out", async () => {
+  const env = { SITES_BUCKET: bucket() };
+  env.SITES_BUCKET.m.set("chat/u1/site_abcd.json", { body: JSON.stringify({ v: 1, rev: 1, msgs: [msg("u", "a"), msg("a", "b"), msg("u", "c"), msg("a", "d"), msg("u", "now")], summary: { text: "S", upTo: 2 } }), etag: "e0" });
+  const w = await api.chatRouterWindow(env, "u1", "site_abcd", "now");
+  assert.deepEqual(w.turns.map((t) => t.text), ["c", "d"]);
+  assert.equal(w.summary.text, "S");
+  assert.equal(await api.chatRouterWindow(env, "u2", "site_abcd", "now"), null);
+  assert.equal(await api.chatRouterWindow(env, "u1", "a.b", "now"), null);
+});
+
+test("TEST WINDOW: only the QA account, only a whole number in range", () => {
+  const qa = "7b306795-8a84-4a29-88a8-e0f1018444d5";
+  assert.equal(api.testWindowFor(qa, 15000), 15000);
+  assert.equal(api.testWindowFor("someone-else", 15000), 0, "nobody else can shrink their window");
+  for (const bad of [3999, 200001, 15000.5, "15000", null]) assert.equal(api.testWindowFor(qa, bad), 0, String(bad));
+});
+
+test("SERVER: a test window makes a short chat compact", async () => {
+  const env = { SITES_BUCKET: bucket() };
+  env.SITES_BUCKET.m.set("chat/u1/site_abcd.json", { body: JSON.stringify({ v: 1, rev: 1, msgs: many(80, 600) }), etag: "e0" });
+  let calls = 0;
+  const w = await api.chatWindowFor(env, "u1", "site_abcd", { model: "grok-4.6", fixedChars: 22000, window: 15000, send: async () => { calls++; return { content: [{ type: "text", text: "SUM" }], usage: {} }; } });
+  assert.equal(calls, 1); assert.equal(w.compacted, true); assert.ok(w.plan.used < COMPACT_AT);
+});
+
+test("WIRING: the route hands the router the kept chat, and the reply a test window", () => {
+  const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(src, /rKept = await chatRouterWindow\(env, ru\.id, rb\.chat, rb\.message\)/);
+  assert.match(src, /history: rb\.history,\s*kept: rKept,/);
+  assert.match(src, /window: testWindowFor\(ru\.id, rb\.testWindow\) \}\) : null;/);
+});
