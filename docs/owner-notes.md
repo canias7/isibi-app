@@ -1,5 +1,13 @@
 # Owner Notes
 
+## 2026-10-20 — Deploys 2233–2234: the cache on every call, measured live (you: "yes do that")
+
+Merged and deployed: the cache on every model call (`ca77b3a4`, deploy 2233), and the route now reports each call's tokens and how many came from the cache (`9c13396d`, deploy 2234, green). Full suite 11588 / 11586 / 0 / 2. **Live, on Grok, two replies in one 80-message chat**:
+- **First reply** (cold): the router read 9,580 tokens at full price and 512 from the cache; the reply writer read 3,197 at full price and 512 cached. Cost 4 credits.
+- **Second reply**: the router read **9,984 of 10,080 tokens from the cache (99%)**; the reply writer read **3,584 of 3,730 (96%)**. Cost 2 credits.
+
+Both answers were correct (the Blue Fig Tart at £7.25; thought number 76). Spent: 6 credits.
+
 ## 2026-10-20 — The cache on every model call (you: "go look for the caching and fix"; branch only, not merged)
 
 **What the audit found.** Billing was right: cached tokens are charged at the cheaper cached rate on both providers (Grok's `cached_tokens` and Claude's cache reads both reach the bill). But on Claude models, 16 calls never marked anything for the cache, so they paid full price for the same instructions on every call: the router that reads every message, the progress talk (three calls), the reply writer, the data and rules steps, the nav, picture and seed steps, the keep judge, the tweak pass, the conversation summary, and the web research. On Grok, only calls that use a tool had a cache key, so the talk, the reply writer and the summary could land on servers without their cache.
