@@ -1346,3 +1346,10 @@
     grounded in actual task state.
   - No merge to `main`, deploy, production SQL, flag change, container build
     or spending until you say so; no generated images, video or audio.
+
+## Mobile apps are a product of their own, made the same way as sites (2026-10-20)
+
+Owner: *"you don't need to have a website. You can just build an app"* and *"Everything the same as the site … It's literally just the same process. But yeah, you can either have an Apple or Android or the three of them or two of them, whatever."*
+
+- An app does not need a website: a project can have a website, an Android app, an iPhone app, or any combination.
+- An app is built and edited exactly the way a site is: the same chat, router, build pipeline, edits, versions and credits. Only the output differs: phone screens, shown in the two phones of the mobile panel (the right-edge tab, dragged open), instead of web pages.
