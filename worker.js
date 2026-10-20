@@ -25018,6 +25018,11 @@ function buildHeld(body) {
 }
 
 async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null, lease = null, jobOwner = null, billId = null }) {
+  // THE CUSTOMER'S EFFORT ON A REPLAYED BUILD (2026-10-20, deploy 2228's Low
+  // build thought as much as its High one): a queued or container build is run
+  // here from its stored request, never through `handleRequest`, so its effort
+  // is read off that request here as well.
+  env = await withBuildEffort(request, env);
       // ── EVERY ENDING NAMES WHAT WAS PUT OFF (2026-10-02, the audit's W7/W8) ──
       // The edit and add-on routes' wrapper, for the climb that reaches here:
       // the parts taken out of the instruction below are added to whatever

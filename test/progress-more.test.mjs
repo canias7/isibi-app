@@ -678,3 +678,8 @@ test("R19 a site request's effort rides its env; a Grok call takes it unless it 
   assert.equal(withCustomerEffort(e1, { model: "claude-sonnet-5" }).effort, undefined, "a Claude call gained a field Anthropic refuses");
   assert.equal(withCustomerEffort(env, grok), grok, "a request with no effort changed the call");
 });
+
+test("R19 A REPLAYED BUILD CARRIES ITS EFFORT TOO: runSiteBuild reads it off the stored request, since a queued or container build never passes handleRequest", () => {
+  assert.match(W, /async function runSiteBuild\(request, env, \{[^}]*\}\) \{\n(?:\s*\/\/[^\n]*\n)*\s*env = await withBuildEffort\(request, env\);/, "a replayed build ignores its effort");
+  assert.match(W, /const res = await runSiteBuild\(replayRequest\(job\), env,/, "the container build no longer replays through runSiteBuild");
+});

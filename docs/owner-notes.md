@@ -1,5 +1,10 @@
 # Owner Notes
 
+## 2026-10-20 — Every token charged, measured; and why Low didn't reach the design (on your word "do 1"; the fix is on the branch, not deployed)
+
+- **Deploy 2228** (`7beb5f2a`, every token charged), with two builds at once on the same prompt (topped up 60, balance 88). **High** (harbour-loaf-13): **66 credits** (design 37, deposit 2, pages 27), against 19 before the change. The design's billed output was 43,120 tokens against 2,613, so the thinking had been about 16 times the visible output. **Low** (harbour-loaf-14): its design charged 41, leaving the shared balance at 0; there was nothing left for the pages, the build stopped at `stage: credits`, and **all 43 credits were refunded**. An ordinary Grok site now costs about 60 to 70 credits, against a new account's grant of 20 (a decision for you before launch).
+- **Why Low thought as much as High**: a queued or container build is run by `runSiteBuild` straight from its stored request and never passes `handleRequest`, where the effort was read. So design and page writing ran at the default. **Fix**: `runSiteBuild` reads the effort off its request too. Edits and additions replay through `handleRequest` and already had it. Test added to R19.
+
 ## 2026-10-20 — Grok's thinking is now charged ("we gotta charge for every token"; branch only, not deployed)
 
 - **Found**: the Low build cost 25 and the High build 19. The difference was the design size (27 sections against fewer, and fewer cache hits), not the effort. The credits never counted Grok's **thinking**: `fromXaiResponse` read only `completion_tokens`, and xAI bills reasoning at the output price, reported apart (`completion_tokens_details.reasoning_tokens`). Nothing in the code read it. The High build's design was billed for only 2,613 output tokens.
