@@ -313,3 +313,13 @@ test("GROK'S CACHE KEY GOES AS THE x-grok-conv-id HEADER, the documented route o
   const src = readFileSync(new URL("../builder/build-call.mjs", import.meta.url), "utf8");
   assert.match(src, /doFetch\(XAI_ENDPOINT, \{\s*method: "POST",\s*headers: xaiHeaders\(k\.xai, body\),/);
 });
+
+test("GROK GETS THE REPLY AS ONE STRING: the blocks joined, the words unchanged; pictures still go as parts", () => {
+  const h = { turns: [{ role: "user", text: "one" }, { role: "assistant", text: "two" }], left: 0 };
+  const req = converseRequest({ message: "now", history: h, model: "grok-4.6" });
+  const x = toXaiRequest(req).body.messages.find((m) => m.role === "user");
+  assert.equal(typeof x.content, "string");
+  assert.equal(x.content, req.messages[0].content.map((b) => b.text).join("\n"));
+  const pic = toXaiRequest({ model: "grok-4.6", messages: [{ role: "user", content: [{ type: "text", text: "a" }, { type: "image", source: { type: "base64", media_type: "image/png", data: "AA" } }] }] }).body.messages[0];
+  assert.ok(Array.isArray(pic.content), "a message with a picture keeps its parts");
+});
