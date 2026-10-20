@@ -3114,3 +3114,7 @@ product.)*
     - Twice (runs 134, 136) the scenario name went into the "REQUEST BATCH
       ONLY" box under the very long "RUN A NAMED SCENARIO" label.
     - Both refused before the sign-in, at no cost.
+
+## Old container images fill the account's 50 GB (2026-10-20)
+
+Cloudflare keeps every pushed container image, and an account holds 50 GB in total. The app builder's image is 3.65 GB, so about a dozen versions would fill the account alongside the website image. Delete old app-builder and site-builder image versions from the registry, by hand or in the deploy's image step, keeping the live one and the one before it.

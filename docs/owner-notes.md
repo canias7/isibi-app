@@ -28,6 +28,20 @@ The first run caught a real bug: every app installed as the template ("Go Farthe
 - Updated with their reasons: `container-images` (the deploy now sees two real images), and `build-lane` (the new class allows 100 instances and names its container through `laneName`).
 - Sweep: 6 of 6 killed, the control survived. Full suite 11604 / 11602 / 0 / 2.
 
+**The real image, built and run (2026-10-20, later):**
+- Docker turned out to be available here, so I built `app-builder/Dockerfile` for real: **3.65 GB, 159 s**.
+- I ran it **with no network at all** and sent a build to its own server. It answered "Fold Lane Bakery" (`dev.gofarther.foldlanebakery`, 4.1 MB) in **32 s**, so builds really are offline.
+- Three changes were made to a local test copy only, never to the committed file. Each worked around this session's network:
+  - the session proxy's certificate is trusted, and apt uses HTTPS;
+  - the Docker Hub base image was pulled from Google's mirror of Docker Hub;
+  - Gradle's libraries were pre-copied from the earlier measurement, because Maven Central kept rate-limiting this network.
+
+  GitHub's deploy runner has ordinary internet access, but the deploy will be the first build of the unmodified file.
+
+**Cloudflare's limits:**
+- An image may be as large as its instance's disk (8 GB on `standard-1`), so 3.65 GB fits.
+- The account holds 50 GB of images in total. Every image version stays stored, so old app-builder images will need deleting from time to time (backlog).
+
 ## 2026-10-20 — Android apps from our containers: measured (you: "yes run the measurement")
 
 The live `fold-lane-bakery` site was wrapped with Capacitor 8 and built into a working Android app file (9.7 MB, "Fold Lane Bakery", Android 7 and up) on this session's Linux machine. No credits spent.
