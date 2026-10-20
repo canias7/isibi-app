@@ -1005,6 +1005,12 @@ const TARGETS = {
   },
 };
 
+/** The live tool's sixth answer: the site made into a phone app. */
+const LIVE_APP_CLAUSE =
+  "\"app\" — they want the site that ALREADY EXISTS made into a phone app: \"make this an Android app\", \"can I get " +
+  "an app version for my customers\", \"put it on iPhone\". Set `platform`: \"ios\" when they name an iPhone, iPad or " +
+  "Apple, otherwise \"android\". It changes nothing on the site. Talking about an app (\"would an app help me?\") is " +
+  "\"ask\".";
 export const LIVE_ASK_TOOL = {
   name: ASK_TOOL.name,
   description: "Say whether this message is asking for a change to the site or asking a question, answer it if it is a question, and ask for the one detail you need when what they want cannot be decided without it.",
@@ -1012,7 +1018,15 @@ export const LIVE_ASK_TOOL = {
     ...ASK_TOOL.input_schema,
     properties: {
       ...ASK_TOOL.input_schema.properties,
-      intent: { ...ASK_TOOL.input_schema.properties.intent, description: liveIntentDescription() },
+      // A PHONE APP OF THE SITE (2026-10-20, owner: "it has to be through model
+      // calls"): a sixth answer, offered only here, on a site that exists, so a
+      // first build's tool and request stay exactly as they were.
+      intent: { ...ASK_TOOL.input_schema.properties.intent, enum: [...ASK_TOOL.input_schema.properties.intent.enum, "app"], description: liveIntentDescription() + "\n\n" + LIVE_APP_CLAUSE },
+      platform: {
+        type: "string",
+        enum: ["android", "ios"],
+        description: "Only with intent \"app\": \"ios\" when they name an iPhone, iPad or Apple, otherwise \"android\".",
+      },
       alsoAsked: liveAlsoAsked(),
       dependsOn: DEPENDS_ON,
       targets: TARGETS,
@@ -1431,7 +1445,7 @@ export const ROUTE_REASONS = Object.freeze({
 export const ROUTE_SOURCES = Object.freeze(["model", "fallback", "rule"]);
 
 /** The router's intents, read from its own tool so the two cannot drift. */
-const ROUTE_INTENTS = ASK_TOOL.input_schema.properties.intent.enum;
+const ROUTE_INTENTS = LIVE_ASK_TOOL.input_schema.properties.intent.enum;
 
 /** A name the model gave, read only from its own fixed list: "none" when it gave none, "other" when it gave something else. */
 function rawName(v, list) {
@@ -1658,6 +1672,13 @@ function readDecision(reply, { canClarify = false, picked = false, hasSite = fal
   // `resolved`): read on the three work answers only, where it is run in
   // place of their words — and only when a conversation was shown.
   const res = () => readResolved(input, history, mark);
+  // A PHONE APP OF THE SITE (2026-10-20): no step of the site runs; the page
+  // asks the app builder. Only for a site that exists; the platform is read
+  // from the model's fixed list, Android when it named none.
+  if (hasSite && input.intent === "app") {
+    markLeftOut(input, [], mark);
+    return { intent: "app", platform: input.platform === "ios" ? "ios" : "android", answer: "" };
+  }
   if (hasSite && input.intent === "addon") {
     const out = { ...work("addon"), ...readAlso(input, trace), ...res() };
     markLeftOut(input, ["also", "resolved"], mark);

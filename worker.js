@@ -578,6 +578,9 @@ function replyLiveWriter(env, job) {
 // and keeps it at `apps/<slug>/android.apk`; GET downloads it. Owner only.
 // "live" (the default) opens the site's address; "bundled" carries its files.
 const appKey = (slug) => "apps/" + slug + "/android.apk";
+/** How long an app build waits for a free builder, and how often it asks again. */
+let APP_WAIT_MS = 5 * 60 * 1000;
+let APP_RETRY_MS = 10_000;
 /** An Android application id from a slug: `dev.gofarther.<letters and digits>`, as the builder checks it. */
 function appIdFor(slug) {
   const part = String(slug || "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -683,7 +686,7 @@ function readChatPut(b) {
 // stored, so two devices settle on the last choice made. The names are a fixed
 // list: nothing else is stored.
 const acctStateKey = (uid) => "acct/" + uid + ".json";
-const ACCT_STATE_NAMES = ["picker", "effort", "view", "side", "credMax", "offerEnd", "welcome", "editWatch", "mediaUploads"];
+const ACCT_STATE_NAMES = ["picker", "effort", "view", "side", "credMax", "offerEnd", "welcome", "editWatch", "mediaUploads", "kind"];
 const ACCT_VALUE_MAX = 200_000;
 /** A write's values, read strictly: `{ name: { v: string|null, at: ms } }`, known names only. Null for anything else. */
 function readAcctPut(b) {
@@ -777,7 +780,7 @@ async function chatRouterWindow(env, uid, chatId, current) {
   const plan = planWindow({ msgs: cur.chat.msgs, summary: cur.chat.summary, window: 0, current });
   return { turns: plan.turns.map((t) => ({ role: t.role, text: t.text })), summary: plan.summary };
 }
-export const chatStoreApi = { chatStoreKey, chatStoreRead, readChatPut, CHAT_MAX_BYTES, CHAT_MAX_MSGS, readAcctPut, mergeAcctState, ACCT_STATE_NAMES, readAskFilesPut, ASK_FILES_TTL_MS, chatWindowFor, tokensReport, chatRouterWindow, testWindowFor, siteAppFiles, appIdFor };
+export const chatStoreApi = { chatStoreKey, chatStoreRead, readChatPut, CHAT_MAX_BYTES, CHAT_MAX_MSGS, readAcctPut, mergeAcctState, ACCT_STATE_NAMES, readAskFilesPut, ASK_FILES_TTL_MS, chatWindowFor, tokensReport, chatRouterWindow, testWindowFor, siteAppFiles, appIdFor, setAppWait: (retry, wait) => { APP_RETRY_MS = retry; APP_WAIT_MS = wait; } };
 /** A button press's room: its own name space, so a press id can never be read as a job's room. */
 const actionRoom = (id) => "act:" + id;
 /** The room's pieces, for its tests. */
@@ -796,7 +799,9 @@ export const talkRoomApi = { TalkRoom, readRoomSay, mergeRoomSay, roomMessage, t
  */
 export class AppBuildContainer extends Container {
   defaultPort = 8080;
-  sleepAfter = "5m";
+  // ONE MINUTE, NOT FIVE (2026-10-20): a site's app is built rarely, so keeping
+  // its container awake for a second build is mostly paying for nothing.
+  sleepAfter = "1m";
 }
 export class SiteBuildContainer extends Container {
   defaultPort = 8080;
@@ -29811,13 +29816,15 @@ async function handleRequest(request, env, ctx) {
 
     // POST|GET /api/site/<slug>/app/android — build the site's Android app, or download it (2026-10-20).
     {
-      const ap = url.pathname.match(/^\/api\/site\/([a-z0-9-]{1,60})\/app\/android$/);
+      const ap = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/app(\/android)?$/);
       if (ap && (request.method === "POST" || request.method === "GET")) {
         const au = await authUser(request, env);
         if (!au) return Response.json({ error: "sign in first" }, { status: 401 });
         const aslug = ap[1];
         const own = await siteOwnerBySlug(aslug, env);
         if (!own || own !== au.id) return Response.json({ error: "not found" }, { status: 404 });
+        // WHICH PHONE IS IN THE ADDRESS: `/app/android` today; Apple's goes through its own build service.
+        if (!ap[2]) return Response.json({ error: "name the phone: /app/android" }, { status: 400 });
         if (!env.SITES_BUCKET) return Response.json({ error: "not available" }, { status: 503 });
         if (request.method === "GET") {
           const o = await env.SITES_BUCKET.get(appKey(aslug));
@@ -29837,14 +29844,25 @@ async function handleRequest(request, env, ctx) {
           req.files = got.files;
         }
         const started = Date.now();
-        let r;
-        try {
-          const c = getContainer(env.APP_BUILD_CONTAINER, laneName("app-" + aslug));
-          r = await c.fetch(new Request("http://app/build", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(req), signal: AbortSignal.timeout(16 * 60 * 1000) }));
-        } catch (e) {
-          console.error("app build:", aslug, errorClassForLog(e));
-          return Response.json({ ok: false, error: "The app builder could not be reached. Try again in a minute." }, { status: 503 });
+        // WAITING ITS TURN (2026-10-20, owner: "3"): when every app builder is
+        // busy (the class's `max_instances`) or one cannot start yet, the build
+        // waits and asks again every `APP_RETRY_MS`, for up to `APP_WAIT_MS`,
+        // before saying so. An app build takes about half a minute, so a turn
+        // comes round quickly; a site already building its app is told at once.
+        let r = null;
+        for (let tries = 0; ; tries++) {
+          try {
+            const c = getContainer(env.APP_BUILD_CONTAINER, laneName("app-" + aslug));
+            r = await c.fetch(new Request("http://app/build", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(req), signal: AbortSignal.timeout(16 * 60 * 1000) }));
+            if (r.status !== 503) break;
+          } catch (e) {
+            console.error("app build:", aslug, errorClassForLog(e));
+            r = null;
+          }
+          if (Date.now() - started + APP_RETRY_MS > APP_WAIT_MS) break;
+          await new Promise((res) => setTimeout(res, APP_RETRY_MS));
         }
+        if (!r || r.status === 503) return Response.json({ ok: false, error: "Every app builder is busy right now. Try again in a few minutes \u2014 nothing was charged and nothing on your site changed." }, { status: 503 });
         if (r.status === 409) return Response.json({ ok: false, error: "An app for this site is already being built." }, { status: 409 });
         if (!r.ok || !(r.headers.get("content-type") || "").includes("android")) {
           const d = await r.json().catch(() => null);
@@ -31902,6 +31920,8 @@ async function handleRequest(request, env, ctx) {
         // The wiring layer for the tenth recorded time, and the reason the live
         // run exists: 2091 unit tests all passed, because every one of them
         // drives `readRouting` directly and worker.js cannot be imported.
+        // WHICH PHONE, for a phone app of the site (2026-10-20); the page asks the app builder.
+        platform: routed.intent === "app" ? routed.platform : undefined,
         layer: routed.intent === "edit" ? routed.layer : undefined,
         page: routed.intent === "edit" ? routed.page : undefined,
         // AND WHETHER THE PAGE IS BEING TAKEN AWAY — the SAME BUG as the two

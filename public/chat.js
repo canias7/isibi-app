@@ -199,6 +199,48 @@ function wireBuildPicker() {
   menu.querySelectorAll('.build-item').forEach((it) => { it.onclick = () => setBuildPicker(it.dataset.pick); });
 }
 
+// ── WHAT TO MAKE: a website, an Android app or an Apple app (2026-10-20, owner:
+// "on the chat box, the one in the list of sites, put there a picker for sites,
+// Android app, and Apple app"). The same chip and menu as the builder's; the
+// choice rides the build (`target`) and is kept on the account like the others.
+const BUILD_KINDS = {
+  site:    { label: 'Website',     desc: 'A website at its own address' },
+  android: { label: 'Android app', desc: 'Your website, as an app for Android phones' },
+  ios:     { label: 'Apple app',   desc: 'Your website, as an app for iPhone' },
+};
+const BUILD_KIND_KEY = 'zephyr_build_kind_v1';
+let buildKind = 'site';
+try { buildKind = localStorage.getItem(BUILD_KIND_KEY) || 'site'; } catch (e) { buildKind = 'site'; }
+if (!BUILD_KINDS[buildKind]) buildKind = 'site';
+const KIND_PLACEHOLDER = {
+  site: 'Describe the website you want \u2014 \u201ca landing page for my sneaker brand, dark, bold type, waitlist form\u201d\u2026',
+  android: 'Describe the app you want \u2014 \u201can ordering app for my bakery, warm colours, today\u2019s loaves on the first screen\u201d\u2026',
+  ios: 'Describe the app you want \u2014 \u201can ordering app for my bakery, warm colours, today\u2019s loaves on the first screen\u201d\u2026',
+};
+function buildKindHTML(dir) {
+  const up = dir !== 'down';
+  return '<span class="st-buildsel-wrap">' +
+    '<button type="button" class="st-buildsel" id="stKindSel" title="What to make">Make: <b id="stKindLabel">' + BUILD_KINDS[buildKind].label + '</b> \u25be</button>' +
+    '<div class="model-menu ' + (up ? 'drop-up ' : '') + 'build-menu" id="stKindMenu">' +
+      Object.keys(BUILD_KINDS).map((k) => { const m = BUILD_KINDS[k]; return '<div class="model-item build-item' + (k === buildKind ? ' selected' : '') + '" data-kind="' + k + '"><span class="txt"><b>' + m.label + '</b><small>' + m.desc + '</small></span><span class="check">✓</span></div>'; }).join('') +
+    '</div></span>';
+}
+function setBuildKind(k) {
+  if (!BUILD_KINDS[k]) return;
+  buildKind = k;
+  try { localStorage.setItem(BUILD_KIND_KEY, k); } catch (e) { /* kept for this page */ }
+  const lbl = document.getElementById('stKindLabel'); if (lbl) lbl.textContent = BUILD_KINDS[k].label;
+  const ta = document.getElementById('stPrompt'); if (ta) ta.placeholder = KIND_PLACEHOLDER[k];
+  const menu = document.getElementById('stKindMenu');
+  if (menu) { menu.classList.remove('open'); menu.querySelectorAll('.build-item').forEach((it) => it.classList.toggle('selected', it.dataset.kind === k)); }
+}
+function wireBuildKind() {
+  const sel = document.getElementById('stKindSel'), menu = document.getElementById('stKindMenu');
+  if (!sel || !menu) return;
+  sel.onclick = (e) => { e.stopPropagation(); document.querySelectorAll('.model-menu.open').forEach((m) => { if (m !== menu) m.classList.remove('open'); }); menu.classList.toggle('open'); };
+  menu.querySelectorAll('.build-item').forEach((it) => { it.onclick = () => setBuildKind(it.dataset.kind); });
+}
+
 // ── Effort: Grok's own reasoning levels (owner, 2026-10-20: "the old picker
 // for effort… forget it, use the effort levels from xai"). Nothing of the old
 // 1–5 dial (output size, the multi-agent fan-out) is kept or meant.
@@ -5909,7 +5951,7 @@ function renderSites() {
       '<div class="st-hero">' +
         '<h1>What are we <span class="st-grad">building</span>?</h1>' +
       '<div class="st-new">' +
-        '<textarea id="stPrompt" class="st-in" rows="2" placeholder="Describe the website you want — “a landing page for my sneaker brand, dark, bold type, waitlist form”…"></textarea>' +
+        '<textarea id="stPrompt" class="st-in" rows="2" placeholder="' + KIND_PLACEHOLDER[buildKind] + '"></textarea>' +
         '<div class="st-attach" id="stAttach"></div>' +
         '<div class="st-new-foot">' +
           '<button type="button" class="st-attbtn" id="stAttachBtn" title="Attach a logo, a photo, a PDF menu or price list">' + ic('image', 15) + ' Attach</button>' +
@@ -5918,7 +5960,7 @@ function renderSites() {
           // row sits under the hero rather than at the foot of a rail. The row is
           // `space-between` and the wrap carries `margin-right: auto`, so the free
           // space lands there and it reads Attach · Builder ————— ↑.
-          buildPickerHTML('down') + buildEffortHTML('down') +
+          buildKindHTML('down') + buildPickerHTML('down') + buildEffortHTML('down') +
           '<button type="button" class="st-gen" id="stGen" aria-label="Build it" title="Build it"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>' +
         '</div>' +
       '</div></div>' +
@@ -5973,6 +6015,7 @@ function renderSites() {
   // returns quietly when there are none, so calling it on a screen that has no
   // chip is safe; the ids are never on the page twice because this function
   // returns to `renderSiteWorkspace` before drawing anything when a site is open.
+  wireBuildKind();
   wireBuildPicker();
   wireBuildEffort();
   if (typeof wireCtxLine === 'function') wireCtxLine();
@@ -6191,7 +6234,11 @@ function siteCreate(prompt) {
   // for" for the whole of deploy 2218's build. A neutral name until the build
   // names the site (`d.brand`).
   const name = 'New website';
-  sitesLoad().unshift({ id, name, createdAt: Date.now(), updatedAt: Date.now(), html: '', msgs: [] });
+  // WHAT THE PICKER SAID TO MAKE (2026-10-20): an app is made from the website,
+  // so the website is built first and the app follows it (`wantApp`).
+  const kindNow = typeof buildKind === 'string' ? buildKind : 'site';
+  const wantApp = kindNow === 'android' || kindNow === 'ios' ? kindNow : undefined;
+  sitesLoad().unshift({ id, name, createdAt: Date.now(), updatedAt: Date.now(), html: '', msgs: [], ...(wantApp ? { wantApp } : {}) });
   sitesSave();
   // THE START SCREEN'S FILES GO WITH ITS BRIEF. They were attached for this build,
   // so they move to the new project's draft, which the send below takes; the
@@ -10050,6 +10097,8 @@ function routeActionable(d, site) {
       absentOr(d.rename, 'string') && absentOr(d.remove, 'boolean') && absentOr(d.tab, 'boolean');
   }
   if (d.intent === 'addon') return slug;
+  // A PHONE APP OF THE SITE (2026-10-20): the router named which phone.
+  if (d.intent === 'app') return slug && (d.platform === 'android' || d.platform === 'ios');
   if (d.intent === 'build') return true;
   if (d.intent === 'ask') return typeof d.answer === 'string' && d.answer.trim() !== '';
   // ON A SITE THAT EXISTS A QUESTION CARRIES THE ID IT WAS KEPT UNDER (2026-10-02).
@@ -10478,6 +10527,9 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // naming no layer; an answer it cannot read, or a refusal, is said instead,
     // as the edit's is (2026-09-24).
     if (d.intent === 'addon' && site.slug) return siteAddon(site, run, origin, finish, go, d, sendImgs);
+    // A PHONE APP OF THE SITE (2026-10-20, owner: "it has to be through model
+    // calls"): the router read the message as asking for one; the app builder makes it.
+    if (d.intent === 'app' && site.slug) return siteMakeApp(site, d.platform, finish);
     // On a live site only an explicit `build` reaches this `go()`: the check
     // above refused every answer it could not act on. What an answered
     // question put off earlier rides with it, to be named when it ends.
@@ -12596,6 +12648,30 @@ function resumeOpenSite(site) {
   siteBusy = true;
   siteBuildStart(true);
   return true;
+}
+// ── A PHONE APP OF THE SITE (2026-10-20) ──────────────────────────────────
+// Android: the app builder makes it from the live site (`POST
+// /api/site/<slug>/app/android`, about a minute), the file is downloaded to
+// this device, and the reply says what it is and how to install it. Apple:
+// said honestly — it needs the Apple build service, which is not set up yet.
+function siteMakeApp(site, platform, finish) {
+  if (platform === 'ios') {
+    finish('Apple apps are on the way, but not ready yet: an iPhone app has to be built on Apple\u2019s own computers, and that service isn\u2019t set up yet. I can make the Android app right now \u2014 just say \u201cmake an Android app\u201d.');
+    return;
+  }
+  const slug = site.slug;
+  apiFetch('/api/site/' + encodeURIComponent(slug) + '/app/android', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: site.name || slug }) })
+    .then(async (r) => {
+      const d = await r.json().catch(() => null);
+      if (!r.ok || !d || d.ok !== true) { finish(((d && typeof d.error === 'string' && d.error) || 'The app could not be made just now. Nothing on your site changed \u2014 try again in a minute.')); return; }
+      const mb = (d.bytes / 1048576).toFixed(1);
+      try {
+        const g = await apiFetch(d.download);
+        if (g.ok) { const blob = await g.blob(); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = slug + '.apk'; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); }
+      } catch (e) { /* the reply still says where it is */ }
+      finish('Your Android app \u201c' + (d.name || slug) + '\u201d is ready (' + mb + ' MB) and downloading as ' + slug + '.apk. Open it on an Android phone to install it \u2014 it opens your website, so every change you make shows in the app too. (This is a test build you install directly; a Play Store version is coming.)');
+    })
+    .catch(() => finish('The app builder could not be reached. Nothing on your site changed \u2014 try again in a minute.'));
 }
 // The middle rung: add a page or a table, keep everything else.
 //
@@ -14749,6 +14825,12 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
       const s = siteById(origin);
       if (s) {
         s.react = true; s.slug = d.slug; s.url = d.url || ('/s/' + d.slug + '/');
+        // THE APP THE PICKER ASKED FOR follows the website it is made from (2026-10-20).
+        if (s.wantApp) {
+          const want = s.wantApp;
+          delete s.wantApp;
+          setTimeout(() => siteMakeApp(s, want, (reply) => { const t = siteById(origin); if (!t) return; t.msgs.push(siteReplyMsg(reply)); t.updatedAt = Date.now(); sitesSave(); if (siteOpenId === origin) renderSites(); }), 0);
+        }
         // THE FILES KEPT BEFORE THE SITE EXISTED HAVE A HOME NOW (2026-10-16):
         // the build that holds the address moved them (or said which it could
         // not), so they are not named to a later build as still waiting.
@@ -16956,7 +17038,7 @@ function toggleSidebar() {
 const ACCT_KEYS = {
   picker: 'zephyr_build_picker_v1', effort: 'zephyr_build_effort_v2', view: 'zephyr_view_v1',
   side: 'zephyr_side_v1', credMax: 'zephyr_cred_max_v1', offerEnd: 'zephyr_offer_end_v1',
-  welcome: 'zephyr_welcome_v1', editWatch: 'gf.edit.watch.v1', mediaUploads: 'gf-media-uploads',
+  welcome: 'zephyr_welcome_v1', editWatch: 'gf.edit.watch.v1', mediaUploads: 'gf-media-uploads', kind: 'zephyr_build_kind_v1',
 };
 const ACCT_AT_KEY = 'gf.acct.at.v1';
 var ACCT_WIPE_KEYS = Object.values(ACCT_KEYS).concat(ACCT_AT_KEY);
@@ -17000,6 +17082,7 @@ function acctPush() {
 function acctApply(name, v) {
   if (name === 'picker' && v && typeof setBuildPicker === 'function') setBuildPicker(v);
   else if (name === 'effort' && v && typeof setBuildEffort === 'function') setBuildEffort(v);
+  else if (name === 'kind' && v && typeof setBuildKind === 'function') setBuildKind(v);
   else if (name === 'side') {
     const sb = document.getElementById('sideBar');
     if (sb && sb.classList.contains('collapsed') !== (v === 'collapsed')) toggleSidebar();

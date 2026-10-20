@@ -129,3 +129,52 @@ test("ROUTE: the builder's refusal is said, and nothing is kept", async () => {
   assert.equal(env.SITES_BUCKET.m.size, 0);
   assert.equal((await call(env, "GET", "shop-4")).status, 404);
 });
+
+// ── WAITING ITS TURN, THE ROUTER'S "app", THE PICKER (2026-10-20, owner: "3 and it has to be through model calls") ──
+import { readRouting, ASK_TOOL, LIVE_ASK_TOOL } from "../builder/site-ask.mjs";
+
+test("QUEUE: a busy builder is asked again until it is free; one never free is said, and nothing is kept", async () => {
+  api.setAppWait(1, 200);
+  try {
+    let n = 0;
+    const apk = new Uint8Array([80, 75, 3, 4]);
+    const ns = containerNs(() => (++n < 3 ? new Response("busy", { status: 503 }) : new Response(apk, { headers: { "content-type": "application/vnd.android.package-archive" } })));
+    const env = { SITES_BUCKET: bucket(), APP_BUILD_CONTAINER: ns };
+    signIn("u1", "u1");
+    const r = await call(env, "POST", "shop-5", {});
+    assert.equal(r.status, 200); assert.equal(n, 3, "it waited its turn");
+    const never = { SITES_BUCKET: bucket(), APP_BUILD_CONTAINER: containerNs(() => new Response("busy", { status: 503 })) };
+    const r2 = await call(never, "POST", "shop-6", {});
+    assert.equal(r2.status, 503); assert.match((await r2.json()).error, /Every app builder is busy/);
+    assert.equal(never.SITES_BUCKET.m.size, 0);
+  } finally { api.setAppWait(10_000, 5 * 60 * 1000); }
+});
+
+test("ROUTER: \"app\" is one of its answers, with the phone named; with no site it stays a build", () => {
+  assert.ok(LIVE_ASK_TOOL.input_schema.properties.intent.enum.includes("app"));
+  assert.deepEqual(LIVE_ASK_TOOL.input_schema.properties.platform.enum, ["android", "ios"]);
+  assert.ok(!ASK_TOOL.input_schema.properties.intent.enum.includes("app") && !ASK_TOOL.input_schema.properties.platform, "a first build's tool is unchanged: there is no site to make an app of");
+  assert.match(LIVE_ASK_TOOL.input_schema.properties.intent.description, /"app" — they want the site that ALREADY EXISTS made into a phone app/);
+  const said = (input, o) => readRouting({ content: [{ type: "tool_use", input }] }, o);
+  assert.deepEqual(said({ intent: "app", platform: "ios" }, { hasSite: true, live: true }), { intent: "app", platform: "ios", answer: "" });
+  assert.equal(said({ intent: "app" }, { hasSite: true }).platform, "android", "Android when no phone was named");
+  assert.equal(said({ intent: "app", platform: "windows" }, { hasSite: true }).platform, "android", "a phone off the list is never passed on");
+  assert.equal(said({ intent: "app", platform: "android" }, { hasSite: false }).intent, "build", "with no site, there is a website to build first");
+});
+
+test("WIRING: the route tells the page which phone; the page makes the app, waits for the website first, and the picker is drawn and kept", () => {
+  const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(src, /platform: routed\.intent === "app" \? routed\.platform : undefined,/);
+  assert.match(src, /sleepAfter = "1m";/);
+  const page = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  assert.match(page, /if \(d\.intent === 'app'\) return slug && \(d\.platform === 'android' \|\| d\.platform === 'ios'\);/);
+  assert.match(page, /if \(d\.intent === 'app' && site\.slug\) return siteMakeApp\(site, d\.platform, finish\);/);
+  assert.match(page, /apiFetch\('\/api\/site\/' \+ encodeURIComponent\(slug\) \+ '\/app\/android', \{ method: 'POST'/);
+  assert.match(page, /Apple apps are on the way, but not ready yet/);
+  assert.match(page, /const wantApp = kindNow === 'android' \|\| kindNow === 'ios' \? kindNow : undefined;/);
+  assert.match(page, /if \(s\.wantApp\) \{[\s\S]{0,120}siteMakeApp\(s, want,/);
+  assert.match(page, /buildKindHTML\('down'\) \+ buildPickerHTML\('down'\) \+ buildEffortHTML\('down'\)/);
+  assert.match(page, /wireBuildKind\(\);\s*wireBuildPicker\(\);/);
+  assert.match(page, /kind: 'zephyr_build_kind_v1',/);
+  assert.match(src, /"mediaUploads", "kind"\]/, "the choice is kept on the account");
+});
