@@ -3,7 +3,7 @@
 ## 2026-10-20 — Effort reaches page writing too ("effort to everything"; branch only, not deployed)
 
 - **Deploy 2229's Low build** (harbour-loaf-15, topped up 80, balance 96 before it): **53 credits** against High's 66. The design thought about 6 times less (7,123 billed output tokens against 43,120; 15 credits against 37), but **page writing didn't change** (39,391 against 24,416 output). Its calls go to the container's own model service (`/model`, `/model/start`), not through `callBuilderModel`, so they never carried the effort.
-- **Fix**: all three doors to the container's model service now put the customer's effort on each request (`withEffortAll`, for one request or a list of bands). Test in R19; two guards re-anchored. Full suite 11,550 / 11,548 / 0 / 2 after the re-anchors.
+- **Fix**: all three doors to the container's model service now put the customer's effort on each request (`withEffortAll`, for one request or a list of bands). Test in R19; two guards re-anchored. The two re-anchored files pass; the full suite was not re-run after the re-anchors.
 
 ## 2026-10-20 — Every token charged, measured; and why Low didn't reach the design (on your word "do 1"; the fix is on the branch, not deployed)
 
