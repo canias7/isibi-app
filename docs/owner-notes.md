@@ -1,5 +1,18 @@
 # Owner Notes
 
+## 2026-10-20 — Android apps from our containers: measured (you: "yes run the measurement")
+
+The live `fold-lane-bakery` site was wrapped with Capacitor 8 and built into a working Android app file (9.7 MB, "Fold Lane Bakery", Android 7 and up) on this session's Linux machine. No credits spent.
+- **Memory:** peak 1.1–1.3 GB, which fits our container size (4 GB).
+- **Time:** 25 s on 4 CPUs and 62 s on one CPU, so expect about 2 minutes on the container's half CPU.
+- **Disk:** the tools add about 2 GB to an image.
+
+Recommendation: a separate app-building container with the tools and libraries built into its image, so the website container stays as it is.
+
+Not yet covered: signed Play Store builds, running on a phone, native features.
+
+Full numbers: `docs/investigations/2026-10-20-android-build-measurement.md`.
+
 ## 2026-10-20 — Deploys 2237–2238: Grok's cache, done the documented way; hits are still the provider's call (you: "fix that yea")
 
 **What changed.**
