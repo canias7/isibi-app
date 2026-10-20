@@ -4465,10 +4465,27 @@ export function pageRulesFor(spec, kind = "") {
 export const APP_PAGE_RULES = `
 
 ━━━ THIS IS A PHONE APP, NOT A WEBSITE — THESE RULES WIN OVER ANYTHING ABOVE ━━━
-Every page you write is a SCREEN of an app that runs full-screen on a phone, about 390px wide.
-- Wrap every screen in \`AppChrome\` from "@/components/ui/app-chrome", never \`SiteChrome\`. It takes \`name\`, \`links\` and \`action\` exactly as SiteChrome does; \`links\` become the tabs at the bottom (the home screen first, five at most). Pass no tagline, contact, legal, social or layout: an app has no footer.
-- One column. No multi-column grids, no max-width containers, no hover-only behaviour. Controls at least 44px tall, generous spacing, short text.
-- The first screen shows what the app is for straight away — today's menu, the booking form, the list — not a marketing hero, testimonials or "as seen in".
+Every page you write is a SCREEN of an app that runs full-screen on a phone, about 390px wide. Apps are designed differently from websites, so do not use the website's section components (heroes, feature grids, testimonials, logo strips, footers, pricing tables) — WRITE YOUR OWN MOBILE COMPONENTS inside the screen file, small and named for what they are (\`ItemRow\`, \`OrderSheet\`, \`QtyStepper\`).
+
+THE FRAME
+- Wrap every screen in \`AppChrome\` from "@/components/ui/app-chrome", never \`SiteChrome\`. It takes \`name\`, \`links\` and \`action\`; \`links\` become the tab bar at the bottom (the home screen first, five at most, one-word labels). No footer, no tagline, contact, legal, social or layout.
+
+HOW APP SCREENS ARE BUILT
+- A large screen title at the top of the content (28–34px, bold), then the content. No banner image filling the screen, no marketing copy, no "Welcome to…" paragraphs.
+- Lists are the backbone: full-width ROWS you tap — a leading thumbnail or icon (40–56px, rounded), a title and one line of detail, a trailing value or chevron, hairline dividers between rows, grouped into rounded sections on a slightly tinted background (like a phone's Settings).
+- Cards only for things worth a picture (a featured item): full-width, 16–20px corners, image on top, two lines under it. Horizontal scrolling rows of cards for "featured" or "today's" sets.
+- Choosing between a few views is a SEGMENTED CONTROL (a pill split into 2–4 parts), not tabs of a web page. Filters are horizontal scrolling CHIPS.
+- Details and actions open in a BOTTOM SHEET that slides up over the screen (rounded top corners, a grab handle, a dimmed backdrop, dismissed by tapping outside), not a centred dialog or a new page.
+- The main action of a screen is ONE full-width button pinned above the tab bar, or a round floating button bottom-right — never a row of buttons in the content.
+- Forms: one field per row, labels above, big inputs (48px), the right keyboard (\`inputMode\`, \`type="tel"\`, \`type="email"\`), the submit button full-width at the bottom.
+- Quantities and small numbers are STEPPERS (− 1 +); on/off is a TOGGLE switch.
+- Empty states: an icon, one short line, one button.
+
+TOUCH AND FEEL
+- Everything tappable is at least 44px tall with 16px side padding; spacing on a 4/8px rhythm; one column only, no max-width containers, no hover-only behaviour.
+- Pressed states instead of hover: \`active:scale-[0.98]\` or \`active:bg-muted\` on rows and buttons, \`transition\` on everything.
+- Type: 17px body, 13–15px secondary text in a muted colour, short lines. Icons from \`lucide-react\`, 20–24px.
+- Use the theme's colours and radius as the site would; keep backgrounds calm (a light tint behind grouped lists, white surfaces).
 - Never mention a website, "visit our site", search engines or a sitemap.
 `;
 
