@@ -187,6 +187,8 @@ function setBuildPicker(p) {
   localStorage.setItem(BUILD_PICKER_KEY, p);
   const lbl = document.getElementById('stBuildLabel'); if (lbl) lbl.textContent = BUILD_PICKERS[p].label;
   const eff = document.getElementById('stEffSel'); if (eff) eff.hidden = !effortApplies();
+  // THE CONTEXT BAR IS MEASURED AGAINST THE PICKED MODEL'S WINDOW: redrawn on the change.
+  try { const open = typeof siteById === 'function' ? siteById(siteOpenId) : null; if (open && typeof paintCtxLine === 'function') paintCtxLine(open); } catch (e) { /* the bar redraws on the next paint */ }
   const menu = document.getElementById('stBuildMenu');
   if (menu) { menu.classList.remove('open'); menu.querySelectorAll('.build-item').forEach((it) => it.classList.toggle('selected', it.dataset.pick === p)); }
 }
