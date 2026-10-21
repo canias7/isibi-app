@@ -2317,3 +2317,15 @@ test("deleting a site asks with our own dialog, not the browser's confirm()", ()
   assert.match(g, /e\.target === wrap\) done\(false\)/, "a click outside does not cancel");
   assert.match(g, /'\.go-confirm-no'\)\.focus\(\)/, "the safe answer is not the one focused");
 });
+
+// OFF THE SCREEN TOO (2026-10-21, owner: "after i click ok it stays there").
+test("a deleted site leaves the screen: the server's list as fetched loses it too, by slug", () => {
+  const src = chat();
+  const at = src.indexOf("view.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {");
+  const end = src.indexOf("\n  });", at);
+  assert.ok(at > 0 && end > at, "the site delete handler moved; this guard checks nothing");
+  const block = src.slice(at, end);
+  assert.match(block, /sitesRemote = sitesRemote\.filter\(\(r\) => !\(r && r\.slug === goneSlug\)\)/, "the fetched server list keeps the deleted site, so its card stays");
+  assert.match(block, /!\(goneSlug && x\.slug === goneSlug\)/, "the local record is only dropped by the card's id");
+  assert.ok(block.indexOf("sitesRemote = sitesRemote.filter") < block.indexOf("renderSites()", block.indexOf("goneSlug")), "the list is redrawn before the site is taken out");
+});

@@ -6173,7 +6173,14 @@ function renderSites() {
     }
     // AND ITS CHAT ON THE SERVER (2026-10-20), so no other device keeps showing it.
     try { const gone = sitesLoad().find((x) => x.id === id); if (gone) chatDelete(gone); } catch (e) { /* the chat is the server's to clear */ }
-    sitesCache = sitesLoad().filter((x) => x.id !== id);
+    // OFF THE SCREEN TOO (2026-10-21, owner: "after i click ok it stays
+    // there"): the card is drawn from the server's list as last fetched, and a
+    // card the server named has its own id (`srv_<slug>`), so dropping only the
+    // local record by that id left it drawn until the next fetch. Both lists
+    // lose the site, by slug.
+    const goneSlug = s && s.slug;
+    sitesCache = sitesLoad().filter((x) => x.id !== id && !(goneSlug && x.slug === goneSlug));
+    if (goneSlug && Array.isArray(sitesRemote)) sitesRemote = sitesRemote.filter((r) => !(r && r.slug === goneSlug));
     sitesSave(); renderSites();
   });
 }
