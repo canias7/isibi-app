@@ -1,5 +1,16 @@
 # Owner Notes
 
+## 2026-10-21 — Phase D, Android: the real app downloads as an APK (you: "can u do it like in our platform how a customer will do it")
+
+- The app builder can now build a real Expo app into an Android app (`/expo-android`): the same typecheck, then Expo writes the native project and Gradle builds it offline against libraries the image warms once.
+- **Download Android app** uses the app's own stored source when the project is a real app; older projects keep the site path. It's signed with the build's debug key for now, which installs on any phone. A Play Store key per app comes with store publishing.
+- The first live Phase C build (`harbour-loaf-21`, 04:07 UTC):
+  - the model wrote the app, but the app builder answered "busy" for the whole five-minute wait while its new image was rolling out;
+  - it was refunded ("You weren't charged").
+  - A free direct check afterwards went through the real app builder in 99 s (about 85 s cold start, 14 s check and export). The wait is now ten minutes.
+- Found by that check: after a fresh page load, the page asked for the app's preview before the chat said the project is an app. It now asks after.
+- iPhone builds are parked by you for now.
+
 ## 2026-10-21 — Phase C: the model writes real Expo apps (you: "c")
 
 - An app project's build follows the site's own process up to and including the design, the database and its rows, and the look. Then it takes the app writer (`builder/app-gen.mjs`, `writePhoneApp` in `worker.js`) instead of the site's pages:

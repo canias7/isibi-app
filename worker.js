@@ -580,7 +580,9 @@ function replyLiveWriter(env, job) {
 // "live" (the default) opens the site's address; "bundled" carries its files.
 const appKey = (slug) => "apps/" + slug + "/android.apk";
 /** How long an app build waits for a free builder, and how often it asks again. */
-let APP_WAIT_MS = 5 * 60 * 1000;
+// TEN MINUTES (2026-10-21): the first live app build met the app builder
+// while its new image was still rolling out, and five ran out.
+let APP_WAIT_MS = 10 * 60 * 1000;
 let APP_RETRY_MS = 10_000;
 /** An Android application id from a slug: `dev.gofarther.<letters and digits>`, as the builder checks it. */
 function appIdFor(slug) {

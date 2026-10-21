@@ -4174,8 +4174,13 @@ function openProject(id, mode) {
   if ((id || null) !== siteOpenId) siteCodeFolds = null;
   siteOpenId = id || null;
   // THE SERVER'S COPY OF THIS CHAT (2026-10-20): what another device said is here too.
-  try { const os = id ? siteById(id) : null; if (os) chatPull(os); } catch (e) { /* the local copy stands */ }
-  try { const os = id ? siteById(id) : null; if (os) appPreviewPull(os); } catch (e) { /* the phones keep what they show */ }
+  // THE CHAT FIRST, THEN THE APP'S PREVIEW: whether this project is an app
+  // arrives with its chat, so on a fresh load the preview is asked only once
+  // the chat has said so (found by the first live check, 2026-10-21).
+  try {
+    const os = id ? siteById(id) : null;
+    if (os) Promise.resolve(chatPull(os)).catch(() => {}).then(() => { try { appPreviewPull(os); } catch (e) { /* the phones keep what they show */ } });
+  } catch (e) { /* the local copy stands */ }
   const path = siteOpenId ? '/projects/' + siteOpenId : '/projects';
   // A PUSH TO THE PATH WE ARE ALREADY ON IS A REPLACE. Re-opening the site that
   // is already open (the Data button on the open project, a re-render) would
