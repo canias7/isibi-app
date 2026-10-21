@@ -276,7 +276,7 @@ test("every card hop resolves through the merged list, never localStorage alone"
   // trap, in the guard whose comment below records fighting a different one.
   // Both ends are asserted, because `indexOf` answering -1 makes `slice` return
   // "" and every assertion inside a window pass on nothing.
-  const to = c.indexOf("Delete this site for good?", at);
+  const to = c.indexOf("will be permanently removed. This cannot be undone.", at);
   assert.ok(to > at, "the delete's confirmation is gone — re-anchor this window");
   const body = c.slice(at, to);
   // The thumbnail, the click and the delete — the three that would each have
