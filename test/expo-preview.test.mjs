@@ -109,7 +109,10 @@ test("ROUTE: a failed check answers 422 with the compiler's lines, and nothing i
   const r = await call(env, "POST", "shop-4", { files: [TABS] });
   const d = await r.json();
   assert.equal(r.status, 422); assert.equal(d.stage, "typecheck"); assert.match(d.errors[0], /TS2304/);
-  assert.equal(env.SITES_BUCKET.m.size, 0);
+  const kept = [...env.SITES_BUCKET.m.keys()];
+  assert.ok(kept.length === 2 && kept.every((k) => /^apps\/shop-4\/failed\/\d+\//.test(k)), "only the failed attempt is kept, under failed/: " + kept.join(","));
+  assert.ok(kept.some((k) => k.endsWith("/errors.json")) && kept.some((k) => k.endsWith("/app/(tabs)/_layout.tsx")));
+  assert.ok(!env.SITES_BUCKET.m.has("apps/shop-4/preview.json"), "a failure names no current preview");
 });
 
 test("the request reader runs where the Worker runs: no Buffer, no Node-only global", () => {
@@ -128,4 +131,16 @@ test("the bundler's own complaint is kept, not its first line", async () => {
   assert.deepEqual(bundlerErrors(out), ["Error: Unable to resolve module ./nope from app/(tabs)/index.tsx"]);
   assert.deepEqual(bundlerErrors("a\nb"), ["a", "b"], "with nothing named, the tail");
   assert.deepEqual(bundlerErrors(""), ["the app could not be bundled"]);
+});
+
+test("SELF-TEST: the image carries the test app and the builder runs it through both jobs; the owner's door reaches it", () => {
+  const d = readFileSync(new URL("../app-builder/Dockerfile", import.meta.url), "utf8");
+  assert.match(d, /COPY selftest\/ \.\/selftest\//);
+  const srv = readFileSync(new URL("../app-builder/server.mjs", import.meta.url), "utf8");
+  assert.match(srv, /req\.url === "\/selftest"[\s\S]*exportExpo\([\s\S]*buildExpoAndroid\(/);
+  const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(w, /\\\/app\\\/\(builder\|selftest\)\$\//);
+  for (const f of ["app/(tabs)/_layout.tsx", "app/(tabs)/index.tsx", "lib/data.ts"]) {
+    assert.equal(readFileSync(new URL("../app-builder/selftest/" + f, import.meta.url), "utf8"), readFileSync(new URL("./fixtures/expo-harbour/" + f, import.meta.url), "utf8"), f + " is the fixture's own");
+  }
 });

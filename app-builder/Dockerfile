@@ -59,6 +59,7 @@ RUN cd expo && CI=1 EXPO_ANDROID_PACKAGE=dev.gofarther.warmup npx expo prebuild 
 # OUR OWN CODE LAST (2026-10-21): it changes often and is small, so a change
 # to it reuses every warmed layer above instead of re-running the warm-ups.
 COPY package.json server.mjs app-config.mjs expo-preview.mjs ./
+COPY selftest/ ./selftest/
 ENV NODE_ENV=production
 EXPOSE 8080
 CMD ["node", "server.mjs"]

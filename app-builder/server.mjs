@@ -16,6 +16,7 @@ import { readExpoRequest, exportExpo, readExpoAndroid, buildExpoAndroid, EXPO_MA
 const run = promisify(execFile);
 const TEMPLATE = new URL("./template/", import.meta.url).pathname;
 const EXPO_TEMPLATE = new URL("./expo/", import.meta.url).pathname;
+const SELFTEST = new URL("./selftest/", import.meta.url).pathname;
 const BUILD_MS = 15 * 60 * 1000;
 let busy = false;
 
@@ -58,7 +59,7 @@ function readBody(req, max) {
 const json = (res, status, body) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(body)); };
 
 export const server = http.createServer(async (req, res) => {
-  if (req.method === "GET" && req.url === "/health") return json(res, 200, { ok: true, busy, routes: ["/build", "/expo", "/expo-android"] });
+  if (req.method === "GET" && req.url === "/health") return json(res, 200, { ok: true, busy, routes: ["/build", "/expo", "/expo-android", "/selftest"] });
   // AN EXPO APP'S WEB VERSION (phase B): checked and exported, for the phones.
   if (req.method === "POST" && req.url === "/expo") {
     if (busy) return json(res, 409, { error: "busy" });
@@ -72,6 +73,32 @@ export const server = http.createServer(async (req, res) => {
     } catch (e) {
       console.error("expo preview failed:", e && e.message ? e.message.slice(0, 500) : e);
       return json(res, 500, { error: "the app could not be checked" });
+    } finally { busy = false; }
+  }
+  // THE SELF-TEST (2026-10-21, owner: testing stays on Cloudflare): the hand-
+  // built Harbour Loaf this image carries, run through both jobs here — the web
+  // version and the Android app — and what each did, with its own errors.
+  if (req.method === "POST" && req.url === "/selftest") {
+    if (busy) return json(res, 409, { error: "busy" });
+    busy = true;
+    try {
+      const files = [];
+      const walk = async (d, rel) => {
+        for (const e of await fsp.readdir(d, { withFileTypes: true })) {
+          const p = d + e.name, q = rel + e.name;
+          if (e.isDirectory()) await walk(p + "/", q + "/"); else files.push({ path: q, source: await fsp.readFile(p, "utf8") });
+        }
+      };
+      await walk(SELFTEST, "");
+      const deps = { template: EXPO_TEMPLATE, exec: run, fs: fsp, tmp: tmpdir() };
+      const web = await exportExpo({ baseUrl: "/app-preview/selftest/" + "0".repeat(32), files, theme: null }, deps);
+      const apk = await buildExpoAndroid({ files, theme: null, appId: "dev.gofarther.selftest", name: "Self test" }, deps);
+      return json(res, 200, {
+        web: web.ok ? { ok: true, files: web.files.length, ms: web.ms } : web,
+        android: apk.ok ? { ok: true, bytes: apk.apk.length, ms: apk.ms } : apk,
+      });
+    } catch (e) {
+      return json(res, 500, { error: "the self-test could not run", detail: String(e && e.message || e).slice(0, 300) });
     } finally { busy = false; }
   }
   // AN EXPO APP AS AN ANDROID APP (phase D): the APK, or JSON { ok: false, stage, errors }.

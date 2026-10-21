@@ -30082,8 +30082,8 @@ async function handleRequest(request, env, ctx) {
     // (2026-10-21): its own health, routes included, so a stale image is seen,
     // not inferred. Owner only; it starts the builder if it is asleep.
     {
-      const appHm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/app\/builder$/);
-      if (appHm && request.method === "GET") {
+      const appHm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/app\/(builder|selftest)$/);
+      if (appHm && (appHm[2] === "builder" ? request.method === "GET" : request.method === "POST")) {
         const au = await authUser(request, env);
         if (!au) return Response.json({ error: "sign in first" }, { status: 401 });
         const own = await siteOwnerBySlug(appHm[1], env);
@@ -30091,7 +30091,11 @@ async function handleRequest(request, env, ctx) {
         if (!env.APP_BUILD_CONTAINER) return Response.json({ error: "not available" }, { status: 503 });
         try {
           const c = getContainer(env.APP_BUILD_CONTAINER, laneName("app-" + appHm[1]));
-          const r = await c.fetch(new Request("http://app/health", { signal: AbortSignal.timeout(5 * 60 * 1000) }));
+          // THE SELF-TEST rides the same door: the live builder runs the test app
+          // it carries through the web version and the Android build.
+          const r = appHm[2] === "selftest"
+            ? await c.fetch(new Request("http://app/selftest", { method: "POST", signal: AbortSignal.timeout(30 * 60 * 1000) }))
+            : await c.fetch(new Request("http://app/health", { signal: AbortSignal.timeout(5 * 60 * 1000) }));
           return Response.json({ ok: r.ok, status: r.status, health: await r.json().catch(() => null) });
         } catch (e) {
           return Response.json({ ok: false, error: errorClassForLog(e) }, { status: 502 });
@@ -30127,7 +30131,20 @@ async function handleRequest(request, env, ctx) {
         if (r.busy) return Response.json({ ok: false, error: "Every app builder is busy right now. Try again in a few minutes." }, { status: 503 });
         if (r.status === 400) return Response.json({ ok: false, error: (r.body && r.body.error) || "not a preview request" }, { status: 400 });
         if (!r.body || r.body.ok !== true) {
-          if (r.body && r.body.ok === false) return Response.json({ ok: false, stage: r.body.stage, errors: r.body.errors }, { status: 422 });
+          if (r.body && r.body.ok === false) {
+            // A FAILED ATTEMPT IS KEPT (2026-10-21): its files and the errors, so
+            // it can be reproduced against the kit for free instead of with a
+            // second paid build. One folder per attempt, by time.
+            const sent = readExpoRequest({ baseUrl: appPreviewBase(pslug, token), files: pb.files, theme: pb.theme });
+            if (!sent.error) {
+              const dir = "apps/" + pslug + "/failed/" + Date.now() + "/";
+              try {
+                for (const f of sent.files) await env.SITES_BUCKET.put(dir + f.path, f.source, { httpMetadata: { contentType: "text/plain; charset=utf-8" } });
+                await env.SITES_BUCKET.put(dir + "errors.json", JSON.stringify({ stage: r.body.stage, errors: r.body.errors, theme: sent.theme || null }), { httpMetadata: { contentType: "application/json" } });
+              } catch (e) { console.error("app preview: could not keep the failed attempt", pslug, errorClassForLog(e)); }
+            }
+            return Response.json({ ok: false, stage: r.body.stage, errors: r.body.errors }, { status: 422 });
+          }
           return Response.json({ ok: false, error: "the app could not be checked" }, { status: 502 });
         }
         for (const f of r.body.files) {
