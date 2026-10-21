@@ -191,7 +191,12 @@
       "class_name": "AppBuildContainer",
       "image": "./app-builder/Dockerfile",
       "max_instances": 100,
-      "instance_type": "standard-1",
+      // STANDARD-4, NOT STANDARD-1 (2026-10-21): the image that builds real
+      // Android apps offline (the SDK, the NDK, React Native's libraries)
+      // outgrew standard-1's 8 GB disk, and Cloudflare answered ImagePullError
+      // and kept starting the old image. standard-4 has 20 GB and 4 vCPU, so the
+      // Gradle build is faster as well; it runs only while an app is built.
+      "instance_type": "standard-4",
       // ONE STEP, NOT TEN PERCENT THEN THE REST (2026-10-21): during a stepped
       // rollout the new Worker reached app builders still on the old image and
       // was told "not found" for a route the new one has. App builds are rare,
