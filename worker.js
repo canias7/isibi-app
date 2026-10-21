@@ -683,8 +683,13 @@ async function writePhoneApp(env, { slug, brief, brand, spec, theme, model, budg
     if (out.busy) return { ok: false, stage: "check", error: out.error || "every app builder is busy", usage };
     const b = out.body;
     if (b && b.ok === true) {
-      for (const f of files.files) await env.SITES_BUCKET.put("apps/" + slug + "/source/" + f.path, f.source, { httpMetadata: { contentType: "text/plain; charset=utf-8" } });
-      await env.SITES_BUCKET.put(appSourceManifestKey(slug), JSON.stringify({ files: files.files.map((f) => f.path), theme: theme || null, at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
+      // ON THE WORKER THE SOURCE IS KEPT HERE; inside the site container the
+      // preview route already kept it, and the container's gateway may not
+      // write under `apps/` (live build 2026-10-21: "gateway put 403").
+      if (env.APP_BUILD_CONTAINER) {
+        for (const f of files.files) await env.SITES_BUCKET.put("apps/" + slug + "/source/" + f.path, f.source, { httpMetadata: { contentType: "text/plain; charset=utf-8" } });
+        await env.SITES_BUCKET.put(appSourceManifestKey(slug), JSON.stringify({ files: files.files.map((f) => f.path), theme: theme || null, at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
+      }
       return { ok: true, preview: b.preview, files: files.files.length, usage };
     }
     if (!(b && b.ok === false && b.stage === "typecheck") || round === 1) {
@@ -30189,7 +30194,9 @@ async function handleRequest(request, env, ctx) {
         if (!r.ok || !(r.headers.get("content-type") || "").includes("android")) {
           const d = await r.json().catch(() => null);
           const why = d && typeof d.error === "string" ? d.error : d && Array.isArray(d.errors) && typeof d.errors[0] === "string" ? d.errors[0].slice(0, 300) : "the app could not be built";
-          return Response.json({ ok: false, error: why, ...(d && typeof d.stage === "string" ? { stage: d.stage } : {}) }, { status: 502 });
+          // WHAT THE BUILDER WAS ASKED AND WHAT IT SAID (the first live Android
+          // tries answered a bare "not found"), so a refusal can be read.
+          return Response.json({ ok: false, error: why, builder: { path: buildPath, status: r.status, ...(d && typeof d.url === "string" ? { url: d.url, method: d.method } : {}) }, ...(d && typeof d.stage === "string" ? { stage: d.stage } : {}) }, { status: 502 });
         }
         const apk = await r.arrayBuffer();
         await env.SITES_BUCKET.put(appKey(aslug), apk, { httpMetadata: { contentType: "application/vnd.android.package-archive" }, customMetadata: { mode: expo ? "expo" : mode, appId, builtAt: String(Date.now()) } });

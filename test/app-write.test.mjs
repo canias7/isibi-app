@@ -97,7 +97,7 @@ test("INSIDE THE SITE CONTAINER (no app builder binding): the build asks the Wor
   assert.equal(posted.length, 1); assert.equal(posted[0].auth, "Bearer owner");
   assert.deepEqual(posted[0].body.files, [TABS, HOME]);
   assert.equal(out.preview, "/app-preview/loaf-1/" + "a".repeat(32) + "/");
-  assert.ok(env.SITES_BUCKET.m.has("apps/loaf-1/source.json"), "the source manifest is kept for the Android build");
+  assert.equal([...env.SITES_BUCKET.m.keys()].filter((k) => k.startsWith("apps/")).length, 0, "inside the container nothing is written under apps/ (its gateway refuses it; the preview route kept the source)");
   const noAuth = await writePhoneApp({ ANTHROPIC_API_KEY: "k", SITES_BUCKET: bucket() }, { ...args(env), auth: "" });
   assert.equal(noAuth.ok, false); assert.match(noAuth.error, /cannot be reached/, "no sign-in is said at once, never ten minutes of busy");
 });

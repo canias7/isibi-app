@@ -58,7 +58,7 @@ function readBody(req, max) {
 const json = (res, status, body) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(body)); };
 
 export const server = http.createServer(async (req, res) => {
-  if (req.method === "GET" && req.url === "/health") return json(res, 200, { ok: true, busy });
+  if (req.method === "GET" && req.url === "/health") return json(res, 200, { ok: true, busy, routes: ["/build", "/expo", "/expo-android"] });
   // AN EXPO APP'S WEB VERSION (phase B): checked and exported, for the phones.
   if (req.method === "POST" && req.url === "/expo") {
     if (busy) return json(res, 409, { error: "busy" });
@@ -92,7 +92,7 @@ export const server = http.createServer(async (req, res) => {
       return json(res, 500, { error: "the Android app could not be built" });
     } finally { busy = false; }
   }
-  if (req.method !== "POST" || req.url !== "/build") return json(res, 404, { error: "not found" });
+  if (req.method !== "POST" || req.url !== "/build") return json(res, 404, { error: "not found", method: req.method, url: String(req.url).slice(0, 200) });
   if (busy) return json(res, 409, { error: "busy" });
   busy = true;
   const started = Date.now();
