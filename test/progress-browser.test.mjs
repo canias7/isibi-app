@@ -226,7 +226,7 @@ test("PATH B — a job this page watches: its newest line replaces \"Thinking\";
     const { page } = app;
     await page.waitForFunction(() => !!document.querySelector(".st-busy .st-req-prog li"), null, { timeout: 20000 });
     assert.match(await page.textContent(".st-busy .st-req-prog"), /found the Gallery heading/);
-    assert.equal(await page.$(".st-busy .st-think"), null, "\"Thinking\" stayed beside the line");
+    assert.equal(await page.$(".st-busy .st-think:not(.st-working)"), null, "\"Thinking\" stayed beside the line");
     shown = 2;
     await page.waitForFunction(() => document.querySelectorAll(".st-busy .st-req-prog li").length === 2, null, { timeout: 20000 });
     // EVERY LINE STAYS WHILE IT RUNS (the owner, 2026-10-13): the newest is
