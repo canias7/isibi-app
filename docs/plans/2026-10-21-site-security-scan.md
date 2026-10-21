@@ -82,11 +82,12 @@ owner's word.
 
 1. **When it runs — DECIDED (2026-10-21):** only when the customer presses Scan
    or asks for it in the chat. Never after a build on its own.
-2. **Price:** free for phase A; phase B priced from the measured run (a rough
-   guess before measuring: 10–40 credits a scan for a normal site).
+2. **Price — DECIDED (2026-10-21):** the fixed checks are free; the model calls are
+   charged the way every model call is (*"just like we measure all the model calls"*),
+   by what they actually cost.
 3. **Which model — DECIDED (2026-10-21):** whatever model is selected in the
    builder's picker, for both the hunt and the checking.
-4. **Who sees it:** every customer, or a test group first.
+4. **Who sees it — DECIDED (2026-10-21):** everyone (*"everyone is fine rn"*).
 
 ## What is already in place
 

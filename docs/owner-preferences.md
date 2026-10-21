@@ -1372,3 +1372,5 @@ the image before every merge (`docs/deploy.md`) and say which it is.
 Owner: *"only when the customer press scan or asks for it in chat"* and *"whatever
 model is selected on the picker"*. The scan never runs on its own after a build,
 and it uses the builder's selected model. Plan: `docs/plans/2026-10-21-site-security-scan.md`.
+Price: the fixed checks free, the model calls charged like every model call (*"just
+like we measure all the model calls"*). Everyone gets it (*"everyone is fine rn"*).
