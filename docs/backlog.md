@@ -38,6 +38,8 @@ here; take a closed one out of both.**
   `needs_validation`). The target is a customer's generated site (its pages,
   forms, data rules, payments), not the platform. Not started; how it would
   run (per site, on demand, or after each build) and its cost are open.
+  **Planned 2026-10-21**: `docs/plans/2026-10-21-site-security-scan.md` (phases A–D,
+  the owner's four decisions open).
 - **An effort control next to the model picker** (2026-10-19, owner: "next to
   the model we gonna do an effort thing but later on, note it"): a customer-facing
   setting beside "Builder: Grok 4.6 ▾" for how hard the builder thinks (grok-4.6
