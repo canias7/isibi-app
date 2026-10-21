@@ -506,28 +506,7 @@ test("the build 402 prefers the server's message", () => {
 // This is the failure the 2026-08-08 work recorded as fixed, still live one
 // button over. There is ONE thing that restores a published site and this must
 // hand off to it.
-test("siteRestore sends a React site to the real restore", () => {
-  const m = CHAT.match(/function siteRestore\(id, idx\) \{[\s\S]*?\n\}/);
-  assert.ok(m, "siteRestore was not found");
-  const body = m[0];
-  const hand = body.indexOf("siteVersions(");
-  assert.ok(hand > 0, "a React site must be handed to siteVersions, not restored locally");
-  // BEFORE anything is written, or it lies and then also corrupts the local
-  // page list on the way out.
-  const write = body.indexOf("s.pages =");
-  assert.ok(write > 0, "the local restore was not found — has this been rewritten?");
-  assert.ok(hand < write, "the React hand-off must come before the local rewrite");
-  assert.match(body.slice(0, hand + 40), /s\.react/, "the hand-off must be gated on the site being a React one");
-});
-
-// WHOSE ROWS THESE ARE IS THE SERVER'S ANSWER, NOT A NAME RE-DERIVED HERE.
-//
-// `canAdd` compared the access string against 'user'/'feed'. Since the
-// read/write axes landed, a table declared as a pair (`{read:"own",
-// write:"own"}`) is stamped "collect" and matches neither — so the owner was
-// offered "+ Add" on exactly the tables where the API answers 409. The write
-// axis is resolved once in site-access.mjs and sent as `memberRows`; a second
-// copy of that rule in the browser is a second thing that can disagree with it.
+// (2026-10-21) `siteRestore` is gone: the History panel restores through the server (`historyRailLoad`).
 test("the Data panel asks memberRows, not the access name", () => {
   const i = CHAT.indexOf("const canAdd = ");
   assert.ok(i > 0, "canAdd was not found");

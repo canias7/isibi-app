@@ -1610,7 +1610,6 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   text-decoration: underline; text-underline-offset: 2px; }
 .st-pick-cancel:hover { color: var(--text); }
 
-.st-opt-skip:hover { color: var(--text); }
 /* A REQUEST OF SEVERAL PARTS (2026-10-03): one card under its message, each
    part's words beside its status, in the thread's own type and colours — what
    happened is said in the replies above and below it, so the card stays quiet:

@@ -17416,7 +17416,8 @@ const TypeIn = (() => {
   }
   function textNodes(el, isMsg) {
     const nodes = [];
-    const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (isMsg && n.parentElement && n.parentElement.closest(SKIP) && el.contains(n.parentElement.closest(SKIP))) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+    // 4, 2, 1: NodeFilter's SHOW_TEXT, FILTER_REJECT and FILTER_ACCEPT, written as numbers.
+    const walk = document.createTreeWalker(el, 4, { acceptNode: (n) => (isMsg && n.parentElement && n.parentElement.closest(SKIP) && el.contains(n.parentElement.closest(SKIP))) ? 2 : 1 });
     for (let n = walk.nextNode(); n; n = walk.nextNode()) if (n.nodeValue && n.nodeValue.trim()) nodes.push(n);
     return nodes;
   }

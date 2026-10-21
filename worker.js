@@ -7304,15 +7304,17 @@ const MAX_SITE_LIST = 200;
 /**
  * THE SITE'S OWN NAME ON ITS ROW (2026-10-21, owner: "i have different sites in
  * laptop and desktop"): "The Table" was kept only in the browser that built it,
- * so every other device listed the address name. Best-effort: a missing column
+ * so every other device listed the address name. Written from the chat save
+ * (the Worker, never a container job, whose gateway rightly refuses it), only
+ * onto the caller's own row. Best-effort: a missing column
  * (`supabase/proposed/site_display_name.sql` not yet applied) or a blip leaves
  * the list as it was.
  */
-async function rememberSiteTitle(env, slug, title) {
+async function rememberSiteTitle(env, slug, title, uid) {
   const t = String(title || "").trim().slice(0, 80);
-  if (!t || !env.SUPABASE_SERVICE_KEY) return;
+  if (!t || !uid || !/^[a-z0-9][a-z0-9-]{0,80}$/.test(String(slug || "")) || !env.SUPABASE_SERVICE_KEY) return;
   try {
-    await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}`, {
+    await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&uid=eq.${encodeURIComponent(uid)}`, {
       method: "PATCH", headers: { ...svcHeaders(env), "content-type": "application/json", Prefer: "return=minimal" },
       body: JSON.stringify({ display_name: t }), signal: AbortSignal.timeout(5000),
     });
@@ -17430,8 +17432,6 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // refuses or a job that dies here leaves the live site exactly as it was and
   // a prefix the cap prunes. See site-builds.mjs.
   tm("compose", "start");
-  // THE SITE'S NAME, FOR EVERY DEVICE'S LIST (2026-10-21): kept beside its row.
-  if (look && typeof look.brand === "string" && look.brand.trim() && look.brand.trim() !== slug) await rememberSiteTitle(env, slug, look.brand);
   const composed = await composePublish(env, slug, built.files, {
     brand: (look && look.brand) || slug,
     description: (look && look.description) || undefined,
@@ -30528,6 +30528,10 @@ async function handleRequest(request, env, ctx) {
           const put = await env.SITES_BUCKET.put(key, JSON.stringify(rec), { httpMetadata: { contentType: "application/json" }, onlyIf: cur.etag ? { etagMatches: cur.etag } : { etagDoesNotMatch: "*" } });
           if (!put) { const now = await chatStoreRead(env, key); return Response.json({ ok: false, conflict: true, chat: now.chat }, { status: 409 }); }
         } catch { return Response.json({ error: "not saved" }, { status: 503 }); }
+        // THE SITE'S NAME, FOR EVERY DEVICE'S LIST (2026-10-21): the chat names
+        // its site and the name the build gave it; written onto the site's row,
+        // only the caller's own (`uid` in the filter), after the answer.
+        if (next.slug && next.name && next.name !== "New website" && next.name !== next.slug && typeof ctx === "object" && ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(rememberSiteTitle(env, next.slug, next.name, cu.id));
         return Response.json({ ok: true, rev: rec.rev });
       }
     }

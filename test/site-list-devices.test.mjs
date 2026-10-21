@@ -30,7 +30,8 @@ test("the name is the server's when it keeps one, the same on every device; the 
 
 test("the server keeps the name: written by each build, sent as `title`, and the list survives a missing column", () => {
   const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(w, /await rememberSiteTitle\(env, slug, look\.brand\)/);
+  assert.match(w, /ctx\.waitUntil\(rememberSiteTitle\(env, next\.slug, next\.name, cu\.id\)\)/, "the chat save does not record the name");
+  assert.match(w, /site_backends\?slug=eq\.\$\{encodeURIComponent\(slug\)\}&uid=eq\.\$\{encodeURIComponent\(uid\)\}/, "the name can be written onto another account's row");
   assert.match(w, /title: typeof r\.display_name === "string" \? r\.display_name\.slice\(0, 80\) : ""/);
   assert.match(w, /if \(lb && lb\.status === 400\) \{/, "a missing column would blank every device's list");
   assert.match(readFileSync(new URL("../supabase/proposed/site_display_name.sql", import.meta.url), "utf8"), /add column if not exists display_name text/);
