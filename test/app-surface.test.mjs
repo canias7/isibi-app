@@ -29,7 +29,7 @@ test("the kit carries the app's frame: a top bar and tabs from the same links", 
 });
 
 test("the build is told it makes an app: the design is told first, and the pages are marked", () => {
-  assert.match(worker, /const surface = body && body\.surface === "app" \? "app" : "site";/);
+  assert.match(worker, /const surface = appsOpen\(env\) && body && body\.surface === "app" \? "app" : "site";/);
   assert.match(worker, /const designBrief = \(surface === "app" \? APP_DESIGN_NOTE : ""\) \+ briefWithLinks/);
   assert.match(worker, /if \(surface === "app"\) spec\.surface = "app";/);
   assert.match(worker, /THIS IS A PHONE APP, NOT A WEBSITE\. Design it as an app/);
@@ -79,4 +79,25 @@ test("a bundled app carries the draft when one is ahead of live, rendered by the
   assert.match(fn, /buildPrefix\(slug, draft\.version\) \+ "client\/"/);
   assert.match(fn, /servePreview\(env, new Request/);
   assert.match(worker, /siteAppFiles\(env, aslug, ctx\)/);
+});
+
+// PHONE APPS ARE PARKED (2026-10-21, owner: "customer cant access it yet, we are
+// gonna open a different branch later"). Three switches, all closed.
+test("parked: apps are off in the page, the router and the Worker, and the Worker's doors answer 404", async () => {
+  assert.match(page, /^const APPS_OPEN = false;$/m, "the page's switch is closed");
+  assert.match(page, /const BUILD_KINDS = APPS_OPEN \? \{[\s\S]*?\} : \{\n  site: +\{ label: 'Website'/, "only Website is offered");
+  assert.match(page, /if \(!APPS_OPEN\) return '';/, "no Make: chip");
+  assert.match(page, /\(APPS_OPEN && inside !== words && madeFor\(v\) \? '<button/, "no app button in the phones");
+  const ask = await import("../builder/site-ask.mjs");
+  assert.equal(ask.APPS_OPEN, false, "the router's switch is closed");
+  assert.match(worker, /const appsOpen = \(env\) => !!env && env\.APPS_OPEN === "1";/);
+  assert.doesNotMatch(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"), /APPS_OPEN/, "the deploy leaves it unset, so closed");
+  const { loadWorkerModule } = await import("./fixtures/worker-harness.mjs");
+  const w = (await loadWorkerModule()).default;
+  for (const path of ["/api/site/harbour-loaf/app/android", "/api/site/harbour-loaf/app/preview", "/api/site/harbour-loaf/app/builder", "/api/site/harbour-loaf/app/selftest", "/app-preview/harbour-loaf/" + "a".repeat(32) + "/"]) {
+    for (const method of ["GET", "POST"]) {
+      const r = await w.fetch(new Request("https://gofarther.dev" + path, { method }), {}, { waitUntil() {}, passThroughOnException() {} });
+      assert.equal(r.status, 404, method + " " + path);
+    }
+  }
 });

@@ -1011,6 +1011,12 @@ const LIVE_APP_CLAUSE =
   "an app version for my customers\", \"put it on iPhone\". Set `platform`: \"ios\" when they name an iPhone, iPad or " +
   "Apple, otherwise \"android\". It changes nothing on the site. Talking about an app (\"would an app help me?\") is " +
   "\"ask\".";
+/**
+ * PHONE APPS ARE PARKED (2026-10-21, owner: "customer cant access it yet, we
+ * are gonna open a different branch later"). While false the router is never
+ * offered "app" and never answers it; the branch that opens apps sets it true.
+ */
+export const APPS_OPEN = false;
 export const LIVE_ASK_TOOL = {
   name: ASK_TOOL.name,
   description: "Say whether this message is asking for a change to the site or asking a question, answer it if it is a question, and ask for the one detail you need when what they want cannot be decided without it.",
@@ -1021,12 +1027,14 @@ export const LIVE_ASK_TOOL = {
       // A PHONE APP OF THE SITE (2026-10-20, owner: "it has to be through model
       // calls"): a sixth answer, offered only here, on a site that exists, so a
       // first build's tool and request stay exactly as they were.
-      intent: { ...ASK_TOOL.input_schema.properties.intent, enum: [...ASK_TOOL.input_schema.properties.intent.enum, "app"], description: liveIntentDescription() + "\n\n" + LIVE_APP_CLAUSE },
-      platform: {
-        type: "string",
-        enum: ["android", "ios"],
-        description: "Only with intent \"app\": \"ios\" when they name an iPhone, iPad or Apple, otherwise \"android\".",
-      },
+      ...(APPS_OPEN ? {
+        intent: { ...ASK_TOOL.input_schema.properties.intent, enum: [...ASK_TOOL.input_schema.properties.intent.enum, "app"], description: liveIntentDescription() + "\n\n" + LIVE_APP_CLAUSE },
+        platform: {
+          type: "string",
+          enum: ["android", "ios"],
+          description: "Only with intent \"app\": \"ios\" when they name an iPhone, iPad or Apple, otherwise \"android\".",
+        },
+      } : { intent: { ...ASK_TOOL.input_schema.properties.intent, description: liveIntentDescription() } }),
       alsoAsked: liveAlsoAsked(),
       dependsOn: DEPENDS_ON,
       targets: TARGETS,
@@ -1675,7 +1683,7 @@ function readDecision(reply, { canClarify = false, picked = false, hasSite = fal
   // A PHONE APP OF THE SITE (2026-10-20): no step of the site runs; the page
   // asks the app builder. Only for a site that exists; the platform is read
   // from the model's fixed list, Android when it named none.
-  if (hasSite && input.intent === "app") {
+  if (APPS_OPEN && hasSite && input.intent === "app") {
     markLeftOut(input, [], mark);
     return { intent: "app", platform: input.platform === "ios" ? "ios" : "android", answer: "" };
   }

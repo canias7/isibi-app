@@ -203,10 +203,18 @@ function wireBuildPicker() {
 // "on the chat box, the one in the list of sites, put there a picker for sites,
 // Android app, and Apple app"). The same chip and menu as the builder's; the
 // choice rides the build (`target`) and is kept on the account like the others.
-const BUILD_KINDS = {
+// PHONE APPS ARE PARKED (2026-10-21, owner: "customer cant access it yet, we
+// are gonna open a different branch later"): only Website is offered, the
+// phones carry no app button, and the router's "app" answer is not taken. The
+// branch that opens apps sets this true (and `APPS_OPEN` in worker.js and
+// builder/site-ask.mjs).
+const APPS_OPEN = false;
+const BUILD_KINDS = APPS_OPEN ? {
   site:    { label: 'Website',     desc: 'A website at its own address' },
   android: { label: 'Android app', desc: 'Your website, as an app for Android phones' },
   ios:     { label: 'Apple app',   desc: 'Your website, as an app for iPhone' },
+} : {
+  site:    { label: 'Website',     desc: 'A website at its own address' },
 };
 const BUILD_KIND_KEY = 'zephyr_build_kind_v1';
 let buildKind = 'site';
@@ -218,6 +226,8 @@ const KIND_PLACEHOLDER = {
   ios: 'Describe the app you want \u2014 \u201can ordering app for my bakery, warm colours, today\u2019s loaves on the first screen\u201d\u2026',
 };
 function buildKindHTML(dir) {
+  // ONE THING TO MAKE, NO CHIP (apps parked, 2026-10-21).
+  if (!APPS_OPEN) return '';
   const up = dir !== 'down';
   return '<span class="st-buildsel-wrap">' +
     '<button type="button" class="st-buildsel" id="stKindSel" title="What to make">Make: <b id="stKindLabel">' + BUILD_KINDS[buildKind].label + '</b> \u25be</button>' +
@@ -7139,7 +7149,7 @@ function siteMobilePanel(hasSite, os, appSrc, appOs) {
       // already says which, and a second label would be the same fact twice.
       '<span class="st-mob-cap">' + brandMark(v, 12) + MOBILE_LABELS[v] + '</span>' +
       // GET THE APP (2026-10-20): Android's is made by our app builder now; Apple's says when.
-      (inside !== words && madeFor(v) ? '<button type="button" class="st-mob-dl" data-app-dl="' + v + '">' + (v === 'android' ? 'Download Android app' : 'iPhone app: coming soon') + '</button>' : '') +
+      (APPS_OPEN && inside !== words && madeFor(v) ? '<button type="button" class="st-mob-dl" data-app-dl="' + v + '">' + (v === 'android' ? 'Download Android app' : 'iPhone app: coming soon') + '</button>' : '') +
     '</div>';
   return '<div class="st-mob" data-os="' + on + '">' +
     '<div class="st-mob-head"><span class="st-mob-title">Mobile app</span>' +
@@ -10163,7 +10173,7 @@ function routeActionable(d, site) {
   }
   if (d.intent === 'addon') return slug;
   // A PHONE APP OF THE SITE (2026-10-20): the router named which phone.
-  if (d.intent === 'app') return slug && (d.platform === 'android' || d.platform === 'ios');
+  if (d.intent === 'app') return APPS_OPEN && slug && (d.platform === 'android' || d.platform === 'ios');
   if (d.intent === 'build') return true;
   if (d.intent === 'ask') return typeof d.answer === 'string' && d.answer.trim() !== '';
   // ON A SITE THAT EXISTS A QUESTION CARRIES THE ID IT WAS KEPT UNDER (2026-10-02).
@@ -10594,7 +10604,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     if (d.intent === 'addon' && site.slug) return siteAddon(site, run, origin, finish, go, d, sendImgs);
     // A PHONE APP OF THE SITE (2026-10-20, owner: "it has to be through model
     // calls"): the router read the message as asking for one; the app builder makes it.
-    if (d.intent === 'app' && site.slug) return siteMakeApp(site, d.platform, finish);
+    if (APPS_OPEN && d.intent === 'app' && site.slug) return siteMakeApp(site, d.platform, finish);
     // On a live site only an explicit `build` reaches this `go()`: the check
     // above refused every answer it could not act on. What an answered
     // question put off earlier rides with it, to be named when it ends.

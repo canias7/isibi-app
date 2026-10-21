@@ -70,7 +70,7 @@ const b64 = (s) => Buffer.from(s).toString("base64");
 
 test("ROUTE: signed out 401, someone else's app 404, and nothing is checked", async () => {
   const ns = containerNs(() => new Response("x"));
-  const env = { SITES_BUCKET: bucket(), APP_BUILD_CONTAINER: ns };
+  const env = { APPS_OPEN: "1", SITES_BUCKET: bucket(), APP_BUILD_CONTAINER: ns };
   assert.equal((await call(env, "POST", "shop-2", { files: [TABS] }, "")).status, 401);
   signIn("u2", "u1");
   assert.equal((await call(env, "POST", "shop-2", { files: [TABS] })).status, 404);
@@ -79,7 +79,7 @@ test("ROUTE: signed out 401, someone else's app 404, and nothing is checked", as
 
 test("ROUTE: the owner's app is checked, kept under a fresh token, named current, and served to the phones", async () => {
   const ns = containerNs(() => Response.json({ ok: true, ms: 9, files: [{ path: "index.html", data: b64("<div id=root></div>") }, { path: "_expo/static/js/web/entry-ab.js", data: b64("js") }] }));
-  const env = { SITES_BUCKET: bucket(), APP_BUILD_CONTAINER: ns };
+  const env = { APPS_OPEN: "1", SITES_BUCKET: bucket(), APP_BUILD_CONTAINER: ns };
   signIn("u1", "u1");
   const r = await call(env, "POST", "shop-3", { files: [TABS], theme: THEME });
   const d = await r.json();
@@ -104,7 +104,7 @@ test("ROUTE: the owner's app is checked, kept under a fresh token, named current
 
 test("ROUTE: a failed check answers 422 with the compiler's lines, and nothing is kept", async () => {
   const ns = containerNs(() => Response.json({ ok: false, stage: "typecheck", errors: ["app/(tabs)/_layout.tsx(1,38): error TS2304: Cannot find name 'Nope'."] }));
-  const env = { SITES_BUCKET: bucket(), APP_BUILD_CONTAINER: ns };
+  const env = { APPS_OPEN: "1", SITES_BUCKET: bucket(), APP_BUILD_CONTAINER: ns };
   signIn("u1", "u1");
   const r = await call(env, "POST", "shop-4", { files: [TABS] });
   const d = await r.json();

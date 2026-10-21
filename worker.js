@@ -610,6 +610,11 @@ async function expoAppSource(env, slug) {
   }
   return { files, theme: m.theme && typeof m.theme === "object" ? m.theme : null };
 }
+// PHONE APPS ARE PARKED (2026-10-21, owner: "customer cant access it yet, we
+// are gonna open a different branch later"): a build is always a website, and
+// every app route answers 404. On only when the deploy's `APPS_OPEN` variable is
+// "1" (wrangler.jsonc keeps it "0"); the branch that opens apps sets it.
+const appsOpen = (env) => !!env && env.APPS_OPEN === "1";
 const appPreviewBase = (slug, token) => "/app-preview/" + slug + "/" + token;
 /** A served file's type, from its name. */
 function appPreviewType(p) {
@@ -25702,7 +25707,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // A PHONE APP OR A WEBSITE (2026-10-20, owner: "everything the same as the
       // site … it's literally just the same process"): the same pipeline, told
       // which it makes. Strictly "app"; anything else is a website, as before.
-      const surface = body && body.surface === "app" ? "app" : "site";
+      const surface = appsOpen(env) && body && body.surface === "app" ? "app" : "site";
       let namedRow;
       if (namedSlug) {
         namedRow = await siteBackendRowFresh(env, namedSlug).catch(() => undefined);
@@ -30118,6 +30123,10 @@ async function handleRequest(request, env, ctx) {
       return Response.json({ ok: true, stored: true });
     }
 
+    // PARKED (2026-10-21): while `APPS_OPEN` is not "1" no app door answers.
+    if (!appsOpen(env) && (/^\/api\/site\/[a-z0-9][a-z0-9-]{0,80}\/app(\/|$)/.test(url.pathname) || url.pathname.startsWith("/app-preview/"))) {
+      return Response.json({ error: "not found" }, { status: 404 });
+    }
     // GET /api/site/<slug>/app/builder — which app builder answers this project
     // (2026-10-21): its own health, routes included, so a stale image is seen,
     // not inferred. Owner only; it starts the builder if it is asleep.

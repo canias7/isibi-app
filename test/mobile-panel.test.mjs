@@ -160,7 +160,10 @@ function realPanel() {
   // RUNS, not when the file loads, so reading this function could never prove it
   // works. That trap has cost this repository four separate misses in one
   // session, one of which reached main.
-  return new Function(list[0] + "\n" + labels[0] + "\n" + marksSrc() + "\n" + src + "; return siteMobilePanel;")();
+  // THE APPS SWITCH (parked 2026-10-21) gates the panel's app button.
+  const apps = BARE.match(/^const APPS_OPEN = (?:true|false);$/m);
+  assert.ok(apps, "APPS_OPEN is gone from chat.js");
+  return new Function(apps[0] + "\n" + list[0] + "\n" + labels[0] + "\n" + marksSrc() + "\n" + src + "; return siteMobilePanel;")();
 }
 
 /** The real mark table and its real emitter, cut out of the file. */

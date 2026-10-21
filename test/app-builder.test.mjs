@@ -95,7 +95,7 @@ const call = (env, method, slug, body, tok = "t") => worker.fetch(new Request("h
 
 test("ROUTE: signed out 401, someone else's site 404, and nothing is built", async () => {
   const ns = containerNs(() => new Response("x"));
-  const env = { SITES_BUCKET: bucket(), APP_BUILD_CONTAINER: ns };
+  const env = { APPS_OPEN: "1", SITES_BUCKET: bucket(), APP_BUILD_CONTAINER: ns };
   assert.equal((await call(env, "POST", "shop-2", {}, "")).status, 401);
   signIn("u2", "u1");
   assert.equal((await call(env, "POST", "shop-2", {})).status, 404);
@@ -105,7 +105,7 @@ test("ROUTE: signed out 401, someone else's site 404, and nothing is built", asy
 test("ROUTE: the owner's build goes to the app builder, is kept, and downloads", async () => {
   const apk = new Uint8Array([80, 75, 3, 4, 9, 9]);
   const ns = containerNs(() => new Response(apk, { headers: { "content-type": "application/vnd.android.package-archive" } }));
-  const env = { SITES_BUCKET: bucket(), APP_BUILD_CONTAINER: ns };
+  const env = { APPS_OPEN: "1", SITES_BUCKET: bucket(), APP_BUILD_CONTAINER: ns };
   signIn("u1", "u1");
   const r = await call(env, "POST", "shop-3", { name: "Shop Three" });
   const d = await r.json();
@@ -122,7 +122,7 @@ test("ROUTE: the owner's build goes to the app builder, is kept, and downloads",
 
 test("ROUTE: the builder's refusal is said, and nothing is kept", async () => {
   const ns = containerNs(() => new Response(JSON.stringify({ error: "the app could not be built" }), { status: 500, headers: { "content-type": "application/json" } }));
-  const env = { SITES_BUCKET: bucket(), APP_BUILD_CONTAINER: ns };
+  const env = { APPS_OPEN: "1", SITES_BUCKET: bucket(), APP_BUILD_CONTAINER: ns };
   signIn("u1", "u1");
   const r = await call(env, "POST", "shop-4", {});
   assert.equal(r.status, 502); assert.match((await r.json()).error, /could not be built/);
@@ -131,7 +131,7 @@ test("ROUTE: the builder's refusal is said, and nothing is kept", async () => {
 });
 
 // ── WAITING ITS TURN, THE ROUTER'S "app", THE PICKER (2026-10-20, owner: "3 and it has to be through model calls") ──
-import { readRouting, ASK_TOOL, LIVE_ASK_TOOL } from "../builder/site-ask.mjs";
+import { readRouting, ASK_TOOL, LIVE_ASK_TOOL, APPS_OPEN } from "../builder/site-ask.mjs";
 
 test("QUEUE: a busy builder is asked again until it is free; one never free is said, and nothing is kept", async () => {
   api.setAppWait(1, 200);
@@ -139,23 +139,30 @@ test("QUEUE: a busy builder is asked again until it is free; one never free is s
     let n = 0;
     const apk = new Uint8Array([80, 75, 3, 4]);
     const ns = containerNs(() => (++n < 3 ? new Response("busy", { status: 503 }) : new Response(apk, { headers: { "content-type": "application/vnd.android.package-archive" } })));
-    const env = { SITES_BUCKET: bucket(), APP_BUILD_CONTAINER: ns };
+    const env = { APPS_OPEN: "1", SITES_BUCKET: bucket(), APP_BUILD_CONTAINER: ns };
     signIn("u1", "u1");
     const r = await call(env, "POST", "shop-5", {});
     assert.equal(r.status, 200); assert.equal(n, 3, "it waited its turn");
-    const never = { SITES_BUCKET: bucket(), APP_BUILD_CONTAINER: containerNs(() => new Response("busy", { status: 503 })) };
+    const never = { APPS_OPEN: "1", SITES_BUCKET: bucket(), APP_BUILD_CONTAINER: containerNs(() => new Response("busy", { status: 503 })) };
     const r2 = await call(never, "POST", "shop-6", {});
     assert.equal(r2.status, 503); assert.match((await r2.json()).error, /Every app builder is busy/);
     assert.equal(never.SITES_BUCKET.m.size, 0);
   } finally { api.setAppWait(10_000, 5 * 60 * 1000); }
 });
 
-test("ROUTER: \"app\" is one of its answers, with the phone named; with no site it stays a build", () => {
+test("ROUTER: while apps are parked, \"app\" is never offered or taken; opened, it is one of its answers with the phone named", () => {
+  const said = (input, o) => readRouting({ content: [{ type: "tool_use", input }] }, o);
+  assert.ok(!ASK_TOOL.input_schema.properties.intent.enum.includes("app") && !ASK_TOOL.input_schema.properties.platform, "a first build's tool is unchanged: there is no site to make an app of");
+  if (!APPS_OPEN) {
+    assert.ok(!LIVE_ASK_TOOL.input_schema.properties.intent.enum.includes("app"), "parked: the router is not offered \"app\"");
+    assert.ok(!LIVE_ASK_TOOL.input_schema.properties.platform, "parked: no phone to name");
+    assert.doesNotMatch(LIVE_ASK_TOOL.input_schema.properties.intent.description, /"app" — they want/);
+    assert.notEqual(said({ intent: "app", platform: "ios" }, { hasSite: true, live: true }).intent, "app", "parked: an \"app\" answer is never taken");
+    return;
+  }
   assert.ok(LIVE_ASK_TOOL.input_schema.properties.intent.enum.includes("app"));
   assert.deepEqual(LIVE_ASK_TOOL.input_schema.properties.platform.enum, ["android", "ios"]);
-  assert.ok(!ASK_TOOL.input_schema.properties.intent.enum.includes("app") && !ASK_TOOL.input_schema.properties.platform, "a first build's tool is unchanged: there is no site to make an app of");
   assert.match(LIVE_ASK_TOOL.input_schema.properties.intent.description, /"app" — they want the site that ALREADY EXISTS made into a phone app/);
-  const said = (input, o) => readRouting({ content: [{ type: "tool_use", input }] }, o);
   assert.deepEqual(said({ intent: "app", platform: "ios" }, { hasSite: true, live: true }), { intent: "app", platform: "ios", answer: "" });
   assert.equal(said({ intent: "app" }, { hasSite: true }).platform, "android", "Android when no phone was named");
   assert.equal(said({ intent: "app", platform: "windows" }, { hasSite: true }).platform, "android", "a phone off the list is never passed on");
@@ -167,8 +174,8 @@ test("WIRING: the route tells the page which phone; the page makes the app, and 
   assert.match(src, /platform: routed\.intent === "app" \? routed\.platform : undefined,/);
   assert.match(src, /sleepAfter = "1m";/);
   const page = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
-  assert.match(page, /if \(d\.intent === 'app'\) return slug && \(d\.platform === 'android' \|\| d\.platform === 'ios'\);/);
-  assert.match(page, /if \(d\.intent === 'app' && site\.slug\) return siteMakeApp\(site, d\.platform, finish\);/);
+  assert.match(page, /if \(d\.intent === 'app'\) return APPS_OPEN && slug && \(d\.platform === 'android' \|\| d\.platform === 'ios'\);/);
+  assert.match(page, /if \(APPS_OPEN && d\.intent === 'app' && site\.slug\) return siteMakeApp\(site, d\.platform, finish\);/);
   assert.match(page, /apiFetch\('\/api\/site\/' \+ encodeURIComponent\(slug\) \+ '\/app\/android', \{ method: 'POST'/);
   assert.match(page, /Apple apps are on the way, but not ready yet/);
   assert.match(page, /buildKindHTML\('down'\) \+ buildPickerHTML\('down'\) \+ buildEffortHTML\('down'\)/);
