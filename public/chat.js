@@ -8022,10 +8022,10 @@ function secReportHTML(rep) {
 // ordinary message, through the ordinary edit path, at the ordinary price.
 function wireSecFix(site) {
   document.querySelectorAll('[data-secfix]').forEach((b) => b.onclick = () => {
-    const t = 'Fix this security problem on my site: ' + b.getAttribute('data-secfix');
     siteView = 'preview';
     renderSites();
-    if (typeof siteSend === 'function') siteSend(t);
+    // THE PLATFORM'S OWN WORDS (`siteSend`'s second argument): never the composer's draft.
+    if (typeof siteSend === 'function') siteSend('Fix this security problem on my site: ' + b.getAttribute('data-secfix'), true);
   });
 }
 // THE DEEP SCAN, from the panel or the chat (phase D): the picker's model,
@@ -8037,7 +8037,7 @@ async function siteSecurityDeep(site) {
   let rep = null;
   try {
     const key = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID().replace(/-/g, '') : String(Date.now());
-    const r = await apiFetch('/api/site/' + encodeURIComponent(site.slug) + '/security', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deep: true, picker: buildPicker, key }) });
+    const r = await apiFetch('/api/site/' + encodeURIComponent(site.slug) + '/security', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deep: true, picker: buildPicker, ...(typeof sendEffort === 'function' ? sendEffort() : null), key }) });
     const d = await r.json().catch(() => null);
     if (r.ok && d && d.ok) rep = d.report;
     else if (typeof sbToast === 'function') sbToast((d && d.error) || 'Couldn\u2019t run the scan just now. Try again in a moment.');
