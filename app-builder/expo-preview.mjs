@@ -28,7 +28,9 @@ export function readExpoRequest(b) {
     if (!APP_PATH.test(f.path)) return { error: "not a file an app may write: " + f.path.slice(0, 120) };
     if (seen.has(f.path)) return { error: "the same file twice: " + f.path };
     seen.add(f.path);
-    bytes += Buffer.byteLength(f.source, "utf8");
+    // A TextEncoder, never Node's byte helper: this reader also runs on the Worker, which lacks it
+    // (the first live check crashed there, 2026-10-21).
+    bytes += new TextEncoder().encode(f.source).length;
     files.push({ path: f.path, source: f.source });
   }
   if (bytes > EXPO_MAX_BYTES) return { error: "the files are too large" };

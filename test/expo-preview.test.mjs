@@ -111,3 +111,13 @@ test("ROUTE: a failed check answers 422 with the compiler's lines, and nothing i
   assert.equal(r.status, 422); assert.equal(d.stage, "typecheck"); assert.match(d.errors[0], /TS2304/);
   assert.equal(env.SITES_BUCKET.m.size, 0);
 });
+
+test("the request reader runs where the Worker runs: no Buffer, no Node-only global", () => {
+  const src = readFileSync(new URL("../app-builder/expo-preview.mjs", import.meta.url), "utf8");
+  const reader = src.slice(src.indexOf("export function readExpoRequest"), src.indexOf("export function tscErrors"));
+  assert.ok(reader.length > 500, "the observer found the reader");
+  assert.doesNotMatch(reader, /\bBuffer\b|\bprocess\./);
+  const saved = globalThis.Buffer;
+  try { globalThis.Buffer = undefined; assert.equal(readExpoRequest({ baseUrl: BASE, files: [TABS] }).error, undefined); }
+  finally { globalThis.Buffer = saved; }
+});

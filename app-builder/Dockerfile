@@ -31,7 +31,6 @@ RUN mkdir -p $ANDROID_HOME/cmdline-tools \
 
 ENV GRADLE_USER_HOME=/opt/gradle-home
 WORKDIR /app
-COPY package.json server.mjs app-config.mjs expo-preview.mjs ./
 COPY template/ ./template/
 
 # THE WARM-UP: the template made into an Android project and built once, so the
@@ -57,6 +56,9 @@ RUN cd expo && CI=1 EXPO_ANDROID_PACKAGE=dev.gofarther.warmup npx expo prebuild 
   && cd android && ./gradlew assembleRelease --no-daemon -q \
   && cd .. && rm -rf android
 
+# OUR OWN CODE LAST (2026-10-21): it changes often and is small, so a change
+# to it reuses every warmed layer above instead of re-running the warm-ups.
+COPY package.json server.mjs app-config.mjs expo-preview.mjs ./
 ENV NODE_ENV=production
 EXPOSE 8080
 CMD ["node", "server.mjs"]
