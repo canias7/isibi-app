@@ -10173,7 +10173,7 @@ function routeActionable(d, site) {
   }
   if (d.intent === 'addon') return slug;
   // A PHONE APP OF THE SITE (2026-10-20): the router named which phone.
-  if (d.intent === 'app') return APPS_OPEN && slug && (d.platform === 'android' || d.platform === 'ios');
+  if (d.intent === 'app') return slug && (d.platform === 'android' || d.platform === 'ios');
   if (d.intent === 'build') return true;
   if (d.intent === 'ask') return typeof d.answer === 'string' && d.answer.trim() !== '';
   // ON A SITE THAT EXISTS A QUESTION CARRIES THE ID IT WAS KEPT UNDER (2026-10-02).
@@ -10604,7 +10604,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     if (d.intent === 'addon' && site.slug) return siteAddon(site, run, origin, finish, go, d, sendImgs);
     // A PHONE APP OF THE SITE (2026-10-20, owner: "it has to be through model
     // calls"): the router read the message as asking for one; the app builder makes it.
-    if (APPS_OPEN && d.intent === 'app' && site.slug) return siteMakeApp(site, d.platform, finish);
+    if (d.intent === 'app' && site.slug) return siteMakeApp(site, d.platform, finish);
     // On a live site only an explicit `build` reaches this `go()`: the check
     // above refused every answer it could not act on. What an answered
     // question put off earlier rides with it, to be named when it ends.

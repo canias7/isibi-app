@@ -30125,7 +30125,7 @@ async function handleRequest(request, env, ctx) {
 
     // PARKED (2026-10-21): while `APPS_OPEN` is not "1" no app door answers.
     if (!appsOpen(env) && (/^\/api\/site\/[a-z0-9][a-z0-9-]{0,80}\/app(\/|$)/.test(url.pathname) || url.pathname.startsWith("/app-preview/"))) {
-      return Response.json({ error: "not found" }, { status: 404 });
+      return Response.json({ error: "phone apps are not open yet" }, { status: 404 });
     }
     // GET /api/site/<slug>/app/builder — which app builder answers this project
     // (2026-10-21): its own health, routes included, so a stale image is seen,

@@ -174,8 +174,8 @@ test("WIRING: the route tells the page which phone; the page makes the app, and 
   assert.match(src, /platform: routed\.intent === "app" \? routed\.platform : undefined,/);
   assert.match(src, /sleepAfter = "1m";/);
   const page = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
-  assert.match(page, /if \(d\.intent === 'app'\) return APPS_OPEN && slug && \(d\.platform === 'android' \|\| d\.platform === 'ios'\);/);
-  assert.match(page, /if \(APPS_OPEN && d\.intent === 'app' && site\.slug\) return siteMakeApp\(site, d\.platform, finish\);/);
+  assert.match(page, /if \(d\.intent === 'app'\) return slug && \(d\.platform === 'android' \|\| d\.platform === 'ios'\);/);
+  assert.match(page, /if \(d\.intent === 'app' && site\.slug\) return siteMakeApp\(site, d\.platform, finish\);/);
   assert.match(page, /apiFetch\('\/api\/site\/' \+ encodeURIComponent\(slug\) \+ '\/app\/android', \{ method: 'POST'/);
   assert.match(page, /Apple apps are on the way, but not ready yet/);
   assert.match(page, /buildKindHTML\('down'\) \+ buildPickerHTML\('down'\) \+ buildEffortHTML\('down'\)/);
