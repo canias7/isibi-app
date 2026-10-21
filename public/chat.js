@@ -17350,3 +17350,71 @@ if (params.get('credits') === 'added') {
   }
 }
 
+
+// ── WORD BY WORD (2026-10-21, owner: "for the progress talks and everything
+// when the model talks back to you, instead of just putting the sentence
+// there, lets have it word by word") ─────────────────────────────────────────
+//
+// New progress lines and the builder's replies are revealed a word at a time.
+// The thread is redrawn on every poll, so the reveal is driven by TIME, not by
+// the element: each text keeps the moment it first appeared, and every redraw
+// shows as many words as that much time allows — a redraw never restarts it.
+// What was already on screen when a site was opened is never typed out, and
+// nothing is with reduced motion.
+const TypeIn = (() => {
+  const WPS = 30;                 // words a second
+  const MAX_MS = 3000;            // a long reply speeds up to finish in this
+  const started = new Map();      // text key -> first seen (ms)
+  const primed = new Set();       // site ids whose thread was read once
+  let frame = 0;
+  const reduce = () => { try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; } };
+  const SKIP = 'ul.st-req-prog, .st-req, .st-acts, .st-opts, .st-pick, .st-think, details, .st-note, button';
+  function targets(thread) {
+    const out = [];
+    thread.querySelectorAll('ul.st-req-prog > li').forEach((li) => out.push(li));
+    thread.querySelectorAll('.st-msg.a').forEach((m) => out.push(m));
+    return out;
+  }
+  function textNodes(el, isMsg) {
+    const nodes = [];
+    const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (isMsg && n.parentElement && n.parentElement.closest(SKIP) && el.contains(n.parentElement.closest(SKIP))) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) if (n.nodeValue && n.nodeValue.trim()) nodes.push(n);
+    return nodes;
+  }
+  function sweep() {
+    frame = 0;
+    const thread = document.getElementById('stThread');
+    if (!thread) return;
+    const sid = typeof siteOpenId === 'string' ? siteOpenId : '';
+    const first = !primed.has(sid);
+    const now = Date.now();
+    let more = false;
+    for (const el of targets(thread)) {
+      const isMsg = el.classList.contains('st-msg');
+      const nodes = textNodes(el, isMsg);
+      if (!nodes.length) continue;
+      const full = nodes.map((n) => n.__typeFull != null ? n.__typeFull : n.nodeValue);
+      const key = sid + '|' + full.join('');
+      if (!started.has(key)) started.set(key, first || reduce() ? 0 : now);
+      const t0 = started.get(key);
+      if (!t0) continue;
+      const words = full.join(' ').split(/\s+/).filter(Boolean).length;
+      const rate = Math.max(WPS, words / (MAX_MS / 1000));
+      let left = Math.floor(((now - t0) / 1000) * rate) + 1;
+      if (left >= words) { nodes.forEach((n, i) => { if (n.nodeValue !== full[i]) n.nodeValue = full[i]; n.__typeFull = null; }); continue; }
+      more = true;
+      nodes.forEach((n, i) => {
+        n.__typeFull = full[i];
+        const parts = full[i].split(/(\s+)/);
+        let shown = '';
+        for (const p of parts) { if (!p) continue; if (/^\s+$/.test(p)) { if (left > 0) shown += p; continue; } if (left <= 0) break; shown += p; left--; }
+        n.nodeValue = shown;
+      });
+    }
+    primed.add(sid);
+    if (more) frame = requestAnimationFrame(sweep);
+  }
+  function schedule() { if (!frame) frame = requestAnimationFrame(sweep); }
+  try { new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true }); } catch (e) { /* no reveal: the text is shown whole */ }
+  return { sweep, schedule };
+})();
