@@ -692,12 +692,14 @@ async function writePhoneApp(env, { slug, brief, brand, spec, theme, model, budg
       }
       return { ok: true, preview: b.preview, files: files.files.length, usage };
     }
-    if (!(b && b.ok === false && b.stage === "typecheck") || round === 1) {
-      return { ok: false, stage: "check", error: (b && b.errors && b.errors[0]) || "the app could not be checked", usage };
+    // A TYPECHECK OR A BUNDLER COMPLAINT GOES BACK ONCE: both are the writer's
+    // code, and both come with the tool's own lines.
+    if (!(b && b.ok === false && (b.stage === "typecheck" || b.stage === "export")) || round === 1) {
+      return { ok: false, stage: "check", error: (b && Array.isArray(b.errors) && b.errors.length ? b.errors.slice(0, 3).join(" | ").slice(0, 500) : "the app could not be checked"), usage };
     }
     // ONE REPAIR, from the compiler's own words.
     messages.push({ role: "assistant", content: [{ type: "tool_use", id: "w1", name: "write_app", input: got.answer }] });
-    messages.push({ role: "user", content: [{ type: "tool_result", tool_use_id: "w1", content: "The app does not typecheck. Fix every error and send the WHOLE app again with write_app:\n" + b.errors.join("\n") }] });
+    messages.push({ role: "user", content: [{ type: "tool_result", tool_use_id: "w1", content: (b.stage === "export" ? "The app typechecks but does not bundle." : "The app does not typecheck.") + " Fix every error and send the WHOLE app again with write_app:\n" + b.errors.join("\n") }] });
   }
   return { ok: false, stage: "check", error: "the app could not be checked", usage };
 }
@@ -30119,6 +30121,26 @@ async function handleRequest(request, env, ctx) {
           await env.SITES_BUCKET.put(appSourceManifestKey(pslug), JSON.stringify({ files: sent.files.map((f) => f.path), theme: sent.theme || null, at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
         }
         return Response.json({ ok: true, preview: appPreviewBase(pslug, token) + "/", files: r.body.files.length, ms: r.body.ms });
+      }
+    }
+    // GET /api/site/<slug>/app/builder — which app builder answers this project
+    // (2026-10-21): its own health, routes included, so a stale image is seen,
+    // not inferred. Owner only; it starts the builder if it is asleep.
+    {
+      const hm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/app\/builder$/);
+      if (hm && request.method === "GET") {
+        const au = await authUser(request, env);
+        if (!au) return Response.json({ error: "sign in first" }, { status: 401 });
+        const own = await siteOwnerBySlug(hm[1], env);
+        if (!own || own !== au.id) return Response.json({ error: "not found" }, { status: 404 });
+        if (!env.APP_BUILD_CONTAINER) return Response.json({ error: "not available" }, { status: 503 });
+        try {
+          const c = getContainer(env.APP_BUILD_CONTAINER, laneName("app-" + hm[1]));
+          const r = await c.fetch(new Request("http://app/health", { signal: AbortSignal.timeout(5 * 60 * 1000) }));
+          return Response.json({ ok: r.ok, status: r.status, health: await r.json().catch(() => null) });
+        } catch (e) {
+          return Response.json({ ok: false, error: errorClassForLog(e) }, { status: 502 });
+        }
       }
     }
     // GET /app-preview/<slug>/<token>/… — the web version itself, for the phones'

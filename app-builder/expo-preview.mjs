@@ -51,6 +51,18 @@ export function readExpoRequest(b) {
   return { baseUrl: b.baseUrl, files, theme };
 }
 
+/**
+ * THE BUNDLER'S OWN COMPLAINT, not its first line (the first live build kept
+ * only "Using (experimental) base path…"): the lines that name an error, a file
+ * that cannot be found or resolved — the first 20 — or, when none do, the last 12.
+ */
+export function bundlerErrors(out) {
+  const lines = String(out || "").split("\n").map((l) => l.replace(/\x1b\[[0-9;]*m/g, "").trimEnd()).filter(Boolean);
+  const named = lines.filter((l) => /error|unable to resolve|cannot find|could not|failed|SyntaxError|TypeError/i.test(l) && !/^Using \(experimental\)/.test(l));
+  const pick = named.length ? named.slice(0, 20) : lines.slice(-12);
+  return pick.length ? pick.map((l) => l.slice(0, 400)) : ["the app could not be bundled"];
+}
+
 /** Typecheck errors as the model can read them: file, line, message — the first 30. */
 export function tscErrors(out) {
   return String(out || "").split("\n").filter((l) => /\.tsx?\(\d+,\d+\): error TS\d+/.test(l)).slice(0, 30);
@@ -86,8 +98,7 @@ export async function exportExpo(r, { template, exec, fs, tmp }) {
     try {
       await exec("npx", ["expo", "export", "-p", "web"], { cwd: dir, timeout: 300_000, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, CI: "1", EXPO_BASE_URL: r.baseUrl } });
     } catch (e) {
-      const tail = String((e && (e.stderr || e.stdout)) || "").split("\n").filter(Boolean).slice(-12);
-      return { ok: false, stage: "export", errors: tail.length ? tail : ["the app could not be bundled"] };
+      return { ok: false, stage: "export", errors: bundlerErrors((e && (String(e.stderr || "") + "\n" + String(e.stdout || ""))) || "") };
     }
     const out = [];
     const walk = async (d, rel) => {

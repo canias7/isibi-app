@@ -121,3 +121,11 @@ test("the request reader runs where the Worker runs: no Buffer, no Node-only glo
   try { globalThis.Buffer = undefined; assert.equal(readExpoRequest({ baseUrl: BASE, files: [TABS] }).error, undefined); }
   finally { globalThis.Buffer = saved; }
 });
+
+test("the bundler's own complaint is kept, not its first line", async () => {
+  const { bundlerErrors } = await import("../app-builder/expo-preview.mjs");
+  const out = "Using (experimental) base path: /app-preview/x/0\nStarting Metro Bundler\n\x1b[31mError: Unable to resolve module ./nope from app/(tabs)/index.tsx\x1b[0m\n  12 | import X from './nope';";
+  assert.deepEqual(bundlerErrors(out), ["Error: Unable to resolve module ./nope from app/(tabs)/index.tsx"]);
+  assert.deepEqual(bundlerErrors("a\nb"), ["a", "b"], "with nothing named, the tail");
+  assert.deepEqual(bundlerErrors(""), ["the app could not be bundled"]);
+});
