@@ -297,7 +297,12 @@ export const MAX_COMPONENTS = 15;
  * 5x input — and output is the one part of the designer's answer that no cache
  * ever absorbs.
  */
-export const MAX_SECTIONS = 8;
+// SIX, NOT EIGHT (2026-10-21, owner: first-build pages "very long down"): the
+// house style's median is 4 and its p95 is 6, so a landing page planned to
+// eight bands was about twice the length the exemplars are. The designer is
+// asked for 4 to 6 and its answer may hold at most six; the merge below stays
+// as the backstop, so nothing planned is ever dropped.
+export const MAX_SECTIONS = 6;
 // WHAT THE CUSTOMER ASKED FOR IS KEPT WHOLE (2026-10-08, the content-
 // preservation batch; owner: keep the requirements within the real
 // constraints, never truncate and warn afterwards). `MAX_SECTIONS` is now the
@@ -931,8 +936,9 @@ export const SHAPE_FIELD = {
       sections: {
         type: "array",
         items: { type: "string" },
+        maxItems: MAX_SECTIONS,
         description:
-          `The page TOP TO BOTTOM, one short line a band, in order. Usually no more than ${MAX_SECTIONS}: each of the first ${MAX_SECTIONS} is written by its own writer, and any past them are written together in the last band — never dropped. ` +
+          `The page TOP TO BOTTOM, one short line a band, in order. FOUR TO ${MAX_SECTIONS} BANDS: a page is a few strong bands, not a long scroll. Put related things in ONE band (opening hours beside the address, not two bands; a few dishes in the menu band, not a band each) rather than adding bands. ` +
           "The first is what LEADS. Name the component that carries the band, say what goes in " +
           "it, and say HOW IT SITS — width, columns, place — in the layout words.",
       },

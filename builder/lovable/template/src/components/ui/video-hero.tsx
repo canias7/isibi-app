@@ -88,7 +88,7 @@ export function VideoHero({
         <div className="absolute inset-0 bg-background"
           style={{ opacity: Math.min(Math.max(overlay, 0), 100) / 100 }} />
       </div>
-      <div className={cn("mx-auto flex max-w-4xl flex-col gap-5 px-6 py-24 sm:py-36",
+      <div className={cn("mx-auto flex max-w-4xl flex-col gap-5 px-6 py-16 sm:py-24",
         align === "center" && "items-center text-center")}>
         <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-6xl">{title}</h1>
         {subtitle && <p className="max-w-2xl text-lg text-muted-foreground text-balance">{subtitle}</p>}

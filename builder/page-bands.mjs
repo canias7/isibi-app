@@ -355,7 +355,7 @@ export function bandPlan(lines, index) {
 export function bandPrompt({ brief, spec, brand, lines, index, name } = {}) {
   const label = String(brand || "").trim();
   const plan = bandPlan(lines, index);
-  return "Write ONE band of this page.\n\nBRIEF\n" + String(brief || "").trim() +
+  return "Write ONE band of this page.\n\nKEEP IT TIGHT: the page is a few bands, so this band says its one thing and stops. Use <Section> for its spacing (no padding of your own above py-16), no min-h-screen or min-h-svh except on the opening hero, one short heading, no intro paragraph repeating what the band above said.\n\nBRIEF\n" + String(brief || "").trim() +
     (label ? "\n\nTHE SITE IS CALLED\n" + label + " — it is already the page title." : "") +
     (siteHasTables(spec)
       ? "\n\nTHE SCHEMA THAT EXISTS\n" + schemaDigest(spec)

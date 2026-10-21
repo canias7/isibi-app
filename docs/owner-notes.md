@@ -1,5 +1,9 @@
 # Owner Notes
 
+## 2026-10-21 — Shorter first-build pages (not deployed)
+
+The planner now asks for 4 to 6 bands (was up to 8), the kit's section and hero spacing is tighter, and each band writer is told to keep its band short. Waiting on your word to deploy (it rebuilds the build container). A test build to compare before and after costs credits, so it needs your OK.
+
 ## 2026-10-21 — Phase D, Android: the real app downloads as an APK (you: "can u do it like in our platform how a customer will do it")
 
 - The app builder can now build a real Expo app into an Android app (`/expo-android`): the same typecheck, then Expo writes the native project and Gradle builds it offline against libraries the image warms once.

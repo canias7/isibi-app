@@ -31,7 +31,7 @@ export function Hero({
           <div className="absolute inset-0 bg-background/70" />
         </div>
       ) : null}
-      <div className={cn("relative mx-auto flex max-w-4xl flex-col gap-5 px-6 py-20 sm:py-28", align === "center" && "items-center text-center")}>
+      <div className={cn("relative mx-auto flex max-w-4xl flex-col gap-5 px-6 py-16 sm:py-20", align === "center" && "items-center text-center")}>
         <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-5xl">{title}</h1>
         {subtitle && <p className="max-w-2xl text-lg text-muted-foreground text-balance">{subtitle}</p>}
         {(primary || secondary) && (

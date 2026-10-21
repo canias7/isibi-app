@@ -34,7 +34,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { createRequire } from "node:module";
-import { splitPlan, generateSiteBands, bandFile, bandName, bandsFromAnswers } from "../builder/page-bands.mjs";
+import { splitPlan, generateSiteBands, bandFile, bandName, bandsFromAnswers, MAX_BANDS } from "../builder/page-bands.mjs";
 import { bandSplitFor, bandSplitEveryone, readCanaryList } from "../builder/edit-job.mjs";
 import { readGenReport, resumeDecision, noFanoutError, isNoFanout, NO_FANOUT_NAME } from "../builder/build-resume.mjs";
 
@@ -148,7 +148,7 @@ test("splitPlan reads the stored design args and nothing else, so a resume re-de
     shape: [{ path: "/", sections: ["one", "two", "tri", "four", "five", "six", "sevn", "ate"] }],
     route: "/", mode: "build",
     tsx: [{ name: "A", does: "a" }, { name: "B", does: "b" }, { name: "C", does: "c" }],
-  }).length, 8, "the widest plan there is was refused the split, or lost a band on the way in");
+  }).length, MAX_BANDS, "the widest plan there is was refused the split, or lost a band on the way in");
   assert.equal(splitPlan({ ...args, mode: "revise" }).length, 0, "a revise must not split");
   assert.equal(splitPlan({ ...args, priorPages: [{ path: "index.tsx" }] }).length, 0, "a page rewrite must not split");
   assert.equal(splitPlan({ shape: [{ path: "/", sections: ["only one"] }], route: "/", mode: "build" }).length, 0,
