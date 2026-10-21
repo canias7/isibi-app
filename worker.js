@@ -99,6 +99,7 @@ import { siteAnswer, pageNotes, buildFacts, ANSWER_FIELDS } from "./builder/buil
 // one spelling of the column, and says why it is not called `project`.
 import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { quickChecks } from "./site-security.mjs";
+import { deepScan } from "./builder/security-scan.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
@@ -46327,6 +46328,33 @@ async function handleRequest(request, env, ctx) {
             } catch { /* said as not checked */ }
             const result = quickChecks({ tables, spamProtected, files });
             const report = { v: 1, at: Date.now(), kind: "quick", checked, ...result };
+            // THE DEEP SCAN (phase B, 2026-10-21): only when asked (the Scan
+            // button or the chat), on the picker's model, every token charged
+            // once under the scan's own ref. The site's SOURCE is read, never run.
+            const scbody = await request.json().catch(() => ({}));
+            if (scbody && scbody.deep === true) {
+              const src = await readSiteSource(env, scslug).catch(() => ({ pages: [] }));
+              const sfiles = (src.pages || []).filter((p) => p && typeof p.path === "string" && typeof p.source === "string").map((p) => ({ path: p.path, text: p.source }));
+              const facts = tables.map((t) => t.name + ": " + t.access + (Array.isArray(t.columns) && t.columns.length ? " (" + t.columns.slice(0, 12).join(", ") + ")" : "")).join("\n");
+              const model = modelsFor(scbody.picker).pages;
+              const deep = await deepScan({ send: quickSend(env, "security") }, { model, files: sfiles, facts });
+              let cost = 0;
+              if (deep.usage.length) {
+                const priced = deep.usage.map((u) => ({ in: Number(u.input_tokens) || 0, out: Number(u.output_tokens) || 0, cacheRead: Number(u.cache_read_input_tokens) || 0, cacheWrite: Number(u.cache_creation_input_tokens) || 0, model }));
+                cost = pageCredits(...priced);
+                const scref = "security:" + scslug + ":" + (typeof scbody.key === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(scbody.key) ? scbody.key : String(report.at));
+                try { const d = await debitCredits(request.headers.get("Authorization") || "", cost, scref, "security", true); cost = d.repeat ? d.prior : d.taken; }
+                catch { /* never fail the report over the ledger */ }
+              }
+              report.kind = "deep";
+              report.findings = report.findings.concat(deep.confirmed);
+              report.unsure = deep.unsure;
+              report.areas = deep.areas;
+              report.cost = cost;
+              if (sfiles.length) checked.push("source");
+              const order = { high: 0, medium: 1, low: 2 };
+              report.findings.sort((a, b) => order[a.severity] - order[b.severity]);
+            }
             try { await env.SITES_BUCKET.put(reportKey, JSON.stringify(report), { httpMetadata: { contentType: "application/json" } }); } catch { /* the answer still stands */ }
             return Response.json({ ok: true, report });
           } else if (sq) {

@@ -1017,6 +1017,11 @@ const LIVE_APP_CLAUSE =
  * offered "app" and never answers it; the branch that opens apps sets it true.
  */
 export const APPS_OPEN = false;
+/** The live tool's security answer (2026-10-21, the security scan's phase D). */
+const LIVE_SECURITY_CLAUSE =
+  "\"security\" — they want their site that ALREADY EXISTS checked for security problems: \"is my site secure?\", " +
+  "\"scan my CRM for security holes\", \"check if anyone can see my customers' details\". It runs a security scan and changes " +
+  "nothing on the site. Asking HOW to make something secure, or asking to ADD a login or a rule, is not this: that is a change.";
 export const LIVE_ASK_TOOL = {
   name: ASK_TOOL.name,
   description: "Say whether this message is asking for a change to the site or asking a question, answer it if it is a question, and ask for the one detail you need when what they want cannot be decided without it.",
@@ -1028,13 +1033,13 @@ export const LIVE_ASK_TOOL = {
       // calls"): a sixth answer, offered only here, on a site that exists, so a
       // first build's tool and request stay exactly as they were.
       ...(APPS_OPEN ? {
-        intent: { ...ASK_TOOL.input_schema.properties.intent, enum: [...ASK_TOOL.input_schema.properties.intent.enum, "app"], description: liveIntentDescription() + "\n\n" + LIVE_APP_CLAUSE },
+        intent: { ...ASK_TOOL.input_schema.properties.intent, enum: [...ASK_TOOL.input_schema.properties.intent.enum, "app", "security"], description: liveIntentDescription() + "\n\n" + LIVE_APP_CLAUSE + "\n\n" + LIVE_SECURITY_CLAUSE },
         platform: {
           type: "string",
           enum: ["android", "ios"],
           description: "Only with intent \"app\": \"ios\" when they name an iPhone, iPad or Apple, otherwise \"android\".",
         },
-      } : { intent: { ...ASK_TOOL.input_schema.properties.intent, description: liveIntentDescription() } }),
+      } : { intent: { ...ASK_TOOL.input_schema.properties.intent, enum: [...ASK_TOOL.input_schema.properties.intent.enum, "security"], description: liveIntentDescription() + "\n\n" + LIVE_SECURITY_CLAUSE } }),
       alsoAsked: liveAlsoAsked(),
       dependsOn: DEPENDS_ON,
       targets: TARGETS,
@@ -1683,6 +1688,12 @@ function readDecision(reply, { canClarify = false, picked = false, hasSite = fal
   // A PHONE APP OF THE SITE (2026-10-20): no step of the site runs; the page
   // asks the app builder. Only for a site that exists; the platform is read
   // from the model's fixed list, Android when it named none.
+  // A SECURITY SCAN OF THE SITE (2026-10-21): no step of the site runs; the
+  // page starts the scan. Only for a site that exists.
+  if (hasSite && input.intent === "security") {
+    markLeftOut(input, [], mark);
+    return { intent: "security", answer: "" };
+  }
   if (APPS_OPEN && hasSite && input.intent === "app") {
     markLeftOut(input, [], mark);
     return { intent: "app", platform: input.platform === "ios" ? "ios" : "android", answer: "" };

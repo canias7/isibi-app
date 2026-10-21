@@ -7995,6 +7995,9 @@ function moreSecurity(site) {
   const can = !!(site && site.slug);
   return '<div class="st-panel"><div class="st-panel-head"><h3>Security</h3></div>' +
     '<div class="st-sec-hero"><span class="st-sec-ic">' + ic('shield', 22) + '</span><div class="st-cc-tx"><b>Quick security check</b><span>Free. Looks at who can read and change your lists, whether your forms are protected from bots, and whether a secret key is in your published code.</span></div><button type="button" class="st-publish" id="secScan"' + (can ? '' : ' disabled') + '>Run check</button></div>' +
+    // THE DEEP SCAN (phase B, 2026-10-21): the picker's model reads the site's
+    // code area by area, and a fresh call tries to disprove each problem.
+    '<div class="st-sec-hero st-sec-deep"><span class="st-sec-ic">' + ic('shield', 22) + '</span><div class="st-cc-tx"><b>Deep security scan</b><span>The builder reads your site\u2019s code looking for harder-to-spot problems, then double-checks each one. Uses credits, like an edit.</span></div><button type="button" class="st-publish" id="secDeep"' + (can ? '' : ' disabled') + '>Run deep scan</button></div>' +
     '<div class="st-panel-sub">What it found</div>' +
     '<div id="secResults"><div class="st-sec-empty"><span class="st-sec-ok">' + ic('shield', 30) + '</span><b>' + (can ? 'Loading\u2026' : 'Build your site first') + '</b></div></div>' +
   '</div>';
@@ -8008,19 +8011,54 @@ function secReportHTML(rep) {
   const ok = Array.isArray(rep.passed) ? rep.passed : [];
   const when = rep.at ? stStamp(rep.at) : '';
   const head = '<div class="st-sec-sum">' + (found.length ? '<b>' + found.length + ' thing' + (found.length === 1 ? '' : 's') + ' to look at</b>' : '<b>No problems found by the quick check</b>') + (when ? '<span>Checked ' + esc(when) + '</span>' : '') + '</div>';
-  const rows = found.map((f) => '<div class="st-sec-find st-sec-' + esc(String(f.severity || 'low')) + '"><span class="st-sec-sev">' + esc(sev[f.severity] || 'Minor') + '</span><b>' + esc(String(f.title || '')) + '</b><p>' + esc(String(f.why || '')) + '</p><p class="st-sec-fix"><b>What to do:</b> ' + esc(String(f.fix || '')) + '</p></div>').join('');
-  const passed = ok.length ? '<div class="st-sec-passed">' + ok.map((t) => '<div>\u2713 ' + esc(String(t)) + '</div>').join('') + '</div>' : '';
+  const rows = found.map((f) => '<div class="st-sec-find st-sec-' + esc(String(f.severity || 'low')) + '"><span class="st-sec-sev">' + esc(sev[f.severity] || 'Minor') + '</span><b>' + esc(String(f.title || '')) + '</b><p>' + esc(String(f.why || '')) + '</p><p class="st-sec-fix"><b>What to do:</b> ' + esc(String(f.fix || '')) + '</p><button type="button" class="st-sec-fixit" data-secfix="' + esc(String(f.title || '') + ' — ' + String(f.fix || '')) + '">Fix it</button></div>').join('');
+  const unsure = Array.isArray(rep.unsure) && rep.unsure.length ? '<div class="st-panel-sub">Needs checking</div>' + rep.unsure.map((u) => '<div class="st-sec-find st-sec-unsure"><b>' + esc(String(u.title || '')) + '</b><p>' + esc(String(u.why || '')) + '</p></div>').join('') : '';
+  const cost = rep.kind === 'deep' && Number(rep.cost) > 0 ? '<p class="st-sec-note">This deep scan used ' + esc(String(rep.cost)) + ' credit' + (Number(rep.cost) === 1 ? '' : 's') + '.</p>' : '';
+  const passed = ok.length ? '<div class="st-sec-passed">' + ok.map((t) => '<div>\u2013 ' + esc(String(t)) + '</div>').join('') + '</div>' : '';
   const skipped = Array.isArray(rep.checked) && !rep.checked.includes('code') ? '<p class="st-sec-note">Your site\u2019s code wasn\u2019t checked: it hasn\u2019t been built yet.</p>' : '';
-  return head + rows + passed + skipped + '<p class="st-sec-note">This quick check looks for common problems. It can\u2019t promise a site is secure.</p>';
+  return head + rows + unsure + passed + skipped + cost + '<p class="st-sec-note">This looks for common problems. It can\u2019t promise a site is secure.</p>';
+}
+// FIX IT (phase C, 2026-10-21): the problem and its fix go to the builder as an
+// ordinary message, through the ordinary edit path, at the ordinary price.
+function wireSecFix(site) {
+  document.querySelectorAll('[data-secfix]').forEach((b) => b.onclick = () => {
+    const t = 'Fix this security problem on my site: ' + b.getAttribute('data-secfix');
+    siteView = 'preview';
+    renderSites();
+    if (typeof siteSend === 'function') siteSend(t);
+  });
+}
+// THE DEEP SCAN, from the panel or the chat (phase D): the picker's model,
+// charged by what its calls cost. Answers when the report is in.
+async function siteSecurityDeep(site) {
+  if (!site || !site.slug) return null;
+  const b = document.getElementById('secDeep');
+  if (b) { b.disabled = true; b.textContent = 'Scanning\u2026 (a minute or two)'; }
+  let rep = null;
+  try {
+    const key = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID().replace(/-/g, '') : String(Date.now());
+    const r = await apiFetch('/api/site/' + encodeURIComponent(site.slug) + '/security', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deep: true, picker: buildPicker, key }) });
+    const d = await r.json().catch(() => null);
+    if (r.ok && d && d.ok) rep = d.report;
+    else if (typeof sbToast === 'function') sbToast((d && d.error) || 'Couldn\u2019t run the scan just now. Try again in a moment.');
+  } catch (e) { if (typeof sbToast === 'function') sbToast('Lost the connection \u2014 try again.'); }
+  const box = document.getElementById('secResults');
+  if (box && rep) { box.innerHTML = secReportHTML(rep); wireSecFix(site); }
+  const b2 = document.getElementById('secDeep'); if (b2) { b2.disabled = false; b2.textContent = 'Run deep scan'; }
+  if (typeof fetchCredits === 'function') fetchCredits();
+  return rep;
 }
 async function loadSiteSecurity(site) {
   const box = document.getElementById('secResults');
   const btn = document.getElementById('secScan');
   if (!box || !site || !site.slug) return;
   const slug = site.slug;
-  const paint = (rep) => { const b = document.getElementById('secResults'); if (b) b.innerHTML = secReportHTML(rep); };
+  const paint = (rep) => { const b = document.getElementById('secResults'); if (b) { b.innerHTML = secReportHTML(rep); wireSecFix(site); } };
   try { const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/security'); const d = await r.json().catch(() => null); paint(r.ok && d && d.ok ? d.report : null); }
   catch (e) { paint(null); }
+  const deepBtn = document.getElementById('secDeep');
+  if (deepBtn) deepBtn.onclick = () => siteSecurityDeep(site);
+  wireSecFix(site);
   if (btn) btn.onclick = async () => {
     btn.disabled = true; btn.textContent = 'Checking\u2026';
     try {
@@ -10206,6 +10244,8 @@ function routeActionable(d, site) {
   if (d.intent === 'addon') return slug;
   // A PHONE APP OF THE SITE (2026-10-20): the router named which phone.
   if (d.intent === 'app') return slug && (d.platform === 'android' || d.platform === 'ios');
+  // A SECURITY SCAN OF THE SITE (2026-10-21): the router named no more than that.
+  if (d.intent === 'security') return !!slug;
   if (d.intent === 'build') return true;
   if (d.intent === 'ask') return typeof d.answer === 'string' && d.answer.trim() !== '';
   // ON A SITE THAT EXISTS A QUESTION CARRIES THE ID IT WAS KEPT UNDER (2026-10-02).
@@ -10637,6 +10677,22 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // A PHONE APP OF THE SITE (2026-10-20, owner: "it has to be through model
     // calls"): the router read the message as asking for one; the app builder makes it.
     if (d.intent === 'app' && site.slug) return siteMakeApp(site, d.platform, finish);
+    // A SECURITY SCAN, ASKED FOR IN THE CHAT (2026-10-21, phase D): the deep
+    // scan runs on the picker's model, and its report is said in the thread
+    // and drawn in More → Security.
+    if (d.intent === 'security' && site.slug) {
+      siteSecurityDeep(site).then((rep) => {
+        if (!rep) { finish('I couldn\u2019t run the security scan just now. Try again in a moment, or open More \u2192 Security.'); return; }
+        const n = Array.isArray(rep.findings) ? rep.findings.length : 0;
+        const u = Array.isArray(rep.unsure) ? rep.unsure.length : 0;
+        const top = (rep.findings || []).slice(0, 3).map((f) => '\u2022 ' + f.title).join('\n');
+        finish((n ? 'I checked your site\u2019s security and found ' + n + ' thing' + (n === 1 ? '' : 's') + ' to look at:\n' + top : 'I checked your site\u2019s security and found no problems.')
+          + (u ? '\n' + u + ' more could not be settled from the code alone.' : '')
+          + '\nThe full report, with a Fix it button for each, is in More \u2192 Security.'
+          + (Number(rep.cost) > 0 ? '\nThe scan used ' + rep.cost + ' credit' + (Number(rep.cost) === 1 ? '' : 's') + '.' : ''));
+      });
+      return;
+    }
     // On a live site only an explicit `build` reaches this `go()`: the check
     // above refused every answer it could not act on. What an answered
     // question put off earlier rides with it, to be named when it ends.
