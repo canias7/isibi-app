@@ -1,5 +1,11 @@
 # Owner Notes
 
+## 2026-10-21 — Real phone apps: Expo, planned (you: "we need the real deal, the correct framework just like we did for the site")
+
+- We agreed apps move from a website in an app shell to **React Native with Expo**, built by **Codemagic**. Expo is open source (MIT), runs on our machines, and needs no Expo account or EAS. It plays TanStack's part for apps; our own app kit sits on top, as the site kit does.
+- A hand-built demo of Harbour Loaf (tabs, filter chips, list rows, steppers, a bottom sheet, hours) was exported to the web and photographed in phones. No model calls, no credits.
+- The plan, for your approval: `docs/plans/2026-10-21-expo-apps.md` (phases A–E).
+
 ## 2026-10-21 — The first live app build, and two fixes from it (you: "if the app was only made in Android, then it should only show on the Android one")
 
 - **Live run 1** (deploy 2239): "An ordering app for Harbour Loaf…", Make: Android app, Effort low. It was built as `harbour-loaf-19` in about 4½ minutes, for **24 credits** (the test account went from 71 to 47). Its screens showed in both phones.
