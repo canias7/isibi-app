@@ -191,7 +191,12 @@
       "class_name": "AppBuildContainer",
       "image": "./app-builder/Dockerfile",
       "max_instances": 100,
-      "instance_type": "standard-1"
+      "instance_type": "standard-1",
+      // ONE STEP, NOT TEN PERCENT THEN THE REST (2026-10-21): during a stepped
+      // rollout the new Worker reached app builders still on the old image and
+      // was told "not found" for a route the new one has. App builds are rare,
+      // so the gradual rollout protects nothing here.
+      "rollout_step_percentage": 100
     }
   ],
   "durable_objects": {

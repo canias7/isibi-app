@@ -27343,8 +27343,9 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         try {
           app = await writePhoneApp(env, { slug, brief, brand, spec, theme, model: models.pages, budget, say, auth });
         } catch (e) {
-          console.error("app write:", slug, errorClassForLog(e));
-          app = { ok: false, stage: "generate", error: "the app could not be written", usage: [] };
+          const why = errorClassForLog(e) + (e && e.message ? ": " + String(e.message).slice(0, 160) : "");
+          console.error("app write:", slug, why);
+          app = { ok: false, stage: "generate", error: "the app could not be written (" + why + ")", usage: [] };
         }
         // WHAT THE CALLS REALLY COST, by ref, whether or not the app came out.
         let spent = 0;
