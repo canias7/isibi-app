@@ -30078,6 +30078,26 @@ async function handleRequest(request, env, ctx) {
       return Response.json({ ok: true, stored: true });
     }
 
+    // GET /api/site/<slug>/app/builder — which app builder answers this project
+    // (2026-10-21): its own health, routes included, so a stale image is seen,
+    // not inferred. Owner only; it starts the builder if it is asleep.
+    {
+      const appHm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/app\/builder$/);
+      if (appHm && request.method === "GET") {
+        const au = await authUser(request, env);
+        if (!au) return Response.json({ error: "sign in first" }, { status: 401 });
+        const own = await siteOwnerBySlug(appHm[1], env);
+        if (!own || own !== au.id) return Response.json({ error: "not found" }, { status: 404 });
+        if (!env.APP_BUILD_CONTAINER) return Response.json({ error: "not available" }, { status: 503 });
+        try {
+          const c = getContainer(env.APP_BUILD_CONTAINER, laneName("app-" + appHm[1]));
+          const r = await c.fetch(new Request("http://app/health", { signal: AbortSignal.timeout(5 * 60 * 1000) }));
+          return Response.json({ ok: r.ok, status: r.status, health: await r.json().catch(() => null) });
+        } catch (e) {
+          return Response.json({ ok: false, error: errorClassForLog(e) }, { status: 502 });
+        }
+      }
+    }
     // AN APP'S WEB VERSION FOR THE PHONES (2026-10-21, phase B of
     // docs/plans/2026-10-21-expo-apps.md). POST /api/site/<slug>/app/preview
     // takes the app's files (and its theme), has the app builder typecheck and
@@ -30121,26 +30141,6 @@ async function handleRequest(request, env, ctx) {
           await env.SITES_BUCKET.put(appSourceManifestKey(pslug), JSON.stringify({ files: sent.files.map((f) => f.path), theme: sent.theme || null, at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
         }
         return Response.json({ ok: true, preview: appPreviewBase(pslug, token) + "/", files: r.body.files.length, ms: r.body.ms });
-      }
-    }
-    // GET /api/site/<slug>/app/builder — which app builder answers this project
-    // (2026-10-21): its own health, routes included, so a stale image is seen,
-    // not inferred. Owner only; it starts the builder if it is asleep.
-    {
-      const hm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/app\/builder$/);
-      if (hm && request.method === "GET") {
-        const au = await authUser(request, env);
-        if (!au) return Response.json({ error: "sign in first" }, { status: 401 });
-        const own = await siteOwnerBySlug(hm[1], env);
-        if (!own || own !== au.id) return Response.json({ error: "not found" }, { status: 404 });
-        if (!env.APP_BUILD_CONTAINER) return Response.json({ error: "not available" }, { status: 503 });
-        try {
-          const c = getContainer(env.APP_BUILD_CONTAINER, laneName("app-" + hm[1]));
-          const r = await c.fetch(new Request("http://app/health", { signal: AbortSignal.timeout(5 * 60 * 1000) }));
-          return Response.json({ ok: r.ok, status: r.status, health: await r.json().catch(() => null) });
-        } catch (e) {
-          return Response.json({ ok: false, error: errorClassForLog(e) }, { status: 502 });
-        }
       }
     }
     // GET /app-preview/<slug>/<token>/… — the web version itself, for the phones'
