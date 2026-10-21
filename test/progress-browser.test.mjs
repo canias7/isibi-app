@@ -95,7 +95,9 @@ const siteRecord = (over = {}) => ({
 async function openApp(S, { seed = {}, browser = null } = {}) {
   const own = !browser;
   const b = browser || await chromium.launch({ executablePath: EXE });
-  const ctx = await b.newContext({ viewport: { width: 1320, height: 900 } });
+  // REDUCED MOTION (2026-10-21): these read what the lines SAY; the word-by-word
+  // reveal (`TypeIn`) is held to its own test and would cut a line mid-word here.
+  const ctx = await b.newContext({ viewport: { width: 1320, height: 900 }, reducedMotion: "reduce" });
   await ctx.addInitScript((sd) => {
     try { localStorage.length; } catch (e) { return; }
     if (localStorage.getItem("zephyr_session_v1")) return;
