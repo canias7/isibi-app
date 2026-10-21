@@ -45,7 +45,9 @@ test("the page: picking an app makes the project an app, sends it to the build, 
   assert.match(page, /siteMobilePanel\(hasSite, siteMobileOs, appSrc, site\.appOs\)/);
   assert.match(page, /if \(c\.surface === 'app'\) s\.surface = 'app';/);
   assert.match(worker, /surface: b\.surface === "app" \? "app" : undefined,/);
-  assert.match(page, /const appSrc = site\.surface === 'app' && site\.slug && typeof sitePreviewSrc === 'function' \? sitePreviewSrc\(site\) : '';/);
+  // The real app's own web version first (phase B); the site preview before it has one.
+  assert.match(page, /\? \(typeof site\.appPreview === 'string' && \/\^\\\/app-preview\\\/\/\.test\(site\.appPreview\) \? site\.appPreview : \(typeof sitePreviewSrc === 'function' \? sitePreviewSrc\(site\) : ''\)\)/);
+  assert.match(page, /try \{ const os = id \? siteById\(id\) : null; if \(os\) appPreviewPull\(os\); \}/);
   assert.match(page, /siteMobilePanel\(hasSite, siteMobileOs, appSrc, site\.appOs\) \+/);
   assert.match(page, /<iframe class="st-mob-frame" title="The app"/);
   assert.doesNotMatch(page, /Build your website first, then ask me for the app/, "an app needs no website");

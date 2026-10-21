@@ -4175,6 +4175,7 @@ function openProject(id, mode) {
   siteOpenId = id || null;
   // THE SERVER'S COPY OF THIS CHAT (2026-10-20): what another device said is here too.
   try { const os = id ? siteById(id) : null; if (os) chatPull(os); } catch (e) { /* the local copy stands */ }
+  try { const os = id ? siteById(id) : null; if (os) appPreviewPull(os); } catch (e) { /* the phones keep what they show */ }
   const path = siteOpenId ? '/projects/' + siteOpenId : '/projects';
   // A PUSH TO THE PATH WE ARE ALREADY ON IS A REPLACE. Re-opening the site that
   // is already open (the Data button on the open project, a re-render) would
@@ -7072,6 +7073,22 @@ function setMobileOs(os) {
 // be evaluated and driven in a bare scope — a free identifier resolves when the
 // line runs, not when the file loads, which is how four misses reached main in
 // one session.
+/**
+ * THE APP'S CURRENT WEB VERSION, from the server (2026-10-21, phase B): asked
+ * once per app project per tab, kept on the project, and the phones redrawn when
+ * it is new. A failed read changes nothing.
+ */
+const appPreviewAsked = new Set();
+async function appPreviewPull(s) {
+  if (!s || s.surface !== 'app' || !s.slug || appPreviewAsked.has(s.slug)) return;
+  appPreviewAsked.add(s.slug);
+  try {
+    const r = await apiFetch('/api/site/' + encodeURIComponent(s.slug) + '/app/preview');
+    const d = r.ok ? await r.json() : null;
+    const p = d && typeof d.preview === 'string' && /^\/app-preview\//.test(d.preview) ? d.preview : null;
+    if (p && p !== s.appPreview) { s.appPreview = p; if (siteOpenId === s.id && typeof renderSites === 'function') renderSites(); }
+  } catch (e) { appPreviewAsked.delete(s.slug); }
+}
 function siteMobilePanel(hasSite, os, appSrc, appOs) {
   const on = MOBILE_OSES.includes(os) ? os : MOBILE_OSES[0];
   // THE MARK AND THE WORD, not the mark alone (owner: "instead of the names, the
@@ -8586,7 +8603,12 @@ function renderSiteWorkspace(view, site) {
   const isReact = !!(site.react && site.url);
   const hasSite = !!curHtml || isReact;
   // THE APP, RUNNING IN THE PHONES, when this project is one (2026-10-20).
-  const appSrc = site.surface === 'app' && site.slug && typeof sitePreviewSrc === 'function' ? sitePreviewSrc(site) : '';
+  // A REAL APP'S OWN WEB VERSION FIRST (2026-10-21, phase B): the Expo app's
+  // screens, checked and exported by the app builder. Before an app has one,
+  // the phones show the site preview, as they did.
+  const appSrc = site.surface === 'app' && site.slug
+    ? (typeof site.appPreview === 'string' && /^\/app-preview\//.test(site.appPreview) ? site.appPreview : (typeof sitePreviewSrc === 'function' ? sitePreviewSrc(site) : ''))
+    : '';
   // Browser-frame URL chip: the live path once published (drafts have a slug too).
   // UNDER DRAFT-FIRST, WHILE THE FRAME SHOWS THE DRAFT, the bar says so —
   // and says the preview is still being updated until the server reads it

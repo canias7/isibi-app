@@ -10,9 +10,12 @@ import { mkdtemp, cp, writeFile, readFile, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { readBuild, capacitorConfig, nativeNames, BUNDLE_MAX_BYTES } from "./app-config.mjs";
+import * as fsp from "node:fs/promises";
+import { readExpoRequest, exportExpo, EXPO_MAX_BYTES } from "./expo-preview.mjs";
 
 const run = promisify(execFile);
 const TEMPLATE = new URL("./template/", import.meta.url).pathname;
+const EXPO_TEMPLATE = new URL("./expo/", import.meta.url).pathname;
 const BUILD_MS = 15 * 60 * 1000;
 let busy = false;
 
@@ -56,6 +59,21 @@ const json = (res, status, body) => { res.writeHead(status, { "content-type": "a
 
 export const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && req.url === "/health") return json(res, 200, { ok: true, busy });
+  // AN EXPO APP'S WEB VERSION (phase B): checked and exported, for the phones.
+  if (req.method === "POST" && req.url === "/expo") {
+    if (busy) return json(res, 409, { error: "busy" });
+    busy = true;
+    try {
+      let body = null;
+      try { body = JSON.parse(await readBody(req, Math.ceil(EXPO_MAX_BYTES * 1.2) + 50_000)); } catch { return json(res, 400, { error: "not a preview request" }); }
+      const r = readExpoRequest(body);
+      if (r.error) return json(res, 400, { error: r.error });
+      return json(res, 200, await exportExpo(r, { template: EXPO_TEMPLATE, exec: run, fs: fsp, tmp: tmpdir() }));
+    } catch (e) {
+      console.error("expo preview failed:", e && e.message ? e.message.slice(0, 500) : e);
+      return json(res, 500, { error: "the app could not be checked" });
+    } finally { busy = false; }
+  }
   if (req.method !== "POST" || req.url !== "/build") return json(res, 404, { error: "not found" });
   if (busy) return json(res, 409, { error: "busy" });
   busy = true;

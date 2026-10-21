@@ -31,7 +31,7 @@ RUN mkdir -p $ANDROID_HOME/cmdline-tools \
 
 ENV GRADLE_USER_HOME=/opt/gradle-home
 WORKDIR /app
-COPY package.json server.mjs app-config.mjs ./
+COPY package.json server.mjs app-config.mjs expo-preview.mjs ./
 COPY template/ ./template/
 
 # THE WARM-UP: the template made into an Android project and built once, so the
@@ -41,6 +41,13 @@ RUN cd template && npm install --no-audit --no-fund --loglevel=error \
   && echo "sdk.dir=$ANDROID_HOME" > android/local.properties \
   && cd android && ./gradlew assembleDebug --no-daemon -q \
   && ./gradlew clean --no-daemon -q
+
+# THE EXPO KIT (2026-10-21, phase B): the real-app template, its libraries
+# installed from its lockfile, and one export run here so Metro's caches are
+# warm and a customer's preview downloads nothing.
+COPY expo/ ./expo/
+RUN cd expo && npm ci --no-audit --no-fund --loglevel=error \
+  && CI=1 npx expo export -p web > /dev/null && rm -rf dist
 
 ENV NODE_ENV=production
 EXPOSE 8080

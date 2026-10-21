@@ -9,7 +9,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-const T = new URL("../builder/expo/template/", import.meta.url).pathname;
+const T = new URL("../app-builder/expo/", import.meta.url).pathname;
 const F = new URL("./fixtures/expo-harbour/", import.meta.url).pathname;
 const read = (p) => readFileSync(path.join(T, p), "utf8");
 

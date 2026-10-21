@@ -586,6 +586,34 @@ function appIdFor(slug) {
   const part = String(slug || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   return part ? "dev.gofarther." + (/^[a-z]/.test(part) ? part : "s" + part) : null;
 }
+/** Where an app's current web version is named, and where each one's files live (2026-10-21). */
+const appPreviewKey = (slug) => "apps/" + slug + "/preview.json";
+const appPreviewBase = (slug, token) => "/app-preview/" + slug + "/" + token;
+/** A served file's type, from its name. */
+function appPreviewType(p) {
+  const ext = String(p).toLowerCase().split(".").pop();
+  return ({ html: "text/html; charset=utf-8", js: "text/javascript", css: "text/css", json: "application/json", png: "image/png", jpg: "image/jpeg", svg: "image/svg+xml", ico: "image/x-icon", ttf: "font/ttf", woff2: "font/woff2", map: "application/json" })[ext] || "application/octet-stream";
+}
+/**
+ * One call to the app builder, waiting its turn while every builder is busy (the
+ * same wait as an Android build). `{ status, body }`, or `{ busy: true }`.
+ */
+async function appBuilderCall(env, slug, path, payload) {
+  const started = Date.now();
+  for (;;) {
+    let r = null;
+    try {
+      const c = getContainer(env.APP_BUILD_CONTAINER, laneName("app-" + slug));
+      r = await c.fetch(new Request("http://app" + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload), signal: AbortSignal.timeout(10 * 60 * 1000) }));
+    } catch (e) {
+      console.error("app builder:", slug, errorClassForLog(e));
+      r = null;
+    }
+    if (r && r.status !== 503 && r.status !== 409) return { status: r.status, body: await r.json().catch(() => null) };
+    if (Date.now() - started + APP_RETRY_MS > APP_WAIT_MS) return { busy: true };
+    await new Promise((res) => setTimeout(res, APP_RETRY_MS));
+  }
+}
 /** What a bundled app carries, together, read in the Worker. */
 const APP_FILES_MAX_BYTES = 30_000_000;
 /** Bytes as base64, in pieces small enough for `btoa`. */
@@ -29877,6 +29905,60 @@ async function handleRequest(request, env, ctx) {
       return Response.json({ ok: true, stored: true });
     }
 
+    // AN APP'S WEB VERSION FOR THE PHONES (2026-10-21, phase B of
+    // docs/plans/2026-10-21-expo-apps.md). POST /api/site/<slug>/app/preview
+    // takes the app's files (and its theme), has the app builder typecheck and
+    // export them, and keeps the result at `app-preview/<slug>/<token>/`; GET
+    // answers the current one. Owner only. A failed check answers 422 with the
+    // compiler's own lines, so the writer can be told what to fix.
+    {
+      const pm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/app\/preview$/);
+      if (pm && (request.method === "POST" || request.method === "GET")) {
+        const au = await authUser(request, env);
+        if (!au) return Response.json({ error: "sign in first" }, { status: 401 });
+        const pslug = pm[1];
+        const own = await siteOwnerBySlug(pslug, env);
+        if (!own || own !== au.id) return Response.json({ error: "not found" }, { status: 404 });
+        if (!env.SITES_BUCKET) return Response.json({ error: "not available" }, { status: 503 });
+        if (request.method === "GET") {
+          const cur = await env.SITES_BUCKET.get(appPreviewKey(pslug));
+          const rec = cur ? await cur.text().then((t) => JSON.parse(t), () => null).catch(() => null) : null;
+          return Response.json({ ok: true, preview: rec && rec.token ? appPreviewBase(pslug, rec.token) + "/" : null, at: rec ? rec.at : null });
+        }
+        if (!env.APP_BUILD_CONTAINER) return Response.json({ error: "The app builder is not available yet." }, { status: 503 });
+        let pb = null;
+        try { pb = await request.json(); } catch { pb = null; }
+        if (!pb || typeof pb !== "object") return Response.json({ error: "send the app's files" }, { status: 400 });
+        const token = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
+        const r = await appBuilderCall(env, pslug, "/expo", { files: pb.files, theme: pb.theme, baseUrl: appPreviewBase(pslug, token) });
+        if (r.busy) return Response.json({ ok: false, error: "Every app builder is busy right now. Try again in a few minutes." }, { status: 503 });
+        if (r.status === 400) return Response.json({ ok: false, error: (r.body && r.body.error) || "not a preview request" }, { status: 400 });
+        if (!r.body || r.body.ok !== true) {
+          if (r.body && r.body.ok === false) return Response.json({ ok: false, stage: r.body.stage, errors: r.body.errors }, { status: 422 });
+          return Response.json({ ok: false, error: "the app could not be checked" }, { status: 502 });
+        }
+        for (const f of r.body.files) {
+          await env.SITES_BUCKET.put(appPreviewBase(pslug, token).slice(1) + "/" + f.path, Uint8Array.from(atob(f.data), (c) => c.charCodeAt(0)), { httpMetadata: { contentType: appPreviewType(f.path) } });
+        }
+        await env.SITES_BUCKET.put(appPreviewKey(pslug), JSON.stringify({ token, at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
+        return Response.json({ ok: true, preview: appPreviewBase(pslug, token) + "/", files: r.body.files.length, ms: r.body.ms });
+      }
+    }
+    // GET /app-preview/<slug>/<token>/… — the web version itself, for the phones'
+    // frames. Public by its unguessable token, like a draft's preview address; a
+    // path with no file is the app's own page (its router reads the address).
+    {
+      const vm = url.pathname.match(/^\/app-preview\/([a-z0-9][a-z0-9-]{0,80})\/([a-f0-9]{32})(\/.*)?$/);
+      if (vm && (request.method === "GET" || request.method === "HEAD") && env.SITES_BUCKET) {
+        const base = "app-preview/" + vm[1] + "/" + vm[2] + "/";
+        const rest = (vm[3] || "/").replace(/^\/+/, "");
+        let o = rest && !rest.endsWith("/") ? await env.SITES_BUCKET.get(base + rest) : null;
+        if (!o && !/^_expo\/|\.[a-z0-9]{2,5}$/i.test(rest)) o = await env.SITES_BUCKET.get(base + "index.html");
+        if (!o) return new Response("Not found", { status: 404 });
+        const isIndex = !rest || !/\.[a-z0-9]{2,5}$/i.test(rest) || rest === "index.html";
+        return new Response(o.body, { headers: { "content-type": isIndex ? "text/html; charset=utf-8" : appPreviewType(rest), "cache-control": isIndex ? "no-store" : "public, max-age=31536000, immutable", "x-robots-tag": "noindex" } });
+      }
+    }
     // POST|GET /api/site/<slug>/app/android — build the site's Android app, or download it (2026-10-20).
     {
       const ap = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/app(\/android)?$/);

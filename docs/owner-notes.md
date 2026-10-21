@@ -1,8 +1,20 @@
 # Owner Notes
 
+## 2026-10-21 — Phase B: the app builder checks an app and the phones show it (you: "ok go")
+
+- The kit moved to `app-builder/expo/`, inside the app builder's image (installed from its lockfile and warmed once; nothing is downloaded on a customer's preview).
+- The app builder's new job, `POST /expo` (`app-builder/expo-preview.mjs`):
+  - it takes the app's own files (screens in `app/`, its code in `lib/`, its own components; never the kit itself) and a theme;
+  - it typechecks them and exports the web version.
+  - A failure comes back as the compiler's own lines, for the writer to fix. Measured locally: the Harbour Loaf fixture in 19 s.
+- The Worker:
+  - `POST /api/site/<slug>/app/preview` (owner only) keeps the result under a fresh unguessable address, `/app-preview/<slug>/<token>/`, and `GET` names the current one.
+  - The phones show that real app; an app without one still shows the site preview as before.
+- Not yet: the Chromium render check of every screen (with phase C), and clearing old previews (backlog). Tests: `test/expo-preview.test.mjs`, 6 cases. Not merged; deploying it rolls the app builder's image.
+
 ## 2026-10-21 — Phase A: the app kit (you: "yeah you can start"; you have the Apple Developer and Codemagic accounts)
 
-- `builder/expo/template/`: a pinned Expo app (Expo Router, React Native, NativeWind with Tailwind 3), no EAS. Its look is one file, `theme.json`, read by every class.
+- `app-builder/expo/` (first written at `builder/expo/template/`): a pinned Expo app (Expo Router, React Native, NativeWind with Tailwind 3), no EAS. Its look is one file, `theme.json`, read by every class.
 - Our app components (`components/app/`):
   - the tab bar and the screen body;
   - titles and text, the button;
