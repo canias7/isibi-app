@@ -30123,7 +30123,7 @@ async function handleRequest(request, env, ctx) {
     // not inferred. Owner only; it starts the builder if it is asleep.
     {
       const appHm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/app\/(builder|selftest)$/);
-      if (appHm && (appHm[2] === "builder" ? request.method === "GET" : request.method === "POST")) {
+      if (appHm && (appHm[2] === "builder" ? request.method === "GET" : request.method === "POST" || (request.method === "GET" && url.searchParams.has("job")))) {
         const au = await authUser(request, env);
         if (!au) return Response.json({ error: "sign in first" }, { status: 401 });
         const own = await siteOwnerBySlug(appHm[1], env);
@@ -30133,10 +30133,18 @@ async function handleRequest(request, env, ctx) {
           const c = getContainer(env.APP_BUILD_CONTAINER, laneName("app-" + appHm[1]));
           // THE SELF-TEST rides the same door: the live builder runs the test app
           // it carries through the web version and the Android build.
+          // THE SELF-TEST NEVER HOLDS A REQUEST OPEN (the first try was cut between
+          // the browser and here): POST starts it and answers its job at once;
+          // GET ?job=<id> asks the builder once how it stands.
           if (appHm[2] === "selftest") {
-            const t0 = Date.now();
-            const out = await appBuilderJob(env, appHm[1], "/selftest", {});
-            return Response.json({ ok: !!(out.result && out.result.android && out.result.android.ok), ms: Date.now() - t0, ...out, apk: undefined });
+            const job = url.searchParams.get("job");
+            if (job) {
+              if (!/^[a-f0-9]{16}$/.test(job)) return Response.json({ error: "job must be 16 hex characters" }, { status: 400 });
+              const r = await c.fetch(new Request("http://app/jobs/" + job, { signal: AbortSignal.timeout(60_000) }));
+              return Response.json({ ok: r.ok, status: r.status, job: await r.json().catch(() => null) });
+            }
+            const r = await c.fetch(new Request("http://app/selftest", { method: "POST", signal: AbortSignal.timeout(5 * 60 * 1000) }));
+            return Response.json({ ok: r.status === 202, status: r.status, ...(await r.json().catch(() => ({}))) });
           }
           const r = await c.fetch(new Request("http://app/health", { signal: AbortSignal.timeout(5 * 60 * 1000) }));
           return Response.json({ ok: r.ok, status: r.status, health: await r.json().catch(() => null) });

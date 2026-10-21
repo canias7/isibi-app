@@ -153,5 +153,6 @@ test("LONG JOBS: the builder answers 202 with a job and keeps the result; the Wo
   const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(w, /async function appBuilderJob\(env, slug, path, payload/);
   assert.match(w, /if \(expo\) \{\n\s+const out = await appBuilderJob\(env, aslug, "\/expo-android", req\);/);
-  assert.match(w, /const out = await appBuilderJob\(env, appHm\[1\], "\/selftest", \{\}\);/);
+  assert.match(w, /new Request\("http:\/\/app\/selftest", \{ method: "POST"/);
+  assert.match(w, /new Request\("http:\/\/app\/jobs\/" \+ job,/);
 });
