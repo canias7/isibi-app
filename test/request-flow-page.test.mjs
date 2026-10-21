@@ -87,7 +87,9 @@ test("PAGE 1 — the server takes the message on and the page only follows: each
     assert.equal(key, KEY, "the server did not take the message on under its key");
     assert.equal(p.busy(), false, "the page stayed busy while the server works");
     assert.ok(card(p, key), "no card for the request");
-    assert.match(p.ctx.siteRequestHTML(card(p, key), p.s), /Stop the rest/);
+    // THE STOP IS THE CHATBOX'S (2026-10-21): it reaches this request.
+    assert.deepEqual(JSON.parse(JSON.stringify(p.ctx.siteRunningWork(p.s))), { kind: "request", key }, "the chatbox's stop does not reach the running request");
+    assert.doesNotMatch(p.ctx.siteRequestHTML(card(p, key), p.s), /Stop the rest|data-req-stop/, "the card still carries its own stop");
     // THE TAB COULD CLOSE NOW: the jobs run without it.
     await pump(P);
     assert.equal(P.record(key).state, "done");
@@ -102,7 +104,7 @@ test("PAGE 1 — the server takes the message on and the page only follows: each
     assert.ok(!said.some((t) => /do that next|send it next|Say “add a gallery page”/i.test(t)), "a part's reply asked for another part to be sent again: " + JSON.stringify(said));
     const html = p.ctx.siteRequestHTML(card(p, key), p.s);
     assert.equal((html.match(/>Done</g) || []).length, 2, html);
-    assert.doesNotMatch(html, /Stop the rest/, "Stop is offered on a request that has ended");
+    assert.equal(p.ctx.siteRunningWork(p.s), null, "the chatbox still offers a stop for a request that has ended");
     // THE PAGE STARTED NOTHING: no edit or addition was posted from it.
     assert.deepEqual(posts(seen, /\/(edit|addon)$/), []);
     // AND IT SHOWS EACH REPLY ONCE, however often it looks.
@@ -177,7 +179,7 @@ test("PAGE 4 — Stop the rest: the server stops what has not run, the card says
     const p = openPage(P, wire(P, seen));
     p.ctx.siteSend(DESC + ", and " + ADD + ".");
     await idle();
-    p.click("data-req-stop", KEY);
+    p.ctx.siteStopWork(p.s);
     await idle();
     assert.ok(seen.some((c) => c.method === "DELETE" && c.url === "/api/site/request/" + P.slug + "/" + KEY), "Stop did not reach the server");
     await pump(P);
@@ -188,7 +190,7 @@ test("PAGE 4 — Stop the rest: the server stops what has not run, the card says
     assert.deepEqual(rec.parts.map((x) => x.status), ["cancelled", "cancelled"]);
     const html = p.ctx.siteRequestHTML(card(p, KEY), p.s);
     assert.equal((html.match(/>Stopped</g) || []).length, 2, html);
-    assert.doesNotMatch(html, /Stop the rest/);
+    assert.equal(p.ctx.siteRunningWork(p.s), null, "a stopped request still reads as running");
     // THE REQUEST'S OWN REPLY (the server's, model-written from its facts), on
     // the thread once — however many times the page reads the request again.
     p.flush();

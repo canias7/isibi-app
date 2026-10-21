@@ -8930,8 +8930,8 @@ function renderSiteWorkspace(view, site) {
                   // the chat"); a five-level dial with no effect names none.
                   // `buildEffortHTML` and its table are parked, not deleted — see
                   // them for the three lines that put it back.
-                  (siteBusy
-                    ? '<button type="button" class="st-sendc st-stopc" id="stStop" title="Stop" aria-label="Stop generating">■</button>'
+                  (siteBusy || siteRunningWork(site)
+                    ? '<button type="button" class="st-sendc st-stopc" id="stStop" title="Stop" aria-label="Stop">■</button>'
                     : '<button type="button" class="st-sendc" id="stSend" title="Send" aria-label="Send">↑</button>') +
                 '</div>' +
               '</div>') +
@@ -9082,9 +9082,7 @@ function renderSiteWorkspace(view, site) {
       if (askGo && thread.contains(askGo)) { const v = sitePickTake(sitePickKeyLive(siteById(siteOpenId))); if (v) siteAskReply(v, true); return; }
       const askCancel = e.target.closest('[data-ask-cancel]');
       if (askCancel && thread.contains(askCancel)) { siteAskCancel(); return; }
-      // A REQUEST'S CARD (2026-10-03): Stop the rest, or a part's rewrite.
-      const reqStop = e.target.closest('[data-req-stop]');
-      if (reqStop && thread.contains(reqStop)) { siteRequestStop(site.id, reqStop.getAttribute('data-req-stop')); return; }
+      // A REQUEST'S CARD (2026-10-03): a part's rewrite. (Its stop is the chatbox's, 2026-10-21.)
       const reqGo = e.target.closest('[data-req-approve]');
       if (reqGo && thread.contains(reqGo)) { siteRequestApprove(site.id, reqGo.getAttribute('data-req-approve'), Number(reqGo.getAttribute('data-req-part'))); return; }
       const reqBuy = e.target.closest('[data-req-buy]');
@@ -9505,7 +9503,7 @@ function wireSiteComposer(site) {
   paintAttachStrip();
   const sendBtn = document.getElementById('stSend');
   const stopBtn = document.getElementById('stStop');
-  if (stopBtn) stopBtn.onclick = siteStop;
+  if (stopBtn) stopBtn.onclick = () => siteStopWork(siteById(siteOpenId));
   if (ta) {
     ta.value = draft.t;
     ta.oninput = () => { draft.t = ta.value; };
@@ -11309,9 +11307,10 @@ function siteRequestHTML(m, site) {
     return '<li class="st-req-part st-req-' + esc(status) + '"><span class="st-req-words">' + esc(siteSaidFor(p.said, left ? left.said : prep ? 'doing' : SITE_SAID_FOR[status]) || String(p.words || '')) + '</span>' +
       '<span class="st-req-status">' + esc(label) + '</span>' + rewrite + again + progressListHTML(p.progress, status === 'started') + '</li>';
   }).join('');
-  const stop = !v.ended && !v.stop
-    ? '<div class="st-opts"><button type="button" class="st-opt st-opt-skip" data-req-stop="' + esc(m.request) + '"><span>Stop the rest</span></button></div>' : '';
-  return '<div class="st-req"><ol class="st-req-parts">' + rows + '</ol>' + stop + '</div>';
+  // NO STOP ON THE CARD (2026-10-21, owner: "instead of stop the rest, lets
+  // just have the button in the chatbox"): the composer's stop does it
+  // (`siteRunningWork`).
+  return '<div class="st-req"><ol class="st-req-parts">' + rows + '</ol></div>';
 }
 
 // ── EACH TASK NAMED BY THE MODEL'S OWN LINE (2026-10-06) ────────────────────
@@ -15817,6 +15816,41 @@ function siteSend(text, leaveDraft) {
 // Stop the in-flight build/revise: aborts the request so the UI stops waiting.
 // (The server uses a charge-after model, so a generation that already completed
 // may still bill — noted to the user — but the workspace is freed immediately.)
+// THE ONE STOP, IN THE CHATBOX (2026-10-21, owner: "instead of stop the rest,
+// lets just have the button in the chatbox"). What is running on this site, in
+// the order a stop reaches it: a request (the server cancels the parts not yet
+// started), a standalone job (the server cancels it, until it has published),
+// else the page's own build or wait (`siteStop`: the page stops waiting; the
+// server cannot cancel a running build, and the message says so).
+function siteRunningWork(site) {
+  if (!site) return null;
+  const msgs = Array.isArray(site.msgs) ? site.msgs : [];
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i];
+    if (!m || typeof m.request !== 'string' || !m.request) continue;
+    const st = site.requests && typeof site.requests === 'object' ? site.requests[m.request] : null;
+    const v = st && st.view;
+    if (v && !v.ended && !v.stop) return { kind: 'request', key: m.request };
+  }
+  const cards = site.jobCards && typeof site.jobCards === 'object' && !Array.isArray(site.jobCards) ? site.jobCards : {};
+  for (const k of Object.keys(cards)) {
+    const v = cards[k] && cards[k].view;
+    if (v && typeof v.job === 'string' && !cards[k].closed && ['queued', 'running'].includes(siteJobOutcome(v))) return { kind: 'job', id: v.job };
+  }
+  return null;
+}
+function siteStopWork(site) {
+  const w = siteRunningWork(site);
+  if (w && w.kind === 'request') { siteRequestStop(site.id, w.key); return; }
+  if (w && w.kind === 'job') {
+    apiFetch('/api/site/edit/' + encodeURIComponent(w.id), { method: 'DELETE' }).then(async (r) => {
+      const b = await r.json().catch(() => ({}));
+      if (typeof sbToast === 'function') sbToast(r.ok && b.ok ? 'Stopped.' : b.error === 'too-late' ? 'Too late to stop \u2014 that change is already saved.' : 'Couldn\u2019t stop that just now. Try again in a moment.');
+    }).catch(() => { if (typeof sbToast === 'function') sbToast('Lost the connection \u2014 try again.'); });
+    return;
+  }
+  siteStop();
+}
 function siteStop() {
   if (siteAbort) { try { siteAbort.abort(); } catch (e) {} }
 }
