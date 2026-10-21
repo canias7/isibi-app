@@ -5405,3 +5405,4 @@ body::after { display: none; }
 
 /* An unpublished version in History (2026-10-21): dashed, so it reads as not live yet. */
 .st-hitem.st-hi-draft { border-style: dashed; }
+.st-think.st-working { margin-top: .35rem; }

@@ -199,7 +199,7 @@ test("BUBBLE — every line so far stacks where \"Thinking\" was, escaped, in th
   };
   // EVERY LINE, NOT ONLY THE NEWEST (the owner, 2026-10-13).
   assert.equal(draw({ progressLines: [{ text: "Found <it>." }, { text: "Publishing." }] }),
-    '<div class="st-steps st-steps-live"><ul class="st-req-prog"><li>Found &lt;it&gt;.</li><li class="live">Publishing.</li></ul></div>');
+    '<div class="st-steps st-steps-live"><ul class="st-req-prog"><li>Found &lt;it&gt;.</li><li class="live">Publishing.</li></ul><div class="st-think st-working">Working…</div></div>');
   assert.match(draw({ progressLines: [{ text: "Found it." }], waitNote: "Waiting — busy." }), /<div class="st-think"><i><\/i>Waiting — busy\.<\/div>/);
   assert.equal(draw({ progressLines: [] }), '<div class="st-steps st-steps-live"><div class="st-think"><i></i>Thinking</div></div>');
   assert.equal(draw({}), '<div class="st-steps st-steps-live"><div class="st-think"><i></i>Thinking</div></div>');

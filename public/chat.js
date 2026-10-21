@@ -11360,13 +11360,19 @@ function siteSaidFor(said, which) {
 // line carries one.
 function progressListHTML(lines, live, done) {
   const list = Array.isArray(lines) ? lines.filter((l) => l && typeof l.text === 'string' && l.text) : [];
-  if (!list.length) return '';
+  // A SIGN IT IS STILL WORKING (2026-10-21, owner: "when an addition or
+  // anything else thats not build, we need a sign that its working on
+  // something"): under every running list, and alone before its first line,
+  // the shimmering word the thread already uses.
+  const working = live ? '<div class="st-think st-working">Working\u2026</div>' : '';
+  if (!list.length) return working;
   const why = list.map((l) => (typeof l.explain === 'string' ? l.explain.trim() : '')).filter(Boolean);
   // A LATE LINE IS NEVER THE LIVE ONE (2026-10-15): it was written after its
   // job ended, so it is drawn as finished work even on a card still running.
   return '<ul class="st-req-prog' + (done ? ' st-prog-done' : '') + '">' + list.map((l, i) =>
     '<li' + (l.late === true ? ' class="late"' : live && i === list.length - 1 ? ' class="live"' : '') + '>' + esc(l.text) + '</li>').join('') + '</ul>' +
-    (why.length ? '<details class="st-req-why"><summary>More detail</summary>' + why.map((t) => '<p>' + esc(t) + '</p>').join('') + '</details>' : '');
+    (why.length ? '<details class="st-req-why"><summary>More detail</summary>' + why.map((t) => '<p>' + esc(t) + '</p>').join('') + '</details>' : '') +
+    working;
 }
 /**
  * A BUTTON PRESS THAT TALKS (2026-10-19, owner chose "B"): Publish, Restore and

@@ -40,7 +40,7 @@ test("POLL — a line's explanation is read when it is a string with words in it
 
 test("DRAWN — the explanations, in order, in one folded section under the lines, escaped, closed until opened; none drawn when no line has one", () => {
   const html = draw([{ text: "I'll add a page." }, { text: "Designing it.", explain: "A new page keeps your <Home> page as it is." }, { text: "Building it.", explain: "Then I check it builds." }], true);
-  assert.match(html, /^<ul class="st-req-prog">.*<\/ul><details class="st-req-why"><summary>More detail<\/summary><p>A new page keeps your &lt;Home&gt; page as it is\.<\/p><p>Then I check it builds\.<\/p><\/details>$/);
+  assert.match(html, /^<ul class="st-req-prog">.*<\/ul><details class="st-req-why"><summary>More detail<\/summary><p>A new page keeps your &lt;Home&gt; page as it is\.<\/p><p>Then I check it builds\.<\/p><\/details><div class="st-think st-working">Working…<\/div>$/);
   assert.doesNotMatch(html, /<details[^>]* open/, "the section opens by itself");
   assert.doesNotMatch(draw([{ text: "a" }, { text: "b", explain: "  " }]), /details/, "an empty section was drawn");
   assert.equal(draw([]), "");

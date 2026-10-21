@@ -725,7 +725,7 @@ test("R20 THE WIRING: the job's effort rides its record's opening, is kept besid
   assert.match(W, /env = withJobEffort\(env, job\.body\);\n\s*\/\/ THE BUILD'S LIVE LINES/, "a queued build's record does not know its effort");
   assert.match(W, /progress = makeProgress\(withJobEffort\(env, job\.body\), ctx,/, "a queued edit's record does not know its effort");
   assert.match(W, /const env = env0 && !env0\.BUILD_EFFORT && ask && XAI_EFFORTS\.includes\(ask\.effort\) \? \{ \.\.\.env0, BUILD_EFFORT: ask\.effort \} : env0;/, "a reply written later ignores the effort");
-  assert.equal((CHATJS.match(/\.\.\.\(talk \? \{ talk \} : \{\}\), \.\.\.\(typeof sendEffort === 'function' \? sendEffort\(\) : null\)/g) || []).length, 3, "a press does not send the effort");
+  assert.equal((CHATJS.match(/\.\.\.\(talk \? \{ talk \} : \{\}\), \.\.\.\(typeof sendEffort === 'function' \? sendEffort\(\) : null\)/g) || []).length, 4, "a press does not send the effort (Publish, Restore, Discard, and History's Restore)");
 });
 
 // ── ROUND 21: THE AUDIT OF EVERY MODEL CALL ──────────────────────────────────
