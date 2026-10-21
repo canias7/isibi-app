@@ -6244,7 +6244,7 @@ function siteCreate(prompt) {
   const kindNow = typeof buildKind === 'string' ? buildKind : 'site';
   const isApp = kindNow === 'android' || kindNow === 'ios';
   sitesLoad().unshift({ id, name: isApp ? 'New app' : name, createdAt: Date.now(), updatedAt: Date.now(), html: '', msgs: [], ...(isApp ? { surface: 'app', appOs: kindNow } : {}) });
-  if (isApp) { siteMobileOpen = true; siteMobileOs = kindNow; }
+  if (isApp) siteMobileOs = kindNow;
   sitesSave();
   // THE START SCREEN'S FILES GO WITH ITS BRIEF. They were attached for this build,
   // so they move to the new project's draft, which the send below takes; the
@@ -8580,6 +8580,8 @@ function renderSiteWorkspace(view, site) {
   const curHtml = active ? active.html : '';
   const isReact = !!(site.react && site.url);
   const hasSite = !!curHtml || isReact;
+  // THE APP, RUNNING IN THE PHONES, when this project is one (2026-10-20).
+  const appSrc = site.surface === 'app' && site.slug && typeof sitePreviewSrc === 'function' ? sitePreviewSrc(site) : '';
   // Browser-frame URL chip: the live path once published (drafts have a slug too).
   // UNDER DRAFT-FIRST, WHILE THE FRAME SHOWS THE DRAFT, the bar says so —
   // and says the preview is still being updated until the server reads it
@@ -8927,7 +8929,7 @@ function renderSiteWorkspace(view, site) {
               '<div class="st-err-row"><button type="button" class="st-err-logs" id="stErrLogs">Dismiss</button><button type="button" class="st-err-fix" id="stErrFix">Try to fix ⏎</button></div></div>'
             : '') +
         '</div>' +
-        siteMobilePanel(hasSite, siteMobileOs, site.surface === 'app' && site.slug && typeof sitePreviewSrc === 'function' ? sitePreviewSrc(site) : '') +
+        siteMobilePanel(hasSite, siteMobileOs, appSrc) +
         // THE PANEL'S OWN EDGE (owner, 2026-09-09: "it gotta show it like a
         // hidden sidebar tho, not like a button opens it"). A tab on the
         // workspace's right border, so a closed panel is VISIBLY there — before
@@ -9116,6 +9118,23 @@ function renderSiteWorkspace(view, site) {
   // lit class: the tab is not a state indicator, it is an edge that slides out
   // to the panel's border, and `.st-ws.st-mob-open .st-mob-tab` already says
   // where it is by moving it.
+  // THE PHONES' "GET THE APP" BUTTONS (2026-10-20): the reply lands on the thread.
+  if (view && typeof view.querySelectorAll === 'function') view.querySelectorAll('[data-app-dl]').forEach((b) => {
+    b.onclick = () => {
+      const s0 = siteById(siteOpenId);
+      if (!s0 || siteBusy) return;
+      const origin = s0.id;
+      siteBusy = true;
+      if (typeof siteBuildStart === 'function') siteBuildStart(true);
+      siteMakeApp(s0, b.dataset.appDl, (reply) => {
+        siteBusy = false;
+        if (typeof siteBuildStop === 'function') siteBuildStop();
+        const t = siteById(origin); if (!t) return;
+        t.msgs.push(siteReplyMsg(reply)); t.updatedAt = Date.now(); sitesSave();
+        if (siteOpenId === origin) renderSites();
+      });
+    };
+  });
   const setMobileOpen = (open) => {
     siteMobileOpen = !!open;
     const ws = view.querySelector('.st-ws');
@@ -9175,23 +9194,6 @@ function renderSiteWorkspace(view, site) {
   // it to what fits now and is a no-op when it already does. `mobRoom` needs
   // the row on screen, which is why it is here and not in the markup.
   if (Number.isFinite(siteMobileW)) setMobileW(siteMobileW);
-  // THE PHONES' "GET THE APP" BUTTONS (2026-10-20): the reply lands on the thread.
-  view.querySelectorAll('[data-app-dl]').forEach((b) => {
-    b.onclick = () => {
-      const s0 = siteById(siteOpenId);
-      if (!s0 || siteBusy) return;
-      const origin = s0.id;
-      siteBusy = true;
-      if (typeof siteBuildStart === 'function') siteBuildStart(true);
-      siteMakeApp(s0, b.dataset.appDl, (reply) => {
-        siteBusy = false;
-        if (typeof siteBuildStop === 'function') siteBuildStop();
-        const t = siteById(origin); if (!t) return;
-        t.msgs.push(siteReplyMsg(reply)); t.updatedAt = Date.now(); sitesSave();
-        if (siteOpenId === origin) renderSites();
-      });
-    };
-  });
   const mobTab = document.getElementById('stMobileTab');
   if (mobTab) {
     let from = null;                           // { x, w } while a drag is live

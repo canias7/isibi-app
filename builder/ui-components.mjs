@@ -18,7 +18,7 @@ export const UI_COMPONENTS = [
   "context-menu", "dialog", "drawer", "dropdown-menu", "form", "hover-card", "input-otp",
   "input", "label", "menubar", "navigation-menu", "pagination", "popover", "progress",
   "radio-group", "resizable", "scroll-area", "select", "separator", "sheet", "sidebar",
-  "site-chrome", "skeleton", "slider", "sonner", "switch", "table", "tabs", "textarea", "toggle-group",
+  "site-chrome", "app-chrome", "skeleton", "slider", "sonner", "switch", "table", "tabs", "textarea", "toggle-group",
   "toggle", "tooltip",
   // Added 2026-07-30. `empty` and `spinner` because the rules already require
   // every list to handle "nothing yet" and every submit to show it is working,

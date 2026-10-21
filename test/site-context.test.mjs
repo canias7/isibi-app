@@ -373,7 +373,7 @@ test("the route reads the links BEFORE the schema designer", () => {
   const read = worker.indexOf("readLinkedPages(brief");
   // THE DESIGNER'S BRIEF IS THE LINKED BRIEF PLUS THE ATTACHED FILES BY NAME
   // (2026-10-08, H6), built from it after the links are read.
-  assert.ok(worker.indexOf("const designBrief = briefWithLinks + attachedFilesNote(") > worker.indexOf("readLinkedPages(brief"), "the designer's brief is not built from the linked brief");
+  assert.ok(worker.indexOf("const designBrief = (surface === \"app\" ? APP_DESIGN_NOTE : \"\") + briefWithLinks + attachedFilesNote(") > worker.indexOf("readLinkedPages(brief"), "the designer's brief is not built from the linked brief");
   const design = worker.indexOf("designSiteSchema(env, designBrief");
   assert.ok(read > 0, "the route never calls readLinkedPages");
   assert.ok(design > 0, "the designer is not given the linked brief");

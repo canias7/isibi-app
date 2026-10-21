@@ -689,7 +689,11 @@ test("THE FIRST BUILD'S PAGE WRITER IS UNCHANGED, BYTE FOR BYTE — and so is a 
   const SPEC = { tables: [] };
   const prior = [{ path: "index.tsx", source: "export default function P(){return <main/>}" }];
   // MEASURED AT 22184a46, the commit before this change, with the same inputs.
-  const pinned = { build: "5f88c5a2f738b9eb", revise: "66e12434e0bde0a2", addon: "f58a2d99f8705356" };
+  // RE-PINNED 2026-10-20, and only two numbers moved: the kit gained one module
+  // (`app-chrome`, the phone app's frame), so "There are 2,112 modules" reads
+  // 2,113 and "2,024 of the 2,040" reads 2,025 of 2,041. Compared character by
+  // character against the request before it; nothing else differs.
+  const pinned = { build: "fd172fdb7c193d57", revise: "c2d07abbb8d8897e", addon: "adf965f35c47797b" };
   assert.equal(h16(pagesRequest({ brief: "A bakery in Leeds", spec: SPEC, brand: "Fold Lane", model: "test-model" })), pinned.build, "the first build's page request changed");
   assert.equal(h16(pagesRequest({ brief: "Make it warmer", spec: SPEC, brand: "Fold Lane", model: "test-model", priorPages: prior, mode: "revise" })), pinned.revise, "a revise's page request changed");
   // THE ADD-ON'S WRITER MAY ASK (2026-10-11, the generality round: the last

@@ -179,17 +179,14 @@ test("the panel says something true on a built site and on a project with nothin
   const fresh = panel(false);
 
   assert.match(built, /No mobile app yet/, "the built-site panel lost its heading");
-  assert.match(built, /Ask in the chat and I’ll build one from this site\./,
-    "the built-site sentence moved");
-
-  // AND THE OTHER SENTENCE IS NOT THE SAME ONE. A project that has never built
-  // has no site to make an app from, so "one from this site" would be a promise
-  // about a thing that does not exist.
-  assert.notEqual(built, fresh, "both states draw the same panel — one of the two sentences is false");
-  assert.match(fresh, /Build your website first, then ask me for the app\./,
-    "the not-yet-built sentence moved");
-  assert.ok(!/from this site/.test(fresh),
-    "a project with nothing built is promised an app built from a site it does not have");
+  // ONE SENTENCE FOR BOTH SINCE 2026-10-20 (owner: "you don't need to have a
+  // website. You can just build an app"): an app is its own product, so the
+  // empty phone never says to build a website first, nor that the app is made
+  // from one.
+  for (const p of [built, fresh]) {
+    assert.match(p, /Ask in the chat and I’ll build it\./, "the empty phone's sentence moved");
+    assert.ok(!/Build your website first|from this site/.test(p), "the empty phone says an app needs a website");
+  }
 });
 
 test("nothing in the panel promises an app, and that is the decision", () => {
@@ -407,7 +404,7 @@ test("the tab is the panel's sibling in the row, not a stray in the top bar", ()
   // `siteMobilePanel(...)` and the close of `.st-body`, which is what makes the
   // stylesheet's `right: 0` land on that row's edge rather than the page's.
   // RE-ANCHORED 2026-10-05: the markup is handed to `paintWorkspace`, so it ends `'</div>');`.
-  const tail = span(BARE, "siteMobilePanel(hasSite, siteMobileOs)", "\n    '</div>');", "the end of .st-body");
+  const tail = span(BARE, "siteMobilePanel(hasSite, siteMobileOs, appSrc)", "\n    '</div>');", "the end of .st-body");
   assert.ok(tail.includes('id="stMobileTab"'),
     "the tab left .st-body, so it no longer positions against the row it belongs to");
 });

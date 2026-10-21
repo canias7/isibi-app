@@ -79,6 +79,7 @@ export const COMPONENT_API = {
   "anonymised-toggle": "AnonymisedToggle(on: boolean, onChange?: (next: boolean) => void, hides?: string[] = [], doesNotHide?: string[] = [], revealedAt?: string, lastChangedBy?: string)",
   "answer-review": "AnswerReview(answers: { key: string; question: string; answer?: string | null; fieldId?: string }[], onEdit?: (key: string) => void)",
   "api-key-row": "ApiKeyRow(name: string, prefix: string, createdAt?: string | number | Date, lastUsed?: string | number | Date | null, onRevoke?: () => void)",
+  "app-chrome": "AppChrome(name: string, links?: NavLink[] = [], action?: { label: string; href?: string; onClick?: () => void }, children: React.ReactNode)",
   "app-shell": "AppShell(header?: React.ReactNode, sidebar?: React.ReactNode, aside?: React.ReactNode, children: React.ReactNode, sidebarLabel?: string = \"Main\", asideLabel?: string = \"Details\")",
   "appeal-form": "AppealForm(what: string, rule?: string, decidedAt?: string, reviewDays?: number = 7, appealedAt?: string, onSubmit: (text: string) => void)",
   "appeal-route": "AppealRoute(decision?: string, deadline?: string, daysLeft?: number, firstStep: string, thenStep?: string, lateAllowed?: boolean = true, helpNote?: string)",

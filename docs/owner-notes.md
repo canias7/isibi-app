@@ -1,5 +1,31 @@
 # Owner Notes
 
+## 2026-10-21 — Phone apps, phase 1: an app is its own product, built by the same pipeline (you: "everything the same as the site", "merge deploy top up and lets do what u told me")
+
+**The picker:** the sites-screen chat box has a **Make:** picker (Website / Android app / Apple app), kept on your account. Picking an app makes the project an app; no website is needed.
+
+**The same pipeline, told it is making an app (`surface: "app"`):**
+- the design step is told first that it is designing a phone app;
+- the page writer gets the site's rules plus app rules, which win where they differ;
+- the model writes its own mobile components (big titles, tappable list rows, bottom sheets, segmented controls, steppers, one main button), never website sections;
+- every screen sits in the kit's new **app frame**, `AppChrome`: a top bar, plus a bottom tab bar from the same links.
+
+**The phones:** the two phones in the mobile panel (the right-edge tab, dragged open) show the app running. Under them: "Download Android app" (built by the app container, carrying the app's own screens) and "iPhone app: coming soon" (Codemagic, once your accounts exist).
+
+**In chat:** on a site that already exists, "make this an Android app" is understood by the router (a sixth answer, offered only for live sites, so first builds are byte for byte as before).
+
+**The app builder waits its turn** when all 100 are busy (up to 5 minutes), and sleeps after 1 idle minute.
+
+**Not done yet:**
+- the app's own address is not yet hidden (it publishes like a site);
+- the panel doesn't open by itself on a new app project;
+- edits keep the app flag only through the chat record;
+- a project with both a site and an app is phase 4.
+
+**Tests:** `test/app-surface.test.mjs`, plus `app-builder` additions.
+- Updated with reasons: mobile-panel (one sentence: an app needs no website), preview-reload (a fifth caller), api-auth and site-context (the app note before the brief), live-clarify-contract (re-pinned: only the kit's module count moved, 2,112 → 2,113).
+- Full suite 11611 / 11609 / 0 / 2.
+
 ## 2026-10-20 — The app builder: a separate container that makes a site into an Android app (you: "yea separate container for the app"; branch only, not deployed)
 
 **What it is:** a new container class, `AppBuildContainer`, with its own image (`app-builder/`), so the website builder's image is unchanged. The image carries Java 21, the Android SDK and Gradle's libraries, warmed once at image build, so a customer's build downloads nothing.

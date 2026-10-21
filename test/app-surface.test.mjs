@@ -42,7 +42,8 @@ test("the page: picking an app makes the project an app, sends it to the build, 
   assert.match(page, /surface: s\.surface === 'app' \? 'app' : undefined \};/, "the chat carries it to other devices");
   assert.match(page, /if \(c\.surface === 'app'\) s\.surface = 'app';/);
   assert.match(worker, /surface: b\.surface === "app" \? "app" : undefined,/);
-  assert.match(page, /siteMobilePanel\(hasSite, siteMobileOs, site\.surface === 'app' && site\.slug && typeof sitePreviewSrc === 'function' \? sitePreviewSrc\(site\) : ''\)/);
+  assert.match(page, /const appSrc = site\.surface === 'app' && site\.slug && typeof sitePreviewSrc === 'function' \? sitePreviewSrc\(site\) : '';/);
+  assert.match(page, /siteMobilePanel\(hasSite, siteMobileOs, appSrc\) \+/);
   assert.match(page, /<iframe class="st-mob-frame" title="The app"/);
   assert.doesNotMatch(page, /Build your website first, then ask me for the app/, "an app needs no website");
   assert.match(page, /'Download Android app'/);

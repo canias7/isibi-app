@@ -207,7 +207,8 @@ test("every caller asks sitePreviewSrc — there are no copies of the arithmetic
   // and the drift is silent: a frame pointed at a path the router redirects
   // away from reads as a slow site, not as a bug.
   const uses = (CHAT.match(/sitePreviewSrc\(/g) || []).length;
-  assert.equal(uses, 4, "one definition plus three callers; a changed count means one moved or went");
+  // FIVE SINCE 2026-10-20: the phones show a phone app's project from the same preview (`appSrc`).
+  assert.equal(uses, 5, "one definition plus four callers; a changed count means one moved or went");
   // The old inline spelling is gone from every call site — asserted over the
   // whole file, so a fourth copy pasted in tomorrow fails by existing. The one
   // survivor is the helper's own body.

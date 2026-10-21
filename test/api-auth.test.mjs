@@ -1291,7 +1291,8 @@ test("the build route hands the attached files to the designer", () => {
   // THE DESIGNER'S BRIEF IS THE LINKED BRIEF PLUS THE ATTACHED FILES BY NAME
   // (2026-10-08, H6), so the call is anchored on `designBrief` and that name on
   // `briefWithLinks`.
-  assert.match(WORKER_SRC, /const designBrief = briefWithLinks \+ attachedFilesNote\(/, "the designer's brief is no longer the linked brief");
+  // AN APP'S DESIGN IS TOLD IT IS AN APP FIRST (2026-10-20); the linked brief follows, unchanged.
+  assert.match(WORKER_SRC, /const designBrief = \(surface === "app" \? APP_DESIGN_NOTE : ""\) \+ briefWithLinks \+ attachedFilesNote\(/, "the designer's brief is no longer the linked brief");
   const call = WORKER_SRC.match(/designSiteSchema\(env, designBrief,[^)]*\)/);
   assert.ok(call, "the build route no longer calls designSiteSchema with the linked brief");
   assert.match(call[0], /attached\.blocks/,
