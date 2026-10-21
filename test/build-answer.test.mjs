@@ -377,6 +377,11 @@ test("every answer field chat.js reads on success is composed by somebody — de
     // Every refusal's sentence. Read inside the success block too, harmlessly:
     // a successful build has none, and `renderTail` prints what is there.
     msg: "the refusal sentence, absent on a success",
+    // A PHONE APP'S ANSWER (2026-10-21, phase C): composed by the app branch
+    // itself, which returns before any site is published, and never resumed
+    // (the app write is one call inside the route).
+    surface: "the app branch's own answer: an app build is not resumed",
+    appPreview: "the app branch's own answer: the phones' web version",
     // DEAD READS, and worth having written down: nothing in `worker.js` or
     // `builder/publish-pages.mjs` composes either onto a build's answer.
     // `styleNote` exists (`builder/site-style.mjs`) and is composed on the EDIT
@@ -446,8 +451,10 @@ test("both of the build's success answers are composed by the one composer, and 
   // must answer it in the SAME shape a fresh build does or the browser will not
   // record it. A fourth writer appearing without a name below is exactly the
   // drift this counts.
+  // FOUR SINCE 2026-10-21: a phone app's answer (phase C) is composed the same
+  // way, so the browser records an app project as it records a site.
   const calls = BARE.split("siteAnswer({").length - 1;
-  assert.equal(calls, 3, "the build has " + calls + " composed answers, not three — a new writer can drift again");
+  assert.equal(calls, 4, "the build has " + calls + " composed answers, not four — a new writer can drift again");
   const notes = BARE.split("pageNotes(pages)").length - 1;
   assert.equal(notes, 2, "the build has " + notes + " composed note sets, not two");
   // ANCHORED ON THE PROPERTY, NOT THE SPELLING: what must be true is that both
@@ -473,9 +480,10 @@ test("both of the build's success answers are composed by the one composer, and 
   const inline = at(BARE, "async function runSiteBuild(", "the inline build route");
   assert.ok(inline.includes("...siteAnswer({"), "the inline build route composes its own identity fields again");
   const args = [...inline.matchAll(/\.\.\.siteAnswer\(\{([\s\S]*?)\}\)/g)].map((m) => m[1]);
-  assert.equal(args.length, 2, "expected the retry and the inline answer inside runSiteBuild; found " + args.length);
+  // THREE SINCE 2026-10-21: the retry, the phone app's answer (phase C) and the inline answer.
+  assert.equal(args.length, 3, "expected the retry, the app and the inline answer inside runSiteBuild; found " + args.length);
   const backends = args.map((a) => /backend:\s*([^,\n]+)/.exec(a)).map((m) => m && m[1].trim());
-  assert.deepEqual(backends.slice().sort(), ["!!db", "!!mine.neon_db"].sort(),
+  assert.deepEqual(backends.slice().sort(), ["!!db", "!!db", "!!mine.neon_db"].sort(),
     "a writer hands the composer a constant backend, not the question it asks everywhere else: " + backends.join(" | "));
   const collector = at(BARE, "async function runResumedSiteBuild(", "the collector");
   assert.ok(collector.includes("...siteAnswer({"), "the collector composes its own identity fields again — the defect itself");

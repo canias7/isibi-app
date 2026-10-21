@@ -64,6 +64,7 @@ on:
     paths:
       - 'builder/**'
       - 'worker.js'
+      - 'app-builder/expo-preview.mjs'
       - '*.mjs'
       - 'Dockerfile'
       - '.dockerignore'

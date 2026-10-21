@@ -14887,6 +14887,8 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
       const s = siteById(origin);
       if (s) {
         s.react = true; s.slug = d.slug; s.url = d.url || ('/s/' + d.slug + '/');
+        // A PHONE APP'S OWN WEB VERSION (2026-10-21, phase C): the phones show it at once.
+        if (d.surface === 'app' && typeof d.appPreview === 'string' && /^\/app-preview\//.test(d.appPreview)) { s.surface = 'app'; s.appPreview = d.appPreview; }
         // THE FILES KEPT BEFORE THE SITE EXISTED HAVE A HOME NOW (2026-10-16):
         // the build that holds the address moved them (or said which it could
         // not), so they are not named to a later build as still waiting.

@@ -248,9 +248,11 @@ test("the build's refs: one per debit, the job's id under the queue, carried to 
   // than rewriting every page as if it had none — once where the four-state
   // reader answers `unreadable`, once where the catalog-aware schema read does
   // (`REVISE_DB_UNREADABLE_MSG`) — and each reverses every ref it debited.
-  assert.equal((route.match(/const back = await refundFields\(\);/g) || []).length, 10,
-    "the ten refusals no longer all reverse through the ledger of refs");
-  assert.equal((route.match(/await refundFields\(\)/g) || []).length, 11,
+  // ELEVEN SINCE 2026-10-21: a phone app whose screens could not be written or
+  // checked (phase C) gives back everything the build took.
+  assert.equal((route.match(/const back = await refundFields\(\);/g) || []).length, 11,
+    "the eleven refusals no longer all reverse through the ledger of refs");
+  assert.equal((route.match(/await refundFields\(\)/g) || []).length, 12,
     "a reversal was added or removed outside the ten refusals — say which, here");
   // What the reply carries.
   assert.match(route, /exempt: \(exempt \|\| \(pages && pages\.exempt === true\)\) \? true : undefined,/, "the reply does not carry exempt");

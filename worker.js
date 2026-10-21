@@ -142,7 +142,7 @@ import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, sqlRehearse, createUse
 import { applySiteSchema, loadSiteSchema, readSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields, auditTier, withJobDeps, storedJobFns } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
-import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, partsSent, priorPagesSent, pageId, sceneOn, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
+import { usageOf as pageUsageOf, PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, partsSent, priorPagesSent, pageId, sceneOn, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
 import { splitPlan, bandRefusal, BAND_MARK, bandMarks, generateSiteBands } from "./builder/page-bands.mjs";
 import { MAX_MODEL_FANOUT } from "./builder/model-fanout.mjs";
 // THE DESIGN STEP CUT INTO WAVES OF AGENTS (2026-09-10). Plain module, testable
@@ -311,6 +311,7 @@ import { turnKey, turnRecord, readTurn, turnFree, nextGen, rebaseFiles, TURN_POL
 import { PART_TERMINAL as REQ_PART_TERMINAL, heldFromOf } from "./builder/request.mjs";
 import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, carrySuperseded, supersededNote, holdRequirements, heldCheckpoint, heldDelta, applyHeldDelta, readHeld, sameCheckpoint, heldNote, ownerOf, handoffsByStep, applyVerdicts, COVERAGE_STEPS, linkEvidence } from "./builder/site-requirements.mjs";
 import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.mjs";
+import { WRITE_APP_TOOL, appWriterSystem, appFilesFrom, appThemeFrom } from "./builder/app-gen.mjs";
 import { contextReport } from "./builder/context-report.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT, XAI_EFFORTS } from "./builder/model-xai.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
@@ -614,6 +615,64 @@ async function appBuilderCall(env, slug, path, payload) {
     await new Promise((res) => setTimeout(res, APP_RETRY_MS));
   }
 }
+/**
+ * A PHONE APP'S SCREENS, WRITTEN AND CHECKED (2026-10-21, phase C of
+ * docs/plans/2026-10-21-expo-apps.md). One `write_app` call with the app kit's
+ * rules, then the app builder's typecheck and web export; a typecheck failure
+ * goes back to the writer once with the compiler's own lines. The result is the
+ * app's current web version for the phones.
+ *
+ * `{ ok: true, preview, files, usage: [...] }` or `{ ok: false, stage, error, usage }`
+ * — `usage` is every call's, so the ledger settles what was really spent.
+ */
+async function writePhoneApp(env, { slug, brief, brand, spec, theme, model, budget, say }) {
+  const usage = [];
+  const ask = async (messages) => {
+    const req = {
+      model, max_tokens: 30000,
+      system: [{ type: "text", text: appWriterSystem(), cache_control: { type: "ephemeral" } }],
+      tools: [WRITE_APP_TOOL], tool_choice: { type: "tool", name: "write_app" }, messages,
+    };
+    const j = await callBuilderModel(env, req, budget);
+    usage.push(pageUsageOf(j, model));
+    if (j.stop_reason === "max_tokens") return { error: "the app was cut off before it was finished" };
+    const use = (Array.isArray(j.content) ? j.content : []).find((b) => b && b.type === "tool_use");
+    return { answer: use ? use.input : null };
+  };
+  const tables = (spec && Array.isArray(spec.tables) ? spec.tables : []).map((t) => t && t.name).filter(Boolean);
+  const first = "THE BUSINESS AND WHAT THE APP IS FOR:\n" + String(brief || "").slice(0, 6000) +
+    "\n\nTHE APP'S NAME: " + String(brand || "") +
+    (tables.length ? "\n\nTHE DESIGN DECLARED THESE STORED LISTS (the app shows them from lib/data.ts for now): " + tables.join(", ") : "") +
+    "\n\nWrite the whole app now with write_app.";
+  const messages = [{ role: "user", content: first }];
+  for (let round = 0; round < 2; round++) {
+    let got;
+    try { got = await ask(messages); } catch (e) { return { ok: false, stage: "generate", error: "the app could not be written", usage }; }
+    if (got.error) return { ok: false, stage: "generate", error: got.error, usage };
+    const files = appFilesFrom(got.answer);
+    if (files.error) return { ok: false, stage: "generate", error: files.error, usage };
+    if (say) say(round ? "app-repair-check" : "app-check", { files: files.files.length });
+    const token = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
+    const out = await appBuilderCall(env, slug, "/expo", { files: files.files, theme, baseUrl: appPreviewBase(slug, token) });
+    if (out.busy) return { ok: false, stage: "check", error: "every app builder is busy", usage };
+    const b = out.body;
+    if (b && b.ok === true) {
+      for (const f of b.files) {
+        await env.SITES_BUCKET.put(appPreviewBase(slug, token).slice(1) + "/" + f.path, Uint8Array.from(atob(f.data), (c) => c.charCodeAt(0)), { httpMetadata: { contentType: appPreviewType(f.path) } });
+      }
+      for (const f of files.files) await env.SITES_BUCKET.put("apps/" + slug + "/source/" + f.path, f.source, { httpMetadata: { contentType: "text/plain; charset=utf-8" } });
+      await env.SITES_BUCKET.put(appPreviewKey(slug), JSON.stringify({ token, at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
+      return { ok: true, preview: appPreviewBase(slug, token) + "/", files: files.files.length, usage };
+    }
+    if (!(b && b.ok === false && b.stage === "typecheck") || round === 1) {
+      return { ok: false, stage: "check", error: (b && b.errors && b.errors[0]) || "the app could not be checked", usage };
+    }
+    // ONE REPAIR, from the compiler's own words.
+    messages.push({ role: "assistant", content: [{ type: "tool_use", id: "w1", name: "write_app", input: got.answer }] });
+    messages.push({ role: "user", content: [{ type: "tool_result", tool_use_id: "w1", content: "The app does not typecheck. Fix every error and send the WHOLE app again with write_app:\n" + b.errors.join("\n") }] });
+  }
+  return { ok: false, stage: "check", error: "the app could not be checked", usage };
+}
 /** What a bundled app carries, together, read in the Worker. */
 const APP_FILES_MAX_BYTES = 30_000_000;
 /** Bytes as base64, in pieces small enough for `btoa`. */
@@ -865,7 +924,7 @@ async function chatRouterWindow(env, uid, chatId, current) {
   const plan = planWindow({ msgs: cur.chat.msgs, summary: cur.chat.summary, window: 0, current });
   return { turns: plan.turns.map((t) => ({ role: t.role, text: t.text })), summary: plan.summary };
 }
-export const chatStoreApi = { chatStoreKey, chatStoreRead, readChatPut, CHAT_MAX_BYTES, CHAT_MAX_MSGS, readAcctPut, mergeAcctState, ACCT_STATE_NAMES, readAskFilesPut, ASK_FILES_TTL_MS, chatWindowFor, tokensReport, chatRouterWindow, testWindowFor, siteAppFiles, appIdFor, setAppWait: (retry, wait) => { APP_RETRY_MS = retry; APP_WAIT_MS = wait; } };
+export const chatStoreApi = { chatStoreKey, chatStoreRead, readChatPut, CHAT_MAX_BYTES, CHAT_MAX_MSGS, readAcctPut, mergeAcctState, ACCT_STATE_NAMES, readAskFilesPut, ASK_FILES_TTL_MS, chatWindowFor, tokensReport, chatRouterWindow, testWindowFor, siteAppFiles, appIdFor, writePhoneApp, setAppWait: (retry, wait) => { APP_RETRY_MS = retry; APP_WAIT_MS = wait; } };
 /** A button press's room: its own name space, so a press id can never be read as a job's room. */
 const actionRoom = (id) => "act:" + id;
 /** The room's pieces, for its tests. */
@@ -27207,6 +27266,49 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         catch (e) { console.error("build: could not keep the context facts for", jobId, String((e && e.message) || e)); }
       }
 
+      // A PHONE APP TAKES ITS OWN WRITER HERE (2026-10-21, phase C). Everything
+      // above — the design, the database, its rows, the look — is the site's
+      // own process; the app's screens are written for Expo with the app kit,
+      // checked and exported by the app builder, and shown in the phones. No
+      // website is published for an app project.
+      if (surface === "app") {
+        const seeds = (look && look.seeds && (look.seeds.light || look.seeds)) || {};
+        const theme = appThemeFrom({ background: seeds.paper, foreground: seeds.ink, primary: seeds.accent });
+        tr.at("app-write");
+        const say = (stage, facts) => { try { if (typeof tr.say === "function") tr.say(stage, facts); } catch {} };
+        let app;
+        try {
+          app = await writePhoneApp(env, { slug, brief, brand, spec, theme, model: models.pages, budget, say });
+        } catch (e) {
+          console.error("app write:", slug, errorClassForLog(e));
+          app = { ok: false, stage: "generate", error: "the app could not be written", usage: [] };
+        }
+        // WHAT THE CALLS REALLY COST, by ref, whether or not the app came out.
+        let spent = 0;
+        for (const u of app.usage || []) spent += pageCredits(u);
+        if (spent > 0) {
+          // UNDER THE PAGES STEP: the app's screens are what this build writes in
+          // place of pages, so recovery and refunds read the steps they know.
+          try { noteDebit(debitRef("pages"), await ledger.debit(spent, debitRef("pages"), "debit", true)); }
+          catch (e) { unanswered.add(debitRef("pages")); console.error("app debit:", slug, errorClassForLog(e)); }
+        }
+        tr.at(app.ok ? "app-ready" : "app-failed", { files: app.files || 0 });
+        const traced = tr.done();
+        console.log("build trace", slug, traced.totalMs + "ms", "|", tr.line());
+        rec.finish(traced, { stage: app.ok ? "published" : app.stage, page: app.ok ? "app" : null, error: app.ok ? null : String(app.error || "").slice(0, 300), ok: !!app.ok });
+        if (!app.ok) {
+          // OUR FAULT IS FREE: the app could not be written or checked, so
+          // everything this build took goes back.
+          const back = await refundFields();
+          return Response.json({ ok: false, error: "The app couldn\u2019t be built this time (" + String(app.error || "unknown") + "). Nothing was charged.", stage: app.stage, ...back }, { status: 502 });
+        }
+        return Response.json({
+          ok: true, ...siteAnswer({ slug, url: "/s/" + slug + "/", backend: !!db, brand }),
+          page: "app", surface: "app", appPreview: app.preview, files: [],
+          notes: "Built \u201c" + brand + "\u201d as a phone app. It\u2019s in the phones on the right \u2014 tell me what to change.",
+          cost: owed(), exempt, refundShort, buildMs: traced.totalMs,
+        });
+      }
       let pages = { page: "placeholder", files: [], notes: "", problems: [], cost: 0, buildMs: 0 };
       // WHICH SIDE HELD THE TEN-MINUTE CALL, DECLARED OUT HERE ON PURPOSE.
       //

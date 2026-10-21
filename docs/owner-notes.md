@@ -1,5 +1,25 @@
 # Owner Notes
 
+## 2026-10-21 — Phase C: the model writes real Expo apps (you: "c")
+
+- An app project's build follows the site's own process up to and including the design, the database and its rows, and the look. Then it takes the app writer (`builder/app-gen.mjs`, `writePhoneApp` in `worker.js`) instead of the site's pages:
+  - one `write_app` call with the app kit's rules and every kit component's props;
+  - the app builder's typecheck and web export;
+  - on a typecheck failure, one repair from the compiler's own lines;
+  - the result kept for the phones, and its source at `apps/<slug>/source/`.
+- No website is published for an app project.
+- Money: what the calls really spent is charged under the build's existing "pages" step (so recovery and refunds read steps they know). A write or check that fails gives back everything the build took.
+- The design's colours become the app's theme (`appThemeFrom`): paper, ink and the brand colour from the look.
+- The page: the phones show the app as soon as the build answers.
+- Guards updated by name, each with its reason:
+  - a fourth composed answer;
+  - an eleventh refunding refusal;
+  - two answer fields;
+  - a new build mark's stage;
+  - the job image carries the writer.
+- Tests: `test/app-gen.test.mjs` 3 and `test/app-write.test.mjs` 5. Full suite `11632 / 11629 / 1 / 2`; the one failure, `canary-reopen-browser`, is a browser timing case that passed twice on its own.
+- Not merged or deployed. The first real app build needs your approval and a quote.
+
 ## 2026-10-21 — Phase B: the app builder checks an app and the phones show it (you: "ok go")
 
 - The kit moved to `app-builder/expo/`, inside the app builder's image (installed from its lockfile and warmed once; nothing is downloaded on a customer's preview).
