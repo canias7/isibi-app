@@ -419,13 +419,17 @@ test("the steps appear the moment it IS a build, from ONE place", () => {
     "the promotion straight to 'writing the code' is back, over a design call");
 });
 
-test("the thinking dot survives reduced motion", () => {
-  // Motion is the entire signal, so with it off the dot must not freeze
-  // mid-fade at 35% opacity — it has to stay legible.
+test("the thinking words shimmer, and stay legible with reduced motion", () => {
+  // The owner's pick B (2026-10-21): a light sweeps across the words, no dot.
   const src = css();
-  assert.match(src, /\.st-think i \{[^}]*animation:\s*stbreathe/, "the breathing animation is gone");
-  const rm = src.match(/@media \(prefers-reduced-motion: reduce\) \{\s*\.st-think i \{[^}]*\}/);
-  assert.ok(rm, "no reduced-motion fallback for the thinking dot");
+  assert.match(src, /\.st-think \{[^}]*animation:\s*stshimmer/, "the shimmer is gone");
+  assert.match(src, /\.st-think \{[^}]*background-clip:\s*text/, "the light is not drawn through the words");
+  assert.match(src, /\.st-think i \{\s*display:\s*none/, "the old dot is back");
+  // With motion off, transparent text over a frozen gradient could read as
+  // half-grey: the words must be plain.
+  const rm = src.match(/@media \(prefers-reduced-motion: reduce\) \{\s*\.st-think \{[^}]*\}/);
+  assert.ok(rm, "no reduced-motion fallback for the thinking words");
   assert.match(rm[0], /animation:\s*none/);
-  assert.match(rm[0], /opacity:\s*1/, "it would freeze mid-fade and read as nothing");
+  assert.match(rm[0], /color:\s*var\(--muted\)/, "the words would stay transparent");
+  assert.match(rm[0], /background:\s*none/);
 });

@@ -1714,13 +1714,16 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    moment a message was sent, so typing "hey" claimed "Writing the code" for a
    build that never ran. This is what shows while the router decides; the steps
    appear only once it really is building. */
-.st-think { display: inline-flex; align-items: center; gap: .55rem; font-size: .88rem; font-weight: 600; color: var(--muted); padding: .1rem 0; }
-.st-think i { width: 9px; height: 9px; border-radius: 50%; background: var(--text); flex: none; animation: stbreathe 1.6s ease-in-out infinite; }
-@keyframes stbreathe { 0%, 100% { transform: scale(.7); opacity: .35; } 50% { transform: scale(1); opacity: 1; } }
-/* Motion is the whole signal here, so with it off the dot has to stay legible
-   rather than freezing mid-fade at 35% opacity. */
+.st-think { display: inline-flex; align-items: center; font-family: Inter, system-ui, sans-serif; font-size: .9rem; font-weight: 600; padding: .1rem 0;
+  /* THE SHIMMERING WORD (owner's pick B, 2026-10-21): a light sweeps across the
+     words; no dot. */
+  color: transparent; background: linear-gradient(90deg, var(--muted) 0%, var(--muted) 35%, var(--text) 50%, var(--muted) 65%, var(--muted) 100%);
+  background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; animation: stshimmer 1.8s linear infinite; }
+.st-think i { display: none; }
+@keyframes stshimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+/* With motion off the words stay still and plainly legible. */
 @media (prefers-reduced-motion: reduce) {
-  .st-think i { animation: none; opacity: 1; transform: none; }
+  .st-think { animation: none; color: var(--muted); background: none; }
 }
 @keyframes sbblink { 50% { opacity: 0; } }
 .st-fchips { display: flex; flex-wrap: wrap; gap: 5px; padding: 10px 11px; }
