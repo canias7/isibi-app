@@ -30098,7 +30098,9 @@ async function handleRequest(request, env, ctx) {
             : await c.fetch(new Request("http://app/health", { signal: AbortSignal.timeout(5 * 60 * 1000) }));
           return Response.json({ ok: r.ok, status: r.status, health: await r.json().catch(() => null) });
         } catch (e) {
-          return Response.json({ ok: false, error: errorClassForLog(e) }, { status: 502 });
+          // THE MESSAGE TOO (the first live self-test said only "Error"): this
+          // door is the owner's own diagnostic, and the builder's words are the point.
+          return Response.json({ ok: false, error: errorClassForLog(e), message: String((e && e.message) || "").slice(0, 300) }, { status: 502 });
         }
       }
     }
