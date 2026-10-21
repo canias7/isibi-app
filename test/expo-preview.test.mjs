@@ -90,6 +90,8 @@ test("ROUTE: the owner's app is checked, kept under a fresh token, named current
   assert.equal(d.preview, ns.seen[0].body.baseUrl + "/");
   const g = await (await call(env, "GET", "shop-3")).json();
   assert.equal(g.preview, d.preview, "the current preview is named for the next visit");
+  assert.equal(new TextDecoder().decode(env.SITES_BUCKET.m.get("apps/shop-3/source/app/(tabs)/_layout.tsx")), "x", "its source is kept, so Download builds this same app");
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(env.SITES_BUCKET.m.get("apps/shop-3/source.json"))).files, ["app/(tabs)/_layout.tsx"]);
   const serve = (p) => worker.fetch(new Request("https://gofarther.dev" + d.preview + p), env, ctx);
   const home = await serve("");
   assert.equal(home.status, 200); assert.match(home.headers.get("content-type"), /text\/html/); assert.equal(await home.text(), "<div id=root></div>");

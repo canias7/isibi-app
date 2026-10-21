@@ -312,6 +312,7 @@ import { PART_TERMINAL as REQ_PART_TERMINAL, heldFromOf } from "./builder/reques
 import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, carrySuperseded, supersededNote, holdRequirements, heldCheckpoint, heldDelta, applyHeldDelta, readHeld, sameCheckpoint, heldNote, ownerOf, handoffsByStep, applyVerdicts, COVERAGE_STEPS, linkEvidence } from "./builder/site-requirements.mjs";
 import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.mjs";
 import { WRITE_APP_TOOL, appWriterSystem, appFilesFrom, appThemeFrom } from "./builder/app-gen.mjs";
+import { readExpoRequest } from "./app-builder/expo-preview.mjs";
 import { contextReport } from "./builder/context-report.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT, XAI_EFFORTS } from "./builder/model-xai.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
@@ -645,7 +646,7 @@ async function appBuilderCall(env, slug, path, payload) {
  * `{ ok: true, preview, files, usage: [...] }` or `{ ok: false, stage, error, usage }`
  * — `usage` is every call's, so the ledger settles what was really spent.
  */
-async function writePhoneApp(env, { slug, brief, brand, spec, theme, model, budget, say }) {
+async function writePhoneApp(env, { slug, brief, brand, spec, theme, model, budget, say, auth = "" }) {
   const usage = [];
   const ask = async (messages) => {
     const req = {
@@ -672,18 +673,13 @@ async function writePhoneApp(env, { slug, brief, brand, spec, theme, model, budg
     const files = appFilesFrom(got.answer);
     if (files.error) return { ok: false, stage: "generate", error: files.error, usage };
     if (say) say(round ? "app-repair-check" : "app-check", { files: files.files.length });
-    const token = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
-    const out = await appBuilderCall(env, slug, "/expo", { files: files.files, theme, baseUrl: appPreviewBase(slug, token) });
-    if (out.busy) return { ok: false, stage: "check", error: "every app builder is busy", usage };
+    const out = await checkPhoneApp(env, slug, files.files, theme, auth);
+    if (out.busy) return { ok: false, stage: "check", error: out.error || "every app builder is busy", usage };
     const b = out.body;
     if (b && b.ok === true) {
-      for (const f of b.files) {
-        await env.SITES_BUCKET.put(appPreviewBase(slug, token).slice(1) + "/" + f.path, Uint8Array.from(atob(f.data), (c) => c.charCodeAt(0)), { httpMetadata: { contentType: appPreviewType(f.path) } });
-      }
       for (const f of files.files) await env.SITES_BUCKET.put("apps/" + slug + "/source/" + f.path, f.source, { httpMetadata: { contentType: "text/plain; charset=utf-8" } });
       await env.SITES_BUCKET.put(appSourceManifestKey(slug), JSON.stringify({ files: files.files.map((f) => f.path), theme: theme || null, at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
-      await env.SITES_BUCKET.put(appPreviewKey(slug), JSON.stringify({ token, at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
-      return { ok: true, preview: appPreviewBase(slug, token) + "/", files: files.files.length, usage };
+      return { ok: true, preview: b.preview, files: files.files.length, usage };
     }
     if (!(b && b.ok === false && b.stage === "typecheck") || round === 1) {
       return { ok: false, stage: "check", error: (b && b.errors && b.errors[0]) || "the app could not be checked", usage };
@@ -693,6 +689,46 @@ async function writePhoneApp(env, { slug, brief, brand, spec, theme, model, budg
     messages.push({ role: "user", content: [{ type: "tool_result", tool_use_id: "w1", content: "The app does not typecheck. Fix every error and send the WHOLE app again with write_app:\n" + b.errors.join("\n") }] });
   }
   return { ok: false, stage: "check", error: "the app could not be checked", usage };
+}
+/**
+ * CHECK AND KEEP ONE VERSION OF AN APP: `{ body: { ok: true, preview } }`,
+ * `{ body: { ok: false, stage, errors } }`, or `{ busy, error }`.
+ *
+ * TWO WAYS IN, ONE RESULT (found by the first live builds, 2026-10-21): a
+ * build runs on the Worker, where the app builder is a binding, OR inside the
+ * site container, where it is not — every call there threw, and was read as
+ * "busy" for ten minutes. Inside the container the build asks the Worker's own
+ * preview route with the owner's sign-in, exactly as the browser would.
+ */
+async function checkPhoneApp(env, slug, files, theme, auth) {
+  if (env.APP_BUILD_CONTAINER) {
+    const token = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
+    const out = await appBuilderCall(env, slug, "/expo", { files, theme, baseUrl: appPreviewBase(slug, token) });
+    if (out.busy) return { busy: true };
+    const b = out.body;
+    if (!(b && b.ok === true)) return { body: b };
+    for (const f of b.files) {
+      await env.SITES_BUCKET.put(appPreviewBase(slug, token).slice(1) + "/" + f.path, Uint8Array.from(atob(f.data), (c) => c.charCodeAt(0)), { httpMetadata: { contentType: appPreviewType(f.path) } });
+    }
+    await env.SITES_BUCKET.put(appPreviewKey(slug), JSON.stringify({ token, at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
+    return { body: { ok: true, preview: appPreviewBase(slug, token) + "/" } };
+  }
+  if (!auth) return { busy: true, error: "the app builder cannot be reached from here" };
+  let r;
+  try {
+    r = await fetch("https://" + APP_ZONE + "/api/site/" + slug + "/app/preview", {
+      method: "POST", headers: { Authorization: auth, "Content-Type": "application/json" },
+      body: JSON.stringify({ files, theme }), signal: AbortSignal.timeout(12 * 60 * 1000),
+    });
+  } catch (e) {
+    console.error("app check via the Worker:", slug, errorClassForLog(e));
+    return { busy: true, error: "the app builder could not be reached" };
+  }
+  const d = await r.json().catch(() => null);
+  if (r.status === 200 && d && d.ok === true && typeof d.preview === "string") return { body: { ok: true, preview: d.preview } };
+  if (r.status === 422 && d) return { body: { ok: false, stage: d.stage, errors: Array.isArray(d.errors) ? d.errors : [] } };
+  if (r.status === 503) return { busy: true };
+  return { body: { ok: false, stage: "check", errors: [(d && d.error) || "the app could not be checked (" + r.status + ")"] } };
 }
 /** What a bundled app carries, together, read in the Worker. */
 const APP_FILES_MAX_BYTES = 30_000_000;
@@ -27299,7 +27335,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         const say = (stage, facts) => { try { if (typeof tr.say === "function") tr.say(stage, facts); } catch {} };
         let app;
         try {
-          app = await writePhoneApp(env, { slug, brief, brand, spec, theme, model: models.pages, budget, say });
+          app = await writePhoneApp(env, { slug, brief, brand, spec, theme, model: models.pages, budget, say, auth });
         } catch (e) {
           console.error("app write:", slug, errorClassForLog(e));
           app = { ok: false, stage: "generate", error: "the app could not be written", usage: [] };
@@ -30064,6 +30100,12 @@ async function handleRequest(request, env, ctx) {
           await env.SITES_BUCKET.put(appPreviewBase(pslug, token).slice(1) + "/" + f.path, Uint8Array.from(atob(f.data), (c) => c.charCodeAt(0)), { httpMetadata: { contentType: appPreviewType(f.path) } });
         }
         await env.SITES_BUCKET.put(appPreviewKey(pslug), JSON.stringify({ token, at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
+        // THE SOURCE OF WHAT THE PHONES NOW SHOW, so Download builds this same app.
+        const sent = readExpoRequest({ baseUrl: appPreviewBase(pslug, token), files: pb.files, theme: pb.theme });
+        if (!sent.error) {
+          for (const f of sent.files) await env.SITES_BUCKET.put("apps/" + pslug + "/source/" + f.path, f.source, { httpMetadata: { contentType: "text/plain; charset=utf-8" } });
+          await env.SITES_BUCKET.put(appSourceManifestKey(pslug), JSON.stringify({ files: sent.files.map((f) => f.path), theme: sent.theme || null, at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
+        }
         return Response.json({ ok: true, preview: appPreviewBase(pslug, token) + "/", files: r.body.files.length, ms: r.body.ms });
       }
     }

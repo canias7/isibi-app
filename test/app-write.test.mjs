@@ -75,10 +75,29 @@ test("THE BUILD: an app project takes the app writer after the design, bills wha
   const pagesAt = worker.indexOf('      let pages = { page: "placeholder"');
   assert.ok(at > 0 && pagesAt > at, "the branch sits before the site's pages");
   const br = worker.slice(at, pagesAt);
-  assert.match(br, /writePhoneApp\(env, \{ slug, brief, brand, spec, theme, model: models\.pages, budget, say \}\)/);
+  assert.match(br, /writePhoneApp\(env, \{ slug, brief, brand, spec, theme, model: models\.pages, budget, say, auth \}\)/);
   assert.match(br, /ledger\.debit\(spent, debitRef\("pages"\), "debit", true\)/);
   assert.match(br, /const back = await refundFields\(\);/);
   assert.match(br, /page: "app", surface: "app", appPreview: app\.preview/);
   assert.doesNotMatch(br, /publishPlaceholder|buildAndPublishPages/);
   assert.match(readFileSync(new URL("../public/chat.js", import.meta.url), "utf8"), /if \(d\.surface === 'app' && typeof d\.appPreview === 'string'/);
+});
+
+test("INSIDE THE SITE CONTAINER (no app builder binding): the build asks the Worker's own preview route with the owner's sign-in", async () => {
+  const calls = [], posted = [];
+  globalThis.fetch = async (u, o) => {
+    u = String(u);
+    if (u.includes("anthropic")) { calls.push(1); return answer([TABS, HOME]); }
+    if (u === "https://gofarther.dev/api/site/loaf-1/app/preview") { posted.push({ auth: o.headers.Authorization, body: JSON.parse(o.body) }); return Response.json({ ok: true, preview: "/app-preview/loaf-1/" + "a".repeat(32) + "/" }); }
+    return realFetch(u, o);
+  };
+  const env = { ANTHROPIC_API_KEY: "k", SITES_BUCKET: bucket() };
+  const out = await writePhoneApp(env, { ...args(env), auth: "Bearer owner" });
+  assert.equal(out.ok, true, JSON.stringify(out));
+  assert.equal(posted.length, 1); assert.equal(posted[0].auth, "Bearer owner");
+  assert.deepEqual(posted[0].body.files, [TABS, HOME]);
+  assert.equal(out.preview, "/app-preview/loaf-1/" + "a".repeat(32) + "/");
+  assert.ok(env.SITES_BUCKET.m.has("apps/loaf-1/source.json"), "the source manifest is kept for the Android build");
+  const noAuth = await writePhoneApp({ ANTHROPIC_API_KEY: "k", SITES_BUCKET: bucket() }, { ...args(env), auth: "" });
+  assert.equal(noAuth.ok, false); assert.match(noAuth.error, /cannot be reached/, "no sign-in is said at once, never ten minutes of busy");
 });
