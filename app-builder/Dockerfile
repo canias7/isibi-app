@@ -53,6 +53,7 @@ RUN cd expo && npm ci --no-audit --no-fund --loglevel=error \
 # is thrown away; every build writes its own.
 RUN cd expo && CI=1 EXPO_ANDROID_PACKAGE=dev.gofarther.warmup npx expo prebuild --platform android --no-install > /dev/null \
   && echo "sdk.dir=$ANDROID_HOME" > android/local.properties \
+  && sed -i 's/^reactNativeArchitectures=.*/reactNativeArchitectures=arm64-v8a/' android/gradle.properties \
   && cd android && ./gradlew assembleRelease --no-daemon -q \
   && cd .. && rm -rf android
 

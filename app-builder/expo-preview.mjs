@@ -133,6 +133,13 @@ export function readExpoAndroid(b) {
   return { files: base.files, theme: base.theme, appId: b.appId, name: b.name.trim() };
 }
 
+/** `gradle.properties` built for arm64 phones only (the line replaced, or added). */
+export function armOnly(props) {
+  const line = "reactNativeArchitectures=arm64-v8a";
+  const text = String(props || "");
+  return /^reactNativeArchitectures=.*$/m.test(text) ? text.replace(/^reactNativeArchitectures=.*$/m, line) : text.replace(/\n*$/, "\n") + line + "\n";
+}
+
 /** Build it: `{ ok: true, apk: Buffer, ms }` or `{ ok: false, stage, errors }`. */
 export async function buildExpoAndroid(r, { template, exec, fs, tmp }) {
   const { mkdtemp, cp, writeFile, mkdir, rm, symlink, readFile } = fs;
@@ -158,6 +165,12 @@ export async function buildExpoAndroid(r, { template, exec, fs, tmp }) {
     try {
       await exec("npx", ["expo", "prebuild", "--platform", "android", "--no-install"], { cwd: dir, env, timeout: 300_000, maxBuffer: 16 * 1024 * 1024 });
       await writeFile(join(dir, "android/local.properties"), "sdk.dir=" + (process.env.ANDROID_HOME || "/opt/android-sdk") + "\n");
+      // ONE CHIP, NOT FOUR (2026-10-21, the first live build: 92 MB in 15
+      // minutes): React Native's native code is compiled once per CPU type, and
+      // every Android phone of the last several years is arm64. The image warms
+      // the same setting, so the build stays offline.
+      const gp = join(dir, "android/gradle.properties");
+      await writeFile(gp, armOnly(await readFile(gp, "utf8")));
       await exec("./gradlew", ["assembleRelease", "--offline", "--no-daemon", "-q"], { cwd: join(dir, "android"), env, timeout: 25 * 60_000, maxBuffer: 32 * 1024 * 1024 });
     } catch (e) {
       const tail = String((e && (e.stderr || e.stdout)) || "").split("\n").filter(Boolean).slice(-15);

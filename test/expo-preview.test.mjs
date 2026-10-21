@@ -158,3 +158,12 @@ test("LONG JOBS: the builder answers 202 with a job and keeps the result; the Wo
   assert.match(w, /new Request\("http:\/\/app\/selftest", \{ method: "POST"/);
   assert.match(w, /new Request\("http:\/\/app\/jobs\/" \+ job,/);
 });
+
+test("ONE CHIP: the Android build is arm64 only, in the build and in the image's warm-up", async () => {
+  const { armOnly } = await import("../app-builder/expo-preview.mjs");
+  assert.equal(armOnly("a=1\nreactNativeArchitectures=armeabi-v7a,arm64-v8a,x86,x86_64\nb=2\n"), "a=1\nreactNativeArchitectures=arm64-v8a\nb=2\n");
+  assert.equal(armOnly("a=1"), "a=1\nreactNativeArchitectures=arm64-v8a\n");
+  const d = readFileSync(new URL("../app-builder/Dockerfile", import.meta.url), "utf8");
+  assert.match(d, /sed -i 's\/\^reactNativeArchitectures=\.\*\/reactNativeArchitectures=arm64-v8a\/' android\/gradle\.properties/);
+  assert.match(readFileSync(new URL("../app-builder/expo-preview.mjs", import.meta.url), "utf8"), /await writeFile\(gp, armOnly\(await readFile\(gp, "utf8"\)\)\);/);
+});

@@ -620,6 +620,24 @@ jobs:
       # answering from an old one, and nothing here could see it. This prints
       # each container application, its current image and its rollouts. It
       # changes nothing and cannot fail the deploy.
+      # THE RETIRED BUILDERS, DELETED (2026-10-21, owner: "start" on the list
+      # that named it). The game, clone and first builders were removed from the
+      # code months ago, but Cloudflare kept their applications and their warm
+      # instances — 32 of them, about 128 GB of the account's memory quota. Each
+      # is found by its exact name and deleted; a name already gone is skipped.
+      # Only these three names are ever touched, and this cannot fail the deploy.
+      - name: retire the removed container applications
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          list=$(npx --yes wrangler@4.107.0 containers list --json 2>/dev/null || echo "[]")
+          for name in isibi-app-gamebuildcontainer isibi-app-clonebuildcontainer isibi-app-buildcontainer; do
+            id=$(printf '%s' "$list" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const a=JSON.parse(s).find(x=>x.name===process.argv[1]);if(a)console.log(a.id)}catch{}})' "$name")
+            if [ -n "$id" ]; then echo "deleting $name ($id)"; yes | npx --yes wrangler@4.107.0 containers delete "$id" || true; else echo "$name: already gone"; fi
+          done
+
       - name: container status (report only)
         continue-on-error: true
         env:
