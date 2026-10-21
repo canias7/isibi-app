@@ -4821,7 +4821,7 @@ function sitesSave() {
     sitesStoredStale = false;
     try { sitesMerge(sitesCache, JSON.parse(localStorage.getItem(SITES_KEY) || '[]')); } catch (e) { /* an unreadable copy is overwritten as before */ }
   }
-  const build = (withHist) => (sitesCache || []).slice(0, 20).map((s) => ({
+  const build = () => (sitesCache || []).slice(0, 20).map((s) => ({
     ...s,
     html: (s.html || '').slice(0, 400000),
     // EVERY PAGE'S ADDRESS AND NAME, AND THE MARKUP OF THE FIRST SIX (2026-10-03,
@@ -4838,58 +4838,14 @@ function sitesSave() {
     // for the same reason. See `siteDraft`.
     unsent: undefined,
     draft: undefined,
-    // Version history (for restore). Best-effort: dropped first if storage is tight.
-    history: (withHist && Array.isArray(s.history)) ? s.history.slice(0, 8).map((h) => ({
-      ts: h.ts, label: h.label, active: h.active, design: (h.design || '').slice(0, 4000),
-      pages: (h.pages || []).slice(0, 6).map((p) => ({ path: p.path, name: p.name, html: (p.html || '').slice(0, 300000) })),
-    })) : undefined,
+    // NO LOCAL HISTORY (2026-10-21): a site's history is the server's
+    // (`historyRailLoad`); an old record's list is dropped on its next save.
+    history: undefined,
   }));
   // EVERY CHAT THAT CHANGED GOES TO THE SERVER TOO (2026-10-20).
   try { chatPushChanged(); } catch (e) { /* the server copy catches up on the next save */ }
-  try { localStorage.setItem(SITES_KEY, JSON.stringify(build(true))); }
-  catch (e) {
-    try { localStorage.setItem(SITES_KEY, JSON.stringify(build(false))); } // drop history to fit; current state still persists
-    catch (e2) { if (typeof sbToast === 'function') sbToast('Storage is full — this website may not stick after a reload.'); }
-  }
-}
-// Snapshot the site's CURRENT pages as a restore point, newest first (cap 8).
-function siteSnap(s, label) {
-  if (!s) return;
-  try {
-    const snap = { ts: Date.now(), label: String(label || 'Change').slice(0, 120), active: s.active || '/', design: s.design || '', pages: (sitePages(s) || []).map((p) => ({ path: p.path, name: p.name, html: p.html })) };
-    s.history = [snap].concat(Array.isArray(s.history) ? s.history : []).slice(0, 8);
-  } catch (e) {}
-}
-// Restore a site to a saved version (snapshots the current state first, so the
-// restore itself is undoable).
-function siteRestore(id, idx) {
-  const s = siteById(id);
-  if (!s || !Array.isArray(s.history) || !s.history[idx]) return;
-  const snap = s.history[idx];
-  // A REACT SITE'S PAGES ARE ON THE SERVER, SO THIS CANNOT RESTORE ONE.
-  //
-  // Everything below rewrites localStorage and prints "↩ Restored to: …" — and
-  // for a React site that is a lie the customer cannot see through, because the
-  // preview iframe loads the LIVE url, so it shows the build they were trying
-  // to undo while the message says it worked. `siteSnap` runs on every
-  // successful react build, so this rail is populated on every React site and
-  // the button was reachable on all of them. It also replaced `s.pages` with an
-  // older build's stub list, desyncing the page picker from what is published.
-  //
-  // This is the failure the 2026-08-08 work recorded as fixed, still live one
-  // button over: the real restore (`siteVersions`, Cloud → Versions) copies an
-  // archived build back over the live prefix through the publish path. Sent
-  // there rather than reimplemented, so there is ONE thing that restores a
-  // published site.
-  if (s.react) { siteVersions(s); return; }
-  siteSnap(s, 'Before restore');
-  s.pages = (snap.pages || []).map((p) => ({ path: p.path, name: p.name, html: p.html }));
-  s.design = snap.design || s.design;
-  s.active = snap.active || '/';
-  s.msgs.push({ r: 'a', t: 'Restored to: ' + (snap.label || 'a previous version') + '.' });
-  s.updatedAt = Date.now();
-  siteRail = 'chat'; siteView = 'preview';
-  sitesSave(); renderSites();
+  try { localStorage.setItem(SITES_KEY, JSON.stringify(build())); }
+  catch (e) { if (typeof sbToast === 'function') sbToast('Storage is full — this website may not stick after a reload.'); }
 }
 function siteById(id) { return sitesLoad().find((s) => s.id === id) || null; }
 // ── THE CHAT, KEPT ON THE SERVER (2026-10-20, owner: "nothing can be local, it
@@ -8252,17 +8208,76 @@ async function loadSiteSeo(site) {
 }
 // Edit history — the rail flips from chat to a list of every change you asked for.
 function siteHistoryRail(site) {
-  const hist = Array.isArray(site.history) ? site.history : [];
-  const list = hist.length
-    ? hist.map((h, i) => '<div class="st-hitem"><span class="st-hi-ic">' + ic('history', 14) + '</span><div class="st-hi-tx"><b>' + esc(String(h.label || 'Change').slice(0, 80)) + '</b><span>' + (i === 0 ? 'Current version' : esc(stStamp(h.ts))) + '</span></div>' + (i === 0 ? '' : '<button type="button" class="st-hi-restore" data-restore="' + i + '">Restore</button>') + '</div>').join('')
-    : '<div class="st-hi-empty">No versions yet. Each change is saved here so you can roll back.</div>';
+  // FROM THE SERVER (2026-10-21, owner: "since i added something new, it doesnt
+  // show here, so the version control is not working properly"). This list was
+  // the browser's own, written only when a whole site was built, so an edit or
+  // an addition never reached it. It is filled by `historyRailLoad` from the
+  // site's real versions and its draft.
   return '<div class="st-hist">' +
-    // ONE TAB, because Bookmarks was a `disabled` placeholder that had never
-    // done anything — removed 2026-08-08, owner's call. A control that cannot be
-    // pressed is a promise the app does not keep.
     '<div class="st-hist-tabs"><button type="button" class="st-htab on">' + ic('history', 14) + ' History</button></div>' +
-    '<div class="st-hist-list">' + list + '</div>' +
+    '<div class="st-hist-list" id="stHistList"><div class="st-hi-empty">Loading\u2026</div></div>' +
   '</div>';
+}
+// WHAT THE HISTORY SAYS, from two answers the server already gives: every
+// build the site has (`/versions`, newest first, each with its name) and where
+// the draft stands (`/draft`: the live version and the revisions not yet
+// published). A version not yet published says so; a saved change that made
+// no new build (stored data only) is its own row; the live one is marked.
+function historyRows(versions, draft) {
+  const list = Array.isArray(versions) ? versions : [];
+  const d = draft && typeof draft === 'object' ? draft : {};
+  const live = typeof d.live === 'string' ? d.live : '';
+  const revs = Array.isArray(d.revisions) ? d.revisions : [];
+  const unpub = new Set(revs.map((r) => r && r.version).filter((v) => typeof v === 'string' && v && v !== live));
+  if (typeof d.draft === 'string' && d.draft && d.draft !== live) unpub.add(d.draft);
+  const rows = [];
+  // A SAVED CHANGE WITH NO NEW BUILD (held data or settings): no version names
+  // it, so it is said from its revision.
+  for (const r of revs.slice().reverse()) {
+    if (r && (!r.version || r.version === live) && Array.isArray(r.held) && r.held.length) rows.push({ kind: 'held', label: 'Saved change', at: Number(r.at) || 0 });
+  }
+  let seenLive = false;
+  for (const v of list) {
+    if (!v || typeof v.id !== 'string') continue;
+    const isLive = v.id === live;
+    if (isLive) seenLive = true;
+    rows.push({ kind: isLive ? 'live' : unpub.has(v.id) ? 'saved' : (seenLive || !live ? 'old' : 'saved'), id: v.id, label: String(v.label || 'Build'), at: Number(v.at) || 0 });
+  }
+  return rows;
+}
+async function historyRailLoad(site) {
+  const host = document.getElementById('stHistList');
+  if (!host || !site || !site.slug) { if (host) host.innerHTML = '<div class="st-hi-empty">No versions yet. Each change is saved here so you can go back.</div>'; return; }
+  const slug = site.slug;
+  let versions = null, draft = null;
+  try {
+    const [rv, rd] = await Promise.all([apiFetch('/api/site/' + encodeURIComponent(slug) + '/versions'), apiFetch('/api/site/' + encodeURIComponent(slug) + '/draft')]);
+    const dv = await rv.json().catch(() => null);
+    const dd = await rd.json().catch(() => null);
+    if (rv.ok && dv && Array.isArray(dv.versions)) versions = dv.versions;
+    if (rd.ok && dd && dd.ok) draft = dd;
+  } catch (e) { /* said below */ }
+  const now = document.getElementById('stHistList');
+  if (!now || siteById(siteOpenId) !== site) return;
+  if (!versions) { now.innerHTML = '<div class="st-hi-empty">Couldn\u2019t read your history. Try again in a moment.</div>'; return; }
+  const rows = historyRows(versions, draft);
+  if (!rows.length) { now.innerHTML = '<div class="st-hi-empty">No versions yet. Each change is saved here so you can go back.</div>'; return; }
+  const said = { live: 'Live now', saved: 'Saved \u00b7 not published', held: 'Saved \u00b7 not published' };
+  now.innerHTML = rows.map((r) => '<div class="st-hitem' + (r.kind === 'saved' || r.kind === 'held' ? ' st-hi-draft' : '') + '"><span class="st-hi-ic">' + ic('history', 14) + '</span>' +
+    '<div class="st-hi-tx"><b>' + esc(r.label.slice(0, 80)) + '</b><span>' + esc(said[r.kind] || stStamp(r.at)) + (said[r.kind] && r.at ? ' \u00b7 ' + esc(stStamp(r.at)) : '') + '</span></div>' +
+    (r.kind === 'old' ? '<button type="button" class="st-hi-restore" data-vrestore="' + esc(r.id) + '" data-vl="' + esc(r.label) + '">Restore</button>' : '') + '</div>').join('');
+  now.querySelectorAll('[data-vrestore]').forEach((b) => b.onclick = async () => {
+    const label = b.getAttribute('data-vl') || 'this version';
+    if (!(await goConfirm('The version you are on now stays in this list, so you can come back to it.', { title: 'Put \u201c' + label + '\u201d back?', ok: 'Restore' }))) return;
+    b.disabled = true; b.textContent = 'Restoring\u2026';
+    try {
+      const talk = typeof siteActionTalk === 'function' ? siteActionTalk(slug) : '';
+      const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/versions/restore', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: b.getAttribute('data-vrestore'), ...(talk ? { talk } : {}), ...(typeof sendEffort === 'function' ? sendEffort() : null) }) });
+      const d = await r.json().catch(() => ({}));
+      if (typeof sbToast === 'function') sbToast(r.ok && d.ok ? 'Restored.' : (d.error || 'Couldn\u2019t restore that version.'));
+    } catch (e) { if (typeof sbToast === 'function') sbToast('Lost the connection \u2014 try again.'); }
+    historyRailLoad(site);
+  });
 }
 // Publish panel (mirrors Lovable's popover): the live link, visibility, visitors,
 // republish/copy. Unpublish + edit-settings are visual placeholders for now.
@@ -9163,6 +9178,7 @@ function renderSiteWorkspace(view, site) {
   // History rail toggle + restore.
   const hist = document.getElementById('stHist');
   if (hist) hist.onclick = () => { siteRail = siteRail === 'history' ? 'chat' : 'history'; renderSites(); };
+  if (siteRail === 'history') historyRailLoad(siteById(siteOpenId));
   // Collapse/expand the chat rail WITHOUT re-rendering — so the preview iframe
   // never reloads and any half-typed message survives.
   const railTog = document.getElementById('stRailToggle');
@@ -9329,7 +9345,6 @@ function renderSiteWorkspace(view, site) {
     if (panel) panel.dataset.os = siteMobileOs;
     view.querySelectorAll('.st-mob-osbtn').forEach((o) => o.classList.toggle('on', o.dataset.os === siteMobileOs));
   });
-  view.querySelectorAll('[data-restore]').forEach((b) => b.onclick = () => siteRestore(siteOpenId, +b.dataset.restore));
   // "Try to fix" error card. Its own words, so the composer's draft stays too.
   const errFix = document.getElementById('stErrFix');
   if (errFix) errFix.onclick = () => { siteErr = null; siteSend('There was an error on this page — please find and fix it.', true); };
@@ -14920,7 +14935,6 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
         siteTablesAdd(s, tnames);
         s.active = '/'; delete s.html;
         s.previewV = (s.previewV || 0) + 1; // cache-bust the preview iframe on revise
-        siteSnap(s, t);
       }
       siteErr = null;
       // `built` is what the steps below have to key off. Without it every step

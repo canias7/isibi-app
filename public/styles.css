@@ -5402,3 +5402,6 @@ body::after { display: none; }
 .st-bspin { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--text); animation: stbspin .9s linear infinite; }
 @keyframes stbspin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .st-bspin { animation-duration: 2.4s; } }
+
+/* An unpublished version in History (2026-10-21): dashed, so it reads as not live yet. */
+.st-hitem.st-hi-draft { border-style: dashed; }
