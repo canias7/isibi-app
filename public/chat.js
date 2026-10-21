@@ -4900,6 +4900,22 @@ async function chatPull(s) {
     chatPushChanged();
   }
 }
+// EVERY CHAT THIS BROWSER HOLDS REACHES THE SERVER (2026-10-21, the device
+// check's first finding): a chat was written up only after it was opened in
+// this tab (`chatPulled`), so one built before chats were kept on the server
+// and never reopened here lived on this device alone, and the 20-site cap
+// could lose it. Once per page, after sign-in, each held chat is read from the
+// server and this copy written up where the server has nothing newer — three
+// at a time, so a long list does not flood the network.
+let chatSyncStarted = false;
+async function chatSyncAll() {
+  if (chatSyncStarted) return;
+  if (!window.Auth || !(await Auth.accessToken().catch(() => null))) return;
+  chatSyncStarted = true;
+  const queue = (sitesLoad() || []).filter((x) => chatKeyOf(x) && Array.isArray(x.msgs) && x.msgs.length);
+  const one = async () => { for (let s = queue.shift(); s; s = queue.shift()) { try { await chatPull(s); } catch (e) { /* asked again on the next page load */ } } };
+  await Promise.all([one(), one(), one()]);
+}
 function chatPushChanged() {
   for (const s of (sitesCache || [])) {
     const key = chatKeyOf(s);
@@ -6161,6 +6177,7 @@ let sitesRemoteAt = 0;
 let sitesRemoteBusy = false;
 const SITES_REMOTE_TTL = 60_000;
 async function sitesFetchRemote(force) {
+  chatSyncAll().catch(() => {});
   if (sitesRemoteBusy) return;
   if (!force && sitesRemote !== null && Date.now() - sitesRemoteAt < SITES_REMOTE_TTL) return;
   // Signed out there is nothing to ask for, and asking would pop the auth gate
