@@ -101,3 +101,57 @@ export async function exportExpo(r, { template, exec, fs, tmp }) {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
 }
+
+// ── THE INSTALLABLE ANDROID APP (2026-10-21, phase D) ───────────────────────
+// The same files, checked the same way, made into a real Android app: Expo
+// writes the native project (`prebuild`), Gradle builds it against the
+// libraries the image warmed up, offline. Signed with the build's debug key for
+// now, which installs on any phone; a Play Store key per app comes with store
+// publishing.
+
+const APP_ID = /^[a-z][a-z0-9]{0,40}(\.[a-z][a-z0-9]{0,40}){1,4}$/;
+
+/** An Android build request: a preview request's files and theme, plus the app's id and name. */
+export function readExpoAndroid(b) {
+  const base = readExpoRequest({ ...(b && typeof b === "object" ? b : {}), baseUrl: "/app-preview/build/" + "0".repeat(32) });
+  if (base.error) return base;
+  if (typeof b.appId !== "string" || !APP_ID.test(b.appId)) return { error: "appId must look like dev.gofarther.shop" };
+  if (typeof b.name !== "string" || !b.name.trim() || b.name.length > 60) return { error: "name must be 1 to 60 characters" };
+  return { files: base.files, theme: base.theme, appId: b.appId, name: b.name.trim() };
+}
+
+/** Build it: `{ ok: true, apk: Buffer, ms }` or `{ ok: false, stage, errors }`. */
+export async function buildExpoAndroid(r, { template, exec, fs, tmp }) {
+  const { mkdtemp, cp, writeFile, mkdir, rm, symlink, readFile } = fs;
+  const { join, dirname } = await import("node:path");
+  const started = Date.now();
+  const dir = await mkdtemp(join(tmp, "expo-apk-"));
+  try {
+    await cp(template, dir, { recursive: true, filter: (s) => !/[\\/](node_modules|dist|\.expo|android|ios)([\\/]|$)/.test(s.slice(template.length - 1)) });
+    await symlink(join(template, "node_modules"), join(dir, "node_modules"));
+    await rm(join(dir, "app/(tabs)"), { recursive: true, force: true });
+    if (r.theme) await writeFile(join(dir, "theme.json"), JSON.stringify(r.theme, null, 2));
+    for (const f of r.files) {
+      await mkdir(dirname(join(dir, f.path)), { recursive: true });
+      await writeFile(join(dir, f.path), f.source);
+    }
+    try {
+      await exec("npx", ["tsc", "--noEmit"], { cwd: dir, timeout: 180_000, maxBuffer: 8 * 1024 * 1024 });
+    } catch (e) {
+      const errors = tscErrors((e && e.stdout) || "");
+      return { ok: false, stage: "typecheck", errors: errors.length ? errors : ["the code does not typecheck"] };
+    }
+    const env = { ...process.env, CI: "1", EXPO_APP_NAME: r.name, EXPO_APP_SLUG: r.appId.split(".").pop(), EXPO_ANDROID_PACKAGE: r.appId };
+    try {
+      await exec("npx", ["expo", "prebuild", "--platform", "android", "--no-install"], { cwd: dir, env, timeout: 300_000, maxBuffer: 16 * 1024 * 1024 });
+      await writeFile(join(dir, "android/local.properties"), "sdk.dir=" + (process.env.ANDROID_HOME || "/opt/android-sdk") + "\n");
+      await exec("./gradlew", ["assembleRelease", "--offline", "--no-daemon", "-q"], { cwd: join(dir, "android"), env, timeout: 25 * 60_000, maxBuffer: 32 * 1024 * 1024 });
+    } catch (e) {
+      const tail = String((e && (e.stderr || e.stdout)) || "").split("\n").filter(Boolean).slice(-15);
+      return { ok: false, stage: "android", errors: tail.length ? tail : ["the Android app could not be built"] };
+    }
+    return { ok: true, apk: await readFile(join(dir, "android/app/build/outputs/apk/release/app-release.apk")), ms: Date.now() - started };
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}

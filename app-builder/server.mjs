@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { readBuild, capacitorConfig, nativeNames, BUNDLE_MAX_BYTES } from "./app-config.mjs";
 import * as fsp from "node:fs/promises";
-import { readExpoRequest, exportExpo, EXPO_MAX_BYTES } from "./expo-preview.mjs";
+import { readExpoRequest, exportExpo, readExpoAndroid, buildExpoAndroid, EXPO_MAX_BYTES } from "./expo-preview.mjs";
 
 const run = promisify(execFile);
 const TEMPLATE = new URL("./template/", import.meta.url).pathname;
@@ -72,6 +72,24 @@ export const server = http.createServer(async (req, res) => {
     } catch (e) {
       console.error("expo preview failed:", e && e.message ? e.message.slice(0, 500) : e);
       return json(res, 500, { error: "the app could not be checked" });
+    } finally { busy = false; }
+  }
+  // AN EXPO APP AS AN ANDROID APP (phase D): the APK, or JSON { ok: false, stage, errors }.
+  if (req.method === "POST" && req.url === "/expo-android") {
+    if (busy) return json(res, 409, { error: "busy" });
+    busy = true;
+    try {
+      let body = null;
+      try { body = JSON.parse(await readBody(req, Math.ceil(EXPO_MAX_BYTES * 1.2) + 50_000)); } catch { return json(res, 400, { error: "not a build request" }); }
+      const r = readExpoAndroid(body);
+      if (r.error) return json(res, 400, { error: r.error });
+      const out = await buildExpoAndroid(r, { template: EXPO_TEMPLATE, exec: run, fs: fsp, tmp: tmpdir() });
+      if (!out.ok) return json(res, 200, out);
+      res.writeHead(200, { "content-type": "application/vnd.android.package-archive", "x-build-ms": String(out.ms) });
+      return res.end(out.apk);
+    } catch (e) {
+      console.error("expo android failed:", e && e.message ? e.message.slice(0, 500) : e);
+      return json(res, 500, { error: "the Android app could not be built" });
     } finally { busy = false; }
   }
   if (req.method !== "POST" || req.url !== "/build") return json(res, 404, { error: "not found" });

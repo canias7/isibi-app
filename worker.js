@@ -589,6 +589,24 @@ function appIdFor(slug) {
 }
 /** Where an app's current web version is named, and where each one's files live (2026-10-21). */
 const appPreviewKey = (slug) => "apps/" + slug + "/preview.json";
+/** Which files make up an app's current source, and its theme (phase D reads it to build the installable app). */
+const appSourceManifestKey = (slug) => "apps/" + slug + "/source.json";
+/** An Expo app's stored source and theme, or null when this project has none (a site, or an app from before phase C). */
+async function expoAppSource(env, slug) {
+  const o = await env.SITES_BUCKET.get(appSourceManifestKey(slug));
+  if (!o) return null;
+  let m = null;
+  try { m = JSON.parse(await o.text()); } catch { return null; }
+  if (!m || !Array.isArray(m.files) || !m.files.length) return null;
+  const files = [];
+  for (const p of m.files) {
+    if (typeof p !== "string") return null;
+    const f = await env.SITES_BUCKET.get("apps/" + slug + "/source/" + p);
+    if (!f) return null;
+    files.push({ path: p, source: await f.text() });
+  }
+  return { files, theme: m.theme && typeof m.theme === "object" ? m.theme : null };
+}
 const appPreviewBase = (slug, token) => "/app-preview/" + slug + "/" + token;
 /** A served file's type, from its name. */
 function appPreviewType(p) {
@@ -661,6 +679,7 @@ async function writePhoneApp(env, { slug, brief, brand, spec, theme, model, budg
         await env.SITES_BUCKET.put(appPreviewBase(slug, token).slice(1) + "/" + f.path, Uint8Array.from(atob(f.data), (c) => c.charCodeAt(0)), { httpMetadata: { contentType: appPreviewType(f.path) } });
       }
       for (const f of files.files) await env.SITES_BUCKET.put("apps/" + slug + "/source/" + f.path, f.source, { httpMetadata: { contentType: "text/plain; charset=utf-8" } });
+      await env.SITES_BUCKET.put(appSourceManifestKey(slug), JSON.stringify({ files: files.files.map((f) => f.path), theme: theme || null, at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
       await env.SITES_BUCKET.put(appPreviewKey(slug), JSON.stringify({ token, at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
       return { ok: true, preview: appPreviewBase(slug, token) + "/", files: files.files.length, usage };
     }
@@ -30084,8 +30103,13 @@ async function handleRequest(request, env, ctx) {
         const mode = ab && ab.mode === "bundled" ? "bundled" : "live";
         const appId = appIdFor(aslug);
         let name = typeof (ab && ab.name) === "string" && ab.name.trim() ? ab.name.trim().slice(0, 60) : aslug;
-        const req = { mode, appId, name, url: "https://" + aslug + ".gofarther.app/" };
-        if (mode === "bundled") {
+        let req = { mode, appId, name, url: "https://" + aslug + ".gofarther.app/" };
+        // A REAL APP (phase D): its own Expo source becomes the Android app,
+        // built by the app builder. A project without one keeps the site path.
+        const expo = await expoAppSource(env, aslug);
+        const buildPath = expo ? "/expo-android" : "/build";
+        if (expo) req = { files: expo.files, theme: expo.theme, appId, name };
+        else if (mode === "bundled") {
           const got = await siteAppFiles(env, aslug, ctx);
           if (got.error) return Response.json({ ok: false, error: got.error }, { status: 422 });
           req.files = got.files;
@@ -30100,7 +30124,7 @@ async function handleRequest(request, env, ctx) {
         for (let tries = 0; ; tries++) {
           try {
             const c = getContainer(env.APP_BUILD_CONTAINER, laneName("app-" + aslug));
-            r = await c.fetch(new Request("http://app/build", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(req), signal: AbortSignal.timeout(16 * 60 * 1000) }));
+            r = await c.fetch(new Request("http://app" + buildPath, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(req), signal: AbortSignal.timeout(16 * 60 * 1000) }));
             if (r.status !== 503) break;
           } catch (e) {
             console.error("app build:", aslug, errorClassForLog(e));
@@ -30113,11 +30137,12 @@ async function handleRequest(request, env, ctx) {
         if (r.status === 409) return Response.json({ ok: false, error: "An app for this site is already being built." }, { status: 409 });
         if (!r.ok || !(r.headers.get("content-type") || "").includes("android")) {
           const d = await r.json().catch(() => null);
-          return Response.json({ ok: false, error: (d && typeof d.error === "string" ? d.error : "the app could not be built") }, { status: 502 });
+          const why = d && typeof d.error === "string" ? d.error : d && Array.isArray(d.errors) && typeof d.errors[0] === "string" ? d.errors[0].slice(0, 300) : "the app could not be built";
+          return Response.json({ ok: false, error: why, ...(d && typeof d.stage === "string" ? { stage: d.stage } : {}) }, { status: 502 });
         }
         const apk = await r.arrayBuffer();
-        await env.SITES_BUCKET.put(appKey(aslug), apk, { httpMetadata: { contentType: "application/vnd.android.package-archive" }, customMetadata: { mode, appId, builtAt: String(Date.now()) } });
-        return Response.json({ ok: true, mode, appId, name, bytes: apk.byteLength, ms: Date.now() - started, download: "/api/site/" + aslug + "/app/android" });
+        await env.SITES_BUCKET.put(appKey(aslug), apk, { httpMetadata: { contentType: "application/vnd.android.package-archive" }, customMetadata: { mode: expo ? "expo" : mode, appId, builtAt: String(Date.now()) } });
+        return Response.json({ ok: true, mode: expo ? "expo" : mode, appId, name, bytes: apk.byteLength, ms: Date.now() - started, download: "/api/site/" + aslug + "/app/android" });
       }
     }
 

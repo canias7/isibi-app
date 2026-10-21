@@ -48,6 +48,14 @@ RUN cd template && npm install --no-audit --no-fund --loglevel=error \
 COPY expo/ ./expo/
 RUN cd expo && npm ci --no-audit --no-fund --loglevel=error \
   && CI=1 npx expo export -p web > /dev/null && rm -rf dist
+# AND ITS ANDROID BUILD, ONCE (phase D): the native project written and built,
+# so Gradle's libraries, the NDK and CMake that React Native's native code needs
+# are all in the image, and a customer's build runs offline. The project itself
+# is thrown away; every build writes its own.
+RUN cd expo && CI=1 EXPO_ANDROID_PACKAGE=dev.gofarther.warmup npx expo prebuild --platform android --no-install > /dev/null \
+  && echo "sdk.dir=$ANDROID_HOME" > android/local.properties \
+  && cd android && ./gradlew assembleRelease --no-daemon -q \
+  && cd .. && rm -rf android
 
 ENV NODE_ENV=production
 EXPOSE 8080
