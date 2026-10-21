@@ -5964,7 +5964,10 @@ function renderSites() {
                 '<div class="st-card-prev"><iframe sandbox="' + (s.react && s.url ? 'allow-scripts' : '') + '" loading="lazy" title="' + esc(s.name) + '"></iframe></div>' +
                 '<div class="st-card-meta">' +
                   '<div class="st-card-names"><span class="st-card-name">' + esc(s.name) + '</span>' +
-                    '<span class="st-card-sub">' + esc(schWhen(new Date(s.updatedAt || s.createdAt).toISOString())) + '</span></div>' +
+                    // NOT FINISHED (2026-10-21): a card with no address is a build
+                    // this browser started that never reached the server, so no
+                    // other device has it; it says so rather than looking like a site.
+                    '<span class="st-card-sub">' + (!s.slug && !(siteBusy && siteOpenId === s.id) ? 'Not finished \u00b7 only on this device \u00b7 ' : '') + esc(schWhen(new Date(s.updatedAt || s.createdAt).toISOString())) + '</span></div>' +
                   cardActs(s) +
                 '</div>' +
                 '<button type="button" class="sch-del st-card-del" data-del="' + esc(s.id) + '" title="Delete" aria-label="Delete site">×</button>' +
@@ -6003,6 +6006,7 @@ function renderSites() {
   // have found nothing and done nothing. They resolve through the MERGED list
   // and adopt on first touch instead.
   const cardEntry = (id) => sites.find((s) => s.id === id) || null;
+  let cardThumbAsked = 0;
   const cardOpen = (id) => {
     const rec = siteAdopt(cardEntry(id));
     if (!rec) return;
@@ -6014,6 +6018,9 @@ function renderSites() {
     const fr = card.querySelector('iframe');
     const home = s && (siteActivePage(s) || sitePages(s)[0]);
     if (fr && s && s.react && s.url) fr.src = s.url; // compiled React thumbnail
+    // AN UNPUBLISHED SITE'S THUMBNAIL IS ITS DRAFT (2026-10-21): its live
+    // address shows only the placeholder. Asked for the first cards on screen.
+    if (fr && s && s.react && s.slug && cardThumbAsked < 12 && !cardThumbSeen.has(s.slug)) { cardThumbAsked++; cardThumbDraft(fr, s.slug); }
     else if (fr && home && home.html) fr.srcdoc = home.html;
     // EVERY BUTTON ON THE CARD, not a list of them. This read `[data-del]` when
     // the delete was the only control here; the action buttons arrived beside it
@@ -6179,6 +6186,21 @@ async function sitesFetchRemote(force) {
 // writes (`slug`, `url`, `react`, an empty thread), so the workspace cannot
 // tell the difference between a site built here and one built on another
 // machine. Idempotent: a slug already held is returned as it stands.
+// THE DRAFT PREVIEW FOR A CARD'S THUMBNAIL, when its draft is ahead of live
+// (a site never published included); remembered per slug for this page.
+const cardThumbSeen = new Map();
+function cardThumbDraft(fr, slug) {
+  const put = (u) => { if (u && fr.isConnected) fr.src = u; };
+  if (cardThumbSeen.has(slug)) { put(cardThumbSeen.get(slug)); return; }
+  cardThumbSeen.set(slug, '');
+  apiFetch('/api/site/' + encodeURIComponent(slug) + '/draft').then((r) => r.json().catch(() => null)).then((d) => {
+    // THE FRAME'S OWN RULE (`siteDraftFrame`): the draft is ahead and its
+    // preview is on the platform's draft host.
+    const u = d && d.ok && d.enabled === true && d.unpublished === true && typeof d.preview === 'string' && SITE_DRAFT_HOST.test(d.preview) ? d.preview : '';
+    cardThumbSeen.set(slug, u);
+    put(u);
+  }).catch(() => {});
+}
 function siteAdopt(entry) {
   if (!entry || !entry.slug) return entry && entry.id ? siteById(entry.id) : null;
   const all = sitesLoad();

@@ -7301,6 +7301,23 @@ const SITE_CONN_TTL_MS = 300_000;
 // their newest 200, which is a real edge and is why the cap is one number here
 // rather than spelled into the query string at the call site.
 const MAX_SITE_LIST = 200;
+/**
+ * THE SITE'S OWN NAME ON ITS ROW (2026-10-21, owner: "i have different sites in
+ * laptop and desktop"): "The Table" was kept only in the browser that built it,
+ * so every other device listed the address name. Best-effort: a missing column
+ * (`supabase/proposed/site_display_name.sql` not yet applied) or a blip leaves
+ * the list as it was.
+ */
+async function rememberSiteTitle(env, slug, title) {
+  const t = String(title || "").trim().slice(0, 80);
+  if (!t || !env.SUPABASE_SERVICE_KEY) return;
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}`, {
+      method: "PATCH", headers: { ...svcHeaders(env), "content-type": "application/json", Prefer: "return=minimal" },
+      body: JSON.stringify({ display_name: t }), signal: AbortSignal.timeout(5000),
+    });
+  } catch { /* the list keeps the address name */ }
+}
 const _connCache = makeCache({ ttlMs: SITE_CONN_TTL_MS, max: 500 });
 
 // A THROWN ERROR'S NAME IS TEXT ANYONE CAN SET, so a log line that names an
@@ -17413,6 +17430,8 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // refuses or a job that dies here leaves the live site exactly as it was and
   // a prefix the cap prunes. See site-builds.mjs.
   tm("compose", "start");
+  // THE SITE'S NAME, FOR EVERY DEVICE'S LIST (2026-10-21): kept beside its row.
+  if (look && typeof look.brand === "string" && look.brand.trim() && look.brand.trim() !== slug) await rememberSiteTitle(env, slug, look.brand);
   const composed = await composePublish(env, slug, built.files, {
     brand: (look && look.brand) || slug,
     description: (look && look.description) || undefined,
@@ -31075,12 +31094,17 @@ async function handleRequest(request, env, ctx) {
           // database at all. The reply below sends `db: !!r.neon_db` and
           // nothing else off this column; a row that exists with `neon_db`
           // empty is a frontend-only site, which most first builds are.
-          lq(`site_backends?uid=eq.${luid}&select=slug,created_at,brief,neon_db,${CHAT_COLUMN},${OFFLINE_COLUMN}&order=created_at.desc&limit=${MAX_SITE_LIST}`),
+          // WITH THE SITE'S OWN NAME when the column exists; asked again
+          // without it below when it does not, so the list never breaks on it.
+          lq(`site_backends?uid=eq.${luid}&select=slug,created_at,brief,neon_db,${CHAT_COLUMN},${OFFLINE_COLUMN},display_name&order=created_at.desc&limit=${MAX_SITE_LIST}`),
           lq(`site_aliases?uid=eq.${luid}&current=is.true&select=alias,slug`),
           lq(`site_builds?uid=eq.${luid}&select=slug,updated_at&order=updated_at.desc&limit=1000`),
         ]);
       } catch { return Response.json({ ok: false, error: "read" }, { status: 503 }); }
 
+      if (lb && lb.status === 400) {
+        try { lb = await lq(`site_backends?uid=eq.${luid}&select=slug,created_at,brief,neon_db,${CHAT_COLUMN},${OFFLINE_COLUMN}&order=created_at.desc&limit=${MAX_SITE_LIST}`); } catch { lb = null; }
+      }
       const backends = await lrows(lb);
       // A LIST WE COULD NOT READ IS NOT AN EMPTY LIST. The browser keeps its
       // own sites on a 503 and shows exactly the screen that shipped before
@@ -31153,6 +31177,8 @@ async function handleRequest(request, env, ctx) {
           // slug: a renamed site answers at its alias, and printing the storage
           // name would show an address its owner no longer uses.
           name: aliasBy[r.slug] || r.slug,
+          // AND ITS OWN NAME, as every device shows it (2026-10-21).
+          title: typeof r.display_name === "string" ? r.display_name.slice(0, 80) : "",
           brief: typeof r.brief === "string" ? r.brief.slice(0, 300) : "",
           // Whether the site has its own database, and NOT the connection to
           // it: the card's data button is live for a site that has one and

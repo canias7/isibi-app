@@ -86,10 +86,14 @@
     var slug = cleanSlug(row.slug);
     if (!slug) return null;
     var name = cleanSlug(row.name) || slug;
+    // THE SITE'S OWN NAME, AS EVERY DEVICE SEES IT (2026-10-21): "The Table",
+    // kept by the server; the address name when it has none.
+    var title = str(row.title).trim().slice(0, 80);
     return {
       id: "srv_" + slug,
       slug: slug,
-      name: name,
+      name: title || name,
+      title: title,
       url: "https://" + name + SITE_HOST + "/",
       brief: str(row.brief).slice(0, 300),
       // Does this site have its own database. Read STRICTLY, and in THREE:
@@ -177,7 +181,8 @@
         slug: made.slug,
         url: made.url,
         remote: true,
-        name: str(have.name) || made.name,
+        // THE SERVER'S NAME FIRST when it keeps one, so every device agrees.
+        name: made.title || str(have.name) || made.name,
         // EITHER SIDE SAYING YES IS A YES, and the asymmetry is the point: a
         // build that just finished sets this locally, the server list is a
         // minute stale, and no path ever takes a database away — so a
@@ -202,7 +207,11 @@
         // tell somebody their site is up while it is down, which is the one
         // mistake this field exists to prevent. Read strictly on both sides.
         offline: offlineNow(made.offline, have.offline),
-        updatedAt: Math.max(Number(have.updatedAt) || 0, made.updatedAt),
+        // THE SERVER'S TIME, NOT THIS BROWSER'S (2026-10-21, owner: "i have
+        // different sites in laptop and desktop"): each browser kept its own
+        // last-touched time, so the same account sorted differently on each
+        // machine. A row the server lists sorts by what the server says.
+        updatedAt: made.updatedAt || Number(have.updatedAt) || 0,
       }) : made);
     }
 

@@ -1,0 +1,40 @@
+// EVERY DEVICE LISTS THE SAME SITES THE SAME WAY (2026-10-21, owner: "i have
+// different sites in laptop and desktop").
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
+const require = createRequire(import.meta.url);
+const SiteList = require("../public/site-list.js");
+
+const rows = [
+  { slug: "the-table", name: "the-table", title: "The Table", updatedAt: 3000, createdAt: 1000 },
+  { slug: "fold-lane-bakery", name: "fold-lane-bakery", title: "", updatedAt: 2000, createdAt: 900 },
+];
+
+test("the order is the server's: a browser's own last-touched time no longer reorders the list", () => {
+  const laptop = SiteList.merge([{ id: "a", slug: "fold-lane-bakery", name: "Fold Lane", updatedAt: 9_999_999 }], rows, true);
+  const desktop = SiteList.merge([], rows, true);
+  assert.deepEqual(laptop.map((s) => s.slug), desktop.map((s) => s.slug));
+  assert.deepEqual(desktop.map((s) => s.slug), ["the-table", "fold-lane-bakery"]);
+});
+
+test("the name is the server's when it keeps one, the same on every device; the browser's otherwise", () => {
+  const laptop = SiteList.merge([{ id: "a", slug: "the-table", name: "New website" }, { id: "b", slug: "fold-lane-bakery", name: "Fold Lane Bakery" }], rows, true);
+  const desktop = SiteList.merge([], rows, true);
+  assert.equal(laptop.find((s) => s.slug === "the-table").name, "The Table");
+  assert.equal(desktop.find((s) => s.slug === "the-table").name, "The Table");
+  assert.equal(laptop.find((s) => s.slug === "fold-lane-bakery").name, "Fold Lane Bakery", "with no server name the browser's still stands");
+  assert.equal(desktop.find((s) => s.slug === "fold-lane-bakery").name, "fold-lane-bakery");
+});
+
+test("the server keeps the name: written by each build, sent as `title`, and the list survives a missing column", () => {
+  const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(w, /await rememberSiteTitle\(env, slug, look\.brand\)/);
+  assert.match(w, /title: typeof r\.display_name === "string" \? r\.display_name\.slice\(0, 80\) : ""/);
+  assert.match(w, /if \(lb && lb\.status === 400\) \{/, "a missing column would blank every device's list");
+  assert.match(readFileSync(new URL("../supabase/proposed/site_display_name.sql", import.meta.url), "utf8"), /add column if not exists display_name text/);
+  const c = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  assert.match(c, /'Not finished \\u00b7 only on this device \\u00b7 '/, "a build that never reached the server looks like a site");
+  assert.match(c, /d\.unpublished === true && typeof d\.preview === 'string' && SITE_DRAFT_HOST\.test\(d\.preview\)/, "an unpublished card shows the placeholder");
+});
