@@ -95,6 +95,59 @@ const VERIFY_SYSTEM =
   "Read the code given. Answer rejected when the code shows it cannot happen (another check stops it, the value is not from a visitor, the data is meant to be public), " +
   "confirmed only when the code shows, step by step, how a stranger does it, and needs_checking when the code shown cannot settle it. Severity follows real impact, not a checklist.";
 
+/**
+ * THE SCAN SIZED TO THE SITE (2026-10-21, owner: "Ok go" to "the site decides
+ * the size"). What the site has decides which areas are looked at and how hard
+ * each problem is checked, so nothing it has is ever skipped and a simple site
+ * stays cheap. `thorough` turns everything up. No model: the plan is free and
+ * is what the price shown before the scan is estimated from.
+ *
+ * Answers `{ areas: [{ key, title, checkers, chars }], maxCandidates, rounds,
+ * calls: [{ in, out }] }` — `calls` is the estimated token use of every call
+ * the plan will make, for the estimate.
+ */
+export function planScan({ files = [], tables = [], thorough = false } = {}) {
+  const list = Array.isArray(tables) ? tables : [];
+  const label = (t) => String(t && t.access || "").toLowerCase();
+  const hasData = list.length > 0;
+  const hasLogins = list.some((t) => /own|members|user|feed|admin/.test(label(t)));
+  const hasPayments = list.some((t) => t && t.paid === true);
+  const risky = { access: hasLogins, money: hasPayments };
+  const areas = [];
+  for (const a of SCAN_AREAS) {
+    const code = areaCode(a, files);
+    // AN AREA IS LOOKED AT WHEN THE SITE HAS IT: its own files, or (for data
+    // rules and money) the tables that say it exists.
+    const has = code || (a.key === "access" && hasData) || (a.key === "money" && hasPayments);
+    if (!has) continue;
+    areas.push({ key: a.key, title: a.title, checkers: thorough ? 3 : (risky[a.key] ? 2 : 1), chars: code.length });
+  }
+  const maxCandidates = thorough ? 20 : Math.min(MAX_CANDIDATES, 3 + 2 * areas.length);
+  const rounds = thorough ? 2 : 1;
+  // THE ESTIMATE: every hunt reads its area's code; about two problems an area
+  // are challenged, each by its area's checkers, each reading the same code.
+  const tok = (chars) => Math.ceil(chars / 4);
+  const calls = [];
+  for (let r = 0; r < rounds; r++) {
+    for (const a of areas) {
+      calls.push({ in: tok(a.chars) + 900, out: 1200 });
+      const expected = Math.min(2, maxCandidates);
+      for (let i = 0; i < expected * a.checkers; i++) calls.push({ in: tok(a.chars) + 700, out: 300 });
+    }
+  }
+  return { areas, maxCandidates, rounds, calls };
+}
+
+/** Several checkers' verdicts, as one: a majority decides; a tie, or no majority, needs checking. */
+export function combineVerdicts(vs) {
+  const list = Array.isArray(vs) && vs.length ? vs : [{ verdict: "needs_checking", reason: "", fix: "" }];
+  const n = (k) => list.filter((v) => v.verdict === k).length;
+  const half = list.length / 2;
+  const pick = n("confirmed") > half ? "confirmed" : n("rejected") > half ? "rejected" : "needs_checking";
+  const by = list.find((v) => v.verdict === pick) || list[0];
+  return { verdict: pick, reason: by.reason || "", fix: pick === "confirmed" ? (list.find((v) => v.verdict === "confirmed" && v.fix) || {}).fix || "" : "" };
+}
+
 /** One area's code: the files it picks, whole, up to the area's limit. */
 export function areaCode(area, files) {
   let used = 0;
@@ -166,28 +219,41 @@ export function readVerdict(reply) {
  * carries `title`, `why`, `where`; `usage` is every call's usage, for the
  * charge; `areas` names what was looked at.
  */
-export async function deepScan(deps, { model, files = [], facts = "", say = () => {} } = {}) {
+export async function deepScan(deps, { model, files = [], facts = "", tables = [], thorough = false, plan = null, say = () => {} } = {}) {
   const usage = [];
-  const areas = SCAN_AREAS.map((a) => ({ a, code: areaCode(a, files) })).filter((x) => x.code);
+  const p = plan || planScan({ files, tables, thorough });
+  const areas = p.areas.map((pa) => {
+    const a = SCAN_AREAS.find((x) => x.key === pa.key);
+    // AN AREA THE SITE HAS ONLY AS TABLES is looked at through its facts.
+    return { a, checkers: pa.checkers, code: areaCode(a, files) || "(no code for this area; judge from the lists and their rules above)" };
+  });
   say("hunt", { areas: areas.map((x) => x.a.title) });
-  const hunts = await Promise.all(areas.map(async ({ a, code }) => {
-    try {
-      const reply = await deps.send(huntRequest({ model, area: a, code, facts }));
-      if (reply && reply.usage) usage.push(reply.usage);
-      return readCandidates(reply).map((c) => ({ ...c, code }));
-    } catch { return []; }
-  }));
-  // THE SAME PROBLEM FOUND TWICE IS CHALLENGED ONCE.
+  const all = [];
   const seen = new Set();
-  const candidates = hunts.flat().filter((c) => { const k = (c.where + "|" + c.title).toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; })
-    .sort((x, y) => SEV.indexOf(x.severity) - SEV.indexOf(y.severity)).slice(0, MAX_CANDIDATES);
+  for (let round = 0; round < p.rounds; round++) {
+    const missedNote = round > 0 && all.length ? "\n\nALREADY FOUND (do not report these again; look for what was missed): " + all.map((c) => c.title).join("; ") : "";
+    const hunts = await Promise.all(areas.map(async ({ a, code, checkers }) => {
+      try {
+        const reply = await deps.send(huntRequest({ model, area: a, code, facts: facts + missedNote }));
+        if (reply && reply.usage) usage.push(reply.usage);
+        return readCandidates(reply).map((c) => ({ ...c, code, checkers }));
+      } catch { return []; }
+    }));
+    // THE SAME PROBLEM FOUND TWICE IS CHALLENGED ONCE.
+    for (const c of hunts.flat()) { const k = (c.where + "|" + c.title).toLowerCase(); if (!seen.has(k)) { seen.add(k); all.push(c); } }
+  }
+  const candidates = all.sort((x, y) => SEV.indexOf(x.severity) - SEV.indexOf(y.severity)).slice(0, p.maxCandidates);
   say("challenge", { candidates: candidates.length });
   const verdicts = await Promise.all(candidates.map(async (c) => {
-    try {
-      const reply = await deps.send(verifyRequest({ model, candidate: c, code: c.code, facts }));
-      if (reply && reply.usage) usage.push(reply.usage);
-      return readVerdict(reply);
-    } catch { return { verdict: "needs_checking", reason: "", fix: "" }; }
+    // EACH CHECKER IS ITS OWN FRESH CALL; a majority decides.
+    const vs = await Promise.all(Array.from({ length: c.checkers || 1 }, async () => {
+      try {
+        const reply = await deps.send(verifyRequest({ model, candidate: c, code: c.code, facts }));
+        if (reply && reply.usage) usage.push(reply.usage);
+        return readVerdict(reply);
+      } catch { return { verdict: "needs_checking", reason: "", fix: "" }; }
+    }));
+    return combineVerdicts(vs);
   }));
   const confirmed = [], unsure = [];
   candidates.forEach((c, i) => {

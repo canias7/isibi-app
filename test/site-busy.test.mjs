@@ -711,8 +711,9 @@ test("the editable copy: four editing readers read through the repairing reader,
   // RE-ANCHORED 2026-10-21 — 10 → 11, AND THE ELEVENTH IS THE DEEP SECURITY
   // SCAN'S READ. It hands the pages' source to the model to look for problems;
   // it never publishes and never opens a page for an edit.
-  assert.ok(bare.includes("readSiteSource(env, scslug)"), "the security scan's read is gone, or no longer bare");
-  assert.equal(bare.length, 11, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
+  // AND TWO OF THEM (2026-10-21): the scan's own read, and its price estimate's.
+  assert.equal(bare.filter((b) => b === "readSiteSource(env, scslug)").length, 2, "the security scan's reads are gone, or no longer bare");
+  assert.equal(bare.length, 12, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
   assert.ok(W.includes("const pages = url.searchParams.get(\"force\") === \"1\" ? null : await loadSiteSource(env, uslug).catch(() => null);"), "the media delete's read is gone, or does more than read which pages name a file");
   assert.ok(W.includes("withinMs(loadSiteSource(env, slug), CONVERSE_READ_MS, \"converse pages:\", slug)"), "the conversation's read is gone, or does more than read the pages for a reply");
   assert.ok(W.includes("loadSiteSource(env, slug).then((pp) => pageLabels("), "the request's label read is gone, or does more than read labels");
@@ -731,8 +732,8 @@ test("the editable copy: four editing readers read through the repairing reader,
   // nobody can reproduce by reading the file is a count that drifts.
   // 3 → 4 (2026-10-21): the deep security scan's read, which needs to know a
   // failed read from no pages, as the Code tab's does.
-  assert.equal(bare.filter((b) => b.startsWith("readSiteSource")).length, 4,
-    "the four reads are not the plain wrapper's, the checked wrapper's, the Code tab's and the security scan's: " + bare.join(" | "));
+  assert.equal(bare.filter((b) => b.startsWith("readSiteSource")).length, 5,
+    "the five reads are not the plain wrapper's, the checked wrapper's, the Code tab's and the security scan's two: " + bare.join(" | "));
   assert.match(fnW("loadSiteSource"), /const r = await readSiteSource\(env, slug\);/,
     "the wrapper no longer delegates — there are two readers of the store, which drift");
   const wrap = fnW("loadSiteSourceForEdit");

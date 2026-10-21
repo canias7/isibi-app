@@ -7997,7 +7997,7 @@ function moreSecurity(site) {
     '<div class="st-sec-hero"><span class="st-sec-ic">' + ic('shield', 22) + '</span><div class="st-cc-tx"><b>Quick security check</b><span>Free. Looks at who can read and change your lists, whether your forms are protected from bots, and whether a secret key is in your published code.</span></div><button type="button" class="st-publish" id="secScan"' + (can ? '' : ' disabled') + '>Run check</button></div>' +
     // THE DEEP SCAN (phase B, 2026-10-21): the picker's model reads the site's
     // code area by area, and a fresh call tries to disprove each problem.
-    '<div class="st-sec-hero st-sec-deep"><span class="st-sec-ic">' + ic('shield', 22) + '</span><div class="st-cc-tx"><b>Deep security scan</b><span>The builder reads your site\u2019s code looking for harder-to-spot problems, then double-checks each one. Uses credits, like an edit.</span></div><button type="button" class="st-publish" id="secDeep"' + (can ? '' : ' disabled') + '>Run deep scan</button></div>' +
+    '<div class="st-sec-hero st-sec-deep"><span class="st-sec-ic">' + ic('shield', 22) + '</span><div class="st-cc-tx"><b>Deep security scan</b><span>The builder reads your site\u2019s code looking for harder-to-spot problems, then double-checks each one. Sized to your site: everything it has is checked.</span><label class="st-sec-thorough"><input type="checkbox" id="secThorough"> Thorough <em id="secThoroughCost"></em></label></div><button type="button" class="st-publish" id="secDeep"' + (can ? '' : ' disabled') + '>Run deep scan</button></div>' +
     '<div class="st-panel-sub">What it found</div>' +
     '<div id="secResults"><div class="st-sec-empty"><span class="st-sec-ok">' + ic('shield', 30) + '</span><b>' + (can ? 'Loading\u2026' : 'Build your site first') + '</b></div></div>' +
   '</div>';
@@ -8037,16 +8037,27 @@ async function siteSecurityDeep(site) {
   let rep = null;
   try {
     const key = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID().replace(/-/g, '') : String(Date.now());
-    const r = await apiFetch('/api/site/' + encodeURIComponent(site.slug) + '/security', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deep: true, picker: buildPicker, ...(typeof sendEffort === 'function' ? sendEffort() : null), key }) });
+    const r = await apiFetch('/api/site/' + encodeURIComponent(site.slug) + '/security', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deep: true, picker: buildPicker, ...(typeof sendEffort === 'function' ? sendEffort() : null), thorough: !!(document.getElementById('secThorough') || {}).checked, key }) });
     const d = await r.json().catch(() => null);
     if (r.ok && d && d.ok) rep = d.report;
     else if (typeof sbToast === 'function') sbToast((d && d.error) || 'Couldn\u2019t run the scan just now. Try again in a moment.');
   } catch (e) { if (typeof sbToast === 'function') sbToast('Lost the connection \u2014 try again.'); }
   const box = document.getElementById('secResults');
   if (box && rep) { box.innerHTML = secReportHTML(rep); wireSecFix(site); }
-  const b2 = document.getElementById('secDeep'); if (b2) { b2.disabled = false; b2.textContent = 'Run deep scan'; }
+  const b2 = document.getElementById('secDeep'); if (b2) { b2.disabled = false; b2.textContent = 'Run deep scan'; paintSecPrice(site.slug); }
   if (typeof fetchCredits === 'function') fetchCredits();
   return rep;
+}
+const secEstimate = {};
+function paintSecPrice(slug) {
+  const e = secEstimate[slug];
+  const b = document.getElementById('secDeep');
+  const th = document.getElementById('secThorough');
+  const tc = document.getElementById('secThoroughCost');
+  if (!e || !b) return;
+  const n = th && th.checked ? e.thorough.credits : e.standard.credits;
+  if (tc) tc.textContent = '(about ' + e.thorough.credits + ' credits)';
+  if (!b.disabled) b.textContent = n > 0 ? 'Scan \u00b7 about ' + n + ' credit' + (n === 1 ? '' : 's') : 'Run deep scan';
 }
 async function loadSiteSecurity(site) {
   const box = document.getElementById('secResults');
@@ -8054,8 +8065,15 @@ async function loadSiteSecurity(site) {
   if (!box || !site || !site.slug) return;
   const slug = site.slug;
   const paint = (rep) => { const b = document.getElementById('secResults'); if (b) { b.innerHTML = secReportHTML(rep); wireSecFix(site); } };
-  try { const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/security'); const d = await r.json().catch(() => null); paint(r.ok && d && d.ok ? d.report : null); }
-  catch (e) { paint(null); }
+  try {
+    const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/security?estimate=1&picker=' + encodeURIComponent(buildPicker));
+    const d = await r.json().catch(() => null);
+    paint(r.ok && d && d.ok ? d.report : null);
+    // THE PRICE BEFORE THE SCAN (2026-10-21): sized to this site, at the picker's model.
+    if (r.ok && d && d.estimate) { secEstimate[slug] = d.estimate; paintSecPrice(slug); }
+  } catch (e) { paint(null); }
+  const th = document.getElementById('secThorough');
+  if (th) th.onchange = () => paintSecPrice(slug);
   const deepBtn = document.getElementById('secDeep');
   if (deepBtn) deepBtn.onclick = () => siteSecurityDeep(site);
   wireSecFix(site);

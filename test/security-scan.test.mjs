@@ -3,7 +3,7 @@
 // model answers in the shape the real call returns.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { deepScan, readCandidates, readVerdict, areaCode, SCAN_AREAS, MAX_CANDIDATES } from "../builder/security-scan.mjs";
+import { deepScan, readCandidates, readVerdict, areaCode, SCAN_AREAS, MAX_CANDIDATES, planScan, combineVerdicts } from "../builder/security-scan.mjs";
 
 const files = [
   { path: "src/routes/index.tsx", text: "export default function Home(){ return <div dangerouslySetInnerHTML={{__html: review.body}} /> }" },
@@ -48,7 +48,8 @@ test("a failed call costs no finding and no crash; the challenge is bounded", as
   const many = Array.from({ length: 30 }, (_, i) => C("problem " + i, "f" + i));
   let verifies = 0;
   const r = await deepScan({ send: async (req) => { if (req.tools[0].name === "report_candidates") { if (/its pages/.test(req.messages[0].content)) return hunt(many); throw new Error("down"); } verifies++; return verdict("rejected"); } }, { model: "m", files });
-  assert.equal(verifies, MAX_CANDIDATES);
+  assert.equal(verifies, planScan({ files }).maxCandidates, "the challenge is not bounded by the plan");
+  assert.ok(planScan({ files }).maxCandidates <= MAX_CANDIDATES);
   assert.deepEqual(r.confirmed, []);
 });
 
@@ -59,4 +60,41 @@ test("each area reads only its own files, whole, within its limit", () => {
   assert.match(areaCode(access, files), /admin\.tsx/);
   assert.doesNotMatch(areaCode(access, files), /index\.tsx/);
   assert.equal(areaCode(pages, [{ path: "big.tsx", text: "x".repeat(70_000) }]), "", "a file past the limit is cut instead of skipped");
+});
+
+test("SIZED TO THE SITE: a page-only site gets the pages; logins and payments add their areas with two checkers; thorough is three checkers and two rounds", () => {
+  const brochure = planScan({ files: [{ path: "src/routes/index.tsx", text: "x" }] });
+  assert.deepEqual(brochure.areas.map((a) => [a.key, a.checkers]), [["pages", 1]]);
+  const crm = planScan({ files: [{ path: "src/routes/index.tsx", text: "x" }], tables: [{ name: "clients", access: "user" }, { name: "invoices", access: "admin", paid: true }] });
+  assert.deepEqual(crm.areas.map((a) => [a.key, a.checkers]), [["pages", 1], ["access", 2], ["money", 2]]);
+  const deep = planScan({ files: [{ path: "src/routes/index.tsx", text: "x" }], tables: [{ name: "clients", access: "user" }], thorough: true });
+  assert.ok(deep.areas.every((a) => a.checkers === 3));
+  assert.equal(deep.rounds, 2);
+  assert.ok(deep.calls.length > crm.calls.length && crm.calls.length > brochure.calls.length, "the estimate does not grow with the plan");
+});
+
+test("several checkers: a majority confirms or rejects; anything short of a majority needs checking", () => {
+  const v = (verdict, fix = "") => ({ verdict, reason: verdict, fix });
+  assert.equal(combineVerdicts([v("confirmed", "f"), v("confirmed"), v("rejected")]).verdict, "confirmed");
+  assert.equal(combineVerdicts([v("confirmed", "f"), v("confirmed"), v("rejected")]).fix, "f");
+  assert.equal(combineVerdicts([v("confirmed"), v("rejected")]).verdict, "needs_checking", "a tie is decided");
+  assert.equal(combineVerdicts([v("rejected"), v("rejected"), v("needs_checking")]).verdict, "rejected");
+  assert.equal(combineVerdicts([]).verdict, "needs_checking");
+});
+
+test("a risky area's problem is put to two fresh checkers, and a thorough scan hunts twice, the second told what the first found", async () => {
+  const sent = [];
+  const send = async (req) => {
+    sent.push(req);
+    if (req.tools[0].name === "report_candidates") return hunt(/its logins/.test(req.messages[0].content) ? [C("Anyone can read clients", "clients")] : []);
+    return verdict("confirmed", "Lock clients.");
+  };
+  const tables = [{ name: "clients", access: "user" }];
+  const r = await deepScan({ send }, { model: "m", files, tables, facts: "clients: user" });
+  assert.equal(sent.filter((q) => q.tools[0].name === "verdict").length, 2, "a risky area's problem had one checker");
+  assert.equal(r.confirmed.length, 1);
+  sent.length = 0;
+  await deepScan({ send }, { model: "m", files, tables, facts: "clients: user", thorough: true });
+  const hunts = sent.filter((q) => q.tools[0].name === "report_candidates");
+  assert.ok(hunts.some((q) => /ALREADY FOUND[^]*Anyone can read clients/.test(q.messages[0].content)), "the second round is not told what the first found");
 });

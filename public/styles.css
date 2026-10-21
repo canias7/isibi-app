@@ -5425,3 +5425,5 @@ body::after { display: none; }
 .st-sec-fixit { margin-top: .55rem; font: inherit; font-size: .8rem; font-weight: 600; padding: .35rem .8rem; border-radius: 8px; border: 1px solid var(--line-2); background: #fff; color: var(--text); cursor: pointer; }
 .st-sec-fixit:hover { background: var(--panel-2); }
 .st-sec-find.st-sec-unsure { border-left-color: var(--line-2); border-style: dashed; }
+.st-sec-thorough { display: flex; align-items: center; gap: .4rem; margin-top: .5rem; font-size: .82rem; font-weight: 600; color: var(--text); cursor: pointer; }
+.st-sec-thorough em { font-style: normal; font-weight: 400; color: var(--muted); }

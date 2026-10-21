@@ -99,7 +99,7 @@ import { siteAnswer, pageNotes, buildFacts, ANSWER_FIELDS } from "./builder/buil
 // one spelling of the column, and says why it is not called `project`.
 import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { quickChecks } from "./site-security.mjs";
-import { deepScan } from "./builder/security-scan.mjs";
+import { deepScan, planScan } from "./builder/security-scan.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
@@ -46284,10 +46284,37 @@ async function handleRequest(request, env, ctx) {
             const g = await assertOwner(ownerDeps, scslug, ou.id);
             if (g.error) return Response.json(g.error.body, { status: g.error.status });
             const reportKey = "security/" + scslug + "/latest.json";
+            // WHAT A DEEP SCAN OF THIS SITE WOULD LOOK AT, AND COST (2026-10-21,
+            // "the site decides the size"): its tables and its source, planned
+            // with no model, priced at the picker's model. The price shown
+            // before the scan, and the most the scan may charge.
+            const scanInputs = async () => {
+              let tbl = [];
+              const db0 = await siteBackendBySlug(env, scslug).catch(() => null);
+              if (db0) {
+                try {
+                  const tr = await handleOwnerTables(ownerDeps, { slug: scslug, uid: ou.id });
+                  const tb = tr && tr.body ? (typeof tr.body === "string" ? JSON.parse(tr.body) : tr.body) : null;
+                  if (tb && Array.isArray(tb.tables)) tbl = tb.tables;
+                } catch { /* planned without them */ }
+              }
+              const src = await readSiteSource(env, scslug).catch(() => ({ pages: [] }));
+              const srcFiles = (src.pages || []).filter((p) => p && typeof p.path === "string" && typeof p.source === "string").map((p) => ({ path: p.path, text: p.source }));
+              return { db: db0, tables: tbl, srcFiles };
+            };
+            const priceOf = (plan, model) => plan.areas.length ? pageCredits(...plan.calls.map((c) => ({ in: c.in, out: c.out, model }))) : 0;
             if (request.method === "GET") {
               let rep = null;
               try { const o = await env.SITES_BUCKET.get(reportKey); rep = o ? JSON.parse(await o.text()) : null; } catch { rep = null; }
-              return Response.json({ ok: true, report: rep }, { headers: { "cache-control": "no-store" } });
+              if (url.searchParams.get("estimate") !== "1") return Response.json({ ok: true, report: rep }, { headers: { "cache-control": "no-store" } });
+              const model = modelsFor(url.searchParams.get("picker")).pages;
+              const inp = await scanInputs();
+              const std = planScan({ files: inp.srcFiles, tables: inp.tables });
+              const thr = planScan({ files: inp.srcFiles, tables: inp.tables, thorough: true });
+              return Response.json({ ok: true, report: rep, estimate: {
+                standard: { credits: priceOf(std, model), areas: std.areas.map((a) => a.title) },
+                thorough: { credits: priceOf(thr, model), areas: thr.areas.map((a) => a.title) },
+              } }, { headers: { "cache-control": "no-store" } });
             }
             if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
             const checked = [];
@@ -46337,11 +46364,16 @@ async function handleRequest(request, env, ctx) {
               const sfiles = (src.pages || []).filter((p) => p && typeof p.path === "string" && typeof p.source === "string").map((p) => ({ path: p.path, text: p.source }));
               const facts = tables.map((t) => t.name + ": " + t.access + (Array.isArray(t.columns) && t.columns.length ? " (" + t.columns.slice(0, 12).join(", ") + ")" : "")).join("\n");
               const model = modelsFor(scbody.picker).pages;
-              const deep = await deepScan({ send: quickSend(env, "security") }, { model, files: sfiles, facts });
+              const thorough = scbody.thorough === true;
+              const plan = planScan({ files: sfiles, tables, thorough });
+              // NEVER MORE THAN THE PRICE SHOWN (2026-10-21): the estimate is the cap.
+              const cap = priceOf(plan, model);
+              const deep = await deepScan({ send: quickSend(env, "security") }, { model, files: sfiles, facts, tables, thorough, plan });
+              report.thorough = thorough;
               let cost = 0;
               if (deep.usage.length) {
                 const priced = deep.usage.map((u) => ({ in: Number(u.input_tokens) || 0, out: Number(u.output_tokens) || 0, cacheRead: Number(u.cache_read_input_tokens) || 0, cacheWrite: Number(u.cache_creation_input_tokens) || 0, model }));
-                cost = pageCredits(...priced);
+                cost = cap > 0 ? Math.min(pageCredits(...priced), cap) : pageCredits(...priced);
                 const scref = "security:" + scslug + ":" + (typeof scbody.key === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(scbody.key) ? scbody.key : String(report.at));
                 try { const d = await debitCredits(request.headers.get("Authorization") || "", cost, scref, "security", true); cost = d.repeat ? d.prior : d.taken; }
                 catch { /* never fail the report over the ledger */ }

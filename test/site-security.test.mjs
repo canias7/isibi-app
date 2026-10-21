@@ -67,7 +67,7 @@ test("DEEP: only when asked, on the picker's model, every token charged once und
   assert.match(body, /if \(scbody && scbody\.deep === true\) \{/, "the deep scan runs without being asked");
   assert.match(body, /const model = modelsFor\(scbody\.picker\)\.pages;/, "not the picker's model");
   assert.match(body, /await deepScan\(\{ send: quickSend\(env, "security"\) \}/);
-  assert.match(body, /cost = pageCredits\(\.\.\.priced\);/, "the calls are not priced");
+  assert.match(body, /Math\.min\(pageCredits\(\.\.\.priced\), cap\)/, "the calls are not priced");
   assert.match(body, /debitCredits\(request\.headers\.get\("Authorization"\) \|\| "", cost, scref, "security", true\)/, "the scan is not charged, or not once");
   assert.match(body, /readSiteSource\(env, scslug\)/, "the deep scan does not read the site's source");
 });
@@ -78,11 +78,27 @@ test("FIX IT and THE CHAT: a finding's button sends it to the builder as a messa
   assert.match(c, /siteSend\('Fix this security problem on my site: ' \+ b\.getAttribute\('data-secfix'\), true\);/, "Fix it does not go to the builder as the platform's words");
   assert.match(c, /if \(d\.intent === 'security'\) return !!slug;/, "the page refuses the router's security answer");
   assert.match(c, /if \(d\.intent === 'security' && site\.slug\) \{\n      siteSecurityDeep\(site\)/, "a security answer does not start the scan");
-  assert.match(c, /body: JSON\.stringify\(\{ deep: true, picker: buildPicker, \.\.\.\(typeof sendEffort === 'function' \? sendEffort\(\) : null\), key \}\)/, "the scan is not sent the picker");
+  assert.match(c, /body: JSON\.stringify\(\{ deep: true, picker: buildPicker, \.\.\.\(typeof sendEffort === 'function' \? sendEffort\(\) : null\), thorough: /, "the scan is not sent the picker");
   const ask = await import("../builder/site-ask.mjs");
   assert.ok(ask.LIVE_ASK_TOOL.input_schema.properties.intent.enum.includes("security"), "the router is not offered security");
   assert.ok(!ask.ASK_TOOL.input_schema.properties.intent.enum.includes("security"), "a first build is offered a scan of a site that does not exist");
   const said = (input, o) => ask.readRouting({ content: [{ type: "tool_use", input }] }, o);
   assert.deepEqual(said({ intent: "security" }, { hasSite: true, live: true }), { intent: "security", answer: "" });
   assert.notEqual(said({ intent: "security" }, { hasSite: false }).intent, "security", "a scan with no site");
+});
+
+test("PRICE FIRST: the estimate is planned from the site with no model, shown before the scan, and is the most a scan charges", () => {
+  const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const a = w.indexOf("} else if (sc) {");
+  const body = w.slice(a, w.indexOf("} else if (sq) {", a));
+  assert.match(body, /if \(url\.searchParams\.get\("estimate"\) !== "1"\)/);
+  assert.match(body, /standard: \{ credits: priceOf\(std, model\)/);
+  assert.match(body, /thorough: \{ credits: priceOf\(thr, model\)/);
+  assert.match(body, /const cap = priceOf\(plan, model\);/);
+  assert.match(body, /cost = cap > 0 \? Math\.min\(pageCredits\(\.\.\.priced\), cap\) : pageCredits\(\.\.\.priced\);/, "a scan can charge more than the price shown");
+  assert.match(body, /const plan = planScan\(\{ files: sfiles, tables, thorough \}\);/);
+  const c = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  assert.match(c, /\/security\?estimate=1&picker=' \+ encodeURIComponent\(buildPicker\)/, "the price is not asked for at the picker's model");
+  assert.match(c, /'Scan \\u00b7 about ' \+ n \+ ' credit'/, "the price is not on the button");
+  assert.match(c, /thorough: !!\(document\.getElementById\('secThorough'\) \|\| \{\}\)\.checked/, "the Thorough switch is not sent");
 });
