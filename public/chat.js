@@ -15132,6 +15132,11 @@ function siteAskHTML(m, site) {
   // in the thread is history and its buttons would answer the wrong question.
   const live = [...(site.msgs || [])].reverse().find((x) => x && x.r === 'a' && x.q);
   if (!live || live !== m) return '';
+  // ANSWERED IS GONE (2026-10-21, owner: "when selected and submit the answer,
+  // dont show it again"): the round stays open while the build reads it, so
+  // the options came off only when it ended. Once anything follows the
+  // question in the thread, its answer has been sent.
+  if (site.msgs[site.msgs.length - 1] !== m) return '';
   // NUMBERED, and the numbers are REAL — the keydown listener below this
   // function is what makes them so. A hint printed beside an option that does
   // nothing when pressed is worse than no hint: it teaches a shortcut and then

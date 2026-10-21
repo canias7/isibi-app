@@ -2284,3 +2284,20 @@ test("every edit layer is driven by the live check, or is named as a known gap",
     assert.ok(EDIT_LAYERS.includes(l), "the live check drives a layer that does not exist: " + l);
   }
 });
+
+// ANSWERED IS GONE (2026-10-21, owner: "when selected and submit the answer,
+// dont show it again"). The round stays open while the build reads it, so the
+// card used to stay under the question until the build ended.
+test("a first build's question card goes the moment its answer is in the thread", () => {
+  const src = chat();
+  const a = src.indexOf("function siteAskHTML(");
+  const b = src.indexOf("\n}", a);
+  assert.ok(a > 0 && b > a, "siteAskHTML is gone");
+  const draw = new Function("sitePickHTML", "sitePickKeyFirst", "siteLiveAskHTML", src.slice(a, b + 2) + " return siteAskHTML;")(
+    () => "CARD", () => "k", () => "LIVE");
+  const q = { r: "a", q: "What should visitors do?", opts: ["Book a table", "Order online"] };
+  const site = { clarify: { brief: "a cafe", qa: [] }, msgs: [{ r: "u", t: "a cafe" }, q] };
+  assert.equal(draw(q, site), "CARD", "the live, unanswered question has no card — the check is dead");
+  site.msgs.push({ r: "u", t: "Order online" });
+  assert.equal(draw(q, site), "", "the card is still drawn after its answer was sent");
+});
