@@ -9729,11 +9729,6 @@ function setBuildProgress(origin, lines) {
   paintReactLive();
   return true;
 }
-// "4m 12s" / "48s" — the elapsed clock on the running row and in the stage panel.
-function stAgo(ms) {
-  const t = Math.max(0, Math.round((Number(ms) || 0) / 1000));
-  return t < 60 ? t + 's' : Math.floor(t / 60) + 'm ' + (t % 60) + 's';
-}
 // Live steps while a React build/revise streams (reads siteBuild).
 function reactLiveStepsHTML() {
   const sb = siteBuild || {};
@@ -9763,66 +9758,13 @@ function reactLiveStepsHTML() {
   if (!lines.length) return '<div class="st-steps st-steps-live"><div class="st-think"><i></i>Thinking</div></div>';
   return '<div class="st-steps st-steps-live">' + progressListHTML(lines, true) + '</div>';
 }
-// ── B1: the stage panel IS the display (owner, 2026-09-07: "OK B1") ─────────
-//
-// The panel that holds this is the biggest thing on the screen and for a
-// seventeen-minute build it held a spinner and the word "Thinking…". It now
-// carries, in one composition: the stages already finished as chips with the
-// time each took, the current stage as the hero, a line saying what that stage
-// is doing, the elapsed clock, and a four-segment rail under a four-word legend.
-//
-// ONE FUNCTION, TWO CALL SITES — the workspace's own render and `paintReactLive`.
-// That is the whole point: the label and the rail lived in different places and
-// only one of them was ever repainted, so the panel said "Thinking…" while the
-// thread said "Writing the code". Two halves that cannot be painted apart cannot
-// disagree.
-const ST_STAGE_STEPS = [
-  { p: 'planning',   leg: 'Design',   chip: 'Designed' },
-  { p: 'generating', leg: 'Code',     chip: 'Wrote the code' },
-  { p: 'compiling',  leg: 'Compile',  chip: 'Compiled' },
-  { p: 'publishing', leg: 'Publish',  chip: 'Published' },
-];
-
-// HOW FULL THE RUNNING SEGMENT IS, AND WHY IT CAN NEVER BE FULL.
-//
-// Within a stage we do not know how far along we are — the generation's text
-// never leaves its container until it is finished — so this is elapsed time
-// against a rough sense of how long that stage runs. It approaches 92% and stops.
-// A segment that reached the end would be claiming the stage had finished, which
-// is a claim only the build gets to make; a progress display that invents
-// progress is a lying instrument, and this one has to be honest for a quarter of
-// an hour at a stretch.
-const ST_STAGE_TYPICAL_MS = 4 * 60 * 1000;
-function stStageFill(ms) {
-  const t = Math.max(0, Number(ms) || 0);
-  return Math.min(0.92, t / ST_STAGE_TYPICAL_MS);
-}
 function buildStageHTML() {
-  // THE SAME STAGES WHEN WORK IS SAVED TO A DRAFT (draft-first): the last one
-  // saves, it does not publish.
-  const stSteps = globalThis.draftFirstOn === true ? ST_STAGE_STEPS.map((x) => (x.p === 'publishing' ? { p: x.p, leg: 'Save', chip: 'Saved to your draft' } : x)) : ST_STAGE_STEPS;
-  const sb = siteBuild || {};
-  const idx = Math.max(0, ST_PHASE_ORDER.indexOf(sb.rphase || ST_PHASE_ORDER[0]));
-  const at = (p) => ST_PHASE_ORDER.indexOf(p);
-  const el = sb.startedAt ? Date.now() - sb.startedAt : 0;
-  // THE CHIPS ARE DERIVED FROM WHAT IS ACTUALLY PAST, never a fixed pair: a build
-  // that has only just started shows none, and each one appears as its stage ends.
-  const chips = stSteps.filter((x) => at(x.p) < idx)
-    .map((x) => '<span class="st-bchip">✓ ' + esc(x.chip) + '</span>').join('');
-  const segs = stSteps.map((x) => {
-    const i = at(x.p);
-    const w = i < idx ? 1 : i === idx ? stStageFill(el) : 0;
-    return '<i style="--w:' + Math.round(w * 100) + '%"></i>';
-  }).join('');
-  const legs = stSteps.map((x) => '<span>' + esc(x.leg) + '</span>').join('');
-  return '<div class="st-b1">' +
-    (chips ? '<div class="st-bchips">' + chips + '</div>' : '') +
-    '<div class="st-building-t">' + esc(reactStageLabel()) + '</div>' +
-    '<div class="st-bsub">' + esc(reactStageDetail()) + '</div>' +
-    '<div class="st-bclock">' + esc(sb.startedAt ? stAgo(el) : '') + '</div>' +
-    '<div class="st-brail">' + segs + '</div>' +
-    '<div class="st-bleg">' + legs + '</div>' +
-  '</div>';
+  // JUST A LOADING SCREEN (2026-10-21, owner: "delete whats on the right, the
+  // planning ur site thing and the timer … lets just have a loading screen").
+  // The steps, the stage name, the clock and the rail are gone; the thread on
+  // the left says what is happening. `.st-b1` stays, because `paintReactLive`
+  // finds the panel by it.
+  return '<div class="st-b1 st-bload" role="status" aria-label="Building your site"><span class="st-bspin"></span></div>';
 }
 // IS THE STAGE SHOWING A BUILD, AND WHAT DOES THAT PANEL LOOK LIKE — asked in
 // the full render and in `paintReactLive`, and that pair is the whole of this
@@ -9857,24 +9799,6 @@ function stBuildFrameHTML(site) {
     esc(siteChipUrl(site, active && active.path)) + '</span></div>' +
     '<div class="st-building">' + buildStageHTML() + '</div></div>';
 }
-// WHAT THE CURRENT STAGE IS ACTUALLY DOING — the line under the hero, and the
-// body of the expanded row. Its own sentences, NOT `budgetNote`'s: those read
-// "This build ran out of time before your data model was ready", which is the
-// DEADLINE sentence. The stage names match, which is exactly what makes reusing
-// it tempting and what makes it the worst available lie — a running build told
-// it has already failed.
-function reactStageDetail() {
-  const p = (siteBuild && siteBuild.rphase) || ST_PHASE_ORDER[0];
-  return {
-    thinking: 'Working out what you asked for.',
-    planning: 'Designing the site, claiming the address and setting up the database.',
-    generating: 'Writing your pages — this is the long one.',
-    compiling: 'Turning the pages into an app and checking every route opens.',
-    fixing: 'A page did not compile. Trying a fix before publishing.',
-    publishing: 'Putting the finished site at its address.',
-    database: 'Setting up the tables your site stores things in.',
-  }[p] || '';
-}
 function paintReactLive() {
   const host = document.querySelector('#stThread .st-steps-live');
   if (host) host.outerHTML = reactLiveStepsHTML();
@@ -9908,12 +9832,6 @@ function paintReactLive() {
   // build log every 1.5 seconds is worse than the stale scroll it fixes.
   const th = document.getElementById('stThread');
   if (th && th.scrollHeight - th.scrollTop - th.clientHeight < 80) th.scrollTop = th.scrollHeight;
-}
-function reactStageLabel() {
-  const p = (siteBuild && siteBuild.rphase) || 'generating';
-  // No `images` entry — see reactLiveStepsHTML. Nothing sets that phase, so the
-  // label was unreachable and said something untrue if it ever were reached.
-  return { thinking: 'Thinking…', planning: 'Planning your site…', generating: 'Writing the code…', compiling: 'Compiling your app…', fixing: 'Fixing a build error…', publishing: globalThis.draftFirstOn === true ? 'Saving to your draft…' : 'Publishing…', database: 'Setting up the database…' }[p] || 'Building…';
 }
 // Read the React build/revise NDJSON stream: fold code/phase/image into the live
 // steps, return the terminal {done|error} payload.
