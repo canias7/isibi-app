@@ -12727,14 +12727,27 @@ function siteMakeApp(site, platform, finish) {
   const slug = site.slug;
   apiFetch('/api/site/' + encodeURIComponent(slug) + '/app/android', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: site.name || slug, ...(site.surface === 'app' ? { mode: 'bundled' } : {}) }) })
     .then(async (r) => {
-      const d = await r.json().catch(() => null);
+      let d = await r.json().catch(() => null);
       if (!r.ok || !d || d.ok !== true) { finish(((d && typeof d.error === 'string' && d.error) || 'The app could not be made just now. Nothing on your site changed \u2014 try again in a minute.')); return; }
+      // A REAL APP'S BUILD IS STARTED, THEN ASKED AFTER (2026-10-21): it takes
+      // minutes, longer than one request can stay open.
+      if (typeof d.job === 'string' && /^[a-f0-9]{16}$/.test(d.job)) {
+        const job = d.job;
+        for (;;) {
+          await new Promise((res) => setTimeout(res, 10000));
+          let s2 = null;
+          try { const g2 = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/app/android?job=' + job); s2 = await g2.json().catch(() => null); } catch (e) { continue; }
+          if (!s2) continue;
+          if (s2.done && s2.ok === true) { d = { ...d, ...s2 }; break; }
+          if (s2.done || s2.ok === false) { finish((typeof s2.error === 'string' && s2.error) || 'The Android app could not be built.'); return; }
+        }
+      }
       const mb = (d.bytes / 1048576).toFixed(1);
       try {
         const g = await apiFetch(d.download);
         if (g.ok) { const blob = await g.blob(); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = slug + '.apk'; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); }
       } catch (e) { /* the reply still says where it is */ }
-      finish('Your Android app \u201c' + (d.name || slug) + '\u201d is ready (' + mb + ' MB) and downloading as ' + slug + '.apk. Open it on an Android phone to install it \u2014 it opens your website, so every change you make shows in the app too. (This is a test build you install directly; a Play Store version is coming.)');
+      finish('Your Android app \u201c' + (d.name || slug) + '\u201d is ready (' + mb + ' MB) and downloading as ' + slug + '.apk. Open it on an Android phone to install it. (This is a test build you install directly; a Play Store version is coming.)');
     })
     .catch(() => finish('The app builder could not be reached. Nothing on your site changed \u2014 try again in a minute.'));
 }

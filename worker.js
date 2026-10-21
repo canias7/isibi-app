@@ -30240,6 +30240,31 @@ async function handleRequest(request, env, ctx) {
         // WHICH PHONE IS IN THE ADDRESS: `/app/android` today; Apple's goes through its own build service.
         if (!ap[2]) return Response.json({ error: "name the phone: /app/android" }, { status: 400 });
         if (!env.SITES_BUCKET) return Response.json({ error: "not available" }, { status: 503 });
+        if (request.method === "GET" && url.searchParams.has("job")) {
+          // HOW A STARTED ANDROID BUILD STANDS, asked once; when it is done the
+          // app is fetched from the builder and kept, so it downloads from here.
+          const job = url.searchParams.get("job");
+          if (!/^[a-f0-9]{16}$/.test(job)) return Response.json({ error: "job must be 16 hex characters" }, { status: 400 });
+          if (!env.APP_BUILD_CONTAINER) return Response.json({ error: "The app builder is not available yet." }, { status: 503 });
+          const c = getContainer(env.APP_BUILD_CONTAINER, laneName("app-" + aslug));
+          let d = null;
+          try {
+            const r = await c.fetch(new Request("http://app/jobs/" + job, { signal: AbortSignal.timeout(60_000) }));
+            if (r.status === 404) return Response.json({ ok: false, done: true, error: "The app builder restarted during the build. Press Download again." }, { status: 410 });
+            d = await r.json().catch(() => null);
+          } catch (e) { return Response.json({ ok: true, done: false, ms: null }); }
+          if (!d || d.state !== "done") return Response.json({ ok: true, done: false, ms: d ? d.ms : null });
+          const res0 = d.result || {};
+          if (!(res0.ok === true && Number.isFinite(res0.bytes))) {
+            const why = Array.isArray(res0.errors) && typeof res0.errors[0] === "string" ? res0.errors.slice(0, 3).join(" | ").slice(0, 500) : "the app could not be built";
+            return Response.json({ ok: false, done: true, error: why, ...(typeof res0.stage === "string" ? { stage: res0.stage } : {}) }, { status: 502 });
+          }
+          const a = await c.fetch(new Request("http://app/jobs/" + job + "/apk", { signal: AbortSignal.timeout(5 * 60 * 1000) }));
+          if (!a.ok) return Response.json({ ok: false, done: true, error: "the finished app could not be fetched" }, { status: 502 });
+          const apk = await a.arrayBuffer();
+          await env.SITES_BUCKET.put(appKey(aslug), apk, { httpMetadata: { contentType: "application/vnd.android.package-archive" }, customMetadata: { mode: "expo", appId: appIdFor(aslug) || "", builtAt: String(Date.now()) } });
+          return Response.json({ ok: true, done: true, mode: "expo", bytes: apk.byteLength, buildMs: res0.ms, download: "/api/site/" + aslug + "/app/android" });
+        }
         if (request.method === "GET") {
           const o = await env.SITES_BUCKET.get(appKey(aslug));
           if (!o) return Response.json({ error: "no app built yet" }, { status: 404 });
@@ -30271,17 +30296,24 @@ async function handleRequest(request, env, ctx) {
         // A REAL APP'S ANDROID BUILD IS A BACKGROUND JOB (2026-10-21): it can take
         // longer than a request is allowed to stay open, so it is started and
         // then asked after, and its app fetched when it is done.
+        // A REAL APP'S ANDROID BUILD IS STARTED, NOT WAITED FOR (2026-10-21): it
+        // takes about fifteen minutes, longer than any request stays open. This
+        // answers its job at once; the page asks `GET …/app/android?job=` after,
+        // and the app is kept the moment it is done.
         if (expo) {
-          const out = await appBuilderJob(env, aslug, "/expo-android", req);
-          if (out.busy) return Response.json({ ok: false, error: "Every app builder is busy right now. Try again in a few minutes \u2014 nothing was charged and nothing on your site changed." }, { status: 503 });
-          if (out.lost || out.timeout) return Response.json({ ok: false, error: out.lost ? "The app builder restarted during the build. Try again." : "The Android build took too long." }, { status: 502 });
-          if (!out.apk) {
-            const d = out.result || {};
-            const why = Array.isArray(d.errors) && typeof d.errors[0] === "string" ? d.errors.slice(0, 3).join(" | ").slice(0, 500) : typeof d.error === "string" ? d.error : "the app could not be built";
-            return Response.json({ ok: false, error: why, ...(typeof d.stage === "string" ? { stage: d.stage } : {}) }, { status: 502 });
+          for (;;) {
+            let r = null;
+            try { r = await getContainer(env.APP_BUILD_CONTAINER, laneName("app-" + aslug)).fetch(new Request("http://app/expo-android", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(req), signal: AbortSignal.timeout(5 * 60 * 1000) })); }
+            catch (e) { console.error("app build start:", aslug, errorClassForLog(e)); }
+            if (r && r.status === 202) {
+              const d = await r.json().catch(() => null);
+              if (d && typeof d.job === "string") return Response.json({ ok: true, mode: "expo", job: d.job, appId, name }, { status: 202 });
+            }
+            if (r && r.status === 409) return Response.json({ ok: false, error: "An app for this project is already being built." }, { status: 409 });
+            if (r && r.status !== 503) { const d = await r.json().catch(() => null); return Response.json({ ok: false, error: (d && d.error) || "the Android build could not start" }, { status: 502 }); }
+            if (Date.now() - started + APP_RETRY_MS > APP_WAIT_MS) return Response.json({ ok: false, error: "Every app builder is busy right now. Try again in a few minutes \u2014 nothing was charged and nothing on your site changed." }, { status: 503 });
+            await new Promise((res) => setTimeout(res, APP_RETRY_MS));
           }
-          await env.SITES_BUCKET.put(appKey(aslug), out.apk, { httpMetadata: { contentType: "application/vnd.android.package-archive" }, customMetadata: { mode: "expo", appId, builtAt: String(Date.now()) } });
-          return Response.json({ ok: true, mode: "expo", appId, name, bytes: out.apk.byteLength, ms: Date.now() - started, buildMs: out.result && out.result.ms, download: "/api/site/" + aslug + "/app/android" });
         }
         let r = null;
         for (let tries = 0; ; tries++) {

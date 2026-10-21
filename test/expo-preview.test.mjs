@@ -152,7 +152,9 @@ test("LONG JOBS: the builder answers 202 with a job and keeps the result; the Wo
   assert.match(srv, /\/\^\\\/jobs\\\/\(\[a-f0-9\]\{16\}\)\(\\\/apk\)\?\$\//);
   const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(w, /async function appBuilderJob\(env, slug, path, payload/);
-  assert.match(w, /if \(expo\) \{\n\s+const out = await appBuilderJob\(env, aslug, "\/expo-android", req\);/);
+  assert.match(w, /if \(expo\) \{[\s\S]{0,400}new Request\("http:\/\/app\/expo-android"[\s\S]{0,600}status: 202 \}\);/);
+  assert.match(w, /if \(request\.method === "GET" && url\.searchParams\.has\("job"\)\) \{[\s\S]{0,2500}SITES_BUCKET\.put\(appKey\(aslug\), apk/);
+  assert.match(readFileSync(new URL("../public/chat.js", import.meta.url), "utf8"), /'\/app\/android\?job=' \+ job/);
   assert.match(w, /new Request\("http:\/\/app\/selftest", \{ method: "POST"/);
   assert.match(w, /new Request\("http:\/\/app\/jobs\/" \+ job,/);
 });
