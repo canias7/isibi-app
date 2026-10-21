@@ -6134,7 +6134,7 @@ function renderSites() {
     // A published/React site has a live page + (maybe) its own database — deleting
     // it is permanent, so confirm, then wipe it server-side before removing locally.
     if (s && s.slug) {
-      if (!confirm('Delete this site for good? Its live page' + (s.backend ? ' and any saved data' : '') + ' will be permanently removed.')) return;
+      if (!(await goConfirm('Its live page' + (s.backend ? ' and any saved data' : '') + ' will be permanently removed. This cannot be undone.', { title: 'Delete \u201c' + (s.name || s.slug) + '\u201d?', ok: 'Delete site', danger: true }))) return;
       // THE REAL ROUTE. This posted to `/api/site/backend/delete`, which has never
       // existed: the 404 was swallowed, the local record was dropped anyway, and
       // the published site, its Neon database and its claimed slug all kept
@@ -6245,6 +6245,30 @@ function siteAdopt(entry) {
   all.unshift(rec);
   sitesSave();
   return rec;
+}
+// OUR OWN "ARE YOU SURE?" (2026-10-21, owner: "lets make it ours and not
+// browser"): the browser's confirm() is drawn by Safari in its own grey and
+// green. This one is drawn in the app's look and answers a promise: true for
+// the action, false for Cancel, Esc or a click outside.
+function goConfirm(text, opts) {
+  const o = opts || {};
+  return new Promise((resolve) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'go-confirm';
+    wrap.innerHTML = '<div class="go-confirm-box" role="alertdialog" aria-modal="true">' +
+      (o.title ? '<b class="go-confirm-title">' + esc(o.title) + '</b>' : '') +
+      '<p class="go-confirm-text">' + esc(text) + '</p>' +
+      '<div class="go-confirm-acts"><button type="button" class="go-confirm-no">' + esc(o.cancel || 'Cancel') + '</button>' +
+      '<button type="button" class="go-confirm-yes' + (o.danger ? ' danger' : '') + '">' + esc(o.ok || 'OK') + '</button></div></div>';
+    const done = (v) => { document.removeEventListener('keydown', key, true); wrap.remove(); resolve(v); };
+    const key = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(false); } };
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) done(false); });
+    wrap.querySelector('.go-confirm-no').onclick = () => done(false);
+    wrap.querySelector('.go-confirm-yes').onclick = () => done(true);
+    document.addEventListener('keydown', key, true);
+    document.body.appendChild(wrap);
+    wrap.querySelector('.go-confirm-no').focus();
+  });
 }
 function siteCreate(prompt) {
   const id = 'site_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);

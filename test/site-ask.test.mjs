@@ -2301,3 +2301,19 @@ test("a first build's question card goes the moment its answer is in the thread"
   site.msgs.push({ r: "u", t: "Order online" });
   assert.equal(draw(q, site), "", "the card is still drawn after its answer was sent");
 });
+
+// OUR OWN "ARE YOU SURE?" (2026-10-21, owner: "lets make it ours and not browser").
+test("deleting a site asks with our own dialog, not the browser's confirm()", () => {
+  const src = chat();
+  const at = src.indexOf("view.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {");
+  assert.ok(at > 0, "the site delete handler moved; this guard checks nothing");
+  const block = src.slice(at, src.indexOf("apiFetch('/api/site/' + encodeURIComponent(s.slug), { method: 'DELETE' })", at));
+  assert.ok(block.length > 100 && block.length < 3000, "the delete call moved");
+  assert.doesNotMatch(block, /[^.\w]confirm\(/, "the browser's confirm() is back");
+  assert.match(block, /if \(!\(await goConfirm\(/, "the delete is not asked with goConfirm");
+  assert.match(block, /danger: true/);
+  const g = src.slice(src.indexOf("function goConfirm("), src.indexOf("function siteCreate("));
+  assert.match(g, /e\.key === 'Escape'[^]*done\(false\)/, "Esc does not cancel");
+  assert.match(g, /e\.target === wrap\) done\(false\)/, "a click outside does not cancel");
+  assert.match(g, /'\.go-confirm-no'\)\.focus\(\)/, "the safe answer is not the one focused");
+});
