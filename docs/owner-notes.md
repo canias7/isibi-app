@@ -1,5 +1,19 @@
 # Owner Notes
 
+## 2026-10-21 — Phase A: the app kit (you: "yeah you can start"; you have the Apple Developer and Codemagic accounts)
+
+- `builder/expo/template/`: a pinned Expo app (Expo Router, React Native, NativeWind with Tailwind 3), no EAS. Its look is one file, `theme.json`, read by every class.
+- Our app components (`components/app/`):
+  - the tab bar and the screen body;
+  - titles and text, the button;
+  - list rows, grouped rows, chips;
+  - cards, badges, pictures with a soft placeholder;
+  - the stepper and the toggle;
+  - the bottom sheet;
+  - open-now and the hours list.
+- Harbour Loaf rewritten with only the kit (`test/fixtures/expo-harbour/`) typechecks, exports for the web and was photographed in phones. No model calls, no credits.
+- Tests: `test/expo-kit.test.mjs`, 5 cases (the build case runs where the template is installed). Full suite `11618 / 11616 / 0 / 2`. Not merged; nothing in the product uses it yet. Next: phase B (the container checks an app and the phones show it).
+
 ## 2026-10-21 — Real phone apps: Expo, planned (you: "we need the real deal, the correct framework just like we did for the site")
 
 - We agreed apps move from a website in an app shell to **React Native with Expo**, built by **Codemagic**. Expo is open source (MIT), runs on our machines, and needs no Expo account or EAS. It plays TanStack's part for apps; our own app kit sits on top, as the site kit does.

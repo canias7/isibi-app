@@ -1,0 +1,12 @@
+{
+  "paper": "#F6EFE4",
+  "card": "#FFFFFF",
+  "ink": "#2B2118",
+  "soft": "#7A6A58",
+  "line": "#E6DACB",
+  "primary": "#8A4B1E",
+  "onPrimary": "#FFFFFF",
+  "accent": "#EBD9C1",
+  "good": "#2E8B3D",
+  "radius": 14
+}
