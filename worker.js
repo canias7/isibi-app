@@ -19031,7 +19031,7 @@ async function deleteSiteFor(env, uid, dslug) {
     // being allowed to delete files by guessing slugs.
     let srow;
     try {
-      const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(dslug)}&select=uid`, { headers: svcHeaders(env) });
+      const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(dslug)}&select=uid,${CHAT_COLUMN}`, { headers: svcHeaders(env) });
       // THE STATUS IS CHECKED, and it was not. PostgREST answers an error with
       // a JSON OBJECT rather than an array, so `Array.isArray(rows)` was false,
       // `srow` became null, and the very next line answered 404 — telling the
@@ -19242,6 +19242,35 @@ async function deleteSiteFor(env, uid, dslug) {
       }
     } catch (e) { console.error("site requests delete failed:", dslug, e && e.message); }
 
+    // EVERYTHING ELSE UNDER ITS NAME (2026-10-21, owner: "it should delete
+    // everything, slug, like literally everything, nothing should be up"). The
+    // customer's uploaded files, the page source and the model's answers, the
+    // hosted media's records, the app's files and previews, and the small marks
+    // the draft and publish paths keep. Cursor-followed and best-effort like the
+    // backups: a failure is logged, never a reason to leave the site up.
+    let leftoversRemoved = 0;
+    try {
+      if (env.SITES_BUCKET) {
+        const scope = siteScope(dslug);
+        for (const prefix of ["uploads/" + dslug + "/", "source/" + dslug + "/", "apps/" + dslug + "/", "app-preview/" + dslug + "/",
+          "games/" + dslug + "/", "scriptpending/" + dslug + "/", "media-sessions/" + scope + "/", "media-parts/" + scope + "/", "media-assets/" + scope + "/"]) {
+          let lCursor;
+          for (;;) {
+            const got = await env.SITES_BUCKET.list({ prefix, cursor: lCursor, limit: 500 });
+            for (const o of (got && got.objects) || []) { await env.SITES_BUCKET.delete(o.key); leftoversRemoved++; }
+            if (!got || !got.truncated || !got.cursor) break;
+            lCursor = got.cursor;
+          }
+        }
+        // AND THE CHAT THAT BUILT IT, kept under the account (`chatStoreKey`).
+        const chatId = cleanChatId(srow && srow[CHAT_COLUMN]);
+        if (chatId) await env.SITES_BUCKET.delete(chatStoreKey(uid, chatId));
+        for (const key of ["media-ledger/" + scope + ".json", "publish-turn/" + dslug + ".json", "preview-up/" + dslug + ".json", "preview-state/" + dslug + ".json"]) {
+          await env.SITES_BUCKET.delete(key);
+        }
+      }
+    } catch (e) { console.error("site leftovers delete failed:", dslug, e && e.message); }
+
     // AND THE BUILD RECORD. One row keyed by slug, so a leftover would be
     // INHERITED by whoever claims the slug next — their first build would show
     // a stranger's trace until it upserted over it, which is a diagnostic
@@ -19329,7 +19358,7 @@ async function deleteSiteFor(env, uid, dslug) {
     // `null` means there was nothing to do (no dispatch credentials), so it is
     // omitted and an ordinary delete's response is unchanged — the same
     // presence-is-the-signal contract the build response uses.
-    return Response.json({ ok: true, slug: dslug, removed, versionsRemoved, backupsRemoved, projectDropped,
+    return Response.json({ ok: true, slug: dslug, removed, versionsRemoved, backupsRemoved, leftoversRemoved, projectDropped,
       // WHICH PROJECT, so the fallback can name one. Both integration consumers
       // gate their cleanup on `projectDropped === false` and then call
       // `dropUserProject(env, body.projectId)` — and this literal had no such
