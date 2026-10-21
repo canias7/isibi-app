@@ -115,7 +115,6 @@ const SRC = [
     "jobOnceNote", "addonReplyText", "renderTail", "alsoTail", "editOutcomes", "partialSaid", "pageOpVerb",
     "pageOpsSaid", "editReplyBody", "editReply", "esc"].map((n) => cut("function " + n + "(")),
   cut("function reactSend("),
-  cut("function reactStageLabel("),
   cut("function buildCostWords("),
   cut("function buildErrOutcome("),
   cutLine("const ST_PHASE_ORDER ="),

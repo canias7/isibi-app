@@ -113,7 +113,6 @@ const SRC = [
   // off, said by the add-on's and the rewrite's endings alike.
   cut("function alsoTail("),
   cut("function reactSend("),
-  cut("function reactStageLabel("),
   cut("function buildCostWords("),
   cut("function buildErrOutcome("),
   cutLine("const ST_PHASE_ORDER ="),
@@ -202,7 +201,7 @@ async function drive({ site, message, route, follow, routes, prior = [], talk = 
     asked: message,
     held: s.unsent == null ? null : JSON.parse(JSON.stringify(s.unsent)),
     busy: ctx.siteBusy,
-    rail: ctx.siteBuild ? ctx.reactStageLabel() : "(stopped)",
+    rail: ctx.siteBuild ? (ctx.siteBuild.rphase || "building") : "(stopped)",
     ticker: ctx.siteTicker,
     clock,
     events,
@@ -360,7 +359,7 @@ for (const layer of EDIT_LAYERS) {
     assert.equal(o.posts[0].body.instruction, ASK);
     assert.deepEqual(o.said, [], "nothing said yet: the edit is running");
     assert.equal(o.busy, true, "still busy while the edit runs");
-    assert.equal(o.rail, "Thinking…", "no build started");
+    assert.equal(o.rail, "thinking", "no build started");
   });
 }
 
@@ -391,7 +390,7 @@ test("CONTROL: an explicit build on a live site is the revise", async () => {
   const ask = "Scrap this and make me a bakery site";
   const o = await drive({ site: LIVE, message: ask, route: ok200({ ok: true, intent: "build", cost: 2 }) });
   assert.deepEqual(o.posts, [{ url: "/api/site/react-revise", body: { slug: "fretwork-1", instruction: ask, images: [], picker: "grok" } }]);
-  assert.equal(o.rail, "Planning your site…", "the revise has started");
+  assert.equal(o.rail, "planning", "the revise has started");
 });
 
 test("CONTROL: the route's zero-balance answer is a build, so the revise's own 402 gate speaks", async () => {

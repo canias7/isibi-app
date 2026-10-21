@@ -788,7 +788,6 @@ test("DRIVEN: the thread never draws the code, only the progress talk", () => {
     stAgentsBody: () => "", stImgsBody: () => "",
     stCodeBody: (t, cur) => "PRE[" + t + "]" + (cur ? "CUR" : ""),
     ST_PHASE_ORDER: new Function("return " + order.replace(/^const ST_PHASE_ORDER = /, "").replace(/;$/, ""))(),
-    stAgo: new Function(cut("function stAgo(") + "\nreturn stAgo;")(),
     siteBuild: null,
   };
   // RE-ANCHORED 2026-09-08. The rail asks `stBuildRunning()` now rather than

@@ -63,7 +63,6 @@ const ALLOWED = [
   // (docs/backlog.md).
   '<span class="st-step-tick">✓</span>',
   '<span class="st-step-fail">✕</span>',
-  '<span class="st-bchip">✓ \'',
 ];
 
 test("the scanner is alive: it finds a tick, a warning sign and an escaped one, and skips comments", () => {

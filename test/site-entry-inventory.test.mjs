@@ -122,7 +122,6 @@ const SRC = [
   cut("function readAddonReply("),
   cut("function readEditReply("),
   cut("function reactSend("),
-  cut("function reactStageLabel("),
   cut("function buildCostWords("),
   cut("function buildErrOutcome("),
   cutLine("const ST_PHASE_ORDER ="),
@@ -339,7 +338,7 @@ function workspace({ sites, open = "origin-1", routes = [], route = [] }) {
     clarify: (id = "origin-1") => copy(site(id).clarify),
     pages: (id = "origin-1") => (site(id).pages || []).map((p) => p.path),
     busy: () => ctx.siteBusy,
-    rail: () => (ctx.siteBuild ? ctx.reactStageLabel() : "(stopped)"),
+    rail: () => (ctx.siteBuild ? (ctx.siteBuild.rphase || "building") : "(stopped)"),
   };
 }
 
@@ -392,7 +391,7 @@ function assertEdit(call, instruction, layer = "look", images) {
 // WHAT A WAIT OWES THE SCREEN: busy, the rail running, and nothing said yet.
 function assertWaiting(h) {
   assert.equal(h.busy(), true, "the busy flag is not set while the list is read");
-  assert.equal(h.rail(), "Thinking…", "the rail is not running while the list is read");
+  assert.equal(h.rail(), "thinking", "the rail is not running while the list is read");
   assert.equal(h.clock.started, 1, "the rail's clock was not started");
   assert.equal(h.clock.cleared, 0, "the rail's clock stopped during the wait");
 }

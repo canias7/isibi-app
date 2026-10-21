@@ -131,126 +131,6 @@ test("DRIVEN: the phase only ever moves forward, and only for this workspace", (
 
 // ── THE PANEL, DRIVEN ───────────────────────────────────────────────────────
 
-function stageApi() {
-  return new Function(
-    decl("const ST_PHASE_ORDER = ") +
-    decl("const ST_STAGE_STEPS = [", "\n];") +
-    decl("const ST_STAGE_TYPICAL_MS = ") +
-    fn("function stStageFill(") + "\n" + fn("function stAgo(") + "\n" +
-    fn("function buildStageHTML(") + "\n" + fn("function reactStageDetail(") + "\n" +
-    fn("function reactStageLabel(") + "\n" +
-    "let siteBuild = null;\n" +
-    "const esc = (s) => String(s).replace(/[&<>\"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));\n" +
-    "return { html: (rp, ago) => { siteBuild = rp === null ? null : { rphase: rp, startedAt: ago === null ? 0 : Date.now() - ago }; return buildStageHTML(); }," +
-    "  fill: stStageFill, ago: stAgo, steps: ST_STAGE_STEPS, order: ST_PHASE_ORDER };")();
-}
-
-test("DRIVEN: the running segment approaches full and can never reach it", () => {
-  const { fill } = stageApi();
-  // WITHIN A STAGE WE DO NOT KNOW HOW FAR ALONG WE ARE — the generation's text
-  // never leaves its container until it is finished. So this is elapsed time
-  // against a rough sense of the stage's length, and a segment that reached the
-  // end would be claiming the stage had finished, which is a claim only the build
-  // gets to make. A progress display that invents progress is a lying instrument.
-  assert.equal(fill(0), 0);
-  assert.ok(fill(60_000) > 0 && fill(60_000) < 1);
-  assert.ok(fill(4 * 60_000) < 1);
-  for (const ms of [10 * 60_000, 60 * 60_000, 24 * 3600_000, Number.MAX_SAFE_INTEGER]) {
-    assert.ok(fill(ms) < 1, "the running segment reached full at " + ms + "ms — it claimed a stage had finished");
-    assert.ok(fill(ms) <= 0.92, "the ceiling moved; the property is that it never completes");
-  }
-  // Monotonic, and junk reads as no time at all rather than as a full bar.
-  assert.ok(fill(30_000) < fill(90_000));
-  for (const junk of [null, undefined, NaN, -5, "soon", [], {}]) assert.equal(fill(junk), 0);
-});
-
-test("DRIVEN: the chips are derived from what is actually past, never a fixed pair", () => {
-  const { html } = stageApi();
-  const chips = (s) => (s.match(/class="st-bchip"/g) || []).length;
-  // A build that has only just started has finished nothing.
-  assert.equal(chips(html("planning", 4000)), 0, "a just-started build claimed a finished stage");
-  assert.equal(chips(html("generating", 60_000)), 1);
-  assert.equal(chips(html("compiling", 60_000)), 2);
-  assert.equal(chips(html("publishing", 60_000)), 3);
-  // And each one names its own stage rather than a generic tick.
-  assert.match(html("publishing", 60_000), /✓ Designed/);
-  assert.match(html("publishing", 60_000), /✓ Wrote the code/);
-  assert.match(html("publishing", 60_000), /✓ Compiled/);
-});
-
-test("DRIVEN: the panel says the stage, the detail and the clock, and escapes what it prints", () => {
-  const { html, ago } = stageApi();
-  const s = html("generating", 252_000);
-  assert.match(s, /Writing the code…/, "the hero no longer names the stage");
-  assert.match(s, /Writing your pages/, "the detail line is gone");
-  assert.match(s, /4m 12s/, "the clock is gone");
-  assert.match(s, /class="st-brail"/);
-  assert.equal((s.match(/<i style="--w:/g) || []).length, 4, "the rail is not four segments");
-  assert.match(s, /Design<\/span>/); assert.match(s, /Publish<\/span>/);
-
-  // THE RAIL, SEGMENT BY SEGMENT — a finished stage full, the running one part
-  // way, the ones ahead empty. A sweep left a done segment at the running one's
-  // fill and every assertion above passed: four segments were drawn, the clock
-  // and the words were right, and the rail simply never filled in behind the run.
-  const rail = (p, ms) => [...html(p, ms).matchAll(/<i style="--w:(\d+)%"><\/i>/g)].map((m) => +m[1]);
-  const gen = rail("generating", 60_000);
-  assert.equal(gen[0], 100, "a finished stage's segment is not full");
-  assert.ok(gen[1] > 0 && gen[1] < 100, "the running segment is not part way: " + gen[1]);
-  assert.deepEqual(gen.slice(2), [0, 0], "a stage not yet reached has a filled segment");
-  assert.deepEqual(rail("publishing", 1000).slice(0, 3), [100, 100, 100],
-    "three finished stages are not all full");
-
-  // AN UNKNOWN PHASE READS AS THE EARLIEST, NEVER AS NOTHING. `thinking` is
-  // deliberately not one of the four stages and is where every build starts, so
-  // an `indexOf` taken raw gives -1 and the whole rail goes blank — the panel
-  // showing less than it did before this existed, in the one state it is always
-  // in first.
-  for (const p of ["thinking", "nonsense", undefined]) {
-    const r = rail(p, 30_000);
-    assert.equal(r.length, 4, "the rail lost its segments at phase " + p);
-    assert.ok(r[0] > 0, "an unknown phase drew an empty rail at " + p + ": " + r.join(","));
-    assert.deepEqual(r.slice(1), [0, 0, 0], "an unknown phase filled a later stage at " + p);
-  }
-  // AND NO BUILD AT ALL IS A DIFFERENT CASE, not the one above: the panel is
-  // drawn on the workspace's ordinary render path before any build exists, and
-  // there the rail is four empty tracks and no clock. Asserted apart so neither
-  // case can be read as evidence for the other.
-  assert.deepEqual(rail(null, null), [0, 0, 0, 0], "a rail filled in with no build running");
-
-  // NO CLOCK BEFORE THERE IS A START. A time on a build that has not begun is the
-  // images-row lie in a smaller font.
-  assert.match(html("planning", null), /class="st-bclock"><\/div>/, "a clock was drawn with no start time");
-
-  assert.equal(ago(0), "0s");
-  assert.equal(ago(59_000), "59s");
-  assert.equal(ago(60_000), "1m 0s");
-  assert.equal(ago(252_000), "4m 12s");
-  for (const junk of [null, undefined, NaN, "later", [], -1]) assert.equal(ago(junk), "0s");
-
-  // A build with no state at all still renders rather than throwing — the panel
-  // is drawn on the workspace's ordinary render path, before any poll lands.
-  assert.match(html(null, null), /class="st-b1"/);
-});
-
-test("the live sentences are the PROGRESS ones, never the deadline's", () => {
-  // `budgetNote` in builder/build-budget.mjs has a sentence per stage and the
-  // stage names match exactly — which is what makes reusing it tempting and what
-  // makes it the worst available lie: it says "This build ran out of time before
-  // your data model was ready", and rendering that over a healthy running build
-  // tells a customer their build has already failed.
-  const budget = readFileSync(new URL("../builder/build-budget.mjs", import.meta.url), "utf8");
-  const detail = fn("function reactStageDetail(");
-  for (const phrase of ["ran out of time", "were not written", "could be published"]) {
-    assert.ok(budget.includes(phrase), "the deadline sentence changed — re-derive this guard from budgetNote");
-    assert.ok(!detail.includes(phrase),
-      "a deadline sentence is being shown over a running build: " + JSON.stringify(phrase));
-  }
-  // Alive: the detail function really does have sentences of its own.
-  assert.match(detail, /Writing your pages/);
-  assert.match(detail, /Designing the site/);
-});
-
-// ── TREATMENT E: THE RAIL IS A DENSE LOG ────────────────────────────────────
 
 test("DRIVEN: four states, four characters, one column — and the class names stay", () => {
   const row = new Function("o",
@@ -369,7 +249,7 @@ test("the rail is one monospace column, and only the LABEL is lower-cased", () =
 test("DRIVEN: a running build draws only its progress talk — no stage rows, \"Thinking\" until the first line", () => {
   const rows = new Function("sb",
     decl("const ST_PHASE_ORDER = ") +
-    fn("function stStepRow(") + "\n" + fn("function stAgo(") + "\n" +
+    fn("function stStepRow(") + "\n" +
     // RE-ANCHORED 2026-09-08. The rail asks `stBuildRunning()` now instead of
     // testing `sb.rphase === 'thinking'` itself, so this scope has to carry it or
     // the whole function throws a ReferenceError. Taken OUT OF THE FILE rather
@@ -532,33 +412,3 @@ test("THE WIRING: the clock has an origin, a tick, and a stop", () => {
     "the old promotion to 'generating' is back");
 });
 
-test("the panel's own type and its never-full segment are in the stylesheet", () => {
-  // The hero's face is NAMED, not inherited: the app's `body` rule is nested
-  // inside `:root` and did not apply in a headless render, so what was drawn for
-  // the owner and what shipped would have been two different typefaces.
-  const hero = /\.st-b1 \.st-building-t \{[^}]*\}/.exec(css);
-  assert.ok(hero, "the stage hero has no rule of its own");
-  // NOT HANDWRITTEN (2026-10-19, owner: "fix 5" on the recorded build): the
-  // app's own display face, still named rather than inherited.
-  assert.match(hero[0], /font-family:\s*'Space Grotesk'/, "the hero's display face is inherited again, or no longer the app's");
-  assert.ok(!/Patrick Hand|Segoe Print/.test(hero[0]), "the hero is handwritten again");
-  // Tabular figures, because this redraws every 1.5s and proportional digits make
-  // a running clock twitch sideways on every tick.
-  const clock = /\.st-bclock \{[^}]*\}/.exec(css);
-  assert.ok(clock, "the clock has no rule");
-  assert.match(clock[0], /font-variant-numeric:\s*tabular-nums/, "the clock will jitter on every tick");
-  // The fill is a child of the track, so an empty segment is still a visible rail.
-  assert.match(css, /\.st-brail i::after \{[^}]*width: var\(--w, 0\)/, "the segment fill moved");
-  assert.match(css, /\.st-brail i \{[^}]*background: var\(--panel-2\)/, "an empty segment has no track");
-  // REDUCED MOTION, read out of the media block that actually names the rail —
-  // never as one regex spanning from `prefers-reduced-motion` to the rule, which
-  // is a byte window over a stylesheet by another name and matched nothing here
-  // because the block is written on one line. Landmark to landmark, both ends
-  // asserted, and the observer proved alive by finding the block at all.
-  const rm = css.indexOf("@media (prefers-reduced-motion: reduce) { .st-brail");
-  assert.ok(rm > 0, "the rail has no reduced-motion rule at all");
-  const rmEnd = css.indexOf("}", css.indexOf("transition", rm));
-  assert.ok(rmEnd > rm, "the reduced-motion block never closes");
-  assert.match(css.slice(rm, rmEnd), /\.st-brail i::after \{[^}]*transition:\s*none/,
-    "the rail still animates under reduced motion");
-});

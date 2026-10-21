@@ -274,7 +274,6 @@ const liveSteps = (() => {
     stStepRow: (o) => JSON.stringify({ label: o.label, state: o.state }),
     stAgentsBody: () => "", stCodeBody: () => "", stImgsBody: () => "",
     ST_PHASE_ORDER: new Function("return " + orderSrc.replace(/^const ST_PHASE_ORDER = /, "").replace(/;$/, ""))(),
-    stAgo: new Function(src("function stAgo(") + "\nreturn stAgo;")(),
     siteBuild: null,
   };
   // RE-ANCHORED 2026-09-08. The rail asks `stBuildRunning()` now rather than

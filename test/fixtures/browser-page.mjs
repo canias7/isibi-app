@@ -72,7 +72,7 @@ const FNS = [...new Set([
   // A QUESTION'S ANSWERS: PICK, THEN CONTINUE (option E, 2026-10-14).
   "sitePickKeyLive", "sitePickKeyFirst", "sitePickHTML", "sitePickPaint", "sitePick", "sitePickOwn", "sitePickTake",
   "readAddonReply", "readEditReply", "addonOutcomeMsg", "alsoTail",
-  "reactSend", "reactStageLabel", "buildCostWords", "buildErrOutcome",
+  "reactSend", "buildCostWords", "buildErrOutcome",
   ...BROWSER_FNS, ...EDIT_BROWSER_FNS,
   // ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03): the
   // message's key, following a request, its card, Stop and the rewrite go-ahead.

@@ -381,8 +381,11 @@ test("the chat is read from the request ONCE, on a first build, through the refu
   // first build belongs to so a reopened browser can find it. Each is a first
   // build only. What this guards is unchanged: no reader of `body.chat` skips
   // `cleanChatId`.
+  // AND A THIRD (2026-10-21), the site delete's: it reads the STORED chat id
+  // off the site's own row to remove that chat, never `body.chat`.
   const reads = [...w.matchAll(/cleanChatId\(/g)];
-  assert.equal(reads.length, 2, "the chat id is read in an unexpected number of places: " + reads.length);
+  assert.ok(/cleanChatId\(srow && srow\[CHAT_COLUMN\]\)/.test(w), "the third reader is no longer the delete's stored id");
+  assert.equal(reads.length, 3, "the chat id is read in an unexpected number of places: " + reads.length);
   assert.match(w, /const chatId = firstBuild \? cleanChatId\(body\.chat\) : "";/,
     "the chat is no longer read only on a first build, through the refusal");
   const at = w.indexOf("async function liveBuildStart(");

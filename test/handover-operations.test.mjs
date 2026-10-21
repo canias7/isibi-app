@@ -110,7 +110,6 @@ const SRC = [
     "jobOnceNote", "addonReplyText", "renderTail", "alsoTail", "editOutcomes", "partialSaid", "pageOpVerb",
     "pageOpsSaid", "editReplyBody", "editReply"].map((n) => cut("function " + n + "(")),
   cut("function reactSend("),
-  cut("function reactStageLabel("),
   cut("function buildCostWords("),
   cut("function buildErrOutcome("),
   // A FAILED BUILD ANSWER'S TOLD LINES (2026-10-08, the seventh batch): the

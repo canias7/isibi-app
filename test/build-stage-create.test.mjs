@@ -120,13 +120,9 @@ function loadPainter({ stage, site, busy = true, phase = "thinking", startedAt =
     line("const SITES_KEY = ") + "\n" +
     line("const SITE_ZONE = ") + "\n" + line("const SITE_ZONE_LIVE = ") + "\n" +
     line("const ST_PHASE_ORDER = ") + "\n" +
-    block("const ST_STAGE_STEPS = [", "\n];") + "\n" +
-    line("const ST_STAGE_TYPICAL_MS = ") + "\n" +
     "let sitesCache = null;\n" +
     cut("esc") + "\n" + cut("sitesLoad") + "\n" + cut("siteById") + "\n" +
     cut("sitePages") + "\n" + cut("siteActivePage") + "\n" + cut("siteChipUrl") + "\n" +
-    cut("stAgo") + "\n" + cut("stStageFill") + "\n" +
-    cut("reactStageLabel") + "\n" + cut("reactStageDetail") + "\n" +
     cut("stBuildRunning") + "\n" + cut("buildStageHTML") + "\n" +
     cut("stStageBuilding") + "\n" + cut("stBuildFrameHTML") + "\n" + cut("paintReactLive") + "\n" +
     "return { paint: paintReactLive, building: stStageBuilding, frame: stBuildFrameHTML,"
@@ -163,7 +159,7 @@ test("DRIVEN: the phase moving off `thinking` converts the invitation into the p
   l.setPhase(l.order[0]);
   l.paint();
 
-  assert.match(stage.innerHTML, /class="st-b1"/,
+  assert.match(stage.innerHTML, /class="st-b1[ "]/,
     "the stage never grew a build panel — the defect: the painter can update one and not create one");
   assert.match(stage.innerHTML, /class="st-building"/, "the panel is not inside the building frame");
   assert.match(stage.innerHTML, /class="st-frame-bar"/, "the frame lost its url bar");
@@ -177,18 +173,19 @@ test("DRIVEN: once the panel exists it is updated in place, not rebuilt", () => 
   const stage = makeStage(INVITATION);
   const l = loadPainter({ stage, site: DRAFT, phase: "thinking", startedAt: Date.now() - 3000 });
   l.setPhase("planning"); l.paint();
-  assert.match(stage.innerHTML, /Planning your site/, "the first paint drew the wrong stage label");
+  assert.match(stage.innerHTML, /st-bspin/, "the first paint drew no loading screen");
 
   // The panel now exists, so this must take the UPDATE leg. The tell is that the
   // label moves while the frame around it is untouched — a create would rebuild
   // the frame too, which is invisible from the outside except here.
   const bars = (stage.innerHTML.match(/st-frame-bar/g) || []).length;
   l.setPhase("generating"); l.paint();
-  assert.match(stage.innerHTML, /Writing the code/, "the running panel stopped following the phase");
-  assert.ok(!/Planning your site/.test(stage.innerHTML), "the old label is still on screen");
+  // THE LOADING SCREEN (2026-10-21) says no stage, so the update leg is shown
+  // by the frame staying put and the screen staying one spinner.
+  assert.equal((stage.innerHTML.match(/st-bspin/g) || []).length, 1, "the loading screen is gone or doubled");
   assert.equal((stage.innerHTML.match(/st-frame-bar/g) || []).length, bars,
     "the frame was drawn a second time — the create branch is firing on every tick");
-  assert.equal((stage.innerHTML.match(/class="st-b1"/g) || []).length, 1,
+  assert.equal((stage.innerHTML.match(/class="st-b1[ "]/g) || []).length, 1,
     "the stage holds two build panels");
 });
 
@@ -257,7 +254,7 @@ test("DRIVEN: the frame carries the address and the panel, and nothing else comp
   // and is what shipped `//menu` as a canonical for a day.
   assert.match(html, /class="st-frame-url">marlow-and-tide\.gofarther\.app\/</,
     "the frame bar does not carry the site's own chip address");
-  assert.match(html, /class="st-b1"/, "the frame does not hold the one stage composition");
+  assert.match(html, /class="st-b1[ "]/, "the frame does not hold the one stage composition");
   // A DRAFT WITH NO SLUG STILL DRAWS A FRAME. `siteChipUrl` answers a sentence
   // rather than an address there, and a frame that threw would leave the stage
   // on the invitation for exactly the builds this exists to fix.
