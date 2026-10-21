@@ -1353,3 +1353,16 @@ Owner: *"you don't need to have a website. You can just build an app"* and *"Eve
 
 - An app does not need a website: a project can have a website, an Android app, an iPhone app, or any combination.
 - An app is built and edited exactly the way a site is: the same chat, router, build pipeline, edits, versions and credits. Only the output differs: phone screens, shown in the two phones of the mobile panel (the right-edge tab, dragged open), instead of web pages.
+
+## Deploys that restart the build container (2026-10-21)
+
+A deploy that changes a file the website build container is built from
+(`builder/`, the kit, its Dockerfile) restarts that container, and builds
+started in the next ~20 minutes can fail (a customer's build was lost at
+18:47 UTC on 2026-10-21, three minutes after such a deploy; fully refunded).
+The owner chose to time deploys carefully rather than change the build path:
+*"we will time deploys carefully"*, and *"just note to not do it unless i
+allow it"*. **So: never deploy anything that rebuilds the build container
+unless the owner has allowed that deploy specifically, after being told it
+will rebuild the container and that builds should wait ~20 minutes.** Predict
+the image before every merge (`docs/deploy.md`) and say which it is.
