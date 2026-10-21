@@ -46300,7 +46300,7 @@ async function handleRequest(request, env, ctx) {
               }
               const src = await readSiteSource(env, scslug).catch(() => ({ pages: [] }));
               const srcFiles = (src.pages || []).filter((p) => p && typeof p.path === "string" && typeof p.source === "string").map((p) => ({ path: p.path, text: p.source }));
-              return { db: db0, tables: tbl, srcFiles };
+              return { db: db0, tables: tbl, code: srcFiles };
             };
             const priceOf = (plan, model) => plan.areas.length ? pageCredits(...plan.calls.map((c) => ({ in: c.in, out: c.out, model }))) : 0;
             if (request.method === "GET") {
@@ -46309,8 +46309,8 @@ async function handleRequest(request, env, ctx) {
               if (url.searchParams.get("estimate") !== "1") return Response.json({ ok: true, report: rep }, { headers: { "cache-control": "no-store" } });
               const model = modelsFor(url.searchParams.get("picker")).pages;
               const inp = await scanInputs();
-              const std = planScan({ files: inp.srcFiles, tables: inp.tables });
-              const thr = planScan({ files: inp.srcFiles, tables: inp.tables, thorough: true });
+              const std = planScan({ files: inp.code, tables: inp.tables });
+              const thr = planScan({ files: inp.code, tables: inp.tables, thorough: true });
               return Response.json({ ok: true, report: rep, estimate: {
                 standard: { credits: priceOf(std, model), areas: std.areas.map((a) => a.title) },
                 thorough: { credits: priceOf(thr, model), areas: thr.areas.map((a) => a.title) },
