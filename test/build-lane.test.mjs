@@ -177,10 +177,16 @@ test("max_instances IS FAR ABOVE ANY REAL CONCURRENCY, and the classes SUM under
   // from being a vacuous assertion, which is the only reason it has a number.
   assert.ok(Array.isArray(cfg.containers) && cfg.containers.length >= 1, "no containers declared");
 
+  // PER SIZE SINCE 2026-10-21: the app builder runs on standard-4 (its Android
+  // image outgrew standard-1's 8 GB disk). Each class is weighed by its own
+  // size against all three account ceilings, not counted as standard-1.
+  const SIZES = { "standard-1": { mem: 4, cpu: 0.5, disk: 8 }, "standard-2": { mem: 6, cpu: 1, disk: 12 }, "standard-3": { mem: 8, cpu: 2, disk: 16 }, "standard-4": { mem: 12, cpu: 4, disk: 20 } };
+  const used = { mem: 0, cpu: 0, disk: 0 };
   let sum = 0;
   for (const c of cfg.containers) {
-    assert.equal(c.instance_type, "standard-1",
-      `${c.class_name} is ${c.instance_type} — the ceiling arithmetic above is standard-1's`);
+    const z = SIZES[c.instance_type];
+    assert.ok(z, `${c.class_name} is ${c.instance_type} — a size this arithmetic does not know`);
+    used.mem += z.mem * c.max_instances; used.cpu += z.cpu * c.max_instances; used.disk += z.disk * c.max_instances;
     // A FLOOR, so nobody quietly puts the platform back behind a handful of
     // containers. 5 is what this replaced and is the number to stay away from.
     assert.ok(c.max_instances >= 100,
@@ -189,6 +195,12 @@ test("max_instances IS FAR ABOVE ANY REAL CONCURRENCY, and the classes SUM under
   }
   assert.ok(sum <= CEILING,
     `the classes sum to ${sum} concurrent instances against an account ceiling of ${CEILING}`);
+  // The account's own ceilings: 6 TiB of memory, 1,500 vCPU, 30 TB of disk.
+  assert.ok(used.mem <= 6144, `the classes can claim ${used.mem} GiB of memory at once, over the account's 6 TiB`);
+  assert.ok(used.cpu <= 1500, `the classes can claim ${used.cpu} vCPU at once, over the account's 1,500`);
+  assert.ok(used.disk <= 30000, `the classes can claim ${used.disk} GB of disk at once, over the account's 30 TB`);
+  const siteSize = cfg.containers.find((c) => c.class_name === "SiteBuildContainer");
+  assert.equal(siteSize && siteSize.instance_type, "standard-1", "the site builder stays on standard-1 — the size its measurements were taken on");
   // THE SITE IS THE ONLY CLASS SINCE 2026-09-12, when the game builder was
   // deleted (owner: "delete it too"). What used to be asserted here — that the
   // site outranks the game — has no second class to compare against, so the
