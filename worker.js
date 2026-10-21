@@ -668,7 +668,13 @@ async function writePhoneApp(env, { slug, brief, brand, spec, theme, model, budg
   const messages = [{ role: "user", content: first }];
   for (let round = 0; round < 2; round++) {
     let got;
-    try { got = await ask(messages); } catch (e) { return { ok: false, stage: "generate", error: "the app could not be written", usage }; }
+    try { got = await ask(messages); } catch (e) {
+      // WHAT WENT WRONG, NAMED ON THE BUILD'S RECORD (the third live attempt
+      // failed here with nothing to read): the error's class and its first words.
+      const why = errorClassForLog(e) + (e && Number.isFinite(e.status) ? " " + e.status : "") + (e && e.message ? ": " + String(e.message).slice(0, 160) : "");
+      console.error("app write:", slug, why);
+      return { ok: false, stage: "generate", error: "the app could not be written (" + why + ")", usage };
+    }
     if (got.error) return { ok: false, stage: "generate", error: got.error, usage };
     const files = appFilesFrom(got.answer);
     if (files.error) return { ok: false, stage: "generate", error: files.error, usage };
