@@ -80,12 +80,12 @@ owner's word.
 
 ## Decisions that are the owner's
 
-1. **When it runs:** on demand only (recommended to start), or also after each
-   build.
+1. **When it runs — DECIDED (2026-10-21):** only when the customer presses Scan
+   or asks for it in the chat. Never after a build on its own.
 2. **Price:** free for phase A; phase B priced from the measured run (a rough
    guess before measuring: 10–40 credits a scan for a normal site).
-3. **Which model** does the hunt and the checking: the builder's (Grok) by
-   default, or a stronger one for the checking step.
+3. **Which model — DECIDED (2026-10-21):** whatever model is selected in the
+   builder's picker, for both the hunt and the checking.
 4. **Who sees it:** every customer, or a test group first.
 
 ## What is already in place

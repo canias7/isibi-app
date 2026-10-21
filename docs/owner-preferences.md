@@ -1366,3 +1366,9 @@ allow it"*. **So: never deploy anything that rebuilds the build container
 unless the owner has allowed that deploy specifically, after being told it
 will rebuild the container and that builds should wait ~20 minutes.** Predict
 the image before every merge (`docs/deploy.md`) and say which it is.
+
+## The security scan (2026-10-21)
+
+Owner: *"only when the customer press scan or asks for it in chat"* and *"whatever
+model is selected on the picker"*. The scan never runs on its own after a build,
+and it uses the builder's selected model. Plan: `docs/plans/2026-10-21-site-security-scan.md`.
