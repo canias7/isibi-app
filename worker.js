@@ -743,6 +743,46 @@ async function checkPhoneApp(env, slug, files, theme, auth) {
   if (r.status === 503) return { busy: true };
   return { body: { ok: false, stage: "check", errors: [(d && d.error) || "the app could not be checked (" + r.status + ")"] } };
 }
+/**
+ * A LONG APP-BUILDER JOB (2026-10-21): started with a short request that
+ * answers a job id, then asked after every ten seconds with short requests —
+ * a request held open past about three minutes is cut while the build goes on.
+ * `{ result, apk }` when done (`apk` an ArrayBuffer or null), `{ busy: true }`
+ * when no builder would take it, `{ lost: true }` when the job vanished
+ * (the builder restarted), or `{ timeout: true }`.
+ */
+async function appBuilderJob(env, slug, path, payload, maxMs = 30 * 60 * 1000) {
+  const c = () => getContainer(env.APP_BUILD_CONTAINER, laneName("app-" + slug));
+  const started = Date.now();
+  let job = null;
+  for (;;) {
+    let r = null;
+    try { r = await c().fetch(new Request("http://app" + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload ?? {}), signal: AbortSignal.timeout(5 * 60 * 1000) })); }
+    catch (e) { console.error("app builder job start:", slug, errorClassForLog(e)); }
+    if (r && r.status === 202) { const d = await r.json().catch(() => null); job = d && typeof d.job === "string" ? d.job : null; break; }
+    if (r && r.status !== 503 && r.status !== 409) return { result: await r.json().catch(() => ({ ok: false, errors: ["the app builder answered " + r.status] })), apk: null };
+    if (Date.now() - started + APP_RETRY_MS > APP_WAIT_MS) return { busy: true };
+    await new Promise((res) => setTimeout(res, APP_RETRY_MS));
+  }
+  if (!job) return { result: { ok: false, errors: ["the app builder gave no job id"] }, apk: null };
+  while (Date.now() - started < maxMs) {
+    await new Promise((res) => setTimeout(res, 10_000));
+    let d = null;
+    try {
+      const r = await c().fetch(new Request("http://app/jobs/" + job, { signal: AbortSignal.timeout(60_000) }));
+      if (r.status === 404) return { lost: true };
+      d = await r.json().catch(() => null);
+    } catch (e) { console.error("app builder job poll:", slug, errorClassForLog(e)); continue; }
+    if (!d || d.state !== "done") continue;
+    let apk = null;
+    if (d.result && d.result.ok === true && Number.isFinite(d.result.bytes)) {
+      const a = await c().fetch(new Request("http://app/jobs/" + job + "/apk", { signal: AbortSignal.timeout(5 * 60 * 1000) }));
+      if (a.ok) apk = await a.arrayBuffer();
+    }
+    return { result: d.result, apk };
+  }
+  return { timeout: true };
+}
 /** What a bundled app carries, together, read in the Worker. */
 const APP_FILES_MAX_BYTES = 30_000_000;
 /** Bytes as base64, in pieces small enough for `btoa`. */
@@ -30093,9 +30133,12 @@ async function handleRequest(request, env, ctx) {
           const c = getContainer(env.APP_BUILD_CONTAINER, laneName("app-" + appHm[1]));
           // THE SELF-TEST rides the same door: the live builder runs the test app
           // it carries through the web version and the Android build.
-          const r = appHm[2] === "selftest"
-            ? await c.fetch(new Request("http://app/selftest", { method: "POST", signal: AbortSignal.timeout(30 * 60 * 1000) }))
-            : await c.fetch(new Request("http://app/health", { signal: AbortSignal.timeout(5 * 60 * 1000) }));
+          if (appHm[2] === "selftest") {
+            const t0 = Date.now();
+            const out = await appBuilderJob(env, appHm[1], "/selftest", {});
+            return Response.json({ ok: !!(out.result && out.result.android && out.result.android.ok), ms: Date.now() - t0, ...out, apk: undefined });
+          }
+          const r = await c.fetch(new Request("http://app/health", { signal: AbortSignal.timeout(5 * 60 * 1000) }));
           return Response.json({ ok: r.ok, status: r.status, health: await r.json().catch(() => null) });
         } catch (e) {
           // THE MESSAGE TOO (the first live self-test said only "Error"): this
@@ -30217,6 +30260,21 @@ async function handleRequest(request, env, ctx) {
         // waits and asks again every `APP_RETRY_MS`, for up to `APP_WAIT_MS`,
         // before saying so. An app build takes about half a minute, so a turn
         // comes round quickly; a site already building its app is told at once.
+        // A REAL APP'S ANDROID BUILD IS A BACKGROUND JOB (2026-10-21): it can take
+        // longer than a request is allowed to stay open, so it is started and
+        // then asked after, and its app fetched when it is done.
+        if (expo) {
+          const out = await appBuilderJob(env, aslug, "/expo-android", req);
+          if (out.busy) return Response.json({ ok: false, error: "Every app builder is busy right now. Try again in a few minutes \u2014 nothing was charged and nothing on your site changed." }, { status: 503 });
+          if (out.lost || out.timeout) return Response.json({ ok: false, error: out.lost ? "The app builder restarted during the build. Try again." : "The Android build took too long." }, { status: 502 });
+          if (!out.apk) {
+            const d = out.result || {};
+            const why = Array.isArray(d.errors) && typeof d.errors[0] === "string" ? d.errors.slice(0, 3).join(" | ").slice(0, 500) : typeof d.error === "string" ? d.error : "the app could not be built";
+            return Response.json({ ok: false, error: why, ...(typeof d.stage === "string" ? { stage: d.stage } : {}) }, { status: 502 });
+          }
+          await env.SITES_BUCKET.put(appKey(aslug), out.apk, { httpMetadata: { contentType: "application/vnd.android.package-archive" }, customMetadata: { mode: "expo", appId, builtAt: String(Date.now()) } });
+          return Response.json({ ok: true, mode: "expo", appId, name, bytes: out.apk.byteLength, ms: Date.now() - started, buildMs: out.result && out.result.ms, download: "/api/site/" + aslug + "/app/android" });
+        }
         let r = null;
         for (let tries = 0; ; tries++) {
           try {

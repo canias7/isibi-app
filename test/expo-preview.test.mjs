@@ -144,3 +144,14 @@ test("SELF-TEST: the image carries the test app and the builder runs it through 
     assert.equal(readFileSync(new URL("../app-builder/selftest/" + f, import.meta.url), "utf8"), readFileSync(new URL("./fixtures/expo-harbour/" + f, import.meta.url), "utf8"), f + " is the fixture's own");
   }
 });
+
+test("LONG JOBS: the builder answers 202 with a job and keeps the result; the Worker starts, asks after, and fetches the app", () => {
+  const srv = readFileSync(new URL("../app-builder/server.mjs", import.meta.url), "utf8");
+  assert.match(srv, /req\.url === "\/expo-android"[\s\S]*?json\(res, 202, \{ job: startJob\(/);
+  assert.match(srv, /req\.url === "\/selftest"[\s\S]*?json\(res, 202, \{ job: startJob\(/);
+  assert.match(srv, /\/\^\\\/jobs\\\/\(\[a-f0-9\]\{16\}\)\(\\\/apk\)\?\$\//);
+  const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(w, /async function appBuilderJob\(env, slug, path, payload/);
+  assert.match(w, /if \(expo\) \{\n\s+const out = await appBuilderJob\(env, aslug, "\/expo-android", req\);/);
+  assert.match(w, /const out = await appBuilderJob\(env, appHm\[1\], "\/selftest", \{\}\);/);
+});
