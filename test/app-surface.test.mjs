@@ -39,13 +39,29 @@ test("the page: picking an app makes the project an app, sends it to the build, 
   assert.match(page, /const isApp = kindNow === 'android' \|\| kindNow === 'ios';/);
   assert.match(page, /\.\.\.\(isApp \? \{ surface: 'app', appOs: kindNow \} : \{\}\)/);
   assert.match(page, /surface: site\.surface === 'app' \? 'app' : undefined,/);
-  assert.match(page, /surface: s\.surface === 'app' \? 'app' : undefined \};/, "the chat carries it to other devices");
+  assert.match(page, /surface: s\.surface === 'app' \? 'app' : undefined, appOs: s\.appOs === 'android' \|\| s\.appOs === 'ios' \? s\.appOs : undefined \};/, "the chat carries it, and which phone, to other devices");
+  // Only the phone the app was made for shows it.
+  assert.match(page, /\(madeFor\(v\) \? inside : words\)/, "the other phone stays empty");
+  assert.match(page, /siteMobilePanel\(hasSite, siteMobileOs, appSrc, site\.appOs\)/);
   assert.match(page, /if \(c\.surface === 'app'\) s\.surface = 'app';/);
   assert.match(worker, /surface: b\.surface === "app" \? "app" : undefined,/);
   assert.match(page, /const appSrc = site\.surface === 'app' && site\.slug && typeof sitePreviewSrc === 'function' \? sitePreviewSrc\(site\) : '';/);
-  assert.match(page, /siteMobilePanel\(hasSite, siteMobileOs, appSrc\) \+/);
+  assert.match(page, /siteMobilePanel\(hasSite, siteMobileOs, appSrc, site\.appOs\) \+/);
   assert.match(page, /<iframe class="st-mob-frame" title="The app"/);
   assert.doesNotMatch(page, /Build your website first, then ask me for the app/, "an app needs no website");
   assert.match(page, /'Download Android app'/);
   assert.match(page, /\.\.\.\(site\.surface === 'app' \? \{ mode: 'bundled' \} : \{\}\)/, "an app's download carries its own screens");
+});
+
+test("an app's screens are wrapped in AppChrome by the band assembler, a site's in SiteChrome", async () => {
+  const { assembleBands } = await import("../builder/page-bands.mjs");
+  const band = { name: "Hero", source: "export default function Hero() { return <section>Hi</section>; }" };
+  const chrome = { name: "Harbour Loaf", tagline: "Bread", links: [{ label: "Home", href: "/" }] };
+  const app = assembleBands({ route: "/", chrome, bands: [band], app: true }).source;
+  assert.match(app, /import \{ AppChrome \} from "@\/components\/ui\/app-chrome";/);
+  assert.match(app, /<AppChrome name="Harbour Loaf" links=/);
+  assert.doesNotMatch(app, /SiteChrome|tagline/);
+  const site = assembleBands({ route: "/", chrome, bands: [band] }).source;
+  assert.match(site, /<SiteChrome name="Harbour Loaf" tagline="Bread"/);
+  assert.doesNotMatch(site, /AppChrome/);
 });

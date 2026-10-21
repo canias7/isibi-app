@@ -681,6 +681,7 @@ function readChatPut(b) {
     ask: b.ask && typeof b.ask === "object" && !Array.isArray(b.ask) ? b.ask : null,
     // A PHONE APP'S PROJECT (2026-10-20), kept with its chat so every device opens it as one.
     surface: b.surface === "app" ? "app" : undefined,
+    appOs: b.appOs === "android" || b.appOs === "ios" ? b.appOs : undefined,
   };
 }
 // ── THE ACCOUNT'S OWN SETTINGS AND WORK IN PROGRESS, ON THE SERVER (2026-10-20,
@@ -30011,7 +30012,7 @@ async function handleRequest(request, env, ctx) {
         // THE SUMMARY IS THE SERVER'S (2026-10-20): kept across the page's writes while
         // the messages it covers are still there.
         const keptSum = cur.chat && cur.chat.summary && Number.isInteger(cur.chat.summary.upTo) && cur.chat.summary.upTo <= next.msgs.length ? cur.chat.summary : undefined;
-        const rec = { v: 1, rev: have + 1, updatedAt: Date.now(), name: next.name, slug: next.slug, msgs: next.msgs, clarify: next.clarify, jobCards: next.jobCards, ask: next.ask, ...(next.surface ? { surface: next.surface } : {}), ...(keptSum ? { summary: keptSum } : {}) };
+        const rec = { v: 1, rev: have + 1, updatedAt: Date.now(), name: next.name, slug: next.slug, msgs: next.msgs, clarify: next.clarify, jobCards: next.jobCards, ask: next.ask, ...(next.surface ? { surface: next.surface } : {}), ...(next.appOs ? { appOs: next.appOs } : {}), ...(keptSum ? { summary: keptSum } : {}) };
         try {
           const put = await env.SITES_BUCKET.put(key, JSON.stringify(rec), { httpMetadata: { contentType: "application/json" }, onlyIf: cur.etag ? { etagMatches: cur.etag } : { etagDoesNotMatch: "*" } });
           if (!put) { const now = await chatStoreRead(env, key); return Response.json({ ok: false, conflict: true, chat: now.chat }, { status: 409 }); }

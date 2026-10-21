@@ -4905,6 +4905,7 @@ function chatAdopt(s, c) {
   if (c.jobCards && typeof c.jobCards === 'object') s.jobCards = c.jobCards;
   if ('ask' in c) s.ask = c.ask && typeof c.ask === 'object' ? c.ask : null;
   if (c.surface === 'app') s.surface = 'app';
+  if (c.appOs === 'android' || c.appOs === 'ios') s.appOs = c.appOs;
   if (c.name && (!s.name || s.name === 'New website')) s.name = c.name;
   s.chatRev = c.rev;
 }
@@ -4941,7 +4942,7 @@ async function chatPush(key, again = 0) {
   const s = (sitesCache || []).find((x) => chatKeyOf(x) === key);
   if (!s) return;
   const sig = chatSig(s);
-  const body = { baseRev: Number(s.chatRev) || 0, msgs: Array.isArray(s.msgs) ? s.msgs : [], name: s.name || '', slug: s.slug || '', clarify: s.clarify || null, jobCards: s.jobCards || null, ask: s.ask || null, surface: s.surface === 'app' ? 'app' : undefined };
+  const body = { baseRev: Number(s.chatRev) || 0, msgs: Array.isArray(s.msgs) ? s.msgs : [], name: s.name || '', slug: s.slug || '', clarify: s.clarify || null, jobCards: s.jobCards || null, ask: s.ask || null, surface: s.surface === 'app' ? 'app' : undefined, appOs: s.appOs === 'android' || s.appOs === 'ios' ? s.appOs : undefined };
   let r = null, d = null;
   try { r = await apiFetch('/api/site/chat/' + encodeURIComponent(key), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); d = await r.json().catch(() => null); } catch (e) { r = null; }
   if (r && r.ok && d && Number.isInteger(d.rev)) { s.chatRev = d.rev; chatSentSig.set(key, sig); return; }
@@ -7071,7 +7072,7 @@ function setMobileOs(os) {
 // be evaluated and driven in a bare scope — a free identifier resolves when the
 // line runs, not when the file loads, which is how four misses reached main in
 // one session.
-function siteMobilePanel(hasSite, os, appSrc) {
+function siteMobilePanel(hasSite, os, appSrc, appOs) {
   const on = MOBILE_OSES.includes(os) ? os : MOBILE_OSES[0];
   // THE MARK AND THE WORD, not the mark alone (owner: "instead of the names, the
   // names plus their logo") — so the button keeps an accessible name in text and
@@ -7105,14 +7106,18 @@ function siteMobilePanel(hasSite, os, appSrc) {
   // attribute can drive "which one when there is room for one" from the
   // stylesheet. Each phone still carries its own `data-os`, because that is
   // what shapes it.
+  // ONLY THE PHONE IT WAS MADE FOR (2026-10-21, owner: "if the app was only
+  // made in Android, then it should only show on the Android one"). An app
+  // made for one phone leaves the other one empty; with no `appOs` known, both show it.
+  const madeFor = (v) => !(appOs === 'android' || appOs === 'ios') || appOs === v;
   const one = (v) =>
     '<div class="st-mob-one" data-os="' + v + '">' +
-      '<div class="st-mob-device" data-os="' + v + '">' + inside + '</div>' +
+      '<div class="st-mob-device" data-os="' + v + '">' + (madeFor(v) ? inside : words) + '</div>' +
       // Named only when BOTH are on screen — with one phone the switch above
       // already says which, and a second label would be the same fact twice.
       '<span class="st-mob-cap">' + brandMark(v, 12) + MOBILE_LABELS[v] + '</span>' +
       // GET THE APP (2026-10-20): Android's is made by our app builder now; Apple's says when.
-      (inside !== words ? '<button type="button" class="st-mob-dl" data-app-dl="' + v + '">' + (v === 'android' ? 'Download Android app' : 'iPhone app: coming soon') + '</button>' : '') +
+      (inside !== words && madeFor(v) ? '<button type="button" class="st-mob-dl" data-app-dl="' + v + '">' + (v === 'android' ? 'Download Android app' : 'iPhone app: coming soon') + '</button>' : '') +
     '</div>';
   return '<div class="st-mob" data-os="' + on + '">' +
     '<div class="st-mob-head"><span class="st-mob-title">Mobile app</span>' +
@@ -8929,7 +8934,7 @@ function renderSiteWorkspace(view, site) {
               '<div class="st-err-row"><button type="button" class="st-err-logs" id="stErrLogs">Dismiss</button><button type="button" class="st-err-fix" id="stErrFix">Try to fix ⏎</button></div></div>'
             : '') +
         '</div>' +
-        siteMobilePanel(hasSite, siteMobileOs, appSrc) +
+        siteMobilePanel(hasSite, siteMobileOs, appSrc, site.appOs) +
         // THE PANEL'S OWN EDGE (owner, 2026-09-09: "it gotta show it like a
         // hidden sidebar tho, not like a button opens it"). A tab on the
         // workspace's right border, so a closed panel is VISIBLY there — before

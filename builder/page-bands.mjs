@@ -252,10 +252,15 @@ export function bandStub(name, line) {
  * That is what makes this a plain composition rather than a page function with
  * hooks in it, and it is why the shell can be a template at all.
  */
-export function pageShell({ route, chrome, names }) {
+export function pageShell({ route, chrome, names, app = false }) {
   const path = typeof route === "string" && route ? route : "/";
   const c = chrome && typeof chrome === "object" ? chrome : {};
-  const attrs = ["name", "tagline", "links", "action"]
+  // A PHONE APP'S SCREEN SITS IN `AppChrome` (2026-10-21): live run 1 built an
+  // app whose every screen was wrapped here in `SiteChrome`, so it had a
+  // website's header and no tab bar, whatever the page rules told the model.
+  // `AppChrome` takes no tagline.
+  const tag = app ? "AppChrome" : "SiteChrome";
+  const attrs = (app ? ["name", "links", "action"] : ["name", "tagline", "links", "action"])
     .filter((k) => c[k] !== undefined && c[k] !== null && c[k] !== "")
     .map((k) => (typeof c[k] === "string" ? `${k}=${JSON.stringify(c[k])}` : `${k}={${JSON.stringify(c[k])}}`));
   const kids = (Array.isArray(names) ? names : []).map((n) => `      <${n} />`).join("\n");
@@ -264,9 +269,9 @@ export function pageShell({ route, chrome, names }) {
     "",
     "function P() {",
     "  return (",
-    `    <SiteChrome${attrs.length ? " " + attrs.join(" ") : ""}>`,
+    `    <${tag}${attrs.length ? " " + attrs.join(" ") : ""}>`,
     kids,
-    "    </SiteChrome>",
+    `    </${tag}>`,
     "  );",
     "}",
   ].filter((l) => l !== "").join("\n");
@@ -276,6 +281,12 @@ export function pageShell({ route, chrome, names }) {
 export const SHELL_IMPORTS = [
   'import { createFileRoute } from "@tanstack/react-router";',
   'import { SiteChrome } from "@/components/ui/site-chrome";',
+];
+
+/** The same two for a phone app's screen. */
+export const APP_SHELL_IMPORTS = [
+  'import { createFileRoute } from "@tanstack/react-router";',
+  'import { AppChrome } from "@/components/ui/app-chrome";',
 ];
 
 /**
@@ -885,7 +896,7 @@ export async function generateSiteBands({
   // written into the page by `tsxDirective`.
   const parts = partsFromAnswers(list, partList, bandLines.length);
   const { source, parts: bandFiles, refused } = assembleBands({
-    route, chrome, bands, taken: parts.map((p) => p.name),
+    route, chrome, bands, taken: parts.map((p) => p.name), app: !!(spec && spec.surface === "app"),
   });
   // THE PARTS RIDE OUT IN `parts`, NEVER IN `pages` — the same division
   // `write_pages` has always made, and for the same reason: a component in the
@@ -1198,11 +1209,11 @@ export function bandModule(name, imports, body) {
  * there, which is `vite` refusing the build rather than a page missing a
  * section — a strictly worse failure than the local stub it replaces.
  */
-export function assembleBands({ route, chrome, bands, taken }) {
+export function assembleBands({ route, chrome, bands, taken, app = false }) {
   const list = (Array.isArray(bands) ? bands : []).filter((b) => b && typeof b === "object" && typeof b.name === "string" && b.name);
   const refused = [];
   const parts = [];
-  const imports = [...SHELL_IMPORTS];
+  const imports = [...(app ? APP_SHELL_IMPORTS : SHELL_IMPORTS)];
   const names = [];
   const used = new Set(
     (Array.isArray(taken) ? taken : [])
@@ -1223,6 +1234,6 @@ export function assembleBands({ route, chrome, bands, taken }) {
     const { imports: got, body } = splitBand(b.source);
     parts.push({ name: file, source: bandModule(b.name, got, body) });
   }
-  const source = imports.join("\n") + "\n\n" + pageShell({ route, chrome, names }) + "\n";
+  const source = imports.join("\n") + "\n\n" + pageShell({ route, chrome, names, app }) + "\n";
   return { source: dedupeImports(source).source, parts, refused };
 }

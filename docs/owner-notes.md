@@ -1,5 +1,13 @@
 # Owner Notes
 
+## 2026-10-21 — The first live app build, and two fixes from it (you: "if the app was only made in Android, then it should only show on the Android one")
+
+- **Live run 1** (deploy 2239): "An ordering app for Harbour Loaf…", Make: Android app, Effort low. It was built as `harbour-loaf-19` in about 4½ minutes, for **24 credits** (the test account went from 71 to 47). Its screens showed in both phones.
+- **The APK works**: Download Android app built a real 4.1 MB Android package in 177 s on a cold app container. It contains the manifest, the app code and the screens.
+- **Problem 1, fixed: it had no tab bar.** The model was told to use `AppChrome`, but our own code (`pageShell` in `builder/page-bands.mjs`) wraps every page in `SiteChrome`. An app's screens now get `AppChrome` (name, tabs, action; no tagline). Tested with a new case in `test/app-surface.test.mjs`.
+- **Problem 2, fixed: an Android app showed on the iPhone too.** The project now remembers which phone it was made for (`appOs`, kept with the chat on the server). Only that phone shows the app; the other says "No mobile app yet".
+- **Still open**: the build made one screen (`index.tsx`) rather than one per tab; the loaf photo is a placeholder. Full suite `11612 / 11610 / 0 / 2`. Not merged or deployed.
+
 ## 2026-10-21 — Phone apps, phase 1: an app is its own product, built by the same pipeline (you: "everything the same as the site", "merge deploy top up and lets do what u told me")
 
 **The picker:** the sites-screen chat box has a **Make:** picker (Website / Android app / Apple app), kept on your account. Picking an app makes the project an app; no website is needed.

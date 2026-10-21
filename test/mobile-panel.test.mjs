@@ -404,7 +404,7 @@ test("the tab is the panel's sibling in the row, not a stray in the top bar", ()
   // `siteMobilePanel(...)` and the close of `.st-body`, which is what makes the
   // stylesheet's `right: 0` land on that row's edge rather than the page's.
   // RE-ANCHORED 2026-10-05: the markup is handed to `paintWorkspace`, so it ends `'</div>');`.
-  const tail = span(BARE, "siteMobilePanel(hasSite, siteMobileOs, appSrc)", "\n    '</div>');", "the end of .st-body");
+  const tail = span(BARE, "siteMobilePanel(hasSite, siteMobileOs, appSrc, site.appOs)", "\n    '</div>');", "the end of .st-body");
   assert.ok(tail.includes('id="stMobileTab"'),
     "the tab left .st-body, so it no longer positions against the row it belongs to");
 });
