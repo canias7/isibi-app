@@ -5405,3 +5405,19 @@ body::after { display: none; }
 /* An unpublished version in History (2026-10-21): dashed, so it reads as not live yet. */
 .st-hitem.st-hi-draft { border-style: dashed; }
 .st-think.st-working { margin-top: .35rem; }
+
+/* THE QUICK SECURITY CHECK'S REPORT (2026-10-21). */
+.st-sec-sum { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin: .2rem 0 .8rem; }
+.st-sec-sum span { color: var(--muted); font-size: .8rem; }
+.st-sec-find { border: 1px solid var(--line); border-left: 4px solid var(--line-2); border-radius: 12px; padding: .85rem 1rem; margin-bottom: .6rem; background: #fff; }
+.st-sec-find.st-sec-high { border-left-color: #d92d20; }
+.st-sec-find.st-sec-medium { border-left-color: #f79009; }
+.st-sec-find.st-sec-low { border-left-color: #98a2b3; }
+.st-sec-find b { display: block; font-size: .95rem; margin-bottom: .25rem; }
+.st-sec-find p { color: var(--muted); font-size: .85rem; line-height: 1.45; margin: .2rem 0 0; }
+.st-sec-find .st-sec-fix b { display: inline; font-size: inherit; color: var(--text); }
+.st-sec-sev { display: inline-block; font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: .3rem; }
+.st-sec-high .st-sec-sev { color: #d92d20; }
+.st-sec-medium .st-sec-sev { color: #b54708; }
+.st-sec-passed { border: 1px solid var(--line); border-radius: 12px; padding: .8rem 1rem; margin: .4rem 0 .6rem; font-size: .85rem; color: var(--muted); display: grid; gap: .35rem; }
+.st-sec-note { color: var(--muted); font-size: .78rem; margin: .4rem 0 0; }

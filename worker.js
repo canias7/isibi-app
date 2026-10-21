@@ -98,6 +98,7 @@ import { siteAnswer, pageNotes, buildFacts, ANSWER_FIELDS } from "./builder/buil
 // per-workspace id and never sent it; the module owns the shape rule and the
 // one spelling of the column, and says why it is not called `project`.
 import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
+import { quickChecks } from "./site-security.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
@@ -19272,7 +19273,7 @@ async function deleteSiteFor(env, uid, dslug) {
       if (env.SITES_BUCKET) {
         const scope = siteScope(dslug);
         for (const prefix of ["uploads/" + dslug + "/", "source/" + dslug + "/", "apps/" + dslug + "/", "app-preview/" + dslug + "/",
-          "games/" + dslug + "/", "scriptpending/" + dslug + "/", "media-sessions/" + scope + "/", "media-parts/" + scope + "/", "media-assets/" + scope + "/"]) {
+          "games/" + dslug + "/", "scriptpending/" + dslug + "/", "security/" + dslug + "/", "media-sessions/" + scope + "/", "media-parts/" + scope + "/", "media-assets/" + scope + "/"]) {
           let lCursor;
           for (;;) {
             const got = await env.SITES_BUCKET.list({ prefix, cursor: lCursor, limit: 500 });
@@ -33527,6 +33528,9 @@ async function handleRequest(request, env, ctx) {
       // this repo's own "two lists of the same thing" with a live link preview
       // as the subject. See `site-head-edit.mjs` for why the title is read-only.
       const sq = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/seo$/i);
+      // THE QUICK SECURITY CHECK (2026-10-21, phase A of the security scan):
+      // GET the last report, POST to run the free checks (`site-security.mjs`).
+      const sc = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/security$/i);
       // THE SITE'S LIVE QUESTION (2026-10-02): read, so a reload can put a
       // waiting question back on the screen, and cancelled.
       const qu = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/question$/i);
@@ -33541,10 +33545,10 @@ async function handleRequest(request, env, ctx) {
       // so from outside the two are indistinguishable — which is how this
       // survived a live probe until the dispatch was read.
       // `test/api-auth.test.mjs` holds the list against the matchers now.
-      if (om || im || mm || an || uf || mdr || xp || nt || lv || sk || dm2 || vr || pb || sa || dd || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || qu) {
+      if (om || im || mm || an || uf || mdr || xp || nt || lv || sk || dm2 || vr || pb || sa || dd || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || sc || qu) {
         // THE SLUG IS RESOLVED FIRST, because the replay identity below is scoped
         // to it. Nothing about deriving it depends on who is asking.
-        const ownerSlug = (om || im || mm || an || uf || mdr || xp || nt || lv || sk || dm2 || vr || pb || sa || dd || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || qu)[1].toLowerCase();
+        const ownerSlug = (om || im || mm || an || uf || mdr || xp || nt || lv || sk || dm2 || vr || pb || sa || dd || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || sc || qu)[1].toLowerCase();
         // ── A QUEUED EDIT'S OWN REPLAY HAS NO BEARER TOKEN ──────────────────
         //
         // The consumer replays the customer's request minutes after they made
@@ -46269,6 +46273,62 @@ async function handleRequest(request, env, ctx) {
               shLive = true;
             } catch (e) { console.error("share sidecar patch failed:", shslug, e && e.message); }
             return Response.json({ ok: true, share: shFile, live: shLive });
+          } else if (sc) {
+            // ── THE QUICK SECURITY CHECK ─────────────────────────────────────
+            // No model and no charge: the site's tables and their rules, its
+            // bot protection, and the build it serves, read and judged by
+            // `quickChecks`. The report is kept on the server so every device
+            // sees it, and the site delete removes it.
+            const scslug = sc[1].toLowerCase();
+            const g = await assertOwner(ownerDeps, scslug, ou.id);
+            if (g.error) return Response.json(g.error.body, { status: g.error.status });
+            const reportKey = "security/" + scslug + "/latest.json";
+            if (request.method === "GET") {
+              let rep = null;
+              try { const o = await env.SITES_BUCKET.get(reportKey); rep = o ? JSON.parse(await o.text()) : null; } catch { rep = null; }
+              return Response.json({ ok: true, report: rep }, { headers: { "cache-control": "no-store" } });
+            }
+            if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
+            const checked = [];
+            // THE TABLES, from the owner's own list (names, rules, columns).
+            let tables = [];
+            const scdb = await siteBackendBySlug(env, scslug).catch(() => null);
+            if (scdb) {
+              try {
+                const tr = await handleOwnerTables(ownerDeps, { slug: scslug, uid: ou.id });
+                const tb = tr && tr.body ? (typeof tr.body === "string" ? JSON.parse(tr.body) : tr.body) : null;
+                if (tb && Array.isArray(tb.tables)) { tables = tb.tables; checked.push("tables"); }
+              } catch { /* said as not checked */ }
+            }
+            // BOT PROTECTION: true or false only when the site's secrets were read.
+            let spamProtected = null;
+            if (scdb) { try { spamProtected = !!(await turnstileConfig(scslug, env, scdb)).secret; checked.push("spam"); } catch { spamProtected = null; } }
+            // THE CODE IT SERVES: the live build, or the draft's when never published.
+            const files = [];
+            try {
+              const ptr = await readPointer(buildDeps(env), scslug).catch(() => null);
+              let version = ptr && ptr.version ? ptr.version : "";
+              if (!version) { const dr0 = await readDraft(buildDeps(env), scslug).catch(() => null); version = dr0 && dr0.draft && dr0.draft.version ? dr0.draft.version : ""; }
+              if (version) {
+                const prefix = "builds/" + scslug + "/" + version + "/";
+                let cur, n = 0;
+                for (;;) {
+                  const page = await env.SITES_BUCKET.list({ prefix, cursor: cur, limit: 500 });
+                  for (const o of (page && page.objects) || []) {
+                    if (n >= 80 || !/\.(m?js|html)$/i.test(o.key) || o.size > 3_000_000) continue;
+                    const got = await env.SITES_BUCKET.get(o.key);
+                    if (got) { files.push({ path: o.key.slice(prefix.length), text: await got.text() }); n++; }
+                  }
+                  if (!page || !page.truncated || !page.cursor || n >= 80) break;
+                  cur = page.cursor;
+                }
+                checked.push("code");
+              }
+            } catch { /* said as not checked */ }
+            const result = quickChecks({ tables, spamProtected, files });
+            const report = { v: 1, at: Date.now(), kind: "quick", checked, ...result };
+            try { await env.SITES_BUCKET.put(reportKey, JSON.stringify(report), { httpMetadata: { contentType: "application/json" } }); } catch { /* the answer still stands */ }
+            return Response.json({ ok: true, report });
           } else if (sq) {
             // ── SEO & SOCIAL ─────────────────────────────────────────────────
             //

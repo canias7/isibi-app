@@ -7990,17 +7990,47 @@ function moreCloud(site) {
     '</div></div>';
 }
 function moreSecurity(site) {
-  const can = (sitePages(site) || []).length > 0;
+  // THE QUICK CHECK IS LIVE (2026-10-21, phase A of the security scan): free,
+  // no model. The deeper model-reviewed scan is phase B and is still to come.
+  const can = !!(site && site.slug);
   return '<div class="st-panel"><div class="st-panel-head"><h3>Security</h3></div>' +
-    // THE SCAN HAS NO ROUTE. It offered "~8 credits" on every built site and the
-    // endpoint behind it does not exist, so the button spent nothing and did
-    // nothing — a price quoted for a feature that cannot run. Given the same
-    // honest Off treatment as the dead Cloud cards rather than left looking live;
-    // flip it back the moment the route exists.
-    '<div class="st-sec-hero"><span class="st-sec-ic">' + ic('shield', 22) + '</span><div class="st-cc-tx"><b>Deep security scan</b><span>Not available yet — a model-reviewed audit of your site’s code is still to come.</span></div><button type="button" class="st-publish" id="secScan" disabled>Run scan</button></div>' +
-    '<div class="st-panel-sub">Detected issues</div>' +
-    '<div id="secResults"><div class="st-sec-empty"><span class="st-sec-ok">' + ic('shield', 30) + '</span><b>No scan has run yet</b><span>Run a scan to surface issues.</span></div></div>' +
+    '<div class="st-sec-hero"><span class="st-sec-ic">' + ic('shield', 22) + '</span><div class="st-cc-tx"><b>Quick security check</b><span>Free. Looks at who can read and change your lists, whether your forms are protected from bots, and whether a secret key is in your published code.</span></div><button type="button" class="st-publish" id="secScan"' + (can ? '' : ' disabled') + '>Run check</button></div>' +
+    '<div class="st-panel-sub">What it found</div>' +
+    '<div id="secResults"><div class="st-sec-empty"><span class="st-sec-ok">' + ic('shield', 30) + '</span><b>' + (can ? 'Loading\u2026' : 'Build your site first') + '</b></div></div>' +
   '</div>';
+}
+// THE REPORT, drawn: problems first (most serious first), then what was
+// checked and found fine. Never "secure": it says what was looked at.
+function secReportHTML(rep) {
+  if (!rep) return '<div class="st-sec-empty"><span class="st-sec-ok">' + ic('shield', 30) + '</span><b>No check has run yet</b><span>Press Run check. It\u2019s free and takes a few seconds.</span></div>';
+  const sev = { high: 'Serious', medium: 'Worth fixing', low: 'Minor' };
+  const found = Array.isArray(rep.findings) ? rep.findings : [];
+  const ok = Array.isArray(rep.passed) ? rep.passed : [];
+  const when = rep.at ? stStamp(rep.at) : '';
+  const head = '<div class="st-sec-sum">' + (found.length ? '<b>' + found.length + ' thing' + (found.length === 1 ? '' : 's') + ' to look at</b>' : '<b>No problems found by the quick check</b>') + (when ? '<span>Checked ' + esc(when) + '</span>' : '') + '</div>';
+  const rows = found.map((f) => '<div class="st-sec-find st-sec-' + esc(String(f.severity || 'low')) + '"><span class="st-sec-sev">' + esc(sev[f.severity] || 'Minor') + '</span><b>' + esc(String(f.title || '')) + '</b><p>' + esc(String(f.why || '')) + '</p><p class="st-sec-fix"><b>What to do:</b> ' + esc(String(f.fix || '')) + '</p></div>').join('');
+  const passed = ok.length ? '<div class="st-sec-passed">' + ok.map((t) => '<div>\u2713 ' + esc(String(t)) + '</div>').join('') + '</div>' : '';
+  const skipped = Array.isArray(rep.checked) && !rep.checked.includes('code') ? '<p class="st-sec-note">Your site\u2019s code wasn\u2019t checked: it hasn\u2019t been built yet.</p>' : '';
+  return head + rows + passed + skipped + '<p class="st-sec-note">This quick check looks for common problems. It can\u2019t promise a site is secure.</p>';
+}
+async function loadSiteSecurity(site) {
+  const box = document.getElementById('secResults');
+  const btn = document.getElementById('secScan');
+  if (!box || !site || !site.slug) return;
+  const slug = site.slug;
+  const paint = (rep) => { const b = document.getElementById('secResults'); if (b) b.innerHTML = secReportHTML(rep); };
+  try { const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/security'); const d = await r.json().catch(() => null); paint(r.ok && d && d.ok ? d.report : null); }
+  catch (e) { paint(null); }
+  if (btn) btn.onclick = async () => {
+    btn.disabled = true; btn.textContent = 'Checking\u2026';
+    try {
+      const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/security', { method: 'POST' });
+      const d = await r.json().catch(() => null);
+      if (r.ok && d && d.ok) paint(d.report);
+      else if (typeof sbToast === 'function') sbToast((d && d.error) || 'Couldn\u2019t run the check just now. Try again in a moment.');
+    } catch (e) { if (typeof sbToast === 'function') sbToast('Lost the connection \u2014 try again.'); }
+    const b2 = document.getElementById('secScan'); if (b2) { b2.disabled = false; b2.textContent = 'Run check'; }
+  };
 }
 // SEO & social — what the site says about itself WHERE IT IS NOT THE SITE: the
 // Google result, the grey line under it, and the picture a chat app unfurls.
@@ -9184,6 +9214,7 @@ function renderSiteWorkspace(view, site) {
   // Analytics one line up: `moreSeo` drew the frame while this function was
   // composing markup, and the answer fills it once it arrives.
   if (siteView === 'more' && siteMoreTab === 'seo' && site.slug) loadSiteSeo(site);
+  if (siteView === 'more' && siteMoreTab === 'security' && site.slug) loadSiteSecurity(site);
   if (isReact && site.backend && siteView === 'data') loadSiteData(site);
   // The Code tab fetches its own source once the markup it fills is on the page
   // — `loadSiteData`'s hop, one tab over.
