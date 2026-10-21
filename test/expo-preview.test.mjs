@@ -137,7 +137,7 @@ test("SELF-TEST: the image carries the test app and the builder runs it through 
   const d = readFileSync(new URL("../app-builder/Dockerfile", import.meta.url), "utf8");
   assert.match(d, /COPY selftest\/ \.\/selftest\//);
   const srv = readFileSync(new URL("../app-builder/server.mjs", import.meta.url), "utf8");
-  assert.match(srv, /req\.url === "\/selftest"[\s\S]*exportExpo\([\s\S]*buildExpoAndroid\(/);
+  assert.match(srv, /req\.url === "\/selftest"[\s\S]*buildExpoAndroid\(/);
   const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(w, /\\\/app\\\/\(builder\|selftest\)\$\//);
   for (const f of ["app/(tabs)/_layout.tsx", "app/(tabs)/index.tsx", "lib/data.ts"]) {

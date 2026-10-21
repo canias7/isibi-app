@@ -76,8 +76,8 @@ export const server = http.createServer(async (req, res) => {
     } finally { busy = false; }
   }
   // THE SELF-TEST (2026-10-21, owner: testing stays on Cloudflare): the hand-
-  // built Harbour Loaf this image carries, run through both jobs here — the web
-  // version and the Android app — and what each did, with its own errors.
+  // built Harbour Loaf this image carries, built into an Android app here, and
+  // what that did, with its own errors.
   if (req.method === "POST" && req.url === "/selftest") {
     if (busy) return json(res, 409, { error: "busy" });
     busy = true;
@@ -91,12 +91,9 @@ export const server = http.createServer(async (req, res) => {
       };
       await walk(SELFTEST, "");
       const deps = { template: EXPO_TEMPLATE, exec: run, fs: fsp, tmp: tmpdir() };
-      const web = await exportExpo({ baseUrl: "/app-preview/selftest/" + "0".repeat(32), files, theme: null }, deps);
+      // THE ANDROID BUILD ONLY (owner, 2026-10-21: "lets not worry about the web version rn").
       const apk = await buildExpoAndroid({ files, theme: null, appId: "dev.gofarther.selftest", name: "Self test" }, deps);
-      return json(res, 200, {
-        web: web.ok ? { ok: true, files: web.files.length, ms: web.ms } : web,
-        android: apk.ok ? { ok: true, bytes: apk.apk.length, ms: apk.ms } : apk,
-      });
+      return json(res, 200, { android: apk.ok ? { ok: true, bytes: apk.apk.length, ms: apk.ms } : apk });
     } catch (e) {
       return json(res, 500, { error: "the self-test could not run", detail: String(e && e.message || e).slice(0, 300) });
     } finally { busy = false; }
