@@ -190,7 +190,11 @@
       // standard-1 is enough by memory (measured peak 1.3 GB).
       "class_name": "AppBuildContainer",
       "image": "./app-builder/Dockerfile",
-      "max_instances": 100,
+      // TWENTY AT ONCE, NOT 100 (2026-10-21): at standard-4's 12 GiB, 100 asked
+      // for more memory than the account's quota and Cloudflare refused the
+      // rollout. App builds are rare and short; a build beyond twenty waits its
+      // turn (`appBuilderCall`).
+      "max_instances": 20,
       // STANDARD-4, NOT STANDARD-1 (2026-10-21): the image that builds real
       // Android apps offline (the SDK, the NDK, React Native's libraries)
       // outgrew standard-1's 8 GB disk, and Cloudflare answered ImagePullError

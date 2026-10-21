@@ -189,7 +189,10 @@ test("max_instances IS FAR ABOVE ANY REAL CONCURRENCY, and the classes SUM under
     used.mem += z.mem * c.max_instances; used.cpu += z.cpu * c.max_instances; used.disk += z.disk * c.max_instances;
     // A FLOOR, so nobody quietly puts the platform back behind a handful of
     // containers. 5 is what this replaced and is the number to stay away from.
-    assert.ok(c.max_instances >= 100,
+    // THE APP BUILDER'S FLOOR IS 20 (2026-10-21): at standard-4, 100 was over
+    // the account's memory quota. App builds are rare; twenty at once is ample.
+    const floor = c.class_name === "AppBuildContainer" ? 20 : 100;
+    assert.ok(c.max_instances >= floor,
       `${c.class_name} declares max_instances ${c.max_instances} — builds would queue behind each other again`);
     sum += c.max_instances;
   }
