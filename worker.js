@@ -600,7 +600,7 @@ function bytesB64(buf) {
  * pages (`sites/<slug>/*.html`, served for `/` and each page) and the uploads
  * (served at `/u/<slug>/`). `{ error }` when there are none, or too many bytes.
  */
-async function siteAppFiles(env, slug) {
+async function siteAppFiles(env, slug, ctx) {
   const bucket = env.SITES_BUCKET;
   const files = new Map();
   let bytes = 0;
@@ -623,6 +623,16 @@ async function siteAppFiles(env, slug) {
     files.set(path, { path, data: bytesB64(buf) });
   };
   try {
+    // THE DRAFT, WHEN THERE IS ONE AHEAD OF LIVE (2026-10-21): live run 1's app
+    // was saved as a draft and never published, so the app carried the live
+    // placeholder ("Your site is still being put together"). An app shows what
+    // the owner sees in the phones, which is the draft: its own build's files,
+    // and each screen's HTML rendered by the draft's own preview script.
+    const drafted = await draftAppFiles(env, slug, ctx, listAll, take, files);
+    if (drafted) {
+      if (!files.has("index.html")) return { error: "The app's home screen could not be read. Try again in a minute." };
+      return { files: [...files.values()], bytes };
+    }
     const ptr = await sitePointer(env, slug);
     if (ptr && !ptr.none && ptr.version) {
       const pre = buildPrefix(slug, ptr.version) + "client/";
@@ -643,6 +653,44 @@ async function siteAppFiles(env, slug) {
   }
   if (!files.has("index.html")) return { error: "This site has no published home page to put in an app." };
   return { files: [...files.values()], bytes };
+}
+/**
+ * The draft's files into `files`, when a draft is ahead of live: true when it
+ * took them, false when there is no such draft (the live site is packed).
+ * Screens are the home page and every same-site page it links to.
+ */
+async function draftAppFiles(env, slug, ctx, listAll, take, files) {
+  let draft = null, live = null;
+  try {
+    draft = (await readDraft(buildDeps(env), slug)).draft;
+    live = await readPointer(buildDeps(env), slug);
+  } catch { return false; }
+  if (!draft || !draft.version || !draft.preview) return false;
+  if (live && !live.none && live.version === draft.version) return false;
+  const label = previewLabel(slug, draft.preview);
+  const pv = label ? previewOf(label) : null;
+  if (!pv) return false;
+  const pre = buildPrefix(slug, draft.version) + "client/";
+  for (const k of await listAll(pre)) await take(k, k.slice(pre.length));
+  const render = async (path) => {
+    const u = new URL("https://" + label + "." + SITE_ZONE + path);
+    const r = await servePreview(env, new Request(u.toString()), u, pv, ctx);
+    if (!r.ok || !(r.headers.get("content-type") || "").includes("text/html")) return null;
+    return r.text();
+  };
+  const home = await render("/");
+  if (typeof home !== "string") return true;
+  files.set("index.html", { path: "index.html", data: bytesB64(new TextEncoder().encode(home)) });
+  const paths = new Set();
+  for (const m of home.matchAll(/href="(\/[a-z0-9][a-z0-9\/-]{0,80})"/gi)) {
+    const p = m[1].replace(/\/+$/, "");
+    if (p && !/^\/(assets|u|api)(\/|$)/i.test(p)) paths.add(p);
+  }
+  for (const p of [...paths].slice(0, 12)) {
+    const html = await render(p);
+    if (typeof html === "string") files.set(p.slice(1) + "/index.html", { path: p.slice(1) + "/index.html", data: bytesB64(new TextEncoder().encode(html)) });
+  }
+  return true;
 }
 /** What the design step is told first when it designs a phone app, not a website (2026-10-20). */
 const APP_DESIGN_NOTE =
@@ -29854,7 +29902,7 @@ async function handleRequest(request, env, ctx) {
         let name = typeof (ab && ab.name) === "string" && ab.name.trim() ? ab.name.trim().slice(0, 60) : aslug;
         const req = { mode, appId, name, url: "https://" + aslug + ".gofarther.app/" };
         if (mode === "bundled") {
-          const got = await siteAppFiles(env, aslug);
+          const got = await siteAppFiles(env, aslug, ctx);
           if (got.error) return Response.json({ ok: false, error: got.error }, { status: 422 });
           req.files = got.files;
         }

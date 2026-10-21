@@ -65,3 +65,16 @@ test("an app's screens are wrapped in AppChrome by the band assembler, a site's 
   assert.match(site, /<SiteChrome name="Harbour Loaf" tagline="Bread"/);
   assert.doesNotMatch(site, /AppChrome/);
 });
+
+test("a bundled app carries the draft when one is ahead of live, rendered by the draft's preview", () => {
+  const at = worker.indexOf("async function siteAppFiles(env, slug, ctx) {");
+  const end = worker.indexOf("async function draftAppFiles(", at);
+  assert.ok(at > 0 && end > at);
+  const body = worker.slice(at, end);
+  assert.ok(body.indexOf("draftAppFiles(env, slug, ctx") < body.indexOf("sitePointer(env, slug)"), "the draft is asked before the live pointer");
+  const fn = worker.slice(end, worker.indexOf("\n}\n", end));
+  assert.match(fn, /live\.version === draft\.version\) return false/);
+  assert.match(fn, /buildPrefix\(slug, draft\.version\) \+ "client\/"/);
+  assert.match(fn, /servePreview\(env, new Request/);
+  assert.match(worker, /siteAppFiles\(env, aslug, ctx\)/);
+});
