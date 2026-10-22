@@ -1,6 +1,15 @@
 # Owner Notes
 
 
+## 2026-10-22 — Decision 2a: the spam check now covers database functions that change records (not merged, not deployed)
+
+- **Your choice, option A.** A database function the builder designs can now be marked "this function writes" (`writes: true`). The designer is told to mark any function that adds, changes or deletes records (a booking made through a function, a cancel, an amend).
+- **On a site with the spam check (Turnstile) on**, a visitor's call to a marked function must pass the check, exactly like a form submission. A function that only reads (a booking lookup, a slot count) is not checked.
+- **Nothing that works today breaks**: functions built before today have no mark and stay unchecked; sites without the spam check behave exactly as before. The site's write buttons (and cancel and change-booking links) now send the check's token automatically.
+- **Limit**: an existing site's functions get the mark only when the builder next designs them; until then they stay unchecked, as they were.
+- Records: `docs/history/2026-10-22-decide-2a.md`. Branch `decide-2a`; nothing spent.
+
+
 ## 2026-10-22 — Audit group G1: the publish turn and the container's database recovery (not merged, not deployed)
 
 - **The turn wait.** Most of this was fixed on 2026-10-18. What was left: a job the container shut down kept waiting, and a stop pressed while a job waited was treated as "another change got in the way", so the job ran again. Both now end the job at once with the right reason. A failed check of the saved site is now reported as a read failure, so it is no longer re-run as a clash with another change.

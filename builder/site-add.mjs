@@ -3829,6 +3829,10 @@ export function cleanAdd(kind, value, site) {
         // about the body from an item that should not be built at all.
         if (v.internal !== undefined && typeof v.internal !== "boolean") return { ok: false, why: "bad-internal" };
         if (v.definer === false) return { ok: false, why: "no-invoker" };
+        // `writes` (decision 2a, 2026-10-22) decides whether the spam check
+        // guards the call. Cannot-tell must not read as "a read" — the
+        // permissive answer — so a non-boolean is refused like `internal`.
+        if (v.writes !== undefined && typeof v.writes !== "boolean") return { ok: false, why: "bad-writes" };
         // ── THE LANGUAGE IS CARRIED, AND AN UNKNOWN ONE IS REFUSED ──────────
         //
         // This branch REBUILDS the item out of the keys it knows, so until
@@ -3877,7 +3881,7 @@ export function cleanAdd(kind, value, site) {
         // exactly the shape it cleaned to before this field existed, and the
         // default lives in ONE place — `fnLanguage` — rather than a second
         // copy here that could drift from it.
-        return { ok: true, value: { name, args, returns, body, internal: v.internal === true, ...(language === undefined ? {} : { language }), exists } };
+        return { ok: true, value: { name, args, returns, body, internal: v.internal === true, ...(language === undefined ? {} : { language }), ...(v.writes === true ? { writes: true } : {}), exists } };
       }
       case "api": {
         const name = str(v.name, 63).toLowerCase();
@@ -4251,6 +4255,7 @@ export function addRefusal(why, kind) {
     // first is a value nobody could read; the second is a real request this
     // step cannot carry, so it says which step can.
     case "bad-internal": return "I couldn't tell whether that should be private to the site or callable from a page, so I didn't create it — nothing is worse than getting that one wrong. Say who should be able to use it and I'll add it.";
+    case "bad-writes": return "I couldn't tell whether that one changes your records or only reads them, so I didn't create it — that decides whether the spam check guards it. Say what it should do and I'll add it.";
     case "no-invoker": return "That one asked to run with reduced database permissions, which I can't set up from here — so I didn't create it rather than quietly giving it more access than was asked for. Nothing was changed.";
     // NAMED, because the alternative is the failure this refusal exists to
     // stop: a body written for one language, created as another, failing at

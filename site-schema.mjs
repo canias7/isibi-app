@@ -836,7 +836,7 @@ export function normalizeSchema(spec) {
     if (/\bneon_auth\b/i.test(body)) {
       continue;
     }
-    functions.push({ name, args, returns, body, language: lang, definer: f.definer !== false, /* An internal function is created, REVOKEd from PUBLIC, and never granted to the Data API roles. The revoke is the protection and the missing grant is only what stops it being handed back: Postgres grants EXECUTE on a new function to PUBLIC by default, so omission alone left it callable by everyone (measured by `neon e2e` 2026-08-07). A confirmation builder takes a row id and returns somebody's address and message, and every model function is SECURITY DEFINER, so reachable by `anonymous` it reads any customer's confirmation by guessing a number. The Worker calls it on the owner's connection, which bypasses grants, so revoking costs it nothing. */ internal: !!f.internal });
+    functions.push({ name, args, returns, body, language: lang, definer: f.definer !== false, /* An internal function is created, REVOKEd from PUBLIC, and never granted to the Data API roles. The revoke is the protection and the missing grant is only what stops it being handed back: Postgres grants EXECUTE on a new function to PUBLIC by default, so omission alone left it callable by everyone (measured by `neon e2e` 2026-08-07). A confirmation builder takes a row id and returns somebody's address and message, and every model function is SECURITY DEFINER, so reachable by `anonymous` it reads any customer's confirmation by guessing a number. The Worker calls it on the owner's connection, which bypasses grants, so revoking costs it nothing. */ internal: !!f.internal, /* `writes` (decision 2a): the Worker's spam check reads it off the stored declaration; absent stays absent, so older functions normalise exactly as before. */ ...(f.writes === true ? { writes: true } : {}) });
   }
 
   // A `confirm: {fn}` naming a function that does not exist — or one a visitor
@@ -1949,7 +1949,10 @@ export async function applySiteSchema(uuid, spec) {
       // function IS. Without it a readback describes a plpgsql function as
       // though it were SQL, and the next designer shown the site's functions is
       // being told something false about one that already exists.
-      if (fnsMade.includes(f.name)) byName.set(String(f.name).toLowerCase(), { name: f.name, args: f.args, returns: f.returns, internal: !!f.internal, language: fnLanguage(f.language) });
+      if (fnsMade.includes(f.name)) byName.set(String(f.name).toLowerCase(), { name: f.name, args: f.args, returns: f.returns, internal: !!f.internal, language: fnLanguage(f.language), ...(f.writes === true ? { writes: true } : {}) });
+      // `writes` RIDES HERE TOO (decision 2a, 2026-10-22): `_meta` is the only
+      // copy `turnstileGate` reads, so a field kept by the cleaner and the
+      // engine and dropped on this line would leave every write ungated.
     }
     if (byName.size) metaOut.functions = Array.from(byName.values());
   }
@@ -2520,7 +2523,7 @@ export const TOOL_FIELDS = Object.freeze({
   // `f.language` since it was written; leaving it out of this set would report
   // a field the tool asks for and the pipeline really carries as one it never
   // heard of — the audit's own worst answer, about a working capability.
-  function: new Set(["name", "args", "returns", "body", "internal", "language"]),
+  function: new Set(["name", "args", "returns", "body", "internal", "language", "writes"]),
   // `returns` and `credential` joined 2026-09-19. This set is what `auditTier`
   // calls the OFFERED fields, so a property the tool asks for and this set does
   // not name reads as one the pipeline never heard of — reported to the

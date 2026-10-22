@@ -669,5 +669,15 @@ export const FUNCTION_ITEM = {
       "An internal function gets no EXECUTE grant, so no visitor can call it. That matters: it takes a row id and returns somebody's " +
       "email address and message, so left callable a stranger reads any customer's confirmation by guessing a number. " +
       "Leave it off for anything a page calls by name, like a claim lookup." },
+    // DECISION 2a (owner, 2026-10-22). Every database-function call is a POST,
+    // reads included, so the Worker cannot tell a read from a write by the
+    // request; this declaration is what it reads. `true` puts the site's spam
+    // check (Turnstile, when the owner turned it on) in front of the call,
+    // exactly as a public insert has it. Absent means a read and stays ungated.
+    writes: { type: "boolean", description:
+      "Set true when the function INSERTS, UPDATES or DELETES rows — a booking made through a function, a cancel, an amend, a sign-up, a vote. " +
+      "Leave it off for a function that only reads (a claim lookup, a slot count, a report). " +
+      "On a site whose owner turned the spam check on, a visitor's call to a `writes` function must pass that check, as a public form submission does; " +
+      "a page calls it with useRpcAction (or useCancelClaim / useAmendClaim), never useRpc." },
   },
 };

@@ -882,12 +882,25 @@ export function useRpc<T = unknown>(fn: string, args?: Record<string, unknown>) 
   });
 }
 
-/** The same, as an action rather than a read. */
+/**
+ * The same, as an action rather than a read.
+ *
+ * CARRIES THE SPAM-CHECK TOKEN, as `useCreateRow` does (decision 2a,
+ * 2026-10-22): a function declared `writes: true` is refused without one on a
+ * site whose owner turned the check on. `challenged` is a no-op where there is
+ * no widget, and the Worker strips the field before the call reaches Postgres,
+ * so a function that is not declared a write is called exactly as before.
+ */
 export function useRpcAction<T = unknown>(fn: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (args?: Record<string, unknown>) =>
-      send<T>(`/api/db/${siteSlug()}/data/rpc/${fn}`, { method: "POST", body: JSON.stringify(args ?? {}) }),
+    mutationFn: async (args?: Record<string, unknown>): Promise<T> => {
+      try {
+        return await send<T>(`/api/db/${siteSlug()}/data/rpc/${fn}`, { method: "POST", body: JSON.stringify(challenged(args ?? {})) });
+      } finally {
+        resetChallenge();
+      }
+    },
     onSuccess: () => { qc.invalidateQueries(); },
   });
 }
@@ -1341,8 +1354,16 @@ export function useClaimedRow<T = Row>(fn: string, claim: string | undefined) {
 export function useCancelClaim(fn: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ claim }: { claim: string }) =>
-      send<unknown>(`/api/db/${siteSlug()}/data/rpc/${fn}`, { method: "POST", body: JSON.stringify({ tok: claim }) }),
+    // The spam-check token rides along (decision 2a): a cancel is a write, and
+    // a cancel function declared `writes: true` is refused without it where
+    // the check is on. The claim token still proves WHO; this proves a person.
+    mutationFn: async ({ claim }: { claim: string }) => {
+      try {
+        return await send<unknown>(`/api/db/${siteSlug()}/data/rpc/${fn}`, { method: "POST", body: JSON.stringify(challenged({ tok: claim })) });
+      } finally {
+        resetChallenge();
+      }
+    },
     onSuccess: () => { qc.invalidateQueries(); },
   });
 }
@@ -1368,15 +1389,22 @@ export function useCancelClaim(fn: string) {
 export function useAmendClaim(fn: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ claim, values }: { claim: string; values: Record<string, unknown> }) =>
-      send<unknown>(`/api/db/${siteSlug()}/data/rpc/${fn}`, {
-        method: "POST",
-        // THE TOKEN IS WRITTEN LAST, and that ordering is the whole guard: a
-        // later property wins in an object literal, so `values` carrying its own
-        // `tok` cannot overwrite the one that proves who is asking. Written the
-        // other way round it reads as protection and is the opposite.
-        body: JSON.stringify({ ...values, tok: claim }),
-      }),
+    mutationFn: async ({ claim, values }: { claim: string; values: Record<string, unknown> }) => {
+      try {
+        return await send<unknown>(`/api/db/${siteSlug()}/data/rpc/${fn}`, {
+          method: "POST",
+          // THE TOKEN IS WRITTEN LAST, and that ordering is the whole guard: a
+          // later property wins in an object literal, so `values` carrying its own
+          // `tok` cannot overwrite the one that proves who is asking. Written the
+          // other way round it reads as protection and is the opposite.
+          // `challenged` adds only the spam-check field (decision 2a) and
+          // keeps `tok` as written.
+          body: JSON.stringify(challenged({ ...values, tok: claim })),
+        });
+      } finally {
+        resetChallenge();
+      }
+    },
     onSuccess: () => { qc.invalidateQueries(); },
   });
 }

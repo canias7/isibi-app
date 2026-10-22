@@ -5,7 +5,7 @@ import { hostIsBlocked, blockedReason } from "./site-ssrf.mjs";
 import { runRowEffects, resolveCreatedRow } from "./site-row-effects.mjs";
 import { deliverWebhook, firesFor, signPayload, retryable as webhookRetryable, MAX_PER_MINUTE as WEBHOOK_PER_MIN } from "./site-webhooks.mjs";
 import { drainQueue, enqueueRow, sameOwner, queueFull, retentionCutoffs, LEASE_MS as WEBHOOK_LEASE_MS, MAX_PENDING_PER_SITE } from "./site-webhook-queue.mjs";
-import { takeToken, verify as turnstileVerify, oneRow as turnstileOneRow, TOKEN_FIELD as TURNSTILE_FIELD } from "./site-turnstile.mjs";
+import { takeToken, verify as turnstileVerify, oneRow as turnstileOneRow, TOKEN_FIELD as TURNSTILE_FIELD, rpcGate as turnstileRpcGate } from "./site-turnstile.mjs";
 import { handleInbound, MAX_BODY as INBOUND_MAX_BODY, MAX_PER_MINUTE as INBOUND_PER_MIN } from "./site-inbound.mjs";
 // `OWN_ZONES` is imported because `cfZoneId` reads it — it was not, and that is
 // a ReferenceError on the FIRST line of that function, outside every try, so
@@ -12460,6 +12460,21 @@ const turnstileConfig = memoize(turnstileCfg, async (slug, env, db) => {
  * that gets spammed and the thing the widget is on.
  */
 async function turnstileGate(env, request, { slug, db, path, sent }) {
+  // A DATABASE-FUNCTION CALL (`rpc/<fn>`) IS JUDGED BY ITS DECLARATION
+  // (decision 2a, 2026-10-22): a function declared `writes: true` needs the
+  // token exactly as a `collect` insert does; a read, or a function declared
+  // before the field existed, passes as before. Every RPC is a POST, reads
+  // included, so the method cannot tell them apart and the declaration does.
+  const rpc = await turnstileRpcGate({
+    config: () => turnstileConfig(slug, env, db),
+    spec: () => loadSiteSchema(db),
+    post: (u, form) => fetch(u, { method: "POST", body: form, signal: AbortSignal.timeout(5000) }),
+  }, { path, sent, contentType: request.headers.get("content-type"), ip: request.headers.get("CF-Connecting-IP") || "" });
+  if (rpc) {
+    const { verdict, ...decided } = rpc;
+    if (verdict && verdict.state === "unknown") console.error("turnstile:", slug, verdict.reason);
+    return decided;
+  }
   // ONE ROW PER SUBMISSION WHERE THE CHECK IS ON (audit A30-2). A body that is
   // not one JSON object is passed through untouched on an unprotected table,
   // as before, and refused below on a protected one, before the token is read.
