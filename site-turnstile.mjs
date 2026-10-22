@@ -38,6 +38,25 @@ export function takeToken(body) {
 }
 
 /**
+ * Read a submission as EXACTLY ONE ROW, or say why it is not one (audit A30-2).
+ *
+ * PostgREST takes a JSON array as a bulk insert and also accepts CSV and
+ * form-encoded bodies. Where the spam check is on, anything but one JSON object
+ * sent as `application/json` must be refused BEFORE the token is judged:
+ * otherwise a list of rows carries no token, skips the check, and lands many
+ * rows from one request. Returns `{ row }` (the parsed object) or `{ bad }`.
+ */
+export function oneRow(sent, contentType) {
+  const type = String(contentType || "").split(";")[0].trim().toLowerCase();
+  if (type !== "application/json") return { bad: "content-type" };
+  let body;
+  try { body = JSON.parse(typeof sent === "string" ? sent : ""); } catch { return { bad: "not-json" }; }
+  if (Array.isArray(body)) return { bad: "array" };
+  if (!body || typeof body !== "object") return { bad: "not-object" };
+  return { row: body };
+}
+
+/**
  * Is this submission allowed through?
  *
  * Three outcomes, not two, and the distinction is the whole design:

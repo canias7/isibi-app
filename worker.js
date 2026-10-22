@@ -5,7 +5,7 @@ import { hostIsBlocked, blockedReason } from "./site-ssrf.mjs";
 import { runRowEffects, resolveCreatedRow } from "./site-row-effects.mjs";
 import { deliverWebhook, firesFor, signPayload, retryable as webhookRetryable, MAX_PER_MINUTE as WEBHOOK_PER_MIN } from "./site-webhooks.mjs";
 import { drainQueue, enqueueRow, sameOwner, queueFull, retentionCutoffs, LEASE_MS as WEBHOOK_LEASE_MS, MAX_PENDING_PER_SITE } from "./site-webhook-queue.mjs";
-import { takeToken, verify as turnstileVerify, TOKEN_FIELD as TURNSTILE_FIELD } from "./site-turnstile.mjs";
+import { takeToken, verify as turnstileVerify, oneRow as turnstileOneRow, TOKEN_FIELD as TURNSTILE_FIELD } from "./site-turnstile.mjs";
 import { handleInbound, MAX_BODY as INBOUND_MAX_BODY, MAX_PER_MINUTE as INBOUND_PER_MIN } from "./site-inbound.mjs";
 // `OWN_ZONES` is imported because `cfZoneId` reads it — it was not, and that is
 // a ReferenceError on the FIRST line of that function, outside every try, so
@@ -12396,9 +12396,23 @@ const turnstileConfig = memoize(turnstileCfg, async (slug, env, db) => {
  * that gets spammed and the thing the widget is on.
  */
 async function turnstileGate(env, request, { slug, db, path, sent }) {
-  let body = null;
-  try { body = JSON.parse(sent || "null"); } catch { return {}; }
-  if (!body || typeof body !== "object" || Array.isArray(body)) return {};
+  // ONE ROW PER SUBMISSION WHERE THE CHECK IS ON (audit A30-2). A body that is
+  // not one JSON object is passed through untouched on an unprotected table,
+  // as before, and refused below on a protected one, before the token is read.
+  const shape = turnstileOneRow(sent, request.headers.get("content-type"));
+  const body = shape.row || null;
+  if (!body) {
+    const { secret } = await turnstileConfig(slug, env, db);
+    if (!secret) return {};
+    const t = String(path).split("/")[0].toLowerCase();
+    let d = null;
+    try {
+      const spec = await loadSiteSchema(db);
+      d = (spec && spec.tables || []).find((x) => String(x.name).toLowerCase() === t) || null;
+    } catch { return {}; }
+    if (!d || String(d.access || "").toLowerCase() !== "collect") return {};
+    return { refused: "Please send one submission at a time." };
+  }
   const had = TURNSTILE_FIELD in body;
   const { token, row } = takeToken(body);
   // STRIPPED WHETHER OR NOT THIS SITE IS CONFIGURED, and on every table. The
