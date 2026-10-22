@@ -906,7 +906,11 @@ test("FIXED MW6 — ONE ADDITION'S DESIGNER DECLINES BESIDE ONE THAT DESIGNS: th
   assert.ok(said.facts.some((f) => MW6_FACT.test(f)), JSON.stringify(said.facts));
 });
 
-test("WORKS (ALL OR NOTHING) — ONE ADDITION REFUSED BY THE CHECKS REFUSES THE WHOLE MESSAGE: a job dated in the past stops the function beside it too; nothing is applied, nothing charged, and the reason is said", async () => {
+test("WORKS (ONE REFUSED, THE REST LAND) — ONE ADDITION REFUSED BY THE CHECKS IS LEFT OUT BY NAME: a job dated in the past is never registered; the function beside it is added; the reason is said", async () => {
+  // CHANGED ON THE OWNER'S WORD (2026-10-22, the big add-on test, choosing the
+  // alternative the audit's §9 offered): it was all or nothing, and one
+  // refused job threw away 22 other asks. Still validated before any apply: a
+  // refused kind is never applied, and only it is left out.
   const r = await addon("mixed-refused-" + rnd(), "count the orders, and run it once on the first of January 2020", {
     kinds: ["function", "job"], tz: "Europe/London",
     answers: {
@@ -914,11 +918,11 @@ test("WORKS (ALL OR NOTHING) — ONE ADDITION REFUSED BY THE CHECKS REFUSES THE 
       job: { job: [{ name: "once_then", fn: "count_orders", everyMinutes: 0, on: "2020-01-01", at: "09:00" }] },
     },
   });
-  assert.equal(r.status, 422);
-  assert.deepEqual([r.body.error, r.body.kind, r.body.reason, r.body.cost], ["add", "job", "past-date", 0]);
-  assert.deepEqual(ddl(r), [], "the function beside the refused job was applied");
-  assert.deepEqual(r.registered, []);
-  assert.match(addSaid(r).reply, /That date has already gone.*Nothing was changed\./);
+  assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 300));
+  assert.deepEqual(r.body.functions, ["count_orders"]);
+  assert.deepEqual((r.body.notAdded || []).map((n) => n.kind + ":" + n.why), ["job:past-date"]);
+  assert.deepEqual(r.registered, [], "the refused job was registered");
+  assert.match(addSaid(r).reply, /already gone/, addSaid(r).reply);
 });
 
 test("WORKS — MORE ADDITIONS OF ONE KIND THAN ONE MESSAGE TAKES ARE NAMED: a seventh table and a fifth API are left out by name, and the rest are added", async () => {

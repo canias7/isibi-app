@@ -1604,7 +1604,9 @@ test("THE ROUTE RUNS THE ADD STEP WHERE IT RAN THE BUILD'S DESIGNER, and folds w
   // takes the one processing path; the landmark is where its verdict is acted
   // on, after that path has billed and recorded the final answer.
   assert.ok(b.includes("cleanAdd(k, r.value, { ...aSite, today: aToday })"), "the cleaner is not handed the site facts and the date");
-  const clean = at(b, "return aFail({ ok: false, error: \"add\", kind: k, reason: clean.why", "clean");
+  // RE-ANCHORED 2026-10-22: a refused kind is set aside by name and the loop
+  // goes on (`aNotAdded`); the verdict is still acted on before the fold.
+  const clean = at(b, "aNotAdded.push({ kind: k, why: clean.why, msg: addRefusal(clean.why, k) });", "clean");
   const fold = at(b, "const aFold = foldAdds(aAnswers, aLook, aSite);", "fold");
   const designed = at(b, "const aDesigned = aFold.designed;", "designed");
   const prov = at(b, "aProvWait = ensureSiteBackend(env, ownerSlug, ou.id, aInstruction, (n) => aMark(\"prov:\" + n, \"ok\")).then((db) => {", "provision");

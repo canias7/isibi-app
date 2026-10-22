@@ -430,7 +430,9 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   // hold up (`groundRequirements`), worked out in the same unconditional span.
   const collect = at("for (const r of aGround.list) aReq.push(r);", "the collect");
   const decline = W.indexOf("if (ran.value === undefined) { aDeclined.push(k); continue; }", runAt);
-  const refuse = W.indexOf('error: "add", kind: k, reason: clean.why', runAt);
+  // RE-ANCHORED 2026-10-22: a refused kind is set aside by name (`aNotAdded`)
+  // and the loop goes on; its coverage is still collected before that.
+  const refuse = W.indexOf("aNotAdded.push({ kind: k, why: clean.why, msg: addRefusal(clean.why, k) });", runAt);
   assert.ok(collect > runAt, "the coverage is collected before the designer ran");
   assert.ok(decline > collect, "a declined designer's coverage is collected after the decline returns — it never is");
   assert.ok(refuse > collect, "a refused answer's coverage is collected after the refusal returns");
@@ -494,7 +496,9 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   assert.match(door, /requirementsTold: told\.requirementsTold, warningsTold: told\.warningsTold/, "the developer record does not hold what the answer tells");
   const doors = W.split("return aFail(").length - 1;
   assert.ok(doors >= 14, "not every failure after the design answers through the door: " + doors);
-  assert.match(W, /return aFail\(\{ ok: false, error: "add", kind: k, reason: clean\.why, cost: 0, msg: addRefusal\(clean\.why, k\) \}, 422\);/,
+  // RE-ANCHORED 2026-10-22: when every kind is refused, the first refusal is
+  // the answer through the same door.
+  assert.match(W, /return aFail\(\{ ok: false, error: "add", kind: r0\.kind, reason: r0\.why, cost: 0, msg: addRefusal\(r0\.why, r0\.kind\) \}, 422\);/,
     "a cleaner's refusal drops the coverage");
   assert.match(W, /return aFail\(\{ ok: false, error: "declined", kinds: aDeclined, cost: 0, msg: addRefusal\("nothing"\) \}, 422\);/,
     "the all-declined answer drops the coverage — the one shape this was built for");
