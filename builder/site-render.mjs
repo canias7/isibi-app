@@ -746,6 +746,69 @@ export function resolveSlow(observations, findings) {
   });
 }
 
+// ── THE BROWSER'S OWN ERRORS, PER ROUTE, AS DATA (2026-10-22, idea #12) ─────
+//
+// `findings` say what a VISITOR sees (threw, blank, logged) and keep two lines
+// of prose a route. The repair needs the other view: every uncaught exception,
+// unhandled rejection and console error the browser raised on each route, as
+// `{ route, kind, message, source }`, so a fix can be handed the real fault and
+// where it was thrown. `kind` is one of RUNTIME_KINDS; `source` is
+// `file:line:col` when the browser said where, else null — never guessed.
+//
+// DEDUPED by route, kind and message (the same crash at two widths is one
+// entry) and CAPPED on every axis, because this rides in a response and the
+// messages are written by model code: MAX_RUNTIME_PER_ROUTE a route,
+// MAX_RUNTIME_ERRORS in all, MAX_RUNTIME_MESSAGE characters a message. What the
+// cap drops is counted (`runtimeMore`), never silently cut.
+//
+// An observation from an older checker carries only the string lists; those
+// are read as `exception` / `console` with no source, the narrower fact.
+// Carried only when non-empty, so a clean report is byte-identical.
+export const RUNTIME_KINDS = new Set(["exception", "rejection", "console"]);
+export const MAX_RUNTIME_ERRORS = 20;
+export const MAX_RUNTIME_PER_ROUTE = 5;
+export const MAX_RUNTIME_MESSAGE = 300;
+export function runtimeEntries(o) {
+  if (!o || typeof o !== "object") return [];
+  const route = String(o.route || "/");
+  const raw = Array.isArray(o.runtime)
+    ? o.runtime
+    : [
+        ...(Array.isArray(o.pageErrors) ? o.pageErrors : []).map((m) => ({ kind: "exception", message: m })),
+        ...(Array.isArray(o.consoleErrors) ? o.consoleErrors : []).map((m) => ({ kind: "console", message: m })),
+      ];
+  const out = [];
+  for (const e of raw) {
+    if (!e || typeof e !== "object" || !RUNTIME_KINDS.has(e.kind)) continue;
+    if (typeof e.message !== "string" || !e.message.trim()) continue;
+    const source = typeof e.source === "string" && e.source.trim() ? e.source.trim().slice(0, 200) : null;
+    out.push({ route, kind: e.kind, message: e.message.trim().slice(0, MAX_RUNTIME_MESSAGE), source });
+  }
+  // ONE REJECTION, ONE ENTRY: the browser can report it as an uncaught
+  // exception as well as through the observer, so an exception whose message
+  // a rejection on this route already carries is the same event.
+  const rejected = new Set(out.filter((e) => e.kind === "rejection").map((e) => e.message));
+  return out.filter((e) => !(e.kind === "exception" && rejected.has(e.message)));
+}
+export function runtimeErrorsOf(observations) {
+  const all = [];
+  const seen = new Set();
+  const perRoute = new Map();
+  let more = 0;
+  for (const o of Array.isArray(observations) ? observations : []) {
+    for (const e of runtimeEntries(o)) {
+      const key = e.route + "\u0000" + e.kind + "\u0000" + e.message;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const n = perRoute.get(e.route) || 0;
+      if (n >= MAX_RUNTIME_PER_ROUTE || all.length >= MAX_RUNTIME_ERRORS) { more++; continue; }
+      perRoute.set(e.route, n + 1);
+      all.push(e);
+    }
+  }
+  return { errors: all, more };
+}
+
 export function renderReport(observations, { ok = true, error = "", cut = false, sandboxed = true, deadSelectors = null, selectorsLooked = 0, landmarks = null, texts = null } = {}) {
   const list = Array.isArray(observations) ? observations : [];
   const raw = [];
@@ -798,6 +861,9 @@ export function renderReport(observations, { ok = true, error = "", cut = false,
   // finding and never told to the customer as text; `complete` is false when
   // the cap cut it, and a route the check never reached is simply absent.
   if (Array.isArray(texts) && texts.length) report.texts = texts;
+  const rt = runtimeErrorsOf(list);
+  if (rt.errors.length) report.runtimeErrors = rt.errors;
+  if (rt.more) report.runtimeMore = rt.more;
   if (error) report.error = clip(error, 200);
   return report;
 }

@@ -2512,7 +2512,9 @@ const server = http.createServer((req, res) => {
 
       const build = await timed("viteMs", "npx", ["vite", "build", "--logLevel", "warn"]);
       if (build.code !== 0) {
-        return send(res, 200, { ok: false, stage: "build", error: exitReason("vite build", build).slice(0, 4000), ms: Date.now() - t0, ...times });
+        // AND WHAT tsc SAID, beside it (2026-10-22, idea #11): the repair is
+        // handed the exact errors for the failing file, both tools' words.
+        return send(res, 200, { ok: false, stage: "build", error: exitReason("vite build", build).slice(0, 4000), ms: Date.now() - t0, ...times, ...(typeErrors ? { typeErrors } : {}) });
       }
 
       // NO PRERENDER STEP. Under Start the document is rendered per REQUEST by

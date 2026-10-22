@@ -317,7 +317,7 @@ import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge
 import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig, writesSchema as partWritesSchema } from "./builder/request-plan.mjs";
 import { turnKey, turnRecord, readTurn, turnFree, nextGen, rebaseFiles, TURN_POLL_MS, TURN_WAIT_MS, TURN_UNREAD_MAX } from "./builder/publish-turn.mjs";
 import { PART_TERMINAL as REQ_PART_TERMINAL, heldFromOf, rewriteWire } from "./builder/request.mjs";
-import { visualReviewOn } from "./builder/visual-review.mjs";
+import { visualReviewOn, buildRepairOn } from "./builder/visual-review.mjs";
 import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, carrySuperseded, supersededNote, holdRequirements, heldCheckpoint, heldDelta, applyHeldDelta, readHeld, sameCheckpoint, heldNote, ownerOf, handoffsByStep, applyVerdicts, COVERAGE_STEPS, linkEvidence } from "./builder/site-requirements.mjs";
 import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.mjs";
 import { WRITE_APP_TOOL, appWriterSystem, appFilesFrom, appThemeFrom } from "./builder/app-gen.mjs";
@@ -19007,6 +19007,12 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
     // same send (and so the same customer effort) as every builder call.
     visualReview: visualOn ? (req) => callBuilderModel(env, req, budget ? { capMs: (cap) => budget.capMs(Math.min(Number(cap) || QUICK_STREAM_MS, QUICK_STREAM_MS)) } : quickBudget, QUICK_STREAM) : undefined,
     visualModel: models.pages,
+    // THE COMPILE REPAIR'S MODEL CALL (2026-10-22, ideas #11-#13): one try at a
+    // page that did not build, on the build's own pages model through the same
+    // send as the visual review. Supplied only with `BUILD_REPAIR` on; off,
+    // `publishPages` gets none and nothing changes.
+    compileRepair: buildRepairOn(env) ? (req) => callBuilderModel(env, req, budget ? { capMs: (cap) => budget.capMs(Math.min(Number(cap) || QUICK_STREAM_MS, QUICK_STREAM_MS)) } : quickBudget, QUICK_STREAM) : undefined,
+    compileRepairModel: models.pages,
     // THE STEPS INSIDE THE PUBLISH THAT USED TO RUN IN SILENCE (2026-10-19):
     // their numbers go on the trace, which the build's progress already hears.
     note: (stage, nums) => { try { mark?.(stage, nums); } catch { /* a trace must never break a build */ } },

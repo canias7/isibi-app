@@ -18,7 +18,7 @@ import { validatePages, lintPages, repairImports, mergeParts } from "./page-gen.
 // THE REWRITE'S PAGE MERGE AND ITS SENTENCE (2026-10-02, the whole-router
 // audit's W3). `site-addon.mjs` imports nothing, so this adds no cycle.
 import { mergeRevisedPages, keptReply, routeOf } from "./site-addon.mjs";
-import { repairPages, repairBrief } from "./site-repair.mjs";
+import { repairPages, repairBrief, compileRepairPages } from "./site-repair.mjs";
 import { runVisualReview } from "./visual-review.mjs";
 // The seed top-up's OWN model and OWN hard output cap, imported rather than
 // restated. `buildFloor` has to price that call (see `SEED_PROFILE`), and a
@@ -759,6 +759,12 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
   // DECLARED HERE RATHER THAN AT THE REPAIR, because `settle` prices the build
   // from an outer scope and a list that does not exist yet reads as no spend.
   const repairUsage = [];
+  // THE BUILD REPAIR'S SWITCH AND ITS MEMORY (2026-10-22, ideas #11-#13): on
+  // only when the caller supplied `compileRepair` (the Worker does so only
+  // with `BUILD_REPAIR` on). `tried` holds one signature per page per failure
+  // tried in this build, so the same failure is never paid for twice.
+  const buildRepair = typeof deps.compileRepair === "function";
+  const tried = new Set();
   // AND WHAT THE TRANSLATIONS COST (run 39, 2026-09-04): the compile dep
   // translates the site's other languages on the way to the container and
   // hands each call's usage back on its result (`langUsage`); it is folded in
@@ -1497,6 +1503,46 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
    * the pages were written and the model was paid for either way, and a customer
    * whose site publishes has been served better than one whose site did not.
    */
+  /**
+   * ── THE COMPILE REPAIR (2026-10-22, owner-approved ideas #11 and #13) ─────
+   *
+   * ONE try, before salvage, at a page that did not build: its source and the
+   * exact errors for that file (the bundler's, and tsc's where the container
+   * sent them) go to the build's own pages model (`deps.compileRepair`,
+   * supplied only with `BUILD_REPAIR` on), the cause named where it is clear.
+   * The usage rides into `repairUsage`, so the ONE `pageCredits` call prices
+   * it on the build's bill. A fix that compiles replaces the pages; one that
+   * does not leaves `built` and `pages` exactly as they were, and salvage
+   * below does what it always did — never worse. No second try.
+   */
+  let compileFix = null;
+  if (buildRepair && salvageable(built)) {
+    const cites = errorCitations(built.error);
+    const known = new Set(pages.map((p) => p.path));
+    const n = new Set(cites.map((c) => c.file.replace(/^(?:src\/)?routes\//, "")).filter((f) => known.has(f))).size;
+    if (n) {
+      note("compile-fixing", { pages: Math.min(n, 3) });
+      const cr = await compileRepairPages({
+        error: built.error, typeErrors: built.typeErrors, pages, citations: cites, cited: citedLines(built.error, pages, 8),
+        send: deps.compileRepair, model: deps.compileRepairModel, tried,
+      });
+      for (const u of cr.usage) repairUsage.push(u);
+      compileFix = { tried: cr.repaired.length + cr.refused.length, refused: cr.refused, ...(cr.skipped.length ? { skipped: cr.skipped } : {}), ...(cr.causes.length ? { causes: cr.causes } : {}) };
+      if (cr.repaired.length) {
+        const second = await compileWithRetry(cr.pages);
+        if (second.ok) {
+          built = second;
+          pages = cr.pages;
+          compileFix.fixed = cr.repaired.map((x) => x.path);
+        } else {
+          compileFix.failedStage = String(second.stage || "build");
+          compileFix.failedError = String(second.error || "").slice(0, 200);
+        }
+      }
+      out.compileRepair = compileFix;
+    }
+  }
+
   if (salvageable(built)) {
     const plan = salvagePlan(built.error, pages, livePages);
     out.salvage = { stubbed: plan.stub, foreign: plan.foreign, kept: plan.kept, reason: plan.reason };
@@ -1567,11 +1613,21 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
    * getting a moment ago — one page rendering an apology — rather than nothing.
    * Never worse, which is the same rule `salvagePlan` lives under.
    */
+  // WHAT THE CUSTOMER IS TOLD ABOUT THE COMPILE REPAIR, said once its outcome
+  // is known: fixed, or not fixed and what the page shows now (a placeholder
+  // only when salvage really stubbed it).
+  if (compileFix) {
+    if (compileFix.fixed) note("compile-fixed", { pages: compileFix.fixed.length });
+    else note("compile-fixed", { failed: 1, stubbed: Array.isArray(out.salvaged) ? out.salvaged.length : 0 });
+  }
   if (built.ok && built.render && built.render.ok !== false) note("render-checked", { pages: pages.length, problems: repairBrief(built.render, pages).work.length });
   if (built.ok && typeof deps.repair === "function") {
     const toFix = repairBrief(built.render, pages).work.length;
     if (toFix) note("repairing", { pages: toFix });
-    const rep = await repairPages({ report: built.render, pages, send: deps.repair });
+    // UNDER `BUILD_REPAIR` the same one try carries the route's structured
+    // browser errors (#12) and the named cause, and skips a failure already
+    // tried (#13); off, the call is exactly what it was.
+    const rep = await repairPages(buildRepair ? { report: built.render, pages, send: deps.repair, runtime: true, tried } : { report: built.render, pages, send: deps.repair });
     // THE USAGE RIDES BACK ON EVERY PATH, refusals included — these are real
     // model calls and the ledger prices what was used. Pushed into the same list
     // the generation and image usage go into, so `pageCredits` rounds ONCE

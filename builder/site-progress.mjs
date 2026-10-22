@@ -497,6 +497,12 @@ export function buildStepFacts(step) {
     }
     case "looking": return [fact("doing", "Checking how it looks…")];
     case "looked": return n("failed") ? [fact("notdone", "A fix to how it looks did not build, so the pages stay as they were before it.")] : n("pages") ? [fact("prepared", "Fixed how " + pl(n("pages"), "the page looks", "pages look") + " and put the site together again. Not published yet.")] : [fact("checked", "Looked at the pages: nothing needed fixing.")];
+    // THE COMPILE REPAIR (2026-10-22, ideas #11-#13): one try at a page that
+    // did not build. "A placeholder" only when salvage really stubbed it.
+    case "compile-fixing": return n("pages") ? [fact("doing", n("pages") === 1 ? "Fixing a page that didn't build…" : "Fixing " + n("pages") + " pages that didn't build…")] : [];
+    case "compile-fixed":
+      if (!n("failed")) return n("pages") ? [fact("prepared", "Fixed it. Not published yet.")] : [];
+      return [fact("notdone", n("stubbed") ? "Couldn't fix it, so it's a placeholder for now." : "Couldn't fix it.")];
     case "salvaged": return n("stubbed") ? [fact("notdone", (n("stubbed") === 1 ? "One page" : n("stubbed") + " pages") + " would not build, so " + (n("stubbed") === 1 ? "it shows" : "they show") + " a simple holding page for now.")] : [];
     default: return [];
   }
