@@ -72,7 +72,7 @@ import { readDeadline, makeTerminator, JOB_STOP_GRACE_MS } from "./job-clock.mjs
 import { checkRender, screenshotHtml } from "./render-check.mjs";
 import { cardHtml, cardColors, CARD_W, CARD_H } from "./site-card.mjs";
 import { routeOf, fileForRoute } from "./site-addon.mjs";
-import { readCss, selectorsToJudge, LABEL_GUARD, SHELL_GUARD } from "./site-freecss.mjs";
+import { readCss, aliasFonts, selectorsToJudge, LABEL_GUARD, SHELL_GUARD } from "./site-freecss.mjs";
 import { runFanout, fanoutTally, MAX_FANOUT_REQS } from "./model-fanout.mjs";
 import { kitClosure } from "./kit-closure.mjs";
 import { markPending, fillPending, frameParser } from "./pending-frames.mjs";
@@ -980,6 +980,10 @@ function writeFonts(fonts, fontFiles, pageFonts, cssFonts) {
   );
   const notes = pair.notes.slice();
   if (!applied) notes.push("The stylesheet could not be read, so the site kept the default typeface.");
+  // A FETCHED FAMILY WHOSE FILE NEVER ARRIVED is a typeface named, resolved and
+  // rendered as the fallback: said rather than left silent (audit A20-1).
+  const unfetched = cssFaces.filter((f) => f.source === "fetch" && !written[f.id]).map((f) => f.family);
+  if (unfetched.length) notes.push(`These typefaces could not be downloaded, so they fall back to a system font: ${[...new Set(unfetched)].slice(0, 6).join(", ")}.`);
   return { heading: pair.heading.id, body: pair.body.id, applied, fetched: Object.keys(written), notes };
 }
 
@@ -1339,7 +1343,10 @@ function writeCss(css) {
   // ONLY ON THE APPLIED PATH, so a site that sent no stylesheet — every site
   // built before free CSS, and every cheap edit that leaves the look alone —
   // compiles to byte-identical output.
-  fs.writeFileSync(STYLES, base + "\n" + LABEL_GUARD + "\n" + SHELL_GUARD + "\n" + report.css + "\n");
+  // THE REGISTERED FAMILY IS INSERTED AFTER EACH NAME THE MODEL WROTE (audit
+  // A20-1): "Lora" alone matches no face, because the package registers "Lora
+  // Variable". See `aliasFonts`. Here, not in the stored sheet.
+  fs.writeFileSync(STYLES, base + "\n" + LABEL_GUARD + "\n" + SHELL_GUARD + "\n" + aliasFonts(report.css, report.fontSpellings) + "\n");
   return {
     applied: true,
     bytes: report.bytes,

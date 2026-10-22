@@ -114,78 +114,158 @@ const SYSTEM = new Set([
   "sf pro", "sf mono", "new york", "noto color emoji", "emoji",
 ]);
 
+// ── THE TWO PROPERTIES THE TEMPLATE ITSELF CONSUMES (audit A20-2, 2026-10-22)
+//
+// `styles.css` reads `--font-sans` on the body and `--font-heading` on the
+// headings, so a sheet that only declares `:root{--font-sans:"Lora",serif}` —
+// the exact example the css tool gives the model — IS applying a typeface,
+// though no `font-family` in the model's own sheet references it. These two
+// are font stacks always; any other property is one when the model's own
+// `font-family` or `font:` references it.
+const TEMPLATE_STACKS = Object.freeze(["--font-sans", "--font-heading"]);
+
+const esc = (s) => String(s).replace(/[.*+?^${}()|[\]\\-]/g, "\\$&");
+
+// The family list out of a `font:` shorthand: everything after the size (and
+// its optional `/line-height`). A shorthand with no size is a system keyword
+// (`font: inherit`, `font: menu`) and names no file.
+const SIZE = String.raw`(?:[\d.]+(?:px|r?em|%|pt|pc|vw|vh|vmin|vmax|ch|ex|cap|lh|rlh|cm|mm|in|q)?|xx-small|x-small|small|medium|large|x-large|xx-large|xxx-large|smaller|larger|(?:var|calc|clamp|min|max)\([^)]*\))`;
+const SHORTHAND_FAMILY = new RegExp(String.raw`(?:^|\s)` + SIZE + String.raw`(?:\s*\/\s*\S+)?\s+((?:["']|[A-Za-z_-]|var\().*)$`, "i");
+
+/**
+ * Every place in the sheet that holds a font stack, as [start, end) offsets
+ * into the comment-blanked source, so the same walk serves the reading
+ * (`fontsIn`) and the rewriting (`aliasFonts`).
+ *
+ * Four shapes, each a measured miss before this (A20-2): a `font-family`; the
+ * family half of a `font:` shorthand; EVERY declaration of a stack property
+ * (a page-scoped redeclaration is a second typeface, not a duplicate); and a
+ * `var(--x, "Fallback")`'s fallback, which is a stack of its own.
+ */
+function stackSpans(src) {
+  const spans = [];
+  const decl = (re, pick) => {
+    for (const m of src.matchAll(re)) {
+      const at = m.index + m[0].length - m[1].length;
+      const r = pick(m[1]);
+      if (r) spans.push([at + r[0], at + r[1]]);
+    }
+  };
+  decl(/(?<![\w-])font-family\s*:\s*([^;}]+)/gi, (v) => [0, v.length]);
+  decl(/(?<![\w-])font\s*:\s*([^;}]+)/gi, (v) => { const m = SHORTHAND_FAMILY.exec(v); return m ? [v.length - m[1].length, v.length] : null; });
+
+  // The properties that are stacks: the template's two, plus any the model's
+  // own `font-family`/`font:` references.
+  const vars = new Set(TEMPLATE_STACKS);
+  for (const [a, b] of spans.slice()) for (const v of src.slice(a, b).matchAll(/var\(\s*(--[\w-]+)/g)) vars.add(v[1]);
+  for (const name of vars) decl(new RegExp(String.raw`(?<![\w-])` + esc(name) + String.raw`\s*:\s*([^;}]+)`, "g"), (v) => [0, v.length]);
+
+  // A var() fallback inside any stack is a stack too.
+  for (const [a, b] of spans.slice()) {
+    const text = src.slice(a, b);
+    for (const m of text.matchAll(/var\(\s*--[\w-]+\s*,\s*([^)]*)\)/g)) {
+      const at = a + m.index + m[0].length - 1 - m[1].length;
+      spans.push([at, at + m[1].length]);
+    }
+  }
+  return spans;
+}
+
+// The first family of one stack, with its offsets inside the stack: the one
+// that needs a file. A stack that begins with var() names its family through
+// the variable (resolved as its own span) and through its fallback (likewise).
+function headOf(stack) {
+  const lead = /^\s*/.exec(stack)[0].length;
+  if (/^var\(/i.test(stack.slice(lead))) return null;
+  const m = /^(["'])(.*?)\1|^[^,()]+/.exec(stack.slice(lead));
+  if (!m) return null;
+  const text = m[0].replace(/\s+$/, "");
+  const raw = m[1] ? m[2] : text;
+  return { raw: raw.trim(), start: lead, end: lead + text.length };
+}
+
 export function fontsIn(css) {
   const src = blankComments(css);
   const named = [];
   const seen = new Set();
-
-  // ── A FONT STACK IS OFTEN IN A CUSTOM PROPERTY, AND THAT IS THE COMMON CASE
-  //
-  // The first draft skipped `font-family: var(--font-sans)` on the reasoning
-  // that the variable's own declaration would be scanned as a `font-family`.
-  // It is not — `--font-sans: "Lora", serif` is a custom property, not a
-  // font-family declaration — so the family was named, never matched and never
-  // fetched. And this is not an edge case: it is exactly how the template's own
-  // styles.css is written, so it is the shape a model copying it produces.
-  //
-  // THE RULE IS RESOLUTION, NOT A NAMING CONVENTION. A property is a font stack
-  // because a `font-family` REFERENCES it — never because it happens to be
-  // called `--font-something`, which would miss `--type-display` and would
-  // wrongly claim `--font-size`. Collected first, resolved second.
-  const stackVars = new Set();
-  for (const m of src.matchAll(/font-family\s*:\s*([^;}]+)/gi)) {
-    for (const v of String(m[1]).matchAll(/var\(\s*(--[\w-]+)/g)) stackVars.add(v[1]);
-  }
-  const stacks = [];
-  for (const name of stackVars) {
-    // One hop only. A chain (`--a: var(--b)`) is legal and vanishingly rare,
-    // and following it needs cycle detection for a case no stylesheet here has
-    // ever produced — so it resolves to nothing and is reported as unmatched
-    // rather than silently fetched wrong.
-    const d = new RegExp(name.replace(/-/g, "\\-") + "\\s*:\\s*([^;}]+)").exec(src);
-    if (d) stacks.push(d[1]);
-  }
-
-  for (const m of src.matchAll(/font-family\s*:\s*([^;}]+)/gi)) stacks.push(m[1]);
-
-  for (const stack of stacks) {
-    // A stack that is ONLY a var() reference names no file itself — its target
-    // was resolved above.
-    if (/^\s*var\(/.test(String(stack))) continue;
-    const raw = String(stack).split(",")[0].trim().replace(/^["']|["']$/g, "");
-    const head = norm(raw);
+  // ── A FONT STACK IS OFTEN IN A CUSTOM PROPERTY, AND THAT IS THE COMMON CASE.
+  // See `stackSpans`: the template's two properties are stacks always (the
+  // css tool's own example declares only `--font-sans`), any other is one when
+  // the model's sheet references it, and EVERY declaration counts.
+  for (const [a, b] of stackSpans(src)) {
+    const h = headOf(src.slice(a, b));
+    if (!h) continue;
+    const head = norm(h.raw);
     if (!head || GENERIC.has(head) || SYSTEM.has(head) || seen.has(head)) continue;
     seen.add(head);
     // THE ORIGINAL SPELLING TRAVELS, not the normalised key. The report goes to
     // a CUSTOMER, and "helvetica neue" reads as a bug where "Helvetica Neue"
     // reads as their own words handed back.
-    named.push(raw);
+    named.push(h.raw);
   }
   // ── RESOLVED AGAINST THE WHOLE FONTSOURCE CATALOGUE, NOT THE 24-FAMILY
-  //    SHORTLIST, and the first draft of this got it wrong in the expensive
-  //    direction.
-  //
-  // The shortlist is what a MENU offered, and there is no menu here — the model
-  // writes a family name and `resolveFont` already answers for all ~2,096
-  // Fontsource families: the 24 installed ones come back `installed` (an npm
-  // import bundles them) and everything else comes back `fetch` (a woff2 is
-  // downloaded). Matching only the 24 would have reported `Cormorant Garamond`
-  // as unhostable while `fetchSiteFonts` fetches it happily — a warning printed
-  // to a customer about a typeface that works.
-  //
-  // A SYSTEM FACE STILL COMES BACK UNKNOWN, measured across 20 of them
-  // (Georgia, Helvetica, Segoe UI, Menlo, Futura…): 19 resolve to nothing and
-  // `Baskerville` matches Fontsource's own `baskervville`, which is the family
-  // somebody writing that word wants. So the fuzzy matcher does not invent a
-  // download for a face the browser already has.
+  //    SHORTLIST: the 24 installed ones come back `installed` (an npm import
+  //    bundles them) and everything else `fetch` (a woff2 is downloaded).
+  //    A system face comes back unknown (19 of 20 measured), and is in SYSTEM.
   const use = [];
   const missing = [];
+  const spellings = [];
   for (const n of named) {
     const f = resolveFont(n);
-    if (f && f.ok) { if (!use.some((x) => x.id === f.id)) use.push(f); }
-    else missing.push(n);
+    if (f && f.ok) {
+      if (!use.some((x) => x.id === f.id)) use.push(f);
+      spellings.push({ name: n, id: f.id, family: f.family });
+    } else missing.push(n);
   }
-  return { fonts: use, ids: use.map((f) => f.id), missing };
+  return { fonts: use, ids: use.map((f) => f.id), missing, spellings };
+}
+
+/**
+ * ── THE NAME THE MODEL WROTE, AND THE NAME THE FACE IS REGISTERED UNDER
+ *    (audit A19-1 / A20-1, 2026-10-22)
+ *
+ * `@fontsource-variable/lora` registers its faces as "Lora Variable"; a
+ * fetched face is declared as its id title-cased ("Baskervville" for a sheet
+ * that said "Baskerville"). The model writes "Lora". No face matched, and every
+ * installed family rendered the fallback while the build reported success.
+ *
+ * THE FIX IS IN THE STACK, NOT IN A FACE: after each name `fontsIn` resolved,
+ * the registered family is inserted — `"Lora", "Lora Variable", Georgia,
+ * serif`. The model's own spelling stays first, the registered face is next,
+ * and the model's fallbacks follow unchanged. An `@font-face` alias was the
+ * other option, and it is worse: an installed package's files are hashed by
+ * Vite at build time, so an alias could not name them, and it would download a
+ * second copy of each fetched file.
+ *
+ * Run where the sheet is written into the build, never on what is stored, so
+ * the stored sheet stays the model's words and a later edit reads them back.
+ * Idempotent: a stack already carrying the registered family is left alone.
+ */
+export function aliasFonts(css, spellings) {
+  const text = String(css);
+  if (!Array.isArray(spellings) || !spellings.length) return text;
+  const by = new Map();
+  for (const s of spellings) if (s && s.family && norm(s.name) !== norm(s.family)) by.set(norm(s.name), s.family);
+  if (!by.size) return text;
+  const src = blankComments(text);
+  const edits = [];
+  const done = new Set();
+  for (const [a, b] of stackSpans(src)) {
+    if (done.has(a)) continue;
+    done.add(a);
+    const stack = src.slice(a, b);
+    const h = headOf(stack);
+    if (!h) continue;
+    const fam = by.get(norm(h.raw));
+    if (!fam) continue;
+    const rest = stack.slice(h.end).split(",").map((x) => norm(x));
+    if (rest.includes(norm(fam))) continue;
+    edits.push([a + h.end, `, "${fam.replace(/["\\]/g, "")}"`]);
+  }
+  edits.sort((x, y) => y[0] - x[0]);
+  let out = text;
+  for (const [at, ins] of edits) out = out.slice(0, at) + ins + out.slice(at);
+  return out;
 }
 
 /**
@@ -330,7 +410,7 @@ export function readCss(css) {
   }
 
   const scanned = blankComments(use);
-  const { fonts, ids, missing } = fontsIn(use);
+  const { fonts, ids, missing, spellings } = fontsIn(use);
   if (missing.length) {
     notes.push(`These typefaces are not ones we can host, so they fall back to a system font: ${missing.slice(0, 6).join(", ")}.`);
   }
@@ -364,6 +444,9 @@ export function readCss(css) {
     fonts,
     fontIds: ids,
     missingFonts: missing,
+    // Each name as the model wrote it beside the family its face is
+    // registered under, for `aliasFonts` where the sheet enters the build.
+    fontSpellings: spellings,
     definesCore: defines.length === CORE_TOKENS.length,
     truncated,
     notes,

@@ -358,7 +358,7 @@ test("…AND IT IS WRITTEN, BEFORE THE MODEL'S SHEET AND ONLY WITH ONE", () => {
   // driven.
   assert.match(container, /import \{[^}]*\bLABEL_GUARD\b[^}]*\} from "\.\/site-freecss\.mjs"/,
     "the container never imports the label guard — every CTA can be blanked again");
-  const write = /fs\.writeFileSync\(STYLES, base \+ "\\n" \+ LABEL_GUARD \+ "\\n" \+ SHELL_GUARD \+ "\\n" \+ report\.css \+ "\\n"\)/;
+  const write = /fs\.writeFileSync\(STYLES, base \+ "\\n" \+ LABEL_GUARD \+ "\\n" \+ SHELL_GUARD \+ "\\n" \+ aliasFonts\(report\.css, report\.fontSpellings\) \+ "\\n"\)/;
   assert.match(container, write, "the guard is not written beside the model's stylesheet");
   // BEFORE, NOT AFTER, and the difference is measured rather than stylistic:
   // both placements beat a blanket element rule (a class wins on specificity
