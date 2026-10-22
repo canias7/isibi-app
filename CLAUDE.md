@@ -34,6 +34,7 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 
 ## Where things stand (2026-09-30)
 
+- **2026-10-22, 07:44 UTC: `main` is `89a67ec40` (deploy 2259, green; served `chat.js` matches; deployed, not runtime-confirmed).** The bullet below is the earlier deploy.
 - **2026-10-22, later: `main` is `fdf73825a` (deploy 2258, green; deployed, not
   runtime-confirmed)**: today's combined work, including audit fixes through
   51 and Meshy 3D shipped off. Audit 53–60 being checked next. Records:

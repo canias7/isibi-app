@@ -2023,6 +2023,10 @@ deploy's ignore list, so the push started deploy run 38747702721.
   - Cost 18 credits (97 → 79).
   - Before the fix, the same prompt failed at 602,445 ms with `fetch failed` (2026-10-18, build `11a381e8`).
 
+## Deploy 2259 — 2026-10-22 07:39 UTC (`89a67ec40`)
+
+The second merge of the day (audit fixes 53, 55–60, 62, 79, 82, 84, 88, 99, 100, 102, preview search and the reload fix), on the owner's word "merge when they done". Required CI green on `89a67ec40` (unit run 39740919581, site build run 39740919562). Deploy run 39742014019 green (07:39–07:44 UTC). The served `chat.js` sha256 starts `c63055f3140f8d7d`, the same as the merged `public/chat.js`. **Deployed, not runtime-confirmed** until the owner's free canary press; wait about 20 minutes after the image roll before container work.
+
 ## Deploy 2258 — 2026-10-22 04:23 UTC (`fdf73825a`)
 
 A fast-forward of 72 commits from `3fda8174d` (deploy 2257), on the owner's
