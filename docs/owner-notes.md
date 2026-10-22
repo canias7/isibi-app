@@ -1,5 +1,12 @@
 # Owner Notes
 
+## 2026-10-22 — A scheduled job can now write its own function (option B; not merged, not deployed)
+
+- **What you chose.** In the live test a weekly job pointed at a counting function nobody had written, so the job was left out. You chose option B: the job designer may write that function itself, in the same answer as the job.
+- **Now** the job can carry its own private function. It goes through exactly the same checks as any other function; if it passes, it is created, stored, listed in the reply and the job runs it. If it fails a check, only that job is left out and named, with the function's own reason. A job may not write a function under a name the site already has.
+- **Unchanged**: a job that names an existing function, or one designed separately in the same request, works exactly as before.
+- Records: `docs/history/2026-10-22-decide-4b.md`. Branch `decide-4b`; nothing spent.
+
 
 ## 2026-10-22 — A broken quick edit now falls back to the full page rewrite (audit A03-5; not merged, not deployed)
 

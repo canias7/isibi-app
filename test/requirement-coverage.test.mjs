@@ -1586,7 +1586,9 @@ test("the route validates the MODEL's tables, not the folded spec or the engine'
   // whose own comments record two earlier instances of it. The properties are
   // what the audit is HANDED and that its context is built from the proposal.
   assert.match(block, /auditTier\(\{ \[tier\]: mine \}, k, context, \{ sent \}\)/, "the per-tier audit is gone");
-  assert.match(block, /const withMine = proposedSpec\(aProposed, k, clean\.value\);/,
+  // RE-ANCHORED 2026-10-22 (decide-4b): a job's own functions join the
+  // proposal first; still the proposal this message has built.
+  assert.match(block, /const withMine = proposedSpec\((?:ownFns\.length \? proposedSpec\(aProposed, "function", ownFns\) : )?aProposed, k, clean\.value\);/,
     "the audit's context is no longer the proposal this message has built");
   assert.match(block, /const context = k === "job" \? withJobDeps\(withMine\) : withMine;/,
     "a job is validated without the site's own functions, or another tier gained them");
@@ -1619,7 +1621,7 @@ test("the route validates the MODEL's tables, not the folded spec or the engine'
   // "Validate each item with its dependencies present"). A job normalised alone
   // vanishes — its function is absent — so the context is the ACCUMULATED
   // proposal with this kind's own items folded in, never the bare answer.
-  assert.match(block, /const withMine = proposedSpec\(aProposed, k, clean\.value\)/,
+  assert.match(block, /const withMine = proposedSpec\((?:ownFns\.length \? proposedSpec\(aProposed, "function", ownFns\) : )?aProposed, k, clean\.value\)/,
     "the item is validated without the schema its dependencies live in");
   // …AND AN ITEM THE ENGINE DROPS WHOLE IS RECORDED AND COUNTS AS A FAILURE.
   // Above the table tier there is no field to point at, so without this a

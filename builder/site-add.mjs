@@ -106,6 +106,26 @@ export const MESSAGE_CONTRACT =
   "Settings, so a message whose channel has no key yet is held rather than lost, and the owner is told which key " +
   "is missing.";
 import { TABLE_ITEM, FUNCTION_ITEM, API_ITEM, JOB_ITEM } from "./site-table.mjs";
+// ── A JOB MAY WRITE ITS OWN FUNCTION (owner, 2026-10-22, option B) ────────
+//
+// Live: the job designer named a counting function nobody wrote and the job
+// was refused `no-job-fn`. The add step's job tool now carries an optional
+// `function`, the SAME item a `function` answer is, so one call writes both
+// and the name always exists. `cleanAdd("job")` sends it through
+// `cleanAdd("function")` — the one cleaner — before the job is cleaned. The
+// build's `JOB_ITEM` (design_schema) is left as it is.
+export const ADD_JOB_ITEM = Object.freeze({
+  ...JOB_ITEM,
+  properties: {
+    ...JOB_ITEM.properties,
+    function: {
+      ...FUNCTION_ITEM,
+      description:
+        "ONLY when no function on the list a scheduled job may run fits: the internal function this job runs, " +
+        "written here exactly as a function is (`internal: true`, no arguments, returns json). `fn` must be its name.",
+    },
+  },
+});
 // A LEAF MODULE WITH NO IMPORTS OF ITS OWN, so this adds no cycle — the same
 // reasoning `builder/page-gen.mjs` records for importing it. `accessLabel`
 // resolves the read/write PAIR rather than believing the stored `access`
@@ -755,7 +775,7 @@ const ADDS = {
     requirements: true,
     shape: {
       type: "array",
-      items: JOB_ITEM,
+      items: ADD_JOB_ITEM,
     },
     add: {
       is: "The scheduled jobs this change needs — each with its name, the internal function that returns its messages, how often it runs in minutes, and for a daily or slower job the time of day it runs.",
@@ -764,9 +784,11 @@ const ADDS = {
         "how often — 1440 for a daily reminder, 10080 for a weekly digest — with `at` for the time of day a daily " +
         "or slower job runs (\"09:00\" for a morning reminder). The function it names must already be on the " +
         "list of functions a scheduled job may run — that list includes the ones this same change declared a " +
-        "step earlier, and when no such list is printed there is none. You cannot declare a function here, so never name one that is not on that list, however " +
-        "plainly the request implies it; when none fits, design no job and list the missing function as an " +
-        "unsupported requirement. Such a function takes no " +
+        "step earlier, and when no such list is printed there is none. When none on that list fits, WRITE IT HERE, " +
+        "in this same answer: give the job a `function` — name, returns, body, and `internal: true`, exactly as a " +
+        "function is written — and set `fn` to that function's name. Never name a function that is neither on " +
+        "that list nor written in this answer, however plainly the request implies it, and never write one here " +
+        "under a name the site already lists. Such a function takes no " +
         "arguments and returns json — an array of messages, empty when nothing is due; or, for a " +
         "job that does work rather than sending (clearing out old rows), {\"did\": \"what it did\"}. " +
         MESSAGE_CONTRACT,
@@ -4063,6 +4085,43 @@ export function cleanAdd(kind, value, site) {
     }
   };
   const isObj = (x) => x && typeof x === "object" && !Array.isArray(x);
+  // ── A JOB THAT WRITES ITS OWN FUNCTION (owner, 2026-10-22, option B) ────
+  //
+  // Each declared function goes through `cleanAdd("function")` — the same
+  // cleaner and checks a `function` answer gets, never a second path — and
+  // must be internal and named by the job's `fn`. The ones kept are returned
+  // as `functions` (the route adds them to the addition's functions) and
+  // joined to `jobFns` before the jobs are cleaned. A refused function
+  // refuses ITS job, by name, with its own reason; a function whose job is
+  // then refused by the job cleaner is dropped with it (it would be dead).
+  if (kind === "job") {
+    const raw = Array.isArray(value) ? value : (isObj(value) ? [value] : []);
+    if (raw.some((v) => isObj(v) && Object.hasOwn(v, "function"))) {
+      const listed = (Array.isArray(s.functions) ? s.functions : []).map((x) => str(x, 63).toLowerCase());
+      const declared = [], refused = [], left = [];
+      for (const v of raw) {
+        if (!isObj(v) || !Object.hasOwn(v, "function")) { left.push(v); continue; }
+        const { function: f, ...job } = v;
+        const jname = str(job.name, 120);
+        if (!isObj(f)) { refused.push({ why: "no-function", name: jname }); continue; }
+        const fc = cleanAdd("function", [f], s);
+        const fv = fc && fc.ok && Array.isArray(fc.value) ? fc.value[0] : null;
+        if (!fv) { refused.push({ why: (fc && (fc.why || (fc.skipped && fc.skipped[0] && fc.skipped[0].why))) || "no-function", name: jname }); continue; }
+        if (fv.internal !== true) { refused.push({ why: "job-fn-public", name: jname }); continue; }
+        if (listed.includes(fv.name) || declared.some((d) => d.name === fv.name)) { refused.push({ why: "job-fn-exists", name: jname }); continue; }
+        const fn = str(job.fn, 63).toLowerCase();
+        if (fn && fn !== fv.name) { refused.push({ why: "no-job-fn", name: jname }); continue; }
+        declared.push(fv);
+        left.push({ ...job, fn: fv.name });
+      }
+      if (!left.length) return { ok: false, why: refused.length ? refused[0].why : "nothing" };
+      const known = Array.isArray(s.jobFns) ? s.jobFns : [];
+      const r = cleanAdd("job", left, { ...s, jobFns: [...known, ...declared.map((d) => d.name)] });
+      if (!r.ok) return r;
+      const ran = new Set(r.value.map((j) => j.fn));
+      return { ...r, functions: declared.filter((d) => ran.has(d.name)), skipped: [...refused, ...(Array.isArray(r.skipped) ? r.skipped : [])] };
+    }
+  }
   // ── A LIST KIND: every usable item is kept, the rest are named ──────────
   //
   // No low limits (owner): a message may add several pages, components or
@@ -4216,6 +4275,8 @@ export function addRefusal(why, kind) {
     case "credential-url": return "The sign-up page for that service has to be an https address — that one wasn't. Nothing was changed.";
     case "credential-shape": return "I couldn't read where the key for that service comes from — ask again and name the service, or leave it out and I'll connect it anyway.";
     case "no-job": return "I couldn't tell what should happen on a timer — say what to send, to whom, and how often.";
+    case "job-fn-public": return "A scheduled job's function has to be private to the site (internal), and the one written for that job wasn't, so the job was left out — ask again and I'll write it privately.";
+    case "job-fn-exists": return "That scheduled job tried to write a function under a name the site already has, so the job was left out — ask again and it can use the existing one or a new name.";
     case "no-job-fn": return "That scheduled job names a function this site doesn't have — describe what it should send and I'll write both together.";
     case "bad-time": return "A time of day only fits a job that runs once a day or less often — say how often it should run, or drop the time and it runs on the interval. Nothing was changed.";
     // THREE SENTENCES FOR THREE REFUSALS, because they need three different
