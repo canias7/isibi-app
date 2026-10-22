@@ -13862,6 +13862,19 @@ function editOutcomes(e) {
   // as kept, and silence would let "Updated /." stand over it. The server
   // sends each one in the customer's own words (the heading it sat under, or
   // what it was declared to do — never a file name), so this only joins them.
+  // ── A COMPONENT PUT BACK AS IT WAS (audit A21-2, 2026-10-22) ───────────
+  // The server's own two reasons, in the customer's words: one the rewrite
+  // would have taken words or links off unasked, one only another page draws.
+  const lossHeld = Array.isArray(e.partsLossHeld) ? e.partsLossHeld.filter((x) => typeof x === 'string' && x) : [];
+  if (lossHeld.length) {
+    out += ' I left ' + lossHeld.join(' and ') + ' exactly as ' + (lossHeld.length === 1 ? 'it was' : 'they were') +
+      ' — the rewrite would also have taken words or links off that you didn’t ask about. Name exactly what to change there and I’ll do just that.';
+  }
+  const otherHeld = Array.isArray(e.partsHeld) ? e.partsHeld.filter((x) => typeof x === 'string' && x) : [];
+  if (otherHeld.length) {
+    out += ' I left ' + otherHeld.join(' and ') + ' exactly as ' + (otherHeld.length === 1 ? 'it was' : 'they were') +
+      ' — ' + (otherHeld.length === 1 ? 'it isn’t' : 'they aren’t') + ' part of the page you asked about.';
+  }
   const unsurePx = Array.isArray(e.partsUnsure) ? e.partsUnsure.filter((x) => typeof x === 'string' && x) : [];
   if (unsurePx.length) {
     out += ' I couldn’t confirm that ' + unsurePx.join(' and ') + (unsurePx.length === 1 ? ' is' : ' are') +

@@ -211,6 +211,8 @@ import { runPictureEdit, newEmptySlots, newListFrames, codeFigureRemoval } from 
 import { runTweak, keptProse, tweakParser } from "./builder/site-tweak.mjs";
 import { keepCheck, keepWithheldMsg, KEEP_UNCHECKED_MSG, unsurePhrases } from "./builder/page-keep.mjs";
 import { preservePageProse, PROSE_WITHHELD, proseWithheldMsg } from "./builder/page-prose.mjs";
+import { partsReached, partKeepCheck, partSaid, partsHeldMsg } from "./builder/part-keep.mjs";
+import { declaredDoes } from "./builder/page-keep.mjs";
 // ONE EDITABLE VIEW of a site's source — its pages and its own components in a
 // single `{path, source}` list, and the way back. The cheap rungs key on `path`
 // and never interpret one, so a part with a path is a page to them; the mapping
@@ -38515,7 +38517,7 @@ async function handleRequest(request, env, ctx) {
               // a sweep cannot say it and the next session deletes what nothing
               // appears to need.
               const pKeptParts = [], pUnseenParts = [];
-              const pFreshParts = (Array.isArray(pValid.parts) ? pValid.parts : []).filter((p) => {
+              let pFreshParts = (Array.isArray(pValid.parts) ? pValid.parts : []).filter((p) => {
                 const n = String((p && p.name) || "").toLowerCase();
                 if (pSentParts.unreadable) { pUnseenParts.push(p && p.name); return false; }
                 if (!pSentParts.withheld.some((w) => w.toLowerCase() === n)) return true;
@@ -38579,6 +38581,38 @@ async function handleRequest(request, env, ctx) {
               // window photograph; keep the bench photograph"* published both
               // missing. Permission belongs to the picture operations that
               // really matched, and the state is where those are recorded.
+              // ── A COMPONENT THIS PAGE DOES NOT DRAW, OR ONE THAT LOST WHAT
+              //    NOBODY ASKED ABOUT, STAYS AS IT WAS (audit A21-2, 2026-10-22)
+              //
+              // The checks below compare the PAGE; a rewritten component used
+              // to ship unread, so "change the sourdough price on the menu
+              // card" could publish the card with two loaves gone, and a
+              // reworded component only /visit draws, under "Updated /menu.".
+              // `part-keep.mjs` holds both rules. A component held here is
+              // dropped from what this rung accepted, so the stored copy is
+              // what the merge keeps and what ships; the reply names it.
+              // HERE, ABOVE THE PHOTOGRAPH GUARD, so that guard is asked of
+              // exactly what will ship. The judge reads the writer's copy:
+              // a photograph's `src` is neither words nor a link.
+              const pPartsHeld = [], pPartsLossHeld = [], pPartUsage = [];
+              if (pFreshParts.length && pPartsRead.ok) {
+                const reached = partsReached([target.source, wrote ? wrote.source : ""], target.path, pPartsRead.parts);
+                const said = declaredDoes(eLook2 && eLook2.tsx);
+                const back = new Set();
+                for (const pt of pFreshParts) {
+                  const s = pPartsRead.parts.find((x) => x && x.name === pt.name);
+                  if (!s || s.source === pt.source) continue;
+                  if (!reached.has(pt.name)) { back.add(pt.name); pPartsHeld.push(partSaid(pt.name, said)); continue; }
+                  const v = await partKeepCheck({
+                    message: eInstruction, before: s.source, after: pt.source, does: said,
+                    send: eQuick("keep_check"), model: eQuickModel,
+                  });
+                  if (v.usage) pPartUsage.push(v.usage);
+                  if (v.verdict === "kept" || v.verdict === "asked") continue;
+                  back.add(pt.name); pPartsLossHeld.push(partSaid(pt.name, said));
+                }
+                if (back.size) pFreshParts = pFreshParts.filter((pt) => !back.has(pt.name));
+              }
               const pAccepted = (pFreshParts.length && pPartsRead.ok)
                 ? mergeParts(pPartsRead.parts, pFreshParts)
                 : (pPartsRead.ok ? pPartsRead.parts : []);
@@ -38643,7 +38677,7 @@ async function handleRequest(request, env, ctx) {
                 // refusal branch — which starts nothing, which is the whole
                 // fix. `keptParts`/`unseenParts` ride along so the screen can
                 // name the component rather than describing a category.
-                if (wrote && (pKeptParts.length || pUnseenParts.length || pRestored.length)) {
+                if (wrote && (pKeptParts.length || pUnseenParts.length || pRestored.length || pPartsHeld.length || pPartsLossHeld.length)) {
                   return Response.json({
                     ok: false, error: "withheld", cost: 0,
                     // ⚠ SCOPED TO THIS RUNG — see `withheldPhotosMsg`. Each of
@@ -38662,10 +38696,14 @@ async function handleRequest(request, env, ctx) {
                       : pUnseenParts.length
                         ? "I couldn't read this site's sections just now, so I didn't make that change — " +
                           "changing a page without them could take one off. Try again in a moment."
+                        : (pPartsHeld.length || pPartsLossHeld.length)
+                          ? partsHeldMsg(pPartsHeld, pPartsLossHeld)
                         : "The only thing that change would have done is take a photograph off your page, " +
                           "so I didn't make it. Say “take the photo off” if that is what you wanted.",
                     keptParts: pKeptParts.length ? pKeptParts : undefined,
                     unseenParts: pUnseenParts.length ? pUnseenParts : undefined,
+                    partsHeld: pPartsHeld.length ? pPartsHeld : undefined,
+                    partsLossHeld: pPartsLossHeld.length ? pPartsLossHeld : undefined,
                     problems: pProblems,
                   }, { status: 409 });
                 }
@@ -38868,12 +38906,15 @@ async function handleRequest(request, env, ctx) {
                 // byte-identical to what it was.
                 keptParts: pKeptParts.length ? pKeptParts : undefined,
                 unseenParts: pUnseenParts.length ? pUnseenParts : undefined,
+                // Put back as they were (A21-2).
+                partsHeld: pPartsHeld.length ? pPartsHeld : undefined,
+                partsLossHeld: pPartsLossHeld.length ? pPartsLossHeld : undefined,
                 // ONE BILL, ONE ROUNDING, for both calls. `eCharge` is variadic
                 // precisely so two calls on one path do not each round up — the
                 // lesson `pageCredits` already carries. `twSpent` is null when
                 // the cheap rung never reached the provider.
                 files: pPub.files, render: pPub.render, renderNote: pPub.renderNote, checks: pPub.checks, draft: pPub.draft,
-                cost: await eCharge(eGen && eGen.usage, twSpent, twJudged, pKeep.usage), usage: eGen && eGen.usage, tweakUsage: twSpent || undefined,
+                cost: await eCharge(eGen && eGen.usage, twSpent, twJudged, pKeep.usage, ...pPartUsage), usage: eGen && eGen.usage, tweakUsage: twSpent || undefined,
                 keepUsage: pKeep.usage || undefined,
                 // AN UNCERTAIN COMPONENT IS NAMED, never counted as kept and
                 // never refused: the check could not see it either way.
@@ -39655,6 +39696,8 @@ async function handleRequest(request, env, ctx) {
               // first step's and dropped a second page step's findings.
               problems: flat("problems").length ? [...new Set(flat("problems"))] : undefined,
               unseenParts: flat("unseenParts").length ? [...new Set(flat("unseenParts"))] : undefined,
+              partsHeld: flat("partsHeld").length ? [...new Set(flat("partsHeld"))] : undefined,
+              partsLossHeld: flat("partsLossHeld").length ? [...new Set(flat("partsLossHeld"))] : undefined,
               // NOT A SUM OF THE RUNGS — see the intersection above. What the
               // protection held AND the publication still shows.
               photosKept: picsKept,

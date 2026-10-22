@@ -380,6 +380,10 @@ test("a page step and then a picture step in one message: BOTH components reach 
       // photograph that lives in `card-b`. Each touches a different component.
       [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: HOME_EDITED }], parts: [{ name: "card-a", source: A_NEW }] },
       [PICTURE_TOOL.name]: { pictures: [{ page: "-parts/card-b.tsx", alt: "the weir", focus: "top" }] },
+      // THE COMPONENT'S OWN CHECK (audit A21-2, 2026-10-22): a rewritten
+      // component's lost or changed words go to the keep judge, which reads
+      // the message. Answered as a reading judge would.
+      keep_check: { answers: [{ n: 1, asked: true, quote: "hours to six" }] },
     }, async (calls) => {
       const { body, said } = await edit(slug, "hours to six, and show the top of the weir photograph", { store, layer: "look" });
       assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
@@ -688,6 +692,10 @@ test("CONTROL: with the store readable, one changed component leaves the other e
     await withWire({
       [TWEAK_TOOL.name]: { cannot: "that needs the component rewritten" },
       [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: HOME }], parts: [{ name: "card-a", source: A_NEW }] },
+      // THE COMPONENT'S OWN CHECK (audit A21-2, 2026-10-22): a rewritten
+      // component's lost or changed words go to the keep judge, which reads
+      // the message. Answered as a reading judge would.
+      keep_check: { answers: [{ n: 1, asked: true, quote: "change the opening hours to six" }] },
     }, async () => {
       const { body, said } = await edit(slug, "change the opening hours to six", { store });
       assert.equal(body && body.ok, true, "the control edit did not go through: " + JSON.stringify(body));

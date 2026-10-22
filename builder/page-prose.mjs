@@ -290,7 +290,9 @@ export function proseInventory(source, parse) {
     // Braced literal words are prose; arbitrary computations are not guessed.
     if (k(node) === "StringLiteral" && k(node.parent) === "JsxExpression") text = space(node.text);
     if (text) {
-      const atom = { text, block, heading, role, context: context(node) };
+      // `at` is where the words sit in the source, so a reader can say which
+      // heading they sat under (`headingAt`); nothing here compares it.
+      const atom = { text, block, heading, role, context: context(node), at: node.getStart() };
       // Words written between a component's tags go with the link on that tag.
       if (k(node) === "JsxText" && node.parent?.openingElement) atom.group = node.parent.openingElement;
       atoms.push(atom); block.atoms.push(atom);
@@ -299,7 +301,7 @@ export function proseInventory(source, parse) {
       // WORDS AND LINKS CARRIED IN PROPS AND DATA (2026-10-22, audit A21-1).
       const c = carried(node, k, tagOf);
       if (c) {
-        const atom = { text: c.text, block, heading: false, role: c.role, context: context(node), group: c.group };
+        const atom = { text: c.text, block, heading: false, role: c.role, context: context(node), group: c.group, at: node.getStart() };
         if (c.role === "link") { atom.with = c.with; atom.shown = "the link to " + c.text + (c.with ? " (" + c.with + ")" : ""); }
         atoms.push(atom); block.atoms.push(atom);
       }

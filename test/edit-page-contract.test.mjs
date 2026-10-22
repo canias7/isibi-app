@@ -981,6 +981,10 @@ async function doesNotPublish(slug, tweakSource, home = HOME_BEFORE, absent = []
         pages: [{ path: "src/routes/index.tsx", source: fixedPage }],
         parts: [{ name: "day-space-lookup", source: LOOKUP_AFTER }],
       },
+      // THE COMPONENT'S OWN CHECK (audit A21-2, 2026-10-22): the corrected
+      // component rewords the box the request is about (one line changed, the
+      // empty-state line replaced), so a reading judge answers both asked.
+      keep_check: { answers: [1, 2].map((n) => ({ n, asked: true, quote: "The \"Space on a preferred day\" box counts bookings. Make it count down the places left instead" })) },
     }, async (calls) => {
       const { body } = await edit(slug, ASK, { store });
       assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
