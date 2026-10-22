@@ -143,7 +143,8 @@ import { drainTeardown } from "./site-teardown.mjs";
 import { drainRebuild, BATCH as REBUILD_BATCH, BUSY_DEFER_SEC as REBUILD_BUSY_SEC, REBUILD_OP, REBUILD_START_DELAY_S, rebuildIdem } from "./site-rebuild.mjs";
 // The litter under `jobs/` (stage 9): what the unhappy paths leave behind.
 import { sweepJobObjects } from "./builder/job-retention.mjs";
-import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, sqlRehearse, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite, projectNameForSite, findSiteProjects, siteProjectDetails } from "./site-db.mjs";
+import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, sqlRehearse, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite, projectNameForSite, findSiteProjects, siteProjectDetails, createRehearsalBranch, rehearsalConn, deleteRehearsalBranch, staleRehearsalBranches } from "./site-db.mjs";
+import { rehearseHeldSchema, heldFromRehearsal } from "./builder/addon-rehearse.mjs";
 import { applySiteSchema, loadSiteSchema, readSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields, auditTier, withJobDeps, storedJobFns } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
@@ -13813,6 +13814,13 @@ async function siteIsLive(env, slug) {
   try { return !!(await readPointer(buildDeps(env), slug)); } catch { return true; }
 }
 
+/** The network steps of a held schema's rehearsal on a Neon branch (`builder/addon-rehearse.mjs`). */
+const REHEARSE_DEPS = {
+  project: (env, slug) => siteNeonProject(env, slug),
+  create: createRehearsalBranch, connFor: rehearsalConn, del: deleteRehearsalBranch, stale: staleRehearsalBranches,
+  apply: (conn, spec) => applySiteSchema(conn, spec),
+};
+
 /** What `applySiteSchema` would have answered, for a schema held instead: every declared table, named. */
 function heldMade(spec) {
   const made = ((spec && spec.tables) || []).map((t) => t && String(t.name || "")).filter(Boolean);
@@ -13827,7 +13835,7 @@ function heldMade(spec) {
  * starter rows and row changes are held in `hold`; jobs are held whenever
  * draft-first is on. `holding` says which.
  */
-async function backendWriter(env, slug) {
+async function backendWriter(env, slug, { rehearse = null } = {}) {
   const on = draftFirst(env);
   const live = on ? await siteIsLive(env, slug) : false;
   const hold = on ? newHold(buildDeps(env), slug) : null;
@@ -13835,7 +13843,20 @@ async function backendWriter(env, slug) {
   const w = {
     on, holding, hold,
     async schema(conn, schemaSpec) {
-      if (holding) { hold.add({ kind: "schema", spec: schemaSpec }); return heldMade(schemaSpec); }
+      if (holding) {
+        // TRIED ON A COPY FIRST (2026-10-22, decide-3a, audit A04-3): only the
+        // add-on asks (`rehearse`); off, or when the copy cannot be made, the
+        // hold is exactly as before. A refusal of the whole apply throws here,
+        // before anything is held, as the live apply's would.
+        let r = null;
+        if (rehearse) {
+          r = await rehearseHeldSchema({ env, slug, conn, spec: schemaSpec, deps: REHEARSE_DEPS });
+          if (typeof rehearse.mark === "function") rehearse.mark(r);
+        }
+        const kept = heldFromRehearsal(schemaSpec, heldMade(schemaSpec), r);
+        hold.add({ kind: "schema", spec: kept.spec });
+        return kept.made;
+      }
       return applySiteSchema(conn, schemaSpec);
     },
     async jobs(uid, jobs) {
@@ -40502,7 +40523,12 @@ async function handleRequest(request, env, ctx) {
             // schema, jobs, starter rows and entries are HELD in the draft and
             // ride its revision; the stored schema it designs against is the
             // draft's. A draft that cannot be read stops the step.
-            const aWriter = await backendWriter(env, ownerSlug);
+            // THE HELD SCHEMA IS TRIED ON A COPY (decide-3a): its time and
+            // outcome are the trace's `dryrun` mark.
+            const aWriter = await backendWriter(env, ownerSlug, { rehearse: { mark: (r) => aMark("dryrun", r.ran ? (r.refused ? "refused" : "ok") : "skipped", {
+              ...(r.why ? { why: r.why } : {}), ms: Number.isFinite(r.ms) ? r.ms : null, deleted: r.deleted === true,
+              ...(r.swept ? { swept: r.swept } : {}),
+              ...(r.made ? { functionErrors: r.made.functionErrors.length, refusedRules: r.made.refusedRules.length } : {}) }) } });
             // THIS TASK'S BACKEND WRITES GO THROUGH ITS WRITER: the names below
             // are the writer's, with the same arguments.
             const { applySiteSchema, seedSiteRows, persistSiteJobs } = aWriter.calls;

@@ -1056,6 +1056,10 @@ export const JOB_ENV_NAMES = [
   // would publish live while the Worker read the switch on. Off unless the
   // deploy delivers `on` (deploy.yml falls back to `off`).
   "DRAFT_FIRST",
+  // THE HELD-SCHEMA REHEARSAL SWITCH (2026-10-22, decide-3a): an add-on in the
+  // container tries its held schema on a Neon branch (it already holds
+  // NEON_API_KEY, as provisioning does) only as the Worker would.
+  "ADDON_DRY_RUN",
   // THE BUILD'S PARALLEL DOORS (2026-10-14, after run 117). Since 2026-09-14
   // (`JOB_RUNNER_EVERYONE` on) a first build runs inside the container, and
   // the design split, the design graph and the page bands are each asked

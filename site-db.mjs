@@ -799,3 +799,61 @@ export async function sqlExec(conn, sql, params) {
     changes: command === "SELECT" ? 0 : (typeof r.rowCount === "number" ? r.rowCount : null),
   };
 }
+
+// ------------------------------------------------- rehearsal branches (A04-3)
+//
+// A HELD SCHEMA TRIED ON A COPY (2026-10-22, decide-3a, the owner's option A).
+// A Neon branch is a copy-on-write copy of the site's project; an add-on whose
+// database changes are held in the draft applies them to such a branch first
+// (`builder/addon-rehearse.mjs`), reads what it accepted, and deletes it. The
+// name carries the prefix and the time it was made, so a branch whose delete
+// never landed is found and removed by the next rehearsal on the same project
+// (`staleRehearsalBranches`, bounded).
+export const REHEARSAL_PREFIX = "rehearse-";
+export const REHEARSAL_STALE_MS = 15 * 60 * 1000;
+
+function projectIdOf(id) {
+  const s = String(id || "");
+  if (!/^[A-Za-z0-9_-]+$/.test(s)) throw new Error("not a Neon project id: " + s.slice(0, 40));
+  return s;
+}
+
+/** Make a short-lived branch (with its own read-write compute) off `parentId`. Answers `{ branchId }` once Neon's operations settle; a throw after the create carries `branchId`. */
+export async function createRehearsalBranch(env, projectId, parentId, now = Date.now()) {
+  const id = projectIdOf(projectId);
+  const branch = { name: REHEARSAL_PREFIX + now };
+  if (parentId) branch.parent_id = String(parentId);
+  const d = await neonApi(env, `/projects/${id}/branches`, { method: "POST", body: JSON.stringify({ branch, endpoints: [{ type: "read_write" }] }) });
+  const branchId = d && d.branch && d.branch.id ? String(d.branch.id) : "";
+  if (!branchId) throw Object.assign(new Error("neon branch: unexpected response"), { detail: scrubSecrets(JSON.stringify(d)).slice(0, 200) });
+  try { await waitForProject(env, id); }
+  catch (e) { throw Object.assign(e instanceof Error ? e : new Error(String(e)), { branchId }); }
+  return { branchId };
+}
+
+/** The branch's connection string for one database and role (never logged: it carries a password). */
+export async function rehearsalConn(env, projectId, branchId, dbName, roleName) {
+  const id = projectIdOf(projectId);
+  const q = new URLSearchParams({ branch_id: String(branchId), database_name: String(dbName), role_name: String(roleName) });
+  const u = await neonApi(env, `/projects/${id}/connection_uri?` + q.toString());
+  if (!u || typeof u.uri !== "string" || !u.uri) throw new Error("neon connection uri: unexpected response");
+  return u.uri;
+}
+
+/** Delete a rehearsal branch. A 404 is already gone. */
+export async function deleteRehearsalBranch(env, projectId, branchId) {
+  const id = projectIdOf(projectId);
+  try { await neonApi(env, `/projects/${id}/branches/${encodeURIComponent(String(branchId))}`, { method: "DELETE" }); }
+  catch (e) { if (e && e.status === 404) return; throw e; }
+}
+
+/** Rehearsal branches on the project older than the stale window (never the default branch), at most `limit`. */
+export async function staleRehearsalBranches(env, projectId, now = Date.now(), limit = 3) {
+  const id = projectIdOf(projectId);
+  const b = await neonApi(env, `/projects/${id}/branches`);
+  const list = b && Array.isArray(b.branches) ? b.branches : [];
+  return list.filter((x) => {
+    const m = x && typeof x.name === "string" ? /^rehearse-(\d{10,})$/.exec(x.name) : null;
+    return !!m && x.default !== true && x.primary !== true && now - Number(m[1]) > REHEARSAL_STALE_MS;
+  }).slice(0, limit).map((x) => String(x.id));
+}
