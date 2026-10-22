@@ -20,7 +20,7 @@
 // WHAT IT DELIBERATELY DOES NOT TOUCH: DATABASE ROWS. A café's menu lives in
 // Postgres, not in the page, so the dishes stay in the owner's own words. That
 // limit is real and is stated to the customer rather than discovered by them.
-import { extractText, applyEdits } from "./site-text.mjs";
+import { extractText, applyEdit } from "./site-text.mjs";
 import { pageForLang } from "./site-langs.mjs";
 
 /** The most strings one call will carry. */
@@ -145,11 +145,68 @@ export function nextCache(cache, strings, fresh) {
   const have = cache && typeof cache === "object" ? cache : {};
   const out = {};
   for (const s of Array.isArray(strings) ? strings : []) {
-    if (fresh === null) { if (typeof have[s] === "string") out[s] = have[s]; continue; }
+    // A TRANSLATION THAT CANNOT BE WRITTEN INTO A PAGE IS NEVER CACHED
+    // (2026-10-22, audit A32-1). Cached, it read as known on every later
+    // publish, nothing was asked again, and the language stayed behind until
+    // the English changed. Left out, the next publish asks for it again. The
+    // stored form is the one `usableTranslation` writes, so a cache holding
+    // a plain apostrophe from before this heals as it is rewritten.
+    if (fresh === null) { const k = typeof have[s] === "string" ? usableTranslation(s, have[s]) : null; if (k !== null) out[s] = k; continue; }
     const got = fresh && typeof fresh[s] === "string" ? fresh[s] : have[s];
-    out[s] = typeof got === "string" ? got : s;
+    if (typeof got !== "string") { out[s] = s; continue; }
+    const k = usableTranslation(s, got);
+    if (k !== null) out[s] = k;
   }
   return out;
+}
+
+/**
+ * A translation in the form it can be written into a page, or null when it
+ * cannot be (2026-10-22, audit A32-1).
+ *
+ * THE PAGE WRITER REFUSES QUOTES, BRACES, ANGLE BRACKETS AND BACKSLASHES, and
+ * anything over 400 characters, because a string in TSX sits in one of three
+ * places (JSX text, a quoted attribute, a JavaScript string) and each breaks on
+ * a different character. French and Spanish answer with apostrophes and quotes
+ * all the time ("L'equipe"), and one of them used to refuse the whole language.
+ *
+ * SO STRAIGHT QUOTES BECOME TYPOGRAPHIC ONES, which mean nothing in any of the
+ * three places and are the correct marks in every language we offer; line
+ * breaks become spaces. What is still unsafe after that (a brace, an angle
+ * bracket, a backtick, a backslash) or is too long is refused for THIS string
+ * only: it keeps the original wording, and the rest of the language is written.
+ * An answer identical to the original is kept as it is.
+ */
+export const MAX_TRANSLATION = 400;
+export function usableTranslation(from, to) {
+  if (typeof to !== "string") return null;
+  if (to === from) return to;
+  let open = true;
+  const t = to
+    .replace(/[\r\n\u2028\u2029]+/g, " ")
+    .replace(/'/g, "\u2019")
+    .replace(/"/g, () => { const q = open ? "\u201C" : "\u201D"; open = !open; return q; });
+  if (!t.trim() || t.length > MAX_TRANSLATION) return null;
+  if (/[`{}<>\\]/.test(t)) return null;
+  return t;
+}
+
+/**
+ * The sentence the customer reads about a language that is behind, or "".
+ *
+ * Built from each language's own outcome (`ok`, `kept`), never from the
+ * request: a language whose translation could not be used says so, and so does
+ * one where some phrases stayed in the original wording.
+ */
+export function langNote(outcomes) {
+  const out = [];
+  for (const o of Array.isArray(outcomes) ? outcomes : []) {
+    if (!o || typeof o.tag !== "string") continue;
+    const kept = Number(o.kept) || 0;
+    if (o.ok === false) out.push("The " + o.tag + " pages could not be translated this time, so they show your original wording for now; I'll try again on your next change.");
+    else if (kept > 0) out.push(kept + (kept === 1 ? " phrase" : " phrases") + " on the " + o.tag + " pages could not be translated safely and show your original wording for now.");
+  }
+  return out.join(" ");
 }
 
 /**
@@ -177,7 +234,15 @@ export function untranslated(cache) {
  */
 export function translatePages(pages, prefix, strings, translations, { routes = [] } = {}) {
   const map = new Map();
-  strings.forEach((s, i) => { if (translations[i] && translations[i] !== s) map.set(s, translations[i]); });
+  // STRINGS WHOSE TRANSLATION COULD NOT BE WRITTEN: each keeps its original
+  // wording and is named, and the rest of the language is still written.
+  const refused = new Set();
+  strings.forEach((s, i) => {
+    const tr = translations[i];
+    if (!tr || tr === s) return;
+    const k = usableTranslation(s, tr);
+    if (k === null) refused.add(s); else if (k !== s) map.set(s, k);
+  });
   const list = (Array.isArray(pages) ? pages : []).map((p) => ({ path: (p && p.path) || "", source: String((p && p.source) || "") }));
   const edits = [];
   for (const p of list) {
@@ -186,18 +251,27 @@ export function translatePages(pages, prefix, strings, translations, { routes = 
       if (to) edits.push({ path: p.path, at: t.at, from: t.text, to });
     }
   }
-  // ONE BATCH OVER EVERY PAGE, which is `applyEdits`' own contract: it sorts
-  // back to front so no edit moves another, and REFUSES the whole batch rather
-  // than half-applying it. That refusal is kept rather than worked around — a
-  // site published in a mixture of two languages is worse than one published in
-  // the language it was written in.
-  const done = edits.length ? applyEdits(list, edits) : { ok: true, pages: list, applied: 0 };
-  const sources = new Map((done.ok ? done.pages : list).map((p) => [p.path, p.source]));
+  // ONE EDIT AT A TIME, BACK TO FRONT, and a refused edit costs only its own
+  // string (2026-10-22, audit A32-1). `applyEdits` refuses a whole batch for
+  // one bad edit, which is right for the text editor, where the owner typed
+  // every change, and wrong here: one apostrophe published the whole language
+  // in the primary wording, paid for and reported as done.
+  const draft = new Map(list.map((p) => [p.path, { path: p.path, source: p.source }]));
+  let applied = 0;
+  let error = null;
+  for (const e of edits.slice().sort((a, b) => b.at - a.at)) {
+    const page = draft.get(e.path);
+    const r = applyEdit(page.source, e);
+    if (!r.ok) { refused.add(e.from); error = error || r.error; continue; }
+    page.source = r.source;
+    applied++;
+  }
   const out = [];
   for (const p of Array.isArray(pages) ? pages : []) {
-    const source = sources.get((p && p.path) || "") ?? String((p && p.source) || "");
+    const d = draft.get((p && p.path) || "");
+    const source = d ? d.source : String((p && p.source) || "");
     const page = pageForLang({ ...p, source }, prefix, routes);
     if (page) out.push(page);
   }
-  return { pages: out, applied: done.ok ? done.applied : 0, failed: !done.ok, error: done.ok ? null : done.error };
+  return { pages: out, applied, failed: refused.size > 0, refused: [...refused], error };
 }

@@ -237,7 +237,7 @@ const DISPLAY_PAIR = ACCESS_PRESETS.display;
 import { model3dPrice, model3dStart, model3dPoll } from "./builder/model3d-route.mjs";
 import { addonFailure, mergeAddonPages, mergeAddonSchema, unlinkedPages, keptPartsNote, unseenPartsNote, unseenPagesNote, routeOf, orderingMoved, settleReverted, problemsShipped } from "./builder/site-addon.mjs";
 import { resolveLangs } from "./builder/site-langs.mjs";
-import { collectStrings, missingFrom, nextCache, untranslated, translatePages, readTranslation, TRANSLATE_TOOL } from "./builder/site-translate.mjs";
+import { collectStrings, missingFrom, nextCache, untranslated, translatePages, readTranslation, TRANSLATE_TOOL, usableTranslation, langNote } from "./builder/site-translate.mjs";
 import { listVersions, rollbackVersion, deleteAllVersions, versionLabel } from "./site-versions.mjs";
 // IMMUTABLE PUBLISHING (stage 7, 2026-09-05): every publish is staged under its
 // own prefix and made live by moving one pointer. `archiveVersion` and
@@ -17074,11 +17074,20 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // strictly better than losing the edit the customer actually asked for.
     if (got.ok) missing.forEach((sTxt, i) => { fresh[sTxt] = got.strings[i]; });
     else { failed = true; console.error("translate failed", slug, l.tag, got.why || got.error); }
-    const outcome = got.ok
-      ? { tag: l.tag, missing: missing.length, ok: true }
-      : { tag: l.tag, missing: missing.length, ok: false, why: String(got.why || "call"), error: String(got.error || "").slice(0, 300) };
-    tm("translate:" + l.tag, got.ok ? "ok" : "fail", outcome);
-    return { l, had, have, fresh, failed, usage: got.usage || null, outcome };
+    // A STRING WHOSE TRANSLATION CANNOT BE WRITTEN INTO A PAGE keeps its
+    // original wording and is not cached (`nextCache`), and an answer with
+    // nothing usable in it is a failed round, not billed (2026-10-22, audit
+    // A32-1: one apostrophe used to lose the language, cached and charged).
+    const kept = got.ok ? missing.filter((sTxt, i) => usableTranslation(sTxt, got.strings[i]) === null).length : 0;
+    const unusable = got.ok && kept === missing.length;
+    if (unusable) failed = true;
+    const outcome = got.ok && !unusable
+      ? { tag: l.tag, missing: missing.length, ok: true, ...(kept ? { kept } : {}) }
+      : { tag: l.tag, missing: missing.length, ok: false, why: unusable ? "unusable" : String(got.why || "call"), error: unusable ? "no translation could be written into the pages" : String(got.error || "").slice(0, 300) };
+    tm("translate:" + l.tag, outcome.ok ? "ok" : "fail", outcome);
+    // ONLY A ROUND THAT TRANSLATED SOMETHING IS CHARGED: a refused or unusable
+    // answer bought the customer nothing.
+    return { l, had, have, fresh, failed, usage: outcome.ok ? (got.usage || null) : null, outcome };
   }));
   for (const r of rounds) {
     if (r.usage) langUsage.push(r.usage);
@@ -17859,7 +17868,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     if (!r || typeof r !== "object" || r.applied !== false) continue;
     lookSoft.push({ what, notes: (Array.isArray(r.notes) ? r.notes : []).slice(0, 2).map((x) => String(x).slice(0, 160)) });
   }
-  return { ok: true, files: wrote, look, render, renderNote: renderNote(built.render) || undefined,
+  return { ok: true, files: wrote, look, render, renderNote: [renderNote(built.render), langNote(langOutcomes)].filter(Boolean).join(" ") || undefined,
     // WHICH VERSION WENT LIVE (stage 7): the prefix the site now serves, and
     // what a reconcile compares against the pointer and `x-site-version`.
     version,
@@ -18714,7 +18723,11 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         let failed = false;
         if (got.ok) missing.forEach((sTxt, i) => { fresh[sTxt] = got.strings[i]; });
         else { failed = true; console.error("translate failed", slug, l.tag, got.why || got.error); }
-        return { l, had, have, fresh, failed, usage: got.usage || null };
+        // THE SPINE'S RULE (audit A32-1): an answer with nothing usable is a
+        // failed round and is not billed; an unusable string is not cached.
+        const usable = got.ok && missing.some((sTxt, i) => usableTranslation(sTxt, got.strings[i]) !== null);
+        if (got.ok && !usable) failed = true;
+        return { l, had, have, fresh, failed, usage: usable ? (got.usage || null) : null };
       }));
       for (const r of bRounds) {
         if (r.usage) langUsage.push(r.usage);

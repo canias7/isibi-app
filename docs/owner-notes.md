@@ -1,5 +1,19 @@
 # Owner Notes
 
+## 2026-10-22 — Audit finding 57 (A32-1): one apostrophe no longer loses a whole language (not merged, not deployed)
+
+- It was real: if a translation contained an apostrophe or a quote (French
+  "L'équipe"), or a phrase came back too long, the whole second language was
+  published in English. You were charged for the translation, and the bad
+  result was remembered, so it was never asked for again.
+- Now straight quotes become proper typographic ones, which can't break the
+  page. A phrase that still can't be placed keeps its original wording, and the
+  rest of the language is translated. Nothing unusable is remembered, so the
+  next change asks again. A translation that produced nothing usable is not
+  charged. The reply tells the customer when a language couldn't be made this
+  time (first-build replies don't say it yet; recorded with A32-4).
+- Branch `audit-57`. Record: `docs/history/2026-10-22-audit-57.md`.
+
 ## 2026-10-22 — Ideas #10 and #14, combined with the day's work (not deployed)
 
 - #10, the visual review: after a first build's render check, the build's own
