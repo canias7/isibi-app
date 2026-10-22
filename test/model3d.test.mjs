@@ -408,8 +408,9 @@ test("poll: a page that cannot take it keeps the model (made and charged) and sa
 test("the Worker: /model3d is an owner route — dispatched in the owner block and gated by assertOwner before any work", () => {
   const w = read("worker.js");
   assert.match(w, /const m3d = url\.pathname\.match\(\/\^\\\/api\\\/site\\\/\(\[a-z0-9\]\[a-z0-9-\]\{0,80\}\)\\\/model3d\$\/i\);/);
-  assert.match(w, /\|\| sq \|\| qu \|\| m3d\) \{/);
-  assert.match(w, /\|\| sq \|\| qu \|\| m3d\)\[1\]\.toLowerCase\(\)/);
+  // RE-ANCHORED 2026-10-22 (combine): the security route `sc` sits beside it.
+  assert.match(w, /\|\| sq \|\| (?:sc \|\| )?qu \|\| m3d\) \{/);
+  assert.match(w, /\|\| sq \|\| (?:sc \|\| )?qu \|\| m3d\)\[1\]\.toLowerCase\(\)/);
   const at = w.indexOf("if (m3d) {");
   assert.ok(at > 0);
   const body = w.slice(at, w.indexOf("if (qu) {", at));
