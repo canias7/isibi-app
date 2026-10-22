@@ -1,5 +1,10 @@
 # Owner Notes
 
+
+## 2026-10-22 — An add-on no longer throws everything away when one piece fails
+
+In the big test, one bad piece (a weekly job pointing at a counting function that didn't exist) made the builder drop all 23 asks. Now a piece that fails its check is left out and named in the reply ("Left out one job…" with the reason), and everything else is built. If every piece fails, you get the same refusal as before, free. Every piece is still checked before anything goes on the site, which is what you asked for on 13 September; the "all or nothing" was the code's own reading of that, not your words, and the audit note now says so. Only the server (`worker.js`) changed. Tests: two new ones (one fails on the old code), nine older ones updated to the new rule, a sweep of 4 deliberate breaks all caught, full suite 11,939 / 11,937 / 0 / 2. Record: `docs/history/2026-10-22-addon-partial.md`.
+
 ## 2026-10-22 — Audit finding 53: the spam check can no longer be skipped by sending a list (not merged, not deployed)
 
 - **It was real.** On a form with the spam check (Turnstile) switched on, a bot could wrap its submission in a list, or send it as plain text instead of JSON, and the check was skipped entirely. A list of 500 spam entries landed as 500 rows from one request. I checked this on today's code before changing anything.

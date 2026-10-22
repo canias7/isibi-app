@@ -20,4 +20,6 @@ A kind that depends on a refused one is judged by its own cleaner (a job whose f
 - Re-anchored to the new rule (they asserted the whole refusal): JUDGE 16 needed no change after the block moved before the final judgment; REFUSE 6 and WIRE 1 (`addon-refusal-warnings`); the component, QR and photo "route nobody is adding" cases and the one-time job case (`addon-route`), which now assert the other kind lands and the refused one is named.
 - Red check: PARTIAL 1 fails on the old `worker.js`, passes on the new; PARTIAL 2 passes on both (control).
 - Sweep: 4 of 4 mutants killed (no name, whole refusal restored, no all-refused answer, no refused record); the comment-only control survived.
-- Add-on files: 743 / 741 → 743 / 743 after the re-anchors.
+- Add-on files: 743 / 741 → 743 / 743 after the re-anchors. The full suite then found three more landmark or behaviour cases (`site-add` THE ROUTE RUNS THE ADD STEP, `requirement-coverage` HOPS 3, 5, 6, 7 and 8 (two landmarks), `mixed-work` WORKS (ALL OR NOTHING), renamed ONE REFUSED, THE REST LAND); re-anchored. `draft-blocked-card` SB1 failed once and passed on rerun (unrelated, timing).
+- Full suite: `11939 / 11937 / 0 / 2` locally.
+- "All or nothing" was never the owner's words: it was the code's reading of 2026-09-13's *"Validate model-authored properties before apply"*, recorded by the 2026-10-03 audit as the owner's rule. Corrected there.

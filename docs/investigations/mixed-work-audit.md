@@ -331,8 +331,8 @@ and the balance, and the customer-visible reply word for word.
     parts may spend without a second press, the failure policy (B proposed:
     stop only what depends on a failure), and one reply per part or a
     summary.
-- **An addition with one refused part**: keep all-or-nothing (your
-  2026-09-13 rule) or apply the independent parts and name the refused one.
+- **An addition with one refused part** (DECIDED 2026-10-22: the independent parts land and the refused one is named; `docs/history/2026-10-22-addon-partial.md`. All-or-nothing was the code's reading of the owner's 2026-09-13 "validate before apply", not the owner's own rule): keep all-or-nothing (the code's
+  2026-09-13 reading) or apply the independent parts and name the refused one.
 - **Running steps at the same time**: keep "in turn" (your decision), or a
   redesign of the step loop and the publish, only on your word.
 - **The per-kind addition ceilings** (§2): kept and named; raising or
