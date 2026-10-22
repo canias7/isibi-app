@@ -5401,11 +5401,30 @@ function sitePreviewSrc(site, path) {
 // reading (`GET /api/site/<slug>/draft`) when draft-first is on, the draft is
 // ahead of live, and its preview address is the platform's draft host. Never
 // a guess: no reading, or one that cannot tell, is the live site.
+//
+// AND ONLY ONCE THAT PREVIEW HAS BEEN READ READY (audit A07-5, 2026-10-22): a
+// first change under draft-first (a price edit on a site with no draft yet)
+// names a draft host before any preview script exists there, and the host
+// answered "Not found" in the frame. Until the server reads this draft host's
+// preview ready at least once, the frame stays on the live site and the bar
+// says the preview is being prepared (`siteDraftWaiting`). Once ready, a later
+// change keeps the frame on the draft host while it updates: the host then
+// serves the earlier draft, never nothing.
 const SITE_DRAFT_HOST = /^https:\/\/[a-z0-9-]+--draft-[0-9a-f]{12}\.[a-z0-9.-]+\/$/;
+// (Self-contained, so the pieces of this file the tests run stand alone.)
 function siteDraftFrame(site) {
   const d = site && site.slug && typeof siteDraftState === 'object' ? siteDraftState[site.slug] : null;
   if (!d || d.enabled !== true || d.unpublished !== true || typeof d.preview !== 'string' || !SITE_DRAFT_HOST.test(d.preview)) return null;
-  return d;
+  const seen = siteDraftFrame.seen || (siteDraftFrame.seen = new Set());
+  // READY AS `siteDraftPreviewState` reads it: `previewState`, or a server's older `previewReady`.
+  if (d.previewState === 'ready' || (d.previewState === undefined && d.previewReady === true)) seen.add(d.preview);
+  return seen.has(d.preview) ? d : null;
+}
+/** The draft ahead of live whose preview has not yet been ready: the frame shows live meanwhile. */
+function siteDraftWaiting(site) {
+  const d = site && site.slug && typeof siteDraftState === 'object' ? siteDraftState[site.slug] : null;
+  if (!d || d.enabled !== true || d.unpublished !== true || typeof d.preview !== 'string' || !SITE_DRAFT_HOST.test(d.preview)) return null;
+  return siteDraftFrame(site) ? null : d;
 }
 // ── ONE PREVIEW MOVE FOR WORK THAT FINISHES TOGETHER (2026-10-07) ───────────
 //
@@ -6213,7 +6232,8 @@ function cardThumbDraft(fr, slug) {
   apiFetch('/api/site/' + encodeURIComponent(slug) + '/draft').then((r) => r.json().catch(() => null)).then((d) => {
     // THE FRAME'S OWN RULE (`siteDraftFrame`): the draft is ahead and its
     // preview is on the platform's draft host.
-    const u = d && d.ok && d.enabled === true && d.unpublished === true && typeof d.preview === 'string' && SITE_DRAFT_HOST.test(d.preview) ? d.preview : '';
+    // (and only once its preview has been read ready: audit A07-5).
+    const u = d && d.ok && d.enabled === true && d.unpublished === true && typeof d.preview === 'string' && SITE_DRAFT_HOST.test(d.preview) && (siteDraftPreviewState(d) === 'ready' || (siteDraftFrame.seen && siteDraftFrame.seen.has(d.preview))) ? d.preview : '';
     cardThumbSeen.set(slug, u);
     put(u);
   }).catch(() => {});
@@ -8797,7 +8817,12 @@ function renderSiteWorkspace(view, site) {
   // ready (`previewReady`).
   const draftShown = siteDraftFrame(site);
   const pvState = draftShown ? siteDraftPreviewState(draftShown) : 'ready';
-  const previewUrl = draftShown ? 'Draft preview \u00b7 not published' + (pvState === 'pending' ? ' \u00b7 updating\u2026' : pvState === 'failed' ? ' \u00b7 couldn\u2019t update the preview yet' : pvState === 'unknown' ? ' \u00b7 checking\u2026' : '') : siteChipUrl(site, active && active.path);
+  // NOT READY YET (audit A07-5): the frame shows the live site, and says so.
+  const draftWaiting = draftShown ? null : siteDraftWaiting(site);
+  const waitState = draftWaiting ? siteDraftPreviewState(draftWaiting) : '';
+  const previewUrl = draftShown ? 'Draft preview \u00b7 not published' + (pvState === 'pending' ? ' \u00b7 updating\u2026' : pvState === 'failed' ? ' \u00b7 couldn\u2019t update the preview yet' : pvState === 'unknown' ? ' \u00b7 checking\u2026' : '')
+    : draftWaiting ? 'Live site \u00b7 ' + (waitState === 'failed' ? 'couldn\u2019t prepare your preview yet' : 'preparing your preview\u2026')
+    : siteChipUrl(site, active && active.path);
   const picker = pages.length > 1
     ? '<div class="st-pagepick"><button type="button" class="st-pagebtn" id="stPageBtn">' + esc(active ? active.name : 'Home') + ' <span class="st-cv">▾</span></button>' +
         '<div class="st-pagemenu" id="stPageMenu" hidden>' + pages.map((p) =>
