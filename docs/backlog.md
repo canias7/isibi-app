@@ -3120,3 +3120,19 @@ product.)*
 ## Old container images fill the account's 50 GB (2026-10-20)
 
 Cloudflare keeps every pushed container image, and an account holds 50 GB in total. The app builder's image is 3.65 GB, so about a dozen versions would fill the account alongside the website image. Delete old app-builder and site-builder image versions from the registry, by hand or in the deploy's image step, keeping the live one and the one before it.
+
+## More payment providers (owner, 2026-10-22: "note this for later")
+
+Only Stripe is supported for site checkout. An owner can store any secret, but
+each provider needs its own fixed server code (open a checkout with the owner's
+key, verify the provider's "paid" message, mark the order paid); payments are
+not model-written. PayPal is the usual next one. Not started.
+
+## Paid orders don't record what was bought (audit A12-3, finding 27; owner, 2026-10-22: "leave 27 noted")
+
+A checkout order saves the total, the customer's fields and "paid", but not
+the items (they go only to Stripe). No stock check (4 sold with 3 left), no
+delivery charge (page shows +£3.95, Stripe charges without it). Fix when
+picked up: save the server-priced lines on the order; optionally lower stock
+on paid and make delivery a real charged line. Full entry in
+docs/audits/2026-10-17-builder-audit.md (A12-3).
