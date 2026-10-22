@@ -211,7 +211,9 @@ export function proseInventory(source, parse) {
     // Braced literal words are prose; arbitrary computations are not guessed.
     if (k(node) === "StringLiteral" && k(node.parent) === "JsxExpression") text = space(node.text);
     if (text) {
-      const atom = { text, block, heading, role, context: context(node) };
+      // `at` is where the words sit in the source, so a reader can say which
+      // heading they sat under (`headingAt`); nothing here compares it.
+      const atom = { text, block, heading, role, context: context(node), at: node.getStart() };
       atoms.push(atom); block.atoms.push(atom);
       if (heading) named(block, name(text));
     }

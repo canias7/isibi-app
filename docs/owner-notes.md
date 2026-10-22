@@ -1,5 +1,15 @@
 # Owner Notes
 
+## 2026-10-22 — Audit finding 39: a page edit can no longer quietly rewrite the site's own sections (A21-2)
+
+- **The problem (checked on today's code, real).** A page edit could send back the site's own section files (the menu card, a map) alongside the page. These files were never checked for lost words or links. One that only another page shows could also be rewritten. Example: "Change the sourdough price on the menu card to £5" could publish the card with two loaves deleted and the Visit page's map reworded, and the reply said "Updated".
+- **Now:**
+  - A section the edited page doesn't show stays exactly as it was.
+  - A section the page does show keeps its words and links, except what your message asks to change. The same small check that already guards pages decides this, item by item.
+  - Any section that would lose something is put back as it was, and the reply names it. The rest of the change still goes through. If nothing else changed, the customer is told so at no charge.
+- The price change alone, and "take the rye off the menu card", still go through.
+- Tests: 8 new; 3 existing cases given the checker's answer; 1 code guard re-anchored. Branch `audit-finding-39`, not merged or deployed, nothing spent. Record: `docs/history/2026-10-22-audit-finding-39.md`.
+
 ## 2026-10-21 — Phase D, Android: the real app downloads as an APK (you: "can u do it like in our platform how a customer will do it")
 
 - The app builder can now build a real Expo app into an Android app (`/expo-android`): the same typecheck, then Expo writes the native project and Gradle builds it offline against libraries the image warms once.

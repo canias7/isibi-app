@@ -109,7 +109,9 @@ test("a changed component is a change, even when the page came back byte-identic
   // back are all US declining to write something. `escalate` is what the
   // browser turns into the ~25-credit rewrite, so answering it there bought
   // a whole-site rewrite to avoid rewriting one component unseen.
-  const held = rung.indexOf("if (wrote && (pKeptParts.length || pUnseenParts.length || pRestored.length))", open);
+  // (2026-10-22, audit A21-2: a component put back as it was joins the list —
+  // `pPartsHeld`, `pPartsLossHeld` — so the head is matched up to the three.)
+  const held = rung.indexOf("if (wrote && (pKeptParts.length || pUnseenParts.length || pRestored.length", open);
   assert.ok(held > open && held < decide,
     "a withheld change escalates again, so the browser buys the full rewrite with no sentence saying why");
   const refusal = rung.slice(held, decide);

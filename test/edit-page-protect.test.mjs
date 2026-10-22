@@ -950,6 +950,10 @@ test("a withheld component is named on the reply AND on the screen when two rung
         pages: [{ path: "src/routes/index.tsx", source: framed.replace("Nine until five.", "Nine until six.") }],
         parts: [{ name: "card-a", source: A_NEW }, { name: "card-b", source: B_NEW }],
       },
+      // THE COMPONENT'S OWN CHECK (audit A21-2, 2026-10-22): a rewritten
+      // component's lost or changed words go to the keep judge, which reads
+      // the message. Answered as a reading judge would.
+      keep_check: { answers: [{ n: 1, asked: true, quote: "rename the hours card" }] },
     }, async (calls) => {
       const { body, said } = await edit(slug, "show the top of the window photograph, rename the hours card and rewrite the address card and change Opening hours to six", { store, layer: "look" });
       assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));

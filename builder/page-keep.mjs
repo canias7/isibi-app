@@ -370,7 +370,7 @@ export function quoteNamesItem(quote, item) {
  */
 export const KEEP_GROUPS = Object.freeze({
   links: Object.freeze(["link-lost", "link-moved"]),
-  sections: Object.freeze(["part-gone", "link-lost"]),
+  sections: Object.freeze(["part-gone", "link-lost", "text-lost"]),
 });
 
 /**
@@ -452,6 +452,15 @@ function describe(it, i) {
   if (it.kind === "link-moved") {
     return n + ". A link that now goes somewhere else — its words “" + it.label + "”, it went to " + it.href +
       " and now goes to " + it.to + under + ".";
+  }
+  // A COMPONENT'S OWN WORDS (audit A21-2, 2026-10-22): only the check of a
+  // rewritten component (`part-keep.mjs`) lists these. A page's text has its
+  // own parsed check (`preservePageProse`) and is never sent here.
+  if (it.kind === "text-lost") {
+    return n + ". Words that are no longer shown — “" + it.label + "”" + under + ".";
+  }
+  if (it.kind === "text-changed") {
+    return n + ". Words that now read differently — “" + it.label + "” now reads “" + it.to + "”" + under + ".";
   }
   if (it.kind === "part-gone") {
     return n + ". One of the site's own sections, no longer on the page — the component “" + it.name + "”" +
@@ -582,7 +591,15 @@ export function readKeep(reply, { message, items }) {
  * neither a loss to refuse nor something kept.
  */
 export async function keepCheck({ message, before, after, does, inPart = false, send, model = KEEP_MODEL }) {
-  const inv = keepInventory(before, after, { does, inPart });
+  return judgeItems({ message, inv: keepInventory(before, after, { does, inPart }), send, model });
+}
+
+/**
+ * THE JUDGE OVER AN INVENTORY ALREADY TAKEN — `keepCheck`'s verdicts, for a
+ * caller whose inventory has more in it than a page's (a component's own
+ * words: `part-keep.mjs`). One judge, one reader, one set of verdicts.
+ */
+export async function judgeItems({ message, inv, send, model = KEEP_MODEL }) {
   if (!inv.items.length) return { verdict: "kept", items: [], unsure: inv.unsure, usage: null };
   let reply = null;
   try {

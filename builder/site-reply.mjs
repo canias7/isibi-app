@@ -886,6 +886,11 @@ function outcomeFacts(F, e) {
   if (kept.length) F.add("not-done", "Left " + listOf(kept) + " alone: too long to show the builder in one go, and rewriting it unseen would risk losing what it does.");
   const unseen = strings(e.unseenParts);
   if (unseen.length) F.add("not-done", "Could not read the site's sections just then, so " + listOf(unseen) + " stayed exactly as before; asking again may work.");
+  // A COMPONENT PUT BACK AS IT WAS (audit A21-2, 2026-10-22).
+  const lossHeld = strings(e.partsLossHeld);
+  if (lossHeld.length) F.add("not-done", "Left " + listOf(lossHeld) + " exactly as before: the rewrite would also have taken words or links off it that were not asked about.");
+  const otherHeld = strings(e.partsHeld);
+  if (otherHeld.length) F.add("not-done", "Left " + listOf(otherHeld) + " exactly as before: it is not part of the page that was asked about.");
   const unsure = strings(e.partsUnsure);
   if (unsure.length) F.add("note", "Could not confirm that " + listOf(unsure) + " is still on the page; worth a look before sharing it.");
   const heldPix = Number(e.photosKept) || 0;
