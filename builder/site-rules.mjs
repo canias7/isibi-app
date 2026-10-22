@@ -449,6 +449,7 @@ export function mergeRules(spec, changes) {
     for (const k of ["read", "write", "confirm", "sms", "webhooks", "unique", "oncePerUser", "noOverlap", "maxRows", "retired"]) {
       if (c[k] === undefined) continue;
       t[k] = c[k];
+      if (Array.isArray(t.cleared)) t.cleared = t.cleared.filter((x) => x !== k);
       fields.push(k);
     }
     // ONE HALF OF THE PAIR MOVES ON ITS OWN, and nothing has to complete it.
@@ -462,6 +463,9 @@ export function mergeRules(spec, changes) {
       if (!CLEARABLE.includes(k)) continue;
       if (t[k] === undefined || t[k] === null) continue;
       t[k] = null;
+      // SAID, NOT IMPLIED (2026-10-22, audit A29-1): null alone reads as "not
+      // mentioned" to the engine, which fills it back from the stored schema.
+      t.cleared = [...new Set([...(Array.isArray(t.cleared) ? t.cleared : []), k])];
       fields.push("cleared " + k);
     }
     if (fields.length) applied.push({ table: t.name, fields });
