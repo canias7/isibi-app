@@ -226,6 +226,7 @@ jobs:
             IMAGE_PURCHASES
             PARALLEL_WRITES
             DRAFT_FIRST
+            ADDON_DRY_RUN
         env:
           DEPLOY_ID: ${{ github.sha }}
           # ── VIDEO AND AUDIO LIMITS (2026-10-16) ───────────────────────────
@@ -486,6 +487,15 @@ jobs:
           # through JOB_ENV_NAMES (builder/edit-job.mjs). OFF BY DEFAULT: every
           # path publishes as before.
           DRAFT_FIRST: ${{ secrets.DRAFT_FIRST || 'on' }}
+          # ── A HELD ADD-ON SCHEMA TRIED ON A COPY (2026-10-22) ─────────────
+          #
+          # With draft-first holding an add-on's database changes, they are
+          # first applied to a short-lived Neon branch of the site's project
+          # and the add-on's answer leaves out what the copy refused
+          # (builder/addon-rehearse.mjs). ON BY DEFAULT; `off` holds as before.
+          # A missing key or a failed branch never blocks the add-on. It
+          # reaches container jobs through JOB_ENV_NAMES.
+          ADDON_DRY_RUN: ${{ secrets.ADDON_DRY_RUN || 'on' }}
           # ── WHO RUNS A QUEUED JOB (2026-09-04) ────────────────────────────
           #
           # The job runner: for the uids and slugs the canary names, or for

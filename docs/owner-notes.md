@@ -1,6 +1,15 @@
 # Owner Notes
 
 
+## 2026-10-22 — Option A for A04-3: an add-on's held database changes are tried on a copy first (not merged, not deployed)
+
+- **What changes for a customer.** On a published site, an add-on's new tables, functions and scheduled jobs wait in the draft until Publish. Before this, the reply said they were all "made" even though no database had accepted them yet. Now, right after the add-on designs them, they are tried on a temporary copy of the site's database (a Neon branch), and the copy is then deleted. If the copy refuses a function, the reply leaves it out by name, along with any job that runs it, and it is not kept in the draft. If the copy refuses the change as a whole (a table, say), the add-on stops the same way it would on an unpublished site. Everything the copy accepted waits in the draft as before.
+- **Never a blocker.** If there is no Neon key, the site has no project of its own (older sites share one per account), or the copy can't be made, the add-on carries on as it did before, and the trace says why (`dryrun` … `skipped`).
+- **Switch**: `ADDON_DRY_RUN`, on by default; set the secret to `off` to go back to the old behaviour. It is also passed to container jobs.
+- **Not checked offline**: how long a real branch takes and what it costs. The trace records the time of each try.
+- Branch `decide-3a`. Record: `docs/history/2026-10-22-decide-3a.md`. Nothing spent.
+
+
 ## 2026-10-22 — Audit group G1: the publish turn and the container's database recovery (not merged, not deployed)
 
 - **The turn wait.** Most of this was fixed on 2026-10-18. What was left: a job the container shut down kept waiting, and a stop pressed while a job waited was treated as "another change got in the way", so the job ran again. Both now end the job at once with the right reason. A failed check of the saved site is now reported as a read failure, so it is no longer re-run as a clash with another change.
