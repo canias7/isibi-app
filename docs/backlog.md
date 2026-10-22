@@ -3188,3 +3188,10 @@ credits; the margin is the credit price, ~$0.012 a credit).
 Today the tweak rung returns the whole file. Switch to exact find-and-replace
 edits (refuse missing / non-unique), reusing visual-review.mjs's loop.
 Cheaper, nothing else can change, clearer failures. ~1 day + small paid test.
+
+## Free site checks in the render check: Lighthouse + axe-core (owner, 2026-10-22: "note it for later")
+
+The security scan (Cloudflare's method) covers security only. For speed,
+SEO, best practices (Lighthouse, Apache 2.0) and accessibility (axe-core,
+MPL 2.0), run them in the existing Chromium render check after each build, no
+model cost; report scores/findings to the owner. Not started.
