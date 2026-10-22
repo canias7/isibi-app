@@ -148,3 +148,35 @@ test("A33-2a THROUGH THE REAL PUBLISH — a description set in the SEO tab and a
   });
 });
 
+test("A33-2b THROUGH THE REAL PUBLISH — an address change that reached the live head after the draft was staged (an earlier revision's rename) is kept: the revision's old origin does not go back live", async () => {
+  const wk = await loadWorkerModule();
+  const slug = "a33-addr";
+  const { store, env } = await draftSite(slug);
+  await withWire({}, async () => {
+    const live = await readJson(store, siteMetaKey(slug));
+    live.origin = "https://new-name.gofarther.app";
+    await store.put(siteMetaKey(slug), JSON.stringify(live), JSONCT);
+    const pub = await publish(wk, env, slug);
+    assert.equal(pub.status, 200, pub.text);
+    assert.equal((await readJson(store, "current/" + slug + ".json")).version, V2, "observer: Publish moved the pointer");
+    assert.equal((await readJson(store, siteMetaKey(slug))).origin, "https://new-name.gofarther.app");
+  });
+});
+
+test("A33-2b THE RULE — origin is carried only when asked (Publish without a rename in range), and never from an unreadable or empty live origin; restore keeps the version's", () => {
+  const ver = JSON.stringify(sidecar(OLD));
+  const live = JSON.stringify(sidecar(OLD, { origin: "https://new-name.gofarther.app" }));
+  assert.equal(JSON.parse(carryPanelFields(ver, live, ver, { origin: true })).origin, "https://new-name.gofarther.app");
+  assert.equal(JSON.parse(carryPanelFields(ver, live, ver)).origin, "https://old-name.gofarther.app");
+  assert.equal(carryPanelFields(ver, JSON.stringify(sidecar(OLD, { origin: "" })), ver, { origin: true }), ver);
+  assert.equal(carryPanelFields(ver, "{bad", ver, { origin: true }), ver);
+});
+
+test("A33-2b WIRING — runPublication asks withPanelFields to carry the address only when no rename is in the published range", () => {
+  const at = worker.indexOf("async function runPublication(");
+  assert.ok(at > 0);
+  const body = worker.slice(at, worker.indexOf("\nasync function", at + 40));
+  assert.match(body, /withPanelFields\(deps, slug, sidecar, j\.from, \{ origin: !rename \}\)/);
+  const w = worker.indexOf("async function withPanelFields(");
+  assert.match(worker.slice(w, w + 800), /carryPanelFields\(sidecar, live, was, opts\)/);
+});

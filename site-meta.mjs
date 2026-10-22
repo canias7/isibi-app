@@ -82,7 +82,7 @@ export function siteMetaKey(slug) {
  * Any text that cannot be read leaves the version's bytes as they are.
  * Pure; returns the version's text unchanged when nothing is carried.
  */
-export function carryPanelFields(versionText, liveText, priorText) {
+export function carryPanelFields(versionText, liveText, priorText, { origin = false } = {}) {
   const read = (t) => {
     if (typeof t !== "string") return null;
     try {
@@ -101,6 +101,11 @@ export function carryPanelFields(versionText, liveText, priorText) {
   if (prior) for (const f of ["image", "description"]) {
     if (Object.hasOwn(live, f) && JSON.stringify(live[f]) !== JSON.stringify(prior[f])) take(f);
   }
+  // THE ADDRESS AS IT STANDS (2026-10-22, audit A33-2b): a Publish with no
+  // rename of its own keeps the live address. A version's origin is the public
+  // name when it was staged, so a rename published after that (an earlier
+  // revision's) would otherwise go back to the old address.
+  if (origin && typeof live.origin === "string" && live.origin) take("origin");
   return changed ? JSON.stringify(out) : versionText;
 }
 

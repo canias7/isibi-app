@@ -14105,12 +14105,12 @@ export async function runPreviewRecovery(env, { now = Date.now(), budget = 50 } 
  * live one (`carryPanelFields`, audit A11-2). `prior` is the version that was
  * live when it was read; a read that fails carries nothing.
  */
-async function withPanelFields(deps, slug, sidecar, prior) {
+async function withPanelFields(deps, slug, sidecar, prior, opts = {}) {
   if (typeof sidecar !== "string") return sidecar;
   const text = async (k) => { try { const o = await deps.get(k); return o ? await o.text() : null; } catch { return null; } };
   const live = await text(siteMetaKey(slug));
   const was = prior ? await text(buildPrefix(slug, prior) + STATE_DIR + "sidecar.json") : null;
-  return carryPanelFields(sidecar, live, was);
+  return carryPanelFields(sidecar, live, was, opts);
 }
 async function completeActivation(env, slug, version, { sidecar } = {}) {
   const deps = buildDeps(env);
@@ -14298,8 +14298,9 @@ async function runPublication(env, slug, j, etag, say = null) {
       // THE ADDRESS THE VERSION NAMES: a held rename is baked into its sidecar.
       let sidecar = typeof b.sidecar === "string" ? b.sidecar : undefined;
       if (rename && sidecar) { try { const sd = JSON.parse(sidecar); sd.origin = addressOf(rename.to); sidecar = JSON.stringify(sd); } catch { /* the version's own */ } }
-      // THE OWNER'S PANEL CHANGES SINCE `j.from` WENT LIVE (audit A11-2).
-      if (j.from !== j.version) sidecar = await withPanelFields(deps, slug, sidecar, j.from);
+      // THE OWNER'S PANEL CHANGES SINCE `j.from` WENT LIVE (audit A11-2), and
+      // with no rename of its own, the address as it stands (audit A33-2b).
+      if (j.from !== j.version) sidecar = await withPanelFields(deps, slug, sidecar, j.from, { origin: !rename });
       if (liveV !== j.version) {
         // THE LIVE SITE MOVED ON (another version was put live meanwhile):
         // nothing of this revision is live, and it is not forced over that.
