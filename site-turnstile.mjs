@@ -114,3 +114,64 @@ export async function verify(deps, { secret, token, ip }) {
   }
   return { ok: false, state: "fail", reason: codes.join(",") || "rejected" };
 }
+
+/**
+ * THE FUNCTION A `data/rpc/<fn>` CALL NAMES, or null for any other path
+ * (decision 2a, 2026-10-22).
+ *
+ * Lower-cased because declared names are lower-case and a looser match only
+ * gates MORE. Trailing slashes are dropped so `rpc/book_slot/` cannot slip past
+ * as "not a function call". A `rpc/` with nothing after it names nothing.
+ */
+export function rpcName(path) {
+  const m = /^rpc\/+(.+)$/i.exec(String(path || ""));
+  if (!m) return null;
+  const fn = m[1].replace(/\/+$/, "").toLowerCase();
+  return fn || null;
+}
+
+/**
+ * DOES THE SITE DECLARE THIS FUNCTION AS ONE THAT WRITES?
+ *
+ * Exactly `writes === true` on the stored declaration. Absent (every function
+ * declared before 2026-10-22) or anything else is a read, so nothing that
+ * worked before this field existed is gated by it.
+ */
+export function rpcWrites(spec, fn) {
+  if (!fn) return false;
+  const fns = spec && Array.isArray(spec.functions) ? spec.functions : [];
+  return fns.some((f) => f && String(f.name || "").toLowerCase() === fn && f.writes === true);
+}
+
+/**
+ * THE SPAM CHECK FOR A DATABASE-FUNCTION CALL (decision 2a, the owner's option A).
+ *
+ * Returns null when the path is not `rpc/<fn>` (the caller's insert gate
+ * applies). Otherwise `{ sent?, refused?, verdict? }`:
+ *   - the token field is stripped from a one-object body whatever happens, as
+ *     the insert path does, because it is not one of the function's arguments;
+ *   - no secret configured: passes, exactly as before;
+ *   - the function is not declared `writes: true`: passes (reads, old specs);
+ *   - a declared write: the token is required and verified exactly as an
+ *     insert's is. A body that is not one JSON object carries no token, so the
+ *     verifier refuses it ("no token").
+ *
+ * deps: { config: async () => ({ secret }), spec: async () => spec, post }.
+ * A schema that cannot be read fails open, as the insert gate does.
+ */
+export async function rpcGate(deps, { path, sent, contentType, ip }) {
+  const fn = rpcName(path);
+  if (fn === null) return null;
+  const body = oneRow(sent, contentType).row || null;
+  const had = !!body && TOKEN_FIELD in body;
+  const { token, row } = takeToken(body);
+  const out = had ? { sent: JSON.stringify(row) } : {};
+  const { secret } = (await deps.config()) || {};
+  if (!secret) return out;
+  let spec;
+  try { spec = await deps.spec(); } catch { return out; }
+  if (!rpcWrites(spec, fn)) return out;
+  const verdict = await verify({ post: deps.post }, { secret, token, ip });
+  if (verdict.ok) return { ...out, verdict };
+  return { ...out, verdict, refused: "That didn't look like it came from a person. Please try again." };
+}
