@@ -49,8 +49,16 @@ import https from "node:https";
 // `status`, `text()`, `json()`. No `accept-encoding` is ever sent, so the body
 // arrives identity-encoded and there is nothing to decompress.
 export function longPost(url, init) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolveOnce, rejectOnce) => {
     const signal = init && init.signal;
+    // EVERY SETTLEMENT DISARMS BOTH WATCHERS, and only a settlement does
+    // (2026-10-22, A23-2): the idle timer and the abort listener stay alive
+    // until the call has an answer, whichever way it ends.
+    let idle = null;
+    let onAbort = null;
+    const disarm = () => { if (idle) clearTimeout(idle); if (signal && onAbort) signal.removeEventListener("abort", onAbort); };
+    const resolve = (v) => { disarm(); resolveOnce(v); };
+    const reject = (e) => { disarm(); rejectOnce(e); };
     const onData = init && typeof init.onData === "function" ? init.onData : null;
     const bail = (e) => reject((signal && signal.reason) || e || new Error("aborted"));
     if (signal && signal.aborted) return bail();
@@ -70,7 +78,6 @@ export function longPost(url, init) {
     // call as an `IdleTimeoutError`, which the caller asks again. Restarted by
     // every byte, so a generation that keeps writing is never stopped by it.
     const idleMs = Number.isFinite(init && init.idleMs) && init.idleMs > 0 ? init.idleMs : 0;
-    let idle = null;
     const quiet = () => {
       if (!idleMs || settled) return;
       if (idle) clearTimeout(idle);
@@ -118,16 +125,38 @@ export function longPost(url, init) {
         const status = res.statusCode || 0;
         resolve({ ok: status >= 200 && status < 300, status, text: async () => text, json: async () => JSON.parse(text) });
       });
+      // A CONNECTION CUT AFTER THE HEADERS (2026-10-22, the builder audit's
+      // A23-2). A peer that closes cleanly mid-body emits no `end` and no
+      // request `error`, only these: without them the call never settled, the
+      // signal could no longer reach it, and the site's container waited
+      // behind it for about an hour. Rejected as a `ConnectionCutError`
+      // carrying the wire, so the failure log reads it as a cut with bytes.
+      const cut = (why) => {
+        if (settled || res.complete) return;
+        settled = true;
+        if (idle) clearTimeout(idle);
+        req.destroy();
+        const e = new Error("the connection closed before the answer ended" + (why && why.message ? ": " + why.message : ""));
+        try { Object.defineProperty(e, "name", { value: "ConnectionCutError", configurable: true }); } catch { /* keep Error */ }
+        e.wire = wire;
+        reject(e);
+      };
+      res.on("aborted", () => cut());
+      res.on("error", (e) => cut(e));
+      res.on("close", () => cut());
     });
     // The flow is QUIET for the whole generation — no bytes move while the
     // provider thinks — and a quiet flow is what NAT and egress state timeouts
     // drop. Keepalives every 30s hold that state open; fetch could never ask
     // for this, node:https can.
     req.on("socket", (s) => { try { s.setKeepAlive(true, 30000); } catch { /* diagnostic comfort only */ } });
-    const onAbort = () => { if (settled) return; settled = true; req.destroy(); bail(); };
+    onAbort = () => { if (settled) return; settled = true; req.destroy(); bail(); };
     if (signal) signal.addEventListener("abort", onAbort, { once: true });
     req.on("error", (e) => { if (settled) return; settled = true; try { e.wire = wire; } catch { /* a frozen error still rejects */ } reject(e); });
-    req.on("close", () => { if (idle) clearTimeout(idle); if (signal) signal.removeEventListener("abort", onAbort); });
+    // THE REQUEST'S `close` NO LONGER DISARMS ANYTHING: it fires while the
+    // response may still be open, and clearing the idle timer and the abort
+    // listener there is what left a cut answer unreachable. They go when the
+    // call settles, whichever way.
     req.write(payload);
     quiet();
     req.end();

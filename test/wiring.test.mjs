@@ -982,7 +982,7 @@ test("a revise keeps the site's stored look instead of re-rolling it", () => {
   // line. What has to hold is that the read is INSIDE the revise gate.
   const gate = worker.indexOf("if (priorBrief) {");
   assert.ok(gate > 0, "the revise gate is gone — this assertion cannot hold vacuously");
-  const gateEnd = worker.indexOf('} catch (e) { console.error("look read failed:', gate);
+  const gateEnd = worker.indexOf('console.error("look read failed:', gate);
   assert.ok(gateEnd > gate, "the revise gate's read no longer has its own catch — rescope this");
   assert.match(worker.slice(gate, gateEnd), /readSiteConfig\(env, slug, db\)/,
     "the look is read on a FIRST build too, which would pin an empty one");
