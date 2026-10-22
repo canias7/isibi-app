@@ -1,5 +1,11 @@
 # Owner Notes
 
+## 2026-10-22 — Audit A03-6: renaming the business now reaches every section (not merged, not deployed)
+
+- **It was real.** "We're now called …" changed the name in the page files, but on sites built in bands the hero, about and footer sections are separate pieces, and they kept the old name while the reply said it was renamed.
+- **Now** the rename covers those sections too, still changing only words a visitor reads (never links or code). If the sections can't be read, nothing is changed or charged and you're asked to try again.
+- Records: `docs/history/2026-10-22-audit-84-88.md`. Branch `audit-84-88`; nothing spent.
+
 ## 2026-10-22 — Ideas #10 and #14, combined with the day's work (not deployed)
 
 - #10, the visual review: after a first build's render check, the build's own
