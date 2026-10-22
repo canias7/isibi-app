@@ -16835,7 +16835,11 @@ async function siteFiles(site) {
             'title="' + (isShare ? 'Link previews use this picture. Click to let your site pick again.' : 'Show this picture when someone shares your site\u2019s link') + '">' +
             (isShare ? 'Link preview \u2713' : 'Use in link previews') + '</button>';
           const len = (vid || aud) && f.duration ? ' \u00b7 ' + Math.floor(f.duration / 60) + ':' + String(Math.round(f.duration % 60)).padStart(2, '0') : '';
-          const mediaBtns = (vid || aud) && !f.visitor
+          // A HELD REPLACEMENT'S NEW VERSION IS PART OF THE FILE IT REPLACES
+          // (audit A10-2): Publish takes its own name off, so it offers no
+          // Use in chat, Replace or delete of its own; the original's row does.
+          const standIn = f.draft === 'replaces';
+          const mediaBtns = (vid || aud) && !f.visitor && !standIn
             ? '<div class="fl-media"><button type="button" class="fl-use" data-use="' + esc(f.name) + '" data-url="' + esc(f.url) + '" data-kind="' + (vid ? 'video' : 'audio') + '" data-label="' + esc(label) + '">Use in chat</button>' +
               '<button type="button" class="fl-rep" data-replace="' + esc(f.name) + '">Replace</button></div>'
             : '';
@@ -16844,7 +16848,7 @@ async function siteFiles(site) {
             (aud ? '<audio class="fl-player" controls preload="none" src="' + esc(f.url) + '"></audio>' : '') +
             '<figcaption><span class="fl-nm" title="' + esc(label) + '">' + esc(label) + '</span>' +
             '<span class="fl-sz">' + mb(f.size) + len + '</span>' +
-            '<button type="button" class="fl-del" data-file="' + esc(f.name) + '" aria-label="Delete ' + esc(label) + '">\u00d7</button></figcaption>' +
+            (standIn ? '' : '<button type="button" class="fl-del" data-file="' + esc(f.name) + '" aria-label="Delete ' + esc(label) + '">\u00d7</button>') + '</figcaption>' +
             // WHAT THE DRAFT WILL DO AT PUBLISH (2026-10-16): the server marks a
             // file held for removal, and a held replacement's new bytes; the
             // live site keeps the file as listed until the owner publishes.

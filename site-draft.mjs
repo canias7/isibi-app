@@ -816,6 +816,39 @@ export function newHold(deps, slug, { id = randomHex(12) } = {}) {
 }
 
 /**
+ * WHAT THE LIBRARY ADDRESS `file` WILL PLAY AFTER PUBLISH (2026-10-22, audit
+ * A10-2): the stored file name whose bytes Publish leaves there, or null when
+ * Publish leaves nothing. Follows the held library ops exactly as Publish
+ * applies them (`applyHeldMedia`): a replacement copies the stand-in's bytes
+ * to the address and takes the stand-in off (nothing when the stand-in is
+ * already gone); a removal takes the address off. The preview serves this,
+ * so preview and live agree on chained replacements, and a stand-in (taken
+ * off at Publish) reads null, as a file held for removal does.
+ */
+export function heldMediaSource(ops, file) {
+  const at = new Map();
+  const now = (k) => (at.has(k) ? at.get(k) : k);
+  for (const o of Array.isArray(ops) ? ops : []) {
+    if (!o) continue;
+    if (o.kind === "media-replace") {
+      const src = now(o.with);
+      if (src === null) continue;
+      at.set(o.name, src);
+      at.set(o.with, null);
+    } else if (o.kind === "media-delete") at.set(o.name, null);
+    else if (o.kind === "upload-delete") at.set(o.file, null);
+  }
+  return now(file);
+}
+
+/** The stand-ins of held replacements: stand-in name -> the address it replaces (the latest). */
+export function heldStandIns(ops) {
+  const m = new Map();
+  for (const o of Array.isArray(ops) ? ops : []) if (o && o.kind === "media-replace") m.set(o.with, o.name);
+  return m;
+}
+
+/**
  * THE HELD OPS OF REVISIONS (from, to], in order: `[{ n, ops }]`. Throws when
  * a journal a revision names cannot be read — cannot-tell is never "nothing
  * held".

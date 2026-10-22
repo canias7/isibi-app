@@ -101,7 +101,7 @@ import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE, carryPanelFields } from "./site-meta.mjs";
-import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec, previousSidecar } from "./site-draft.mjs";
+import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec, previousSidecar, heldMediaSource, heldStandIns } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
@@ -11270,7 +11270,13 @@ const stillUploads = (objs) => (Array.isArray(objs) ? objs : []).filter((o) => !
 /** A site's video and audio, as the models and the conversation are told them: address, kind, type, size, what the browser reported. */
 async function siteMediaFiles(env, slug) {
   const objs = await siteUploadList(env, slug);
-  return objs.filter((o) => o && !o.visitor && (o.kind === "video" || o.kind === "audio")).map((o) => {
+  // AS THE DRAFT HAS THE LIBRARY (audit A10-2): a held replacement's stand-in
+  // is taken off at Publish, and so is a file held for removal, so neither is
+  // offered to a writer (a page pointing at one would go silent once live).
+  // A draft that cannot be read leaves the list as stored.
+  let ops = [];
+  try { const v = await draftView(env, slug); ops = v ? v.ops : []; } catch { ops = []; }
+  return objs.filter((o) => o && !o.visitor && (o.kind === "video" || o.kind === "audio") && (!ops.length || heldMediaSource(ops, uploadFileName(o.key)) !== null)).map((o) => {
     const name = uploadFileName(o.key);
     return mediaForModel({ url: uploadUrl(slug, name), name, download: readDownloadName(o.download), kind: o.kind, mime: MEDIA_FORMATS[name.split(".").pop()].mime, size: o.size, ...readStoredMeta(o.meta) });
   });
@@ -13693,6 +13699,18 @@ async function draftView(env, slug) {
 }
 
 /**
+ * The address `name` stands in for, when it is a held replacement's new
+ * version still waiting for Publish (audit A10-2); "" when it is not;
+ * undefined when the draft cannot be read (cannot-tell is never "no").
+ */
+async function standInFor(env, slug, name) {
+  let ops;
+  try { const v = await draftView(env, slug); ops = v ? v.ops : []; } catch { return undefined; }
+  const target = heldStandIns(ops).get(name);
+  return target && heldMediaSource(ops, name) === null ? target : "";
+}
+
+/**
  * A TASK THAT CHANGED ONLY HELD THINGS (a data or rules edit, a pageless
  * addition, a library change) saves them as a revision of their own on the
  * draft's code. `{ ok, revision }`; nothing held is `{ ok: true, revision: 0 }`.
@@ -14611,11 +14629,11 @@ async function servePreview(env, request, url, pv, ctx) {
     if (um) {
       if (um[1].toLowerCase() !== pv.slug) return no();
       if (request.method !== "GET" && request.method !== "HEAD") return shut("The preview only shows the site.");
-      let file = um[2].toLowerCase();
-      for (const o of ops) {
-        if ((o.kind === "media-delete" && o.name === file) || (o.kind === "upload-delete" && o.file === file)) return no();
-        if (o.kind === "media-replace" && o.name === file) file = o.with;
-      }
+      // AS PUBLISH WILL LEAVE IT (audit A10-2): the held ops followed in
+      // order, as `applyHeldMedia` applies them, so a chained replacement and
+      // a stand-in taken off answer here exactly as on the live site after.
+      const file = heldMediaSource(ops, um[2].toLowerCase());
+      if (file === null) return no();
       // THE PLATFORM'S OWN `/u/` ROUTE, asked on the app's address for the draft's file.
       const res = await handleRequest(new Request("https://" + APP_ZONE + "/u/" + pv.slug + "/" + file, { method: request.method, headers: request.headers }), env, ctx);
       const h = new Headers(res.headers);
@@ -46480,7 +46498,10 @@ async function handleRequest(request, env, ctx) {
               // read here; a source that cannot be read is no use found, and the
               // panel's own confirmation still stands in front of it.
               const g = await assertOwner(ownerDeps, uslug, ou.id);
+              const standFor = g && g.error ? "" : await standInFor(env, uslug, uf[2].toLowerCase());
               if (g && g.error) r = g.error;
+              else if (standFor === undefined) r = { status: 503, body: { error: "your draft couldn't be read just now — nothing was changed; try again in a moment", code: "draft" } };
+              else if (standFor) r = { status: 409, body: { error: "this is the new version of “" + standFor + "” waiting in your draft; Publish puts it in place of the old one. To keep the old one, discard the draft", code: "stand_in", replaces: standFor } };
               else {
                 const pages = url.searchParams.get("force") === "1" ? null : await loadSiteSource(env, uslug).catch(() => null);
                 const using = pagesUsing(pages, uslug, uf[2].toLowerCase()).map((p) => routeOf(p)).filter(Boolean);
@@ -46558,6 +46579,12 @@ async function handleRequest(request, env, ctx) {
                 const have = await env.SITES_BUCKET.head(uploadKey(mslug, name));
                 const a = await mdeps.readAsset(siteScope(mslug), name).catch(() => null);
                 if (!have || (a && a.rec && a.rec.state === "deleted")) return Response.json({ error: "no such file", code: "no_file" }, { status: 404 });
+                // NOT A STAND-IN (audit A10-2): replacing the new version
+                // would chain two replacements; the address it stands in for
+                // is the one to replace.
+                const standFor = await standInFor(env, mslug, name);
+                if (standFor === undefined) return Response.json({ error: "your draft couldn't be read just now — nothing was changed; try again in a moment", code: "draft" }, { status: 503 });
+                if (standFor) return Response.json({ error: "this is the new version of “" + standFor + "” waiting in your draft — replace “" + standFor + "” instead", code: "stand_in", replaces: standFor }, { status: 409 });
                 const ext = String((rd.body && rd.body.name) || "").toLowerCase().split(".").pop();
                 const same = name.split(".").pop() === ext || (name.endsWith(".mp4") && ext === "m4v") || (name.endsWith(".ogg") && (ext === "opus" || ext === "oga"));
                 if (!same) return Response.json({ error: "a replacement must be the same format as the file it replaces (" + MEDIA_FORMATS[name.split(".").pop()].label + ")", code: "format_mismatch" }, { status: 409 });
