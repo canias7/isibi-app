@@ -321,6 +321,8 @@ export function budgetStage(steps) {
     // compile, where the pages exist.
     writing: "generate",
     "compile-retry": "publish", "render-checked": "publish", repairing: "publish", repaired: "publish", looking: "publish", looked: "publish", salvaged: "publish",
+    // THE COMPILE REPAIR (2026-10-22, ideas #11-#13): inside the compile.
+    "compile-fixing": "publish", "compile-fixed": "publish",
     // The build route's last mark, taken after `buildAndPublishPages` returns.
     // A deadline that lands here is a build that did everything and was not told
     // so — rare, and the note has to be the one that says the pages exist.

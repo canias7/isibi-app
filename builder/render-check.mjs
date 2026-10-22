@@ -329,6 +329,28 @@ export async function screenshotHtml(html, { width, height }) {
  * So an unavailable server is reported as a check that could not run, and the
  * pages are not blamed for it.
  */
+/** How a rejection is recognised among console errors: the init script's own mark, or Chromium's. */
+export const OBSERVER_MARK = "[unhandledrejection]";
+export const REJECTION_MARK = /^(?:\[unhandledrejection\]|Uncaught \(in promise\))\s*/;
+/** A URL cut back to the part that names a file a reader can find: no origin, no query. */
+export function shortSource(url) {
+  return String(url || "").replace(/^[a-z]+:\/\/[^/]+/i, "").replace(/[?#].*$/, "").slice(0, 160);
+}
+/** The first stack frame that names a file and line, as `file:line:col`, or null — never guessed. */
+export function stackSource(stack) {
+  for (const line of String(stack || "").split("\n")) {
+    const m = line.match(/\(?((?:[a-z]+:\/\/[^\s)]+|\/[^\s)]+)):(\d+):(\d+)\)?\s*$/i);
+    if (m) return shortSource(m[1]) + ":" + m[2] + ":" + m[3];
+  }
+  return null;
+}
+/** One console error as a runtime entry: a rejection when marked as one, else `console`. */
+export function runtimeOfConsole(text, source = null) {
+  const t = String(text || "");
+  const rej = t.match(REJECTION_MARK);
+  return rej ? { kind: "rejection", message: t.slice(rej[0].length).trim() || t, source } : { kind: "console", message: t, source };
+}
+
 export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = null) {
   const list = (Array.isArray(routes) ? routes : []).filter(Boolean);
   // ── DOES THE MODEL'S STYLESHEET POINT AT ANYTHING? (2026-08-31, run 96) ────
@@ -426,8 +448,35 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
           if (Date.now() > until) { cut = true; break; }
           const page = await ctx.newPage();
           const pageErrors = [], consoleErrors = [], unmet = [];
-          page.on("pageerror", (e) => pageErrors.push(String((e && e.message) || e).slice(0, 200)));
-          page.on("console", (m) => { if (m.type() === "error") consoleErrors.push(String(m.text()).slice(0, 200)); });
+          // THE SAME EVENTS, KEPT AS DATA TOO (2026-10-22, idea #12): kind,
+          // message and where the browser said it was thrown, for the repair.
+          // The string lists stay exactly as they were for `readPage`.
+          const runtime = [];
+          page.on("pageerror", (e) => {
+            pageErrors.push(String((e && e.message) || e).slice(0, 200));
+            runtime.push({ kind: "exception", message: String((e && e.message) || e), source: stackSource(e && e.stack) });
+          });
+          page.on("console", (m) => {
+            if (m.type() !== "error") return;
+            const text = String(m.text());
+            // OUR OWN OBSERVER'S LINE IS NOT THE PAGE'S CONSOLE: kept out of
+            // `consoleErrors`, so the findings are exactly what they were.
+            if (!text.startsWith(OBSERVER_MARK)) consoleErrors.push(text.slice(0, 200));
+            let source = null;
+            try { const l = m.location(); if (l && l.url) source = shortSource(l.url) + ":" + ((Number(l.lineNumber) || 0) + 1) + ":" + ((Number(l.columnNumber) || 0) + 1); } catch { source = null; }
+            runtime.push(runtimeOfConsole(text, source));
+          });
+          // AN UNHANDLED REJECTION IS ANNOUNCED BY THE PAGE ITSELF: a listener
+          // installed before any page script logs it in a form
+          // `REJECTION_MARK` recognises. It only logs; the page is unchanged.
+          await page.addInitScript(() => {
+            window.addEventListener("unhandledrejection", (ev) => {
+              try {
+                const r = ev && ev.reason;
+                console.error("[unhandledrejection] " + (r && r.message ? r.message : String(r)));
+              } catch { /* never let the observer throw into the page */ }
+            });
+          }).catch(() => {});
           // WHAT THIS PAGE ASKED FOR AND THE STUB COULD NOT STAND IN FOR.
           // Observed from the BROWSER rather than threaded out of the server,
           // because the question is per ROUTE and the server has no idea which
@@ -527,6 +576,7 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
           }
           obs.pageErrors = pageErrors;
           obs.consoleErrors = consoleErrors;
+          obs.runtime = runtime;
           seen.push(obs);
           await page.close().catch(() => {});
         }

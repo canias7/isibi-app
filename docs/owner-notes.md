@@ -1,5 +1,29 @@
 # Owner Notes
 
+## 2026-10-22 — Ideas #11, #12 and #13: one automatic fix for a page that won't build (off, not deployed)
+
+- **#12**: when the builder opens each page in a real browser, it now keeps
+  every error the browser raised on each page (crashes, failed promises,
+  console errors) as a short list with where it happened, instead of only two
+  lines of text.
+- **#11**: when a page won't build, the builder makes one try at fixing it
+  with the same model that wrote the pages, giving it that page and the exact
+  build errors. If the fixed page builds, it is used. If not, the page becomes
+  the placeholder exactly as it does today, so a build is never worse off. One
+  try only. It's charged on the build's own bill, like every other model call.
+  A page that builds but crashes in the browser already had one automatic fix
+  try. That fix now gets the browser's errors from #12 too.
+- **#13**: the fix is told the real cause in plain words (for example "the
+  page imports `Buton`, which that file doesn't export"), not just the
+  confusing symptom. The same error is never retried twice in one build.
+- The customer sees "Fixing a page that didn't build…", then "Fixed it" or
+  "Couldn't fix it, so it's a placeholder for now".
+- **It's switched off** (`BUILD_REPAIR`, off by default, like
+  `VISUAL_REVIEW`), so nothing changes on production until you turn it on.
+  It needs one paid build where a page fails, to see it working with a real model.
+- Records: `docs/history/2026-10-22-ideas-11-12-13.md`. Branch `idea-11-12-13`;
+  nothing spent.
+
 ## 2026-10-22 — Ideas #10 and #14, combined with the day's work (not deployed)
 
 - #10, the visual review: after a first build's render check, the build's own

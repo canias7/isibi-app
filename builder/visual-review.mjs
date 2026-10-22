@@ -28,6 +28,12 @@ export function visualReviewOn(env) {
   return typeof v === "string" && ["1", "true", "on", "yes"].includes(v.trim().toLowerCase());
 }
 
+/** The build repair's switch (ideas #11-#13, `site-repair.mjs`): read the same way, off by default. */
+export function buildRepairOn(env) {
+  const v = env && env.BUILD_REPAIR;
+  return typeof v === "string" && ["1", "true", "on", "yes"].includes(v.trim().toLowerCase());
+}
+
 export { SHOT_ROUTES, MAX_SHOT_HEIGHT, shotRoutes };
 /** Edits accepted from one answer, across all pages — a sanity bound. */
 export const MAX_EDITS = 16;
