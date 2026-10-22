@@ -25,7 +25,8 @@ import { cn } from "@/lib/utils";
  * presses "View in 3D", and even then it does not spin by itself.
  *
  * COLOURS COME FROM THE THEME. A primitive is painted with `--primary`, lit
- * against nothing (the box's own `bg-muted` shows through), so it follows the
+ * on a see-through canvas with NO BOX (owner, 2026-10-22: "No box pls"): the
+ * object sits on the page's own background, so it follows the
  * site's palette and its dark mode. A glTF/GLB model keeps its own materials.
  *
  * DRAG TO TURN, AND THE ARROW KEYS DO THE SAME, because the box is focusable and
@@ -171,7 +172,7 @@ export function Scene3D({
     <figure data-slot="scene-3d" className={cn("flex flex-col gap-2", className)}>
       {/* The buttons sit BESIDE the picture, not in it: a role="img" hides its
           children from assistive technology, buttons included. */}
-      <div style={{ height }} className="relative w-full overflow-hidden rounded-lg border border-border bg-muted">
+      <div style={{ height }} className="relative w-full overflow-hidden">
         <div
           ref={boxRef}
           role="img"
