@@ -1397,6 +1397,27 @@ export const PUBLICATION_PHASES = Object.freeze(["start", "prepared", "switching
 export const CLOSED_PHASES = Object.freeze(["finished", "retired"]);
 /** The steps after the switch, in order. */
 export const FINISH_STEPS = Object.freeze(["address", "schema", "jobs", "seeds", "changes", "inserts", "library"]);
+/**
+ * A HELD JOB WHOSE NEW FUNCTION FAILED IS NOT REGISTERED AT PUBLISH (audit
+ * A04-3, 2026-10-22): the owner's rule of 2026-09-14, which the add-on keeps
+ * when it writes live, kept by the publication's schema step too. `functionErrors`
+ * is what `applySiteSchema` answered; `prior` the function names stored before
+ * it ran. Only a function the site did not already have counts (a failed
+ * replacement leaves the old body running), and an unknown `prior` (null)
+ * counts none: cannot-tell never takes a job off. Lower-cased names.
+ */
+export function deadNewFunctions(functionErrors, prior) {
+  if (!Array.isArray(prior) || !Array.isArray(functionErrors)) return [];
+  const had = new Set(prior.map((n) => String(n || "").toLowerCase()));
+  return [...new Set(functionErrors.map((e) => String((e && e.name) || "").toLowerCase()).filter((n) => n && !had.has(n)))];
+}
+/** The held jobs split by `dead` (from `deadNewFunctions`): `{ jobs, blocked }`, each blocked one with the function it runs. */
+export function jobsWithoutDead(jobs, dead) {
+  const d = new Set(Array.isArray(dead) ? dead : []);
+  const list = Array.isArray(jobs) ? jobs : [];
+  const isDead = (j) => d.has(String((j && j.fn) || "").toLowerCase());
+  return { jobs: list.filter((j) => !isDead(j)), blocked: list.filter(isDead).map((j) => ({ name: String(j.name || ""), fn: String(j.fn || "") })) };
+}
 /** A journal entry for the owner's click on revision `n` of `version`. */
 export function newJournal({ slug, n, version, uid = "", now = Date.now(), id }) {
   return { v: 1, slug, n, version, uid: String(uid || ""), id, running: true, at: now, phase: "start", from: null, done: [], refs: {}, error: null, attempts: 0 };
