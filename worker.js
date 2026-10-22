@@ -36,6 +36,7 @@ import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerImport
 import { MAX_IMPORT_BYTES } from "./site-csv.mjs";
 import { takeIdemKey, makeIdem, replayHeaders } from "./site-idem.mjs";
 import { placeAttachedPhotos, attachedFilesNote, ownPhotoFacts, ownPhotoSentence } from "./builder/attached-photos.mjs";
+import { importSite, importBriefBlock, readImportSite, placeImportedPhotos, publicUrl as importPublicUrl } from "./builder/site-import.mjs";
 import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_VISITOR_UPLOAD_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName, dispositionFor, readDownloadName, DOWNLOAD_NAME_KEY, uploadIsImage, uploadKind, UPLOAD_URL_PATH } from "./site-uploads.mjs";
 import { MEDIA_PART_BYTES, MEDIA_DRAFT_MS, MEDIA_SESSION_MS, MEDIA_CACHE, MEDIA_FORMATS, mediaDesignNote, mediaErrorNote, mediaLimits, mediaKindOf, isMediaName, draftKey, siteScope, draftScope, readStoredMeta, parseRange, mediaHeaders, etagMatches, ifRangeHolds, handleMediaStart, handleMediaPart, handleMediaComplete, handleMediaAbort, handleMediaStatus, handleMediaDelete, holdMedia, releaseMedia, abortProven, pagesUsing, mediaBlock, mediaForModel } from "./site-media.mjs";
 import { handleOwnerExport } from "./site-export.mjs";
@@ -5745,6 +5746,45 @@ async function siteReadUrl(url) {
     return { ok: false };
   }
   return { ok: true, status: r.status, contentType, body };
+}
+
+/**
+ * THE IMPORTER'S TWO FETCHERS ("make my site like my old one", 2026-10-22).
+ * Both go through `safeFetch` (the SSRF guard, re-checked on every redirect
+ * hop) with a timeout and a byte cap; neither throws. The module
+ * (builder/site-import.mjs) decides which addresses to ask for — same host
+ * for pages and stylesheets — and refuses a picture that reached its cap.
+ */
+async function importFetchText(url, cap) {
+  let r;
+  try {
+    r = await safeFetch(url, {
+      headers: { "User-Agent": CHROME_UA, Accept: "text/html,application/xhtml+xml,text/css;q=0.9,*/*;q=0.5", "Accept-Language": "en-US,en;q=0.9" },
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch { return { ok: false }; }
+  if (!r) return { ok: false };
+  if (!r.ok) return { ok: false, status: r.status };
+  const ctRaw = r.headers.get("content-type") || "";
+  const charset = (ctRaw.match(/charset\s*=\s*"?([\w-]+)"?/i) || [])[1] || "utf-8";
+  try {
+    const bytes = await readCapped(r, cap);
+    let body;
+    try { body = new TextDecoder(charset).decode(bytes); } catch { body = new TextDecoder().decode(bytes); }
+    return { ok: true, status: r.status, contentType: (ctRaw.split(";")[0] || "").trim().toLowerCase(), body, url: r.url || url };
+  } catch { return { ok: false }; }
+}
+
+async function importFetchBytes(url, cap) {
+  let r;
+  try {
+    r = await safeFetch(url, { headers: { "User-Agent": CHROME_UA, Accept: "image/*" }, signal: AbortSignal.timeout(10000) });
+  } catch { return { ok: false }; }
+  if (!r || !r.ok) return { ok: false };
+  try {
+    const bytes = await readCapped(r, cap);
+    return { ok: true, bytes, contentType: r.headers.get("content-type") || "" };
+  } catch { return { ok: false }; }
 }
 
 /**
@@ -25970,6 +26010,25 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // METERED PER LINK OPENED (2026-10-08): each fetch spends one of the
       // bucket, so the bound holds per fetch rather than per brief, and a
       // link the quota refuses is named back like any other unread link.
+      // ── THEIR CURRENT SITE, REBUILT (ideas #25/#26, 2026-10-22) ──────────
+      // The router answered `importSite` (its typed field), the browser posted
+      // it back as `importFrom`, and it is fetched only when it is a public
+      // address written in this brief. Metered like a linked page. The block
+      // goes to the designer and the page writer; its pictures are copied in
+      // once the plan names them (`placeImportedPhotos`, below). A site that
+      // cannot be read is said in the context note, and the build goes on
+      // from the brief alone.
+      let imported = null, importNote = "", importFailed = "";
+      const importTarget = typeof body.importFrom === "string" ? readImportSite(body.importFrom, brief) : undefined;
+      if (importTarget) {
+        if (!(await useQuota(request, "sitelinks", 60))) importFailed = "you've had a lot of links read today";
+        else {
+          const got = await importSite(importTarget, { fetchText: importFetchText }).catch(() => ({ ok: false, reason: "we couldn't reach it" }));
+          if (got.ok) { imported = got.extract; importNote = importBriefBlock(imported); }
+          else importFailed = got.reason || "we couldn't reach it";
+        }
+        tr.at("import", { ok: !!imported, pages: imported ? imported.pages.length : 0, photos: imported ? imported.photos.length : 0 });
+      }
       let linked = [];
       if (brief) {
         const readMetered = async (u) => {
@@ -25985,9 +26044,9 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // The designer sees the linked pages AND any attached text file: a menu or
       // a price list is evidence about what the site STORES, which is the
       // question this next step answers.
-      const briefWithLinks = (linked.some((p) => p.ok) || attached.texts.length)
+      const briefWithLinks = ((linked.some((p) => p.ok) || attached.texts.length)
         ? contextBrief(brief, { pages: linked, files: attached.texts })
-        : brief;
+        : brief) + importNote;
       // AND THE ATTACHED FILES BY ID, for the designer alone (2026-10-08, H6;
       // ids since Codex's review of `b4300a07`): the blocks carry no names, a
       // designer asked to tie a picture to a file has to be able to say which,
@@ -27277,8 +27336,20 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // later revise still has it. A name that matches nothing attached, or a
       // file the store refused, is told in the reply rather than bought.
       let ownPhotos = { placed: [], missing: [] };
+      // THEIR OLD SITE'S PICTURES FIRST (ideas #25/#26): an entry naming an
+      // `imported-…` id is downloaded through the guarded fetch, stored as an
+      // owner upload exactly as an attached photo is, and given its `src`, so
+      // the attached-photo pass below leaves it alone.
+      if (imported && Array.isArray(merged.images) && merged.images.some((e) => e && typeof e.attached === "string" && e.attached.startsWith("imported-") && !e.src)) {
+        const imp = await placeImportedPhotos(merged.images, imported, { fetchBytes: importFetchBytes, store: (name, bytes) => storeOwnPhoto(env, slug, name, bytes) });
+        merged.images = imp.images;
+        ownPhotos = { placed: imp.placed.slice(), missing: imp.missing.slice() };
+        if (imp.placed.length || imp.missing.length) tr.at("importphotos", { placed: imp.placed.length, missing: imp.missing.length });
+      }
       if (Array.isArray(merged.images) && merged.images.some((e) => e && typeof e.attached === "string" && !e.src)) {
+        const fromImport = ownPhotos;
         ownPhotos = await placeAttachedPhotos(merged.images, body.images, (name, bytes) => storeOwnPhoto(env, slug, name, bytes), { named: attached.named });
+        ownPhotos = { ...ownPhotos, placed: [...fromImport.placed, ...ownPhotos.placed], missing: [...fromImport.missing, ...ownPhotos.missing] };
         merged.images = ownPhotos.images;
         if (ownPhotos.placed.length || ownPhotos.missing.length) tr.at("ownphotos", { placed: ownPhotos.placed.length, missing: ownPhotos.missing.length });
       }
@@ -27572,7 +27643,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
               facts: (researched && researched.facts) || "",
               sources: (researched && researched.sources) || [],
               files: attached.texts,
-            }),
+            }) + importNote,
             spec: pageSpec, slug, brand,
             // THE SITE'S VIDEO AND AUDIO, BY ADDRESS (2026-10-14): what moved in
             // just now and what the library already held, for the page writers.
@@ -28183,7 +28254,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // sentence built there would be a second copy of this logic that drifts
         // — and the direction it drifts in is a build that read nothing while
         // still claiming it did. One function, one answer, rendered verbatim.
-        contextNote: [contextSentence(context), ownPhotoSentence(ownPhotoFacts(ownPhotos), { state: pages.page === "app" ? "published" : pages.stage === "resuming" ? "pending" : "stopped" }), mediaErrorNote(bMedia)].filter(Boolean).join(" ") || undefined,
+        contextNote: [contextSentence(context), ownPhotoSentence(ownPhotoFacts(ownPhotos), { state: pages.page === "app" ? "published" : pages.stage === "resuming" ? "pending" : "stopped" }), mediaErrorNote(bMedia), importFailed ? "I couldn't read your current site (" + importFailed + "), so I built from what you told me." : ""].filter(Boolean).join(" ") || undefined,
         ownPhotos: ownPhotoFacts(ownPhotos),
         // WHAT BECAME OF THE VIDEO AND AUDIO (2026-10-14): moved in, by address, or not, with why.
         media: bMedia.placed.length || bMedia.missing.length ? { placed: bMedia.placed.map((f) => ({ name: f.name, url: f.url, kind: f.kind })), missing: bMedia.missing } : undefined,
@@ -31078,6 +31149,24 @@ async function handleRequest(request, env, ctx) {
     // either leaves the list standing with the storage slug and the created
     // date instead of refusing it. Refusing the whole screen because a
     // timestamp could not be read would be the cure worse than the disease.
+    // ── READ THEIR CURRENT SITE (ideas #25/#26, 2026-10-22) ──────────────────
+    // `POST { url }` → `{ ok, extract }`: the business name, pages, contact
+    // details, hours, colours, fonts, logo and photographs of the site at that
+    // address. Signed-in users only; metered on the link-reading quota; the
+    // fetch is the SSRF-guarded one, same host for pages, capped. Nothing is
+    // stored and nothing is charged: the build copies the pictures it uses.
+    if (url.pathname === "/api/site/import" && request.method === "POST") {
+      const iu = await authUser(request);
+      if (!iu) return UNAUTHED();
+      { const tl = tooLargeBody(request, 16_000); if (tl) return tl; }
+      const ib = await request.json().catch(() => null);
+      const target = ib && typeof ib.url === "string" ? importPublicUrl(ib.url.trim()) : null;
+      if (!target) return Response.json({ ok: false, error: "bad-url", reason: "that isn't a public web address we can open" }, { status: 400 });
+      if (!(await useQuota(request, "sitelinks", 60))) return Response.json({ ok: false, error: "quota", reason: "you've had a lot of links read today" }, { status: 429 });
+      const got = await importSite(target.href, { fetchText: importFetchText });
+      return Response.json(got.ok ? { ok: true, extract: got.extract } : { ok: false, error: "unreadable", reason: got.reason }, { status: got.ok ? 200 : 422 });
+    }
+
     if (url.pathname === "/api/site/list" && request.method === "GET") {
       const lu = await authUser(request);
       if (!lu) return UNAUTHED();
@@ -32433,10 +32522,17 @@ async function handleRequest(request, env, ctx) {
           try { rCost = await collectCredits(auth, rCost); } catch { rCost = 0; /* never fail a route over the ledger */ }
         }
       }
+      // THEIR CURRENT SITE TO REBUILD (ideas #25/#26, 2026-10-22): the
+      // router's typed `importSite`, kept only when it is a public address
+      // the customer wrote. The browser posts it back on the build.
+      const rImport = routed.intent === "build" && typeof routed.importSite === "string"
+        ? readImportSite(routed.importSite, [rb && rb.message, rb && rb.brief].filter((x) => typeof x === "string").join("\n"))
+        : undefined;
       const rOut = {
         ok: true,
         intent: routed.intent,
         answer: rAnswer,
+        importFrom: rImport,
         // WHICH CALL WROTE THE REPLY (2026-10-14): the conversation's own, or —
         // when it could not answer — the router's gist, said so.
         replyFrom: routed.intent === "ask" && rConverse ? (rConverse.ok ? "conversation" : "router") : undefined,

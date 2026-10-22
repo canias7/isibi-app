@@ -1,5 +1,9 @@
 # Owner Notes
 
+## 2026-10-22 — "Make my site like my old one" (ideas #25 and #26, approved)
+
+A customer can paste the address of the website they have now and ask for it to be rebuilt. The router decides this with a new typed field (`importSite`), never by keywords, and the address is used only if it is public and the customer really wrote it. The Worker then reads that site itself (no paid service): the home page and up to five pages from its menu, on the same site only, with a time limit and a size limit, and never a private or internal address. It takes the business name, the pages' headings and words, phone, email, address, opening hours, brand colours, fonts, the logo and up to 12 photos. All of that goes to the designer and the page writer as "THEIR CURRENT SITE": their content, our design. The logo and photos are listed by id, and any the plan uses are copied into the site's own uploads, the same way attached photos are. A site that can't be read is mentioned in the reply, and the build carries on from the brief. There is also a signed-in route, `POST /api/site/import`, that returns what was read. Branch only: not merged, deployed, or tried with a real model. New file `builder/site-import.mjs`, tests in `test/site-import.test.mjs`.
+
 ## 2026-10-21 — Phase D, Android: the real app downloads as an APK (you: "can u do it like in our platform how a customer will do it")
 
 - The app builder can now build a real Expo app into an Android app (`/expo-android`): the same typecheck, then Expo writes the native project and Gradle builds it offline against libraries the image warms once.

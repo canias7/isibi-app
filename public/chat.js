@@ -10609,6 +10609,9 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // On a live site only an explicit `build` reaches this `go()`: the check
     // above refused every answer it could not act on. What an answered
     // question put off earlier rides with it, to be named when it ends.
+    // THEIR CURRENT SITE TO REBUILD (ideas #25/#26): the router's checked
+    // address rides on the build, which reads that site for its content.
+    if (isBuild && d.intent === 'build' && typeof d.importFrom === 'string' && d.importFrom) { site.importFrom = d.importFrom; sitesSave(); }
     if (d.intent !== 'ask' || !d.answer) return go(d.putOff ? { putOff: d.putOff } : undefined);
     // A QUESTION. Nothing is built, nothing on the site changes, and the reply
     // is an ordinary assistant message — no build steps, because there was no
@@ -14805,6 +14808,8 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
     ? { brief: t, images: imgs, picker: buildPicker, ...(typeof sendEffort === 'function' ? sendEffort() : null), qa: qa || [], chat: origin, accept: 'early',
       // A PHONE APP, built by the same pipeline (2026-10-20).
       surface: site.surface === 'app' ? 'app' : undefined,
+      // THE SITE THEY HAVE NOW, when the router said to rebuild it (ideas #25/#26).
+      importFrom: typeof site.importFrom === 'string' && site.importFrom ? site.importFrom : undefined,
       // THE VIDEO AND AUDIO KEPT FOR THIS PROJECT BEFORE IT HAD A SITE (2026-10-14):
       // the build moves them into the new site's library once it holds the address.
       media: Array.isArray(site.pendingMedia) && site.pendingMedia.length ? site.pendingMedia.slice(0, 20) : undefined }

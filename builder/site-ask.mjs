@@ -767,6 +767,19 @@ export const ASK_TOOL = {
           "LEAVE IT OUT UNLESS THEY ASKED. Moving a page changes every link to it and leaves a redirect behind, so " +
           "setting this when they only wanted different wording changes the address of a page they were happy with.",
       },
+      // "MAKE MY SITE LIKE MY OLD ONE" (ideas #25/#26, 2026-10-22): the router
+      // decides, by this typed field, whether a first build rebuilds the site
+      // the customer has now; never a keyword rule. The Worker fetches the
+      // address only after `readImportSite` (site-import.mjs) finds it public
+      // and written in the message itself.
+      importSite: {
+        type: "string",
+        description:
+          "Only when intent is \"build\": when the customer asks for the website they ALREADY HAVE to be rebuilt, " +
+          "copied, moved over or remade here, and gives its address, that address exactly as they wrote it. Their words, " +
+          "pages, contact details, colours, fonts, logo and photographs are then read from it. Leave it out when an " +
+          "address is only an example of a look they like, a competitor, or a page to read facts from.",
+      },
       answer: {
         type: "string",
         description:
@@ -1719,7 +1732,10 @@ function readDecision(reply, { canClarify = false, picked = false, hasSite = fal
   // a thing people really do ask for. The tool description is what keeps it rare.
   if (input.intent === "build") {
     markLeftOut(input, ["resolved"], mark);
-    return { ...work("build"), ...res() };
+    // THEIR CURRENT SITE'S ADDRESS, carried as text only; the route checks it
+    // against the message (`readImportSite`) before anything is fetched.
+    const imp = typeof input.importSite === "string" && input.importSite.trim() ? { importSite: input.importSite.trim().slice(0, 2000) } : {};
+    return { ...work("build"), ...res(), ...imp };
   }
 
   const intent = input.intent === "ask" ? "ask" : fallback;
