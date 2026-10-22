@@ -633,3 +633,18 @@ test("the two webhooks are separate handlers — one must never mint platform cr
   const w = webhookRoute();
   assert.equal(/add_credits|mintFromEvent|credit/i.test(w), false, "the per-site webhook must not touch the credit ledger");
 });
+
+// AUDIT A12-5 (2026-10-22, owner: "fix 29"): three-decimal currencies were
+// charged a tenth. Red on the old code: "12.50" kwd was 1250, "12.500" null.
+test("three-decimal currencies are charged in thousandths, never a tenth", async () => {
+  const { toMinorUnits, THREE_DECIMAL } = await import("../site-payments.mjs");
+  assert.deepEqual([...THREE_DECIMAL].sort(), ["bhd", "jod", "kwd", "omr", "tnd"]);
+  assert.equal(toMinorUnits("12.50", "kwd"), 12500, "12.50 KWD is 12500 thousandths");
+  assert.equal(toMinorUnits("12.500", "KWD"), 12500, "the local three-digit way is read");
+  assert.equal(toMinorUnits("12", "bhd"), 12000);
+  assert.equal(toMinorUnits("5.125", "bhd"), null, "Stripe needs the last digit 0: refused, not rounded");
+  assert.equal(toMinorUnits("1.0005", "omr"), null, "more digits than the currency has is refused");
+  // Controls: two- and zero-decimal currencies are unchanged.
+  assert.equal(toMinorUnits("12.50", "gbp"), 1250);
+  assert.equal(toMinorUnits("1200", "jpy"), 1200);
+});

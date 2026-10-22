@@ -25,6 +25,15 @@ export const ZERO_DECIMAL = new Set([
   "ugx", "vnd", "vuv", "xaf", "xof", "xpf",
 ]);
 
+/**
+ * Currencies with THREE minor digits (2026-10-22, audit A12-5, owner: "fix
+ * 29"). Stripe takes them in thousandths, so 12.500 KWD is 12500; treated as
+ * two-decimal, "12.50" became 1250, which Stripe reads as 1.250 KWD: a tenth of
+ * the price. Stripe also requires the last digit to be 0 for card payments,
+ * so a price needing it (12.505) is refused rather than rounded.
+ */
+export const THREE_DECIMAL = new Set(["bhd", "jod", "kwd", "omr", "tnd"]);
+
 export const DEFAULT_CURRENCY = "usd";
 
 export function normalizeCurrency(code) {
@@ -56,7 +65,7 @@ export function toMinorUnits(value, currency) {
   // charging dollars for pounds.
   const m = raw.replace(/,/g, "").match(/^(\d+)(?:\.(\d{1,}))?$/);
   if (!m) return null;
-  const places = ZERO_DECIMAL.has(cur) ? 0 : 2;
+  const places = ZERO_DECIMAL.has(cur) ? 0 : THREE_DECIMAL.has(cur) ? 3 : 2;
   const whole = m[1];
   const frac = (m[2] || "").slice(0, places).padEnd(places, "0");
   // Refuse more precision than the currency has rather than rounding it away:
@@ -64,6 +73,7 @@ export function toMinorUnits(value, currency) {
   // 1.00 is a decision nobody made.
   if (m[2] && m[2].length > places) return null;
   const n = Number(whole + frac);
+  if (places === 3 && n % 10 !== 0) return null;
   return Number.isSafeInteger(n) ? n : null;
 }
 
