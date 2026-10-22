@@ -106,7 +106,7 @@ import { deepScan, planScan } from "./builder/security-scan.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE, carryPanelFields, keepPanelDescription } from "./site-meta.mjs";
-import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, applyRowQuery, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec, previousSidecar, heldMediaSource, heldStandIns, previewServed } from "./site-draft.mjs";
+import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, applyRowQuery, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec, previousSidecar, heldMediaSource, heldStandIns, previewServed, deadNewFunctions, jobsWithoutDead } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
@@ -14449,12 +14449,24 @@ async function runPublication(env, slug, j, etag, say = null) {
       }
       if (wantsDb && !db) { db = await siteDbFor(env, slug); if (!db) return keep("database", "the site's database could not be reached", "switched"); }
       if (!did("schema")) {
-        if (plan.spec) { try { await live.applySiteSchema(db, normalizeSchema(plan.spec)); } catch (e) { if (asideOk(e)) aside("schema", e); else return keep("schema", errorClassForLog(e), "switched", e); } }
-        await mark("schema");
+        // A NEW FUNCTION THAT FAILED TO CREATE (audit A04-3): kept on the
+        // journal, so the jobs step leaves its jobs unregistered even after a stop.
+        let dead = [];
+        if (plan.spec) {
+          try {
+            let prior = null;
+            try { const r = await readSiteSchema(db); if (r.ok) prior = ((r.spec && r.spec.functions) || []).map((f) => f && f.name); } catch { prior = null; }
+            const made = await live.applySiteSchema(db, normalizeSchema(plan.spec));
+            dead = deadNewFunctions(made && made.functionErrors, prior);
+          } catch (e) { if (asideOk(e)) aside("schema", e); else return keep("schema", errorClassForLog(e), "switched", e); }
+        }
+        await mark("schema", dead.length ? { deadFns: dead } : {});
         if (plan.spec && !skipped.some((x) => x.stage === "schema")) tell("schema");
       }
       if (!did("jobs")) {
-        if (plan.jobs && plan.jobs.length) { try { await live.persistSiteJobs(env, j.uid, slug, plan.jobs); } catch (e) { if (asideOk(e)) aside("jobs", e); else return keep("jobs", errorClassForLog(e), "switched", e); } }
+        const sorted = jobsWithoutDead(plan.jobs, j.deadFns);
+        for (const b of sorted.blocked) skipped.push({ stage: "jobs", name: b.name, why: "the function it runs, " + b.fn + ", could not be created" });
+        if (sorted.jobs.length) { try { await live.persistSiteJobs(env, j.uid, slug, sorted.jobs); } catch (e) { if (asideOk(e)) aside("jobs", e); else return keep("jobs", errorClassForLog(e), "switched", e); } }
         await mark("jobs");
       }
       if (!did("seeds")) {
@@ -27444,6 +27456,13 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       if (specConn) {
         let read = null;
         try { read = await specForAddon(specConn); } catch (e) { read = { ok: false, why: "spec-read-threw" }; }
+        // THE DRAFT'S HELD TABLES, AS IF MADE (audit A06-5): a held revise's
+        // pages are written against the draft's schema, not the live one alone.
+        // A draft that cannot be read stops the revise, refunded, as above.
+        if (read && read.ok && bWriter.holding) {
+          try { const view = await draftView(env, slug); if (view) read = { ...read, spec: specOverlay(read.spec, view.ops) }; }
+          catch (e) { read = { ok: false, why: "draft-unreadable" }; }
+        }
         if (read && read.ok) pageSpec = withStoredSpec(spec, read.spec);
         else if (existing) {
           console.error("revise schema unreadable:", slug, read && read.why);
@@ -38606,6 +38625,16 @@ async function handleRequest(request, env, ctx) {
               // sets a schema or sets a stop. Said rather than climbed if it ever
               // is not.
               if (!eSpec) return explain("page/spec-unreadable", {}, { backend: "spec-missing" });
+              // THE DRAFT'S HELD TABLES, AS IF MADE (audit A06-5, 2026-10-22):
+              // the writer and the lint are shown the schema the draft's next
+              // Publish will make, so a page reading a held table keeps its
+              // hook. A draft that cannot be read stops, as the data step does.
+              if (draftFirst(env)) {
+                let eView = null;
+                try { eView = await draftView(env, ownerSlug); }
+                catch (e) { console.error("page edit: draft unreadable", ownerSlug, errorClassForLog(e)); return explain("page/spec-unreadable", {}, { backend: "draft" }); }
+                if (eView) eSpec = specOverlay(eSpec, eView.ops);
+              }
 
               const eModels = modelsFor(eb && eb.picker);
 
