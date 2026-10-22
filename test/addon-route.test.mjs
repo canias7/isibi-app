@@ -4419,6 +4419,38 @@ test("a photograph alone with nothing real to place is refused before the page c
   assert.deepEqual(r.shots, []);
 });
 
+// A04-6 (2026-10-22): WITH IMAGE_PURCHASES OFF every purchase is refused, so a
+// photograph-only addition with none of the site's own is refused before the
+// page call, with a sentence that does not invite a retry ("just now").
+const purchasesOff = (env) => { env.IMAGE_PURCHASES = "off"; };
+test("A04-6 — purchases switched off: a photograph alone is refused before the page call, and says so honestly", async () => {
+  const dusk = "the workshop at dusk";
+  const r = await addon("fw-photo", "put a photo of the workshop at dusk on the home page", {
+    kinds: ["photo"], credits: 400, publishes: true, storedPages: PHOTO_SITE, setup: purchasesOff,
+    answers: { photo: { photo: [{ page: "/", describe: dusk, name: "dusk" }] } },
+    written: [{ ...PHOTO_SITE[0], source: PHOTO_SITE[0].source.replace("</main>", '  <SafeImage src="@@IMG:' + dusk + '@@" alt="dusk" />\n</main>') }],
+  });
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  assert.equal(r.body.error, "no-photo");
+  assert.equal(r.body.cost, 0);
+  assert.equal(pagePrompt(r), undefined, "the page writer was paid while no photograph could be bought");
+  assert.equal(r.compiles.length, 0);
+  assert.deepEqual(r.shots, []);
+  assert.doesNotMatch(r.body.msg, /just now/, "the sentence invites a retry that cannot succeed");
+  assert.match(r.body.msg, /can't be made/);
+  assert.match(r.body.msg, /nothing on your site changed/);
+});
+
+test("A04-6 control — purchases switched off: one of the site's own photographs is still placed", async () => {
+  const r = await addon("fw-photo", "put a photo of the workshop bench on the home page", {
+    kinds: ["photo"], credits: 400, publishes: true, storedPages: PHOTO_SITE, setup: purchasesOff,
+    answers: benchAnswer, written: [withOwnOn(PHOTO_SITE[0], OWN_A)],
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.shots, []);
+  assert.deepEqual(r.body.ownPhotos, [{ page: "/" }]);
+});
+
 test("a photograph alone whose purchase fails after the page was written is refused, and nothing ships", async () => {
   const dusk = "the workshop at dusk";
   const r = await addon("fw-photo", "put a photo of the workshop at dusk on the home page", {

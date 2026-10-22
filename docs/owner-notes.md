@@ -71,6 +71,18 @@
 - **Now** the rewrite is told which parts were set aside, and they are taken out before it reads the request, exactly as when the page itself climbs to the rewrite. It is also told why it was handed the work. Each piece runs once and is charged once.
 - Records: `docs/history/2026-10-22-audit-62.md`. Branch `audit-62` (from `codex-work-into-claude`); nothing spent.
 
+## 2026-10-22 — Audit A04-6: adding a photo while photo buying is off no longer wastes work (not merged, not deployed)
+
+- **It was real.** With photo buying switched off (as on production), "add a photo of our sourdough" still had the page written before the purchase was refused, and the reply said "just now", so a retry looked worth trying. It never was.
+- **Now** the page is not written: the request is refused at no cost with "New photographs can't be made for sites at the moment … I can place one of the photographs your site already has instead". Placing one of your site's own photos still works.
+- Records: `docs/history/2026-10-22-audit-84-88.md`. Branch `audit-84-88`; nothing spent.
+
+## 2026-10-22 — Audit A03-6: renaming the business now reaches every section (not merged, not deployed)
+
+- **It was real.** "We're now called …" changed the name in the page files, but on sites built in bands the hero, about and footer sections are separate pieces, and they kept the old name while the reply said it was renamed.
+- **Now** the rename covers those sections too, still changing only words a visitor reads (never links or code). If the sections can't be read, nothing is changed or charged and you're asked to try again.
+- Records: `docs/history/2026-10-22-audit-84-88.md`. Branch `audit-84-88`; nothing spent.
+
 ## 2026-10-22 — Ideas #10 and #14, combined with the day's work (not deployed)
 
 - #10, the visual review: after a first build's render check, the build's own

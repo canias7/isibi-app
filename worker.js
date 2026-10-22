@@ -37912,6 +37912,25 @@ async function handleRequest(request, env, ctx) {
 
               // PREPARED: every lane has answered; the look is never written here.
               if (isPrep) return prepStop();
+              // A RENAME READS THE SITE'S OWN COMPONENTS FIRST (A03-6,
+              // 2026-10-22). On a site split into bands the visible copy lives
+              // in `-parts/`, so a rename over the pages alone left the hero and
+              // the footer on the old name. Read before the look is written: a
+              // store that cannot be read refuses here, nothing stored, nothing
+              // charged — the text rung's rule. A removed code's figure already
+              // read both halves (`qrCut`), and the rename reads those.
+              const eRenaming = moved.includes("brand") && priorLook && priorLook.brand && merged.brand;
+              let eRenameParts = null;
+              if (eRenaming && !qrCut) {
+                const rp = await editParts();
+                if (!rp.ok) {
+                  return Response.json({
+                    ok: false, error: "parts-unreadable", cost: 0,
+                    msg: "I couldn't read this site's sections just now, and renaming the business without them would leave the old name on them. Nothing was changed — try again in a moment.",
+                  }, { status: 503 });
+                }
+                eRenameParts = rp.parts;
+              }
               try {
                 // ONE WRITE FOR BOTH. `cssMoved` is what decides whether the
                 // sheet is named at all: `nextCss` equals `priorCss` unless a
@@ -37962,10 +37981,13 @@ async function handleRequest(request, env, ctx) {
               // a route id or a URL.
               // THE PAGES A REMOVED CODE'S FIGURE CAME OFF, when one did — the
               // rename below then reads those.
-              let eSrcOut = qrCut ? qrCut.pages : eSrc, renamed = 0;
-              if (moved.includes("brand") && priorLook && priorLook.brand && merged.brand) {
-                const rn = renamePages(eSrcOut, priorLook.brand, merged.brand);
-                eSrcOut = rn.pages; renamed = rn.applied;
+              let eSrcOut = qrCut ? qrCut.pages : eSrc, ePartsOut = qrCut ? qrCut.parts : null, renamed = 0;
+              if (eRenaming) {
+                // THE PAGES AND THE COMPONENTS AS ONE LIST, back into both
+                // halves after; `renamed` counts files whose prose changed.
+                const rn = renamePages(editableFiles(eSrcOut, qrCut ? qrCut.parts : eRenameParts), priorLook.brand, merged.brand);
+                const rs = splitEditable(rn.pages);
+                eSrcOut = rs.pages; ePartsOut = rs.parts; renamed = rn.applied;
               }
               // THE PAGES OTHERWISE GO BACK UNTOUCHED. `recompileAndPublish`
               // reads the look it was just handed out of `_meta` rather than
@@ -37980,7 +38002,7 @@ async function handleRequest(request, env, ctx) {
               // halves were read, so both go — the picture rung's rule.
               const pub = await publishStep(env, {
                 slug: ownerSlug, pages: eSrcOut,
-                ...(qrCut ? { parts: qrCut.parts } : {}),
+                ...(ePartsOut ? { parts: ePartsOut } : {}),
                 label: versionLabel({ revise: true, changeNote: eRun }),
               });
               if (!pub.ok) {
@@ -43297,11 +43319,16 @@ async function handleRequest(request, env, ctx) {
             // was told about. `buySitePhotos` re-asks it at the moment of spend
             // against the clock and the library, which is the real gate; this
             // one only decides what to ASK for.
+            // THE PURCHASE SWITCH CUTS IT TOO (A04-6, 2026-10-22): with
+            // IMAGE_PURCHASES off every purchase is refused (`makeSitePhoto`),
+            // so no shot is offered and a photograph-only addition with none
+            // of the site's own is refused here, before the page call.
+            const aBuyOn = imagePurchasesOn(env);
             let aBalance = 0;
-            if (aFold.photos.length) {
+            if (aFold.photos.length && aBuyOn) {
               aBalance = await (aJob ? readCreditsFor(env, aJob.uid) : readCredits(aAuth)).catch(() => 0);
             }
-            const aShots = aFold.photos.slice(0, imagesAffordable(aFold.photos.length, { balance: aBalance, usd: SITE_PHOTO_USD }));
+            const aShots = aBuyOn ? aFold.photos.slice(0, imagesAffordable(aFold.photos.length, { balance: aBalance, usd: SITE_PHOTO_USD })) : [];
             // ── A PHOTOGRAPH, ALONE, WITH NOTHING REAL TO SHOW (2026-10-02) ──
             //
             // When the photograph is the whole message and it is neither one
@@ -43315,7 +43342,7 @@ async function handleRequest(request, env, ctx) {
             const aPhotoOnly = aKinds.length === 1 && aKinds[0] === "photo";
             const aNoPhoto = () => aFail({
               ok: false, error: "no-photo", cost: 0,
-              msg: noPhotoMsg() + (aRowAside && !aRowCarried ? " " + addRefusal("row-alone", "row") : ""),
+              msg: noPhotoMsg({ purchasesOff: !aBuyOn }) + (aRowAside && !aRowCarried ? " " + addRefusal("row-alone", "row") : ""),
             }, 422);
             if (aPhotoOnly && !aFold.reuse.length && !aShots.length) {
               aMark("photos", "skip", { planned: aFold.photos.length, offered: 0, reuse: 0 });
