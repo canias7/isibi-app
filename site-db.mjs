@@ -764,6 +764,18 @@ export async function sqlQuery(conn, sql, params) {
   return (r && r.rows) || [];
 }
 
+// A READ THAT CANNOT WRITE (2026-10-22, decide-1a): one statement sent as a
+// read-only transaction (`Neon-Batch-Read-Only: true`, so Postgres runs it
+// under READ ONLY and refuses any write inside it). The SQL is sent exactly as
+// given, with `$n` placeholders and no `?` rewriting: every caller value goes
+// in `params`, never into the text.
+export async function sqlReadOnly(conn, sql, params) {
+  const c = client(conn);
+  const res = await c.transaction([c.query(String(sql), pgParams(params))], { readOnly: true });
+  const r = Array.isArray(res) ? res[0] : null;
+  return (r && r.rows) || [];
+}
+
 // REHEARSE A WRITE, KEEP NOTHING (2026-10-18, audit A09-3/A09-2): a change
 // held in a draft is tried against the live database the moment it is held,
 // as the statement the live path would send, inside one statement that always

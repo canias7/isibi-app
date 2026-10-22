@@ -106,7 +106,7 @@ import { deepScan, planScan } from "./builder/security-scan.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE, carryPanelFields, keepPanelDescription } from "./site-meta.mjs";
-import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, applyRowQuery, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec, previousSidecar, heldMediaSource, heldStandIns, previewServed, deadNewFunctions, jobsWithoutDead } from "./site-draft.mjs";
+import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, applyRowQuery, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec, previousSidecar, heldMediaSource, heldStandIns, previewServed, ftsFilterOf, FTS_CATALOG_SQL, ftsJudgeSql, ftsJudgeParams, heldChangedIds, deadNewFunctions, jobsWithoutDead } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
@@ -143,7 +143,7 @@ import { drainTeardown } from "./site-teardown.mjs";
 import { drainRebuild, BATCH as REBUILD_BATCH, BUSY_DEFER_SEC as REBUILD_BUSY_SEC, REBUILD_OP, REBUILD_START_DELAY_S, rebuildIdem } from "./site-rebuild.mjs";
 // The litter under `jobs/` (stage 9): what the unhappy paths leave behind.
 import { sweepJobObjects } from "./builder/job-retention.mjs";
-import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, sqlRehearse, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite, projectNameForSite, findSiteProjects, siteProjectDetails, createRehearsalBranch, rehearsalConn, deleteRehearsalBranch, staleRehearsalBranches } from "./site-db.mjs";
+import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, sqlRehearse, sqlReadOnly, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite, projectNameForSite, findSiteProjects, siteProjectDetails, createRehearsalBranch, rehearsalConn, deleteRehearsalBranch, staleRehearsalBranches } from "./site-db.mjs";
 import { rehearseHeldSchema, heldFromRehearsal } from "./builder/addon-rehearse.mjs";
 import { applySiteSchema, loadSiteSchema, readSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields, auditTier, withJobDeps, storedJobFns } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
@@ -14840,6 +14840,50 @@ async function applyHeldMedia(env, slug, m, { uid = "" } = {}) {
  *     nothing done in the preview reaches the live database, a payment, a
  *     message or a visitor's account.
  */
+/**
+ * THE DRAFT'S ROWS THAT A FULL-TEXT SEARCH MATCHES (2026-10-22, decide-1a,
+ * the owner's option A), or null when that cannot be told exactly. Live rows
+ * the draft leaves alone: the data service answers the page's own filter (as
+ * the live site would). Held rows (new ones, and live rows the draft changes,
+ * by their new values): the site's database, read-only, through the search
+ * column's own generated expression from the catalog — the rows, the config
+ * and the query text as parameters, never in the SQL. A row the draft
+ * deletes is already gone from `merged`.
+ */
+async function previewFtsRows(env, ask, url, slug, path, table, merged, ops, fts, exists, ctx) {
+  try {
+    const changed = heldChangedIds(table, ops);
+    const held = merged.filter((r) => Number(r.id) < 0 || changed.has(Number(r.id)));
+    const liveIds = new Set();
+    if (exists && merged.some((r) => !(Number(r.id) < 0 || changed.has(Number(r.id))))) {
+      const one = new URL(url.toString());
+      one.search = "";
+      one.searchParams.set("select", "id");
+      one.searchParams.set(fts.key, fts.value);
+      const res = await proxySiteService(env, ask, one, slug, path, "data", ctx);
+      if (!res.ok) return null;
+      const j = await res.json();
+      if (!Array.isArray(j)) return null;
+      for (const r of j) liveIds.add(Number(r && r.id));
+    }
+    const keep = new Set();
+    if (held.length) {
+      if (!exists) return null;
+      const conn = await siteBackendBySlug(env, slug);
+      if (!conn) return null;
+      const cat = await sqlReadOnly(conn, FTS_CATALOG_SQL, [table, fts.col]);
+      if (!Array.isArray(cat) || cat.length !== 1) return null;
+      const sql = ftsJudgeSql({ doc: cat[0].doc, rel: cat[0].rel, fn: fts.fn, config: fts.config });
+      if (!sql) return null;
+      const send = held.map((r) => { const o = { ...r }; delete o[fts.col]; return o; });
+      const got = await sqlReadOnly(conn, sql, ftsJudgeParams(send, fts));
+      if (!Array.isArray(got)) return null;
+      for (const g of got) { const i = Number(g && g.i); if (!Number.isInteger(i) || i < 1 || i > held.length) return null; keep.add(held[i - 1]); }
+    }
+    return merged.filter((r) => (held.includes(r) ? keep.has(r) : liveIds.has(Number(r.id))));
+  } catch { return null; }
+}
+
 async function servePreview(env, request, url, pv, ctx) {
   const no = () => new Response("Not found", { status: 404, headers: { "cache-control": "no-store", "x-robots-tag": "noindex" } });
   if (!env.SITE_WORKERS || !env.SITES_BUCKET) return no();
@@ -14899,7 +14943,17 @@ async function servePreview(env, request, url, pv, ctx) {
       rows = []; exists = false;
     }
     if (!rows) return Response.json({ error: "couldn't read that just now" }, { status: 503, headers: { "cache-control": "no-store" } });
-    const answered = applyRowQuery(rowsOverlay(table, rows, ops, { tableExists: exists }).rows, url.searchParams);
+    let merged = rowsOverlay(table, rows, ops, { tableExists: exists }).rows;
+    let params = url.searchParams;
+    // FULL-TEXT SEARCH JUDGED BY THE SITE'S OWN DATABASE (decide-1a): see
+    // `previewFtsRows`. Null is "cannot judge": refused below, never guessed.
+    const fts = ftsFilterOf(params);
+    if (fts) {
+      const judged = fts.ok ? await previewFtsRows(env, ask, url, pv.slug, dm[2], table, merged, ops, fts, exists, ctx) : null;
+      if (!judged) return Response.json({ error: "the preview can't show this list with the draft's changes yet" }, { status: 422, headers: { "cache-control": "no-store", "x-robots-tag": "noindex" } });
+      merged = judged; params = fts.rest;
+    }
+    const answered = applyRowQuery(merged, params);
     if (!answered.ok) return Response.json({ error: "the preview can't show this list with the draft's changes yet" }, { status: 422, headers: { "cache-control": "no-store", "x-robots-tag": "noindex" } });
     return Response.json(answered.rows, { headers: { "cache-control": "no-store", "x-robots-tag": "noindex" } });
   }
