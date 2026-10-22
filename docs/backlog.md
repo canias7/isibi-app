@@ -3182,3 +3182,25 @@ deploy.yml yet). Before switching on: one real model on a test site (~150
 credits, $1.20 at fal) to confirm fal's answer shape, timing and file sizes,
 then wire MODEL3D_PURCHASES into deploy.yml. Price stays 150 credits (cost in
 credits; the margin is the credit price, ~$0.012 a credit).
+
+## Exact old→new edits for the tweak rung (idea #18; owner, 2026-10-22: "note it for one day")
+
+Today the tweak rung returns the whole file. Switch to exact find-and-replace
+edits (refuse missing / non-unique), reusing visual-review.mjs's loop.
+Cheaper, nothing else can change, clearer failures. ~1 day + small paid test.
+
+## Free site checks in the render check: Lighthouse + axe-core (owner, 2026-10-22: "note it for later")
+
+The security scan (Cloudflare's method) covers security only. For speed,
+SEO, best practices (Lighthouse, Apache 2.0) and accessibility (axe-core,
+MPL 2.0), run them in the existing Chromium render check after each build, no
+model cost; report scores/findings to the owner. Not started.
+
+## Look at "Claude Red" near the end (owner, 2026-10-22: "note for when we almost done, to do it")
+
+An offensive-security skill pack for Claude (78 SKILL.md files, by
+SnailSploit & Mixbanana, snailsploit.com; ~7.6k GitHub stars per an Instagram
+reel). To do near the end: check what's in it, its license and reputation, and
+whether any of it safely improves our security scan or tests OUR OWN platform
+and test sites. Attack tools only ever against what we own or may test, never
+customers' live sites without permission. Not looked at yet.
