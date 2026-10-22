@@ -34,6 +34,10 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 
 ## Where things stand (2026-09-30)
 
+- **2026-10-22, later: `main` is `fdf73825a` (deploy 2258, green; deployed, not
+  runtime-confirmed)**: today's combined work, including audit fixes through
+  51 and Meshy 3D shipped off. Audit 53–60 being checked next. Records:
+  `docs/history/2026-10-22-session.md`, `docs/deploy-record.md`.
 - **2026-10-22: findings 1–20 are on `main` and deployed** (checked: `08efa424`,
   `6eb0d509`, `d3d52e1a`, `f1ee494f` are ancestors of `main` `3fda8174d`); the
   older wording below is history. Next: findings 21–30.

@@ -2022,3 +2022,15 @@ deploy's ignore list, so the push started deploy run 38747702721.
   - `genMs` was 441,623, past the 300-second wall that killed the first build. `genVia` was 1 (the container's started-and-polled call), with `tsc` 16,305, `vite` 41,999, render 29,510 and publish 19,138.
   - Cost 18 credits (97 → 79).
   - Before the fix, the same prompt failed at 602,445 ms with `fetch failed` (2026-10-18, build `11a381e8`).
+
+## Deploy 2258 — 2026-10-22 04:23 UTC (`fdf73825a`)
+
+A fast-forward of 72 commits from `3fda8174d` (deploy 2257), on the owner's
+word "everything else yes u can merge and deploy": today's combined work
+(design rules, shorter pages, ideas #10 #14 #25/26, Scene3D + Meshy 3D (off),
+audit 21–26, 28–31, 35–44, 48–51). One deploy run (39722119574), green. The
+container image rolls (many container inputs changed); the image id was not
+predicted in advance. Served `public/chat.js` is byte-identical to the merged
+file (sha256 starts `ff0eb507d9b92a98`). **Deployed, not runtime-confirmed**:
+the authenticated build-health read (the owner's free canary press) is owed.
+Required CI green on `fdf73825a`: unit tests 39721233513, site build 39721233572.
