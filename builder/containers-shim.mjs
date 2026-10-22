@@ -18,6 +18,8 @@
 // `Container` is exported so the Worker module's `class SiteBuildContainer
 // extends Container` declaration evaluates; nothing instantiates it here.
 
+import { longFetch } from "./long-post.mjs";
+
 export const BUILD_HOST = "http://build";
 
 /** Where the build service listens inside the container. */
@@ -38,21 +40,23 @@ export class Container {
   constructor(ctx, env) { this.ctx = ctx; this.env = env; }
 }
 
+// EVERY HOP GOES OVER `longFetch`, NEVER NODE'S OWN FETCH (2026-10-22, audit
+// finding 40). Node's fetch is undici, whose 300-second headers timeout fires
+// before any AbortSignal set longer, and the build service answers `/build`
+// (the compile, held up to ~10 minutes by `withRoom`) and the synchronous
+// `/model` only when the whole job is done. Inside a container job that cut a
+// compile over 300 s as `TypeError: fetch failed`. `longFetch` has no headers
+// or body timeout; the request's own signal is the one bound. The short hops
+// (`/model/start`, its polls, `/health`) ride it too: one transport, nothing
+// to choose per path. This file is loaded only inside the container
+// (worker-loader.mjs), so workerd never sees `node:http`.
 export function getContainer(_namespace, _name) {
   return {
-    fetch(input, init) {
+    async fetch(input, init) {
       const req = input instanceof Request ? input : new Request(input, init);
       const url = rewriteBuildUrl(req.url);
-      // A new Request over the same body and headers: Node's fetch wants the
-      // rewritten URL and refuses a Request whose URL it did not build.
-      const copy = new Request(url, {
-        method: req.method,
-        headers: req.headers,
-        body: req.method === "GET" || req.method === "HEAD" ? undefined : req.body,
-        signal: req.signal,
-        duplex: "half",
-      });
-      return fetch(copy);
+      const body = req.method === "GET" || req.method === "HEAD" ? null : new Uint8Array(await req.arrayBuffer());
+      return longFetch(url, { method: req.method, headers: req.headers, body, signal: req.signal });
     },
   };
 }
