@@ -1,5 +1,17 @@
 # Owner Notes
 
+## 2026-10-22 — Ideas #10 and #14, combined with the day's work (not deployed)
+
+- #10, the visual review: after a first build's render check, the build's own
+  model looks at phone and desktop screenshots of up to three pages and fixes
+  what looks wrong once, keeping the original if the fix doesn't compile.
+  Behind VISUAL_REVIEW, off. Needs a paid first build before it is turned on.
+- #14, the build checklist: the final reply says what was built and what
+  wasn't ("Built: Home (3 sections), Menu … Not built: Gallery (a
+  placeholder)"), from the design plan and what the build really did.
+- Combining all of today's branches (`claude/combine-2026-10-22`) broke four
+  spelling checks and missed one container file; all fixed in the combine.
+
 ## 2026-10-22 — Audit finding 38: a page rewrite can no longer quietly drop menu entries, buttons or card text (not merged, not deployed)
 
 - **It was real.** When the full page writer rewrote a page, its safety check only looked at text written between tags. Words held inside a component's settings were invisible to it: the menu's entries, a button's label and where it points, a section's cards. So a rewrite asked only to change the opening hours could drop the "Order" menu link and the whole "Order ahead" band, and the page was published with "Updated". I checked this on today's code with the audit's own example before changing anything.

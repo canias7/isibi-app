@@ -346,6 +346,7 @@ test("the build service judges the selectors the publish names, through selector
   assert.ok(code.includes("checkRender(CLIENT_DIST"), "the render check call is gone, so this scan reads nothing");
   assert.match(code, /const cssSelectors = cssUsed && cssUsed\.applied \? selectorsToJudge\(readCss\(payload\.css\)\.css, payload\.cssVerify\) : \[\];/,
     "the service no longer judges the named selectors of the sheet it wrote");
-  assert.match(code, /\{ selectors: cssSelectors \}/, "the judged selectors do not reach the render check");
+  // RE-ANCHORED 2026-10-22 (combine): the visual review (#10) adds `shots` beside it.
+  assert.match(code, /\{ selectors: cssSelectors[,\s}]/, "the judged selectors do not reach the render check");
   assert.doesNotMatch(code, /plainSelectors\(/, "the service judges the whole sheet by another road");
 });

@@ -956,7 +956,9 @@ test("the route reads the caller before the owner, and the owner before it answe
   assert.ok(!route.includes("readCanaryList"), "the route reads the canary list");
   assert.ok(!route.includes("JOB_RUNNER_CANARY") && !route.includes("EDIT_ASYNC_CANARY"), "the route names a canary variable");
   assert.ok(!route.includes("SITE_SECRETS_KEY]") , "the key is indexed rather than tested");
-  assert.match(route, /const keyed = !!String\(\(env && env\.SITE_SECRETS_KEY\) \|\| ""\);/, "the key's presence is not read as a boolean");
+  // RE-ANCHORED 2026-10-22 (combine): finding 31 reads the signing key through
+  // gatewaySecretOf, still as a boolean and never the value.
+  assert.match(route, /const keyed = !!gatewaySecretOf\(env\);/, "the key's presence is not read as a boolean");
   // AND `readCanaryList` IS NOT IMPORTED AT ALL, so no later edit of this
   // route can reach for it without saying so at the top of the file.
   const imports = W.slice(0, at(W, 'from "./builder/edit-job.mjs";', "the edit-job import"));
