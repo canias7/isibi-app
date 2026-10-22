@@ -1,0 +1,18 @@
+[
+ {"label": "CONTROL: a comment only — must survive", "control": true, "files": ["builder/job-gateway.mjs"],
+  "from": "export const GATEWAY_KEY_MIN = 32;", "to": "// control\nexport const GATEWAY_KEY_MIN = 32;"},
+ {"label": "M1 SITE_SECRETS_KEY is handed to every job again", "files": ["builder/edit-job.mjs"],
+  "from": "  \"NEON_API_KEY\", \"CLOUDFLARE_API_TOKEN\", \"CLOUDFLARE_ACCOUNT_ID\",\n", "to": "  \"NEON_API_KEY\", \"CLOUDFLARE_API_TOKEN\", \"CLOUDFLARE_ACCOUNT_ID\", \"SITE_SECRETS_KEY\",\n"},
+ {"label": "M2 the dedicated key is never preferred", "files": ["builder/job-gateway.mjs"],
+  "from": "  if (own.length >= GATEWAY_KEY_MIN) return { name: \"GATEWAY_SIGNING_KEY\", secret: own };", "to": ""},
+ {"label": "M3 the placeholder is read as a key", "files": ["builder/job-gateway.mjs"],
+  "from": "if (own.length >= GATEWAY_KEY_MIN)", "to": "if (own.length >= 1)"},
+ {"label": "M4 the runner accepts the gateway key names", "files": ["builder/container-job.mjs"],
+  "from": "\"CREDITS_MINT_SECRET\", ...GATEWAY_KEY_NAMES];", "to": "\"CREDITS_MINT_SECRET\"];"},
+ {"label": "M5 the Worker reads SITE_SECRETS_KEY directly again", "files": ["worker.js"],
+  "from": "  const src = gatewaySecretOf(env);\n  if (!src) return null;", "to": "  const src = env && env.SITE_SECRETS_KEY ? { name: \"SITE_SECRETS_KEY\", secret: String(env.SITE_SECRETS_KEY) } : null;\n  if (!src) return null;"},
+ {"label": "M6 no fallback to SITE_SECRETS_KEY", "files": ["builder/job-gateway.mjs"],
+  "from": "  if (vault) return { name: \"SITE_SECRETS_KEY\", secret: vault };", "to": ""},
+ {"label": "M7 the key cache ignores which name it came from and the secret", "files": ["worker.js"],
+  "from": "  const at = src.name + \"\\u0000\" + src.secret;", "to": "  const at = \"one\";"}
+]

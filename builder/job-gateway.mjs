@@ -343,7 +343,37 @@ const B64 = {
 const TE = new TextEncoder();
 const TD = new TextDecoder();
 
-/** The signing key for gateway tokens, DERIVED from the platform's secrets key. */
+/**
+ * WHERE THE GATEWAY'S SIGNING KEY COMES FROM (audit finding 31, A16-1 and
+ * A12-7, 2026-10-22). Every name here is the WORKER'S ALONE: none may be in
+ * `JOB_ENV_NAMES` (edit-job.mjs), and a launch carrying any of them is refused
+ * by the runner (`LAUNCH_NEVER`, container-job.mjs). Until this date the key
+ * was derived from SITE_SECRETS_KEY and that name was handed to every job, so
+ * a job process (the box that runs model-written page code in a child) could
+ * mint a valid token for any job id, site and account, and decrypt every
+ * owner's stored Stripe and mail keys with the same value.
+ *
+ * GATEWAY_SIGNING_KEY is the dedicated secret, used when it holds at least
+ * `GATEWAY_KEY_MIN` characters (the deploy's `not-a-key` placeholder for an
+ * unset secret is shorter, so it reads as unset). Without it the key is
+ * derived from SITE_SECRETS_KEY as before, which is still the Worker's alone
+ * now that no job is handed it; tokens in flight keep verifying across the
+ * deploy. Setting GATEWAY_SIGNING_KEY later ends the tokens of jobs running at
+ * that moment, once.
+ */
+export const GATEWAY_KEY_NAMES = ["GATEWAY_SIGNING_KEY", "SITE_SECRETS_KEY"];
+export const GATEWAY_KEY_MIN = 32;
+
+/** The secret the gateway key derives from, `{ name, secret }`, or null. */
+export function gatewaySecretOf(env) {
+  const own = env && typeof env.GATEWAY_SIGNING_KEY === "string" ? env.GATEWAY_SIGNING_KEY : "";
+  if (own.length >= GATEWAY_KEY_MIN) return { name: "GATEWAY_SIGNING_KEY", secret: own };
+  const vault = env && typeof env.SITE_SECRETS_KEY === "string" ? env.SITE_SECRETS_KEY : "";
+  if (vault) return { name: "SITE_SECRETS_KEY", secret: vault };
+  return null;
+}
+
+/** The signing key for gateway tokens, DERIVED from the secret `gatewaySecretOf` names. */
 export async function gatewayKey(secretsKey) {
   const s = String(secretsKey || "");
   if (!s) throw new Error("no secrets key to derive the gateway key from");

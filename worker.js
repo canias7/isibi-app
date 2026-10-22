@@ -44,7 +44,7 @@ import { makeTrace } from "./builder/trace.mjs";
 import { makeRecorder, BUILD_RECORD_TABLE } from "./builder/build-record.mjs";
 import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CONTAINER_CALL_MS, CONTAINER_BUILD_BUDGET_MS } from "./builder/build-budget.mjs";
 import { withRoom, roomSentence } from "./builder/container-room.mjs";
-import { gatewayHandler, gatewayJobId, gatewayKey, verifyJobToken, signJobToken, preScopeSlug } from "./builder/job-gateway.mjs";
+import { gatewayHandler, gatewayJobId, gatewayKey, gatewaySecretOf, verifyJobToken, signJobToken, preScopeSlug } from "./builder/job-gateway.mjs";
 import { designFailure, mayRetry, repairNote, repairOutcome, addUsage, DESIGN_REPAIR_MAX, DESIGN_RETRY_MAX } from "./builder/design-repair.mjs";
 import { recorder, replayer, readPrepared, readBuys, prepKey, jobPrepKey, purchaseKey, purchaseId, readPurchase, rejectReply, MARKS_KEPT, priorRefusalOf, valueDigest, stagedRecord } from "./builder/prepared.mjs";
 import { buildLiveRoot, buildLiveKey, buildKeptKey, buildChatKey, markerJobOf, packBuildLive, readBuildLive, packBuildDone, readBuildDone, packBuildChat, readBuildChat, buildLiveState, claimVerdict, listsBuild, buildRunKey, packBuildRun, readBuildRun, runVerdict, runStanding, isRunToken, BUILD_RUN_START_MS, isLiveUid, isLiveChat, isAttempt, jobTagOf, BUILD_LIVE_MS, BUILD_LIVE_MAX } from "./builder/build-live.mjs";
@@ -24554,13 +24554,16 @@ export async function runContainerJob(env, ctx, { kind, id, holder = "", slug = 
   throw new Error("no such job kind: " + String(kind));
 }
 
-/** The gateway's signing key, derived once per secret per isolate. */
+/** The gateway's signing key, derived once per secret per isolate, from the
+ *  Worker-only secret `gatewaySecretOf` names (GATEWAY_SIGNING_KEY, else
+ *  SITE_SECRETS_KEY; neither is ever handed to a job: audit finding 31). */
 const _gatewayKeys = new Map();
 async function gatewayKeyFor(env) {
-  const secret = String((env && env.SITE_SECRETS_KEY) || "");
-  if (!secret) return null;
-  let k = _gatewayKeys.get(secret);
-  if (!k) { k = await gatewayKey(secret); _gatewayKeys.set(secret, k); }
+  const src = gatewaySecretOf(env);
+  if (!src) return null;
+  const at = src.name + "\u0000" + src.secret;
+  let k = _gatewayKeys.get(at);
+  if (!k) { k = await gatewayKey(src.secret); _gatewayKeys.set(at, k); }
   return k;
 }
 
@@ -31255,7 +31258,7 @@ async function handleRequest(request, env, ctx) {
       // `runner: false` beside `runnerOn: true` names which link is missing
       // rather than leaving the owner to guess between four of them.
       const bindings = !!(env && env.SITES_BUCKET && env.SITE_BUILD_CONTAINER);
-      const keyed = !!String((env && env.SITE_SECRETS_KEY) || "");
+      const keyed = !!gatewaySecretOf(env);
       return Response.json({
         ok: true,
         slug: tslug,
