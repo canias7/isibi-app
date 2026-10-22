@@ -1138,7 +1138,7 @@ export function navRequest({ instruction, slots, routes, actions, links, contact
  * exist is a 404 on every page of the site, so it goes; the rest of the menu
  * still changes, and the caller says what was left out.
  */
-export function readNav(reply, routes) {
+export function readNav(reply, routes, shown) {
   const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
   const use = blocks.find((b) => b && b.type === "tool_use");
   const input = (use && use.input) || null;
@@ -1146,6 +1146,13 @@ export function readNav(reply, routes) {
   const raw = input.links;
 
   const known = new Set((Array.isArray(routes) ? routes : []).filter(Boolean));
+  // ⚠ AN ADDRESS THE EDITOR WAS SHOWN IS KEPT AS IT WAS (2026-10-22, audit
+  // A27-1). The whole menu comes back, and every restated item used to face
+  // the checks for a NEW one: an existing `tel:`, `mailto:`, upload or bare
+  // `#anchor` failed them, fell out of `links`, and `menuChange` then deleted
+  // it from every page. Only a new address is checked; one left out is still
+  // removed.
+  const was = new Set((Array.isArray(shown) ? shown : []).filter((h) => typeof h === "string" && h));
   const links = [], dropped = [];
   const seen = new Set();
 
@@ -1288,7 +1295,7 @@ export function readNav(reply, routes) {
     const label = typeof it.label === "string" ? it.label.trim().slice(0, MAX_LABEL) : "";
     const href = typeof it.href === "string" ? it.href.trim() : "";
     if (!label || !href) { dropped.push({ label, href, why: "incomplete" }); continue; }
-    const why = hrefProblem(href, known);
+    const why = was.has(href) ? "" : hrefProblem(href, known);
     if (why) { dropped.push({ label, href, why }); continue; }
     if (seen.has(href)) { dropped.push({ label, href, why: "duplicate" }); continue; }
     seen.add(href);
@@ -2251,7 +2258,7 @@ export async function runNavEdit(deps, { instruction, pages, routes, model = NAV
   // AN EDIT'S OWN ADDITIONS (2026-10-04): an item asked to be added is named
   // (`add`) and goes where it is missing, exactly as an addition's does.
   const { adds, dropped: unread } = readAdditions(toolInput(reply), routes);
-  const read = firstButton(readNav(reply, routes) || (adds.length || unread.length ? { ...NOTHING_READ, dropped: [] } : null), hasButton);
+  const read = firstButton(readNav(reply, routes, menuUnion(slots).map((it) => it.href)) || (adds.length || unread.length ? { ...NOTHING_READ, dropped: [] } : null), hasButton);
   const wantsMenu = !!(read && read.links && read.links.length);
   const wantsButton = !!(read && (read.action || read.removeAction));
   const wantsSecond = !!(read && (read.secondAction || read.removeSecondAction));
