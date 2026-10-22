@@ -14,7 +14,34 @@
 // Pure helpers over a `deps` of `{ get, put }` (R2-shaped), so the Worker and
 // the tests read and write the record the same way.
 
-import { isHeldObject } from "./site-builds.mjs";
+import { isHeldObject, isHeldBody, buildPrefix, STATE_DIR } from "./site-builds.mjs";
+
+/**
+ * THE SIDECAR A NEW PUBLISH'S REDIRECTS ARE DIFFED AGAINST (2026-10-22, audit
+ * A11-3). Under draft-first a save is not live, so the live sidecar is not the
+ * previous publish: a rename saved as a draft left `/about -> /our-story` only
+ * in that draft's staged sidecar, and the next save, diffed against the live
+ * one, mapped `/about` to `/`. When a draft stands, its own staged sidecar
+ * (`builds/<slug>/<version>/state/sidecar.json`) is the previous manifest; a
+ * draft version with no readable staged sidecar (absent or held) falls back
+ * to the live key. `{ from, side }`, or null when there is none at all.
+ * Throws when the draft record or a sidecar cannot be read: cannot-tell is
+ * never "no history".
+ */
+export async function previousSidecar(deps, slug, { draftFirst = false, liveKey } = {}) {
+  const parsed = async (o) => { const v = JSON.parse(await o.text()); return isHeldBody(v) ? null : v; };
+  if (draftFirst) {
+    const { draft } = await readDraft(deps, slug);
+    if (draft && draft.version) {
+      const o = await deps.get(buildPrefix(slug, draft.version) + STATE_DIR + "sidecar.json");
+      const side = o ? await parsed(o) : null;
+      if (side) return { from: "draft", side };
+    }
+  }
+  const o = await deps.get(liveKey);
+  if (!o) return null;
+  return { from: "live", side: (await parsed(o)) || {} };
+}
 
 // ITS OWN NAMESPACE (2026-10-15, the draft-first round on current main): the
 // owner's video and audio kept before a site exists live under `drafts/<uid>/`

@@ -44,7 +44,9 @@ test("the publish WRITES it and reads the previous one from the same place", () 
   // reader and the writer must agree or every accumulated redirect is lost on
   // the first publish after this lands — a hard 404 for every address that was
   // 301ing a moment earlier.
-  assert.match(WORKER, /const po = await env\.SITES_BUCKET\.get\(siteMetaKey\(slug\)\)/,
+  // SINCE 2026-10-22 (audit A11-3) through `previousSidecar`, handed the same
+  // live key (and, under draft-first, the standing draft's staged sidecar).
+  assert.match(WORKER, /const po = await previousSidecar\(buildDeps\(env\), slug, \{[^}]*liveKey: siteMetaKey\(slug\)/,
     "the previous manifest is no longer read from the sidecar");
   // WRITTEN AT ACTIVATION (stage 7, 2026-09-05): the publish composes the
   // sidecar before the gate, keeps it as the version's state, and hands its

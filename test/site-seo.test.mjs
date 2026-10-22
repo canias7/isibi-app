@@ -378,7 +378,10 @@ test("composePublish derives the manifest and writes both files into the dist", 
   // the head is composed per request. The PROPERTY is unchanged and is what is
   // asserted here: the previous manifest is read, so a deleted page leaves a 301
   // where it was.
-  assert.match(head, /await env\.SITES_BUCKET\.get\(siteMetaKey\(slug\)\)/,
+  // SINCE 2026-10-22 (audit A11-3) THROUGH `previousSidecar`, which under
+  // draft-first reads the standing draft's staged sidecar and otherwise the
+  // live key (test/audit-batch-3.test.mjs B3-1..3).
+  assert.match(head, /await previousSidecar\(buildDeps\(env\), slug, \{[^}]*liveKey: siteMetaKey\(slug\)/,
     "the previous manifest is never read — deletions leave no redirect");
   assert.match(head, /mergeRedirects\(prev, man\.routes\b/, "gone routes are not diffed into redirects");
   // AND THE EXPLICIT MOVE REACHES IT. A rename is a delete plus an add by the

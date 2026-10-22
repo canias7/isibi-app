@@ -101,7 +101,7 @@ import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
-import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec } from "./site-draft.mjs";
+import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec, previousSidecar } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
@@ -15852,7 +15852,9 @@ async function composePublish(env, slug, dist, meta, pages, renamed = null, lang
         // the head is composed per request by `__root.tsx`. One small JSON is
         // also a better carrier than a `<meta>` pair — nothing to escape, and a
         // reader that cannot silently half-parse it.
-        const po = await env.SITES_BUCKET.get(siteMetaKey(slug));
+        // UNDER DRAFT-FIRST, THE STANDING DRAFT'S STAGED SIDECAR (2026-10-22,
+        // audit A11-3): the live one does not hold a rename saved as a draft.
+        const po = await previousSidecar(buildDeps(env), slug, { draftFirst: draftFirst(env), liveKey: siteMetaKey(slug) });
         // THROUGH `manifestFromCsv`, THE ONE READER OF THIS SHAPE. The sidecar
         // keeps the two lists as `routesCsv`/`redirectsCsv` strings, and
         // `mergeRedirects` reads `prev.routes`/`prev.redirects` — so handing it
@@ -15862,9 +15864,8 @@ async function composePublish(env, slug, dist, meta, pages, renamed = null, lang
         // publish (run 49: `/gallery` and `/the-starter` both 404). The serve
         // path has read the sidecar through this function since 2026-08-22.
         if (po) {
-          const sideRaw = JSON.parse(await po.text());
-          // A SIDECAR HELD ABSENT IS NO SIDECAR (2026-10-15).
-          const side = isHeldBody(sideRaw) ? {} : sideRaw;
+          // A SIDECAR HELD ABSENT IS NO SIDECAR (2026-10-15): read as {} there.
+          const side = po.side;
           prev = manifestFromCsv(side && side.routesCsv, side && side.redirectsCsv);
         }
       } catch (e) {
