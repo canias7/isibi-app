@@ -7906,7 +7906,6 @@ function moreCloud(site) {
   // for React via an edge function + a secret). Legacy static sites unchanged.
   const dataLive = isReact ? hasBackend : !!site.slug;
   const fnLive = !!site.slug;                       // Secrets + Edge functions: any published site
-  const auxLive = isReact ? false : !!site.slug;    // Emails/Payments/Files dedicated panels: static only for now
   // WHAT IS ACTUALLY SERVED, audited 2026-08-06 against worker.js's route
   // matcher. The owner block answers exactly: /rows /members /analytics
   // /uploads /export /notify /secrets. Everything else these cards call was
@@ -7926,8 +7925,6 @@ function moreCloud(site) {
     // kept forcing the card to render Off and stripping its click handler. So
     // the feature was live end to end on the server and unreachable in the
     // product, which is precisely what the line above says to prevent.
-
-    emails: 'Set up in Secrets — add your provider key',   // no route; the key lives under Secrets
   };
   const cards = [
     ['users', 'Members', dataLive ? 'Accounts that sign up in your app' : (isReact ? 'Add a login to your app to collect members' : 'Publish to enable member accounts'), dataLive, 'members'],
@@ -7939,7 +7936,6 @@ function moreCloud(site) {
     ['history', 'Versions', (isReact && !!site.slug) ? 'Roll back to a previous build' : (isReact ? 'Publish to enable versions' : 'React sites only'), (isReact && !!site.slug), 'versions'],
     ['key', 'Secrets', isReact ? 'API keys for payments, email + integrations (kept server-side)' : 'Encrypted keys for server-side features', fnLive, 'secrets'],
     ['history', 'Scheduled jobs', dataLive ? 'What your site does on a timer, and what it did' : (isReact ? 'Add data to your app to enable scheduled work' : 'Publish to enable scheduled work'), dataLive, 'functions'],
-    ['mail', 'Emails', 'Send email from your own provider', auxLive, 'emails'],
     ['card', 'Payments', dataLive ? 'Sell with your own Stripe' : (isReact ? 'Publish your app to take payments' : 'Publish to take payments'), fnLive, 'payments'],
     ['image', 'Files', 'Pictures and documents \u2014 add a PDF to hand out', dataLive, 'files'],
     ['alert', 'Errors', dataLive ? 'Problems visitors hit on your live site' : (isReact ? 'Add data to enable error reports' : 'Publish to enable error reports'), dataLive, 'errors'],
@@ -9198,7 +9194,6 @@ function renderSiteWorkspace(view, site) {
     else if (b.dataset.cloud === 'secrets') siteSecrets(site);
     else if (b.dataset.cloud === 'functions') siteFunctions(site);
     else if (b.dataset.cloud === 'files') siteFiles(site);
-    else if (b.dataset.cloud === 'emails') siteEmails(site);
     else if (b.dataset.cloud === 'payments') sitePayments(site);
     else if (b.dataset.cloud === 'domains') siteDomains(site);
     // The door that was missing. Everything behind it already worked.
@@ -16341,6 +16336,24 @@ async function siteDatabase(site) {
   } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn’t load collections just now — try again.</div>'; }
 }
 
+// EMAIL, WHERE ITS KEYS ARE ENTERED (audit A12-4; owner 2026-10-22: "all the
+// keys go into the secrets, so you can delete the emails box"). The names are
+// exactly what the site's senders read (`MAIL_PROVIDERS` in site-mail.mjs) plus
+// EMAIL_FROM, without which every sender refuses. Judged from the secret NAMES
+// only, never a value.
+const MAIL_KEY_NAMES = ['RESEND_KEY', 'SENDGRID_KEY', 'POSTMARK_KEY'];
+function mailLine(names) {
+  const has = (n) => names.includes(n);
+  const key = MAIL_KEY_NAMES.find(has) || null;
+  const from = has('EMAIL_FROM');
+  const how = 'To send email, add your provider\u2019s key named exactly <code>RESEND_KEY</code>, <code>SENDGRID_KEY</code> or <code>POSTMARK_KEY</code>, ' +
+    'and <code>EMAIL_FROM</code>: the address your site sends from, on a domain verified with that provider. Both are needed.';
+  if (key && from) return '<div class="pay-ok">Email is set up: <code>' + key + '</code> and <code>EMAIL_FROM</code>.</div>';
+  if (key) return '<div class="pay-warn">Email is not sent yet: <code>' + key + '</code> is here but <code>EMAIL_FROM</code> is missing. ' + how + '</div>';
+  if (from) return '<div class="pay-warn">Email is not sent yet: <code>EMAIL_FROM</code> is here but no provider key is. ' + how + '</div>';
+  return '<p class="sp-intro sk-mail">' + how + '</p>';
+}
+
 // Secrets — encrypted per-site vault. Values are never shown back (rotate = re-add,
 // or delete). Owner-only, RLS-scoped.
 async function siteSecrets(site) {
@@ -16354,6 +16367,7 @@ async function siteSecrets(site) {
   box.innerHTML = '<div class="si-card"><div class="si-head"><b>Secrets</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body"><p class="sp-intro">Store API keys and tokens encrypted. Values are never shown again — rotate by re-adding, or delete.</p>' +
     '<div class="sk-add"><input class="st-in" id="skName" placeholder="NAME (e.g. STRIPE_KEY)" autocomplete="off"><input class="st-in" id="skVal" type="password" placeholder="Value" autocomplete="off"><button type="button" class="st-publish" id="skAdd">Add</button></div>' +
     '<div class="si-count" id="skErr" style="display:none"></div>' +
+    '<div id="skMail"></div>' +
     '<div id="skList">Loading…</div></div></div>';
   document.body.appendChild(box);
   const close = () => box.remove();
@@ -16361,12 +16375,14 @@ async function siteSecrets(site) {
   box.addEventListener('click', (e) => { if (e.target === box) close(); });
   const listEl = box.querySelector('#skList');
   const errEl = box.querySelector('#skErr');
+  const mailEl = box.querySelector('#skMail');
   const fmt = (t) => { try { return new Date(t).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); } catch (e) { return ''; } };
   const load = async () => {
     try {
       const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/secrets');
       const d = await r.json().catch(() => ({ secrets: [] }));
       const secs = Array.isArray(d.secrets) ? d.secrets : [];
+      mailEl.innerHTML = r.ok ? mailLine(secs.map((x) => x && String(x.name || ''))) : '';
       if (!secs.length) { listEl.innerHTML = '<div class="si-empty">No secrets yet.</div>'; return; }
       // The hint, never the value. `sk_live` against `sk_test` is the difference
       // between a shop that takes money and one that quietly does not, and it is
@@ -16934,81 +16950,6 @@ async function siteFiles(site) {
     })
     .catch(() => { const box = document.getElementById('flList'); if (box) box.innerHTML = '<div class="st-sec-empty"><b>Lost the connection</b><span>Try again.</span></div>'; });
   list();
-}
-
-// Emails — your site sends email through YOUR OWN provider (audit A12-4,
-// 2026-10-22). A checklist like Payments, read from the site's Secrets
-// listing: NAMES ONLY, never a value. The names are exactly what the senders
-// read (`MAIL_PROVIDERS` in site-mail.mjs, plus EMAIL_FROM): every site sender
-// refuses without EMAIL_FROM, and a key under any other name is never read.
-// It promises only what the platform does: the owner's alert for each new
-// form entry, the confirmation or receipt the builder declares on a form, and
-// scheduled emails. No edge functions, no signup mail.
-const MAIL_KEY_NAMES = ['RESEND_KEY', 'SENDGRID_KEY', 'POSTMARK_KEY'];
-const MAIL_KEY_LABEL = { RESEND_KEY: 'Resend', SENDGRID_KEY: 'SendGrid', POSTMARK_KEY: 'Postmark' };
-function siteEmails(site) {
-  const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
-  if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then you can set up email.'); return; }
-  let box = document.getElementById('siteEmailModal');
-  if (box) box.remove();
-  box = document.createElement('div');
-  box.id = 'siteEmailModal';
-  box.className = 'si-modal';
-  box.innerHTML = '<div class="si-card"><div class="si-head"><b>Emails</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body">' +
-    '<p class="sp-intro">Your site sends email through <b>your own</b> email provider, from your own address. Go Farther never sends a site’s email for it.</p>' +
-    '<div id="emailState">Checking…</div>' +
-  '</div></div>';
-  document.body.appendChild(box);
-  const close = () => box.remove();
-  box.querySelector('.si-x').onclick = close;
-  box.addEventListener('click', (e) => { if (e.target === box) close(); });
-  const host = box.querySelector('#emailState');
-
-  const step = (n, done, title, body) =>
-    '<div class="em-step' + (done ? ' em-done' : '') + '"><span class="em-n">' + (done ? '&#10003;' : n) + '</span><div><b>' + title + '</b><span>' + body + '</span></div></div>';
-
-  (async () => {
-    let names = [], failed = false;
-    try {
-      const sr = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/secrets');
-      const sd = await sr.json().catch(() => ({}));
-      if (!sr.ok) failed = true;
-      names = (Array.isArray(sd.secrets) ? sd.secrets : []).map((x) => x && String(x.name || '')).filter(Boolean);
-    } catch (e) { failed = true; }
-    // "No keys yet" and "we could not look" are different things to tell an
-    // owner, so a failed read says so rather than drawing an empty checklist.
-    if (failed) { host.innerHTML = '<div class="si-empty">Couldn’t check your email setup just now — try again.</div>'; return; }
-
-    const has = (n) => names.includes(n);
-    const keys = MAIL_KEY_NAMES.filter(has);
-    const from = has('EMAIL_FROM');
-    const used = keys[0] || null;
-    const keyLine = used
-      ? 'Added — <b>' + MAIL_KEY_LABEL[used] + '</b> (<code>' + used + '</code>).' +
-        (keys.length > 1 ? ' More than one is set; <code>' + used + '</code> is the one used.' : '')
-      : 'Make an account with Resend, SendGrid or Postmark, copy its API key, and add it in <b>Cloud → Secrets</b> named exactly ' +
-        '<code>RESEND_KEY</code>, <code>SENDGRID_KEY</code> or <code>POSTMARK_KEY</code>. A key under any other name is not read.';
-    const fromLine = from
-      ? 'Added.'
-      : 'The address your site sends from, such as <code>hello@yourshop.com</code>, on a domain you have verified with that provider. ' +
-        'Add it in Secrets as <code>EMAIL_FROM</code>. Without it nothing is sent, even with the key in place.';
-
-    host.innerHTML =
-      (used && !from
-        ? '<div class="pay-warn">Nothing is being sent yet: <code>EMAIL_FROM</code> is missing. Add the address your site sends from (step 2).</div>'
-        : '') +
-      (used && from
-        ? '<div class="pay-ok">Ready — your site sends email through ' + MAIL_KEY_LABEL[used] + '.</div>'
-        : '') +
-      '<div class="em-steps">' +
-        step(1, !!used, 'Your email provider’s key', keyLine) +
-        step(2, from, 'The address you send from', fromLine) +
-        step(3, false, 'Ask the builder for the emails you want',
-          '“Email customers a confirmation when they book”, “send tomorrow’s customers a reminder each evening”. ' +
-          'Once steps 1 and 2 are done you are emailed about each new form entry, and a confirmation the builder adds goes out when someone submits (for a shop, when the order is paid).') +
-      '</div>' +
-      '<p class="sp-intro" style="margin-top:1rem">Your key is encrypted and only ever used on our server — it is never sent to the page, and never shown back to you.</p>';
-  })();
 }
 
 // Payments — sell through the owner's OWN Stripe. Setup guide (the checkout +
