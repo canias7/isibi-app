@@ -3195,3 +3195,12 @@ The security scan (Cloudflare's method) covers security only. For speed,
 SEO, best practices (Lighthouse, Apache 2.0) and accessibility (axe-core,
 MPL 2.0), run them in the existing Chromium render check after each build, no
 model cost; report scores/findings to the owner. Not started.
+
+## Look at "Claude Red" near the end (owner, 2026-10-22: "note for when we almost done, to do it")
+
+An offensive-security skill pack for Claude (78 SKILL.md files, by
+SnailSploit & Mixbanana, snailsploit.com; ~7.6k GitHub stars per an Instagram
+reel). To do near the end: check what's in it, its license and reputation, and
+whether any of it safely improves our security scan or tests OUR OWN platform
+and test sites. Attack tools only ever against what we own or may test, never
+customers' live sites without permission. Not looked at yet.
