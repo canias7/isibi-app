@@ -55,6 +55,16 @@
 - Branch `progress-import-3d`. Nothing spent. Record:
   `docs/history/2026-10-22-progress-import-3d.md`.
 
+## 2026-10-22 — Audit finding 79 (A01-5): an unpublished first build no longer tells visitors to "send your message again" (not merged, not deployed)
+
+- With draft-first on, a finished first build is saved as a draft, so the
+  site's address kept the "still being put together… send your message
+  again" page, and a customer who did that paid for another build.
+- Now, when the draft is saved, that page's sentence changes to "This site
+  isn't published yet. Its owner is getting it ready, so check back soon."
+  Visitors still don't see the draft; the first real Publish removes the page
+  as before. Branch `audit-79`; record `docs/history/2026-10-22-audit-79.md`.
+
 ## 2026-10-22 — Ideas #10 and #14, combined with the day's work (not deployed)
 
 - #10, the visual review: after a first build's render check, the build's own
