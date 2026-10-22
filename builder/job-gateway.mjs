@@ -181,6 +181,12 @@ export const SB_TABLES = {
   // build refs, so a container-run build can tell "debited" from "unknown"
   // and can read nothing of any other job or account.
   credit_events: { GET: { filter: { uid: "uid", ref: "build-step-ref" } } },
+  // `probe` (2026-10-22, audit A01-4): "is this database project queued for
+  // teardown?" (`neonTearingDown`), asked by a provision settling its own
+  // attempt note. Exactly one project id, `select=id`, `limit=1`: it answers
+  // whether that one project is going away, never which ones are. Refused,
+  // one unclaimed project blocked the site's database for good.
+  neon_teardown: { GET: { probe: { col: "project_id", select: "id", re: /^[a-z0-9][a-z0-9-]{0,63}$/ } } },
 };
 
 /** The request headers forwarded to Supabase, and the response headers handed back. */
@@ -201,6 +207,15 @@ function existenceRead(params, col) {
   if (params.has("limit") && !/^[1-9]$/.test(params.get("limit"))) return false;
   const v = params.get(col);
   return typeof v === "string" && v.startsWith("eq.") && SLUG_RE.test(v.slice(3));
+}
+
+/** Is this query exactly a probe of one value: `<col>=eq.<value>`, `select=<select>`, `limit=1`, nothing else? */
+function probeRead(params, probe) {
+  const keys = [...params.keys()];
+  if (keys.length !== 3 || keys.some((k) => k !== probe.col && k !== "select" && k !== "limit")) return false;
+  if (params.getAll(probe.col).length !== 1 || params.get("select") !== probe.select || params.get("limit") !== "1") return false;
+  const v = params.get(probe.col);
+  return typeof v === "string" && v.startsWith("eq.") && probe.re.test(v.slice(3));
 }
 
 /** Is this query a read of the token's own account's rows, in plain columns only? */
@@ -284,6 +299,7 @@ export function sbDecision(who, method, path, search, text, mint) {
   // every site's public address already tells.
   if (rule.exists && (m === "GET" || m === "HEAD") && existenceRead(params, rule.exists)) return { ok: true, body: undefined };
   if (rule.own && (m === "GET" || m === "HEAD") && ownRead(who, params, rule.own)) return { ok: true, body: undefined };
+  if (rule.probe) return probeRead(params, rule.probe) ? { ok: true, body: undefined } : { ok: false, why: "probe" };
   for (const [param, word] of Object.entries(rule.filter || {})) {
     if (who.pre === true && word === "slug") return { ok: false, why: "filter:" + param };
     if (word === "build-step-ref") {

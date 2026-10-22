@@ -15077,6 +15077,11 @@ const turnPollMs = (env) => { const n = Number(env && env.PUBLISH_TURN_POLL_MS);
 const turnWaitMs = (env) => { const n = Number(env && env.PUBLISH_TURN_WAIT_MS); return Number.isFinite(n) && n > 0 ? n : TURN_WAIT_MS; };
 /** A turn that was not taken for its own reason (`takeTurn`'s marks): the part's answer, or null. Never an overlap loss. */
 function turnStop(bs) {
+  // A WAIT ENDED BY A STOP (2026-10-22, audit A37-2/A05-2): the customer's
+  // cancel, or the container shutting the job down, answered as the gate
+  // answers them, never as an overlap loss re-run.
+  if (bs && bs.stopped === "cancelled") return { ok: false, error: "cancelled", ours: true, detail: "cancelled", msg: "I stopped that edit before anything was published." };
+  if (bs && bs.stopped === "stopped") return { ok: false, error: "stopped", ours: true, detail: "the service running this change was shut down while it waited for the site's publish turn — nothing was changed", msg: "That change was stopped before it could publish — the service running it was shut down or ran past its time limit. Send it again in a few minutes." };
   if (bs && bs.unreadable) return { ok: false, error: "turn-unreadable", ours: true, detail: "this change could not read the site's publish turn — nothing was changed" };
   if (bs && bs.waitedOut) return { ok: false, error: "turn-timeout", ours: true, detail: "another change kept the site's publish turn for too long, so this one stopped waiting — nothing was changed" };
   return null;
@@ -15107,11 +15112,17 @@ async function tryTurn(env, slug, owner, job = "") {
 async function giveTurn(env, slug, t) {
   if (!t || !env || !env.SITES_BUCKET) return;
   try {
-    const { obj, etag } = await readTurnObj(env, slug);
-    if (!obj || !obj.turn || obj.turn.owner !== t.owner || !etag) return;
-    await env.SITES_BUCKET.put(turnKey(slug), JSON.stringify({ ...turnRecord(t.owner, Date.now(), t.job, obj.turn.gen), until: 0 }), {
-      httpMetadata: { contentType: "application/json" }, onlyIf: { etagMatches: etag },
-    });
+    // ASKED TWICE (2026-10-22, audit A05-3): a renewal that landed between
+    // the read and the put moves the etag, and a give-back refused for it
+    // would leave the turn held ten minutes after its holder ended.
+    for (let i = 0; i < 2; i++) {
+      const { obj, etag } = await readTurnObj(env, slug);
+      if (!obj || !obj.turn || obj.turn.owner !== t.owner || !etag || !(obj.turn.until > 0)) return;
+      const put = await env.SITES_BUCKET.put(turnKey(slug), JSON.stringify({ ...turnRecord(t.owner, Date.now(), t.job, obj.turn.gen), until: 0 }), {
+        httpMetadata: { contentType: "application/json" }, onlyIf: { etagMatches: etag },
+      });
+      if (put) return;
+    }
   } catch (e) { console.error("publish turn: could not give back", slug, errorClassForLog(e)); }
 }
 /**
@@ -15689,7 +15700,9 @@ export const siteTurn = { turnStop, tryTurn, takeTurn, giveTurn, renewTurn, turn
 async function renewTurn(env, slug, t) {
   try {
     const { obj, etag } = await readTurnObj(env, slug);
-    if (!obj || !obj.turn || obj.turn.owner !== t.owner || !etag) return false;
+    // A TURN GIVEN BACK OR LAPSED IS NEVER BROUGHT BACK (2026-10-22, audit
+    // A05-3): `until` past is no longer this job's, whoever owned it.
+    if (!obj || !obj.turn || obj.turn.owner !== t.owner || !etag || !(obj.turn.until > Date.now())) return false;
     const rec = turnRecord(t.owner, Date.now(), t.job, obj.turn.gen);
     const put = await env.SITES_BUCKET.put(turnKey(slug), JSON.stringify(rec), { httpMetadata: { contentType: "application/json" }, onlyIf: { etagMatches: etag } });
     if (put) { t.until = rec.until; t.etag = put.etag || null; return true; }
@@ -15736,7 +15749,8 @@ async function takeTurn(env, slug, job) {
     unread = failed ? unread + 1 : 0;
     if (unread >= TURN_UNREAD_MAX) { bs.unreadable = true; return null; }
     bs.waits = (bs.waits || 0) + 1;
-    if (typeof job.cancelled === "function" && job.cancelled()) return null;
+    if (typeof job.cancelled === "function" && job.cancelled()) { bs.stopped = "cancelled"; return null; }
+    if (env && env.JOB_STOP && env.JOB_STOP.signal && env.JOB_STOP.signal.aborted) { bs.stopped = "stopped"; return null; }
     if (job.budget && typeof job.budget.expired === "function" && job.budget.expired()) return null;
     if (Date.now() - started >= turnWaitMs(env)) { bs.waitedOut = true; return null; }
     await new Promise((r) => setTimeout(r, turnPollMs(env)));
@@ -16881,7 +16895,7 @@ async function publishBeside(env, opts) {
     try { return await recompileAndPublish(env, { ...opts, pages: r.files, parts }); }
     finally { bs.inTurn = false; }
   } finally {
-    if (mine) { await giveTurn(env, slug, t); bs.turn = null; }
+    if (mine) { bs.turn = null; await giveTurn(env, slug, t); }
   }
 }
 
@@ -24643,14 +24657,21 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
       if (jctx.beside && jctx.beside.holds && jctx.beside.refused) {
         res = Response.json({ ok: false, error: "turn-refused", ours: true, cost: 0, unchanged: true, msg: "Something went wrong on our side before this change could start. Nothing was changed." }, { status: 503 });
       } else if (heldStop) {
-        res = Response.json({ ok: false, error: heldStop.error, ours: true, cost: 0, unchanged: true, msg: "Something went wrong on our side before this change could start. Nothing was changed." }, { status: 503 });
+        res = Response.json({ ok: false, error: heldStop.error, ours: true, cost: 0, unchanged: true, msg: heldStop.msg || "Something went wrong on our side before this change could start. Nothing was changed." }, { status: 503 });
+      } else if (jctx.beside && jctx.beside.holds && jctx.beside.turn && !jctx.beside.lost && (!heldSt || heldSt.ok !== true)) {
+        // THE TURN WAS TAKEN AND THE SAVED STATE COULD NOT BE CHECKED
+        // (2026-10-22, audit A05-2): a read failure, as `publishBeside`
+        // answers it, never an overlap loss re-run.
+        res = Response.json({ ok: false, error: "read", ours: true, cost: 0, unchanged: true, msg: "Couldn't check the site's saved state before this change. Nothing was changed." }, { status: 503 });
       } else if (jctx.beside && jctx.beside.holds && (!jctx.beside.turn || !heldSt || heldSt.ok !== true)) {
         res = Response.json({ ok: false, error: "turn", ours: true, cost: 0, unchanged: true, msg: heldSt && !jctx.beside.lost ? "Couldn't check the site's saved state before this change. Nothing was changed." : "Another change in this request is still being published, and this one ran out of time waiting. Nothing was changed." }, { status: 503 });
       } else {
         res = await handleRequest(req, env, ctx);
       }
     } finally {
-      if (jctx.beside && jctx.beside.turn) { await giveTurn(env, job.slug, jctx.beside.turn); jctx.beside.turn = null; }
+      // DROPPED BEFORE IT IS GIVEN BACK (2026-10-22, audit A05-3): a heartbeat
+      // that fires while the give-back is in flight finds no turn to renew.
+      if (jctx.beside && jctx.beside.turn) { const given = jctx.beside.turn; jctx.beside.turn = null; await giveTurn(env, job.slug, given); }
       EDIT_JOBS.delete(job.secret);
       if (beat) { clearInterval(beat); beat = null; }
       // WHAT THIS JOB ANSWERED FROM ITS PREPARATION AND WHAT IT ASKED A MODEL

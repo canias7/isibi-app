@@ -143,7 +143,7 @@ test("the table wall: a bound filter must be present as eq., every written row c
   assert.equal(sbDecision(JOB, "GET", "/rest/v1/site_project", q("slug=eq.fretwork-1&select=neon_project"), "", MINT).ok, true);
   assert.equal(sbDecision(JOB, "POST", "/rest/v1/site_project", "", JSON.stringify({ slug: JOB.slug, uid: JOB.uid, neon_project: "p" }), MINT).ok, true);
   // Everything else: the Worker's tables, the auth admin API, storage, functions, a nested path.
-  for (const t of ["webhook_queue", "site_domains", "neon_teardown", "site_rebuild", "site_hits", "autoreply_log", "user_autoreply", "gen_charges", "user_site_project", "purchases", "platform_flags"]) {
+  for (const t of ["webhook_queue", "site_domains", "site_rebuild", "site_hits", "autoreply_log", "user_autoreply", "gen_charges", "user_site_project", "purchases", "platform_flags"]) {
     assert.deepEqual(sbDecision(JOB, "GET", "/rest/v1/" + t, q("slug=eq.fretwork-1"), "", MINT), { ok: false, why: "table" }, t + " was admitted");
   }
   assert.deepEqual(sbDecision(JOB, "GET", "/auth/v1/admin/users/" + JOB.uid, "", "", MINT), { ok: false, why: "path" });
