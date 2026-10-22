@@ -14,7 +14,34 @@
 // Pure helpers over a `deps` of `{ get, put }` (R2-shaped), so the Worker and
 // the tests read and write the record the same way.
 
-import { isHeldObject } from "./site-builds.mjs";
+import { isHeldObject, isHeldBody, buildPrefix, STATE_DIR } from "./site-builds.mjs";
+
+/**
+ * THE SIDECAR A NEW PUBLISH'S REDIRECTS ARE DIFFED AGAINST (2026-10-22, audit
+ * A11-3). Under draft-first a save is not live, so the live sidecar is not the
+ * previous publish: a rename saved as a draft left `/about -> /our-story` only
+ * in that draft's staged sidecar, and the next save, diffed against the live
+ * one, mapped `/about` to `/`. When a draft stands, its own staged sidecar
+ * (`builds/<slug>/<version>/state/sidecar.json`) is the previous manifest; a
+ * draft version with no readable staged sidecar (absent or held) falls back
+ * to the live key. `{ from, side }`, or null when there is none at all.
+ * Throws when the draft record or a sidecar cannot be read: cannot-tell is
+ * never "no history".
+ */
+export async function previousSidecar(deps, slug, { draftFirst = false, liveKey } = {}) {
+  const parsed = async (o) => { const v = JSON.parse(await o.text()); return isHeldBody(v) ? null : v; };
+  if (draftFirst) {
+    const { draft } = await readDraft(deps, slug);
+    if (draft && draft.version) {
+      const o = await deps.get(buildPrefix(slug, draft.version) + STATE_DIR + "sidecar.json");
+      const side = o ? await parsed(o) : null;
+      if (side) return { from: "draft", side };
+    }
+  }
+  const o = await deps.get(liveKey);
+  if (!o) return null;
+  return { from: "live", side: (await parsed(o)) || {} };
+}
 
 // ITS OWN NAMESPACE (2026-10-15, the draft-first round on current main): the
 // owner's video and audio kept before a site exists live under `drafts/<uid>/`
@@ -786,6 +813,39 @@ export function newHold(deps, slug, { id = randomHex(12) } = {}) {
       return written;
     },
   };
+}
+
+/**
+ * WHAT THE LIBRARY ADDRESS `file` WILL PLAY AFTER PUBLISH (2026-10-22, audit
+ * A10-2): the stored file name whose bytes Publish leaves there, or null when
+ * Publish leaves nothing. Follows the held library ops exactly as Publish
+ * applies them (`applyHeldMedia`): a replacement copies the stand-in's bytes
+ * to the address and takes the stand-in off (nothing when the stand-in is
+ * already gone); a removal takes the address off. The preview serves this,
+ * so preview and live agree on chained replacements, and a stand-in (taken
+ * off at Publish) reads null, as a file held for removal does.
+ */
+export function heldMediaSource(ops, file) {
+  const at = new Map();
+  const now = (k) => (at.has(k) ? at.get(k) : k);
+  for (const o of Array.isArray(ops) ? ops : []) {
+    if (!o) continue;
+    if (o.kind === "media-replace") {
+      const src = now(o.with);
+      if (src === null) continue;
+      at.set(o.name, src);
+      at.set(o.with, null);
+    } else if (o.kind === "media-delete") at.set(o.name, null);
+    else if (o.kind === "upload-delete") at.set(o.file, null);
+  }
+  return now(file);
+}
+
+/** The stand-ins of held replacements: stand-in name -> the address it replaces (the latest). */
+export function heldStandIns(ops) {
+  const m = new Map();
+  for (const o of Array.isArray(ops) ? ops : []) if (o && o.kind === "media-replace") m.set(o.with, o.name);
+  return m;
 }
 
 /**

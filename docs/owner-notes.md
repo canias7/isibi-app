@@ -10,6 +10,23 @@ The planner now asks for 4 to 6 bands (was up to 8), the kit's section and hero 
 - Now the reply is told "Saved to the draft as revision N: the live site is unchanged until the owner presses Publish", and the "took effect at once" line is said only when the rule really went live. The reply instructions no longer assume every change is live.
 - Seven new tests (`test/reply-held-draft.test.mjs`); five fail on the old code. Not merged, not deployed, nothing spent. Record: `docs/history/2026-10-22-audit-finding-30.md`.
 
+## 2026-10-22: Audit findings 21–24 (you: "double check this but do fix 21,22,23,24")
+
+Each finding was checked again against today's code first. Branch `claude/audit-batch-3` (from `codex-work-into-claude`). Nothing was spent, merged or deployed. The record is `docs/history/2026-10-22-audit-batch-3.md`.
+
+- **21 (video/audio attached before the site exists): already fixed**, by batch 1's fix #9. The container build can now read the account's pre-site files and its own site's media ledger through the gateway, and the tests drive this through the real gateway. Nothing was changed.
+- **22 (a replacement's "new version" acted like a separate file): fixed** (`f55149475`).
+  - The preview now plays exactly what Publish will put live, even after several replacements.
+  - The writers are no longer offered the new version, or a file waiting to be removed.
+  - The new version's row in Files has no Use in chat, Replace or delete button, and the server refuses those requests too.
+  - Still open: a page that someone pointed at the new version's address by hand.
+- **23 (Publish undid panel changes): fixed** (`528c33cfc`). A Search Console tag, a description or a share picture you set after a draft was saved now stays on the live site when you Publish or restore. A description that an edit changed in the draft still goes live.
+- **24 (a renamed page's redirect lost): fixed** (`f85b2d786`). After "rename About to Our story" and then any other edit, publishing now sends `/about` to `/our-story`, not to the home page.
+- Full suite on `f55149475`: 11,641 tests; 11,635 pass, 3 fail, 3 skipped. None of the 3 failures comes from these fixes:
+  - `container-room` cannot find a package this worktree has not installed;
+  - the media browser check needs this machine's Chromium codecs, and it fails the same way without these changes;
+  - one page-flow case failed under the full run's load and passes on its own, twice.
+
 ## 2026-10-21 — Phase D, Android: the real app downloads as an APK (you: "can u do it like in our platform how a customer will do it")
 
 - The app builder can now build a real Expo app into an Android app (`/expo-android`): the same typecheck, then Expo writes the native project and Gradle builds it offline against libraries the image warms once.
