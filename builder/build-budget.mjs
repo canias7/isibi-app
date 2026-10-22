@@ -274,7 +274,7 @@ export function raceDeadline(work, { ms, onExpire }) {
  */
 export function budgetStage(steps) {
   const STAGE = {
-    auth: "design", body: "design", links: "design", gate: "design",
+    auth: "design", body: "design", links: "design", import: "design", gate: "design",
     // A first build's design recovered (2026-10-08, the ninth batch): still
     // the design, nothing set up yet.
     "design-recovery": "design",
@@ -286,7 +286,7 @@ export function budgetStage(steps) {
     // merge; `attachments` is a refire reading the attached files back, just
     // before it writes the pages again (2026-10-08, the first-Build audit's
     // H6 and M7). Both after the database and before a page is written.
-    ownphotos: "generate", attachments: "generate", media: "generate",
+    ownphotos: "generate", importphotos: "generate", attachments: "generate", media: "generate",
     // `bands` is a SUB-STEP of `gen` — the page's fan-out has come back and the
     // band sources are in hand. It stays "generate" rather than moving to
     // "publish" the way `img` does, and the case that settles it is the fan-out
