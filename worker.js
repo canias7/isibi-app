@@ -6372,7 +6372,7 @@ function planRoutes(plan) {
 function chromeFor(plan, brand, tagline) {
   const links = planRoutes(plan).map((path, i) => {
     const p = plan.pages[i];
-    return { label: (p && typeof p.name === "string" && p.name) || path, to: path };
+    return { label: (p && typeof p.name === "string" && p.name) || path, href: path }; // the kit's NavLink (audit A27-2)
   });
   const action = plan && plan.action && typeof plan.action === "object" && typeof plan.action.label === "string"
     ? { label: plan.action.label, ...(typeof plan.action.href === "string" ? { href: plan.action.href } : {}) }

@@ -450,7 +450,10 @@ function splitTop(text) {
  * an expression" (a nav we must not rewrite).
  */
 function literalProp(part, name) {
-  const re = new RegExp("(^|[{,\\s])" + name + "\\s*:\\s*");
+  // A QUOTED KEY IS THE SAME KEY (2026-10-22, audit A27-2): the band-built
+  // home page's shell wrote `action={{"label":…,"href":…}}`, and reading only
+  // `label:` made its button "(no words) -> (no link)" to the menu step.
+  const re = new RegExp("(^|[{,\\s])([\"']?)" + name + "\\2\\s*:\\s*");
   const m = re.exec(part);
   if (!m) return "";
   const at = m.index + m[0].length;
@@ -1922,6 +1925,33 @@ const listSlotKey = (s) => s.page + "\u0000" + (s.at ?? "i" + s.insertAt);
  * `added` (those that carry it now and did not) and `missing` (routes they
  * named that have no such list).
  */
+function seedMenus(pages, wanted) {
+  const seeded = new Set();
+  const slots = navSlots(pages);
+  if (!slots.length) return { pages, seeded };
+  const has = new Set(slots.map((s) => s.page));
+  const union = menuUnion(slots);
+  const next = pages.map((p) => {
+    if (!p || typeof p.path !== "string" || typeof p.source !== "string" || has.has(p.path) || !wanted(p.path)) return p;
+    const self = routeOf(p.path);
+    const items = union.filter((it) => it.href !== self && it.label);
+    if (!items.length) return p;
+    const m = /<(?:SiteChrome|AppChrome)\b/.exec(p.source);
+    if (!m) return p;
+    const end = tagEnd(p.source, m.index);
+    if (end < 0) return p;
+    const tag = p.source.slice(m.index, end);
+    // A spread may carry links of its own; a `links` prop already there is
+    // not this case.
+    if (/\{\s*\.\.\./.test(tag) || /\slinks\s*=/.test(tag)) return p;
+    const lit = "[" + items.map((it) => "{ label: " + JSON.stringify(it.label) + ", href: " + JSON.stringify(it.href) + " }").join(", ") + "]";
+    const at = m.index + m[0].length;
+    seeded.add(p.path);
+    return { ...p, source: p.source.slice(0, at) + " links={" + lit + "}" + p.source.slice(at) };
+  });
+  return { pages: next, seeded };
+}
+
 export function applyAdditions(pages, adds) {
   let cur = Array.isArray(pages) ? pages : [];
   const list = (Array.isArray(adds) ? adds : []).filter((a) => a && a.item && typeof a.item.href === "string" && Object.hasOwn(ADD_LISTS, a.to));
@@ -1931,7 +1961,15 @@ export function applyAdditions(pages, adds) {
   const placed = (a) => ({ item: a.item, after: a.after || "$end" });
 
   const menuAt = list.map((a, i) => [a, i]).filter(([a]) => a.to === "menu");
+  let seeded = new Set();
   if (menuAt.length) {
+    // A SITE-CHROME HEADER WITH NO MENU, ON A SITE WHOSE OTHER PAGES HAVE ONE,
+    // IS GIVEN THE SITE'S MENU (2026-10-22, audit A27-2). A one-page first
+    // build writes its header with no `links` (a menu of one link to itself
+    // goes nowhere); once a page is added, every menu gained it but that one,
+    // and nothing here could reach it. Seeded only where an addition is in
+    // scope, from the other menus, without a link to the page itself.
+    ({ pages: cur, seeded } = seedMenus(cur, (page) => menuAt.some(([a]) => inScope(a, page))));
     const before = navSlots(cur);
     // THE HOME PAGE IS NO TARGET FOR A LINK TO ITSELF unless it lists one:
     // the menu writer's own rule (`applyNav`), which never writes one there.
@@ -1946,8 +1984,9 @@ export function applyAdditions(pages, adds) {
       for (const s of before) if (target(a, s) && !r.targets.includes(s.page)) r.targets.push(s.page);
       if (a.pages && before.some((s) => inScope(a, s.page) && selfLink(a, s))) r.home = "/";
       if (a.pages) for (const route of a.pages) if (!before.some((s) => routeOf(s.page) === route)) r.missing.push(route);
-      r.had = r.targets.filter((pg) => holds(before, pg, a.item.href));
+      r.had = r.targets.filter((pg) => !seeded.has(pg) && holds(before, pg, a.item.href));
     }
+    for (const pg of seeded) changed.add(pg);
     const out = applyNav(cur, (items, slot) => withAdded(items, menuAt.filter(([a]) => target(a, slot)).map(([a]) => placed(a))));
     cur = out.pages;
     for (const c of out.changed) changed.add(c);

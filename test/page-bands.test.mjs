@@ -193,7 +193,8 @@ test("DRIVEN: the shell composes the bands by name and carries NO state", () => 
   // fragment, and a hook here would mean something is shared after all.
   assert.ok(!/useState|useEffect|useRef|useMemo/.test(s), "the shell grew state: " + s);
   assert.match(s, /name="Hartley & Voss"/, "the chrome lost the site's name");
-  assert.match(s, /action=\{\{"label":"Book"/, "the chrome lost the action");
+  // Unquoted keys, as the kit writes them and the menu step reads them (A27-2).
+  assert.match(s, /action=\{\{ label: "Book", href: "#book" \}\}/, "the chrome lost the action");
 });
 
 test("DRIVEN: the shell leaves out a chrome field the design did not answer", () => {
