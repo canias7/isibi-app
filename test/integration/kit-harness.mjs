@@ -43,6 +43,10 @@ const CANNOT_RENDER = {
   // Both ARE driven for real there, in a real browser, at both mounts.
   "site-chrome.SiteChrome": "needs a RouterProvider",
   "site-header.SiteHeader": "needs a RouterProvider",
+  // JOINED 2026-10-22: the phone app's frame (2026-10-20) reads the current
+  // path with `useRouterState` to light its active tab, so it needs a
+  // RouterProvider for the same reason as the two above.
+  "app-chrome.AppChrome": "needs a RouterProvider",
   // JOINED 2026-08-19 with the bilingual work, which rewrote this from a
   // `value`/`onChange` picker into the thing `SiteHeader` renders: it reads
   // `useMatches` to find the page it is on, so it offers the OTHER language's
