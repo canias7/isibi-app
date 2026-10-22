@@ -708,7 +708,8 @@ test("the route returns it, and the client reads it", () => {
   // the POST socket said nothing about a page that threw. The property is
   // unchanged: the note the module composes reaches the response, and now from
   // both of the build's two answers.
-  assert.match(w, /\.\.\.pageNotes\(pages\)/, "the build's answer no longer carries the note composer");
+  // `[,)]` since 2026-10-22: the call also passes the made tables (build checklist, idea #14).
+  assert.match(w, /\.\.\.pageNotes\(pages[,)]/, "the build's answer no longer carries the note composer");
   const ans = fs.readFileSync(new URL("../builder/build-answer.mjs", import.meta.url), "utf8");
   assert.match(ans, /const render = renderNote\(p\.render\)/, "the composer both answers spread no longer asks renderNote");
   const c = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");

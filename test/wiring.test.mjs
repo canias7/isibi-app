@@ -748,7 +748,8 @@ test("the photograph sentence reaches the chat", () => {
   // (`builder/build-answer.mjs`) so the COLLECTOR gets it too — it composed
   // none of the three notes, so every build whose generation outlived the POST
   // socket was silent about the photographs. The property is unchanged.
-  assert.match(worker, /\.\.\.pageNotes\(pages\)/, "the build's answer no longer carries the note composer");
+  // `[,)]` since 2026-10-22: the call also passes the made tables (build checklist, idea #14).
+  assert.match(worker, /\.\.\.pageNotes\(pages[,)]/, "the build's answer no longer carries the note composer");
   assert.match(fs.readFileSync(path.join(ROOT, "builder/build-answer.mjs"), "utf8"),
     /const images = imageNote\(p\.images\)/, "the composer both answers spread no longer asks imageNote");
   assert.match(clientJs, /d\.imagesNote === 'string'/,
