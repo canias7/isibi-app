@@ -1,6 +1,16 @@
 # Owner Notes
 
 
+## 2026-10-22 — Audit group G1: the publish turn and the container's database recovery (not merged, not deployed)
+
+- **The turn wait.** Most of this was fixed on 2026-10-18. What was left: a job the container shut down kept waiting, and a stop pressed while a job waited was treated as "another change got in the way", so the job ran again. Both now end the job at once with the right reason. A failed check of the saved site is now reported as a read failure, so it is no longer re-run as a clash with another change.
+- **A finished job's turn.** A job that had already handed back its turn could take it back by accident for 10 minutes, which held up the other changes in the same message. It can't now.
+- **Database recovery in the container.** One question the build has to ask ("is this database project being deleted?") was blocked in the container. That left a site whose first database setup half-failed unable to get a database again. The container may now ask exactly that one question, and nothing wider.
+- **Already fixed**: moving pre-site video and audio (S6-1, the same as finding 21).
+- **New test**: two jobs competing for the turn through the real gateway. **Docs**: `docs/request-flow.md` now describes jobs running side by side.
+- Records: `docs/history/2026-10-22-audit-g1.md`. Branch `audit-g1`; nothing spent.
+
+
 ## 2026-10-22 — An add-on no longer throws everything away when one piece fails
 
 In the big test, one bad piece (a weekly job pointing at a counting function that didn't exist) made the builder drop all 23 asks. Now a piece that fails its check is left out and named in the reply ("Left out one job…" with the reason), and everything else is built. If every piece fails, you get the same refusal as before, free. Every piece is still checked before anything goes on the site, which is what you asked for on 13 September; the "all or nothing" was the code's own reading of that, not your words, and the audit note now says so. Only the server (`worker.js`) changed. Tests: two new ones (one fails on the old code), nine older ones updated to the new rule, a sweep of 4 deliberate breaks all caught, full suite 11,939 / 11,937 / 0 / 2. Record: `docs/history/2026-10-22-addon-partial.md`.

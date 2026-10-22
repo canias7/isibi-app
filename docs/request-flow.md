@@ -35,8 +35,10 @@
 - **Every step of a part is an ordinary queued job** (`edit_jobs`), under a
   key derived from the message's key, so filing it twice finds the same row.
   The existing claim, lease, site lock, reserves, publish marks, refunds,
-  sweeps and reconcile apply unchanged, and **one job of a request runs at a
-  time**, against the site as the part before left it.
+  sweeps and reconcile apply unchanged. With `PARALLEL_WRITES` off, **one job
+  of a request runs at a time**, against the site as the part before left
+  it; with it on (production since 2026-10-17), **up to three run side by
+  side** under the site's publish turn (*Jobs side by side*, below).
 - **Other parts are prepared beside it** (2026-10-08, the parallel-tasks
   batch; widened 2026-10-09, `docs/history/2026-10-09-parallel-round-2.md`).
   Up to three parts' routings, and their text, menu, picture, look, page,
@@ -248,8 +250,9 @@ holds, because it was not found in the message.
 
 One function, `advanceRequest`. It reads the record and the rows of its
 live jobs (`edit_get`), takes one step (`nextStep`), writes on the etag it
-read under (no write when nothing moved), files at most one job, and records
-the job's id. A writer that loses the race reads again (at most six rounds),
+read under (no write when nothing moved), files the jobs that step names
+(one with `PARALLEL_WRITES` off; up to `WRITE_BESIDE_MAX` = 3 with it on,
+each cleared by `clearToWrite`), and records each job's id. A writer that loses the race reads again (at most six rounds),
 so two drivers at once file one job under one key. A go-ahead is one of
 those jobs: written on the part not yet filed, and filed by whichever step
 comes next (below). Its callers:
@@ -576,10 +579,53 @@ accepted ones finish, is `docs/investigations/request-flow-rollout.md`
 (prepared 2026-10-03, revised 2026-10-04 after the owner's review, not
 executed).
 
+## Jobs side by side (`PARALLEL_WRITES`)
+
+On since 2026-10-17. Added to this doc 2026-10-22 (audit A05-7); the
+records are `docs/history/2026-10-16-codex-*.md` and
+`docs/history/2026-10-22-audit-g1.md`.
+
+- **Filing.** `nextStep` names up to `writeBesideMax(env)` jobs (3 on, 1
+  off), each part cleared against the parts still running by `clearToWrite`
+  (`builder/request-plan.mjs`): parts whose targets meet wait. The database
+  lets a request's own jobs past each other's site lock only with
+  `supabase/proposed/request_beside.sql` applied (2026-10-17); without it a
+  sibling is deferred `site-busy` like any other job.
+- **The publish turn** (`publish-turn/<slug>.json`, `builder/publish-turn.mjs`).
+  A job publishes only while it holds the site's turn: `takeTurn` asks every
+  `TURN_POLL_MS` (3 s), the job's heartbeat renews it (`TURN_TTL_MS`, 10
+  minutes, lapses a dead holder), and it is given back when the publish
+  ends. A step that rewrites the config (`partHoldsConfig`, or a part whose
+  record cannot be read) takes it before its first read and holds it to its
+  end. Each turn carries a larger fence (`gen`); what its holder writes is
+  stamped with it, and a stale holder's write is refused (412 through the
+  gateway, `x-gf-if-match`).
+- **The wait ends on its own.** A turn the store refuses (403) ends at once
+  (`turn-refused`); five unread turns in a row (`turn-unreadable`); a wait
+  past `TURN_WAIT_MS` (`turn-timeout`); the customer's stop (`cancelled`); the
+  container shutting the job down (`stopped`). None of these is an overlap.
+  A turn given back is never renewed again.
+- **The rebase.** The publish applies only the job's own changes onto the
+  site as it is then (`rebaseFiles`, from the base kept at its first read);
+  the same files changed by a sibling is `conflict`, and a newer draft
+  revision already saved is `older`.
+- **Overlap losses re-run alone.** `conflict`, `turn` (the turn never came
+  within a Worker budget), `turn-lost` (the heartbeat's renewal was refused)
+  and `older` are `OVERLAP_LOSSES` (`builder/request.mjs`): `settle` re-runs
+  such a part `serial`, alone, up to `OVERLAP_RETRIES` = 2 times. Every other
+  failure, the turn's own stops above and a failed saved-state check
+  (`read`) included, ends the part.
+- **What the gateway must admit** for a container job: the turn's key, the
+  draft's records, and the fence's conditional writes
+  (`builder/job-gateway.mjs`). The turn's key refused is how deploy 2215's
+  container edits were blocked (audit A05-1).
+
 ## Limits, as built
 
 - **Preparation beside the running job (2026-10-08, widened 2026-10-09)**:
-  writes stay one at a time per site (the database's `site_busy`); the logo
+  writes stay one at a time per site (the database's `site_busy`) unless
+  `PARALLEL_WRITES` is on, when a request's own jobs write side by side
+  under the publish turn (*Jobs side by side*); the logo
   step has nothing to prepare; an add-on that needs a new database is
   prepared only up to its design; a first Build orchestrates only its
   photographs (bought beside its page generation) beyond its existing design
