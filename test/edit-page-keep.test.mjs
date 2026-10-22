@@ -840,7 +840,7 @@ test("PROTECTED: a judge cannot authorize collateral loss of the Order ahead tex
   // about how often a real model reads it this way.
   const r = await drive({ route: { layer: "page" }, ask: KEEP_ASK, answer: DROPS_ORDER, judge: judged(asks(1, "keep the order form")) });
   refused(r, { calls: PAGE_JUDGED });
-  assert.equal(r.reply.msg, PROSE_WITHHELD);
+  assert.ok(r.reply.msg.startsWith(PROSE_WITHHELD), r.reply.msg);
 });
 
 test("NEGATIVE: an unrelated removal instruction does not cover a section it never named — even with the picker's removal mark", async () => {
@@ -1063,7 +1063,7 @@ test("PROTECTED: a links quote cannot authorize collateral section text loss", a
     judge: judged(inGroup(1, Q_ALL, "links"), inGroup(2, Q_ALL, "links"), inGroup(3, Q_ALL, "sections")),
   });
   refused(r, { calls: PAGE_JUDGED });
-  assert.equal(r.reply.msg, PROSE_WITHHELD);
+  assert.ok(r.reply.msg.startsWith(PROSE_WITHHELD), r.reply.msg);
   assert.equal(itemsShown(r).length, 3, "the order form WAS an item, and the third answer covered it");
 });
 
@@ -1218,13 +1218,45 @@ for (const mode of ["sync", "job"]) {
     test("PROSE " + mode + ": " + label, async () => {
       const r = await drive({ mode, ask, before, answer });
       refused(r, { calls: PAGE });
-      assert.equal(r.reply.msg, PROSE_WITHHELD);
+      assert.ok(r.reply.msg.startsWith(PROSE_WITHHELD), r.reply.msg);
       // NOT "NOTHING CHANGED" — recovery may already have written — BUT THE
       // MONEY, FROM WHAT WAS RECORDED (2026-09-25): no debit and no reserve is
       // what the edit cost, and the routing call is its own charge.
-      assert.equal(r.said.text, PROSE_WITHHELD + " This edit cost you nothing. Reading your message cost 2 credits.");
+      assert.equal(r.said.text, r.reply.msg + " This edit cost you nothing. Reading your message cost 2 credits.");
+      assert.ok(r.reply.msg.startsWith(PROSE_WITHHELD));
       assert.ok(!r.said.text.includes("Nothing on your site changed"));
       assert.deepEqual(r.said.actions, []); assert.deepEqual(r.reserves, []); assert.deepEqual(r.debits, []);
+    });
+  }
+  // AUDIT A21-1 THROUGH THE ROUTE (2026-10-22): a menu entry and a CTA band
+  // carried in props, dropped by a rewrite asked only to change the hours, are
+  // refused at no cost and named; the requested removal of that link publishes.
+  {
+    const chrome = (menu, band) => IMPORTS + `import { SiteChrome } from "@/components/site-chrome";
+import { CtaBand } from "@/components/ui/cta-band";
+` + ROUTE + `function Home() {
+  return (
+    <SiteChrome name="Fold Lane" links={${menu}}>
+      ${HOURS}
+${band}    </SiteChrome>
+  );
+}
+`;
+    const MENU2 = `[{ label: "Menu", href: "/menu" }, { label: "Order", href: "/order" }]`;
+    const BAND = `      <CtaBand title="Order ahead" action={{ label: "Order now", href: "/order" }} />\n`;
+    const before = chrome(MENU2, BAND);
+    test("PROSE " + mode + ": a rewrite that drops a menu entry and a CTA band carried in props is refused and names them", async () => {
+      const r = await drive({ mode, ask: HOURS_ASK, before, answer: chrome(`[{ label: "Menu", href: "/menu" }]`, "").replace(HOURS, HOURS_NEW) });
+      refused(r, { calls: PAGE });
+      assert.ok(r.reply.msg.startsWith(PROSE_WITHHELD), r.reply.msg);
+      for (const lost of ["“Order”", "“Order ahead”", "“Order now”", "the link to /order (Order)"]) assert.ok(r.reply.msg.includes(lost), lost + " in " + r.reply.msg);
+      assert.deepEqual(r.reserves, []); assert.deepEqual(r.debits, []);
+    });
+    test("PROSE " + mode + ": the requested removal of a menu entry carried in props still publishes", async () => {
+      const next = chrome(`[{ label: "Menu", href: "/menu" }]`, BAND);
+      const r = await drive({ mode, ask: "Remove the ‘Order’ link.", before, answer: next });
+      assert.equal(r.status, 200, JSON.stringify(r.reply));
+      assert.doesNotMatch(r.stored, /label: "Order",/); assert.match(r.stored, /label: "Order now", href: "\/order"/); assert.match(r.stored, /label: "Menu", href: "\/menu"/);
     });
   }
   test("PROSE " + mode + ": a successful style step survives a refused text-loss step", async () => {
@@ -1232,7 +1264,7 @@ for (const mode of ["sync", "job"]) {
       pick: { fields: ["css", "components"] }, lane: { css: FOOTER }, answer: DROPS_HOURS });
     assert.equal(r.status, 200); assert.equal(r.compiles, 1);
     assert.equal(r.compiled, HOME); assert.equal(r.stored, HOME); assert.equal(r.css, FOOTER);
-    assert.ok(r.reply.partial.some(p => p.error === "prose-preservation" && p.msg === PROSE_WITHHELD));
+    assert.ok(r.reply.partial.some(p => p.error === "prose-preservation" && p.msg.startsWith(PROSE_WITHHELD)));
     assert.ok(r.said.text.includes(PROSE_WITHHELD));
     assert.ok(!r.said.text.includes("Nothing on your site changed"));
     assert.deepEqual(r.said.actions, ["refresh the credit balance"]);
@@ -1353,7 +1385,7 @@ for (const mode of ['sync', 'job']) {
       const r = await drive({ mode, before: source, ask, answer: bad });
       refused(r, { calls: PAGE });
       assert.equal(r.stored, source); assert.equal(r.compiles, 0);
-      assert.equal(r.reply.msg, PROSE_WITHHELD);
+      assert.ok(r.reply.msg.startsWith(PROSE_WITHHELD), r.reply.msg);
       assert.ok(r.said.text.includes(PROSE_WITHHELD));
       assert.deepEqual(r.said.actions, []); assert.deepEqual(r.reserves, []);
     });
@@ -1361,7 +1393,7 @@ for (const mode of ['sync', 'job']) {
   for (const ask of ['Remove Opening hours near Weekend hours.', 'Remove Opening hours or Weekend hours.', 'Remove Opening hours except Weekend hours.', 'Remove Opening hours and remove all sections except Opening hours.', 'Remove Opening hours above "Weekend hours; remove Weekend hours.']) {
     test(`AUTH ${mode}: unsupported grammar refuses loss: ${ask}`, async () => {
       const r = await drive({ mode, before, ask, answer: dropBoth });
-      refused(r, { calls: PAGE }); assert.equal(r.reply.msg, PROSE_WITHHELD);
+      refused(r, { calls: PAGE }); assert.ok(r.reply.msg.startsWith(PROSE_WITHHELD), r.reply.msg);
     });
   }
 }
@@ -1420,7 +1452,7 @@ for (const mode of ["sync", "job"]) {
       assert.equal(r.reply.error, "prose-preservation");
       assert.equal(r.reply.proseBlocked, "unconfirmed-target", "refused by the text guard, not by something else");
       assert.equal(r.stored, LESSONS); assert.equal(r.compiles, 0);
-      assert.equal(r.reply.msg, PROSE_WITHHELD);
+      assert.ok(r.reply.msg.startsWith(PROSE_WITHHELD), r.reply.msg);
       assert.ok(r.said.text.includes(PROSE_WITHHELD));
       assert.deepEqual(r.said.actions, []); assert.deepEqual(r.reserves, []);
     });
@@ -1502,7 +1534,7 @@ function pageGuardChecks(mode) {
     assert.equal(r.compiles, 0, "nothing was compiled");
     assert.equal(r.stored, before, "the stored page is byte-identical to before");
     assert.deepEqual(r.others, others, "the other pages are byte-identical");
-    assert.equal(r.reply.msg, PROSE_WITHHELD);
+    assert.ok(r.reply.msg.startsWith(PROSE_WITHHELD), r.reply.msg);
     assert.ok(r.said.text.includes(PROSE_WITHHELD));
     assert.deepEqual(r.said.actions, [], "the browser buys nothing after the refusal");
     money(r, false);
@@ -1675,10 +1707,13 @@ test("PAGE NAMES: a name the site gives another page grants nothing; its own nam
   // THE LONGEST NAME WINS: on a site whose menu calls /board "Menu Board",
   // "the menu board" is /board, never /menu.
   const board = navPage("/board", CHORD_SHAPES, HOURS).replace("{ label: \"Book\", href: \"/\" }", "{ label: \"Menu Board\", href: \"/board\" }");
-  assert.deepEqual(await preservePageProse({ before: board, after: navPage("/board", HOURS), message: "Remove the ‘Chords’ section on the menu board.", page: "/board", pages: [...navSite("/", navPage("/")), { path: "board.tsx", source: board }] }), { ok: true });
-  assert.equal((await preservePageProse({ before: board, after: navPage("/board", HOURS), message: "Remove the ‘Chords’ section on the menu.", page: "/board", pages: [...navSite("/", navPage("/")), { path: "board.tsx", source: board }] })).ok, false);
+  // THE SAME MENU AFTER: the rewrite keeps the menu entry (since audit A21-1
+  // a dropped menu entry is a loss of its own, which this case is not about).
+  const boardAfter = navPage("/board", HOURS).replace("{ label: \"Book\", href: \"/\" }", "{ label: \"Menu Board\", href: \"/board\" }");
+  assert.deepEqual(await preservePageProse({ before: board, after: boardAfter, message: "Remove the ‘Chords’ section on the menu board.", page: "/board", pages: [...navSite("/", navPage("/")), { path: "board.tsx", source: board }] }), { ok: true });
+  assert.equal((await preservePageProse({ before: board, after: boardAfter, message: "Remove the ‘Chords’ section on the menu.", page: "/board", pages: [...navSite("/", navPage("/")), { path: "board.tsx", source: board }] })).ok, false);
   // …and a name never runs across punctuation: "the menu, board" is /menu.
-  assert.equal((await preservePageProse({ before: board, after: navPage("/board", HOURS), message: "Remove the ‘Chords’ section on the menu, board.", page: "/board", pages: [...navSite("/", navPage("/")), { path: "board.tsx", source: board }] })).ok, false);
+  assert.equal((await preservePageProse({ before: board, after: boardAfter, message: "Remove the ‘Chords’ section on the menu, board.", page: "/board", pages: [...navSite("/", navPage("/")), { path: "board.tsx", source: board }] })).ok, false);
   // A NAME PREFIXING MORE WORDS is still that page's name, which errs toward asking.
   await no("Remove the ‘Chords’ section on the menu board.", "/");
   // WORDS THAT NAME NO PAGE ARE NOT A PAGE: a position still publishes.

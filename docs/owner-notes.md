@@ -1,5 +1,12 @@
 # Owner Notes
 
+## 2026-10-22 — Audit finding 38: a page rewrite can no longer quietly drop menu entries, buttons or card text (not merged, not deployed)
+
+- **It was real.** When the full page writer rewrote a page, its safety check only looked at text written between tags. Words held inside a component's settings were invisible to it: the menu's entries, a button's label and where it points, a section's cards. So a rewrite asked only to change the opening hours could drop the "Order" menu link and the whole "Order ahead" band, and the page was published with "Updated". I checked this on today's code with the audit's own example before changing anything.
+- **Now** those words and links are checked too, using the same rules the quick text writer already uses to tell words from code. If a rewrite would lose any of them and you didn't ask for it, nothing is published, nothing is charged, and the reply lists what would have gone (for example: “Order”, the link to /order, “Order ahead”).
+- **What you ask for still works**: "Remove the ‘Order’ link." removes it; rewording a quoted button label works; removing a named section takes its cards with it.
+- Records: `docs/history/2026-10-22-audit-finding-38.md`. Branch `audit-finding-38` (from `codex-work-into-claude`); nothing spent.
+
 ## 2026-10-21 — Shorter first-build pages (not deployed)
 
 The planner now asks for 4 to 6 bands (was up to 8), the kit's section and hero spacing is tighter, and each band writer is told to keep its band short. Waiting on your word to deploy (it rebuilds the build container). A test build to compare before and after costs credits, so it needs your OK.

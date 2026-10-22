@@ -106,6 +106,22 @@ function looksLikeCode(v) {
 }
 
 /**
+ * THE SAME TWO JUDGEMENTS, FOR A READER THAT HAS A SYNTAX TREE (2026-10-22,
+ * audit A21-1). The page writer's text guard (`proseInventory` in
+ * page-prose.mjs) reads a prop's string or a data object's value by its key,
+ * not by the characters before it, and must decide as this module does: a
+ * code-ish key, or `name` on a DOM element, is code; a string that looks like
+ * code is code. One rule, so the quick writer and the full writer cannot
+ * disagree about what is prose.
+ */
+export function proseString(text) { return typeof text === "string" && !looksLikeCode(text); }
+export function codeKey(key, onDomElement = false) {
+  const k = String(key ?? "");
+  if (CODE_ATTRS.test(k + "=")) return true;
+  return k === "name" && !!onDomElement;
+}
+
+/**
  * The words on a page, each with enough context to put a change back exactly.
  *
  * TWO SHAPES ONLY: a quoted string that is not the value of a code-ish
