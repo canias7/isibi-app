@@ -34,7 +34,7 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 
 ## Where things stand (2026-09-30)
 
-- **2026-10-22, 19:57 UTC: `main` is `cab34c133` (deploy 2261, green; deployed, not runtime-confirmed)**: add-on partial fixes, audit groups g1–g6 and the owner's five decisions; `docs/deploy-record.md`, `docs/history/2026-10-22-*`.
+- **2026-10-22, 19:57 UTC: `main` is `cab34c133` (deploy 2261, green; runtime-confirmed by canary run 39850507671, image `3fb084db9b82baf4`)**: add-on partial fixes, audit groups g1–g6 and the owner's five decisions; `docs/deploy-record.md`, `docs/history/2026-10-22-*`.
 - **2026-10-22, 07:44 UTC: `main` is `89a67ec40` (deploy 2259, green; served `chat.js` matches; runtime-confirmed by canary run 39802537938, image `af25591ff1cc217a`).** The bullet below is the earlier deploy.
 - **2026-10-22, later: `main` is `fdf73825a` (deploy 2258, green; deployed, not
   runtime-confirmed)**: today's combined work, including audit fixes through
