@@ -1,5 +1,12 @@
 # Owner Notes
 
+## 2026-10-22 — Audit A03-4: a menu removal with a look change beside it is no longer told "couldn't be saved" (not merged, not deployed)
+
+- **It was real.** With changes running side by side switched on, a message like "Take Gallery out of the menu and change the site description" (when the router reads it as a menu removal) took Gallery out but refused the description with "That change couldn't be saved — try again." The menu removal never asked for the site's turn to write the look, so its own look change was refused, and the refusal was worded as a storage failure, so nothing re-ran it.
+- **Now** a menu or picture removal takes the site's turn from the start, as a look change does, so both changes land. And if a change ever does lose its turn to another part of the same message, it says so and the request runs it again on its own, instead of "try again".
+- Left for later: the same problem for a QR code or 3D addition beside another change (A04-5) needs a different fix.
+- Records: `docs/history/2026-10-22-audit-82.md`. Branch `audit-82`; nothing spent.
+
 ## 2026-10-22 — Ideas #10 and #14, combined with the day's work (not deployed)
 
 - #10, the visual review: after a first build's render check, the build's own
