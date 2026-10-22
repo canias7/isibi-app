@@ -829,4 +829,9 @@ export const UI_COMPONENTS = [
   // is the dishonest choice. Caught live: the clinical one was used on an
   // allotment page and its own footnote contradicted the headline above it.
   "waiting-list-place",
+  // `scene-3d` (2026-10-22) because 3D is ALMOST NEVER right, and when it is
+  // (a product to turn) the model hand-wrote three.js each time, with no
+  // poster, no reduced-motion path and a server render that mismatched. One
+  // component: the poster is what renders, the canvas is a bonus on top.
+  "scene-3d",
 ];

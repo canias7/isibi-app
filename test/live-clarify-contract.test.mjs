@@ -698,7 +698,9 @@ test("THE FIRST BUILD'S PAGE WRITER IS UNCHANGED, BYTE FOR BYTE — and so is a 
   // RE-PINNED 2026-10-22 (owner: "Do this: 1,2,3,4,5,6", then 8): the page rules gained
   // "## Looking made, not generated" and the motion paragraph asks for few
   // effects. The build, revise and add-on requests all carry these rules, so all three hashes moved.
-  const pinned = { build: "6df9ed61896b29f5", revise: "a71685e0a575e544", addon: "a43c9819d82bfdad" };
+  // RE-PINNED 2026-10-22 at the combine: the design rules, the 3D component and
+  // the font, prose and checklist work all move the page writer's request.
+  const pinned = { build: "2c24d09a78afa60d", revise: "2171936e6b6a2c5d", addon: "1b830424da710540" };
   assert.equal(h16(pagesRequest({ brief: "A bakery in Leeds", spec: SPEC, brand: "Fold Lane", model: "test-model" })), pinned.build, "the first build's page request changed");
   assert.equal(h16(pagesRequest({ brief: "Make it warmer", spec: SPEC, brand: "Fold Lane", model: "test-model", priorPages: prior, mode: "revise" })), pinned.revise, "a revise's page request changed");
   // THE ADD-ON'S WRITER MAY ASK (2026-10-11, the generality round: the last
