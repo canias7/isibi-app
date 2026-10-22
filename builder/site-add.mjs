@@ -5523,7 +5523,10 @@ export function notLandedMsg({ words = [], photos = [] } = {}, { changed = false
  * and the browser prints this sentence as it is (owner, after run 31: never
  * claim the whole request was free).
  */
-export function noPhotoMsg() {
+export function noPhotoMsg({ purchasesOff = false } = {}) {
+  // WHILE PURCHASES ARE SWITCHED OFF (A04-6, 2026-10-22) "just now" invited a
+  // retry that could never succeed; this says what is true and what can work.
+  if (purchasesOff === true) return "New photographs can't be made for sites at the moment, so nothing on your site changed. I can place one of the photographs your site already has instead — tell me which.";
   return "I couldn't get a photograph to put there just now, so nothing on your site changed.";
 }
 

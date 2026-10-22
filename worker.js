@@ -43202,11 +43202,16 @@ async function handleRequest(request, env, ctx) {
             // was told about. `buySitePhotos` re-asks it at the moment of spend
             // against the clock and the library, which is the real gate; this
             // one only decides what to ASK for.
+            // THE PURCHASE SWITCH CUTS IT TOO (A04-6, 2026-10-22): with
+            // IMAGE_PURCHASES off every purchase is refused (`makeSitePhoto`),
+            // so no shot is offered and a photograph-only addition with none
+            // of the site's own is refused here, before the page call.
+            const aBuyOn = imagePurchasesOn(env);
             let aBalance = 0;
-            if (aFold.photos.length) {
+            if (aFold.photos.length && aBuyOn) {
               aBalance = await (aJob ? readCreditsFor(env, aJob.uid) : readCredits(aAuth)).catch(() => 0);
             }
-            const aShots = aFold.photos.slice(0, imagesAffordable(aFold.photos.length, { balance: aBalance, usd: SITE_PHOTO_USD }));
+            const aShots = aBuyOn ? aFold.photos.slice(0, imagesAffordable(aFold.photos.length, { balance: aBalance, usd: SITE_PHOTO_USD })) : [];
             // ── A PHOTOGRAPH, ALONE, WITH NOTHING REAL TO SHOW (2026-10-02) ──
             //
             // When the photograph is the whole message and it is neither one
@@ -43220,7 +43225,7 @@ async function handleRequest(request, env, ctx) {
             const aPhotoOnly = aKinds.length === 1 && aKinds[0] === "photo";
             const aNoPhoto = () => aFail({
               ok: false, error: "no-photo", cost: 0,
-              msg: noPhotoMsg() + (aRowAside && !aRowCarried ? " " + addRefusal("row-alone", "row") : ""),
+              msg: noPhotoMsg({ purchasesOff: !aBuyOn }) + (aRowAside && !aRowCarried ? " " + addRefusal("row-alone", "row") : ""),
             }, 422);
             if (aPhotoOnly && !aFold.reuse.length && !aShots.length) {
               aMark("photos", "skip", { planned: aFold.photos.length, offered: 0, reuse: 0 });
