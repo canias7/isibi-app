@@ -1874,7 +1874,9 @@ test("a photo slot nobody can fill is said out loud", async () => {
   const close = code.indexOf('return explain("route/layer")', open);
   assert.ok(open > 0 && close > open, "the page rung's own reply is gone — re-derive these landmarks");
   const rung = code.slice(open, close);
-  assert.ok(rung.length > 500 && rung.length < 4000, "re-derive this window: " + rung.length + " bytes");
+  // RAISED 2026-10-22 (4,000 → 4,500): the reply gained `tweakFallback` (A03-5);
+  // measured 4,185, same landmarks.
+  assert.ok(rung.length > 500 && rung.length < 4500, "re-derive this window: " + rung.length + " bytes");
   // ⚠ AND `photosKept` JOINED THEM 2026-09-20, one sentence later than the
   // other two. What this rung DID is a fact about the rung; what the customer
   // is told — *"it is still there"* — is a claim about the PUBLICATION, and

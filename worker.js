@@ -13815,10 +13815,10 @@ async function siteIsLive(env, slug) {
 }
 
 /** The network steps of a held schema's rehearsal on a Neon branch (`builder/addon-rehearse.mjs`). */
+// Its schema apply is the writer's own (`backendWriter`), on the throwaway branch only.
 const REHEARSE_DEPS = {
   project: (env, slug) => siteNeonProject(env, slug),
   create: createRehearsalBranch, connFor: rehearsalConn, del: deleteRehearsalBranch, stale: staleRehearsalBranches,
-  apply: (conn, spec) => applySiteSchema(conn, spec),
 };
 
 /** What `applySiteSchema` would have answered, for a schema held instead: every declared table, named. */
@@ -13850,7 +13850,7 @@ async function backendWriter(env, slug, { rehearse = null } = {}) {
         // before anything is held, as the live apply's would.
         let r = null;
         if (rehearse) {
-          r = await rehearseHeldSchema({ env, slug, conn, spec: schemaSpec, deps: REHEARSE_DEPS });
+          r = await rehearseHeldSchema({ env, slug, conn, spec: schemaSpec, deps: { ...REHEARSE_DEPS, apply: (c, sp) => applySiteSchema(c, sp) } });
           if (typeof rehearse.mark === "function") rehearse.mark(r);
         }
         const kept = heldFromRehearsal(schemaSpec, heldMade(schemaSpec), r);

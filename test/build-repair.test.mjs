@@ -198,7 +198,10 @@ const okBuild = (t) => ({ ok: true, files: { "index.html": { t } }, render: { ok
 // THE FAKE FAILS ON THE BROKEN SOURCE EVERY TIME, as the real bundler does —
 // so the bundler retry `compileWithRetry` makes fails too.
 const byContent = (t) => (i, pages) => (pages.find((p) => p.path === "menu.tsx").source === BROKEN ? fails : okBuild(t));
-const WORSE = FIXED.replace('className="menu"', 'className="menu" {...}');
+// A FIX THAT PARSES BUT THE BUNDLER REFUSES (re-anchored 2026-10-22, A03-5):
+// a fix that does not parse is now refused by the tweak reader before any
+// compile, so the "fix fails at the bundler" path needs one that parses.
+const WORSE = FIXED.replace('className="menu"', 'className="menu worse"');
 const facts = (calls) => calls.notes.flatMap(([s, x]) => talkBuildStepFacts({ s, ...(x || {}) })).map((f) => f.text || JSON.stringify(f));
 
 test("FLAG OFF (no dep): no call, and salvage stubs the page exactly as before", async () => {

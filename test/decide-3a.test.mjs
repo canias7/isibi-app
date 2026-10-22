@@ -157,7 +157,7 @@ test("wiring: the held schema goes through the rehearsal before it is held, and 
   const a = W.indexOf("async function backendWriter(env, slug, { rehearse = null } = {})");
   assert.ok(a > 0, "backendWriter's landmark is gone");
   const body = W.slice(a, W.indexOf("w.calls = {", a));
-  const reh = body.indexOf("rehearseHeldSchema({ env, slug, conn, spec: schemaSpec, deps: REHEARSE_DEPS })");
+  const reh = body.indexOf("rehearseHeldSchema({ env, slug, conn, spec: schemaSpec, deps: { ...REHEARSE_DEPS, apply: (c, sp) => applySiteSchema(c, sp) } })");
   const kept = body.indexOf("heldFromRehearsal(schemaSpec, heldMade(schemaSpec), r)");
   const add = body.indexOf('hold.add({ kind: "schema", spec: kept.spec })');
   assert.ok(reh > 0 && kept > reh && add > kept, "the rehearsal does not precede the hold");
