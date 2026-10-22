@@ -3162,3 +3162,11 @@ devices are unchanged; preview doesn't switch. Plan: one breakpoint map
 send the preview device as a hint (words win); teach css and page lanes; a
 scope guard plus three-width before/after pixel check; switch preview. ~7–9
 days offline, then small paid tests.
+
+## Add GATEWAY_SIGNING_KEY (owner, 2026-10-22: "note it for later")
+
+Optional, after audit #31 (already closed without it). A GitHub Actions secret
+named GATEWAY_SIGNING_KEY, at least 32 random characters, gives job passes
+their own signing key separate from SITE_SECRETS_KEY. The owner has no
+terminal: any password manager's generator (64 letters and digits) works.
+Adding it ends the passes of jobs running at that moment, once.
