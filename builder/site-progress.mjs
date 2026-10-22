@@ -481,6 +481,8 @@ export function buildStepFacts(step) {
     case "compile-retry": return [fact("doing", "The first try at putting the site together did not start; trying again.")];
     case "repairing": return n("pages") ? [fact("doing", "Fixing " + pl(n("pages"), "a page", "pages") + " the browser check found a problem on.")] : [];
     case "repaired": return n("failed") ? [fact("notdone", "The fix did not build, so the pages stay as they were before it.")] : n("pages") ? [fact("prepared", "Fixed " + pl(n("pages"), "the page", "pages") + " and put the site together again. Not published yet.")] : [];
+    case "looking": return [fact("doing", "Checking how it looks…")];
+    case "looked": return n("failed") ? [fact("notdone", "A fix to how it looks did not build, so the pages stay as they were before it.")] : n("pages") ? [fact("prepared", "Fixed how " + pl(n("pages"), "the page looks", "pages look") + " and put the site together again. Not published yet.")] : [fact("checked", "Looked at the pages: nothing needed fixing.")];
     case "salvaged": return n("stubbed") ? [fact("notdone", (n("stubbed") === 1 ? "One page" : n("stubbed") + " pages") + " would not build, so " + (n("stubbed") === 1 ? "it shows" : "they show") + " a simple holding page for now.")] : [];
     default: return [];
   }

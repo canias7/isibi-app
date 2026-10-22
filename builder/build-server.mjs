@@ -2543,6 +2543,10 @@ const server = http.createServer((req, res) => {
       // than any miss.
       const ssr = await startSiteServerForCheck();
       let render;
+      // THE VISUAL REVIEW'S SCREENSHOTS (2026-10-22): filled by the render
+      // check only when the payload asks (`shots: true`, the Worker's
+      // `VISUAL_REVIEW` switch on a first build), and answered beside `render`.
+      const shots = [];
       try {
         // THE SELECTORS COME FROM THE SHEET WE ACTUALLY WROTE, not from
         // `payload.css`. `writeCss` truncates at `MAX_CSS` on a rule boundary,
@@ -2569,7 +2573,7 @@ const server = http.createServer((req, res) => {
         const langPrefixes = (Array.isArray(payload.langs && payload.langs.extra) ? payload.langs.extra : [])
           .map((t) => { try { return langPrefix(String(t || "")); } catch { return ""; } })
           .filter(Boolean);
-        render = await timed("renderMs", null, null, () => checkRender(CLIENT_DIST, checkOrder(routePaths(), langPrefixes), ssr.fetch, ssr.down, { selectors: cssSelectors }));
+        render = await timed("renderMs", null, null, () => checkRender(CLIENT_DIST, checkOrder(routePaths(), langPrefixes), ssr.fetch, ssr.down, { selectors: cssSelectors, ...(payload.shots === true ? { shots } : {}) }));
       } finally { ssr.stop(); }
 
       // ── THE SHARE CARD, COMPOSED FREE (2026-08-28, owner's call) ────────────
@@ -2755,7 +2759,7 @@ const server = http.createServer((req, res) => {
         const k = siteKitFiles();
         kitOut = { kit: k.files, ...(k.missing.length ? { kitMissing: k.missing } : {}), ...(k.capped ? { kitCapped: true } : {}) };
       } catch (e) { kitOut = { kitError: String((e && e.message) || e).slice(0, 300) }; }
-      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, ...(typeErrors ? { typeErrors } : {}), fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, pageTokens: pageTokensUsed, brand: brandUsed, render, worker, card: cardMade, touchIcon: touchMade, ...(cssUsed.applied ? { css: cssUsed } : {}), ...(ssr.unprivileged ? {} : { ssrUnprivileged: false }), ...kitOut });
+      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, ...(typeErrors ? { typeErrors } : {}), fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, pageTokens: pageTokensUsed, brand: brandUsed, render, ...(shots.length ? { shots } : {}), worker, card: cardMade, touchIcon: touchMade, ...(cssUsed.applied ? { css: cssUsed } : {}), ...(ssr.unprivileged ? {} : { ssrUnprivileged: false }), ...kitOut });
     } catch (e) {
       return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0, ...times });
     }

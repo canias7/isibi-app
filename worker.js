@@ -311,6 +311,7 @@ import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge
 import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig, writesSchema as partWritesSchema } from "./builder/request-plan.mjs";
 import { turnKey, turnRecord, readTurn, turnFree, nextGen, rebaseFiles, TURN_POLL_MS, TURN_WAIT_MS, TURN_UNREAD_MAX } from "./builder/publish-turn.mjs";
 import { PART_TERMINAL as REQ_PART_TERMINAL, heldFromOf } from "./builder/request.mjs";
+import { visualReviewOn } from "./builder/visual-review.mjs";
 import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, carrySuperseded, supersededNote, holdRequirements, heldCheckpoint, heldDelta, applyHeldDelta, readHeld, sameCheckpoint, heldNote, ownerOf, handoffsByStep, applyVerdicts, COVERAGE_STEPS, linkEvidence } from "./builder/site-requirements.mjs";
 import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.mjs";
 import { WRITE_APP_TOOL, appWriterSystem, appFilesFrom, appThemeFrom } from "./builder/app-gen.mjs";
@@ -18151,6 +18152,10 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   // SAVED TO THE DRAFT, NOT PUBLISHED (draft-first): what the activation
   // said, carried onto this build's answer so the page and the reply can say so.
   let bDraftSaved = null;
+  // THE VISUAL REVIEW (2026-10-22, owner-approved idea #10): a first build
+  // only, and only with `VISUAL_REVIEW` on. Off, the container is not asked for
+  // screenshots and `publishPages` gets no `visualReview`, so nothing changes.
+  const visualOn = visualReviewOn(env) && !revise;
   const out = await publishPages({
     prefetch: ({ balance }) => {
       if (photoTask || !Array.isArray(imgBrief)) return;
@@ -18616,6 +18621,8 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       // NAMED, so its steps can be watched while it runs (2026-10-19).
       const bStageId = crypto.randomUUID();
       const bPayload = JSON.stringify({ stageId: bStageId, files, slug, title: brand,
+          // SCREENSHOTS FOR THE VISUAL REVIEW, asked only when it will run.
+          shots: visualOn || undefined,
           // THE PREFIX THIS SCRIPT WILL SERVE (stage 7) and its fallback hop.
           version: bVersion, parent: bParent || undefined,
           // THE COMPONENTS THE MODEL JUST WROTE, straight off the `write_pages`
@@ -18768,6 +18775,10 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
     // repair there would be re-checking pages the customer just changed by hand
     // against a report about the build before it.
     repair: quickSend(env),
+    // THE VISUAL REVIEW'S MODEL CALL: the build's own pages model, through the
+    // same send (and so the same customer effort) as every builder call.
+    visualReview: visualOn ? (req) => callBuilderModel(env, req, budget ? { capMs: (cap) => budget.capMs(Math.min(Number(cap) || QUICK_STREAM_MS, QUICK_STREAM_MS)) } : quickBudget, QUICK_STREAM) : undefined,
+    visualModel: models.pages,
     // THE STEPS INSIDE THE PUBLISH THAT USED TO RUN IN SILENCE (2026-10-19):
     // their numbers go on the trace, which the build's progress already hears.
     note: (stage, nums) => { try { mark?.(stage, nums); } catch { /* a trace must never break a build */ } },

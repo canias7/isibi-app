@@ -19,7 +19,7 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
-import { VIEWPORTS, MAX_OPENS, OVERLAY_TRIGGERS, probe, probeOverlay, renderReport, landmarkProbe, MAX_LANDMARKS, textProbe, MAX_ROUTE_TEXT, HYDRATION_ERROR, hydrationProbe, isNavTimeout, apiAnswer, DEP_HEADER } from "./site-render.mjs";
+import { shotRoutes, MAX_SHOT_HEIGHT, VIEWPORTS, MAX_OPENS, OVERLAY_TRIGGERS, probe, probeOverlay, renderReport, landmarkProbe, MAX_LANDMARKS, textProbe, MAX_ROUTE_TEXT, HYDRATION_ERROR, hydrationProbe, isNavTimeout, apiAnswer, DEP_HEADER } from "./site-render.mjs";
 
 const MIME = {
   ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css",
@@ -40,6 +40,8 @@ const ONE_PIXEL = Buffer.from(
 // running to completion.
 const TOTAL_MS = 25000;
 const NAV_MS = 6000;
+// A model refuses an image above 5MB of base64; a PNG this size is ~4.9MB of it.
+const MAX_SHOT_BYTES = 3_600_000;
 // Let lazy images below the fold start. `loading="lazy"` means an image that has
 // not begun loading reports `complete === false` and is correctly not called
 // broken — but then a genuinely broken one below the fold is never seen either.
@@ -375,6 +377,16 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
   // determined as confined. That is the one direction this signal must not fail
   // in, and it is the same defect this function's own docstring describes at
   // length, reappearing in the error path rather than the happy one.
+  // ── SCREENSHOTS FOR THE VISUAL REVIEW (2026-10-22, owner's idea #10) ──────
+  //
+  // Asked for, never defaulted: `opts.shots` is an array the caller owns and
+  // reads after; absent, nothing is captured and the report is unchanged. The
+  // routes are `/` plus at most two more, at both widths, each full page cut
+  // at `MAX_SHOT_HEIGHT`. A shot larger than `MAX_SHOT_BYTES` is dropped (a
+  // model refuses an image that size), and a failed capture costs the shot,
+  // never the check.
+  const shotsOut = Array.isArray(opts && opts.shots) ? opts.shots : null;
+  const shotSet = new Set(shotsOut ? shotRoutes(list) : []);
   const sandboxed = chromiumSandboxed();
   if (!list.length) return renderReport([], { ok: false, error: "no routes to look at", sandboxed });
 
@@ -470,6 +482,14 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
             // visit. PHONE ONLY: a hamburger sheet is the case, it is where the
             // bug was found, and doing it twice doubles the cost for a panel
             // whose colours do not change with the width.
+            // THE SCREENSHOT, before any overlay is opened, so it shows the page.
+            if (shotsOut && shotSet.has(route)) {
+              try {
+                const h = await page.evaluate(() => Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0));
+                const png = await page.screenshot({ type: "png", fullPage: true, clip: { x: 0, y: 0, width: vp.width, height: Math.max(1, Math.min(Number(h) || vp.height, MAX_SHOT_HEIGHT)) }, timeout: 10000 });
+                if (png.length <= MAX_SHOT_BYTES) shotsOut.push({ route, viewport: vp.name, height: Number(h) || 0, png: png.toString("base64") });
+              } catch { /* a screenshot is for the review; never let it cost a render report */ }
+            }
             if (vp.name === "phone") obs.overlays = await openOverlays(page);
             // ── THE LANDMARK MAP, DESKTOP ONLY ────────────────────────────
             //

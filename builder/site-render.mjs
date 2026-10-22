@@ -38,6 +38,21 @@
  * visitors to a barber shop's website are on a phone, so the untested width is
  * the primary one. 375 is the narrowest mainstream device; anything that
  * survives it survives the rest. */
+// ── THE VISUAL REVIEW'S SCREENSHOTS (2026-10-22) ─────────────────────────────
+// Defined here, beside the widths, because both ends read them: the container's
+// `render-check.mjs` captures, the Worker's `visual-review.mjs` reads.
+/** Routes screenshotted: the home page and at most two others. */
+export const SHOT_ROUTES = 3;
+/** Height cap of a full-page screenshot, in CSS pixels. */
+export const MAX_SHOT_HEIGHT = 4000;
+/** Which routes get screenshots: `/` first when present, then the next ones, up to `max`. */
+export function shotRoutes(routes, max = SHOT_ROUTES) {
+  const list = (Array.isArray(routes) ? routes : []).filter((r) => typeof r === "string" && r);
+  const out = list.includes("/") ? ["/"] : [];
+  for (const r of list) { if (out.length >= max) break; if (!out.includes(r)) out.push(r); }
+  return out;
+}
+
 export const VIEWPORTS = [
   { name: "phone", width: 375, height: 812 },
   { name: "desktop", width: 1280, height: 900 },
