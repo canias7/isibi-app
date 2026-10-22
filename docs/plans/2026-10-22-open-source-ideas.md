@@ -41,3 +41,9 @@ Research only; nothing built. Sources and licenses: Anthropic skills (Apache 2.0
 
 Already built or ours already: security review with severity (our security scan), clarify question before building, compile + render gate, targeted edits.
 Not worth it: whole-file rewrites, live in-browser preview, many AI providers.
+
+## Owner's decision on the rest (2026-10-22)
+
+Do: 11, 12, 13 (being built, behind a switch). Explain: 15. Check: 18.
+Discarded by the owner: 7, 9, 16, 17, 19, 20, 21, 22, 24, 27.
+Done earlier: 1–6, 8, 10, 14, 25, 26 (23 already existed).
