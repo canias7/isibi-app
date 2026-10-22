@@ -316,7 +316,7 @@ import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig, writesSchema as partWritesSchema } from "./builder/request-plan.mjs";
 import { turnKey, turnRecord, readTurn, turnFree, nextGen, rebaseFiles, TURN_POLL_MS, TURN_WAIT_MS, TURN_UNREAD_MAX } from "./builder/publish-turn.mjs";
-import { PART_TERMINAL as REQ_PART_TERMINAL, heldFromOf } from "./builder/request.mjs";
+import { PART_TERMINAL as REQ_PART_TERMINAL, heldFromOf, rewriteWire } from "./builder/request.mjs";
 import { visualReviewOn } from "./builder/visual-review.mjs";
 import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, carrySuperseded, supersededNote, holdRequirements, heldCheckpoint, heldDelta, applyHeldDelta, readHeld, sameCheckpoint, heldNote, ownerOf, handoffsByStep, applyVerdicts, COVERAGE_STEPS, linkEvidence } from "./builder/site-requirements.mjs";
 import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.mjs";
@@ -24044,6 +24044,10 @@ async function rewriteJob(env, rec, n, auth) {
     slug: rec.slug, instruction: p.resume || p.words, picker: rec.picker || undefined,
     effort: XAI_EFFORTS.includes(rec.effort) ? rec.effort : undefined,
     images: files.length ? files.slice(0, MAX_ATTACHMENTS) : undefined,
+    // THE PARTS PUT OFF AND WHY IT CAME HERE (2026-10-22, audit A37-1), as the
+    // page's climb posts them: the build takes the parts out of what it writes,
+    // so a part carved off runs once, as its own part.
+    ...rewriteWire(rec, n),
     // WHICH REQUEST AND PART, for the consumer's stop check and its next step.
     request: { key: rec.key, part: n },
   });

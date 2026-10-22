@@ -717,19 +717,24 @@ export function handOff(read, route) {
   return { act: "rewrite", why: "same-layer" };
 }
 
-/** The route a hand-over runs with: where it goes and the part's context, never the first answer's verbs (W1). */
-function handedRoute(from, to, read) {
-  const page = to.page || from.page || "";
+/** Why work moved (`EditPoll.handOver`'s `handOver`): the step it left, its reason and field, and the page; null when none is known. */
+function handOverOf(from, read, page) {
   const ho = {};
   const fromName = from.op === "addon" ? "addon" : (from.layer || "");
   if (fromName) ho.from = fromName;
   if (read.reason) ho.reason = read.reason;
   if (read.field) ho.field = read.field;
   if (page) ho.page = page;
+  return ho.from || ho.reason ? ho : null;
+}
+
+/** The route a hand-over runs with: where it goes and the part's context, never the first answer's verbs (W1). */
+function handedRoute(from, to, read) {
+  const page = to.page || from.page || "";
   return {
     op: to.op, intent: to.op, layer: to.op === "edit" ? to.layer : "",
     page, remove: false, rename: "", tab: false,
-    handOver: ho.from || ho.reason ? ho : null,
+    handOver: handOverOf(from, read, page),
     cost: from.cost, handedOff: to.handedOff === true, fromAddon: to.fromAddon === true,
     hops: (from.hops || 0) + 1,
   };
@@ -816,6 +821,22 @@ export function chargedOf(row) {
  */
 function askApproval(p, why, now) {
   p.status = "approval"; p.why = why; p.approvalAt = now; p.phase = "approval"; p.route = null;
+}
+
+/**
+ * WHAT A PART'S APPROVED REWRITE IS TOLD BESIDE ITS WORDS (2026-10-22, audit
+ * A37-1): the parts held back that are in what it runs (`alsoAsked`, which the
+ * build takes out before anything reads it: `buildHeld`), and why the step
+ * below handed it the work (`handOver`), as the page's own climb posts them
+ * (`EditPoll.handOver` into the rewrite). A part carved off mid-run runs once,
+ * as its own part, never inside the rewrite as well.
+ */
+export function rewriteWire(rec, n) {
+  const p = rec && Array.isArray(rec.parts) ? rec.parts[n] : null;
+  if (!p) return {};
+  const text = p.resume || p.words;
+  const held = (Array.isArray(p.held) ? p.held : []).filter((w) => typeof w === "string" && w && !!wordsIn(text, w));
+  return { alsoAsked: heldWire(held.length ? held : undefined), handOver: plain(p.handOver) ? p.handOver : undefined };
 }
 
 /** The final answer of a rewrite's build, `{ status, body }`, or `null` while there is none yet (or only its 202). */
@@ -1123,7 +1144,10 @@ function settle(rec, p, job, row, now) {
     const to = handOff(read, p.route || {});
     job.end.handOff = to.act;
     if (to.act === "hop") { p.route = handedRoute(p.route || {}, to, read); p.hops = p.route.hops; p.status = "ready"; return; }
-    if (to.act === "rewrite") { askApproval(p, to.why, now); p.outcome = { job: job.id, kind: "escalate" }; return; }
+    // THE HAND-OVER IS KEPT FOR THE REWRITE (2026-10-22, audit A37-1): the
+    // go-ahead clears the route, so why the step climbed is kept on the part
+    // and posted with the rewrite (`rewriteWire`), as the page's climb posts it.
+    if (to.act === "rewrite") { const ho = handOverOf(p.route || {}, read, (p.route && p.route.page) || ""); askApproval(p, to.why, now); p.handOver = ho; p.outcome = { job: job.id, kind: "escalate" }; return; }
     if (to.act === "stop") { endUnfinished(p, "", "handed-back", { job: job.id, kind: "escalate" }); return; }
     endUnfinished(p, "", "unreadable"); return;
   }

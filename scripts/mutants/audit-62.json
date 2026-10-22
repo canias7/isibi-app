@@ -1,0 +1,16 @@
+[
+ {"label": "CONTROL: a comment only — must survive", "control": true, "files": ["builder/request.mjs"],
+  "from": "export function rewriteWire(rec, n) {", "to": "// control\nexport function rewriteWire(rec, n) {"},
+ {"label": "M1 the rewrite is not given the parts put off", "files": ["builder/request.mjs"],
+  "from": "return { alsoAsked: heldWire(held.length ? held : undefined), handOver:", "to": "return { alsoAsked: undefined, handOver:"},
+ {"label": "M2 the hand-over is not kept on the part", "files": ["builder/request.mjs"],
+  "from": "askApproval(p, to.why, now); p.handOver = ho;", "to": "askApproval(p, to.why, now);"},
+ {"label": "M3 held parts not in the run text are sent anyway", "files": ["builder/request.mjs"],
+  "from": "typeof w === \"string\" && w && !!wordsIn(text, w)", "to": "typeof w === \"string\" && w"},
+ {"label": "M4 the worker's rewrite job drops the wire", "files": ["worker.js"],
+  "from": "    ...rewriteWire(rec, n),\n", "to": "\n"},
+ {"label": "M5 a non-object hand-over is passed through", "files": ["builder/request.mjs"],
+  "from": "handOver: plain(p.handOver) ? p.handOver : undefined };", "to": "handOver: p.handOver || undefined };"},
+ {"label": "M6 the hand-over loses its step", "files": ["builder/request.mjs"],
+  "from": "  if (fromName) ho.from = fromName;\n  if (read.reason) ho.reason = read.reason;", "to": "  if (read.reason) ho.reason = read.reason;"}
+]

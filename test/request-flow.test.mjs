@@ -2341,3 +2341,63 @@ test("L2 — a first build, and a question about the site, are never taken on as
   assert.equal(requestFlowOn({ REQUEST_FLOW: " YES " }), true);
   for (const v of [undefined, "", "off", "0", true, 1, ["on"]]) assert.equal(requestFlowOn({ REQUEST_FLOW: v }), false, String(v));
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A37-1 (2026-10-22, the builder audit's finding 62): AN APPROVED REWRITE
+// CARRIES THE HAND-OVER. A step that climbs to the full rewrite and puts a
+// part off on the way (the look door's `elsewhere`) carves that part into its
+// own part, which runs after the rewrite. The rewrite's stored job must name
+// the part put off (`alsoAsked`), so the build takes it out of what it writes,
+// and say why it was handed the work (`handOver`), as the page's own climb
+// does; otherwise the part is written twice and charged twice.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("A37-1 — an approved rewrite is given the parts put off and the hand-over: the rewrite never writes the carved part, which runs once, after it, as its own part", async () => {
+  const slug = slugOf("a371");
+  const KIND = "Turn this into a booking tool instead of a shop";
+  const MSG = KIND + ", and " + ADD + ".";
+  const answers = {
+    route: [{ intent: "edit", layer: "look" }, { intent: "addon" }],
+    [T.pick]: { fields: ["kind"], elsewhere: [ADD] },
+    [T.adds]: { kinds: ["page"] }, "add:page": { page: [PAGE("/gallery", "Gallery")] },
+    design_schema: { brand: "Harbour Loaf", slug, description: "a bakery", kind: "shopfront", purpose: "visit", pages: [{ path: "/", name: "Home" }, { path: "/visit", name: "Visit" }], components: [], css: "" },
+    // THE REWRITE'S PAGE WRITER FIRST (on the press), THEN THE ADD-ON'S.
+    [T.pages]: (args, n) => (n === 0 ? { pages: [{ path: "src/routes/index.tsx", source: WARM }], notes: "Rewrote the home page." } : { pages: [writtenPage("/gallery")] }),
+  };
+  await withPlatform({ slug, pages: BIG, answers }, async (P) => {
+    buildable(P);
+    const r = await sendMessage(P, { message: MSG });
+    let { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["approval", "blocked"], JSON.stringify(rec.parts.map((p) => [p.status, p.why, p.words])));
+    assert.equal(rec.parts[1].words, ADD);
+    assert.equal(rec.parts[1].parent, 0);
+    // THE PRESS: the stored rewrite names the part put off and why it came.
+    assert.equal((await approve(P, r.key)).status, 200);
+    const jb = JSON.parse(JSON.parse(P.objects.get("jobs/" + builds(P)[0].id + ".json").body).body);
+    assert.deepEqual([].concat(jb.alsoAsked), [ADD], "the rewrite's job does not name the part put off");
+    assert.equal(jb.handOver && jb.handOver.reason, "build", "the rewrite's job dropped the hand-over: " + JSON.stringify(jb.handOver));
+    assert.equal(jb.handOver.from, "look");
+    ({ rec } = await settle(P, r.key));
+    // THE REWRITE'S WRITERS NEVER SAW THE PART PUT OFF.
+    const designed = P.modelLog.filter((m) => m.tool === "design_schema");
+    assert.equal(designed.length, 1);
+    assert.ok(designed[0].text.includes("booking tool"), "the rewrite's designer was not given the part it makes");
+    assert.ok(!designed[0].text.includes(ADD), "the rewrite's designer was handed the part put off");
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    // ONE REWRITE, CHARGED ONCE; THE CARVED PART RAN ONCE, AS ITS OWN ADD-ON.
+    oneRewrite(P, rec, builds(P)[0].id);
+    assert.equal(rec.parts[1].jobs.filter((j) => j.kind === "run").length, 1);
+  });
+});
+
+test("A37-1 — the rewrite's wire names only the held parts in what it runs, and no hand-over it was not given", async () => {
+  const { rewriteWire } = await import("../builder/request.mjs");
+  const part = (o) => ({ words: "Rebuild it as a tool, and add a gallery page", resume: null, held: [], ...o });
+  // A HELD PART IN ITS WORDS: named; one that is not (an answer's request left it out): never sent, so the build cannot refuse on it.
+  assert.deepEqual(rewriteWire({ parts: [part({ held: ["add a gallery page", "add a shop"] })] }, 0), { alsoAsked: "add a gallery page", handOver: undefined });
+  assert.deepEqual(rewriteWire({ parts: [part({ resume: "Rebuild it as a tool", held: ["add a gallery page"] })] }, 0), { alsoAsked: undefined, handOver: undefined });
+  // THE HAND-OVER KEPT ON THE PART, AS IT WAS KEPT; NOTHING WHEN IT IS NOT AN OBJECT.
+  assert.deepEqual(rewriteWire({ parts: [part({ handOver: { from: "look", reason: "build", field: "kind" } })] }, 0).handOver, { from: "look", reason: "build", field: "kind" });
+  assert.equal(rewriteWire({ parts: [part({ handOver: ["look"] })] }, 0).handOver, undefined);
+  assert.deepEqual(rewriteWire({ parts: [] }, 0), {});
+});

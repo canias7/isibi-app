@@ -1,5 +1,11 @@
 # Owner Notes
 
+## 2026-10-22 — Audit finding 62 (A37-1): an approved full rewrite no longer also does the part it was told to leave (not merged, not deployed)
+
+- **It was real.** When one message asked for two things and the first could only be done by rewriting the whole site, the step that found this set the second thing aside as its own part, to run after. But once you pressed the go-ahead, the rewrite was handed the whole sentence, the second thing included, and was not told why it had been given the work. So it built the second thing too, and then the second part ran again on its own: done twice, charged twice. I reproduced it on today's code ("Turn this into a booking tool instead of a shop, and add a gallery page": the rewrite's designer was given "add a gallery page", then the add-on ran it again).
+- **Now** the rewrite is told which parts were set aside, and they are taken out before it reads the request, exactly as when the page itself climbs to the rewrite. It is also told why it was handed the work. Each piece runs once and is charged once.
+- Records: `docs/history/2026-10-22-audit-62.md`. Branch `audit-62` (from `codex-work-into-claude`); nothing spent.
+
 ## 2026-10-22 — Ideas #10 and #14, combined with the day's work (not deployed)
 
 - #10, the visual review: after a first build's render check, the build's own
