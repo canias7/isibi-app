@@ -306,7 +306,14 @@ function shownFile(args) {
   if (at < 0) return null;
   const rest = content.slice(at + "\n\nTHE FILE (".length);
   const close = rest.indexOf(")\n");
-  return { path: rest.slice(0, close), source: rest.slice(close + 2) };
+  // THE FILE ENDS WHERE THE REQUEST'S CONTEXT BEGINS (2026-10-22, A03-5): the
+  // prompt appends "THE WHOLE REQUEST THIS PART CAME FROM" after the file, and
+  // a stub that echoed it answered a page that does not parse — which the
+  // tweak's syntax check now (rightly) sends to the rewrite.
+  let source = rest.slice(close + 2);
+  const ctx = source.indexOf("\n\n\nTHE WHOLE REQUEST THIS PART CAME FROM");
+  if (ctx >= 0) source = source.slice(0, ctx);
+  return { path: rest.slice(0, close), source };
 }
 
 test("PATH page tweak — the Visit page's heading made bigger by the TWEAK (the page's words kept, so not the page writer's rewrite) while a stored row's change is being chosen: nothing of the site written before its job, no rewrite ever asked for, and the tweak's answer applied once by the job", async () => {

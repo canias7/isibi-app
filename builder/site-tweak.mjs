@@ -374,6 +374,24 @@ export function readTweak(reply, { source, inPart, parse } = {}) {
   // reason is the real one rather than "it reworded the page".
   if (after.length < before.length * 0.5) return { ok: false, reason: "truncated" };
 
+  // ── A FILE THAT DOES NOT PARSE IS NOT A TWEAK (2026-10-22, audit A03-5) ──
+  //
+  // Owner's choice: check each tweak right away and, when it is broken, let
+  // the full rewrite have the request. The publish is deferred to one spine
+  // compile after every step, so nothing before that compile refused a page
+  // `vite build` will refuse — a broken tweak failed the whole message there,
+  // with the rewrite never tried. The parser is the one this rung already
+  // holds (`tweakParser`, the template's own TypeScript); its syntax
+  // diagnostics are what the bundler's transform refuses (an unclosed tag, a
+  // stray brace). WHAT IT CANNOT SEE, said: an import that does not resolve
+  // or a name a module does not export is a bundling error, not a syntax one,
+  // and still reaches the spine's compile as before. NO PARSER (a Worker
+  // isolate) MEANS NOT CHECKED, never "fine": the tweak goes on as it did
+  // before this check existed, and the spine's compile stays the wall.
+  // Before every later reading, so the reason named is the real one.
+  const syn = tweakSyntax(after, parse);
+  if (syn.checked && !syn.ok) return { ok: false, reason: "syntax", problems: syn.errors };
+
   // THE ADDRESS. Before the prose check for the same reason: a moved route is a
   // specific, nameable failure and would otherwise be reported as a rewording.
   const wasRoute = routeIdOf(before);
@@ -414,6 +432,22 @@ export function readTweak(reply, { source, inPart, parse } = {}) {
   if (problems.length) return { ok: false, reason: "lint", problems };
 
   return { ok: true, source: after };
+}
+
+/**
+ * WHETHER A TWEAK'S FILE PARSES — `{checked: false}` with no parser, else
+ * `{checked: true, ok, errors}`. A parser without a syntax reader, or one that
+ * throws, is "not checked", never "ok": cannot-tell must not read as a value.
+ */
+export function tweakSyntax(text, parse) {
+  if (typeof parse !== "function") return { checked: false };
+  let parsed;
+  try { parsed = parse(String(text ?? "")); } catch { return { checked: false }; }
+  if (!parsed || typeof parsed.syntaxErrors !== "function") return { checked: false };
+  let errors;
+  try { errors = parsed.syntaxErrors(parsed.file); } catch { return { checked: false }; }
+  if (!Array.isArray(errors)) return { checked: false };
+  return { checked: true, ok: errors.length === 0, errors: errors.slice(0, 5).map((e) => String(e).slice(0, 200)) };
 }
 
 /**
@@ -808,6 +842,10 @@ export async function tweakParser() {
     PARSER = (text) => ({
       file: ts.createSourceFile("page.tsx", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX),
       k: (n) => ts.SyntaxKind[n.kind],
+      // THE PARSER'S OWN SYNTAX DIAGNOSTICS (2026-10-22, A03-5), as text —
+      // what `tweakSyntax` reads to keep a file that will not build off the
+      // cheap path.
+      syntaxErrors: (file) => (file?.parseDiagnostics ?? []).map((d) => ts.flattenDiagnosticMessageText(d.messageText, " ")),
       // THE KINDS BY VALUE AND THE PARSER'S OWN WALK, for a reader that must
       // compare kinds exactly (`SyntaxKind[n]` names some kinds by an alias,
       // `FirstStatement` for a variable statement) and visit every child.

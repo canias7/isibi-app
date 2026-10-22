@@ -1,6 +1,14 @@
 # Owner Notes
 
 
+## 2026-10-22 — A broken quick edit now falls back to the full page rewrite (audit A03-5; not merged, not deployed)
+
+- **Before**: a page change first tries the cheap quick edit ("tweak"). If that quick edit wrote a page that would not build, nothing noticed until the very end, the whole message failed with "That didn't compile", and the full rewrite the code promised was never tried.
+- **Now (your choice)**: each quick edit is checked right away. If its page does not parse (a tag left open, a stray brace), the full rewrite runs once for the same request and, if it works, that is what ships and what the reply describes. The quick edit's own usage is billed with the rewrite, as before; nothing extra is charged when the quick edit is fine; a rewrite that also fails ends exactly as today. The fallback is recorded in the job's trace (`tweak:fallback`) and on the reply (`tweakFallback`).
+- **Limit, said plainly**: the check is the page parser, so it catches broken syntax, not every build error (an import of something that does not exist still fails at the end, as before). In the Worker, where there is no parser, quick edits go on unchecked, exactly as before.
+- Branch `decide-retry`; nothing spent. Record: `docs/history/2026-10-22-decide-retry.md`.
+
+
 ## 2026-10-22 — Audit group G1: the publish turn and the container's database recovery (not merged, not deployed)
 
 - **The turn wait.** Most of this was fixed on 2026-10-18. What was left: a job the container shut down kept waiting, and a stop pressed while a job waited was treated as "another change got in the way", so the job ran again. Both now end the job at once with the right reason. A failed check of the saved site is now reported as a read failure, so it is no longer re-run as a clash with another change.

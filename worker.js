@@ -38348,6 +38348,19 @@ async function handleRequest(request, env, ctx) {
               });
               // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
               if (tw.ask) return stepAsk("page", tw.ask);
+              // A TWEAK WHOSE FILE DOES NOT PARSE FALLS BACK TO THE REWRITE
+              // (2026-10-22, audit A03-5, the owner's choice): `readTweak`
+              // refuses it as `syntax`, so the branch below is skipped and the
+              // full writer has the same request, once. Marked, so the job's
+              // trace says why the dearer writer ran; the tweak's tokens ride
+              // on the rewrite's bill through `twSpent`, as every refused
+              // tweak's do. Unparsed on a Worker isolate (no parser): the
+              // tweak goes on and the spine's compile stays the wall.
+              const twFallback = tw.reason === "syntax" ? "syntax" : "";
+              if (twFallback) {
+                try { if (editTrace) editTrace.mark("tweak:fallback", "ok", { reason: twFallback, path: target.path, problems: (tw.problems || []).length }); } catch { /* the record never costs the edit */ }
+                console.error("tweak did not parse, falling back to the rewrite:", ownerSlug, target.path, (tw.problems || [])[0] || "");
+              }
               // THE PRESERVATION CHECK ON THE TWEAK'S ANSWER, when it ran.
               // Kept outside the block so a tweak whose compile then fails
               // hands its judge call's tokens on to the rewrite's bill, exactly
@@ -38457,13 +38470,14 @@ async function handleRequest(request, env, ctx) {
                   });
                   // PREPARED: the tweak is done; never the rewrite fallback below.
                   if (isPrep) return prepAnswer();
-                  // ⚠ NO COMPILE HAPPENS HERE (audit A03-5, still open): under
-                  // the deferred spine `publishStep` only records the pages and
-                  // answers ok, so the fall-through to the rewrite below never
-                  // runs. A tweak that does not compile fails once, in
-                  // `publishSpine` ("That didn't compile"), with no rewrite
-                  // tried. Whether to compile the tweak here or retry with the
-                  // rewrite after the spine fails is the owner's decision.
+                  // ⚠ NO COMPILE HAPPENS HERE: under the deferred spine
+                  // `publishStep` only records the pages and answers ok, so the
+                  // log line below this block cannot run. The check that keeps a
+                  // broken tweak off this path is BEFORE it (2026-10-22, A03-5):
+                  // `readTweak` refuses a file that does not parse as `syntax`
+                  // and the rewrite below takes the request (`twFallback`). A
+                  // bundling error the parser cannot see (an import that does
+                  // not resolve) still fails once, in `publishSpine`.
                   if (twPub.ok) {
                     return Response.json({
                       ok: true, layer: "page", page: wantRoute, tweak: true,
@@ -39306,6 +39320,9 @@ async function handleRequest(request, env, ctx) {
                 // the cheap rung never reached the provider.
                 files: pPub.files, render: pPub.render, renderNote: pPub.renderNote, checks: pPub.checks, draft: pPub.draft,
                 cost: await eCharge(eGen && eGen.usage, twSpent, twJudged, pKeep.usage, ...pPartUsage), usage: eGen && eGen.usage, tweakUsage: twSpent || undefined,
+                // THE CHEAP WRITER'S FILE DID NOT PARSE, SO THIS ONE RAN
+                // (A03-5). Omitted otherwise, so an ordinary reply is unchanged.
+                tweakFallback: twFallback || undefined,
                 keepUsage: pKeep.usage || undefined,
                 // AN UNCERTAIN COMPONENT IS NAMED, never counted as kept and
                 // never refused: the check could not see it either way.
