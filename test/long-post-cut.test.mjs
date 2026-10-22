@@ -55,6 +55,19 @@ for (const [label, init] of [
   });
 }
 
+test("a cut call disarms its abort listener when it settles, not before", async () => {
+  const { server, url } = await cutServer();
+  const ac = new AbortController();
+  const removed = [];
+  const orig = ac.signal.removeEventListener.bind(ac.signal);
+  ac.signal.removeEventListener = (type, fn) => { removed.push(type); return orig(type, fn); };
+  try {
+    const out = await within(longPost(url, { body: "{}", signal: ac.signal }), 3000);
+    assert.ok(out.error, "the cut call did not reject");
+    assert.deepEqual(removed, ["abort"], "the abort listener was not removed exactly once on settling");
+  } finally { server.close(); }
+});
+
 test("control: a whole answer still resolves, once", async () => {
   const server = http.createServer((req, res) => { req.resume(); req.on("end", () => { res.writeHead(200); res.end("{\"ok\":1}"); }); });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));

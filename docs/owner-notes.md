@@ -1,5 +1,11 @@
 # Owner Notes
 
+## 2026-10-22 — Audit findings 41 and 42: a lost logo on a revise, and a model call that never ended
+
+- **A26-1.** If a full rewrite of a site couldn't read the site's saved design (a storage blip), it carried on as if there were none and saved a design without the owner's uploaded logo and tab icon, for good. Now it stops before saving anything, gives the credits back, and says "I couldn't read your site's saved design just now… Try again in a few minutes."
+- **A23-2.** When a model's connection closed partway through its answer, the call could wait forever and block that site's container for about an hour. Now it ends at once as a cut connection, with what had arrived recorded.
+- Each has a test that failed on the old code. Branch only: not merged, not deployed, nothing spent. Record: `docs/history/2026-10-22-audit-41-42.md`.
+
 ## 2026-10-21 — Phase D, Android: the real app downloads as an APK (you: "can u do it like in our platform how a customer will do it")
 
 - The app builder can now build a real Expo app into an Android app (`/expo-android`): the same typecheck, then Expo writes the native project and Gradle builds it offline against libraries the image warms once.
