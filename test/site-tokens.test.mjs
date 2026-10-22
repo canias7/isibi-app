@@ -851,7 +851,8 @@ test("the merge inherits a flag this run said nothing about", () => {
   // `retired` line; the override is whole-object, so EVERY field a revise did
   // not restate was being dropped, not just that one — measured, a revise that
   // re-declared a table for an unrelated reason lost its `confirm`.
-  assert.match(src, /for \(const k of Object\.keys\(prevT\)\) \{\s*\n\s*if \(t\[k\] === undefined \|\| t\[k\] === null\) t\[k\] = prevT\[k\];/,
+  // (2026-10-22, A29-1: one line may skip an explicitly cleared field first.)
+  assert.match(src, /for \(const k of Object\.keys\(prevT\)\) \{\s*\n(\s*if \(k === "cleared" \|\| clearedHere\.has\(k\)\) continue;\s*\n)?\s*if \(t\[k\] === undefined \|\| t\[k\] === null\) t\[k\] = prevT\[k\];/,
     "a table re-listed without a field must keep whatever that field was");
   // NULL HAS TO COUNT AS SILENCE. `coerceTable` turns an unmentioned optional
   // into an explicit null — `confirm: normalizeConfirm(def)` is null when none

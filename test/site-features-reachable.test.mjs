@@ -88,7 +88,9 @@ test("_meta stores WHOLE table objects, so nothing has to be listed to survive",
   // the three fields — a fourth added later must survive for the same reason.
   const at = schema.indexOf("const metaOut = ");
   assert.ok(at > 0, "the _meta write moved");
-  assert.match(schema.slice(at, at + 120), /const metaOut = \{ tables: mergedTables \}/,
+  // (2026-10-22, A29-1: each table passes through `withoutCleared`, which
+  // copies the whole object and only takes the `cleared` marker off.)
+  assert.match(schema.slice(at, at + 120), /const metaOut = \{ tables: mergedTables(\.map\(withoutCleared\))? \}/,
     "_meta.tables is no longer the merged table objects — anything not re-listed is now dropped");
   // And the merge that produces them is whole-object too.
   const m = schema.indexOf("byName.set(key, t);");
