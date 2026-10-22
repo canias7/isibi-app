@@ -252,6 +252,19 @@ export function bandStub(name, line) {
  * That is what makes this a plain composition rather than a page function with
  * hooks in it, and it is why the shell can be a template at all.
  */
+/**
+ * A value as a plain object literal, keys unquoted where they are names
+ * (2026-10-22, audit A27-2): the kit's own pages write `{ label: …, href: … }`,
+ * and that is the shape the menu step reads and rewrites.
+ */
+function jsLiteral(v) {
+  if (Array.isArray(v)) return "[" + v.map(jsLiteral).join(", ") + "]";
+  if (v && typeof v === "object") {
+    return "{ " + Object.keys(v).map((k) => (/^[A-Za-z_$][\w$]*$/.test(k) ? k : JSON.stringify(k)) + ": " + jsLiteral(v[k])).join(", ") + " }";
+  }
+  return JSON.stringify(v === undefined ? null : v);
+}
+
 export function pageShell({ route, chrome, names, app = false }) {
   const path = typeof route === "string" && route ? route : "/";
   const c = chrome && typeof chrome === "object" ? chrome : {};
@@ -262,7 +275,7 @@ export function pageShell({ route, chrome, names, app = false }) {
   const tag = app ? "AppChrome" : "SiteChrome";
   const attrs = (app ? ["name", "links", "action"] : ["name", "tagline", "links", "action"])
     .filter((k) => c[k] !== undefined && c[k] !== null && c[k] !== "")
-    .map((k) => (typeof c[k] === "string" ? `${k}=${JSON.stringify(c[k])}` : `${k}={${JSON.stringify(c[k])}}`));
+    .map((k) => (typeof c[k] === "string" ? `${k}=${JSON.stringify(c[k])}` : `${k}={${jsLiteral(c[k])}}`));
   const kids = (Array.isArray(names) ? names : []).map((n) => `      <${n} />`).join("\n");
   return [
     `export const Route = createFileRoute(${JSON.stringify(path)})({ component: P });`,
