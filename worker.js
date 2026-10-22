@@ -9849,7 +9849,8 @@ async function readStoredSpec(conn) {
  * table the designers would not be told about, which is precisely run 47.
  */
 /** The revise's sentence for a database it could not read (2026-09-25). */
-const REVISE_DB_UNREADABLE_MSG = "I couldn't read your site's database just now, so I stopped rather than rewrite your pages as if it had none — this is on us. Try again in a few minutes.";
+const REVISE_LOOK_UNREADABLE_MSG = "I couldn't read your site's saved design just now, so I stopped rather than rewrite it and lose your logo or colours — this is on us. Try again in a few minutes.";
+const REVISE_DB_UNREADABLE_MSG ="I couldn't read your site's database just now, so I stopped rather than rewrite your pages as if it had none — this is on us. Try again in a few minutes.";
 
 /**
  * THIS REQUEST'S SPEC OVER WHAT THE SITE ALREADY STORES, for the page writer
@@ -27211,7 +27212,20 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           priorCss = cfg.config.css;
           priorVerify = cfg.config.verify;
           priorLangStrings = cfg.config.langStrings;
-        } catch (e) { console.error("look read failed:", slug, e && e.message); }
+        } catch (e) {
+          // ⚠ CANNOT-TELL STOPS THE REVISE (2026-10-22, the builder audit's
+          // A26-1). This was logged and passed over, under "losing it re-rolls
+          // the look, which can never be worse" — true until the uploaded logo
+          // and tab icon moved INSIDE the look (2026-09-07). With `priorLook`
+          // null, `mergeLook` had no owner's mark to keep and the merged look
+          // was written over the stored one: one storage blip deleted the
+          // owner's logo and icon for good. Nothing is written yet here, so
+          // stopping refunded loses nothing; the edit spine refuses the same.
+          console.error("look read failed:", slug, e && e.message);
+          const back = await refundFields();
+          return Response.json({ ok: false, error: "look-unreadable", ours: true,
+            msg: REVISE_LOOK_UNREADABLE_MSG, ...back }, { status: 503 });
+        }
       }
       // THE DESIGNER STILL WINS ON A FIRST BUILD, and on a revise whose
       // instruction really is about the look: `designed` is only consulted here
