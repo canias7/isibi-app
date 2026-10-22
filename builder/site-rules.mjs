@@ -493,6 +493,7 @@ const WHY = {
   "not-integers": "that table has no whole-number start and end times to compare, so a no-overlap rule there wouldn't actually stop anything — a plain no-duplicates rule on the date and time would",
   "no-column": "that table has no column holding the address to send to",
   "cannot-clear": "that one can't be taken off again yet",
+  "db-refused": "the database refused that rule, usually because entries already there break it",
 };
 
 /** What the customer is told. One sentence per table, then anything refused. */
@@ -546,6 +547,22 @@ export function rulesUsage(reply, model = RULES_MODEL) {
  * to fail differently. That is the same call `runDataEdit` makes, for the same
  * reason.
  */
+/** `applied` without the fields whose rule the database refused; each refusal is pushed onto `refused`. */
+export function withoutRefused(applied, dbRefused, refused) {
+  const hit = new Set();
+  for (const r of dbRefused) {
+    if (!r || !RULE_FEATURES.includes(r.feature)) continue;
+    const key = String(r.table || "").toLowerCase() + ":" + r.feature;
+    if (hit.has(key)) continue;
+    hit.add(key);
+    refused.push({ table: r.table, rule: r.feature, why: "db-refused" });
+  }
+  return applied
+    .map((a) => ({ ...a, fields: (a.fields || []).filter((f) => !hit.has(String(a.table || "").toLowerCase() + ":" + f)) }))
+    .filter((a) => a.fields.length);
+}
+const RULE_FEATURES = ["unique", "oncePerUser", "noOverlap"];
+
 export async function runRulesEdit(deps, { instruction, tables, scope = null, model = RULES_MODEL } = {}) {
   const usable = (Array.isArray(tables) ? tables : []).filter((t) => t && t.name);
   if (!usable.length) return { ok: false, escalate: true, reason: "no-tables", usage: null };
@@ -608,10 +625,13 @@ export async function runRulesEdit(deps, { instruction, tables, scope = null, mo
     try { go = !!(await deps.before(usage)); } catch { go = false; }
     if (!go) return { ok: false, escalate: false, reason: "unbilled", usage, applied: [] };
   }
-  let ok = false;
-  try { ok = !!(await deps.apply(spec)); }
+  let ok = false, res = null;
+  try { res = await deps.apply(spec); ok = !!res; }
   catch (e) { return { ok: false, escalate: false, reason: "apply", error: e, usage, applied }; }
   if (!ok) return { ok: false, escalate: false, reason: "apply", usage, applied };
-
-  return { ok: true, spec, applied, refused, usage, msg: rulesReply({ applied, refused }) };
+  // WHAT THE DATABASE REFUSED IS NOT A RULE CHANGED (2026-10-22, audit
+  // A29-4): `apply` may answer `{ refusedRules }` (the engine's own list),
+  // and each refused rule leaves `applied` and is said as refused.
+  const done = withoutRefused(applied, res && Array.isArray(res.refusedRules) ? res.refusedRules : [], refused);
+  return { ok: true, spec, applied: done, refused, usage, msg: rulesReply({ applied: done, refused }) };
 }

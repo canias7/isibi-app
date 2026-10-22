@@ -36046,7 +36046,7 @@ async function handleRequest(request, env, ctx) {
                 // what makes a pair change and a `retired` take effect on a
                 // table that already exists — and it persists `_meta` itself, so
                 // there is no second write that could disagree with the DDL.
-                apply: async (spec) => { await applySiteSchema(rdb, normalizeSchema(spec)); return true; },
+                apply: async (spec) => { const made = await applySiteSchema(rdb, normalizeSchema(spec)); return { refusedRules: (made && Array.isArray(made.refusedRules)) ? made.refusedRules : [] }; },
               }, { instruction: eInstruction, tables: rSpec.tables, scope: stepScopeOf(eb && eb.scope), model: eQuickModel });
               // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
               if (rOut.ask) return stepAsk("rules", rOut.ask);
