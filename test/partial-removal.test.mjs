@@ -439,7 +439,10 @@ test("one name on the list and one not: the one there comes off, and the reply s
   // CONTROL: the same reply without the note shows no note.
   const plain = editBrowserReply({ ...r.reply, takeOffNote: undefined }, true);
   assert.ok(plain.ok && !plain.text.includes("to take off"), "a reply with no note shows one: " + JSON.stringify(plain.text));
-  for (const v of [7, ["x"], "  "]) assert.ok(!editBrowserReply({ ...r.reply, takeOffNote: v }, true).text.includes(String(v).trim() || "never"), "a note that is not a sentence was shown: " + JSON.stringify(v));
+  // RE-ANCHORED 2026-10-22 (combine): the probe was ["x"], and audit #57's honest
+  // translation sentence ("…your next change") contains an x, so the observer
+  // read a real sentence as the leaked note. A token no reply says instead.
+  for (const v of [7, ["zqxnote"], "  "]) assert.ok(!editBrowserReply({ ...r.reply, takeOffNote: v }, true).text.includes(String(v).trim() || "never"), "a note that is not a sentence was shown: " + JSON.stringify(v));
 });
 
 test("a removal that took nothing off is shown as its sentence, said once that nothing changed, and the browser starts nothing else", async () => {

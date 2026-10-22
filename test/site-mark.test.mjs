@@ -436,7 +436,9 @@ test("every publish path projects the marks, and every editing reader resolves t
     mergeLook(owned, { wordmark: DRAWN }, {}, { instructed: true }).wordmark, owned.wordmark,
     "the upload guard stopped protecting a mark nobody asked to change");
   // …and the design path must NOT.
-  assert.match(w, /mergeLook\(priorLook, designed, body, \{ instructed: !!editState \}\)/,
+  // RE-ANCHORED 2026-10-22 (combine): audit #56 folds the QR list first, so
+  // the merge reads `qrFolded`; the property (no `asked`) is unchanged.
+  assert.match(w, /mergeLook\(priorLook, (?:designed|qrFolded), body, \{ instructed: !!editState \}\)/,
     "the design merge started claiming the customer asked — a rebuild would wipe an uploaded logo");
 });
 
