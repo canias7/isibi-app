@@ -2025,7 +2025,7 @@ deploy's ignore list, so the push started deploy run 38747702721.
 
 ## Deploy 2259 — 2026-10-22 07:39 UTC (`89a67ec40`)
 
-The second merge of the day (audit fixes 53, 55–60, 62, 79, 82, 84, 88, 99, 100, 102, preview search and the reload fix), on the owner's word "merge when they done". Required CI green on `89a67ec40` (unit run 39740919581, site build run 39740919562). Deploy run 39742014019 green (07:39–07:44 UTC). The served `chat.js` sha256 starts `c63055f3140f8d7d`, the same as the merged `public/chat.js`. **Deployed, not runtime-confirmed** until the owner's free canary press; wait about 20 minutes after the image roll before container work.
+The second merge of the day (audit fixes 53, 55–60, 62, 79, 82, 84, 88, 99, 100, 102, preview search and the reload fix), on the owner's word "merge when they done". Required CI green on `89a67ec40` (unit run 39740919581, site build run 39740919562). Deploy run 39742014019 green (07:39–07:44 UTC). The served `chat.js` sha256 starts `c63055f3140f8d7d`, the same as the merged `public/chat.js`. **Runtime-confirmed** by the owner's free canary press, run 39802537938 (15:12 UTC, from `main` on `fretwork-1`): both readers answered `89a67ec40ed3`, image `af25591ff1cc217a`, async and runner on, all free checks passed, nothing charged (balance 603).
 
 ## Deploy 2258 — 2026-10-22 04:23 UTC (`fdf73825a`)
 
