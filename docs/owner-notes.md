@@ -1,5 +1,12 @@
 # Owner Notes
 
+## 2026-10-22 — Audit finding 40: a slow compile inside a job is no longer cut at five minutes
+
+- Most of this was fixed on 2026-10-18 (the page calls start and are then checked on). What was left: when an edit or add-on runs inside the site's container, its call to compile the site, and the older one-shot page call, still went through Node's built-in web request, which gives up after five minutes of waiting for the first reply. A compile is answered only when it is finished, so a compile longer than five minutes failed, and could have been told to the customer as their change not building.
+- Now those calls inside the container use the same long-call connection the page calls already use: no five-minute limit; the call's own time limit (about ten minutes for a compile) is the only one.
+- The Worker's own code is unchanged. The container's files change, so the next deploy with this rolls the container image.
+- Tests: a slow stand-in build service that answers after the (scaled-down) limit; the old code fails them, the new code passes. Branch `audit-finding-40`, not merged or deployed, nothing spent. Record: `docs/history/2026-10-22-audit-finding-40.md`.
+
 ## 2026-10-21 — Phase D, Android: the real app downloads as an APK (you: "can u do it like in our platform how a customer will do it")
 
 - The app builder can now build a real Expo app into an Android app (`/expo-android`): the same typecheck, then Expo writes the native project and Gradle builds it offline against libraries the image warms once.

@@ -134,3 +134,68 @@ export function longPost(url, init) {
   });
 }
 
+/**
+ * THE SAME TRANSPORT, ANSWERING A REAL `Response` (2026-10-22, audit finding 40).
+ *
+ * `longPost` answers the four things a model call reads. A hop from a job to
+ * the build service next door (`containers-shim.mjs`: the compile `/build`,
+ * the synchronous `/model`, `/model/start` and its polls) is read by
+ * `worker.js` as a whole `Response` (`status`, `ok`, `headers`, `text()`,
+ * `json()`, a body stream), so this hands back exactly that, built over
+ * `node:http`, with NO headers timeout and no body timeout. The caller's
+ * `AbortSignal` is the one bound, and its `reason` is what a rejection
+ * carries, as `longPost`'s does.
+ *
+ * Why it exists: inside a job the shim called Node's global fetch (undici),
+ * whose 300-second headers timeout fires before any signal set longer. The
+ * build service answers `/build` and `/model` only when the whole compile or
+ * generation is done, so a compile over 300 s inside a job died as
+ * `TypeError: fetch failed`: the wall `longPost` was written for, on the one
+ * hop it did not cover.
+ */
+export function longFetch(url, init = {}) {
+  return new Promise((resolve, reject) => {
+    const signal = init.signal || null;
+    const bail = () => reject((signal && signal.reason) || new Error("aborted"));
+    if (signal && signal.aborted) return bail();
+    const u = new URL(url);
+    const method = String(init.method || "GET").toUpperCase();
+    const body = init.body == null ? null : Buffer.from(init.body);
+    const headers = {};
+    for (const [k, v] of new Headers(init.headers || {})) headers[k] = v;
+    if (body) headers["content-length"] = String(body.length);
+    let settled = false;
+    const req = (u.protocol === "https:" ? https : http).request({
+      hostname: u.hostname, port: u.port || undefined, path: u.pathname + u.search, method, headers,
+    }, (res) => {
+      if (settled) { res.destroy(); return; }
+      settled = true;
+      const out = new Headers();
+      for (const [k, v] of Object.entries(res.headers)) {
+        if (Array.isArray(v)) for (const x of v) out.append(k, x); else if (v != null) out.set(k, String(v));
+      }
+      const status = res.statusCode || 0;
+      const empty = status === 204 || status === 304 || method === "HEAD";
+      if (empty) { res.resume(); resolve(new Response(null, { status, statusText: res.statusMessage || "", headers: out })); return; }
+      const stream = new ReadableStream({
+        start(ctrl) {
+          res.on("data", (c) => ctrl.enqueue(new Uint8Array(c)));
+          res.on("end", () => { try { ctrl.close(); } catch { /* already closed */ } });
+          res.on("error", (e) => { try { ctrl.error((signal && signal.aborted && signal.reason) || e); } catch { /* already errored */ } });
+        },
+        cancel() { res.destroy(); },
+      });
+      resolve(new Response(stream, { status, statusText: res.statusMessage || "", headers: out }));
+    });
+    // A quiet connection for the length of a compile: keepalives hold NAT and
+    // egress state open, as `longPost` does.
+    req.on("socket", (s) => { try { s.setKeepAlive(true, 30000); } catch { /* comfort only */ } });
+    const onAbort = () => { if (!settled) { settled = true; bail(); } req.destroy(); };
+    if (signal) signal.addEventListener("abort", onAbort, { once: true });
+    req.on("error", (e) => { if (settled) return; settled = true; reject(e); });
+    req.on("close", () => { if (signal) signal.removeEventListener("abort", onAbort); });
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
