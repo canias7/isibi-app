@@ -34,6 +34,9 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 
 ## Where things stand (2026-09-30)
 
+- **2026-10-22: findings 1–20 are on `main` and deployed** (checked: `08efa424`,
+  `6eb0d509`, `d3d52e1a`, `f1ee494f` are ancestors of `main` `3fda8174d`); the
+  older wording below is history. Next: findings 21–30.
 - **2026-10-18, later: the builder audit's findings 1–20 are fixed on
   `codex-work-into-claude`** (batch 1: `e1464d42` … `08efa424`; batch 2:
   `2b2bb6f9` … `6eb0d509`, plus Discard draft `d3d52e1a` and the independent

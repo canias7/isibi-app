@@ -1262,6 +1262,28 @@ NEVER PUT WORDS, A LOGO OR A BACKGROUND EFFECT IN A CANVAS. Those are the styles
 and they work for everyone; a canvas that fails to start leaves a hole where the reading
 should have been. Give every \`<Canvas>\` a fixed height and something visible behind it.
 
+## Looking made, not generated
+
+The theme the site was given and the owner's own words always win over anything here.
+
+- AVOID THE TELLS OF A GENERATED PAGE: one word of a headline picked out in italic, bold or
+  colour; small tracked ALL-CAPS labels above headings; "A · B · C" strings of words; numbered
+  markers (01 / 02 / 03) when the content is not really a sequence; an arrow (→) on buttons; rows
+  of identical rounded cards with the same soft shadow; a band of big numbers with small labels
+  as the default opening.
+- THE HERO OPENS WITH THE MOST CHARACTERISTIC THING IN THIS BUSINESS'S WORLD: the bread, the
+  workshop, the treatment room, the plate. Never a generic stats block or gradient wash.
+- TYPE IS DESIGN: body text no wider than about 70 characters (max-w-prose or similar); a clear
+  size scale with few sizes; at most two font families, and if two, clearly different.
+- DECORATION MUST MEAN SOMETHING: a border, label, divider, badge or number only where it tells
+  the visitor something. Vary cards by importance (one featured, the rest plainer) rather than
+  making every card identical.
+- WORDS: sentence case for headings and buttons; a button names what happens ("Book a table",
+  "Order a loaf", never "Submit" or "Learn more"); no filler ("We are passionate about…",
+  "Welcome to our website"); say the concrete thing the business does.
+- BE BOLD IN ONE PLACE: pick the one band that carries the page's memorable moment (usually the
+  hero) and let every other band be quiet and plain around it. Several loud bands cancel out.
+
 ## Motion
 
 ${MOTION_COUNT} effects, as plain classes. There is NO animation library installed and none is
@@ -1270,7 +1292,10 @@ scale \`duration-(--dur-1|2|3|4)\` (90 / 180 / 320 / 500ms) with \`ease-emphasis
 \`ease-standard\`. A raw \`duration-300\` is refused.
 
 Every one of these stops for a visitor who asked for less movement, while the content
-stays — so use them freely; they cannot trap anything invisible.
+stays, so they cannot trap anything invisible. USE FEW (2026-10-22): one orchestrated moment
+as the page opens, usually in the hero, and then stillness. An entrance on every band and a
+hover lift on every card is what makes a page read as generated. A lift belongs only on a
+card that is really clickable.
 
 ${MOTION_CATALOGUE}
 

@@ -693,7 +693,10 @@ test("THE FIRST BUILD'S PAGE WRITER IS UNCHANGED, BYTE FOR BYTE — and so is a 
   // (`app-chrome`, the phone app's frame), so "There are 2,112 modules" reads
   // 2,113 and "2,024 of the 2,040" reads 2,025 of 2,041. Compared character by
   // character against the request before it; nothing else differs.
-  const pinned = { build: "fd172fdb7c193d57", revise: "c2d07abbb8d8897e", addon: "adf965f35c47797b" };
+  // RE-PINNED 2026-10-22 (owner: "Do this: 1,2,3,4,5,6", then 8): the page rules gained
+  // "## Looking made, not generated" and the motion paragraph asks for few
+  // effects. The build, revise and add-on requests all carry these rules, so all three hashes moved.
+  const pinned = { build: "6df9ed61896b29f5", revise: "a71685e0a575e544", addon: "a43c9819d82bfdad" };
   assert.equal(h16(pagesRequest({ brief: "A bakery in Leeds", spec: SPEC, brand: "Fold Lane", model: "test-model" })), pinned.build, "the first build's page request changed");
   assert.equal(h16(pagesRequest({ brief: "Make it warmer", spec: SPEC, brand: "Fold Lane", model: "test-model", priorPages: prior, mode: "revise" })), pinned.revise, "a revise's page request changed");
   // THE ADD-ON'S WRITER MAY ASK (2026-10-11, the generality round: the last
