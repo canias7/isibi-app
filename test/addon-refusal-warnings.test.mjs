@@ -267,12 +267,12 @@ test("REFUSE 6 — a refusal after a design the database could not wholly carry:
     },
     ...judging([[/bank transfer/, "asked", "no"]]),
   });
-  assert.deepEqual([r.status, r.body.error, r.body.cost, r.charges.length], [422, "add", 0, 0], JSON.stringify(r.body).slice(0, 300));
-  assert.deepEqual(r.body.invalidProps, ["encryptAtRest", "retries"], "the design's finding is not on the wire — this case tests nothing");
-  assert.equal(r.body.coverOther, undefined);
-  assert.equal(r.body.coverNote, "One thing your site can't do yet: People can pay by bank transfer — this step cannot take payments.");
-  assert.deepEqual(facts(r.body), [refusalFact(r.body), "not-done: Their site cannot do this yet: People can pay by bank transfer (this step cannot take payments)."]);
-  assert.doesNotMatch(screen(r.body, false), /guarantee|isn't in place|aren't in place|didn't get built/);
+  // ONE KIND REFUSED NEVER SINKS THE REST (owner, 2026-10-22): the function
+  // lands, the scene is left out by name, and what the function was built
+  // without is told as on any change that was built.
+  assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 300));
+  assert.deepEqual((r.body.notAdded || []).map((x) => x.kind), ["three"], JSON.stringify(r.body.notAdded));
+  assert.equal(r.body.coverOther, "I also asked the database for 2 guarantees it doesn't offer, so those aren't in place.");
   // …AND ON A CHANGE THAT WAS BUILT, THE SAME FINDING IS TOLD: once, as its own
   // fact beside the requirement's (`coverOther`, the counted sentences).
   const built = await addon("rw-built-props", "count the visits each night, and let people pay by bank transfer", {
@@ -641,7 +641,10 @@ test("WIRE 1 — the route keeps every seed skip and sends every list whole; bot
   assert.match(W, /seedSkipNote\(aSeedSkips, aSeedRows\),/);
   assert.match(W, /aSeedRows = aSeeded && aSeeded\.rows && typeof aSeeded\.rows === "object" \? aSeeded\.rows : null;/);
   assert.match(W, /coverOther: built && aCounted\.length \? aCounted\.join\(" "\) : undefined,/);
-  assert.match(W, /return aFail\(\{ ok: false, error: "add", kind: k, reason: clean\.why, cost: 0, msg: addRefusal\(clean\.why, k\) \}, 422\);/, "the designer's refusal does not compose its note through the failure door");
+  // RE-ANCHORED 2026-10-22: a refused kind is left out by name and the rest go
+  // on; only when every kind that designed was refused is the first refusal the
+  // answer, still through the failure door.
+  assert.match(W, /return aFail\(\{ ok: false, error: "add", kind: r0\.kind, reason: r0\.why, cost: 0, msg: addRefusal\(r0\.why, r0\.kind\) \}, 422\);/, "the designer's refusal does not compose its note through the failure door");
   assert.match(W, /return aFail\(\{ ok: false, error: "declined", kinds: aDeclined, cost: 0, msg: addRefusal\("nothing"\) \}, 422\);/, "every designer declining does not compose its note through the failure door");
   assert.equal(W.split("aCoverage({ refused: true })").length - 1, 0, "a refusal still composes its note by the old flag");
   assert.match(W, /msg: \[missingPagesNote\(aGone\), deadQrNote\(aDeadQr\)\]\.filter\(Boolean\)\.join\(" "\)\.trim\(\),/);

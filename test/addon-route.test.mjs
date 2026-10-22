@@ -2663,15 +2663,20 @@ test("a component placed on a route NOBODY is adding is refused by name, on a on
   // "the component landed on /gallery" is satisfied by a cleaner that accepts
   // any route at all.
   const r = await addon("fw-plan-nope", "add a gallery page, and a caption block on the prices page", {
-    kinds: ["page", "component"],
+    kinds: ["page", "component"], publishes: true,
+    written: [writtenPage("/"), writtenPage("/gallery")],
     answers: {
       page: { page: [GALLERY] },
       component: { component: [{ page: "/prices", does: "a caption", components: ["card"] }] },
     },
   });
-  assert.equal(r.status, 422, JSON.stringify(r.body));
-  assert.equal(r.body.reason, "no-page", JSON.stringify(r.body));
-  assert.match(r.body.msg, /which page/, "the customer was not told what was wrong: " + r.body.msg);
+  // ONE KIND REFUSED NEVER SINKS THE REST (owner, 2026-10-22): the gallery
+  // page lands, the caption is left out BY NAME with its own sentence.
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const left = (r.body.notAdded || []).find((x) => x.kind === "component");
+  assert.ok(left, "the refused component was not named: " + JSON.stringify(r.body.notAdded));
+  assert.equal(left.why, "no-page", JSON.stringify(left));
+  assert.match(left.msg, /which page/, "the customer was not told what was wrong: " + left.msg);
 });
 
 test("a QR code pointing at a page THIS change is adding is drawn, not refused as a page the site does not have", async () => {
@@ -2713,14 +2718,18 @@ test("a QR code pointing at a page THIS change is adding is drawn, not refused a
 test("a QR code pointing at a route NOBODY is adding is still refused by name", async () => {
   // THE CONTROL for the case above — the same shape, one route different.
   const r = await addon("fw-plan-qr-nope", "add a gallery page and a QR code for the prices page", {
-    kinds: ["page", "qr"],
+    kinds: ["page", "qr"], publishes: true,
+    written: [writtenPage("/"), writtenPage("/gallery")],
     answers: {
       page: { page: [GALLERY] },
       qr: { qr: { name: "prices", points: "/prices", label: "Our prices" } },
     },
   });
-  assert.equal(r.status, 422, JSON.stringify(r.body));
-  assert.equal(r.body.reason, "no-such-page", JSON.stringify(r.body));
+  // The gallery lands; the code is left out by name (owner, 2026-10-22).
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const left = (r.body.notAdded || []).find((x) => x.kind === "qr");
+  assert.ok(left, "the refused code was not named: " + JSON.stringify(r.body.notAdded));
+  assert.equal(left.why, "no-such-page", JSON.stringify(left));
 });
 
 test("the page writer is shown this site's OWN components with their source, and is not told to write them again", async () => {
@@ -4671,10 +4680,13 @@ test("a picture may land on a page this change is adding, and not on one nobody 
       photo: { photo: [{ page: "/prices", describe: BENCH, name: "bench" }] },
     },
   });
-  assert.equal(bad.status, 422, JSON.stringify(bad.body));
-  assert.equal(bad.body.reason, "no-page", "a picture aimed at a page nobody has was placed somewhere");
+  // The gallery lands; the picture is left out by name and never bought
+  // (owner, 2026-10-22: one kind refused never sinks the rest).
+  assert.equal(bad.body.ok, true, JSON.stringify(bad.body));
+  const left = (bad.body.notAdded || []).find((x) => x.kind === "photo");
+  assert.ok(left, "the refused picture was not named: " + JSON.stringify(bad.body.notAdded));
+  assert.equal(left.why, "no-page", "a picture aimed at a page nobody has was placed somewhere");
   assert.deepEqual(bad.shots, [], "a picture with no destination was paid for");
-  assert.equal(bad.body.cost, 0, "a refused addition was billed");
 
   // THE CONTROL, one field apart: the page THIS CHANGE IS ADDING is a real
   // destination, which is what makes the refusal above about the route rather
@@ -8119,16 +8131,18 @@ test("a one-time job is refused by name rather than quietly recurring", async (t
     answers: { function: { function: [ONCE_FN] }, job: { job: [job] } },
   });
 
+  // ONE KIND REFUSED NEVER SINKS THE REST (owner, 2026-10-22): the function
+  // lands, the job is left out BY NAME, and nothing is registered for it.
+  const jobLeft = (r) => (r.body.notAdded || []).find((x) => x.kind === "job") || {};
   const past = await ask({ ...ONCE_JOB, on: "2020-01-01" });
-  assert.equal(past.body.ok, false, "a date already gone was accepted: " + JSON.stringify(past.body));
-  assert.equal(past.body.reason, "past-date");
-  assert.equal(past.body.cost, 0, "a refusal charged");
-  assert.match(past.body.msg, /already gone/, past.body.msg);
+  assert.equal(past.body.ok, true, JSON.stringify(past.body));
+  assert.equal(jobLeft(past).why, "past-date", "a date already gone was accepted: " + JSON.stringify(past.body));
+  assert.match(jobLeft(past).msg, /already gone/, past.body.msg);
   assert.deepEqual(past.registered.map((x) => x.name), [], "a refused change registered a job");
 
   const bad = await ask({ ...ONCE_JOB, on: "3 Oct" });
-  assert.equal(bad.body.reason, "bad-date", JSON.stringify(bad.body));
-  assert.match(bad.body.msg, /couldn't read the date/, bad.body.msg);
+  assert.equal(jobLeft(bad).why, "bad-date", JSON.stringify(bad.body));
+  assert.match(jobLeft(bad).msg, /couldn't read the date/, bad.body.msg);
 
   // ⚠ AND A DATE THAT IS THE RIGHT SHAPE AND NOT A REAL DAY — a sweep
   // survivor, because "3 Oct" is refused by the SHAPE and so could not tell a
@@ -8138,14 +8152,14 @@ test("a one-time job is refused by name rather than quietly recurring", async (t
   // February and must be accepted.
   for (const junk of ["2026-02-30", "2026-13-45", "2026-00-10", "2026-04-31"]) {
     const r = await ask({ ...ONCE_JOB, on: junk });
-    assert.equal(r.body.reason, "bad-date", "a date that is not a day was accepted: " + junk + " " + JSON.stringify(r.body));
+    assert.equal(jobLeft(r).why, "bad-date", "a date that is not a day was accepted: " + junk + " " + JSON.stringify(r.body));
   }
   const leap = await ask({ ...ONCE_JOB, on: "2028-02-29" });
-  assert.equal(leap.body.ok, true, "a real leap day was refused — the check is too strict: " + JSON.stringify(leap.body));
+  assert.equal(jobLeft(leap).why, undefined, "a real leap day was refused — the check is too strict: " + JSON.stringify(leap.body));
 
   const noTime = await ask({ name: "closing_note", fn: "send_note", everyMinutes: 1440, on: "2026-10-03" });
-  assert.equal(noTime.body.reason, "no-time", JSON.stringify(noTime.body));
-  assert.match(noTime.body.msg, /needs a time of day/, noTime.body.msg);
+  assert.equal(jobLeft(noTime).why, "no-time", JSON.stringify(noTime.body));
+  assert.match(jobLeft(noTime).msg, /needs a time of day/, noTime.body.msg);
 
   // …AND THE CONTROL THAT MAKES THE PAST-DATE WALL A WALL: the same date, with
   // no zone on the request. `aToday` is then unknown and the check stands down
@@ -8154,7 +8168,7 @@ test("a one-time job is refused by name rather than quietly recurring", async (t
   // working day. Without this the case could not tell a working wall from one
   // that refuses everything.
   const noZone = await ask({ ...ONCE_JOB, on: "2020-01-01" }, { tz: null });
-  assert.equal(noZone.body.ok, true, "the wall fired with no zone to judge against: " + JSON.stringify(noZone.body));
+  assert.equal(jobLeft(noZone).why, undefined, "the wall fired with no zone to judge against: " + JSON.stringify(noZone.body));
 });
 
 test("an ordinary recurring job is byte for byte what it was", async () => {
@@ -9828,4 +9842,37 @@ test("the add-on page writer is given the owner's video by address, and never of
   assert.equal(clause.includes(VID), false, "the video was offered as a photograph to reuse");
   const gal = compiledPages(r).find((f) => /gallery/.test(f.path));
   assert.ok(gal && gal.source.includes('src="/u/fw-media/' + VID + '"'), "the site's own video was emptied from the page that plays it");
+});
+
+// ── ONE KIND REFUSED NEVER SINKS THE REST (owner, 2026-10-22) ───────────────
+//
+// The big add-on test on ember-and-oak: 23 asks in one message, and a weekly
+// job naming a function the site did not have refused the WHOLE addition —
+// the menu, booking, events and contact pages went with it. Now the refused
+// kind is left out by name and the others land.
+test("PARTIAL 1 — a job naming a function the site does not have is left out by name; the page beside it lands", async () => {
+  const r = await addon("fw-partial-job", "add a gallery page, and every Monday count last week's bookings", {
+    kinds: ["page", "job"], tz: "Europe/London", publishes: true,
+    written: [writtenPage("/"), writtenPage("/gallery")],
+    answers: {
+      page: { page: [GALLERY] },
+      job: { job: [{ name: "weekly_count", fn: "count_last_week", everyMinutes: 10080, at: "08:00" }] },
+    },
+  });
+  assert.equal(r.body.ok, true, "one refused kind sank the whole addition: " + JSON.stringify(r.body).slice(0, 400));
+  assert.ok((r.body.kinds || []).includes("page"), "the page did not land: " + JSON.stringify(r.body.kinds));
+  const left = (r.body.notAdded || []).find((x) => x.kind === "job");
+  assert.ok(left, "the refused job was not named: " + JSON.stringify(r.body.notAdded));
+  assert.equal(left.why, "no-job-fn");
+  assert.match(left.msg, /function this site doesn't have/, left.msg);
+  assert.deepEqual(r.registered.map((x) => x.name), [], "a refused job was registered");
+});
+
+test("PARTIAL 2 — when every kind that designed is refused, the refusal is still the answer, at no cost", async () => {
+  const r = await addon("fw-partial-all", "every Monday count last week's bookings", {
+    kinds: ["job"], tz: "Europe/London",
+    answers: { job: { job: [{ name: "weekly_count", fn: "count_last_week", everyMinutes: 10080, at: "08:00" }] } },
+  });
+  assert.deepEqual([r.status, r.body.error, r.body.reason, r.body.cost], [422, "add", "no-job-fn", 0], JSON.stringify(r.body).slice(0, 300));
+  assert.equal(r.charges.length, 0, "a refusal charged");
 });

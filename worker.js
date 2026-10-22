@@ -41243,6 +41243,8 @@ async function handleRequest(request, env, ctx) {
             // an answer refused by the cleaner is a sentence, never a climb.
             const aAnswers = [];
             const aDeclined = [];
+            // KINDS REFUSED BY THEIR OWN CLEANER AFTER ONE CORRECTION (2026-10-22).
+            const aKindRefused = [];
             // A JOB'S ASKED INTERVAL, BY NAME (2026-10-03): see where it is read.
             const aAskedEvery = new Map();
             // AN ENTRY LEFT OUT OF A LIST IS SAID (owner: no low limits, so a
@@ -42422,9 +42424,15 @@ async function handleRequest(request, env, ctx) {
                 // (2026-10-05): a judgment that fails, asks or does not finish
                 // here leaves the requirements unjudged and untold — the
                 // refusal is the answer, and it says nothing was added.
-                aRestoreLeft();
-                if (aReq.length) await aJudge(aReq.slice());
-                return aFail({ ok: false, error: "add", kind: k, reason: clean.why, cost: 0, msg: addRefusal(clean.why, k) }, 422);
+                // ONE KIND REFUSED NEVER SINKS THE REST (owner, 2026-10-22, the
+                // big add-on test: a job naming a function the site did not
+                // have threw away 22 other asks). The refused kind is left out
+                // and named (`notAdded`, in its own sentence) and the loop goes
+                // on; only when NOTHING designed does the refusal stand as the
+                // answer (at `!aAnswers.length`, below).
+                aNotAdded.push({ kind: k, why: clean.why, msg: addRefusal(clean.why, k) });
+                aKindRefused.push({ kind: k, why: clean.why });
+                continue;
               }
               // ── VALIDATED BEFORE ANYTHING IS APPLIED (owner, 2026-09-13) ──
               //
@@ -42656,6 +42664,14 @@ async function handleRequest(request, env, ctx) {
             // stops here as a designer's failed call does, and one that asks is
             // the addition's question. Skipped when a step already asked: the
             // whole addition is designed again with the answer.
+            if (!aStepAsk && !aAnswers.length && aKindRefused.length) {
+              // EVERY KIND THAT DESIGNED WAS REFUSED: the first refusal is the
+              // answer, as it was when one refusal ended the loop.
+              aRestoreLeft();
+              if (aReq.length) await aJudge(aReq.slice());
+              const r0 = aKindRefused[0];
+              return aFail({ ok: false, error: "add", kind: r0.kind, reason: r0.why, cost: 0, msg: addRefusal(r0.why, r0.kind) }, 422);
+            }
             if (!aStepAsk) aRestoreLeft();
             const aFinalJudge = !aStepAsk && aReq.length ? await aJudge(aReq.slice()) : null;
             if (aFinalJudge && aFinalJudge.ask) aStepAsk = { kind: "requirements", ask: aFinalJudge.ask };
