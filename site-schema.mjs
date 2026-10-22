@@ -174,6 +174,18 @@ export function derivedName(...parts) {
   return raw.slice(0, MAX_PG_IDENT - 8) + "_" + identDigest(raw);
 }
 
+/**
+ * A unique index this platform made for a table's `unique`/`oncePerUser`
+ * group: `head` (`ux_<table>_<g|u>_`) then a position (the old naming) or a
+ * 7-character digest (2026-10-22, A29-3). The slug and case-insensitive
+ * indexes, and anything an owner made, never match.
+ */
+export function isPlatformUniqueName(name, head) {
+  const n = String(name || "");
+  if (head.length >= MAX_PG_IDENT - 8 || !n.startsWith(head)) return false;
+  return /^(\d{1,3}|[0-9a-z]{7})$/.test(n.slice(head.length));
+}
+
 export function derivedIdent(...parts) {
   const name = derivedName(...parts);
   if (!SAFE_DERIVED_IDENT.test(name)) throw Object.assign(new Error("bad derived identifier: " + name), { bad: true });
@@ -584,6 +596,10 @@ export function normalizeSchema(spec) {
     // decides what a missing or unrecognised half means, and a second opinion
     // here is how the two start disagreeing.
     out.push({ name, access, read: def.read, write: def.write, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, retired: retiredOf(def), trash: boolOf(def, ["trash", "softDelete", "soft"]), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: boolOf(def, ["version", "optimisticLock", "concurrency"]), timestamps: boolOf(def, ["timestamps", "updatedAt", "updated_at", "timestamp"]), ordered: boolOf(def, ["ordered", "position", "sortable", "reorderable"]), expires: boolOf(def, ["expires", "ttl", "expiry", "expiring"]), pinnable: boolOf(def, ["pinnable", "pinned", "featurable", "sticky"]), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: boolOf(def, ["publishable", "scheduled", "publishAt", "publish_at", "scheduling"]), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: numOf(def, ["maxRows", "max_rows", "rowLimit", "cap"], 10000000), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: boolOf(def, ["enforceRefs", "refIntegrity", "strictRefs"]), computed: (() => { const src = def.computed || def.derived || def.virtual; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? [tpl] : null); if (!arr) continue; const toks = arr.filter((x) => typeof x === "string" && x.length <= 60).slice(0, 8); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), requireVerified: boolOf(def, ["requireVerified", "verifiedOnly", "emailVerified"]), audit: boolOf(def, ["audit", "auditLog", "changelog"]), history: boolOf(def, ["history", "versions", "snapshots", "revisions"]), archivable: boolOf(def, ["archivable", "archive"]), sync: boolOf(def, ["sync", "syncable", "offline"]), searchWeights: (() => { const w = def.searchWeights || def.searchRank || def.searchBoost; if (!w || typeof w !== "object" || Array.isArray(w)) return null; const out = {}; for (const [k, v] of Object.entries(w)) { const n = Number(v); if (/^[a-z0-9_]{1,40}$/i.test(k) && Number.isFinite(n) && n > 0) out[k.toLowerCase()] = Math.min(n, 100); } return Object.keys(out).length ? out : null; })(), rateLimit: numOf(def, ["rateLimit", "writeLimit", "throttle", "maxPerMinute"], 10000), geo: (() => { const g = def.geo || def.location; if (g && typeof g === "object" && g.lat && g.lng) { const la = String(g.lat).toLowerCase(), ln = String(g.lng).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(la) && /^[a-z0-9_]{1,40}$/.test(ln)) return { lat: la, lng: ln }; } return null; })(), transitions: (() => { const raw = def.transitions || def.stateMachine || def.stages; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const out = {}; for (const [col, m] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col) || !m || typeof m !== "object" || Array.isArray(m)) continue; const cm = {}; for (const [from, tos] of Object.entries(m)) { if (String(from).length > 60) continue; const arr = (Array.isArray(tos) ? tos : [tos]).map((x) => String(x)).filter((x) => x.length <= 60).slice(0, 24); if (arr.length) cm[from] = arr; } if (Object.keys(cm).length) out[col.toLowerCase()] = cm; } return Object.keys(out).length ? out : null; })(), formulas: (() => { const src = def.formulas || def.formula || def.calc; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? tpl.trim().split(/\s+/) : null); if (!arr) continue; const toks = arr.filter((x) => (typeof x === "string" || typeof x === "number") && String(x).length <= 40).map(String).slice(0, 24); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), fieldRoles: (() => { const raw = def.fieldRoles || def.fieldSecurity || def.secureFields; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const out = {}; for (const [col, roles] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col)) continue; const arr = (Array.isArray(roles) ? roles : [roles]).map((x) => String(x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)).slice(0, 24); if (arr.length) out[col.toLowerCase()] = arr; } return Object.keys(out).length ? out : null; })(), teamRead: boolOf(def, ["teamRead", "teamVisible", "managerRead", "hierarchyRead"]), teamScope: boolOf(def, ["teamScope", "teamShared", "sharedWithTeam", "teamOwned"]), currency: (() => { const c = def.currency || def.money || def.multiCurrency; if (!c || typeof c !== "object" || Array.isArray(c)) return null; const amount = String(c.amount || c.value || c.field || "").toLowerCase(); const code = String(c.code || c.currency || c.currencyField || c.codeField || "").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(amount) || !/^[a-z0-9_]{1,40}$/.test(code)) return null; const base = String(c.base || c.baseCurrency || "USD").toUpperCase().slice(0, 8); if (!/^[A-Z]{2,8}$/.test(base)) return null; const rates = {}; const raw = c.rates || c.rate; if (raw && typeof raw === "object" && !Array.isArray(raw)) { for (const [k, v] of Object.entries(raw)) { const cc = String(k).toUpperCase(); const n = Number(v); if (/^[A-Z]{2,8}$/.test(cc) && Number.isFinite(n) && n > 0) rates[cc] = n; } } rates[base] = 1; let as = String(c.as || c.into || (amount + "_base")).toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(as)) as = amount + "_base"; return { amount, code, base, rates, as }; })(), approval: (() => { const a = def.approval || def.approvals || def.signoff; if (!a || typeof a !== "object" || Array.isArray(a)) return null; const src = Array.isArray(a.approvers) ? a.approvers : (Array.isArray(a.roles) ? a.roles : [a.approvers || a.roles]); const approvers = src.map((x) => String(x == null ? "" : x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)); const uniq = [...new Set(approvers)].slice(0, 12); if (!uniq.length) return null; let status = String(a.status || a.field || a.statusField || "approval_status").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(status)) status = "approval_status"; return { approvers: uniq, status }; })(), sequence: (() => { const s = def.sequence || def.autoNumber || def.recordNumber || def.numbering; if (!s || typeof s !== "object" || Array.isArray(s)) return null; const field = String(s.field || s.column || s.into || "number").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(field)) return null; let prefix = String(s.prefix == null ? "" : s.prefix).slice(0, 16); if (!/^[A-Za-z0-9_\-\/#.]*$/.test(prefix)) prefix = ""; let pad = parseInt(s.pad != null ? s.pad : s.padding, 10); pad = (Number.isFinite(pad) && pad > 0) ? Math.min(pad, 12) : 0; let start = parseInt(s.start != null ? s.start : s.from, 10); start = Number.isFinite(start) ? start : 1; return { field, prefix, pad, start }; })(), roundRobin: (() => { const r = def.roundRobin || def.autoAssign || def.leadRouting || def.assignRoundRobin; if (!r) return null; const src = r === true ? ["user"] : (Array.isArray(r) ? r : (Array.isArray(r.among) ? r.among : (Array.isArray(r.roles) ? r.roles : [r.among || r.roles || r.role]))); const among = src.map((x) => String(x == null ? "" : x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)); const uniq = [...new Set(among)].slice(0, 24); return uniq.length ? { among: uniq } : null; })(), assignBy: (() => { const a = def.assignBy || def.territory || def.assignmentRules || def.routeBy; if (!a || typeof a !== "object" || Array.isArray(a)) return null; const field = String(a.field || a.on || a.by || "").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(field)) return null; const rawMap = a.map || a.rules || a.routes; const map = {}; if (rawMap && typeof rawMap === "object" && !Array.isArray(rawMap)) { for (const [k, v] of Object.entries(rawMap)) { const key = String(k).toLowerCase().trim(); const val = String(v == null ? "" : v).trim(); if (key && val && (/^\d+$/.test(val) || val.includes("@")) && val.length <= 120) map[key] = val; } } if (!Object.keys(map).length) return null; const d0 = a.default != null ? String(a.default).trim() : ""; const dfl = (d0 && (/^\d+$/.test(d0) || d0.includes("@")) && d0.length <= 120) ? d0 : null; return { field, map, default: dfl }; })(), sla: (() => { const s = def.sla || def.deadline || def.responseTime; if (!s || typeof s !== "object" || Array.isArray(s)) return null; const mins = slaMinutes(s.mins != null ? s.mins : (s.within != null ? s.within : (s.minutes != null ? s.minutes : s.duration))); if (!mins) return null; let start = String(s.start || s.from || s.since || "created_at").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(start)) start = "created_at"; let doneField = null, doneValues = null; const d = s.done || s.until || s.stopWhen; if (d && typeof d === "object" && !Array.isArray(d)) { const df = String(d.field || d.column || "").toLowerCase(); const vals = (Array.isArray(d.values) ? d.values : (d.value != null ? [d.value] : [])).map((x) => String(x)).filter((x) => x.length <= 60).slice(0, 24); if (/^[a-z0-9_]{1,40}$/.test(df) && vals.length) { doneField = df; doneValues = vals; } } let escalate = null; const e = s.escalate || s.then || s.onBreach; if (e && typeof e === "object" && !Array.isArray(e)) { const to0 = e.to != null ? String(e.to).trim() : ""; const toV = (to0 && (/^\d+$/.test(to0) || to0.includes("@")) && to0.length <= 120) ? to0 : null; const ef = String(e.field || e.column || "").toLowerCase(); const efV = /^[a-z0-9_]{1,40}$/.test(ef) ? ef : null; const ev = e.value != null ? String(e.value).slice(0, 120) : null; const hasField = !!(efV && ev != null); if (toV || hasField) escalate = { to: toV, field: hasField ? efV : null, value: hasField ? ev : null }; } return { start, mins, doneField, doneValues, escalate }; })(), mask: (() => { const m0 = def.mask || def.maskFields; if (!m0 || typeof m0 !== "object") return null; /* The designer emits an ARRAY of {column,roles,keep}. A map with arbitrary keys needs `additionalProperties` in the tool schema, and an under-specified schema THERE is what took the builder down for three merges. Both shapes are accepted; the stored shape stays the map the enforcement reads. */ const m = Array.isArray(m0) ? Object.fromEntries(m0.filter((e) => e && typeof e === "object" && e.column).map((e) => [String(e.column), e])) : m0; const out = {}; for (const [col, cfg] of Object.entries(m)) { if (!/^[a-z0-9_]{1,40}$/i.test(col)) continue; const c = (cfg && typeof cfg === "object" && !Array.isArray(cfg)) ? cfg : {}; const roles = (Array.isArray(c.roles) ? c.roles : []).map((x) => String(x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)).slice(0, 24); let keep = parseInt(c.keep != null ? c.keep : c.show, 10); keep = (Number.isFinite(keep) && keep >= 0) ? Math.min(keep, 12) : 4; const char = (String(c.char || "•").slice(0, 1)) || "•"; out[col.toLowerCase()] = { roles, keep, char }; } return Object.keys(out).length ? out : null; })(), jsonShapes: (() => { const raw = def.jsonShapes || def.jsonShape || def.shapes; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const TYPES = new Set(["string", "number", "boolean", "array", "object"]); const out = {}; for (const [col, shape] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col) || !shape || typeof shape !== "object" || Array.isArray(shape)) continue; const fields = {}; for (const [f, ty] of Object.entries(shape)) { const t2 = String(ty).toLowerCase(); if (/^[a-z0-9_]{1,40}$/i.test(f) && TYPES.has(t2)) fields[f] = t2; } if (Object.keys(fields).length) out[col.toLowerCase()] = fields; } return Object.keys(out).length ? out : null; })(), fts: (() => { const x = def.fts || def.fullText || def.fullTextSearch; if (x === true || x === 1) return true; if (Array.isArray(x)) { const cols = x.map((c) => String(c).toLowerCase()).filter((c) => /^[a-z0-9_]{1,40}$/.test(c)).slice(0, 12); return cols.length ? cols : null; } return null; })(), webhooks: (() => { const w = def.webhooks || def.emitEvents || def.fireWebhooks; if (w === true || w === 1) return true; if (Array.isArray(w)) { const acts = [...new Set(w.map((a) => String(a).toLowerCase()).filter((a) => ["created", "updated", "deleted"].includes(a)))]; return acts.length ? acts : null; } return null; })(), noOverlap: (() => { /* INTERVAL exclusivity: no two live rows may occupy overlapping [start,end) ranges within the same group. A partial UNIQUE index only catches EXACT collisions, which is wrong the moment services have different lengths — a 60-minute booking at 10:00 and a 30-minute one at 10:30 are distinct (date,time) pairs and both would be accepted. Enforced as a single atomic INSERT..WHERE NOT EXISTS, so it is race-free rather than a check-then-write. */ const o = def.noOverlap || def.noDoubleBooking || def.exclusive; if (!o || typeof o !== "object" || Array.isArray(o)) return null; const start = String(o.start || o.from || "").toLowerCase(), end = String(o.end || o.to || "").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(start) || !/^[a-z0-9_]{1,40}$/.test(end) || start === end) return null; const on = (Array.isArray(o.on) ? o.on : (o.on != null ? [o.on] : [])).map((x) => String(x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,40}$/.test(x)).slice(0, 4); /* This predicate is a runtime query, not DDL, so the value is a bound parameter and needs no character restriction — unlike the partial-index WHERE above. */ const wm = String(o.where == null ? "" : o.where).match(/^([a-z_][a-z0-9_]{0,40}):(eq|ne):([\s\S]{0,80})$/i); const where = wm ? { col: wm[1].toLowerCase(), op: wm[2].toLowerCase(), val: wm[3] } : null; return { start, end, on, where }; })(), payment: normalizePayment(def), /* Confirm the SUBMITTER, using the owner's own provider key. The model owns which column holds the address, the subject and the words; the platform owns only the wire, because a public page cannot hold a key and Postgres has no HTTP client. Validated against `cols` — the columns that actually survive — so a recipient column that got dropped cannot leave a table looking as though it confirms. */ confirm: normalizeConfirm({ ...def, columns: cols }), /* The same thing by text message. Separate from `confirm` rather than a channel on it, because a site may want either or both — an emailed receipt AND a texted reminder — and because SMS costs the owner money per message, which is a decision worth declaring on its own. */ sms: normalizeSms({ ...def, columns: cols }), publicView: (() => { /* A PII-filtered, read-only projection of an owner-scoped table, readable by ANYONE. The case it exists for: a booking app whose `bookings` are `user`-scoped, where a visitor must see which slots are taken without seeing who took them. Columns are an explicit allow-list — never a wildcard, never id/owner_id — so a table can only leak exactly what it declares. */ const p = def.publicView || def.publicFields || def.sharedView; if (!p || typeof p !== "object" || Array.isArray(p)) return null; const cols = (Array.isArray(p.columns) ? p.columns : (Array.isArray(p.fields) ? p.fields : [])).map((c) => String(c).toLowerCase()).filter((c) => /^[a-z0-9_]{1,40}$/.test(c) && c !== "owner_id" && c !== "id"); const uniq = [...new Set(cols)].slice(0, 12); if (!uniq.length) return null; const rawW = p.where != null ? (Array.isArray(p.where) ? p.where : [p.where]) : []; const where = rawW.map((w) => String(w)).filter((w) => /^[a-z_][a-z0-9_]{0,40}:(eq|ne|lt|lte|gt|gte|contains|startswith|endswith|in|nin|between|isnull|notnull):[\s\S]{0,80}$/i.test(w)).slice(0, 6); let lim = parseInt(p.limit, 10); lim = (Number.isFinite(lim) && lim > 0) ? Math.min(lim, 2000) : 500; return { columns: uniq, where, limit: lim }; })() });
+    // A REMOVAL IS SAID, NOT IMPLIED (2026-10-22, audit A29-1): the rules
+    // step's "turn it off" carries the field names in `cleared`, so the stored
+    // copy is not filled back over them (null alone means "not mentioned").
+    { const cl = clearedList(def); if (cl) out[out.length - 1].cleared = cl; }
   };
   let t = spec.tables || spec;
   // A STRINGIFIED LIST, recovered rather than dropped. Measured 2026-08-13 in
@@ -1360,6 +1376,17 @@ export async function applySiteSchema(uuid, spec) {
         const raw = Array.isArray(groups) ? groups : (groups ? [groups] : []);
         const many = raw.length && (Array.isArray(raw[0]) || (raw[0] && typeof raw[0] === "object")) ? raw : (raw.length ? [raw] : []);
         let gi = 0;
+        // NAMED BY WHAT IT GUARDS (2026-10-22, audit A29-3). The name was the
+        // group's position (`ux_<table>_g_0`), so a changed rule reused the old
+        // name and `IF NOT EXISTS` skipped it while the reply said changed. Now
+        // the name is a digest of the columns and the WHERE, and once every
+        // group of this kind went in, the platform's older `ux_<table>_<g|u>_…`
+        // indexes the rule no longer declares are dropped. A group refused
+        // (existing duplicates) drops nothing: the old rule stands and the
+        // refusal is reported.
+        const kind = perUser ? "u" : "g";
+        const madeNames = new Set();
+        let anyRefused = false, anyGroup = false;
         for (const g of many) {
           const isObj = g && typeof g === "object" && !Array.isArray(g);
           const src = isObj ? (Array.isArray(g.columns) ? g.columns : [g.columns]) : g;
@@ -1373,16 +1400,33 @@ export async function applySiteSchema(uuid, spec) {
           // one index. `gi` is still incremented on every group, so the numbering
           // does not shift when one is refused.
           const gn = gi++;
+          void gn;
+          anyGroup = true;
           try {
-            const idxName = derivedIdent("ux_", t.name, "_", perUser ? "u" : "g", "_", gn);
+            const idxName = derivedIdent("ux_", t.name, "_", kind, "_", identDigest(idxCols.join(",") + "|" + (where || "")));
             await sqlQuery(uuid, "CREATE UNIQUE INDEX IF NOT EXISTS " + idxName + " ON " + tn + " (" + idxCols.map(sqlIdent).join(",") + ")" + (where ? " WHERE " + where : ""));
+            madeNames.add(idxName.slice(1, -1));
           } catch (e) {
+            anyRefused = true;
             // REPORTED, not only logged: `unique` on a booking table is the
             // headline guarantee — two customers in one chair is what it stops —
             // and a console line in Cloudflare is not somewhere an owner looks.
             refused.push({ table: t.name, feature: perUser ? "oncePerUser" : "unique", rule: idxCols.join("+"), why: (e && e.detail) || String((e && e.message) || e).slice(0, 160) });
             console.error("unique index failed:", t.name, e && e.detail);
           }
+        }
+        if (!anyGroup || anyRefused) return;
+        try {
+          const head = derivedName("ux_", t.name, "_", kind, "_");
+          const have = await sqlQuery(uuid, "SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() AND tablename = ?", [String(t.name)]);
+          for (const r of Array.isArray(have) ? have : []) {
+            const n = String((r && r.indexname) || "");
+            if (madeNames.has(n) || !isPlatformUniqueName(n, head)) continue;
+            await sqlQuery(uuid, "DROP INDEX IF EXISTS " + sqlIdent(n));
+          }
+        } catch (e) {
+          refused.push({ table: t.name, feature: perUser ? "oncePerUser" : "unique", rule: "replace", why: (e && e.detail) || String((e && e.message) || e).slice(0, 160) });
+          console.error("unique index replace failed:", t.name, e && e.detail);
         }
       };
       await mkIndexes(t.unique, false);
@@ -1760,7 +1804,11 @@ export async function applySiteSchema(uuid, spec) {
           // reading null as silence. When a removal verb exists it must be an
           // explicit field, the way `retired` is for a whole table, rather than
           // an absence that means two things.
+          // An explicit removal (`cleared`, A29-1) is the exception: that
+          // field stays off, and the marker itself is never stored.
+          const clearedHere = clearedOf(t);
           for (const k of Object.keys(prevT)) {
+            if (k === "cleared" || clearedHere.has(k)) continue;
             if (t[k] === undefined || t[k] === null) t[k] = prevT[k];
           }
           // COLUMNS UNION RATHER THAN OVERRIDE, because this is the data API's
@@ -1839,7 +1887,7 @@ export async function applySiteSchema(uuid, spec) {
     }
   }
 
-  const metaOut = { tables: mergedTables }; if (rateLimits) metaOut.rateLimits = rateLimits;
+  const metaOut = { tables: mergedTables.map(withoutCleared) }; if (rateLimits) metaOut.rateLimits = rateLimits;
   // Declared third-party reads. Recorded whole, and unlike a function there is
   // nothing to "make" — no DDL runs, so there is no created/not-created split to
   // filter on.
@@ -2328,11 +2376,37 @@ function numOf(def, keys, cap) {
  * re-declaration, filled from the stored table, driven through the real
  * policiesFor — since applySiteSchema itself needs a live database.
  */
+/**
+ * THE FIELDS A RULES CHANGE MAY TURN OFF (2026-10-22, audit A29-1), carried
+ * as `cleared: [...]` on a table. Each named field is set to null and is not
+ * filled back from the stored schema; the marker is never stored in `_meta`.
+ */
+export const CLEARED_FIELDS = Object.freeze(["confirm", "sms", "webhooks"]);
+export function clearedList(def) {
+  const raw = def && def.cleared;
+  if (!Array.isArray(raw)) return null;
+  const out = [...new Set(raw.filter((k) => typeof k === "string" && CLEARED_FIELDS.includes(k)))];
+  return out.length ? out : null;
+}
+export function clearedOf(t) {
+  const out = new Set(clearedList(t) || []);
+  // A field named cleared but given a value again is not cleared.
+  for (const k of out) if (t[k] !== undefined && t[k] !== null) out.delete(k);
+  return out;
+}
+export function withoutCleared(t) {
+  if (!t || typeof t !== "object" || !Object.hasOwn(t, "cleared")) return t;
+  const { cleared, ...rest } = t;
+  for (const k of clearedOf(t)) rest[k] = null;
+  return rest;
+}
 export const DERIVED_TABLE_FIELDS = new Set(["columns", "refs", "refModes", "rules", "num", "json"]);
 export function fillFromStored(t, prevT) {
   if (!t || !prevT) return t;
+  const cleared = clearedOf(t);
   for (const k of Object.keys(prevT)) {
-    if (DERIVED_TABLE_FIELDS.has(k)) continue;
+    if (DERIVED_TABLE_FIELDS.has(k) || k === "cleared") continue;
+    if (cleared.has(k)) continue;
     if (t[k] === undefined || t[k] === null) t[k] = prevT[k];
   }
   return t;

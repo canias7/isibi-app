@@ -986,10 +986,22 @@ export function heldTouches(ops, table) {
  * keeps what came before. No `base` answers `next`.
  */
 export const SPEC_LISTS = ["tables", "functions", "apis", "jobs"];
+// A HELD REMOVAL OUTLIVES A LATER RE-DECLARATION (2026-10-22, audit A29-1):
+// a table's `cleared` fields carry over onto a later entry for the same table
+// that gives that field no value of its own, so Publish still turns it off.
+function keepCleared(prev, x) {
+  const was = prev && Array.isArray(prev.cleared) ? prev.cleared : [];
+  const carry = was.filter((k) => typeof k === "string" && (x[k] === undefined || x[k] === null));
+  if (!carry.length) return x;
+  const own = Array.isArray(x.cleared) ? x.cleared : [];
+  const out = { ...x, cleared: [...new Set([...own, ...carry])] };
+  for (const k of carry) out[k] = null;
+  return out;
+}
 function byName(a, b) {
   const m = new Map();
   for (const x of [...(Array.isArray(a) ? a : []), ...(Array.isArray(b) ? b : [])]) {
-    if (x && typeof x === "object" && x.name) m.set(String(x.name).toLowerCase(), x);
+    if (x && typeof x === "object" && x.name) { const key = String(x.name).toLowerCase(); m.set(key, keepCleared(m.get(key), x)); }
   }
   return [...m.values()];
 }

@@ -105,6 +105,13 @@ Each finding was checked again against today's code first. Branch `claude/audit-
 - Offline only: nothing spent, nothing deployed, not merged. Record:
   `docs/history/2026-10-22-audit-43-44.md`.
 
+## 2026-10-22 — Audit A29-1, A29-3, A29-4: rules now do what the reply says
+
+- **Turning a rule off now really turns it off.** "Stop texting customers when they book" (or the confirmation email, or sending entries to another system) used to be answered "now off" while the site kept sending, because the database step filled the old setting back in. The step now marks the setting as removed, and that mark is honoured when the change is applied straight away and when a held change is published.
+- **Changing a no-duplicates or one-per-customer rule now reaches the database.** The old protection kept its name, so the new one was skipped while the reply said changed. Each protection is now named by what it guards. The new one goes in first, then the old one is taken off. If the new one can't go in (for example, two bookings already share a slot), the old one stays and the reply says so.
+- **A rule the database refused is no longer reported as changed** (A29-4). The reply now says "the database refused that rule, usually because entries already there break it". On a held change this is still not reported at Publish; that part is left for the Publish findings.
+- Three commits with red tests; two source guards updated by name (they now accept the removal mark). Record: `docs/history/2026-10-22-audit-48-50.md`. Nothing spent, nothing deployed.
+
 ## 2026-10-21 — Phase D, Android: the real app downloads as an APK (you: "can u do it like in our platform how a customer will do it")
 
 - The app builder can now build a real Expo app into an Android app (`/expo-android`): the same typecheck, then Expo writes the native project and Gradle builds it offline against libraries the image warms once.
