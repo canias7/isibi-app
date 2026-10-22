@@ -3136,3 +3136,22 @@ delivery charge (page shows +£3.95, Stripe charges without it). Fix when
 picked up: save the server-priced lines on the order; optionally lower stock
 on paid and make delivery a real charged line. Full entry in
 docs/audits/2026-10-17-builder-audit.md (A12-3).
+
+## Code tab cleanup (owner, 2026-10-22: "note that for later")
+
+Customers' Code tab and zip show our internals: "Lovable" (9 in the 25
+shared files), "Codex", "Claude", run numbers, test site names, hundreds of
+dates, container/backend notes. Plan: step 1 strip comments when the shared
+files and kit.json are prepared (gen-foundation.mjs, kit closure), hand-clean
+the root config files, a guard test, clean what existing sites show; step 2
+(later) rename builder/lovable/template (115 files, 249 mentions). ~1.5–2 days.
+
+## Different edits per device (owner, 2026-10-22: "note that for later")
+
+"Smaller on phones only". Missing: device never sent with edits; router has
+no device field; lanes not told to scope by @media/md:/lg:; no check the other
+devices are unchanged; preview doesn't switch. Plan: one breakpoint map
+(phone <768, tablet 768–1023, desktop ≥1024) incl. a tablet render width;
+send the preview device as a hint (words win); teach css and page lanes; a
+scope guard plus three-width before/after pixel check; switch preview. ~7–9
+days offline, then small paid tests.
