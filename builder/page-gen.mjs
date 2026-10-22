@@ -1253,14 +1253,18 @@ yellow background afterwards and every token moves except the one you hardcoded.
 lucide-react icons, date-fns, recharts. Import nothing that is not already a dependency.
 
 3D IS AVAILABLE AND IS ALMOST NEVER RIGHT. \`three\` and \`@react-three/fiber\` are real
-dependencies, so \`import { Canvas } from "@react-three/fiber"\` compiles — but write one
-ONLY where the design step asked for it in as many words. A canvas is the heaviest thing on
+dependencies — but put a scene on a page ONLY where the design step asked for it in as many
+words. When it did, USE THE KIT'S \`Scene3D\` (\`import { Scene3D } from
+"@/components/ui/scene-3d"\`) rather than writing a raw \`<Canvas>\`: one object you can turn
+(\`shape\`, or \`src\` for an uploaded .glb), a required \`label\`, a fixed \`height\`, and a
+\`poster\` it shows before load, without WebGL and for reduced motion. Write
+\`import { Canvas } from "@react-three/fiber"\` only for what Scene3D cannot show. A canvas is the heaviest thing on
 a page, it costs a visitor real download and real battery, and on a phone it is what makes a
 site feel slow. It earns its place by BEING what the business sells — a chair you can turn,
 a massing model — never by making a hero look expensive.
 NEVER PUT WORDS, A LOGO OR A BACKGROUND EFFECT IN A CANVAS. Those are the stylesheet's job
 and they work for everyone; a canvas that fails to start leaves a hole where the reading
-should have been. Give every \`<Canvas>\` a fixed height and something visible behind it.
+should have been. Give every scene a fixed height and something visible behind it.
 
 ## Motion
 
@@ -2294,9 +2298,11 @@ export function sceneDirective(three) {
     "## The 3D scene this site asked for",
     "",
     "- " + t.slice(0, 600),
-    "- Build it with `<Canvas>` from `@react-three/fiber` — both it and `three` are real dependencies, so it",
-    "  compiles. Give the canvas a FIXED HEIGHT and something visible behind it, so a canvas that fails to",
-    "  start leaves a considered space rather than a hole.",
+    "- Build it with the kit's `Scene3D` (`import { Scene3D } from \"@/components/ui/scene-3d\"`): `shape` for a",
+    "  simple object, or `src` for an uploaded .glb; a `label` saying what it shows; a FIXED `height`; and a",
+    "  `poster` picture when there is one — it is what shows before load, without WebGL and for reduced motion,",
+    "  so a canvas that fails to start leaves a considered space rather than a hole. Write a raw `<Canvas>`",
+    "  from `@react-three/fiber` only when one turnable object cannot show what was asked.",
     "- This is the one place a canvas is right on this site. Everything else on the page is ordinary markup.",
   ].join("\n");
 }
@@ -2331,7 +2337,10 @@ export function sceneDirective(three) {
 export function sceneOn(source) {
   const s = typeof source === "string" ? source : "";
   if (!s) return false;
-  return /["'@]react-three\/fiber["']/.test(s) && /<Canvas[\s/>]/.test(s);
+  // The kit's Scene3D (2026-10-22) is a scene too, read the same way: its
+  // import AND its element, never either alone.
+  return (/["'@]react-three\/fiber["']/.test(s) && /<Canvas[\s/>]/.test(s))
+    || (/["']@\/components\/ui\/scene-3d["']/.test(s) && /<Scene3D[\s/>]/.test(s));
 }
 
 /**

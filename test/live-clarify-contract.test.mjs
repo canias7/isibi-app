@@ -693,7 +693,10 @@ test("THE FIRST BUILD'S PAGE WRITER IS UNCHANGED, BYTE FOR BYTE — and so is a 
   // (`app-chrome`, the phone app's frame), so "There are 2,112 modules" reads
   // 2,113 and "2,024 of the 2,040" reads 2,025 of 2,041. Compared character by
   // character against the request before it; nothing else differs.
-  const pinned = { build: "fd172fdb7c193d57", revise: "c2d07abbb8d8897e", addon: "adf965f35c47797b" };
+  // RE-PINNED 2026-10-22 (Scene3D): the kit gained `scene-3d` (2,114 modules,
+  // one more signature) and PAGE_RULES' 3D paragraph now names Scene3D, its
+  // ceiling unchanged. Those are the only differences.
+  const pinned = { build: "74ac28c4998b28e4", revise: "e398239f7be7588b", addon: "2bc51ce4e2dbde1b" };
   assert.equal(h16(pagesRequest({ brief: "A bakery in Leeds", spec: SPEC, brand: "Fold Lane", model: "test-model" })), pinned.build, "the first build's page request changed");
   assert.equal(h16(pagesRequest({ brief: "Make it warmer", spec: SPEC, brand: "Fold Lane", model: "test-model", priorPages: prior, mode: "revise" })), pinned.revise, "a revise's page request changed");
   // THE ADD-ON'S WRITER MAY ASK (2026-10-11, the generality round: the last

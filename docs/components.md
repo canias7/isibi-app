@@ -1,4 +1,4 @@
-# Components (2113 built, 25 to go)
+# Components (2114 built, 25 to go)
 
 A ✓ means it exists and a generated site can import it today.
 
@@ -1544,6 +1544,7 @@ A ✓ means it exists and a generated site can import it today.
 ✓ scan-result
 ✓ scan-status
 ✓ scenario-tabs
+✓ scene-3d
 ✓ scene-note
 ✓ scene-row
 ✓ schedule-preview

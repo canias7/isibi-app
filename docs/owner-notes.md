@@ -1,5 +1,16 @@
 # Owner Notes
 
+## 2026-10-22 — Scene3D: a ready-made 3D piece for the page writer (you: "do the 3d thing really quick")
+
+- The kit has a new component, `Scene3D`: one object a visitor can turn, either a simple shape (a knot, box, sphere, torus, cone or cylinder) painted in the site's own main colour, or an uploaded 3D model file (.glb).
+- It turns slowly by itself, you can drag it (or use the arrow keys), and there is a reset button. Its height is fixed, so the page never jumps.
+- What shows first is always a still picture (the `poster`, or a quiet placeholder): on the server, while it loads, when the visitor's device can't do 3D, and for visitors who asked their device for less motion (they get a "View in 3D" button instead, and it does not spin by itself).
+- The 3D library only downloads in the browser, when the piece comes near the screen, so ordinary pages pay nothing.
+- The page writer's rules still say 3D is almost never right and only where the design asked for it; they now say to use `Scene3D` rather than writing raw 3D code. The check that a designed scene really is on the page counts `Scene3D` too.
+- Screenshots: the turning knot, and the fallback with no 3D.
+- Tests: `test/scene-3d.test.mjs` (7). Full suite `11654 / 11649 / 2 / 3` before two fixes: the page writer's pinned request fingerprints were re-pinned (they moved because of this change), and the other failure was a local link I had made and removed. The kit's own browser checks were not run here (they need the kit installed); the site build workflow runs them.
+- This changes the kit, so it rolls the container image. Not merged or deployed. Record: `docs/history/2026-10-22-scene3d.md`.
+
 ## 2026-10-21 — Phase D, Android: the real app downloads as an APK (you: "can u do it like in our platform how a customer will do it")
 
 - The app builder can now build a real Expo app into an Android app (`/expo-android`): the same typecheck, then Expo writes the native project and Gradle builds it offline against libraries the image warms once.
