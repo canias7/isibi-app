@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Box, RotateCcw } from "lucide-react";
+import { Box } from "lucide-react";
 import { cn } from "@/lib/utils";
 /**
  * One thing you can turn, in 3D: a product, a piece, a model. The kit's ONLY
@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
  *
  * THE POSTER IS THE COMPONENT; THE CANVAS IS A BONUS ON TOP. What the server
  * renders, what shows before three.js has loaded, what shows when WebGL will
- * not start, and what a visitor who asked for reduced motion sees, is the same
+ * not start, is the same
  * poster: the `poster` picture when given, otherwise a quiet placeholder. So
  * the server markup and the first client render are identical (no hydration
  * mismatch), and a failure never leaves a hole in the page.
@@ -21,8 +21,8 @@ import { cn } from "@/lib/utils";
  * is a dynamic `import()` inside an effect, so it is never in the server render
  * and never in the page's first download.
  *
- * REDUCED MOTION GETS THE POSTER AND A BUTTON. Nothing moves until the visitor
- * presses "View in 3D", and even then it does not spin by itself.
+ * REDUCED MOTION NEVER SPINS BY ITSELF. The object is shown and still turns
+ * when dragged; there are no buttons on it at all.
  *
  * COLOURS COME FROM THE THEME. A primitive is painted with `--primary`, lit
  * on a see-through canvas with NO BOX (owner, 2026-10-22: "No box pls"): the
@@ -54,9 +54,7 @@ export function Scene3D({
   const [live, setLive] = React.useState(false);
   const [failed, setFailed] = React.useState(false);
   const [reduced, setReduced] = React.useState(false);
-  const [optedIn, setOptedIn] = React.useState(false);
   const [near, setNear] = React.useState(false);
-  const resetRef = React.useRef<() => void>(() => {});
 
   React.useEffect(() => {
     try { setReduced(window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch { /* old browser */ }
@@ -71,7 +69,10 @@ export function Scene3D({
     return () => io.disconnect();
   }, []);
 
-  const wanted = near && !failed && (!reduced || optedIn);
+  // NO BUTTONS (owner, 2026-10-22: "No buttons or anything just the asset
+  // floating"): reduced motion still shows the object, it just never spins by
+  // itself; dragging and the arrow keys still turn it.
+  const wanted = near && !failed;
 
   React.useEffect(() => {
     const el = boxRef.current;
@@ -148,7 +149,7 @@ export function Scene3D({
         window.addEventListener("pointerup", up);
         el.addEventListener("keydown", key);
         window.addEventListener("resize", resize);
-        resetRef.current = () => { group.rotation.set(0, 0, 0); draw(); };
+        
         loop();
         setLive(true);
         stop = () => {
@@ -172,7 +173,10 @@ export function Scene3D({
     <figure data-slot="scene-3d" className={cn("flex flex-col gap-2", className)}>
       {/* The buttons sit BESIDE the picture, not in it: a role="img" hides its
           children from assistive technology, buttons included. */}
-      <div style={{ height }} className="relative w-full overflow-hidden">
+      <div style={{ height }} className="relative w-full">
+        {/* A SOFT SHADOW, so the object rests on the page instead of hanging
+            in it. Theme foreground at low strength, never a colour of ours. */}
+        <div aria-hidden="true" className="pointer-events-none absolute inset-x-[30%] -bottom-3 h-6 rounded-[50%] bg-foreground/20 blur-lg" />
         <div
           ref={boxRef}
           role="img"
@@ -191,25 +195,6 @@ export function Scene3D({
             </div>
           ))}
         </div>
-        {!live && reduced && !optedIn && !failed && (
-          <button
-            type="button"
-            onClick={() => setOptedIn(true)}
-            className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground"
-          >
-            View in 3D
-          </button>
-        )}
-        {live && (
-          <button
-            type="button"
-            onClick={() => resetRef.current()}
-            aria-label="Reset the view"
-            className="absolute right-2 top-2 rounded-md border border-border bg-background/80 p-1.5 text-foreground"
-          >
-            <RotateCcw className="size-4" />
-          </button>
-        )}
       </div>
       {(caption || live) && (
         <figcaption className="text-sm text-muted-foreground">

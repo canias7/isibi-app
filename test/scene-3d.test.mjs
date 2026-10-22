@@ -39,27 +39,25 @@ test("three.js loads only in the browser, never in the server render or the firs
 
 test("the poster is what renders first; reduced motion and no WebGL keep it", () => {
   assert.match(code, /prefers-reduced-motion: reduce/, "reduced motion is not asked");
-  assert.match(code, /const wanted = near && !failed && \(!reduced \|\| optedIn\)/, "the canvas can start without being near, after a failure, or against reduced motion");
+  // NO BUTTONS (owner, 2026-10-22): reduced motion shows the object but never spins it.
+  assert.match(code, /const wanted = near && !failed;/, "the canvas can start without being near, or after a failure");
   assert.match(code, /getContext\("webgl2"\) \|\| probe\.getContext\("webgl"\)/, "WebGL is not probed before three.js is fetched");
   assert.match(code, /setFailed\(true\)/, "a failure does not fall back to the poster");
-  assert.match(code, /View in 3D/, "reduced motion has no way to opt in");
-  assert.match(code, /const spin = autoRotate && !reduced/, "an opted-in reduced-motion visitor still gets a spinning object");
+  assert.match(code, /const spin = autoRotate && !reduced/, "a reduced-motion visitor gets a spinning object");
   // initial state is the poster: nothing browser-only decides the first render.
   assert.match(code, /useState\(false\);[\s\S]*const \[failed/, "live does not start false");
   assert.match(code, /\{!live && \(poster \?/, "the poster is not what shows while not live");
 });
 
-test("accessible: a labelled picture, buttons beside it, keys turn it, fixed height", () => {
+test("accessible: a labelled picture, no buttons, keys turn it, fixed height", () => {
   assert.match(code, /role="img"\s+aria-label=\{label\}/, "the stage is not a labelled picture");
   assert.match(code, /setAttribute\("aria-hidden", "true"\)/, "the canvas is not hidden behind the label");
   assert.match(code, /ArrowLeft/, "the arrow keys do not turn it");
   assert.match(code, /style=\{\{ height \}\}/, "the height is not fixed");
-  // a role="img" hides its children: no button may sit inside the stage.
-  const from = code.indexOf('role="img"'), to = code.indexOf("{!live && reduced && !optedIn");
-  assert.ok(from > 0 && to > from, "the stage or the opt-in button moved: the guard is reading nothing");
-  const stage = code.slice(from, to);
-  assert.ok(/\)\)\}\s*<\/div>\s*$/.test(stage), "the stage does not close before the buttons");
-  assert.doesNotMatch(stage, /<button/, "a button sits inside role=img, where assistive technology cannot reach it");
+  // NO BUTTONS ANYWHERE (owner, 2026-10-22: "No buttons or anything just the
+  // asset floating"): the observer is alive (the figure is there) and holds none.
+  assert.match(code, /<figure data-slot="scene-3d"/, "the figure moved: the guard is reading nothing");
+  assert.doesNotMatch(code, /<button/, "a button is drawn on the 3D object");
 });
 
 test("theme tokens only: no literal colour in the component", () => {
