@@ -110,6 +110,8 @@ const CASES = [
   // LONGER THAN ANY MESSAGE OF A SITE (the size policy's, 2026-10-03; it was 2,000).
   ["also-too-long", () => routed({ intent: "addon", alsoAsked: "x".repeat(MAX_INPUT_CHARS + 1) }), "model"],
   ["also-ignored", () => routed({ intent: "build", alsoAsked: "and a map" }), "model"],
+  // A 3D MODEL ANSWER THAT CANNOT BE READ (2026-10-22): the addition runs as before.
+  ["model3d-unread", () => routed({ intent: "addon", model3d: { from: "magic", subject: "x" } }), "model"],
   // WHICH HELD PART NEEDS WHICH (2026-10-03, the combined request flow): named
   // when the relations read whole, and unread — no order taken at all — when
   // one of them names a change that is not there.

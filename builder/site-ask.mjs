@@ -1035,6 +1035,54 @@ const LIVE_SECURITY_CLAUSE =
   "\"security\" — they want their site that ALREADY EXISTS checked for security problems: \"is my site secure?\", " +
   "\"scan my CRM for security holes\", \"check if anyone can see my customers' details\". It runs a security scan and changes " +
   "nothing on the site. Asking HOW to make something secure, or asking to ADD a login or a rule, is not this: that is a change.";
+
+/**
+ * A 3D MODEL THEY ASKED FOR (2026-10-22, the owner: Meshy 7.1 through fal,
+ * shown by the kit's Scene3D). A typed field beside intent "addon" — never a
+ * keyword rule: the router says the request is for a 3D model, made from
+ * their words or from a photograph they attached, and which page shows it.
+ * The page then shows the price and asks before anything is spent.
+ */
+export const MODEL3D_FIELD = {
+  type: "object",
+  description:
+    "Only with intent \"addon\", and only when they ask for a 3D MODEL to be made: a turnable 3D object of " +
+    "something (\"add a 3D model of our armchair\", \"make this photo 3D\" with a photo attached). Leave it out " +
+    "for anything else, including 3D-looking styling, a 3D effect on words or a picture they only want shown.",
+  properties: {
+    from: {
+      type: "string",
+      enum: ["words", "photo"],
+      description: "\"photo\" when they attached a photograph and want THAT made 3D; otherwise \"words\".",
+    },
+    subject: {
+      type: "string",
+      description: "What the model is of, in a short phrase from their message (\"a walnut armchair with green cushions\").",
+    },
+    page: {
+      type: "string",
+      description: "The path of the page it goes on (\"/\", \"/shop\"), from the pages listed above; \"/\" when they name none.",
+    },
+  },
+  required: ["from", "subject"],
+};
+
+/**
+ * THE ROUTER'S 3D ANSWER, READ: `{ from, subject, page }` or null. A subject
+ * that is not words, or too long for fal's prompt (600), is no answer.
+ */
+export function readModel3d(raw, { pages = [] } = {}) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  if (raw.from !== "words" && raw.from !== "photo") return null;
+  if (typeof raw.subject !== "string") return null;
+  const subject = raw.subject.replace(/\s+/g, " ").trim();
+  if (!subject || subject.length > 600) return null;
+  let page = typeof raw.page === "string" ? raw.page.trim().replace(/\/+$/, "") || "/" : "/";
+  if (!/^\/[a-z0-9/_-]{0,120}$/i.test(page)) page = "/";
+  const known = (Array.isArray(pages) ? pages : []).map(normalizePagePath).filter(Boolean);
+  if (known.length && !known.includes(page)) page = "/";
+  return { from: raw.from, subject, page };
+}
 export const LIVE_ASK_TOOL = {
   name: ASK_TOOL.name,
   description: "Say whether this message is asking for a change to the site or asking a question, answer it if it is a question, and ask for the one detail you need when what they want cannot be decided without it.",
@@ -1056,6 +1104,7 @@ export const LIVE_ASK_TOOL = {
       alsoAsked: liveAlsoAsked(),
       dependsOn: DEPENDS_ON,
       targets: TARGETS,
+      model3d: MODEL3D_FIELD,
       question: {
         type: "object",
         description: "Only when intent is \"clarify\". ONE short question, written to them, naming the one detail you need.",
@@ -1382,6 +1431,7 @@ export const ROUTE_REASONS = Object.freeze({
   "request-failed": Object.freeze({ kind: "fallback", what: "the routing request could not be built" }),
   "send-failed": Object.freeze({ kind: "fallback", what: "the routing call failed" }),
   "no-tool-call": Object.freeze({ kind: "fallback", what: "the model's reply held no routing answer" }),
+  "model3d-unread": Object.freeze({ kind: "changed", what: "a 3D model answer that could not be read was left out; the add-on step runs as before" }),
   "intent-unknown": Object.freeze({ kind: "fallback", what: "the answer named no intent, or one that is not among the five" }),
   "clarify-closed": Object.freeze({ kind: "fallback", what: "a question back, when no question may be asked" }),
   "clarify-unreadable": Object.freeze({ kind: "fallback", what: "a question back with no usable question" }),
@@ -1712,7 +1762,9 @@ function readDecision(reply, { canClarify = false, picked = false, hasSite = fal
     return { intent: "app", platform: input.platform === "ios" ? "ios" : "android", answer: "" };
   }
   if (hasSite && input.intent === "addon") {
-    const out = { ...work("addon"), ...readAlso(input, trace), ...res() };
+    const m3 = given(input.model3d) ? readModel3d(input.model3d, { pages }) : null;
+    if (given(input.model3d) && !m3) mark("model3d-unread");
+    const out = { ...work("addon"), ...readAlso(input, trace), ...res(), ...(m3 ? { model3d: m3 } : {}) };
     markLeftOut(input, ["also", "resolved"], mark);
     return out;
   }

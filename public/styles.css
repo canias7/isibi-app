@@ -1609,6 +1609,13 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-pick-cancel { font: inherit; font-size: .8rem; color: var(--muted); background: none; border: 0; padding: 0; cursor: pointer;
   text-decoration: underline; text-underline-offset: 2px; }
 .st-pick-cancel:hover { color: var(--text); }
+/* A 3D MODEL'S PRICE CARD (2026-10-22): the price on the button, Continue's own look. */
+.st-m3d { display: flex; flex-wrap: wrap; align-items: center; gap: .9rem; margin: .55rem 0 .2rem; }
+.st-m3d-go { font: inherit; font-size: .85rem; font-weight: 500; color: var(--bg); background: var(--text); border: 0; border-radius: 999px;
+  padding: .5rem 1.1rem; cursor: pointer; }
+.st-m3d-go:disabled { opacity: .35; cursor: default; }
+.st-m3d-go:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+.st-m3d-note { flex-basis: 100%; font-size: .8rem; color: var(--muted); }
 
 /* A REQUEST OF SEVERAL PARTS (2026-10-03): one card under its message, each
    part's words beside its status, in the thread's own type and colours — what

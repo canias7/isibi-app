@@ -128,6 +128,17 @@ Each finding was checked again against today's code first. Branch `claude/audit-
 
 A customer can paste the address of the website they have now and ask for it to be rebuilt. The router decides this with a new typed field (`importSite`), never by keywords, and the address is used only if it is public and the customer really wrote it. The Worker then reads that site itself (no paid service): the home page and up to five pages from its menu, on the same site only, with a time limit and a size limit, and never a private or internal address. It takes the business name, the pages' headings and words, phone, email, address, opening hours, brand colours, fonts, the logo and up to 12 photos. All of that goes to the designer and the page writer as "THEIR CURRENT SITE": their content, our design. The logo and photos are listed by id, and any the plan uses are copied into the site's own uploads, the same way attached photos are. A site that can't be read is mentioned in the reply, and the build carries on from the brief. There is also a signed-in route, `POST /api/site/import`, that returns what was read. Branch only: not merged, deployed, or tried with a real model. New file `builder/site-import.mjs`, tests in `test/old-site-import.test.mjs`.
 
+## 2026-10-22 — 3D models made by Meshy 7.1, shown with Scene3D (you: "the model is made with fal Meshy 7.1 and shown with three.js")
+
+- A customer can now ask in the chat for a 3D model ("add a 3D model of our armchair to the shop page", or a photo with "make this 3D"). The router recognises it with a proper field of its own, not keywords.
+- Before anything is spent, the chat shows the price on a button: **Make it · 150 credits** ($1.20, fal's textured price), and **Not now**. If the balance is short the button is greyed out and says so.
+- Pressing it takes the 150 credits, starts Meshy through fal's queue, and shows lines while it works ("Making your 3D model…", "Shaping and texturing the model — 2 min so far…"). If Meshy fails, the 150 credits go back automatically.
+- When it's done, the model file (.glb), the iPhone AR file (.usdz) and its picture are saved in the site's own files, and a turnable Scene3D goes onto the page they asked for, then the site publishes. The reply says what it cost.
+- There is also a direct route for it (`/api/site/<slug>/model3d`), owner only. Owners can upload their own .glb files in Files too (up to 50 MB; models have their own space and don't eat into the photos' allowance).
+- The page writer still uses 3D almost never on its own; it uses a stored model only where the customer asked.
+- No real fal call was made: everything was tested against stand-ins. One paid run (about 150 credits) would show the real timing and file sizes. Decisions for you are in `docs/plans/2026-10-22-meshy-3d.md` (the margin, whether it starts switched off, the polycount).
+- Not merged or deployed. It rolls the container image. Record: `docs/history/2026-10-22-meshy-3d.md`.
+
 ## 2026-10-22 — Scene3D: a ready-made 3D piece for the page writer (you: "do the 3d thing really quick")
 
 - The kit has a new component, `Scene3D`: one object a visitor can turn, either a simple shape (a knot, box, sphere, torus, cone or cylinder) painted in the site's own main colour, or an uploaded 3D model file (.glb).

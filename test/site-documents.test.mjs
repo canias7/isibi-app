@@ -409,7 +409,8 @@ test("the upload route passes the filename and bounds on the LARGER cap", () => 
   assert.match(win, /filename: url\.searchParams\.get\("name"\)/, "the name never reaches the module");
   // The content-length pre-check runs before a byte has been read, so it cannot
   // know which cap applies. Gating it on the smaller one refuses every document.
-  assert.match(win, /cl > MAX_DOC_BYTES/, "the pre-check refuses documents it should accept");
+  // 2026-10-22: the larger of the document and the 3D model caps.
+  assert.match(win, /cl > Math\.max\(MAX_DOC_BYTES, MAX_MODEL_BYTES\)/, "the pre-check refuses documents it should accept");
   assert.ok(!/cl > MAX_UPLOAD_BYTES/.test(win), "the old image-only bound survives");
 });
 
