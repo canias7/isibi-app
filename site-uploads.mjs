@@ -29,7 +29,28 @@ export const MAX_DOC_BYTES = 10_000_000;
 
 /** What the per-file cap is, given what the bytes turned out to be. */
 export function maxBytesFor(kind) {
+  if (kind && kind.kind === "model") return MAX_MODEL_BYTES;
   return kind && kind.kind === "doc" ? MAX_DOC_BYTES : MAX_UPLOAD_BYTES;
+}
+
+/**
+ * A 3D MODEL (2026-10-22, the owner: Meshy 7.1 through fal, shown with three.js
+ * by the kit's Scene3D). A `.glb` is binary glTF: its own magic (`glTF`, then
+ * version 2), never a script, served inline as `model/gltf-binary` so three.js
+ * can read it. A `.usdz` (the AR Quick Look file on iPhones) is an
+ * uncompressed zip, so within the zip family its declared name picks it, as it
+ * picks `.docx` — the same equivalence argument: the bytes are inert to the
+ * browser whichever member the name chooses. Models keep an allowance of their
+ * own, beside the pictures' and documents' and the video and audio's, because
+ * one model can be tens of megabytes.
+ */
+export const MAX_MODEL_BYTES = 50_000_000;
+export const MAX_MODEL_FILES_PER_SITE = 40;
+export const MAX_MODEL_SITE_BYTES = 500_000_000;
+export const MODEL_FORMATS = { glb: "model/gltf-binary", usdz: "model/vnd.usdz+zip" };
+/** Is it binary glTF, version 2, by its first eight bytes? */
+export function sniffGlb(b) {
+  return !!(b && b.length > 12 && b[0] === 0x67 && b[1] === 0x6c && b[2] === 0x54 && b[3] === 0x46 && b[4] === 2 && b[5] === 0 && b[6] === 0 && b[7] === 0);
 }
 /** Per site, so one account cannot fill the bucket. */
 export const MAX_FILES_PER_SITE = 200;
@@ -110,6 +131,7 @@ export function sniffUpload(b, name) {
   const img = sniffImage(b);
   if (img) return { ...img, kind: "image" };
   if (!b || typeof b.length !== "number") return null;
+  if (sniffGlb(b)) return { mime: MODEL_FORMATS.glb, ext: "glb", kind: "model" };
   // %PDF-
   if (b.length > 5 && b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46 && b[4] === 0x2d) {
     return { mime: "application/pdf", ext: "pdf", kind: "doc" };
@@ -119,6 +141,7 @@ export function sniffUpload(b, name) {
   // accepted: an archive with nothing in it is not a download.
   if (b.length > 4 && b[0] === 0x50 && b[1] === 0x4b && b[2] === 0x03 && b[3] === 0x04) {
     const declared = String(name || "").toLowerCase().split(".").pop();
+    if (declared === "usdz") return { mime: MODEL_FORMATS.usdz, ext: "usdz", kind: "model" };
     const ext = Object.hasOwn(ZIP_MEMBERS, declared) ? declared : "zip";
     return { mime: ZIP_MEMBERS[ext], ext, kind: "doc" };
   }
@@ -130,7 +153,7 @@ export function sniffUpload(b, name) {
  * address — the pictures, the documents, and (2026-10-14) the video and audio
  * formats `site-media.mjs` reads from a file's contents.
  */
-export const UPLOAD_EXTS = ["png", "jpg", "webp", "gif", "pdf", ...Object.keys(ZIP_MEMBERS), ...MEDIA_EXTS];
+export const UPLOAD_EXTS = ["png", "jpg", "webp", "gif", "pdf", ...Object.keys(ZIP_MEMBERS), ...MEDIA_EXTS, ...Object.keys(MODEL_FORMATS)];
 
 /**
  * WHAT A STORED UPLOAD IS, BY THE NAME OUR OWN SNIFFERS MINTED (2026-10-14):
@@ -142,11 +165,13 @@ export const UPLOAD_EXTS = ["png", "jpg", "webp", "gif", "pdf", ...Object.keys(Z
 export function uploadKind(name) {
   const ext = String(name || "").toLowerCase().split(".").pop();
   if (Object.hasOwn(MEDIA_FORMATS, ext)) return MEDIA_FORMATS[ext].kind;
+  if (Object.hasOwn(MODEL_FORMATS, ext)) return "model";
   if (ext === "pdf" || Object.hasOwn(ZIP_MEMBERS, ext)) return "doc";
   if (["png", "jpg", "webp", "gif"].includes(ext)) return "image";
   return null;
 }
 const isMediaKind = (k) => k === "video" || k === "audio";
+const isModelKind = (k) => k === "model";
 
 /**
  * Is a stored upload an IMAGE, by the name our own sniffer minted?
@@ -360,7 +385,9 @@ export async function handleUpload(deps, { slug, uid, bytes, filename } = {}) {
   const cap = maxBytesFor(kind);
   if (bytes.length > cap) {
     return json({
-      error: kind.kind === "doc"
+      error: kind.kind === "model"
+        ? "that 3D model is too big — keep it under 50 MB"
+        : kind.kind === "doc"
         ? "that file is too big — keep it under 10 MB"
         : "that image is too big — keep it under 5 MB",
       code: "too_big", max: cap,
@@ -373,7 +400,14 @@ export async function handleUpload(deps, { slug, uid, bytes, filename } = {}) {
 
   // THE PICTURES' AND DOCUMENTS' OWN LIMITS (2026-10-14): video and audio are
   // counted against theirs (`mediaLimits`), never against these.
-  const existing = (await deps.list(slug)).filter((o) => !(o && typeof o.key === "string" && isMediaKind(uploadKind(o.key.split("/").pop()))));
+  const all = await deps.list(slug);
+  const kindOfKey = (o) => (o && typeof o.key === "string" ? uploadKind(o.key.split("/").pop()) : null);
+  // A MODEL IS COUNTED AGAINST THE MODELS' OWN ALLOWANCE (2026-10-22); a
+  // picture or a document against theirs, as before.
+  const existing = all.filter((o) => {
+    const k = kindOfKey(o);
+    return isModelKind(kind.kind) ? isModelKind(k) : !(isMediaKind(k) || isModelKind(k));
+  });
   // Re-uploading the same picture is the same object. It must not count against
   // the cap, and must not fail when the site is full — the bytes are already
   // there, so refusing would be refusing to do nothing.
@@ -386,10 +420,14 @@ export async function handleUpload(deps, { slug, uid, bytes, filename } = {}) {
   }
 
   const used = existing.reduce((n, o) => n + (Number(o && o.size) || 0), 0);
-  if (existing.length >= MAX_FILES_PER_SITE) {
+  if (isModelKind(kind.kind)) {
+    if (existing.length >= MAX_MODEL_FILES_PER_SITE || used + bytes.length > MAX_MODEL_SITE_BYTES) {
+      return json({ error: "this site has reached its 3D model limit — delete some first", code: "full", max: existing.length >= MAX_MODEL_FILES_PER_SITE ? MAX_MODEL_FILES_PER_SITE : MAX_MODEL_SITE_BYTES }, 409);
+    }
+  } else if (existing.length >= MAX_FILES_PER_SITE) {
     return json({ error: "this site has reached its image limit — delete some first", code: "full", max: MAX_FILES_PER_SITE }, 409);
   }
-  if (used + bytes.length > MAX_SITE_BYTES) {
+  if (!isModelKind(kind.kind) && used + bytes.length > MAX_SITE_BYTES) {
     return json({ error: "this site is out of image storage — delete some first", code: "full", max: MAX_SITE_BYTES }, 409);
   }
 
@@ -424,7 +462,7 @@ export async function handleUploadList(deps, { slug, uid } = {}) {
     });
   // TWO ALLOWANCES, KEPT APART (2026-10-14): the pictures' and documents' own,
   // as it always was, and the video and audio's (`deps.mediaLimits`).
-  const still = files.filter((f) => !isMediaKind(f.kind));
+  const still = files.filter((f) => !isMediaKind(f.kind) && !isModelKind(f.kind));
   const media = files.filter((f) => isMediaKind(f.kind));
   const lim = deps.mediaLimits || null;
   return json({

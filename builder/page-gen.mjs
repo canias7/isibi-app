@@ -1258,7 +1258,9 @@ words. When it did, USE THE KIT'S \`Scene3D\` (\`import { Scene3D } from
 "@/components/ui/scene-3d"\`) rather than writing a raw \`<Canvas>\`: one object you can turn
 (\`shape\`, or \`src\` for an uploaded .glb), a required \`label\`, a fixed \`height\`, and a
 \`poster\` it shows before load, without WebGL and for reduced motion. Write
-\`import { Canvas } from "@react-three/fiber"\` only for what Scene3D cannot show. A canvas is the heaviest thing on
+\`import { Canvas } from "@react-three/fiber"\` only for what Scene3D cannot show. A 3D MODEL THE SITE ALREADY HAS
+(a stored \`.glb\` under \`/u/\`, made for them because they asked) is shown with Scene3D's \`src\` set to that
+address and its stored picture as \`poster\` — and only where they asked for it, never on your own initiative. A canvas is the heaviest thing on
 a page, it costs a visitor real download and real battery, and on a phone it is what makes a
 site feel slow. It earns its place by BEING what the business sells — a chair you can turn,
 a massing model — never by making a hero look expensive.

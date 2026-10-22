@@ -36,7 +36,7 @@ import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerImport
 import { MAX_IMPORT_BYTES } from "./site-csv.mjs";
 import { takeIdemKey, makeIdem, replayHeaders } from "./site-idem.mjs";
 import { placeAttachedPhotos, attachedFilesNote, ownPhotoFacts, ownPhotoSentence } from "./builder/attached-photos.mjs";
-import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_VISITOR_UPLOAD_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName, dispositionFor, readDownloadName, DOWNLOAD_NAME_KEY, uploadIsImage, uploadKind, UPLOAD_URL_PATH } from "./site-uploads.mjs";
+import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_MODEL_BYTES, MAX_VISITOR_UPLOAD_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName, dispositionFor, readDownloadName, DOWNLOAD_NAME_KEY, uploadIsImage, uploadKind, UPLOAD_URL_PATH } from "./site-uploads.mjs";
 import { MEDIA_PART_BYTES, MEDIA_DRAFT_MS, MEDIA_SESSION_MS, MEDIA_CACHE, MEDIA_FORMATS, mediaDesignNote, mediaErrorNote, mediaLimits, mediaKindOf, isMediaName, draftKey, siteScope, draftScope, readStoredMeta, parseRange, mediaHeaders, etagMatches, ifRangeHolds, handleMediaStart, handleMediaPart, handleMediaComplete, handleMediaAbort, handleMediaStatus, handleMediaDelete, holdMedia, releaseMedia, abortProven, pagesUsing, mediaBlock, mediaForModel } from "./site-media.mjs";
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
@@ -227,6 +227,7 @@ import { planWindow, compact as compactChat, COMPACT_AT } from "./builder/chat-c
 // data layer's gate cannot drift from the vocabulary again — it was compared
 // against "anyone", which is a WRITE level, and matched nothing on any site.
 const DISPLAY_PAIR = ACCESS_PRESETS.display;
+import { model3dPrice, model3dStart, model3dPoll } from "./builder/model3d-route.mjs";
 import { addonFailure, mergeAddonPages, mergeAddonSchema, unlinkedPages, keptPartsNote, unseenPartsNote, unseenPagesNote, routeOf, orderingMoved, settleReverted, problemsShipped } from "./builder/site-addon.mjs";
 import { resolveLangs } from "./builder/site-langs.mjs";
 import { collectStrings, missingFrom, nextCache, untranslated, translatePages, readTranslation, TRANSLATE_TOOL } from "./builder/site-translate.mjs";
@@ -11234,6 +11235,64 @@ export async function storeOwnPhoto(env, slug, name, bytes) {
   }
 }
 
+/**
+ * ANY FILE THE OWNER'S UPLOAD ROUTE TAKES, stored as one of theirs (2026-10-22,
+ * the 3D model's .glb, .usdz and poster): `handleUpload`, with its sniff and
+ * every cap. Answers `{ url, kind }` or `{ error }`; never throws.
+ */
+export async function storeOwnFile(env, slug, name, bytes) {
+  if (!env.SITES_BUCKET) return { error: "storage not configured" };
+  try {
+    const r = await handleUpload({
+      gate: async () => ({}),
+      hash: async (b) => {
+        const d = await crypto.subtle.digest("SHA-256", b);
+        return [...new Uint8Array(d)].map((x) => x.toString(16).padStart(2, "0")).join("");
+      },
+      list: async (s2) => siteUploadList(env, s2),
+      put: (key, b, ct, meta) => env.SITES_BUCKET.put(key, b, { httpMetadata: { contentType: ct }, ...(meta ? { customMetadata: meta } : {}) }),
+      remove: () => {},
+    }, { slug, uid: "", bytes, filename: name });
+    const j = r && r.body && typeof r.body === "object" ? r.body : null;
+    if (r && r.status < 300 && j && typeof j.url === "string") return { url: j.url, kind: j.kind };
+    return { error: String((j && j.error) || "it could not be stored").slice(0, 120) };
+  } catch (e) {
+    return { error: String((e && e.message) || e).slice(0, 120) };
+  }
+}
+
+/**
+ * THE 3D MODEL ROUTE'S STORES, LEDGER AND NETWORK (2026-10-22), for
+ * `builder/model3d-route.mjs`. The record of one request is
+ * `model3d/<slug>/<key>.json`, written over its etag when the finish claims it.
+ */
+function model3dDeps(env, { slug, uid, auth, origin }) {
+  const recKey = (k) => "model3d/" + slug + "/" + k + ".json";
+  return {
+    falKey: env.FAL_KEY || "",
+    off: String(env.MODEL3D_PURCHASES || "").toLowerCase() === "off",
+    origin,
+    fetch: (u, o) => fetch(u, { ...(o || {}), signal: AbortSignal.timeout(60000) }),
+    now: () => Date.now(),
+    readRecord: async (k) => {
+      const o = await env.SITES_BUCKET.get(recKey(k));
+      if (!o) return null;
+      try { return { rec: JSON.parse(await o.text()), etag: o.etag }; } catch { return null; }
+    },
+    writeRecord: async (k, rec, etag) => {
+      const put = await env.SITES_BUCKET.put(recKey(k), JSON.stringify(rec), { httpMetadata: { contentType: "application/json" }, ...(etag ? { onlyIf: { etagMatches: etag } } : {}) });
+      return put ? { ok: true, etag: put.etag } : { ok: false };
+    },
+    debit: (amount, ref) => debitCredits(auth, amount, ref, "model3d", false),
+    reverse: (ref, amount) => reverseCredits(env, uid, ref, "model3d-refund", amount),
+    balance: () => readCredits(auth),
+    storeFile: (name, bytes) => storeOwnFile(env, slug, name, bytes),
+    loadPages: () => loadSiteSourceForEdit(env, slug, { checked: true }),
+    publish: (pages, label) => recompileAndPublish(env, { slug, pages, label }),
+    routeOf,
+  };
+}
+
 async function siteUploadList(env, slug) {
   const out = [];
   let cursor;
@@ -11266,7 +11325,7 @@ async function siteUploadList(env, slug) {
 }
 
 /** The pictures and documents of a listing — what their own limits count (2026-10-14). */
-const stillUploads = (objs) => (Array.isArray(objs) ? objs : []).filter((o) => !(o && (o.kind === "video" || o.kind === "audio")));
+const stillUploads = (objs) => (Array.isArray(objs) ? objs : []).filter((o) => !(o && (o.kind === "video" || o.kind === "audio" || o.kind === "model")));
 /** A site's video and audio, as the models and the conversation are told them: address, kind, type, size, what the browser reported. */
 async function siteMediaFiles(env, slug) {
   const objs = await siteUploadList(env, slug);
@@ -32182,6 +32241,7 @@ async function handleRequest(request, env, ctx) {
           dependsOn: Array.isArray(routed.dependsOn) && routed.dependsOn.length ? routed.dependsOn : undefined,
           targets: Array.isArray(routed.targets) && routed.targets.length ? routed.targets : undefined,
           handOver: routed.intent === "addon" && routed.handOver ? routed.handOver : undefined,
+          model3d: routed.intent === "addon" && routed.model3d ? routed.model3d : undefined,
           question: prepQuestion,
           routeScope: rJob.routeScope || undefined,
         });
@@ -32459,6 +32519,8 @@ async function handleRequest(request, env, ctx) {
         // drives `readRouting` directly and worker.js cannot be imported.
         // WHICH PHONE, for a phone app of the site (2026-10-20); the page asks the app builder.
         platform: routed.intent === "app" ? routed.platform : undefined,
+        // A 3D MODEL THEY ASKED FOR (2026-10-22): the page shows its price and asks first.
+        model3d: routed.intent === "addon" && routed.model3d ? routed.model3d : undefined,
         layer: routed.intent === "edit" ? routed.layer : undefined,
         page: routed.intent === "edit" ? routed.page : undefined,
         // AND WHETHER THE PAGE IS BEING TAKEN AWAY — the SAME BUG as the two
@@ -33530,6 +33592,10 @@ async function handleRequest(request, env, ctx) {
       // THE SITE'S LIVE QUESTION (2026-10-02): read, so a reload can put a
       // waiting question back on the screen, and cancelled.
       const qu = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/question$/i);
+      // A 3D MODEL FOR THE SITE (2026-10-22, owner: Meshy 7.1 through fal,
+      // shown by the kit's Scene3D): the price, the paid generation and its
+      // finish. `builder/model3d-route.mjs`.
+      const m3d = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/model3d$/i);
       // EVERY owner-scoped matcher above has to appear here, and `dm2` did not —
       // so `/api/site/<slug>/domains` was dispatched by nothing and fell through
       // to the 404 at the bottom of the router. Custom domains were unreachable
@@ -33541,10 +33607,10 @@ async function handleRequest(request, env, ctx) {
       // so from outside the two are indistinguishable — which is how this
       // survived a live probe until the dispatch was read.
       // `test/api-auth.test.mjs` holds the list against the matchers now.
-      if (om || im || mm || an || uf || mdr || xp || nt || lv || sk || dm2 || vr || pb || sa || dd || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || qu) {
+      if (om || im || mm || an || uf || mdr || xp || nt || lv || sk || dm2 || vr || pb || sa || dd || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || qu || m3d) {
         // THE SLUG IS RESOLVED FIRST, because the replay identity below is scoped
         // to it. Nothing about deriving it depends on who is asking.
-        const ownerSlug = (om || im || mm || an || uf || mdr || xp || nt || lv || sk || dm2 || vr || pb || sa || dd || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || qu)[1].toLowerCase();
+        const ownerSlug = (om || im || mm || an || uf || mdr || xp || nt || lv || sk || dm2 || vr || pb || sa || dd || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || qu || m3d)[1].toLowerCase();
         // ── A QUEUED EDIT'S OWN REPLAY HAS NO BEARER TOKEN ──────────────────
         //
         // The consumer replays the customer's request minutes after they made
@@ -45473,6 +45539,29 @@ async function handleRequest(request, env, ctx) {
             }
             return Response.json({ ok: false, error: "method not allowed" }, { status: 405 });
           }
+          if (m3d) {
+            // ── A 3D MODEL (2026-10-22) ───────────────────────────────────
+            //
+            // Owner only, like every route here. The price first (GET
+            // ?estimate=1), then a debit of exactly that price under
+            // `model3d:<slug>:<key>` before fal's queue is asked anything, a
+            // reversal by that ref when the generation fails, and the finish
+            // (download, store, place, publish) on the poll that finds it done.
+            if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "storage not configured" }, { status: 501 });
+            const m3g = await assertOwner(ownerDeps, ownerSlug, ou.id);
+            if (m3g.error) return Response.json(m3g.error.body, { status: m3g.error.status });
+            const m3auth = request.headers.get("Authorization") || "";
+            const m3deps = model3dDeps(env, { slug: ownerSlug, uid: ou.id, auth: m3auth, origin: url.origin });
+            let m3r;
+            if (request.method === "GET" && url.searchParams.get("estimate") === "1") m3r = await model3dPrice(m3deps);
+            else if (request.method === "GET") m3r = await model3dPoll(m3deps, { slug: ownerSlug, key: url.searchParams.get("key") || "" });
+            else if (request.method === "POST") {
+              const m3body = await readJsonBody(request, { max: 12_000_000 });
+              if (!m3body.ok) return Response.json({ ok: false, error: m3body.error, cost: 0 }, { status: m3body.status });
+              m3r = await model3dStart(m3deps, { slug: ownerSlug, body: m3body.body });
+            } else return Response.json({ ok: false, error: "method not allowed" }, { status: 405 });
+            return Response.json(m3r.body, { status: m3r.status, headers: { "cache-control": "no-store" } });
+          }
           if (qu) {
             // ── THE SITE'S LIVE QUESTION (2026-10-02) ─────────────────────
             //
@@ -46498,7 +46587,8 @@ async function handleRequest(request, env, ctx) {
               // this refuses what could not be either and `handleUpload` decides
               // the rest once it knows.
               const cl = Number(request.headers.get("content-length") || 0);
-              if (cl && cl > MAX_DOC_BYTES) return Response.json({ error: "that file is too big — keep it under 10 MB", code: "too_big" }, { status: 413 });
+              // A 3D MODEL (2026-10-22) is the largest kind the route takes whole.
+              if (cl && cl > Math.max(MAX_DOC_BYTES, MAX_MODEL_BYTES)) return Response.json({ error: "that file is too big — keep it under 50 MB", code: "too_big" }, { status: 413 });
               const buf = await request.arrayBuffer();
               r = await handleUpload(udeps, {
                 slug: uslug, uid: ou.id, bytes: new Uint8Array(buf),

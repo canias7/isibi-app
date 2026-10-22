@@ -9095,7 +9095,7 @@ function renderSiteWorkspace(view, site) {
     const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
     thread.innerHTML = (site.msgs || []).map((m) => m.r === 'u'
       ? '<div class="st-msg u">' + esc(m.t) + '</div>'
-      : '<div class="st-msg a">' + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + (m.talkLive === true ? (Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, true) : '<div class="st-think"><i></i>Working on it</div>') : Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, false, true) : '') + siteMsgText(m, linkify) + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + '' + siteAskHTML(m, site) + (m.request ? siteRequestHTML(m, site) : '') + (m.jobCard ? siteJobCardHTML(m, site) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
+      : '<div class="st-msg a">' + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + (m.talkLive === true ? (Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, true) : '<div class="st-think"><i></i>Working on it</div>') : Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, false, true) : '') + siteMsgText(m, linkify) + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + '' + siteAskHTML(m, site) + siteModel3dHTML(m, site) + (m.request ? siteRequestHTML(m, site) : '') + (m.jobCard ? siteJobCardHTML(m, site) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
     ).join('') + (siteBusy
       ? (siteBuild
           ? '<div class="st-msg a st-busy st-busy-react">' + reactLiveStepsHTML() + '</div>'
@@ -9121,6 +9121,11 @@ function renderSiteWorkspace(view, site) {
       if (askGo && thread.contains(askGo)) { const v = sitePickTake(sitePickKeyLive(siteById(siteOpenId))); if (v) siteAskReply(v, true); return; }
       const askCancel = e.target.closest('[data-ask-cancel]');
       if (askCancel && thread.contains(askCancel)) { siteAskCancel(); return; }
+      // A 3D MODEL'S PRICE CARD (2026-10-22): Make it spends, Not now does not.
+      const m3Go = e.target.closest('[data-m3d-go]');
+      if (m3Go && thread.contains(m3Go)) { siteModel3dGo(site.id, m3Go.getAttribute('data-m3d-go')); return; }
+      const m3No = e.target.closest('[data-m3d-no]');
+      if (m3No && thread.contains(m3No)) { siteModel3dNo(site.id, m3No.getAttribute('data-m3d-no')); return; }
       // A REQUEST'S CARD (2026-10-03): a part's rewrite. (Its stop is the chatbox's, 2026-10-21.)
       const reqGo = e.target.closest('[data-req-approve]');
       if (reqGo && thread.contains(reqGo)) { siteRequestApprove(site.id, reqGo.getAttribute('data-req-approve'), Number(reqGo.getAttribute('data-req-part'))); return; }
@@ -10602,6 +10607,9 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // fine. Falls through to that revise only on the add-on route's own escalate
     // naming no layer; an answer it cannot read, or a refusal, is said instead,
     // as the edit's is (2026-09-24).
+    // A 3D MODEL THEY ASKED FOR (2026-10-22): its price first, and a button;
+    // nothing is spent until it is pressed (`siteModel3dOffer`).
+    if (d.intent === 'addon' && site.slug && d.model3d && typeof d.model3d.subject === 'string') return siteModel3dOffer(site, d.model3d, origin, finish, sendImgs);
     if (d.intent === 'addon' && site.slug) return siteAddon(site, run, origin, finish, go, d, sendImgs);
     // A PHONE APP OF THE SITE (2026-10-20, owner: "it has to be through model
     // calls"): the router read the message as asking for one; the app builder makes it.
@@ -12768,6 +12776,104 @@ function siteMakeApp(site, platform, finish) {
       finish('Your Android app \u201c' + (d.name || slug) + '\u201d is ready (' + mb + ' MB) and downloading as ' + slug + '.apk. Open it on an Android phone to install it. (This is a test build you install directly; a Play Store version is coming.)');
     })
     .catch(() => finish('The app builder could not be reached. Nothing on your site changed \u2014 try again in a minute.'));
+}
+// ── A 3D MODEL (2026-10-22, owner: Meshy 7.1 through fal, shown by Scene3D) ──
+//
+// The router answered an addition with `model3d`. The price comes from the
+// server (`GET …/model3d?estimate=1`) and is shown on a button, the deep
+// scan's way: nothing is charged until "Make it" is pressed. Then the model is
+// started (`POST`), asked after every few seconds with a line saying what is
+// happening, and the reply names what it cost. A photograph to make 3D is kept
+// in this page's memory only, never in saved chats (it can be megabytes).
+const model3dPhotos = {};
+const MODEL3D_POLL_MS = 6000;
+function model3dKey() {
+  const b = new Uint8Array(12);
+  try { crypto.getRandomValues(b); } catch (e) { for (let i = 0; i < b.length; i++) b[i] = Math.floor(Math.random() * 256); }
+  return 'm3' + Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+}
+function model3dPageName(p) { return p === '/' || !p ? 'the home page' : p; }
+async function siteModel3dOffer(site, m, origin, finish, imgs) {
+  const slug = site.slug;
+  let est = null;
+  try {
+    const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/model3d?estimate=1');
+    const d = await r.json().catch(() => null);
+    if (r.ok && d && d.estimate && Number.isFinite(d.estimate.credits)) est = d;
+  } catch (e) { est = null; }
+  if (!est) { finish('I couldn\u2019t get the price of a 3D model just now. Nothing was charged \u2014 try again in a moment.'); return; }
+  const key = model3dKey();
+  if (m.from === 'photo') {
+    const img = Array.isArray(imgs) ? imgs.find((x) => typeof x === 'string' ? /^data:image\//.test(x) : x && typeof x.data === 'string' && /^data:image\//.test(x.data)) : null;
+    if (!img) { finish('Attach the photograph you want made into a 3D model, then ask again. Nothing was charged.'); return; }
+    model3dPhotos[key] = typeof img === 'string' ? img : img.data;
+  }
+  const n = est.estimate.credits;
+  const usd = Number.isFinite(est.estimate.usd) ? ' (about $' + est.estimate.usd.toFixed(2) + ')' : '';
+  finish('I can make a 3D model of ' + m.subject + (m.from === 'photo' ? ' from your photo' : '') + ' and put it on ' + model3dPageName(m.page) + ' \u2014 visitors can drag to turn it. It costs ' + n + ' credits' + usd + '. Nothing is charged until you press Make it, and if it can\u2019t be made the credits come back.');
+  const s = siteById(origin);
+  const last = s && s.msgs.length ? s.msgs[s.msgs.length - 1] : null;
+  if (!last) return;
+  last.m3d = { key, subject: m.subject, page: m.page || '/', from: m.from, credits: n, state: 'offer', balance: Number.isFinite(est.balance) ? est.balance : null };
+  sitesSave();
+  if (siteOpenId === origin) renderSites();
+}
+function siteModel3dHTML(m, site) {
+  if (!m || !m.m3d || m.m3d.state !== 'offer') return '';
+  const k = esc(m.m3d.key);
+  const short = Number.isFinite(m.m3d.balance) && m.m3d.balance < m.m3d.credits;
+  return '<div class="st-m3d">' +
+    '<button type="button" class="st-m3d-go" data-m3d-go="' + k + '"' + (short ? ' disabled' : '') + '>Make it \u00b7 ' + esc(String(m.m3d.credits)) + ' credits</button>' +
+    '<button type="button" class="st-pick-cancel" data-m3d-no="' + k + '">Not now</button>' +
+    (short ? '<div class="st-m3d-note">You have ' + esc(String(m.m3d.balance)) + ' credits \u2014 top up to make it.</div>' : '') +
+    '</div>';
+}
+function model3dMsg(s, key) { return s && Array.isArray(s.msgs) ? s.msgs.find((x) => x && x.m3d && x.m3d.key === key) : null; }
+function siteModel3dNo(origin, key) {
+  const s = siteById(origin); const m = model3dMsg(s, key);
+  if (!m) return;
+  m.m3d.state = 'declined'; delete model3dPhotos[key];
+  s.msgs.push({ r: 'a', t: 'Okay \u2014 no 3D model, and nothing was charged.' });
+  sitesSave(); if (siteOpenId === origin) renderSites();
+}
+async function siteModel3dGo(origin, key) {
+  const s = siteById(origin); const m = model3dMsg(s, key);
+  if (!s || !m || m.m3d.state !== 'offer' || !s.slug) return;
+  const slug = s.slug;
+  m.m3d.state = 'making';
+  const live = { r: 'a', t: '', talkLive: true, prog: [{ text: 'Making your 3D model\u2026' }] };
+  s.msgs.push(live);
+  sitesSave(); if (siteOpenId === origin) renderSites();
+  const line = (t) => { live.prog = live.prog.concat([{ text: t }]).slice(-6); sitesSave(); if (siteOpenId === origin) renderSites(); };
+  const end = (t) => {
+    live.talkLive = false; live.t = t;
+    m.m3d.state = 'done'; delete model3dPhotos[key];
+    sitesSave(); if (siteOpenId === origin) renderSites();
+    if (typeof fetchCredits === 'function') fetchCredits();
+  };
+  let d = null;
+  try {
+    const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/model3d', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, prompt: m.m3d.subject, page: m.m3d.page, label: m.m3d.subject, ...(model3dPhotos[key] ? { image: model3dPhotos[key] } : {}) }) });
+    d = await r.json().catch(() => null);
+    if (!r.ok || !d || d.ok !== true) { end((d && typeof d.error === 'string' && d.error) || 'The 3D model couldn\u2019t be started. Nothing was charged.'); return; }
+  } catch (e) { end('Lost the connection before the 3D model started. If it was charged, the credits come back when it can\u2019t be made \u2014 ask me again in a minute.'); return; }
+  if (d.cost > 0) line('Started \u2014 ' + d.cost + ' credits reserved. This usually takes a few minutes.');
+  const t0 = Date.now();
+  let said = '';
+  for (;;) {
+    await new Promise((res) => setTimeout(res, MODEL3D_POLL_MS));
+    let g = null;
+    try { const r2 = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/model3d?key=' + encodeURIComponent(key)); g = await r2.json().catch(() => null); } catch (e) { continue; }
+    if (!g) continue;
+    if (g.state === 'done') { end(typeof g.reply === 'string' ? g.reply : 'Your 3D model is ready.'); return; }
+    if (g.state === 'failed') { end(typeof g.reply === 'string' ? g.reply : (g.error || 'The 3D model couldn\u2019t be made.')); return; }
+    const mins = Math.floor((Date.now() - t0) / 60000);
+    const next = g.state === 'finishing' ? 'Saving it to your files and putting it on ' + model3dPageName(m.m3d.page) + '\u2026'
+      : Number.isInteger(g.position) && g.position > 0 ? 'Waiting in line at the 3D service (' + g.position + ' ahead)\u2026'
+      : 'Shaping and texturing the model' + (mins ? ' \u2014 ' + mins + ' min so far' : '') + '\u2026';
+    if (next !== said) { said = next; line(next); }
+  }
 }
 // The middle rung: add a page or a table, keep everything else.
 //
