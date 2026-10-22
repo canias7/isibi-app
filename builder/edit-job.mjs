@@ -1021,7 +1021,10 @@ export const JOB_ENV_NAMES = [
   // THE VIDEO AND AUDIO LIMITS (2026-10-16): a build in the container moves a
   // project's pre-site files into its library against them.
   "MEDIA_MAX_VIDEO_BYTES", "MEDIA_MAX_AUDIO_BYTES", "MEDIA_MAX_SITE_BYTES", "MEDIA_MAX_SITE_FILES", "MEDIA_MAX_DRAFT_FILES",
-  "NEON_API_KEY", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "SITE_SECRETS_KEY",
+  // NOT SITE_SECRETS_KEY (audit finding 31, 2026-10-22): it decrypts every
+  // owner's stored secrets and was the root of the gateway's token key; no job
+  // reads a vault. Nor GATEWAY_SIGNING_KEY. Both are in LAUNCH_NEVER.
+  "NEON_API_KEY", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID",
   "SITE_WORKERS_NAMESPACE", "SITE_WORKERS_API_ACCOUNT", "SITES_BUCKET_NAME", "SAAS_FALLBACK_ORIGIN", "EMAIL_FROM",
   "EDIT_ASYNC", "EDIT_ASYNC_CANARY", "EDIT_ASYNC_EVERYONE",
   // THE PUBLISH TURN'S PACE AND ITS WAIT LIMIT (2026-10-18, review of audit

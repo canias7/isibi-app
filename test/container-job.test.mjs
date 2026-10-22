@@ -389,10 +389,10 @@ test("the secrets a job carries are the ones the edit path reads — the RPC hel
   for (const m of svc.matchAll(/env\.([A-Z][A-Z0-9_]+)/g)) reads.push(m[1]);
   const jobEnv = makeContainerEnv({ secrets: jobSecrets({ XAI_API_KEY: "x" }), gateway: { url: "https://gofarther.dev/api/job/" + ID, token: "t" }, sb: { url: SB }, fetch: async () => new Response(null, { status: 404 }) });
   for (const name of reads) assert.ok(JOB_ENV_NAMES.includes(name) || jobEnv[name] === SB_MARKER, "the edit RPCs read env." + name + " and the job env neither carries it nor marks it");
-  for (const must of ["XAI_API_KEY", "ANTHROPIC_API_KEY", "FAL_KEY", "NEON_API_KEY", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "SITE_SECRETS_KEY"]) {
+  for (const must of ["XAI_API_KEY", "ANTHROPIC_API_KEY", "FAL_KEY", "NEON_API_KEY", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]) {
     assert.ok(JOB_ENV_NAMES.includes(must), must + " is not handed to the job");
   }
-  for (const never of ["SUPABASE_SERVICE_KEY", "CREDITS_MINT_SECRET", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "COMPOSIO_API_KEY", "DOMAIN_CONNECT_KEY", "SITES_BUCKET", "BUILD_QUEUE", "EMAIL"]) {
+  for (const never of ["SUPABASE_SERVICE_KEY", "CREDITS_MINT_SECRET", "SITE_SECRETS_KEY", "GATEWAY_SIGNING_KEY", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "COMPOSIO_API_KEY", "DOMAIN_CONNECT_KEY", "SITES_BUCKET", "BUILD_QUEUE", "EMAIL"]) {
     assert.ok(!JOB_ENV_NAMES.includes(never), never + " has no business inside the container");
   }
   const env = { SUPABASE_SERVICE_KEY: "svc", CREDITS_MINT_SECRET: "m", STRIPE_SECRET_KEY: "sk", XAI_API_KEY: "", FAL_KEY: 42, SITES_BUCKET: {}, NEON_API_KEY: "neon" };
@@ -496,7 +496,8 @@ test("with the canary naming the site, the consumer FIRES the job at the site's 
   // stage 4b never the service key or the mint, which the Worker's env holds.
   assert.equal("SUPABASE_SERVICE_KEY" in launch.secrets, false, "the service key travelled into the container");
   assert.equal("CREDITS_MINT_SECRET" in launch.secrets, false, "the mint secret travelled into the container");
-  assert.equal(launch.secrets.SITE_SECRETS_KEY, "platform-secret");
+  // AND NEVER THE GATEWAY'S KEY OR THE VAULT'S (audit finding 31).
+  assert.equal("SITE_SECRETS_KEY" in launch.secrets, false, "the secrets key travelled into the container");
   assert.equal("STRIPE_SECRET_KEY" in launch.secrets, false, "a Stripe key travelled into the container");
   assert.equal(call.body.includes("svc"), false, "the service key is somewhere in the launch");
   assert.equal(call.body.includes("mint"), false, "the mint is somewhere in the launch");
@@ -787,4 +788,63 @@ test("fireOutcome: every answer judged by what it MEANS, and an unknown one neve
   // AND THE CUSTOMER'S SENTENCE SAYS THE TWO THINGS THEY NEED.
   assert.match(NO_CONTAINER_MSG, /nothing was charged/i, "the refusal does not say nothing was charged");
   assert.match(NO_CONTAINER_MSG, /try again/i, "the refusal does not say what to do");
+});
+
+// ── audit finding 31 (A16-1, A12-7): the gateway's key is the Worker's alone ──
+
+const OWN_KEY = "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0";
+
+test("finding 31: with GATEWAY_SIGNING_KEY set, the real gateway refuses a token forged from SITE_SECRETS_KEY and opens one signed with its own key", async () => {
+  const worker = await loadWorker();
+  const bucket = fakeBucket({ ["sites/" + SLUG + "/index.html"]: "<h1>hi</h1>" });
+  const env = { SITES_BUCKET: bucket, SITE_SECRETS_KEY: "platform-secret", GATEWAY_SIGNING_KEY: OWN_KEY };
+  const exp = Math.floor(Date.now() / 1000) + 600;
+  const hit = (token, e) => worker.fetch(new Request("https://" + APP_ZONE + "/api/job/" + ID + "/r2?key=" + encodeURIComponent("sites/" + SLUG + "/index.html"), { headers: { authorization: "Bearer " + token } }), e, makeCtx());
+  // What a job process could forge before this fix: it held SITE_SECRETS_KEY.
+  const forged = await signJobToken({ id: ID, slug: SLUG, uid: UID, exp }, await gatewayKey("platform-secret"));
+  assert.equal((await hit(forged, env)).status, 401, "a token derived from SITE_SECRETS_KEY still opens the gateway");
+  const own = await signJobToken({ id: ID, slug: SLUG, uid: UID, exp }, await gatewayKey(OWN_KEY));
+  const ok = await hit(own, env);
+  assert.equal(ok.status, 200, await ok.text());
+  // The placeholder the deploy sends for an unset secret is not a key: the
+  // gateway falls back to SITE_SECRETS_KEY, and a token from the placeholder is refused.
+  const unset = { ...env, GATEWAY_SIGNING_KEY: "not-a-key" };
+  assert.equal((await hit(forged, unset)).status, 200, "with the dedicated key unset, the fallback did not verify");
+  const fromPlaceholder = await signJobToken({ id: ID, slug: SLUG, uid: UID, exp }, await gatewayKey("not-a-key"));
+  assert.equal((await hit(fromPlaceholder, unset)).status, 401, "the placeholder was used as a key");
+});
+
+test("finding 31: the fire mints with GATEWAY_SIGNING_KEY and hands the job neither it nor SITE_SECRETS_KEY", async () => {
+  const { ns } = await drive({ env: { SITE_SECRETS_KEY: "platform-secret", GATEWAY_SIGNING_KEY: OWN_KEY, JOB_RUNNER_CANARY: SLUG } });
+  assert.equal(ns.calls.length, 1, "the job was not fired");
+  const launch = JSON.parse(ns.calls[0].body);
+  assert.ok(await verifyJobToken(launch.gateway.token, await gatewayKey(OWN_KEY), Date.now()), "the fire did not sign with the dedicated key");
+  assert.equal(await verifyJobToken(launch.gateway.token, await gatewayKey("platform-secret"), Date.now()), null, "the fire signed with the SITE_SECRETS_KEY derivation");
+  assert.equal("SITE_SECRETS_KEY" in launch.secrets, false, "SITE_SECRETS_KEY travelled into the container");
+  assert.equal("GATEWAY_SIGNING_KEY" in launch.secrets, false, "GATEWAY_SIGNING_KEY travelled into the container");
+  // And the runner refuses a launch that carries either, by name.
+  for (const name of ["SITE_SECRETS_KEY", "GATEWAY_SIGNING_KEY"]) {
+    assert.throws(() => readLaunch(JSON.stringify({ ...launch, secrets: { ...launch.secrets, [name]: "leak" } })), new RegExp(name), name + " was accepted in a launch");
+  }
+});
+
+test("finding 31: every name the gateway's key derivation reads is kept off the job's list, and the Worker reads the key only through gatewaySecretOf", async () => {
+  const gw = await import("../builder/job-gateway.mjs");
+  assert.ok(Array.isArray(gw.GATEWAY_KEY_NAMES) && typeof gw.gatewaySecretOf === "function", "job-gateway.mjs no longer names the gateway key's sources");
+  const GW = readFileSync(new URL("builder/job-gateway.mjs", ROOT), "utf8");
+  const at = GW.indexOf("export function gatewaySecretOf(");
+  assert.ok(at > 0, "gatewaySecretOf was not found");
+  const body = noComments(GW).slice(at, GW.indexOf("\n}\n", at));
+  const reads = [...body.matchAll(/env\.([A-Z][A-Z0-9_]+)/g)].map((m) => m[1]);
+  assert.ok(reads.length >= 2, "gatewaySecretOf's reads were not found");
+  for (const name of reads) assert.ok(gw.GATEWAY_KEY_NAMES.includes(name), name + " is read for the key but not named in GATEWAY_KEY_NAMES");
+  for (const name of gw.GATEWAY_KEY_NAMES) assert.equal(JOB_ENV_NAMES.includes(name), false, name + " is handed to every job");
+  const all = Object.fromEntries(JOB_ENV_NAMES.map((n) => [n, "v"]));
+  const jobEnv = makeContainerEnv({ secrets: jobSecrets({ ...all, SITE_SECRETS_KEY: "k", GATEWAY_SIGNING_KEY: OWN_KEY }), gateway: { url: "https://gofarther.dev/api/job/" + ID, token: "t" }, sb: { url: SB }, fetch: async () => new Response(null, { status: 404 }) });
+  assert.equal(gw.gatewaySecretOf(jobEnv), null, "a job's env can derive the gateway key");
+  const wat = WORKER.indexOf("async function gatewayKeyFor(");
+  assert.ok(wat > 0, "gatewayKeyFor was not found");
+  const gk = noComments(WORKER).slice(wat, WORKER.indexOf("\n}\n", wat));
+  assert.match(gk, /gatewaySecretOf\(env\)/, "gatewayKeyFor no longer reads through gatewaySecretOf");
+  assert.doesNotMatch(gk, /env\.[A-Z]/, "gatewayKeyFor reads an env name directly");
 });

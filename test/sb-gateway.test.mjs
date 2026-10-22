@@ -371,7 +371,7 @@ test("THE REAL CONSUMER INSIDE A CONTAINER ENV: its claim, its takeover and its 
     if (u.hostname === "gofarther.dev" && u.pathname.startsWith("/api/job/")) return handle(new Request(u.toString(), init), gatewayJobId(u.pathname));
     return new Response("unreachable", { status: 503 });
   };
-  const launch = readLaunch(JSON.stringify({ v: 2, kind: "edit", id: JOB.id, gateway: { url: gatewayUrl, token }, sb: { url: SB_URL }, secrets: { SITE_SECRETS_KEY: "platform-secret", XAI_API_KEY: "xai" }, holder: "c_consumer0001" }));
+  const launch = readLaunch(JSON.stringify({ v: 2, kind: "edit", id: JOB.id, gateway: { url: gatewayUrl, token }, sb: { url: SB_URL }, secrets: { XAI_API_KEY: "xai" }, holder: "c_consumer0001" }));
   const realFetch = globalThis.fetch;
   globalThis.fetch = transport;
   const logs = [];
@@ -428,9 +428,9 @@ test("a v2 launch names the Supabase origin and carries no Supabase credential; 
   assert.throws(() => readLaunch(JSON.stringify({ ...good, sb: { url: "ftp://x" } })), /supabase origin/);
   assert.throws(() => readLaunch(JSON.stringify({ ...good, sb: { url: "" } })), /supabase origin/);
   for (const never of LAUNCH_NEVER) {
-    assert.throws(() => readLaunch(JSON.stringify({ ...good, secrets: { ...good.secrets, [never]: "leak" } })), new RegExp("no Supabase credential.*" + never), never + " travelled in a v2 launch");
+    assert.throws(() => readLaunch(JSON.stringify({ ...good, secrets: { ...good.secrets, [never]: "leak" } })), new RegExp("no Supabase credential or gateway key.*" + never), never + " travelled in a v2 launch");
   }
-  assert.deepEqual(LAUNCH_NEVER, ["SUPABASE_SERVICE_KEY", "CREDITS_MINT_SECRET"]);
+  assert.deepEqual(LAUNCH_NEVER, ["SUPABASE_SERVICE_KEY", "CREDITS_MINT_SECRET", "GATEWAY_SIGNING_KEY", "SITE_SECRETS_KEY"]);
 });
 
 test("runJob puts the gateway fetch in front of the process before the import and the env, hands the env the markers, and puts the process's fetch back after", async () => {
@@ -489,7 +489,7 @@ test("the env: with a Supabase origin the two names carry the marker whatever th
 
 test("the secrets list no longer carries the service key or the mint, and jobSecrets never lets either travel — the RPC helper's reads are met by the markers", () => {
   for (const never of LAUNCH_NEVER) assert.equal(JOB_ENV_NAMES.includes(never), false, never + " is still handed to the job");
-  assert.deepEqual(jobSecrets({ SUPABASE_SERVICE_KEY: "svc", CREDITS_MINT_SECRET: "m", XAI_API_KEY: "x", SITE_SECRETS_KEY: "k" }), { XAI_API_KEY: "x", SITE_SECRETS_KEY: "k" });
+  assert.deepEqual(jobSecrets({ SUPABASE_SERVICE_KEY: "svc", CREDITS_MINT_SECRET: "m", XAI_API_KEY: "x", SITE_SECRETS_KEY: "k", GATEWAY_SIGNING_KEY: "g".repeat(64) }), { XAI_API_KEY: "x" });
   // DERIVED: every `env.X` the RPC helper and the header builder read must be
   // a listed secret OR a name the env fills with the marker — the helpers'
   // own presence checks pass, and the shim is what carries the difference.

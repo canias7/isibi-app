@@ -35,6 +35,18 @@ Each finding was checked again against today's code first. Branch `claude/audit-
 - **Still not covered:** a booking made through a function (the "class holds 12 people" kind) sends no email, text or webhook. The builder is now told this, and the add-on reply no longer claims it. It's in the backlog.
 - Everything is always sent on your customer's own keys, never ours. Nothing was spent, sent, merged or deployed. Record: `docs/history/2026-10-22-audit-mail.md`.
 
+## 2026-10-22 — Audit finding 31: container jobs no longer hold the key that signs their passes and unlocks every site's stored keys (you: fix finding 31)
+
+- **It was real.** Every job sent to a site's container was handed `SITE_SECRETS_KEY`. That one value did two things: it made the passes (tokens) jobs use to reach our storage and database, and it unlocks every site owner's stored keys (Stripe, mail, texts). So anything that broke out inside a job could have made a pass for any site or account, and read and unlocked any owner's Stripe key.
+- **No job needed it.** Every place that unlocks a stored key is the Worker itself (checkout, mail, texts, the data panel, the scheduler), never a build, edit or add-on job. So nothing new is fetched for jobs.
+- **What changed:**
+  - jobs are no longer handed `SITE_SECRETS_KEY`, and the container refuses to start a job that carries it, or the new key below;
+  - passes are signed with a key only the Worker holds: `GATEWAY_SIGNING_KEY` when you set it, otherwise made from `SITE_SECRETS_KEY` as before (which no job holds any more);
+  - the deploy lists `GATEWAY_SIGNING_KEY` with a placeholder, so the deploy keeps working before you add it.
+- **For you, before or after deploy (optional but recommended):** add a GitHub Actions secret named `GATEWAY_SIGNING_KEY` (64 hex characters, `openssl rand -hex 32`). Adding it later ends the passes of jobs running at that moment, once; nothing stored depends on it.
+- Tests: 3 new cases in `test/container-job.test.mjs`, one through the real gateway (a pass made from `SITE_SECRETS_KEY` is refused once the new key is set). They fail on the old code. Five older cases updated by name (they required the key to travel). Sweep and full-suite numbers are in `docs/history/2026-10-22-audit-finding-31.md`.
+- Not merged or deployed.
+
 ## 2026-10-21 — Phase D, Android: the real app downloads as an APK (you: "can u do it like in our platform how a customer will do it")
 
 - The app builder can now build a real Expo app into an Android app (`/expo-android`): the same typecheck, then Expo writes the native project and Gradle builds it offline against libraries the image warms once.

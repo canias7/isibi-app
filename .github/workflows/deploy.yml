@@ -203,6 +203,7 @@ jobs:
             SUPABASE_SERVICE_KEY
             NEON_API_KEY
             SITE_SECRETS_KEY
+            GATEWAY_SIGNING_KEY
             CLOUDFLARE_API_TOKEN
             CLOUDFLARE_ACCOUNT_ID
             DOMAIN_CONNECT_KEY
@@ -298,6 +299,17 @@ jobs:
           # writes v1. What is NOT safe is changing it once secrets exist under
           # it; that strands them, and there is no recovery but re-pasting keys.
           SITE_SECRETS_KEY: ${{ secrets.SITE_SECRETS_KEY }}
+          # THE JOB GATEWAY'S OWN SIGNING KEY (audit finding 31, 2026-10-22).
+          # Signs and verifies the tokens container jobs carry; the Worker's
+          # alone, never handed to a job (builder/job-gateway.mjs
+          # `GATEWAY_KEY_NAMES`, refused at launch by `LAUNCH_NEVER`). Generate
+          # with `openssl rand -hex 32`. OPTIONAL, hence the fallback (the rule
+          # under DOMAIN_CONNECT_KEY below): unset, `not-a-key` is shorter than
+          # the 32 characters the Worker requires, so it reads as unset and the
+          # key is derived from SITE_SECRETS_KEY as before (which no job holds
+          # any more either). Setting or changing it ends the tokens of jobs
+          # running at that moment, once; nothing stored depends on it.
+          GATEWAY_SIGNING_KEY: ${{ secrets.GATEWAY_SIGNING_KEY || 'not-a-key' }}
           # CUSTOM DOMAINS. The same token wrangler already deploys with, now
           # also uploaded TO the Worker so it can call the Cloudflare for SaaS
           # custom-hostnames API at request time. No new secret to mint or

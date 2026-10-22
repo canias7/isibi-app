@@ -38,6 +38,7 @@ import { makeContainerEnv, makeContainerCtx, gatewayFetch } from "./container-en
 import { longPost } from "./long-post.mjs";
 import { readDeadline, JOB_STOP_GRACE_MS, STOPPED_EXIT_CODE } from "./job-clock.mjs";
 import { PROBE_KIND, runProbe } from "./job-probe.mjs";
+import { GATEWAY_KEY_NAMES } from "./job-gateway.mjs";
 
 /**
  * THE TWO NAMES A LAUNCH MAY NOT CARRY (stage 4b, 2026-09-06). The service
@@ -48,7 +49,12 @@ import { PROBE_KIND, runProbe } from "./job-probe.mjs";
  * launch (the one Worker before this) carried them, and a runner of this
  * version answers it 400, which is that Worker's inline path.
  */
-export const LAUNCH_NEVER = ["SUPABASE_SERVICE_KEY", "CREDITS_MINT_SECRET"];
+//
+// AND THE GATEWAY'S KEY NAMES (audit finding 31, 2026-10-22): a process that
+// held one could sign a token for any job, site and account, and
+// SITE_SECRETS_KEY also opens every owner's stored secrets. No job reads a
+// vault: every decrypt is a Worker route, the data proxy or the cron.
+export const LAUNCH_NEVER = ["SUPABASE_SERVICE_KEY", "CREDITS_MINT_SECRET", ...GATEWAY_KEY_NAMES];
 
 /** The launch payload, checked. Throws on anything this runner cannot run. */
 export function readLaunch(raw) {
@@ -78,7 +84,7 @@ export function readLaunch(raw) {
   if (!sb || typeof sb !== "object" || typeof sb.url !== "string" || !/^https?:\/\/[^/]+/.test(sb.url)) throw new Error("launch has no supabase origin for the gateway");
   const secrets = {};
   for (const [k, v] of Object.entries(p.secrets && typeof p.secrets === "object" ? p.secrets : {})) if (typeof v === "string") secrets[k] = v;
-  for (const never of LAUNCH_NEVER) if (Object.hasOwn(secrets, never)) throw new Error("a v2 launch carries no Supabase credential, and this one sent " + never);
+  for (const never of LAUNCH_NEVER) if (Object.hasOwn(secrets, never)) throw new Error("a v2 launch carries no Supabase credential or gateway key, and this one sent " + never);
   const buildPort = Number(p.buildPort) || 8080;
   // THE LEASE'S HOLDER (stage 6): the Worker's consumer claims the row before
   // it fires, so the site's lock has answered before a container is asked,
