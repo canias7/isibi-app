@@ -40604,7 +40604,12 @@ async function handleRequest(request, env, ctx) {
             // the loop folds into the whole site, `aSiteFor` into a designer's
             // own view of it, in the same order (`aFolded`).
             const aFolded = [];
+            // A JOB ANSWER'S OWN FUNCTIONS (owner, 2026-10-22, option B),
+            // keyed by the cleaned job list: every fold of that list folds
+            // them first, so a designer shown the job is shown its function.
+            const aJobFns = new WeakMap();
             const aFoldInto = (st, k, value) => {
+              if (k === "job" && value && aJobFns.has(value)) aFoldInto(st, "function", aJobFns.get(value));
               const tier = SPEC_OF_KIND[k];
               if (tier) {
                 st.spec = proposedSpec(st.spec, k, value);
@@ -42240,6 +42245,7 @@ async function handleRequest(request, env, ctx) {
                 const clean = cleanAdd(j, ran.value, { ...site, today: aToday });
                 // REFUSED BY ITS OWN CLEANER: never ready, and never reused.
                 if (!clean || !clean.ok) { if (!clean || clean.why !== "nothing") rejectReply(ran.raw, "add:" + ((clean && clean.why) || "unclean")); return; }
+                if (j === "job" && Array.isArray(clean.functions) && clean.functions.length) aJobFns.set(clean.value, clean.functions);
                 aReady.set(j, aChanges(j) ? clean.value : undefined);
                 aStartReady();
               } catch { /* its turn decides it */ }
@@ -42538,8 +42544,25 @@ async function handleRequest(request, env, ctx) {
                 // WHAT THE MODEL DECLARED, and what really goes into the engine
                 // keyed by NAME — never by position, because a cleaner that
                 // refuses one item shifts every index behind it.
+                // A JOB'S OWN `function` IS AUDITED AS A FUNCTION (below), not
+                // as an unknown key of the job.
                 const mine = (Array.isArray(ran.value) ? ran.value : [ran.value])
-                  .map(itemOf).filter((t) => t && typeof t === "object" && t.name);
+                  .map(itemOf).filter((t) => t && typeof t === "object" && t.name)
+                  .map((t) => (k === "job" && Object.hasOwn(t, "function") ? (({ function: _f, ...rest }) => rest)(t) : t));
+                const ownFns = k === "job" && Array.isArray(clean.functions) ? clean.functions : [];
+                if (ownFns.length) {
+                  const names = new Set(ownFns.map((f) => f.name));
+                  const fMine = (Array.isArray(ran.value) ? ran.value : [ran.value])
+                    .map((t) => (t && typeof t === "object" ? t.function : null))
+                    .filter((f) => f && typeof f === "object" && typeof f.name === "string" && names.has(f.name.trim().toLowerCase()));
+                  const fAudit = auditTier({ functions: fMine }, "function", proposedSpec(aProposed, "function", ownFns),
+                    { sent: new Map(ownFns.map((f) => [String(f.name).toLowerCase(), f])) });
+                  for (const n of fAudit.reached) aBadProps.add(n);
+                  for (const n of fAudit.refused) aBadProps.add(n);
+                  for (const n of fAudit.unexpressed) aUnexpressed.add(n);
+                  for (const n of fAudit.changed) aChanged.add(n);
+                  if (fAudit.unbuilt.length) { aUnbuilt.function = [...(aUnbuilt.function || []), ...fAudit.unbuilt]; aFailedKinds.add("function"); }
+                }
                 const sent = new Map((Array.isArray(clean.value) ? clean.value : [clean.value])
                   .map(itemOf).filter((t) => t && typeof t === "object" && t.name)
                   .map((t) => [String(t.name).toLowerCase(), t]));
@@ -42557,7 +42580,8 @@ async function handleRequest(request, env, ctx) {
                   // customer it "could not be created". `withJobDeps` is the
                   // one rule both now read; a public function and a name nobody
                   // declared are still dropped and still reported.
-                  const withMine = proposedSpec(aProposed, k, clean.value);
+                  // …WITH THE JOB'S OWN FUNCTIONS, so a job naming one is not dropped as unbuilt.
+                  const withMine = proposedSpec(ownFns.length ? proposedSpec(aProposed, "function", ownFns) : aProposed, k, clean.value);
                   const context = k === "job" ? withJobDeps(withMine) : withMine;
                   const audit = auditTier({ [tier]: mine }, k, context, { sent });
                   for (const n of audit.reached) aBadProps.add(n);
@@ -42612,6 +42636,14 @@ async function handleRequest(request, env, ctx) {
                 if (d && typeof d === "object") aDropped.set(String(d.what) + ":" + String(d.name), d);
               }
               for (const sk of Array.isArray(clean.skipped) ? clean.skipped : []) aNotAdded.push({ kind: k, ...sk, msg: addRefusal(sk.why, k) });
+              // A JOB'S OWN FUNCTIONS ARE THE ADDITION'S FUNCTIONS (owner,
+              // 2026-10-22, option B): one more `function` answer, before the
+              // job, so the fold, the schema, the reply and the draft all carry
+              // them exactly as a separately designed function.
+              if (k === "job" && Array.isArray(clean.functions) && clean.functions.length) {
+                aAnswers.push({ kind: "function", value: clean.functions, requirements: [] });
+                aJobFns.set(clean.value, clean.functions);
+              }
               aAnswers.push({ kind: k, value: clean.value, requirements: ran.requirements });
               // THE DESIGN, AS A MILESTONE: what this kind will be, from the
               // cleaned answer itself, and what is designed or built next.

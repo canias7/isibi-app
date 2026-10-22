@@ -23,8 +23,10 @@ test("AJF1 THE JOB RULE NEVER INVITES A FUNCTION IT CANNOT DECLARE — the name 
   assert.ok(/scheduled job/i.test(rule), "the job rule was not read");
   assert.ok(!/declaring in this same change/.test(rule), "the job designer is still told it may declare the function itself");
   assert.match(rule, /list of functions a scheduled job may run/, "the job designer is not pointed at the list it may name from");
-  assert.match(rule, /cannot declare a function here/, "the job designer is not told it cannot declare a function");
-  assert.match(rule, /when none fits, design no job/, "the job designer is not told what to do when no function fits");
+  // OPTION B (owner, 2026-10-22, `decide-4b`): when none on the list fits,
+  // the job writes its own function in the same answer.
+  assert.match(rule, /When none on that list fits, WRITE IT HERE/, "the job designer is not told to write the function itself when none fits");
+  assert.match(rule, /Never name a function that is neither on that list nor written in this answer/, "the job designer may still name a function nobody writes");
   assert.match(rule, /no such list is printed there is none/, "an empty list is not said to mean none");
 });
 

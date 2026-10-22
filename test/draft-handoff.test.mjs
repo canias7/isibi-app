@@ -456,6 +456,33 @@ test("DH8b A BACKEND ADDITION WITH A FUNCTION AND A SCHEDULED JOB, THROUGH THE R
   } finally { await finished(P, compiler); }
 });
 
+test("DH8c A JOB THAT WRITES ITS OWN FUNCTION, THROUGH THE REAL GATEWAY WITH DRAFT_FIRST AND PARALLEL_WRITES ON (owner, 2026-10-22, option B) — no `function` designer runs; the job answer carries the counting function itself: the function and the job are both declared and nothing is left out", async () => {
+  const compiler = installCompiler();
+  const P = platform({
+    slug: slugOf("first-db-ownfn"), provisions: true, db: rowsDb({ tables: {} }), balance: 400,
+    answers: {
+      route: [{ intent: "addon" }],
+      [T.adds]: { kinds: ["table", "job", "page"] },
+      "add:table": { table: [{ table: { name: "signups", access: "collect", columns: [{ name: "name", type: "text" }] }, seed: [] }] },
+      "add:job": { job: [{ name: "weekly_count", fn: "count_signups", everyMinutes: 10080, function: { name: "count_signups", internal: true, returns: "json", body: "SELECT '[]'::json" } }] },
+      "add:page": { page: [{ path: "/sign-up", name: "Sign up", purpose: "collect sign-ups", sections: ["a band"], components: ["section-header"] }] },
+      [T.pages]: { pages: [{ path: "src/routes/sign-up.tsx", source: GIFT.replace(/gift-vouchers/g, "sign-up").replace(/Gift vouchers/g, "Sign up") }] },
+    },
+  });
+  const ns = firingNamespace((lane) => getContainer(null, lane));
+  Object.assign(P.env, { JOB_RUNNER_EVERYONE: "on", SITE_SECRETS_KEY: "x".repeat(48), SITE_BUILD_CONTAINER: ns, DRAFT_FIRST: "on", PARALLEL_WRITES: "on", PUBLISH_TURN_POLL_MS: "5" });
+  try {
+    const worker = await loadWorkerModule();
+    const a = await sendFired(P, ns, worker, "Add a sign-up page where people leave their name, and count the sign-ups every week.", { sb: true });
+    const job = a.jobs.find((j) => j.op === "addon") || a.jobs[0];
+    const body = JSON.parse(job.result.body);
+    assert.equal(body.ok, true, JSON.stringify(body).slice(0, 600));
+    assert.deepEqual([body.tables, body.functions, (body.jobs || []).map((j) => j.name + ":" + j.fn)], [["signups"], ["count_signups"], ["weekly_count:count_signups"]], "the job's own function or the job was not declared");
+    assert.deepEqual((body.notAdded || []).map((x) => x.kind + ":" + x.why), [], "something was left out: " + JSON.stringify(body.notAdded));
+    assert.deepEqual((body.skipped || []).map((s) => s.why || s), [], "a backend kind was left out: " + JSON.stringify(body.skipped));
+  } finally { await finished(P, compiler); }
+});
+
 // ── DH9: a refused publish turn fails at once (audit A03-3/A37-2) ───────────
 
 test("DH9 A REFUSED PUBLISH TURN FAILS AT ONCE AND IS NOT RE-RUN — with the wall refusing the turn's key, as deploy 2215's gateway did: each part ends at once as our own refusal ('turn-refused'), never waited out to the budget and never run again as an overlap loss; nothing live or in the draft moves", async () => {

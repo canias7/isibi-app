@@ -1285,7 +1285,14 @@ test("the three other tiers are kinds here — the build's own shapes by identit
   const { tool: build } = await readSchemaTool();
   const backend = build.input_schema.properties.backend.properties;
   for (const [k, item, key] of [["function", FUNCTION_ITEM, "functions"], ["api", API_ITEM, "apis"], ["job", JOB_ITEM, "jobs"]]) {
-    assert.equal(addTool(k).input_schema.properties[k].items, item, k + "'s item is not the shared shape");
+    // THE JOB'S ITEM IS THE SHARED ONE PLUS ITS OWN `function` (owner,
+    // 2026-10-22, option B), which is the function item itself.
+    if (k === "job") {
+      const own = addTool(k).input_schema.properties[k].items;
+      const { function: fnField, ...rest } = own.properties;
+      assert.deepEqual({ ...own, properties: rest }, item, "the job's item is not the shared shape plus its function");
+      assert.deepEqual(fnField.properties, FUNCTION_ITEM.properties, "the job's own function is not the function item");
+    } else assert.equal(addTool(k).input_schema.properties[k].items, item, k + "'s item is not the shared shape");
     assert.deepEqual(backend[key].items, item, "the build tool's " + key + " item is not the shared one — two shapes again");
   }
   // The engine's floor for a job and this module's are one number, and the
