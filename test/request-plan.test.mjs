@@ -156,6 +156,48 @@ test("next step: a routing job's answer gives its part a route; held parts of it
   assert.equal(r.record.parts[1].status, "queued");
 });
 
+test("A02-2 — a held entry skipped before the one a part needs first does not shift the need onto another part (routing job and answer)", () => {
+  const m2 = "Change the description, and add a gallery page with a map.";
+  // The first entry ends in a full stop, so it is not shorter than the part and is skipped.
+  const also = ["add a gallery page with a map.", "a map"];
+  let rr = rec0({ intent: "edit", alsoAsked: ["add a gallery page with a map"] }, m2);
+  rr = filed(step(rr), "k1");
+  rr = filed(step(rr, { [KEY + "-p0-1"]: row("done", { ok: true }) }), "k2");
+  const s3 = step(rr, { [KEY + "-p1-1"]: row("done", { ok: true, intent: "addon", alsoAsked: also, dependsOn: [{ change: 0, after: [2] }] }) });
+  assert.equal(s3.record.parts[2].words, "a map");
+  assert.deepEqual(s3.record.parts[1].needs, [2], "the part needed first was dropped");
+  assert.equal(s3.file.n, 2, "the part it needs first was not run first");
+  // The same through an answer's routing: a paraphrased first entry is skipped.
+  let ra = rec0({ intent: "edit", alsoAsked: ["add a gallery page with a map"] }, m2);
+  ra = filed(step(ra), "q1");
+  const Q = { id: "d".repeat(32), text: "Which?", options: [] };
+  ra = step(ra, { [KEY + "-p0-1"]: row("done", { ok: false, error: "clarify", clarify: { ...Q, request: "Change the description", stage: "look", round: 1 } }) }).record;
+  const a = answerPart(ra, 0, { routed: { intent: "edit", layer: "look", alsoAsked: ["alter the wording", "the description"], dependsOn: [{ change: 0, after: [2] }] }, round: 1 });
+  const carved = a.parts.findIndex((q) => q.words === "the description");
+  assert.ok(carved > 1, JSON.stringify(a.parts.map((q) => q.words)));
+  assert.deepEqual(a.parts[0].needs, [carved], "the answer's part waits on the wrong part, or none");
+  // An entry that already is a part is that part.
+  const rec = rec0({ intent: "edit", alsoAsked: [ADD] });
+  const made = carveParts(rec, 0, [ADD]);
+  assert.deepEqual([made.length, made.byChange[1]], [0, 1]);
+});
+
+test("A37-3 — a part longer than the rewrite reads is never offered the go-ahead: it ends with that reason, at no cost; one within it is offered", () => {
+  let rec = rec0({ intent: "edit", alsoAsked: [ADD] });
+  rec = filed(step(rec), "j1");
+  const Q = { id: "d".repeat(32), text: "Which?", options: [] };
+  rec = step(rec, { [KEY + "-p0-1"]: row("done", { ok: false, error: "clarify", clarify: { ...Q, request: "Change the description", stage: "look", round: 1 } }) }).record;
+  const long = "Redo the whole site around this: " + "we bake overnight. ".repeat(250);
+  assert.ok(long.length > 4000);
+  const a = answerPart(rec, 0, { routed: { intent: "build" }, resume: long, round: 1 });
+  assert.deepEqual([a.parts[0].status, a.parts[0].why], ["failed", "rewrite-too-long"]);
+  assert.equal(a.parts[0].approvalAt, undefined, "it was offered");
+  const said = requestReplyFacts({ parts: [{ n: 0, words: "part 0", jobs: [], status: "failed", why: "rewrite-too-long" }] }).facts.map((x) => x.text).join(" | ");
+  assert.match(said, /reads at most 4,000 characters/);
+  const b = answerPart(rec, 0, { routed: { intent: "build" }, resume: long.slice(0, 4000), round: 1 });
+  assert.equal(b.parts[0].status, "approval", "a part within the bound was not offered");
+});
+
 test("next step: a part's routing that fails is asked once more, then fails; one with no answer at all likewise — and a prerequisite that fails leaves what needed it not run", () => {
   let rec = rec0({ intent: "edit", alsoAsked: [ADD], dependsOn: [{ change: 0, after: [1] }] });
   let r = step(rec);

@@ -38438,13 +38438,13 @@ async function handleRequest(request, env, ctx) {
                   });
                   // PREPARED: the tweak is done; never the rewrite fallback below.
                   if (isPrep) return prepAnswer();
-                  // A FAILED COMPILE FALLS THROUGH rather than answering, and
-                  // that is the one place this rung differs from every other
-                  // lane. The rewrite below is a genuinely different attempt
-                  // at the same request by a stronger model, so telling the
-                  // customer "that didn't compile" here would refuse them a
-                  // path that still works. Their live site is untouched
-                  // either way.
+                  // ⚠ NO COMPILE HAPPENS HERE (audit A03-5, still open): under
+                  // the deferred spine `publishStep` only records the pages and
+                  // answers ok, so the fall-through to the rewrite below never
+                  // runs. A tweak that does not compile fails once, in
+                  // `publishSpine` ("That didn't compile"), with no rewrite
+                  // tried. Whether to compile the tweak here or retry with the
+                  // rewrite after the spine fails is the owner's decision.
                   if (twPub.ok) {
                     return Response.json({
                       ok: true, layer: "page", page: wantRoute, tweak: true,

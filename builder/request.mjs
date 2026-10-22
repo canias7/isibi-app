@@ -49,7 +49,7 @@
 // goes (the router, every step) — never a keyword, and never the position of
 // words in the message, which only breaks ties between parts with no relation.
 import { heldList, heldParts, wordsIn, wordSpans, readSpans, readContext, EDIT_LAYERS } from "./site-ask.mjs";
-import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS } from "./input-budget.mjs";
+import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS, REWRITE_MAX_CHARS } from "./input-budget.mjs";
 import { REQUEST_KEY_RE } from "./clarify.mjs";
 import { readMarks } from "./prepared.mjs";
 import { outcomeOf } from "./site-reply.mjs";
@@ -491,7 +491,8 @@ function refuseCycles(parts) {
  * nor inside one other than its parent. A part carved from another runs after
  * that part's job (only its run knew the words are separate), needs it only
  * where the model said so (`dependsOn`), and a part that needed the parent
- * needs it whole (`complete`). Returns the new parts' numbers.
+ * needs it whole (`complete`). Returns the new parts' numbers, with
+ * `byChange`: each of the router's change numbers as a part (null if skipped).
  *
  * `sibling` (a routing job's held part that the part itself needs first) is
  * not carved from it but added beside it, with the part waiting for it.
@@ -505,6 +506,9 @@ export function carveParts(rec, parentN, words, { dependsOn = [], sibling = [], 
     const w = wordsIn(rec.message, w0);
     numberOf.push(null);
     if (!w || w.length >= parent.words.length) continue;
+    // ONE THAT ALREADY IS A PART is that part, for the numbers that name it.
+    const same = rec.parts.find((q) => q.words === w && q.n !== parentN);
+    if (same) { numberOf[numberOf.length - 1] = same.n; continue; }
     if (rec.parts.some((q) => q.words === w || (q.n !== parentN && q.parent !== parentN && q.words.length > w.length && wordsIn(q.words, w)))) continue;
     const n = rec.parts.length;
     const beside = sibling.includes(numberOf.length - 1);
@@ -534,6 +538,9 @@ export function carveParts(rec, parentN, words, { dependsOn = [], sibling = [], 
   }
   inferNeeds(rec.parts);
   refuseCycles(rec.parts);
+  // THE ROUTER'S CHANGE NUMBERS, read as parts (A02-2): a skipped entry keeps
+  // its number, so `made[i - 1]` would land on the wrong part.
+  Object.defineProperty(made, "byChange", { value: numberOf });
   return made;
 }
 
@@ -820,6 +827,10 @@ export function chargedOf(row) {
  * and the request keeps its files until it ends.
  */
 function askApproval(p, why, now) {
+  // LONGER THAN THE REWRITE READS (audit A37-3): the build reads only the first
+  // `REWRITE_MAX_CHARS` of what it runs, so the part ends with that reason, at
+  // no cost, as the page holds such a request back; it is never offered.
+  if (String(p.resume || p.words || "").length > REWRITE_MAX_CHARS) { p.status = "failed"; p.why = "rewrite-too-long"; p.phase = "approval"; p.route = null; return; }
   p.status = "approval"; p.why = why; p.approvalAt = now; p.phase = "approval"; p.route = null;
 }
 
@@ -1104,7 +1115,7 @@ function settle(rec, p, job, row, now) {
         const made = carveParts(rec, p.n, read.alsoAsked, { dependsOn: read.dependsOn.filter((d) => d.change !== 0), sibling: needsFirst, targets: read.targets });
         // THE PART NEEDS A PART IT HELD BACK FIRST: it waits for it, and is
         // routed again when its turn comes.
-        const before = needsFirst.map((i) => made[i - 1]).filter(Number.isInteger);
+        const before = needsFirst.map((i) => made.byChange[i]).filter((m) => Number.isInteger(m) && m !== p.n && !rec.parts[m].needs.includes(p.n));
         if (before.length) { for (const m of before) if (!p.needs.includes(m)) p.needs.push(m); p.phase = "route"; p.route = null; p.runs = null; }
       }
       p.status = "ready";
@@ -1843,7 +1854,7 @@ export function answerPart(record, n, { routed, resume, context, round, now = Da
       const deps = Array.isArray(routed.dependsOn) ? routed.dependsOn : [];
       const needsFirst = deps.filter((d) => d.change === 0).flatMap((d) => d.after);
       const made = carveParts(rec, n, also, { dependsOn: deps.filter((d) => d.change !== 0), sibling: needsFirst });
-      const before = needsFirst.map((i) => made[i - 1]).filter(Number.isInteger);
+      const before = needsFirst.map((i) => made.byChange[i]).filter((m) => Number.isInteger(m) && m !== p.n && !rec.parts[m].needs.includes(p.n));
       if (before.length) { for (const m of before) if (!p.needs.includes(m)) p.needs.push(m); p.phase = "route"; p.route = null; p.status = "blocked"; }
     }
   } else if (routed && routed.intent === "ask") {
