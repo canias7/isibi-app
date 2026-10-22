@@ -1,0 +1,12 @@
+[
+ {"label": "CONTROL: a comment only — must survive", "control": true, "files": ["worker.js"],
+  "from": "  if (ctx && ctx.prep === true) return res;\n", "to": "  // control\n  if (ctx && ctx.prep === true) return res;\n"},
+ {"label": "M1 askReport stores a preparation's question again", "files": ["worker.js"],
+  "from": "  if (ctx && ctx.prep === true) return res;\n", "to": ""},
+ {"label": "M2 the edit route does not mark its preparation", "files": ["worker.js"],
+  "from": "            if (eJob && eJob.prepare === true) eAskOut.prep = true;\n", "to": ""},
+ {"label": "M3 the edit route does not hand the mark to askReport", "files": ["worker.js"],
+  "from": "part: eAskOut.part, prep: eAskOut.prep === true })", "to": "part: eAskOut.part })"},
+ {"label": "M4 the add-on route does not mark its preparation", "files": ["worker.js"],
+  "from": "            if (aPrep) aAskOut.prep = true;\n", "to": ""}
+]

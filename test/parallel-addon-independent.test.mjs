@@ -1610,6 +1610,50 @@ test("CC 3 — ONE OF TWO ADD-ON PARTS ASKS: the hours part on Visit finishes wh
   });
 });
 
+// CC 3b — AN ADD-ON PART'S PREPARATION ASKS (audit A35-1, 2026-10-22).
+test("CC 3b — THE SECOND ADD-ON PART'S PREPARATION FINDS A QUESTION: the preparation keeps none in the site's slot, so the question there is the one the part's own job asked — not queued behind a phantom — and answering it resumes the part", { timeout: 30000 }, async () => {
+  let faqN = 0;
+  const Q = { text: "Should the questions go before or after the story?", options: ["Before", "After"] };
+  await withPlatform({
+    slug: slugOf("cc3b"), pages: PAGES, replies: true, balance: 400,
+    answers: {
+      route: (args, n) => (n === 0
+        ? { intent: "addon", alsoAsked: [W_ABOUT_FAQ], targets: [{ change: 0, writes: HOURS_TARGETS }, { change: 1, writes: FAQ_TARGETS }] }
+        : { intent: "addon" }),
+      [T.adds]: (args) => (isHours(args)
+        ? { kinds: ["component"], scopes: [{ kind: "component", words: W_VISIT_HOURS, uses: [] }] }
+        : { kinds: ["component"], scopes: [{ kind: "component", words: W_ABOUT_FAQ, uses: [] }] }),
+      "add:component": (args) => {
+        if (designsHours(args)) return VISIT_HOURS_ANSWER;
+        faqN++;
+        return faqN === 1 ? { question: Q } : ABOUT_FAQ_ANSWER;
+      },
+      [T.pages]: (args) => (textOf(args).includes(VISIT_HOURS_ANSWER.component[0].does)
+        ? { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_HOURS }] }
+        : { pages: [{ path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] }),
+    },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: "Please " + W_VISIT_HOURS + ", and " + W_ABOUT_FAQ + "." });
+    const s1 = await settle(P, r.key);
+    assert.deepEqual(statuses(s1.rec), ["done", "waiting"], JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why, p.prep && p.prep.outcome])));
+    // THE QUESTION WAS FOUND BY THE PART'S PREPARATION (the observer is alive).
+    assert.equal(s1.rec.parts[1].prep && s1.rec.parts[1].prep.outcome, "ask", JSON.stringify(s1.rec.parts[1].prep));
+    const own = s1.rec.parts[1].question;
+    assert.ok(own && typeof own.id === "string", "the part names no question");
+    assert.equal(own.queued, false, "the part's own question was queued behind another");
+    const q = P.question();
+    assert.ok(q && q.id, "no question was kept");
+    assert.equal(q.id, own.id, "the slot holds a question the part is not waiting on");
+    assert.equal(q.status, "pending");
+    assert.equal(q.part, 1);
+    await sendMessage(P, { message: "After", ask: { id: q.id, chosen: true } });
+    const s2 = await settle(P, r.key);
+    assert.deepEqual(statuses(s2.rec), ["done", "done"], JSON.stringify(s2.rec.parts.map((p) => [p.status, p.why])));
+    assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
+    uniqueRefs(P);
+  });
+});
+
 // CC 4 / CC 5 — ONE PART FAILS, THE OTHER'S WORK STANDS.
 async function oneFails({ failing, check }) {
   await withPlatform({
