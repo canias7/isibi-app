@@ -762,9 +762,12 @@ const ADDS = {
       yours:
         "EVERY JOB IS YOURS TO SET: what it is for, which function decides who is due and what it says, and " +
         "how often — 1440 for a daily reminder, 10080 for a weekly digest — with `at` for the time of day a daily " +
-        "or slower job runs (\"09:00\" for a morning reminder). The function it names must exist: " +
-        "one the site lists, or one you are declaring in this same change with `internal: true`, taking no " +
-        "arguments and returning json — an array of messages, empty when nothing is due; or, for a " +
+        "or slower job runs (\"09:00\" for a morning reminder). The function it names must already be on the " +
+        "list of functions a scheduled job may run — that list includes the ones this same change declared a " +
+        "step earlier, and when no such list is printed there is none. You cannot declare a function here, so never name one that is not on that list, however " +
+        "plainly the request implies it; when none fits, design no job and list the missing function as an " +
+        "unsupported requirement. Such a function takes no " +
+        "arguments and returns json — an array of messages, empty when nothing is due; or, for a " +
         "job that does work rather than sending (clearing out old rows), {\"did\": \"what it did\"}. " +
         MESSAGE_CONTRACT,
       wide:
