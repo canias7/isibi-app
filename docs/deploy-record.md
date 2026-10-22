@@ -2023,6 +2023,12 @@ deploy's ignore list, so the push started deploy run 38747702721.
   - Cost 18 credits (97 → 79).
   - Before the fix, the same prompt failed at 602,445 ms with `fetch failed` (2026-10-18, build `11a381e8`).
 
+## Deploy 2261 — 2026-10-22 19:54 UTC (`cab34c133`)
+
+On the owner's word ("merge everything to main when done"). Carries: the second add-on partial fix (a missing line or photo left out by name), the audit groups g1–g6 (11 fixed, 7 confirmed already fixed, A04-7 and A05-5 tests), and the owner's five decisions (tweak retry A03-5, 1A draft-preview full-text search, 2A spam check on write functions, 3A add-on database rehearsal on a Neon branch with `ADDON_DRY_RUN` on, 4B a job declares its own function). Full suite on the combined branch `11989 / 11985 / 1 / 3` (the one is the local `node_modules` link). Unit CI 39841723404 and site build 39841723351 green on `cab34c1`. Deploy run 39844206198 green (19:54–19:57 UTC); the image rolls (worker.js and a new builder module). **Deployed, not runtime-confirmed.** The owner chose not to re-run the big add-on.
+
+Deploy 2260 (`6e3ff1d`, 17:22 UTC, the first add-on partial fix) was green; its rerun is in the session record.
+
 ## Deploy 2259 — 2026-10-22 07:39 UTC (`89a67ec40`)
 
 The second merge of the day (audit fixes 53, 55–60, 62, 79, 82, 84, 88, 99, 100, 102, preview search and the reload fix), on the owner's word "merge when they done". Required CI green on `89a67ec40` (unit run 39740919581, site build run 39740919562). Deploy run 39742014019 green (07:39–07:44 UTC). The served `chat.js` sha256 starts `c63055f3140f8d7d`, the same as the merged `public/chat.js`. **Runtime-confirmed** by the owner's free canary press, run 39802537938 (15:12 UTC, from `main` on `fretwork-1`): both readers answered `89a67ec40ed3`, image `af25591ff1cc217a`, async and runner on, all free checks passed, nothing charged (balance 603).
