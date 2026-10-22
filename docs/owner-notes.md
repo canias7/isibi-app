@@ -1,5 +1,14 @@
 # Owner Notes
 
+## 2026-10-22 — Preview follow-ups: text search, and keeping the preview after a reload (not merged, not deployed)
+
+Both approved follow-ups to this morning's preview fixes, on the branch `preview-search-reload` (from `audit-preview`). Nothing was spent.
+
+- **Text matching in the draft preview.** A page that filters a list by text with `like` or `ilike` (for example "names containing rye") used to get "the preview can't show this list with the draft's changes yet" whenever the draft changed that table. Now the preview answers it itself, the same way the database would: `*` or `%` for any run of letters, `_` for exactly one, a backslash to take either literally, and `ilike` ignoring capitals.
+- **Still refused, on purpose: the site's search box.** The kit's search box uses the database's full-text search, which shortens words ("loaves" finds "loaf"), skips small words like "the", and splits text its own way. I could not copy that without sometimes showing a row the real site would not show (or hiding one it would), so the preview keeps saying honestly that it can't show that list with the draft's changes yet. Also still refused: "this or that" filters, "not" filters, choosing columns, and text matching on a number column (the database refuses that too). The kit itself never sends "or" or text-matching filters; only a hand-written page would.
+- **A reload no longer loses the preview.** After a reload with a change still being prepared, the frame used to go back to the live site saying "preparing your preview…" until the next ready reading, even though the draft's address was already working. Now the server says, in its draft reading, whether this draft's preview has been up (from its own record of what was put up, checked against this draft's own unsaved versions), and the page keeps the draft frame when it has. When nothing of this draft has been up yet, or the server can't tell, the frame stays on the live site as before. I chose the server's reading over remembering it in the browser, so a stale memory can never show an address that isn't up.
+- Screenshot: `/tmp/claude-0/-home-user-isibi-app/e771e2f3-3497-5a41-86e7-3125c5cae122/scratchpad/preview-reload.png`. Record: `docs/history/2026-10-22-preview-search-reload.md`.
+
 ## 2026-10-22 — Three preview fixes from the audit: A07-2, A07-3, A07-5 (not merged, not deployed)
 
 All three were checked again today and are real. One commit each, on the branch `audit-preview` (from `codex-work-into-claude`). Nothing was spent.
