@@ -1,5 +1,14 @@
 # Owner Notes
 
+## 2026-10-22 — Three preview fixes from the audit: A07-2, A07-3, A07-5 (not merged, not deployed)
+
+All three were checked again today and are real. One commit each, on the branch `audit-preview` (from `codex-work-into-claude`). Nothing was spent.
+
+- **The preview could stay "couldn't update the preview yet" for good (A07-2).** After a long run of failed preview uploads, the next good save put the right draft up, but leftover markers from the failed run kept the bar saying it had failed. Now a good save clears the markers that can no longer do anything, and the bar says ready.
+- **Draft lists in the preview showed the wrong items (A07-3).** A new entry waiting in the draft showed up in every list, even filtered ones like "breads only" or "top 3", and an existing item's own page could show the new entry instead. Now the preview applies each list's own filter, order and size to the draft's entries too. A list it can't work out (a search box) says so instead of showing wrong items.
+- **The first change showed "Not found" in the preview (A07-5).** On a site's first change under draft-first (a price edit, for example), the frame switched to the draft's address before anything was there. Now the frame keeps showing the live site with "Live site · preparing your preview…" until the draft preview is ready, then switches by itself.
+- Screenshots of the frame's states are in the session scratchpad (`preview-*.png`). Records: `docs/history/2026-10-22-audit-preview.md`.
+
 ## 2026-10-22 — Ideas #10 and #14, combined with the day's work (not deployed)
 
 - #10, the visual review: after a first build's render check, the build's own

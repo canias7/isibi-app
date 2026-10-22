@@ -1762,6 +1762,10 @@ test("DFB12 THE PREVIEW ANSWERS THE PAGE'S OWN QUERY (audit A07-3) — a touched
   const fts = await hitWith(site, host, "/api/db/" + slug + "/data/loaves?select=*&_fts=fts.rye");
   assert.equal(fts.status, 422, "a query the preview cannot evaluate was answered: " + fts.text.slice(0, 200));
   assert.equal(Array.isArray(fts.json), false);
+  for (const q of ["?select=*&or=(name.eq.Spelt,id.eq.1)", "?select=*&na-me=eq.Spelt", "?select=name", "?select=*&name=like.Sp*"]) {
+    const r = await hitWith(site, host, "/api/db/" + slug + "/data/loaves" + q);
+    assert.equal(r.status, 422, q + " was answered: " + r.text.slice(0, 200));
+  }
 });
 
 test("DFB13 A FIRST CHANGE'S FRAME BEFORE ITS PREVIEW EXISTS (audit A07-5) — a held-only revision names a draft host no script was ever uploaded to: with a dispatch stand-in that throws for a script never uploaded (as production's namespace does), that host answers Not found; the server reads the preview not ready, and the page keeps the frame on the live site with a note until it is read ready, then moves to the draft host and stays there while a later change updates it", async () => {
