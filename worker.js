@@ -44162,7 +44162,17 @@ async function handleRequest(request, env, ctx) {
             });
             const aPhotosAt = photosLanded(aSrc, aMerge.pages, aFold.reuse, ownerSlug);
             aMark("landed", aWordsAt.ok && aPhotosAt.ok ? "ok" : "fail", { words: aFold.words.length, photos: aFold.reuse.length, missing: aWordsAt.missing.length + aPhotosAt.missing.length });
-            if (!aWordsAt.ok || !aPhotosAt.ok) {
+            // A LINE OR PHOTOGRAPH THAT DID NOT ARRIVE NEVER SINKS THE REST
+            // (owner, 2026-10-22, the big add-on rerun: two home-page lines
+            // not found threw away new pages, lists, jobs and a QR code). When
+            // this addition carries other work, each missing one is left out
+            // by name and the rest goes on; only an addition of nothing but
+            // lines and photographs is still refused whole.
+            const aOnlyPlaced = aAnswers.every((a) => a && (a.kind === "words" || a.kind === "photo"));
+            if ((!aWordsAt.ok || !aPhotosAt.ok) && !aOnlyPlaced) {
+              for (const w of aWordsAt.missing) aNotAdded.push({ kind: "words", name: String((w && w.words) || "").slice(0, 120), why: "not-landed", msg: "That line wasn't on " + ((w && w.page) || "the page") + " when the page came back, so it was left out." });
+              for (const ph of aPhotosAt.missing) aNotAdded.push({ kind: "photo", name: String((ph && ph.src) || "").slice(0, 120), why: "not-landed", msg: "That photograph wasn't on " + ((ph && ph.page) || "the page") + " when the page came back, so it was left out." });
+            } else if (!aWordsAt.ok || !aPhotosAt.ok) {
               return aFail({
                 ok: false, error: "not-landed", cost: 0,
                 missing: { words: aWordsAt.missing.slice(), photos: aPhotosAt.missing.slice() },

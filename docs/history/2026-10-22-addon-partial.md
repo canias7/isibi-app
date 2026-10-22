@@ -23,3 +23,11 @@ A kind that depends on a refused one is judged by its own cleaner (a job whose f
 - Add-on files: 743 / 741 → 743 / 743 after the re-anchors. The full suite then found three more landmark or behaviour cases (`site-add` THE ROUTE RUNS THE ADD STEP, `requirement-coverage` HOPS 3, 5, 6, 7 and 8 (two landmarks), `mixed-work` WORKS (ALL OR NOTHING), renamed ONE REFUSED, THE REST LAND); re-anchored. `draft-blocked-card` SB1 failed once and passed on rerun (unrelated, timing).
 - Full suite: `11939 / 11937 / 0 / 2` locally.
 - "All or nothing" was never the owner's words: it was the code's reading of 2026-09-13's *"Validate model-authored properties before apply"*, recorded by the 2026-10-03 audit as the owner's rule. Corrected there.
+
+## Second place: a line or photograph that did not arrive (deploy after 2260)
+
+The rerun after deploy 2260 (session record, *step 2 again*) got through every designer and stopped at the landing check: two home-page lines (*"Open Tuesday to Sunday — closed Mondays."*, *"Fennel sausage, £14."*, read from the job's stored answer, `missing.words`) were not found on the page, and `return aFail({ error: "not-landed" … })` threw away the pages, lists, jobs and QR code with them.
+
+- **Fix** (`worker.js`, one hunk): when the addition carries other work (any answered kind other than `words` and `photo`), each missing line or photograph goes to `notAdded` (`why: "not-landed"`, named, "…so it was left out.") and the publish goes on. An addition of nothing but lines and photographs is still refused whole (`not-landed`, cost 0), as before.
+- **Test**: PARTIAL 3 (a gallery page and a line that does not arrive: the page lands, the line is named). Red on the old code, green on the new; the existing "alone" refusals stay green.
+- **Sweep**: 4 of 4 killed (always partial, never partial, no name, the only-placed check narrowed); the comment control survived.

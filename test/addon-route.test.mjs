@@ -9876,3 +9876,20 @@ test("PARTIAL 2 — when every kind that designed is refused, the refusal is sti
   assert.deepEqual([r.status, r.body.error, r.body.reason, r.body.cost], [422, "add", "no-job-fn", 0], JSON.stringify(r.body).slice(0, 300));
   assert.equal(r.charges.length, 0, "a refusal charged");
 });
+
+test("PARTIAL 3 — a line of words whose page comes back without it is left out by name; the new page beside it lands", async () => {
+  // The big add-on rerun (2026-10-22): two home-page lines not found threw
+  // away new pages, lists, jobs and a QR code. The same check, one line
+  // missing beside other work: the rest lands, the line is named.
+  const r = await addon("fw-partial-landed", "add a gallery page, and a line saying we're closed on bank holidays", {
+    kinds: ["page", "words"], publishes: true, storedPages: PHOTO_SITE,
+    answers: { page: { page: [GALLERY] }, ...wordsAnswer() },
+    written: [withLine(PHOTO_SITE[0], "<p>Open every day.</p>"), writtenPage("/gallery")],
+  });
+  assert.equal(r.body.ok, true, "one missing line sank the whole addition: " + JSON.stringify(r.body).slice(0, 400));
+  const left = (r.body.notAdded || []).find((x) => x.kind === "words" && x.why === "not-landed");
+  assert.ok(left, "the missing line was not named: " + JSON.stringify(r.body.notAdded));
+  assert.equal(left.name, LINE);
+  assert.match(left.msg, /left out/, left.msg);
+  assert.ok(compiledPages(r).some((p) => /gallery/.test(p.path)), "the gallery page did not land");
+});
