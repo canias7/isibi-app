@@ -78,7 +78,7 @@ export function readImportSite(raw, message) {
 // ── HTML READING (regex-level, which is enough for extraction: nothing here
 // executes or re-serves the markup) ─────────────────────────────────────────
 
-const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", rsquo: "\u2019", lsquo: "\u2018", rdquo: "\u201d", ldquo: "\u201c", ndash: "\u2013", mdash: "\u2014", hellip: "\u2026", copy: "\u00a9", pound: "\u00a3", euro: "\u20ac" };
+const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", rsquo: "\u2019", lsquo: "\u2018", rdquo: "\u201d", ldquo: "\u201c", ndash: "\u2013", mdash: "\u2014", hellip: "\u2026", pound: "\u00a3", euro: "\u20ac" };
 export function decodeEntities(s) {
   return String(s || "").replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e) => {
     if (e[0] === "#") {
