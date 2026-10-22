@@ -277,7 +277,10 @@ test("a refused batch is REPORTED, never published in the primary language", () 
   const { strings } = collectStrings(clash);
   const out = translatePages(clash, "es", strings, strings.map((s) => "ES:" + s), { routes: ["/"] });
   assert.equal(out.failed, true, "the refusal is unreachable, so nothing here proves anything");
-  assert.equal(out.applied, 0);
+  // (2026-10-22, audit A32-1: one refused edit costs only its own string, so
+  // one heading is written and the other is named as refused.)
+  assert.equal(out.applied, 1);
+  assert.deepEqual(out.refused, ["Alpha heading here"]);
   assert.ok(out.error, "a refusal with no reason cannot be diagnosed");
   assert.deepEqual(out.pages.map((p) => p.path), ["es/a.tsx", "es/a.tsx"],
     "a refused batch handed back the PRIMARY's own paths, which overwrite the primary pages on publish");

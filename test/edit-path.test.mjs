@@ -42,7 +42,7 @@ import { modelsFor, BUILD_MODELS } from "../builder/build-models.mjs";
 // THE TRANSLATION'S OWN TOOL AND READER, for the bilingual case: the stub
 // answers by tool name and the answer has to be exactly as long as what the
 // spine asks about, so both come from the module that defines them.
-import { collectStrings, TRANSLATE_TOOL } from "../builder/site-translate.mjs";
+import { collectStrings, TRANSLATE_TOOL, missingFrom } from "../builder/site-translate.mjs";
 
 const USER = { id: "u-editpath-1", email: "owner@example.com" };
 const TOKEN = "Bearer some-token";
@@ -1113,3 +1113,42 @@ test("a bilingual site's translation is CHARGED, on the customer's balance, besi
     );
   } finally { c.uninstall(); }
 });
+
+// AUDIT A32-1 (2026-10-22): a translation that could not be used was charged
+// and cached. Driven end to end: an answer of the wrong length, and an answer
+// whose every string carries a brace (which cannot be written into a page),
+// each charge only the lane's own bill, cache nothing, mark the language
+// failed and tell the customer.
+for (const [name, answer] of [
+  ["a wrong-length answer", (strings) => ({ strings: strings.slice(1) })],
+  ["an answer with nothing that can be written into a page", (strings) => ({ strings: strings.map((s) => "{ES} " + s) })],
+]) {
+  test("audit A32-1: " + name + " is not charged, not cached, and the customer is told", async () => {
+    const c = installCompiler();
+    const billed = [];
+    const slug = "wire-langs-bad";
+    const b = bucket(slug);
+    b.store.set("source/" + slug + "/pages.json", JSON.stringify(BILINGUAL_PAGES));
+    b.store.set(CONFIG_KEY(slug), JSON.stringify({ look: { ...STORED_LOOK, langs: ["es"] }, css: STORED_CSS }));
+    const { strings } = collectStrings(BILINGUAL_PAGES);
+    assert.ok(strings.length > 1, "the fixture needs two strings for a wrong length to be possible");
+    try {
+      await withWire(
+        { pick_lanes: { fields: ["css"] }, edit_site: { css: "footer{color:#fff}" }, [TRANSLATE_TOOL.name]: answer(strings) },
+        async (calls) => {
+          const { body } = await edit(slug, "make the footer white", { store: b });
+          assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
+          assert.ok(toolsOf(calls).includes(TRANSLATE_TOOL.name), "the translation was never asked, so nothing here proves anything");
+          assert.equal(billed.length, 1, "an unusable translation was charged: " + JSON.stringify(billed));
+          assert.equal(body.cost, billed[0]);
+          assert.equal(body.langs && body.langs[0] && body.langs[0].ok, false, "the language is not marked failed: " + JSON.stringify(body.langs));
+          assert.match(String(body.renderNote || ""), /es pages could not be translated this time/, "the customer is not told");
+          const written = (b.writes.filter(([k]) => k === CONFIG_KEY(slug)).pop() || [])[1];
+          const cached = (written && JSON.parse(written).langStrings && JSON.parse(written).langStrings.es) || {};
+          assert.deepEqual(missingFrom(cached, strings), strings, "an unusable translation was cached: " + JSON.stringify(cached));
+        },
+        { billed },
+      );
+    } finally { c.uninstall(); }
+  });
+}

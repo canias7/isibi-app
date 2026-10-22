@@ -1719,8 +1719,10 @@ test("each language's translation is marked and its outcome carried, so a second
   assert.ok(from > 0 && to > from, "the spine's language loop is not where this window looks");
   const loop = w.slice(from, to);
   assert.match(loop, /tm\("translate:" \+ l\.tag, "start", \{ missing: missing\.length/, "a translation call starts without a mark");
-  assert.match(loop, /tm\("translate:" \+ l\.tag, got\.ok \? "ok" : "fail", outcome\)/, "a translation's outcome is not marked");
-  assert.match(loop, /why: String\(got\.why \|\| "call"\), error: String\(got\.error \|\| ""\)\.slice\(0, 300\)/, "a failed translation's reason is not kept");
+  // (2026-10-22, audit A32-1: the mark reads the outcome, which is a failure
+  // for an answer with nothing usable in it, not only for a failed call.)
+  assert.match(loop, /tm\("translate:" \+ l\.tag, outcome\.ok \? "ok" : "fail", outcome\)/, "a translation's outcome is not marked");
+  assert.match(loop, /why: unusable \? "unusable" : String\(got\.why \|\| "call"\), error: unusable \? "[^"]+" : String\(got\.error \|\| ""\)\.slice\(0, 300\)/, "a failed translation's reason is not kept");
   // RE-ANCHORED FOR TASK #88: the languages run through `Promise.all` now and
   // the loop is a call phase plus an ordered fold, so a fully cached language
   // is an early RETURN carrying its outcome rather than a push. The property is
@@ -1968,7 +1970,9 @@ test("the translation calls are CHARGED — by the spine, before the commit poin
   // the funnel above is handed — since a translation whose usage is dropped is
   // one nobody is charged for, which is the defect run 39 found.
   assert.match(spine, /if \(r\.usage\) langUsage\.push\(r\.usage\);/, "the spine no longer keeps each call's usage");
-  assert.match(spine, /usage: got\.usage \|\| null/, "a round no longer hands its usage back, so the fold has nothing to push");
+  // (2026-10-22, audit A32-1: only a round that translated something hands
+  // its usage back; a refused or unusable answer is not billed.)
+  assert.match(spine, /usage: outcome\.ok \? \(got\.usage \|\| null\) : null/, "a round no longer hands its usage back, so the fold has nothing to push");
   // AND THE USAGE IS IN THE SHAPE `pageCredits` PRICES, tagged with the model
   // sent — the lanes' own reader. The raw API usage went out of
   // `translateStrings` until the driven case in test/edit-path.test.mjs priced
@@ -2036,7 +2040,8 @@ test("the translation calls are CHARGED — by the spine, before the commit poin
   // call's cost still reaches `langUsage`, which is what `publishPages` prices
   // this build from — a dropped one is a translation nobody pays for.
   assert.match(dep, /const got = await translateStrings\(env, l\.tag, missing, models\);/, "the build loop no longer translates on the picked model");
-  assert.match(dep, /usage: got\.usage \|\| null/, "a build round hands its usage back nowhere");
+  // (2026-10-22, audit A32-1: only a usable round hands its usage back.)
+  assert.match(dep, /usage: usable \? \(got\.usage \|\| null\) : null/, "a build round hands its usage back nowhere");
   assert.match(dep, /if \(r\.usage\) langUsage\.push\(r\.usage\);/, "the build loop drops what each translation cost");
   assert.match(dep, /if \(langUsage\.length && built && typeof built === "object"\) built\.langUsage = langUsage;/, "the usage does not ride the compile result");
   assert.match(pp, /const langUsage = \[\];/, "publishPages keeps no translation usage");
