@@ -47,3 +47,9 @@ Not worth it: whole-file rewrites, live in-browser preview, many AI providers.
 Do: 11, 12, 13 (being built, behind a switch). Explain: 15. Check: 18.
 Discarded by the owner: 7, 9, 16, 17, 19, 20, 21, 22, 24, 27.
 Done earlier: 1–6, 8, 10, 14, 25, 26 (23 already existed).
+
+Later (owner, 2026-10-22): 15 discarded. 18 noted "for one day": switch the
+tweak rung (builder/site-tweak.mjs) from whole-file rewrites to exact old→new
+edits refused when missing or not unique (the visual review's apply loop,
+shared). The text lane and visual review already work this way. ~1 day + a
+small paid test.

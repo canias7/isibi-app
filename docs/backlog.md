@@ -3182,3 +3182,9 @@ deploy.yml yet). Before switching on: one real model on a test site (~150
 credits, $1.20 at fal) to confirm fal's answer shape, timing and file sizes,
 then wire MODEL3D_PURCHASES into deploy.yml. Price stays 150 credits (cost in
 credits; the margin is the credit price, ~$0.012 a credit).
+
+## Exact old→new edits for the tweak rung (idea #18; owner, 2026-10-22: "note it for one day")
+
+Today the tweak rung returns the whole file. Switch to exact find-and-replace
+edits (refuse missing / non-unique), reusing visual-review.mjs's loop.
+Cheaper, nothing else can change, clearer failures. ~1 day + small paid test.
