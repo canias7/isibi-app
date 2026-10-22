@@ -7,6 +7,6 @@
   "from": "            if (eJob && eJob.prepare === true) eAskOut.prep = true;\n", "to": ""},
  {"label": "M3 the edit route does not hand the mark to askReport", "files": ["worker.js"],
   "from": "part: eAskOut.part, prep: eAskOut.prep === true })", "to": "part: eAskOut.part })"},
- {"label": "M4 the add-on route does not mark its preparation (no add-on prep asks in the tests)", "files": ["worker.js"],
+ {"label": "M4 the add-on route does not mark its preparation", "files": ["worker.js"],
   "from": "            if (aPrep) aAskOut.prep = true;\n", "to": ""}
 ]
