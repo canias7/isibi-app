@@ -27,6 +27,12 @@
   time (first-build replies don't say it yet; recorded with A32-4).
 - Branch `audit-57`. Record: `docs/history/2026-10-22-audit-57.md`.
 
+## 2026-10-22 — Audit findings 58 and 59: the SEO description and the site's address survive edits and Publish (not merged, not deployed)
+
+- **58 was real.** After you saved a new description in SEO & social, the next chat edit of any kind quietly put the old description back, on the live site and in the tab. Now the description you saved is kept; only a description that never actually went live is put back, as before.
+- **59 was half fixed already.** A verification tag, description or share picture you set after a draft was saved already survived Publish (this morning's fix, A11-2); I have now proved it by pressing Publish in a test the way the app does. **The other half was real**: if the site's address changed (a rename published from an earlier draft) and then a later draft was published, the site's links went back to the old address. Publish now keeps the address the live site has, unless the draft being published carries its own rename.
+- Branch `audit-58-59` (from `codex-work-into-claude`): `5ea9a1757` (58), `37f2adfa3` (59). Nothing spent. Record: `docs/history/2026-10-22-audit-58-59.md`.
+
 ## 2026-10-22 — Ideas #10 and #14, combined with the day's work (not deployed)
 
 - #10, the visual review: after a first build's render check, the build's own

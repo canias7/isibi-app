@@ -109,14 +109,14 @@ test("B3-5 A11-2 WIRING — Publish (when it moves the pointer) and restore hand
   const pub = worker.indexOf("async function runPublication(");
   const pubEnd = worker.indexOf("const act = await activateBuild(deps, {", pub);
   assert.ok(pub > 0 && pubEnd > pub, "runPublication landmarks");
-  assert.match(worker.slice(pub, pubEnd), /if \(j\.from !== j\.version\) sidecar = await withPanelFields\(deps, slug, sidecar, j\.from\);/);
+  assert.match(worker.slice(pub, pubEnd), /if \(j\.from !== j\.version\) sidecar = await withPanelFields\(deps, slug, sidecar, j\.from(, \{ origin: !rename \})?\);/);
   const rs = worker.indexOf("async function restoreVersion(");
   const rsEnd = worker.indexOf("putWorker:", rs);
   assert.ok(rs > 0 && rsEnd > rs, "restoreVersion landmarks");
   const r = worker.slice(rs, rsEnd);
   assert.match(r, /sidecar: await withPanelFields\(deps, slug, /);
   assert.doesNotMatch(r, /sidecar: typeof b\.sidecar === "string" \? b\.sidecar : undefined, sidecarKey/);
-  assert.match(worker, /async function withPanelFields\(deps, slug, sidecar, prior\) \{[\s\S]{0,400}carryPanelFields\(sidecar, live, was\)/);
+  assert.match(worker, /async function withPanelFields\(deps, slug, sidecar, prior(, opts = \{\})?\) \{[\s\S]{0,400}carryPanelFields\(sidecar, live, was(, opts)?\)/);
 });
 
 // ── A10-2 ────────────────────────────────────────────────────────────────────

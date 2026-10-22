@@ -105,7 +105,7 @@ import { quickChecks } from "./site-security.mjs";
 import { deepScan, planScan } from "./builder/security-scan.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
-import { siteMetaKey, SITE_LIVE_FILE, carryPanelFields } from "./site-meta.mjs";
+import { siteMetaKey, SITE_LIVE_FILE, carryPanelFields, keepPanelDescription } from "./site-meta.mjs";
 import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec, previousSidecar, heldMediaSource, heldStandIns } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
@@ -14119,12 +14119,12 @@ export async function runPreviewRecovery(env, { now = Date.now(), budget = 50 } 
  * live one (`carryPanelFields`, audit A11-2). `prior` is the version that was
  * live when it was read; a read that fails carries nothing.
  */
-async function withPanelFields(deps, slug, sidecar, prior) {
+async function withPanelFields(deps, slug, sidecar, prior, opts = {}) {
   if (typeof sidecar !== "string") return sidecar;
   const text = async (k) => { try { const o = await deps.get(k); return o ? await o.text() : null; } catch { return null; } };
   const live = await text(siteMetaKey(slug));
   const was = prior ? await text(buildPrefix(slug, prior) + STATE_DIR + "sidecar.json") : null;
-  return carryPanelFields(sidecar, live, was);
+  return carryPanelFields(sidecar, live, was, opts);
 }
 async function completeActivation(env, slug, version, { sidecar } = {}) {
   const deps = buildDeps(env);
@@ -14312,8 +14312,9 @@ async function runPublication(env, slug, j, etag, say = null) {
       // THE ADDRESS THE VERSION NAMES: a held rename is baked into its sidecar.
       let sidecar = typeof b.sidecar === "string" ? b.sidecar : undefined;
       if (rename && sidecar) { try { const sd = JSON.parse(sidecar); sd.origin = addressOf(rename.to); sidecar = JSON.stringify(sd); } catch { /* the version's own */ } }
-      // THE OWNER'S PANEL CHANGES SINCE `j.from` WENT LIVE (audit A11-2).
-      if (j.from !== j.version) sidecar = await withPanelFields(deps, slug, sidecar, j.from);
+      // THE OWNER'S PANEL CHANGES SINCE `j.from` WENT LIVE (audit A11-2), and
+      // with no rename of its own, the address as it stands (audit A33-2b).
+      if (j.from !== j.version) sidecar = await withPanelFields(deps, slug, sidecar, j.from, { origin: !rename });
       if (liveV !== j.version) {
         // THE LIVE SITE MOVED ON (another version was put live meanwhile):
         // nothing of this revision is live, and it is not forced over that.
@@ -14945,6 +14946,11 @@ async function ensureEditableState(env, slug, { turnOwner = null, keepConfig = f
     try { want = repairConfigOf(JSON.parse(stateText)); } catch { return false; }
     const cur = await readSiteConfig(env, slug, null);
     if (!cur || !cur.ok) return false;
+    // THE SEO TAB'S DESCRIPTION IS KEPT (audit A33-1): it is in the config and
+    // on the live head, never in a version, so it is not a config ahead.
+    let liveHead = null;
+    try { const o = await deps.get(siteMetaKey(slug)); liveHead = o ? await o.text() : null; } catch { liveHead = null; }
+    want = keepPanelDescription(want, cur.config, liveHead);
     if (sameJson(repairConfigOf(cur.config), want)) return false;
     const w = await patchSiteConfig(env, slug, null, want, fence);
     if (w && w.fenced) throw fenceRefused(CONFIG_KEY(slug));
