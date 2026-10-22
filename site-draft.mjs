@@ -579,6 +579,23 @@ export function previewReadiness(draft, { up, claims, register = null } = {}) {
   if (register && register.state === "stuck") return "failed";
   return "pending";
 }
+/**
+ * HAS THIS DRAFT'S PREVIEW BEEN UP (2026-10-22, the reload follow-up to audit
+ * A07-5): true when the version recorded as confirmed up (`readPreviewUp`) is
+ * the draft's own or one of its unpublished revisions' — so the draft host
+ * serves this draft (perhaps an earlier revision of it while a later one
+ * lands), never nothing and never a discarded or published-over version. A
+ * read that failed (an Error) or no record is false: cannot-tell is never
+ * "it was up". The page reads it on load so a reload keeps the frame on a
+ * draft host that is serving, instead of remembering it locally.
+ */
+export function previewServed(draft, up) {
+  if (!draft || !draft.preview || !isDraftVersion(draft.version)) return false;
+  if (!up || up instanceof Error || !isDraftVersion(up.version)) return false;
+  if (up.version === draft.version) return true;
+  const applied = Number.isSafeInteger(draft.applied) ? draft.applied : Infinity;
+  return (Array.isArray(draft.revs) ? draft.revs : []).some((r) => r && r.n > applied && r.version === up.version);
+}
 export const PREVIEW_CLAIMS_PREFIX = (slug) => "preview-claims/" + String(slug || "") + "/";
 export const PREVIEW_UPLOAD_WINDOW_MS = 5 * 60 * 1000;
 /** Kept equal to `DISPATCH_CALL_MS` (builder/site-dispatch.mjs) by a test. */
@@ -1150,10 +1167,38 @@ export function rowsOverlay(table, rows, ops, { tableExists = true } = {}) {
  * answers the page's own query here — its filters, `order`, `offset` and
  * `limit` — so a held row appears only where it matches. `{ ok: true, rows }`,
  * or `{ ok: false, param }` for a part it cannot evaluate (full-text search,
- * `or`, a column list, an operator it does not know): never a row that may not
- * match. `params` is a URLSearchParams.
+ * `or`, `not`, a column list, an operator it does not know, `like`/`ilike` on
+ * a column that is not text): never a row that may not
+ * match. FULL-TEXT SEARCH STAYS REFUSED (2026-10-22): the site's `fts` column
+ * is `to_tsvector('english', …)` (stemming, stop words, the Postgres parser's
+ * tokens) asked through `to_tsquery`, which no word match here can follow
+ * without sometimes showing a row the database would not — or would not
+ * show a row it would. Refused, never guessed. `params` is a URLSearchParams.
  */
-const ROW_QUERY_OPS = new Set(["eq", "neq", "gt", "gte", "lt", "lte", "in", "is"]);
+const ROW_QUERY_OPS = new Set(["eq", "neq", "gt", "gte", "lt", "lte", "in", "is", "like", "ilike"]);
+/**
+ * A `like`/`ilike` PATTERN AS POSTGREST AND POSTGRES READ IT (2026-10-22):
+ * PostgREST turns every `*` into `%` first (so `*` and `%` are both "any
+ * run", and `\*` becomes `\%`, a literal percent); then Postgres LIKE: `_`
+ * is one character, `\` escapes the next character, the whole value must
+ * match. A pattern ending on a lone `\` is an error in Postgres: null here,
+ * refused. `ilike` folds case one character at a time on both sides.
+ */
+const foldChar = (c) => { const l = c.toLowerCase(); return [...l].length === 1 ? l : c; };
+function likeMatcher(pattern, insensitive) {
+  const chars = [...pattern.replace(/\*/g, "%")];
+  let re = "";
+  for (let i = 0; i < chars.length; i++) {
+    let c = chars[i];
+    if (c === "\\") { if (i + 1 >= chars.length) return null; c = chars[++i]; re += esc(insensitive ? foldChar(c) : c); continue; }
+    if (c === "%") re += "[\\s\\S]*";
+    else if (c === "_") re += "[\\s\\S]";
+    else re += esc(insensitive ? foldChar(c) : c);
+  }
+  const rx = new RegExp("^" + re + "$", "u");
+  return (text) => rx.test(insensitive ? [...text].map(foldChar).join("") : text);
+}
+const esc = (c) => c.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 const ROW_COL = /^[a-z_][a-z0-9_]{0,62}$/i;
 export function applyRowQuery(rows, params) {
   const filters = [];
@@ -1182,7 +1227,9 @@ export function applyRowQuery(rows, params) {
     const arg = v.slice(dot + 1);
     if (op === "in" && !/^\(.*\)$/.test(arg)) return { ok: false, param: k };
     if (op === "is" && !["null", "true", "false"].includes(arg.toLowerCase())) return { ok: false, param: k };
-    filters.push({ col: k, op, arg });
+    let like = null;
+    if (op === "like" || op === "ilike") { like = likeMatcher(arg, op === "ilike"); if (!like) return { ok: false, param: k }; }
+    filters.push({ col: k, op, arg, like });
   }
   const same = (val, a) => {
     if (val === null || val === undefined) return false;
@@ -1195,8 +1242,12 @@ export function applyRowQuery(rows, params) {
     const s = String(val);
     return s < a ? -1 : s > a ? 1 : 0;
   };
-  const match = (r) => filters.every(({ col, op, arg }) => {
+  // LIKE ON A COLUMN THAT IS NOT TEXT is an error in Postgres ("operator does
+  // not exist"): the list is refused, never answered from a guess.
+  for (const f of filters) if (f.like && (Array.isArray(rows) ? rows : []).some((r) => r[f.col] !== null && r[f.col] !== undefined && typeof r[f.col] !== "string")) return { ok: false, param: f.col };
+  const match = (r) => filters.every(({ col, op, arg, like }) => {
     const val = r[col];
+    if (like) return typeof val === "string" && like(val);
     if (op === "is") return arg.toLowerCase() === "null" ? val === null || val === undefined : val === (arg.toLowerCase() === "true");
     if (op === "eq") return same(val, arg);
     if (op === "neq") return val !== null && val !== undefined && !same(val, arg);

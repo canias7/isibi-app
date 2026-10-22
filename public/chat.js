@@ -5418,6 +5418,10 @@ function siteDraftFrame(site) {
   const seen = siteDraftFrame.seen || (siteDraftFrame.seen = new Set());
   // READY AS `siteDraftPreviewState` reads it: `previewState`, or a server's older `previewReady`.
   if (d.previewState === 'ready' || (d.previewState === undefined && d.previewReady === true)) seen.add(d.preview);
+  // AFTER A RELOAD (2026-10-22): the server's own reading that this draft's
+  // preview has been up (`previewServed`) stands for the session's memory —
+  // server truth, never a remembered address that may no longer be up.
+  else if (d.previewServed === true && d.previewState !== 'unknown') seen.add(d.preview);
   return seen.has(d.preview) ? d : null;
 }
 /** The draft ahead of live whose preview has not yet been ready: the frame shows live meanwhile. */
@@ -6233,7 +6237,7 @@ function cardThumbDraft(fr, slug) {
     // THE FRAME'S OWN RULE (`siteDraftFrame`): the draft is ahead and its
     // preview is on the platform's draft host.
     // (and only once its preview has been read ready: audit A07-5).
-    const u = d && d.ok && d.enabled === true && d.unpublished === true && typeof d.preview === 'string' && SITE_DRAFT_HOST.test(d.preview) && (siteDraftPreviewState(d) === 'ready' || (siteDraftFrame.seen && siteDraftFrame.seen.has(d.preview))) ? d.preview : '';
+    const u = d && d.ok && d.enabled === true && d.unpublished === true && typeof d.preview === 'string' && SITE_DRAFT_HOST.test(d.preview) && (siteDraftPreviewState(d) === 'ready' || (d.previewServed === true && d.previewState !== 'unknown') || (siteDraftFrame.seen && siteDraftFrame.seen.has(d.preview))) ? d.preview : '';
     cardThumbSeen.set(slug, u);
     put(u);
   }).catch(() => {});

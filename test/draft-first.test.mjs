@@ -1762,7 +1762,7 @@ test("DFB12 THE PREVIEW ANSWERS THE PAGE'S OWN QUERY (audit A07-3) — a touched
   const fts = await hitWith(site, host, "/api/db/" + slug + "/data/loaves?select=*&_fts=fts.rye");
   assert.equal(fts.status, 422, "a query the preview cannot evaluate was answered: " + fts.text.slice(0, 200));
   assert.equal(Array.isArray(fts.json), false);
-  for (const q of ["?select=*&or=(name.eq.Spelt,id.eq.1)", "?select=*&na-me=eq.Spelt", "?select=name", "?select=*&name=like.Sp*"]) {
+  for (const q of ["?select=*&or=(name.eq.Spelt,id.eq.1)", "?select=*&na-me=eq.Spelt", "?select=name", "?select=*&name=like.Sp\\", "?select=*&price=like.5*"]) {
     const r = await hitWith(site, host, "/api/db/" + slug + "/data/loaves" + q);
     assert.equal(r.status, 422, q + " was answered: " + r.text.slice(0, 200));
   }
@@ -1807,4 +1807,65 @@ test("DFB13 A FIRST CHANGE'S FRAME BEFORE ITS PREVIEW EXISTS (audit A07-5) — a
   const other = "https://" + slug + "--draft-" + "f".repeat(12) + ".gofarther.app/";
   ctx.siteDraftState[slug] = { ...d, preview: other };
   assert.equal(ctx.api.sitePreviewSrc(s, "/"), "/s/" + slug + "/?v=0", "a new draft host was shown before its preview was ready");
+});
+
+test("DFB14 TEXT SEARCH IN THE PREVIEW (2026-10-22) — `like` and `ilike` on a touched table answer exactly as PostgREST and Postgres would over the draft's rows: `*` and `%` are any run, `_` one character, a backslash escapes, `ilike` ignores case, the whole value must match; a pattern ending on a lone backslash and a like on a number column are refused; full-text search, `or` and `not` are still refused", async () => {
+  const slug = slugOf("dfb14");
+  const ops = [
+    { kind: "row", table: "loaves", op: "insert", values: { name: "rye_50%", price: 6.2 }, ref: HID + ":0" },
+    { kind: "row", table: "loaves", op: "update", id: 3, values: { name: "Light RYE" } },
+  ];
+  const site = previewSite(slug, ops);
+  const host = slug + "--draft-" + TOKEN12 + ".gofarther.app";
+  const ids = async (q) => { const r = await hitWith(site, host, "/api/db/" + slug + "/data/loaves" + q); assert.equal(r.status, 200, q + " " + r.text.slice(0, 300)); return r.json.map((x) => (x.id < 0 ? "held" : x.id)); };
+  assert.deepEqual(await ids("?select=*&order=id.asc&name=like.*Rye*"), [2], "like is case-sensitive and * is any run");
+  assert.deepEqual(await ids("?select=*&order=id.asc&name=ilike.*rye*"), [2, 3, "held"], "ilike ignores case");
+  assert.deepEqual(await ids("?select=*&order=id.asc&name=ilike.%25rye"), [2, 3], "% is any run and the end must match");
+  assert.deepEqual(await ids("?select=*&order=id.asc&name=like.Dark_Rye"), [2], "_ is one character");
+  assert.deepEqual(await ids("?select=*&order=id.asc&name=like.Dark_ye"), [], "_ is exactly one character");
+  assert.deepEqual(await ids("?select=*&order=id.asc&name=like.rye\\_50\\%25"), ["held"], "an escaped _ and % are literal");
+  assert.deepEqual(await ids("?select=*&order=id.asc&name=like.rye\\_5"), [], "the whole value must match");
+  assert.deepEqual(await ids("?select=*&order=id.asc&name=like.ryex50*"), [], "an escaped _ is not a wildcard");
+  for (const q of ["?select=*&name=like.Rye\\", "?select=*&price=ilike.5*", "?select=*&_fts=fts.rye", "?select=*&or=(name.ilike.*rye*,description.ilike.*rye*)", "?select=*&name=not.ilike.*rye*"]) {
+    const r = await hitWith(site, host, "/api/db/" + slug + "/data/loaves" + q);
+    assert.equal(r.status, 422, q + " was answered: " + r.text.slice(0, 200));
+  }
+});
+
+test("DFB15 A RELOADED PAGE KEEPS A SERVING PREVIEW (2026-10-22) — the draft reading says whether this draft's preview has been up (`previewServed`, from the confirmed-up record against the draft's own unpublished versions); with a later change still landing the reloaded page keeps the frame on the draft host; with nothing of this draft ever up, or another version up, it shows the live site and waits", async () => {
+  const slug = slugOf("dfb15");
+  const site = previewSite(slug, [{ kind: "row", table: "loaves", op: "update", id: 2, values: { price: 5.6 } }]);
+  const host = "https://" + slug + "--draft-" + TOKEN12 + ".gofarther.app/";
+  const readDraftNow = async () => { const r = await hitWith(site, "gofarther.dev", "/api/site/" + slug + "/draft", { auth: true }); assert.equal(r.status, 200, r.text.slice(0, 300)); return r.json; };
+  const CHAT = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  const cut = (head) => { const at = CHAT.indexOf("\n" + head); assert.ok(at > 0, head + " is gone"); const end = CHAT.indexOf("\n}", at + 1); return CHAT.slice(at + 1, end + 2); };
+  const line = (head) => { const at = CHAT.indexOf("\n" + head); assert.ok(at > 0, head + " is gone"); return CHAT.slice(at + 1, CHAT.indexOf("\n", at + 1) + 1); };
+  // A FRESH PAGE each time (a reload): nothing remembered from an earlier reading.
+  const fresh = (d) => {
+    const ctx = { siteDraftState: {} };
+    vm.createContext(ctx);
+    vm.runInContext([line("const SITE_DRAFT_HOST ="), cut("function siteDraftFrame(site) {"), cut("function sitePreviewSrc(site, path) {"), "this.api = { sitePreviewSrc };"].join("\n"), ctx);
+    ctx.siteDraftState[slug] = d;
+    return ctx.api.sitePreviewSrc({ id: "s1", slug, url: "/s/" + slug + "/", previewV: 0 }, "/");
+  };
+  const live = "/s/" + slug + "/?v=0";
+  // NOTHING EVER UP: not served, live site.
+  const d0 = await readDraftNow();
+  assert.notEqual(d0.previewState, "ready");
+  assert.equal(d0.previewServed, false, "a preview never up was read as served");
+  assert.equal(fresh(d0), live);
+  // THE DRAFT'S VERSION CONFIRMED UP, A LATER UPLOAD STILL LANDING (a claim): pending, but served.
+  await site.env.SITES_BUCKET.put("preview-up/" + slug + ".json", JSON.stringify({ v: 1, version: V0, at: Date.now() }));
+  await site.env.SITES_BUCKET.put("preview-claims/" + slug + "/" + String(Date.now()).padStart(13, "0") + "-abcdef.json", JSON.stringify({ v: 1, at: Date.now() }));
+  const d1 = await readDraftNow();
+  assert.equal(d1.previewState, "pending", JSON.stringify(d1).slice(0, 300));
+  assert.equal(d1.previewServed, true, "the server did not say this draft's preview has been up");
+  assert.equal(fresh(d1), host + "?v=0", "a reloaded page sent the frame back to the live site while the draft host serves this draft");
+  // A VERSION THAT IS NOT THIS DRAFT'S (discarded, or published over): not served.
+  await site.env.SITES_BUCKET.put("preview-up/" + slug + ".json", JSON.stringify({ v: 1, version: "01790000000000-zzzzzz", at: Date.now() }));
+  const d2 = await readDraftNow();
+  assert.equal(d2.previewServed, false, "a version not of this draft was read as served");
+  assert.equal(fresh(d2), live);
+  // CANNOT TELL is never served, whatever the field says.
+  assert.equal(fresh({ ...d1, previewState: "unknown" }), live);
 });

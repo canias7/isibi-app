@@ -106,7 +106,7 @@ import { deepScan, planScan } from "./builder/security-scan.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE, carryPanelFields, keepPanelDescription } from "./site-meta.mjs";
-import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, applyRowQuery, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec, previousSidecar, heldMediaSource, heldStandIns } from "./site-draft.mjs";
+import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, applyRowQuery, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec, previousSidecar, heldMediaSource, heldStandIns, previewServed } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
@@ -14092,10 +14092,12 @@ const PREVIEW_CLAIMS_ROOT = "preview-claims/";
  * repair — under its own claim, within the register's backoff, after the
  * answer has gone.
  */
-async function readPreviewState(env, slug, draft, ctx) {
+async function readPreviewState(env, slug, draft, ctx, seen = null) {
   const dps = buildDeps(env);
   let up, claims, register = null;
   try { up = await readPreviewUp(dps, slug); } catch (e) { up = e instanceof Error ? e : new Error(String(e)); }
+  // WHETHER THIS DRAFT'S PREVIEW HAS BEEN UP AT ALL (`previewServed`): the page's frame choice after a reload.
+  if (seen) seen.served = previewServed(draft, up);
   try { claims = await previewClaims(dps, slug); } catch (e) { claims = e instanceof Error ? e : new Error(String(e)); }
   try { const g = await env.SITES_BUCKET.get(PREVIEW_STATE_KEY(slug)); register = g ? JSON.parse(await g.text()) : null; } catch { register = null; }
   const state = previewReadiness(draft, { up, claims, register });
@@ -45736,12 +45738,15 @@ async function handleRequest(request, env, ctx) {
                 address = { live: liveName, draft: addressOverlay(liveName, ops) };
               } catch { address = null; }
               // THE PREVIEW'S READINESS, from positive evidence (`readPreviewState`).
-              const previewState = label ? await readPreviewState(env, ownerSlug, draft, ctx) : null;
+              const seen = { served: false };
+              const previewState = label ? await readPreviewState(env, ownerSlug, draft, ctx, seen) : null;
               const previewReady = previewState === "ready" ? true : previewState === "unknown" || previewState === null ? null : false;
               return {
                 ...st, runningKnown: running !== null, enabled: draftFirst(env),
                 preview: label ? "https://" + label + "." + SITE_ZONE + "/" : null,
                 previewReady, previewState,
+                // THE DRAFT HOST HAS SERVED THIS DRAFT (an earlier revision, perhaps): a reloaded page may show it while a later one lands.
+                previewServed: previewState === "ready" || (previewState !== "unknown" && seen.served === true),
                 saved: draft ? draft.history.concat(draft.version) : [],
                 revisions, publishing: publishing ? publishing.revision : null,
                 // THE PUBLICATION STANDING: its revision, its phase, whether a
