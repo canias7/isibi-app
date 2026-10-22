@@ -600,6 +600,16 @@ export async function previewClaims(deps, slug) {
   const rows = await deps.list(PREVIEW_CLAIMS_PREFIX(slug));
   return rows.map((r) => ({ key: String(r.key), at: claimAt(r.key) })).filter((c) => c.at !== null);
 }
+/** A `stuck` register reset to ready on `version` over the etag read (never throws; another register is left as it is). */
+async function unstick(deps, slug, version, at) {
+  try {
+    const o = await deps.get(PREVIEW_STATE_KEY(slug));
+    if (!o) return;
+    const reg = JSON.parse(await o.text());
+    if (!reg || reg.state !== "stuck") return;
+    await deps.put(PREVIEW_STATE_KEY(slug), JSON.stringify({ v: 1, state: "ready", up: version, tries: 0, next: 0, at }), "application/json", o.etag ? { etagMatches: String(o.etag) } : { etagDoesNotMatch: "*" });
+  } catch { /* the register only; readiness rests on the claims and preview-up */ }
+}
 /** Remove claims (never throws; one left behind is settled by the tick, at worst redundantly). */
 export async function dropClaims(deps, keys) {
   for (const k of keys) { try { await deps.remove(k); } catch { /* the tick */ } }
@@ -744,6 +754,19 @@ export async function saveAsDraft(deps, { slug, version, build = "", base = "", 
         if (c.ready && marked) {
           await unclaim();
           try { others = (await previewClaims(deps, slug)).filter((x) => x.key !== claim.key); } catch { others = null; }
+          // CLAIMS THAT CAN NO LONGER LAND ANYTHING (audit A07-2, 2026-10-22):
+          // left by a stuck episode, they would keep readiness `failed` for
+          // good after this confirmed save. Older than `PREVIEW_LAND_MS`,
+          // none can put a script up over the one just confirmed, so they go,
+          // and a `stuck` register is reset to ready on this version.
+          if (Array.isArray(others) && others.length) {
+            const stale = others.filter((x) => x.at + PREVIEW_LAND_MS <= clock());
+            if (stale.length) {
+              await dropClaims(deps, stale.map((x) => x.key));
+              try { others = (await previewClaims(deps, slug)).filter((x) => x.key !== claim.key); } catch { others = null; }
+            }
+          }
+          if (Array.isArray(others) && others.length === 0) await unstick(deps, slug, c.version, clock());
         }
         const ready = c.ready && marked && Array.isArray(others) && others.length === 0;
         const error = c.error || (!ready && c.ready ? (!marked ? "the preview is up, but that could not be recorded" : others === null ? "the preview's other uploads could not be read" : "another upload of the preview may still land") : "");

@@ -730,3 +730,31 @@ test("PR18 HARD STOPS AROUND THE BOUNDARIES — after the record lands, after th
     B.untouched();
   } finally { await B.done(); }
 });
+
+test("PR19 AFTER A STUCK EPISODE A GOOD SAVE MAKES THE PREVIEW READY (audit A07-2) — stale claims (older than PREVIEW_LAND_MS) and a stuck register no longer keep readiness failed once a save confirms its version; a claim that may still land still does", async () => {
+  const { previewReadiness, readPreviewUp, previewClaims } = await import("../site-draft.mjs");
+  const deps = await site();
+  const t0 = Date.now() - 10 * PREVIEW_LAND_MS;
+  for (let i = 0; i < 13; i++) assert.ok(await claimPreview(deps, SLUG, t0 + i * 1000), "the stale claim was not written");
+  await deps.put(PREVIEW_STATE_KEY(SLUG), JSON.stringify({ v: 1, state: "stuck", up: null, tries: PREVIEW_TRIES, next: 0, at: t0 + 20e3 }), "application/json");
+  assert.equal(claimsOf(deps).length, 13, "the stuck episode was not set up — this case tests nothing");
+  const sl = slot(deps);
+  const r = await saveAsDraft(deps, { slug: SLUG, version: V_NEW, base: V_LIVE, preview: sl.previewOf(V_NEW), repreview: sl.repreview, commit: async () => {} });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(sl.version, V_NEW, "the save did not put its version up");
+  assert.equal(r.previewed.ok, true, "a confirmed save after a stuck episode is not ready: " + JSON.stringify(r.previewed));
+  assert.deepEqual(claimsOf(deps), [], "stale claims were left standing");
+  const reg = JSON.parse(deps.m.get(PREVIEW_STATE_KEY(SLUG)).body);
+  assert.deepEqual([reg.state, reg.up], ["ready", V_NEW], "the stuck register was not reset");
+  const { draft } = await readDraft(deps, SLUG);
+  assert.equal(previewReadiness(draft, { up: await readPreviewUp(deps, SLUG), claims: await previewClaims(deps, SLUG), register: reg }), "ready");
+  // CONTROL: a claim that may still land keeps the next save not ready, and is kept.
+  const fresh = await claimPreview(deps, SLUG, Date.now());
+  const V3 = "01790600000900-dddddd";
+  await stage(deps, V3);
+  const sl2 = slot(deps);
+  const r2 = await saveAsDraft(deps, { slug: SLUG, version: V3, base: V_LIVE, preview: sl2.previewOf(V3), repreview: sl2.repreview, commit: async () => {} });
+  assert.equal(r2.ok, true, JSON.stringify(r2));
+  assert.equal(r2.previewed.ok, false, "a save was called ready over a claim that may still land");
+  assert.deepEqual(claimsOf(deps), [fresh.key], "a claim that may still land was dropped");
+});
