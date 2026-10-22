@@ -7752,9 +7752,16 @@ async function storeAskTwice(bucket, rec) {
  * put-off parts and whether files came with it; the answer joins the list
  * at the routing route (`appendAnswer`), and no answer still needed is let go
  * to make room for it (2026-10-03, the owner's fourth review).
- * `ctx`: `{ slug, uid, round, held, request, attached, context }`.
+ * A PREPARATION KEEPS NO QUESTION (audit A35-1, 2026-10-22). A part's step
+ * prepared ahead of its job (`runRequestPrep`) runs this route too; a question
+ * it found is only its outcome (`ask`, read from the untouched answer), never
+ * stored. Kept, it held the site's slot under an id no part waits on, and the
+ * part's own question, asked when its job replayed the step, was queued
+ * behind it and never shown.
+ * `ctx`: `{ slug, uid, round, held, request, attached, context, prep }`.
  */
 async function askReport(env, res, ctx) {
+  if (ctx && ctx.prep === true) return res;
   if (!res || !res.headers || !String(res.headers.get("content-type") || "").includes("application/json")) return res;
   let body;
   try { body = await res.clone().json(); } catch { return res; }
@@ -34042,6 +34049,8 @@ async function handleRequest(request, env, ctx) {
             if (eRawMarker && !eJob) return Response.json({ error: "not found" }, { status: 404 });
             if (eJob) editTraceJob = eJob.id;
             if (eJob && eJob.prepare === true) editTracePrep = true;
+            // A PREPARATION KEEPS NO QUESTION (audit A35-1, `askReport`).
+            if (eJob && eJob.prepare === true) eAskOut.prep = true;
             eReplyOut.job = !!eJob;
             // A PART OF A LONGER REQUEST (2026-10-03): the message it came from
             // and what the parts before it did, shown to every model call here
@@ -39926,7 +39935,7 @@ async function handleRequest(request, env, ctx) {
               return Response.json(merged, { status: 422 });
             }
             return Response.json(merged);
-            })(), eHeldOut.parts, eHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: eAskOut.round, held: [...new Set([...eHeldOut.earlier, ...eHeldOut.parts])], request: eAskOut.request, attached: eAskOut.attached, context: eAskOut.context, picker: eReplyOut.picker, requestKey: eAskOut.requestKey, part: eAskOut.part }), "edit", eReplyOut);
+            })(), eHeldOut.parts, eHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: eAskOut.round, held: [...new Set([...eHeldOut.earlier, ...eHeldOut.parts])], request: eAskOut.request, attached: eAskOut.attached, context: eAskOut.context, picker: eReplyOut.picker, requestKey: eAskOut.requestKey, part: eAskOut.part, prep: eAskOut.prep === true }), "edit", eReplyOut);
           }
 
           if (ad) {
@@ -40004,6 +40013,7 @@ async function handleRequest(request, env, ctx) {
             // of it, answered from the record where its requests are unchanged.
             const aPrep = !!(aJob && aJob.prepare === true);
             if (aPrep) editTracePrep = true;
+            if (aPrep) aAskOut.prep = true;
             aEarlyPhotos.prep = aPrep;
             aEarlyPhotos.clock = aJob && aJob.budget;
             const aPrepStop = () => { aJob.reached = (Number(aJob.reached) || 0) + 1; return Response.json({ ok: false, error: "prepared", ours: true }); };
@@ -45482,7 +45492,7 @@ async function handleRequest(request, env, ctx) {
               } : undefined,
               cost: aCost,
             });
-            })()), aHeldOut.parts, aHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: aAskOut.round, held: [...new Set([...aHeldOut.earlier, ...aHeldOut.parts])], request: aAskOut.request, attached: aAskOut.attached, context: aAskOut.context, picker: aReplyOut.picker, requestKey: aAskOut.requestKey, part: aAskOut.part }), "addon", aReplyOut);
+            })()), aHeldOut.parts, aHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: aAskOut.round, held: [...new Set([...aHeldOut.earlier, ...aHeldOut.parts])], request: aAskOut.request, attached: aAskOut.attached, context: aAskOut.context, picker: aReplyOut.picker, requestKey: aAskOut.requestKey, part: aAskOut.part, prep: aAskOut.prep === true }), "addon", aReplyOut);
           }
           if (tx) {
             // ── CHANGING THE WORDS, WITH NO MODEL CALL ────────────────────

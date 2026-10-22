@@ -333,6 +333,14 @@ test("P4 CLARIFICATION — a photograph whose preparation finds a question is as
     assert.equal(q.part, 1);
     assert.equal(q.question.text, QPIC.text);
     assert.equal(calls(P, "choose_pictures").length, 1, "the question was asked of the model twice");
+    // AND IT IS THE PART'S OWN QUESTION, SHOWN (audit A35-1, 2026-10-22): the
+    // preparation that found the question kept none in the slot, so the one
+    // there is the one the part's job asked, not queued behind a phantom.
+    const own = s1.rec.parts[1].question;
+    assert.ok(own && typeof own.id === "string", "the part names no question");
+    assert.equal(own.queued, false, "the part's own question was queued behind another");
+    assert.equal(q.id, own.id, "the slot holds a question the part is not waiting on");
+    assert.equal(q.status, "pending");
     // THE ANSWER RESUMES IT: the photograph is made and placed.
     await sendMessage(P, { message: "Whole", ask: { id: q.id, chosen: true } });
     const s2 = await settle(P, r.key);

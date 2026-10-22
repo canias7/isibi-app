@@ -1,5 +1,11 @@
 # Owner Notes
 
+## 2026-10-22 — Audit finding A35-1: a question found while a step is prepared ahead no longer hides the real one (not merged, not deployed)
+
+- **It was real.** When a message has several parts, the app sometimes prepares a later part ahead of its turn. If that preparation found a question ("Whole loaf or sliced?"), it put the question in the site's one question slot. Then the part's own turn asked the same thing again under a new id, found the slot taken, and its question was marked "waiting its turn", which the page never shows. The customer saw "Has a question to ask next" and no card, and the part quietly expired a day later. I reproduced this on today's code before changing anything.
+- **Now** a preparation never stores a question; it only notes that one is coming. The part's own turn asks it, it goes into the free slot, and that is the card shown and answered.
+- Records: `docs/history/2026-10-22-audit-60.md`. Branch `audit-60` (from `codex-work-into-claude`); nothing spent.
+
 ## 2026-10-22 — Ideas #10 and #14, combined with the day's work (not deployed)
 
 - #10, the visual review: after a first build's render check, the build's own
