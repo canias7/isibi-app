@@ -19,6 +19,7 @@ import { validatePages, lintPages, repairImports, mergeParts } from "./page-gen.
 // audit's W3). `site-addon.mjs` imports nothing, so this adds no cycle.
 import { mergeRevisedPages, keptReply, routeOf } from "./site-addon.mjs";
 import { repairPages, repairBrief } from "./site-repair.mjs";
+import { runVisualReview } from "./visual-review.mjs";
 // The seed top-up's OWN model and OWN hard output cap, imported rather than
 // restated. `buildFloor` has to price that call (see `SEED_PROFILE`), and a
 // second copy of either number here is a gate that drifts away from the thing
@@ -1613,6 +1614,39 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
     }
     if (rep.refused.length) out.renderRepairRefused = rep.refused;
     if (rep.dropped) out.renderRepairDropped = rep.dropped;
+  }
+
+  /**
+   * ── THE VISUAL REVIEW (2026-10-22, owner-approved idea #10) ───────────────
+   *
+   * The build's own model LOOKS at the screenshots the render check took and
+   * fixes what looks wrong, ONCE. Supplied only when the Worker's
+   * `VISUAL_REVIEW` switch is on for a first build (`deps.visualReview`), so
+   * with it off this block never runs and nothing is called.
+   *
+   * The repair pass's rules, one block down: the usage rides into the same
+   * list (`repairUsage`), so the ONE `pageCredits` call prices it under the
+   * build's ref; a failed recompile keeps the original build — never worse;
+   * and there is no second look.
+   */
+  if (built.ok && typeof deps.visualReview === "function" && Array.isArray(built.shots) && built.shots.length) {
+    note("looking", { shots: built.shots.length });
+    const vr = await runVisualReview({ shots: built.shots, pages, send: deps.visualReview, model: deps.visualModel });
+    if (vr.usage) repairUsage.push(vr.usage);
+    out.visualReview = { reviewed: vr.reviewed || [], fixed: vr.fixed.length, refused: vr.refused, ...(vr.none ? { none: true } : {}), ...(vr.reason ? { reason: vr.reason } : {}) };
+    if (vr.changed.length) {
+      const second = await compileWithRetry(vr.pages);
+      note("looked", second.ok ? { pages: vr.changed.length } : { failed: 1 });
+      if (second.ok) {
+        built = second;
+        pages = vr.pages;
+        out.visualFixed = vr.changed;
+      } else {
+        out.visualFixFailed = String(second.stage || "build");
+      }
+    } else {
+      note("looked", { none: 1 });
+    }
   }
 
   // THERE IS NO SECOND GENERATION, and the distinction from the block above is
