@@ -3165,6 +3165,10 @@ days offline, then small paid tests.
 
 ## Add GATEWAY_SIGNING_KEY (owner, 2026-10-22: "note it for later")
 
+**DONE 2026-10-22: the owner added the GitHub secret.** It takes effect only
+with the deploy that carries finding #31 (its deploy.yml wiring is on the
+branch, not on main yet).
+
 Optional, after audit #31 (already closed without it). A GitHub Actions secret
 named GATEWAY_SIGNING_KEY, at least 32 random characters, gives job passes
 their own signing key separate from SITE_SECRETS_KEY. The owner has no
