@@ -1,6 +1,7 @@
 import { renderNote } from "./site-render.mjs";
 import { readChecks } from "./check-evidence.mjs";
 import { imageNote } from "./site-images.mjs";
+import { verifyChecklist, checklistLine } from "./build-checklist.mjs";
 
 // WHICH SITE THIS BUILD MADE — the half of a build's answer that says so.
 //
@@ -137,7 +138,7 @@ export const ANSWER_FIELDS = ["slug", "url", "backend"];
  * the whole module exists: two copies of an answer's shape drift, and the
  * drift is silent.
  */
-export function pageNotes(pages) {
+export function pageNotes(pages, { tables = null } = {}) {
   // THE `typeof` HALF IS THIS DOOR'S OWN WALL AND IS INERT TODAY — said out
   // loud rather than pretended to be covered by a guard. Every read below is a
   // property read, and a property read on a string or a number answers
@@ -167,6 +168,16 @@ export function pageNotes(pages) {
   // A SECTION NO WRITER COULD WRITE (2026-10-08, P2): the fact, from the
   // band fan-out's own refusals; the reply writer tells it.
   if (Array.isArray(p.unwritten) && p.unwritten.length) out.unwritten = p.unwritten;
+  // THE BUILD CHECKLIST (2026-10-22, idea #14): the design's own plan
+  // (`planned`, attached by `buildAndPublishPages`) checked against what was
+  // published — `checklist` as data, `builtNote` as the reply's one line.
+  // `tables` is what the schema apply reports it made (null: no database).
+  const checked = verifyChecklist(p.planned, { pages: p, tables });
+  if (checked.length) {
+    out.checklist = checked;
+    const line = checklistLine(checked);
+    if (line) out.builtNote = line;
+  }
   return out;
 }
 
@@ -174,7 +185,7 @@ export function pageNotes(pages) {
  * The note fields this composes, named so a guard can compare both answers
  * without keeping its own list.
  */
-export const NOTE_FIELDS = ["salvageNote", "imagesNote", "renderNote", "keptNote"];
+export const NOTE_FIELDS = ["salvageNote", "imagesNote", "renderNote", "keptNote", "builtNote"];
 
 /**
  * EVERYTHING ABOUT A BUILD'S OUTCOME THE CUSTOMER SHOULD HEAR, AS DATA

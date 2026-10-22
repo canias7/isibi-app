@@ -305,6 +305,11 @@ test("DRIVEN END TO END: a collected build's stored answer names its site, and p
     // whole file exists to close.
     "genTried",
     "genVia",
+    // THE BUILD CHECKLIST'S PLAN (2026-10-22, idea #14): `buildAndPublishPages`
+    // attaches the design's derived checklist (`checklistFromDesign`) so
+    // `pageNotes` can check it on BOTH shapes; it rides on `...pages` like
+    // `genTried`, by decision.
+    "planned",
   ]);
   const stray = Object.keys(d).filter((k) => !known.has(k));
   assert.deepEqual(stray, [], "the collector's answer carries " + stray.join(", ") + " from nowhere the guard can derive");
@@ -359,7 +364,9 @@ test("every answer field chat.js reads on success is composed by somebody — de
 
   const composed = new Set([
     ...Object.keys(siteAnswer({ slug: "x", url: "/s/x/", backend: true, brand: "B", tables: [], schema: [] })),
-    ...Object.keys(pageNotes({ salvageNote: "s", images: { made: 1, planned: 2, budget: 2, overflow: 0 }, render: { ok: true, findings: [{ route: "/", kind: "threw", detail: "x" }] } })),
+    // `page`, `files` and `planned` added 2026-10-22 so the checklist's
+    // `builtNote` (idea #14) is composed here too, by the same composer.
+    ...Object.keys(pageNotes({ page: "app", files: ["src/routes/index.tsx"], planned: [{ kind: "page", path: "/", name: "Home", sections: 0 }], salvageNote: "s", images: { made: 1, planned: 2, budget: 2, overflow: 0 }, render: { ok: true, findings: [{ route: "/", kind: "threw", detail: "x" }] } })),
     ...publishPagesOut(),
   ]);
 
@@ -455,7 +462,9 @@ test("both of the build's success answers are composed by the one composer, and 
   // way, so the browser records an app project as it records a site.
   const calls = BARE.split("siteAnswer({").length - 1;
   assert.equal(calls, 4, "the build has " + calls + " composed answers, not four — a new writer can drift again");
-  const notes = BARE.split("pageNotes(pages)").length - 1;
+  // "pageNotes(pages" SINCE 2026-10-22: both calls now pass the tables the
+  // schema apply made, for the build checklist (idea #14); still two callers.
+  const notes = BARE.split("pageNotes(pages").length - 1;
   assert.equal(notes, 2, "the build has " + notes + " composed note sets, not two");
   // ANCHORED ON THE PROPERTY, NOT THE SPELLING: what must be true is that both
   // composers come from the one module, however the import list is ordered or
@@ -490,7 +499,8 @@ test("both of the build's success answers are composed by the one composer, and 
   assert.match(collector, /backend: rBackend\b/,
     "the collector hands the composer a constant backend — a site with no database would get a Data panel over nothing");
   for (const [name, body] of [["the inline build route", inline], ["the collector", collector]]) {
-    assert.ok(body.includes("...pageNotes(pages)"), name + " does not spread the note composer");
+    // "(pages" since 2026-10-22: the call passes the made tables too (build checklist, idea #14).
+    assert.ok(body.includes("...pageNotes(pages"), name + " does not spread the note composer");
     // AND NEITHER WRITES A NOTE BESIDE IT. A `renderNote:` line back in either
     // answer is the two shapes diverging again, one field over from the slug.
     for (const f of NOTE_FIELDS) {

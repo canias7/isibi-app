@@ -15137,6 +15137,9 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
         // this sentence sits beside a site that IS live: it says "worth a second
         // look", never "we stopped".
         (d && typeof d.renderNote === 'string') ? d.renderNote.trim() : '',
+        // WHAT THE DESIGN PLANNED AND WHAT WAS REALLY PUBLISHED (2026-10-22,
+        // idea #14): one server-composed line, from the build's own checklist.
+        (d && typeof d.builtNote === 'string') ? d.builtNote.trim() : '',
       ].filter(Boolean).join('\n');
       // TOLD BY THE REPLY WRITER WHEN IT COULD BE (2026-10-08, the sixth batch):
       // the links, the pictures, a page shown as a stand-in and a section left
@@ -15146,7 +15149,7 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
       // those four, never beside them; the other notes stay as they are.
       const told = buildToldLines(d);
       const noteShown = told
-        ? [...told, ...['tokensNote', 'styleNote', 'cssNote', 'keptNote', 'renderNote'].map((k) => (d && typeof d[k] === 'string') ? d[k].trim() : '')].filter(Boolean).join('\n')
+        ? [...told, ...['tokensNote', 'styleNote', 'cssNote', 'keptNote', 'renderNote', 'builtNote'].map((k) => (d && typeof d[k] === 'string') ? d[k].trim() : '')].filter(Boolean).join('\n')
         : note;
       // THE MODEL'S OWN SUMMARY, which the builder has always written and always
       // discarded — `notes` came back on every response and nothing rendered it,

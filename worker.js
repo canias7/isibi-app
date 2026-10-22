@@ -94,6 +94,7 @@ import { RESUME_FIRST_SECONDS, genMarks, resumeKey, attachmentsKey, isResumeId, 
 // (stage 2c, 2026-09-05): consumer, container, collector — see the helpers
 // beside `makeJobCtx`, and the module for every number and sentence.
 import { siteAnswer, pageNotes, buildFacts, ANSWER_FIELDS } from "./builder/build-answer.mjs";
+import { checklistFromDesign } from "./builder/build-checklist.mjs";
 // WHICH CHAT A SITE BELONGS TO (2026-09-08). The browser has always minted a
 // per-workspace id and never sent it; the module owns the shape rule and the
 // one spelling of the column, and says why it is not called `project`.
@@ -19030,6 +19031,12 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   // nobody can see.
   if (out && out.ok && out.render) await saveLandmarks(env, slug, out.render.landmarks);
   if (out && bDraftSaved) out.draft = bDraftSaved;
+  // THE BUILD CHECKLIST'S PLAN (2026-10-22, idea #14): derived in code from the
+  // design this build was handed, checked by `pageNotes` against what landed.
+  if (out && typeof out === "object") {
+    try { const planned = checklistFromDesign({ plan, spec }); if (planned.length) out.planned = planned; }
+    catch { /* the checklist never costs the build */ }
+  }
   return out;
 }
 
@@ -25358,7 +25365,7 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
         // Three of the five ride on `pages`, which is right here; the other two
         // want route-local state the record does not carry, and
         // `builder/build-answer.mjs` names them and says why.
-        ...pageNotes(pages),
+        ...pageNotes(pages, { tables: rBackend ? rTables.map((t) => t && t.name).filter(Boolean) : null }),
         // A REVERSAL THAT DID NOT LAND IS NOT A CLEAN ZERO. Carried only when
         // something is still owed, so an ordinary answer is unchanged and the
         // field's PRESENCE is the alarm — the convention `prerenderUnprivileged`
@@ -28229,7 +28236,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // now sits ABOVE `render` rather than below it, which is a change to
         // the JSON's key ORDER and to nothing else — every reader on both sides
         // reads by name. Said rather than left to be noticed.
-        ...pageNotes(pages),
+        ...pageNotes(pages, { tables: Array.isArray(made) ? made : null }),
         // …AND WHAT THE MODEL'S OWN STYLESHEET COSTS, on a build as well as a
         // revise — unlike `styleNote` one line up, deliberately. That one is
         // silent on a first build because naming axes to somebody seeing their

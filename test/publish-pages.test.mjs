@@ -2117,7 +2117,9 @@ test("the salvage note reaches the response and the note block, not just the mod
   // was silent about a stubbed page. The PROPERTY is unchanged and is what is
   // asserted: the note the module composes reaches the response.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(w, /\.\.\.pageNotes\(pages\)/,
+  // `[,)]` since 2026-10-22: the call also passes the made tables (the build
+  // checklist, idea #14); the property — the composed note is spread — holds.
+  assert.match(w, /\.\.\.pageNotes\(pages[,)]/,
     "the route never returns the note the module composed");
   const ans = fs.readFileSync(new URL("../builder/build-answer.mjs", import.meta.url), "utf8");
   assert.match(ans, /out\.salvageNote = salvage/,
