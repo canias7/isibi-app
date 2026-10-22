@@ -190,7 +190,7 @@ function qrMatches(svg, candidates) {
   for (const text of candidates) {
     for (let type = 1; type <= 10; type++) {
       let q;
-      try { q = qrcode(type, "M"); q.addData(text); q.make(); } catch { continue; }
+      try { q = qrcode(type, "M"); q.addData(unescape(encodeURIComponent(text))); q.make(); } catch { continue; }
       const n = q.getModuleCount();
       const quiet = (got.size - n) / 2;
       if (!Number.isInteger(quiet) || quiet < 0) continue;

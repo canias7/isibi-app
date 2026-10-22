@@ -65,6 +65,9 @@ export function readQrText(v) {
   const s = v.trim();
   if (!s) return { text: null, why: "empty" };
   if (s.length > MAX_QR_TEXT) return { text: null, why: "over " + MAX_QR_TEXT + " characters" };
+  // A lone surrogate has no UTF-8 form: drawn, it would become U+FFFD, not the
+  // character asked for (A31-2). Any other character is encoded as UTF-8.
+  if (/\p{Surrogate}/u.test(s)) return { text: null, why: "a broken character" };
   if (BAD_SCHEME.test(s)) return { text: null, why: "a scheme a QR must never carry" };
   // A colon early in the string is a scheme; no colon is plain text, which is
   // fine. This is deliberately not "does it look like a URL" — `geo:` and
