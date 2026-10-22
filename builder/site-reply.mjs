@@ -231,7 +231,7 @@ export const REPLY_TOOL = {
 };
 
 export const REPLY_SYSTEM =
-  "You write the chat message a customer reads after asking an AI website builder to change their live website. " +
+  "You write the chat message a customer reads after asking an AI website builder to change their website (live, or saved to the draft when a fact says so). " +
   "The builder's code has already done the work and checked what really happened; you are given all of it as a list of " +
   "facts, each with an id. Your job is only to tell the customer, naturally and in your own words, what those facts say.\n\n" +
   "WHAT A FACT'S ID SAYS IT IS\n" +
@@ -839,13 +839,14 @@ function partialFacts(F, parts) {
 const OWN_ACCOUNT = new Set(["picture", "nav", "rules", "rename", "logo", "text", "data"]);
 function stepFacts(F, e) {
   if (!Array.isArray(e.steps)) return;
+  const held = !!heldDraftOf(e.draft);
   e.steps.forEach((s, i) => {
     if (!s || typeof s !== "object" || s.status !== "done" || !OWN_ACCOUNT.has(s.layer)) return;
     const own = said(s.msg).replace(/^✅\s*/, "");
     const what = targetSaid(s);
     F.add("changed", (what ? "Done: " + what + ". " : "") +
       (own ? "What the builder reports it did: " + quote(own) : "The change was made."), "step:" + i);
-    if (s.layer === "rules") F.add("note", "The change to what the site accepts took effect at once; nothing needed rebuilding.");
+    if (s.layer === "rules" && !held) F.add("note", "The change to what the site accepts took effect at once; nothing needed rebuilding.");
   });
 }
 
@@ -914,6 +915,24 @@ function outcomeFacts(F, e) {
 function evidenceFacts(F, a, scope = "") {
   const own = checkFacts(a.checks, { scope });
   for (const f of own.length ? own : a.checks === undefined ? browserOnlyFacts(a.render) : []) F.add(f.kind, f.text);
+}
+
+/**
+ * A HELD DRAFT ANSWER (2026-10-22, audit finding 30, A14-1): under draft-first
+ * a data, rules, add-row or pageless change is sealed into the draft and its
+ * answer carries `draft` (worker.js `heldDraft`: published false, held true,
+ * the revision) and no `checks`. Read strictly, or null.
+ */
+function heldDraftOf(d) {
+  if (!d || typeof d !== "object" || Array.isArray(d)) return null;
+  if (d.published !== false || d.held !== true) return null;
+  return Number.isSafeInteger(d.revision) && d.revision > 0 ? { revision: d.revision } : null;
+}
+/** Its fact: saved to the draft, the live site unchanged until Publish — unless the publish evidence already said so. */
+function heldDraftFact(F, a) {
+  const h = heldDraftOf(a.draft);
+  if (!h || (a.checks && typeof a.checks === "object" && a.checks.draft === true)) return;
+  F.add("check", "Saved to the draft as revision " + h.revision + ": the live site is unchanged until the owner presses Publish.");
 }
 
 /**
@@ -1064,7 +1083,7 @@ export function editReplyFacts(e, { routedCost = null, inRequest = false } = {})
       // because only it knows which picture, which links, which address.
       const own = said(e.msg);
       F.add(e.placed === 0 ? "nothing" : "changed", own ? "What the builder reports it did: " + quote(own.replace(/^✅\s*/, "")) : "The change was made.");
-      if (layer === "rules") F.add("note", "It took effect at once; nothing needed rebuilding.");
+      if (layer === "rules" && !heldDraftOf(e.draft)) F.add("note", "It took effect at once; nothing needed rebuilding.");
       // A WAITING FRAME THAT COULD NOT BE FILLED (2026-10-09, round 5).
       (Array.isArray(e.notPlaced) ? e.notPlaced : []).forEach((x, i) => {
         if (x && typeof x.d === "string") F.add("not-done", "The photograph " + quote(x.d) + " was not put on the page: " + notPlacedWhy(x), "notPlaced:" + i);
@@ -1090,6 +1109,7 @@ export function editReplyFacts(e, { routedCost = null, inRequest = false } = {})
       refusalMoney(F, e, routedCost);
     }
   }
+  if (e.ok === true) heldDraftFact(F, e);
   heldFacts(F, e, e.ok === true, inRequest === true);
   questionFact(F, e.clarify);
   return questionOnly(F.out) ? { skip: "question-only", facts: [] } : { skip: null, facts: F.out };
@@ -1325,6 +1345,7 @@ export function addonReplyFacts(a, { routedCost = null, inRequest = false } = {}
     heldPhotoFacts(F, a.held, inRequest === true);
     if (routedCost !== null && num(routedCost) > 0) F.add("money", "Reading their message cost " + count(num(routedCost), "credit") + ".");
   }
+  if (a.ok === true) heldDraftFact(F, a);
   heldFacts(F, a, a.ok === true, inRequest === true);
   questionFact(F, a.clarify);
   return questionOnly(F.out) ? { skip: "question-only", facts: [] } : { skip: null, facts: F.out };

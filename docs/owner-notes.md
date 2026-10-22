@@ -4,6 +4,12 @@
 
 The planner now asks for 4 to 6 bands (was up to 8), the kit's section and hero spacing is tighter, and each band writer is told to keep its band short. Waiting on your word to deploy (it rebuilds the build container). A test build to compare before and after costs credits, so it needs your OK.
 
+## 2026-10-22 — Audit finding 30 (A14-1): a change saved to the draft is no longer told as live
+
+- With draft-first on, a data change, a rule, an added entry or an addition with no page is saved to the draft, not put live. The written reply was told only "done" (and, for a rule, "it took effect at once"), so an owner who said "don't allow double bookings" was told the rule was in force while the live site kept taking them.
+- Now the reply is told "Saved to the draft as revision N: the live site is unchanged until the owner presses Publish", and the "took effect at once" line is said only when the rule really went live. The reply instructions no longer assume every change is live.
+- Seven new tests (`test/reply-held-draft.test.mjs`); five fail on the old code. Not merged, not deployed, nothing spent. Record: `docs/history/2026-10-22-audit-finding-30.md`.
+
 ## 2026-10-21 — Phase D, Android: the real app downloads as an APK (you: "can u do it like in our platform how a customer will do it")
 
 - The app builder can now build a real Expo app into an Android app (`/expo-android`): the same typecheck, then Expo writes the native project and Gradle builds it offline against libraries the image warms once.
