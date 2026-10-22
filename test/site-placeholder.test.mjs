@@ -180,6 +180,70 @@ test("THE TAG IS ONE CONSTANT — the writer and the reader cannot disagree", ()
     .map((l) => (/^\s*(\/\/|\*|\/\*)/.test(l) ? " ".repeat(l.length) : l)).join("\n");
   assert.equal([...bare.matchAll(/content=\\"placeholder/g)].length, 1,
     "the placeholder tag is spelled in more than one place");
-  assert.equal([...bare.matchAll(/\bPLACEHOLDER_META\b/g)].length, 3,
-    "PLACEHOLDER_META is declared, emitted and read — one of the three has gone");
+  assert.equal([...bare.matchAll(/\bPLACEHOLDER_META\b/g)].length, 4,
+    "PLACEHOLDER_META is declared, emitted and read twice (the clear and the draft rewording, A01-5) — one of the four has gone");
+});
+
+// AUDIT A01-5 (2026-10-22). Under DRAFT_FIRST a first build saves a draft and
+// uploads only the PREVIEW script, so `clearPlaceholder` never runs and the live
+// address kept saying "send your message again", which buys another build.
+// The preview landing now swaps that sentence for an honest "not published yet".
+const BUILDING = "Your site is still being put together — this page is standing in until it's ready. If it's still here in a few minutes, send your message again and I'll pick it up.";
+
+test("A01-5: A FIRST BUILD SAVED AS A DRAFT — the stand-in stops asking for a resend", async () => {
+  const m = await loadWorkerModule();
+  assert.equal(typeof m.draftPlaceholder, "function", "draftPlaceholder is not exported");
+  const SITES_BUCKET = bucket();
+  assert.equal(await m.publishPlaceholder({ SITES_BUCKET }, "shop", "Fold Coffee", SPEC, { building: true }), true);
+  assert.match(SITES_BUCKET.store.get(KEY("shop")), /send your message again/, "the fixture is not the building stand-in");
+
+  assert.equal(await m.draftPlaceholder({ SITES_BUCKET }, "shop"), true);
+  const html = SITES_BUCKET.store.get(KEY("shop"));
+  assert.ok(html, "the stand-in was removed: the address would fall to nothing");
+  assert.doesNotMatch(html, /again/i, "the draft's live address still asks for a resend");
+  assert.match(html, /isn't published yet/, "no honest not-published wording");
+  assert.ok(html.includes(markFromSource()), "the mark was lost, so a later publish could not clear it");
+  assert.match(html, /<title>Fold Coffee<\/title>/, "the site's own name was lost");
+  assert.equal(await m.clearPlaceholder({ SITES_BUCKET }, "shop"), true, "a later real publish no longer takes it down");
+});
+
+test("A01-5: ONLY THE BUILDING STAND-IN IS REWORDED — real pages, the failure page and nothing are left alone", async () => {
+  const m = await loadWorkerModule();
+  const real = "<!doctype html><title>Fold</title><p>" + BUILDING + "</p>";
+  const b1 = bucket({ [KEY("shop")]: real });
+  assert.equal(await m.draftPlaceholder({ SITES_BUCKET: b1 }, "shop"), false);
+  assert.equal(b1.store.get(KEY("shop")), real);
+  assert.equal(b1.seen.put, 0);
+
+  const b2 = bucket();
+  await m.publishPlaceholder({ SITES_BUCKET: b2 }, "shop", "Fold", SPEC);
+  const fail = b2.store.get(KEY("shop"));
+  assert.equal(await m.draftPlaceholder({ SITES_BUCKET: b2 }, "shop"), false);
+  assert.equal(b2.store.get(KEY("shop")), fail);
+
+  const b3 = bucket();
+  assert.equal(await m.draftPlaceholder({ SITES_BUCKET: b3 }, "shop"), false);
+  assert.equal(b3.seen.put, 0);
+  for (const verb of ["get", "put"]) {
+    const b = bucket({ [KEY("shop")]: "<meta " + markFromSource() + ">" + BUILDING }, verb);
+    assert.equal(await m.draftPlaceholder({ SITES_BUCKET: b }, "shop"), false, verb + " threw past the catch");
+  }
+  assert.equal(await m.draftPlaceholder({}, "shop"), false);
+});
+
+test("A01-5: THE PREVIEW UPLOAD REWORDS IT, AFTER THE UPLOAD'S REFUSALS", () => {
+  const bare = WORKER.split("\n")
+    .map((l) => (/^\s*(\/\/|\*|\/\*)/.test(l) ? " ".repeat(l.length) : l)).join("\n");
+  assert.equal([...bare.matchAll(/await draftPlaceholder\(env, slug\)/g)].length, 1,
+    "draftPlaceholder is called from somewhere other than its one site");
+  const at = bare.indexOf("async function uploadScriptOnce(");
+  assert.ok(at > 0, "uploadScriptOnce is gone — re-anchor this");
+  const fn = bare.slice(at);
+  const end = fn.slice(1).search(/\n(?:\/\*\*|(?:export )?(?:async )?function )/);
+  const body = fn.slice(0, end > 0 ? end + 1 : fn.length);
+  const bail = body.indexOf("if (!r.ok) {");
+  const clear = body.indexOf("if (!preview) await clearPlaceholder(env, slug);");
+  const call = body.indexOf("else await draftPlaceholder(env, slug)");
+  assert.ok(bail > 0 && clear > bail, "the clear's anchors moved — re-anchor this");
+  assert.ok(call > clear && call < clear + 120, "the draft rewording is not the preview branch of the clear");
 });

@@ -6561,6 +6561,14 @@ const PLACEHOLDER_MARK = "gofarther-page";
 // means a publish stops taking its own stand-in down and every unknown address on
 // that site answers 200 for ever. One constant, no way to disagree.
 const PLACEHOLDER_META = "<meta name=\"" + PLACEHOLDER_MARK + "\" content=\"placeholder\">";
+// THE EARLY WRITE'S SENTENCE, AND WHAT IT BECOMES WHEN THE BUILD FINISHES AS A
+// DRAFT (audit A01-5, 2026-10-22). Under DRAFT_FIRST a first build saves its
+// pages as a draft and uploads only the preview script, so the live address
+// keeps serving this stand-in until the owner presses Publish — and "send your
+// message again" then buys another build. `draftPlaceholder` swaps the one
+// sentence for an honest "not published yet", with no instruction to resend.
+const PLACEHOLDER_BUILDING = "Your site is still being put together — this page is standing in until it's ready. If it's still here in a few minutes, send your message again and I'll pick it up.";
+const PLACEHOLDER_DRAFT = "This site isn't published yet. Its owner is getting it ready, so check back soon.";
 
 function schemaPlaceholderPage(brand, spec, opts) {
   const esc = (v) => String(v == null ? "" : v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -6615,7 +6623,7 @@ function schemaPlaceholderPage(brand, spec, opts) {
     // send it again if it is still here" is true either way; "refresh in a
     // minute" is not.
     (opts && opts.building
-      ? "Your site is still being put together — this page is standing in until it's ready. If it's still here in a few minutes, send your message again and I'll pick it up."
+      ? PLACEHOLDER_BUILDING
       : tables
       ? "Database is live. These tables were created for this site."
       : "The pages didn't come out right this time, so this stands in for them. Nothing was lost — say what you want and I'll build it again.") +
@@ -6724,6 +6732,34 @@ export async function clearPlaceholder(env, slug) {
     return true;
   } catch (e) {
     console.error("placeholder clear skipped:", slug, e && e.message);
+    return false;
+  }
+}
+
+/**
+ * A FIRST BUILD SAVED AS A DRAFT: THE STAND-IN STOPS ASKING FOR A RESEND.
+ *
+ * Called from `uploadScriptOnce` when a PREVIEW script has landed — the draft
+ * exists, and nothing is live. The stand-in stays (visitors must not see the
+ * unpublished draft, and the address must not 404), but its building sentence
+ * is replaced by `PLACEHOLDER_DRAFT`. Guarded by the mark AND the building
+ * sentence, so a real page, the failure wording, or a site with nothing there
+ * is left alone. Never throws: the draft is already saved.
+ */
+export async function draftPlaceholder(env, slug) {
+  if (!env.SITES_BUCKET || !slug) return false;
+  try {
+    const key = "sites/" + slug + "/index.html";
+    const obj = await env.SITES_BUCKET.get(key);
+    if (!obj) return false;
+    const html = await obj.text();
+    if (!html.includes(PLACEHOLDER_META) || !html.includes(PLACEHOLDER_BUILDING)) return false;
+    await env.SITES_BUCKET.put(key, html.replace(PLACEHOLDER_BUILDING, PLACEHOLDER_DRAFT), {
+      httpMetadata: { contentType: "text/html; charset=utf-8" },
+    });
+    return true;
+  } catch (e) {
+    console.error("placeholder draft wording skipped:", slug, e && e.message);
     return false;
   }
 }
@@ -15832,6 +15868,7 @@ async function uploadScriptOnce(env, slug, worker, { preview = false, go = null 
   // NOT GATED ON `confirmed`: the wait is explicitly never fatal, so a slow
   // confirmation must not leave a stand-in over a site that really is serving.
   if (!preview) await clearPlaceholder(env, slug);
+  else await draftPlaceholder(env, slug);
   // `stamped` IS WHAT SEPARATES THE TWO WAYS OF NOT BEING CONFIRMED. Without
   // it, "the wait spent its budget" and "there was nothing to wait for" are the
   // same `confirmed: false` — and they need opposite fixes.
