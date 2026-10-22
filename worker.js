@@ -336,7 +336,7 @@ import { QR_FIELD, qrSvg } from "./builder/site-qr.mjs";
 // THE LIST OF CODES A SITE CARRIES (2026-09-03) — read, patched and placed by
 // name. Dependency-free on purpose: the container imports the same module to
 // name the files, so what is drawn here and what is written there agree.
-import { qrList, qrFile, patchQr, qrRefusal, qrUnplaced } from "./builder/site-qr-list.mjs";
+import { qrList, qrFile, patchQr, qrRefusal, qrUnplaced, foldQr } from "./builder/site-qr-list.mjs";
 // THE ONE SHAPE OF A TABLE (2026-09-02), lifted out of `design_schema` so the
 // ADD step can ask for a table without the build's designer — see the header
 // of that file. The build's `tables` array keeps its own framing around it.
@@ -27425,7 +27425,13 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // been `undefined` on every build since and the strip could never fire;
       // the look tier it protected went on 2026-08-24. Scoping a rule to one
       // page is now something the model's own stylesheet does with `data-page`.
-      const merged = mergeLook(priorLook, designed, body, { instructed: !!editState });
+      // QR CODES ARE FOLDED BY NAME, NEVER REPLACED WHOLE (audit A31-3): the
+      // state note told the designer to name only the code it changes, so a
+      // one-entry `qr` changes that one code and keeps the rest.
+      const qrFolded = editState && designed && typeof designed === "object" && priorLook
+        ? { ...designed, qr: foldQr(priorLook.qr, designed.qr) }
+        : designed;
+      const merged = mergeLook(priorLook, qrFolded, body, { instructed: !!editState });
       // THE WHOLE MERGE, NEVER A HAND-PICKED SUBSET (2026-08-21).
       //
       // This was a literal restating FIVE of `mergeLook`'s thirteen fields —

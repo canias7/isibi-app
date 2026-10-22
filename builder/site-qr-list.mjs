@@ -140,6 +140,25 @@ export function qrList(v) {
 }
 
 /**
+ * A REVISE'S CODES FOLDED INTO THE STORED LIST BY NAME (audit A31-3).
+ *
+ * The revise design call is told "to change one, name it in `qr`; to keep them
+ * all, omit `qr`", so a designed list names only what changes. Each named code
+ * replaces the stored code of that name in place; a new name is appended; every
+ * code it does not name is kept. A designed `qr` with no usable code (absent,
+ * malformed, empty) is returned as it came, so the merge's own rules for an
+ * absent field still apply.
+ */
+export function foldQr(stored, designed) {
+  const named = qrList(designed);
+  if (!named.length) return designed;
+  const byName = new Map(named.map((c) => [c.name, c]));
+  const kept = qrList(stored).map((c) => byName.get(c.name) || c);
+  const have = new Set(kept.map((c) => c.name));
+  return qrList(kept.concat(named.filter((c) => !have.has(c.name))));
+}
+
+/**
  * ONE CODE CHANGED, THE LIST KEPT — what the `qr` edit lane answers folds into.
  *
  * The lane answers a PATCH to one code (`{ name, points?, label? }`), never the
