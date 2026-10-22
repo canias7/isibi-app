@@ -158,7 +158,7 @@ test("the data proxy reads the key AFTER the spam gate and BEFORE the upstream w
   const read = proxy.indexOf("const prior = await idem.read();");
   const upstream = proxy.indexOf("const r = await fetch(target, {");
   const write = proxy.indexOf("idem.write({ status: r.status, body, ct:");
-  const notify = proxy.indexOf("notifyOwnerOfSubmission(env, ctx, {");
+  const notify = proxy.indexOf("siteRowEffects(env, ctx, {");
   for (const [n, i] of Object.entries({ gate, read, upstream, write, notify })) assert.ok(i > 0, `landmark missing: ${n}`);
   assert.ok(gate < read, "the replay must not skip the spam gate's strip of the token");
   assert.ok(read < upstream, "a replay that still reaches Postgres is the bug");
@@ -170,7 +170,7 @@ test("the data proxy reads the key AFTER the spam gate and BEFORE the upstream w
   assert.match(scope, /"data\/" \+ String\(path\)\.split\("\/"\)\[0\]\.toLowerCase\(\)/, "the scope is not the table");
   assert.match(proxy, /if \(prior\) return new Response\(prior\.body, \{ status: prior\.status, headers: replayHeaders\(prior\) \}\);/);
   // Off the customer's wait when the runtime allows it.
-  const after = between(proxy, "idem.write({ status: r.status, body, ct:", "// TELL THE OWNER A BOOKING ARRIVED.");
+  const after = between(proxy, "idem.write({ status: r.status, body, ct:", "// AFTER THE ROW IS WRITTEN:");
   assert.match(after, /ctx\.waitUntil\(w\); else await w;/);
 });
 

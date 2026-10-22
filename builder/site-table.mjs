@@ -309,8 +309,10 @@ description:
         "`to` must be one of THIS table's own columns, the one holding the visitor's address. " +
         "`subject` and `body` may use {column} to insert any value from the row they just submitted — e.g. \"Booked, {customer_name}\". " +
         "`body` is HTML; keep it short and plain, and never ask them to reply with card details or a password. " +
-        "The site owner pastes their own email provider key (Resend, SendGrid or Postmark) in Settings — until they do, nothing is sent and the form still works normally. " +
-        "Do NOT declare this to notify the OWNER: they are told about every submission already.",
+        "The site owner pastes their own email provider key (RESEND_KEY, SENDGRID_KEY or POSTMARK_KEY) and EMAIL_FROM, an address on a domain verified with that provider, in Settings → Secrets — until they do, nothing is sent and the form still works normally. " +
+        "On a table with `payment` it is sent when the order is PAID (that is the receipt), never when the checkout starts. " +
+        "Rows a FUNCTION writes (a capacity-limited booking through `functions`) send NO owner email, confirmation, text or webhook: those fire only for a row inserted straight into the table and for a paid order. " +
+        "Do NOT declare this to notify the OWNER: they are told about every submission to a `collect` table, and every paid order, already.",
       properties: {
         fn: { type: "string", description:
           "OPTIONAL, and the more capable form. Instead of to/subject/body, name a function you ALSO declare in `functions` with `internal: true`, " +
@@ -338,6 +340,7 @@ description:
         "{column} inserts a value from the submitted row. Keep it under 160 characters: a text is billed per 160-character segment. " +
         "The site owner pastes their own Twilio, MessageBird or Vonage credentials in Settings, plus the number or sender name to send from; " +
         "until they do, nothing is sent and the form still works normally. " +
+        "On a table with `payment` it is sent when the order is PAID. Rows a FUNCTION writes (a capacity-limited booking through `functions`) send NO owner email, confirmation, text or webhook: those fire only for a row inserted straight into the table and for a paid order. " +
         "The visitor's number must be given in full international form (+44…, +1…) — ask for it that way on the form, because a local number cannot be sent to. " +
         "Do NOT declare this for a plain contact form, and do not declare it for marketing: every message costs the owner money and unsolicited texts are regulated.",
       properties: {
@@ -371,6 +374,7 @@ description:
         "OPTIONAL, and OFF unless the brief asks for it. Tell another system when a row here changes — a booking into a CRM, an order into a warehouse, an enquiry into Slack. " +
         "List the events that should fire: [\"created\"] for new rows only, or all three for everything. Most sites declare this on nothing at all. " +
         "Declare it ONLY when the brief names another system that should hear about this data; a site that just emails the owner does NOT need it — that already happens. " +
+        "On a table with `payment`, `created` fires when the checkout starts (the order is pending) and `updated` when it is paid. Rows a FUNCTION writes (a capacity-limited booking through `functions`) send NO owner email, confirmation, text or webhook: those fire only for a row inserted straight into the table and for a paid order. " +
         "The site owner pastes the destination into Secrets as WEBHOOK_URL (or WEBHOOK_URL_<TABLE> to send one table somewhere of its own), and until they do nothing is sent and the form works normally. " +
         "The platform signs each delivery and never sends owner_id or any claim token.",
     },

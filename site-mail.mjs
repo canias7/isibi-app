@@ -26,6 +26,8 @@
 // The providers the vault knows, in the order they are tried. The OWNER picks by
 // which key they paste in; the model never names one, so switching provider is
 // a Secrets edit rather than a rebuild.
+import { sanitizeMailHtml } from "./site-row-effects.mjs";
+
 export const MAIL_PROVIDERS = [
   { secret: "RESEND_KEY", provider: "resend" },
   { secret: "SENDGRID_KEY", provider: "sendgrid" },
@@ -186,7 +188,10 @@ export async function sendConfirmation(deps, { def, row, slug }) {
         // never seen by the caller, so a runaway body would otherwise be a
         // silent bill on the owner's provider.
         subject: String(got.subject == null ? "" : got.subject).slice(0, MAX_SUBJECT),
-        html: String(got.body == null ? "" : got.body).slice(0, MAX_BODY),
+        // SANITISED (audit A12-2): the function is model-written and builds its
+        // body from a stranger's fields, so it keeps text and bare formatting
+        // tags only — the template form escapes every value it fills in.
+        html: sanitizeMailHtml(String(got.body == null ? "" : got.body).slice(0, MAX_BODY)),
       };
       if (!built.subject || !built.html) return { sent: false, reason: "confirm function returned no subject or body" };
     } else {

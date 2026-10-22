@@ -12,6 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { normalizeConfirm, fill, esc, recipient, pickProvider, sendConfirmation, MAIL_PROVIDERS } from "../site-mail.mjs";
 import { normalizeSchema } from "../site-schema.mjs";
+import { resolveCreatedRow } from "../site-row-effects.mjs";
 import { TABLE_ITEM, FUNCTION_ITEM } from "../builder/site-table.mjs";
 
 
@@ -241,7 +242,15 @@ test("a function decides the whole message", async () => {
       return { to: "ada@example.com", subject: "See you Saturday, Ada", body: "<p>Parking is free at weekends.</p>" };
     },
   });
-  const out = await sendConfirmation(d, { def: FN_TABLE, row: { id: 42 }, slug: "s" });
+  // The row as the proxy really gets it (audit A12-2): an empty 201 from
+  // PostgREST, the visitor's own fields, and the stored row read on the owner
+  // side — not a hand-made {id}.
+  const row = await resolveCreatedRow({
+    def: FN_TABLE, body: "", sent: JSON.stringify({ customer_email: "ada@example.com" }),
+    lookup: async (sql, params) => (/FROM "bookings" WHERE "customer_email" = \? ORDER BY id DESC LIMIT 1/.test(sql) && params[0] === "ada@example.com"
+      ? [{ id: 42, customer_email: "ada@example.com" }] : []),
+  });
+  const out = await sendConfirmation(d, { def: FN_TABLE, row, slug: "s" });
   assert.equal(out.sent, true);
   assert.equal(sent[0].subject, "See you Saturday, Ada");
   assert.equal(sent[0].html, "<p>Parking is free at weekends.</p>");

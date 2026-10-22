@@ -107,7 +107,8 @@ test("the write path calls the confirmation and the text message", () => {
   // call passes `row: row || {}`. Same failure this codebase already recorded
   // for `buildEffortHTML()` matching its own definition.
   for (const fn of ["confirmSubmitter", "smsSubmitter"]) {
-    const calls = worker.match(new RegExp(fn + "\\(env, ctx, \\{ slug, db, def, row: row\\b", "g")) || [];
+    // Since audit A12-1 the call lives in the shared row step, `row: r`.
+    const calls = worker.match(new RegExp(fn + "\\(env, ctx, \\{ slug, db, def, row: r\\b", "g")) || [];
     assert.equal(calls.length, 1, `${fn} is called ${calls.length} times on the write path — expected exactly once`);
   }
   // `def` is the table read back from _meta, not something rebuilt.

@@ -20,6 +20,13 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
+- **A row a function writes runs no side effect** (2026-10-22, audit A12-1's
+  remainder). A capacity-limited booking goes through `data/rpc/<fn>` on a
+  `write: "none"` table, and a function declares no table it writes, so the
+  shared row step (`siteRowEffects`) cannot know which row it made: no owner
+  email, confirmation, text or webhook. The tool text and `tableParts` now say
+  so; making it work needs a declared `writes` table on a function and a way
+  to read the row it made. `docs/history/2026-10-22-audit-mail.md`.
 - **Nothing account-specific may live only in the browser** (2026-10-20, owner:
   "nothing can be local, it needs to be seen from every device"). The audit is
   `docs/investigations/2026-10-20-local-state-audit.md`: the chat (every site's

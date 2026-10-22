@@ -183,7 +183,7 @@ test("the sidecar takes effect now, RE-DERIVED through the one reader, best-effo
 
 test("the panel fetches the choice, offers the button on eligible tiles only, and posts it", () => {
   const c = blank(chat);
-  const files = windowOf(c, "async function siteFiles(site)", "\nfunction siteEmails");
+  const files = windowOf(c, "async function siteFiles(site)", "\nfunction sitePayments");
   // The stored choice rides beside the list — a failed read degrades to no
   // badge, never to a dead panel.
   assert.match(files, /\/share'\)\.then\(\(r\) => r\.json\(\)\)\.catch\(\(\) => \(\{\}\)\)/,

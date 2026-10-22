@@ -27,6 +27,14 @@ Each finding was checked again against today's code first. Branch `claude/audit-
   - the media browser check needs this machine's Chromium codecs, and it fails the same way without these changes;
   - one page-flow case failed under the full run's load and passes on its own, twice.
 
+## 2026-10-22 — Site emails, texts and webhooks now fire where they were promised (audit A12-1, A12-2, A12-4)
+
+- **Shop orders.** When a customer pays, the shop owner is now emailed, the customer gets the receipt (or text) the site declared, and a declared webhook hears about it. Before, orders never sent any of these. The webhook also hears "created" when checkout starts; the emails wait for the payment.
+- **Confirmations written by a function** (the kind that can name the stylist, say) now actually send: the server finds the new booking's number itself. Webhooks now carry that number too. The message body is cleaned so a visitor's text can't turn into links or scripts.
+- **The Emails box is gone** (you: "all the keys go into the secrets, so you can delete the emails box"). The Secrets panel now has one email line: the exact key names (RESEND_KEY, SENDGRID_KEY or POSTMARK_KEY) and EMAIL_FROM (your sending address on a domain verified with that provider), and it says "Email is set up" or which half is missing, from the secret names only. The untrue promises (edge functions, welcome emails on signup) went with the box. A scheduled email job missing EMAIL_FROM now says so.
+- **Still not covered:** a booking made through a function (the "class holds 12 people" kind) sends no email, text or webhook. The builder is now told this, and the add-on reply no longer claims it. It's in the backlog.
+- Everything is always sent on your customer's own keys, never ours. Nothing was spent, sent, merged or deployed. Record: `docs/history/2026-10-22-audit-mail.md`.
+
 ## 2026-10-21 — Phase D, Android: the real app downloads as an APK (you: "can u do it like in our platform how a customer will do it")
 
 - The app builder can now build a real Expo app into an Android app (`/expo-android`): the same typecheck, then Expo writes the native project and Gradle builds it offline against libraries the image warms once.

@@ -757,16 +757,24 @@ export async function runJob(deps, row) {
     // site on the platform pays a decrypt per tick for a feature it never
     // declared.
     const wants = (c) => shaped.messages.some((m) => m.channel === c);
-    const creds = wants("email") ? await deps.credentials() : null;
+    let creds = wants("email") ? await deps.credentials() : null;
+    // THE MISSING HALF, NAMED (audit A12-4): a key with no EMAIL_FROM used to
+    // read "no email provider key in Secrets" to an owner whose key is there.
+    // `credentials` answers `{missing: "EMAIL_FROM"}` for that case.
+    let mailMissing = null;
+    if (creds && creds.missing) { mailMissing = String(creds.missing); creds = null; }
+    const noMail = mailMissing === "EMAIL_FROM"
+      ? "no EMAIL_FROM in Secrets (the address your site sends from)"
+      : "no email provider key in Secrets";
     const smsCreds = wants("sms") && deps.smsCredentials ? await deps.smsCredentials() : null;
 
     // NAMED PER CHANNEL, because "no provider key in Secrets" said of a job that
     // sends both is a sentence the owner cannot act on: they have pasted one key
     // and are missing the other, and the panel would tell them to paste the one
     // they already have.
-    if (wants("email") && !creds && !wants("sms")) return { ok: true, name, sent: 0, reason: "no email provider key in Secrets" };
+    if (wants("email") && !creds && !wants("sms")) return { ok: true, name, sent: 0, reason: noMail };
     if (wants("sms") && !smsCreds && !wants("email")) return { ok: true, name, sent: 0, reason: "no SMS provider key in Secrets" };
-    if (!creds && !smsCreds) return { ok: true, name, sent: 0, reason: "no provider key in Secrets" };
+    if (!creds && !smsCreds) return { ok: true, name, sent: 0, reason: mailMissing ? noMail + "; no SMS provider key in Secrets" : "no provider key in Secrets" };
 
     // `unsent`, NOT `skipped`. `skipped: true` already means "another tick had
     // claimed this run" — a BOOLEAN — and `jobOutcome` branches on it before it
