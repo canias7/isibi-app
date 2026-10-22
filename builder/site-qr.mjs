@@ -49,6 +49,21 @@ export { MAX_QR_TEXT, MAX_QRS, readQrText, QR_NAME, QR_FILE, qrName, qrFile, qrL
  * it scans on a white band and fails on a dark one, which is exactly the kind of
  * bug nobody reproduces.
  */
+/**
+ * The text as UTF-8, one byte per character of the returned string.
+ *
+ * `qrcode-generator`'s byte mode pushes `charCodeAt(i) & 0xff`, so a character
+ * above U+00FF reached it cut to its low byte (Ł became 'A', ’ became 0x19:
+ * audit A31-2). Handing it the UTF-8 bytes as a byte string makes every
+ * character survive, and the byte-mode length is the byte count. The library
+ * has no ECI header; scanners read UTF-8 byte mode by detection.
+ */
+export function qrBytes(text) {
+  let out = "";
+  for (const b of new TextEncoder().encode(text)) out += String.fromCharCode(b);
+  return out;
+}
+
 export function qrSvg(text, { quiet = 4 } = {}) {
   const read = readQrText(text);
   if (!read.text) return { svg: null, why: read.why };
@@ -58,7 +73,7 @@ export function qrSvg(text, { quiet = 4 } = {}) {
     // middle setting, and the right one for a code that is printed and may be
     // scuffed — H wastes a third of the capacity, L does not survive a smudge.
     qr = qrcode(0, "M");
-    qr.addData(read.text);
+    qr.addData(qrBytes(read.text));
     qr.make();
   } catch (e) {
     // The library throws when the payload will not fit any size. That is a real
@@ -185,7 +200,12 @@ export function qrEncodes(svg, text) {
   const got = qrModules(svg);
   if (!got.ok) return { ok: false, why: `the drawing could not be read: ${got.why}`, missing: [], extra: [] };
   let ref;
-  try { ref = qrcode(0, "M"); ref.addData(read.text); ref.make(); }
+  // The reference's UTF-8 comes from percent-encoding, not from `qrBytes`, so a
+  // drawing that lost its characters cannot agree with it by sharing the loss.
+  let utf8;
+  try { utf8 = unescape(encodeURIComponent(read.text)); }
+  catch (e) { return { ok: false, why: "the expected payload is not valid text", missing: [], extra: [] }; }
+  try { ref = qrcode(0, "M"); ref.addData(utf8); ref.make(); }
   catch (e) { return { ok: false, why: "the expected payload is too much data for one code", missing: [], extra: [] }; }
   const n = ref.getModuleCount();
   if (n !== got.n) return { ok: false, why: `the drawing is ${got.n} modules across and ${JSON.stringify(read.text)} encodes to ${n}`, missing: [], extra: [] };

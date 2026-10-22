@@ -65,6 +65,9 @@ export function readQrText(v) {
   const s = v.trim();
   if (!s) return { text: null, why: "empty" };
   if (s.length > MAX_QR_TEXT) return { text: null, why: "over " + MAX_QR_TEXT + " characters" };
+  // A lone surrogate has no UTF-8 form: drawn, it would become U+FFFD, not the
+  // character asked for (A31-2). Any other character is encoded as UTF-8.
+  if (/\p{Surrogate}/u.test(s)) return { text: null, why: "a broken character" };
   if (BAD_SCHEME.test(s)) return { text: null, why: "a scheme a QR must never carry" };
   // A colon early in the string is a scheme; no colon is plain text, which is
   // fine. This is deliberately not "does it look like a URL" — `geo:` and
@@ -134,6 +137,25 @@ export function qrList(v) {
     if (out.length >= MAX_QRS) break;
   }
   return out;
+}
+
+/**
+ * A REVISE'S CODES FOLDED INTO THE STORED LIST BY NAME (audit A31-3).
+ *
+ * The revise design call is told "to change one, name it in `qr`; to keep them
+ * all, omit `qr`", so a designed list names only what changes. Each named code
+ * replaces the stored code of that name in place; a new name is appended; every
+ * code it does not name is kept. A designed `qr` with no usable code (absent,
+ * malformed, empty) is returned as it came, so the merge's own rules for an
+ * absent field still apply.
+ */
+export function foldQr(stored, designed) {
+  const named = qrList(designed);
+  if (!named.length) return designed;
+  const byName = new Map(named.map((c) => [c.name, c]));
+  const kept = qrList(stored).map((c) => byName.get(c.name) || c);
+  const have = new Set(kept.map((c) => c.name));
+  return qrList(kept.concat(named.filter((c) => !have.has(c.name))));
 }
 
 /**
