@@ -58,6 +58,7 @@ import { readContext, MAX_ANSWER_CHARS } from "./site-ask.mjs";
 import { pieceSaid } from "./site-requirements.mjs";
 import { seedRowsOf, rowPlaces } from "./seed-rows.mjs";
 import { checkFacts, browserOnlyFacts, savedDraftOf, savedDraftFacts } from "./check-evidence.mjs";
+import { REWRITE_MAX_CHARS } from "./input-budget.mjs";
 
 /** The switch: `MODEL_REPLIES` = "on" in the Worker's vars. Anything else keeps every reply as it was. */
 /** Why a waiting photograph was not placed, from the placement's own reason (round 6). */
@@ -1641,6 +1642,7 @@ export function requestReplyFacts(v) {
         : p.why === "routing-failed" ? " — working out what it needed failed on our side." + paid(p)
         // ITS SAVED REQUIREMENTS COULD NOT BE READ BACK (round 14): nothing was changed for it.
         : p.why === "checkpoint-unread" || p.why === "checkpoint-unsaved" ? " — what they asked for before its question could not be read back on our side, so nothing was changed for it, and it was not run on a shorter list. They can send it again." + paid(p)
+        : p.why === "rewrite-too-long" ? " — it needed the full rewrite, which reads at most " + REWRITE_MAX_CHARS.toLocaleString("en-GB") + " characters of a request, and it is longer, so it was not offered or run. They can send it shorter, or in smaller changes." + paid(p)
         : p.why === "rewrite-not-written" ? " — the full rewrite they gave the go-ahead for ran, but its pages could not be written, so their site stayed exactly as it was." + paid(p)
         : p.approved ? " — the full rewrite they gave the go-ahead for did not finish, on our side." + paid(p)
         : " — it stopped before it finished, on our side." + paid(p)), item);
