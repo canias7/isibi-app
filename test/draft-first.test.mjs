@@ -1735,3 +1735,30 @@ test("DFH12 PUBLISH CHECKS THE STARTER-ROW RULE BEFORE IT BEGINS (2026-10-18, re
   assert.match(head, /const need = splitsStarterRows\(ranges, rev\.n\);\s*if \(need\) return \{ ok: false, status: 409,/, "Publish can split starter rows from a later change to them");
   assert.match(head, /if \(rev\.n > draft\.applied && rev\.n < draft\.rev\)/);
 });
+
+test("DFB12 THE PREVIEW ANSWERS THE PAGE'S OWN QUERY (audit A07-3) — a touched table is read whole and the held rows filtered, ordered and limited with the live ones: a held new row shows only where it matches, a detail read of a live id never answers the held row, a removed row's detail is empty, and a query the preview cannot evaluate is refused, never answered with a row that may not match", async () => {
+  const slug = slugOf("dfb12");
+  const ops = [
+    { kind: "row", table: "loaves", op: "insert", values: { name: "Spelt", price: 6.2 }, ref: HID + ":0" },
+    { kind: "row", table: "loaves", op: "remove", id: 2 },
+    { kind: "row", table: "loaves", op: "update", id: 3, values: { name: "Spelt" } },
+  ];
+  const site = previewSite(slug, ops);
+  const host = slug + "--draft-" + TOKEN12 + ".gofarther.app";
+  const read = async (q) => { const r = await hitWith(site, host, "/api/db/" + slug + "/data/loaves" + q); assert.equal(r.status, 200, q + " " + r.text.slice(0, 300)); return r.json; };
+  // THE LIVE SERVICE IS ASKED FOR THE WHOLE TABLE, the query answered here.
+  const n0 = site.upstream.length;
+  const byName = await read("?select=*&order=id.desc&name=eq.Spelt");
+  assert.deepEqual(site.upstream.slice(n0).map((u) => new URL(u.url).search), ["?select=*"], "the live service was asked the page's query before the overlay");
+  assert.deepEqual(byName.map((r) => r.id < 0 ? "held" : r.id), ["held", 3], "a filtered list did not answer exactly the matching rows, newest first");
+  const top2 = await read("?select=*&order=id.desc&limit=2");
+  assert.deepEqual(top2.map((r) => r.id < 0 ? "held" : r.id), ["held", 6], "a limited list ignored the limit or the order");
+  const page2 = await read("?select=*&order=id.asc&limit=2&offset=1");
+  assert.deepEqual(page2.map((r) => r.id), [3, 4], "the offset was ignored");
+  assert.deepEqual((await read("?id=eq.1&select=*")).map((r) => [r.id, r.name]), [[1, "Country White"]], "a live row's detail read answered something else");
+  assert.deepEqual(await read("?id=eq.2&select=*"), [], "a removed row's detail read answered a row");
+  assert.deepEqual((await read("?name=in.(\"Country White\",Spelt)&order=id.asc")).map((r) => r.id < 0 ? "held" : r.id), [1, 3, "held"]);
+  const fts = await hitWith(site, host, "/api/db/" + slug + "/data/loaves?select=*&_fts=fts.rye");
+  assert.equal(fts.status, 422, "a query the preview cannot evaluate was answered: " + fts.text.slice(0, 200));
+  assert.equal(Array.isArray(fts.json), false);
+});

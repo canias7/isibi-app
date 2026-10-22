@@ -106,7 +106,7 @@ import { deepScan, planScan } from "./builder/security-scan.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE, carryPanelFields } from "./site-meta.mjs";
-import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec, previousSidecar, heldMediaSource, heldStandIns } from "./site-draft.mjs";
+import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, applyRowQuery, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec, previousSidecar, heldMediaSource, heldStandIns } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
@@ -14746,8 +14746,13 @@ async function servePreview(env, request, url, pv, ctx) {
     const table = dm[2].split("/")[0];
     // NO PREFER, NO SINGLE OBJECT: the preview asks for the list and overlays it.
     const ask = new Request(request.url, { method: "GET", headers: (() => { const h = new Headers(request.headers); h.delete("accept"); h.delete("prefer"); h.delete(PREVIEW_HEADER); return h; })() });
-    const live = await proxySiteService(env, ask, url, pv.slug, dm[2], "data", ctx);
     const touches = ops.some((o) => (o.kind === "row" && o.table === table) || (o.kind === "seed" && o.seed && Array.isArray(o.seed[table])));
+    // A TOUCHED TABLE IS READ WHOLE and the page's own query answered after
+    // the overlay (audit A07-3): filtered, ordered and limited by the live
+    // service first, a held row would show in every list and a detail page.
+    let whole = url;
+    if (touches) { whole = new URL(url.toString()); whole.search = "?select=*"; }
+    const live = await proxySiteService(env, ask, whole, pv.slug, dm[2], "data", ctx);
     if (!touches) {
       const h = new Headers(live.headers); h.set("cache-control", "no-store");
       return new Response(live.body, { status: live.status, headers: h });
@@ -14765,7 +14770,9 @@ async function servePreview(env, request, url, pv, ctx) {
       rows = []; exists = false;
     }
     if (!rows) return Response.json({ error: "couldn't read that just now" }, { status: 503, headers: { "cache-control": "no-store" } });
-    return Response.json(rowsOverlay(table, rows, ops, { tableExists: exists }).rows, { headers: { "cache-control": "no-store", "x-robots-tag": "noindex" } });
+    const answered = applyRowQuery(rowsOverlay(table, rows, ops, { tableExists: exists }).rows, url.searchParams);
+    if (!answered.ok) return Response.json({ error: "the preview can't show this list with the draft's changes yet" }, { status: 422, headers: { "cache-control": "no-store", "x-robots-tag": "noindex" } });
+    return Response.json(answered.rows, { headers: { "cache-control": "no-store", "x-robots-tag": "noindex" } });
   }
   const fwd = new Request(url.toString(), request);
   try { fwd.headers.set(PREVIEW_HEADER, "1"); } catch { return no(); }

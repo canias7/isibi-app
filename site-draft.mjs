@@ -1145,6 +1145,86 @@ export function rowsOverlay(table, rows, ops, { tableExists = true } = {}) {
 }
 
 /**
+ * A LIST READ'S QUERY APPLIED TO THE DRAFT'S ROWS (audit A07-3, 2026-10-22):
+ * the preview reads a touched table whole, overlays the held changes, then
+ * answers the page's own query here — its filters, `order`, `offset` and
+ * `limit` — so a held row appears only where it matches. `{ ok: true, rows }`,
+ * or `{ ok: false, param }` for a part it cannot evaluate (full-text search,
+ * `or`, a column list, an operator it does not know): never a row that may not
+ * match. `params` is a URLSearchParams.
+ */
+const ROW_QUERY_OPS = new Set(["eq", "neq", "gt", "gte", "lt", "lte", "in", "is"]);
+const ROW_COL = /^[a-z_][a-z0-9_]{0,62}$/i;
+export function applyRowQuery(rows, params) {
+  const filters = [];
+  let order = null, limit = null, offset = 0;
+  for (const [k, v] of params) {
+    if (k === "select") { if (v.replace(/\s/g, "") !== "*") return { ok: false, param: k }; continue; }
+    if (k === "limit" || k === "offset") {
+      if (!/^\d{1,9}$/.test(v)) return { ok: false, param: k };
+      if (k === "limit") limit = Number(v); else offset = Number(v);
+      continue;
+    }
+    if (k === "order") {
+      order = [];
+      for (const part of v.split(",")) {
+        const [col, ...mods] = part.split(".");
+        if (!ROW_COL.test(col) || mods.some((m) => !["asc", "desc", "nullsfirst", "nullslast"].includes(m))) return { ok: false, param: k };
+        const desc = mods.includes("desc");
+        order.push({ col, desc, nullsFirst: mods.includes("nullsfirst") ? true : mods.includes("nullslast") ? false : desc });
+      }
+      continue;
+    }
+    if (!ROW_COL.test(k)) return { ok: false, param: k };
+    const dot = v.indexOf(".");
+    const op = dot > 0 ? v.slice(0, dot) : "";
+    if (!ROW_QUERY_OPS.has(op)) return { ok: false, param: k };
+    const arg = v.slice(dot + 1);
+    if (op === "in" && !/^\(.*\)$/.test(arg)) return { ok: false, param: k };
+    if (op === "is" && !["null", "true", "false"].includes(arg.toLowerCase())) return { ok: false, param: k };
+    filters.push({ col: k, op, arg });
+  }
+  const same = (val, a) => {
+    if (val === null || val === undefined) return false;
+    if (typeof val === "boolean") return String(val) === a.toLowerCase();
+    if (typeof val === "number") return a.trim() !== "" && Number(a) === val;
+    return String(val) === a;
+  };
+  const cmp = (val, a) => {
+    if (typeof val === "number" && a.trim() !== "" && Number.isFinite(Number(a))) return val - Number(a);
+    const s = String(val);
+    return s < a ? -1 : s > a ? 1 : 0;
+  };
+  const match = (r) => filters.every(({ col, op, arg }) => {
+    const val = r[col];
+    if (op === "is") return arg.toLowerCase() === "null" ? val === null || val === undefined : val === (arg.toLowerCase() === "true");
+    if (op === "eq") return same(val, arg);
+    if (op === "neq") return val !== null && val !== undefined && !same(val, arg);
+    if (op === "in") return arg.slice(1, -1).split(",").map((x) => x.trim().replace(/^"(.*)"$/, "$1")).some((x) => same(val, x));
+    if (val === null || val === undefined) return false;
+    const c = cmp(val, arg);
+    return op === "gt" ? c > 0 : op === "gte" ? c >= 0 : op === "lt" ? c < 0 : c <= 0;
+  });
+  let out = (Array.isArray(rows) ? rows : []).filter(match);
+  if (order) {
+    out = out.map((r, i) => ({ r, i })).sort((x, y) => {
+      for (const { col, desc, nullsFirst } of order) {
+        // A HELD NEW ROW (negative id) is newer than every live row, as it will be once published.
+        const key = (v) => (col === "id" && typeof v === "number" && v < 0 ? 2 ** 52 - v : v);
+        const a = key(x.r[col]), b = key(y.r[col]);
+        const an = a === null || a === undefined, bn = b === null || b === undefined;
+        if (an || bn) { if (an && bn) continue; return (an ? -1 : 1) * (nullsFirst ? 1 : -1); }
+        const c = typeof a === "number" && typeof b === "number" ? a - b : String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0;
+        if (c) return desc ? -c : c;
+      }
+      return x.i - y.i;
+    }).map((x) => x.r);
+  }
+  out = out.slice(offset, limit === null ? undefined : offset + limit);
+  return { ok: true, rows: out };
+}
+
+/**
  * WHAT A PUBLICATION OF THESE OPS DOES, in the order it is done: the held
  * schemas and jobs merged by name, the starter rows, the row changes (updates and
  * removals of rows the live database has, by id; a change to a row held as
