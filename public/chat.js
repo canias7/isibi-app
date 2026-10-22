@@ -12944,10 +12944,25 @@ async function siteModel3dGo(origin, key) {
   if (!s || !m || m.m3d.state !== 'offer' || !s.slug) return;
   const slug = s.slug;
   m.m3d.state = 'making';
-  const live = { r: 'a', t: '', talkLive: true, prog: [{ text: 'Making your 3D model\u2026' }] };
+  // THE SHARED TALK (2026-10-22): the press names its talk record (`talk`, 32
+  // hex, the shape the server takes) and the route keeps every line there, so
+  // any page reading `GET /api/site/talk/<id>` shows the same lines. The lines
+  // below stay as this page's own until the server's are in.
+  const talk = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID().replace(/-/g, '') : '';
+  const live = { r: 'a', t: '', talkLive: true, prog: [{ text: 'Making your 3D model\u2026' }], ...(talk ? { talk } : {}) };
   s.msgs.push(live);
   sitesSave(); if (siteOpenId === origin) renderSites();
   const line = (t) => { live.prog = live.prog.concat([{ text: t }]).slice(-6); sitesSave(); if (siteOpenId === origin) renderSites(); };
+  const shared = async () => {
+    if (!talk) return false;
+    let t = null;
+    try { const r = await apiFetch('/api/site/talk/' + encodeURIComponent(talk)); t = r.ok ? await r.json().catch(() => null) : null; } catch (e) { t = null; }
+    const lines = t && Array.isArray(t.lines) ? t.lines.filter((l) => l && typeof l.text === 'string' && l.text) : [];
+    if (!lines.length) return false;
+    live.prog = lines.map((l) => ({ text: l.text })).slice(-6);
+    sitesSave(); if (siteOpenId === origin) renderSites();
+    return true;
+  };
   const end = (t) => {
     live.talkLive = false; live.t = t;
     m.m3d.state = 'done'; delete model3dPhotos[key];
@@ -12957,11 +12972,11 @@ async function siteModel3dGo(origin, key) {
   let d = null;
   try {
     const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/model3d', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key, prompt: m.m3d.subject, page: m.m3d.page, label: m.m3d.subject, ...(model3dPhotos[key] ? { image: model3dPhotos[key] } : {}) }) });
+      body: JSON.stringify({ key, prompt: m.m3d.subject, page: m.m3d.page, label: m.m3d.subject, ...(talk ? { talk } : {}), ...(model3dPhotos[key] ? { image: model3dPhotos[key] } : {}) }) });
     d = await r.json().catch(() => null);
     if (!r.ok || !d || d.ok !== true) { end((d && typeof d.error === 'string' && d.error) || 'The 3D model couldn\u2019t be started. Nothing was charged.'); return; }
   } catch (e) { end('Lost the connection before the 3D model started. If it was charged, the credits come back when it can\u2019t be made \u2014 ask me again in a minute.'); return; }
-  if (d.cost > 0) line('Started \u2014 ' + d.cost + ' credits reserved. This usually takes a few minutes.');
+  if (!(await shared()) && d.cost > 0) line('Started \u2014 ' + d.cost + ' credits reserved. This usually takes a few minutes.');
   const t0 = Date.now();
   let said = '';
   for (;;) {
@@ -12975,6 +12990,7 @@ async function siteModel3dGo(origin, key) {
     const next = g.state === 'finishing' ? 'Saving it to your files and putting it on ' + model3dPageName(m.m3d.page) + '\u2026'
       : Number.isInteger(g.position) && g.position > 0 ? 'Waiting in line at the 3D service (' + g.position + ' ahead)\u2026'
       : 'Shaping and texturing the model' + (mins ? ' \u2014 ' + mins + ' min so far' : '') + '\u2026';
+    if (await shared()) continue;
     if (next !== said) { said = next; line(next); }
   }
 }

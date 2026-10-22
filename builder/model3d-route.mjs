@@ -34,14 +34,26 @@
  *   loadPages()                → { ok, pages: [{ path, source }] }
  *   publish(pages, label)      → { ok, ... }
  *   routeOf(path)              → "/visit"
+ *   talk(id, text, end)        optional: one line into the site's talk record
+ *                              under the press's own id (as Publish and Restore
+ *                              keep theirs), `end` closing it. Never throws back.
  */
 import {
   MODEL3D_CREDITS, MODEL3D_USD, MODEL3D_KEY, model3dRef, model3dRequest, queueSubmit, queueStatus, downloadCapped,
   MODEL3D_MAX_GLB_BYTES, MODEL3D_MAX_USDZ_BYTES, MODEL3D_MAX_THUMB_BYTES, model3dLabel, scene3dBlock, placeScene3D, model3dReply,
 } from "./site-3d.mjs";
+import { model3dTalkLine } from "./site-progress.mjs";
 
 const json = (body, status = 200) => ({ status, body });
 const PAGE = /^\/[a-z0-9/_-]{0,120}$/i;
+const TALK_ID = /^[0-9a-f]{32}$/;
+/** THE SHARED TALK (2026-10-22): a line from what the route really saw, never costing the route. */
+async function say(deps, id, stage, info, end = false) {
+  if (typeof id !== "string" || !TALK_ID.test(id) || typeof deps.talk !== "function") return;
+  const text = model3dTalkLine(stage, info);
+  if (!text) return;
+  try { await deps.talk(id, text, end === true); } catch { /* the talk never costs the model */ }
+}
 const DATA_URL = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/;
 
 export const MODEL3D_OFF_MSG = "3D models are switched off just now. Nothing was charged.";
@@ -69,11 +81,14 @@ export async function model3dStart(deps, { slug, body }) {
   const b = body && typeof body === "object" ? body : {};
   if (typeof b.key !== "string" || !MODEL3D_KEY.test(b.key)) return json({ ok: false, error: "a request key is needed" }, 400);
   const key = b.key;
-  if (deps.off) return json({ ok: false, error: MODEL3D_OFF_MSG, cost: 0 }, 503);
-  if (!deps.falKey) return json({ ok: false, error: "The 3D service isn’t set up yet. Nothing was charged.", cost: 0 }, 501);
+  const talk = typeof b.talk === "string" && TALK_ID.test(b.talk) ? b.talk : "";
+  const refuse = async (body, status) => { await say(deps, talk, "end", { text: body.error }, true); return json(body, status); };
+  if (deps.off) return refuse({ ok: false, error: MODEL3D_OFF_MSG, cost: 0 }, 503);
+  if (!deps.falKey) return refuse({ ok: false, error: "The 3D service isn’t set up yet. Nothing was charged.", cost: 0 }, 501);
   // THE SAME KEY TWICE IS THE SAME MODEL: answered from its record, never charged again.
   const prior = await deps.readRecord(key);
   if (prior && prior.rec) return json({ ok: true, key, state: prior.rec.state, cost: prior.rec.charged || 0, again: true });
+  await say(deps, talk, "start");
   const page = typeof b.page === "string" && PAGE.test(b.page.trim()) ? b.page.trim().replace(/\/+$/, "") || "/" : "/";
   const words = typeof b.prompt === "string" ? b.prompt : "";
   const label = model3dLabel(typeof b.label === "string" && b.label.trim() ? b.label : words || "3D model");
@@ -83,30 +98,31 @@ export async function model3dStart(deps, { slug, body }) {
   if (b.image !== undefined && b.image !== null && b.image !== "") {
     const raw = typeof b.image === "string" ? b.image : b.image && typeof b.image.data === "string" ? b.image.data : "";
     const m = raw.match(DATA_URL);
-    if (!m) return json({ ok: false, error: "that photograph couldn’t be read (PNG, JPEG or WebP)", cost: 0 }, 400);
+    if (!m) return refuse({ ok: false, error: "that photograph couldn’t be read (PNG, JPEG or WebP)", cost: 0 }, 400);
     const st = await deps.storeFile("photo." + (m[1] === "image/jpeg" ? "jpg" : m[1].split("/")[1]), b64bytes(m[2]));
-    if (!st || st.error || st.kind !== "image") return json({ ok: false, error: (st && st.error) || "that photograph couldn’t be stored", cost: 0 }, 400);
+    if (!st || st.error || st.kind !== "image") return refuse({ ok: false, error: (st && st.error) || "that photograph couldn’t be stored", cost: 0 }, 400);
     imageUrl = deps.origin + st.url;
   }
   const req = model3dRequest({ prompt: words, imageUrl });
-  if (req.error) return json({ ok: false, error: req.error, cost: 0 }, 400);
+  if (req.error) return refuse({ ok: false, error: req.error, cost: 0 }, 400);
   // THE BALANCE GATE IS THE DEBIT: a short balance is refused by the ledger
   // with nothing taken, before fal is asked anything.
   const ref = model3dRef(slug, key);
   let d;
   try { d = await deps.debit(MODEL3D_CREDITS, ref); }
-  catch { return json({ ok: false, error: "Couldn’t reach your credits just now. Nothing was charged.", cost: 0 }, 503); }
+  catch { return refuse({ ok: false, error: "Couldn’t reach your credits just now. Nothing was charged.", cost: 0 }, 503); }
   if (!d || (d.ok !== true && d.exempt !== true)) {
-    return json({ ok: false, error: "A 3D model costs " + MODEL3D_CREDITS + " credits" + (d && Number.isFinite(d.balance) ? " and you have " + d.balance : "") + ". Nothing was charged.", code: "short", cost: 0 }, 402);
+    return refuse({ ok: false, error: "A 3D model costs " + MODEL3D_CREDITS + " credits" + (d && Number.isFinite(d.balance) ? " and you have " + d.balance : "") + ". Nothing was charged.", code: "short", cost: 0 }, 402);
   }
   const charged = d.repeat ? d.prior : d.taken;
   const sub = await queueSubmit({ fetch: deps.fetch }, { key: deps.falKey, model: req.model, input: req.input });
   if (!sub.ok) {
     const back = charged > 0 ? await deps.reverse(ref, charged) : { ok: true, refunded: 0 };
-    return json({ ok: false, error: "The 3D service couldn’t start that model. " + (charged > 0 && back.ok ? "Your " + charged + " credits are back." : charged > 0 ? "The refund didn’t go through yet." : "Nothing was charged."), cost: back.ok ? 0 : charged }, 502);
+    return refuse({ ok: false, error: "The 3D service couldn’t start that model. " + (charged > 0 && back.ok ? "Your " + charged + " credits are back." : charged > 0 ? "The refund didn’t go through yet." : "Nothing was charged."), cost: back.ok ? 0 : charged }, 502);
   }
-  const rec = { state: "waiting", slug, key, ref, charged, page, label, model: req.model, requestId: sub.requestId, statusUrl: sub.statusUrl, resultUrl: sub.resultUrl, at: deps.now() };
+  const rec = { state: "waiting", slug, key, ref, charged, page, label, model: req.model, requestId: sub.requestId, statusUrl: sub.statusUrl, resultUrl: sub.resultUrl, at: deps.now(), ...(talk ? { talk } : {}) };
   await deps.writeRecord(key, rec);
+  await say(deps, talk, "started", { cost: charged });
   return json({ ok: true, key, state: "waiting", cost: charged, estimate: MODEL3D_CREDITS });
 }
 
@@ -120,16 +136,22 @@ export async function model3dPoll(deps, { slug, key }) {
   if (rec.state === "failed") return json({ ok: false, state: "failed", error: rec.error, cost: rec.cost || 0, reply: rec.reply });
   if (rec.state === "finishing" && deps.now() - (rec.claimedAt || 0) < 5 * 60 * 1000) return json({ ok: true, state: "finishing" });
   const st = await queueStatus({ fetch: deps.fetch }, { key: deps.falKey, statusUrl: rec.statusUrl, resultUrl: rec.resultUrl });
-  if (st.state === "waiting") return json({ ok: true, state: "waiting", position: st.position });
+  if (st.state === "waiting") {
+    if (Number.isInteger(st.position) && st.position > 0) await say(deps, rec.talk, "queued", { position: st.position });
+    else await say(deps, rec.talk, "shaping", { mins: Math.floor((deps.now() - (Number(rec.at) || deps.now())) / 60000) });
+    return json({ ok: true, state: "waiting", position: st.position });
+  }
   // ONE FINISHER: the record is claimed over the version just read, so two
   // polls cannot both refund or both publish.
   const claim = await deps.writeRecord(key, { ...rec, state: "finishing", claimedAt: deps.now() }, got.etag);
   if (!claim || !claim.ok) return json({ ok: true, state: "finishing" });
+  if (st.state !== "failed") await say(deps, rec.talk, "finishing", { page: rec.page });
   const fail = async (error) => {
     const back = rec.charged > 0 ? await deps.reverse(rec.ref, rec.charged) : { ok: true, refunded: 0 };
     const cost = back.ok ? 0 : rec.charged;
     const reply = "I couldn’t make that 3D model (" + error + "). " + (rec.charged > 0 ? (back.ok ? "Your " + rec.charged + " credits are back." : "The refund hasn’t gone through yet — it will be retried.") : "Nothing was charged.");
     await deps.writeRecord(key, { ...rec, state: "failed", error, cost, reply, refunded: back.ok === true });
+    await say(deps, rec.talk, "end", { text: reply }, true);
     return json({ ok: false, state: "failed", error, cost, reply });
   };
   if (st.state === "failed") return fail(st.error);
@@ -164,5 +186,6 @@ export async function model3dPoll(deps, { slug, key }) {
   const result = { glb: sg.url, usdz: usdzUrl, poster: posterUrl, page: rec.page, label: rec.label, placed, draft: publish && publish.draft };
   const reply = model3dReply({ label: rec.label, page: rec.page, placed, cost: rec.charged });
   await deps.writeRecord(key, { ...rec, state: "done", result, reply, doneAt: deps.now() });
+  await say(deps, rec.talk, "end", { text: reply }, true);
   return json({ ok: true, state: "done", ...result, cost: rec.charged, reply });
 }

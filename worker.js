@@ -11294,6 +11294,26 @@ export async function storeOwnFile(env, slug, name, bytes) {
  * `builder/model3d-route.mjs`. The record of one request is
  * `model3d/<slug>/<key>.json`, written over its etag when the finish claims it.
  */
+/**
+ * A 3D MODEL'S LINE INTO THE SITE'S TALK RECORD (2026-10-22, owner approved):
+ * the same record and room a Publish or Restore press keeps (`actionTalk`,
+ * `GET /api/site/talk/<id>`), under the caller's own account, but appended
+ * across requests (the start, then each poll), so it is read back and added
+ * to; a line the same as the last one is not said twice, and a closed record
+ * takes nothing more. Literal lines: no model is asked anything.
+ */
+async function model3dTalkMark(env, { id, uid, slug, text, end }) {
+  if (!talkOn(env) || !env || !env.SITES_BUCKET || !isJobId(id) || typeof uid !== "string" || !uid || typeof text !== "string" || !text) return;
+  let rec = null;
+  try { const o = await env.SITES_BUCKET.get(actionTalkKey(uid, id)); rec = o ? JSON.parse(await o.text()) : null; } catch { return; }
+  if (!rec || typeof rec !== "object" || !Array.isArray(rec.lines)) rec = { v: 1, kind: "model3d", slug: String(slug || ""), lines: [], done: false, at: Date.now() };
+  if (rec.done === true) return;
+  const last = rec.lines.length ? rec.lines[rec.lines.length - 1] : null;
+  if (!(last && last.text === text)) rec.lines.push({ n: rec.lines.length + 1, text });
+  if (end) rec.done = true;
+  tellRoom(env, actionRoom(id), { lines: rec.lines.map((l) => ({ n: l.n, ms: 0, text: l.text })), closed: rec.done === true, ...(rec.done ? { live: null } : {}) });
+  await env.SITES_BUCKET.put(actionTalkKey(uid, id), JSON.stringify(rec), { httpMetadata: { contentType: "application/json" } }).catch((e) => console.error("model3d talk: could not store", id, errorClassForLog(e)));
+}
 function model3dDeps(env, { slug, uid, auth, origin }) {
   const recKey = (k) => "model3d/" + slug + "/" + k + ".json";
   return {
@@ -11320,6 +11340,7 @@ function model3dDeps(env, { slug, uid, auth, origin }) {
     loadPages: () => loadSiteSourceForEdit(env, slug, { checked: true }),
     publish: (pages, label) => recompileAndPublish(env, { slug, pages, label }),
     routeOf,
+    talk: (id, text, end) => model3dTalkMark(env, { id, uid, slug, text, end }),
   };
 }
 
@@ -26173,6 +26194,9 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       let imported = null, importNote = "", importFailed = "";
       const importTarget = typeof body.importFrom === "string" ? readImportSite(body.importFrom, brief) : undefined;
       if (importTarget) {
+        // SAID AS IT STARTS (2026-10-22): "Reading your current site…" in the
+        // build's talk, then what the read really gave (`import`, below).
+        tr.at("importing", {});
         if (!(await useQuota(request, "sitelinks", 60))) importFailed = "you've had a lot of links read today";
         else {
           const got = await importSite(importTarget, { fetchText: importFetchText }).catch(() => ({ ok: false, reason: "we couldn't reach it" }));
@@ -27522,7 +27546,10 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         ownPhotos = await placeAttachedPhotos(merged.images, body.images, (name, bytes) => storeOwnPhoto(env, slug, name, bytes), { named: attached.named });
         ownPhotos = { ...ownPhotos, placed: [...fromImport.placed, ...ownPhotos.placed], missing: [...fromImport.missing, ...ownPhotos.missing] };
         merged.images = ownPhotos.images;
-        if (ownPhotos.placed.length || ownPhotos.missing.length) tr.at("ownphotos", { placed: ownPhotos.placed.length, missing: ownPhotos.missing.length });
+        // THEIR OWN ATTACHED PHOTOS ONLY (2026-10-22): the imported ones were
+        // already said by `importphotos`, so they are not counted twice.
+        const ownPlaced = ownPhotos.placed.length - fromImport.placed.length, ownMissing = ownPhotos.missing.length - fromImport.missing.length;
+        if (ownPlaced || ownMissing) tr.at("ownphotos", { placed: ownPlaced, missing: ownMissing });
       }
       // THE OWNER'S VIDEO AND AUDIO MOVE IN (2026-10-14), now that the address
       // is this account's: the drafts the message named, into the library.

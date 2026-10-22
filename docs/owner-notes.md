@@ -39,6 +39,22 @@
 - **Now** a preparation never stores a question; it only notes that one is coming. The part's own turn asks it, it goes into the free slot, and that is the card shown and answered.
 - Records: `docs/history/2026-10-22-audit-60.md`. Branch `audit-60` (from `codex-work-into-claude`); nothing spent.
 
+## 2026-10-22: The rebuild-from-a-link and the 3D model now talk in the chat (not merged, not deployed)
+
+- **Rebuilding from an old site.** The build's live lines now say that it is
+  reading your current site. Then they say how many pages it really read, or
+  that it couldn't read the site and is building from your message. Then they
+  say how many of your old photos it is using. Only what really happened is
+  said. A photo is also no longer counted twice in the lines.
+- **3D models.** The lines keep the same words as before ("Making your 3D
+  model…", "Shaping and texturing the model — N min so far…", "Saving it to
+  your files and putting it on /shop…", then the final reply with its cost).
+  They are now kept in the site's shared talk record, the same one Publish and
+  Restore use, so another page reading it sees the same lines. They are only
+  written while a page is checking on the model.
+- Branch `progress-import-3d`. Nothing spent. Record:
+  `docs/history/2026-10-22-progress-import-3d.md`.
+
 ## 2026-10-22 — Ideas #10 and #14, combined with the day's work (not deployed)
 
 - #10, the visual review: after a first build's render check, the build's own
