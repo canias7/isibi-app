@@ -1869,3 +1869,106 @@ test("DFB15 A RELOADED PAGE KEEPS A SERVING PREVIEW (2026-10-22) — the draft r
   // CANNOT TELL is never served, whatever the field says.
   assert.equal(fresh({ ...d1, previewState: "unknown" }), live);
 });
+
+// THE SITE'S DATABASE AS A FULL-TEXT JUDGE (decide-1a): the data service
+// answers the live filter with `liveIds`; the SQL endpoint answers the
+// catalog read and the judging query, which "matches" a row when `judge`
+// says so over the row it was sent. Every SQL request is recorded with its
+// read-only header.
+function ftsSite(slug, ops, { liveIds = [], judge = () => false, sqlDown = false, dataDown = false } = {}) {
+  const site = previewSite(slug, ops);
+  const base = site.fetchStub;
+  site.sql = []; site.slug = slug;
+  site.ftsAsks = [];
+  const DOC = "to_tsvector('english'::regconfig, ((COALESCE(name, ''::text) || ' '::text) || COALESCE(description, ''::text)))";
+  const batch = (fields, rows) => new Response(JSON.stringify({ results: [{ command: "SELECT", rowCount: rows.length, rows: rows.map((r) => fields.map((f) => r[f.name])), fields: fields.map((f) => ({ name: f.name, dataTypeID: f.type || 25 })) }] }), { status: 200, headers: { "content-type": "application/json" } });
+  site.fetchStub = async (input, init) => {
+    const url = String((input && input.url) || input || "");
+    if (url.startsWith(DATA_API) && /[?&]_fts=/.test(url)) {
+      site.ftsAsks.push(url);
+      if (dataDown) return new Response("down", { status: 503 });
+      return new Response(JSON.stringify(liveIds.map((id) => ({ id }))), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (/neon\.tech\/sql/.test(url) && !url.startsWith(DATA_API)) {
+      let body = {};
+      try { body = JSON.parse(String((init && init.body) || "{}")); } catch { body = {}; }
+      if (Array.isArray(body.queries)) {
+        const h = new Headers((init && init.headers) || {});
+        const [q] = body.queries;
+        site.sql.push({ query: q.query, params: q.params, readOnly: h.get("neon-batch-read-only") });
+        if (sqlDown) return new Response("unavailable", { status: 503 });
+        if (/pg_attrdef/.test(q.query)) return batch([{ name: "doc" }, { name: "rel" }], [{ doc: DOC, rel: "loaves" }]);
+        if (/jsonb_populate_recordset/.test(q.query)) {
+          const rows = JSON.parse(q.params[0]);
+          return batch([{ name: "i", type: 20 }], rows.map((r, n) => ({ r, i: String(n + 1) })).filter(({ r }) => judge(r, q.params.slice(1))).map(({ i }) => ({ i })));
+        }
+      }
+    }
+    return base(input, init);
+  };
+  return site;
+}
+
+test("DFB16 FULL-TEXT SEARCH IN THE PREVIEW, JUDGED BY THE SITE'S DATABASE (decide-1a, 2026-10-22) — on a touched table the live rows come from the data service's own `_fts` answer and the held rows from one read-only query through the column's generated expression: a held new row that matches appears, one that does not is absent, a live row the draft deletes stays hidden, a changed row is judged by its new value; fts/plfts/phfts/wfts map to PostgREST's functions with an optional config; the query text is a parameter, never SQL; a database that cannot be reached is 422", async () => {
+  const slug = slugOf("dfb16");
+  const ops = [
+    { kind: "row", table: "loaves", op: "insert", values: { name: "Rye Sourdough", price: 6.4 }, ref: HID + ":0" },
+    { kind: "row", table: "loaves", op: "insert", values: { name: "Spelt", price: 6.2 }, ref: HID + ":1" },
+    { kind: "row", table: "loaves", op: "update", id: 3, values: { name: "Rye and Seed" } },
+    { kind: "row", table: "loaves", op: "update", id: 2, values: { name: "Malted Brown", description: "Dense." } },
+    { kind: "row", table: "loaves", op: "remove", id: 1 },
+  ];
+  // THE LIVE DATABASE'S OPINION: rows 1 and 2 match the live filter (row 1 is
+  // deleted in the draft, row 2 changed away from it).
+  const judge = (r) => /\brye\b/i.test(String(r.name || "") + " " + String(r.description || ""));
+  const site = ftsSite(slug, ops, { liveIds: [1, 2], judge });
+  const host = slug + "--draft-" + TOKEN12 + ".gofarther.app";
+  const r = await hitWith(site, host, "/api/db/" + slug + "/data/loaves?select=*&order=id.asc&_fts=fts.rye");
+  assert.equal(r.status, 200, r.text.slice(0, 300));
+  assert.deepEqual(r.json.map((x) => (x.id < 0 ? x.name : x.id)).map(String).sort(), ["3", "Rye Sourdough"], "the draft's matching rows were not exactly the held match and the changed row");
+  assert.equal(r.json.find((x) => x.id === 3).name, "Rye and Seed");
+  assert.equal(site.ftsAsks.length, 1, "the live filter was not asked of the data service");
+  assert.match(site.ftsAsks[0], /_fts=fts\.rye/);
+  assert.equal(site.sql.length, 2, "not one catalog read and one judging query");
+  for (const s of site.sql) assert.equal(s.readOnly, "true", "a database read was not sent read-only: " + s.query.slice(0, 80));
+  assert.deepEqual(site.sql[0].params, ["loaves", "_fts"]);
+  const sent = JSON.parse(site.sql[1].params[0]);
+  assert.deepEqual(sent.map((x) => x.name).sort(), ["Malted Brown", "Rye Sourdough", "Rye and Seed", "Spelt"], "the held rows sent were not the new and changed rows by their new values");
+  assert.match(site.sql[1].query, /@@ to_tsquery\(\$2\)$/);
+  assert.equal(site.sql[1].params[1], "rye");
+
+  // THE FOUR OPERATORS, AND A CONFIG.
+  for (const [v, fn, cfg] of [["fts.rye", "to_tsquery", null], ["plfts.dark rye", "plainto_tsquery", null], ["phfts.dark rye", "phraseto_tsquery", null], ["wfts.rye -dark", "websearch_to_tsquery", null], ["fts(french).seigle", "to_tsquery", "french"], ["wfts(simple).rye", "websearch_to_tsquery", "simple"]]) {
+    const s2 = ftsSite(slugOf("dfb16v"), ops, { liveIds: [], judge: () => true });
+    const res = await hitWith(s2, s2Host(s2), "/api/db/" + s2.slug + "/data/loaves?select=*&_fts=" + encodeURIComponent(v));
+    assert.equal(res.status, 200, v + " " + res.text.slice(0, 200));
+    const j = s2.sql.find((s) => /jsonb_populate_recordset/.test(s.query));
+    assert.ok(j, v + ": no judging query");
+    const q = v.slice(v.indexOf(".") + 1);
+    if (cfg) { assert.ok(j.query.endsWith("@@ " + fn + "($2::regconfig, $3)"), v + ": " + j.query); assert.deepEqual(j.params.slice(1), [cfg, q]); }
+    else { assert.ok(j.query.endsWith("@@ " + fn + "($2)"), v + ": " + j.query); assert.deepEqual(j.params.slice(1), [q]); }
+  }
+
+  // A MALICIOUS QUERY is a parameter: the SQL text is the benign one's.
+  const evil = "x') @@ to_tsquery('a'); DROP TABLE loaves; --";
+  const s3 = ftsSite(slugOf("dfb16e"), ops, { liveIds: [], judge: () => false });
+  const e = await hitWith(s3, s2Host(s3), "/api/db/" + s3.slug + "/data/loaves?select=*&_fts=fts." + encodeURIComponent(evil));
+  assert.equal(e.status, 200, e.text.slice(0, 200));
+  const ej = s3.sql.find((s) => /jsonb_populate_recordset/.test(s.query));
+  assert.equal(ej.query, site.sql[1].query, "the query text changed the SQL");
+  assert.ok(s3.sql.every((s) => !s.query.includes("DROP")), "the query text reached the SQL");
+  assert.equal(ej.params[1], evil);
+  // A CONFIG THAT IS NOT A NAME is refused before anything is asked.
+  const s4 = ftsSite(slugOf("dfb16c"), ops, {});
+  const c = await hitWith(s4, s2Host(s4), "/api/db/" + s4.slug + "/data/loaves?select=*&_fts=" + encodeURIComponent("fts(english'::regconfig)).rye"));
+  assert.equal(c.status, 422);
+  assert.equal(s4.sql.length, 0);
+
+  // CANNOT JUDGE: the database or the data service unreachable — 422, never a guess.
+  for (const opt of [{ sqlDown: true }, { dataDown: true }]) {
+    const s5 = ftsSite(slugOf("dfb16d"), ops, { liveIds: [2], judge: () => true, ...opt });
+    const d = await hitWith(s5, s2Host(s5), "/api/db/" + s5.slug + "/data/loaves?select=*&_fts=fts.rye");
+    assert.equal(d.status, 422, JSON.stringify(opt) + " was answered: " + d.text.slice(0, 200));
+  }
+});
+function s2Host(s) { return s.slug + "--draft-" + TOKEN12 + ".gofarther.app"; }

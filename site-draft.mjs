@@ -1174,6 +1174,8 @@ export function rowsOverlay(table, rows, ops, { tableExists = true } = {}) {
  * tokens) asked through `to_tsquery`, which no word match here can follow
  * without sometimes showing a row the database would not — or would not
  * show a row it would. Refused, never guessed. `params` is a URLSearchParams.
+ * (Since decide-1a the Worker takes a full-text filter out first and asks the
+ * site's database to judge it, `ftsFilterOf` below; here it is still refused.)
  */
 const ROW_QUERY_OPS = new Set(["eq", "neq", "gt", "gte", "lt", "lte", "in", "is", "like", "ilike"]);
 /**
@@ -1478,4 +1480,74 @@ export function clickPlan(j, n, { now = Date.now(), staleMs } = {}) {
   // stop the same way, and the newer revision behind it every time.
   if (journalBlocked(j)) return "blocked";
   return journalMayBeLive(j) ? "finishFirst" : "replace";
+}
+
+/**
+ * FULL-TEXT SEARCH IN THE PREVIEW, JUDGED BY THE SITE'S OWN DATABASE
+ * (2026-10-22, decide-1a, the owner's option A). The Worker cannot follow
+ * Postgres's stemming, stop words and parser, so it does not try: the live
+ * rows that match come from the data service with the page's own filter, and
+ * the draft's held rows (new ones, and live rows the draft changes, by their
+ * new values) are asked of the database in one read-only query, through the
+ * search column's own generated expression read from the catalog. Anything
+ * that cannot be read this way stays refused (422), never guessed.
+ *
+ * PostgREST's operators, exactly: `fts` -> to_tsquery, `plfts` ->
+ * plainto_tsquery, `phfts` -> phraseto_tsquery, `wfts` ->
+ * websearch_to_tsquery; `op(config).q` passes the config as the first
+ * argument, and without one the one-argument form (the database's default
+ * configuration) is used, as PostgREST does.
+ */
+export const FTS_FUNCTIONS = Object.freeze({ fts: "to_tsquery", plfts: "plainto_tsquery", phfts: "phraseto_tsquery", wfts: "websearch_to_tsquery" });
+const FTS_VALUE = /^(fts|plfts|phfts|wfts)(?:\(([^)]*)\))?\.([\s\S]*)$/;
+/**
+ * The page's full-text filter: `null` when there is none, `{ ok: false }`
+ * when there is one this cannot judge (two of them, a column or config it
+ * cannot read, an empty query), else `{ ok: true, key, value, col, fn,
+ * config, query, rest }`, `rest` being the query without it.
+ */
+export function ftsFilterOf(params) {
+  let found = null;
+  const rest = new URLSearchParams();
+  for (const [k, v] of params) {
+    const m = FTS_VALUE.exec(String(v));
+    if (!m || k === "select" || k === "order" || k === "limit" || k === "offset") { rest.append(k, v); continue; }
+    if (found) return { ok: false, param: k };
+    if (!/^[a-z_][a-z0-9_]{0,62}$/i.test(k)) return { ok: false, param: k };
+    const config = m[2] === undefined ? null : m[2];
+    if (config !== null && !/^[a-z_][a-z0-9_]{0,62}$/i.test(config)) return { ok: false, param: k };
+    if (!m[3]) return { ok: false, param: k };
+    found = { ok: true, key: k, value: String(v), col: k, fn: FTS_FUNCTIONS[m[1]], config, query: m[3] };
+  }
+  if (!found) return null;
+  return { ...found, rest };
+}
+/** The search column's generated expression and its table, from the catalog. $1 table, $2 column. */
+export const FTS_CATALOG_SQL =
+  "SELECT pg_get_expr(d.adbin, d.adrelid) AS doc, c.oid::regclass::text AS rel" +
+  " FROM pg_class c JOIN pg_attribute a ON a.attrelid = c.oid AND NOT a.attisdropped" +
+  " JOIN pg_attrdef d ON d.adrelid = c.oid AND d.adnum = a.attnum" +
+  " WHERE c.oid = to_regclass(quote_ident($1)) AND a.attname = $2 AND a.attgenerated = 's'";
+/**
+ * The one judging query: the held rows as the table's own row type
+ * (`jsonb_populate_recordset`, so every column has its real type), the
+ * column's expression over each, against the same tsquery. `doc` and `rel`
+ * come from the catalog, never from the request; the rows ($1), the config
+ * and the query text are parameters.
+ */
+export function ftsJudgeSql({ doc, rel, fn, config }) {
+  if (!Object.values(FTS_FUNCTIONS).includes(fn)) return null;
+  if (typeof doc !== "string" || !doc || typeof rel !== "string" || !/^[A-Za-z0-9_."]+$/.test(rel)) return null;
+  const q = config === null || config === undefined ? fn + "($2)" : fn + "($2::regconfig, $3)";
+  return "SELECT v.ordinality AS i FROM jsonb_populate_recordset(NULL::" + rel + ", $1::jsonb) WITH ORDINALITY AS v WHERE (" + doc + ") @@ " + q;
+}
+export function ftsJudgeParams(rows, { config, query }) {
+  const r = JSON.stringify(rows);
+  return config === null || config === undefined ? [r, query] : [r, config, query];
+}
+/** The ids of the live rows the draft changes (held updates by id), for `table`. */
+export function heldChangedIds(table, ops) {
+  const out = new Set();
+  for (const o of ops || []) if (o && o.kind === "row" && o.table === table && o.op === "update" && !o.ref && o.id !== undefined) out.add(Number(o.id));
+  return out;
 }

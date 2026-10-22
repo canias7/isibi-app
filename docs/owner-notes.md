@@ -1,6 +1,26 @@
 # Owner Notes
 
 
+## 2026-10-22 — Search in the draft preview now works on a table with unpublished changes (not merged, not deployed)
+
+You chose option A: the site's own database decides. Before this, typing in a site's search box in the preview gave an error whenever that table had unpublished row changes.
+
+How it works now:
+- **Rows the draft doesn't touch**: the live site's own search answers, as it always did.
+- **New or changed rows**: the site's database checks them with one read-only question. It uses the database's real search rules, and a changed row is checked by its new wording.
+- **Deleted rows** stay hidden.
+
+The search words are always sent to the database as data, never as part of the command, so a crafted search can't do anything to the database. If the database can't be asked, the preview still says it can't show the list. It never guesses.
+
+Each such search costs one extra small read of the live data and two small database reads.
+
+Tests:
+- one new test, which fails on the old code;
+- a sweep of 6 deliberate breaks, all caught.
+
+Record: `docs/history/2026-10-22-decide-1a.md`. Branch `decide-1a`; nothing spent.
+
+
 ## 2026-10-22 — Audit group G1: the publish turn and the container's database recovery (not merged, not deployed)
 
 - **The turn wait.** Most of this was fixed on 2026-10-18. What was left: a job the container shut down kept waiting, and a stop pressed while a job waited was treated as "another change got in the way", so the job ran again. Both now end the job at once with the right reason. A failed check of the saved site is now reported as a read failure, so it is no longer re-run as a clash with another change.
