@@ -1,5 +1,12 @@
 # Owner Notes
 
+## 2026-10-22 — Audit finding 53: the spam check can no longer be skipped by sending a list (not merged, not deployed)
+
+- **It was real.** On a form with the spam check (Turnstile) switched on, a bot could wrap its submission in a list, or send it as plain text instead of JSON, and the check was skipped entirely. A list of 500 spam entries landed as 500 rows from one request. I checked this on today's code before changing anything.
+- **Now**, where the spam check is on, each submission must be exactly one entry sent as JSON. Anything else is refused before the check runs, with "Please send one submission at a time." Nothing is written.
+- **Unchanged**: sites without the spam check, member and other non-form tables, and real visitors' forms (they already send one entry as JSON).
+- Records: `docs/history/2026-10-22-audit-53.md`. Branch `audit-53`; nothing spent.
+
 ## 2026-10-22 — Ideas #10 and #14, combined with the day's work (not deployed)
 
 - #10, the visual review: after a first build's render check, the build's own
