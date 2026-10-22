@@ -28,6 +28,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import vm from "node:vm";
 import { platform, sendMessage, settle, call, tick, T } from "./fixtures/request-flow.mjs";
 import { blockNetwork } from "./fixtures/no-network.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
@@ -1734,4 +1735,76 @@ test("DFH12 PUBLISH CHECKS THE STARTER-ROW RULE BEFORE IT BEGINS (2026-10-18, re
   const head = src.slice(a, b);
   assert.match(head, /const need = splitsStarterRows\(ranges, rev\.n\);\s*if \(need\) return \{ ok: false, status: 409,/, "Publish can split starter rows from a later change to them");
   assert.match(head, /if \(rev\.n > draft\.applied && rev\.n < draft\.rev\)/);
+});
+
+test("DFB12 THE PREVIEW ANSWERS THE PAGE'S OWN QUERY (audit A07-3) — a touched table is read whole and the held rows filtered, ordered and limited with the live ones: a held new row shows only where it matches, a detail read of a live id never answers the held row, a removed row's detail is empty, and a query the preview cannot evaluate is refused, never answered with a row that may not match", async () => {
+  const slug = slugOf("dfb12");
+  const ops = [
+    { kind: "row", table: "loaves", op: "insert", values: { name: "Spelt", price: 6.2 }, ref: HID + ":0" },
+    { kind: "row", table: "loaves", op: "remove", id: 2 },
+    { kind: "row", table: "loaves", op: "update", id: 3, values: { name: "Spelt" } },
+  ];
+  const site = previewSite(slug, ops);
+  const host = slug + "--draft-" + TOKEN12 + ".gofarther.app";
+  const read = async (q) => { const r = await hitWith(site, host, "/api/db/" + slug + "/data/loaves" + q); assert.equal(r.status, 200, q + " " + r.text.slice(0, 300)); return r.json; };
+  // THE LIVE SERVICE IS ASKED FOR THE WHOLE TABLE, the query answered here.
+  const n0 = site.upstream.length;
+  const byName = await read("?select=*&order=id.desc&name=eq.Spelt");
+  assert.deepEqual(site.upstream.slice(n0).map((u) => new URL(u.url).search), ["?select=*"], "the live service was asked the page's query before the overlay");
+  assert.deepEqual(byName.map((r) => r.id < 0 ? "held" : r.id), ["held", 3], "a filtered list did not answer exactly the matching rows, newest first");
+  const top2 = await read("?select=*&order=id.desc&limit=2");
+  assert.deepEqual(top2.map((r) => r.id < 0 ? "held" : r.id), ["held", 6], "a limited list ignored the limit or the order");
+  const page2 = await read("?select=*&order=id.asc&limit=2&offset=1");
+  assert.deepEqual(page2.map((r) => r.id), [3, 4], "the offset was ignored");
+  assert.deepEqual((await read("?id=eq.1&select=*")).map((r) => [r.id, r.name]), [[1, "Country White"]], "a live row's detail read answered something else");
+  assert.deepEqual(await read("?id=eq.2&select=*"), [], "a removed row's detail read answered a row");
+  assert.deepEqual((await read("?name=in.(\"Country White\",Spelt)&order=id.asc")).map((r) => r.id < 0 ? "held" : r.id), [1, 3, "held"]);
+  const fts = await hitWith(site, host, "/api/db/" + slug + "/data/loaves?select=*&_fts=fts.rye");
+  assert.equal(fts.status, 422, "a query the preview cannot evaluate was answered: " + fts.text.slice(0, 200));
+  assert.equal(Array.isArray(fts.json), false);
+  for (const q of ["?select=*&or=(name.eq.Spelt,id.eq.1)", "?select=*&na-me=eq.Spelt", "?select=name", "?select=*&name=like.Sp*"]) {
+    const r = await hitWith(site, host, "/api/db/" + slug + "/data/loaves" + q);
+    assert.equal(r.status, 422, q + " was answered: " + r.text.slice(0, 200));
+  }
+});
+
+test("DFB13 A FIRST CHANGE'S FRAME BEFORE ITS PREVIEW EXISTS (audit A07-5) — a held-only revision names a draft host no script was ever uploaded to: with a dispatch stand-in that throws for a script never uploaded (as production's namespace does), that host answers Not found; the server reads the preview not ready, and the page keeps the frame on the live site with a note until it is read ready, then moves to the draft host and stays there while a later change updates it", async () => {
+  const slug = slugOf("dfb13");
+  const site = previewSite(slug, [{ kind: "row", table: "loaves", op: "update", id: 2, values: { price: 5.6 } }]);
+  const uploaded = new Set();
+  const asked = [];
+  site.env.SITE_WORKERS = { get: (name) => ({ fetch: async () => { asked.push(name); if (!uploaded.has(name)) throw new Error("Worker not found"); return new Response("page", { status: 200 }); } }) };
+  const host = slug + "--draft-" + TOKEN12 + ".gofarther.app";
+  const blank = await hitWith(site, host, "/");
+  assert.ok(asked.length > 0, "the draft host never asked the dispatch namespace — this case tests nothing");
+  assert.equal(blank.status, 404, "the draft host with no script did not answer Not found: " + blank.status);
+  const read = await hitWith(site, "gofarther.dev", "/api/site/" + slug + "/draft", { auth: true });
+  assert.equal(read.status, 200, read.text.slice(0, 300));
+  const d = read.json;
+  assert.deepEqual([d.enabled, d.unpublished, d.preview], [true, true, "https://" + host + "/"], JSON.stringify(d));
+  assert.notEqual(d.previewState, "ready", "a preview never uploaded was read ready");
+  // THE PAGE'S OWN FUNCTIONS, given that reading.
+  const CHAT = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  const cut = (head) => { const at = CHAT.indexOf("\n" + head); assert.ok(at > 0, head + " is gone"); const end = CHAT.indexOf("\n}", at + 1); return CHAT.slice(at + 1, end + 2); };
+  const line = (head) => { const at = CHAT.indexOf("\n" + head); assert.ok(at > 0, head + " is gone"); return CHAT.slice(at + 1, CHAT.indexOf("\n", at + 1) + 1); };
+  const ctx = { siteDraftState: {} };
+  vm.createContext(ctx);
+  vm.runInContext([line("const SITE_DRAFT_HOST ="), cut("function siteDraftFrame(site) {"), cut("function sitePreviewSrc(site, path) {"), "this.api = { sitePreviewSrc, waiting: typeof siteDraftWaiting === 'function' ? siteDraftWaiting : null };", CHAT.includes("\nfunction siteDraftWaiting(site) {") ? cut("function siteDraftWaiting(site) {") : ""].join("\n"), ctx);
+  const s = { id: "s1", slug, url: "/s/" + slug + "/", previewV: 0 };
+  ctx.siteDraftState[slug] = d;
+  assert.equal(ctx.api.sitePreviewSrc(s, "/"), "/s/" + slug + "/?v=0", "the frame moved to a draft host whose preview is not ready (it answers Not found)");
+  assert.equal(typeof ctx.api.waiting, "function", "the page has no reading of a draft still being prepared");
+  assert.equal(ctx.api.waiting(s), d, "the page does not know the preview is being prepared");
+  // The bar says so (the render's own words).
+  assert.ok(/draftWaiting \? 'Live site \\u00b7 ' \+ \(waitState === 'failed' \? 'couldn\\u2019t prepare your preview yet' : 'preparing your preview\\u2026'\)/.test(CHAT), "the bar does not say the preview is being prepared");
+  // READ READY: the frame moves to the draft host; a later change keeps it there while it updates.
+  ctx.siteDraftState[slug] = { ...d, previewState: "ready", previewReady: true };
+  assert.equal(ctx.api.sitePreviewSrc(s, "/"), "https://" + host + "/?v=0");
+  assert.equal(ctx.api.waiting(s), null);
+  ctx.siteDraftState[slug] = { ...d, revision: (d.revision || 1) + 1, previewState: "pending", previewReady: false };
+  assert.equal(ctx.api.sitePreviewSrc(s, "/"), "https://" + host + "/?v=0", "a later change sent the frame back to the live site");
+  // A NEW DRAFT HOST (a new token, after a discard) waits again.
+  const other = "https://" + slug + "--draft-" + "f".repeat(12) + ".gofarther.app/";
+  ctx.siteDraftState[slug] = { ...d, preview: other };
+  assert.equal(ctx.api.sitePreviewSrc(s, "/"), "/s/" + slug + "/?v=0", "a new draft host was shown before its preview was ready");
 });
