@@ -174,6 +174,18 @@ export function derivedName(...parts) {
   return raw.slice(0, MAX_PG_IDENT - 8) + "_" + identDigest(raw);
 }
 
+/**
+ * A unique index this platform made for a table's `unique`/`oncePerUser`
+ * group: `head` (`ux_<table>_<g|u>_`) then a position (the old naming) or a
+ * 7-character digest (2026-10-22, A29-3). The slug and case-insensitive
+ * indexes, and anything an owner made, never match.
+ */
+export function isPlatformUniqueName(name, head) {
+  const n = String(name || "");
+  if (head.length >= MAX_PG_IDENT - 8 || !n.startsWith(head)) return false;
+  return /^(\d{1,3}|[0-9a-z]{7})$/.test(n.slice(head.length));
+}
+
 export function derivedIdent(...parts) {
   const name = derivedName(...parts);
   if (!SAFE_DERIVED_IDENT.test(name)) throw Object.assign(new Error("bad derived identifier: " + name), { bad: true });
@@ -1364,6 +1376,17 @@ export async function applySiteSchema(uuid, spec) {
         const raw = Array.isArray(groups) ? groups : (groups ? [groups] : []);
         const many = raw.length && (Array.isArray(raw[0]) || (raw[0] && typeof raw[0] === "object")) ? raw : (raw.length ? [raw] : []);
         let gi = 0;
+        // NAMED BY WHAT IT GUARDS (2026-10-22, audit A29-3). The name was the
+        // group's position (`ux_<table>_g_0`), so a changed rule reused the old
+        // name and `IF NOT EXISTS` skipped it while the reply said changed. Now
+        // the name is a digest of the columns and the WHERE, and once every
+        // group of this kind went in, the platform's older `ux_<table>_<g|u>_…`
+        // indexes the rule no longer declares are dropped. A group refused
+        // (existing duplicates) drops nothing: the old rule stands and the
+        // refusal is reported.
+        const kind = perUser ? "u" : "g";
+        const madeNames = new Set();
+        let anyRefused = false, anyGroup = false;
         for (const g of many) {
           const isObj = g && typeof g === "object" && !Array.isArray(g);
           const src = isObj ? (Array.isArray(g.columns) ? g.columns : [g.columns]) : g;
@@ -1377,16 +1400,33 @@ export async function applySiteSchema(uuid, spec) {
           // one index. `gi` is still incremented on every group, so the numbering
           // does not shift when one is refused.
           const gn = gi++;
+          void gn;
+          anyGroup = true;
           try {
-            const idxName = derivedIdent("ux_", t.name, "_", perUser ? "u" : "g", "_", gn);
+            const idxName = derivedIdent("ux_", t.name, "_", kind, "_", identDigest(idxCols.join(",") + "|" + (where || "")));
             await sqlQuery(uuid, "CREATE UNIQUE INDEX IF NOT EXISTS " + idxName + " ON " + tn + " (" + idxCols.map(sqlIdent).join(",") + ")" + (where ? " WHERE " + where : ""));
+            madeNames.add(idxName.slice(1, -1));
           } catch (e) {
+            anyRefused = true;
             // REPORTED, not only logged: `unique` on a booking table is the
             // headline guarantee — two customers in one chair is what it stops —
             // and a console line in Cloudflare is not somewhere an owner looks.
             refused.push({ table: t.name, feature: perUser ? "oncePerUser" : "unique", rule: idxCols.join("+"), why: (e && e.detail) || String((e && e.message) || e).slice(0, 160) });
             console.error("unique index failed:", t.name, e && e.detail);
           }
+        }
+        if (!anyGroup || anyRefused) return;
+        try {
+          const head = derivedName("ux_", t.name, "_", kind, "_");
+          const have = await sqlQuery(uuid, "SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() AND tablename = ?", [String(t.name)]);
+          for (const r of Array.isArray(have) ? have : []) {
+            const n = String((r && r.indexname) || "");
+            if (madeNames.has(n) || !isPlatformUniqueName(n, head)) continue;
+            await sqlQuery(uuid, "DROP INDEX IF EXISTS " + sqlIdent(n));
+          }
+        } catch (e) {
+          refused.push({ table: t.name, feature: perUser ? "oncePerUser" : "unique", rule: "replace", why: (e && e.detail) || String((e && e.message) || e).slice(0, 160) });
+          console.error("unique index replace failed:", t.name, e && e.detail);
         }
       };
       await mkIndexes(t.unique, false);
