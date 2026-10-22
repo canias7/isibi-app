@@ -2,6 +2,7 @@ import { sendConfirmation, recipient, pickProvider } from "./site-mail.mjs";
 import { sendSms, pickSmsProvider, toE164, SMS_SECRET_NAMES } from "./site-sms.mjs";
 import { dueJobs, runJob, jobOutcome, normalizeJob, validTimeZone, jobPanelRow, claimFilter } from "./site-jobs.mjs";
 import { hostIsBlocked, blockedReason } from "./site-ssrf.mjs";
+import { runRowEffects } from "./site-row-effects.mjs";
 import { deliverWebhook, firesFor, signPayload, retryable as webhookRetryable, MAX_PER_MINUTE as WEBHOOK_PER_MIN } from "./site-webhooks.mjs";
 import { drainQueue, enqueueRow, sameOwner, queueFull, retentionCutoffs, LEASE_MS as WEBHOOK_LEASE_MS, MAX_PENDING_PER_SITE } from "./site-webhook-queue.mjs";
 import { takeToken, verify as turnstileVerify, TOKEN_FIELD as TURNSTILE_FIELD } from "./site-turnstile.mjs";
@@ -4527,7 +4528,10 @@ const SITE_SCHEMA_TOOL = {
               "slot, `RAISE EXCEPTION 'fully booked'` if it is at capacity, and INSERT otherwise. The lock is what " +
               "makes it true — without it two people both see the last place and both get it, which is the double " +
               "booking this is here to stop. Put the capacity where the brief puts it: a number on the class row when " +
-              "each class has its own, or a literal when the whole business has one number.\n\n" +
+              "each class has its own, or a literal when the whole business has one number. " +
+              "A row the function inserts sends NO owner email, confirmation, text or webhook (those fire only on a " +
+              "direct insert and on a paid order), so do not declare `confirm`, `sms` or `webhooks` on that table " +
+              "expecting them to fire for its bookings.\n\n" +
               "RECEIVING DATA FROM ANOTHER SYSTEM. A function named `hook_<something>` taking exactly one jsonb argument and " +
               "marked internal:true is reachable at POST /api/db/<slug>/hook/<something>, behind a shared secret the OWNER " +
               "stores. Use it when the brief says another system sends this site data — a supplier's stock feed, a booking " +
@@ -10750,7 +10754,7 @@ async function siteServiceBase(db, key) {
  * no order at all and the owner would hold money with nothing to ship against.
  * A pending row that never completes is the recoverable direction.
  */
-async function handleCheckout({ env, conn, slug, body, origin, schema }) {
+async function handleCheckout({ env, conn, slug, body, origin, schema, ctx = null }) {
   const tables = (schema && Array.isArray(schema.tables) ? schema.tables : []);
   const table = tables.find((t) => t && String(t.name).toLowerCase() === String(body.table || "").toLowerCase());
   // 404 rather than 400 for a table that is not payable: whether a given table
@@ -10814,6 +10818,14 @@ async function handleCheckout({ env, conn, slug, body, origin, schema }) {
   );
   const orderId = ins && ins[0] && ins[0].id;
   if (!orderId) throw new Error("order row was not created");
+  // THE ORDER EXISTS, PENDING (audit A12-1): a declared webhook hears
+  // `created` now. Not a submission yet — the receipt, the owner's email and
+  // the text wait for the paid flip in the site's Stripe webhook, because a
+  // customer on their way to Stripe may never pay.
+  try {
+    siteRowEffects(env, ctx, { slug, db: conn, def: table, table: String(table.name).toLowerCase(), action: "created", submission: false,
+      row: { id: orderId, payment_status: "pending", amount_total: priced.total, currency: priced.currency, ...fields } });
+  } catch (e) { console.error("checkout effects:", slug, e && e.message); }
 
   // Both URLs are built HERE from the site's own origin and never taken from
   // the body. A caller-supplied success_url is an open redirect on our domain,
@@ -11029,70 +11041,22 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
       if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(w); else await w;
     }
 
-    // TELL THE OWNER A BOOKING ARRIVED.
+    // AFTER THE ROW IS WRITTEN: THE OWNER'S EMAIL, THE SUBMITTER'S CONFIRMATION
+    // AND TEXT, AND THE WEBHOOK — ONE SHARED STEP (audit A12-1, 2026-10-22).
     //
     // `notifyOwnerOfSubmission` lost its trigger point when `site-data.mjs` was
-    // deleted on 2026-07-30 and had ZERO callers after it — so a barber shop took
-    // an appointment and the only way to find out was to log into Go Farther and look.
+    // deleted on 2026-07-30; this proxy is where a published site's writes pass,
+    // so the hook sits here. It is no longer the ONLY caller: a checkout's
+    // insert and the Stripe paid flip run the same `siteRowEffects`, because an
+    // order never passes through this proxy.
     //
-    // The note left behind said this needed a Postgres trigger writing to a queue
-    // table plus the 2-minute cron, "because there is no `http` extension to call
-    // out from Neon". That was written on the assumption the Worker had left the
-    // write path. It has not: THIS PROXY IS THE WRITE PATH — every insert a
-    // published site makes comes through here. So the hook is one branch, with no
-    // trigger, no queue table and no cron.
-    //
-    // Fire-and-forget under waitUntil, and it can only ever no-op: the row is
-    // already in Postgres and a broken mailer must not look like a broken form.
-    // `shouldNotify` decides — POST to a `collect` table and nothing else — and
-    // the cooldown is claimed in the database, so many isolates send one email.
-    if (which === "data" && request.method === "POST" && r.status >= 200 && r.status < 300) {
-      try {
-        const table = String(path).split("/")[0].toLowerCase();
-        const spec = await loadSiteSchema(db);
-        const def = (spec && spec.tables || []).find((t) => String(t.name).toLowerCase() === table);
-        if (def) {
-          // The response when the caller asked for the row back, else what they
-          // sent. Either is the submission; the request body is the reliable one.
-          let row = null;
-          try { const j = JSON.parse(body); row = Array.isArray(j) ? j[0] : j; } catch { /* not json */ }
-          if (!row) { try { row = JSON.parse(sent || "null"); } catch { row = null; } }
-          // `db` travels with it now: the notification goes out on the SITE'S own
-          // mail key, read from the site's own vault, so it needs the same
-          // connection the confirmation one line below already takes.
-          notifyOwnerOfSubmission(env, ctx, { slug, db, table, access: def.access, method: "POST", row: row || {} });
-          // And the other direction: confirm to the PERSON WHO SUBMITTED, on the
-          // owner's own provider key. Same hook, one branch over — the Worker is
-          // already on this path, which is why this can fire on the booking
-          // rather than up to two minutes later on a cron.
-          confirmSubmitter(env, ctx, { slug, db, def, row: row || {} });
-          // …and by text, if the site declared one. Independent of the mail
-          // above: a site may declare either or both, and one provider being
-          // misconfigured must not silently take the other with it.
-          smsSubmitter(env, ctx, { slug, db, def, row: row || {} });
-          // And outward, if the site declared it. Same branch again: the row
-          // exists, the visitor has their answer, and anything else that wants
-          // to know is somebody else's server.
-        }
-      } catch (e) { console.error("notify hook:", slug, e && e.message); }
-    }
-
-    // …AND OUTWARD, ON EVERY ACTION THE TABLE DECLARED — not only inserts.
-    //
-    // A SEPARATE BLOCK, deliberately. The notification above is POST-to-`collect`
-    // by design: it means "a stranger filled in your form". A webhook is not that
-    // — the schema has always let a table declare `created`, `updated` and
-    // `deleted`, and the first cut of this emitted `created` and nothing else. So
-    // a site declaring `webhooks: true` got two thirds of nothing, silently, on a
-    // flag it was allowed to set. That is the same declared-and-dead shape this
-    // file documents over and over, and it was reintroduced here within hours of
-    // being written down twice.
-    //
-    // On PATCH the row is the representation the caller asked for, or what they
-    // sent. On DELETE there is no row at all — PostgREST identifies it in the
-    // QUERY STRING — so the filter is what goes on the wire, and it is sent as
-    // `filter` rather than dressed up as `data`: a receiver must be able to tell
-    // "this row, with these values" from "whatever matched this".
+    // A POST is a submission (the three person-facing effects, each with its
+    // own `collect`-only rule and the owner's own keys). Every write is a
+    // webhook action: `created`, `updated`, `deleted`. On DELETE there is no
+    // row — PostgREST names it in the QUERY STRING — so the filter is sent as
+    // `filter`, never dressed up as `data`. Fire-and-forget under waitUntil:
+    // the row is already in Postgres and a broken mailer must not look like a
+    // broken form.
     if (which === "data" && r.status >= 200 && r.status < 300) {
       const action = request.method === "POST" ? "created"
         : request.method === "PATCH" || request.method === "PUT" ? "updated"
@@ -11110,9 +11074,9 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
               try { const j = JSON.parse(body); row = Array.isArray(j) ? j[0] : j; } catch { /* not json */ }
               if (!row) { try { row = JSON.parse(sent || "null"); } catch { row = null; } }
             }
-            emitWebhook(env, ctx, { slug, db, def, table, action, row: row || {} });
+            siteRowEffects(env, ctx, { slug, db, def, table, action, row: row || {}, submission: request.method === "POST" });
           }
-        } catch (e) { console.error("webhook hook:", slug, e && e.message); }
+        } catch (e) { console.error("row effects:", slug, e && e.message); }
       }
     }
 
@@ -12391,6 +12355,21 @@ async function pendingWebhooks(env, ownerId, slug) {
     const total = parseInt(String(r.headers.get("content-range") || "").split("/")[1], 10);
     return Number.isFinite(total) ? total : null;
   } catch { return null; }
+}
+
+/**
+ * THE SHARED "ROW CREATED / UPDATED" STEP (audit A12-1). The data proxy, the
+ * checkout insert and the Stripe paid flip all call this; `runRowEffects`
+ * decides which of the four fire, and each sender keeps its own rules and the
+ * OWNER'S OWN keys from the site's Secrets. Never `env.EMAIL`.
+ */
+function siteRowEffects(env, ctx, { slug, db, def, table, action, row, submission }) {
+  return runRowEffects({
+    notify: (r) => notifyOwnerOfSubmission(env, ctx, { slug, db, table, access: def.access, method: "POST", row: r }),
+    confirm: (r) => confirmSubmitter(env, ctx, { slug, db, def, row: r }),
+    sms: (r) => smsSubmitter(env, ctx, { slug, db, def, row: r }),
+    webhook: (a, r) => emitWebhook(env, ctx, { slug, db, def, table, action: a, row: r }),
+  }, { def, action, row, submission });
 }
 
 /**
@@ -29356,11 +29335,23 @@ async function handleRequest(request, env, ctx) {
           // at least once and retries anything it does not get a 2xx for, so the
           // same event arrives more than once as a matter of course. The WHERE
           // makes a second delivery a no-op instead of a second `paid_at`.
-          await sqlExec(
+          // RETURNING the stored row: it comes back only from the delivery that
+          // made the flip, so a repeated event fires nothing a second time.
+          const flipped = await sqlQuery(
             wconn,
-            `UPDATE ${sqlIdent(t.name)} SET payment_status='paid', payment_ref=?, paid_at=to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') WHERE id=? AND payment_status<>'paid'`,
+            `UPDATE ${sqlIdent(t.name)} SET payment_status='paid', payment_ref=?, paid_at=to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') WHERE id=? AND payment_status<>'paid' RETURNING *`,
             [paid.ref, paid.orderId],
           );
+          // THE ORDER IS PAID (audit A12-1, A30-3): this is the submission — the
+          // owner's email, the customer's receipt or text — and the webhook's
+          // `updated`, all from the row as stored. Detached; the 200 to Stripe
+          // does not wait on a mailer.
+          const stored = flipped && flipped[0];
+          if (stored) {
+            try {
+              siteRowEffects(env, ctx, { slug: wslug, db: wconn, def: t, table: String(t.name).toLowerCase(), action: "updated", submission: true, row: stored });
+            } catch (e) { console.error("wh effects:", wslug, e && e.message); }
+          }
         } catch (e) {
           // A 500 here makes Stripe retry, which is what we want: the money is
           // real and the row must eventually catch up.
@@ -31724,6 +31715,7 @@ async function handleRequest(request, env, ctx) {
             body: await request.json().catch(() => ({})),
             origin: url.origin,
             schema: await loadSiteSchema(cconn),
+            ctx,
           });
           if (cidem) {
             // Cloned: the body can only be read once, and the customer's copy

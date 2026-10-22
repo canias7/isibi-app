@@ -2570,9 +2570,9 @@ const MAX_ITEM_TEXT = 240;
 
 /** What each part of a table does, as the platform does it. One line per `TABLE_PARTS` entry. */
 export const PART_SAYS = Object.freeze({
-  notify: "the owner is emailed about each new row",
-  confirm: "the person who adds a row is emailed",
-  sms: "the person who adds a row is sent a text message",
+  notify: "the owner is emailed about each new row (on a card-paid table, each paid order)",
+  confirm: "the person who adds a row is emailed (on a card-paid table, once the order is paid)",
+  sms: "the person who adds a row is sent a text message (on a card-paid table, once the order is paid)",
   webhooks: "another system is told about its rows",
   payment: "the visitor pays by card",
 });
@@ -6911,10 +6911,19 @@ export function tableParts(t) {
   // A `collect` table whose stored rule still lets a visitor add a row: the
   // email is sent from that POST (`shouldNotify`), so a rule that refuses it
   // sends nothing.
-  if (String(t.access || "").toLowerCase() === "collect" && resolveAccess(t).write !== "none") out.push("notify");
-  if (obj(t.confirm)) out.push("confirm");
-  if (obj(t.sms)) out.push("sms");
-  if (t.webhooks === true || (Array.isArray(t.webhooks) && t.webhooks.length)) out.push("webhooks");
+  // A card-paid table gets no visitor write grant at all; its rows come from
+  // the checkout, and the owner's email is sent when one is PAID (audit A12-1:
+  // the Stripe webhook runs the same row step as the proxy).
+  if (String(t.access || "").toLowerCase() === "collect" && (obj(t.payment) || resolveAccess(t).write !== "none")) out.push("notify");
+  // A table nobody may write to directly (`write: "none"`, filled by a
+  // function) never reaches the row step: a function's insert is invisible
+  // to it (audit A12-1, still open), so its confirm, text and webhook are not
+  // claimed. A card-paid table is the exception — the checkout and the paid
+  // flip run the step.
+  const reached = obj(t.payment) || resolveAccess(t).write !== "none";
+  if (reached && obj(t.confirm)) out.push("confirm");
+  if (reached && obj(t.sms)) out.push("sms");
+  if (reached && (t.webhooks === true || (Array.isArray(t.webhooks) && t.webhooks.length))) out.push("webhooks");
   if (obj(t.payment)) out.push("payment");
   return out.filter((x) => TABLE_PARTS.includes(x));
 }

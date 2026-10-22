@@ -46,8 +46,10 @@ test("something calls notifyOwnerOfSubmission", () => {
 
 test("the caller is the data proxy, on a write", () => {
   const body = fnBody(worker, "async function proxySiteService(");
-  assert.match(body, /notifyOwnerOfSubmission\(/,
-    "the hook is not in the proxy, which is the only place a published site's insert passes through");
+  // Since audit A12-1 (2026-10-22) the proxy calls the shared row step, which
+  // calls notifyOwnerOfSubmission (test/site-row-effects.test.mjs holds that).
+  assert.match(body, /siteRowEffects\(env, ctx, \{/,
+    "the hook is not in the proxy, which is where a published site's insert passes through");
   // Gated on a WRITE that SUCCEEDED. Without the status check a refused booking —
   // a duplicate slot, a failed constraint — mails the owner about a row that does
   // not exist.
@@ -101,5 +103,5 @@ test("the access level comes from the SCHEMA, never from the request", () => {
   // demand — the mail bomb the cooldown exists to prevent, aimed by hand.
   const body = fnBody(worker, "async function proxySiteService(");
   assert.match(body, /loadSiteSchema\(db\)/, "the hook must read the site's own schema");
-  assert.match(body, /access: def\.access/, "the access level must come from the schema entry");
+  assert.match(worker.slice(worker.indexOf("function siteRowEffects("), worker.indexOf("function siteRowEffects(") + 900), /access: def\.access/, "the access level must come from the schema entry");
 });
