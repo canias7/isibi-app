@@ -2,7 +2,7 @@ import { sendConfirmation, recipient, pickProvider } from "./site-mail.mjs";
 import { sendSms, pickSmsProvider, toE164, SMS_SECRET_NAMES } from "./site-sms.mjs";
 import { dueJobs, runJob, jobOutcome, normalizeJob, validTimeZone, jobPanelRow, claimFilter } from "./site-jobs.mjs";
 import { hostIsBlocked, blockedReason } from "./site-ssrf.mjs";
-import { runRowEffects } from "./site-row-effects.mjs";
+import { runRowEffects, resolveCreatedRow } from "./site-row-effects.mjs";
 import { deliverWebhook, firesFor, signPayload, retryable as webhookRetryable, MAX_PER_MINUTE as WEBHOOK_PER_MIN } from "./site-webhooks.mjs";
 import { drainQueue, enqueueRow, sameOwner, queueFull, retentionCutoffs, LEASE_MS as WEBHOOK_LEASE_MS, MAX_PENDING_PER_SITE } from "./site-webhook-queue.mjs";
 import { takeToken, verify as turnstileVerify, TOKEN_FIELD as TURNSTILE_FIELD } from "./site-turnstile.mjs";
@@ -11070,6 +11070,13 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
             let row = null;
             if (action === "deleted") {
               row = { filter: String(url.search || "").replace(/^\?/, "").slice(0, 500) };
+            } else if (action === "created") {
+              // THE STORED ROW, WITH ITS ID (audit A12-2). The kit's insert asks
+              // for nothing back (a collect table has no SELECT), so the answer is
+              // an empty 201; the row is read on the OWNER connection by the
+              // values just sent, so a `{fn}` confirmation has its id and a
+              // webhook's data carries it.
+              row = await resolveCreatedRow({ def, body, sent, lookup: (q, p) => sqlQuery(db, q, p) });
             } else {
               try { const j = JSON.parse(body); row = Array.isArray(j) ? j[0] : j; } catch { /* not json */ }
               if (!row) { try { row = JSON.parse(sent || "null"); } catch { row = null; } }
