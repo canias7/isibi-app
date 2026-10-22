@@ -37982,6 +37982,16 @@ async function handleRequest(request, env, ctx) {
                 // was. Reported rather than escalated: a write that failed once
                 // will fail for the bigger lane too.
                 console.error("edit look write failed:", ownerSlug, e && e.message);
+                // A TURN THIS JOB DOES NOT HOLD (2026-10-22, audit A03-4) is
+                // another change of the request publishing, not a failed
+                // store: answered as the overlap it is, so the request runs
+                // this part again alone, never "try again". Only the turn check's
+                // own refusal (`mayWriteConfig`): a write the store fenced off
+                // mid-flight (`TURN_FENCED`) keeps its answer
+                // (test/turn-fence.test.mjs TF2, TF3).
+                if (e && e.message === TURN_LOST_WRITE) {
+                  return Response.json({ ok: false, error: "turn-lost", ours: true, cost: 0, msg: "Another change in the same request took its turn to publish, so this one wasn't saved. Nothing of it was published." }, { status: 503 });
+                }
                 return Response.json({ ok: false, error: "store", cost: 0, msg: "That change couldn't be saved — try again." }, { status: 503 });
               }
 

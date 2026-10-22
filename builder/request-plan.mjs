@@ -612,8 +612,18 @@ export function besideConflict(a, b) {
   if (writesSchema(a) && writesSchema(b)) return true;
   return false;
 }
+// THE REMOVAL DOOR (2026-10-22, audit A03-4): a `nav` or `picture` route with
+// `remove` opens the lane picker, and the lanes it names beside the removal
+// are look's own (the stylesheet, the theme, the description, the marks),
+// which write the config. Its route and targets name only the menu or the
+// pictures, so it is counted here: it takes the turn at its start, as a look
+// step does, rather than being refused at its own config write. Kept equal to
+// site-ask.mjs `DOOR_LAYERS` (test/door-turn.test.mjs); not imported, since
+// site-ask.mjs imports this module.
+const DOOR_LAYER_NAMES = ["picture", "nav"];
+const removalDoor = (r) => !!(r && r.remove === true && DOOR_LAYER_NAMES.includes(r.layer));
 /** Does this step rewrite the site's whole config before it publishes (so it holds the site's publish turn for its whole run)? */
-export function holdsConfig(part) { return !!(part && part.phase !== "route" && part.route) && (writesConfig(part) || part.serial === true); }
+export function holdsConfig(part) { return !!(part && part.phase !== "route" && part.route) && (writesConfig(part) || removalDoor(part.route) || part.serial === true); }
 
 /**
  * MAY A PART'S JOB BE FILED WHILE OTHER JOBS OF ITS REQUEST RUN? (2026-10-15)
