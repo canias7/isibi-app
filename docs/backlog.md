@@ -3174,3 +3174,11 @@ named GATEWAY_SIGNING_KEY, at least 32 random characters, gives job passes
 their own signing key separate from SITE_SECRETS_KEY. The owner has no
 terminal: any password manager's generator (64 letters and digits) works.
 Adding it ends the passes of jobs running at that moment, once.
+
+## Meshy 3D paid test, then switch it on (owner, 2026-10-22: "note the paid test for meshy later")
+
+3D purchases ship OFF (on only when MODEL3D_PURCHASES is "on"; not wired in
+deploy.yml yet). Before switching on: one real model on a test site (~150
+credits, $1.20 at fal) to confirm fal's answer shape, timing and file sizes,
+then wire MODEL3D_PURCHASES into deploy.yml. Price stays 150 credits (cost in
+credits; the margin is the credit price, ~$0.012 a credit).

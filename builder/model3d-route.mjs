@@ -22,7 +22,7 @@
  *
  * deps:
  *   falKey                     the platform's FAL_KEY (absent: refused, nothing charged)
- *   off                        true when MODEL3D_PURCHASES is "off"
+ *   off                        true unless MODEL3D_PURCHASES is "on" (off by default)
  *   origin                     the public origin uploads are served from (for fal to fetch a photo)
  *   fetch, now()
  *   readRecord(key)            → record | null

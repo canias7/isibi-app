@@ -11291,7 +11291,9 @@ function model3dDeps(env, { slug, uid, auth, origin }) {
   const recKey = (k) => "model3d/" + slug + "/" + k + ".json";
   return {
     falKey: env.FAL_KEY || "",
-    off: String(env.MODEL3D_PURCHASES || "").toLowerCase() === "off",
+    // OFF UNLESS SWITCHED ON (owner, 2026-10-22): no customer can buy a 3D model
+    // until the paid test passes and MODEL3D_PURCHASES is set to "on".
+    off: String(env.MODEL3D_PURCHASES || "").toLowerCase() !== "on",
     origin,
     fetch: (u, o) => fetch(u, { ...(o || {}), signal: AbortSignal.timeout(60000) }),
     now: () => Date.now(),

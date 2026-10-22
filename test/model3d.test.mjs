@@ -483,3 +483,11 @@ test("the page writer: Scene3D with a stored model only where they asked, still 
   assert.match(p, /A 3D MODEL THE SITE ALREADY HAS/);
   assert.match(p, /never on your own initiative/);
 });
+
+// OFF BY DEFAULT (owner, 2026-10-22: the paid test comes first). Red on the
+// old line, which was on unless the switch said "off".
+test("3D purchases are off unless MODEL3D_PURCHASES is exactly on", () => {
+  const w = read("worker.js");
+  assert.match(w, /off: String\(env\.MODEL3D_PURCHASES \|\| ""\)\.toLowerCase\(\) !== "on",/);
+  assert.doesNotMatch(w, /MODEL3D_PURCHASES \|\| ""\)\.toLowerCase\(\) === "off"/);
+});
