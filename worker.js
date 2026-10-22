@@ -100,7 +100,7 @@ import { siteAnswer, pageNotes, buildFacts, ANSWER_FIELDS } from "./builder/buil
 import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
-import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
+import { siteMetaKey, SITE_LIVE_FILE, carryPanelFields } from "./site-meta.mjs";
 import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec, previousSidecar } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
@@ -13985,6 +13985,18 @@ export async function runPreviewRecovery(env, { now = Date.now(), budget = 50 } 
   try { await B.put(PREVIEW_SWEEP_CURSOR, JSON.stringify({ after: step.after, at: clock() }), { httpMetadata: { contentType: "application/json" } }); } catch { /* starts again from the front */ }
   return out;
 }
+/**
+ * A version's staged sidecar with the owner's panel changes carried from the
+ * live one (`carryPanelFields`, audit A11-2). `prior` is the version that was
+ * live when it was read; a read that fails carries nothing.
+ */
+async function withPanelFields(deps, slug, sidecar, prior) {
+  if (typeof sidecar !== "string") return sidecar;
+  const text = async (k) => { try { const o = await deps.get(k); return o ? await o.text() : null; } catch { return null; } };
+  const live = await text(siteMetaKey(slug));
+  const was = prior ? await text(buildPrefix(slug, prior) + STATE_DIR + "sidecar.json") : null;
+  return carryPanelFields(sidecar, live, was);
+}
 async function completeActivation(env, slug, version, { sidecar } = {}) {
   const deps = buildDeps(env);
   const pointerStill = async () => {
@@ -14171,6 +14183,8 @@ async function runPublication(env, slug, j, etag, say = null) {
       // THE ADDRESS THE VERSION NAMES: a held rename is baked into its sidecar.
       let sidecar = typeof b.sidecar === "string" ? b.sidecar : undefined;
       if (rename && sidecar) { try { const sd = JSON.parse(sidecar); sd.origin = addressOf(rename.to); sidecar = JSON.stringify(sd); } catch { /* the version's own */ } }
+      // THE OWNER'S PANEL CHANGES SINCE `j.from` WENT LIVE (audit A11-2).
+      if (j.from !== j.version) sidecar = await withPanelFields(deps, slug, sidecar, j.from);
       if (liveV !== j.version) {
         // THE LIVE SITE MOVED ON (another version was put live meanwhile):
         // nothing of this revision is live, and it is not forced over that.
@@ -14666,7 +14680,10 @@ async function restoreVersion(env, slug, id) {
       // THE ETAG OF WHATEVER STANDS — a held empty pointer included.
       expectEtag: beforeTag,
       previous: before || null,
-      sidecar: typeof b.sidecar === "string" ? b.sidecar : undefined, sidecarKey: siteMetaKey(slug),
+      // THE OWNER'S PANEL CHANGES SURVIVE THE RESTORE (audit A11-2): the
+      // verification tag always, the card and description when a panel set
+      // them after the version standing now went live.
+      sidecar: await withPanelFields(deps, slug, typeof b.sidecar === "string" ? b.sidecar : undefined, before && before.version ? String(before.version) : ""), sidecarKey: siteMetaKey(slug),
       liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
       putWorker: async () => {
         wput = await putSiteWorker(env, slug, { ok: true, code: b.worker, build: b.manifest.build || "" }, { version: id });

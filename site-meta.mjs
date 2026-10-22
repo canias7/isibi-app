@@ -68,6 +68,43 @@ export function siteMetaKey(slug) {
 }
 
 /**
+ * THE OWNER'S PANEL CHANGES SURVIVE A PUBLISH OR A RESTORE (2026-10-22, audit
+ * A11-2). A version's sidecar is composed when it is staged; the verification,
+ * share-picture and SEO panels patch the live sidecar at once and answer
+ * `live: true`. Writing the version's staged bytes at activation took those
+ * changes back off the live head. So, before activation:
+ * - `verify` is carried from the live sidecar always: only the verification
+ *   panel writes it, and a restore keeps it (restoreVersion's promise);
+ * - `image` and `description` are carried from the live sidecar when it
+ *   differs from the staged sidecar of the version that was live (`prior`):
+ *   a panel changed it after that activation. Otherwise the version's own
+ *   value stands (an edit's description saved in the draft is the version's).
+ * Any text that cannot be read leaves the version's bytes as they are.
+ * Pure; returns the version's text unchanged when nothing is carried.
+ */
+export function carryPanelFields(versionText, liveText, priorText) {
+  const read = (t) => {
+    if (typeof t !== "string") return null;
+    try {
+      const v = JSON.parse(t);
+      if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+      if (v.held === "absent" && Object.keys(v).length === 1) return null;
+      return v;
+    } catch { return null; }
+  };
+  const ver = read(versionText); const live = read(liveText); const prior = read(priorText);
+  if (!ver || !live) return versionText;
+  const out = { ...ver };
+  let changed = false;
+  const take = (f) => { if (JSON.stringify(out[f]) !== JSON.stringify(live[f])) { out[f] = live[f]; changed = true; } };
+  if (Object.hasOwn(live, "verify")) take("verify");
+  if (prior) for (const f of ["image", "description"]) {
+    if (Object.hasOwn(live, f) && JSON.stringify(live[f]) !== JSON.stringify(prior[f])) take(f);
+  }
+  return changed ? JSON.stringify(out) : versionText;
+}
+
+/**
  * Build the head fragment. Pure, so what goes into a published page is testable
  * without R2, a build, or a browser.
  */

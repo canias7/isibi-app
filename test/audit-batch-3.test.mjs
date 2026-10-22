@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import { saveDraftRecord, previousSidecar } from "../site-draft.mjs";
 import { buildPrefix, STATE_DIR, HELD_ABSENT_BODY } from "../site-builds.mjs";
 import { manifestFromCsv, mergeRedirects } from "../site-seo.mjs";
+import { carryPanelFields } from "../site-meta.mjs";
 import { r2Conditional } from "./fixtures/request-flow.mjs";
 
 const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
@@ -71,4 +72,43 @@ test("B3-3 A11-3 WIRING — composePublish reads its previous manifest through p
   const body = worker.slice(at, end);
   assert.match(body, /previousSidecar\(buildDeps\(env\), slug, \{ draftFirst: draftFirst\(env\), liveKey: siteMetaKey\(slug\) \}\)/);
   assert.doesNotMatch(body, /SITES_BUCKET\.get\(siteMetaKey\(slug\)\)/);
+});
+
+// ── A11-2 ────────────────────────────────────────────────────────────────────
+const S = (o) => JSON.stringify(o);
+
+test("B3-4 A11-2 PUBLISH KEEPS A PANEL CHANGE MADE AFTER THE DRAFT WAS STAGED — the verification tag always; the card and description when the live head differs from the staged head of the version that was live; an edit's description saved in the draft stands", () => {
+  const prior = S({ description: "Bread.", image: "/u/b/a.jpg", origin: "https://b.gofarther.app", routesCsv: "/", redirectsCsv: "", verify: [] });
+  const live = S({ description: "Fresh bread daily.", image: "/u/b/c.jpg", origin: "https://b.gofarther.app", routesCsv: "/", redirectsCsv: "", verify: [{ name: "google-site-verification", content: "tok" }] });
+  const draft = S({ description: "Bread.", image: "/u/b/a.jpg", origin: "https://b.gofarther.app", routesCsv: "/,/visit", redirectsCsv: "/old=/", verify: [] });
+  const out = JSON.parse(carryPanelFields(draft, live, prior));
+  assert.deepEqual(out.verify, [{ name: "google-site-verification", content: "tok" }]);
+  assert.equal(out.description, "Fresh bread daily.");
+  assert.equal(out.image, "/u/b/c.jpg");
+  assert.equal(out.routesCsv, "/,/visit"); assert.equal(out.redirectsCsv, "/old=/");
+  // An edit's description in the draft, no panel change since: the draft's.
+  const edited = S({ ...JSON.parse(draft), description: "Sourdough on the quay." });
+  assert.equal(JSON.parse(carryPanelFields(edited, prior, prior)).description, "Sourdough on the quay.");
+  // Nothing to carry: the same bytes back. Unreadable live: the version's own.
+  assert.equal(carryPanelFields(draft, prior, prior), draft);
+  assert.equal(carryPanelFields(draft, null, prior), draft);
+  assert.equal(carryPanelFields(draft, "{bad", prior), draft);
+  assert.equal(carryPanelFields(draft, S({ held: "absent" }), prior), draft);
+  // No prior staged head: the verification tag only.
+  const np = JSON.parse(carryPanelFields(draft, live, null));
+  assert.equal(np.description, "Bread."); assert.equal(np.verify.length, 1);
+});
+
+test("B3-5 A11-2 WIRING — Publish (when it moves the pointer) and restore hand activation the version's sidecar through withPanelFields, never the staged bytes alone", () => {
+  const pub = worker.indexOf("async function runPublication(");
+  const pubEnd = worker.indexOf("const act = await activateBuild(deps, {", pub);
+  assert.ok(pub > 0 && pubEnd > pub, "runPublication landmarks");
+  assert.match(worker.slice(pub, pubEnd), /if \(j\.from !== j\.version\) sidecar = await withPanelFields\(deps, slug, sidecar, j\.from\);/);
+  const rs = worker.indexOf("async function restoreVersion(");
+  const rsEnd = worker.indexOf("putWorker:", rs);
+  assert.ok(rs > 0 && rsEnd > rs, "restoreVersion landmarks");
+  const r = worker.slice(rs, rsEnd);
+  assert.match(r, /sidecar: await withPanelFields\(deps, slug, /);
+  assert.doesNotMatch(r, /sidecar: typeof b\.sidecar === "string" \? b\.sidecar : undefined, sidecarKey/);
+  assert.match(worker, /async function withPanelFields\(deps, slug, sidecar, prior\) \{[\s\S]{0,400}carryPanelFields\(sidecar, live, was\)/);
 });
