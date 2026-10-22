@@ -47,6 +47,20 @@ Each finding was checked again against today's code first. Branch `claude/audit-
 - Tests: 3 new cases in `test/container-job.test.mjs`, one through the real gateway (a pass made from `SITE_SECRETS_KEY` is refused once the new key is set). They fail on the old code. Five older cases updated by name (they required the key to travel). Sweep and full-suite numbers are in `docs/history/2026-10-22-audit-finding-31.md`.
 - Not merged or deployed.
 
+## 2026-10-22 — Audit fixes 35–37: the typeface the model names now shows (you asked for 35, 36, 37)
+
+- **They were real.** The model writes a font as "Playfair Display", but the font package we bundle names it "Playfair Display Variable". The browser found no match and showed the plain fallback. The build still said the font was applied. This was true for every one of the 23 variable fonts we install.
+- **The fix:** when the stylesheet goes into the build, the registered name is added right after the model's own name: `"Playfair Display", "Playfair Display Variable", Georgia, serif`. Whatever name the model writes, the face we installed now applies. The model's fallbacks stay, and the stored stylesheet keeps the model's own words.
+- **The font reader now finds a font in every form the model uses.** Before, it missed four:
+  - a font set only as `--font-sans` or `--font-heading` (the example our own instructions give the model);
+  - a different font for one page;
+  - the `font:` shorthand;
+  - a fallback inside `var()`.
+- **When a font can't be had, the customer is told.** A name we can't find was already reported, and now that covers the forms above. A font whose file failed to download is now reported too, instead of staying silent.
+- **Seen in a real browser:** before, the heading loaded no face. After, it loads Playfair Display. The screenshots are `fonts-before.png` and `fonts-after.png`.
+- **The container image rolls** when this deploys. Not merged, not deployed, nothing spent.
+- Record: `docs/history/2026-10-22-audit-fonts.md`.
+
 ## 2026-10-21 — Phase D, Android: the real app downloads as an APK (you: "can u do it like in our platform how a customer will do it")
 
 - The app builder can now build a real Expo app into an Android app (`/expo-android`): the same typecheck, then Expo writes the native project and Gradle builds it offline against libraries the image warms once.
