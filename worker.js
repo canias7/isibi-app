@@ -210,7 +210,7 @@ import { runRulesEdit } from "./builder/site-rules.mjs";
 import { runPictureEdit, newEmptySlots, newListFrames, codeFigureRemoval } from "./builder/site-picture.mjs";
 import { runTweak, keptProse, tweakParser } from "./builder/site-tweak.mjs";
 import { keepCheck, keepWithheldMsg, KEEP_UNCHECKED_MSG, unsurePhrases } from "./builder/page-keep.mjs";
-import { preservePageProse, PROSE_WITHHELD } from "./builder/page-prose.mjs";
+import { preservePageProse, PROSE_WITHHELD, proseWithheldMsg } from "./builder/page-prose.mjs";
 // ONE EDITABLE VIEW of a site's source — its pages and its own components in a
 // single `{path, source}` list, and the way back. The cheap rungs key on `path`
 // and never interpret one, so a part with a path is a page to them; the mapping
@@ -38755,7 +38755,10 @@ async function handleRequest(request, env, ctx) {
               if (!pProse.ok) return Response.json({
                 // The legacy "withheld" browser note promises nothing changed;
                 // recovery may already have run, so do not claim that here.
-                ok: false, error: "prose-preservation", cost: 0, unchanged: false, msg: PROSE_WITHHELD,
+                // AND IT NAMES WHAT WOULD HAVE BEEN LOST (2026-10-22, audit
+                // A21-1): a menu entry or a button's words gone from a
+                // rewrite is something the customer can recognise and answer.
+                ok: false, error: "prose-preservation", cost: 0, unchanged: false, msg: proseWithheldMsg(pProse.blocked),
                 proseBlocked: pProse.why,
               }, { status: 409 });
               const pPages = pGuard.pages;

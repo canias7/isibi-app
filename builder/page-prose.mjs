@@ -3,6 +3,7 @@
 // Headings/ids locate a request's target; actual text identities establish
 // preservation. Unknown targeting fails closed only when text would be lost.
 import { tweakParser } from "./site-tweak.mjs";
+import { proseString, codeKey } from "./site-text.mjs";
 import { routeOf } from "./site-addon.mjs";
 import { navSlots } from "./site-nav.mjs";
 import { KIT_HEADINGS } from "./kit-headings.mjs";
@@ -56,7 +57,19 @@ export const PROSE_WITHHELD = "I couldn't confirm that this page change preserve
 //     "X". Its words are a prop, not prose this check reads, so "the X
 //     heading" and "the text under X" cannot be tied to any line here; they
 //     still count as a mention, so a name two headings share grants nothing.
-const KIT_SPEC = /^@\/components\/ui\/([a-z0-9-]+)(?:\.tsx)?$/;
+/**
+ * The refusal, naming what the rewrite would have lost (2026-10-22, audit
+ * A21-1). `blocked` is `preservePageProse`'s own list, read off the page —
+ * never the request's words; with nothing to name, the sentence is unchanged.
+ */
+export function proseWithheldMsg(blocked) {
+  const items = (Array.isArray(blocked) ? blocked : []).filter(x => typeof x === "string" && x.trim());
+  if (!items.length) return PROSE_WITHHELD;
+  const q = items.map(x => x.startsWith("the link to ") ? x : "“" + (x.length > 80 ? x.slice(0, 77) + "…" : x) + "”");
+  return PROSE_WITHHELD + " It would also have changed or removed: " + q.join(", ") + ".";
+}
+
+const KIT_SPEC =/^@\/components\/ui\/([a-z0-9-]+)(?:\.tsx)?$/;
 const DECLARES = /^(?:VariableDeclaration|Parameter|BindingElement|FunctionDeclaration|FunctionExpression|ClassDeclaration|ClassExpression|EnumDeclaration|ModuleDeclaration|ImportEqualsDeclaration|TypeAliasDeclaration|InterfaceDeclaration)$/;
 /** The JSX tags on this page that are one of the kit's section headings: tag → the prop it shows. */
 function kitHeadingTags(file, importsOf, k) {
@@ -136,6 +149,72 @@ function kitHeadingText(attrs, prop, k) {
 }
 
 /** Literal JSX prose, tied to its nearest section, and never read from comments. */
+// ── WORDS AND LINKS CARRIED IN PROPS AND DATA (2026-10-22, audit A21-1) ────
+// The full page writer rewrites the whole page, and this inventory read only
+// text between tags and a braced literal. A prop's words (`<CtaBand
+// title="Order ahead">`), a data object's (`links={[{ label: "Order", href:
+// "/order" }]}`, `action={{ label, href }}`) and a list of strings were
+// invisible, so a rewrite that dropped the Order menu entry and a whole CTA
+// band passed as `{ ok: true }` and was published "updated" — while
+// `extractText`, which the quick writer stands on, listed those very words.
+//
+// So they are atoms now, judged by `extractText`'s own two rules
+// (`proseString`, `codeKey`), with the same permissions as every other atom:
+// a section the customer names takes its carried words with it, a quoted
+// string can be changed or removed, anything else lost is refused.
+//
+// A LINK IS ITS ADDRESS AND THE WORDS BESIDE IT. An `href`/`to` in a data
+// object or on a component is an atom too (`role: "link"`), identified with
+// the strings of the same object or element (`with`), so two links to one
+// address are told apart, and it is granted when one of those words is
+// granted ("Remove the ‘Order’ link." takes the menu entry and its address).
+// `<a|Link|SiteLink href>` is left to `keepCheck`'s link inventory, which
+// already asks about each such link; counted here too, a removal it allows
+// would be refused twice. `alt` belongs to the photograph guard.
+const LINK_KEYS = new Set(["href", "to"]);
+const TAG_LINKS = /^(?:a|Link|SiteLink)$/;
+const keyText = (n) => {
+  const t = n?.name?.text ?? n?.name?.getText?.();
+  return typeof t === "string" ? t : "";
+};
+const stringOf = (n, k) => (n && (k(n) === "StringLiteral" || k(n) === "NoSubstitutionTemplateLiteral") ? n.text : null);
+function carried(node, k, tagOf) {
+  const value = stringOf(node, k);
+  if (value === null) return null;
+  const p = node.parent;
+  if (!p) return null;
+  const words = space(value);
+  const label = (texts) => texts.filter(proseString).map(space).filter(Boolean).join(" · ");
+  if (k(p) === "JsxAttribute" && p.initializer === node) {
+    const key = keyText(p), el = p.parent?.parent;
+    const tag = el?.tagName?.getText?.() ?? "";
+    const dom = /^[a-z]/.test(tag) && !tag.includes(".");
+    if (key === "alt") return null;
+    if (LINK_KEYS.has(key)) {
+      if (TAG_LINKS.test(tag) || !words) return null;
+      const texts = (el.attributes?.properties ?? []).filter(a => a !== p && !codeKey(keyText(a), dom) && keyText(a) !== "alt").map(a => stringOf(a.initializer, k)).filter(t => t !== null);
+      const host = k(el.parent) === "JsxElement" ? el.parent : null;
+      for (const ch of host?.children ?? []) if (k(ch) === "JsxText") texts.push(ch.text);
+      return { role: "link", text: words, with: label(texts), group: el };
+    }
+    if (codeKey(key, dom) || !proseString(value) || !words) return null;
+    return { role: "prop", text: words, group: el };
+  }
+  if (k(p) === "PropertyAssignment" && p.initializer === node) {
+    const key = keyText(p), obj = p.parent;
+    if (key === "alt") return null;
+    if (LINK_KEYS.has(key)) {
+      if (!words) return null;
+      const texts = (obj?.properties ?? []).filter(q => q !== p && k(q) === "PropertyAssignment" && !codeKey(keyText(q)) && keyText(q) !== "alt").map(q => stringOf(q.initializer, k)).filter(t => t !== null);
+      return { role: "link", text: words, with: label(texts), group: obj };
+    }
+    if (codeKey(key) || !proseString(value) || !words) return null;
+    return { role: "prop", text: words, group: obj };
+  }
+  if (k(p) === "ArrayLiteralExpression" && proseString(value) && words) return { role: "prop", text: words, group: p };
+  return null;
+}
+
 export function proseInventory(source, parse) {
   const { file, k, isJsx, tagOf, openOf, attrsOf, importsOf } = parse(source);
   if (file.parseDiagnostics?.length) throw new Error("unparsed");
@@ -212,8 +291,18 @@ export function proseInventory(source, parse) {
     if (k(node) === "StringLiteral" && k(node.parent) === "JsxExpression") text = space(node.text);
     if (text) {
       const atom = { text, block, heading, role, context: context(node) };
+      // Words written between a component's tags go with the link on that tag.
+      if (k(node) === "JsxText" && node.parent?.openingElement) atom.group = node.parent.openingElement;
       atoms.push(atom); block.atoms.push(atom);
       if (heading) named(block, name(text));
+    } else {
+      // WORDS AND LINKS CARRIED IN PROPS AND DATA (2026-10-22, audit A21-1).
+      const c = carried(node, k, tagOf);
+      if (c) {
+        const atom = { text: c.text, block, heading: false, role: c.role, context: context(node), group: c.group };
+        if (c.role === "link") { atom.with = c.with; atom.shown = "the link to " + c.text + (c.with ? " (" + c.with + ")" : ""); }
+        atoms.push(atom); block.atoms.push(atom);
+      }
     }
     node.forEachChild((c) => visit(c, block, heading, role));
   };
@@ -485,8 +574,11 @@ function permissions(message, before, pairs, page, names = null) {
       for (const a of candidates) allowed.add(a);
     }
     // A quoted sentence can target itself even outside a semantic section.
-    const exactObject = name(expand(object)).replace(/^(?:the\s+)?(?:text|words|heading|title)\s+/, "").replace(/^the\s+/, "");
+    // "the ‘Order’ link" and "the ‘Order now’ button" name that exact string's
+    // link, as "the text ‘…’" names its words (audit A21-1).
+    const exactObject = name(expand(object)).replace(/^(?:the\s+)?(?:text|words|heading|title)\s+/, "").replace(/^the\s+/, "").replace(/\s+(?:link|button|menu (?:link|item|entry))$/, "");
     for (const a of before.atoms) {
+      if (a.role === "link") continue;
       if (a.text.length < 4 || exactObject !== name(a.text)) continue;
       if (before.atoms.filter(x => name(x.text) === name(a.text)).length !== 1) continue;
       const removing = /^(?:remove|delete)\b|^take\b.*\b(?:off|out)\b/.test(clause);
@@ -504,10 +596,19 @@ function permissions(message, before, pairs, page, names = null) {
     }
   }
   for (const block of protectedBlocks) for (const atom of block.atoms) allowed.delete(atom);
+  // A carried link goes with the words of its own object or element, once
+  // every narrowing above has run: a link is never granted on its own words'
+  // behalf after "keep ‘Order’" took them back.
+  for (const a of before.atoms) {
+    if (a.role !== "link" || allowed.has(a)) continue;
+    if (before.atoms.some(x => x !== a && x.group === a.group && x.role !== "link" && allowed.has(x))) allowed.add(a);
+  }
   return allowed;
 }
 
-const identity = a => JSON.stringify([a.text, a.context]);
+// A link is told apart by the words beside it, so two links to one address
+// are two things (audit A21-1); every other atom is read as it always was.
+const identity = a => JSON.stringify(a.role === "link" ? [a.text, a.context, a.with] : [a.text, a.context]);
 const content = b => JSON.stringify(b.atoms.map(identity));
 // Pair whole preserved blocks first, regardless of order. Then unique source
 // anchors/names locate changed blocks; equality of those is NEVER preservation
@@ -562,7 +663,7 @@ export async function preservePageProse({ before, after, message, parse, page, p
     if (!lost.length) return { ok: true };
     const allowed = permissions(message, b, pairs, page, Array.isArray(pages) ? sitePageNames(pages) : null);
     const blocked = lost.filter(x => !allowed.has(x));
-    return blocked.length ? { ok: false, why: "unconfirmed-target", blocked: blocked.map(x => x.text).slice(0, 6) } : { ok: true };
+    return blocked.length ? { ok: false, why: "unconfirmed-target", blocked: blocked.map(x => x.shown || x.text).slice(0, 6) } : { ok: true };
   } catch {
     return { ok: false, why: "unparsed" };
   }
