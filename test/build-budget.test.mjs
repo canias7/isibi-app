@@ -655,7 +655,7 @@ test("EVERY step of the build path maps to a stage — derived from the marks, n
     .concat([...body.matchAll(/\bmark\?\.\("([^"]+)"[,)]/g)].map((m) => m[1]));
   assert.ok(names.length >= 15, `expected the build's marks to be found; got ${names.length}`);
   const unknown = [...new Set(names)].filter((n) => budgetStage([{ s: n }]) === "design" && n !== "auth"
-    && n !== "body" && n !== "links" && n !== "gate" && n !== "import"
+    && n !== "body" && n !== "links" && n !== "gate" && n !== "import" && n !== "importing"
     // The design's recovery (the ninth batch) runs before the design is in
     // hand, so "design" is its true stage.
     && n !== "design-recovery");

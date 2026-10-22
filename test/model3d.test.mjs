@@ -491,3 +491,99 @@ test("3D purchases are off unless MODEL3D_PURCHASES is exactly on", () => {
   assert.match(w, /off: String\(env\.MODEL3D_PURCHASES \|\| ""\)\.toLowerCase\(\) !== "on",/);
   assert.doesNotMatch(w, /MODEL3D_PURCHASES \|\| ""\)\.toLowerCase\(\) === "off"/);
 });
+
+// ── the shared talk (2026-10-22): the route's lines into the site's talk record ──
+
+const TALK = "0123456789abcdef0123456789abcdef";
+function talkDeps(opts) {
+  const r = routeDeps(opts);
+  const said = [];
+  r.deps.talk = async (id, text, end) => { said.push({ id, text, end }); };
+  return { ...r, said };
+}
+
+test("talk: the start and the debit it took are said under the press's own id, in the page's own wording", async () => {
+  const { deps, said, records } = talkDeps();
+  const r = await model3dStart(deps, { slug: "cafe", body: { key: "m3abcdef1234", prompt: "a walnut armchair", page: "/shop", talk: TALK } });
+  assert.equal(r.status, 200);
+  assert.deepEqual(said, [
+    { id: TALK, text: "Making your 3D model…", end: false },
+    { id: TALK, text: "Started — 150 credits reserved. This usually takes a few minutes.", end: false },
+  ]);
+  assert.equal(JSON.parse([...records.values()][0].body).talk, TALK, "the record keeps the id for the polls");
+});
+
+test("talk: queued, shaping with its minutes, saving, then the reply with its cost, which closes the talk", async () => {
+  const fal = falStub({ statuses: ["IN_QUEUE", "IN_PROGRESS", "COMPLETED"], files: FILES });
+  // fal names a queue position only while the request is in line.
+  const inner = fal.fetch;
+  fal.fetch = async (u, o) => { const r = await inner(u, o); if (!String(u).endsWith("/status")) return r; const j = await r.json(); return { ...r, json: async () => (j.status === "IN_QUEUE" ? j : { status: j.status }) }; };
+  const { deps, said } = talkDeps({ fal });
+  await model3dStart(deps, { slug: "cafe", body: { key: "m3abcdef1234", prompt: "a walnut armchair", page: "/shop", talk: TALK } });
+  said.length = 0;
+  await model3dPoll(deps, { slug: "cafe", key: "m3abcdef1234" });
+  deps.now = () => 1000 + 3 * 60000;
+  await model3dPoll(deps, { slug: "cafe", key: "m3abcdef1234" });
+  const d = await model3dPoll(deps, { slug: "cafe", key: "m3abcdef1234" });
+  assert.equal(d.body.state, "done");
+  assert.deepEqual(said.map((x) => x.text), [
+    "Waiting in line at the 3D service (3 ahead)…",
+    "Shaping and texturing the model — 3 min so far…",
+    "Saving it to your files and putting it on /shop…",
+    d.body.reply,
+  ]);
+  assert.match(said[3].text, /It cost 150 credits\./);
+  assert.deepEqual(said.map((x) => x.end), [false, false, false, true]);
+});
+
+test("talk: a failed generation says its refund and closes; a refusal at the start closes with its sentence", async () => {
+  const fal = falStub({ statuses: ["COMPLETED"], resultStatus: 422, result: { detail: "unsafe prompt" } });
+  const { deps, said } = talkDeps({ fal });
+  await model3dStart(deps, { slug: "cafe", body: { key: "m3abcdef1234", prompt: "a chair", talk: TALK } });
+  said.length = 0;
+  const f = await model3dPoll(deps, { slug: "cafe", key: "m3abcdef1234" });
+  assert.deepEqual(said, [{ id: TALK, text: f.body.reply, end: true }], "no saving line for a model that failed");
+  const short = talkDeps({ debitOk: false });
+  const r = await model3dStart(short.deps, { slug: "cafe", body: { key: "m3abcdef1234", prompt: "a chair", talk: TALK } });
+  assert.equal(r.status, 402);
+  assert.equal(short.said.at(-1).text, r.body.error);
+  assert.equal(short.said.at(-1).end, true);
+});
+
+test("talk: no id, or one not 32 hex, says nothing; a talk that throws never costs the model", async () => {
+  for (const talk of [undefined, "", "m3abcdef1234", ["0123456789abcdef0123456789abcdef"], TALK.toUpperCase()]) {
+    const { deps, said } = talkDeps();
+    const r = await model3dStart(deps, { slug: "cafe", body: { key: "m3abcdef1234", prompt: "a chair", talk } });
+    assert.equal(r.status, 200);
+    assert.equal(said.length, 0, String(talk));
+  }
+  const { deps } = routeDeps();
+  deps.talk = async () => { throw new Error("store down"); };
+  const r = await model3dStart(deps, { slug: "cafe", body: { key: "m3abcdef1234", prompt: "a chair", talk: TALK } });
+  assert.equal(r.status, 200);
+});
+
+test("talk wiring: the Worker hands the route a talk into the press's own talk record, appended, closed once", () => {
+  const w = read("worker.js");
+  const deps = w.slice(w.indexOf("function model3dDeps("), w.indexOf("async function siteUploadList("));
+  assert.ok(deps.length > 0);
+  assert.match(deps, /talk: \(id, text, end\) => model3dTalkMark\(env, \{ id, uid, slug, text, end \}\)/);
+  const mark = w.slice(w.indexOf("async function model3dTalkMark("), w.indexOf("function model3dDeps("));
+  assert.ok(mark.length > 0);
+  assert.match(mark, /SITES_BUCKET\.get\(actionTalkKey\(uid, id\)\)/, "read back, so a poll adds to the start's lines");
+  assert.match(mark, /SITES_BUCKET\.put\(actionTalkKey\(uid, id\)/);
+  assert.match(mark, /tellRoom\(env, actionRoom\(id\)/, "the room is told, so a stream is pushed");
+  assert.match(mark, /if \(rec\.done === true\) return;/);
+  assert.match(mark, /last\.text === text/);
+  assert.ok(!/writeProgress|quickSend/.test(mark), "literal lines: no model is asked");
+});
+
+test("talk on the page: the press sends its talk id and shows the server's lines when they are in", () => {
+  const c = read("public/chat.js");
+  const go = c.slice(c.indexOf("async function siteModel3dGo("), c.indexOf("// The middle rung: add a page or a table"));
+  assert.ok(go.length > 0);
+  assert.match(go, /body: JSON\.stringify\(\{ key, [^\n]*\.\.\.\(talk \? \{ talk \} : \{\}\)/, "the POST carries the talk id");
+  assert.match(go, /apiFetch\('\/api\/site\/talk\/' \+ encodeURIComponent\(talk\)\)/);
+  assert.match(go, /if \(await shared\(\)\) continue;/);
+  for (const s of ["Making your 3D model\\u2026", "Shaping and texturing the model", "Saving it to your files and putting it on ", "Waiting in line at the 3D service ("]) assert.ok(go.includes(s), s);
+});

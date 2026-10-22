@@ -481,6 +481,20 @@ export function buildStepFacts(step) {
     case "compile-retry": return [fact("doing", "The first try at putting the site together did not start; trying again.")];
     case "repairing": return n("pages") ? [fact("doing", "Fixing " + pl(n("pages"), "a page", "pages") + " the browser check found a problem on.")] : [];
     case "repaired": return n("failed") ? [fact("notdone", "The fix did not build, so the pages stay as they were before it.")] : n("pages") ? [fact("prepared", "Fixed " + pl(n("pages"), "the page", "pages") + " and put the site together again. Not published yet.")] : [];
+    // THEIR CURRENT SITE, READ FOR A REBUILD (2026-10-22, owner approved): only
+    // what the import really did — the pages it read, or that it could not read
+    // the site and the build goes on from the message alone; then the photos of
+    // theirs it really copied onto the pages.
+    case "importing": return [fact("doing", "Reading their current site…")];
+    case "import":
+      if (s.ok === true && n("pages")) return [fact("decided", "Read " + pl(n("pages"), "one page", "pages") + " from their current site, to rebuild it from. Nothing is built yet.")];
+      return [fact("notdone", "Couldn't read their current site, so the site is being built from their message alone.")];
+    case "importphotos": {
+      const out = [];
+      if (n("placed")) out.push(fact("prepared", "Using " + pl(n("placed"), "one of their photos", "of their photos") + " from their current site on the pages. Not published yet."));
+      if (n("missing")) out.push(fact("notdone", "Could not copy " + pl(n("missing"), "one photo", "photos") + " from their current site."));
+      return out;
+    }
     case "looking": return [fact("doing", "Checking how it looks…")];
     case "looked": return n("failed") ? [fact("notdone", "A fix to how it looks did not build, so the pages stay as they were before it.")] : n("pages") ? [fact("prepared", "Fixed how " + pl(n("pages"), "the page looks", "pages look") + " and put the site together again. Not published yet.")] : [fact("checked", "Looked at the pages: nothing needed fixing.")];
     case "salvaged": return n("stubbed") ? [fact("notdone", (n("stubbed") === 1 ? "One page" : n("stubbed") + " pages") + " would not build, so " + (n("stubbed") === 1 ? "it shows" : "they show") + " a simple holding page for now.")] : [];
@@ -1700,6 +1714,27 @@ export function actionFacts(kind, stage, info = {}) {
     case "delete:done": return [fact("applied", "Their site is taken down and its address no longer serves it.")];
     case "delete:failed": return [fact("notdone", "The site could not be taken down" + (err ? ": " + err : "") + ".")];
     default: return [];
+  }
+}
+/**
+ * A 3D MODEL'S LINES (2026-10-22, owner approved): the very wording the page
+ * already showed, now kept in the site's talk record so every page reading it
+ * shows the same lines. Each from what the route really saw: the debit it
+ * took, fal's queue position, the minutes since it started, the finish it
+ * claimed, and the reply it wrote. Literal, never sent to a model.
+ */
+export function model3dTalkLine(stage, info = {}) {
+  const i = info && typeof info === "object" ? info : {};
+  const k = (v) => (Number.isFinite(v) && v > 0 ? Math.floor(v) : 0);
+  const page = typeof i.page === "string" && i.page && i.page !== "/" ? i.page : "the home page";
+  switch (stage) {
+    case "start": return "Making your 3D model\u2026";
+    case "started": return k(i.cost) ? "Started \u2014 " + k(i.cost) + " credits reserved. This usually takes a few minutes." : "";
+    case "queued": return k(i.position) ? "Waiting in line at the 3D service (" + k(i.position) + " ahead)\u2026" : "";
+    case "shaping": return "Shaping and texturing the model" + (k(i.mins) ? " \u2014 " + k(i.mins) + " min so far" : "") + "\u2026";
+    case "finishing": return "Saving it to your files and putting it on " + page + "\u2026";
+    case "end": return typeof i.text === "string" ? flat(i.text).slice(0, 600) : "";
+    default: return "";
   }
 }
 /** The context an action's writer is given: what the work is, and what it already said. */
