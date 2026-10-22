@@ -16936,28 +16936,79 @@ async function siteFiles(site) {
   list();
 }
 
-// Emails — your site sends email through YOUR OWN provider. This is a setup guide;
-// the actual sending is wired by the builder as an edge-function step.
+// Emails — your site sends email through YOUR OWN provider (audit A12-4,
+// 2026-10-22). A checklist like Payments, read from the site's Secrets
+// listing: NAMES ONLY, never a value. The names are exactly what the senders
+// read (`MAIL_PROVIDERS` in site-mail.mjs, plus EMAIL_FROM): every site sender
+// refuses without EMAIL_FROM, and a key under any other name is never read.
+// It promises only what the platform does: the owner's alert for each new
+// form entry, the confirmation or receipt the builder declares on a form, and
+// scheduled emails. No edge functions, no signup mail.
+const MAIL_KEY_NAMES = ['RESEND_KEY', 'SENDGRID_KEY', 'POSTMARK_KEY'];
+const MAIL_KEY_LABEL = { RESEND_KEY: 'Resend', SENDGRID_KEY: 'SendGrid', POSTMARK_KEY: 'Postmark' };
 function siteEmails(site) {
   const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
-  if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then you can wire up email.'); return; }
+  if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then you can set up email.'); return; }
   let box = document.getElementById('siteEmailModal');
   if (box) box.remove();
   box = document.createElement('div');
   box.id = 'siteEmailModal';
   box.className = 'si-modal';
   box.innerHTML = '<div class="si-card"><div class="si-head"><b>Emails</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body">' +
-    '<p class="sp-intro">Your site sends email through <b>your own</b> email provider — welcome emails, “new form entry” alerts, order receipts. Two quick steps:</p>' +
-    '<div class="em-steps">' +
-      '<div class="em-step"><span class="em-n">1</span><div><b>Add your provider key in Secrets</b><span>Use Resend, SendGrid, or Postmark. Verify your sending domain there, then paste that provider’s API key into <b>Cloud → Secrets</b> (name it e.g. <code>RESEND_KEY</code>).</span></div></div>' +
-      '<div class="em-step"><span class="em-n">2</span><div><b>Ask the builder</b><span>Say what you want — “email me when someone submits the contact form”, “send a welcome email on signup”. It wires the send as an edge function using your key.</span></div></div>' +
-    '</div>' +
-    '<p class="sp-intro" style="margin-top:1rem">Your key stays encrypted and never touches the page — it’s used server-side only, exactly like payments.</p>' +
+    '<p class="sp-intro">Your site sends email through <b>your own</b> email provider, from your own address. Go Farther never sends a site’s email for it.</p>' +
+    '<div id="emailState">Checking…</div>' +
   '</div></div>';
   document.body.appendChild(box);
   const close = () => box.remove();
   box.querySelector('.si-x').onclick = close;
   box.addEventListener('click', (e) => { if (e.target === box) close(); });
+  const host = box.querySelector('#emailState');
+
+  const step = (n, done, title, body) =>
+    '<div class="em-step' + (done ? ' em-done' : '') + '"><span class="em-n">' + (done ? '&#10003;' : n) + '</span><div><b>' + title + '</b><span>' + body + '</span></div></div>';
+
+  (async () => {
+    let names = [], failed = false;
+    try {
+      const sr = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/secrets');
+      const sd = await sr.json().catch(() => ({}));
+      if (!sr.ok) failed = true;
+      names = (Array.isArray(sd.secrets) ? sd.secrets : []).map((x) => x && String(x.name || '')).filter(Boolean);
+    } catch (e) { failed = true; }
+    // "No keys yet" and "we could not look" are different things to tell an
+    // owner, so a failed read says so rather than drawing an empty checklist.
+    if (failed) { host.innerHTML = '<div class="si-empty">Couldn’t check your email setup just now — try again.</div>'; return; }
+
+    const has = (n) => names.includes(n);
+    const keys = MAIL_KEY_NAMES.filter(has);
+    const from = has('EMAIL_FROM');
+    const used = keys[0] || null;
+    const keyLine = used
+      ? 'Added — <b>' + MAIL_KEY_LABEL[used] + '</b> (<code>' + used + '</code>).' +
+        (keys.length > 1 ? ' More than one is set; <code>' + used + '</code> is the one used.' : '')
+      : 'Make an account with Resend, SendGrid or Postmark, copy its API key, and add it in <b>Cloud → Secrets</b> named exactly ' +
+        '<code>RESEND_KEY</code>, <code>SENDGRID_KEY</code> or <code>POSTMARK_KEY</code>. A key under any other name is not read.';
+    const fromLine = from
+      ? 'Added.'
+      : 'The address your site sends from, such as <code>hello@yourshop.com</code>, on a domain you have verified with that provider. ' +
+        'Add it in Secrets as <code>EMAIL_FROM</code>. Without it nothing is sent, even with the key in place.';
+
+    host.innerHTML =
+      (used && !from
+        ? '<div class="pay-warn">Nothing is being sent yet: <code>EMAIL_FROM</code> is missing. Add the address your site sends from (step 2).</div>'
+        : '') +
+      (used && from
+        ? '<div class="pay-ok">Ready — your site sends email through ' + MAIL_KEY_LABEL[used] + '.</div>'
+        : '') +
+      '<div class="em-steps">' +
+        step(1, !!used, 'Your email provider’s key', keyLine) +
+        step(2, from, 'The address you send from', fromLine) +
+        step(3, false, 'Ask the builder for the emails you want',
+          '“Email customers a confirmation when they book”, “send tomorrow’s customers a reminder each evening”. ' +
+          'Once steps 1 and 2 are done you are emailed about each new form entry, and a confirmation the builder adds goes out when someone submits (for a shop, when the order is paid).') +
+      '</div>' +
+      '<p class="sp-intro" style="margin-top:1rem">Your key is encrypted and only ever used on our server — it is never sent to the page, and never shown back to you.</p>';
+  })();
 }
 
 // Payments — sell through the owner's OWN Stripe. Setup guide (the checkout +

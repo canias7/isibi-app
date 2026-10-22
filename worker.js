@@ -3268,7 +3268,10 @@ export function jobDeps(env, row) {
         const picked = pickProvider(secrets);
         // Bring-your-own: no key and no from address means no send, quietly.
         // Our own sender is never substituted — see site-mail.mjs.
-        if (!picked || !secrets.EMAIL_FROM) return null;
+        if (!picked) return null;
+        // A key without its from address is named as such (audit A12-4), so the
+        // job's outcome tells the owner which half to add.
+        if (!String(secrets.EMAIL_FROM || "").trim()) return { missing: "EMAIL_FROM" };
         return { provider: picked.provider, key: picked.key, from: secrets.EMAIL_FROM };
       },
       send: ({ provider, key, from, to, subject, html }) => postProviderEmail(provider, key, from, to, subject, html),
