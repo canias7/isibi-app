@@ -1,5 +1,11 @@
 # Owner Notes
 
+## 2026-10-22 — Audit QR findings A31-2 and A31-3: both real, both fixed (not merged, not deployed)
+
+- **Letters outside Western European (A31-2)**: a QR code with Polish, Greek, Chinese or emoji text, a curly apostrophe or a euro sign was drawn garbled. A wifi code for "Kawiarnia Łąka" was drawn as a code for a different network name, and our own check said it was fine. Codes are now drawn from the text's proper UTF-8 form, and the check builds its own copy separately, so a garbled code no longer passes. Plain web addresses draw exactly as before.
+- **A rebuild dropping QR codes (A31-3)**: when a message went to the full rebuild and changed one code (say the wifi password), every other code on the site was deleted. The designer was told to name only the code it changes. Now the codes it names are changed in place, and every other code is kept.
+- Branch `audit-55-56` (commits `19250f5c4`, `729d56b08`, and records). Red tests failed on the old code; sweep 10 of 10. The next deploy rebuilds the container image. Record: `docs/history/2026-10-22-audit-55-56.md`. Nothing spent.
+
 ## 2026-10-22 — Ideas #10 and #14, combined with the day's work (not deployed)
 
 - #10, the visual review: after a first build's render check, the build's own

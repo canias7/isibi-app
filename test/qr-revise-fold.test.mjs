@@ -43,6 +43,8 @@ test("A31-3: an omitted, empty or unusable qr keeps the stored list", () => {
   for (const qr of [undefined, [], [{ name: "x" }], "nonsense"]) {
     const out = revise(stored, { qr });
     assert.deepEqual(out.qr, [RING, WIFI], JSON.stringify(qr));
+    // Returned as it came, so the merge's own absent-field rules decide.
+    assert.equal(foldQr(stored.qr, qr), qr);
   }
 });
 
