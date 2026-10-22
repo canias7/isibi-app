@@ -1,5 +1,19 @@
 # Owner Notes
 
+## 2026-10-22 — Two menu fixes from the builder audit (A27-1, A27-2)
+
+- **Menu edits no longer delete links.** Before, any menu change (moving or
+  renaming an item) quietly removed every "Call us" phone link, email link,
+  uploaded file (like a PDF menu) and in-page "#section" link from every
+  page. Now anything already in the menu stays exactly as it was unless the
+  customer asks to remove or change it. Asking to remove one still works.
+- **Home pages built in bands work with the menu step.** The home page's
+  button is now read properly (its words and where it goes), so changing its
+  words keeps its link. When a page is added later, the home page's header
+  now gets the site's menu too, instead of being the one page left out.
+- Offline only: nothing spent, nothing deployed, not merged. Record:
+  `docs/history/2026-10-22-audit-43-44.md`.
+
 ## 2026-10-21 — Phase D, Android: the real app downloads as an APK (you: "can u do it like in our platform how a customer will do it")
 
 - The app builder can now build a real Expo app into an Android app (`/expo-android`): the same typecheck, then Expo writes the native project and Gradle builds it offline against libraries the image warms once.
