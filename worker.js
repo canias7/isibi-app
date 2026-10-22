@@ -44537,6 +44537,24 @@ async function handleRequest(request, env, ctx) {
             let aStored = false;
             // A JOB THAT LOST THE SITE'S TURN STORES NO LOOK (2026-10-15): it
             // would be written over the config of the job that took it.
+            // AN ADDITION CLEARED WITHOUT THE TURN TAKES IT HERE (2026-10-22,
+            // audit A04-5): its targets named a page or a component, so it did
+            // not hold the turn from its start, yet a QR code or a 3D scene is
+            // stored in the look. It waits for the turn as a holder would, puts
+            // the config level with the live site, and keeps it through its
+            // publish (`holds`) — never refused `turn-lost` for a turn it was
+            // never given.
+            if (aLookPatch && aJob && aJob.beside && !aJob.beside.turn && !aJob.beside.lost && writesBeside(env) && env.SITES_BUCKET) {
+              if (await takeTurn(env, ownerSlug, aJob)) {
+                aJob.beside.holds = true;
+                const st = await ensureEditableState(env, ownerSlug, { turnOwner: aJob.beside.turn.owner, fence: jobFence(env, aJob) });
+                if (st && st.why === "turn-lost") loseTurn(aJob, ownerSlug, "found at the editable-state check");
+                else if (!st || st.ok !== true) return aFail({ ok: false, error: "read", ours: true, cost: 0, msg: aProvisioned ? "That addition wasn't published — I couldn't check the site's saved state before storing its look. Its database was made, so it will be ready when you ask again." : "That addition wasn't published — I couldn't check the site's saved state before storing its look. Nothing was changed." }, 503);
+              } else if (!aJob.beside.lost) {
+                const stop = turnStop(aJob.beside);
+                return aFail({ ok: false, error: aJob.beside.refused ? "turn-refused" : stop ? stop.error : "turn", ours: true, cost: 0, msg: "That addition wasn't published — another change in this request was still publishing, and this one couldn't get its turn to store its look. Send it again." }, 503);
+              }
+            }
             if (aLookPatch && !(await turnStillMine(env, ownerSlug, aJob))) {
               return aFail({ ok: false, error: "turn-lost", ours: true, cost: 0, msg: "That addition wasn't published — another change in the same request took its turn to publish. Send it again." }, 503);
             }
