@@ -236,7 +236,10 @@ const GATE = /authUser\(|UNAUTHED\(|bearerUser\(/;
 function calleeGates(block) {
   for (const m of block.matchAll(/(?<![\w$.])([a-z][\w$]*)\s*\(/g)) {
     const name = m[1];
-    if (!/^(?:run|handle|do)[A-Z]/.test(name)) continue; // handler-shaped names only
+    // Handler-shaped names only, plus a gate helper named for its refusal
+    // (`operatorRefusal`, A16-7, 2026-10-23): it must still gate itself within
+    // the same window, so the name only lets it be looked at.
+    if (!/^(?:run|handle|do)[A-Z]|^[a-z]\w*Refusal$/.test(name)) continue;
     const at = SRC.indexOf(`async function ${name}(`);
     if (at < 0) continue;                                 // not ours, or not a function
     const line = SRC.slice(0, at).split("\n").length - 1;

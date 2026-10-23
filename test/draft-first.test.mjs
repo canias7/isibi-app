@@ -1311,7 +1311,7 @@ test("DFB11 EVERY BACKEND WRITE A TASK MAKES GOES THROUGH ITS WRITER — in work
   const rn = src.indexOf('if (eLayer === "rename") {');
   assert.ok(rn > 0 && src.indexOf("if (nWriter.holding) {", rn) < src.indexOf("const badOld = await putAlias(rows.demote);", rn), "the address is written before the hold is asked");
   assert.match(src, /held: bWriter\.hold && !bWriter\.hold\.empty \? bWriter\.hold : null,/);
-  assert.match(src, /attachmentIds = null, media = null, held = null \}\) \{/);
+  assert.match(src, /attachmentIds = null, media = null, held = null, stopCheck = null \}\) \{/);
 });
 
 // ── AUDIT A11-1 / A38-1 (2026-10-18): Back online never activates the draft ──

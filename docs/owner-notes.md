@@ -2,6 +2,10 @@
 
 
 
+## 2026-10-23 — The five decided fixes combined on one branch (not merged, not deployed)
+
+The five fixes you decided (probe routes for operators only, the read-widening question, stopping a build mid-way for free, replaying a routed answer free, and the 5-credit floor at filing) are merged together on `decide-combined`, with no conflicts. One test guard was taught to read the new operator check. A review of how the five meet found no defect. The probe and canary presses need the `OPERATOR_UIDS` secret set first. Record: `docs/history/2026-10-23-decide-combine.md`.
+
 ## 2026-10-23 — Audit findings 201–264 fixed and deployed (round 2, end of the list)
 
 Round 2 of your scheduled task. Six helpers re-checked findings 201–264 against the code as round 1 left it and fixed the real ones, each with a test that fails on the old code. A fresh reviewer double-checked the combined work and found three small things, all fixed; one conflict between two helpers was settled by keeping the more complete fix. You were sent before/after screenshots of the high-contrast fix. Full suite green (12,155 tests), GitHub's checks green, merged and deployed as deploy 2263. That finishes the audit list: every finding is fixed, confirmed already fixed, parked by you, or waiting on your decision (the records `docs/history/2026-10-23-r1-*.md` and `r2-*.md` list each with options).
