@@ -1729,6 +1729,10 @@ missing site gets. The practical answer is unchanged — a session holding NO
 Supabase token reads neither — but *"owner-gated"* was wrong about the first
 and names the wrong person to go and ask.
 
+## Deploy 2262 — 2026-10-23 12:02 UTC (`838cf7364`)
+
+Round 1 of the owner's scheduled audit work (findings 103–200), merged on the owner's advance word. Seven fix branches (r1-g1 … r1-g7) combined as `r1-combine`, then an independent review that found five defects (one high: a visitor's `{{SECRET}}` text rescanned into the owner's secret by the new json/header parameter escapes) and fourteen combine clashes, all fixed (`docs/history/2026-10-23-r1-combine.md`). Full suite `12110 / 12106 / 1 / 3` (the one is the local node_modules link). Unit CI 39947841535 and site build 39947841351 green on `838cf73`. Deploy run 39950315124 green (12:02–12:05 UTC); the image rolls. **Deployed, not runtime-confirmed.** (Deploy 2261, `cab34c133`, was runtime-confirmed by canary run 39850507671, image `3fb084db9b82baf4`.)
+
 ## Deploy 2195 — image purchases off for the K/E/M batch (2026-10-12)
 
 - Run 38290702117 (`workflow_dispatch`, 18:24–18:25 UTC), your manual
