@@ -174,17 +174,30 @@ const ESCAPE = {
   json: (s) => JSON.stringify(s).slice(1, -1),
   header: (s) => s.replace(/[\r\n]/g, ""),
 };
+// ONE PASS over the template (review of r1-combine, 2026-10-23): parameters
+// and secrets are both found in the owner's template and replaced together, so
+// a value a visitor typed is never rescanned. Two passes, parameters first,
+// handed a visitor's `{{API_KEY}}` to the secret pass once the json and header
+// escapes stopped encoding braces.
+const PARAM_ONE = new RegExp(`^${PARAM_RE.source}$`, "i");
+const SECRET_ONE = new RegExp(`^${SECRET_RE.source}$`);
 export function fill(text, { secrets, params, escape = "url" }) {
   let missing = null;
   const esc = Object.hasOwn(ESCAPE, escape) ? ESCAPE[escape] : ESCAPE.url;
-  let out = String(text || "").replace(PARAM_RE, (_, p) => {
-    const v = params && Object.prototype.hasOwnProperty.call(params, p.toLowerCase()) ? params[p.toLowerCase()] : "";
-    return esc(String(v == null ? "" : v));
-  });
-  out = out.replace(SECRET_RE, (whole, name) => {
-    const v = secrets && secrets[name];
-    if (typeof v !== "string" || !v) { missing = missing || name; return whole; }
-    return v;
+  const out = String(text || "").replace(/\{\{[^{}]*\}\}/g, (whole) => {
+    const pm = PARAM_ONE.exec(whole);
+    if (pm) {
+      const p = pm[1].toLowerCase();
+      const v = params && Object.prototype.hasOwnProperty.call(params, p) ? params[p] : "";
+      return esc(String(v == null ? "" : v));
+    }
+    const sm = SECRET_ONE.exec(whole);
+    if (sm) {
+      const v = secrets && secrets[sm[1]];
+      if (typeof v !== "string" || !v) { missing = missing || sm[1]; return whole; }
+      return v;
+    }
+    return whole;
   });
   return { text: out, missing };
 }
