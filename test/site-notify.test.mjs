@@ -69,7 +69,7 @@ test("the cooldown decides, and it is the DATABASE that decides it", async () =>
 test("the email says how many were missed while it was quiet", async () => {
   const { deps, sent } = harness({ claim: async () => ({ ok: true, owner_uid: "u", missed: 7 }) });
   await fire(deps);
-  assert.match(sent[0].html, /7 more since/);
+  assert.match(sent[0].html, /You missed 7 notifications since/);
 });
 
 test("nothing is claimed for something that was never going to be sent", async () => {

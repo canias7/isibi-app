@@ -36,6 +36,7 @@ import { createRequire } from "node:module";
 import vm from "node:vm";
 import { addonFailure } from "../builder/site-addon.mjs";
 import { ASK_FNS, ASK_LINES } from "./fixtures/browser-ask.mjs";
+import { BUSY_SLOTS } from "./fixtures/busy-slots.mjs";
 
 const require = createRequire(import.meta.url);
 const P = require("../public/edit-poll.js");
@@ -77,6 +78,7 @@ const SRC = [
   cut("function siteSend("),
   cut("function siteBuildStart("),
   cutLine("function siteBuildStop("),
+  BUSY_SLOTS, // the per-project busy state (#138)
   cutLine("const editInFlight ="), cutLine("const editIdem ="), cutLine("const editBlocked ="), cutLine("const editWatched ="),
   cut("function editAsk("),
   cut("function editAskDone("),
@@ -167,7 +169,7 @@ function page(answers) {
     siteActivePage: () => null,
     paintAttachStrip: () => {},
     buildPicker: "grok",
-    siteBusy: false, siteBuild: null, siteTicker: null, siteOpenId: "origin-1",
+    siteBusy: false, siteBusyFor: null, siteBuild: null, siteTicker: null, siteOpenId: "origin-1",
     renderSites: () => {}, paintReactLive: () => {},
     siteAbort: null, siteErr: null,
   });

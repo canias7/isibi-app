@@ -2895,6 +2895,7 @@ test("a project switch forgets the folds, and re-opening the same one keeps them
     "let siteCodeFolds = deps.folds;",
     "const history = deps.history; const location = deps.location;",
     "const renderSites = () => {};",
+    "const siteSlotSwap = () => {};", // the per-project busy swap (#138), not under test here
     fn("function openProject("),
     "openProject(deps.to, 'none');",
     "return { siteOpenId, siteCodeFolds };",

@@ -27,6 +27,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { createRequire } from "node:module";
+import { BUSY_SLOTS } from "./fixtures/busy-slots.mjs";
 import { buildBucket, BUILD_USER, GOOD_DESIGN } from "./fixtures/build-route.mjs";
 import { ledger, fireInterim, finishResume } from "./fixtures/build-lifecycle.mjs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
@@ -1041,6 +1042,7 @@ const SRC = [
   cutLine("const siteBuildsOwed ="), cutLine("const siteBuildsShown ="),
   cut("function siteFoundAnswer("), cut("function siteBuildFinish("), cut("function siteBuildOwed("),
   cut("function siteBuildTake("), cutLine("const SITE_BUILDS_WAIT_MS ="), cut("function siteBuildsDrain("), cut("function siteBuildsRetry("), cut("function siteBuildsCheck("),
+  BUSY_SLOTS, // the per-project busy state (#138)
   cut("function siteFinishBuild("),
   cut("function buildToldLines("), cut("function settlementLine("), cut("function buildFactLines("), cut("function buildFailureView("),
   cut("function failureCostLine("), cutLine("const siteTablesOrder ="), cut("function siteTablesAdd("), cut("function siteTablesRead("),
@@ -1080,7 +1082,7 @@ async function browserPage({ sites = [], answer, renders = 1, busy = false, cloc
     siteReplyMsg: (t) => ({ r: "a", t }),
     setBuildPhase: () => {}, setBuildCode: () => {}, setBuildProgress: (origin, lines) => told.push({ origin, progress: lines.map((l) => l.text) }), buildWhy: () => "",
     siteBuildStart: () => {}, siteBuildStop: () => {}, paintReactLive: () => {}, designQuestion: () => false,
-    buildPicker: "sonnet", siteBuild: null, siteAbort: null, siteErr: null, siteBusy: busy, siteOpenId: null,
+    buildPicker: "sonnet", siteBuild: null, siteAbort: null, siteErr: null, siteBusy: busy, siteBusyFor: null, siteOpenId: null,
     ...stubs,
   });
   vm.runInContext(SRC, ctx);
@@ -1194,7 +1196,7 @@ function secondBuild(w) {
   return { job2, chat2, entry: { ...b0, job: job2, chat: chat2, words: "A florist called Petal Row." }, pending: { ...w.pending, job: job2 } };
 }
 
-test("RB 6 — TWO RUNNING BUILDS IN TWO CHATS, THREE RENDERS (Codex's case): both are followed to their ends, one after the other — each chat restored with its answer, each job polled, nothing posted, and the page free at the end", async () => {
+test("RB 6 — TWO RUNNING BUILDS IN TWO CHATS, THREE RENDERS (Codex's case): both are followed to their ends, side by side (#138) — each chat restored with its answer, each job polled, nothing posted, and the page free at the end", async () => {
   const w = await workerBodies();
   const { job2, chat2, entry, pending } = secondBuild(w);
   const listing = { builds: [entry, w.running.builds[0]] };
@@ -1213,12 +1215,13 @@ test("RB 6 — TWO RUNNING BUILDS IN TWO CHATS, THREE RENDERS (Codex's case): bo
   assert.ok(!p.reqs.some((r) => r.startsWith("POST")), JSON.stringify(p.reqs));
   assert.equal(p.reqs.filter((r) => r === "GET /api/site/builds").length, 1, "the listing was read more than once");
   assert.ok(polls[w.job] >= 2 && polls[job2] >= 2, "a running build was skipped for good: " + JSON.stringify(polls));
-  // ONE AT A TIME: the page's busy state is held by the build it follows, so
-  // the second build's polls all come after the first build's last.
+  // SIDE BY SIDE (audit A15-6 / #138, the owner's choice 2026-10-23): each
+  // project's build holds only its own busy state, so the second build is
+  // followed beside the first instead of waiting for it to end.
   const order = p.reqs.filter((r) => r.startsWith("GET /api/site/build/")).map((r) => r.slice("GET /api/site/build/".length));
   const firstJob = order[0];
   const lastOfFirst = order.lastIndexOf(firstJob);
-  assert.ok(order.slice(0, lastOfFirst + 1).every((j) => j === firstJob), "the two found builds were followed at once: " + JSON.stringify(order));
+  assert.ok(order.slice(0, lastOfFirst + 1).some((j) => j !== firstJob), "the second found build waited for the first: " + JSON.stringify(order));
   const one = p.store.find((s) => s.id === CHAT);
   const two = p.store.find((s) => s.id === chat2);
   assert.ok(two, "the second chat was never restored");
@@ -1229,7 +1232,7 @@ test("RB 6 — TWO RUNNING BUILDS IN TWO CHATS, THREE RENDERS (Codex's case): bo
   assert.equal(p.busy, false);
 });
 
-test("RB 7 — DISCOVERY WHILE ANOTHER OPERATION IS BUSY: the listing is read, but nothing is taken up and the other operation's busy state is never cleared; once it is free, every owed build — ended and running — is taken up, each once", async () => {
+test("RB 7 — DISCOVERY WHILE ANOTHER PROJECT IS BUSY (#138): the listing is read and every owed build in another chat — ended and running — is taken up at once, each once, and the busy project's own state is never cleared", async () => {
   const w = await workerBodies();
   const { job2, chat2, entry, pending } = secondBuild(w);
   const ended = { ...w.done.builds[0], job: "1234567890abcdef1234567890abcdef", chat: "site_1791640000555_klmno", words: "A tea room." };
@@ -1252,7 +1255,8 @@ test("RB 7 — DISCOVERY WHILE ANOTHER OPERATION IS BUSY: the listing is read, b
       }
     },
   });
-  assert.deepEqual(seenWhileBusy, { busy: true, sites: 0, polled: 0 }, "discovery acted, or cleared another operation's busy state, while it was busy");
+  assert.equal(seenWhileBusy.busy, true, "discovery cleared another project's busy state");
+  assert.equal(seenWhileBusy.sites, 2, "an owed build in another chat waited for an unrelated busy project");
   assert.ok(!p.reqs.some((r) => r.startsWith("POST")));
   assert.equal(p.reqs.filter((r) => r === "GET /api/site/builds").length, 1);
   const a = p.store.find((s) => s.id === ended.chat);

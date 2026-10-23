@@ -127,9 +127,12 @@ function withWire(answers, run, { owned = true, usage = null, billed = null } = 
       if (!Object.hasOwn(answers, tool)) {
         return new Response("no stub for tool " + tool, { status: 503 });
       }
+      // A FUNCTION ANSWERS EACH CALL IN TURN (2026-10-23, #196): its argument
+      // is how many calls to that tool came before.
+      const given = typeof answers[tool] === "function" ? answers[tool](calls.filter((c) => c.tool === tool).length - 1) : answers[tool];
       return new Response(JSON.stringify({
         stop_reason: "tool_use",
-        content: [{ type: "tool_use", name: tool, input: answers[tool] }],
+        content: [{ type: "tool_use", name: tool, input: given }],
         // SIZED BY THE TEST WHEN IT CARES. The default is deliberately tiny;
         // `pageCredits` has a floor of 1, so at this size one call and two
         // round to the same credit and a bill missing a whole call is
@@ -150,12 +153,12 @@ function withWire(answers, run, { owned = true, usage = null, billed = null } = 
   })();
 }
 
-async function edit(slug, instruction, { store = null, layer = "look" } = {}) {
+async function edit(slug, instruction, { store = null, layer = "look", page = "" } = {}) {
   const worker = await loadWorker();
   const req = new Request("https://gofarther.dev/api/site/" + slug + "/edit", {
     method: "POST",
     headers: { "content-type": "application/json", Authorization: TOKEN },
-    body: JSON.stringify({ layer, page: "", remove: false, rename: "", tab: false, instruction, picker: "sonnet" }),
+    body: JSON.stringify({ layer, page, remove: false, rename: "", tab: false, instruction, picker: "sonnet" }),
   });
   const res = await worker.fetch(req, { SITES_BUCKET: store || bucket(slug), ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key", ...dispatchEnv() }, makeCtx());
   return { status: res.status, body: await res.json().catch(() => null) };
@@ -1187,6 +1190,7 @@ for (const [name, answer] of [
   });
 }
 
+
 // ── AUDIT #195 / A32-2 (2026-10-23, the owner's choice): a translation too big
 // for one answer goes in batches; a round refused for its size is charged
 // nothing and remembered, and is not asked again until its words change.
@@ -1319,5 +1323,124 @@ test("audit #195: a translation round cut off at its limit is never charged", as
     assert.equal(paid.asked, 1); assert.equal(cut.asked, 1);
     const sum = (l) => l.reduce((a, x) => a + x, 0);
     assert.ok(sum(paid.billed) > sum(cut.billed), "a usable round and a cut-off one cost the same, so this proves nothing: " + JSON.stringify([paid.billed, cut.billed]));
+  } finally { c.uninstall(); }
+});
+
+// ── #196 (audit A32-3), the owner's choice 2026-10-23: TRANSLATED PAGES ARE
+// EDITABLE. An edit aimed at /es/... is stored as that language's own override,
+// keyed by the English it came from, and laid over the cache on every publish;
+// when that English changes the override is kept, flagged and said.
+const ES = (s) => "ES " + s;
+function bilingual(slug, extra = {}) {
+  const b = bucket(slug);
+  const { strings } = collectStrings(BILINGUAL_PAGES);
+  b.store.set("source/" + slug + "/pages.json", JSON.stringify(BILINGUAL_PAGES));
+  b.store.set(CONFIG_KEY(slug), JSON.stringify({
+    look: { ...STORED_LOOK, langs: ["es"] }, css: STORED_CSS,
+    langStrings: { es: Object.fromEntries(strings.map((x) => [x, ES(x)])) }, ...extra,
+  }));
+  return { b, strings };
+}
+const lastConfig = (b, slug) => JSON.parse((b.writes.filter(([k]) => k === CONFIG_KEY(slug)).pop() || [null, "{}"])[1]);
+const compiledEs = (c) => {
+  const files = (c.calls.filter((x) => x.body && x.body.files).pop() || { body: { files: {} } }).body.files || {};
+  return Object.entries(files).filter(([k]) => /(^|\/)es\//.test(k)).map(([, v]) => String(v)).join("\n");
+};
+
+test("#196: an edit aimed at /es is stored as the Spanish override, keyed by the English it came from, and published", async () => {
+  const c = installCompiler();
+  const slug = "lang-own-1";
+  const { b, strings } = bilingual(slug);
+  try {
+    await withWire({ write_text_edits: { edits: [{ id: 0, to: "Pan recien hecho" }] } }, async (calls) => {
+      const { body } = await edit(slug, "On the Spanish home page change the heading to Pan recien hecho", { store: b, layer: "text", page: "/es" });
+      assert.equal(body && body.ok, true, JSON.stringify(body));
+      assert.deepEqual(toolsOf(calls), ["write_text_edits"], "a translation was bought, or the text step never ran");
+      // THE MODEL WAS SHOWN THE SPANISH, NOT THE ENGLISH.
+      assert.match(JSON.stringify(calls[0].body), /ES Fresh bread every morning/);
+      const ov = lastConfig(b, slug).langOverrides;
+      assert.deepEqual(Object.keys(ov.es), [strings[0]], "the override is not keyed by its English source");
+      assert.equal(ov.es[strings[0]].said, "Pan recien hecho");
+      assert.equal(ov.es[strings[0]].was, ES(strings[0]));
+      assert.equal(body.langOverride.tag, "es");
+      assert.match(compiledEs(c), /Pan recien hecho/, "the Spanish page was not published with the owner's wording");
+      const pages = JSON.parse(b.store.get("source/" + slug + "/pages.json"));
+      assert.match(pages[0].source, /Fresh bread every morning/, "the English page was changed");
+      assert.match(String(body.renderNote || ""), /kept as your own es wording/);
+    });
+  } finally { c.uninstall(); }
+});
+
+test("#196: the override survives re-translation — a cache started over is translated again, and the owner's wording still wins", async () => {
+  const c = installCompiler();
+  const slug = "lang-own-2";
+  const { strings } = collectStrings(BILINGUAL_PAGES);
+  const { b } = bilingual(slug, {
+    // A cache that was never translated is started over by the spine (`untranslated`).
+    langStrings: { es: Object.fromEntries(strings.map((x) => [x, x])) },
+    langOverrides: { es: { [strings[0]]: { said: "Pan recien hecho", was: ES(strings[0]), at: 1 } } },
+  });
+  try {
+    await withWire({
+      pick_lanes: { fields: ["css"] }, edit_site: { css: "footer{color:#fff}" },
+      [TRANSLATE_TOOL.name]: { strings: strings.map(ES) },
+    }, async (calls) => {
+      const { body } = await edit(slug, "make the footer white", { store: b });
+      assert.equal(body && body.ok, true, JSON.stringify(body));
+      assert.ok(toolsOf(calls).includes(TRANSLATE_TOOL.name), "nothing was re-translated, so this proves nothing");
+      const es = compiledEs(c);
+      assert.match(es, /Pan recien hecho/, "the re-translation undid the owner's wording");
+      assert.doesNotMatch(es, /ES Fresh bread every morning/);
+      assert.match(es, /ES Baked before six/, "the rest of the page was not translated");
+      const cfg = lastConfig(b, slug);
+      assert.equal(cfg.langStrings.es[strings[0]], ES(strings[0]), "the override was written into the cache");
+    });
+  } finally { c.uninstall(); }
+});
+
+test("#196: when the English an override came from changes, the override is kept, flagged stale, and the owner is told", async () => {
+  const c = installCompiler();
+  const slug = "lang-own-3";
+  const { b } = bilingual(slug, {
+    langOverrides: { es: { "Fresh loaves daily": { said: "Pan recien hecho", was: "ES Fresh loaves daily", at: 1 } } },
+  });
+  try {
+    await withWire({ pick_lanes: { fields: ["css"] }, edit_site: { css: "footer{color:#fff}" } }, async () => {
+      const { body } = await edit(slug, "make the footer white", { store: b });
+      assert.equal(body && body.ok, true, JSON.stringify(body));
+      const cfg = lastConfig(b, slug);
+      assert.equal(cfg.langOverrides.es["Fresh loaves daily"].said, "Pan recien hecho", "a stale override was dropped");
+      assert.equal(cfg.langOverrides.es["Fresh loaves daily"].stale, true, "a stale override is not flagged");
+      assert.match(String(body.renderNote || ""), /Your own es wording for .Fresh loaves daily. was kept, but the original wording it was made from has changed/);
+      assert.doesNotMatch(compiledEs(c), /Pan recien hecho/, "a stale override was applied to wording it was not made from");
+    });
+  } finally { c.uninstall(); }
+});
+
+test("#196: Spanish wording quoted with no page named is found in the Spanish pages after the English matched nothing", async () => {
+  const c = installCompiler();
+  const slug = "lang-own-4";
+  const { b, strings } = bilingual(slug);
+  try {
+    await withWire({ write_text_edits: (n) => (n === 0 ? { edits: [] } : { edits: [{ id: 1, to: "Horneado antes de las seis" }] }) }, async (calls) => {
+      const { body } = await edit(slug, "change 'ES Baked before six, gone by ten.' to Horneado antes de las seis", { store: b, layer: "text" });
+      assert.equal(body && body.ok, true, JSON.stringify(body));
+      assert.equal(toolsOf(calls).length, 2);
+      assert.equal(lastConfig(b, slug).langOverrides.es[strings[1]].said, "Horneado antes de las seis");
+    });
+  } finally { c.uninstall(); }
+});
+
+test("#196 CONTROL: an English wording edit on a bilingual site changes the English page and stores no override", async () => {
+  const c = installCompiler();
+  const slug = "lang-own-5";
+  const { b } = bilingual(slug);
+  try {
+    await withWire({ write_text_edits: { edits: [{ id: 0, to: "Fresh bread all day" }] }, [TRANSLATE_TOOL.name]: { strings: ["ES Fresh bread all day"] } }, async () => {
+      const { body } = await edit(slug, "change the heading to Fresh bread all day", { store: b, layer: "text" });
+      assert.equal(body && body.ok, true, JSON.stringify(body));
+      assert.ok(!lastConfig(b, slug).langOverrides, "an English edit stored a translated override");
+      assert.equal(body.langOverride, undefined);
+    });
   } finally { c.uninstall(); }
 });

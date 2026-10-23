@@ -1071,7 +1071,7 @@ test("A FAILED LOOK READ FAILS THE EDIT — never a stripped publish reported as
   // through the real module rather than read off the spine, because that is
   // where the distinction now lives.
   assert.equal(readConfig(""), null, "an unreadable config reads as an empty one");
-  assert.deepEqual(emptyConfig(), { look: null, css: "", logo: "", icon: "", verify: null, langStrings: null, share: "" });
+  assert.deepEqual(emptyConfig(), { look: null, css: "", logo: "", icon: "", verify: null, langStrings: null, share: "", langOverrides: null });
 });
 
 test("the preview image is derived in ONE place, for both publish paths and the picker", () => {

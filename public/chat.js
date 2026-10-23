@@ -4182,6 +4182,7 @@ function openProject(id, mode) {
   // just made. `null` and not an empty Set, because those two mean different
   // things here and the empty one is what the defect looked like.
   if ((id || null) !== siteOpenId) siteCodeFolds = null;
+  siteSlotSwap(siteOpenId, id || null);
   siteOpenId = id || null;
   // THE SERVER'S COPY OF THIS CHAT (2026-10-20): what another device said is here too.
   // THE CHAT FIRST, THEN THE APP'S PREVIEW: whether this project is an app
@@ -4222,7 +4223,57 @@ let siteMediaMoving = false; // draft video/audio being moved into the site's li
 // `siteBusy`. Its live steps and Stop are drawn only there (`siteBusyHere`),
 // and Stop elsewhere stops nothing; another project says why it cannot send.
 let siteBusyFor = null;
-let siteAbort = null;       // AbortController for the in-flight build/revise (Stop)
+let siteAbort = null;       // (kept for old harnesses; each send's controller is in `siteAborts`)
+// ── BUSY SLOTS BEGIN ─────────────────────────────────────────────────────
+// ONE BUSY STATE PER PROJECT (audit A15-6 / #138, the owner's choice
+// 2026-10-23): a build or chat running in one project no longer blocks sending
+// in another. `siteBusy` and `siteBuild` are the OPEN project's (`siteOpenId`);
+// every other project's work waits in `siteSlots` and is swapped in when that
+// project is opened (`siteSlotSwap`, from `openProject`). One job per site
+// stays: a project's own busy state still refuses its own Send, and the server
+// still runs one job per site. `var` so a harness may run this block again.
+var siteSlots = new Map();   // project id → { busy, build }
+var siteAborts = new Map();  // project id → the AbortController of its send (Stop)
+function siteSlotSwap(from, to) {
+  from = from || null; to = to || null;
+  if (from === to) return;
+  if (from != null) {
+    if (siteBusy || siteBuild) siteSlots.set(from, { busy: !!siteBusy, build: siteBuild });
+    else siteSlots.delete(from);
+  }
+  if (siteTicker) { clearInterval(siteTicker); siteTicker = null; }
+  const slot = to != null ? siteSlots.get(to) : null;
+  if (to != null) siteSlots.delete(to);
+  siteBusy = !!(slot && slot.busy);
+  siteBusyFor = siteBusy ? to : null;
+  siteBuild = slot ? slot.build : null;
+  if (siteBuild) siteTicker = setInterval(() => { if (siteBuild) paintReactLive(); }, 1500);
+}
+/** Do the globals hold this project's work? Its own busy mark, or the open project's when none is set. */
+function siteSlotOwns(origin) {
+  return origin == null || origin === siteBusyFor || (siteBusyFor == null && origin === siteOpenId);
+}
+/** This project's work starts: in the globals when it is the open one, in its slot otherwise. */
+function siteBusyBegin(origin) {
+  if (origin == null || origin === siteOpenId || origin === siteBusyFor) { siteBusy = true; siteBusyFor = origin; return; }
+  const slot = siteSlots.get(origin) || { busy: false, build: null };
+  slot.busy = true;
+  siteSlots.set(origin, slot);
+}
+/** This project's work ends — never another project's. */
+function siteBusyEnd(origin) {
+  if (siteSlotOwns(origin)) { siteBusy = false; return; }
+  const slot = siteSlots.get(origin);
+  if (slot) { slot.busy = false; if (!slot.build) siteSlots.delete(origin); }
+}
+/** Is this project busy, open or not? */
+function siteBusyAt(id) {
+  if (id == null) return false;
+  if (siteBusy && siteSlotOwns(id)) return true;
+  const slot = siteSlots.get(id);
+  return !!(slot && slot.busy);
+}
+// ── BUSY SLOTS END ───────────────────────────────────────────────────────
 let siteBuild = null;       // { react, rphase, code, file, filesSeen[], agents, images[] } — the running build
 let siteTicker = null;      // setInterval handle repainting the live step rail
 let siteView = 'preview';   // workspace stage: preview | code | more | data
@@ -5969,6 +6020,7 @@ function renderSites() {
   if (siteOpenId && PROJECT_PATH.test(location.pathname)) {
     try { history.replaceState({ project: null }, '', '/projects'); } catch (e) {}
   }
+  siteSlotSwap(siteOpenId, null);
   siteOpenId = null;
   // EVERY SITE THIS ACCOUNT OWNS, not only the ones this browser built. The
   // fetch is fire-and-forget and re-renders when it lands, so the first paint
@@ -8795,7 +8847,7 @@ function siteSetLive(site, live) {
   const slug = String(site.slug || '');
   if (!slug || siteBusy) return;
   const origin = site.id;
-  siteBusy = true; siteBusyFor = origin;
+  siteBusyBegin(origin);
   site.msgs.push({ r: 'a', t: live ? 'Putting your site back online\u2026' : 'Taking your site off the web\u2026' });
   sitesSave(); renderSites();
   // `on: true` means OFFLINE, matching the route's name.
@@ -8804,7 +8856,7 @@ function siteSetLive(site, live) {
     body: JSON.stringify({ on: !live }),
   }).then(async (r) => {
     const d = await r.json().catch(() => ({}));
-    siteBusy = false;
+    siteBusyEnd(origin);
     const s = siteById(origin); if (!s) return;
     if (r.ok && d.ok) {
       // OFFLINE IS ITS OWN STATE, not the absence of a live URL. A site with no
@@ -8829,7 +8881,7 @@ function siteSetLive(site, live) {
     sitesSave();
     if (siteOpenId === origin) renderSites();
   }).catch(() => {
-    siteBusy = false;
+    siteBusyEnd(origin);
     const s = siteById(origin);
     if (s) { s.msgs.push({ r: 'a', t: 'Couldn\u2019t reach the server \u2014 your site is unchanged.' }); sitesSave(); renderSites(); }
   });
@@ -9412,11 +9464,11 @@ function renderSiteWorkspace(view, site) {
       const s0 = siteById(siteOpenId);
       if (!s0 || siteBusy) return;
       const origin = s0.id;
-      siteBusy = true; siteBusyFor = origin;
-      if (typeof siteBuildStart === 'function') siteBuildStart(true);
+      siteBusyBegin(origin);
+      if (typeof siteBuildStart === 'function') siteBuildStart(true, origin);
       siteMakeApp(s0, b.dataset.appDl, (reply) => {
-        siteBusy = false;
-        if (typeof siteBuildStop === 'function') siteBuildStop();
+        siteBusyEnd(origin);
+        if (typeof siteBuildStop === 'function') siteBuildStop(origin);
         const t = siteById(origin); if (!t) return;
         t.msgs.push(siteReplyMsg(reply)); t.updatedAt = Date.now(); sitesSave();
         if (siteOpenId === origin) renderSites();
@@ -9713,8 +9765,7 @@ function wireSiteComposer(site) {
   if (sendBtn && ta) {
     sendBtn.onclick = () => {
       const t = ta.value.trim();
-      // ANOTHER PROJECT'S WORK HOLDS THE PAGE (audit A15-6): said, and the words stay in the box.
-      if (t && siteBusy && !siteBusyHere(siteById(siteOpenId))) { if (typeof sbToast === 'function') sbToast('Another project is still building — send this once it has finished.'); return; }
+      // ANOTHER PROJECT'S WORK NO LONGER HOLDS THIS ONE (#138): `siteBusy` is this project's own.
       if (!t || siteBusy) return; ta.value = ''; draft.t = ''; siteSend(t);
     };
     ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendBtn.onclick(); } };
@@ -9735,7 +9786,15 @@ function wireSiteComposer(site) {
 // nothing can pass the other one — the guard derives the call sites and requires
 // every one to pass `true`, so a classic caller coming back fails by existing
 // rather than quietly re-arming a branch that is no longer there to take.
-function siteBuildStart(react) {
+function siteBuildStart(react, origin) {
+  // ANOTHER PROJECT'S BUILD (audit A15-6, the owner's choice 2026-10-23) is
+  // kept in its own slot, never in the open project's globals.
+  if (origin != null && origin !== siteOpenId && origin !== siteBusyFor && typeof siteSlots !== 'undefined') {
+    const slot = siteSlots.get(origin) || { busy: false, build: null };
+    slot.build = { react: !!react, code: '', file: '', rphase: 'thinking', images: [], filesSeen: [], agents: {}, startedAt: Date.now() };
+    siteSlots.set(origin, slot);
+    return;
+  }
   // STARTS IN `thinking`, NOT `generating`. This runs the instant a message is
   // sent — before the router has said whether it is even a build — and starting
   // at `generating` is what made "hey" paint "Writing the code".
@@ -9755,7 +9814,8 @@ function siteBuildStart(react) {
     paintReactLive();
   }, 1500);
 }
-function siteBuildStop() { siteBuild = null; if (siteTicker) { clearInterval(siteTicker); siteTicker = null; } }
+// ONE LINE ON PURPOSE (harnesses cut it by its line). Another project's build (#138) is cleared in its slot only.
+function siteBuildStop(origin) { if (origin != null && origin !== siteOpenId && origin !== siteBusyFor && typeof siteSlots !== 'undefined') { const slot = siteSlots.get(origin); if (slot) { slot.build = null; if (!slot.busy) siteSlots.delete(origin); } return; } siteBuild = null; if (siteTicker) { clearInterval(siteTicker); siteTicker = null; } }
 // ---- React builder: Claude-Code-style "what it did" step rows (live + finished) ----
 function stHlCode(t) { return esc(t).replace(/\b(import|from|export|default|function|return|const|let|className)\b/g, '<span class="kw">$1</span>').replace(/(&quot;[^&]*?&quot;)/g, '<span class="str">$1</span>'); }
 function stStepRow(o) { // {label, meta, state:'run'|'done'|'wait', body, open}
@@ -10221,7 +10281,7 @@ function siteFinishBuild(origin, reply, build, note, why) {
   const prog = siteBuild && siteOpenId === origin && Array.isArray(siteBuild.prog)
     ? siteBuild.prog.filter((l) => l && typeof l.text === 'string' && l.text).map((l) => ({ text: l.text, ...(typeof l.explain === 'string' && l.explain ? { explain: l.explain } : {}) }))
     : [];
-  siteBusy = false; siteBuildStop();
+  siteBusyEnd(origin); siteBuildStop(origin);
   const s = siteById(origin); if (!s) return;
   // `note` is its OWN field rather than being prepended to `t` with a blank
   // line. `.st-msg` has no `white-space: pre-wrap`, so a newline inside the
@@ -10748,8 +10808,8 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // beyond the routing call.
     const asked = !isBuild && d.intent === 'clarify' ? liveQuestion(d) : null;
     if (asked) {
-      siteBusy = false;
-      siteBuildStop();
+      siteBusyEnd(origin);
+      siteBuildStop(origin);
       siteAskSet(origin, asked, sendImgs);
       return;
     }
@@ -10759,8 +10819,8 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // drawn is what the reader returned, never the answer's own fields.
     const question = d.intent === 'clarify' ? routeQuestion(d) : null;
     if (question) {
-      siteBusy = false;
-      siteBuildStop();
+      siteBusyEnd(origin);
+      siteBuildStop(origin);
       const s0 = siteById(origin);
       if (!s0) return;
       s0.clarify = { brief: brief, qa: qa, imgs: imgs || [] };
@@ -10821,8 +10881,8 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // A QUESTION. Nothing is built, nothing on the site changes, and the reply
     // is an ordinary assistant message — no build steps, because there was no
     // build and a steps block over an answer would claim one.
-    siteBusy = false;
-    siteBuildStop();
+    siteBusyEnd(origin);
+    siteBuildStop(origin);
     const s = siteById(origin);
     if (!s) return;
     // The answer alone. What it cost shows up in the ✦ pill, which `apiFetch`
@@ -11003,8 +11063,8 @@ function siteReqSay(origin, reply, of) {
 }
 /** The routing reply took the work on: its card, its question if it asked one, and the follow. `key` is the message's own. */
 function siteRequestStart(origin, d, imgs, key) {
-  siteBusy = false;
-  siteBuildStop();
+  siteBusyEnd(origin);
+  siteBuildStop(origin);
   const view = siteRequestOf(d);
   const s = siteById(origin);
   if (!s || !view) return;
@@ -11421,7 +11481,8 @@ function siteRequestsCheck(site, again) {
  * the site's whole truth for this page (`siteRoutesFetch`, `siteLookAgain`).
  */
 function siteNothingInFlight(s) {
-  if (!s || !s.slug || siteBusy || siteBuild) return false;
+  if (!s || !s.slug) return false;
+  if (s.id === siteOpenId || s.id === siteBusyFor || typeof siteSlots === 'undefined' ? (siteBusy || siteBuild) : siteSlots.has(s.id)) return false;
   if (EditPoll.resumableRecord(String(s.slug))) return false;
   const open = (o) => (o && typeof o === 'object' && !Array.isArray(o) ? Object.values(o) : []);
   if (open(s.requests).some((r) => r && r.view && !r.view.ended)) return false;
@@ -12924,8 +12985,8 @@ function resumeOpenSite(site) {
   if (!site || !site.slug || siteBusy) return false;
   const origin = site.id;
   const finish = (reply) => {
-    siteBusy = false;
-    siteBuildStop();
+    siteBusyEnd(origin);
+    siteBuildStop(origin);
     const s = siteById(origin);
     if (!s) return;
     s.msgs.push(siteReplyMsg(reply));
@@ -12936,8 +12997,8 @@ function resumeOpenSite(site) {
   const rec = EditPoll.resumableRecord(String(site.slug));
   const go = (ho) => reactSend(site, rec ? rec.ask : '', origin, 'revise', [], finish, [], ho);
   if (!resumeEditJob(site, origin, finish, go)) return false;
-  siteBusy = true; siteBusyFor = origin;
-  siteBuildStart(true);
+  siteBusyBegin(origin);
+  siteBuildStart(true, origin);
   return true;
 }
 // ── A PHONE APP OF THE SITE (2026-10-20) ──────────────────────────────────
@@ -14449,8 +14510,8 @@ function siteFoundAnswer(found) {
 /** The reply `siteSend` would write when the build ends — the same busy flag, rail and save. */
 function siteBuildFinish(origin) {
   return (reply) => {
-    siteBusy = false;
-    siteBuildStop();
+    siteBusyEnd(origin);
+    siteBuildStop(origin);
     const s = siteById(origin);
     if (!s) return;
     s.msgs.push(siteReplyMsg(reply));
@@ -14489,14 +14550,14 @@ function siteBuildTake(b) {
   }
   // THIS PAGE'S BUSY STATE IS TAKEN FOR THE FOUND BUILD, as a sent one takes it,
   // and its finish gives it back — it was free when taken.
-  siteBusy = true; siteBusyFor = s.id;
+  siteBusyBegin(s.id);
   const finish = siteBuildFinish(b.chat);
   if (b.state === 'unknown') {
     finish('Your site finished building, but I couldn’t read its answer here. Your sites list shows what it made.');
     return;
   }
   if (b.state === 'running') {
-    siteBuildStart(true);
+    siteBuildStart(true, b.chat);
     if (Array.isArray(b.progress) && b.progress.length) setBuildProgress(b.chat, b.progress);
     sitesSave();
     renderSites();
@@ -14511,8 +14572,11 @@ function siteBuildTake(b) {
  */
 const SITE_BUILDS_WAIT_MS = 750;
 function siteBuildsDrain() {
-  while (!siteBusy && siteBuildsOwed.length) {
-    const b = siteBuildsOwed.shift();
+  // PER PROJECT (#138): an owed build waits only for its OWN project's work.
+  for (let i = 0; i < siteBuildsOwed.length;) {
+    const b = siteBuildsOwed[i];
+    if (siteBusyAt(b.chat)) { i++; continue; }
+    siteBuildsOwed.splice(i, 1);
     siteBuildsShown.add(b.job);
     siteBuildTake(b);
   }
@@ -15150,7 +15214,9 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
       alsoAsked: EditPoll.heldWire(h.alsoAsked),
       handOver: h.handOver && typeof h.handOver === 'object' && !Array.isArray(h.handOver) ? h.handOver : undefined,
     };
-  siteAbort = new AbortController();
+  // THIS SEND'S OWN CONTROLLER (#138), kept under its project so Stop there stops it alone.
+  let siteAbort = new AbortController();
+  if (typeof siteAborts !== 'undefined') siteAborts.set(origin, siteAbort);
   // WHAT A 202 SAID WAS PUT OFF (2026-10-02, the owner's review of batch 2). A
   // rewrite that answers 202 has already taken the parts out, and its 202 says
   // which; the answer that ends the follow is written by a later invocation.
@@ -15233,8 +15299,8 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
     // built, and the deposit went back.
     const dq = !firedJob && mode === 'build' ? designQuestion(d) : null;
     if (dq) {
-      siteBusy = false;
-      siteBuildStop();
+      siteBusyEnd(origin);
+      siteBuildStop(origin);
       const s0 = siteById(origin);
       if (!s0) return;
       s0.clarify = { brief: t, qa: Array.isArray(qa) ? qa.slice() : [], imgs: imgs || [] };
@@ -15278,7 +15344,7 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
         // EVERY ROUTE IT WROTE, not one hardcoded entry. `filesSeen` is what the
         // stream reported live; `d.files` is the same list off the final
         // response, and is what a non-streaming answer leaves us with.
-        const wrote = (siteBuild && siteBuild.filesSeen && siteBuild.filesSeen.length) ? siteBuild.filesSeen : d.files;
+        const wrote = (siteBuild && siteOpenId === origin && siteBuild.filesSeen && siteBuild.filesSeen.length) ? siteBuild.filesSeen : d.files;
         const routed = reactRoutePages(wrote);
         // A revise that reported no files must not wipe the pages the last build
         // established — falling back to one entry is what made every React site
@@ -15322,7 +15388,7 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
       // rendered a tick unconditionally, so a build whose pages failed to
       // compile showed "Compiled React ✓" directly above our own sentence
       // saying they had not compiled. Seen live 2026-08-09.
-      const build = { files: (siteBuild && siteBuild.filesSeen && siteBuild.filesSeen.length) ? siteBuild.filesSeen.slice() : (d.files || []), images: (siteBuild && siteBuild.images) ? siteBuild.images.slice() : [], buildMs: d.buildMs, cost: d.cost, slug: d.slug, revised: mode === 'revise', backend: !!d.backend, page: d.page || '' };
+      const build = { files: (siteBuild && siteOpenId === origin && siteBuild.filesSeen && siteBuild.filesSeen.length) ? siteBuild.filesSeen.slice() : (d.files || []), images: (siteBuild && siteOpenId === origin && siteBuild.images) ? siteBuild.images.slice() : [], buildMs: d.buildMs, cost: d.cost, slug: d.slug, revised: mode === 'revise', backend: !!d.backend, page: d.page || '' };
       const name = (siteById(origin) || {}).name;
       // What was READ for this build — a linked page, a web lookup, or a link
       // we could not reach. Composed server-side (see contextSentence) because
@@ -15451,7 +15517,7 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
     const rest = alsoTail({ deferred: firedHeld !== undefined ? firedHeld : h.alsoAsked, putOff: h.putOff }, false);
     if (e && e.name === 'AbortError') { finish('■ Stopped. (A build already running may still finish server-side.)' + rest); return; }
     siteErr = { chatId: origin }; finish('Lost the connection while building — check your internet and try again in a moment.' + rest);
-  }).finally(() => { siteAbort = null; });
+  }).finally(() => { if (typeof siteAborts !== 'undefined' && siteAborts.get(origin) === siteAbort) siteAborts.delete(origin); siteAbort = null; });
 }
 // Answering the builder's own question, or refusing to.
 //
@@ -15656,13 +15722,13 @@ function siteAnswer(label, skip, picked) {
   site.msgs.push({ r: 'u', t: skip ? 'Skip the questions — just build it' : said });
   const origin = siteOpenId;
   const imgs = site.clarify.imgs || [];
-  siteBusy = true; siteBusyFor = origin;
-  siteBuildStart(true);
+  siteBusyBegin(origin);
+  siteBuildStart(true, origin);
   sitesSave();
   renderSites();
   const finish = (reply) => {
-    siteBusy = false;
-    siteBuildStop();
+    siteBusyEnd(origin);
+    siteBuildStop(origin);
     const s = siteById(origin);
     if (!s) return;
     s.msgs.push(siteReplyMsg(reply));
@@ -15896,13 +15962,13 @@ function siteAskReply(label, chosen, leaveDraft) {
   // ITS REQUEST'S, when the question is one's (2026-10-05): what that request
   // says next goes under this answer.
   site.msgs.push(siteSentMsg({ r: 'u', t: said, ...(asked.request ? { req: asked.request.key } : {}) }, key));
-  siteBusy = true; siteBusyFor = origin;
-  siteBuildStart(true);
+  siteBusyBegin(origin);
+  siteBuildStart(true, origin);
   sitesSave();
   renderSites();
   const finish = (reply) => {
-    siteBusy = false;
-    siteBuildStop();
+    siteBusyEnd(origin);
+    siteBuildStop(origin);
     const s = siteById(origin);
     if (!s) return;
     // AND WHAT IS SAID OF IT, there too — an answer lost on its way back, or
@@ -15955,11 +16021,11 @@ function siteAskCancel() {
   // with that request.
   const of = asked.request ? asked.request.key : '';
   site.msgs.push(siteSentMsg({ r: 'u', t: 'Cancel this request', ...(of ? { req: of } : {}) }, ''));
-  siteBusy = true; siteBusyFor = origin;
+  siteBusyBegin(origin);
   sitesSave();
   renderSites();
   const say = (t) => {
-    siteBusy = false;
+    siteBusyEnd(origin);
     const s = siteById(origin);
     if (!s) return;
     if (of) siteReqPut(s, of, { r: 'a', t: t });
@@ -16116,7 +16182,7 @@ function siteSend(text, leaveDraft) {
   // named by, so that request's card and replies go with this message.
   const key = siteMessageKey(siteOpenId, t, leaveDraft);
   site.msgs.push(siteSentMsg({ r: 'u', t }, key));
-  siteBusy = true; siteBusyFor = site.id;
+  siteBusyBegin(site.id);
   // The React engine (build = new project, revise = any React site) drives its own
   // live step-rows; legacy static sites keep the classic activity log / no log.
   const reactPath = isBuild || site.react;
@@ -16126,13 +16192,13 @@ function siteSend(text, leaveDraft) {
   // `!isBuild && isBuild`. Provably dead from this line alone, which is what let
   // the classic activity log go with it: nothing could ever start a build whose
   // `react` was false.
-  if (reactPath) siteBuildStart(true); else siteBuildStop();
+  if (reactPath) siteBuildStart(true, site.id); else siteBuildStop(site.id);
   sitesSave();
   renderSites();
   const origin = siteOpenId;
   const finish = (reply) => {
-    siteBusy = false;
-    siteBuildStop();
+    siteBusyEnd(origin);
+    siteBuildStop(origin);
     const s = siteById(origin);
     if (!s) return;
     s.msgs.push(siteReplyMsg(reply));
@@ -16251,8 +16317,10 @@ function siteStopWork(site) {
   siteStop(site);
 }
 function siteStop(site) {
-  if (site && siteBusyFor && site.id !== siteBusyFor) return;
-  if (siteAbort) { try { siteAbort.abort(); } catch (e) {} }
+  // ONLY THIS PROJECT'S OWN SEND (#138): another project's build is never stopped from here.
+  if (typeof siteAborts === 'undefined') { if (siteAbort) { try { siteAbort.abort(); } catch (e) {} } return; }
+  const a = siteAborts.get(site ? site.id : siteOpenId);
+  if (a) { try { a.abort(); } catch (e) {} }
 }
 /** The busy state is this project's own (or set before its origin was kept). */
 function siteBusyHere(site) {

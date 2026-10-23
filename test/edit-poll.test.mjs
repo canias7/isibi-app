@@ -974,8 +974,9 @@ test("the resume is wired: on site selection, once per job, with the ask and the
   // parts put off and why, as the live page's `go` does.
   assert.match(ro, /const go = \(ho\) => reactSend\(site, rec \? rec\.ask : '', origin, 'revise', \[\], finish, \[\], ho\);/, "the resumed fallback is not the revise on the stored ask");
   const started = ro.indexOf("if (!resumeEditJob(site, origin, finish, go)) return false;");
-  const busy = ro.indexOf("siteBusy = true;");
-  const rows = ro.indexOf("siteBuildStart(true);");
+  // RE-ANCHORED 2026-10-23 (#138): the busy state is the project's own (`siteBusyBegin`).
+  const busy = ro.indexOf("siteBusyBegin(origin);");
+  const rows = ro.indexOf("siteBuildStart(true, origin);");
   assert.ok(started > 0 && busy > started && rows > busy, "busy is set before the watch is known to have started");
   // THE TAIL IS THE SEND PATH'S: the reply onto the thread, saved, re-drawn.
   // RE-ANCHORED 2026-10-02: through `siteReplyMsg`, every finish's one writer,

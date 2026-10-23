@@ -63,7 +63,10 @@ export const CONFIG_KEY = (slug) => "config/" + String(slug) + ".json";
  * live upload list on every use, so a deleted file falls back rather than
  * 404ing the preview.
  */
-export const CONFIG_FIELDS = ["look", "css", "logo", "icon", "verify", "langStrings", "share"];
+// `langOverrides` (2026-10-23, #196) is the owner's own wording in a translated
+// language, keyed by the primary-language string it was made from
+// (`builder/lang-override.mjs`). Like `share` it has no legacy `_meta` name.
+export const CONFIG_FIELDS = ["look", "css", "logo", "icon", "verify", "langStrings", "share", "langOverrides"];
 
 /**
  * What each field was called in `_meta`. The `site_` prefix earned its keep
@@ -99,7 +102,7 @@ const isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
  * look lane) without a second flag to keep in step.
  */
 export function emptyConfig() {
-  return { look: null, css: "", logo: "", icon: "", verify: null, langStrings: null, share: "" };
+  return { look: null, css: "", logo: "", icon: "", verify: null, langStrings: null, share: "", langOverrides: null };
 }
 
 /** Coerce anything into the shape above. A wrong type reads as absent. */
@@ -113,6 +116,7 @@ function normalize(raw) {
     verify: isObj(o.verify) ? o.verify : null,
     langStrings: isObj(o.langStrings) ? o.langStrings : null,
     share: typeof o.share === "string" ? o.share : "",
+    langOverrides: isObj(o.langOverrides) ? o.langOverrides : null,
   };
 }
 
@@ -138,7 +142,7 @@ export function readConfig(text, { strict = false } = {}) {
 function validConfigShape(raw) {
   return CONFIG_FIELDS.every((field) => {
     if (!Object.hasOwn(raw, field)) return true;
-    if (["look", "verify", "langStrings"].includes(field)) return raw[field] === null || isObj(raw[field]);
+    if (["look", "verify", "langStrings", "langOverrides"].includes(field)) return raw[field] === null || isObj(raw[field]);
     return typeof raw[field] === "string";
   });
 }

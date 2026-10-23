@@ -49,6 +49,7 @@ import vm from "node:vm";
 import { createRequire } from "node:module";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
 import { ASK_FNS, ASK_LINES } from "./fixtures/browser-ask.mjs";
+import { BUSY_SLOTS } from "./fixtures/busy-slots.mjs";
 // THE PAGE'S OWN POLLER UNDER THE STAND-IN (2026-10-02): the held-part helpers
 // the posts and the last sentence use (`heldWire`, `heldList`) are its real ones,
 // and only the key and the outcome wording are made deterministic here.
@@ -94,6 +95,7 @@ const SRC = [
   cut("function siteSend("),
   cut("function siteBuildStart("),
   cutLine("function siteBuildStop("),
+  BUSY_SLOTS, // the per-project busy state (#138)
   cut("function siteEdit("),
   cut("function editAsk("),
   cut("function editAskDone("),

@@ -209,7 +209,8 @@ test("every build starts as a react build — the census that lets the classic a
     .filter((m) => BARE.slice(Math.max(0, m.index - 9), m.index) !== "function ");
   assert.ok(calls.length >= 3, "siteBuildStart is called " + calls.length + " times — re-derive this scan");
   for (const m of calls) {
-    assert.equal(m[1].trim(), "true",
+    // THE SECOND ARGUMENT IS THE PROJECT (#138, 2026-10-23); the first stays `true`.
+    assert.equal(m[1].split(",")[0].trim(), "true",
       "a build is started with `" + m[1].trim() + "` — the classic activity log was deleted because nothing could reach it, "
       + "so a build whose `react` is false now paints NOTHING while it runs. Put the log back, or pass true.");
   }

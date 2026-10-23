@@ -239,6 +239,7 @@ import { model3dPrice, model3dStart, model3dPoll } from "./builder/model3d-route
 import { addonFailure, mergeAddonPages, mergeAddonSchema, unlinkedPages, keptPartsNote, unseenPartsNote, unseenPagesNote, routeOf, orderingMoved, settleReverted, problemsShipped } from "./builder/site-addon.mjs";
 import { resolveLangs } from "./builder/site-langs.mjs";
 import { collectStrings, missingFrom, nextCache, translationBatches, batchKey, stuckFor, stuckAfter, STUCK_KEY, LASTING_FAILURES, untranslated, translatePages, readTranslation, TRANSLATE_TOOL, usableTranslation, langNote } from "./builder/site-translate.mjs";
+import { langTargetOf, readOverrides, applyOverrides, flagStale, overridesFromEdits, addOverrides, overrideNote, staleNote } from "./builder/lang-override.mjs";
 import { listVersions, rollbackVersion, deleteAllVersions, versionLabel } from "./site-versions.mjs";
 // IMMUTABLE PUBLISHING (stage 7, 2026-09-05): every publish is staged under its
 // own prefix and made live by moving one pointer. `archiveVersion` and
@@ -12100,6 +12101,31 @@ async function unclaimNotify(env, slug, claim) {
   if (!r.ok) throw new Error("unclaim " + r.status);
 }
 
+// THE MISSED-NOTIFICATION COUNTER (audit A12-9, owner's choice 2026-10-23;
+// `supabase/proposed/notify_missed.sql`, not applied). FAILS OPEN: until the
+// column and its two functions exist the RPC answers 404, take reads 0 and add
+// does nothing, so notifications go out exactly as before.
+async function notifyMissedRpc(env, fn, args) {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+      method: "POST",
+      headers: svcHeaders(env, { "content-type": "application/json" }),
+      body: JSON.stringify(args),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!r.ok) return null;
+    return await r.json().catch(() => null);
+  } catch { return null; }
+}
+const notifyMissed = (env) => ({
+  take: async (slug) => {
+    const v = await notifyMissedRpc(env, "site_notify_missed_take", { p_slug: slug });
+    const n = Array.isArray(v) ? v[0] : v;
+    return Number.isInteger(n) && n > 0 ? n : 0;
+  },
+  add: async (slug, n) => { await notifyMissedRpc(env, "site_notify_missed_add", { p_slug: slug, p_n: n }); },
+});
+
 // The Go Farther account that owns the site. auth.users is not reachable through
 // PostgREST, so this is the GoTrue admin endpoint with the service key.
 async function ownerEmail(env, uid) {
@@ -13169,6 +13195,7 @@ function notifyOwnerOfSubmission(env, ctx, payload) {
     const out = await notifyOwner({
       claim: (s2) => claimNotify(env, s2),
       unclaim: (s2, c) => unclaimNotify(env, s2, c),
+      missed: notifyMissed(env),
       // Supabase, because this is looking up WHO to write to — our own record of
       // our own customer's address. It says nothing about which sender is used.
       emailOf: (uid) => ownerEmail(env, uid),
@@ -17595,7 +17622,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   };
   { const u = unbilled(); if (u) return u; }
   let look = null;
-  let verify = null, langStrings = null;
+  let verify = null, langStrings = null, langOverrides = null;
   // THE TWO MARKS AS THE CONTAINER WANTS THEM. Filled beside the read below;
   // the floor is what a site with nothing stored publishes anyway, so a path
   // that somehow reached the payload without the read still sends a whole,
@@ -17685,6 +17712,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // so the refusal is explicit here.
     if (!cfg.ok) throw new Error(cfg.why + ": " + cfg.error);
     ({ look, css, verify, langStrings } = cfg.config);
+    langOverrides = cfg.config.langOverrides; // the owner's own translated wording (#196)
     // ONE MARK, SEVERAL FORMS (2026-09-07) — the four wire fields off the one
     // stored form per mark, through the fold, so a site still carrying the old
     // pair sends exactly what it sends today and one that has been given a form
@@ -17877,6 +17905,19 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // primary wording — which is `nextCache`'s own rule for a string nothing
   // translated; a repaired page changes no wording (`sameProse`), so on the
   // round that matters every string is already there.
+  // THE OWNER'S OWN WORDING IN EACH LANGUAGE (#196, `builder/lang-override.mjs`):
+  // one whose primary-language source is gone is kept, flagged and said.
+  const overrides = readOverrides(langOverrides);
+  const langStale = {};
+  for (const l of extras) {
+    const st = applyOverrides({}, overrides[l.tag], strings).stale;
+    if (st.length) langStale[l.tag] = st;
+  }
+  const overrideFlags = flagStale(overrides, langStale);
+  if (overrideFlags.changed) {
+    const w = await patchSiteConfig(env, slug, db, { langOverrides: overrideFlags.next }, jobFence(env, job));
+    if (!w.ok) console.error("lang override flags write failed", slug, w.error);
+  }
   const filesFor = (list) => {
     const f = {};
     for (const p of list || []) f[p.path] = p.source;
@@ -17886,7 +17927,9 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     const { strings } = collectStrings(list || []);
     for (const l of siteLangs) {
       if (l.primary) continue;
-      const merged = nextStrings[l.tag] || {};
+      // THE OWNER'S OWN WORDING LAID OVER THE CACHE (#196): never written into
+      // it, so no re-translation undoes it.
+      const merged = applyOverrides(nextStrings[l.tag] || {}, overrides[l.tag], strings).merged;
       const t = translatePages(list || [], l.prefix, strings, strings.map((sTxt) => (merged[sTxt] == null ? sTxt : merged[sTxt])), { routes: primaryRoutes });
       for (const tp of t.pages) f[tp.path] = tp.source;
     }
@@ -18679,7 +18722,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     if (!r || typeof r !== "object" || r.applied !== false) continue;
     lookSoft.push({ what, notes: (Array.isArray(r.notes) ? r.notes : []).slice(0, 2).map((x) => String(x).slice(0, 160)) });
   }
-  return { ok: true, files: wrote, look, render, renderNote: [renderNote(built.render), langNote(langOutcomes, langsRefused)].filter(Boolean).join(" ") || undefined,
+  return { ok: true, files: wrote, look, render, renderNote: [renderNote(built.render), langNote(langOutcomes, langsRefused), staleNote(langStale)].filter(Boolean).join(" ") || undefined,
     // WHICH VERSION WENT LIVE (stage 7): the prefix the site now serves, and
     // what a reconcile compares against the pointer and `x-site-version`.
     version,
@@ -38348,6 +38391,98 @@ async function handleRequest(request, env, ctx) {
               }
               const eParts = eTextParts.parts;
               const eFiles = editableFiles(eSrc, eParts);
+              // ── A TRANSLATED PAGE IS EDITED AS ITS OWN LANGUAGE (#196, audit
+              // A32-3; the owner's choice 2026-10-23) ─────────────────────────
+              //
+              // `/es/book` is produced on every publish from the primary page
+              // and the translation cache, so its wording cannot be changed in
+              // the stored pages. The text step is run on the TRANSLATED pages
+              // as they are served now; each change is read back to the primary
+              // string it came from and stored as that language's own override
+              // (`config.langOverrides`, `builder/lang-override.mjs`), which the
+              // spine lays over the cache on every publish. Reached when the
+              // router names a page under a language's prefix, or when the
+              // primary wording matched nothing and the request quotes a
+              // language's current wording (`eLangByWords`).
+              const eLangRead = async () => {
+                const db = await siteBackendBySlug(env, ownerSlug);
+                const c = await readSiteConfig(env, ownerSlug, db);
+                if (!c.ok) return null;
+                const look = c.config.look && typeof c.config.look === "object" ? c.config.look : {};
+                const routes = eSrc.map((p) => routeOf(p && p.path)).filter(Boolean);
+                const langs = resolveLangs(look.lang || "en", Array.isArray(look.langs) ? look.langs : [], { routes }).langs;
+                if (!langs.some((l) => !l.primary)) return null;
+                const { strings } = collectStrings(eFiles);
+                const ovr = readOverrides(c.config.langOverrides);
+                const cache = c.config.langStrings && typeof c.config.langStrings === "object" ? c.config.langStrings : {};
+                return {
+                  db, langs, routes, strings, ovr,
+                  currentOf: (tag) => {
+                    const shown = applyOverrides(cache[tag] && typeof cache[tag] === "object" ? cache[tag] : {}, ovr[tag], strings).merged;
+                    return Object.fromEntries(strings.map((sTxt) => [sTxt, shown[sTxt] == null ? sTxt : shown[sTxt]]));
+                  },
+                };
+              };
+              const eLangByWords = (lr) => {
+                const said = eInstruction.toLowerCase();
+                let best = null, bestN = 0;
+                for (const l of lr.langs) {
+                  if (l.primary) continue;
+                  const cur = lr.currentOf(l.tag);
+                  const n = Object.entries(cur).filter(([en, tr]) => tr !== en && tr.length >= 3 && said.includes(tr.toLowerCase())).length;
+                  if (n > bestN) { best = l; bestN = n; }
+                }
+                return best ? { tag: best.tag, prefix: best.prefix, route: "/" } : null;
+              };
+              const eLangEdit = async (lr, lt) => {
+                const current = lr.currentOf(lt.tag);
+                const tPages = translatePages(eFiles, lt.prefix, lr.strings, lr.strings.map((sTxt) => current[sTxt]), { routes: lr.routes }).pages;
+                const lOut = await runTextEdit({ send: eQuick(), seen: (x) => noteSeen(eJob, x) },
+                  { instruction: eInstruction, pages: tPages, scope: null, model: eQuickModel });
+                if (lOut.ask) return stepAsk("text", lOut.ask);
+                if (!lOut.ok) {
+                  if (lOut.reason === "send") return modelDown(lOut.error, "I couldn't reach the model that picks the wording — try again in a moment.");
+                  if (lOut.reason === "no-text") return explain("text/no-text");
+                  return explain("text/no-match");
+                }
+                const got = overridesFromEdits(lOut.edits, current);
+                if (!got.found.length) return explain("text/no-match");
+                await mayWriteConfig(env, ownerSlug, eJob);
+                const w = await patchSiteConfig(env, ownerSlug, lr.db, { langOverrides: addOverrides(lr.ovr, lt.tag, got.found) }, jobFence(env, eJob));
+                if (!w.ok) {
+                  return Response.json({
+                    ok: false, error: "store", cost: 0,
+                    msg: "I couldn't save that " + lt.tag + " wording just now, so nothing was changed — try again in a moment.",
+                  }, { status: 503 });
+                }
+                eConfigWritten = true;
+                const lPub = await publishStep(env, {
+                  slug: ownerSlug, pages: eSrc,
+                  label: versionLabel({ revise: true, changeNote: eRun }),
+                });
+                if (!lPub.ok) {
+                  return Response.json({
+                    ok: false, error: lostOr(lPub, "compile"), cost: 0,
+                    msg: compileMsg(lPub, "That wording didn't compile, so your site is untouched — try shorter wording."),
+                    detail: lPub.detail,
+                  }, { status: 422 });
+                }
+                return Response.json({
+                  ok: true, layer: "text", applied: got.found.length, files: lPub.files, render: lPub.render,
+                  renderNote: lPub.renderNote,
+                  // CARRIED PAST THE DEFERRED PUBLISH, whose note replaces a step's.
+                  langNote: overrideNote(lt.tag, got.found),
+                  checks: lPub.checks, draft: lPub.draft,
+                  changed: got.found.map((f) => f.said).slice(0, 8),
+                  langOverride: { tag: lt.tag, changed: got.found.slice(0, 8).map((f) => ({ from: f.from, said: f.said })) },
+                  cost: await eCharge(lOut.usage, lPub), usage: lOut.usage,
+                });
+              };
+              if (ePage && !eRoutes().includes(ePage.trim().toLowerCase())) {
+                const lr = await eLangRead();
+                const lt = lr ? langTargetOf(ePage.trim(), lr.langs) : null;
+                if (lt) return eLangEdit(lr, lt);
+              }
               // A REQUEST PART'S DECLARED SCOPE (2026-10-11): shown only its
               // pages first, as its preparation was (`scopedText`).
               const out = await runTextEdit({ send: eQuick(), seen: (x) => noteSeen(eJob, x) },
@@ -38378,6 +38513,13 @@ async function handleRequest(request, env, ctx) {
                 // could find, and asking for the exact words costs nothing.
                 if (out.reason === "too-much-text") return escalate("too-much-text");
                 if (out.reason === "no-text") return explain("text/no-text");
+                // THE WORDING MAY BE A TRANSLATION'S (#196): asked again on that
+                // language's pages only when the request quotes its wording.
+                if (out.reason === "no-match") {
+                  const lr = await eLangRead();
+                  const lt = lr ? eLangByWords(lr) : null;
+                  if (lt) return eLangEdit(lr, lt);
+                }
                 return explain("text/no-match");
               }
               // BOTH HALVES GO TO THE PUBLISH, and the parts go EVERY time
@@ -41060,7 +41202,8 @@ async function handleRequest(request, env, ctx) {
               // the works-but-cannot-say-so shape, arriving through the fix.
               files: finalPub ? finalPub.files : (last && last.body.files),
               render: finalPub ? finalPub.render : (last && last.body.render),
-              renderNote: finalPub ? finalPub.renderNote : (last && last.body.renderNote),
+              // A TRANSLATED WORDING STORED AS THE OWNER'S OWN (#196) is said beside it.
+              renderNote: [...ranOk.map((d) => d.body.langNote), finalPub ? finalPub.renderNote : (last && last.body.renderNote)].filter((x) => typeof x === "string" && x).join(" ") || undefined,
               checks: finalPub ? finalPub.checks : (last && last.body.checks),
               // SAVED AS WHICH DRAFT, from the same publish (2026-10-16): the
               // text edit's answer carried no `draft` facts at all.

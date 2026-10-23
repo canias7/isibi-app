@@ -33,6 +33,7 @@ import { createRequire } from "node:module";
 import vm from "node:vm";
 import { ASK_FNS, ASK_LINES } from "./fixtures/browser-ask.mjs";
 import { REPLY_HORIZON_MS, REPLY_BG_DEADLINE_MS, REPLY_RETRY_GRACE_MS, replyOutcomeOf, editReplyFacts, addonReplyFacts, REPLY_OUTCOMES } from "../builder/site-reply.mjs";
+import { BUSY_SLOTS } from "./fixtures/busy-slots.mjs";
 
 const require = createRequire(import.meta.url);
 const P = require("../public/edit-poll.js");
@@ -74,6 +75,7 @@ const SRC = [
   cut("function siteSend("),
   cut("function siteBuildStart("),
   cutLine("function siteBuildStop("),
+  BUSY_SLOTS, // the per-project busy state (#138)
   cutLine("const editInFlight ="), cutLine("const editIdem ="), cutLine("const editBlocked ="), cutLine("const editWatched ="),
   cutLine("const editReplyFollowing ="),
   cut("function editAsk("),
@@ -177,7 +179,7 @@ function page({ answers = {}, site = SITE, store = new Map(), clock = null } = {
     siteActivePage: () => null,
     paintAttachStrip: () => {},
     buildPicker: "grok",
-    siteBusy: false, siteBuild: null, siteTicker: null, siteOpenId: s.id,
+    siteBusy: false, siteBusyFor: null, siteBuild: null, siteTicker: null, siteOpenId: s.id,
     renderSites: () => { renders++; },
     paintReactLive: () => {},
     siteAbort: null, siteErr: null,

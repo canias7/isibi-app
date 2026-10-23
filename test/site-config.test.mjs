@@ -50,6 +50,8 @@ const FULL = {
   // The chosen link-preview picture (2026-08-28): a BASENAME from the owner's
   // own uploads, re-validated against the live list on every read.
   share: "9a4c1e.jpg",
+  // The owner's own translated wording (2026-10-23, #196), by the English it came from.
+  langOverrides: { es: { Book: { said: "Reservar ya", was: "Reservar", at: 1 } } },
 };
 
 // ── THE KEY ──────────────────────────────────────────────────────────────────
@@ -73,7 +75,8 @@ test("the legacy key list is derived and covers every MIGRATED field", () => {
   // row that cannot exist. Named here so a SECOND field without a legacy name
   // has to be a decision too, not a map entry somebody forgot.
   const legacyless = CONFIG_FIELDS.filter((f) => !LEGACY_META[f]);
-  assert.deepEqual(legacyless, ["share"],
+  // `langOverrides` (2026-10-23, #196) postdates `_meta` too.
+  assert.deepEqual(legacyless, ["share", "langOverrides"],
     "a migrated field lost its _meta name — the fallback cannot read it");
   assert.equal(LEGACY_KEYS.length, CONFIG_FIELDS.length - legacyless.length);
   for (const f of CONFIG_FIELDS) {
@@ -95,7 +98,7 @@ test("a config round-trips, and an absent field keeps the shape the call sites u
   // The absent values are what the read sites already declare: null for the
   // three objects, "" for the strings. `if (!priorLook && !priorCss)` is a
   // real gate in the look lane and has to keep answering the same way.
-  assert.deepEqual(emptyConfig(), { look: null, css: "", logo: "", icon: "", verify: null, langStrings: null, share: "" });
+  assert.deepEqual(emptyConfig(), { look: null, css: "", logo: "", icon: "", verify: null, langStrings: null, share: "", langOverrides: null });
   assert.deepEqual(readConfig(writeConfig({})), emptyConfig());
 });
 
@@ -148,7 +151,7 @@ test("_meta rows become a config, and a bad row loses one field rather than six"
   assert.equal(found, true);
   // `share` postdates `_meta`, so the fallback can never produce one — the
   // migrated six arrive and the picker's field is honestly absent.
-  assert.deepEqual(config, { ...FULL, share: "" });
+  assert.deepEqual(config, { ...FULL, share: "", langOverrides: null });
 
   // A bad `site_verify` row is no verification and a bad `site_lang_strings` is
   // a cold cache — exactly what the call sites tolerate today, per field.
