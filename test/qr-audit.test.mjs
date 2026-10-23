@@ -37,6 +37,25 @@ test("A31-7: a wifi code is checked field by field; an escaped one is accepted",
   assert.equal(p.ok, false, JSON.stringify(p));
 });
 
+test("A31-4: the qr lane's patch resolves a bare route against the site's address and refuses a page the site lacks, in either spelling", async () => {
+  const { qrDestinationCheck } = await import("../builder/site-add.mjs");
+  const RING = [{ name: "ring", points: "tel:0114", label: "Ring us" }, WIFI];
+  const check = qrDestinationCheck({ base: "https://fold.gofarther.app", routes: ["/", "/booking"] });
+  const ok = patchQr(RING, { name: "ring", points: "/booking" }, { check });
+  assert.equal(ok.ok, true, JSON.stringify(ok));
+  assert.equal(ok.list[0].points, "https://fold.gofarther.app/booking");
+  for (const bad of ["/nope", "https://fold.gofarther.app/nope"]) {
+    const r = patchQr(RING, { name: "ring", points: bad }, { check });
+    assert.equal(r.ok, false, bad);
+    assert.equal(r.why, "no-such-page", bad);
+  }
+  const blind = patchQr(RING, { name: "ring", points: "/booking" }, { check: qrDestinationCheck({ base: "", routes: ["/booking"] }) });
+  assert.equal(blind.why, "no-address");
+  // OTHER DESTINATIONS PASS UNTOUCHED, and a caption-only patch is not checked.
+  assert.equal(patchQr(RING, { name: "ring", points: "https://instagram.com/fold" }, { check }).list[0].points, "https://instagram.com/fold");
+  assert.equal(patchQr(RING, { name: "ring", label: "Call the bakery" }, { check }).ok, true);
+});
+
 test("A31-6: a code shown through a component a page renders is placed; one in a component nothing renders is not", async () => {
   const { qrShownSources } = await import("../builder/site-add.mjs");
   const { qrUnplaced } = await import("../builder/site-qr-list.mjs");

@@ -6238,6 +6238,31 @@ export function routedSources(pages, parts) {
  * `tel:` reaching here (it parses, and its pathname is a phone number) is told
  * from a real page.
  */
+/**
+ * THE ADD-ON'S DESTINATION RULE, FOR THE EDIT LANE THAT RE-POINTS A CODE
+ * (2026-10-23, audit A31-4). `cleanAdd` resolves a bare route against the
+ * site's address and refuses a page the site lacks, in either spelling; the qr
+ * lane's patch did neither, so `/booking` was drawn as the literal text and an
+ * own-site URL to a missing page was printed as a 404. One rule, handed to
+ * `patchQr` as its `check`. `routes` are the site's pages as they stand.
+ */
+export function qrDestinationCheck({ base, routes } = {}) {
+  const have = Array.isArray(routes) ? routes : [];
+  const b = siteAddress(base);
+  return (points) => {
+    if (typeof points !== "string") return { ok: true, points };
+    if (points.startsWith("/")) {
+      const own = route(points);
+      if (!own || !have.includes(own)) return { ok: false, why: "no-such-page" };
+      if (!b) return { ok: false, why: "no-address" };
+      return { ok: true, points: new URL(own, b).href };
+    }
+    const mine = qrSiteRoute(points, b);
+    if (mine.ours && !have.includes(mine.route)) return { ok: false, why: "no-such-page" };
+    return { ok: true, points };
+  };
+}
+
 export function qrSiteRoute(points, base) {
   const miss = { ours: false, route: "" };
   if (!base || typeof points !== "string" || !points) return miss;

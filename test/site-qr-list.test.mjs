@@ -225,7 +225,7 @@ test("the edit route folds the lane's patch over the stored list and refuses wit
   // never reaches this fold — the removal names its codes through `take_off`
   // above it (driven in `partial-removal.test.mjs`) — so the fold is handed
   // the lane's patch and nothing else.
-  assert.match(body, /const patched = patchQr\(\(priorLook \|\| \{\}\)\.qr, ran\.value\);/, "the patch is not folded over the stored list");
+  assert.match(body, /const patched = patchQr\(\(priorLook \|\| \{\}\)\.qr, ran\.value, \{ check: qrDestinationCheck\(\{ base: qrBase, routes: eRoutes\(\) \}\) \}\);/, "the patch is not folded over the stored list, or not under the site's destination rule");
   const takeOff = loop.indexOf("if (eRemoves.remove.includes(field) && takeOffLane(field)) {");
   assert.ok(takeOff > 0 && takeOff < fold, "a removal is not answered ahead of the qr fold — a code asked off would be read as a patch");
   assert.match(body, /if \(!patched\.ok\) \{/, "a refused patch is not refused");
