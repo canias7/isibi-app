@@ -221,7 +221,9 @@ test("every model call on the addon route rides the job's clock", () => {
   // express. Anything else reaching `quickSend` directly is a call off the
   // clock, which is what this guard exists to refuse.
   const bare = [...b.matchAll(/quickSend\(env/g)].length;
-  assert.equal(bare, 2, `${bare} calls reach quickSend directly — only aQuick's own definition and the repair round's may`);
+  // THREE (2026-10-23): aQuick's own definition, the seam's repair round and the compile repair round — both repairs ride `repairClock`.
+  assert.equal(bare, 3, `${bare} calls reach quickSend directly — only aQuick's own definition and the two repair rounds may`);
+  assert.equal([...b.matchAll(/quickSend\(env, "repair", repairClock\(aClock\)\)/g)].length, 2, "a repair call does not ride the job's clock");
   assert.match(b, /quickSend\(env, "repair", repairClock\(aClock\)\)/, "the repair call does not ride the job's clock through repairClock");
   assert.match(b, /const aClock = job && job\.budget && typeof job\.budget\.canRepair === "function" \? job\.budget : null;/,
     "aClock is not the job's own budget, so the repair clock is not the job's");

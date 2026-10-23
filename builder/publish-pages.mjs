@@ -1410,7 +1410,7 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
   // thing that is no longer there; and long before the compile, so it costs not
   // even a container run. Nothing is guessed: an ambiguous module is left for
   // `tsc` to refuse honestly.
-  const rep = repairImports(v.pages);
+  const rep = repairImports(v.pages, { parts: v.parts });
   v.pages = rep.pages;
   // THE PARTS TOO, because they compile in the SAME PROGRAM — `validatePages`
   // says exactly this where it runs `undupe` over both, and a bad import in a
@@ -1418,7 +1418,7 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
   // naming a file the customer never asked for and cannot see. Reported in the
   // one list: an entry says which file it was in, so two lists would only be two
   // things to forget to read.
-  const repParts = repairImports(v.parts);
+  const repParts = repairImports(v.parts, { parts: v.parts });
   v.parts = repParts.pages;
   sitePartsForBuild = v.parts;
   const allFixed = rep.fixed.concat(repParts.fixed);

@@ -103,6 +103,7 @@ import { checklistFromDesign } from "./builder/build-checklist.mjs";
 import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { quickChecks } from "./site-security.mjs";
 import { deepScan, planScan } from "./builder/security-scan.mjs";
+import { securityOfferFacts, securityWorkingFacts, securityReportFacts, securityProgressFacts } from "./builder/security-say.mjs";
 import { OFFLINE_COLUMN, siteOffline, offlineStamp } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, STOPPED_FREE_MSG, STOPPED_SHORT_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE, carryPanelFields, keepPanelDescription } from "./site-meta.mjs";
@@ -314,6 +315,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // against, in place of "nobody can see one".
 import { addedByRoute, publishedTexts, componentEvidence } from "./builder/content-evidence.mjs";
 import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, qrShownSources, qrDestinationCheck, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
+import { compileRepairRound } from "./builder/compile-repair.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig, writesSchema as partWritesSchema } from "./builder/request-plan.mjs";
@@ -17608,12 +17610,12 @@ async function publishBeside(env, opts) {
   }
 }
 
-async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = null, trace = null, job = null, parts = null, afterCompile = null, models = null, charge = null, held = null, charges = null, liveWhenClean = false }) {
+async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = null, trace = null, job = null, parts = null, afterCompile = null, onCompileFail = null, models = null, charge = null, held = null, charges = null, liveWhenClean = false }) {
   // A JOB RUNNING BESIDE OTHERS OF ITS REQUEST publishes through the site's
   // turn and the rebase (`publishBeside`), which calls back in here with the
   // rebased pages; every other caller goes straight on, as before.
   if (job && job.beside && !job.beside.inTurn && writesBeside(env) && env.SITES_BUCKET) {
-    return publishBeside(env, { slug, pages, label, renamed, verifyCss, trace, job, parts, afterCompile, models, charge, charges, held });
+    return publishBeside(env, { slug, pages, label, renamed, verifyCss, trace, job, parts, afterCompile, onCompileFail, models, charge, charges, held });
   }
   // ONE LOCAL, so the five call sites below read the same way whether or not
   // a trace was passed. Never throws — see `edit-trace.mjs`.
@@ -18255,6 +18257,39 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   if ((!built || built.ok !== true) && wasKilled(built && built.error)) {
     killed = true;
     built = await compile();
+  }
+  // ── A COMPILE THAT FAILED ON THE CODE GETS ONE REPAIR ROUND (2026-10-23) ──
+  //
+  // `saltmarsh-and-sparrow`: an add-on page's misspelt import failed vite and
+  // the route gave up, because the only repair round sat at the seam below,
+  // AFTER a successful compile. A caller may hand `onCompileFail`: it is given
+  // the compiler's own message and the page list, once, and may answer a
+  // corrected list with its build (`recompile`, the same compile). Only a
+  // failure of the CODE is offered: a killed container, a timeout or no room
+  // never judged the code. A hook that throws is ignored and the failure
+  // stands as before.
+  if ((!built || built.ok !== true || !built.files) && typeof onCompileFail === "function"
+      && !killed && !(built && built.timedOut) && !(built && built.room)) {
+    tm("compile-repair", "start");
+    let fix = null;
+    try {
+      fix = await onCompileFail({
+        error: String((built && built.error) || ""), stage: String((built && built.stage) || ""), pages, job,
+        recompile: async (list) => { files = filesFor(list); return compile(); },
+      });
+    } catch (e) {
+      console.error("onCompileFail failed:", slug, e && e.message);
+      fix = null;
+    }
+    if (fix && fix.built && fix.built.ok === true && fix.built.files && Array.isArray(fix.pages)) {
+      built = fix.built; pages = fix.pages;
+      tm("compile-repair", "ok");
+    } else {
+      // THE FILES GO BACK TO THE PAGES THAT STAND, so nothing below reads a
+      // corrected list that never compiled.
+      files = filesFor(pages);
+      tm("compile-repair", "fail");
+    }
   }
   if (!built || built.ok !== true || !built.files) {
     // AND IT SAYS WHOSE FAULT IT WAS. `killed` is the difference between "your
@@ -40111,12 +40146,12 @@ async function handleRequest(request, env, ctx) {
               // BEFORE THE LINT, or the lint reports an import the repair has
               // already fixed and the customer is told about a problem that no
               // longer exists.
-              const pRepair = repairImports(pValid.pages);
+              const pRepair = repairImports(pValid.pages, { parts: pValid.parts });
               pValid.pages = pRepair.pages;
               // AND THE PARTS, which compile in the same program — a bad import
               // in a hand-written component takes the build down exactly as one
               // in a page does.
-              pValid.parts = repairImports(pValid.parts).pages;
+              pValid.parts = repairImports(pValid.parts, { parts: pValid.parts }).pages;
               const pProblems = pValid.problems.concat(lintPages(pValid.pages, eSpec));
               // ONLY THE PAGE THAT WAS ASKED FOR. A page edit that returns a
               // different file is not a page edit, and taking it would let one
@@ -43305,6 +43340,9 @@ async function handleRequest(request, env, ctx) {
             // provision started, not yet awaited. Every exit settles it first
             // (`aProvSettle`), so what is said about the site is what stands.
             let aProvWait = null;
+            // …OR WAITING FOR THE COMPILE (page path, 2026-10-23): run at the
+            // seam, and its failure (`aProvLate`) answered as one.
+            let aProvDeferred = null, aProvLate = null;
             const aProvSettle = async () => { if (!aProvWait) return null; const w = aProvWait; aProvWait = null; return w; };
             // THE PROVISION'S FAILURE, SAID AS BEFORE (moved here unchanged
             // when the provision began to run beside the page writer).
@@ -44205,7 +44243,7 @@ async function handleRequest(request, env, ctx) {
                 // the top of the pageless path, and before every exit; a failure
                 // answers exactly as it did, and the reserve already taken is
                 // refunded with the rest of a job that did not ship.
-                aProvWait = ensureSiteBackend(env, ownerSlug, ou.id, aInstruction, (n) => aMark("prov:" + n, "ok")).then((db) => {
+                const aProvRun = () => ensureSiteBackend(env, ownerSlug, ou.id, aInstruction, (n) => aMark("prov:" + n, "ok")).then((db) => {
                   adb = db;
                   aProvisioned = true;
                   aMark("provision", "ok");
@@ -44215,6 +44253,17 @@ async function handleRequest(request, env, ctx) {
                   console.error("addon provision failed:", ownerSlug, e && e.status, e && (e.detail || e.message));
                   return e || new Error("provision failed");
                 });
+                // ⚠ ON THE PAGE PATH, NOT UNTIL THE PAGES COMPILE (2026-10-23).
+                // Started beside the page writer, a database was made for an
+                // addition whose pages then failed to compile, and nothing undid
+                // it (`saltmarsh-and-sparrow`: an orphan project). Undoing a
+                // provision touches four stores (the project row, the backend
+                // row, the route, Neon) on a live site, so it is not attempted;
+                // the provision waits for the seam instead, after a successful
+                // compile and right before the schema's apply. The pageless
+                // path has no compile and starts it now, as before.
+                if (pageless(aAnswers)) aProvWait = aProvRun();
+                else aProvDeferred = aProvRun;
                 // A DATABASE JUST MADE STORES NOTHING — the honest spec, the
                 // one a site with no database was described by above.
                 aSpec = { tables: [] };
@@ -45168,12 +45217,13 @@ async function handleRequest(request, env, ctx) {
             // invented export name is a tsc failure that costs the whole change,
             // and the build path has fixed it deterministically since it shipped
             // while both generating lanes did not.
-            const aRepair = repairImports(aValid.pages);
+            const aPartsKnown = [...(aValid.parts || []), ...(Array.isArray(aStoredParts) ? aStoredParts : [])];
+            const aRepair = repairImports(aValid.pages, { parts: aPartsKnown });
             aValid.pages = aRepair.pages;
             // AND THE PARTS, which compile in the same program — a bad import
             // in a hand-written component takes the build down exactly as one
             // in a page does.
-            aValid.parts = repairImports(aValid.parts).pages;
+            aValid.parts = repairImports(aValid.parts, { parts: aPartsKnown }).pages;
             const aProblems = aValid.problems.concat(lintPages(aValid.pages, aSpec));
             // `remove` IS OPTIONAL ON THE TOOL and the build prompt never mentions
             // it, so no build request changes shape. Only the addon prompt
@@ -46203,6 +46253,14 @@ async function handleRequest(request, env, ctx) {
               // record `failed`, the route says it is ours.
               if (aApplyBackend) {
                 if (aCharges.refused() > 0) { aMark("schema", "skip", { why: "unbilled" }); return aSwap; }
+                // THE DATABASE, MADE ONLY NOW THAT THE PAGES COMPILED (2026-10-23).
+                if (aProvDeferred) {
+                  const run = aProvDeferred;
+                  aProvDeferred = null;
+                  aMark("provision", "start", { after: "compile" });
+                  const pe = await run();
+                  if (pe) { aProvLate = pe; return { refuse: { error: "provision", detail: String((pe && (pe.detail || pe.message)) || ""), ours: true } }; }
+                }
                 const ap = await aApplyBackend(version);
                 if (!ap.ok) return { refuse: { error: "schema", detail: ap.detail, ours: true } };
                 // THE STORED COVERAGE, RE-WRITTEN OVER THE APPLIED RESULT — the
@@ -46213,6 +46271,31 @@ async function handleRequest(request, env, ctx) {
                 await aSaveAnswer();
               }
               return aSwap;
+            };
+            // ── A PAGE THAT DID NOT COMPILE GETS ONE REPAIR ROUND (2026-10-23) ──
+            //
+            // The seam above runs only after a successful compile, so a
+            // misspelt import (`saltmarsh-and-sparrow`, vite) ended the add-on
+            // with no repair. The spine offers the compiler's message here,
+            // once; the writer fixes only the pages this addition wrote, the
+            // same clock as the seam's round, and its spend is reserve #6.
+            let aCompileRepair = null;
+            const aOnCompileFail = async ({ error, pages, recompile, job }) => {
+              const aClock = job && job.budget && typeof job.budget.canRepair === "function" ? job.budget : null;
+              const room = !aClock || aClock.canRepair(aRepairNeedMs);
+              aMark("compile-repair", "start", { room, touched: aTouched.length });
+              aCompileRepair = await compileRepairRound({
+                error, pages, touched: aTouched, room,
+                send: quickSend(env, "repair", repairClock(aClock)), model: aModels.quick, compile: recompile,
+              });
+              aMark("compile-repair", aCompileRepair.ran ? (aCompileRepair.built ? "ok" : "fail") : "skip",
+                { why: String(aCompileRepair.why || aCompileRepair.failed || ""), repaired: aCompileRepair.repaired.length });
+              // CHARGED ONLY WHEN IT FIXED THE BUILD: a failed addition costs nothing.
+              if (aCompileRepair.built && aCompileRepair.usage.length) {
+                try { aCompileRepair.charged = Number(await aCharge(pageCredits(...aCompileRepair.usage), 6)) || 0; }
+                catch (e) { aCompileRepair.charged = 0; console.error("addon compile repair charge failed:", ownerSlug, e && e.message); }
+              }
+              return aCompileRepair.built ? { built: aCompileRepair.built, pages: aCompileRepair.pages } : null;
             };
             // ── THE TRANSLATION CALLS' SPEND, THE REPAIR ROUND'S SHAPE (run 39) ──
             // Under a job the spine hands the usage here the moment its
@@ -46247,6 +46330,8 @@ async function handleRequest(request, env, ctx) {
               charges: aCharges,
               // THE ADD STEP'S REPAIR ROUND, at the spine's seam — see above.
               afterCompile: aAfterCompile,
+              // AND ITS ONE ROUND FOR A PAGE THAT DID NOT COMPILE, above.
+              onCompileFail: aOnCompileFail,
               // THE PICKER'S MODELS, for the spine's translation call (run 38).
               models: aModels,
               // AND THE FUNNEL THAT CALL IS CHARGED THROUGH (run 39), above.
@@ -46286,6 +46371,9 @@ async function handleRequest(request, env, ctx) {
               // be a lie about the database — the site's PAGES are what they
               // were. No apply ran (the compile failed before the seam): no
               // record, the compile sentence alone, as before.
+              // A DATABASE THAT COULD NOT BE MADE AT THE SEAM is said as the
+              // provision's own failure, never as a compile.
+              if (aPub.error === "provision" && aProvLate) return aProvFailed(aProvLate);
               const aSchemaFail = aPub.error === "schema";
               // HELD, NOT APPLIED (draft-first on a published site, 2026-10-16):
               // the schema went to the job's held journal, which a failed save
@@ -48224,6 +48312,43 @@ async function handleRequest(request, env, ctx) {
               return { db: db0, tables: tbl, code: srcFiles };
             };
             const priceOf = (plan, model) => plan.areas.length ? pageCredits(...plan.calls.map((c) => ({ in: c.in, out: c.out, model }))) : 0;
+            // THE SCAN SAID BY THE MODEL (2026-10-23): the offer, the working
+            // line and the report, each written from its facts
+            // (`builder/security-say.mjs`); null when replies are off or none
+            // could be written, and the page then shows the bare facts.
+            const scanSay = async (facts, words, picker, rule, maxChars) => {
+              if (!repliesOn(env)) return null;
+              let out;
+              try {
+                out = await writeReply({ send: quickSend(env, "reply", replyBudget) }, {
+                  facts,
+                  context: replyContext({ request: String(words || "").slice(0, 500), site: { slug: scslug } }) + (rule ? "\n\n" + rule : ""),
+                  model: modelsFor(picker).quick,
+                  ...(maxChars ? { maxChars } : {}),
+                });
+              } catch { out = { ok: false }; }
+              return out && out.ok && typeof out.text === "string" && out.text.trim() ? out.text.trim() : null;
+            };
+            // THE RUNNING SCAN'S PROGRESS TALK (2026-10-23): each `deepScan`
+            // event is kept under the scan's key; the page reads them here and
+            // each is worded by the writer once (`securityProgressFacts`).
+            const progKey = (k) => "security/" + scslug + "/progress-" + k + ".json";
+            const progKeyOk = (k) => typeof k === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(k);
+            if (request.method === "GET" && progKeyOk(url.searchParams.get("progress"))) {
+              const k = url.searchParams.get("progress");
+              let rec = null;
+              try { const o = await env.SITES_BUCKET.get(progKey(k)); rec = o ? JSON.parse(await o.text()) : null; } catch { rec = null; }
+              const evs = rec && Array.isArray(rec.events) ? rec.events : [];
+              let wrote = false;
+              for (const ev of evs) {
+                if (typeof ev.line === "string") continue;
+                const facts = securityProgressFacts(ev.kind, ev.data);
+                ev.line = facts ? (await scanSay(facts, "", url.searchParams.get("picker"), "WRITE ONE SHORT LINE, UNDER 120 CHARACTERS, SHOWN WHILE THE CHECK RUNS.", 160)) || "" : "";
+                wrote = true;
+              }
+              if (wrote) { try { await env.SITES_BUCKET.put(progKey(k), JSON.stringify(rec)); } catch { /* worded again next read */ } }
+              return Response.json({ ok: true, lines: evs.map((e) => e.line).filter(Boolean) }, { headers: { "cache-control": "no-store" } });
+            }
             if (request.method === "GET") {
               let rep = null;
               try { const o = await env.SITES_BUCKET.get(reportKey); rep = o ? JSON.parse(await o.text()) : null; } catch { rep = null; }
@@ -48232,10 +48357,21 @@ async function handleRequest(request, env, ctx) {
               const inp = await scanInputs();
               const std = planScan({ files: inp.code, tables: inp.tables });
               const thr = planScan({ files: inp.code, tables: inp.tables, thorough: true });
+              const stdCredits = priceOf(std, model);
+              // `say=1`: THE OFFER IN THE MODEL'S WORDS — what it will check and
+              // the price — and its line for while it works. Nothing is charged.
+              let said = null, working = null;
+              if (url.searchParams.get("say") === "1") {
+                const words = url.searchParams.get("message") || "";
+                [said, working] = await Promise.all([
+                  scanSay(securityOfferFacts({ plan: std, credits: stdCredits }), words, url.searchParams.get("picker"), "THIS IS AN OFFER: NOTHING HAS RUN YET. SAY WHAT THE CHECK WILL LOOK AT AND ITS PRICE, AND THAT THEY CONFIRM WITH THE BUTTON BELOW."),
+                  scanSay(securityWorkingFacts({ plan: std }), words, url.searchParams.get("picker"), "WRITE ONE SHORT LINE, UNDER 120 CHARACTERS, SHOWN WHILE THE CHECK RUNS.", 160),
+                ]);
+              }
               return Response.json({ ok: true, report: rep, estimate: {
-                standard: { credits: priceOf(std, model), areas: std.areas.map((a) => a.title) },
+                standard: { credits: stdCredits, areas: std.areas.map((a) => a.title) },
                 thorough: { credits: priceOf(thr, model), areas: thr.areas.map((a) => a.title) },
-              } }, { headers: { "cache-control": "no-store" } });
+              }, ...(said ? { say: said } : {}), ...(working ? { working } : {}) }, { headers: { "cache-control": "no-store" } });
             }
             if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
             const checked = [];
@@ -48289,7 +48425,16 @@ async function handleRequest(request, env, ctx) {
               const plan = planScan({ files: sfiles, tables, thorough });
               // NEVER MORE THAN THE PRICE SHOWN (2026-10-21): the estimate is the cap.
               const cap = priceOf(plan, model);
-              const deep = await deepScan({ send: quickSend(env, "security") }, { model, files: sfiles, facts, tables, thorough, plan });
+              // EACH STEP KEPT FOR THE PROGRESS TALK, when the chat asked (`say`).
+              const progEvents = [];
+              let progChain = Promise.resolve();
+              const progSay = scbody.say === true && progKeyOk(scbody.key) ? (kind, data) => {
+                progEvents.push({ kind, data, at: Date.now() });
+                const snap = JSON.stringify({ events: progEvents });
+                progChain = progChain.then(() => env.SITES_BUCKET.put(progKey(scbody.key), snap)).catch(() => {});
+              } : undefined;
+              const deep = await deepScan({ send: quickSend(env, "security") }, { model, files: sfiles, facts, tables, thorough, plan, ...(progSay ? { say: progSay } : {}) });
+              await progChain;
               report.thorough = thorough;
               let cost = 0;
               if (deep.usage.length) {
@@ -48309,7 +48454,11 @@ async function handleRequest(request, env, ctx) {
               report.findings.sort((a, b) => order[a.severity] - order[b.severity]);
             }
             try { await env.SITES_BUCKET.put(reportKey, JSON.stringify(report), { httpMetadata: { contentType: "application/json" } }); } catch { /* the answer still stands */ }
-            return Response.json({ ok: true, report });
+            // THE REPORT IN THE MODEL'S WORDS, when the chat asked (`say`).
+            const reportSaid = scbody && scbody.say === true && report.kind === "deep"
+              ? await scanSay(securityReportFacts(report), scbody.message, scbody.picker, "THE CHECK HAS FINISHED. SAY WHAT IT FOUND.")
+              : null;
+            return Response.json({ ok: true, report, ...(reportSaid ? { say: reportSaid } : {}) });
           } else if (sq) {
             // ── SEO & SOCIAL ─────────────────────────────────────────────────
             //

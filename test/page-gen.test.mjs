@@ -5119,9 +5119,9 @@ test("the page and addon rungs repair their parts, not only their pages", () => 
   assert.equal(code.length, w.length, "the blanker moved a byte");
 
   for (const v of ["pValid", "aValid"]) {
-    assert.ok(code.includes("repairImports(" + v + ".pages)"),
+    assert.ok(code.includes("repairImports(" + v + ".pages, { parts: "),
       v + " stopped repairing its pages — this guard is measuring the wrong thing");
-    assert.ok(code.includes(v + ".parts = repairImports(" + v + ".parts).pages;"),
+    assert.ok(code.includes(v + ".parts = repairImports(" + v + ".parts, { parts: "),
       v + " repairs its pages and leaves its hand-written components alone");
   }
 });

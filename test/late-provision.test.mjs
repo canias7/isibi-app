@@ -38,7 +38,7 @@ import { backendState } from "../site-backend-state.mjs";
 import { failureOutcome, failureNote } from "../builder/site-add.mjs";
 import { addonReplyFacts, outcomeReads } from "../builder/site-reply.mjs";
 import { projectNameForSite } from "../site-db.mjs";
-import { addon, USER } from "./fixtures/addon-route.mjs";
+import { addon, USER, writtenPage } from "./fixtures/addon-route.mjs";
 
 const UID = "u-owner";
 const SLUG = "fold-lane";
@@ -877,7 +877,7 @@ test("PROV 7 — OWNERSHIP AND CANNOT-TELL: a project row another account owns i
 
 test("PROV 8 — THE ADD-ON'S ANSWER FOR A PROVISION THAT FAILED AFTER ITS PROJECT WAS RECORDED: a database started and kept, told in its outcome, its facts and its note — never \"nothing was changed\"; a failure before any project still says nothing changed", async () => {
   const r = await addon("lp-kept", "keep a list of breads", {
-    backend: "none", provisions: true, kinds: ["table"], publishes: true, written: [],
+    backend: "none", provisions: true, kinds: ["table"], publishes: true, written: [writtenPage("/breads")],
     neonFail: /\/databases$/,
     answers: { table: { table: [{ table: { name: "breads", access: "display", columns: [{ name: "name", type: "text" }] } }] } },
   });
@@ -895,7 +895,7 @@ test("PROV 8 — THE ADD-ON'S ANSWER FOR A PROVISION THAT FAILED AFTER ITS PROJE
   assert.ok(!f.some((t) => t.startsWith("not-done: Nothing was added.")), JSON.stringify(f));
   // CONTROL: a project that was never made — Neon refused the create (a 4xx).
   const before = await addon("lp-none", "keep a list of breads", {
-    backend: "none", provisions: true, kinds: ["table"], publishes: true, written: [],
+    backend: "none", provisions: true, kinds: ["table"], publishes: true, written: [writtenPage("/breads")],
     neonFail: /\/projects$/, neonFailStatus: 422,
     answers: { table: { table: [{ table: { name: "breads", access: "display", columns: [{ name: "name", type: "text" }] } }] } },
   });
@@ -903,7 +903,7 @@ test("PROV 8 — THE ADD-ON'S ANSWER FOR A PROVISION THAT FAILED AFTER ITS PROJE
   assert.match(before.body.msg, /nothing was changed/);
   // …WHILE A 5xx MAY HAVE MADE ONE: when that cannot be established, it is said as unknown, never "nothing was changed".
   const maybe = await addon("lp-maybe", "keep a list of breads", {
-    backend: "none", provisions: true, kinds: ["table"], publishes: true, written: [],
+    backend: "none", provisions: true, kinds: ["table"], publishes: true, written: [writtenPage("/breads")],
     neonFail: /\/projects$/,
     answers: { table: { table: [{ table: { name: "breads", access: "display", columns: [{ name: "name", type: "text" }] } }] } },
   });
@@ -929,7 +929,7 @@ function listing(bucket, size = 1000) {
   };
 }
 const BREADS = { table: { table: [{ table: { name: "breads", access: "display", columns: [{ name: "name", type: "text" }] } }] } };
-const PROVISIONING = { backend: "none", provisions: true, kinds: ["table"], publishes: true, written: [], answers: BREADS };
+const PROVISIONING = { backend: "none", provisions: true, kinds: ["table"], publishes: true, written: [writtenPage("/breads")], answers: BREADS };
 const NOTES = (slug) => "source/" + slug + "/neon-unrecorded/";
 const notesIn = (store, slug) => [...store.store.keys()].filter((k) => k.startsWith(NOTES(slug))).map((k) => JSON.parse(store.store.get(k)));
 

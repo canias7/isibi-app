@@ -132,7 +132,10 @@ const SIGNUP_ANSWERS = (pages) => ({
 });
 const addonJobOf = (P) => [...P.jobs.values()].find((j) => j.op === "addon");
 
-test("STOP 1 — AN ADDITION STOPPED AT ITS PUBLISH GATE AFTER A DATABASE WAS MADE FOR THE SITE: the stored stop carries the outcome its own evidence gives — a database made, nothing in it, nothing published — and its coverage; its request part is stopped, never told as stopped before anything changed; one project was made", async () => {
+// ⚠ REVERSED 2026-10-23: on the page path the database is made only after the
+// pages compile (`saltmarsh-and-sparrow`'s orphan database), so a stop while
+// the pages are written makes none. This case pinned the orphan as the outcome.
+test("STOP 1 — AN ADDITION STOPPED WHILE ITS PAGES WERE WRITTEN MAKES NO DATABASE: the stored stop carries the outcome its own evidence gives — nothing changed — and its coverage; no project was made", async () => {
   const compiler = installCompiler();
   let P = null;
   P = platform({
@@ -153,14 +156,14 @@ test("STOP 1 — AN ADDITION STOPPED AT ITS PUBLISH GATE AFTER A DATABASE WAS MA
     const job = addonJobOf(P);
     const answer = JSON.parse(job.result.body);
     assert.deepEqual([answer.ok, answer.error], [false, "cancelled"], JSON.stringify(answer).slice(0, 400));
-    assert.equal(P.neon.projects.length, 1, "the case did not make the site's database: " + JSON.stringify(P.neon.calls));
-    assert.deepEqual(answer.outcome, { state: "partial", published: false, database: "none", provisioned: true }, "the stop does not carry what its own evidence gives");
+    assert.equal(P.neon.projects.length, 0, "a database was made for an addition stopped before its pages compiled: " + JSON.stringify(P.neon.calls));
+    assert.deepEqual(answer.outcome, { state: "none", published: false, database: "none" }, "the stop does not carry what its own evidence gives");
     // AND THE COVERAGE THE GATE COMPOSES AGAINST THAT OUTCOME (no requirement
     // was written down here, so there is no outcome list to carry).
     assert.ok(answer.coverage && typeof answer.coverage === "object", "the stop carries no coverage: " + JSON.stringify(answer).slice(0, 300));
     const part = rec.parts.find((p) => p.status === "cancelled");
     assert.ok(part, JSON.stringify(rec.parts.map((p) => p.status)));
-    assert.equal(part.left, "partial", "the stopped part lost what stands");
+    assert.notEqual(part.left, "partial", "a stop that changed nothing is told as partial");
   } finally { P.close(); compiler.uninstall(); }
 });
 

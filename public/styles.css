@@ -2033,6 +2033,10 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-frame-bar { display: flex; align-items: center; padding: .5rem .7rem; border-bottom: 1px solid var(--line); background: var(--panel); flex: none; }
 .st-frame-url { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: .32rem .7rem; font-family: 'Inter', system-ui, sans-serif; font-size: .72rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
 .st-frame iframe { flex: 1; width: 100%; border: 0; background: #fff; }
+.st-frame { position: relative; }
+.st-frame-loading { position: absolute; left: 0; right: 0; top: 2.6rem; bottom: 0; display: flex; align-items: center; justify-content: center; gap: .6rem; background: var(--bg); color: var(--muted); font-size: .85rem; }
+.st-frame-spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line-2); border-top-color: var(--muted); animation: st-frame-spin .8s linear infinite; }
+@keyframes st-frame-spin { to { transform: rotate(360deg); } }
 .st-stage[data-dev="desktop"] .st-frame { width: 100%; }
 .st-stage[data-dev="tablet"] .st-frame { width: 860px; max-width: 100%; }
 .st-stage[data-dev="phone"] .st-frame { width: 412px; max-width: 100%; }

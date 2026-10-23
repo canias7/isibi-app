@@ -1,5 +1,13 @@
 # Owner Notes
 
+## 2026-10-23, late night — Add-ons repair a page that didn't compile, no stray databases, preview loads cleanly, /sentinel talks (branch `fix-addon-preview`, not merged, not deployed)
+
+- **An add-on whose page didn't compile now gets fixed instead of giving up.** The `saltmarsh-and-sparrow` failure was an import written `/components/...` instead of `@/components/...`. Those misspellings are now corrected automatically, but only when the file really exists (a kit part or one of the site's own components); nothing is guessed. If the compile still fails, the page writer is shown the compiler's message once and the site is compiled once more. That repair is charged only if it worked; a failed addition still costs nothing.
+- **No more stray databases.** A database used to be made while the pages were being written, so a failed addition left one behind. Undoing a database safely on a live site isn't possible today, so now it is made only after the pages compile, right before the tables go in. Additions with no pages work as before.
+- **The preview no longer flashes "This site isn't published yet…".** While the site's draft is still being read, the frame shows "Loading your preview…". When you reopen a site in the same session, the last draft it showed opens straight away. A never-published site never shows the live placeholder.
+- **/sentinel now works like asking the builder.** Typing it sends "/sentinel — please run a deep security check of my site" as your own message. The builder answers in its own words with what it will check and the price (sized to your site, as before), with "Yes, run the check" and "Not now" buttons. The report afterwards is in its own words too. Asking in plain words ("is my site secure?") goes the same way, so it no longer starts the paid scan without showing the price first.
+- Nothing spent, no model called. The screenshots use stub text clearly labelled as a stub. Record: `docs/history/2026-10-23-fix-addon-preview.md`.
+
 ## 2026-10-23, night — Slash commands in the project chat, first one `/sentinel` (branch `slash-commands`, not merged, not deployed)
 
 - Typing "/" at the start of a message opens a small menu above the box: each command with one line about it. Typing filters it, arrows and Enter (or a click) pick, Esc closes.
