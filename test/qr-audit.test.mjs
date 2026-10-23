@@ -20,6 +20,9 @@ test("A31-5: a designed code the publish cannot draw is not stored; the drawable
   // A STORED list is left as it was, so an unrelated edit moves nothing.
   const stored = [PAY, WIFI];
   assert.equal(mergeLook({ qr: stored }, { description: "x" }, {}, { instructed: true }).qr, stored);
+  // …and a stored undrawable code carried along by a patch to another stays.
+  const patched = [PAY, { ...WIFI, label: "Join us" }];
+  assert.deepEqual(mergeLook({ qr: stored }, { qr: patched }, {}, { instructed: true, asked: true }).qr.map((c) => c.name), ["pay", "wifi"]);
 });
 
 test("A31-7: a wifi code is checked field by field; an escaped one is accepted", () => {

@@ -702,12 +702,14 @@ export function mergeLook(prior, designed, body, { instructed = false, asked = f
     // A DESIGNED CODE THAT CAN NEVER BE DRAWN IS NOT STORED (2026-10-23, audit
     // A31-5). The publish refuses it with a log line only, while the page writer
     // is told about every stored code and the name stays taken. Only the
-    // designer's answer is filtered here: a stored list is left as it was, so an
-    // unrelated edit never reports the codes as changed.
+    // designer's answer is filtered here, and only its NEW codes: a stored list,
+    // and a stored code an add-on or a patch carries along, are left as they
+    // were, so no change takes off a code nobody asked about.
     // A designed list with nothing to drop keeps its own shape.
     if (k === "qr" && out[k] != null && out[k] === d[k]) {
+      const had = new Set(qrList(p[k]).map((c) => c.name + "\n" + c.points));
       const codes = qrList(out[k]);
-      const drawn = codes.filter((c) => readQrText(c.points).text);
+      const drawn = codes.filter((c) => readQrText(c.points).text || had.has(c.name + "\n" + c.points));
       if (drawn.length !== codes.length) out[k] = drawn;
     }
     // A MARK LEAVES HERE AS A FORM, WHATEVER IT ARRIVED AS (2026-09-07).
