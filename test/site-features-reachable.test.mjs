@@ -173,7 +173,10 @@ test("EVERY field the normaliser produces survives into _meta", () => {
   // override list is only safe while that list stays short and deliberate; an
   // override of a DECLARED field would drop it just as the old list did.
   const overrides = (call.match(/(\w+):/g) || []).map((x) => x.slice(0, -1));
-  const allowed = new Set(["name", "access", "retired", "columns", "refs", "refModes", "rules", "num", "json"]);
+  const allowed = new Set(["name", "access", "retired", "columns", "refs", "refModes", "rules", "num", "json",
+    // `int` (2026-10-23, review of r1-combine): the integer columns among
+    // `num`, recomputed like `num`, so noOverlap accepts only int4range-able ones.
+    "int"]);
   for (const k of overrides) {
     assert.ok(allowed.has(k), `${k} is being recomputed over the normalised value — is that deliberate?`);
   }
