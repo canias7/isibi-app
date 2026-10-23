@@ -107,6 +107,13 @@ const CASES = [
   ["also-not-text", () => routed({ intent: "addon", alsoAsked: ["a", 7] }), "model"],
   ["also-not-text", () => routed({ intent: "addon", alsoAsked: 7 }), "model"],
   ["also-several", () => routed({ intent: "addon", alsoAsked: ["and a gallery", "and a map"] }), "model"],
+  // HELD BACK BY ITEM NUMBER (2026-10-23, `itemsToWords`).
+  ["items-shown", () => routed({ intent: "addon" }, { message: "Add a gallery. Add a map." }), "model"],
+  ["items-held", () => routed({ intent: "addon", heldItems: [2] }, { message: "Add a gallery. Add a map." }), "model"],
+  ["items-out", () => routed({ intent: "addon", heldItems: [9, 2] }, { message: "Add a gallery. Add a map." }), "model"],
+  ["items-all-held", () => routed({ intent: "addon", heldItems: [1, 2] }, { message: "Add a gallery. Add a map." }), "model"],
+  ["items-unread", () => routed({ intent: "addon", heldItems: "2" }, { message: "Add a gallery. Add a map." }), "model"],
+  ["items-ignored", () => routed({ intent: "addon", heldItems: [1] }), "model"],
   // LONGER THAN ANY MESSAGE OF A SITE (the size policy's, 2026-10-03; it was 2,000).
   ["also-too-long", () => routed({ intent: "addon", alsoAsked: "x".repeat(MAX_INPUT_CHARS + 1) }), "model"],
   ["also-ignored", () => routed({ intent: "build", alsoAsked: "and a map" }), "model"],
