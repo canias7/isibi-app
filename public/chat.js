@@ -4236,9 +4236,8 @@ const stStageView = (view, hasData) =>
 let siteMoreTab = 'analytics'; // More sub-nav: analytics | cloud | security | seo
 let siteDataTable = '';     // Data panel: which table is open
 let siteDataForm = null;    // Data panel: the add/edit row form ({editId, values}) when open
-// The Code tab's fetched source, and which file of it is open. `siteCodeFiles` is
-// what the top bar's Download zips, so the tab and the download can never
-// disagree about what the site is made of — one list, two readers.
+// The Code tab's fetched source, and which file of it is open. The top bar's
+// Download asks the server itself (audit A15-2): this list has no project on it.
 let siteCodeFiles = [];     // Code panel: [{name, text}] from /api/site/source
 let siteCodeOpen = '';      // Code panel: the open file, kept by NAME across renders
 // WHICH FOLDERS ARE OPEN, and `null` is a THIRD state rather than "none of
@@ -4815,13 +4814,25 @@ function sitesMerge(mine, theirs, now = Date.now()) {
     }
   }
 }
+/**
+ * THE TWENTY RECORDS THIS BROWSER KEEPS (audit A15-3, 2026-10-23): the open
+ * site first, then the most recently changed (`updatedAt`), kept in the
+ * list's own order. The first twenty by position dropped an open, active
+ * older site, and with it its requests and undo offer, on the next reload.
+ */
+function sitesKept(all, openId, max = 20) {
+  if (all.length <= max) return all.slice();
+  const t = (s) => (s && openId && s.id === openId ? Infinity : Number(s && (s.updatedAt || s.createdAt)) || 0);
+  const keep = new Set(all.map((s, i) => i).sort((a, b) => t(all[b]) - t(all[a]) || a - b).slice(0, max));
+  return all.filter((s, i) => keep.has(i));
+}
 function sitesSave() {
   // WHAT ANOTHER TAB SAVED SINCE THIS ONE LAST LOOKED, taken in before this one writes.
   if (sitesStoredStale) {
     sitesStoredStale = false;
     try { sitesMerge(sitesCache, JSON.parse(localStorage.getItem(SITES_KEY) || '[]')); } catch (e) { /* an unreadable copy is overwritten as before */ }
   }
-  const build = () => (sitesCache || []).slice(0, 20).map((s) => ({
+  const build = () => sitesKept(sitesCache || [], siteOpenId).map((s) => ({
     ...s,
     html: (s.html || '').slice(0, 400000),
     // EVERY PAGE'S ADDRESS AND NAME, AND THE MARKUP OF THE FIRST SIX (2026-10-03,
@@ -9574,23 +9585,24 @@ function renderSiteWorkspace(view, site) {
   //
   // IT FETCHES RATHER THAN READING THE TAB. The Code tab fills `siteCodeFiles`,
   // but a customer may press this having never opened it — so the button asks
-  // for the source itself and the tab's list is only a cache. Reading the tab
+  // for the source itself. Reading the tab
   // alone would have made the button work or not depending on where they had
   // clicked first, which is the worst kind of control: one that is sometimes
   // right.
+  //
+  // AND IT ALWAYS FETCHES (audit A15-2, 2026-10-23). The tab's list is one
+  // list for the page, with no project on it and never refreshed after an
+  // edit, so reading it zipped another project's code, or the code from
+  // before the last change, under this site's name.
   const dl = document.getElementById('stDl');
   if (dl) dl.onclick = async () => {
     if (dl.disabled) return;
     const stamp = dl.title;
     dl.disabled = true; dl.title = 'Getting your code\u2026';
     try {
-      let files = siteCodeFiles;
-      if (!files.length) {
-        const r = await apiFetch('/api/site/source?slug=' + encodeURIComponent(site.slug || ''));
-        const d = await r.json().catch(() => ({}));
-        files = (r.ok && d && d.ok) ? stSrcFiles(d) : [];
-        siteCodeFiles = files;
-      }
+      const r = await apiFetch('/api/site/source?slug=' + encodeURIComponent(site.slug || ''));
+      const d = await r.json().catch(() => ({}));
+      const files = (r.ok && d && d.ok) ? stSrcFiles(d) : [];
       // NOTHING TO ZIP IS SAID, NEVER SHIPPED AS AN EMPTY ARCHIVE. A zip with
       // no entries opens to an empty folder, which reads as "my code is gone".
       if (!files.length) { if (typeof sbToast === 'function') sbToast('No code stored for this site yet.'); return; }

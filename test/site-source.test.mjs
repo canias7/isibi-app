@@ -653,7 +653,6 @@ test("DRIVEN: the download asks the server for itself, having never opened the t
     assert.equal(f.saved[0].name, "fretwork-1.zip");
     assert.ok(f.saved[0].size > 22, "an EMPTY archive was saved — 22 bytes is the end record and nothing else");
     assert.deepEqual(f.said, [], "a working download said something went wrong");
-    assert.equal(f.d.cache.length, 1, "the answer was not kept for the tab");
     // AND THE BUTTON COMES BACK. Its own `finally`, so a failed press does not
     // leave the control dead and reading "Getting your code…" for ever.
     assert.equal(f.dl.disabled, false);
@@ -673,7 +672,7 @@ test("DRIVEN: a site with nothing stored is TOLD, never handed an empty archive"
   });
 });
 
-test("DRIVEN: a server that cannot answer is said, and the tab's list is used when it has one", () => {
+test("DRIVEN: a server that cannot answer is said, and the tab's list is never zipped instead", () => {
   const dead = pressFixture({ fail: true });
   return dead.d.press().then(() => {
     assert.equal(dead.saved.length, 0, "a failed fetch still downloaded something");
@@ -681,13 +680,20 @@ test("DRIVEN: a server that cannot answer is said, and the tab's list is used wh
     assert.match(dead.said[0], /try again/i);
     assert.equal(dead.dl.disabled, false, "the button was left dead after a failure");
 
-    // THE CACHE IS A CACHE: with the tab already filled, the press does not ask
-    // again. This is the other half of the first case — together they say the
-    // list is an optimisation rather than the source of truth.
-    const warm = pressFixture({ cache: [{ name: "src/routes/index.tsx", text: "a\n" }], fail: true });
+    // THE TAB'S LIST IS NOT THIS SITE'S CODE (audit A15-2): it may be another
+    // project's, or from before the last edit. With it filled, the press still
+    // asks, and zips only the answer, under the open site's name.
+    const other = [{ name: "src/routes/index.tsx", text: "another project\n" }];
+    const warm = pressFixture({ cache: other, answer: { ok: true, pages: [{ path: "src/routes/visit.tsx", source: "this site\n" }] } });
     return warm.d.press().then(() => {
-      assert.equal(warm.asked.length, 0, "the button re-fetched source the tab had already loaded");
-      assert.equal(warm.saved.length, 1, "the tab's own list did not reach the disk");
+      assert.equal(warm.asked.length, 1, "the button zipped the tab's list without asking");
+      assert.equal(warm.saved.length, 1);
+      assert.equal(warm.saved[0].name, "fretwork-1.zip");
+      assert.equal(warm.d.cache, other, "the press rewrote the tab's list");
+      const cold = pressFixture({ cache: other, fail: true });
+      return cold.d.press().then(() => {
+        assert.equal(cold.saved.length, 0, "the tab's list was zipped when the server could not answer");
+      });
     });
   });
 });
