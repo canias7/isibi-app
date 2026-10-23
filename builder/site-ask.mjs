@@ -2993,7 +2993,7 @@ export function askUsage(reply, model = ASK_MODEL) {
 // from a fixed list. The Worker hands in its own `upstreamKind` as `classify`,
 // so provider errors have one reader, not two.
 export const ROUTE_FAILURE_KINDS = ["request", "config", "provider", "timeout", "transport"];
-export const ROUTE_ERROR_CLASSES = ["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "TimeoutError", "AbortError"];
+export const ROUTE_ERROR_CLASSES = ["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "TimeoutError", "AbortError", "StreamError"];
 
 // THE PROVIDER CODES A FAILURE MAY NAME: a finite table, by provider (the
 // owner's review of Lane 1b, 2026-09-30). A shape check proved nothing:
@@ -3040,6 +3040,14 @@ export function routeFailure(stage, e, { model, classify } = {}) {
     return { ...out, kind: "provider", status, type, billing };
   }
   if (name === "TimeoutError" || name === "AbortError") return { ...out, kind: "timeout" };
+  // A STREAMED PROVIDER ERROR HAS NO STATUS (2026-10-23, audit A23-3), only
+  // the provider's envelope in `detail`: read it, so an exhausted account is
+  // told as billing rather than as a transport failure.
+  if (name === "StreamError" && e && typeof e.detail === "string" && e.detail) {
+    let k = null;
+    try { k = typeof classify === "function" ? classify(e) : null; } catch { k = null; }
+    return { ...out, kind: "provider", type: k ? providerCode(out.provider, k.type) : null, billing: !!(k && k.billing === true) };
+  }
   // OUR OWN SENTENCE, thrown by `callBuilderModel` before anything is sent, so
   // matching it reads nothing a provider or a customer wrote.
   if (e && typeof e.message === "string" && /^(?:XAI|ANTHROPIC)_API_KEY is not set$/.test(e.message)) return { ...out, kind: "config" };
