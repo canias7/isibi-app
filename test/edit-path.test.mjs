@@ -1057,6 +1057,9 @@ test("A22-5 a render check cut by its budget MERGES the stored map by route: the
   const old = [
     { name: "header-button", selector: ".old-home", tag: "a", section: "header", text: "Old", route: "/" },
     { name: "menu-title", selector: ".menu-title", tag: "h1", section: "main", text: "Menu", route: "/menu" },
+    // Review of r1-combine (2026-10-23): a route the site no longer has keeps
+    // nothing, even from a cut run; the site below now carries /menu.
+    { name: "gone-title", selector: ".gone-title", tag: "h1", section: "main", text: "Gone", route: "/gone" },
   ];
   for (const partial of [true, false]) {
     const render = { ok: true, checked: 2, pages: 1, findings: [], landmarks: DEAD_RENDER.landmarks, ...(partial ? { partial: true } : {}) };
@@ -1068,6 +1071,7 @@ test("A22-5 a render check cut by its budget MERGES the stored map by route: the
           const slug = "marks-cut-" + (partial ? "p" : "w");
           const b = bucket(slug);
           b.store.set("source/" + slug + "/landmarks.json", JSON.stringify({ at: "2026-10-01T00:00:00Z", slug, marks: old }));
+          b.store.set("source/" + slug + "/pages.json", JSON.stringify([...PAGES, { path: "src/routes/menu.tsx", source: "export default function Menu(){return null}" }]));
           const { body } = await edit(slug, "make the header button green", { store: b });
           assert.equal(body && body.ok, true, "the edit did not publish: " + JSON.stringify(body));
           const saved = JSON.parse(b.store.get("source/" + slug + "/landmarks.json"));
@@ -1075,6 +1079,7 @@ test("A22-5 a render check cut by its budget MERGES the stored map by route: the
           assert.deepEqual(byRoute("/"), ['[data-slot="site-link"]'], "the reached route was not replaced (partial " + partial + ")");
           assert.deepEqual(byRoute("/menu"), partial ? [".menu-title"] : [],
             partial ? "a cut run wiped the marks of a route it never reached" : "a whole run kept a stale route's marks");
+          assert.deepEqual(byRoute("/gone"), [], "a route the build no longer has kept its old marks (partial " + partial + ")");
         },
       );
     } finally { c.uninstall(); }

@@ -13292,7 +13292,19 @@ const ANSWER_KEY = (slug) => "source/" + String(slug).toLowerCase() + "/answer.j
 // output, and a stale observation must never be mistaken for a current input.
 const LANDMARKS_KEY = (slug) => "source/" + String(slug).toLowerCase() + "/landmarks.json";
 
-async function saveLandmarks(env, slug, marks, { partial = false } = {}) {
+/** The routes a set of pages serves, as landmarks name them; null when it cannot be told. */
+function landmarkRoutes(pages) {
+  if (!Array.isArray(pages)) return null;
+  const out = new Set();
+  for (const p of pages) {
+    const path = p && typeof p.path === "string" ? p.path : "";
+    if (!path) continue;
+    const r = routeOf(path);
+    if (r && !r.includes("$")) out.add(r);
+  }
+  return out;
+}
+async function saveLandmarks(env, slug, marks, { partial = false, routes = null } = {}) {
   if (!env.SITES_BUCKET || !Array.isArray(marks) || !marks.length) return false;
   try {
     // A CHECK CUT BY ITS BUDGET IS MERGED BY ROUTE, NEVER WRITTEN OVER THE MAP
@@ -13303,7 +13315,14 @@ async function saveLandmarks(env, slug, marks, { partial = false } = {}) {
     let kept = [];
     if (partial === true) {
       const reached = new Set(marks.map((m) => String((m && m.route) || "/")));
-      kept = (await loadLandmarks(env, slug)).filter((m) => !reached.has(String((m && m.route) || "/")));
+      // ONLY ROUTES THIS BUILD STILL HAS (review of r1-combine, 2026-10-23):
+      // a page the build removed must not keep its old landmarks. Not told
+      // which routes the build has: nothing old is kept.
+      const live = routes instanceof Set ? routes : null;
+      kept = (await loadLandmarks(env, slug)).filter((m) => {
+        const r = String((m && m.route) || "/");
+        return !reached.has(r) && !!live && live.has(r);
+      });
     }
     await env.SITES_BUCKET.put(LANDMARKS_KEY(slug), JSON.stringify({
       at: new Date().toISOString(), slug, marks: kept.concat(marks),
@@ -18162,7 +18181,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       // edit EDITS and the map is only what helps it aim, so a map that fails
       // to store must never be able to cost the source.
       tm("r2:landmarks", "start");
-      await saveLandmarks(env, slug, built.render && built.render.landmarks, { partial: !!(built.render && built.render.partial === true) });
+      await saveLandmarks(env, slug, built.render && built.render.landmarks, { partial: !!(built.render && built.render.partial === true), routes: landmarkRoutes(pages) });
       tm("r2:landmarks", "ok", { marks: ((built.render && built.render.landmarks) || []).length });
       // AND THE MARKER LAST (stage 6): the editable copy names the version it
       // came from, so the next job can tell a finished copy from one that
@@ -18459,6 +18478,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   // assigned inside ONE function, four statements apart, and `deps.publish`'s
   // return value is already spoken for.
   let workerUpload = null;
+  // THE ROUTES THIS BUILD PUBLISHED, for the landmark merge (review of
+  // r1-combine, 2026-10-23): a cut check keeps old landmarks only for these.
+  let bRoutes = null;
   // WHETHER THE SOURCE STORE LANDED — see the call. `true` on every ordinary
   // build, so the response's field is omitted and nothing changes shape.
   let sourceStored = true;
@@ -19286,6 +19308,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
     // their numbers go on the trace, which the build's progress already hears.
     note: (stage, nums) => { try { mark?.(stage, nums); } catch { /* a trace must never break a build */ } },
     publish: async (dist, pages, worker) => {
+      bRoutes = landmarkRoutes(pages);
       // THE SITE'S EXTRA LANGUAGE PREFIXES, for the sitemap and the route
       // manifest — and RECOMPUTED here rather than reached for, because
       // `compile` and `publish` are two separate closures and `siteLangs` is
@@ -19534,7 +19557,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   // GATED ON A REAL PUBLISH. A build that failed has no live page, and a map
   // describing one that was never served would aim the next edit at elements
   // nobody can see.
-  if (out && out.ok && out.render) await saveLandmarks(env, slug, out.render.landmarks, { partial: out.render.partial === true });
+  if (out && out.ok && out.render) await saveLandmarks(env, slug, out.render.landmarks, { partial: out.render.partial === true, routes: bRoutes });
   if (out && bDraftSaved) out.draft = bDraftSaved;
   // THE BUILD CHECKLIST'S PLAN (2026-10-22, idea #14): derived in code from the
   // design this build was handed, checked by `pageNotes` against what landed.

@@ -755,8 +755,9 @@ test("the editable copy: four editing readers read through the repairing reader,
   assert.match(wrap, /return loadSiteSource\(env, slug\);/);
   // THE MARKER, LAST, ON EVERY COPY: the spine's, the build's, the restore's.
   const spine = fnW("recompileAndPublish");
-  // (RE-ANCHORED 2026-10-23, audit A22-5: the map is merged by route after a cut check.)
-  const marks = spine.indexOf("await saveLandmarks(env, slug, built.render && built.render.landmarks, { partial: !!(built.render && built.render.partial === true) });");
+  // (RE-ANCHORED 2026-10-23, audit A22-5: the map is merged by route after a cut check;
+  // and again the same day, review of r1-combine: it is told the routes the publish has.)
+  const marks = spine.indexOf("await saveLandmarks(env, slug, built.render && built.render.landmarks, { partial: !!(built.render && built.render.partial === true), routes: landmarkRoutes(pages) });");
   const head = spine.indexOf("await writeHead(adeps, slug, version);");
   assert.ok(marks > 0 && head > marks, "the spine's copy does not end with the marker");
   const buildPath = W.slice(W.indexOf("sourceStored = await saveSiteSource(env, slug, pages);"), W.indexOf("keep: (answer) => saveGenAnswer(env, slug, answer),"));
