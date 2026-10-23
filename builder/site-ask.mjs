@@ -1170,6 +1170,13 @@ export function layerLine(layer) {
  * names, not contents — because it rides on every builder message and the rows
  * of a `collect` table are customer data that has no business in a routing call.
  */
+/** What the router is told under draft-first (audit #216). */
+export const DRAFT_FIRST_FACT =
+  "Every change they ask for is saved as a draft and goes live only when they press the Publish button above their site; " +
+  "the pages named here may include saved changes that are not published yet. Nothing you route publishes: when they ask " +
+  "to publish or put their changes live (\"publish my changes\", \"make it live\"), answer \"ask\" and tell them to press " +
+  "the Publish button above their site, which shows what will go live.";
+
 export function siteDigest(site, { tablesNone = false } = {}) {
   const s = site || {};
   const bits = [];
@@ -1177,6 +1184,12 @@ export function siteDigest(site, { tablesNone = false } = {}) {
   if (name) bits.push("The site is called " + name + ".");
   const url = String(s.url || "").trim();
   if (url) bits.push("It is published at " + url + ".");
+  // DRAFTS UNTIL PUBLISH (2026-10-23, the owner's choice on audit #216 /
+  // A36-4): under draft-first every change is saved as a draft and goes live
+  // only when the owner presses Publish, so the router is told, and a typed
+  // "publish my changes" is pointed at the button rather than read as work.
+  // Strictly `=== true`, and set by the route from the Worker's own switch.
+  if (s.draftFirst === true && bits.length) bits.push(DRAFT_FIRST_FACT);
   const { pages, tables } = digestLists(s);
   if (pages.length) bits.push("Its pages are: " + pages.join(", ") + ".");
   if (tables.length) bits.push("Its database tables are: " + tables.join(", ") + ".");

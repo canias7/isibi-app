@@ -513,6 +513,10 @@ export function jobPrefixes(slug) {
 const REQUEST_RECORD_RE = /^requests\/([a-z0-9][a-z0-9-]{0,80})\/[A-Za-z0-9_-]{16,64}\.json$/;
 export function readableJobKey(slug, key, pre = false) {
   if (pre === true || !SLUG_RE.test(String(slug || ""))) return false;
+  // ITS OWN SITE'S OFFLINE MARKER (2026-10-23, audit #118): read so a build's
+  // stand-in page is never put over a site taken off the web; written and
+  // removed by the Worker's offline route alone.
+  if (String(key || "") === "site-offline/" + slug + ".json") return true;
   const m = REQUEST_RECORD_RE.exec(String(key || ""));
   return !!m && m[1] === slug;
 }

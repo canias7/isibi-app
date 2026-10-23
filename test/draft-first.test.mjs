@@ -1997,3 +1997,157 @@ test("DFB16 FULL-TEXT SEARCH IN THE PREVIEW, JUDGED BY THE SITE'S DATABASE (deci
   }
 });
 function s2Host(s) { return s.slug + "--draft-" + TOKEN12 + ".gofarther.app"; }
+
+// ── THE OWNER'S PUBLISH DECISIONS (2026-10-23, docs/history/2026-10-23-decide-publish.md) ──
+
+const LIVE_MARK = (P) => "sites/" + P.slug + "/site.live";
+const OFFLINE_MARK = (P) => "site-offline/" + P.slug + ".json";
+
+test("DPO1 #118 OFFLINE WINS UNTIL BACK ONLINE — Publish on a site taken off the web publishes nothing and says so; Back online, then Publish, puts the draft live", async () => {
+  const { P, compiler } = bakery("dpo1");
+  try {
+    await runOne(P, TIKTOK);
+    const v0 = liveVersion(P);
+    P.env.DRAFT_FIRST = "on";
+    await runOne(P, TIKTOK_LATER);
+    const d = draftOf(P);
+    const off = await call(P, "POST", "/api/site/" + P.slug + "/offline", { on: true });
+    assert.equal(off.body.ok, true, JSON.stringify(off.body));
+    assert.ok(P.readObj(OFFLINE_MARK(P)), "taking the site offline left no marker the sweeps can read");
+    assert.equal(P.readObj(LIVE_MARK(P)), null, "the site is still marked live after going offline");
+    const pub = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d.rev, version: d.version });
+    assert.equal(pub.status, 409, JSON.stringify(pub.body));
+    assert.match(String(pub.body.error), /off the web, so nothing was published/);
+    assert.equal(liveVersion(P), v0, "Publish moved the pointer of an offline site");
+    assert.equal(P.readObj(LIVE_MARK(P)), null, "Publish brought an offline site back");
+    assert.equal(draftOf(P).applied, 0, "a refused Publish marked the draft published");
+    assert.equal(openJournal(P), null, "a refused Publish left a journal for the sweep to finish");
+    const on = await call(P, "POST", "/api/site/" + P.slug + "/offline", { on: false });
+    assert.equal(on.body.ok, true, JSON.stringify(on.body));
+    assert.equal(P.readObj(OFFLINE_MARK(P)), null, "Back online left the offline marker");
+    assert.equal(liveVersion(P), v0);
+    const pub2 = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: draftOf(P).rev, version: draftOf(P).version });
+    assert.equal(pub2.status, 200, JSON.stringify(pub2.body));
+    assert.equal(liveVersion(P), d.version, "Publish after Back online did not put the draft live");
+  } finally { await finish(P, compiler); }
+});
+
+test("DPO2 #119 THE SWEEP NEVER BRINGS AN OFFLINE SITE BACK — taking a site offline retires an open publication (the owner told), and a journal found later is left alone by the recovery", async () => {
+  const { P, compiler } = bakery("dpo2");
+  const { draftFirstApi } = await loadWorkerModule();
+  try {
+    await runOne(P, TIKTOK);
+    const v0 = liveVersion(P);
+    P.env.DRAFT_FIRST = "on";
+    await runOne(P, TIKTOK_LATER);
+    const d = draftOf(P);
+    // A PUBLICATION STOPPED AT ITS SWITCH, as one whose runner died.
+    const stopped = { v: 1, slug: P.slug, n: d.rev, version: d.version, uid: "", id: "11111111-1111-4111-8111-111111111111", running: false, at: 1, phase: "switching", from: v0, done: [], refs: {}, error: "stopped", attempts: 1 };
+    P.writeObj(JOURNAL(P), JSON.stringify(stopped));
+    const off = await call(P, "POST", "/api/site/" + P.slug + "/offline", { on: true });
+    assert.equal(off.body.ok, true, JSON.stringify(off.body));
+    assert.equal(off.body.abandoned, true, "the open publication was not retired");
+    assert.match(String(off.body.msg), /A publish that was under way was stopped/);
+    assert.equal(journalOf(P).phase, "retired");
+    // ONE THAT LANDS AFTERWARDS (a late write): the two-minute sweep leaves it.
+    P.writeObj(JOURNAL(P), JSON.stringify({ ...stopped, id: "22222222-2222-4222-8222-222222222222" }));
+    P.advance(PAUSE);
+    await P.run(() => draftFirstApi.runPublishRecovery(P.env));
+    assert.equal(journalOf(P).phase, "switching", "the sweep touched an offline site's publication");
+    assert.equal(journalOf(P).id, "22222222-2222-4222-8222-222222222222", "the sweep took an offline site's publication over");
+    assert.equal(liveVersion(P), v0, "the sweep moved an offline site's pointer");
+    assert.equal(P.readObj(LIVE_MARK(P)), null, "the sweep brought an offline site back");
+  } finally { await finish(P, compiler); }
+});
+
+test("DPP1 #219 PRUNED AT PUBLISH — the newest 20 builds stay, with the live version, the one before it and every unpublished draft; older ones go", async () => {
+  const { P, compiler } = bakery("dpp1");
+  try {
+    await runOne(P, TIKTOK);
+    const v0 = liveVersion(P);
+    P.env.DRAFT_FIRST = "on";
+    await runOne(P, TIKTOK_LATER);
+    const d1 = draftOf(P);
+    // THIRTY OLD BUILDS, older than everything real.
+    const old = Array.from({ length: 30 }, (_, i) => "000000000" + String(10000 + i) + "-old" + String(i).padStart(2, "0"));
+    for (const v of old) P.writeObj(buildPrefix(P.slug, v) + MANIFEST_FILE, JSON.stringify({ version: v }));
+    const ids = () => [...new Set(P.objectKeys("builds/" + P.slug + "/").map((k) => k.slice(("builds/" + P.slug + "/").length).split("/")[0]))].sort();
+    const before = ids();
+    assert.ok(before.length > 30, "the fixture did not plant the old builds");
+    const pub = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d1.rev, version: d1.version });
+    assert.equal(pub.status, 200, JSON.stringify(pub.body));
+    const after = ids();
+    assert.ok(after.length < before.length, "nothing was pruned at Publish");
+    assert.ok(after.includes(d1.version), "the live version was pruned");
+    assert.ok(after.includes(v0), "the version before the live one was pruned");
+    assert.ok(after.length <= 20 + 2, "more than the newest 20 and the keeps stayed: " + after.length);
+    assert.deepEqual(after, before.slice(-after.length).filter((v) => after.includes(v)).concat([]).sort(), "a newer build went while an older one stayed");
+    assert.ok(old.slice(0, 10).every((v) => !after.includes(v)), "the oldest builds were not pruned");
+  } finally { await finish(P, compiler); }
+});
+
+test("DPP2 #219 A DRAFT IS NEVER PRUNED — an unpublished revision older than the newest 20 survives a Publish of an earlier one", async () => {
+  const { P, compiler } = bakery("dpp2");
+  try {
+    await runOne(P, TIKTOK);
+    P.env.DRAFT_FIRST = "on";
+    await runOne(P, TIKTOK_LATER);
+    const d1 = draftOf(P);
+    await runOne(P, TIKTOK);
+    const d2 = draftOf(P);
+    assert.notEqual(d2.version, d1.version);
+    // TWENTY-FIVE NEWER BUILDS (staged, never drafts), so d2 is outside the newest 20.
+    const newer = Array.from({ length: 25 }, (_, i) => "99999999" + String(100000 + i) + "-new" + String(i).padStart(2, "0"));
+    for (const v of newer) P.writeObj(buildPrefix(P.slug, v) + MANIFEST_FILE, JSON.stringify({ version: v }));
+    const pub = await call(P, "POST", "/api/site/" + P.slug + "/publish", { revision: d1.rev, version: d1.version });
+    assert.equal(pub.status, 200, JSON.stringify(pub.body));
+    const keys = P.objectKeys(buildPrefix(P.slug, d2.version));
+    assert.ok(keys.length > 0, "an unpublished draft's build was pruned");
+  } finally { await finish(P, compiler); }
+});
+
+test("DPR1 #144 THE PLATFORM REBUILD PUBLISHES A CLEAN SITE LIVE — with nothing unpublished the recompiled version goes live and the draft follows it; with a draft saved it is saved as the draft", async () => {
+  const { P, compiler } = bakery("dpr1");
+  const { draftFirstApi } = await loadWorkerModule();
+  try {
+    await runOne(P, TIKTOK);
+    const v0 = liveVersion(P);
+    P.env.DRAFT_FIRST = "on";
+    const pages = JSON.parse(P.readObj("source/" + P.slug + "/pages.json"));
+    const r1 = await P.run(() => draftFirstApi.recompileAndPublish(P.env, { slug: P.slug, pages, label: "platform rebuild", liveWhenClean: true }));
+    assert.equal(r1.ok, true, JSON.stringify(r1).slice(0, 300));
+    assert.equal(r1.draft, undefined, "a clean site's rebuild was saved as a draft");
+    assert.notEqual(liveVersion(P), v0, "the clean site's rebuild did not go live");
+    const st = await call(P, "GET", "/api/site/" + P.slug + "/draft");
+    assert.notEqual(st.body.state, "saved", "the old version reads as an unpublished draft after the live rebuild: " + JSON.stringify(st.body).slice(0, 200));
+    // NOW A DRAFT IS SAVED: the next rebuild rides it.
+    await runOne(P, TIKTOK_LATER);
+    const live1 = liveVersion(P);
+    const pages2 = JSON.parse(P.readObj("source/" + P.slug + "/pages.json"));
+    const r2 = await P.run(() => draftFirstApi.recompileAndPublish(P.env, { slug: P.slug, pages: pages2, label: "platform rebuild", liveWhenClean: true }));
+    assert.equal(r2.ok, true, JSON.stringify(r2).slice(0, 300));
+    assert.ok(r2.draft, "a site with a saved draft was rebuilt live");
+    assert.equal(liveVersion(P), live1, "the live site moved under a saved draft");
+    // AND THE ORDINARY CALLER (an edit) never goes live under draft-first.
+    const r3 = await P.run(() => draftFirstApi.recompileAndPublish(P.env, { slug: P.slug, pages: pages2, label: "x" }));
+    assert.ok(r3.draft, "a caller that did not ask went live");
+  } finally { await finish(P, compiler); }
+});
+
+test("DPR2 #144 NEVER LIVE ON AN OFFLINE SITE — a clean site taken off the web keeps the rebuild as a draft", async () => {
+  const { P, compiler } = bakery("dpr2");
+  const { draftFirstApi } = await loadWorkerModule();
+  try {
+    await runOne(P, TIKTOK);
+    const v0 = liveVersion(P);
+    P.env.DRAFT_FIRST = "on";
+    const off = await call(P, "POST", "/api/site/" + P.slug + "/offline", { on: true });
+    assert.equal(off.body.ok, true, JSON.stringify(off.body));
+    const pages = JSON.parse(P.readObj("source/" + P.slug + "/pages.json"));
+    const r = await P.run(() => draftFirstApi.recompileAndPublish(P.env, { slug: P.slug, pages, label: "platform rebuild", liveWhenClean: true }));
+    assert.equal(r.ok, true, JSON.stringify(r).slice(0, 300));
+    assert.ok(r.draft, "an offline site's rebuild went live");
+    assert.equal(liveVersion(P), v0);
+    assert.equal(P.readObj(LIVE_MARK(P)), null, "the rebuild brought an offline site back");
+  } finally { await finish(P, compiler); }
+});

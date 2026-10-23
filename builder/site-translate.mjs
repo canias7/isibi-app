@@ -26,6 +26,62 @@ import { pageForLang, MAX_EXTRA_LANGS } from "./site-langs.mjs";
 /** The most strings one call will carry. */
 export const MAX_STRINGS = 900;
 
+// ── BATCHES, AND A FAILURE REMEMBERED (2026-10-23, the owner's choice on audit
+// #195 / A32-2) ────────────────────────────────────────────────────────────
+//
+// A language's missing strings went out in ONE call with an 8,000-token
+// answer, so a large site (or a language that takes twice the tokens) was cut
+// off on every publish, asked again whole and failed the same way. Now they go
+// in batches sized well under that answer; each batch's successes are kept; a
+// batch refused for its size or shape is remembered by a key of its own words
+// and not asked again until those words change. A refused batch is never
+// charged.
+
+/** At most this many strings in one call. */
+export const BATCH_MAX_STRINGS = 150;
+/** At most this many characters of strings (as sent, JSON) in one call: about a quarter of the answer's room in English, so a language at twice the tokens still fits. */
+export const BATCH_MAX_CHARS = 6000;
+/** Why a batch failed that asking again would not change. */
+export const LASTING_FAILURES = new Set(["shape", "length", "size", "unusable"]);
+/** The key under the translation cache that holds each language's remembered failures (never a language tag). */
+export const STUCK_KEY = "_stuck";
+
+/** The missing strings in order, cut into batches of at most `maxStrings` and `maxChars`. */
+export function translationBatches(missing, { maxStrings = BATCH_MAX_STRINGS, maxChars = BATCH_MAX_CHARS } = {}) {
+  const out = [];
+  let cur = [], size = 2;
+  for (const s of Array.isArray(missing) ? missing : []) {
+    if (typeof s !== "string") continue;
+    const n = JSON.stringify(s).length + 1;
+    if (cur.length && (cur.length >= maxStrings || size + n > maxChars)) { out.push(cur); cur = []; size = 2; }
+    cur.push(s); size += n;
+  }
+  if (cur.length) out.push(cur);
+  return out;
+}
+
+/** A batch's own key: its words, in order (FNV-1a over the JSON, with the count). */
+export function batchKey(batch) {
+  const t = JSON.stringify(Array.isArray(batch) ? batch : []);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(16).padStart(8, "0") + ":" + (Array.isArray(batch) ? batch.length : 0);
+}
+
+/** The remembered failures of one language, read strictly from the cache. */
+export function stuckFor(cache, tag) {
+  const all = cache && typeof cache === "object" && cache[STUCK_KEY] && typeof cache[STUCK_KEY] === "object" ? cache[STUCK_KEY] : {};
+  const list = Object.hasOwn(all, tag) && Array.isArray(all[tag]) ? all[tag] : [];
+  return new Set(list.filter((k) => typeof k === "string"));
+}
+
+/** Every language's remembered failures after a round: only the non-empty, or null when none. */
+export function stuckAfter(byTag) {
+  const out = {};
+  for (const [tag, keys] of Object.entries(byTag || {})) if (Array.isArray(keys) && keys.length) out[tag] = [...new Set(keys)].sort();
+  return Object.keys(out).length ? out : null;
+}
+
 /**
  * Every string on the site, deduplicated.
  *
@@ -141,10 +197,15 @@ export function missingFrom(cache, strings) {
  * round failed: the cache keeps only what it already held for today's strings,
  * the rest stay missing, and the next publish asks.
  */
-export function nextCache(cache, strings, fresh) {
+export function nextCache(cache, strings, fresh, failed = null) {
   const have = cache && typeof cache === "object" ? cache : {};
   const out = {};
+  // A STRING WHOSE BATCH FAILED (2026-10-23, audit #195) is treated as the
+  // whole failed round treats every string: what was cached stays, nothing new
+  // is written in as itself, and it stays missing.
+  const lost = failed instanceof Set ? failed : null;
   for (const s of Array.isArray(strings) ? strings : []) {
+    if (lost && lost.has(s)) { const k = typeof have[s] === "string" ? usableTranslation(s, have[s]) : null; if (k !== null) out[s] = k; continue; }
     // A TRANSLATION THAT CANNOT BE WRITTEN INTO A PAGE IS NEVER CACHED
     // (2026-10-22, audit A32-1). Cached, it read as known on every later
     // publish, nothing was asked again, and the language stayed behind until
@@ -217,8 +278,17 @@ export function langNote(outcomes, refused = []) {
   for (const o of Array.isArray(outcomes) ? outcomes : []) {
     if (!o || typeof o.tag !== "string") continue;
     const kept = Number(o.kept) || 0;
-    if (o.ok === false) out.push("The " + o.tag + " pages could not be translated this time, so they show your original wording for now; I'll try again on your next change.");
-    else if (kept > 0) out.push(kept + (kept === 1 ? " phrase" : " phrases") + " on the " + o.tag + " pages could not be translated safely and show your original wording for now.");
+    const behind = Number(o.behind) || 0;
+    // A LASTING FAILURE IS NOT RETRIED ON THE NEXT CHANGE (audit #195): said
+    // so, rather than promising a try that will not happen.
+    const lasting = o.why === "stuck" || LASTING_FAILURES.has(o.why);
+    if (o.ok === false) out.push(lasting
+      ? "The " + o.tag + " pages could not be translated, so they show your original wording; I won't try those words again until you change them."
+      : "The " + o.tag + " pages could not be translated this time, so they show your original wording for now; I'll try again on your next change.");
+    else {
+      if (behind > 0) out.push(behind + (behind === 1 ? " phrase" : " phrases") + " on the " + o.tag + " pages could not be translated this time and show your original wording for now.");
+      if (kept > 0) out.push(kept + (kept === 1 ? " phrase" : " phrases") + " on the " + o.tag + " pages could not be translated safely and show your original wording for now.");
+    }
   }
   return out.join(" ");
 }

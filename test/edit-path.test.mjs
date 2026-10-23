@@ -1176,7 +1176,7 @@ for (const [name, answer] of [
           assert.equal(billed.length, 1, "an unusable translation was charged: " + JSON.stringify(billed));
           assert.equal(body.cost, billed[0]);
           assert.equal(body.langs && body.langs[0] && body.langs[0].ok, false, "the language is not marked failed: " + JSON.stringify(body.langs));
-          assert.match(String(body.renderNote || ""), /es pages could not be translated this time/, "the customer is not told");
+          assert.match(String(body.renderNote || ""), /es pages could not be translated, so they show your original wording; I won't try those words again until you change them/, "the customer is not told (a lasting failure is not promised a retry since audit #195)");
           const written = (b.writes.filter(([k]) => k === CONFIG_KEY(slug)).pop() || [])[1];
           const cached = (written && JSON.parse(written).langStrings && JSON.parse(written).langStrings.es) || {};
           assert.deepEqual(missingFrom(cached, strings), strings, "an unusable translation was cached: " + JSON.stringify(cached));
@@ -1186,3 +1186,138 @@ for (const [name, answer] of [
     } finally { c.uninstall(); }
   });
 }
+
+// ── AUDIT #195 / A32-2 (2026-10-23, the owner's choice): a translation too big
+// for one answer goes in batches; a round refused for its size is charged
+// nothing and remembered, and is not asked again until its words change.
+// Driven end to end through the edit route, with the translation calls
+// answered here (`translateOver`), so each call's strings and stop are the test's.
+const MANY = (n, tag = "") => [{ path: "src/routes/index.tsx", source: "export default function Home(){return <main>" + Array.from({ length: n }, (_, i) => "<p>Fresh loaf number " + i + tag + " baked this morning</p>").join("") + "</main>}" }];
+function translateOver(answerFor) {
+  const inner = globalThis.fetch;
+  const asked = [];
+  globalThis.fetch = async (input, init) => {
+    const url = String((input && input.url) || input || "");
+    if (url.includes("/v1/messages")) {
+      let body = {};
+      try { body = JSON.parse(String((init && init.body) || "{}")); } catch { body = {}; }
+      if (body.tool_choice && body.tool_choice.name === TRANSLATE_TOOL.name) {
+        const text = String(body.messages[0].content);
+        const strings = JSON.parse(text.slice(text.indexOf("Strings:\n") + "Strings:\n".length));
+        asked.push(strings);
+        return new Response(JSON.stringify(answerFor(strings, asked.length)), { status: 200, headers: { "content-type": "application/json" } });
+      }
+    }
+    return inner(input, init);
+  };
+  return { asked, restore: () => { globalThis.fetch = inner; } };
+}
+const okAnswer = (strings) => ({ stop_reason: "tool_use", content: [{ type: "tool_use", name: TRANSLATE_TOOL.name, input: { strings: strings.map((s) => "ES " + s) } }], usage: { input_tokens: 10, output_tokens: 5 } });
+const cutOff = () => ({ stop_reason: "max_tokens", content: [], usage: { input_tokens: 4000, output_tokens: 8000 } });
+
+test("audit #195: a site's missing strings go in batches, every batch's answer is kept", async () => {
+  const c = installCompiler();
+  const slug = "wire-langs-batches";
+  const b = bucket(slug);
+  const pages = MANY(320);
+  b.store.set("source/" + slug + "/pages.json", JSON.stringify(pages));
+  b.store.set(CONFIG_KEY(slug), JSON.stringify({ look: { ...STORED_LOOK, langs: ["es"] }, css: STORED_CSS }));
+  const { strings } = collectStrings(pages);
+  assert.ok(strings.length > 300, "the fixture needs more strings than one batch holds");
+  try {
+    await withWire({ pick_lanes: { fields: ["css"] }, edit_site: { css: "footer{color:#fff}" } }, async () => {
+      const t = translateOver(okAnswer);
+      try {
+        const { body } = await edit(slug, "make the footer white", { store: b });
+        assert.equal(body && body.ok, true, JSON.stringify(body).slice(0, 300));
+        assert.ok(t.asked.length >= 3, "the strings went in " + t.asked.length + " call(s), not batches");
+        assert.ok(t.asked.every((a) => a.length <= 150), "a batch is larger than its cap: " + t.asked.map((a) => a.length));
+        assert.equal(t.asked.flat().length, strings.length, "a string was asked twice or not at all");
+        const cached = JSON.parse(b.store.get(CONFIG_KEY(slug))).langStrings.es;
+        assert.deepEqual(missingFrom(cached, strings), [], "a batch's answer was not cached");
+        assert.equal(body.langs[0].ok, true, JSON.stringify(body.langs));
+      } finally { t.restore(); }
+    });
+  } finally { c.uninstall(); }
+});
+
+test("audit #195: a batch cut off at its limit is not cached, the others are kept, and it is not asked again until its words change", async () => {
+  const c = installCompiler();
+  const slug = "wire-langs-stuck";
+  const b = bucket(slug);
+  const pages = MANY(200);
+  b.store.set("source/" + slug + "/pages.json", JSON.stringify(pages));
+  b.store.set(CONFIG_KEY(slug), JSON.stringify({ look: { ...STORED_LOOK, langs: ["es"] }, css: STORED_CSS }));
+  const { strings } = collectStrings(pages);
+  const config = () => JSON.parse(b.store.get(CONFIG_KEY(slug)));
+  try {
+    // FIRST PUBLISH: the second batch is cut off.
+    let firstBatch = null;
+    await withWire({ pick_lanes: { fields: ["css"] }, edit_site: { css: "footer{color:#fff}" } }, async () => {
+      const t = translateOver((s, n) => (n === 1 ? okAnswer(s) : cutOff()));
+      try {
+        const { body } = await edit(slug, "make the footer white", { store: b });
+        assert.equal(body && body.ok, true, JSON.stringify(body).slice(0, 300));
+        assert.equal(t.asked.length, 2, "expected two batches: " + t.asked.map((a) => a.length));
+        firstBatch = t.asked[0];
+        assert.equal(body.langs[0].ok, true, "a language with one answered batch is not partly translated: " + JSON.stringify(body.langs));
+        assert.equal(body.langs[0].behind, t.asked[1].length, "the strings left behind are not counted");
+        assert.match(String(body.renderNote || ""), new RegExp(t.asked[1].length + " phrases on the es pages could not be translated this time"));
+      } finally { t.restore(); }
+    });
+    const cached = config().langStrings;
+    assert.deepEqual(missingFrom(cached.es, strings), strings.slice(firstBatch.length), "the answered batch was not kept, or the cut-off one was cached");
+    assert.ok(cached._stuck && Array.isArray(cached._stuck.es) && cached._stuck.es.length === 1, "the cut-off batch was not remembered: " + JSON.stringify(cached._stuck));
+
+    // SECOND PUBLISH, SAME WORDS: no translation call at all.
+    await withWire({ pick_lanes: { fields: ["css"] }, edit_site: { css: "footer{color:#eee}" } }, async () => {
+      const t = translateOver(() => { throw new Error("a remembered failure was asked again"); });
+      try {
+        const { body } = await edit(slug, "make the footer light grey", { store: b });
+        assert.equal(body && body.ok, true, JSON.stringify(body).slice(0, 300));
+        assert.equal(t.asked.length, 0, "the same words were asked again");
+        assert.equal(body.langs[0].ok, false);
+        assert.equal(body.langs[0].why, "stuck", JSON.stringify(body.langs));
+        assert.match(String(body.renderNote || ""), /I won't try those words again until you change them/);
+      } finally { t.restore(); }
+    });
+
+    // THE WORDS CHANGE: asked again, and the old failure is forgotten.
+    b.store.set("source/" + slug + "/pages.json", JSON.stringify(MANY(200, " fresh")));
+    await withWire({ pick_lanes: { fields: ["css"] }, edit_site: { css: "footer{color:#ddd}" } }, async () => {
+      const t = translateOver(okAnswer);
+      try {
+        const { body } = await edit(slug, "make the footer a little darker", { store: b });
+        assert.equal(body && body.ok, true, JSON.stringify(body).slice(0, 300));
+        assert.ok(t.asked.length >= 1, "changed words were not asked again");
+      } finally { t.restore(); }
+    });
+    assert.equal(config().langStrings._stuck, undefined, "a failure for words no longer on the site is still remembered");
+  } finally { c.uninstall(); }
+});
+
+test("audit #195: a translation round cut off at its limit is never charged", async () => {
+  const c = installCompiler();
+  const slug = "wire-langs-cutbill";
+  const big = { input_tokens: 400000, output_tokens: 200000 };
+  const run = async (answerFor) => {
+    const b = bucket(slug);
+    b.store.set("source/" + slug + "/pages.json", JSON.stringify(BILINGUAL_PAGES));
+    b.store.set(CONFIG_KEY(slug), JSON.stringify({ look: { ...STORED_LOOK, langs: ["es"] }, css: STORED_CSS }));
+    const billed = [];
+    let asked = 0;
+    await withWire({ pick_lanes: { fields: ["css"] }, edit_site: { css: "footer{color:#fff}" } }, async () => {
+      const t = translateOver(answerFor);
+      try { const { body } = await edit(slug, "make the footer white", { store: b }); assert.equal(body && body.ok, true, JSON.stringify(body).slice(0, 300)); asked = t.asked.length; }
+      finally { t.restore(); }
+    }, { billed });
+    return { billed, asked };
+  };
+  try {
+    const paid = await run((s) => ({ ...okAnswer(s), usage: big }));
+    const cut = await run(() => ({ ...cutOff(), usage: big }));
+    assert.equal(paid.asked, 1); assert.equal(cut.asked, 1);
+    const sum = (l) => l.reduce((a, x) => a + x, 0);
+    assert.ok(sum(paid.billed) > sum(cut.billed), "a usable round and a cut-off one cost the same, so this proves nothing: " + JSON.stringify([paid.billed, cut.billed]));
+  } finally { c.uninstall(); }
+});

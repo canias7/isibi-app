@@ -416,6 +416,7 @@ test("the switcher is rendered BY the header, never passed in", () => {
   assert.match(switcher, /aria-current=/);
 });
 
+const CODE_TM = () => { const a = worker.indexOf("async function translateMissing("); assert.ok(a > 0, "translateMissing is gone"); return worker.slice(a, worker.indexOf("\n}\n", a)); };
 test("the spine translates, caches, and never fails a publish over it", () => {
   // HERE, ON THE SHARED SPINE, so it happens on EVERY publish: a text fix, a
   // colour change, a picture swap and a page rewrite all come through this one
@@ -461,7 +462,10 @@ test("the spine translates, caches, and never fails a publish over it", () => {
   assert.match(body, /langs: extraLangs\.length \? \{ extra: extraLangs, routes: primaryRoutes \} : undefined/);
   // A FAILED TRANSLATION IS NOT A FAILED PUBLISH: the pages fall back to the
   // cache and, for anything new, to the primary language.
-  assert.match(body, /if \(got\.ok\)/);
+  // (2026-10-23, audit #195: the call is made batch by batch in
+  // `translateMissing`, which keeps each batch's successes and never throws.)
+  assert.match(body, /await translateMissing\(env, l\.tag, missing, tModels/);
+  assert.match(CODE_TM(), /if \(got\.ok\)/);
   assert.doesNotMatch(body, /throw new Error\("translate/);
   // WRITTEN BACK ONLY WHEN IT MOVED, so an ordinary publish costs no database
   // write either.

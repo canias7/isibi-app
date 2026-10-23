@@ -103,10 +103,10 @@ import { checklistFromDesign } from "./builder/build-checklist.mjs";
 import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { quickChecks } from "./site-security.mjs";
 import { deepScan, planScan } from "./builder/security-scan.mjs";
-import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
+import { OFFLINE_COLUMN, siteOffline, offlineStamp } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE, carryPanelFields, keepPanelDescription } from "./site-meta.mjs";
-import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, applyRowQuery, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec, previousSidecar, heldMediaSource, heldStandIns, previewServed, ftsFilterOf, FTS_CATALOG_SQL, ftsJudgeSql, ftsJudgeParams, heldChangedIds, deadNewFunctions, jobsWithoutDead } from "./site-draft.mjs";
+import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, MAX_NEW_SLUG, capNewSlug, rebuildGoesLive, PUBLISH_KEEP_BUILDS, publishKeeps, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, applyRowQuery, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec, previousSidecar, heldMediaSource, heldStandIns, previewServed, ftsFilterOf, FTS_CATALOG_SQL, ftsJudgeSql, ftsJudgeParams, heldChangedIds, deadNewFunctions, jobsWithoutDead } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
@@ -238,7 +238,7 @@ const DISPLAY_PAIR = ACCESS_PRESETS.display;
 import { model3dPrice, model3dStart, model3dPoll } from "./builder/model3d-route.mjs";
 import { addonFailure, mergeAddonPages, mergeAddonSchema, unlinkedPages, keptPartsNote, unseenPartsNote, unseenPagesNote, routeOf, orderingMoved, settleReverted, problemsShipped } from "./builder/site-addon.mjs";
 import { resolveLangs } from "./builder/site-langs.mjs";
-import { collectStrings, missingFrom, nextCache, untranslated, translatePages, readTranslation, TRANSLATE_TOOL, usableTranslation, langNote } from "./builder/site-translate.mjs";
+import { collectStrings, missingFrom, nextCache, translationBatches, batchKey, stuckFor, stuckAfter, STUCK_KEY, LASTING_FAILURES, untranslated, translatePages, readTranslation, TRANSLATE_TOOL, usableTranslation, langNote } from "./builder/site-translate.mjs";
 import { listVersions, rollbackVersion, deleteAllVersions, versionLabel } from "./site-versions.mjs";
 // IMMUTABLE PUBLISHING (stage 7, 2026-09-05): every publish is staged under its
 // own prefix and made live by moving one pointer. `archiveVersion` and
@@ -4035,7 +4035,7 @@ const SITE_SCHEMA_TOOL = {
           "like what this business IS, never one for the thing it sells or for a business one step away from " +
           "the one described.",
       },
-      slug: { type: "string", description: "url-safe-name, lowercase, hyphens only." },
+      slug: { type: "string", description: "url-safe-name, lowercase, hyphens only, at most 43 characters." },
       // Starter content, and not a nicety: nothing can write to a `display` table
       // after the build — not even the owner — so whatever is not seeded here is
       // an empty list forever, and a form whose required Select reads that table
@@ -6690,6 +6690,9 @@ export async function publishPlaceholder(env, slug, brand, spec, opts) {
   try {
     const live = await env.SITES_BUCKET.head("sites/" + slug + "/" + SITE_LIVE_FILE);
     if (live) return false;
+    // NEVER OVER A SITE TAKEN OFF THE WEB (audit #118): a revise saves its
+    // draft and leaves the address answering Not Found.
+    if ((await offlineMarked(env, slug)) === true) return false;
     await env.SITES_BUCKET.put("sites/" + slug + "/index.html", schemaPlaceholderPage(brand, spec, opts), {
       httpMetadata: { contentType: "text/html; charset=utf-8" },
     });
@@ -7517,6 +7520,25 @@ async function markSiteOffline(env, slug, uid, off) {
     return false;
   }
 }
+
+/**
+ * OFFLINE WINS UNTIL BACK ONLINE (2026-10-23, the owner's choice on audit
+ * #118/#119, A11-5/A11-6). The offline route writes this marker before it
+ * takes the site down and removes it only once Back online has landed; Publish,
+ * the publication recovery, the script-note sweep, the platform rebuild's live
+ * path and the build's stand-in page all read it and never bring an offline
+ * site back. `true` marked, `false` not, `null` could not tell (read as
+ * marked by everything that would make the site live).
+ */
+const OFFLINE_MARK_PREFIX = "site-offline/";
+const offlineMarkKey = (slug) => OFFLINE_MARK_PREFIX + String(slug || "").toLowerCase() + ".json";
+async function offlineMarked(env, slug) {
+  if (!env || !env.SITES_BUCKET || !slug) return null;
+  try { return !!(await env.SITES_BUCKET.head(offlineMarkKey(slug))); }
+  catch { return null; }
+}
+/** What Publish answers on a site that is off the web (audit #118). */
+const OFFLINE_PUBLISH_REFUSAL = "Your site is off the web, so nothing was published. Press \u201cPut it back online\u201d first, then Publish.";
 
 // An uncached slug lookup. siteBackendBySlug caches for five minutes, which is
 // right on the request path and wrong here — see site-provision.mjs.
@@ -10508,7 +10530,8 @@ async function freeSlugFor(env, wanted, uid) {
     const mine = await own.json();
     if (!Array.isArray(mine) || !mine.length) return wanted;
     for (let n = 2; n <= MAX_SLUG_TRIES; n++) {
-      const candidate = base + "-" + n;
+      // A candidate is a NEW name, so it fits MAX_NEW_SLUG (audit #247).
+      const candidate = capNewSlug(base.slice(0, MAX_NEW_SLUG - String(n).length - 1)) + "-" + n;
       if (candidate === wanted) continue;
       const taken = await siteNameTaken(env, candidate);
       if (taken === false) return candidate;
@@ -14426,7 +14449,29 @@ async function completeActivation(env, slug, version, { sidecar } = {}) {
   return { ok: true };
 }
 
+/**
+ * THE PRUNE AT PUBLISH (audit #219): keeps the newest PUBLISH_KEEP_BUILDS
+ * builds, the version just published, the one it replaced and the pointer's
+ * parent, and every draft revision not yet published. Only when the pointer is
+ * on the published version and the draft record reads; anything else keeps
+ * everything until the next Publish. Best-effort, never the publish's answer.
+ */
+async function pruneAtPublish(env, slug, j) {
+  try {
+    const deps = buildDeps(env);
+    const ptr = (await readPointerTag(deps, slug)).pointer;
+    if (!ptr || String(ptr.version || "") !== String(j.version || "")) return 0;
+    const drafts = await draftKeeps(env, slug);
+    if (!drafts) return 0;
+    return await pruneBuilds(deps, { slug, keep: publishKeeps({ version: j.version, previous: [ptr.parent, j.from], drafts }), cap: PUBLISH_KEEP_BUILDS });
+  } catch (e) { console.error("publish: prune skipped", slug, errorClassForLog(e)); return 0; }
+}
+
 async function runPublication(env, slug, j, etag, say = null) {
+  // OFFLINE WINS (audit #118/#119): no publication runs, by the click or the
+  // sweep, while the site is off the web or that cannot be told. Nothing of it
+  // is done here; Back online, then Publish, carries it on.
+  if ((await offlineMarked(env, slug)) !== false) return { ok: false, status: 409, offline: true, live: "unchanged", error: OFFLINE_PUBLISH_REFUSAL };
   // EACH STAGE, SAID AS IT IS REACHED (2026-10-19): the click's own talk
   // (`actionTalk`), never the sweep's. Never costs the publication.
   const tell = (stage, info) => { try { if (typeof say === "function") say(stage, info); } catch { /* the talk never costs the publish */ } };
@@ -14785,6 +14830,9 @@ async function runPublication(env, slug, j, etag, say = null) {
       const m = await markApplied(deps, slug, { revision: j.n, refs: j.refs });
       if (!m.ok) return keep("record", m.error || "the draft could not be marked published", "switched");
       await dropReplacingRecords(env, slug, j.n);
+      // OLD BUILDS GO AT EACH PUBLISH (2026-10-23, the owner's choice on audit
+      // #219 / A38-5). Never costs the publish.
+      await pruneAtPublish(env, slug, j);
       if (!(await retire("finished"))) console.error("publish: finished, the journal not closed", slug, j.n);
     }
     return { ok: true, version: j.version, revision: j.n, skipped: Array.isArray(j.skipped) ? j.skipped : [] };
@@ -14889,6 +14937,8 @@ async function applyHeldAlias(env, slug, a, { uid = "" } = {}) {
  */
 async function publishDraft(env, slug, pick, { uid = "", say = null } = {}) {
   const deps = buildDeps(env);
+  // OFFLINE WINS (audit #118): refused before any journal is written.
+  if ((await offlineMarked(env, slug)) !== false) return { ok: false, status: 409, offline: true, live: "unchanged", error: OFFLINE_PUBLISH_REFUSAL };
   if (typeof pick === "string") pick = { version: pick };
   let draft = null;
   try { draft = (await readDraft(deps, slug)).draft; }
@@ -14963,6 +15013,7 @@ async function publishDraft(env, slug, pick, { uid = "", say = null } = {}) {
  * recorded instead of stopping it. A temporary stop still stops it.
  */
 async function setAsidePublication(env, slug, revision) {
+  if ((await offlineMarked(env, slug)) !== false) return { ok: false, status: 409, offline: true, live: "unchanged", error: OFFLINE_PUBLISH_REFUSAL };
   let cur;
   try { cur = await readPublication(env, slug); }
   catch { return { ok: false, status: 503, error: "the publication record could not be read — nothing was changed" }; }
@@ -14996,6 +15047,8 @@ async function runPublishRecovery(env, { now = Date.now(), max = 10 } = {}) {
       // BLOCKED, OR NOT YET DUE (2026-10-18, audit A06-4): left alone, and not
       // counted — so ten stuck sites cannot hold the eleventh's turn.
       if (journalBlocked(cur.j) || (Number.isFinite(cur.j.nextTry) && cur.j.nextTry > now)) continue;
+      // OFF THE WEB (audit #119): left alone, never finished by the sweep.
+      if ((await offlineMarked(env, slug)) !== false) continue;
       looked++;
       // STOPPED BEFORE ITS INTENT TO SWITCH: nothing of it is live. Set aside
       // by a conditional write on the etag just read — a journal that landed
@@ -16016,6 +16069,9 @@ async function runScriptPendingSweep(env, { now = Date.now(), maxSites = 25 } = 
       live.push({ key: n.key, etag: o.etag || n.etag });
     }
     if (!live.length) continue;
+    // OFF THE WEB (audit #119): the sweep never puts an offline site's script
+    // back; its notes wait for Back online.
+    if ((await offlineMarked(env, slug)) !== false) continue;
     sites++;
     const ctx = { by: "sweep" };
     let f;
@@ -16039,7 +16095,7 @@ async function runScriptPendingSweep(env, { now = Date.now(), maxSites = 25 } = 
  * the same store a job runs on (2026-10-15): nothing in the product calls this.
  */
 /** Draft-first's own pieces, for the tests that drive them directly (`test/draft-first.test.mjs`). */
-export const draftFirstApi = { clearSiteDraft, backendWriter, draftView, sealHeld, publishDraft, runPublication, runPublishRecovery, siteIsLive, heldDeleteOr, previewVersion, runPreviewRecovery, draftFacts };
+export const draftFirstApi = { clearSiteDraft, backendWriter, draftView, sealHeld, publishDraft, runPublication, runPublishRecovery, siteIsLive, heldDeleteOr, previewVersion, runPreviewRecovery, draftFacts, recompileAndPublish };
 export const siteTurn = { turnStop, tryTurn, takeTurn, giveTurn, renewTurn, turnStillMine, mayWriteConfig, patchSiteConfig, ensureEditableState, jobFence, fencedPut, fencedBuildDeps, stampFences, alignLiveScript, putSiteWorker, runScriptPendingSweep };
 /** Renew a held turn (on the job's heartbeat): false when it is no longer this job's. */
 async function renewTurn(env, slug, t) {
@@ -17083,6 +17139,42 @@ function landedSaid(notes) {
  * than the edit the customer actually asked for. The caller falls back to
  * whatever is cached and, for anything new, to the primary language.
  */
+/**
+ * ONE LANGUAGE'S MISSING STRINGS, IN BATCHES (2026-10-23, the owner's choice
+ * on audit #195 / A32-2). Each batch is one `translateStrings` call, at most
+ * three at once; a batch whose key is in `stuck` (it failed for its size or
+ * shape before, and its words have not changed) is not asked. What came back:
+ * `fresh` (the translations of the batches that answered usably), `failed`
+ * (every string of a batch that did not), `usages` (only the usable batches',
+ * so a refused round is never charged), `stuck` (the keys to remember now),
+ * and counts. Never throws: `translateStrings` never does.
+ */
+async function translateMissing(env, tag, missing, models, stuck = new Set(), send = translateNow) {
+  const batches = translationBatches(missing);
+  const fresh = {}; const failed = new Set(); const usages = []; const nowStuck = [];
+  let asked = 0, skipped = 0, refused = 0, why = "", error = "";
+  const one = async (b) => {
+    const key = batchKey(b);
+    if (stuck.has(key)) { skipped++; nowStuck.push(key); for (const sTxt of b) failed.add(sTxt); return; }
+    asked++;
+    const got = await send(env, tag, b, models);
+    let w = got.ok ? "" : String(got.why || "call"), e = got.ok ? "" : String(got.error || "");
+    if (got.ok) {
+      if (b.some((sTxt, i) => usableTranslation(sTxt, got.strings[i]) !== null)) {
+        b.forEach((sTxt, i) => { fresh[sTxt] = got.strings[i]; });
+        if (got.usage) usages.push(got.usage);
+        return;
+      }
+      w = "unusable"; e = "no translation could be written into the pages";
+    }
+    refused++; why = w; error = e;
+    for (const sTxt of b) failed.add(sTxt);
+    if (LASTING_FAILURES.has(w)) nowStuck.push(key);
+  };
+  for (let i = 0; i < batches.length; i += 3) await Promise.all(batches.slice(i, i + 3).map(one));
+  return { fresh, failed, usages, stuck: nowStuck, batches: batches.length, asked, skipped, refused, why, error };
+}
+
 /** The translation call itself, under a name a caller's own \`translateStrings\` cannot shadow (round 5). */
 const translateNow = (...a) => translateStrings(...a);
 
@@ -17102,6 +17194,9 @@ async function translateStrings(env, tag, strings, models = null) {
       tool_choice: { type: "tool", name: TRANSLATE_TOOL.name },
       messages: [{ role: "user", content: "Target language (BCP-47): " + tag + "\n\nStrings:\n" + JSON.stringify(strings) }],
     });
+    // CUT OFF AT THE ANSWER'S LIMIT IS A SIZE FAILURE (audit #195): said as
+    // one, never read as a shape, and never charged by the caller.
+    if (r && r.stop_reason === "max_tokens") return { ok: false, why: "size", error: "the answer was cut off at its limit", usage: laneUsage(r, model) };
     const use = (r.content || []).find((c) => c && c.type === "tool_use");
     const read = readTranslation(use && use.input, strings.length);
     // IN THE FOUR KINDS `pageCredits` PRICES, TAGGED WITH THE MODEL WE SENT —
@@ -17262,7 +17357,7 @@ async function publishBeside(env, opts) {
   }
 }
 
-async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = null, trace = null, job = null, parts = null, afterCompile = null, models = null, charge = null, held = null, charges = null }) {
+async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = null, trace = null, job = null, parts = null, afterCompile = null, models = null, charge = null, held = null, charges = null, liveWhenClean = false }) {
   // A JOB RUNNING BESIDE OTHERS OF ITS REQUEST publishes through the site's
   // turn and the rebase (`publishBeside`), which calls back in here with the
   // rebased pages; every other caller goes straight on, as before.
@@ -17534,44 +17629,51 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     const have = healed ? {} : had;
     const missing = missingFrom(have, strings);
     // Every string already in the cache: nothing asked, nothing to fail.
-    if (!missing.length) return { l, had, have, fresh: {}, failed: false, usage: null, outcome: { tag: l.tag, missing: 0, ok: true, cached: true } };
+    if (!missing.length) return { l, had, have, fresh: {}, failed: false, lost: null, usages: [], stuck: [], outcome: { tag: l.tag, missing: 0, ok: true, cached: true } };
     tm("translate:" + l.tag, "start", { missing: missing.length, strings: strings.length, cached: strings.length - missing.length, ...(healed ? { healed: true } : {}) });
-    const got = await translateStrings(env, l.tag, missing, tModels);
-    const fresh = {};
-    let failed = false;
+    // IN BATCHES, A LASTING FAILURE REMEMBERED (audit #195): see `translateMissing`.
+    const got = await translateMissing(env, l.tag, missing, tModels, stuckFor(cache, l.tag));
     // A FAILED TRANSLATION IS NOT A FAILED PUBLISH. The pages fall back to
     // whatever is cached and, for anything new, to the primary language — so
     // the site stays up and the second language is merely behind, which is
     // strictly better than losing the edit the customer actually asked for.
-    if (got.ok) missing.forEach((sTxt, i) => { fresh[sTxt] = got.strings[i]; });
-    else { failed = true; console.error("translate failed", slug, l.tag, got.why || got.error); }
+    const failed = got.failed.size === missing.length;
+    if (got.refused) console.error("translate failed", slug, l.tag, got.why || got.error, got.refused + " of " + got.batches + " batches");
     // A STRING WHOSE TRANSLATION CANNOT BE WRITTEN INTO A PAGE keeps its
     // original wording and is not cached (`nextCache`), and an answer with
     // nothing usable in it is a failed round, not billed (2026-10-22, audit
     // A32-1: one apostrophe used to lose the language, cached and charged).
-    const kept = got.ok ? missing.filter((sTxt, i) => usableTranslation(sTxt, got.strings[i]) === null).length : 0;
-    const unusable = got.ok && kept === missing.length;
-    if (unusable) failed = true;
-    const outcome = got.ok && !unusable
-      ? { tag: l.tag, missing: missing.length, ok: true, ...(kept ? { kept } : {}) }
-      : { tag: l.tag, missing: missing.length, ok: false, why: unusable ? "unusable" : String(got.why || "call"), error: unusable ? "no translation could be written into the pages" : String(got.error || "").slice(0, 300) };
+    const kept = missing.filter((sTxt) => !got.failed.has(sTxt) && usableTranslation(sTxt, got.fresh[sTxt]) === null).length;
+    const outcome = !failed
+      ? { tag: l.tag, missing: missing.length, ok: true, ...(kept ? { kept } : {}), ...(got.failed.size ? { behind: got.failed.size } : {}), ...(got.batches > 1 ? { batches: got.batches } : {}) }
+      : { tag: l.tag, missing: missing.length, ok: false, why: got.asked ? String(got.why || "call") : "stuck", error: got.asked ? String(got.error || "").slice(0, 300) : "these words failed the same way before and are not asked again until they change", ...(got.batches > 1 ? { batches: got.batches } : {}) };
     tm("translate:" + l.tag, outcome.ok ? "ok" : "fail", outcome);
-    // ONLY A ROUND THAT TRANSLATED SOMETHING IS CHARGED: a refused or unusable
+    // ONLY A BATCH THAT TRANSLATED SOMETHING IS CHARGED: a refused or unusable
     // answer bought the customer nothing.
-    return { l, had, have, fresh, failed, usage: outcome.ok ? (got.usage || null) : null, outcome };
+    return { l, had, have, fresh: got.fresh, failed, lost: got.failed, usages: got.usages, stuck: got.stuck, outcome };
   }));
+  const stuckNow = {};
   for (const r of rounds) {
-    if (r.usage) langUsage.push(r.usage);
+    for (const u of r.usages || []) if (u) langUsage.push(u);
     langOutcomes.push(r.outcome);
+    stuckNow[r.l.tag] = r.stuck || [];
     // `null` FOR A FAILED ROUND: the cache keeps what it had and the missing
     // strings stay missing, so the next publish asks again instead of
-    // treating the primary's words as this language's for ever.
-    const merged = nextCache(r.have, strings, r.failed ? null : r.fresh);
+    // treating the primary's words as this language's for ever. A failed
+    // BATCH's strings likewise (`r.lost`).
+    const merged = nextCache(r.have, strings, r.failed ? null : r.fresh, r.lost);
     nextStrings[r.l.tag] = merged;
     // AGAINST THE CACHE AS READ (`had`, not the healed `have`), so a language
     // started over is written back rather than read as unchanged.
     langsChanged = langsChanged || JSON.stringify(merged) !== JSON.stringify(r.had);
     if (dropped) console.error("translate truncated", slug, r.l.tag, dropped + " strings over the cap");
+  }
+  // THE REMEMBERED FAILURES, beside the cache (audit #195): only this round's,
+  // so words that changed are asked again and the list cannot grow.
+  {
+    const st = stuckAfter(stuckNow);
+    if (st) nextStrings[STUCK_KEY] = st;
+    langsChanged = langsChanged || JSON.stringify(st || null) !== JSON.stringify(cache[STUCK_KEY] || null);
   }
   // ONE ASSEMBLY, for the first compile and for a repair's second: the primary
   // pages, then each variant translated off the cache the loop above just
@@ -18195,7 +18297,20 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // saved as the site's draft instead — the record, the editable copy, the
   // preview, the job's commit — and nothing live moves; the Publish route
   // activates exactly the version the owner approves.
-  const toDraft = draftFirst(env);
+  let toDraft = draftFirst(env);
+  // THE PLATFORM REBUILD GOES LIVE ON A CLEAN SITE (2026-10-23, the owner's
+  // choice on audit #144 / A17-5): with nothing unpublished in the draft and
+  // the site not off the web, the recompiled live version is activated live
+  // (a security patch reaches visitors); otherwise it is saved as the draft,
+  // as before. Only the rebuild route asks (`liveWhenClean`); a draft record
+  // that cannot be read keeps the draft.
+  let rebuiltLive = false;
+  if (toDraft && liveWhenClean === true) {
+    try {
+      const { draft } = await readDraft(buildDeps(env), slug);
+      if (rebuildGoesLive({ draft, live: pointerBefore, offline: await offlineMarked(env, slug) })) { toDraft = false; rebuiltLive = true; }
+    } catch (e) { console.error("rebuild: the draft could not be read, saved as a draft", slug, errorClassForLog(e)); }
+  }
   try {
   act = await activateBuild(adeps, {
     slug, version, build: (built.worker && built.worker.build) || "", parent: parentVersion, job: job ? String(job.id) : null,
@@ -18323,6 +18438,13 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     return { ok: false, error: act && (act.error === "superseded" || act.error === "not-served" || act.error === "lease-lost" || act.error === "turn-lost" || act.error === "older") ? act.error : "activate", ours: true, detail: String((act && act.error) || "the build could not be activated").slice(0, 200), code: (act && act.code) || undefined, key: (act && act.key) || undefined };
   }
   tm("activate", "ok", { uploaded: act.uploaded, draft: act.draft === true });
+  // AND THE DRAFT FOLLOWS THE LIVE REBUILD (audit #144), as a restore's does
+  // (`rebaseDraft`, A06-2): otherwise the old version would read as an
+  // unpublished draft and the next Publish would put it back.
+  if (rebuiltLive && act.draft !== true) {
+    try { await rebaseDraft(buildDeps(env), slug, { version, build: (built.worker && built.worker.build) || "" }); }
+    catch (e) { console.error("rebuild: the draft was not moved to the rebuilt version", slug, errorClassForLog(e)); }
+  }
   // THE PUBLISH, SAID ONCE IT IS DONE (talk, 2026-10-13): `activate`
   // answered ok — the pointer moved and the site's script went up (one that
   // could not undoes itself). Said as published; no live page is fetched.
@@ -18777,9 +18899,14 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         if (l.primary) continue;
         const had = langCache[l.tag] && typeof langCache[l.tag] === "object" ? langCache[l.tag] : {};
         const missing = missingFrom(untranslated(had) ? {} : had, strings);
-        if (!missing.length || langBeside.has(langAsk(l.tag, missing))) continue;
-        langBeside.set(langAsk(l.tag, missing), translateNow(env, l.tag, missing, models).catch(() => ({ ok: false, why: "call" })));
-        n++;
+        // BATCH BY BATCH, as the compile will ask (audit #195); a batch
+        // remembered as failing is not asked here either.
+        const stuck = stuckFor(langCache, l.tag);
+        for (const b of translationBatches(missing)) {
+          if (stuck.has(batchKey(b)) || langBeside.has(langAsk(l.tag, b))) continue;
+          langBeside.set(langAsk(l.tag, b), translateNow(env, l.tag, b, models).catch(() => ({ ok: false, why: "call" })));
+          n++;
+        }
       }
       return n;
     } catch { return 0; }
@@ -19211,28 +19338,31 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         // was never translated is no cache, and a failed round writes nothing.
         const have = untranslated(had) ? {} : had;
         const missing = missingFrom(have, strings);
-        if (!missing.length) return { l, had, have, fresh: {}, failed: false, usage: null };
+        if (!missing.length) return { l, had, have, fresh: {}, failed: false, lost: null, usages: [], stuck: [] };
         // ON THE PICKED MODEL, handed in by the build route with its pages
-        // model; the spine's rule, one path over.
-        const got = await translateStrings(env, l.tag, missing, models);
-        const fresh = {};
-        let failed = false;
-        if (got.ok) missing.forEach((sTxt, i) => { fresh[sTxt] = got.strings[i]; });
-        else { failed = true; console.error("translate failed", slug, l.tag, got.why || got.error); }
+        // model; the spine's rule, one path over. IN BATCHES, A LASTING
+        // FAILURE REMEMBERED (audit #195), as the spine does.
+        const got = await translateMissing(env, l.tag, missing, models, stuckFor(langCache, l.tag), translateStrings);
+        if (got.refused) console.error("translate failed", slug, l.tag, got.why || got.error, got.refused + " of " + got.batches + " batches");
         // THE SPINE'S RULE (audit A32-1): an answer with nothing usable is a
         // failed round and is not billed; an unusable string is not cached.
-        const usable = got.ok && missing.some((sTxt, i) => usableTranslation(sTxt, got.strings[i]) !== null);
-        if (got.ok && !usable) failed = true;
-        return { l, had, have, fresh, failed, usage: usable ? (got.usage || null) : null };
+        return { l, had, have, fresh: got.fresh, failed: got.failed.size === missing.length, lost: got.failed, usages: got.usages, stuck: got.stuck };
       }));
+      const bStuck = {};
       for (const r of bRounds) {
-        if (r.usage) langUsage.push(r.usage);
-        const mergedStrings = nextCache(r.have, strings, r.failed ? null : r.fresh);
+        for (const u of r.usages || []) if (u) langUsage.push(u);
+        bStuck[r.l.tag] = r.stuck || [];
+        const mergedStrings = nextCache(r.have, strings, r.failed ? null : r.fresh, r.lost);
         langsChanged = langsChanged || JSON.stringify(mergedStrings) !== JSON.stringify(r.had);
         langCache[r.l.tag] = mergedStrings;
         const t = translatePages(pages, r.l.prefix, strings, strings.map((sTxt) => mergedStrings[sTxt]), { routes: primaryRoutes });
         for (const tp of t.pages) files[tp.path] = tp.source;
         if (dropped) console.error("translate truncated", slug, r.l.tag, dropped + " strings over the cap");
+      }
+      {
+        const st = stuckAfter(bStuck);
+        langsChanged = langsChanged || JSON.stringify(st || null) !== JSON.stringify(langCache[STUCK_KEY] || null);
+        if (st) langCache[STUCK_KEY] = st; else delete langCache[STUCK_KEY];
       }
       // Written back only when it moved, best-effort — a lost cache means the
       // next publish re-translates, slower and never wrong. The spine's rule.
@@ -26536,6 +26666,13 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         if (namedRow && namedRow.uid && namedRow.uid !== bu.id) {
           return Response.json({ ok: false, error: "that name is taken", cost: 0, msg: "That site name is taken by another account. Say a different name in your next message — e.g. \"call it sunset-cuts\" — and I’ll build it under that." }, { status: 409 });
         }
+        // A NEW NAME IS AT MOST MAX_NEW_SLUG (audit #247, owner 2026-10-23): a
+        // longer one has no preview address under draft-first. Only a name that
+        // is certainly free (`null`) is new; a site that exists, or a lookup that
+        // could not tell, keeps its name. Refused here, before any money moves.
+        if (namedRow === null && namedSlug.length > MAX_NEW_SLUG) {
+          return Response.json({ ok: false, error: "name too long", cost: 0, msg: "That site name is too long: a new site's name can be at most " + MAX_NEW_SLUG + " characters. Say a shorter name in your next message, e.g. \"call it " + capNewSlug(namedSlug) + "\"." }, { status: 400 });
+        }
       }
       // ── IS THIS A FIRST BUILD? ──────────────────────────────────────────
       //
@@ -27503,7 +27640,9 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // cleaned exactly once, at the ownership check, and every reader below
       // shares that answer. Two cleanings of one field is the bug this route
       // already carries a guard for.
-      const wantedSlug = namedSlug || cleanSlug(designed && designed.slug)
+      // The designer's invented name is NEW, so it is cut to MAX_NEW_SLUG
+      // (audit #247); a customer's own name was judged at the ownership check.
+      const wantedSlug = namedSlug || capNewSlug(cleanSlug(designed && designed.slug))
         || ("site-" + Math.random().toString(36).slice(2, 8));
       // ── A FRESH CHAT'S NAME CLASH IS A CLASH, NOT A REVISE ────────────────
       //
@@ -32056,6 +32195,18 @@ async function handleRequest(request, env, ctx) {
       }
 
       const stamp = (v) => { const t = Date.parse(String(v || "")); return Number.isFinite(t) ? t : 0; };
+      // UNDER DRAFT-FIRST A BUILD AFTER THE SWITCH IS NOT A PUBLISH (audit
+      // #118 / A11-5): a revise only saves a draft, and Publish never brings an
+      // offline site back. So a site switched off with a later build is asked
+      // where the live state is kept, its live marker: there, it came back up
+      // before draft-first (or by Back online); absent, it is still off;
+      // unreadable, cannot tell.
+      const offlineOf = Object.create(null);
+      if (draftFirst(env) && buildRows) {
+        await Promise.all(backends.filter((r) => r && typeof r.slug === "string" && offlineStamp(r[OFFLINE_COLUMN]) && siteOffline(r[OFFLINE_COLUMN], stamp(builtBy[r.slug]) || 0) === false).map(async (r) => {
+          try { offlineOf[r.slug] = !(await env.SITES_BUCKET.head("sites/" + r.slug + "/" + SITE_LIVE_FILE)); } catch { offlineOf[r.slug] = null; }
+        }));
+      }
       return Response.json({
         ok: true,
         sites: backends.filter((r) => r && typeof r.slug === "string").map((r) => ({
@@ -32094,7 +32245,7 @@ async function handleRequest(request, env, ctx) {
           // THREE ANSWERS, and `null` is one of them: the build read is
           // enrichment and may fail, and without it a stamped switch cannot be
           // judged stale or current. `site-list.js` keeps the three apart.
-          offline: siteOffline(r[OFFLINE_COLUMN], buildRows ? (stamp(builtBy[r.slug]) || 0) : undefined),
+          offline: Object.hasOwn(offlineOf, r.slug) ? offlineOf[r.slug] : siteOffline(r[OFFLINE_COLUMN], buildRows ? (stamp(builtBy[r.slug]) || 0) : undefined),
           createdAt: stamp(r.created_at),
           updatedAt: stamp(builtBy[r.slug]) || stamp(r.created_at),
         })),
@@ -32959,7 +33110,9 @@ async function handleRequest(request, env, ctx) {
         { send: jobSend(rJob, quickSend(env)), classify: (e) => upstreamKind(e && e.detail, e && e.status) },
         {
           message: rb.message,
-          site: rDigest.site,
+          // DRAFT-FIRST, FROM THE WORKER'S OWN SWITCH (audit #216): the router
+          // is told changes are drafts until Publish. Never the body's word.
+          site: rDigest.site && typeof rDigest.site === "object" ? { ...rDigest.site, draftFirst: draftFirst(env) } : rDigest.site,
           // THE PICKED MODEL. This call was the reason the whole cheap ladder
           // sat behind one provider: it runs before anything else on an edit, so
           // when Anthropic refused on billing (run 93) nothing downstream got a
@@ -34604,6 +34757,8 @@ async function handleRequest(request, env, ctx) {
               // change they made and cannot remember. This one was not theirs.
               label: "platform rebuild",
               job: eReplay.replay,
+              // LIVE WHEN NOTHING IS UNPUBLISHED (audit #144, owner 2026-10-23).
+              liveWhenClean: true,
             });
             return Response.json(rbOut, { status: 200 });
           }
@@ -47130,9 +47285,31 @@ async function handleRequest(request, env, ctx) {
             };
             // `on: true` means OFFLINE, matching the route's name — the same
             // shape `/notify {on}` uses, so the two read alike.
+            // THE MARKER FIRST (audit #118/#119): written before the site goes
+            // down, so no sweep or publish that starts meanwhile brings it back;
+            // taken away again when the take-down did not happen. Removed only
+            // once Back online has landed.
+            if (lb.on !== false) {
+              try { await env.SITES_BUCKET.put(offlineMarkKey(lslug), JSON.stringify({ at: new Date().toISOString(), by: ou.id }), { httpMetadata: { contentType: "application/json" } }); }
+              catch { return Response.json({ ok: false, reason: "mark", msg: "Couldn\u2019t take it offline just now \u2014 your site is still up. Try again." }, { status: 503 }); }
+            }
             const out = lb.on === false
               ? await putBackOnline(liveDeps, { slug: lslug })
               : await takeOffline(liveDeps, { slug: lslug });
+            if (lb.on !== false && !out.ok) { try { await env.SITES_BUCKET.delete(offlineMarkKey(lslug)); } catch { /* the marker stays: the site reads as offline until Back online */ } }
+            if (lb.on === false && out.ok) { try { await env.SITES_BUCKET.delete(offlineMarkKey(lslug)); } catch (e) { console.error("offline marker:", lslug, errorClassForLog(e)); } }
+            // AN OPEN PUBLICATION IS ABANDONED (audit #119): retired on the etag
+            // read, and the owner told. Its revision is published again by the
+            // owner's next Publish after Back online.
+            if (lb.on !== false && out.ok) {
+              try {
+                const cur = await readPublication(env, lslug);
+                if (cur.j && !journalClosed(cur.j) && (await writePublication(env, lslug, { ...cur.j, phase: "retired", running: false, at: Date.now(), abandoned: "offline" }, cur.etag))) {
+                  out.abandoned = true;
+                  out.msg = String(out.msg || "") + " A publish that was under way was stopped; press Publish again once the site is back online.";
+                }
+              } catch (e) { console.error("offline: the publication could not be retired", lslug, errorClassForLog(e)); }
+            }
             // AND THE SWITCH IS RECORDED WHERE EVERY BROWSER CAN SEE IT
             // (2026-09-08, owner: "fix the offline flag on the server too").
             //

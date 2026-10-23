@@ -2,6 +2,16 @@
 
 
 
+## 2026-10-23 — Your publish decisions, built (not merged, not deployed)
+
+- **Translations** go in batches; a batch that is too big or comes back unusable is not charged and is not asked again until its words change, and the reply says so.
+- **Offline wins** until you press Put it back online: Publish says the site is off the web and does nothing; the background clean-up and recovery never bring it back; taking a site offline stops an open publish and tells you.
+- **Old builds** are pruned at each Publish: the live version, the one before, every draft and the newest 20 stay.
+- **A platform rebuild** goes live on a site with no unpublished draft (and not offline); otherwise it rides the draft.
+- **New site names** are at most 43 characters; existing sites keep theirs.
+- **The assistant is told** changes are drafts until Publish, and points "publish my changes" at the Publish button.
+- Record: `docs/history/2026-10-23-decide-publish.md`. Branch `decide-g-publish`; nothing spent.
+
 ## 2026-10-23 — Audit findings 201–264 fixed and deployed (round 2, end of the list)
 
 Round 2 of your scheduled task. Six helpers re-checked findings 201–264 against the code as round 1 left it and fixed the real ones, each with a test that fails on the old code. A fresh reviewer double-checked the combined work and found three small things, all fixed; one conflict between two helpers was settled by keeping the more complete fix. You were sent before/after screenshots of the high-contrast fix. Full suite green (12,155 tests), GitHub's checks green, merged and deployed as deploy 2263. That finishes the audit list: every finding is fixed, confirmed already fixed, parked by you, or waiting on your decision (the records `docs/history/2026-10-23-r1-*.md` and `r2-*.md` list each with options).

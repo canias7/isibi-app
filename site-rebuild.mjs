@@ -221,6 +221,11 @@ export function verdictFor(res) {
     const wait = Number(res.wait);
     return { state: "pending", reason: String(res.reason || "handed to a job").slice(0, 300), wait: Number.isFinite(wait) && wait > 0 ? Math.floor(wait) : PENDING_DEFER_SEC };
   }
+  // SAVED AS A DRAFT IS NOT REPUBLISHED (2026-10-23, the owner's choice on
+  // audit #144 / A17-5): the site had unpublished changes (or was off the
+  // web), so the rebuild rides its draft and reaches visitors at the owner's
+  // next Publish. The row is done, and counted apart from the live ones.
+  if (res.ok === true && res.draft) return { state: "done", reason: "saved as a draft, live at the owner's next Publish", drafted: true };
   if (res.ok === true) return { state: "done", reason: "republished" };
   if (res.gone === true) return { state: "gone", reason: "the site no longer exists" };
 
@@ -264,7 +269,7 @@ export function verdictFor(res) {
  * another.
  */
 export async function drainRebuild(deps, { limit = BATCH } = {}) {
-  const out = { attempted: 0, rebuilt: 0, gone: 0, deferred: 0, parked: 0, lost: 0, busy: 0, pending: 0, errors: [] };
+  const out = { attempted: 0, rebuilt: 0, drafted: 0, gone: 0, deferred: 0, parked: 0, lost: 0, busy: 0, pending: 0, errors: [] };
   let rows = [];
   try { rows = (await deps.due(limit)) || []; }
   catch (e) {
@@ -381,7 +386,7 @@ async function drainOne(deps, row, out) {
       // from the queue with nothing recording that it never got the upgrade.
       try {
         await deps.forget(slug);
-        if (verdict.state === "gone") out.gone++; else out.rebuilt++;
+        if (verdict.state === "gone") out.gone++; else if (verdict.drafted === true) out.drafted++; else out.rebuilt++;
       } catch (e) { out.errors.push("forget " + slug + ": " + String((e && e.message) || e).slice(0, 120)); }
       return;
     }
