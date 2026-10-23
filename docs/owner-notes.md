@@ -1,5 +1,13 @@
 # Owner Notes
 
+## 2026-10-23, late — deploy 2265: the evening batch is live (canary owed)
+
+- New builds: the AI writes every component plus the header and footer; at most 6 sections per page; the reply says what wasn't built and that no database was made.
+- Big messages no longer get refused (the router picks items by number).
+- Stuck questions fixed, summaries say what really changed, prices editable, page buttons/hours go to the text step.
+- Add-ons repair broken code before giving up; no empty databases; the preview shows a loading state.
+- /sentinel in the chat menu; the parallel-work card.
+
 ## 2026-10-23, late night — the parallel card: your two label changes (branch `parallel-card`, not merged, not deployed)
 
 - A part saved to the draft now says "saved as draft" instead of "done" (the header still counts it as done).
