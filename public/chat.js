@@ -4217,6 +4217,10 @@ window.addEventListener('popstate', () => {
 });
 let siteDevice = 'desktop'; // preview viewport: desktop | tablet | phone
 let siteBusy = false;       // a build/revision is "running" (sample: brief delay)
+// WHOSE BUSY STATE IT IS (audit A15-6, 2026-10-23): the project that set
+// `siteBusy`. Its live steps and Stop are drawn only there (`siteBusyHere`),
+// and Stop elsewhere stops nothing; another project says why it cannot send.
+let siteBusyFor = null;
 let siteAbort = null;       // AbortController for the in-flight build/revise (Stop)
 let siteBuild = null;       // { react, rphase, code, file, filesSeen[], agents, images[] } — the running build
 let siteTicker = null;      // setInterval handle repainting the live step rail
@@ -8787,7 +8791,7 @@ function siteSetLive(site, live) {
   const slug = String(site.slug || '');
   if (!slug || siteBusy) return;
   const origin = site.id;
-  siteBusy = true;
+  siteBusy = true; siteBusyFor = origin;
   site.msgs.push({ r: 'a', t: live ? 'Putting your site back online\u2026' : 'Taking your site off the web\u2026' });
   sitesSave(); renderSites();
   // `on: true` means OFFLINE, matching the route's name.
@@ -9118,7 +9122,7 @@ function renderSiteWorkspace(view, site) {
                   // the chat"); a five-level dial with no effect names none.
                   // `buildEffortHTML` and its table are parked, not deleted — see
                   // them for the three lines that put it back.
-                  (siteBusy || siteRunningWork(site)
+                  (siteBusyHere(site) || siteRunningWork(site)
                     ? '<button type="button" class="st-sendc st-stopc" id="stStop" title="Stop" aria-label="Stop">■</button>'
                     : '<button type="button" class="st-sendc" id="stSend" title="Send" aria-label="Send">↑</button>') +
                 '</div>' +
@@ -9245,7 +9249,7 @@ function renderSiteWorkspace(view, site) {
     thread.innerHTML = (site.msgs || []).map((m) => m.r === 'u'
       ? '<div class="st-msg u">' + esc(m.t) + '</div>'
       : '<div class="st-msg a">' + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + (m.talkLive === true ? (Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, true) : '<div class="st-think"><i></i>Working on it</div>') : Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, false, true) : '') + siteMsgText(m, linkify) + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + '' + siteAskHTML(m, site) + siteModel3dHTML(m, site) + (m.request ? siteRequestHTML(m, site) : '') + (m.jobCard ? siteJobCardHTML(m, site) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
-    ).join('') + (siteBusy
+    ).join('') + (siteBusyHere(site)
       ? (siteBuild
           ? '<div class="st-msg a st-busy st-busy-react">' + reactLiveStepsHTML() + '</div>'
           : '<div class="st-msg a st-busy">Working</div>')
@@ -9404,7 +9408,7 @@ function renderSiteWorkspace(view, site) {
       const s0 = siteById(siteOpenId);
       if (!s0 || siteBusy) return;
       const origin = s0.id;
-      siteBusy = true;
+      siteBusy = true; siteBusyFor = origin;
       if (typeof siteBuildStart === 'function') siteBuildStart(true);
       siteMakeApp(s0, b.dataset.appDl, (reply) => {
         siteBusy = false;
@@ -9703,7 +9707,12 @@ function wireSiteComposer(site) {
     ta.oninput = () => { draft.t = ta.value; };
   }
   if (sendBtn && ta) {
-    sendBtn.onclick = () => { const t = ta.value.trim(); if (!t || siteBusy) return; ta.value = ''; draft.t = ''; siteSend(t); };
+    sendBtn.onclick = () => {
+      const t = ta.value.trim();
+      // ANOTHER PROJECT'S WORK HOLDS THE PAGE (audit A15-6): said, and the words stay in the box.
+      if (t && siteBusy && !siteBusyHere(siteById(siteOpenId))) { if (typeof sbToast === 'function') sbToast('Another project is still building — send this once it has finished.'); return; }
+      if (!t || siteBusy) return; ta.value = ''; draft.t = ''; siteSend(t);
+    };
     ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendBtn.onclick(); } };
     ta.focus();
   }
@@ -9997,7 +10006,7 @@ function buildStageHTML() {
 // iframe, and painting a build panel over it would tear that iframe down and
 // reload it mid-edit — which the render's own branch says a revise must not do.
 function stStageBuilding(site) {
-  return !!(siteBusy && siteBuild && siteBuild.react
+  return !!(siteBusyHere(site) && siteBuild && siteBuild.react
     && !(site && site.react && site.url) && stBuildRunning());
 }
 function stBuildFrameHTML(site) {
@@ -12907,7 +12916,7 @@ function resumeOpenSite(site) {
   const rec = EditPoll.resumableRecord(String(site.slug));
   const go = (ho) => reactSend(site, rec ? rec.ask : '', origin, 'revise', [], finish, [], ho);
   if (!resumeEditJob(site, origin, finish, go)) return false;
-  siteBusy = true;
+  siteBusy = true; siteBusyFor = origin;
   siteBuildStart(true);
   return true;
 }
@@ -14460,7 +14469,7 @@ function siteBuildTake(b) {
   }
   // THIS PAGE'S BUSY STATE IS TAKEN FOR THE FOUND BUILD, as a sent one takes it,
   // and its finish gives it back — it was free when taken.
-  siteBusy = true;
+  siteBusy = true; siteBusyFor = s.id;
   const finish = siteBuildFinish(b.chat);
   if (b.state === 'unknown') {
     finish('Your site finished building, but I couldn’t read its answer here. Your sites list shows what it made.');
@@ -15627,7 +15636,7 @@ function siteAnswer(label, skip, picked) {
   site.msgs.push({ r: 'u', t: skip ? 'Skip the questions — just build it' : said });
   const origin = siteOpenId;
   const imgs = site.clarify.imgs || [];
-  siteBusy = true;
+  siteBusy = true; siteBusyFor = origin;
   siteBuildStart(true);
   sitesSave();
   renderSites();
@@ -15867,7 +15876,7 @@ function siteAskReply(label, chosen, leaveDraft) {
   // ITS REQUEST'S, when the question is one's (2026-10-05): what that request
   // says next goes under this answer.
   site.msgs.push(siteSentMsg({ r: 'u', t: said, ...(asked.request ? { req: asked.request.key } : {}) }, key));
-  siteBusy = true;
+  siteBusy = true; siteBusyFor = origin;
   siteBuildStart(true);
   sitesSave();
   renderSites();
@@ -15926,7 +15935,7 @@ function siteAskCancel() {
   // with that request.
   const of = asked.request ? asked.request.key : '';
   site.msgs.push(siteSentMsg({ r: 'u', t: 'Cancel this request', ...(of ? { req: of } : {}) }, ''));
-  siteBusy = true;
+  siteBusy = true; siteBusyFor = origin;
   sitesSave();
   renderSites();
   const say = (t) => {
@@ -16067,7 +16076,7 @@ function siteSend(text, leaveDraft) {
   // named by, so that request's card and replies go with this message.
   const key = siteMessageKey(siteOpenId, t, leaveDraft);
   site.msgs.push(siteSentMsg({ r: 'u', t }, key));
-  siteBusy = true;
+  siteBusy = true; siteBusyFor = site.id;
   // The React engine (build = new project, revise = any React site) drives its own
   // live step-rows; legacy static sites keep the classic activity log / no log.
   const reactPath = isBuild || site.react;
@@ -16199,10 +16208,15 @@ function siteStopWork(site) {
     }).catch(() => { if (typeof sbToast === 'function') sbToast('Lost the connection \u2014 try again.'); });
     return;
   }
-  siteStop();
+  siteStop(site);
 }
-function siteStop() {
+function siteStop(site) {
+  if (site && siteBusyFor && site.id !== siteBusyFor) return;
   if (siteAbort) { try { siteAbort.abort(); } catch (e) {} }
+}
+/** The busy state is this project's own (or set before its origin was kept). */
+function siteBusyHere(site) {
+  return !!(siteBusy && (siteBusyFor == null || (site && site.id === siteBusyFor)));
 }
 
 // Inbox: the site owner's form submissions (waitlist/contact/etc.), newest first.

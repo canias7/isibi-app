@@ -129,7 +129,8 @@ test("the rail and the stage panel ask the ONE predicate", () => {
   const decide = fn("function stStageBuilding(");
   assert.match(decide, /stBuildRunning\(\)/,
     "the stage panel is drawn without asking whether a build is running — a greeting takes the preview over again");
-  assert.match(decide, /siteBusy && siteBuild && siteBuild\.react/,
+  // `siteBusyHere(site)` since audit A15-6: the busy state of THIS project.
+  assert.match(decide, /siteBusyHere\(site\) && siteBuild && siteBuild\.react/,
     "the stage's decision stopped asking whether a react build is in flight at all");
   assert.match(decide, /!\(site && site\.react && site\.url\)/,
     "the decision no longer exempts a built site — a revise gets its live preview painted over");
