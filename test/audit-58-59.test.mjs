@@ -219,7 +219,7 @@ test("A38-6 THROUGH THE REAL RESTORE — under draft-first a legacy-layout versi
     assert.equal((await readJson(store, "current/" + slug + ".json")).version, V2, "the legacy restore dropped the pointer");
     assert.equal(await store.get("sites/" + slug + "/index.html"), null, "the legacy files were copied over the served prefix");
     assert.equal(rs.status, 409, rs.text);
-    assert.match(String(rs.body && rs.body.error), /can't be restored while changes wait for Publish/);
+    assert.match(String(rs.body && rs.body.error), /can't be restored now that changes go live through Publish/);
   });
 });
 

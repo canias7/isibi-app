@@ -15204,7 +15204,7 @@ async function restoreVersion(env, slug, id, { refuseLegacy = false } = {}) {
   // drops the pointer, so a site still serving would read as never published
   // and its held changes would go live at once. A build that could not be read
   // lands here too, and is refused the same way.
-  if (refuseLegacy) return { ok: false, status: 409, error: "that version is from before versions were kept whole, so it can't be restored while changes wait for Publish — pick a newer version" };
+  if (refuseLegacy) return { ok: false, status: 409, error: "that version is from before versions were kept whole, so it can't be restored now that changes go live through Publish — pick a newer version" };
   const rb = await rollbackVersion(versionDepsWithSweep(env), { slug, id });
   if (!rb.ok) return rb;
   try { await env.SITES_BUCKET.delete(POINTER_KEY(slug)); }
