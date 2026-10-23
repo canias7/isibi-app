@@ -171,8 +171,11 @@ test("a single-part message keeps today's card and today's thread", () => {
   const p = load(s);
   assert.equal(p.html(), '<div class="st-req">TODAY</div>');
   assert.equal(p.ctx.siteParHidden(s.msgs[2], s), false);
+  // A SNAPSHOT FOR A RELOAD NOW (2026-10-23, background work: the panel above
+  // the box lists a single part too), and the card is still today's.
   p.ctx.siteParSnap(s, KEY);
-  assert.equal(s.msgs[1].rq, undefined, "a single part's message took a snapshot");
+  assert.equal(s.msgs[1].rq.parts.length, 1);
+  assert.equal(p.html(), '<div class="st-req">TODAY</div>', "a single part's snapshot drew the parallel card");
 });
 
 test("after a reload the card is drawn again from the snapshot kept with the chat", () => {

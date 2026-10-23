@@ -1,5 +1,15 @@
 # Owner Notes
 
+## 2026-10-23, late night — Background work: keep chatting while the builder works (branch `background-work`, not merged, not deployed)
+
+- Built your approved mock (option A, the pill). The message box keeps **Send** while changes run; Enter works. Stop moved into the panel.
+- Above the box, a pill: "N things in progress ▾". It opens a panel with "N things · K in progress", **Stop all** and ▴. Each row has a grey dot (spinning while it works, an empty ring when it's next, filled when it's done), the part's model-written name, and one live line. Finished rows say "Saved as draft · just now" and drop off after 5 minutes.
+- Tapping a row shows that job in the panel: "‹ Back · name · Stop" fixed at the top (Remove for a job that hasn't started), "You asked: …", every progress line, then its reply with **Show me** (opens the changed page in the preview), or what went wrong with **Try again**. The panel is at most about half the screen tall. The list and the job view scroll inside it, a working job follows its newest line, and if you scroll up a "↓ new" button takes you back down.
+- A question you send while work runs is answered right away and touches nothing. A change you send then runs as its own request beside the others (the site still saves one change at a time). It does not join the running request: adding to a live request doesn't exist yet.
+- New on the server: stopping one part (`POST /api/site/request/<slug>/<key>/stop`). That part is cancelled (its job through the usual cancel) and the rest carries on.
+- Not done: standalone jobs (the older path, with the request flow off) still show Stop in the box and aren't listed in the panel. "Next" only names what a job waits for inside its own request.
+- Nothing spent, no model called. Record: `docs/history/2026-10-23-background-work.md`.
+
 ## 2026-10-23, late night — the parallel card: your two label changes (branch `parallel-card`, not merged, not deployed)
 
 - A part saved to the draft now says "saved as draft" instead of "done" (the header still counts it as done).

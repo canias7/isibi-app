@@ -918,7 +918,7 @@ function settleRewrite(rec, p, job, row, now) {
     if (row.state === "lost") { p.status = "unverified"; p.why = "rewrite-recovering"; return; }
     // NO ANSWER, SO NO WORD ON MONEY: what it cost cannot be told.
     job.end = { state: row.state, at: now, cost: null, act: "no-answer" };
-    if (row.state === "cancelled") { p.status = "cancelled"; p.why = rec.stop ? "stopped" : "cancelled"; return; }
+    if (row.state === "cancelled") { p.status = "cancelled"; p.why = rec.stop || stoppedPart(rec, p.n) ? "stopped" : "cancelled"; return; }
     if (row.state === "done") {
       p.status = "done"; p.why = "unrecorded"; p.outcome = { job: job.id, kind: "rewrite" };
       p.done = "rewrote the site for this (what it changed was not recorded)"; return;
@@ -946,7 +946,7 @@ function settleRewrite(rec, p, job, row, now) {
     p.status = "partial"; p.why = "partly-done";
     p.notDone = [{ what: "a page of the rewrite", why: String(b.error).slice(0, 60) }]; return;
   }
-  if (b.cancelled === true) { p.status = "cancelled"; p.why = rec.stop ? "stopped" : "cancelled"; return; }
+  if (b.cancelled === true) { p.status = "cancelled"; p.why = rec.stop || stoppedPart(rec, p.n) ? "stopped" : "cancelled"; return; }
   // ANSWERED, BUT NO SITE WRITTEN (the pages could not be made; a revise leaves
   // the live site as it was), or failed outright.
   p.status = "failed";
@@ -1120,7 +1120,7 @@ function settle(rec, p, job, row, now) {
   const stopped = row.state === "cancelled" || (!!ans && ans.body.ok === false && (ans.body.error === "cancelled" || ans.body.detail === "cancelled"));
   if (stopped && !(ans && ans.body.ok === true)) {
     job.end.act = "cancelled";
-    p.status = "cancelled"; p.why = rec.stop ? "stopped" : "cancelled";
+    p.status = "cancelled"; p.why = rec.stop || stoppedPart(rec, p.n) ? "stopped" : "cancelled";
     // A STOP AFTER SOMETHING WENT IN (2026-10-07): the part is still stopped,
     // and what its tries left standing is kept on it — from its answer, from
     // its database record where the answer records nothing (Codex: the branch
@@ -1510,6 +1510,13 @@ export function nextStep(record, rows = {}, now = Date.now(), { writeMax = 1 } =
       p.status = "cancelled"; p.why = "stopped";
     }
   }
+  // ONE PART STOPPED OR REMOVED (2026-10-23, background work): the same, for
+  // the parts named in `stopParts` only — the rest of the request goes on; a
+  // part that needed one of them is not run (`broken`), as for any stop.
+  for (const p of rec.parts) {
+    if (!stoppedPart(rec, p.n) || PART_TERMINAL.includes(p.status) || currentJob(p)) continue;
+    p.status = "cancelled"; p.why = "stopped";
+  }
   // A QUESTION NOBODY ANSWERED IN A DAY EXPIRES, as the question record does.
   for (const p of rec.parts) {
     if (p.status === "waiting" && p.question && Number.isFinite(p.question.at) && now - p.question.at >= WAIT_MS) { p.status = "expired"; p.why = "unanswered"; }
@@ -1840,6 +1847,33 @@ export function settleState(rec, now = Date.now()) {
 }
 
 /** The ids of every job of the request that has not ended: the rows a step reads. */
+/** Whether one part of a request was stopped on its own (`stopParts`, background work). */
+export function stoppedPart(rec, n) {
+  return !!rec && Array.isArray(rec.stopParts) && rec.stopParts.includes(n);
+}
+
+/**
+ * STOP ONE PART (2026-10-23, background work: Stop on a job's own view, Remove
+ * on a part still waiting its turn). The record with `n` added to `stopParts`,
+ * or null when there is nothing to stop: no such part, the request ended or
+ * stopped whole, or the part already ended. Nothing new starts for it; a job
+ * it is running is cancelled by the caller through the job's own door.
+ */
+export function stopPart(record, n) {
+  if (!record || record.ended || record.stop || !Number.isInteger(n)) return null;
+  const p = Array.isArray(record.parts) ? record.parts.find((x) => x && x.n === n) : null;
+  if (!p || PART_TERMINAL.includes(p.status)) return null;
+  if (stoppedPart(record, n)) return record;
+  return { ...record, stopParts: [...(Array.isArray(record.stopParts) ? record.stopParts : []), n] };
+}
+
+/** The live job of one part, by id, when it has one. */
+export function partJobId(rec, n) {
+  const p = rec && Array.isArray(rec.parts) ? rec.parts.find((x) => x && x.n === n) : null;
+  const j = p ? currentJob(p) : null;
+  return j && j.id ? j.id : (j && j.kind === "rewrite" && !j.end ? j.key : "");
+}
+
 export function liveJobIds(rec) {
   const out = [];
   for (const p of rec.parts) { const j = currentJob(p); if (j && j.id) out.push(j.id); }
@@ -2393,6 +2427,9 @@ export function requestView(rec, { progress = null, said = null, runs = null, pr
       // makes the part's money cannot-tell (null), never a smaller number.
       charged: p.jobs.some((j) => j.end && j.end.cost === null) ? null : p.jobs.reduce((s, j) => s + (j.end && Number.isInteger(j.end.cost) ? j.end.cost : 0), 0),
       ...(p.route ? { route: p.route.op === "addon" ? "addon" : (p.route.layer || "edit") } : {}),
+      // THE PAGE ITS ROUTE NAMED (2026-10-23, background work): "Show me" opens
+      // it in the preview once the part is done. Only a path, never words.
+      ...((p.status === "done" || p.status === "partial") && p.route && typeof p.route.page === "string" && /^\/[^\s]{0,200}$/.test(p.route.page) ? { page: p.route.page } : {}),
       // AN EDIT THE ADD-ON STEP HANDED THIS PART TO, as its job's body marks it
       // (`addition`): read by the UI canary's wall for an additions scenario.
       ...(p.route && p.route.op !== "addon" && p.route.fromAddon === true ? { addition: true } : {}),
