@@ -47409,6 +47409,13 @@ async function handleRequest(request, env, ctx) {
               mReq = new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify(rest) });
             }
             r = await mediaRoute(env, mReq, mdeps, { scope: siteScope(mslug), sid: msid, step: mstep });
+            // FULL WHILE CHANGES ARE HELD (audit A10-5, 2026-10-23): a file
+            // deleted or replaced in the draft keeps its room until Publish, so
+            // "delete some first" alone sent the owner deleting files that
+            // freed nothing. Said as it is; what counts is unchanged.
+            if (mHolding && !msid && r && r.status === 409 && r.body && r.body.code === "full" && typeof r.body.error === "string") {
+              r = { ...r, body: { ...r.body, error: r.body.error.replace(/ — delete some first$/, "") + " — files you delete or replace in your draft still count until you publish it, so publish your draft (or delete files and then publish) to make room" } };
+            }
             const REPLACING = (sid) => "site-drafts/" + mslug + "/replacing/" + sid + ".json";
             // THE HANDLERS' OWN SHAPES (2026-10-16): a start answers `session`,
             // and a finish answers the file FLAT (`{ ok, name, … }`). This read

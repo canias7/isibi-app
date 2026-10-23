@@ -264,6 +264,33 @@ test("MR4 REPLACEMENT, REMOVAL, SEEKING AND PREVIEW-VERSUS-LIVE TOGETHER — hel
   });
 });
 
+// ── MR4b ────────────────────────────────────────────────────────────────────
+
+test("MR4b FULL WHILE A DELETE IS HELD (audit A10-5, 2026-10-23) — under draft-first on a published site a deleted file keeps its room until Publish, and the refusal says so instead of only \"delete some first\"; off draft-first the refusal is as before", async () => {
+  const worker = await loadWorker();
+  const store = mediaBucket();
+  const slug = "mr-full-held";
+  const env = { ...envFor(store), MEDIA_MAX_SITE_FILES: "1", SITE_WORKERS: { get: () => ({ fetch: async () => new Response("page") }) } };
+  await withWire({}, async () => {
+    const song = fixture("tone.mp3");
+    const a = await upload(worker, env, slug, song, "Welcome.mp3");
+    assert.equal(a.done && a.done.body && a.done.body.ok, true, "the first file did not land");
+    // CONTROL: not held, the plain refusal.
+    const plain = await app(worker, env, "POST", "/api/site/" + slug + "/media", { json: { name: "Two.mp3", size: song.length, type: "" } });
+    assert.equal(plain.status, 409, JSON.stringify(plain.body));
+    assert.match(plain.body.error, /— delete some first$/);
+    await liveSite(store, slug);
+    env.DRAFT_FIRST = "on";
+    const del = await app(worker, env, "DELETE", "/api/site/" + slug + "/uploads/" + a.done.body.name + "?force=1");
+    assert.equal(del.body && del.body.held, true, "the removal was not held: " + JSON.stringify(del.body));
+    const full = await app(worker, env, "POST", "/api/site/" + slug + "/media", { json: { name: "Two.mp3", size: song.length, type: "" } });
+    assert.equal(full.status, 409, JSON.stringify(full.body));
+    assert.equal(full.body.code, "full");
+    assert.match(full.body.error, /still count until you publish/, "the refusal does not say a held delete frees room only at Publish: " + full.body.error);
+    assert.doesNotMatch(full.body.error, /delete some first/, "the advice that frees nothing is still given");
+  });
+});
+
 // ── MR5 ─────────────────────────────────────────────────────────────────────
 
 test("MR5 THE PREVIEW'S HEAD IS THE DRAFT'S VERSION'S OWN — a draft save writes no shared sidecar and leaves the live one; the site script reads the head staged with the version it serves; the container's storage wall admits that and refuses the old shared key (the overlap itself: draft-preview-head DPH1)", async () => {
