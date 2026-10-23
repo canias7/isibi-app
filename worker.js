@@ -36,7 +36,7 @@ import { policiesFor, grantsFor } from "./site-rls.mjs";
 import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerImport, handleOwnerMembers, handleOwnerAnalytics, assertOwner, editGateRefusal } from "./site-owner.mjs";
 import { MAX_IMPORT_BYTES } from "./site-csv.mjs";
 import { takeIdemKey, makeIdem, replayHeaders, idemFingerprint } from "./site-idem.mjs";
-import { placeAttachedPhotos, attachedFilesNote, ownPhotoFacts, ownPhotoSentence } from "./builder/attached-photos.mjs";
+import { placeAttachedPhotos, attachedFilesNote, ownPhotoFacts, ownPhotoSentence, storeAttachedPhotos, attachedFirst, placeAttachedLogo, ownLogoSentence } from "./builder/attached-photos.mjs";
 import { importSite, importBriefBlock, readImportSite, placeImportedPhotos, publicUrl as importPublicUrl } from "./builder/site-import.mjs";
 import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_MODEL_BYTES, MAX_VISITOR_UPLOAD_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName, dispositionFor, readDownloadName, DOWNLOAD_NAME_KEY, uploadIsImage, uploadKind, UPLOAD_URL_PATH } from "./site-uploads.mjs";
 import { MEDIA_PART_BYTES, MEDIA_DRAFT_MS, MEDIA_SESSION_MS, MEDIA_CACHE, MEDIA_FORMATS, mediaDesignNote, mediaErrorNote, mediaLimits, mediaKindOf, isMediaName, draftKey, siteScope, draftScope, readStoredMeta, parseRange, mediaHeaders, etagMatches, ifRangeHolds, handleMediaStart, handleMediaPart, handleMediaComplete, handleMediaAbort, handleMediaStatus, handleMediaDelete, holdMedia, releaseMedia, abortProven, pagesUsing, mediaBlock, mediaForModel } from "./site-media.mjs";
@@ -337,7 +337,7 @@ import { QR_FIELD, qrSvg } from "./builder/site-qr.mjs";
 // THE LIST OF CODES A SITE CARRIES (2026-09-03) — read, patched and placed by
 // name. Dependency-free on purpose: the container imports the same module to
 // name the files, so what is drawn here and what is written there agree.
-import { qrList, qrFile, patchQr, qrRefusal, qrUnplaced, foldQr } from "./builder/site-qr-list.mjs";
+import { qrList, qrFile, patchQr, qrRefusal, qrUnplaced, foldQr, qrCodesOnHost, qrForgetRefusal } from "./builder/site-qr-list.mjs";
 // THE ONE SHAPE OF A TABLE (2026-09-02), lifted out of `design_schema` so the
 // ADD step can ask for a table without the build's designer — see the header
 // of that file. The build's `tables` array keeps its own framing around it.
@@ -4198,6 +4198,16 @@ const SITE_SCHEMA_TOOL = {
       // one goes through the same allow-list as the favicon, and the OWNER's
       // uploaded logo still beats either.
       wordmark: WORDMARK_FIELD,
+      // THE CUSTOMER'S OWN LOGO, ATTACHED (audit A26-4, #168; owner,
+      // 2026-10-23): named by its attachment id, stored, and put in the
+      // header as the image mark (`placeAttachedLogo`).
+      logo: {
+        type: "string",
+        description:
+          "ONLY WHEN THE CUSTOMER ATTACHED THEIR LOGO and said so (“use the attached logo”, “here's our logo”): " +
+          "that attachment's id exactly as listed with the attached files. It is stored and shown in the header as " +
+          "the site's logo, in place of `wordmark`. Leave it out when no attached file is their logo.",
+      },
       favicon: FAVICON_FIELD,
       // ── THE ANIMATED MARK IS RETIRED (owner, 2026-08-31: "delete the gif
       // step for now") ────────────────────────────────────────────────────
@@ -28099,6 +28109,15 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // later revise still has it. A name that matches nothing attached, or a
       // file the store refused, is told in the reply rather than bought.
       let ownPhotos = { placed: [], missing: [] };
+      // THE CUSTOMER'S ATTACHED LOGO, INTO THE HEADER (audit A26-4, #168): the
+      // design names it (`logo`), it is stored as their upload, and the look's
+      // header mark is its image form, exactly as the logo rung writes it.
+      let ownLogo = null;
+      if (designed && typeof designed === "object" && typeof designed.logo === "string" && designed.logo.trim()) {
+        ownLogo = await placeAttachedLogo(designed.logo, body.images, attached.named, (name, bytes) => storeOwnPhoto(env, slug, name, bytes));
+        if (ownLogo && ownLogo.wordmark) merged.wordmark = ownLogo.wordmark;
+        if (ownLogo) tr.at("ownlogo", { placed: ownLogo.wordmark ? 1 : 0 });
+      }
       // THEIR OLD SITE'S PICTURES FIRST (ideas #25/#26): an entry naming an
       // `imported-…` id is downloaded through the guarded fetch, stored as an
       // owner upload exactly as an attached photo is, and given its `src`, so
@@ -29020,7 +29039,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // sentence built there would be a second copy of this logic that drifts
         // — and the direction it drifts in is a build that read nothing while
         // still claiming it did. One function, one answer, rendered verbatim.
-        contextNote: [contextSentence(context), ownPhotoSentence(ownPhotoFacts(ownPhotos), { state: pages.page === "app" ? "published" : pages.stage === "resuming" ? "pending" : "stopped" }), mediaErrorNote(bMedia), importFailed ? "I couldn't read your current site (" + importFailed + "), so I built from what you told me." : ""].filter(Boolean).join(" ") || undefined,
+        contextNote: [contextSentence(context), ownPhotoSentence(ownPhotoFacts(ownPhotos), { state: pages.page === "app" ? "published" : pages.stage === "resuming" ? "pending" : "stopped" }), ownLogoSentence(ownLogo), mediaErrorNote(bMedia), importFailed ? "I couldn't read your current site (" + importFailed + "), so I built from what you told me." : ""].filter(Boolean).join(" ") || undefined,
         ownPhotos: ownPhotoFacts(ownPhotos),
         // WHAT BECAME OF THE VIDEO AND AUDIO (2026-10-14): moved in, by address, or not, with why.
         media: bMedia.placed.length || bMedia.missing.length ? { placed: bMedia.placed.map((f) => ({ name: f.name, url: f.url, kind: f.kind })), missing: bMedia.missing } : undefined,
@@ -34344,7 +34363,11 @@ async function handleRequest(request, env, ctx) {
       // .../<session>/<n>), finish (POST .../<session>/complete), give up
       // (DELETE .../<session>) — `site-media.mjs`.
       const mdr = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/media(?:\/([a-f0-9]{32})(?:\/(\d{1,5}|complete))?)?$/i);
-      const xp = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/export$/i);
+      // DRAFT FILES MOVED INTO AN EXISTING SITE (audit A10-4, #115; owner,
+      // 2026-10-23): video or audio attached before the site existed is moved
+      // into its library before the edit is sent.
+      const mad = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/media\/adopt$/i);
+      const xp =url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/export$/i);
       const nt = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/notify$/i);
       // Off the web and back, at the same address. The panel had an Unpublish
       // button for months that POSTed `/api/site/unpublish` — a route with ZERO
@@ -34457,10 +34480,10 @@ async function handleRequest(request, env, ctx) {
       // so from outside the two are indistinguishable — which is how this
       // survived a live probe until the dispatch was read.
       // `test/api-auth.test.mjs` holds the list against the matchers now.
-      if (om || im || mm || an || uf || mdr || xp || nt || lv || sk || dm2 || vr || pb || sa || dd || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || sc || qu || m3d) {
+      if (om || im || mm || an || uf || mdr || mad || xp || nt || lv || sk || dm2 || vr || pb || sa || dd || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || sc || qu || m3d) {
         // THE SLUG IS RESOLVED FIRST, because the replay identity below is scoped
         // to it. Nothing about deriving it depends on who is asking.
-        const ownerSlug = (om || im || mm || an || uf || mdr || xp || nt || lv || sk || dm2 || vr || pb || sa || dd || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || sc || qu || m3d)[1].toLowerCase();
+        const ownerSlug = (om || im || mm || an || uf || mdr || mad || xp || nt || lv || sk || dm2 || vr || pb || sa || dd || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || sc || qu || m3d)[1].toLowerCase();
         // ── A QUEUED EDIT'S OWN REPLAY HAS NO BEARER TOKEN ──────────────────
         //
         // The consumer replays the customer's request minutes after they made
@@ -37076,6 +37099,26 @@ async function handleRequest(request, env, ctx) {
                   return Response.json({ ok: false, layer: "rename", cost: await eCharge(rUsage),
                     msg: aliasRefusal(drop, { live: true }) }, { status: 422 });
                 }
+                // THE SITE'S OWN QR CODES (audit A31-1, #189; owner, 2026-10-23:
+                // refuse, naming them). A code made before a rename stores the
+                // old host; forgetting it would leave every such code opening
+                // nothing, or a stranger's site once the name is claimed. Read
+                // before either path (held or immediate); an unreadable look
+                // refuses rather than forget blind.
+                {
+                  const fHost = siteHostFor(drop);
+                  let fLook = null;
+                  try {
+                    const c = await readSiteConfig(env, ownerSlug, null);
+                    if (!c.ok) return explain("rename/rename-store", {}, { detail: "look read" });
+                    fLook = c.config && c.config.look;
+                  } catch { return explain("rename/rename-store", {}, { detail: "look read" }); }
+                  const fCodes = qrCodesOnHost(fLook && fLook.qr, fHost);
+                  if (fCodes.length) {
+                    return Response.json({ ok: false, layer: "rename", qrBlocked: fCodes.map((c) => c.name), cost: await eCharge(rUsage),
+                      msg: qrForgetRefusal(fHost || drop, fCodes) }, { status: 422 });
+                  }
+                }
                 // HELD: the old address keeps answering until Publish. It must
                 // be one of this site's old addresses now, or the draft's
                 // own previous name.
@@ -37525,6 +37568,12 @@ async function handleRequest(request, env, ctx) {
               // of the store, not because the site has none.
               const picParts = await editParts();
               const picFiles = picParts.ok ? editableFiles(eSrc, picParts.parts) : eSrc;
+              // THE PHOTO ATTACHED TO THIS MESSAGE (audit A25-1, #162; owner,
+              // 2026-10-23): stored as the owner's upload and offered first, so
+              // "use this photo" places it instead of buying one.
+              const picAttached = Array.isArray(eb && eb.images) && eb.images.length
+                ? await storeAttachedPhotos(eb.images.slice(0, MAX_ATTACHMENTS), attachments(eb.images.slice(0, MAX_ATTACHMENTS)).named, (name, bytes) => storeOwnPhoto(env, ownerSlug, name, bytes))
+                : { files: [], missing: [] };
               const pOut = await runPictureEdit({
                 send: eQuick(),
                 // The owner's upload library, named the way they see it.
@@ -37540,13 +37589,13 @@ async function handleRequest(request, env, ctx) {
                   // NEVER A VISITOR'S UPLOAD (2026-10-18, audit A03-2): a
                   // stranger's file sent through the site's form is not the
                   // owner's photograph, and was offered as one to place.
-                  return (await siteUploadList(env, ownerSlug))
+                  return attachedFirst(picAttached.files, (await siteUploadList(env, ownerSlug))
                     .filter((o) => o && !o.visitor && uploadIsImage(uploadFileName(o.key)))
                     .map((o) => ({ name: uploadFileName(o.key), url: uploadUrl(ownerSlug, uploadFileName(o.key)), purchase: o.purchase }))
                     // A PICTURE THIS PART'S PREPARATION BOUGHT is not yet the
                     // owner's library (2026-10-08): it is placed by this job.
                     .filter((f) => f.name && !(f.purchase && mine.has(f.purchase)) && !(eJob && ((eJob.replay && eJob.replay.hides(f.url)) || (eJob.prepare === true && eJob.rec && typeof eJob.rec.hides === "function" && eJob.rec.hides(f.url)))))
-                    .map(({ name, url }) => ({ name, url }));
+                    .map(({ name, url }) => ({ name, url })));
                 },
                 // WHY THE LAST ONE WAS NOT MADE (audit A25-3, 2026-10-23):
                 // the switch off or the balance short, so the reply says so
@@ -47817,6 +47866,22 @@ async function handleRequest(request, env, ctx) {
                 filename: url.searchParams.get("name") || "",
               });
             } else return Response.json({ error: "method not allowed" }, { status: 405 });
+          } else if (mad) {
+            // THE SAME MOVE A FIRST BUILD MAKES (`adoptDraftMedia`), for a
+            // message that became an edit while its files were drafts: only
+            // the caller's own drafts, only into a site the caller owns, each
+            // name read strictly, and what could not be moved said with why.
+            if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
+            if (!env.SITES_BUCKET) return Response.json({ error: "storage not configured" }, { status: 501 });
+            const g = await assertOwner(ownerDeps, ownerSlug, ou.id);
+            if (g && g.error) return Response.json(g.error.body, { status: g.error.status });
+            const rd = await readJsonBody(request, { max: 8000 });
+            if (!rd.ok) return Response.json({ error: rd.error, code: rd.code }, { status: rd.status });
+            const names = rd.body && Array.isArray(rd.body.files) ? rd.body.files : [];
+            const found = await draftMediaFor(env, ou.id, names);
+            const moved = found.files.length ? await adoptDraftMedia(env, ou.id, ownerSlug, found.files) : { placed: [], missing: [] };
+            // `file` IS THE STORED NAME (the chip's ref); `name` is the one the owner gave it.
+            return Response.json({ ok: true, placed: moved.placed.map((p) => ({ ...p, file: String(p.url || "").split("/").pop() })), missing: [...found.missing, ...moved.missing] });
           } else if (mdr) {
             if (!env.SITES_BUCKET) return Response.json({ error: "storage not configured" }, { status: 501 });
             const mslug = mdr[1].toLowerCase();

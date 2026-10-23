@@ -549,7 +549,8 @@ const ADD_ENTRY = {
 export const NAV_TOOL = {
   name: "write_nav",
   description:
-    "Say what the site's navigation menu should be, in order. It is the same menu on every page.",
+    "Say what the site's navigation menu should be, in order. Each page carries its own copy of the menu; a change " +
+    "is made on every page's copy unless `menuPages` names the pages it is for.",
   input_schema: {
     type: "object",
     properties: {
@@ -816,6 +817,17 @@ export const NAV_TOOL = {
           "list: every page carries its own copy, and each new item goes into every one that lacks it, leaving the rest " +
           "as it is. `links`, `social` and `legal` are for taking items out, renaming them or changing their order.",
       },
+      // ── A MENU CHANGE ABOUT ONE PAGE (audit A27-7, #173; owner, 2026-10-23:
+      // a per-page option). Applied only to the menus on the pages named.
+      menuPages: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "ONLY WHEN THEY SAID WHICH PAGE'S MENU A CHANGE TO `links` IS FOR — \"on the status page, take Home out of " +
+          "the menu\", \"rename Shop to Store in the Visit page's menu\": those pages, exactly as listed below. The " +
+          "item taken out, renamed or moved changes ONLY in those pages' menus; every other page's menu stays as it " +
+          "is. LEAVE IT OUT when they did not name a page, and the change is made on every page's menu.",
+      },
       // A QUESTION BACK (2026-10-02, builder/clarify.mjs): asked instead of acting, with nothing changed.
       question: QUESTION_FIELD,
     },
@@ -823,7 +835,8 @@ export const NAV_TOOL = {
 };
 
 const NAV_SYSTEM =
-  "You set the navigation menu on a small business's website. It is one menu, shown at the top of every page.\n" +
+  "You set the navigation menu on a small business's website. It is shown at the top of every page, and each page " +
+  "carries its own copy: a change they ask for on one page's menu is named with `menuPages` and made only there.\n" +
   "To change it, return the WHOLE menu, in order, with only what was asked for changed; an item they ask to ADD is " +
   "named in `add` instead, and goes into every page's menu that lacks it. A menu is short — most of " +
   "these sites want three to five items — and the one thing a customer is meant to do belongs near the end, where " +
@@ -1952,6 +1965,24 @@ export function readAdditions(input, routes) {
   return { adds, dropped };
 }
 
+/**
+ * WHICH PAGES' MENUS A MENU CHANGE IS FOR (audit A27-7, #173). `pages` is null
+ * when the answer named none (every page's menu); `unknown` holds what it
+ * named that the site does not have. A non-string is unknown, never coerced.
+ */
+export function readMenuScope(input, routes) {
+  const known = new Set((Array.isArray(routes) ? routes : []).filter(Boolean));
+  const raw = input && Array.isArray(input.menuPages) ? input.menuPages : [];
+  if (!raw.length) return { pages: null, unknown: [] };
+  const pages = [], unknown = [];
+  for (const pg of raw) {
+    const r = typeof pg === "string" ? pg.trim() : "";
+    if (r && known.has(r)) { if (!pages.includes(r)) pages.push(r); }
+    else unknown.push((r || "that").slice(0, 80));
+  }
+  return { pages: pages.length ? pages : null, unknown };
+}
+
 /** Where a footer slot is, as one key across two readings of the same pages. */
 const listSlotKey = (s) => s.page + "\u0000" + (s.at ?? "i" + s.insertAt);
 
@@ -2370,8 +2401,23 @@ export async function runNavEdit(deps, { instruction, pages, routes, model = NAV
   // changed is made to each menu (`menuApply`): a page that listed two of four
   // items keeps two, its own words for an item the answer only restated stay,
   // and its own order stays.
-  const menuMoves = wantsMenu ? menuChange(menuUnion(slots), read.links) : null;
-  if (wantsMenu) out = applyNav(out.pages, (items) => menuApply(items, menuMoves));
+  // ONE PAGE'S MENU (audit A27-7, #173): with `menuPages`, the answer is read
+  // against the union of THOSE pages' menus and made only to them. A page
+  // named that the site does not have, or that has no menu, refuses the menu
+  // change by name — never widened to every page.
+  const scope = wantsMenu ? readMenuScope(toolInput(reply), routes) : { pages: null, unknown: [] };
+  if (scope.unknown.length) {
+    return { ok: false, escalate: false, reason: "no-menu", usage,
+      msg: "There's no " + scope.unknown.join(" or ") + " page on the site, so I didn't change any menu — say which page's menu you mean." };
+  }
+  const inScope = (s) => !scope.pages || scope.pages.includes(routeOf(s.page));
+  const scopedSlots = slots.filter(inScope);
+  if (wantsMenu && scope.pages && !scopedSlots.length) {
+    return { ok: false, escalate: false, reason: "no-menu", usage,
+      msg: scope.pages.join(" and ") + (scope.pages.length > 1 ? " have" : " has") + " no menu of " + (scope.pages.length > 1 ? "their" : "its") + " own to change, so nothing was changed." };
+  }
+  const menuMoves = wantsMenu ? menuChange(menuUnion(scopedSlots), read.links) : null;
+  if (wantsMenu) out = applyNav(out.pages, (items, s) => (inScope(s) ? menuApply(items, menuMoves) : items));
   // WHAT THE REPLY NAMES IS THE MENUS AS THEY NOW READ (W4): the answer is one
   // list, and once each page keeps its own items it is no longer every
   // page's menu. A menu answer that changed no menu is not reported as one.

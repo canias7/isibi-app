@@ -495,7 +495,8 @@ test("THE ROUTE IS REACHABLE AND THE CLIENT SENDS THE PICTURE", () => {
   // Both ends, because either alone passes while the wire is cut — which this
   // repo has recorded as the failure shape ten times over.
   assert.match(worker, /if \(eLayer === "logo"\)/, "the Worker has no logo branch");
-  assert.match(chat, /images: d\.layer === 'logo'/, "the client never sends the attachment to the edit route");
+  // Since 2026-10-23 (#162, A25-1) the picture step is sent the files too.
+  assert.match(chat, /images: \(d\.layer === 'logo' \|\| d\.layer === 'picture'\)/, "the client never sends the attachment to the edit route");
   // RE-ANCHORED 2026-10-02: the files that go with the work start as this
   // message's own (`sendImgs`), and an answered question adds its request's.
   assert.match(chat, /let sendImgs = Array\.isArray\(imgs\) \? imgs\.slice\(0, 3\) : \[\];/, "the work's files are not the message's own");

@@ -2137,7 +2137,9 @@ export function jobBody(rec, n, kind, key, { files = [] } = {}) {
       },
     };
   }
-  const imgs = d.layer === "logo" ? files.slice(0, 3) : [];
+  // THE PICTURE STEP IS SENT THE FILES TOO (audit A25-1, #162): an attached
+  // photo is stored and offered first, instead of a bought one.
+  const imgs = d.layer === "logo" || d.layer === "picture" ? files.slice(0, 3) : [];
   // A PREPARED PART'S DECLARED SCOPE (2026-10-11, after Codex's review): its
   // step is shown only the pages or tables its route names — its preparation
   // and its job alike, so what a prepared answer rests on is exactly what its

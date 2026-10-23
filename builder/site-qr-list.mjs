@@ -283,3 +283,38 @@ export function qrUnplaced(codes, pages) {
     })
     .map((c) => c.name);
 }
+
+/**
+ * THE SITE'S OWN CODES THAT OPEN AN ADDRESS ABOUT TO BE FORGOTTEN (audit
+ * A31-1, #189; owner's choice 2026-10-23: refuse, naming the codes).
+ *
+ * A code for one of the site's own pages stores the absolute address it had
+ * when it was made, so a code made before a rename still opens the old host.
+ * Forgetting that host would leave every such code opening nothing, or a
+ * stranger's site once the name is claimed. `host` is the forgotten name's
+ * full host (`siteHostFor(name)`); a code matches when its destination is a
+ * web address on exactly that host. Anything that is not a web address (a
+ * phone number, wifi, plain text) never matches.
+ */
+export function qrCodesOnHost(qr, host) {
+  const h = typeof host === "string" ? host.trim().toLowerCase() : "";
+  if (!h) return [];
+  const out = [];
+  for (const c of qrList(qr)) {
+    let u;
+    try { u = new URL(c.points); } catch { continue; }
+    if (u.protocol !== "https:" && u.protocol !== "http:") continue;
+    if (u.hostname.toLowerCase() === h) out.push(c);
+  }
+  return out;
+}
+
+/** The refusal for a forget that would break the site's own codes. */
+export function qrForgetRefusal(host, codes) {
+  const names = (Array.isArray(codes) ? codes : []).map((c) => c && c.name).filter(Boolean);
+  const many = names.length > 1;
+  return "I can't forget " + host + " yet: " + codesSaid(names) + " on your site still "
+    + (many ? "open" : "opens") + " that address, so " + (many ? "they" : "it")
+    + " would stop working. Point " + (many ? "them" : "it")
+    + " at the site's new address first, then ask me again. Nothing was changed.";
+}

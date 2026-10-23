@@ -1176,7 +1176,9 @@ test("the platform's own words never take the composer's draft: every call that 
     if (/^['"`]/.test(args)) assert.match(args, /,\s*true$/, "a sentence the platform wrote is sent as the customer's draft: " + args.slice(0, 60));
     else assert.doesNotMatch(args, /,/, "a send from the composer passes something besides its words: " + args);
   }
-  assert.deepEqual(calls.filter((a) => !/^['"`]/.test(a)).sort(), ["prompt", "t"], "the composer's sends are not the two expected");
+  // The third (2026-10-23, #115): the composer's own words sent again once the
+  // draft video/audio has moved into the site's library.
+  assert.deepEqual(calls.filter((a) => !/^['"`]/.test(a)).sort(), ["prompt", "t", "t"], "the composer's sends are not the three expected");
 });
 
 test("a file still being read when another site is opened lands on the site it was chosen on", async () => {

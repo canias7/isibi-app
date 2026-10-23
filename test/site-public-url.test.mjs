@@ -233,6 +233,39 @@ test("forgetting the CURRENT address is refused by name, and a stranger by the e
   }
 });
 
+// ── #189 (audit A31-1; owner, 2026-10-23): a forget refuses while the site's
+// own QR codes still open the old address, naming those codes. ──────────────
+test("forgetting an address the site's own QR codes still open is refused, naming the codes, and deletes nothing", async () => {
+  const slug = "pub-url-forget-qr";
+  await withWire({ answers: { [RENAME_TOOL.name]: { forget: "sunset-shoes" } }, current: [], former: ["sunset-shoes"] }, async ({ deletes }) => {
+    const store = bucket(slug);
+    store.store.set(CONFIG_KEY(slug), JSON.stringify({ look: { ...STORED_LOOK, qr: [
+      { name: "gallery", points: addressOf("sunset-shoes") + "gallery", label: "See the gallery" },
+      { name: "phone", points: "tel:+441234567890", label: "Call us" },
+      { name: "elsewhere", points: "https://example.com/x", label: "Elsewhere" },
+    ] }, css: STORED_CSS }));
+    const { status, body } = await edit(slug, 'Forget the old address "sunset-shoes"', { store, layer: "rename" });
+    assert.equal(status, 422, "the forget was not refused: " + JSON.stringify(body));
+    assert.deepEqual(body.qrBlocked, ["gallery"], "the wrong codes were named: " + JSON.stringify(body));
+    assert.match(String(body.msg), /`gallery` code/, "the refusal does not name the code: " + body.msg);
+    assert.match(String(body.msg), /Nothing was changed/);
+    assert.equal(deletes.length, 0, "the alias row was deleted anyway");
+  });
+});
+
+test("a forget goes through when no code opens the old address", async () => {
+  const slug = "pub-url-forget-qr-ok";
+  await withWire({ answers: { [RENAME_TOOL.name]: { forget: "sunset-shoes" } }, current: [], former: ["sunset-shoes"] }, async ({ deletes }) => {
+    const store = bucket(slug);
+    store.store.set(CONFIG_KEY(slug), JSON.stringify({ look: { ...STORED_LOOK, qr: [
+      { name: "gallery", points: addressOf(slug) + "gallery", label: "See the gallery" },
+    ] }, css: STORED_CSS }));
+    const { status, body } = await edit(slug, 'Forget the old address "sunset-shoes"', { store, layer: "rename" });
+    assert.equal(status, 200, JSON.stringify(body));
+    assert.equal(deletes.length, 1);
+  });
+});
+
 test("a new address in the same answer wins over a forget", async () => {
   const slug = "pub-url-forget-both";
   const c = installCompiler();
