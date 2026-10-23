@@ -17670,8 +17670,12 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // service is sent the same list and judges it alone; the filter here is the
   // belt for a container still on the previous image, which judges every rule
   // and would otherwise hold this edit for one it never touched.
+  //
+  // ⚠ A CUT-SHORT CHECK PROVES NO RULE DEAD (audit A19-3). `partial` means the
+  // budget ran out before every route and viewport was opened, so a rule for a
+  // late page or the desktop pass "matched nothing" only because nothing looked.
   const verifyOnly = Array.isArray(verifyCss) ? new Set(verifyCss) : null;
-  const deadCss = verifyOnly && verifyOnly.size && built.render && Array.isArray(built.render.deadSelectors)
+  const deadCss = verifyOnly && verifyOnly.size && built.render && built.render.partial !== true && Array.isArray(built.render.deadSelectors)
     ? built.render.deadSelectors.filter((s) => verifyOnly.has(s)) : [];
   if (deadCss.length) {
     return {

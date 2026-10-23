@@ -323,6 +323,18 @@ test("control: a correction that lands keeps the corrected stylesheet it publish
   assert.equal(r.config.css, CLEAN_CSS.css, "the published stylesheet was wound back under the live site");
 });
 
+// A CUT-SHORT RENDER CHECK PROVES NO RULE DEAD (audit A19-3): the rule may
+// sit on a route or viewport the budget never reached, so the edit publishes
+// with no correction round instead of being held for a guess.
+for (const mode of ["sync", "job"]) {
+  test(`a ${mode} edit is not held for a rule a cut-short render check never reached`, async () => {
+    const r = await drive({ mode, routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [DEAD_CSS, STILL_DEAD], render: () => ({ ...DEAD, partial: true }) });
+    assert.equal(r.reply && r.reply.ok, true, "the edit was held for a partial check: " + JSON.stringify(r.reply));
+    assert.equal(r.builds.length, 1, "a correction ran for a rule the check never reached");
+    assert.equal(r.config.css, DEAD_CSS.css, "the stylesheet the edit wrote was not kept");
+  });
+}
+
 // ── A PUBLISH IS HELD ONLY FOR THE RULES THIS REQUEST WROTE (2026-09-26) ────
 //
 // Owner: *"An unchanged stylesheet containing an old dead selector must not

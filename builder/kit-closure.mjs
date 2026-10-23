@@ -68,6 +68,31 @@ export function aliasPath(spec) {
 }
 
 /**
+ * A KIT FILE'S OWN RELATIVE IMPORTS, as `@/…` specifiers (audit A19-4).
+ *
+ * 29 chart modules import `./_ink`, so a closure that followed only `@/` left
+ * `_ink.ts` out and the download could not build. Resolved against the
+ * importing file's directory and FENCED to `src/`: a path that climbs out of
+ * it is not a kit file and is dropped. Only kit files are read this way — a
+ * seed page's `./-parts/…` are the site's own files, already in the project.
+ */
+export function relativeSpecs(source, fromPath) {
+  const src = typeof source === "string" ? source : "";
+  const from = typeof fromPath === "string" ? fromPath : "";
+  const out = [];
+  for (const m of src.matchAll(/(?:from|import)\s*\(?\s*["'](\.\.?\/[^"']+)["']/g)) {
+    const parts = from.split("/").slice(0, -1);
+    for (const seg of m[1].split("/")) {
+      if (seg === "..") parts.pop();
+      else if (seg !== "." && seg !== "") parts.push(seg);
+    }
+    const path = parts.join("/");
+    if (path.startsWith(ALIAS_ROOT)) out.push(ALIAS + path.slice(ALIAS_ROOT.length));
+  }
+  return out;
+}
+
+/**
  * Walk the import graph from `seeds` and answer every kit file the project needs.
  *
  * @param seeds   the source of the files a build already has — the generated
@@ -125,6 +150,7 @@ export function kitClosure(seeds, read, have = []) {
       files.push({ path: hit.path, source: hit.text });
     }
     for (const next of kitSpecs(hit.text)) queue.push(next);
+    for (const next of relativeSpecs(hit.text, hit.path)) queue.push(next);
   }
   // ONE ORDER, ALWAYS, so two builds of an unchanged site store the same bytes
   // and the explorer does not reshuffle under a customer between publishes.

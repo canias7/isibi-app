@@ -845,7 +845,11 @@ export function renderReport(observations, { ok = true, error = "", cut = false,
   // `selectorsLooked` RIDES ALONG rather than being consumed and dropped, so a
   // reader downstream can tell "we checked four pages and these three rules hit
   // nothing" from "we checked nothing". Two facts, not one.
-  if (Array.isArray(deadSelectors) && deadSelectors.length && selectorsLooked > 0) {
+  //
+  // A CUT RUN PROVES NOTHING DEAD EITHER (audit A19-3): hits are counted only
+  // on the routes and viewports it reached, so a rule for a later page reads
+  // as dead because the budget ran out, not because it matched nothing.
+  if (!cut && Array.isArray(deadSelectors) && deadSelectors.length && selectorsLooked > 0) {
     report.deadSelectors = deadSelectors.slice(0, MAX_FINDINGS);
     report.selectorsLooked = selectorsLooked;
   }
