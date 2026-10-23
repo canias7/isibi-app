@@ -167,8 +167,18 @@ export function matchFontName(input) {
   // correct — the same failure the ordering above fixes, one size down.
   if (q.length >= 6) {
     const limit = Math.max(1, Math.min(3, Math.floor(q.length / 4)));
-    const near = nearestFontName(q);
-    if (near.id && near.d <= limit) return near.id;
+    // A CUT OF A FAMILY IS NOT A TYPO OF IT (audit A20-4): `-sc` (small caps)
+    // and the script subsets (`-kr`, `-jp`, …) sit within three edits of a
+    // "Pro" name, and answered "Playfair Display Pro" with the small caps.
+    // They are matched only when the query names the same cut.
+    const cut = (n) => (n.match(VARIANT_CUT) || [""])[0];
+    let best = null, bestD = Infinity;
+    for (const n of FONT_INDEX) {
+      if (Math.abs(n.length - q.length) > 6 || cut(n) !== cut(q)) continue;
+      const dd = distance(q, n);
+      if (dd < bestD) { best = n; bestD = dd; }
+    }
+    if (best && bestD <= limit) return best;
   }
 
   // Prefix handles the honest short form: "noto" -> noto-sans, "ibm plex" ->
@@ -176,13 +186,23 @@ export function matchFontName(input) {
   // first, then INSTALLED wins the tie — "ibm-plex-mono" and "ibm-plex-sans" are
   // the same length, and answering a bare "ibm plex" with the monospace one is
   // the wrong guess for a body font.
-  const starts = FONT_INDEX.filter((n) => n.startsWith(q + "-") || q.startsWith(n + "-"));
+  const starts = FONT_INDEX.filter((n) => n.startsWith(q + "-"));
   if (starts.length) {
     starts.sort((a, b) => a.length - b.length || (BY_ID.has(b) - BY_ID.has(a)) || a.localeCompare(b));
     return starts[0];
   }
-  return null;
+  // A FAMILY THAT PREFIXES THE QUERY is the other direction, and the shortest
+  // one is the least specific: "Merriweather Sans Pro" answered `merriweather`,
+  // a serif (audit A20-4). So it counts only when ALL that is left over is one
+  // commercial suffix, which leaves exactly the whole family ("merriweather-sans"
+  // + "pro"); "Roboto Slab Bold" is not a cut of anything.
+  return FONT_INDEX.find((n) => q.startsWith(n + "-") && COMMERCIAL_SUFFIX.test(q.slice(n.length + 1))) || null;
 }
+
+/** The ids of a family's cuts, not of a family: small caps and script subsets. */
+const VARIANT_CUT = /-(sc|kr|jp|tc|hk|ar|he|th)$/;
+/** What a foundry appends to a family's name for its commercial edition. */
+const COMMERCIAL_SUFFIX = /^(pro|std|lt|mt|next)$/;
 
 /**
  * Where a font comes from: already installed, fetchable, or nowhere.
