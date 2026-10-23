@@ -185,7 +185,10 @@ test("a reply's Markdown is drawn, and nothing else gets through", () => {
 test("the page keeps a waiting question on screen through a side question, on a live site and on a first build", async () => {
   const { readFileSync } = await import("node:fs");
   const chat = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
-  assert.match(chat, /if \(!isBuild && d\.ask && d\.ask\.waiting !== true\) siteAskClear\(origin\);/, "a side question takes the live question's card off");
+  // RE-ANCHORED 2026-10-23 (audit A35-2): the clear is a block now, which
+  // also lets a replaced part's question be made live again; still guarded by
+  // `waiting !== true`, so a side question keeps the card.
+  assert.match(chat, /if \(!isBuild && d\.ask && d\.ask\.waiting !== true\) \{\n(?:[^\n]*\n){1,2}\s+siteAskClear\(origin\);\n\s+\}/, "a side question takes the live question's card off");
   assert.match(chat, /if \(isBuild && answering && !picked && s\.clarify && Array\.isArray\(s\.clarify\.qa\)\) \{\n\s+const last = s\.clarify\.qa\[s\.clarify\.qa\.length - 1\];\n\s+if \(last && last\.a === t\) s\.clarify\.qa\.pop\(\);/,
     "a first build's side question stays in the round as if it answered the question");
   assert.match(chat, /s\.msgs\.push\(\{ r: 'a', t: String\(d\.answer\), md: true \}\);/);

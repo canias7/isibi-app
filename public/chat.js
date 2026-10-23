@@ -10700,7 +10700,14 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // count and what it put off earlier, to whichever step runs it; files go too.
     // …UNLESS IT IS STILL WAITING (2026-10-14): a side question was answered as
     // conversation, and the question stays on screen for its answer.
-    if (!isBuild && d.ask && d.ask.waiting !== true) siteAskClear(origin);
+    // A PART'S QUESTION THIS MESSAGE REPLACED (2026-10-23, audit A35-2) is
+    // offered again by the server, since its part still waits: this page may
+    // make it live again when a reading shows it (`siteReqAsked`).
+    if (!isBuild && d.ask && d.ask.waiting !== true) {
+      const was = siteById(origin);
+      if (d.ask.answered === false && was && was.ask && was.ask.request) siteReqAsked.delete(was.ask.id);
+      siteAskClear(origin);
+    }
     let run = t;
     if (!isBuild && d.ask && d.ask.answered === true) {
       if (typeof d.instruction === 'string') { run = d.instruction; brief = run; }
