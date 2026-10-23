@@ -144,7 +144,9 @@ export const EDIT_FAILURES = Object.freeze([
   { key: "page/removal-no-change", reason: "no-change", cls: "explain",
     why: "The removal changed nothing without saying why (unreachable: a page that exists is either kept, with a sentence, or removed)." },
   { key: "page/no-look", reason: "no-look", cls: "up",
-    why: "The config answered with no look at all — a site from before designs were stored. The same as the look rung's: only the rewrite regenerates a design." },
+    why: "The config answered with no look and no stylesheet — a site from before designs were stored. The same as the look rung's: only the rewrite regenerates a design." },
+  { key: "page/css-only", reason: "css-only", cls: "explain",
+    why: "A stylesheet but no stored look: existing design, which the look rung edits and the add-on will not rewrite (audit A37-5). The page writer needs the stored look, and a rewrite of every page would replace a design that exists, so it is said at no cost." },
   { key: "page/config-unreadable", reason: "config", cls: "explain", ours: true,
     why: "The stored design could not be read — ours." },
   { key: "page/spec-unreadable", reason: "backend", cls: "explain", ours: true,
@@ -282,6 +284,8 @@ export function failureMsg(key, facts = {}) {
       return "I couldn't take " + (page ? "the " + page + " page" : "that page") + " off.";
     case "page/config-unreadable":
       return "I couldn't read your site's design just now, so I stopped before rewriting " + (page ? "the " + page + " page" : "the page") + " — this is on us. Try again in a moment.";
+    case "page/css-only":
+      return "Your site's saved design information isn't enough for me to rewrite " + (page ? "the " + page + " page" : "that page") + ", so I haven't changed anything rather than rewrite the whole site. Changes to colours, fonts and the look of sections still work.";
     case "page/spec-unreadable":
       return "I couldn't read what your site's database is set up to do just now, so I stopped rather than guess — this is on us. Try again in a few minutes.";
     case "page/no-change":

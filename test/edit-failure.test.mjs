@@ -750,6 +750,28 @@ test("control: a site from before designs were stored climbs when EVERY step nee
   assert.deepEqual(r.said.actions, [REWRITE]);
 });
 
+test("A37-5 — a stylesheet with no stored look is existing design: the page rung says so at no cost, never the rewrite", async () => {
+  const slug = "fail-page-css-only";
+  const store = bucket(slug, { pages: TWO_PAGES(slug), config: { look: null, css: "body{color:#123}" } });
+  const before = snapshot(store);
+  const r = await edit(slug, store, {
+    answers: { [T.tweak]: { cannot: "needs the page rewritten" } },
+  }, { layer: "page", page: "/", instruction: "Put the hours above the map." });
+  assert.notEqual(r.body.escalate, true, "climbed to the rewrite");
+  assert.equal(r.body.error, "css-only");
+  assert.equal(r.body.cost, 0);
+  assert.equal(editFailure("page/css-only").cls, "explain");
+  assert.equal(snapshot(store), before);
+  assert.ok(!r.said.actions.includes(REWRITE));
+  // Control: neither look nor stylesheet still climbs.
+  const store2 = bucket(slug + "-2", { pages: TWO_PAGES(slug + "-2"), config: { look: null, css: "  " } });
+  const r2 = await edit(slug + "-2", store2, {
+    answers: { [T.tweak]: { cannot: "needs the page rewritten" } },
+  }, { layer: "page", page: "/", instruction: "Put the hours above the map." });
+  assert.equal(r2.body.escalate, true);
+  assert.equal(r2.body.reason, "no-look");
+});
+
 test("control: a site whose store holds no pages at all climbs to the rewrite, the one rung that regenerates them", async () => {
   const slug = "ctl-no-source";
   const store = bucket(slug, { pages: undefined });

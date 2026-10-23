@@ -661,7 +661,11 @@ test("the fire, read off the Worker: a build's clock and token expiry, the place
   assert.match(fire, /v: 2, kind, id,/, "the launch's kind is not the caller's");
   const ident = fn(src, "async function buildFireIdentity(");
   assert.match(ident, /if \(!named\) return \{ uid: job\.uid, slug: "", pre: true \};/, "a nameless build is not pre-scoped");
-  assert.match(ident, /siteOwnerBySlug\(named, env\)/, "the owner is not asked before a named build is fired");
+  // RE-ANCHORED 2026-10-23 (audit A16-6): the owner is read FRESH, and a read
+  // that fails fires the build pre-scoped — never a token for the name.
+  assert.match(ident, /siteBackendRowFresh\(env, named\)/, "the owner is not asked fresh before a named build is fired");
+  assert.doesNotMatch(ident, /siteOwnerBySlug\(/, "the memoized lookup, which reads a failed read as free, decides the scope");
+  assert.match(ident, /catch \{ return \{ uid: job\.uid, slug: "", pre: true \}; \}/, "a failed owner read is not fired pre-scoped");
   assert.match(ident, /if \(owner && owner !== job\.uid\) return null;/, "a stranger's site can be fired");
   assert.match(ident, /return \{ uid: job\.uid, slug: named, pre: false \};/);
   // The gateway's scope deps: the Worker signs with the derived key and asks
