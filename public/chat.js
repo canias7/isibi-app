@@ -8443,7 +8443,10 @@ async function historyRailLoad(site) {
 // republish/copy. Unpublish + edit-settings are visual placeholders for now.
 // ── DRAFT-FIRST (owner, 2026-10-15): "only an explicit click on the Publish
 // button may make changes live." Every task saves a draft; this reads where
-// the site stands and publishes exactly the version the owner looked at.
+// the site stands and publishes the revision the panel read (the newest saved
+// draft). While the preview is pending, failed or unknown the frame can still
+// show an older draft version, and the panel does not yet say so (audit S5-5,
+// backlog: "The owner's panel does not yet show `previewPending`").
 const siteDraftState = {};
 const siteDraftAt = {};
 const DRAFT_SAY = { processing: 'Still processing\u2026', saved: 'Saved \u00b7 not published', published: 'Published', unpublished: 'Not published yet', publishing: 'Publishing\u2026' };

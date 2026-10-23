@@ -30,6 +30,7 @@ import {
 import { LIST_ANSWER_MAX_TOKENS, MAX_INPUT_CHARS, echoTokens } from "../builder/input-budget.mjs";
 import { LANE_PICK_MAX_TOKENS } from "../builder/site-lanes.mjs";
 import { ASK_MAX_TOKENS, RESOLVED_TOKENS } from "../builder/site-ask.mjs";
+import { ROUTER_LAST_REPLY_CHARS } from "../builder/site-converse.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -296,7 +297,8 @@ test("a computed ceiling is named, so a new one cannot slip past the check unsee
   const floor = Math.min(...[...modelsInUse()].map((id) => maxOutputTokens(id)));
   assert.ok(LIST_ANSWER_MAX_TOKENS <= floor, "a step's list ceiling (" + LIST_ANSWER_MAX_TOKENS + ") is above the smallest output limit (" + floor + ")");
   assert.ok(LANE_PICK_MAX_TOKENS + 2 * echoTokens("x".repeat(MAX_INPUT_CHARS)) <= floor, "the picker's ceiling at the longest message is above the floor");
-  assert.ok(ASK_MAX_TOKENS + echoTokens("x".repeat(MAX_INPUT_CHARS), "x".repeat(MAX_INPUT_CHARS)) + RESOLVED_TOKENS <= floor, "the router's ceiling with a conversation, at the longest message, is above the floor");
+  // …PLUS TWICE THE LONGEST SHOWN TURN (2026-10-23, audit A36-3): the router is shown its last reply up to ROUTER_LAST_REPLY_CHARS.
+  assert.ok(ASK_MAX_TOKENS + echoTokens("x".repeat(MAX_INPUT_CHARS), "x".repeat(MAX_INPUT_CHARS)) + RESOLVED_TOKENS + 2 * echoTokens("x".repeat(ROUTER_LAST_REPLY_CHARS)) <= floor, "the router's ceiling with a conversation, at the longest message, is above the floor");
   for (const expr of dynamic) {
     assert.ok(
       known.has(expr),

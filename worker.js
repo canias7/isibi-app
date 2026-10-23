@@ -229,7 +229,7 @@ import { runLogoEdit } from "./builder/site-logo.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
 import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings, canWriteAccess } from "./site-access.mjs";
-import { converse, readHistory, converseRequest, requestChars, CONTEXT_CHARS } from "./builder/site-converse.mjs";
+import { converse, readHistory, converseRequest, requestChars, CONTEXT_CHARS, converseTables } from "./builder/site-converse.mjs";
 import { planWindow, compact as compactChat, COMPACT_AT } from "./builder/chat-context.mjs";
 // The pair a `display` table resolves to. Named once, from the presets, so the
 // data layer's gate cannot drift from the vocabulary again — it was compared
@@ -283,7 +283,7 @@ import {
 // the plan, what a job's answer means for its part, and the next job.
 import {
   isRequestKey, requestFlowOn, recordKey as requestRecordKey, liveKey as requestLiveKey, fileKey as requestFileKey, requestReplyKey,
-  parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ORPHAN_MARKER_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts,
+  parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ORPHAN_MARKER_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts, requestMaking,
   nextStep, readLabels, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, heldPurchaseState, heldReasons, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, requestView, liveJobIds, questionsToOffer, noteOffered,
   approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt, editJobOutcome, answerless, wantsEvidence,
 } from "./builder/request.mjs";
@@ -9041,7 +9041,7 @@ function buildProgressFor(env, ctx, { id, run, uid, take = false, words = "" }) 
       p = makeProgress(env, ctx, { id, run, uid, slug: "", standalone: false });
       if (!p) return;
       p.begin({ op: "build", words, take: false });
-      if (p.talk) mark("start", startFacts({ op: "build", slug: "" }));
+      if (p.talk) mark("start", startFacts({ op: "build", slug: "", draft: draftFirst(env) }));
       for (const [stage, facts] of early.splice(0)) mark(stage, facts);
       watchStill();
     },
@@ -9054,7 +9054,7 @@ function buildProgressFor(env, ctx, { id, run, uid, take = false, words = "" }) 
       p.begin({ op: "build", words, take });
       // THE OPENING PLAN (talk, 2026-10-13), once — never again on the run that
       // carries a build on (`take`), whose record already said it.
-      if (p.talk && !take) mark("start", startFacts({ op: "build", slug }));
+      if (p.talk && !take) mark("start", startFacts({ op: "build", slug, draft: draftFirst(env) }));
       for (const [stage, facts] of early.splice(0)) mark(stage, facts);
       watchStill();
     },
@@ -9886,14 +9886,8 @@ async function readConverseContext(env, user, rb, digest) {
       return { path, text };
     })
     : null;
-  const tables = spec && spec.ok && spec.spec && Array.isArray(spec.spec.tables)
-    ? spec.spec.tables.filter((t) => t && typeof t.name === "string" && ROUTE_TABLE_NAME.test(t.name)).slice(0, 24).map((t) => {
-      let who = "";
-      try { who = accessLabel(t); } catch { who = ""; }
-      const cols = (Array.isArray(t.columns) ? t.columns : []).map((c) => (typeof c === "string" ? c : c && typeof c.name === "string" ? c.name : "")).filter((c) => ROUTE_TABLE_NAME.test(c)).slice(0, 30);
-      return { name: t.name, columns: cols, who: who ? "access: " + who : "" };
-    })
-    : null;
+  // THE SPEC'S TABLES AND THE CATALOG'S UNDECLARED ONES (audit A36-2).
+  const tables = converseTables(spec, accessLabel);
   const lib = Array.isArray(files)
     ? files.filter((f) => f && !f.visitor && typeof f.key === "string").map((f) => {
       const name = f.key.slice(("uploads/" + slug + "/").length);
@@ -9902,7 +9896,7 @@ async function readConverseContext(env, user, rb, digest) {
       return { url: uploadUrl(slug, name), name: f.download ? readDownloadName(f.download) || name : name, kind, size: f.size, ...media };
     })
     : null;
-  return { ...base, pages, tables, files: lib };
+  return { ...base, pages, tables, files: lib, draftFirst: draftFirst(env) };
 }
 
 /**
@@ -13876,6 +13870,32 @@ async function runningForSite(env, uid, slug) {
     // count is ours, and a row without a readable state is not counted as done.
     return Array.isArray(rows) ? rows.filter((x) => !x || !["done", "failed", "cancelled", "lost"].includes(x.state)).length : null;
   } catch { return null; }
+}
+/**
+ * How many of the owner's requests for this site still have a part being made
+ * (`requestMaking`; 2026-10-23, audit S5-3): a part prepared in the Worker has
+ * no `edit_jobs` row, so the draft read as "saved" while it was still being
+ * worked on. Read from the request markers (`requests-live/<slug>/`), skipping
+ * ended ones; anything that cannot be read counts as nothing, as a job count
+ * that cannot be read does.
+ */
+async function requestsMakingFor(env, uid, slug) {
+  if (!env.SITES_BUCKET || !uid) return 0;
+  let n = 0;
+  try {
+    const listed = await env.SITES_BUCKET.list({ prefix: REQUEST_LIVE_ROOT + slug + "/", limit: 50 });
+    for (const o of (listed && listed.objects) || []) {
+      const at = parseLiveKey(o && o.key);
+      if (!at || at.slug !== slug) continue;
+      let mark = null;
+      try { const got = await env.SITES_BUCKET.get(o.key); mark = got ? JSON.parse(await got.text()) : null; } catch { mark = null; }
+      if (!mark || mark.endedAt != null) continue;
+      let found = null;
+      try { found = await loadRequest(env, slug, at.key); } catch { found = null; }
+      if (found && found.rec && found.rec.uid === uid && requestMaking(found.rec)) n++;
+    }
+  } catch (e) { console.error("requests making:", slug, errorClassForLog(e)); }
+  return n;
 }
 // ── HELD CHANGES ON A PUBLISHED SITE (draft-first, 2026-10-15) ──────────────
 //
@@ -34857,7 +34877,7 @@ async function handleRequest(request, env, ctx) {
             // sent here, and the steps an edit really runs, said as next — so the
             // first update is the approach, written in the background while the
             // work starts. The plan below (`plan`) revises it with the real steps.
-            if (eJob && eJob.progress && eJob.progress.talk) eJob.progress.mark("start", startFacts({ op: "edit", layer: eLayer, page: ePage }));
+            if (eJob && eJob.progress && eJob.progress.talk) eJob.progress.mark("start", startFacts({ op: "edit", layer: eLayer, page: ePage, draft: draftFirst(env) }));
             if (!eSrc.length) {
               // Missing pages permit reconstruction only when the remaining
               // inputs can be read. Otherwise the rewrite meets the same fault.
@@ -40792,7 +40812,7 @@ async function handleRequest(request, env, ctx) {
             if (aJob && aJob.progress) aJob.progress.begin({ op: "addon", words: aInstruction, picker: ab && ab.picker, pages: aReplyOut.pages(), request: aPart });
             // THE OPENING PLAN (talk, 2026-10-13), as an edit's: what this is and
             // the steps an addition really runs; the picked kinds revise it.
-            if (aJob && aJob.progress && aJob.progress.talk) aJob.progress.mark("start", startFacts({ op: "addon" }));
+            if (aJob && aJob.progress && aJob.progress.talk) aJob.progress.mark("start", startFacts({ op: "addon", draft: draftFirst(env) }));
             // Absence is not permission yet: backend, config and schema must
             // also be readable before a reconstruction may be requested.
             // A SITE WITHOUT A DATABASE CAN STILL BE ADDED TO. This step opened
@@ -43593,7 +43613,7 @@ async function handleRequest(request, env, ctx) {
                 // tables, the changed ones, the functions and the timers — and,
                 // at the publish's seam (a version in hand), the publish still
                 // under way; nothing is said to come next (2026-10-07).
-                if (aJob && aJob.progress) aJob.progress.mark("schema", addonSchemaFacts({ tables: aTables, altered: aAltered, functions: aFunctions, jobs: aJobs }, { publishing: version != null }));
+                if (aJob && aJob.progress) aJob.progress.mark("schema", addonSchemaFacts({ tables: aTables, altered: aAltered, functions: aFunctions, jobs: aJobs }, { publishing: version != null, held: aWriter.holding, heldJobs: aWriter.on, draft: aWriter.on }));
                 // THE ENGINE'S OWN REPORT ON THE RECORD, still `pending`: what
                 // stands in the database is known now; whether the page comes
                 // is not, and the mark after the publish says which.
@@ -46247,7 +46267,9 @@ async function handleRequest(request, env, ctx) {
               let draft = null, live = null;
               try { draft = (await readDraft(buildDeps(env), ownerSlug)).draft; } catch { return null; }
               try { live = await readPointer(buildDeps(env), ownerSlug); } catch { return null; }
-              const running = await runningForSite(env, ou.id, ownerSlug);
+              // A REQUEST PART BEING PREPARED HAS NO JOB ROW (audit S5-3), so
+              // this owner's requests still making a part count as running too.
+              const running = ((await runningForSite(env, ou.id, ownerSlug)) || 0) + (await requestsMakingFor(env, ou.id, ownerSlug));
               const publishing = await publishingNow(env, ownerSlug);
               const st = draftState({ draft, live, running: running || 0, publishing });
               const label = draft ? previewLabel(ownerSlug, draft.preview) : "";

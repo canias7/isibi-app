@@ -73,6 +73,10 @@ export const ASK_MAX_TOKENS = 700;
  * 2026-10-14): a paragraph, on a call shown a conversation and on no other.
  */
 export const RESOLVED_TOKENS = 400;
+/** The words of the conversation a routing call is shown (`readHistory`'s turns). */
+function shownTurns(h) {
+  return (h && Array.isArray(h.turns) ? h.turns : []).map((t) => (t && typeof t.text === "string" ? t.text : ""));
+}
 
 /**
  * HOW MUCH OF A FIRST BUILD'S MESSAGE AND BRIEF THE ROUTER CONSIDERS — the
@@ -1378,7 +1382,11 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
     // AND ROOM TO WRITE A REQUEST OUT FROM THE CONVERSATION (`resolved`,
     // 2026-10-14) — only when a conversation is shown, the only time one may be
     // written. Every other routing call keeps exactly its ceiling.
-    max_tokens: (live ? ASK_MAX_TOKENS + echoTokens(text, pending && typeof pending.request === "string" ? pending.request : "") : ASK_MAX_TOKENS) + (historyBlock(history) ? RESOLVED_TOKENS : 0),
+    // AND ROOM BY WHAT IS SHOWN (2026-10-23, audit A36-3): `resolved` may
+    // restate a plan from the conversation and each held part is copied from
+    // it, so twice the longest shown turn is added; a flat 400 cut a go-ahead
+    // on a long plan, and every resend failed the same way.
+    max_tokens: (live ? ASK_MAX_TOKENS + echoTokens(text, pending && typeof pending.request === "string" ? pending.request : "") : ASK_MAX_TOKENS) + (historyBlock(history) ? RESOLVED_TOKENS + 2 * echoTokens(...shownTurns(history)) : 0),
     // A SITE THAT EXISTS IS SENT ITS OWN TOOL (2026-10-02, `LIVE_ASK_TOOL`); a
     // first build, and anything else, the tool it was always sent.
     tools: [live ? LIVE_ASK_TOOL : ASK_TOOL],

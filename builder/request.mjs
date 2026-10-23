@@ -1752,6 +1752,17 @@ export function prepState(p, now = Date.now()) {
   return p.prep.state === "done" && p.prep.outcome === "ready" ? "prepared" : "";
 }
 
+/**
+ * WHETHER A REQUEST STILL HAS A PART BEING MADE (2026-10-23, audit S5-3): a
+ * part queued, started, ready or recovering, or one whose preparation is
+ * running (`prepState`), which has no job row while it is prepared. A part
+ * waiting on the owner (a question, a go-ahead) is not being made.
+ */
+export function requestMaking(rec, now = Date.now()) {
+  if (!rec || !Array.isArray(rec.parts)) return false;
+  return rec.parts.some((p) => p && (["queued", "started", "ready", "recovering"].includes(p.status) || prepState(p, now) === "preparing"));
+}
+
 /** The request's own state, from its parts. */
 export function settleState(rec, now = Date.now()) {
   const ps = rec.parts;
@@ -2044,11 +2055,14 @@ export function jobBody(rec, n, kind, key, { files = [] } = {}) {
   const putOff = p.resume ? undefined : heldWire(p.putOff && p.putOff.length ? p.putOff : undefined);
   const request = partOf(rec, n);
   if (kind === "route") {
-    // ROUTED AGAINST THE SITE AS IT IS NOW: no table names from the page that
-    // sent the message, so the route reads the site's own (`routeDigest`) —
-    // a part before this one may have added one. Its own page list replaces
-    // the one kept here whenever it can be read.
-    const digest = plain(rec.digest) ? { ...rec.digest, tables: [] } : { pages: [], tables: [] };
+    // ROUTED AGAINST THE SITE AS IT IS NOW: the route reads the site's own
+    // table names (`routeDigest`) — a part before this one may have added one
+    // — and they replace these whenever the read answers. THE NAMES KNOWN AT
+    // ACCEPTANCE ARE KEPT as the fallback (2026-10-23, audit A36-5): blanked,
+    // a read that failed or timed out left the router told of no table at all,
+    // where the page's own path keeps the page's names. Its own page list
+    // replaces the one kept here whenever it can be read.
+    const digest = plain(rec.digest) ? { ...rec.digest } : { pages: [], tables: [] };
     // …UNLESS ITS ROUTING IS SCOPED (2026-10-15, `routeScope`): a prepared part
     // the router named only stored tables for keeps this page list, the one
     // kept at acceptance, in its preparation and in its job alike — the same

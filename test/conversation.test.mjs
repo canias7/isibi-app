@@ -19,6 +19,7 @@ import {
   CONVERSE_MAX_TOKENS, CONVERSE_SYSTEM, CAPABILITIES, HONESTY, HISTORY_TURNS, HISTORY_CHARS, ROUTER_HISTORY_TURNS,
 } from "../builder/site-converse.mjs";
 import { askRequest, ASK_MAX_TOKENS, RESOLVED_TOKENS } from "../builder/site-ask.mjs";
+import { echoTokens } from "../builder/input-budget.mjs";
 
 const ChatTalk = createRequire(import.meta.url)("../public/chat-talk.js");
 
@@ -59,7 +60,8 @@ test("the reply's call has its own ceiling, and the router's does not grow witho
   const plain = askRequest({ message: "hi", site: {} });
   assert.equal(plain.max_tokens, ASK_MAX_TOKENS, "a routing call with no conversation grew");
   const withTalk = askRequest({ message: "do that", site: {}, history: { turns: [{ role: "assistant", text: "I could add a gallery." }], left: 0 } });
-  assert.equal(withTalk.max_tokens, ASK_MAX_TOKENS + RESOLVED_TOKENS, "a routing call shown a conversation has no room to write the request out");
+  // …and twice the longest shown turn, to restate it and copy held parts from it (2026-10-23, audit A36-3).
+  assert.equal(withTalk.max_tokens, ASK_MAX_TOKENS + RESOLVED_TOKENS + 2 * echoTokens("I could add a gallery."), "a routing call shown a conversation has no room to write the request out");
 });
 
 test("the reply is told how to answer: length to the question, small Markdown, no stock openings", () => {

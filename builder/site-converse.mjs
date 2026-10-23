@@ -261,6 +261,34 @@ function secs(n) {
 }
 
 /**
+ * THE TABLES THE CONVERSATION IS TOLD OF (2026-10-23, audit A36-2), from the
+ * schema state (`readSchemaState`): the stored spec's tables with their
+ * columns and access, AND every table the catalog has that the spec does not
+ * declare (`missing`; all of them for `tables-without-metadata`), with the
+ * catalog's columns and access said as not recorded. The router is told the
+ * catalog's names, so the reply is never told "no tables" for the same site.
+ * `null` when the state cannot be read. Identifier-shaped names only.
+ */
+const CONVERSE_NAME = /^[a-z_][a-z0-9_]{0,62}$/i;
+export function converseTables(st, label = null) {
+  if (!st || st.ok !== true || !st.spec || !Array.isArray(st.spec.tables)) return null;
+  const declared = st.spec.tables.filter((t) => t && typeof t.name === "string" && CONVERSE_NAME.test(t.name)).map((t) => {
+    let who = "";
+    try { who = typeof label === "function" ? label(t) : ""; } catch { who = ""; }
+    const cols = (Array.isArray(t.columns) ? t.columns : []).map((c) => (typeof c === "string" ? c : c && typeof c.name === "string" ? c.name : "")).filter((c) => CONVERSE_NAME.test(c)).slice(0, 30);
+    return { name: t.name, columns: cols, who: who ? "access: " + who : "" };
+  });
+  const have = new Set(declared.map((t) => t.name.toLowerCase()));
+  const catalog = Array.isArray(st.columns) ? st.columns : [];
+  const extra = (Array.isArray(st.missing) ? st.missing : []).filter((n) => typeof n === "string" && CONVERSE_NAME.test(n) && !have.has(n.toLowerCase())).map((n) => ({
+    name: n,
+    columns: catalog.filter((r) => r && r.t === n && typeof r.c === "string" && CONVERSE_NAME.test(r.c)).map((r) => r.c).slice(0, 30),
+    who: "access not recorded",
+  }));
+  return [...declared, ...extra].slice(0, 24);
+}
+
+/**
  * The site context block. `ctx` is the route's reading (`readConverseContext`
  * shape): every field optional, and what could not be read is said as not
  * known rather than left to look like nothing. Bounded to `CONTEXT_CHARS`, the
@@ -278,6 +306,10 @@ export function siteContextBlock(ctx) {
     const head = ["THEIR SITE"];
     if (typeof c.name === "string" && c.name.trim()) head.push("It is called " + c.name.trim() + ".");
     if (typeof c.url === "string" && c.url.trim()) head.push("It is published at " + c.url.trim() + ".");
+    // DRAFT-FIRST (2026-10-23, audit A36-4): every change is saved to a draft
+    // and goes live only when the owner presses Publish, and the stored pages
+    // below are that draft — never told as what visitors see.
+    if (c.draftFirst === true) head.push("Every change is saved to a draft first and goes live only when they press Publish. The pages below are as saved, which may include changes not published yet: never say a change is live unless they have published it.");
     out.push(head.join("\n"));
     const pages = Array.isArray(c.pages) ? c.pages : null;
     if (pages && pages.length) {

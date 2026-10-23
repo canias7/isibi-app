@@ -344,11 +344,12 @@ test("filing: an id is recorded once, under its own key; a site paused for revie
 
 // ── THE BODIES ──────────────────────────────────────────────────────────────
 
-test("bodies: a part's routing job is routed against the site as it is then — no table names from the page — and carries the whole request it came from", () => {
+test("bodies: a part's routing job is routed against the site as it is then — the names kept at acceptance only as the fallback — and carries the whole request it came from", () => {
   const rec = newRequest({ key: KEY, uid: "u1", slug: "fold-lane", message: MSG, digest: { name: "N", pages: ["/"], tables: ["loaves"] }, parts: planParts(MSG, { intent: "edit", alsoAsked: [ADD] }).parts });
   const b = jobBody(rec, 1, "route", KEY + "-p1-1");
   assert.equal(b.url, "/api/site/route");
-  assert.deepEqual(b.body.site, { name: "N", pages: ["/"], tables: [] });
+  // THE NAMES KNOWN AT ACCEPTANCE STAY AS THE FALLBACK (2026-10-23, audit A36-5).
+  assert.deepEqual(b.body.site, { name: "N", pages: ["/"], tables: ["loaves"] });
   assert.equal(b.body.message, ADD);
   assert.equal(b.body.idem, KEY + "-p1-1");
   assert.equal(b.body.request.original, MSG);

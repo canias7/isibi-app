@@ -223,7 +223,7 @@ test("THE SCHEMA MILESTONE'S WIRING, from the source (the flow harness cannot ap
   const a = src.indexOf("aApplyBackend = async (version) => {");
   const b = src.indexOf("aMigration = await recordSiteMigration(env, ownerSlug, withApplied(aMigration, aMade", a);
   assert.ok(a > 0 && b > a, "the apply's landmarks moved");
-  assert.match(src.slice(a, b), /progress\.mark\("schema", addonSchemaFacts\(\{ tables: aTables, altered: aAltered, functions: aFunctions, jobs: aJobs \}, \{ publishing: version != null \}\)\)/);
+  assert.match(src.slice(a, b), /progress\.mark\("schema", addonSchemaFacts\(\{ tables: aTables, altered: aAltered, functions: aFunctions, jobs: aJobs \}, \{ publishing: version != null, held: aWriter\.holding, heldJobs: aWriter\.on, draft: aWriter\.on \}\)\)/);
   assert.equal(src.split("await aApplyBackend(version)").length - 1, 1, "the seam does not hand the apply its version");
   assert.equal(src.split("await aApplyBackend(null)").length - 1, 1, "the pageless path does not hand the apply null");
 });

@@ -947,6 +947,22 @@ export function editPlanFacts(steps) {
 }
 
 /**
+ * A DATABASE STEP HELD IN THE DRAFT IS NOT IN EFFECT (2026-10-23, audit A14-6):
+ * under draft-first a row or rule change on a published site is held, and its
+ * answer carries the held draft (`draft`: published false, held true), so it
+ * is said as held, never as changed in the database.
+ */
+function heldStep(d) {
+  const dr = d && d.body && d.body.draft;
+  return !!(dr && typeof dr === "object" && dr.published === false && dr.held === true);
+}
+function stepDoneFact(d, what) {
+  if (!DB_LAYERS.includes(d.step.layer)) return fact("prepared", "Made, not published yet: " + what + ".");
+  return heldStep(d)
+    ? fact("prepared", "Held in their draft, not in effect yet: " + what + ". It takes effect when they press Publish.")
+    : fact("applied", "Changed in the site's database: " + what + ".");
+}
+/**
  * AN EDIT AT ITS PUBLISH: each step that worked, prepared (or applied, when its
  * change is in the database), each that did not, and the publish starting. A
  * failed step a later one did after all (`superseded`) is not told as failed.
@@ -956,7 +972,7 @@ export function editPublishFacts(done, { draft = false } = {}) {
   for (const d of Array.isArray(done) ? done : []) {
     if (!d || !d.step) continue;
     const what = stepSaid(d.step);
-    if (!d.failed) out.push(DB_LAYERS.includes(d.step.layer) ? fact("applied", "Changed in the site's database: " + what + ".") : fact("prepared", "Made, not published yet: " + what + "."));
+    if (!d.failed) out.push(stepDoneFact(d, what));
     else if (!d.superseded) out.push(fact("notdone", "Could not be made: " + what + ". The final message will say why."));
   }
   // A DRAFT IS NOT A PUBLISH (2026-10-19): with draft-first on, the changes go
@@ -979,7 +995,7 @@ export function editStepFacts(d, i, n) {
   if (!d || !d.step) return [];
   const what = stepSaid(d.step) + k;
   if (d.failed) return [fact("notdone", "Could not be made: " + what + ". The final message will say why.")];
-  return [DB_LAYERS.includes(d.step.layer) ? fact("applied", "Changed in the site's database: " + what + ".") : fact("prepared", "Made, not published yet: " + what + ".")];
+  return [stepDoneFact(d, what)];
 }
 /** The site being put together with the change, before the browser check. */
 export function editBuildingFacts() {
@@ -1063,15 +1079,21 @@ export function addonDesignedFacts(kind, value, rest = []) {
  * so "write the pages next" was never true of it. At the seam the publish is
  * still what is happening (`publishing`), and is said so.
  */
-export function addonSchemaFacts({ tables = [], altered = [], functions = [], jobs = [] } = {}, { publishing = false } = {}) {
+// HELD, NOT MADE (2026-10-23, audit A14-6): under draft-first the schema is
+// held in the draft on a published site (`held`) and timers whenever the
+// switch is on (`heldJobs`, as `backendWriter` holds them), and the publish
+// starting is a draft save (`draft`).
+export function addonSchemaFacts({ tables = [], altered = [], functions = [], jobs = [] } = {}, { publishing = false, held = false, heldJobs = held, draft = false } = {}) {
   const t = namesOf(tables), a = namesOf(altered), f = namesOf(functions), j = namesOf(jobs);
   const out = [];
-  if (t.length) out.push(fact("applied", "Created in the site's database: " + (t.length === 1 ? "the table " : "the tables ") + listOf(t.map(quote)) + "."));
-  if (a.length) out.push(fact("applied", "Changed in the site's database: " + listOf(a.map(quote)) + "."));
-  if (f.length) out.push(fact("applied", "Set up in the site's database: " + listOf(f.map(quote)) + "."));
-  if (j.length) out.push(fact("applied", "Set to run on a timer: " + listOf(j.map(quote)) + "."));
+  const st = held ? "prepared" : "applied";
+  const pre = held ? "Held in their draft until they press Publish, " : "";
+  if (t.length) out.push(fact(st, pre + (held ? "to be created in the site's database: " : "Created in the site's database: ") + (t.length === 1 ? "the table " : "the tables ") + listOf(t.map(quote)) + "."));
+  if (a.length) out.push(fact(st, pre + (held ? "to be changed in the site's database: " : "Changed in the site's database: ") + listOf(a.map(quote)) + "."));
+  if (f.length) out.push(fact(st, pre + (held ? "to be set up in the site's database: " : "Set up in the site's database: ") + listOf(f.map(quote)) + "."));
+  if (j.length) out.push(heldJobs ? fact("prepared", "Held in their draft until they press Publish, to be set to run on a timer: " + listOf(j.map(quote)) + ".") : fact("applied", "Set to run on a timer: " + listOf(j.map(quote)) + "."));
   if (!out.length) return [];
-  if (publishing) out.push(fact("doing", "Publishing the site with the additions now."));
+  if (publishing) out.push(fact("doing", draft ? "Saving the additions to their draft now. Visitors keep seeing the published site until they press Publish." : "Publishing the site with the additions now."));
   return out;
 }
 
@@ -1214,25 +1236,27 @@ export function stillFacts(doing, ms) {
   return [fact("doing", "Still on the same step, " + took + " so far: " + flat(doing).replace(/[.\s]+$/, "") + ". Nothing new is finished yet.")];
 }
 
-export function startFacts({ op, layer = "", page = "", slug = "" } = {}) {
+export function startFacts({ op, layer = "", page = "", slug = "", draft = false } = {}) {
+  // UNDER DRAFT-FIRST THE END IS A DRAFT, NOT A PUBLISH (2026-10-23, audit A14-6).
+  const ends = draft ? "and it is saved to their draft, which goes live when they press Publish." : "and it is published.";
   if (op === "edit") {
     const what = Object.hasOwn(LAYER_SAID, layer) ? LAYER_SAID[layer] : "";
     const where = typeof page === "string" && page.charAt(0) === "/" ? " on " + page : "";
     return [
       fact("decided", "Read the request as a change to what the site already has" + (what ? ": " + what : "") + where + ". Nothing is changed yet."),
-      fact("next", "Work out exactly where on the site it goes and make the change; then the site is built, an automated check opens its pages in a browser, and it is published."),
+      fact("next", "Work out exactly where on the site it goes and make the change; then the site is built, an automated check opens its pages in a browser, " + ends),
     ];
   }
   if (op === "addon") {
     return [
       fact("decided", "Read the request as an addition to the site. Nothing is built yet."),
-      fact("next", "Work out exactly what to add and design it, then build it; then the site is built, an automated check opens its pages in a browser, and it is published."),
+      fact("next", "Work out exactly what to add and design it, then build it; then the site is built, an automated check opens its pages in a browser, " + ends),
     ];
   }
   if (op === "build") {
     return [
       fact("decided", "Building a new site from their description" + (SLUG_RE.test(slug) ? ", at the address " + slug : "") + ". Nothing is built yet."),
-      fact("next", "Design the page, its look and anything it needs to store; write it; then the site is built and published."),
+      fact("next", "Design the page, its look and anything it needs to store; write it; then the site is built and " + (draft ? "saved as their draft, which goes live when they press Publish." : "published.")),
     ];
   }
   return [];
