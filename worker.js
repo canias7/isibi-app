@@ -14101,6 +14101,8 @@ function heldDraft(revision) {
 // lasts until a click or a sweep gets the step through — there is no bound on
 // that when the store keeps refusing. Nothing is rolled back to close it.
 const PUBLISH_STALE_MS = 3 * 60 * 1000;
+/** How often a runner inside the switch renews its journal (audit S7-1): well inside `PUBLISH_STALE_MS`. `PUBLISH_RENEW_MS` overrides it for tests. */
+const publishRenewMs = (env) => { const n = Number(env && env.PUBLISH_RENEW_MS); return Number.isFinite(n) && n > 0 ? n : 60 * 1000; };
 
 async function readPublication(env, slug) {
   const o = await env.SITES_BUCKET.get(PUBLISHING_KEY(slug));
@@ -14371,7 +14373,26 @@ async function runPublication(env, slug, j, etag, say = null) {
   // (`actionTalk`), never the sweep's. Never costs the publication.
   const tell = (stage, info) => { try { if (typeof say === "function") say(stage, info); } catch { /* the talk never costs the publish */ } };
   const deps = buildDeps(env);
+  // THE JOURNAL KEPT FRESH THROUGH THE SWITCH (2026-10-23, audit S7-1): the
+  // script upload inside it can take up to `DISPATCH_CALL_MS`, far past
+  // `PUBLISH_STALE_MS`, and a journal not written for that long was taken
+  // over by the tick while this runner was still in it — whose late undo
+  // then put the old version back under the recovered publication. Renewed
+  // on a timer from the switch's start; every other journal write stops the
+  // renewal first and waits for one in flight, so writes never cross.
+  let renewing = null; let renewal = Promise.resolve();
+  const holdOn = () => {
+    if (renewing) return;
+    renewing = setInterval(() => {
+      renewal = renewal.then(async () => {
+        if (!renewing) return;
+        try { const at = Date.now(); const e = await writePublication(env, slug, { ...j, at }, etag); if (e) { etag = e; j.at = at; } } catch { /* the next beat, or the write that follows */ }
+      });
+    }, publishRenewMs(env));
+  };
+  const holdOff = async () => { if (renewing) { clearInterval(renewing); renewing = null; } await renewal; };
   const save = async (patch) => {
+    await holdOff();
     Object.assign(j, patch, { at: Date.now() });
     const e = await writePublication(env, slug, j, etag);
     if (!e) throw Object.assign(new Error("the publication was taken over"), { code: "TAKEN_OVER" });
@@ -14382,6 +14403,7 @@ async function runPublication(env, slug, j, etag, say = null) {
   // is left exactly as it is (R2 has no conditional delete; a read-then-delete
   // removed a fresh journal in Codex's reproduction).
   const retire = async (phase) => {
+    await holdOff();
     try { const e = await writePublication(env, slug, { ...j, phase, running: false, at: Date.now() }, etag); if (e) etag = e; return !!e; }
     catch { return false; }
   };
@@ -14528,6 +14550,7 @@ async function runPublication(env, slug, j, etag, say = null) {
         // THE LIVE SITE MOVED ON (another version was put live meanwhile):
         // nothing of this revision is live, and it is not forced over that.
         if (liveV !== j.from) return before("the site changed while publishing");
+        holdOn();
         const act = await activateBuild(deps, {
           slug, version: j.version, build: b.manifest.build || "", parent: liveV, job: null,
           expectEtag: ptrTag, previous: ptr || null,
@@ -14550,6 +14573,7 @@ async function runPublication(env, slug, j, etag, say = null) {
         // THE POINTER NAMES THE VERSION — by this activation, by one whose
         // answer was lost, or by one that stopped part-way. Its other
         // effects are made true before anything is recorded as switched.
+        holdOn();
         const done = await completeActivation(env, slug, j.version, { sidecar });
         if (!done.ok) {
           // MOVED ON: newer work owns the live site; set aside next time the

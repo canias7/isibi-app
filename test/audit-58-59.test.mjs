@@ -222,3 +222,43 @@ test("A38-6 THROUGH THE REAL RESTORE — under draft-first a legacy-layout versi
     assert.match(String(rs.body && rs.body.error), /can't be restored while changes wait for Publish/);
   });
 });
+
+// ── S7-1 (2026-10-23, round 2) ───────────────────────────────────────────────
+test("S7-1 THROUGH THE REAL PUBLISH — a runner inside a slow switch keeps its journal fresh: while the script upload hangs, the journal's `at` is renewed (still `switching`), so the tick never reads it as a dead runner's and takes it over; Publish still finishes", async () => {
+  const wk = await loadWorkerModule();
+  const slug = "s71-slow";
+  const { store, env } = await draftSite(slug);
+  env.PUBLISH_RENEW_MS = "40";
+  // EVERY JOURNAL WRITE AFTER THE SWITCH IS SLOW: a renewal still running
+  // there would cross one and take the journal off its own runner.
+  const put = store.put.bind(store);
+  store.put = async (k, v, o) => {
+    if (k === "site-publishing/" + slug + ".json" && !/"phase":"(start|prepared|switching)"/.test(String(v))) await new Promise((r) => setTimeout(r, 100));
+    return put(k, v, o);
+  };
+  const seen = [];
+  await withWire({}, async () => {
+    const wired = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const url = String((input && input.url) || input || "");
+      if (/\/workers\/dispatch\/namespaces\/[^/]+\/scripts\/site-/.test(url) && String((init && init.method) || "GET").toUpperCase() === "PUT") {
+        const first = await readJson(store, "site-publishing/" + slug + ".json");
+        await new Promise((r) => setTimeout(r, 400));
+        const later = await readJson(store, "site-publishing/" + slug + ".json");
+        seen.push([first, later]);
+      }
+      return wired(input, init);
+    };
+    try {
+      const pub = await publish(wk, env, slug);
+      assert.equal(pub.status, 200, pub.text);
+    } finally { globalThis.fetch = wired; }
+  });
+  assert.ok(seen.length >= 1, "observer: the upload was never seen");
+  const [first, later] = seen[0];
+  assert.equal(first.phase, "switching", "observer: the upload ran inside the switch");
+  assert.equal(later.phase, "switching");
+  assert.ok(later.at > first.at, "the journal was not renewed while the upload hung: the tick would take it over");
+  assert.equal((await readJson(store, "current/" + slug + ".json")).version, V2);
+  assert.equal((await readJson(store, "site-publishing/" + slug + ".json")).phase, "finished", "a renewal written after the journal closed reopened it");
+});
