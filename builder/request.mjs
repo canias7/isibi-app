@@ -231,6 +231,26 @@ export const HOPS_MAX = 3;
 //   refused        it could not be placed in an order that makes sense (the relations formed a cycle)
 export const PART_TERMINAL = Object.freeze(["done", "partial", "failed", "not-run", "cancelled", "needs-rewrite", "expired", "refused"]);
 const BAD = Object.freeze(["partial", "failed", "not-run", "cancelled", "needs-rewrite", "expired", "refused"]);
+/**
+ * MAY ANOTHER PART OF THIS REQUEST WRITE BESIDE PART `n`? (2026-10-23, audit
+ * S2-3) Any other part not ended, except one that cannot start before `n`
+ * ends: a `blocked` part that needs `n`, or follows it, directly or through
+ * another such part. An addition's own schema guard asked every open part,
+ * so the part that needed the addition made it lose, and re-run, every time.
+ */
+export function othersOpenIn(rec, n) {
+  if (!rec || !Array.isArray(rec.parts)) return true;
+  const behind = new Set([n]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const p of rec.parts) {
+      if (!p || behind.has(p.n) || p.status !== "blocked") continue;
+      const after = (Array.isArray(p.needs) && p.needs.some((m) => behind.has(m))) || (p.parent !== null && p.parent !== undefined && behind.has(p.parent));
+      if (after) { behind.add(p.n); grew = true; }
+    }
+  }
+  return rec.parts.some((p) => p && !behind.has(p.n) && !PART_TERMINAL.includes(p.status));
+}
 const LIVE_JOB = Object.freeze(["queued", "claimed", "routing", "editing", "building", "verifying", "correcting", "rebuilding", "publishing"]);
 const ENDED_JOB = Object.freeze(["done", "failed", "cancelled", "lost"]);
 

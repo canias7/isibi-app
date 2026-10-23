@@ -20,7 +20,11 @@
 -- Safe either way round: with the switch off the driver never files two jobs
 -- of one request at once, so the exemption is never reached; with the switch
 -- on and this not applied, the second job waits on the site's lock as any
--- other job does (`site-busy`, deferred, counted) — slower, never unsafe.
+-- other job does (`site-busy`, deferred, counted) — never unsafe, but not
+-- only slower: each deferral counts on that job's row from the moment it was
+-- filed, so a third job filed beside two that together run past about 50
+-- minutes is failed `site-busy` after 45 deferrals, and its part ends failed
+-- (audit A05-4, 2026-10-23). Apply this before the switch goes on.
 
 CREATE OR REPLACE FUNCTION private.site_busy(p_slug text, p_self text)
  RETURNS text
