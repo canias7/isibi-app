@@ -26,6 +26,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { MAX_NEW_SLUG, capNewSlug } from "../site-draft.mjs";
 
 const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const blankJs = (s) => s.replace(/^([ \t]*)\/\/.*$/gm, (m) => " ".repeat(m.length));
@@ -59,7 +60,7 @@ function loadFree(held) {
   // row for `wanted` through `fetch`, and each candidate through
   // `siteNameTaken` — both answered from `held`, every slug asked recorded.
   const json = (v) => new Response(JSON.stringify(v), { status: 200, headers: { "content-type": "application/json" } });
-  const fn = new Function("fetch", "svcHeaders", "SUPABASE_URL", "siteNameTaken", "AbortSignal", "console", "reads", [
+  const fn = new Function("fetch", "svcHeaders", "SUPABASE_URL", "siteNameTaken", "AbortSignal", "console", "reads", "MAX_NEW_SLUG", "capNewSlug", [
     "const MAX_SLUG_TRIES = " + tries[1] + ";",
     fnSource(WORKER, "freeSlugFor"),
     "return freeSlugFor;",
@@ -74,7 +75,7 @@ function loadFree(held) {
     reads.push(slug);
     if (held[slug] === "throw") return null;
     return !!held[slug];
-  }, AbortSignal, { error: () => {} }, reads);
+  }, AbortSignal, { error: () => {} }, reads, MAX_NEW_SLUG, capNewSlug);
   return { freeSlugFor: fn, reads, max: Number(tries[1]) };
 }
 
@@ -140,6 +141,17 @@ test("the walk is bounded, and giving up is today's behaviour rather than a wors
   assert.equal(await freeSlugFor({}, "a-shop", ME), "a-shop",
     "an account holding every candidate should fall back to the designer's own name");
   assert.equal(reads.length, max, "the walk is not bounded by MAX_SLUG_TRIES");
+});
+
+test("#247: a numbered candidate for a long name still fits the new-name cap", async () => {
+  // 43 characters, held by this account: the next candidate must not be 45.
+  const long = "the-cornish-bakehouse-and-tea-rooms-st-ives"; // 43
+  assert.equal(long.length, 43);
+  const { freeSlugFor } = loadFree({ [long]: ME });
+  const got = await freeSlugFor({}, long, ME);
+  assert.ok(got.length <= MAX_NEW_SLUG, got + " is longer than " + MAX_NEW_SLUG);
+  assert.match(got, /-2$/);
+  assert.ok(!/--/.test(got) && !/^-|-$/.test(got.replace(/-2$/, "")), got);
 });
 
 /* ───────────────────────────── the wiring, read ──────────────────────────── */

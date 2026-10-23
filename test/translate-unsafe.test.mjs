@@ -81,7 +81,7 @@ test("usableTranslation keeps an unchanged answer and refuses what cannot be pla
 
 test("the customer is told when a language could not be made, from its outcome", () => {
   assert.equal(langNote([{ tag: "fr", ok: true, missing: 3 }, { tag: "es", ok: true, cached: true, missing: 0 }]), "");
-  assert.match(langNote([{ tag: "fr", ok: false, why: "unusable" }]), /fr pages could not be translated this time/);
+  assert.match(langNote([{ tag: "fr", ok: false, why: "unusable" }]), /fr pages could not be translated, so they show your original wording; I won't try those words again/);
   assert.match(langNote([{ tag: "es", ok: true, kept: 2 }]), /^2 phrases on the es pages/);
 });
 

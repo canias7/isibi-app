@@ -460,6 +460,43 @@ export function previewScriptName(slug) {
   const s = String(slug || "").toLowerCase().replace(/[^a-z0-9-]/g, "");
   return s ? "draft-" + s : "";
 }
+/**
+ * THE LONGEST NEW SITE NAME (2026-10-23, owner's choice on audit #247 / A07-6:
+ * cap NEW site names at 43 characters, existing sites untouched). 63 (a DNS
+ * label) less "--draft-" (8) less the 12-hex token: a longer name has no
+ * preview address. Applied only where a name is first chosen; a site that
+ * already exists keeps its name.
+ */
+export const MAX_NEW_SLUG = 43;
+/** A new site name cut to MAX_NEW_SLUG, its edge hyphens trimmed after the cut. */
+export function capNewSlug(slug) {
+  return String(slug || "").slice(0, MAX_NEW_SLUG).replace(/^-+|-+$/g, "");
+}
+/**
+ * A PLATFORM REBUILD GOES LIVE ONLY ON A CLEAN SITE (2026-10-23, the owner's
+ * choice on audit #144 / A17-5): a site with a live version, nothing saved and
+ * unpublished in its draft (`draftState` not "saved"), and certainly not taken
+ * off the web (`offline === false`; a marker that could not be read is not
+ * false). Anything else keeps saving a draft, as before.
+ */
+export function rebuildGoesLive({ draft = null, live = null, offline = null } = {}) {
+  if (!live || !isDraftVersion(live.version)) return false;
+  if (offline !== false) return false;
+  return draftState({ draft, live }).state !== "saved";
+}
+/**
+ * HOW MANY BUILDS A PUBLISH KEEPS (2026-10-23, the owner's choice on audit
+ * #219 / A38-5): at each Publish, the newest 20, plus the live version, the
+ * version before it and every draft the owner may still publish, whatever
+ * their age.
+ */
+export const PUBLISH_KEEP_BUILDS = 20;
+/** What a Publish's prune must never remove: the live version, the previous one(s), every draft. */
+export function publishKeeps({ version = "", previous = [], drafts = [] } = {}) {
+  // ANY BUILD ID `pruneBuilds` WOULD COUNT (1–6 characters after the stamp,
+  // `isVersionId`), so an older, shorter id is never dropped from the keeps.
+  return [...new Set([version, ...(Array.isArray(previous) ? previous : []), ...(Array.isArray(drafts) ? drafts : [])].filter((v) => typeof v === "string" && /^\d{14}-[a-z0-9]{1,6}$/.test(v)))];
+}
 /** The preview host label of a site's draft, or "" when the label would be too long for DNS (63). */
 export function previewLabel(slug, token) {
   const l = String(slug || "") + "--draft-" + String(token || "");

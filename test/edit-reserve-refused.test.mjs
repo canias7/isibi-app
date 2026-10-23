@@ -338,7 +338,7 @@ test("the spine asks `unbilled` three times: before the translations, before the
   // "no job, no refusals" for it.
   assert.match(spine, /const acct = charges \|\| job;/, "the spine no longer reads the route's charges reader ahead of the job");
   assert.match(helper, /acct\.refused\(\) > 0/, "the helper does not read the refusal count");
-  assert.match(spine.slice(0, def), /charges = null \}\) \{/, "the spine's signature no longer takes `charges`");
+  assert.match(spine.slice(0, def), /charges = null(?:, [^}]*)?\}\) \{/, "the spine's signature no longer takes `charges`");
   assert.match(helper, /error: "unbilled"/, "the helper's refusal is not named `unbilled`");
   assert.match(helper, /ours: why !== "insufficient"/, "a short balance is reported as ours, or a dead ledger as the customer's");
   const asks = [...spine.matchAll(/const u = unbilled\(\); if \(u\) return u;/g)].map((m) => m.index);

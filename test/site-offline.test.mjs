@@ -538,10 +538,13 @@ test("a switch made here corrects the cached server list too", () => {
 });
 
 test("the module the Worker imports is the one that decides", () => {
-  assert.match(BARE, /import \{ OFFLINE_COLUMN, siteOffline \} from "\.\/builder\/site-offline\.mjs"/,
+  assert.match(BARE, /import \{ OFFLINE_COLUMN, siteOffline(?:, offlineStamp)? \} from "\.\/builder\/site-offline\.mjs"/,
     "the Worker no longer imports the rule");
   const uses = [...BARE.matchAll(/siteOffline\(/g)];
-  assert.equal(uses.length, 1, "the rule is asked " + uses.length + " times — it should be exactly the list route");
+  // TWICE IN THE LIST ROUTE since 2026-10-23 (audit #118): once to find the
+  // rows a later build would call online, which draft-first asks the live
+  // marker about, and once for every other row.
+  assert.equal(uses.length, 2, "the rule is asked " + uses.length + " times — it should be exactly the list route's two");
   // The module is dependency-free, so nothing about it can fail to load inside
   // the site's container the way a Supabase-touching module would.
   const mod = read("../builder/site-offline.mjs");

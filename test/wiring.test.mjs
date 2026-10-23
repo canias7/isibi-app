@@ -1724,7 +1724,9 @@ test("each language's translation is marked and its outcome carried, so a second
   // (2026-10-22, audit A32-1: the mark reads the outcome, which is a failure
   // for an answer with nothing usable in it, not only for a failed call.)
   assert.match(loop, /tm\("translate:" \+ l\.tag, outcome\.ok \? "ok" : "fail", outcome\)/, "a translation's outcome is not marked");
-  assert.match(loop, /why: unusable \? "unusable" : String\(got\.why \|\| "call"\), error: unusable \? "[^"]+" : String\(got\.error \|\| ""\)\.slice\(0, 300\)/, "a failed translation's reason is not kept");
+  // (2026-10-23, audit #195: the reason is the last refused batch's, or
+  // "stuck" when every batch was remembered as failing and none was asked.)
+  assert.match(loop, /why: got\.asked \? String\(got\.why \|\| "call"\) : "stuck", error: got\.asked \? String\(got\.error \|\| ""\)\.slice\(0, 300\) : "[^"]+"/, "a failed translation's reason is not kept");
   // RE-ANCHORED FOR TASK #88: the languages run through `Promise.all` now and
   // the loop is a call phase plus an ordered fold, so a fully cached language
   // is an early RETURN carrying its outcome rather than a push. The property is
@@ -1744,11 +1746,13 @@ test("each language's translation is marked and its outcome carried, so a second
   // to the primary wording and never fails the publish — and it no longer
   // poisons the cache: a failed round hands `nextCache` null, and a cache
   // that was never translated is read as none.
-  assert.match(loop, /else \{ failed = true; console\.error\("translate failed", slug, l\.tag, got\.why \|\| got\.error\); \}/, "a failed translation no longer falls back, or is not remembered as failed");
+  // (2026-10-23, audit #195: failed when no batch answered usably; each
+  // refused batch's strings are handed to `nextCache` as lost.)
+  assert.match(loop, /const failed = got\.failed\.size === missing\.length;\n\s*if \(got\.refused\) console\.error\("translate failed", slug, l\.tag, got\.why \|\| got\.error/, "a failed translation no longer falls back, or is not remembered as failed");
   // The fold reads its round off `r` since task #88, so `have`/`failed`/`fresh`
   // are `r.have`/`r.failed`/`r.fresh`; the properties are unchanged and each is
   // written to accept either spelling rather than to pin this one.
-  assert.match(loop, /nextCache\((?:r\.)?have, strings, (?:r\.)?failed \? null : (?:r\.)?fresh\)/, "a failed round still writes the primary's words into the cache");
+  assert.match(loop, /nextCache\((?:r\.)?have, strings, (?:r\.)?failed \? null : (?:r\.)?fresh(?:, (?:r\.)?lost)?\)/, "a failed round still writes the primary's words into the cache");
   assert.match(loop, /const healed = untranslated\(had\);\n\s*const have = healed \? \{\} : had;/, "a cache that was never translated is not read as none");
   assert.match(loop, /langsChanged = langsChanged \|\| JSON\.stringify\(merged\) !== JSON\.stringify\((?:r\.)?had\);/, "the write-back compares against the healed cache, so a healed language is never written");
   // THE BUILD PATH'S COPY holds the same two rules and hands the same models.
@@ -1758,8 +1762,9 @@ test("each language's translation is marked and its outcome carried, so a second
   assert.ok(bClose > bFrom, "the build path's cache write moved — this window would swallow the file");
   const bLoop = w.slice(bFrom, bClose);
   assert.match(bLoop, /const have = untranslated\(had\) \? \{\} : had;/);
-  assert.match(bLoop, /translateStrings\(env, l\.tag, missing, models\)/, "the build path translates on no model of the picker's");
-  assert.match(bLoop, /nextCache\((?:r\.)?have, strings, (?:r\.)?failed \? null : (?:r\.)?fresh\)/);
+  // (2026-10-23, audit #195: batch by batch, through the build's own sender.)
+  assert.match(bLoop, /translateMissing\(env, l\.tag, missing, models, stuckFor\(langCache, l\.tag\), translateStrings\)/, "the build path translates on no model of the picker's");
+  assert.match(bLoop, /nextCache\((?:r\.)?have, strings, (?:r\.)?failed \? null : (?:r\.)?fresh(?:, (?:r\.)?lost)?\)/);
   // AND THE WRITE-BACK, which the spine's half has asserted since run 38 and
   // this one had not: against the cache AS READ (`had`), never the healed
   // `have`. A sweep found it — the build path's twin of a killed mutant
@@ -1797,7 +1802,8 @@ test("the translation runs on the picked model like every other small call (owne
   // property is that the spine takes and defaults `models`, wherever it sits.)
   assert.match(w, /async function recompileAndPublish\(env, \{[^}]*\bmodels = null\b[^}]*\}\)/, "the spine takes no models");
   assert.match(w, /const tModels = models && typeof models\.quick === "string" \? models : modelsFor\(\);/, "the spine does not resolve the picker's models");
-  assert.match(w, /translateStrings\(env, l\.tag, missing, tModels\)/, "the spine translates on no model of the picker's");
+  // (2026-10-23, audit #195: through the batch runner, on the same models.)
+  assert.match(w, /translateMissing\(env, l\.tag, missing, tModels, /, "the spine translates on no model of the picker's");
   // THE ADDON'S CALL, WHOLE — walked by brace depth from the options object's
   // own `{`. A 900-byte window from the call's first line was outrun on
   // 2026-09-05 by the `charges` line and its comment (the recorded trap: never
@@ -1971,10 +1977,13 @@ test("the translation calls are CHARGED — by the spine, before the commit poin
   // property is that EVERY call's usage still reaches `langUsage` — the list
   // the funnel above is handed — since a translation whose usage is dropped is
   // one nobody is charged for, which is the defect run 39 found.
-  assert.match(spine, /if \(r\.usage\) langUsage\.push\(r\.usage\);/, "the spine no longer keeps each call's usage");
+  // (2026-10-23, audit #195: a round hands back each usable batch's usage.)
+  assert.match(spine, /for \(const u of r\.usages \|\| \[\]\) if \(u\) langUsage\.push\(u\);/, "the spine no longer keeps each call's usage");
   // (2026-10-22, audit A32-1: only a round that translated something hands
   // its usage back; a refused or unusable answer is not billed.)
-  assert.match(spine, /usage: outcome\.ok \? \(got\.usage \|\| null\) : null/, "a round no longer hands its usage back, so the fold has nothing to push");
+  // (2026-10-23, audit #195: each usable batch's, from `translateMissing`,
+  // which pushes a batch's usage only when it answered usably.)
+  assert.match(spine, /usages: got\.usages, stuck: got\.stuck, outcome \}/, "a round no longer hands its usage back, so the fold has nothing to push");
   // AND THE USAGE IS IN THE SHAPE `pageCredits` PRICES, tagged with the model
   // sent — the lanes' own reader. The raw API usage went out of
   // `translateStrings` until the driven case in test/edit-path.test.mjs priced
@@ -2041,10 +2050,11 @@ test("the translation calls are CHARGED — by the spine, before the commit poin
   // hands its usage back and the fold pushes it. The property is that every
   // call's cost still reaches `langUsage`, which is what `publishPages` prices
   // this build from — a dropped one is a translation nobody pays for.
-  assert.match(dep, /const got = await translateStrings\(env, l\.tag, missing, models\);/, "the build loop no longer translates on the picked model");
-  // (2026-10-22, audit A32-1: only a usable round hands its usage back.)
-  assert.match(dep, /usage: usable \? \(got\.usage \|\| null\) : null/, "a build round hands its usage back nowhere");
-  assert.match(dep, /if \(r\.usage\) langUsage\.push\(r\.usage\);/, "the build loop drops what each translation cost");
+  // (2026-10-23, audit #195: batch by batch; each usable batch's usage is
+  // handed back and pushed.)
+  assert.match(dep, /const got = await translateMissing\(env, l\.tag, missing, models, /, "the build loop no longer translates on the picked model");
+  assert.match(dep, /usages: got\.usages, stuck: got\.stuck \}/, "a build round hands its usage back nowhere");
+  assert.match(dep, /for \(const u of r\.usages \|\| \[\]\) if \(u\) langUsage\.push\(u\);/, "the build loop drops what each translation cost");
   assert.match(dep, /if \(langUsage\.length && built && typeof built === "object"\) built\.langUsage = langUsage;/, "the usage does not ride the compile result");
   assert.match(pp, /const langUsage = \[\];/, "publishPages keeps no translation usage");
   assert.match(pp, /if \(bd && Array\.isArray\(bd\.langUsage\)\) for \(const u of bd\.langUsage\) if \(u\) langUsage\.push\(u\);/,

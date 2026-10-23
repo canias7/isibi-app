@@ -309,7 +309,7 @@ export function siteContextBlock(ctx) {
     // DRAFT-FIRST (2026-10-23, audit A36-4): every change is saved to a draft
     // and goes live only when the owner presses Publish, and the stored pages
     // below are that draft — never told as what visitors see.
-    if (c.draftFirst === true) head.push("Every change is saved to a draft first and goes live only when they press Publish. The pages below are as saved, which may include changes not published yet: never say a change is live unless they have published it.");
+    if (c.draftFirst === true) head.push("Every change is saved to a draft first and goes live only when they press Publish. The pages below are as saved, which may include changes not published yet: never say a change is live unless they have published it. Nothing you say publishes: when they ask to publish or put their changes live, tell them to press the Publish button above their site.");
     out.push(head.join("\n"));
     const pages = Array.isArray(c.pages) ? c.pages : null;
     if (pages && pages.length) {
