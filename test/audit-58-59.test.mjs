@@ -163,7 +163,7 @@ test("A33-2b THROUGH THE REAL PUBLISH — an address change that reached the liv
   });
 });
 
-test("A33-2b THE RULE — origin is carried only when asked (Publish without a rename in range), and never from an unreadable or empty live origin; restore keeps the version's", () => {
+test("A33-2b THE RULE — origin is carried only when asked (Publish without a rename in range), and never from an unreadable or empty live origin; not asked, the version's stands", () => {
   const ver = JSON.stringify(sidecar(OLD));
   const live = JSON.stringify(sidecar(OLD, { origin: "https://new-name.gofarther.app" }));
   assert.equal(JSON.parse(carryPanelFields(ver, live, ver, { origin: true })).origin, "https://new-name.gofarther.app");
@@ -179,4 +179,26 @@ test("A33-2b WIRING — runPublication asks withPanelFields to carry the address
   assert.match(body, /withPanelFields\(deps, slug, sidecar, j\.from, \{ origin: !rename \}\)/);
   const w = worker.indexOf("async function withPanelFields(");
   assert.match(worker.slice(w, w + 800), /carryPanelFields\(sidecar, live, was, opts\)/);
+});
+
+// ── A38-4 (2026-10-23, round 2) ──────────────────────────────────────────────
+test("A38-4 THROUGH THE REAL RESTORE — an address the live head carries (a rename after the restored version was staged) stays on the live head after Versions → Restore: the version's old origin does not go back live; its verification tag is kept too", async () => {
+  const wk = await loadWorkerModule();
+  const slug = "a38-restore";
+  const { store, env } = await draftSite(slug);
+  await withWire({}, async () => {
+    const pub = await publish(wk, env, slug);
+    assert.equal(pub.status, 200, pub.text);
+    const live = await readJson(store, siteMetaKey(slug));
+    live.origin = "https://new-name.gofarther.app";
+    live.verify = [["google-site-verification", "tok123"]];
+    await store.put(siteMetaKey(slug), JSON.stringify(live), JSONCT);
+    const rs = await app(wk, env, "POST", "/api/site/" + slug + "/versions/restore", { id: V1 });
+    assert.equal(rs.status, 200, rs.text);
+    assert.equal((await readJson(store, "current/" + slug + ".json")).version, V1, "observer: the restore moved the pointer");
+    const after = await readJson(store, siteMetaKey(slug));
+    assert.equal(after.origin, "https://new-name.gofarther.app", "the restore put the version's old address back on the live head");
+    assert.deepEqual(after.verify, [["google-site-verification", "tok123"]]);
+    assert.equal(after.css, undefined, "observer: the restored version's own fields went live");
+  });
 });
