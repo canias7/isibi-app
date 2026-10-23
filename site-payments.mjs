@@ -287,9 +287,13 @@ export function paidFromEvent(event) {
 /**
  * A failed or abandoned checkout. Worth recording because the alternative is an
  * order stuck at `pending` forever, indistinguishable from one still being paid.
+ * `status` is what the order becomes: `expired` for a session nobody finished,
+ * `failed` for a delayed method (a bank debit) that did not settle (audit A12-6).
  */
+const FAILED_STATUS = { "checkout.session.expired": "expired", "checkout.session.async_payment_failed": "failed" };
 export function failedFromEvent(event) {
-  if (!event || event.type !== "checkout.session.expired") return null;
+  const status = event && Object.hasOwn(FAILED_STATUS, event.type) ? FAILED_STATUS[event.type] : null;
+  if (!status) return null;
   const paid = paidFromEvent({ ...event, type: "checkout.session.completed", data: { object: { ...(event.data && event.data.object), payment_status: "paid" } } });
-  return paid ? { ...paid, amount: null } : null;
+  return paid ? { ...paid, amount: null, status } : null;
 }

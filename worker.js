@@ -137,7 +137,7 @@ function agentQueueRing(env) {
   return (runId) => q.send({ runId });
 }
 import { cleanHeadDescription, pickableImages, headAnswer } from "./site-head-edit.mjs";
-import { normalizePayment, parseCart, priceCart, checkoutSessionArgs, formEncode, paidFromEvent } from "./site-payments.mjs";
+import { normalizePayment, parseCart, priceCart, checkoutSessionArgs, formEncode, paidFromEvent, failedFromEvent } from "./site-payments.mjs";
 import { rescopeCookie } from "./site-cookie.mjs";
 import { drainTeardown } from "./site-teardown.mjs";
 import { drainRebuild, BATCH as REBUILD_BATCH, BUSY_DEFER_SEC as REBUILD_BUSY_SEC, REBUILD_OP, REBUILD_START_DELAY_S, rebuildIdem } from "./site-rebuild.mjs";
@@ -29797,6 +29797,22 @@ async function handleRequest(request, env, ctx) {
         let event = null;
         try { event = JSON.parse(raw); } catch { return Response.json({ error: "bad body" }, { status: 400 }); }
         const paid = paidFromEvent(event);
+        // EXPIRED OR FAILED (audit A12-6): an abandoned session or a bank debit
+        // that did not settle. Only a still-pending order moves, so a late or
+        // repeated event never unmarks one already paid.
+        const lapsed = paid ? null : failedFromEvent(event);
+        if (lapsed && lapsed.slug === wslug) {
+          try {
+            const sch = await loadSiteSchema(wconn);
+            const t = (sch && Array.isArray(sch.tables) ? sch.tables : []).find((x) => String(x.name).toLowerCase() === lapsed.table && normalizePayment(x));
+            if (!t) return Response.json({ ok: true, ignored: "not a payable table" });
+            await sqlQuery(wconn, `UPDATE ${sqlIdent(t.name)} SET payment_status=?, payment_ref=? WHERE id=? AND payment_status='pending'`, [lapsed.status, lapsed.ref, lapsed.orderId]);
+          } catch (e) {
+            console.error("wh lapse:", wslug, e && (e.detail || e.message));
+            return Response.json({ error: "could not record that checkout" }, { status: 500 });
+          }
+          return Response.json({ ok: true });
+        }
         if (!paid) return Response.json({ ok: true, ignored: true });
         // The event names its own slug, and it must be THIS one. The signature
         // already proves the sender holds this site's secret, so this is belt

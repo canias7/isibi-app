@@ -17289,7 +17289,7 @@ function sitePayments(site) {
       : 'In Stripe go to <b>Developers \u2192 API keys</b>, copy your <b>secret</b> key, and add it in <b>Cloud \u2192 Secrets</b> as <code>STRIPE_SECRET_KEY</code>.';
     const hookLine = hook
       ? 'Added.'
-      : 'In Stripe go to <b>Developers \u2192 Webhooks</b>, add the URL below for the <code>checkout.session.completed</code> event, then paste the signing secret into Secrets as <code>STRIPE_WEBHOOK_SECRET</code>.';
+      : 'In Stripe go to <b>Developers \u2192 Webhooks</b>, add the URL below for the <code>checkout.session.completed</code>, <code>checkout.session.async_payment_succeeded</code>, <code>checkout.session.async_payment_failed</code> and <code>checkout.session.expired</code> events, then paste the signing secret into Secrets as <code>STRIPE_WEBHOOK_SECRET</code>.';
 
     host.innerHTML =
       // The one thing that decides whether real money can move, said first and
