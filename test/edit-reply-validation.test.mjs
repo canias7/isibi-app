@@ -41,6 +41,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { ASK_FNS, ASK_LINES } from "./fixtures/browser-ask.mjs";
+import { BUSY_SLOTS } from "./fixtures/busy-slots.mjs";
 
 const CHAT = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
 const POLL = readFileSync(new URL("../public/edit-poll.js", import.meta.url), "utf8");
@@ -81,6 +82,7 @@ const SRC = [
   cut("function siteSend("),
   cut("function siteBuildStart("),
   cutLine("function siteBuildStop("),
+  BUSY_SLOTS, // the per-project busy state (#138)
   // THE LATCHES AS THE PAGE DECLARES THEM, and the two functions that take and
   // release a site's edit latch — never a second copy of either.
   cutLine("const editInFlight ="), cutLine("const editIdem ="), cutLine("const editBlocked ="), cutLine("const editWatched ="),
@@ -178,7 +180,7 @@ function page({ answers, site = LIVE }) {
     siteActivePage: () => null,
     paintAttachStrip: () => {},
     buildPicker: "grok",
-    siteBusy: false, siteBuild: null, siteTicker: null, siteOpenId: "origin-1",
+    siteBusy: false, siteBusyFor: null, siteBuild: null, siteTicker: null, siteOpenId: "origin-1",
     renderSites: () => {},
     paintReactLive: () => {},
     siteAbort: null, siteErr: null,

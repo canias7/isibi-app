@@ -2,6 +2,13 @@
 
 
 
+## 2026-10-23 — Your choices on 31, 32 and 33 (not merged, not deployed)
+
+- **31, translated pages:** you can now change wording on a translated page (/es/...). It is kept as that language's own wording and later translations don't replace it. If the English it came from changes, your wording is kept but the reply tells you to check that page.
+- **32, several sites at once:** one site building no longer blocks sending on your other sites. Each site still runs one job at a time.
+- **33, missed notifications:** the next owner email says "You missed N notifications" and the count resets. It needs one small database column (`supabase/proposed/notify_missed.sql`, not applied); until then emails go out as before.
+- Branch `decide-g-other`; nothing spent. Record: `docs/history/2026-10-23-decide-other.md`.
+
 ## 2026-10-23 — Audit findings 201–264 fixed and deployed (round 2, end of the list)
 
 Round 2 of your scheduled task. Six helpers re-checked findings 201–264 against the code as round 1 left it and fixed the real ones, each with a test that fails on the old code. A fresh reviewer double-checked the combined work and found three small things, all fixed; one conflict between two helpers was settled by keeping the more complete fix. You were sent before/after screenshots of the high-contrast fix. Full suite green (12,155 tests), GitHub's checks green, merged and deployed as deploy 2263. That finishes the audit list: every finding is fixed, confirmed already fixed, parked by you, or waiting on your decision (the records `docs/history/2026-10-23-r1-*.md` and `r2-*.md` list each with options).

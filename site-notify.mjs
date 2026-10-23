@@ -62,8 +62,12 @@ export function submissionEmail({ slug, table, row, extra = 0 } = {}) {
            `<td style="padding:4px 0">${escapeHtml(s)}</td></tr>`;
   }).join("");
 
-  const more = extra > 0
-    ? `<p style="color:#666">…and ${extra} more since the last email.</p>`
+  // THE MISSED COUNTER (audit A12-9, owner's choice 2026-10-23): submissions
+  // that arrived inside the cooldown, or whose email could not go, are counted
+  // in `site_backends.notify_missed` and named once in the next email sent.
+  const n = Number.isInteger(extra) && extra > 0 ? extra : 0;
+  const more = n > 0
+    ? `<p style="color:#666">You missed ${n} notification${n === 1 ? "" : "s"} since the last email.</p>`
     : "";
 
   return {
@@ -83,8 +87,12 @@ export function submissionEmail({ slug, table, row, extra = 0 } = {}) {
  *        one atomic conditional update: sets notified_at and returns the row
  *        ONLY if notifications are on and the cooldown has passed. Whoever wins
  *        sends; everyone else in the window does nothing. `missed` (the count
- *        dropped inside the window) is read when given; the Worker's claim does
- *        not count them today, so the "…and N more" line does not appear.
+ *        dropped inside the window) is read when given.
+ *   missed               (optional) the missed-notification counter:
+ *        take(slug) → n   read and zero it, once a claim is won (0 on any error)
+ *        add(slug, n)     count n more (a lost claim, or an email that did not go)
+ *        Both fail open: a site whose database has no counter column notifies
+ *        exactly as before.
  *   ready()              → anything (optional) | throws
  *        the sender's own settings (the owner's key and EMAIL_FROM), read by
  *        the claim's winner only, so a site with notifications off pays no
@@ -104,26 +112,37 @@ export async function notifyOwner(deps, { slug, table, access, method, row } = {
   let claim;
   // Nothing here may throw into the caller: the submission already succeeded,
   // and a broken mailer must not look like a broken booking form.
+  const counter = deps.missed && typeof deps.missed === "object" ? deps.missed : null;
+  // Counting never throws into the caller and never holds the email back.
+  const count = async (n) => { if (counter && typeof counter.add === "function" && n > 0) { try { await counter.add(slug, n); } catch { /* fail open */ } } };
   try { claim = await deps.claim(slug); }
-  catch (e) { return { sent: false, reason: "claim_failed", error: String((e && e.message) || e) }; }
-  if (!claim || !claim.ok) return { sent: false, reason: "cooling_down_or_off" };
+  catch (e) { await count(1); return { sent: false, reason: "claim_failed", error: String((e && e.message) || e) }; }
+  if (!claim || !claim.ok) { await count(1); return { sent: false, reason: "cooling_down_or_off" }; }
+
+  // Taken (and zeroed) by the winner; handed back, plus this one, on a failure.
+  let taken = 0;
+  if (counter && typeof counter.take === "function") {
+    try { const t = await counter.take(slug); taken = Number.isInteger(t) && t > 0 ? t : 0; } catch { taken = 0; }
+  }
+  const owed = taken + (Number.isInteger(claim.missed) && claim.missed > 0 ? claim.missed : 0);
+  const lost = async (out) => { await count(taken + 1); return out; };
 
   let mail;
   if (typeof deps.ready === "function") {
     try { mail = await deps.ready(); }
     catch (e) {
       if (typeof deps.unclaim === "function") { try { await deps.unclaim(slug, claim); } catch { /* the window lapses on its own */ } }
-      return { sent: false, reason: "no_sender", error: String((e && e.message) || e) };
+      return lost({ sent: false, reason: "no_sender", error: String((e && e.message) || e) });
     }
   }
 
   let to;
   try { to = await deps.emailOf(claim.owner_uid); }
-  catch (e) { return { sent: false, reason: "lookup_failed", error: String((e && e.message) || e) }; }
-  if (!to) return { sent: false, reason: "no_address" };
+  catch (e) { return lost({ sent: false, reason: "lookup_failed", error: String((e && e.message) || e) }); }
+  if (!to) return lost({ sent: false, reason: "no_address" });
 
-  const { subject, html } = submissionEmail({ slug, table, row, extra: claim.missed || 0 });
+  const { subject, html } = submissionEmail({ slug, table, row, extra: owed });
   try { await deps.send({ to, subject, html }, mail); }
-  catch (e) { return { sent: false, reason: "send_failed", error: String((e && e.message) || e) }; }
-  return { sent: true, to };
+  catch (e) { return lost({ sent: false, reason: "send_failed", error: String((e && e.message) || e) }); }
+  return { sent: true, to, missed: owed };
 }

@@ -18,6 +18,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { BUSY_SLOTS } from "./fixtures/busy-slots.mjs";
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), "utf8");
 const chat = read("../public/chat.js");
@@ -93,6 +94,7 @@ function loadRouter(pathname) {
   const fn = new Function("location", "history", "renderSites", "state",
     chat.slice(pAt, pEnd) + "\n" +
     "let siteOpenId = null;\n" +
+    "let siteBusy = false, siteBusyFor = null, siteBuild = null, siteTicker = null;\n" + BUSY_SLOTS + "\n" +
     cut("function projectFromPath(") + "\n" +
     cut("function openProject(") + "\n" +
     "return { projectFromPath, openProject, id: () => siteOpenId };");

@@ -45,6 +45,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import vm from "node:vm";
 import { ASK_FNS, ASK_LINES } from "./fixtures/browser-ask.mjs";
+import { BUSY_SLOTS } from "./fixtures/busy-slots.mjs";
 
 const require = createRequire(import.meta.url);
 const P = require("../public/edit-poll.js");
@@ -94,6 +95,7 @@ const SRC = [
   cut("function siteSend("),
   cut("function siteBuildStart("),
   cutLine("function siteBuildStop("),
+  BUSY_SLOTS, // the per-project busy state (#138)
   ...LATCHES,
   cut("function siteEdit("),
   cut("function unreadEditMsg("),
@@ -210,7 +212,7 @@ function page({ answers = {}, onRender } = {}) {
     siteActivePage: () => null,
     paintAttachStrip: () => {},
     buildPicker: "grok",
-    siteBusy: false, siteBuild: null, siteTicker: null, siteOpenId: "origin-1",
+    siteBusy: false, siteBusyFor: null, siteBuild: null, siteTicker: null, siteOpenId: "origin-1",
     renderSites: () => { if (onRender) onRender(); },
     paintReactLive: () => {},
     siteAbort: null, siteErr: null,

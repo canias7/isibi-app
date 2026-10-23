@@ -324,7 +324,7 @@ test("a version's state keeps the config fields a build bakes and never the owne
   assert.equal(kept.share, undefined, "a rollback would take the owner's chosen card back");
   // DERIVED from the config's own field list, so a field added to the config
   // has to be placed on one side or the other here.
-  for (const f of CONFIG_FIELDS) assert.ok(STATE_CONFIG_FIELDS.includes(f) || ["verify", "share"].includes(f), "a config field neither baked nor a setting: " + f);
+  for (const f of CONFIG_FIELDS) assert.ok(STATE_CONFIG_FIELDS.includes(f) || ["verify", "share", "langOverrides"].includes(f), "a config field neither baked nor a setting: " + f);
   assert.deepEqual(stateConfigOf(null), {});
 });
 

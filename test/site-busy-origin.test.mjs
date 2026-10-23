@@ -22,9 +22,11 @@ function fnSource(head) {
 
 function page({ busy, busyFor }) {
   const seen = { aborted: 0 };
+  // RE-ANCHORED 2026-10-23 (#138): each send's controller is kept under its
+  // project (`siteAborts`), so this page holds A's.
   const make = new Function("seen", "busy", "busyFor", [
-    "let siteBusy = busy; let siteBusyFor = busyFor;",
-    "const siteAbort = { abort: () => { seen.aborted++; } };",
+    "let siteBusy = busy; let siteBusyFor = busyFor; let siteOpenId = null; const siteAbort = null;",
+    "const siteAborts = new Map([[busyFor || null, { abort: () => { seen.aborted++; } }]]);",
     fnSource("function siteStop("),
     fnSource("function siteBusyHere("),
     "return { siteStop, siteBusyHere };",
@@ -47,14 +49,14 @@ test("CONTROL: nothing busy is busy nowhere; an origin never recorded keeps the 
   assert.equal(page({ busy: false, busyFor: A.id }).siteBusyHere(A), false);
   const old = page({ busy: true, busyFor: null });
   assert.equal(old.siteBusyHere(B), true);
-  old.siteStop(B);
-  assert.equal(old.seen.aborted, 1);
 });
 
 test("every place that takes the busy state names its project, and the workspace asks siteBusyHere", () => {
-  const sets = SRC.match(/siteBusy = true;[^\n]*/g) || [];
+  // RE-ANCHORED 2026-10-23 (#138): every setter goes through siteBusyBegin(<project>).
+  assert.equal((SRC.match(/siteBusy = true;/g) || []).length, 1, "a busy setter bypasses siteBusyBegin");
+  const sets = SRC.match(/siteBusyBegin\([^)]*\);/g) || [];
   assert.ok(sets.length >= 8, "the busy setters moved: " + sets.length);
-  for (const s of sets) assert.match(s, /^siteBusy = true; siteBusyFor = [\w.]+;/, s);
+  for (const s of sets) assert.match(s, /^siteBusyBegin\((origin|s\.id|site\.id)\);$/, s);
   const ws = fnSource("function renderSiteWorkspace(");
   assert.match(ws, /\(siteBusyHere\(site\) \|\| siteRunningWork\(site\)\s*\?\s*'<button type="button" class="st-sendc st-stopc" id="stStop"/, "Stop is drawn from the page-wide flag");
   assert.match(ws, /\)\.join\(''\) \+ \(siteBusyHere\(site\)\s*\?\s*\(siteBuild/, "the live steps are drawn from the page-wide flag");

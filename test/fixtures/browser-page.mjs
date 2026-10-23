@@ -15,6 +15,7 @@ import vm from "node:vm";
 import { createRequire } from "node:module";
 import { ASK_FNS, ASK_LINES } from "./browser-ask.mjs";
 import { BROWSER_FNS, EDIT_BROWSER_FNS } from "../../scripts/addon-sweep.mjs";
+import { BUSY_SLOTS } from "./busy-slots.mjs";
 
 const realEditPoll = createRequire(import.meta.url)("../../public/edit-poll.js");
 const CHAT = readFileSync(new URL("../../public/chat.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
@@ -147,6 +148,7 @@ const SRC = [
   ...FNS.map((n) => cut("function " + n + "(")),
   ...ASYNC_FNS.map((n) => cut("async function " + n + "(")),
   ...LINES.map(cutLine),
+  BUSY_SLOTS, // the per-project busy state (#138)
   KEYS,
   REQ_STATUS,
   REQ_LEFT,
@@ -265,7 +267,7 @@ export function page({ site, answer = () => null, idb, timers = false, frame = f
     siteActivePage: () => null,
     paintAttachStrip: () => {},
     buildPicker: "grok",
-    siteBusy: false, siteBuild: null, siteTicker: null, sitePicked: null,
+    siteBusy: false, siteBusyFor: null, siteBuild: null, siteTicker: null, sitePicked: null,
     siteOpenId: s.id,
     renderSites: () => {
       if (!frame) return;
