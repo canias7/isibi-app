@@ -258,17 +258,20 @@ test("every writer that takes the page rules takes the paragraph with them", () 
     functions: [{ name: "bookings_on_day", args: [{ name: "day", type: "date" }], returns: "integer" }] };
   const sys = (req) => (req && Array.isArray(req.system) && req.system[0] && req.system[0].text) || "";
   const page = pagesRequest({ brief: "places left on a day", spec, brand: "Fretwork", priorPages: [], mode: "page", target: "index.tsx" });
+  // A FIRST BUILD'S BAND READS THE OWN-PARTS BLOCK (2026-10-23), which an
+  // own-parts site's page call reads too; the paragraph rides both.
+  const ownPage = pagesRequest({ brief: "places left on a day", spec, brand: "Fretwork", priorPages: [], mode: "page", target: "index.tsx", ownParts: true });
   const band = bandRequest({ brief: "places left on a day", spec, brand: "Fretwork", lines: ["Hero", "Availability"], index: 1, name: "Availability" });
   const part = partRequest({ brief: "places left on a day", spec, brand: "Fretwork", lines: ["Hero"],
     part: { name: "day-space-lookup", does: "shows the places left on a chosen day", props: "none" } });
-  for (const [who, req] of [["page", page], ["band", band], ["part", part]]) {
+  for (const [who, req] of [["page", page], ["own-parts page", ownPage], ["band", band], ["part", part]]) {
     assert.ok(sys(req).length > 1000, "the " + who + " request has no system block to read, so its absence below means nothing");
     assert.ok(sys(req).includes(HEADLINE), "the " + who + " writer is not given the state paragraph");
     assert.ok(carriesCheck(sys(req)), "the " + who + " writer is not given the answer check");
   }
   // AND ALL THREE ARE ONE BLOCK, byte for byte — the cache prefix and the
   // single place a rule is fixed.
-  assert.equal(sys(band), sys(page), "the band's rules are a different block from the page's");
+  assert.equal(sys(band), sys(ownPage), "the band's rules are a different block from the own-parts page's");
   assert.equal(sys(part), sys(page), "the component's rules are a different block from the page's");
 });
 

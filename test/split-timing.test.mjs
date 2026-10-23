@@ -43,6 +43,11 @@ import { designInWaves, waveMarks, agentMark, DESIGN_WAVES } from "../builder/de
 import { generateSiteBands, splitPlan, bandMark, bandMarks, slotName, partsFromAnswers, partStub, partsOf } from "../builder/page-bands.mjs";
 import { makeTrace } from "../builder/trace.mjs";
 import { budgetStage } from "../builder/build-budget.mjs";
+// THE BANDS ALONE (2026-10-23): a website's fan-out now carries the header and
+// the footer as two more writers (slots c1, c2). These cases time the BANDS, so
+// they drive a phone app's fan-out, which has no written frame; the frame's own
+// slots are guarded in test/ai-writes-all.test.mjs.
+const BAND_ONLY = { surface: "app" };
 
 const read = (p) => fs.readFileSync(new URL("../" + p, import.meta.url), "utf8");
 // WHOLE-LINE COMMENTS BLANKED, LENGTH PRESERVED, and this file needs it more
@@ -311,7 +316,7 @@ test("a page written in pieces leaves a bands step; a page written in one call l
 
   // The single call is BELOW the fan-out's catch and must carry no mark of its
   // own — asserted against the real neighbour rather than by position.
-  const single = between(WCODE, "console.log(\"build: the container would not take a fan-out", "return await generateSitePages(env, briefWithLayout", "the fallback to one call");
+  const single = between(WCODE, "console.log(\"build: the container would not take a fan-out", "const singleAnswer = await generateSitePages(env, briefWithLayout", "the fallback to one call");
   assert.ok(!/mark\?\.\("bands"/.test(single), "the fallback marks the build as split after falling back to the one call");
 
   // AND THE TWO NUMBERS THAT SAY WHETHER THE SPLIT PAID (2026-09-10).
@@ -663,7 +668,7 @@ test("generateSiteBands carries the pair out, on both of its returns", async () 
   // and the `bands` mark reads these two fields by name.
   const args = {
     lines: ["hero", "prices", "find us"], route: "/", brief: "a fishmonger", brand: "Ashcombe",
-    spec: {}, kind: "shopfront", model: "grok-4.6",
+    spec: BAND_ONLY, kind: "shopfront", model: "grok-4.6",
     chrome: { name: "Ashcombe", tagline: "", links: [], action: null },
   };
   // Entries shaped the way `runFanout` really shapes them, INCLUDING the stamp.
@@ -1163,7 +1168,7 @@ test("THE WALL NAMES ITSELF: the fan-out costs its slowest band, and the row say
   const band = (n) => `export function ${n}() {\n  return <section data-slot="${n}">${n}</section>;\n}`;
   const args = {
     lines: ["hero", "prices", "find us"], route: "/", brief: "a fishmonger", brand: "Ashcombe",
-    spec: {}, kind: "shopfront", model: "grok-4.6",
+    spec: BAND_ONLY, kind: "shopfront", model: "grok-4.6",
     chrome: { name: "Ashcombe", tagline: "", links: [], action: null },
   };
   const reply = (n) => ({ content: [{ type: "tool_use", name: "write_band", input: { source: band("Band" + n) } }], usage: {} });
@@ -1208,7 +1213,7 @@ test("the band parts sum to the whole, and a repeated position adds rather than 
   // of `+=` is exactly how that disagreement gets in.
   const band = (n) => `export function ${n}() {\n  return <section data-slot="${n}">${n}</section>;\n}`;
   const args = {
-    lines: ["hero", "prices"], route: "/", brief: "b", brand: "B", spec: {}, kind: "shopfront", model: "m",
+    lines: ["hero", "prices"], route: "/", brief: "b", brand: "B", spec: BAND_ONLY, kind: "shopfront", model: "m",
     chrome: { name: "B", tagline: "", links: [], action: null },
   };
   const entry = (i, n, ms) => ({
@@ -1227,7 +1232,7 @@ test("the band parts sum to the whole, and a repeated position adds rather than 
 test("a band with no readable position is filed nowhere, and a failed band is filed under its own", async () => {
   const band = (n) => `export function ${n}() {\n  return <section data-slot="${n}">${n}</section>;\n}`;
   const args = {
-    lines: ["hero", "prices", "find us"], route: "/", brief: "b", brand: "B", spec: {}, kind: "shopfront", model: "m",
+    lines: ["hero", "prices", "find us"], route: "/", brief: "b", brand: "B", spec: BAND_ONLY, kind: "shopfront", model: "m",
     chrome: { name: "B", tagline: "", links: [], action: null },
   };
   const ok = (i, ms) => ({
@@ -1276,7 +1281,7 @@ test("generateSiteBands carries the per-band numbers out on BOTH of its returns"
   // SHAPE HERE, and every-band-failed is the outcome where knowing what the
   // attempt cost matters most.
   const args = {
-    lines: ["hero", "prices"], route: "/", brief: "b", brand: "B", spec: {}, kind: "shopfront", model: "m",
+    lines: ["hero", "prices"], route: "/", brief: "b", brand: "B", spec: BAND_ONLY, kind: "shopfront", model: "m",
     chrome: { name: "B", tagline: "", links: [], action: null },
   };
   const none = await generateSiteBands(args, null,
@@ -1305,7 +1310,7 @@ test("THE CHAIN: a driven fan-out's per-band numbers reach a real trace, through
   // "fixture in a different shape from its real producer".
   const band = (n) => `export function ${n}() {\n  return <section data-slot="${n}">${n}</section>;\n}`;
   const args = {
-    lines: ["hero", "prices", "find us"], route: "/", brief: "b", brand: "B", spec: {}, kind: "shopfront", model: "m",
+    lines: ["hero", "prices", "find us"], route: "/", brief: "b", brand: "B", spec: BAND_ONLY, kind: "shopfront", model: "m",
     chrome: { name: "B", tagline: "", links: [], action: null },
   };
   const fan = await generateSiteBands(args, null, async (keys, reqs) => reqs.map((r, i) => ({

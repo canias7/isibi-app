@@ -149,7 +149,7 @@ import { applySiteSchema, loadSiteSchema, readSiteSchema, parseSchemaSpec, norma
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { usageOf as pageUsageOf, PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, partsSent, priorPagesSent, pageId, sceneOn, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
-import { splitPlan, bandRefusal, BAND_MARK, bandMarks, generateSiteBands } from "./builder/page-bands.mjs";
+import { splitPlan, bandRefusal, BAND_MARK, bandMarks, generateSiteBands, ownFallbackDirective, enforceFallbackFrame } from "./builder/page-bands.mjs";
 import { MAX_MODEL_FANOUT } from "./builder/model-fanout.mjs";
 // THE DESIGN STEP CUT INTO WAVES OF AGENTS (2026-09-10). Plain module, testable
 // outside the Worker: it takes the design tool and the CALLER as arguments
@@ -226,6 +226,7 @@ import { editableFiles, splitEditable, partPath, partNameOf, PART_DIR } from "./
 import { FOUNDATION_FILES } from "./builder/foundation-files.mjs";
 import { runNavEdit, applyAdditions, menuLinksKept } from "./builder/site-nav.mjs";
 import { runLogoEdit } from "./builder/site-logo.mjs";
+import { writtenFrame, ownPartsSite, runFrameEdit, addFrameLinks, FRAME_PARTS } from "./builder/site-frame.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
 import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings, canWriteAccess } from "./site-access.mjs";
@@ -329,7 +330,7 @@ import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, 
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
 import { selectPurchase, checkoutForm, LIVE_SUBSCRIPTION_STATUSES, falRequestId, refundVerdict, refundOnResultStatus } from "./billing.mjs";
 import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS, hasValue, keepStoredAccess, mergeLook, movedFields } from "./builder/site-edit.mjs";
-import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, IMAGES_FIELD, ACTION_FIELD, BEHAVIOR_FIELD, TSX_FIELD, normalizePlan, designUsable } from "./builder/site-plan.mjs";
+import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, NOT_BUILT_FIELD, withNotBuilt, IMAGES_FIELD, ACTION_FIELD, BEHAVIOR_FIELD, TSX_FIELD, normalizePlan, designUsable } from "./builder/site-plan.mjs";
 // The designer-drawn tab icon (2026-08-28, owner's call). The FIELD is the ask;
 // `cleanFavicon` itself runs at the merge (`FIELD_KEEPS.favicon`) and again in
 // the container at the write — this file only carries the answer through.
@@ -4904,17 +4905,37 @@ const SITE_SCHEMA_TOOL = {
  * because a derivation whose source stopped having a `backend` key would produce
  * two identical tools and pass every check written for the smaller one.
  */
+// THE FIRST BUILD WRITES EVERYTHING ITSELF (2026-10-23, owner: "the AI should
+// write everything, that's the point"). Beside `backend`, the first build's
+// tool drops the kit menu (`components`, the 15-name manifest) and the
+// custom-part declarations (`tsx`): every band, the header and the footer are
+// written from scratch by their own writers, so there is nothing to pick from
+// a kit. It gains `notBuilt`: what the brief asks for that one page of six
+// bands with no database cannot make, for the reply to name. A revise keeps
+// `SITE_SCHEMA_TOOL` exactly as it was, because an existing site keeps its files.
 const FRONTEND_SCHEMA_TOOL = (() => {
-  const { backend, ...properties } = SITE_SCHEMA_TOOL.input_schema.properties;
+  const FIRST_BUILD_DROPS = ["backend", "components", "tsx"];
+  const all = SITE_SCHEMA_TOOL.input_schema.properties;
+  const properties = {};
+  for (const [k, v] of Object.entries(all)) {
+    if (FIRST_BUILD_DROPS.includes(k)) continue;
+    properties[k] = v;
+    // RIGHT AFTER `shape`, the field that decides what fits: the overflow is
+    // judged by the model that has just chosen the six bands.
+    if (k === "shape") properties.notBuilt = NOT_BUILT_FIELD;
+  }
+  if (!properties.notBuilt) properties.notBuilt = NOT_BUILT_FIELD;
   return {
     ...SITE_SCHEMA_TOOL,
     input_schema: {
       ...SITE_SCHEMA_TOOL.input_schema,
       properties,
-      required: SITE_SCHEMA_TOOL.input_schema.required.filter((k) => k !== "backend"),
+      required: SITE_SCHEMA_TOOL.input_schema.required.filter((k) => !FIRST_BUILD_DROPS.includes(k)),
     },
   };
 })();
+/** The first build's design tool, for the tests that read what it asks. */
+export const firstBuildDesignTool = () => FRONTEND_SCHEMA_TOOL;
 
 /**
  * The system text for the full tool — lifted out of the request literal so the
@@ -6089,8 +6110,10 @@ function pagesCall(env) {
 // stopped one argument short of the module's signature twice before — the
 // recorded wiring trap, where the value is computed and the hop drops it — so
 // the guard below derives this call's argument list from `genPages`' own.
-const generateSitePages = (env, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null, call = undefined, kind = "", keep = []) =>
-  genPages(keysFrom(env), brief, spec, brand, attachments, model, priorPages, mode, target, budget, call || pagesCall(env), kind, keep);
+// AND THE OPTIONS AFTER `keep` (2026-10-23): `{ ownParts }` was passed by
+// three callers and dropped here, so no page call ever read the own-parts block.
+const generateSitePages = (env, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null, call = undefined, kind = "", keep = [], opts = undefined) =>
+  genPages(keysFrom(env), brief, spec, brand, attachments, model, priorPages, mode, target, budget, call || pagesCall(env), kind, keep, opts);
 
 // HOW MUCH LONGER THE WORKER WAITS THAN THE CONTAINER DOES.
 //
@@ -19374,7 +19397,14 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
               // reach a band through the hop the single path already uses.
               brief: briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief, media }),
               spec, brand, attachments, model, kind: plan && plan.kind,
+              // THE FRAME'S FACTS (2026-10-23): on a website the header and
+              // the footer are written by two more writers beside the bands,
+              // told the name, the pages and the primary action off the design
+              // (`chromeFor`), and what was asked for and is not built — the
+              // fixed `SiteChrome` template is no longer drawn on a first build.
               route: planned[0], chrome: chromeFor(plan, brand, siteDescription), lines: bandLines,
+              actions: plan && Array.isArray(plan.action) ? plan.action : [],
+              notBuilt: plan && Array.isArray(plan.notBuilt) ? plan.notBuilt : [],
               // AND THE DECLARATIONS THEMSELVES, not only the brief's copy of
               // them (2026-09-11, owner: "one agent per thing like the design
               // one"). `briefWithLayout` folds `tsx` into the PROSE a band
@@ -19448,7 +19478,35 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         // zero imports across the 100-site corpus. Only this call site knows it;
         // the edit and addon rungs pass no plan, and their `kind: ""` keeps the
         // catalogue, which is the safe direction.
-        return await generateSitePages(env, briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief, media }), spec, brand, attachments, model, priorPages, undefined, undefined, budget, call, plan && plan.kind);
+        // ── A FIRST BUILD NEVER SHIPS THE KIT BY FALLBACK (2026-10-23) ──────
+        //
+        // The one call used to wrap the page in `SiteChrome` and read "THE KIT
+        // FOR EVERY CONTROL". On a first website build it now reads the
+        // own-parts block and is told to write the header and the footer as
+        // the two parts the band path writes (`ownFallbackDirective`), from
+        // the same facts the frame writers get. A revise and a phone app are
+        // unchanged.
+        const ownFirst = !revise && !priorPages && !(spec && spec.surface === "app");
+        const ownTail = ownFirst ? "\n\n" + ownFallbackDirective({
+          spec, brand, lines: bandLines, chrome: chromeFor(plan, brand, siteDescription),
+          actions: plan && Array.isArray(plan.action) ? plan.action : [],
+          notBuilt: plan && Array.isArray(plan.notBuilt) ? plan.notBuilt : [],
+        }) : "";
+        const singleAnswer = await generateSitePages(env, briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief, media }) + ownTail, spec, brand, attachments, model, priorPages, undefined, undefined, budget, call, plan && plan.kind, [], { ownParts: ownFirst });
+        // ── TOLD, AND NOW CHECKED (2026-10-23) ─────────────────────────────
+        //
+        // The directive above is an instruction; `enforceFallbackFrame` reads
+        // what came back — kit imports, `SiteChrome`, the two frame parts —
+        // and when a page names `SiteChrome` or a part is missing asks ONE
+        // bounded repair turn for the written parts, taken only when it leaves
+        // nothing to repair. The counts ride the `fallback` mark.
+        if (!ownFirst) return singleAnswer;
+        const oneFix = await enforceFallbackFrame(singleAnswer, {
+          send: (req) => pagesCall(env)(keysFrom(env), req, budget),
+          directive: ownTail.trim(), spec, kind: plan && plan.kind, model: singleAnswer && singleAnswer.usage && singleAnswer.usage.model,
+        });
+        if (oneFix.counts) try { mark?.("fallback", oneFix.counts); } catch { /* a trace must never break a build */ }
+        return oneFix.gen;
       } catch (e) {
         // THE SENTINEL IS READ BEFORE ANY FAILURE HANDLING, which is not
         // tidiness: `retryHere` would read this as a failure that spent nothing
@@ -26576,7 +26634,10 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
           checks: buildChecks(pages),
           // The same ordinary stop the inline answer names (the eighth batch).
           failure: inlineFailure(pages, { cost: Number(pages && pages.cost) || 0, short: !!rShort }),
-          design: design && design.designRecovery }) || undefined,
+          design: design && design.designRecovery,
+          // WHAT A FIRST BUILD LEFT OUT, AND WHETHER IT MADE NO DATABASE
+          // (2026-10-23), off the record's own plan and the backend row.
+          ...(!design.priorPages ? { notBuilt: design.plan && design.plan.notBuilt, noDatabase: !rBackend } : {}) }) || undefined,
     };
     out = packResult({
       status: 200,
@@ -29016,6 +29077,8 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             // the opposite of what its name says. A switch named after a
             // concept the platform no longer has is one somebody eventually
             // reads as still meaning something.
+            // `normalizePlan` names the bands it cut past the cap in
+            // `notBuilt` (2026-10-23); the design's own list joins it below.
             plan: normalizePlan(Object.fromEntries(PLAN_KEYS.map((k) => [k, look[k]]))),
             // ── THE COMPONENTS THE KIT HAD NOT GOT ──────────────────────────
             //
@@ -29128,6 +29191,11 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             // a stop read there is remembered, and the build ends below.
             stopCheck: typeof stopCheck === "function" ? async () => { const hit = await stopRead(); if (hit) stopSeen.stage = "publish"; return hit; } : null,
           };
+          // `notBuilt` RIDES WITH THE PLAN (2026-10-23): not a look field
+          // (`mergeLook` keeps only those), so it is read off this build's own
+          // design answer — and a revise, whose tool has no such field,
+          // carries none.
+          if (firstBuild && designed) buildArgs.plan = withNotBuilt(buildArgs.plan, designed.notBuilt);
           pages = await buildAndPublishPages(env, buildArgs);
         } catch (e) {
           console.error("page generation failed:", slug, (e && (e.detail || e.message)));
@@ -29799,6 +29867,9 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           failure: inlineFailure(pages, { cost: schemaCost + (Number(pages.cost) || 0), short: !!refundShort }),
           // A design corrected on the way (the ninth batch), told as done.
           design: designRecovery,
+          // WHAT A FIRST BUILD LEFT OUT, AND WHETHER IT MADE NO DATABASE
+          // (2026-10-23), for the reply writer to tell.
+          ...(firstBuild ? { notBuilt: buildArgs && buildArgs.plan && buildArgs.plan.notBuilt, noDatabase: !db } : {}),
         }) || undefined,
         designRecovery: designRecovery || undefined,
       }, { picker: models.picker, request: brief, name: brand, slug }));
@@ -37876,6 +37947,55 @@ async function handleRequest(request, env, ctx) {
               // NARROWS what the rung may do — nothing the frame has is
               // changed, replaced or taken away (`additionOnly`) — so a
               // client that sends it can only make an edit more careful.
+              // ── A WRITTEN FRAME IS EDITED AS SOURCE (2026-10-23) ──────────
+              //
+              // A site built since `build-ai-writes-all` has no `SiteChrome`:
+              // its header and footer are its own files under `-parts/`, so
+              // the menu editor below would find no props to read and answer
+              // `no-nav`. Such a site's menu, header button, footer contact,
+              // hours and social links are changed by editing those two files
+              // (`runFrameEdit`): one call, the files checked (routes, kit,
+              // default export), then the publish compiles them. A site with
+              // `SiteChrome` never enters here (`writtenFrame` answers null).
+              {
+                const fRead = await editParts();
+                if (fRead.ok && writtenFrame(eSrc, fRead.parts)) {
+                  const fOut = await runFrameEdit({ send: eQuick() }, {
+                    instruction: eInstruction, pages: eSrc, parts: fRead.parts, routes: navRoutes,
+                    model: eQuickModel, addition: eb.addition === true,
+                  });
+                  if (fOut.ask) return stepAsk("nav", fOut.ask);
+                  if (!fOut.ok && fOut.reason === "send") return modelDown(fOut.error, "I couldn't reach the model that sets the menu — try again in a moment.");
+                  if (!fOut.ok && fOut.reason === "unchanged") {
+                    return Response.json({
+                      ok: true, satisfied: true, layer: "nav", frame: true, changed: [], msg: fOut.msg,
+                      cost: eJob ? 0 : await eCharge(fOut.usage), usage: fOut.usage,
+                    });
+                  }
+                  if (!fOut.ok) {
+                    return Response.json({
+                      ok: false, error: fOut.reason, frame: true, cost: await eCharge(fOut.usage), usage: fOut.usage,
+                      problems: fOut.problems || undefined, msg: fOut.msg,
+                    }, { status: 422 });
+                  }
+                  const fPub = await publishStep(env, {
+                    slug: ownerSlug, pages: eSrc, parts: fOut.parts,
+                    label: versionLabel({ revise: true, changeNote: eRun }),
+                  });
+                  if (!fPub.ok) {
+                    return Response.json({
+                      ok: false, error: lostOr(fPub, "compile"), cost: 0, frame: true,
+                      msg: compileMsg(fPub, "That change to the header or footer didn't compile, so your site is untouched."),
+                      detail: fPub.detail,
+                    }, { status: 422 });
+                  }
+                  return Response.json({
+                    ok: true, frame: true, layer: "nav", msg: fOut.msg, changed: fOut.changed,
+                    files: fPub.files, render: fPub.render, renderNote: fPub.renderNote, checks: fPub.checks, draft: fPub.draft,
+                    cost: await eCharge(fOut.usage, fPub), usage: fOut.usage,
+                  });
+                }
+              }
               const nOut = await runNavEdit({
                 send: eQuick(),
               }, { instruction: eInstruction, pages: eSrc, routes: navRoutes, model: eQuickModel, addition: eb.addition === true });
@@ -38290,6 +38410,7 @@ async function handleRequest(request, env, ctx) {
               // first of a request's file and an answer's is not a choice
               // anybody made.
               const eImages = Array.isArray(eb && eb.images) ? eb.images.slice(0, MAX_ATTACHMENTS) : [];
+              let lFrameUsage = null, lFrameChanged = null;
               const lOut = await runLogoEdit({
                 sniff: sniffImage,
                 // The same content-hashed library every other upload lands in,
@@ -38353,10 +38474,33 @@ async function handleRequest(request, env, ctx) {
                   // mark fell back to rather than assuming the floor.
                   return next;
                 },
-                publish: () => publishStep(env, {
-                  slug: ownerSlug, pages: eSrc,
-                  label: versionLabel({ revise: true, changeNote: eRun }),
-                }),
+                // A WRITTEN FRAME PLACES THE LOGO ITSELF (2026-10-23). On a site
+                // with `SiteChrome` the stored mark reaches the header at compile
+                // time and no file changes. A site whose header is its own file
+                // (`-parts/site-header.tsx`) shows `SITE_LOGO` only where that
+                // file puts it, so an added header logo also runs the frame edit
+                // with the customer's words ("next to the name"), told the logo
+                // is now set; its files go to this same publish. A frame edit that
+                // fails or changes nothing leaves the publish as it was.
+                publish: async () => {
+                  let lParts = null;
+                  if (!eRemove && !(!eHanded && eb && eb.tab === true)) {
+                    const lRead = await editParts();
+                    if (lRead.ok && writtenFrame(eSrc, lRead.parts)) {
+                      const lf = await runFrameEdit({ send: eQuick() }, {
+                        instruction: eInstruction, pages: eSrc, parts: lRead.parts,
+                        routes: [...new Set(eSrc.map((p) => routeOf(p.path)).filter(Boolean))], model: eQuickModel,
+                        note: "THE LOGO IS NOW SET: `SITE_LOGO` holds its address. Show it in the header where the customer asked (beside or in place of the name), with alt text the business's name.",
+                      });
+                      lFrameUsage = lf.usage || null;
+                      if (lf.ok) { lParts = lf.parts; lFrameChanged = lf.changed; }
+                    }
+                  }
+                  return publishStep(env, {
+                    slug: ownerSlug, pages: eSrc, ...(lParts ? { parts: lParts } : {}),
+                    label: versionLabel({ revise: true, changeNote: eRun }),
+                  });
+                },
               // `eRemove`, THE STEP'S — not the body's. The logo rung is only ever
               // the router's own step (no lane dispatches here), so the two are
               // equal on every path that reaches this line today; the step's is
@@ -38370,18 +38514,19 @@ async function handleRequest(request, env, ctx) {
                 // reads as the builder ignoring what was asked. A refusal here
                 // is the honest answer and it says what to do instead.
                 return Response.json({
-                  ok: false, error: lOut.reason, cost: 0, msg: lOut.msg,
+                  ok: false, error: lOut.reason, cost: lFrameUsage ? await eCharge(lFrameUsage) : 0, msg: lOut.msg,
                 }, { status: 422 });
               }
               return Response.json({
                 ok: true, layer: "logo", msg: lOut.msg,
+                frame: lFrameChanged ? lFrameChanged : undefined,
                 // WHICH SLOT IT LANDED IN, from the module rather than re-read
                 // off the request: the module is what chose, and a second
                 // reading here is a second thing that can disagree about where
                 // a customer's artwork went.
                 target: lOut.target || "logo",
                 removed: !!lOut.removed, url: lOut.url || "", files: lOut.files,
-                cost: 0, usage: null,
+                cost: lFrameUsage ? await eCharge(lFrameUsage) : 0, usage: lFrameUsage,
               });
             }
             if (eLayer === "text") {
@@ -40055,7 +40200,10 @@ async function handleRequest(request, env, ctx) {
                 // NO CLOCK OF ITS OWN, exactly as before; AND THE ANSWERS this
                 // step was given (2026-10-02), through the same transport every
                 // other call on this route goes through (`clarifyTransport`).
-                null, clarifyCall(jobCall(eJob, pagesCall(env)), { shown: () => eCtx, all: () => eCtxAll || [], part: ePartShown }));
+                null, clarifyCall(jobCall(eJob, pagesCall(env)), { shown: () => eCtx, all: () => eCtxAll || [], part: ePartShown }),
+                // A SITE THAT WRITES ITS OWN PARTS (2026-10-23) is edited by a
+                // writer told the same: the own-parts block, never the kit's.
+                "", [], { ownParts: ownPartsSite(eSrc, pStoredParts) });
               } catch (e) {
                 console.error("page edit generate failed:", ownerSlug, e && e.message);
                 const pKind = upstreamKind(e && e.detail, e && e.status);
@@ -45053,7 +45201,9 @@ async function handleRequest(request, env, ctx) {
               // route that does not go through `aQuick`, and the longest.
               }), aSpec, aMerged.brand || aLook.brand || ownerSlug, [], aModels.pages, aWriterSrc, "addon", undefined, aJob && aJob.budget,
               // THE ANSWERS, through the transport every other call here uses.
-              clarifyCall(jobCall(aJob, pagesCall(env)), { shown: () => aCtxShown, all: () => aCtxAll || [], part: aPartShown }), "", aKeepPages);
+              clarifyCall(jobCall(aJob, pagesCall(env)), { shown: () => aCtxShown, all: () => aCtxAll || [], part: aPartShown }), "", aKeepPages,
+              // AN OWN-PARTS SITE'S ADDITION writes its own parts too (2026-10-23).
+              { ownParts: ownPartsSite(aSrc, aStoredParts) });
               aPagesMs = Date.now() - aPagesT0;
               aPagesWrote = aGen && aGen.input && Array.isArray(aGen.input.pages) ? aGen.input.pages.length : 0;
               aMark("pages", "ok", { files: aPagesWrote, ms: aPagesMs });
@@ -45563,9 +45713,31 @@ async function handleRequest(request, env, ctx) {
             // there and stays. Only a page that made it is linked (`aGone`).
             // A placement on one page — a button, a band — was the page
             // writer's, and is left exactly as it wrote it.
+            // ON A WRITTEN FRAME (2026-10-23, `build-ai-writes-all`) there is
+            // no `SiteChrome` for `applyAdditions` to write: the new page's
+            // link goes into the written header (and the footer's own link
+            // list, when it has one) instead — `addFrameLinks`, a copy of the
+            // list's last entry where the list is unambiguous, else one frame
+            // edit as an addition — and rides the same publish as the page,
+            // which compiles the parts with the pages. A `SiteChrome` site
+            // never enters (`writtenFrame` answers null).
+            // ITS ONE MODEL CALL IS BILLED WITH THE DESIGNERS' (`aDesignUsage`,
+            // on the addition's one bill), so it is offered only while that
+            // bill is still to come: once the designers were charged ahead of a
+            // schema apply (`aFirstPlaced`), only the copy is made.
+            let aFrameParts = null;
             {
               const aLinks = menuLinkAdds(aWanted, aGone);
-              if (aLinks.length) {
+              const aFrameBase = aPartsRead.ok ? mergeParts(aPartsRead.parts, Array.isArray(aValid && aValid.parts) ? aValid.parts : []) : null;
+              if (aLinks.length && aFrameBase && writtenFrame(aMerge.pages, aFrameBase)) {
+                const aFl = await addFrameLinks(aFirstPlaced ? {} : { send: aQuick("frame-links") }, {
+                  pages: aMerge.pages, parts: aFrameBase, adds: aLinks,
+                  routes: [...new Set(aMerge.pages.map((p) => routeOf(p.path)).filter(Boolean))],
+                });
+                if (aFl.usage) aDesignUsage.push(aFl.usage);
+                if (aFl.ok) aFrameParts = aFl.parts.filter((p) => p && FRAME_PARTS.some((f) => f.file === String(p.name || "").toLowerCase()));
+                aMark("menu-links", aFl.ok ? "ok" : "skip", { frame: true, how: aFl.how || aFl.reason, changed: aFl.ok ? aFl.changed.length : 0 });
+              } else if (aLinks.length) {
                 const aIn = applyAdditions(aMerge.pages, aLinks);
                 if (aIn.changed.length) {
                   const aKnown = new Set([...(aMerge.added || []), ...(aMerge.changed || [])]);
@@ -45694,6 +45866,8 @@ async function handleRequest(request, env, ctx) {
             let aParts = (aFreshParts.length && aPartsRead.ok)
               ? mergeParts(aPartsRead.parts, aFreshParts)
               : null;
+            // THE WRITTEN FRAME'S NEW LINKS, merged last (`addFrameLinks` above).
+            if (aFrameParts && aFrameParts.length && aPartsRead.ok) aParts = mergeParts(aParts || aPartsRead.parts, aFrameParts);
             // ── AND EVERY PHOTOGRAPH THE SITE SHOWED IS STILL SHOWN ─────────
             //
             // (2026-09-17, owner: *"Preserve existing photographs when buying

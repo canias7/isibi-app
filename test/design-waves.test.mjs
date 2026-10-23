@@ -429,8 +429,8 @@ const ANSWERS = {
   },
   plan: {
     purpose: "Get people booked in", pages: [{ path: "/", name: "Home" }],
-    components: ["SiteChrome", "PriceList"],
     shape: [{ path: "/", sections: ["hero — the name and a booking button", "prices — three across"] }],
+    notBuilt: ["online booking that saves appointments"],
     images: [],
   },
   look: { theme: "ink-and-chalk", wordmark: { text: "Hartley's" }, favicon: { initials: "H" } },
@@ -523,7 +523,7 @@ test("…and wave 3 is told what waves 1 and 2 answered, which is the whole poin
 
   // Wave 2 knows the identity and nothing of the plan (it is being written
   // beside it).
-  const planReq = sent.find((r) => Object.hasOwn(r.tools[0].input_schema.properties, "components"));
+  const planReq = sent.find((r) => Object.hasOwn(r.tools[0].input_schema.properties, "shape"));
   const planText = textOf(planReq);
   assert.ok(planText.includes("Hartley's") && planText.includes("shopfront"), "the plan agent must know the name and the kind");
   assert.ok(!planText.includes("ink-and-chalk"), "the look is being decided at the same moment and cannot be known");
@@ -535,7 +535,6 @@ test("…and wave 3 is told what waves 1 and 2 answered, which is the whole poin
   // Wave 3 knows both.
   const detail = textOf(sent.at(-1));
   assert.ok(detail.includes("Hartley's"), "wave 3 lost the identity");
-  assert.ok(detail.includes("PriceList"), "wave 3 lost the component manifest, which `tsx` is answered against");
   assert.ok(detail.includes("hero — the name and a booking button"), "wave 3 lost the page, which `behavior` is answered against");
   assert.ok(detail.includes("ink-and-chalk"), "wave 3 lost the theme");
 });

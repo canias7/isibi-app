@@ -33,7 +33,7 @@ function bare(src) {
 
 /* ------------------------------------------------------------ the design tool */
 
-test("the frontend tool is the full one with `backend` taken off, and only that", async () => {
+test("the frontend tool is the full one with `backend`, the kit menu and the custom parts taken off, and `notBuilt` added after `shape`", async () => {
   // THE REAL OBJECT, evaluated out of worker.js by `readSchemaTool` rather than
   // rebuilt here. A first draft restated the derivation and a mutation replacing
   // the destructure with a plain read SURVIVED — the test's own copy did the
@@ -57,14 +57,25 @@ test("the frontend tool is the full one with `backend` taken off, and only that"
   assert.ok(!feProps.includes("backend"), "the frontend tool still OFFERS a backend, so a first build can declare one");
   assert.ok(!frontendTool.input_schema.required.includes("backend"), "the frontend tool still COMPELS a backend");
 
-  // NOTHING ELSE MOVES. A frontend build must still be asked for the brand, the
-  // slug, the stylesheet and the whole plan — a split that quietly dropped a
-  // second field would leave a first build unable to name itself.
-  assert.deepEqual(feProps, props.filter((k) => k !== "backend"),
-    "the frontend tool differs from the full one by more than `backend`");
-  assert.deepEqual(frontendTool.input_schema.required, tool.input_schema.required.filter((k) => k !== "backend"),
-    "the frontend tool's required list differs from the full one by more than `backend`");
-  for (const k of ["brand", "slug", "description", "css", "pages", "shape", "components", "images", "purpose", "action"]) {
+  // NOTHING ELSE MOVES — except what the owner's 2026-10-23 decision moved
+  // ("the AI should write everything, that's the point"): the kit menu
+  // (`components`) and the custom-part declarations (`tsx`) leave the first
+  // build, and `notBuilt` (what was asked for and does not fit one page of six
+  // bands with no database) joins right after `shape`. A frontend build must
+  // still be asked for the brand, the slug, the stylesheet and the plan.
+  const DROPS = ["backend", "components", "tsx"];
+  const expect = [];
+  for (const k of props) {
+    if (DROPS.includes(k)) continue;
+    expect.push(k);
+    if (k === "shape") expect.push("notBuilt");
+  }
+  assert.deepEqual(feProps, expect,
+    "the frontend tool differs from the full one by more than the 2026-10-23 drops and `notBuilt`");
+  assert.deepEqual(frontendTool.input_schema.required, tool.input_schema.required.filter((k) => !DROPS.includes(k)),
+    "the frontend tool's required list differs from the full one by more than the drops");
+  assert.ok(!frontendTool.input_schema.required.includes("notBuilt"), "`notBuilt` is compelled — an empty list must stay a legal answer");
+  for (const k of ["brand", "slug", "description", "css", "pages", "shape", "images", "purpose", "action"]) {
     assert.ok(feProps.includes(k), "a first build can no longer be asked for `" + k + "`");
     assert.deepEqual(frontendTool.input_schema.properties[k], tool.input_schema.properties[k],
       "`" + k + "` was reworded on the frontend tool — the two must be the same field");

@@ -94,14 +94,9 @@ export const DESIGN_GRAPH = [
     fields: ["brand", "slug", "description"],
   },
   { name: "theme", fields: ["theme"] },
-  {
-    name: "components",
-    // NOT WAITING FOR `pages`, and that is the single biggest change here. Its
-    // prose says "you have just arranged the page above" — but `pages` answers
-    // one page at route "/" on every first build, so the edge carried no
-    // information and stood at the head of the longest chain.
-    fields: ["components"],
-  },
+  // THE `components` AGENT IS GONE (2026-10-23, owner: "the AI should write
+  // everything, that's the point"): a first build no longer picks from the
+  // kit, so its tool carries no `components` and there is nothing to ask.
   { name: "pages", fields: ["pages"] },
   { name: "kind", fields: ["kind"] },
   { name: "purpose", fields: ["purpose"] },
@@ -121,7 +116,9 @@ export const DESIGN_GRAPH = [
     // `three` is absent on nearly every site, and `qr`'s never-invent rule means
     // a first build almost never has one. Three agents answering "nothing" cost
     // three calls and save no time at all, because a "nothing" answer is instant.
-    fields: ["tsx", "qr", "three"],
+    // `tsx` LEFT WITH THE KIT (2026-10-23): a first build declares no custom
+    // parts; every writer writes the components its band needs.
+    fields: ["qr", "three"],
   },
   { name: "lang", fields: ["lang", "langs"] },
   {
@@ -158,12 +155,12 @@ export const DESIGN_GRAPH = [
   },
   {
     name: "shape",
-    // "The page and the component manifest are already decided above, so arrange
-    // what you have chosen." It arranges a list; it cannot arrange one it has not
-    // got. The `pages` half of that sentence is dropped for the reason
-    // `components` gives above.
-    fields: ["shape"],
-    needs: ["components"],
+    // It waited for `components` — "arrange what you have chosen" — and that
+    // agent is gone with the kit menu (2026-10-23): every band is now written
+    // from scratch, so there is no manifest to arrange and nothing to wait for.
+    // `notBuilt` BESIDE `shape` (2026-10-23): the agent that chooses the six
+    // bands is the one that knows what did not fit.
+    fields: ["shape", "notBuilt"],
   },
   {
     name: "behavior",

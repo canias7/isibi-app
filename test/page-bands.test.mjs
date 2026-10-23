@@ -566,7 +566,10 @@ test("DRIVEN: the cached system block IS the page call's own, by identity", () =
   for (const [spec, kind] of [[SPEC_NONE, "shopfront"], [SPEC_NONE, "tool"], [SPEC_DB, "shopfront"], [SPEC_DB, "tool"]]) {
     const req = bandRequest({ brief: "b", spec, brand: "B", lines: LINES, index: 0, name: "Band1Hero", kind });
     assert.equal(req.system.length, 1);
-    assert.equal(req.system[0].text, pageRulesFor(spec, kind),
+    // THE OWN-PARTS BLOCK (2026-10-23, `build-ai-writes-all`): a first
+    // build's band reads the page call's block for a site that writes its own
+    // parts — still the one function, still one prefix per spec/kind.
+    assert.equal(req.system[0].text, pageRulesFor(spec, kind, { ownParts: true }),
       "the band's rules are not the page call's for spec/kind — a second cached prefix");
     assert.deepEqual(req.system[0].cache_control, { type: "ephemeral" }, "the rules block is not cached");
   }

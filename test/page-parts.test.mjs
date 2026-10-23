@@ -48,7 +48,11 @@ const DECL = [
 ];
 const args = (extra = {}) => ({
   lines: ["a hero with the workshop name", "the price list"], route: "/",
-  brief: "a guitar school", brand: "Fretwork", spec: {}, kind: "shopfront", model: "m",
+  // A PHONE APP (2026-10-23): on a website the custom-part declarations are
+  // superseded — every writer writes its own components and the header and
+  // footer are two more writers — so the parts path these cases drive is the
+  // app's, where `AppChrome` and `tsx` still stand.
+  brief: "a guitar school", brand: "Fretwork", spec: { surface: "app" }, kind: "shopfront", model: "m",
   chrome: { name: "Fretwork", tagline: "", links: [], action: null },
   ...extra,
 });

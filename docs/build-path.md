@@ -498,6 +498,22 @@ cause*, and the honest tell was having to be told again.
    The SHEET is the assertion and it is DERIVED. **What cracked it was one fact
    from the owner's side of the screen: which OS.**
 
+## The first build writes everything itself (2026-10-23, branch `build-ai-writes-all`)
+
+The owner: "the AI should write everything, that's the point." On a first
+build: at most six bands, enforced in `normalizePlan`, with what did not fit
+named in `notBuilt` (the design's own list beside the cut bands; no fold into
+the last band). No kit menu: the first build's tool carries no `components`
+and no `tsx`, and the graph has 15 agents (no `components` agent; `shape`
+waits for nothing). Every writer (band, header, footer) is told to write its
+own components with the theme's tokens (`OWN_PARTS_RULE`); kit imports are
+counted (`kitImports`), not refused. The header and footer are two more
+writers (`FRAME`: `SiteHeader`, `SiteFooter`, slots `c1`/`c2`), and the shell
+draws no `SiteChrome`; a phone app keeps `AppChrome` and its parts. The reply
+writer is told `notBuilt` and `noDatabase`. Where this section and the older
+text below disagree about a first build, this section is current. Record:
+`docs/history/2026-10-23-ai-writes-all.md`.
+
 ## The two splits
 
 Both are live. The DESIGN call and the PAGE call each used to be one long model

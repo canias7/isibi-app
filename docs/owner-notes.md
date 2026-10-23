@@ -1,5 +1,31 @@
 # Owner Notes
 
+## 2026-10-23, late night (2) — `build-ai-writes-all`: new pages reach the new menus; the fallback is checked (not merged, not deployed)
+
+- **A page added to a new-style site now goes into its menu.** Its header and footer are its own files, so the add-on step now puts the new page's link into the written header (and the footer's page links, if it has them), in the same publish as the page. Where the header's link list is clear, the link is a copy of the last one (no model call); otherwise one small model call adds it, billed with the addition. Old sites work as before.
+- **The single-writer fallback is now checked, not just told.** When a first build falls back to one writer, its answer is counted (ready-made parts used, the old shared header used, header and footer present). If the old header was used or a part is missing, the writer gets one repair turn for exactly those parts; the repair is kept only if it fixes everything. The counts are on the build's record.
+- Found on the way and fixed: the "write your own parts" rules were not actually reaching the single writer, page edits or additions (a dropped setting inside the server). They do now.
+- Nothing spent, no model called. Record: `docs/history/2026-10-23-ai-writes-all.md`.
+
+## 2026-10-23, late night — `build-ai-writes-all`: edits on the new sites work (not merged, not deployed)
+
+- **Menu, button, footer and logo changes now work on sites built the new way.** Their header and footer are their own files, so "take Gallery out of the menu", "add Instagram to the footer", "change the header button" and "put a logo next to the name" now edit those two files. The answer is checked (only real pages linked, no kit parts) and compiled before anything is published; if it doesn't compile, the site is untouched. Sites built the old way behave exactly as before.
+- **The new sites get their own rules.** Their writers are no longer told "use the kit for every control"; edits and additions on those sites are told to write their own parts too. Old sites keep their rules (and their cache) byte for byte.
+- **The fallback path follows the same rules.** When the sections can't be written in parallel, the single writer now writes the header and footer itself, as the same two files, with no kit.
+- One small change: adding a logo on a new-style site now costs one small model call (placing it in the header).
+- Nothing spent, no model called. Record: `docs/history/2026-10-23-ai-writes-all.md`.
+
+## 2026-10-23, night — `build-ai-writes-all`: the first build writes everything itself (not merged, not deployed)
+
+- Your decision, "the AI should write everything, that's the point", is on the branch `build-ai-writes-all`.
+- **Six sections, enforced.** The designer picks the six sections that matter most. Anything you asked for that doesn't fit is no longer squeezed into the last section. It goes on a "not built" list instead: extra pages, extra sections, and things that need a database (sign-ups, bookings, orders, accounts).
+- **No ready-made parts.** A first build no longer picks from the kit's component list. Every section writer writes its own parts, using the site's theme colours and fonts. Themes and contrast still work.
+- **The header and footer are written by the AI too.** Two more writers run beside the sections, told the site's name, pages, main button, logo and anything the brief wants in them. They don't invent phone numbers or addresses, and they never fake a newsletter form on a site with no database.
+- **The final reply says what was left out.** The model-written reply is now told what was not built (so the customer can ask for each one next) and that no database was made. The fixed "Built X" line is still only the fallback.
+- A phone app keeps its tab bar. Edits and add-ons on existing sites are unchanged.
+- One thing to know: on sites built this way the menu now lives in the written header, so a menu edit may not find it yet (noted as a risk).
+- Nothing spent, no model called. Record: `docs/history/2026-10-23-ai-writes-all.md`.
+
 ## 2026-10-23, night — `router-hold-by-item`: parts held back by number, not by copied words (not merged, not deployed)
 
 - The problem: on saltmarsh-and-sparrow a 20-item list was refused at once ("I couldn't separate the part of your message I was leaving for later…"). The router had copied the later part's words, reworded them, and the code could not find them in your message.

@@ -76,17 +76,17 @@ async function buildIn(env, design = WIDE, body = {}) {
   return { r, steps, order, mark: (name) => steps.find((s) => s.s === name), bands: steps.filter((s) => String(s.s).startsWith("bands")) };
 }
 
-test("PR 1 — THE BUILD AS A CONTAINER JOB RUNS IT: with the account on the doors, the job's own env opens the design graph (16 agents) and the page is written as bands through one local fan-out, the design before any page call", async () => {
+test("PR 1 — THE BUILD AS A CONTAINER JOB RUNS IT: with the account on the doors, the job's own env opens the design graph (15 agents since the kit menu left, 2026-10-23) and the page is written as bands through one local fan-out, the design before any page call", async () => {
   const svc = localService();
   const b = await buildIn({ ...jobSecrets(WORKER_ENV), SITE_BUILD_CONTAINER: svc.binding });
   const d = b.mark("design");
-  assert.ok(d && d.graph === 16 && d.agents === 16, "the design was not the graph: " + JSON.stringify(d));
-  assert.equal(b.order.filter((t) => t === "design_schema").length, 16, "the design was not sixteen agent calls");
+  assert.ok(d && d.graph === 15 && d.agents === 15, "the design was not the graph: " + JSON.stringify(d));
+  assert.equal(b.order.filter((t) => t === "design_schema").length, 15, "the design was not fifteen agent calls (the `components` agent left with the kit menu, 2026-10-23)");
   assert.deepEqual(b.bands.map((s) => s.s), ["bands"], "the page was not split into bands: " + JSON.stringify(b.bands));
-  assert.equal(b.bands[0].bands, 5, "every planned section is a band, the chrome's included");
+  assert.equal(b.bands[0].bands, 5, "every planned section is a band");
   const starts = svc.hops.filter((h) => h.path === "/model/start");
   assert.equal(starts.length, 1, "the bands did not go out as ONE fan-out");
-  assert.equal(starts[0].n, 5, "the fan-out did not carry every band at once");
+  assert.equal(starts[0].n, 5 + 2, "the fan-out did not carry every band, the header and the footer at once (the frame is model-written since 2026-10-23)");
   // DEPENDENT WORK WAITS: every design call precedes the first page call.
   assert.ok(svc.hops.length && b.order.every((t) => t === "design_schema"), "a page call went out beside the design");
   const at = (n) => b.steps.findIndex((s) => s.s === n);
@@ -152,7 +152,7 @@ test("PR 5 — A LOCAL FAN-OUT THAT CANNOT START, OR THAT THE CONTAINER FORGOT, 
 test("PR 6 — ON THE WORKER NOTHING CHANGES: with no local service and no queue the page is the one call it always was (bands:sync), the design doors still answer there", async () => {
   const b = await buildIn({ ...WORKER_ENV });
   assert.deepEqual(b.bands.map((s) => s.s), ["bands:sync"]);
-  assert.equal(b.mark("design").graph, 16, "the Worker's own build lost its design graph");
+  assert.equal(b.mark("design").graph, 15, "the Worker's own build lost its design graph");
 });
 
 // ── 2. A NAMED SEND IS LISTED, BY ITS OWN ATTEMPT ─────────────────────────────

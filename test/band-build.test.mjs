@@ -245,7 +245,7 @@ test("resumeFanout is computed at the collector, forwarded, and read at the buil
 });
 
 test("the fan-out and the single call share one caller, one budget and one sentinel", () => {
-  const blk = between(WCODE, "const call = resumeCall", "return await generateSitePages(env, briefWithLayout", "the generate dep");
+  const blk = between(WCODE, "const call = resumeCall", "const singleAnswer = await generateSitePages(env, briefWithLayout", "the generate dep");
   // ONE `call`. The fire, the report, the lease and the sentinel are the ones
   // the single path already uses; the only difference is what is handed over.
   assert.ok(/generateSiteBands\(\{/.test(blk), "the fan-out is not called at all");
@@ -265,7 +265,7 @@ test("a container that will not take a fan-out falls through to the one call", (
   // rollout is asynchronous — so for a minute after a deploy the previous image
   // can still be serving. That minute must be single-call builds, not failed
   // ones.
-  const blk = between(WCODE, "generateSiteBands({", "return await generateSitePages(env, briefWithLayout", "the fallback");
+  const blk = between(WCODE, "generateSiteBands({", "const singleAnswer = await generateSitePages(env, briefWithLayout", "the fallback");
   assert.ok(/if \(!isNoFanout\(e\)\) throw e;/.test(blk), "every throw is now swallowed, or none is");
   // The sentinel is thrown by the fire and by nothing else, and only for a list.
   assert.ok(/if \(!genId && Array\.isArray\(req\)\) throw noFanoutError\(\);/.test(WCODE),
@@ -383,12 +383,17 @@ test("a real split build: answers arrive out of order, one call fails, and the p
       { i: 0, state: "done", answer: band('import { Hero } from "@/components/ui/hero";\nfunction Band1A() { return <Hero title="Crookes" />; }') },
       { i: 1, state: "failed", message: "XAI_API_KEY is not set" },
       { i: 3, state: "done", answer: band('import { Hero } from "@/components/ui/hero";\nfunction Band4The() { return <footer>© Crookes — we didn\'t forget you</footer>; }') },
+      // THE HEADER AND THE FOOTER (2026-10-23): written by two more writers,
+      // right after the bands.
+      { i: 5, state: "done", answer: band('function SiteFooter() { return <footer className="border-t">Crookes Guitar School</footer>; }') },
+      { i: 4, state: "done", answer: band('import { Link } from "@tanstack/react-router";\nfunction SiteHeader() { return <header><Link to="/">Crookes</Link></header>; }') },
     ];
   }, null);
 
-  // ONE REQUEST PER BAND, ALL ON ONE MODEL — which is what makes summing the
-  // usage sound, since one rate column prices them all.
-  assert.equal(sent.length, 4);
+  // ONE REQUEST PER BAND, THEN THE HEADER AND THE FOOTER, ALL ON ONE MODEL —
+  // which is what makes summing the usage sound, since one rate column prices
+  // them all.
+  assert.equal(sent.length, 4 + 2);
   assert.equal(new Set(sent.map((r) => r.model)).size, 1);
 
   // THE PAGE. `generateSitePages`' exact return shape, so nothing downstream
@@ -445,7 +450,15 @@ test("a real split build: answers arrive out of order, one call fails, and the p
   // THE MONEY. One usage object, summed across the calls, so `pageCredits`
   // rounds ONCE across the build exactly as it does for a single call — N
   // roundings would charge a floor per band.
-  assert.deepEqual(out.usage, { in: 300, out: 150, cacheRead: 30, cacheWrite: 15, model: "grok-4.6" });
+  assert.deepEqual(out.usage, { in: 500, out: 250, cacheRead: 50, cacheWrite: 25, model: "grok-4.6" });
+  // THE FRAME IS THE MODEL'S (2026-10-23): the page composes the written
+  // header and footer from their own files, and draws no `SiteChrome`.
+  assert.match(src, /import SiteHeader from "@\/routes\/-parts\/site-header";/, "the written header is not composed");
+  assert.match(src, /import SiteFooter from "@\/routes\/-parts\/site-footer";/, "the written footer is not composed");
+  assert.ok(src.indexOf("<SiteHeader />") < src.indexOf("<" + bandName(lines[0], 0) + " />") && src.indexOf("<SiteFooter />") > src.indexOf("<" + bandName(lines[3], 3) + " />"),
+    "the header and the footer are not around the bands");
+  assert.doesNotMatch(src, /SiteChrome/, "the fixed chrome template is still drawn on a first build");
+  assert.equal(out.wroteFrame, 2);
 });
 
 test("a failed call that carries half an answer is stubbed, not assembled", async () => {
@@ -471,6 +484,8 @@ test("a failed call that carries half an answer is stubbed, not assembled", asyn
       { i: 0, state: "done", answer: band('function Band1A() { return <h1>Hi</h1>; }') },
       { i: 1, state: "failed", status: 500, message: "the stream was cut", answer: half },
       { i: 2, state: "done", answer: band('function Band3The() { return <footer/>; }') },
+      { i: 3, state: "done", answer: band('function SiteHeader() { return <header/>; }') },
+      { i: 4, state: "done", answer: band('function SiteFooter() { return <footer/>; }') },
     ], null);
   assert.equal(out.wrote, 2, "the cut-off band was counted as written");
   assert.deepEqual(out.refused.map((r) => r.name), [bandName(lines[1], 1)]);
