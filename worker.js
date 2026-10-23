@@ -7017,6 +7017,7 @@ function makeJobCtx(env, { id, owner, budget, trace, uid = "", slug = "", progre
   // time and taken by another job — stops at its next gate, as a stop, never
   // publishing, repairing or writing the config on a turn it no longer holds.
   let turnLost = false;
+  let leaseLost = false;
   let beats = 0;
   let reserves = 0;
   // ── WHAT THE LEDGER REFUSED (2026-09-05) ──────────────────────────────
@@ -7043,6 +7044,8 @@ function makeJobCtx(env, { id, owner, budget, trace, uid = "", slug = "", progre
     /** Has this job lost the site's publish turn (`loseTurn`)? */
     turnLost: () => turnLost,
     loseTurn() { turnLost = true; },
+    /** Has the lost sweep taken this job's lease (`beat`, audit S7-5)? */
+    leaseLost: () => leaseLost,
     beats: () => beats,
     /**
      * How many times this job's rungs reserved credits — zero for a rung that
@@ -7079,6 +7082,11 @@ function makeJobCtx(env, { id, owner, budget, trace, uid = "", slug = "", progre
       // handles a consumer that has genuinely lost touch, and that is decided
       // on the other side.
       if (r && r.ok === true && r.cancel === true) cancelled = true;
+      // THE LEASE IS GONE (2026-10-23, audit S7-5): the row answered that it
+      // is closed or another run holds it — the lost sweep has refunded and
+      // re-filed this job. Only that answer, never a transport failure. The
+      // job stops at its next gate, and its turn is no longer renewed.
+      if (r && r.ok === false && r.alive === false) leaseLost = true;
       return r;
     },
     /**
@@ -7100,6 +7108,7 @@ function makeJobCtx(env, { id, owner, budget, trace, uid = "", slug = "", progre
       // The Worker's own consumer has no such binding and never reads this.
       if (env && env.JOB_STOP && env.JOB_STOP.signal && env.JOB_STOP.signal.aborted) return { go: false, why: "stopped" };
       if (cancelled) return { go: false, why: "cancelled" };
+      if (leaseLost) return { go: false, why: "stopped" };
       if (turnLost) return { go: false, why: "turn-lost" };
       if (budget && budget.expired()) return { go: false, why: "budget" };
       // A PUBLISH NEEDS ROOM, NOT JUST TIME (run 33, 2026-09-03). With 235s
@@ -16024,6 +16033,7 @@ async function takeTurn(env, slug, job) {
     bs.waits = (bs.waits || 0) + 1;
     if (typeof job.cancelled === "function" && job.cancelled()) { bs.stopped = "cancelled"; return null; }
     if (env && env.JOB_STOP && env.JOB_STOP.signal && env.JOB_STOP.signal.aborted) { bs.stopped = "stopped"; return null; }
+    if (typeof job.leaseLost === "function" && job.leaseLost()) { bs.stopped = "stopped"; return null; }
     if (job.budget && typeof job.budget.expired === "function" && job.budget.expired()) return null;
     if (Date.now() - started >= turnWaitMs(env)) { bs.waitedOut = true; return null; }
     await new Promise((r) => setTimeout(r, turnPollMs(env)));
@@ -24929,7 +24939,8 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     beat = setInterval(() => {
       jctx.beat(null).catch(() => {});
       // A RENEWAL THAT ANSWERS NO IS A LOST TURN (2026-10-15), never ignored.
-      if (jctx.beside && jctx.beside.turn) {
+      // NONE ONCE THE LEASE IS GONE (audit S7-5): the re-filed run waits on it.
+      if (jctx.beside && jctx.beside.turn && !jctx.leaseLost()) {
         const held = jctx.beside.turn;
         renewTurn(env, job.slug, held).then((ok) => { if (ok === false && jctx.beside.turn === held) loseTurn(jctx, job.slug, "its renewal was refused"); }).catch(() => {});
       }
