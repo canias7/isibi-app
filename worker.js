@@ -329,7 +329,7 @@ import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, 
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
 import { selectPurchase, checkoutForm, LIVE_SUBSCRIPTION_STATUSES, falRequestId, refundVerdict, refundOnResultStatus } from "./billing.mjs";
 import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS, hasValue, keepStoredAccess, mergeLook, movedFields } from "./builder/site-edit.mjs";
-import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, IMAGES_FIELD, ACTION_FIELD, BEHAVIOR_FIELD, TSX_FIELD, normalizePlan, designUsable } from "./builder/site-plan.mjs";
+import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, NOT_BUILT_FIELD, withNotBuilt, IMAGES_FIELD, ACTION_FIELD, BEHAVIOR_FIELD, TSX_FIELD, normalizePlan, designUsable } from "./builder/site-plan.mjs";
 // The designer-drawn tab icon (2026-08-28, owner's call). The FIELD is the ask;
 // `cleanFavicon` itself runs at the merge (`FIELD_KEEPS.favicon`) and again in
 // the container at the write — this file only carries the answer through.
@@ -4904,17 +4904,37 @@ const SITE_SCHEMA_TOOL = {
  * because a derivation whose source stopped having a `backend` key would produce
  * two identical tools and pass every check written for the smaller one.
  */
+// THE FIRST BUILD WRITES EVERYTHING ITSELF (2026-10-23, owner: "the AI should
+// write everything, that's the point"). Beside `backend`, the first build's
+// tool drops the kit menu (`components`, the 15-name manifest) and the
+// custom-part declarations (`tsx`): every band, the header and the footer are
+// written from scratch by their own writers, so there is nothing to pick from
+// a kit. It gains `notBuilt`: what the brief asks for that one page of six
+// bands with no database cannot make, for the reply to name. A revise keeps
+// `SITE_SCHEMA_TOOL` exactly as it was, because an existing site keeps its files.
 const FRONTEND_SCHEMA_TOOL = (() => {
-  const { backend, ...properties } = SITE_SCHEMA_TOOL.input_schema.properties;
+  const FIRST_BUILD_DROPS = ["backend", "components", "tsx"];
+  const all = SITE_SCHEMA_TOOL.input_schema.properties;
+  const properties = {};
+  for (const [k, v] of Object.entries(all)) {
+    if (FIRST_BUILD_DROPS.includes(k)) continue;
+    properties[k] = v;
+    // RIGHT AFTER `shape`, the field that decides what fits: the overflow is
+    // judged by the model that has just chosen the six bands.
+    if (k === "shape") properties.notBuilt = NOT_BUILT_FIELD;
+  }
+  if (!properties.notBuilt) properties.notBuilt = NOT_BUILT_FIELD;
   return {
     ...SITE_SCHEMA_TOOL,
     input_schema: {
       ...SITE_SCHEMA_TOOL.input_schema,
       properties,
-      required: SITE_SCHEMA_TOOL.input_schema.required.filter((k) => k !== "backend"),
+      required: SITE_SCHEMA_TOOL.input_schema.required.filter((k) => !FIRST_BUILD_DROPS.includes(k)),
     },
   };
 })();
+/** The first build's design tool, for the tests that read what it asks. */
+export const firstBuildDesignTool = () => FRONTEND_SCHEMA_TOOL;
 
 /**
  * The system text for the full tool — lifted out of the request literal so the
@@ -19374,7 +19394,14 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
               // reach a band through the hop the single path already uses.
               brief: briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief, media }),
               spec, brand, attachments, model, kind: plan && plan.kind,
+              // THE FRAME'S FACTS (2026-10-23): on a website the header and
+              // the footer are written by two more writers beside the bands,
+              // told the name, the pages and the primary action off the design
+              // (`chromeFor`), and what was asked for and is not built — the
+              // fixed `SiteChrome` template is no longer drawn on a first build.
               route: planned[0], chrome: chromeFor(plan, brand, siteDescription), lines: bandLines,
+              actions: plan && Array.isArray(plan.action) ? plan.action : [],
+              notBuilt: plan && Array.isArray(plan.notBuilt) ? plan.notBuilt : [],
               // AND THE DECLARATIONS THEMSELVES, not only the brief's copy of
               // them (2026-09-11, owner: "one agent per thing like the design
               // one"). `briefWithLayout` folds `tsx` into the PROSE a band
@@ -26576,7 +26603,10 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
           checks: buildChecks(pages),
           // The same ordinary stop the inline answer names (the eighth batch).
           failure: inlineFailure(pages, { cost: Number(pages && pages.cost) || 0, short: !!rShort }),
-          design: design && design.designRecovery }) || undefined,
+          design: design && design.designRecovery,
+          // WHAT A FIRST BUILD LEFT OUT, AND WHETHER IT MADE NO DATABASE
+          // (2026-10-23), off the record's own plan and the backend row.
+          ...(!design.priorPages ? { notBuilt: design.plan && design.plan.notBuilt, noDatabase: !rBackend } : {}) }) || undefined,
     };
     out = packResult({
       status: 200,
@@ -29016,6 +29046,8 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             // the opposite of what its name says. A switch named after a
             // concept the platform no longer has is one somebody eventually
             // reads as still meaning something.
+            // `normalizePlan` names the bands it cut past the cap in
+            // `notBuilt` (2026-10-23); the design's own list joins it below.
             plan: normalizePlan(Object.fromEntries(PLAN_KEYS.map((k) => [k, look[k]]))),
             // ── THE COMPONENTS THE KIT HAD NOT GOT ──────────────────────────
             //
@@ -29128,6 +29160,11 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             // a stop read there is remembered, and the build ends below.
             stopCheck: typeof stopCheck === "function" ? async () => { const hit = await stopRead(); if (hit) stopSeen.stage = "publish"; return hit; } : null,
           };
+          // `notBuilt` RIDES WITH THE PLAN (2026-10-23): not a look field
+          // (`mergeLook` keeps only those), so it is read off this build's own
+          // design answer — and a revise, whose tool has no such field,
+          // carries none.
+          if (firstBuild && designed) buildArgs.plan = withNotBuilt(buildArgs.plan, designed.notBuilt);
           pages = await buildAndPublishPages(env, buildArgs);
         } catch (e) {
           console.error("page generation failed:", slug, (e && (e.detail || e.message)));
@@ -29799,6 +29836,9 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           failure: inlineFailure(pages, { cost: schemaCost + (Number(pages.cost) || 0), short: !!refundShort }),
           // A design corrected on the way (the ninth batch), told as done.
           design: designRecovery,
+          // WHAT A FIRST BUILD LEFT OUT, AND WHETHER IT MADE NO DATABASE
+          // (2026-10-23), for the reply writer to tell.
+          ...(firstBuild ? { notBuilt: buildArgs && buildArgs.plan && buildArgs.plan.notBuilt, noDatabase: !db } : {}),
         }) || undefined,
         designRecovery: designRecovery || undefined,
       }, { picker: models.picker, request: brief, name: brand, slug }));

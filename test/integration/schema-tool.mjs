@@ -219,6 +219,8 @@ export async function readSchemaTool() {
       else if (c === ")") { d2--; if (!d2) { fj++; break; } }
     }
     globalThis.SITE_SCHEMA_TOOL = tool;
+    // THE FIRST BUILD'S `notBuilt` (2026-10-23), the real object.
+    globalThis.NOT_BUILT_FIELD = plan.NOT_BUILT_FIELD;
     try { frontendTool = eval("(" + src.slice(fi, fj) + ")()"); }
     catch (e) { throw new Error("could not resolve the frontend tool: " + e.message); }
   }

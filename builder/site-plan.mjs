@@ -302,7 +302,16 @@ export const MAX_COMPONENTS = 15;
 // eight bands was about twice the length the exemplars are. The designer is
 // asked for 4 to 6 and its answer may hold at most six; the merge below stays
 // as the backstop, so nothing planned is ever dropped.
+// THE MERGE IS GONE (2026-10-23): the cap is enforced in `normalizePlan`, and
+// what it cuts is named in `notBuilt` rather than folded into the last band.
 export const MAX_SECTIONS = 6;
+/**
+ * How many things the design is ASKED to name as not built. Asked, not cut:
+ * the list is the design's own output and what the customer will be told, so
+ * `normalizePlan` keeps every entry whole, and the bands it cuts past the cap
+ * join it unshortened — the content-preservation rule below.
+ */
+export const MAX_NOT_BUILT = 12;
 // WHAT THE CUSTOMER ASKED FOR IS KEPT WHOLE (2026-10-08, the content-
 // preservation batch; owner: keep the requirements within the real
 // constraints, never truncate and warn afterwards). `MAX_SECTIONS` is now the
@@ -456,7 +465,7 @@ function pageList(v) {
  * a slot spent saying nothing — and never ACROSS pages, because two pages
  * legitimately share one (a closing "book a chair" band belongs on all of them).
  */
-function pageShapes(v, pages) {
+function pageShapes(v, pages, over = null) {
   if (!Array.isArray(v)) return [];
   const known = new Set(pages.map((p) => p.path));
   const out = [];
@@ -471,7 +480,15 @@ function pageShapes(v, pages) {
     // line already did and reads as an arrangement we lost.
     if (!sections.length) continue;
     seen.add(path);
-    out.push({ path, sections });
+    // THE CAP IS ENFORCED HERE, NOT ONLY ASKED (2026-10-23, owner: "the AI
+    // should write everything, that's the point"). The page writer runs one
+    // writer per band and at most `MAX_SECTIONS`; a design that planned more
+    // used to have the rest folded into the last band (" — then — "), one
+    // writer squeezing several sections into one. Now the design's own lines
+    // past the cap are NOT BUILT: they leave the page and are named in
+    // `notBuilt`, so the customer is told and can ask for them next.
+    if (Array.isArray(over)) over.push(...sections.slice(MAX_SECTIONS));
+    out.push({ path, sections: sections.slice(0, MAX_SECTIONS) });
   }
   return out;
 }
@@ -570,7 +587,8 @@ export function normalizePlan(input) {
   // which is the rule the deleted `structure` field already established: a value
   // WE changed the meaning of must never cost a customer their purpose and their
   // page set on a revise.
-  const shape = pageShapes(p.shape, pages);
+  const over = [];
+  const shape = pageShapes(p.shape, pages, over);
   if (shape.length) out.shape = shape;
   const action = lines(p.action, { cap: Number.POSITIVE_INFINITY, max: Number.POSITIVE_INFINITY });
   if (action.length) out.action = action;
@@ -593,7 +611,26 @@ export function normalizePlan(input) {
   // exactly as it did.
   const images = pageImages(p.images, pages);
   if (Array.isArray(p.images)) out.images = images;
+  // WHAT WAS ASKED FOR AND IS NOT BUILT (2026-10-23): the design's own list,
+  // then the bands past the cap. Optional and not a plan key: absent on every
+  // stored plan from before it, and on a revise, which designs with no list.
+  const notBuilt = lines([...(Array.isArray(p.notBuilt) ? p.notBuilt : []), ...over], { cap: Number.POSITIVE_INFINITY, max: Number.POSITIVE_INFINITY });
+  if (notBuilt.length) out.notBuilt = notBuilt;
   return out;
+}
+
+/**
+ * A normalised plan with the design's own `notBuilt` put in front of what
+ * `normalizePlan` already named (the bands past the cap) — 2026-10-23. The
+ * design's list is not a look field, so the build hands it over beside the
+ * look; null, a non-list or a null plan change nothing.
+ */
+export function withNotBuilt(plan, notBuilt) {
+  if (!plan || typeof plan !== "object") return plan;
+  const own = Array.isArray(notBuilt) ? notBuilt : [];
+  if (!own.length) return plan;
+  const merged = lines([...own, ...(Array.isArray(plan.notBuilt) ? plan.notBuilt : [])], { cap: Number.POSITIVE_INFINITY, max: Number.POSITIVE_INFINITY });
+  return merged.length ? { ...plan, notBuilt: merged } : plan;
 }
 
 /** Does this look object carry an authored plan, or only a legacy family? */
@@ -682,6 +719,11 @@ export function directiveFromPlan(plan) {
     lines2.push(`- ${pg.path} — ${pg.name}`);
     const sections = shapeFor.get(pg.path);
     if (sections) sections.forEach((s, n) => lines2.push(`    ${n + 1}. ${s}`));
+  }
+  // WHAT IS LEFT FOR LATER (2026-10-23), so no writer builds or fakes it.
+  if (p.notBuilt && p.notBuilt.length) {
+    lines2.push("Asked for and NOT built on this site yet — do not write or fake any of these; the customer will ask for them next:");
+    for (const x of p.notBuilt) lines2.push(`- ${x}`);
   }
   return lines2.join("\n");
 }
@@ -938,9 +980,9 @@ export const SHAPE_FIELD = {
         items: { type: "string" },
         maxItems: MAX_SECTIONS,
         description:
-          `The page TOP TO BOTTOM, one short line a band, in order. FOUR TO ${MAX_SECTIONS} BANDS: a page is a few strong bands, not a long scroll. Put related things in ONE band (opening hours beside the address, not two bands; a few dishes in the menu band, not a band each) rather than adding bands. ` +
-          "The first is what LEADS. Name the component that carries the band, say what goes in " +
-          "it, and say HOW IT SITS — width, columns, place — in the layout words.",
+          `The page TOP TO BOTTOM, one short line a band, in order. FOUR TO ${MAX_SECTIONS} BANDS, AND ${MAX_SECTIONS} IS A HARD LIMIT: each band is written by its own writer, and a line past the ${MAX_SECTIONS}th is not built. Choose the ${MAX_SECTIONS} that matter most to this page's one job. Put related things in ONE band (opening hours beside the address, not two bands; a few dishes in the menu band, not a band each) rather than adding bands; never squeeze two unrelated sections into one line. Anything the brief asks for that does not fit goes in \`notBuilt\` instead. ` +
+          "The first is what LEADS. Say what carries the band, what goes in " +
+          "it, and HOW IT SITS — width, columns, place — in the layout words.",
       },
     },
     required: ["path", "sections"],
@@ -968,8 +1010,9 @@ export const SHAPE_FIELD = {
   // `hero — `) therefore stay in force beside the library's own floors.
   description:
     "WHERE EVERYTHING GOES ON THE ONE PAGE.\n" +
-    "The page and the component manifest are already decided above, so arrange what you have " +
-    "chosen rather than describing a mood. Each section line reads: the component that carries " +
+    "The page is already decided above, so arrange it rather than describing a mood. Every " +
+    "band is written from scratch by its own writer, so say what the band IS rather than naming " +
+    "a ready-made part. Each section line reads: what carries " +
     "the band — what goes in it — HOW IT SITS, in the layout words below (its width, its " +
     "columns, its place). The primary action is NOT yet named — decide where it sits and let " +
     "the wording come later.\n" +
@@ -1095,6 +1138,31 @@ export const SHAPE_FIELD = {
  * Splitting it further would mean the designer naming a component slot it cannot
  * see the props of.
  */
+/**
+ * WHAT THE CUSTOMER ASKED FOR THAT THIS FIRST BUILD DOES NOT MAKE (2026-10-23,
+ * owner: "the AI should write everything, that's the point").
+ *
+ * The design's own judgement of the request, in short phrases — never a
+ * keyword list of ours. A first build is ONE page of at most `MAX_SECTIONS`
+ * bands with no database, so anything past that is named here instead of
+ * being squeezed into a band; the reply writer tells the customer, who can
+ * ask for each one next as an addition. Only on the first build's tool: a
+ * revise designs with no list.
+ */
+export const NOT_BUILT_FIELD = {
+  type: "array",
+  items: { type: "string" },
+  maxItems: MAX_NOT_BUILT,
+  description:
+    "What the brief asks for that this first build will NOT make, one short phrase each, in the customer's own terms. " +
+    `This build is ONE page of at most ${MAX_SECTIONS} bands, a header and a footer, and it has NO database: nothing a visitor ` +
+    "sends can be stored, so there are no accounts, no saved bookings or orders and no sign-up list. " +
+    "List here every further page the brief asks for, every section that did not make the page's best " +
+    `${MAX_SECTIONS}, and every feature that would need stored data or a working back end (a form that must save what is sent, ` +
+    "a newsletter sign-up, booking, ordering, accounts). Each is something the customer can ask for next as an addition. " +
+    "Never fake one on the page instead. An empty list when everything asked for is built.",
+};
+
 export const IMAGES_FIELD = {
   type: "array",
   items: {

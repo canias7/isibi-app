@@ -310,6 +310,14 @@ test("DRIVEN END TO END: a collected build's stored answer names its site, and p
     // `pageNotes` can check it on BOTH shapes; it rides on `...pages` like
     // `genTried`, by decision.
     "planned",
+    // WHAT A FIRST BUILD LEFT OUT AND WHETHER IT MADE A DATABASE (2026-10-23):
+    // `noDatabase` is a fact on every first build, so a collected first build
+    // now always carries `buildFacts`, and the reply writer's own two marks
+    // (`replyState`, `replyWhy`) beside it — by decision, the owner's rule that
+    // the final reply is model-written from these facts.
+    "buildFacts",
+    "replyState",
+    "replyWhy",
   ]);
   const stray = Object.keys(d).filter((k) => !known.has(k));
   assert.deepEqual(stray, [], "the collector's answer carries " + stray.join(", ") + " from nowhere the guard can derive");

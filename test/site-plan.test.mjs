@@ -225,10 +225,15 @@ test("A CAP A MODEL IS MERELY TOLD ABOUT IS NOT A CAP — and what the customer 
     components: Array.from({ length: 200 }, (_, i) => "comp-" + i),
     pages: [{ path: "/", role: "home" }, ...Array.from({ length: 39 }, (_, i) => ({ path: "/p" + i, role: "role " + i }))],
   });
-  // THE CUSTOMER'S SECTIONS AND ACTIONS ARE KEPT, every one (the content-
-  // preservation batch): the page writer's band count is held in `bandsOf`,
-  // which writes the ones past it together, never by dropping them here.
-  assert.equal(big.shape[0].sections.length, 30, "sections the designer planned were dropped");
+  // THE BANDS ARE CAPPED HERE, AND WHAT DID NOT FIT IS NAMED (2026-10-23,
+  // owner: "the AI should write everything, that's the point"): at most
+  // `MAX_SECTIONS` bands reach the page writers, and the design's own lines
+  // past them go to `notBuilt`, for the reply to name — never dropped
+  // silently and never folded into one band.
+  assert.equal(big.shape[0].sections.length, MAX_SECTIONS, "the band cap is only asked, not enforced");
+  assert.deepEqual(big.shape[0].sections, Array.from({ length: MAX_SECTIONS }, (_, i) => "band " + i), "the bands kept are not the first, in order");
+  assert.deepEqual(big.notBuilt, Array.from({ length: 30 - MAX_SECTIONS }, (_, i) => "band " + (i + MAX_SECTIONS)),
+    "the bands past the cap are not named as not built");
   assert.ok(30 > MAX_SECTIONS && 20 > MAX_ACTION, "the fixture no longer exceeds the old bounds");
   assert.equal(big.action.length, 20, "actions the customer named were dropped");
   // THE OWNER'S TWO MAXIMUMS STAND: 15 components, 1 page.

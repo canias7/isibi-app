@@ -1,5 +1,16 @@
 # Owner Notes
 
+## 2026-10-23, night — `build-ai-writes-all`: the first build writes everything itself (not merged, not deployed)
+
+- Your decision, "the AI should write everything, that's the point", is on the branch `build-ai-writes-all`.
+- **Six sections, enforced.** The designer picks the six sections that matter most. Anything you asked for that doesn't fit is no longer squeezed into the last section. It goes on a "not built" list instead: extra pages, extra sections, and things that need a database (sign-ups, bookings, orders, accounts).
+- **No ready-made parts.** A first build no longer picks from the kit's component list. Every section writer writes its own parts, using the site's theme colours and fonts. Themes and contrast still work.
+- **The header and footer are written by the AI too.** Two more writers run beside the sections, told the site's name, pages, main button, logo and anything the brief wants in them. They don't invent phone numbers or addresses, and they never fake a newsletter form on a site with no database.
+- **The final reply says what was left out.** The model-written reply is now told what was not built (so the customer can ask for each one next) and that no database was made. The fixed "Built X" line is still only the fallback.
+- A phone app keeps its tab bar. Edits and add-ons on existing sites are unchanged.
+- One thing to know: on sites built this way the menu now lives in the written header, so a menu edit may not find it yet (noted as a risk).
+- Nothing spent, no model called. Record: `docs/history/2026-10-23-ai-writes-all.md`.
+
 ## 2026-10-23, evening — deploy 2264: your decisions are live
 
 - Merged and deployed `decide-all` (`923d278c1`) on your word. Tests green; the server image rolled as predicted (`145239c1c143183b`).

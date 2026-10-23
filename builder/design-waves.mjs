@@ -88,7 +88,9 @@ export const DESIGN_WAVES = [
       name: "plan",
       // THE PLAN. Needs `kind` and nothing from the look — a theme does not
       // decide how many bands a page has, and a band does not decide a theme.
-      fields: ["purpose", "pages", "components", "shape", "images"],
+      // `components` LEFT (2026-10-23): a first build picks nothing from the
+      // kit; `notBuilt` joins the agent that chooses the bands.
+      fields: ["purpose", "pages", "shape", "notBuilt", "images"],
     },
     {
       name: "look",
@@ -103,7 +105,7 @@ export const DESIGN_WAVES = [
       name: "detail",
       // THE TWO THAT GENUINELY CANNOT BE ANSWERED EARLIER, both by the design
       // step's own stated reasoning rather than by our convenience.
-      fields: ["tsx", "behavior"],
+      fields: ["behavior"],
     },
   ],
 ];

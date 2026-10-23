@@ -1616,6 +1616,13 @@ export function buildReplyFacts(bf) {
       ? "Current details were looked up on the web and used."
       : "A web lookup was tried and found nothing usable, so the site was written from their description.");
   }
+  // ASKED FOR AND NOT BUILT, AND NO DATABASE (2026-10-23): what this first
+  // build left out by design, each something the customer can ask for next as
+  // an addition, and whether the site was made with nowhere to store anything.
+  for (const x of Array.isArray(bf.notBuilt) ? bf.notBuilt : []) {
+    if (typeof x === "string" && x.trim()) F.add("not-done", "Asked for and not built in this first build (it can be asked for next, as an addition): " + quote(x));
+  }
+  if (bf.noDatabase === true) F.add("note", "This build made no database for the site: nothing a visitor types into it is stored yet. Storing things (sign-ups, bookings, orders, accounts) can be added next.");
   for (const u of Array.isArray(bf.unwritten) ? bf.unwritten : []) {
     if (u && typeof u.section === "string" && u.section.trim()) F.add("not-done", "This part of the page could not be written and is left out for now (it can be asked for again): " + quote(u.section));
   }

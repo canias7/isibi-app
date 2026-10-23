@@ -313,19 +313,19 @@ test("a dependent starts only once ITS need has answered, and not before", async
 
 test("a FAILED need blocks its dependents — it does not run them, and it does not hang", async () => {
   const g = [
-    { name: "components", fields: ["components"] },
-    { name: "shape", fields: ["shape"], needs: ["components"] },
+    { name: "pages", fields: ["pages"] },
+    { name: "shape", fields: ["shape"], needs: ["pages"] },
     { name: "behavior", fields: ["behavior"], needs: ["shape"] },
   ];
-  const d = driven({ graph: g, fail: ["components"] });
+  const d = driven({ graph: g, fail: ["pages"] });
   await flush();
-  await d.finish("components");
+  await d.finish("pages");
   // THE HANG IS THE FAILURE MODE THIS CATCHES. Awaiting a gate nobody resolves
   // does not throw; the promise below settling at all is the assertion.
   const out = await d.p.then((o) => o, (e) => ({ threw: e.message, status: e.status }));
   assert.ok(out.threw, "a lost required field should have failed the design");
   assert.equal(out.status, 503, "the provider's own status was flattened away");
-  assert.ok(!d.started.includes("shape"), "`shape` ran without the component list it arranges");
+  assert.ok(!d.started.includes("shape"), "`shape` ran without the need it waits for");
   assert.ok(!d.started.includes("behavior"), "`behavior` ran two links behind a failed need");
 });
 
@@ -377,7 +377,9 @@ test("an agent is told exactly what it declared it needs, and nothing else", asy
   await d.settleAll();
   const body = (n) => d.parked.get(n).req.messages[0].content;
   // WHAT IT NEEDS.
-  assert.match(body("shape"), /price-table/, "`shape` was not told the components it must arrange");
+  // `shape` WAITS FOR NOTHING since the kit menu left (2026-10-23): every band
+  // is written from scratch, so there is no manifest for it to arrange.
+  assert.doesNotMatch(body("shape"), /WHAT IS ALREADY DECIDED/, "`shape` was handed a note it no longer needs");
   assert.match(body("behavior"), /hero \| prices \| contact/, "`behavior` was not told the page it describes");
   assert.match(body("wordmark"), /Millbrook Pottery/, "`wordmark` was not told the name it sets");
   assert.match(body("css"), /bakery/, "`css` was not told the theme it is a delta on");
@@ -394,14 +396,14 @@ test("needKnown reads only the needs' fields, whatever else has landed", () => {
   const byName = new Map(DESIGN_GRAPH.map((a) => [a.name, a]));
   const everything = { ...VAL };
   const shape = DESIGN_GRAPH.find((a) => a.name === "shape");
-  assert.deepEqual(needKnown(shape, byName, everything), { components: VAL.components });
+  assert.deepEqual(needKnown(shape, byName, everything), {}, "`shape` is told something it never declared");
   const wordmark = DESIGN_GRAPH.find((a) => a.name === "wordmark");
   assert.deepEqual(needKnown(wordmark, byName, everything),
     { brand: VAL.brand, slug: VAL.slug, description: VAL.description });
   // A FREE AGENT GETS AN EMPTY OBJECT, never the whole design.
   assert.deepEqual(needKnown(DESIGN_GRAPH.find((a) => a.name === "theme"), byName, everything), {});
   // A value that never arrived is left out rather than carried as null.
-  assert.deepEqual(needKnown(shape, byName, { components: null }), {});
+  assert.deepEqual(needKnown(wordmark, byName, { brand: null, slug: null, description: null }), {});
   assert.deepEqual(needKnown(shape, byName, {}), {});
   assert.deepEqual(needKnown(null, byName, everything), {});
   assert.deepEqual(needKnown(shape, byName, "not an object"), {});
@@ -474,7 +476,6 @@ test("every kept edge is justified by a phrase still present in its field's own 
   // of the tool is an edge nobody can defend any more.
   const desc = (f) => String(TOOL.input_schema.properties[f].description || "").replace(/\s+/g, " ");
   const EVIDENCE = [
-    ["shape", "components", /already decided above/i],
     ["css", "theme", /The theme you picked above/i],
     ["wordmark", "identity", /the business name set in the header/i],
   ];
@@ -498,8 +499,10 @@ test("the dropped edges stay dropped, and the four slowest starts stay early", (
   const needs = (f) => (DESIGN_GRAPH.find((a) => a.fields.includes(f)) || {}).needs || [];
   // Each of these was in an earlier draft and was read again against the field's
   // own words. Putting one back is a decision, not a tidy-up.
-  assert.deepEqual(needs("components"), [], "`components` waits for `pages` again — a near-constant on a one-page site");
-  assert.deepEqual(needs("tsx"), [], "`tsx` waits for `components` again — it needs the kit MENU, not the picks");
+  // THE KIT MENU AND THE CUSTOM PARTS LEFT THE FIRST BUILD (2026-10-23): no
+  // agent claims them, and `shape` waits for nothing.
+  assert.ok(!DESIGN_GRAPH.some((a) => a.fields.includes("components") || a.fields.includes("tsx")), "an agent asks for the kit menu or custom parts again");
+  assert.deepEqual(needs("shape"), [], "`shape` waits again — there is no manifest to arrange");
   assert.deepEqual(needs("images"), [], "`images` waits for `shape` again — the brief's own words are law");
   assert.deepEqual(needs("favicon"), [], "`favicon` waits again — one of the two SLOW fields, for an unstated reason");
   assert.deepEqual(needs("pages"), []);
@@ -621,14 +624,14 @@ test("the graph's own numbers: per agent, summed, and the wall clock of the whol
   // overlap and one that cannot.
   const g = [
     { name: "theme", fields: ["theme"] },
-    { name: "components", fields: ["components"] },
-    { name: "shape", fields: ["shape"], needs: ["components"] },
+    { name: "pages", fields: ["pages"] },
+    { name: "shape", fields: ["shape"], needs: ["pages"] },
   ];
   const d = driven({ graph: g, clock });
   await flush();
-  // Both free agents started at 1000. `components` answers at 1060, `theme` at
+  // Both free agents started at 1000. `pages` answers at 1060, `theme` at
   // 1200 — so they really overlap, and `shape` cannot start before 1060.
-  clock.to(1060); await d.finish("components");
+  clock.to(1060); await d.finish("pages");
   clock.to(1140); await d.finish("shape");
   clock.to(1200); await d.finish("theme");
   clock.to(1200);
@@ -636,7 +639,7 @@ test("the graph's own numbers: per agent, summed, and the wall clock of the whol
 
   // ONE NUMBER PER AGENT, UNDER ITS OWN NAME. With one agent per field this IS
   // the per-field time, which is the whole reason the graph is worth running.
-  assert.deepEqual(out.shape.eachMs, { components: 60, shape: 80, theme: 200 },
+  assert.deepEqual(out.shape.eachMs, { pages: 60, shape: 80, theme: 200 },
     "the per-agent times are wrong, missing, or all filed under one name");
   // THE PARTS SUM TO THE WHOLE — the tie that stops the two drifting.
   assert.equal(out.shape.agentMs, 340, "the sum is not the sum of the parts");
@@ -654,16 +657,16 @@ test("the graph's own numbers: per agent, summed, and the wall clock of the whol
 test("a failed agent's time counts, it is named, and its dependents are counted as skipped", async () => {
   const clock = handClock();
   const g = [
-    { name: "components", fields: ["components"] },
-    { name: "shape", fields: ["shape"], needs: ["components"] },
+    { name: "pages", fields: ["pages"] },
+    { name: "shape", fields: ["shape"], needs: ["pages"] },
     { name: "behavior", fields: ["behavior"], needs: ["shape"] },
   ];
-  const d = driven({ graph: g, fail: ["components"], clock });
+  const d = driven({ graph: g, fail: ["pages"], clock });
   await flush();
   // A FAILED AGENT SPENT ITS TIME. The call was made, the provider was paid for
   // whatever it produced, and a row that hides it under-reports every build that
   // had a failure in it.
-  clock.to(1090); await d.finish("components");
+  clock.to(1090); await d.finish("pages");
   clock.to(1090);
   const out = await d.p.then((o) => o, (e) => ({ threw: e.message, status: e.status }));
   assert.ok(out.threw, "a lost required field should have failed the design");
@@ -676,7 +679,7 @@ test("a failed need is NAMED on the row, and `agents` counts only what ran", asy
   // row can be read — a required one throws and the shape never comes back.
   const g = [
     { name: "theme", fields: ["theme"] },
-    { name: "extras", fields: ["tsx"] },
+    { name: "extras", fields: ["qr"] },
     { name: "css", fields: ["css"], needs: ["extras"] },
   ];
   const d = driven({ graph: g, fail: ["extras"], clock, tool: toolFor(g, ["theme"]) });
@@ -798,7 +801,7 @@ test("the usage is SUMMED across every agent, never taken from one", async () =>
   // floor per agent.
   const g = [
     { name: "theme", fields: ["theme"] },
-    { name: "components", fields: ["components"] },
+    { name: "pages", fields: ["pages"] },
   ];
   const d = driven({ graph: g });
   await flush();
@@ -806,7 +809,7 @@ test("the usage is SUMMED across every agent, never taken from one", async () =>
     d.parked.get(n).res({ stop_reason: "tool_use", usage: u, content: [{ type: "tool_use", input }] });
   };
   use("theme", { theme: VAL.theme }, { input_tokens: 10, output_tokens: 3 });
-  use("components", { components: VAL.components }, { input_tokens: 40, output_tokens: 7 });
+  use("pages", { pages: VAL.pages }, { input_tokens: 40, output_tokens: 7 });
   await flush(); await flush();
   const out = await d.p;
   assert.equal(out.usage.in, 50, "the input tokens are one agent's, not the sum");

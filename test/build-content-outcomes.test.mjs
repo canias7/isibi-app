@@ -221,6 +221,9 @@ test("P2: a band whose writer failed is published as an empty part AND named —
       { i: 0, state: "done", answer: band("function " + bandName(lines[0], 0) + "() { return <h1>Harbour Loaf</h1>; }") },
       { i: 1, state: "failed", message: "the writer timed out" },
       { i: 2, state: "done", answer: band("function " + bandName(lines[2], 2) + "() { return <footer>Leeds</footer>; }") },
+      // THE WRITTEN HEADER AND FOOTER (2026-10-23), right after the bands.
+      { i: 3, state: "done", answer: band("function SiteHeader() { return <header>Harbour Loaf</header>; }") },
+      { i: 4, state: "done", answer: band("function SiteFooter() { return <footer>Harbour Loaf</footer>; }") },
     ], null);
   assert.equal(fan.wrote, 2);
   const out = await publishPages(deps({ generate: async () => fan }), { spec: { tables: [] }, slug: "harbour-loaf" });
@@ -238,7 +241,11 @@ test("P2: a band whose writer failed is published as an empty part AND named —
 test("P2 CONTROL: every band written — no fact, no sentence", async () => {
   const lines = splitPlan({ shape: [{ path: "/", sections: ["a hero", "the footer"] }], route: "/", mode: "build" });
   const fan = await generateSiteBands({ brief: "b", spec: {}, brand: "B", model: "grok-4.6", route: "/", chrome: { name: "B" }, lines },
-    {}, async () => lines.map((l, i) => ({ i, state: "done", answer: band("function " + bandName(l, i) + "() { return <p>ok</p>; }") })), null);
+    {}, async () => [
+      ...lines.map((l, i) => ({ i, state: "done", answer: band("function " + bandName(l, i) + "() { return <p>ok</p>; }") })),
+      // THE WRITTEN HEADER AND FOOTER (2026-10-23), right after the bands.
+      ...["SiteHeader", "SiteFooter"].map((n, k) => ({ i: lines.length + k, state: "done", answer: band("function " + n + "() { return <p>ok</p>; }") })),
+    ], null);
   const out = await publishPages(deps({ generate: async () => fan }), { spec: { tables: [] }, slug: "b" });
   assert.equal(out.unwritten, undefined);
   assert.equal(pageNotes(out).unwritten, undefined);

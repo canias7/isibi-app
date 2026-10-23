@@ -103,13 +103,13 @@ export function bandsOf(shape, path) {
   const all = row.sections
     .filter((l) => typeof l === "string" && l.trim().length >= MIN_BAND_CHARS)
     .map((l) => l.trim());
-  // NOTHING THE DESIGNER PLANNED IS DROPPED (2026-10-08, the content-
-  // preservation batch). The page writer runs one call per band and at most
-  // `MAX_BANDS`; sections past that were sliced off. Now they are written
-  // together in the last band — the same number of calls, every section in
-  // the brief one writer reads.
-  if (all.length <= MAX_BANDS) return all;
-  return [...all.slice(0, MAX_BANDS - 1), all.slice(MAX_BANDS - 1).join(" — then — ")];
+  // NO FOLD (2026-10-23, owner: "the AI should write everything, that's the
+  // point"). Sections past `MAX_BANDS` used to be joined into the last band
+  // (2026-10-08), one writer squeezing several sections into one. The cap is
+  // now enforced where the plan is read (`normalizePlan`), which names the
+  // overflow in `notBuilt` for the customer; a hand-made shape that still
+  // carries more is cut here to the same number, never folded.
+  return all.slice(0, MAX_BANDS);
 }
 
 /**
@@ -265,8 +265,33 @@ function jsLiteral(v) {
   return JSON.stringify(v === undefined ? null : v);
 }
 
-export function pageShell({ route, chrome, names, app = false }) {
+export function pageShell({ route, chrome, names, app = false, frame = null }) {
   const path = typeof route === "string" && route ? route : "/";
+  // THE MODEL-WRITTEN FRAME (2026-10-23): the header and the footer are the
+  // site's own components, written beside the bands, so the shell holds only
+  // the page's skeleton — the skip link, one focusable <main>, and the
+  // theme's own background — with no kit part in it.
+  if (Array.isArray(frame) && frame.length) {
+    const head = frame.find((f) => f && f.role === "header");
+    const foot = frame.find((f) => f && f.role === "footer");
+    const kids2 = (Array.isArray(names) ? names : []).map((n) => `        <${n} />`).join("\n");
+    return [
+      `export const Route = createFileRoute(${JSON.stringify(path)})({ component: P });`,
+      "",
+      "function P() {",
+      "  return (",
+      '    <div className="flex min-h-svh flex-col bg-background text-foreground">',
+      '      <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:start-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-background focus:px-4 focus:py-2 focus:ring-2 focus:ring-ring">Skip to content</a>',
+      head ? `      <${head.name} />` : "",
+      '      <main id="main" tabIndex={-1} className="flex-1 outline-none">',
+      kids2,
+      "      </main>",
+      foot ? `      <${foot.name} />` : "",
+      "    </div>",
+      "  );",
+      "}",
+    ].filter((l) => l !== "").join("\n");
+  }
   const c = chrome && typeof chrome === "object" ? chrome : {};
   // A PHONE APP'S SCREEN SITS IN `AppChrome` (2026-10-21): live run 1 built an
   // app whose every screen was wrapped here in `SiteChrome`, so it had a
@@ -294,6 +319,11 @@ export function pageShell({ route, chrome, names, app = false }) {
 export const SHELL_IMPORTS = [
   'import { createFileRoute } from "@tanstack/react-router";',
   'import { SiteChrome } from "@/components/ui/site-chrome";',
+];
+
+/** The one import a shell with a model-written frame needs (2026-10-23). */
+export const FRAME_SHELL_IMPORTS = [
+  'import { createFileRoute } from "@tanstack/react-router";',
 ];
 
 /** The same two for a phone app's screen. */
@@ -365,10 +395,38 @@ export function bandPlan(lines, index) {
  * the fact of the matter, and a heading promising a schema that came out empty
  * reads as an omission the model should fill.
  */
+/**
+ * THE FIRST BUILD WRITES EVERY PART ITSELF (2026-10-23, owner: "the AI should
+ * write everything, that's the point").
+ *
+ * Every writer on the split path — each band, the header and the footer — is
+ * told to write its own components instead of importing the kit's ready-made
+ * ones. Said in the USER message and said to win, because the cached system
+ * block (`pageRulesFor`) is shared with every edit and still describes the
+ * kit for the sites that were built from it; changing it would cost those
+ * sites' edits and every cache. The THEME stays: semantic tokens, Tailwind,
+ * the fonts and the site's stylesheet are what make a hand-written part look
+ * like this site and keep its contrast.
+ *
+ * THE FEW MODULES THAT ARE PLUMBING, NOT PARTS, stay importable: a picture,
+ * a 3D scene or a code the brief's own directives name by path are wired to
+ * the build's image, scene and code steps, and the logo and languages are
+ * build-time values (`@/site-brand`).
+ */
+export const OWN_PARTS_RULE =
+  "WRITE EVERY PART YOURSELF — THIS WINS OVER ANY KIT RULE ABOVE. This site uses NO ready-made components: " +
+  "do not import anything from \"@/components/ui/\" (no Button, Card, Section, Hero, Badge, Accordion or any other kit part). " +
+  "Write the markup and every small component this needs yourself, inside your one function — as many as it needs — " +
+  "with plain JSX and Tailwind. Paint ONLY with the theme's semantic tokens (bg-background, text-foreground, bg-card, " +
+  "text-card-foreground, bg-primary, text-primary-foreground, bg-muted, text-muted-foreground, border-border, ring-ring) " +
+  "so the site's theme, fonts and contrast still apply; never a literal colour. " +
+  "Allowed imports: \"react\", \"@tanstack/react-router\" (Link), \"lucide-react\" icons, \"@/lib/…\" helpers, " +
+  "and a module under \"@/components/ui/\" ONLY where the brief above names that exact path for a picture, a 3D scene or a code.";
+
 export function bandPrompt({ brief, spec, brand, lines, index, name } = {}) {
   const label = String(brand || "").trim();
   const plan = bandPlan(lines, index);
-  return "Write ONE band of this page.\n\nKEEP IT TIGHT: the page is a few bands, so this band says its one thing and stops. Use <Section> for its spacing (no padding of your own above py-16), no min-h-screen or min-h-svh except on the opening hero, one short heading, no intro paragraph repeating what the band above said. No entrance animation unless this is the opening band; no hover lift unless the card is a link. Unless this is the opening band, stay quiet and plain: the page is bold in one place, and it is not here.\n\nBRIEF\n" + String(brief || "").trim() +
+  return "Write ONE band of this page.\n\nKEEP IT TIGHT: the page is a few bands, so this band says its one thing and stops. Write the <section> yourself: no vertical padding above py-16, its content in mx-auto max-w-6xl px-6; no min-h-screen or min-h-svh except on the opening hero, one short heading, no intro paragraph repeating what the band above said. No entrance animation unless this is the opening band; no hover lift unless the card is a link. Unless this is the opening band, stay quiet and plain: the page is bold in one place, and it is not here.\n\nBRIEF\n" + String(brief || "").trim() +
     (label ? "\n\nTHE SITE IS CALLED\n" + label + " — it is already the page title." : "") +
     (siteHasTables(spec)
       ? "\n\nTHE SCHEMA THAT EXISTS\n" + schemaDigest(spec)
@@ -380,7 +438,81 @@ export function bandPrompt({ brief, spec, brand, lines, index, name } = {}) {
     "- Imports at the top, then EXACTLY ONE top-level declaration: `function " + name + "() { … }`.\n" +
     "- A helper goes INSIDE " + name + ". A second top-level name collides with another band and the page does not compile.\n" +
     "- No `export` of any kind, and no `createFileRoute`: the page's route, its header, its navigation and its footer are already written.\n" +
-    "- Return one `<section>`, styled the way the rest of this site is styled.";
+    "- Return one `<section>`, styled the way the rest of this site is styled.\n\n" + OWN_PARTS_RULE;
+}
+
+/**
+ * THE HEADER AND THE FOOTER, WRITTEN BY THE MODEL (2026-10-23, owner: "the AI
+ * should write everything"). They replace the fixed `SiteChrome` template on a
+ * first build: two more writers beside the bands, each answering one
+ * component, `SiteHeader` and `SiteFooter`, which the shell places around
+ * the bands.
+ *
+ * WHAT THEY ARE TOLD IS FACTS, NOT WORDING: the site's name and description,
+ * its pages, the primary action the design chose, the logo and language
+ * plumbing, and what was asked for and is not built — so a footer never fakes
+ * a newsletter form a site with no database cannot store. Contact details and
+ * social links come from the brief itself, and a fact the brief does not state
+ * is not invented.
+ */
+export const FRAME = [
+  { name: "SiteHeader", file: "site-header", role: "header" },
+  { name: "SiteFooter", file: "site-footer", role: "footer" },
+];
+
+export function framePrompt({ brief, spec, brand, lines, chrome, actions, notBuilt, role } = {}) {
+  const c = chrome && typeof chrome === "object" ? chrome : {};
+  const label = String(brand || c.name || "").trim();
+  const part = FRAME.find((f) => f.role === role) || FRAME[0];
+  const name = part.name;
+  const plan = bandPlan(lines, -1);
+  const links = Array.isArray(c.links) ? c.links.filter((l) => l && typeof l.href === "string") : [];
+  const verbs = (Array.isArray(actions) ? actions : []).filter((a) => typeof a === "string" && a.trim());
+  const left = (Array.isArray(notBuilt) ? notBuilt : []).filter((a) => typeof a === "string" && a.trim());
+  const stores = siteHasTables(spec);
+  const facts = [
+    "- Name: " + (label || "(none given)"),
+    c.tagline ? "- What it is, in one line: " + String(c.tagline) : "",
+    links.length
+      ? "- Its pages (link each with <Link to=…> from \"@tanstack/react-router\"): " + links.map((l) => String(l.label || l.href) + " → " + l.href).join(", ")
+      : "- It is ONE page, so there are no page links: the name links home with <Link to=\"/\">.",
+    verbs.length ? "- The site's primary action, worded as its button says it: " + verbs.map((v) => "\"" + v + "\"").join(" / ") : "",
+    "- The logo: `SITE_LOGO` from \"@/site-brand\" is the logo's address, or \"\" when there is none. When it is not empty, show it as an <img> (alt: the name, h-7 w-auto max-w-[180px] object-contain) in place of the name.",
+    "- Languages: `<LangSwitch />` from \"@/components/ui/lang-switch\" renders the language switcher, and nothing at all on a site with one language. Include it.",
+  ].filter(Boolean).join("\n");
+  const job = role === "footer"
+    ? "Write the site's FOOTER: one `<footer>` closing every page. What a visitor scrolls to the bottom for: the name, what the business is, " +
+      "how to reach it and anything else the brief asks the footer to hold (opening hours, address, social links, small print). " +
+      "Contact details, hours and social links ONLY as the brief states them: never invent a phone number, an email, an address, hours or a social account; when the brief is silent, leave that out."
+    : "Write the site's HEADER: one `<header>` at the top of every page, with the name (or the logo), the navigation the facts allow, " +
+      "the primary action as its button, and anything else the brief asks the header to hold. On a phone it must still fit: " +
+      "collapse what does not fit into a menu you write yourself (useState inside the component).";
+  return job + "\n\nBRIEF\n" + String(brief || "").trim() +
+    "\n\nTHE FACTS\n" + facts +
+    (plan ? "\n\nTHE PAGE BETWEEN THE HEADER AND THE FOOTER, TOP TO BOTTOM\n" + plan : "") +
+    (stores
+      ? "\n\nTHE SCHEMA THAT EXISTS\n" + schemaDigest(spec)
+      : "\n\nTHIS SITE HAS NO DATABASE\nNothing a visitor types can be stored. Never write a form that pretends to send or save (a newsletter sign-up, a contact form, a booking): a control that does nothing is worse than none.") +
+    (left.length ? "\n\nASKED FOR AND NOT BUILT\nThe customer is told these were left out and can ask for them next. Do not put any of them on the " + role + ":\n" + left.map((x) => "- " + x).join("\n") : "") +
+    "\n\nYOURS IS " + name + "\nThe page's bands are being written at the same time by someone else; write only the " + (role === "footer" ? "footer" : "header") + ".\n\nHOW IT IS WRITTEN\n" +
+    "- Imports at the top, then EXACTLY ONE top-level declaration: `function " + name + "() { … }`.\n" +
+    "- A helper goes INSIDE " + name + ".\n" +
+    "- No `export` of any kind, and no `createFileRoute`.\n" +
+    "- Its content lines up with the page: mx-auto max-w-6xl px-6.\n\n" + OWN_PARTS_RULE;
+}
+
+/** The exact body sent for the header or the footer: a band's, with the frame's own prompt. */
+export function frameRequest({ brief, spec, brand, lines, chrome, actions, notBuilt, role, model, kind = "", attachments } = {}) {
+  const blocks = Array.isArray(attachments) ? attachments.filter(Boolean) : [];
+  const text = framePrompt({ brief, spec, brand, lines, chrome, actions, notBuilt, role });
+  return {
+    model: model || modelsFor().pages,
+    max_tokens: SITE_PAGES_MAX_TOKENS,
+    tools: [BAND_TOOL],
+    tool_choice: { type: "tool", name: "write_band" },
+    system: [{ type: "text", text: pageRulesFor(spec, kind), cache_control: { type: "ephemeral" } }],
+    messages: [{ role: "user", content: blocks.length ? [...blocks, { type: "text", text }] : text }],
+  };
 }
 
 /**
@@ -789,7 +921,7 @@ export function bandsFromAnswers(answers, lines) {
  * would charge a floor per band.
  */
 export async function generateSiteBands({
-  brief, spec, brand, attachments, model, kind = "", route, chrome, lines, tsx,
+  brief, spec, brand, attachments, model, kind = "", route, chrome, lines, tsx, actions, notBuilt,
 } = {}, keys, call, budget = null) {
   const file = bandFile(route);
   const bandLines = Array.isArray(lines) ? lines : [];
@@ -805,10 +937,20 @@ export async function generateSiteBands({
   // answer to a band BY ITS INDEX, so the bands must occupy 0…N-1 for that
   // pairing to be the identity it has always been. The parts follow, and their
   // own offset is what `partsFromAnswers` reads.
-  const partList = partsOf(tsx);
+  // A PHONE APP KEEPS `AppChrome` (its tab bar); a website's header and footer
+  // are written by the model (2026-10-23), right after the bands.
+  const app = !!(spec && spec.surface === "app");
+  const frame = app ? [] : FRAME;
+  // THE CUSTOM-PART DECLARATIONS ARE SUPERSEDED ON A WEBSITE (2026-10-23):
+  // every writer writes whatever components it needs inside its own band, and
+  // the first build's design no longer declares `tsx`.
+  const partList = app ? partsOf(tsx) : [];
   const reqs = [
     ...bandLines.map((line, i) => bandRequest({
       brief, spec, brand, lines: bandLines, index: i, name: bandName(line, i), model, kind, attachments,
+    })),
+    ...frame.map((f) => frameRequest({
+      brief, spec, brand, lines: bandLines, chrome, actions, notBuilt, role: f.role, model, kind, attachments,
     })),
     ...partList.map((part) => partRequest({
       brief, spec, brand, lines: bandLines, part, model, kind, attachments,
@@ -886,7 +1028,7 @@ export async function generateSiteBands({
     usage.in += u.in; usage.out += u.out; usage.cacheRead += u.cacheRead; usage.cacheWrite += u.cacheWrite;
     if (a && Number.isFinite(a.ms)) {
       agentMs += a.ms;
-      const slot = slotName(a.i, bandLines.length);
+      const slot = slotName(a.i, bandLines.length, frame.length);
       if (slot) eachMs[slot] = (eachMs[slot] || 0) + a.ms;
     }
     if (!waveMs && a && Number.isFinite(a.waveMs)) waveMs = a.waveMs;
@@ -907,9 +1049,10 @@ export async function generateSiteBands({
   // THE DECLARED COMPONENTS ARE READ FIRST, because their names are what the
   // band files must not collide with — and they cannot move, being already
   // written into the page by `tsxDirective`.
-  const parts = partsFromAnswers(list, partList, bandLines.length);
+  const parts = partsFromAnswers(list, partList, bandLines.length + frame.length);
+  const framed = frameFromAnswers(list, frame, bandLines.length);
   const { source, parts: bandFiles, refused } = assembleBands({
-    route, chrome, bands, taken: parts.map((p) => p.name), app: !!(spec && spec.surface === "app"),
+    route, chrome, bands, taken: parts.map((p) => p.name), app, ...(frame.length ? { frame: framed } : {}),
   });
   // THE PARTS RIDE OUT IN `parts`, NEVER IN `pages` — the same division
   // `write_pages` has always made, and for the same reason: a component in the
@@ -937,6 +1080,9 @@ export async function generateSiteBands({
     // dropping the part would walk straight back into it.
     parts: partList.length,
     wroteParts: parts.filter((p) => !p.stub).length,
+    frame: frame.length,
+    wroteFrame: framed.filter((f) => f.source).length,
+    kitImports: kitImportCount([...bands, ...framed]),
     // THE OVERLAP, AS TWO NUMBERS — see the comment where they are summed, and
     // the design split's identical pair, which is stored the same way for the
     // same stated reason: a derived value beside the values it derives from is
@@ -964,11 +1110,57 @@ export async function generateSiteBands({
  * ZERO-BASED IN, ONE-BASED OUT, because band 1 is the top of the page and part 1
  * is the first component — the array's zero is not the reader's.
  */
-export function slotName(i, bandCount) {
+export function slotName(i, bandCount, frameCount = 0) {
   if (!Number.isInteger(i) || i < 0) return "";
   const n = Number.isInteger(bandCount) && bandCount >= 0 ? bandCount : 0;
-  return i < n ? "b" + (i + 1) : "p" + (i - n + 1);
+  const f = Number.isInteger(frameCount) && frameCount >= 0 ? frameCount : 0;
+  if (i < n) return "b" + (i + 1);
+  // THE HEADER AND THE FOOTER (2026-10-23) sit between the bands and the parts.
+  if (i < n + f) return "c" + (i - n + 1);
+  return "p" + (i - n - f + 1);
 }
+
+/**
+ * The header's and the footer's answers, in `FRAME` order, out of the fan-out
+ * (2026-10-23). They sit right after the bands.
+ */
+export function frameFromAnswers(answers, frame, bandCount) {
+  const want = Array.isArray(frame) ? frame : [];
+  const n = Number.isInteger(bandCount) && bandCount >= 0 ? bandCount : 0;
+  const got = new Map();
+  for (const a of Array.isArray(answers) ? answers : []) {
+    if (!a || a.state !== "done" || !Number.isInteger(a.i)) continue;
+    const at = a.i - n;
+    if (at < 0 || at >= want.length) continue;
+    const src = answerSource(a.answer);
+    if (src) got.set(at, src);
+  }
+  return want.map((f, i) => ({ name: f.name, file: f.file, role: f.role, line: "the site's " + f.role, source: got.get(i) || "" }));
+}
+
+/**
+ * HOW MANY KIT IMPORTS THE WRITERS STILL MADE (2026-10-23), counted, not
+ * refused: a band that imports a kit part still compiles (the kit is still in
+ * the template for the sites built from it), and refusing it would stub a
+ * whole section. The count rides on the `bands` mark so the first live builds
+ * show whether the writers keep to writing their own parts.
+ */
+export function kitImportCount(written) {
+  let n = 0;
+  for (const w of Array.isArray(written) ? written : []) {
+    const src = w && typeof w.source === "string" ? w.source : "";
+    const { imports } = splitBand(src);
+    for (const line of imports) {
+      for (const m of line.matchAll(/["']@\/components\/ui\/([a-z0-9-]+)["']/g)) {
+        if (!OWN_PARTS_PLUMBING.includes(m[1])) n += 1;
+      }
+    }
+  }
+  return n;
+}
+
+/** The kit modules that are plumbing rather than parts, and stay importable. */
+export const OWN_PARTS_PLUMBING = ["lang-switch", "safe-image", "figure", "scene-3d"];
 
 /**
  * A component that stands in for a part whose agent answered nothing.
@@ -1082,7 +1274,7 @@ export function partsFromAnswers(answers, parts, bandCount) {
  * with the parts and nothing would say why.
  */
 export function bandMark(at) {
-  if (typeof at !== "string" || !/^[bp]\d+$/.test(at)) return "";
+  if (typeof at !== "string" || !/^[bcp]\d+$/.test(at)) return "";
   return at + "Ms";
 }
 
@@ -1116,6 +1308,14 @@ export function bandMarks(fan) {
     parts: num(f.parts), wroteParts: num(f.wroteParts),
     agentMs: num(f.agentMs), waveMs: num(f.waveMs),
   };
+  // THE HEADER, THE FOOTER AND THE KIT IMPORTS (2026-10-23), on the row only
+  // when the fan-out counted them: a generator from before them says nothing,
+  // rather than a zero that reads as "no header was written".
+  if (typeof f.frame === "number" && Number.isFinite(f.frame) && f.frame > 0) {
+    marks.frame = f.frame;
+    marks.wroteFrame = num(f.wroteFrame);
+    marks.kitImports = num(f.kitImports);
+  }
   const each = f.eachMs && typeof f.eachMs === "object" ? f.eachMs : {};
   for (const [at, ms] of Object.entries(each)) {
     const key = bandMark(at);
@@ -1222,11 +1422,12 @@ export function bandModule(name, imports, body) {
  * there, which is `vite` refusing the build rather than a page missing a
  * section — a strictly worse failure than the local stub it replaces.
  */
-export function assembleBands({ route, chrome, bands, taken, app = false }) {
+export function assembleBands({ route, chrome, bands, taken, app = false, frame = null }) {
   const list = (Array.isArray(bands) ? bands : []).filter((b) => b && typeof b === "object" && typeof b.name === "string" && b.name);
   const refused = [];
   const parts = [];
-  const imports = [...(app ? APP_SHELL_IMPORTS : SHELL_IMPORTS)];
+  const framed = !app && Array.isArray(frame) && frame.length ? frame.filter((f) => f && typeof f.name === "string" && f.name) : null;
+  const imports = [...(app ? APP_SHELL_IMPORTS : framed ? FRAME_SHELL_IMPORTS : SHELL_IMPORTS)];
   const names = [];
   const used = new Set(
     (Array.isArray(taken) ? taken : [])
@@ -1247,6 +1448,22 @@ export function assembleBands({ route, chrome, bands, taken, app = false }) {
     const { imports: got, body } = splitBand(b.source);
     parts.push({ name: file, source: bandModule(b.name, got, body) });
   }
-  const source = imports.join("\n") + "\n\n" + pageShell({ route, chrome, names, app }) + "\n";
+  // THE HEADER AND THE FOOTER ARE FILES LIKE A BAND (2026-10-23), checked by
+  // the same rule and stubbed the same way: a frame that could not be written
+  // leaves the page whole without it, rather than no page at all.
+  for (const f of framed || []) {
+    const file = freeBandFile(f.file || bandFileName(f.name), used);
+    used.add(file);
+    imports.push('import ' + f.name + ' from "' + PART_IMPORT + file + '";');
+    const why = bandProblems(f.name, f.source);
+    if (why.length) {
+      refused.push({ name: f.name, line: f.line || "", why });
+      parts.push({ name: file, source: bandModule(f.name, [], bandStub(f.name, f.line)), stub: true });
+      continue;
+    }
+    const { imports: got, body } = splitBand(f.source);
+    parts.push({ name: file, source: bandModule(f.name, got, body) });
+  }
+  const source = imports.join("\n") + "\n\n" + pageShell({ route, chrome, names, app, ...(framed ? { frame: framed } : {}) }) + "\n";
   return { source: dedupeImports(source).source, parts, refused };
 }
