@@ -228,7 +228,7 @@ import { runNavEdit, applyAdditions, menuLinksKept } from "./builder/site-nav.mj
 import { runLogoEdit } from "./builder/site-logo.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
-import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings } from "./site-access.mjs";
+import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings, canWriteAccess } from "./site-access.mjs";
 import { converse, readHistory, converseRequest, requestChars, CONTEXT_CHARS } from "./builder/site-converse.mjs";
 import { planWindow, compact as compactChat, COMPACT_AT } from "./builder/chat-context.mjs";
 // The pair a `display` table resolves to. Named once, from the presets, so the
@@ -12498,7 +12498,7 @@ async function turnstileGate(env, request, { slug, db, path, sent }) {
       const spec = await loadSiteSchema(db);
       d = (spec && spec.tables || []).find((x) => String(x.name).toLowerCase() === t) || null;
     } catch { return {}; }
-    if (!d || String(d.access || "").toLowerCase() !== "collect") return {};
+    if (!d || !canWriteAccess(d)) return {};
     return { refused: "Please send one submission at a time." };
   }
   const had = TURNSTILE_FIELD in body;
@@ -12523,7 +12523,9 @@ async function turnstileGate(env, request, { slug, db, path, sent }) {
     const spec = await loadSiteSchema(db);
     def = (spec && spec.tables || []).find((t) => String(t.name).toLowerCase() === table) || null;
   } catch { return out; }
-  if (!def || String(def.access || "").toLowerCase() !== "collect") return out;
+  // ANYONE MAY WRITE IT, asked of the pair (audit A30-6): never the stored
+  // preset name, which a pair-declared table carries as `collect` regardless.
+  if (!def || !canWriteAccess(def)) return out;
 
   const verdict = await turnstileVerify({
     post: (u, form) => fetch(u, {
@@ -12591,7 +12593,7 @@ async function pendingWebhooks(env, ownerId, slug) {
  */
 function siteRowEffects(env, ctx, { slug, db, def, table, action, row, submission }) {
   return runRowEffects({
-    notify: (r) => notifyOwnerOfSubmission(env, ctx, { slug, db, table, access: def.access, method: "POST", row: r }),
+    notify: (r) => notifyOwnerOfSubmission(env, ctx, { slug, db, table, access: def, method: "POST", row: r }),
     confirm: (r) => confirmSubmitter(env, ctx, { slug, db, def, row: r }),
     sms: (r) => smsSubmitter(env, ctx, { slug, db, def, row: r }),
     webhook: (a, r) => emitWebhook(env, ctx, { slug, db, def, table, action: a, row: r }),

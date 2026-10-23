@@ -103,5 +103,5 @@ test("the access level comes from the SCHEMA, never from the request", () => {
   // demand — the mail bomb the cooldown exists to prevent, aimed by hand.
   const body = fnBody(worker, "async function proxySiteService(");
   assert.match(body, /loadSiteSchema\(db\)/, "the hook must read the site's own schema");
-  assert.match(worker.slice(worker.indexOf("function siteRowEffects("), worker.indexOf("function siteRowEffects(") + 900), /access: def\.access/, "the access level must come from the schema entry");
+  assert.match(worker.slice(worker.indexOf("function siteRowEffects("), worker.indexOf("function siteRowEffects(") + 900), /access: def,/, "the access level must come from the schema entry, its pair included (audit A30-6)");
 });

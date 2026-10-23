@@ -17,6 +17,8 @@
 //  3. The submission is attacker-controlled text going into an HTML email. Same
 //     class of problem as the CSV export, and the same discipline: escape it.
 
+import { canWriteAccess } from "./site-access.mjs";
+
 const ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 export const escapeHtml = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ESC[c]);
 
@@ -29,14 +31,16 @@ const MAX_VALUE_CHARS = 200;
 /**
  * Is this a submission worth an email?
  *
- * `collect` only. A `user` or `feed` row is a member writing their own content —
+ * A table ANYONE may write to (audit A30-6): `access` is the table's
+ * definition (or a preset name), asked through `resolveAccess`, never the
+ * stored preset string — a pair-declared table is stamped `collect` whatever
+ * its pair says. In preset terms, `collect` only. A `user` or `feed` row is a member writing their own content —
  * a recipe, a post — and mailing the owner about each one is a notification
  * about somebody using the site normally. `display` cannot be written by anyone
  * but the owner, who does not need telling about their own edit.
  */
 export function shouldNotify({ access, method } = {}) {
-  return String(method || "").toUpperCase() === "POST" &&
-         String(access || "").toLowerCase() === "collect";
+  return String(method || "").toUpperCase() === "POST" && canWriteAccess(access);
 }
 
 /**
