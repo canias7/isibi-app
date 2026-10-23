@@ -172,7 +172,12 @@ export const SB_TABLES = {
     PATCH: { filter: { slug: "slug", uid: "uid" }, unset: { or: "(neon_db.is.null,neon_db.eq.)" }, set: { neon_db: /^[a-z0-9_]{1,63}$/ } },
   },
   site_project: { GET: { filter: { slug: "slug" } }, POST: { rows: { slug: "slug", uid: "uid" } } },
-  site_aliases: { GET: {}, POST: { rows: { slug: "slug", uid: "uid" } }, DELETE: { filter: { slug: "slug" } } },
+  // `columns` and `claim` (2026-10-23, audit A33-9): a read names only the
+  // public columns (never `uid`), and a write may not take a name whose row
+  // belongs to another site — PostgREST's merge-duplicates would otherwise
+  // repoint that site's address at this one (checked by the handler, which
+  // reads the names' rows before forwarding).
+  site_aliases: { GET: { columns: ["alias", "slug", "current", "created_at"] }, POST: { rows: { slug: "slug", uid: "uid" }, claim: "alias" }, DELETE: { filter: { slug: "slug" } } },
   site_functions: { GET: { filter: { slug: "slug" } }, POST: { rows: { slug: "slug", owner_id: "uid" } } },
   site_builds: { POST: { rows: { slug: "slug" } } },
   credits: { GET: { filter: { user_id: "uid" } } },
@@ -309,6 +314,15 @@ export function sbDecision(who, method, path, search, text, mint) {
     }
     if (params.get(param) !== "eq." + boundValue(who, word)) return { ok: false, why: "filter:" + param };
   }
+  if (rule.columns) {
+    const cols = new Set(rule.columns);
+    if (!sel || !sel.split(",").every((c) => cols.has(c))) return { ok: false, why: "select" };
+    for (const k of params.keys()) {
+      if (k === "select" || k === "limit") continue;
+      if (k === "order") { if (!cols.has(String(params.get(k)).split(".")[0])) return { ok: false, why: "query:order" }; continue; }
+      if (!cols.has(k)) return { ok: false, why: "query:" + k };
+    }
+  }
   if (m === "GET" || m === "HEAD" || m === "DELETE") return { ok: true, body: undefined };
   if (m === "PATCH") {
     if (who.pre === true) return { ok: false, why: "method" };
@@ -336,8 +350,27 @@ export function sbDecision(who, method, path, search, text, mint) {
       if (who.pre === true && word === "slug") return { ok: false, why: "row:" + field };
       if (row[field] !== boundValue(who, word)) return { ok: false, why: "row:" + field };
     }
+    if (rule.claim && (typeof row[rule.claim] !== "string" || !SLUG_RE.test(row[rule.claim]))) return { ok: false, why: "row:" + rule.claim };
   }
+  if (rule.claim) return { ok: true, body: JSON.stringify(body), claims: { table, col: rule.claim, names: rows.map((r) => r[rule.claim]) } };
   return { ok: true, body: JSON.stringify(body) };
+}
+
+/**
+ * MAY THIS JOB CLAIM THESE NAMES? (audit A33-9.) Reads the names' rows with the
+ * service key and answers true only when every existing one is the job's own
+ * site's; a read that fails or answers in another shape is a refusal.
+ */
+export async function claimsOwn(who, claims, { url, key, fetch: f = globalThis.fetch, timeoutMs = SB_TIMEOUT_MS }) {
+  const list = claims.names.map((n) => encodeURIComponent('"' + n + '"')).join(",");
+  try {
+    const r = await (f || globalThis.fetch)(String(url).replace(/\/+$/, "") + "/rest/v1/" + claims.table + "?" + claims.col + "=in.(" + list + ")&select=" + claims.col + ",slug", {
+      method: "GET", headers: { apikey: key, authorization: "Bearer " + key }, signal: AbortSignal.timeout(timeoutMs || SB_TIMEOUT_MS),
+    });
+    if (!r.ok) return false;
+    const rows = await r.json();
+    return Array.isArray(rows) && rows.every((x) => x && typeof x === "object" && x.slug === who.slug);
+  } catch { return false; }
 }
 
 const B64 = {
@@ -816,6 +849,10 @@ export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scop
       }
       const d = sbDecision(who, request.method, sbPath, url.search, text, String(sb.mint || ""));
       if (!d.ok) { log("sb-out-of-scope", { id: who.id, slug: who.slug, op, reason: d.why }); return json(403, { error: "supabase op not in this job's scope", op, why: d.why }); }
+      if (d.claims && !(await claimsOwn(who, d.claims, { url: sb.url, key: sb.key, fetch: sb.fetch, timeoutMs: sb.timeoutMs }))) {
+        log("sb-out-of-scope", { id: who.id, slug: who.slug, op, reason: "claim" });
+        return json(403, { error: "supabase op not in this job's scope", op, why: "claim" });
+      }
       const fwd = { apikey: sb.key, authorization: "Bearer " + sb.key };
       for (const h of SB_REQUEST_HEADERS) if (request.headers.has(h)) fwd[h] = request.headers.get(h);
       let r;

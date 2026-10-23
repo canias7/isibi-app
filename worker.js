@@ -12303,11 +12303,13 @@ const aliasCurrent = makeCache({ ttlMs: 300_000, max: 4000 });
 
 /**
  * The alias row for one label, or `NO_ALIAS`, or null when we could not ask.
+ * `fresh` skips the cached answer (audit A33-9): a conflict check before a
+ * claim must not pass on a five-minute-old miss another site has since filled.
  */
-async function aliasRowFor(env, label) {
+async function aliasRowFor(env, label, { fresh = false } = {}) {
   const l = typeof label === "string" ? label.toLowerCase() : "";
   if (!l) return NO_ALIAS;
-  const hit = aliasRoutes.get(l);
+  const hit = fresh ? null : aliasRoutes.get(l);
   if (hit) return hit;
   if (!env.SUPABASE_SERVICE_KEY) return null;
   try {
@@ -14741,7 +14743,7 @@ async function addressTaken(env, slug, name) {
     if (taken === null) return "could not be checked";
     if (taken) return "is taken";
   }
-  const row = await aliasRowFor(env, name);
+  const row = await aliasRowFor(env, name, { fresh: true });
   if (row === null) return "could not be checked";
   if (row && row !== NO_ALIAS && row.slug !== slug) return "is taken";
   return "";
@@ -36993,7 +36995,7 @@ async function handleRequest(request, env, ctx) {
               // site's own slug, which the alias check below already reads as
               // no conflict. Only the site check needed telling.
               const takenBySite = wanted === ownerSlug ? false : await siteNameTaken(env, wanted);
-              const takenByAlias = await aliasRowFor(env, wanted);
+              const takenByAlias = await aliasRowFor(env, wanted, { fresh: true });
               const aliasConflict = takenByAlias && takenByAlias !== NO_ALIAS && takenByAlias.slug !== ownerSlug;
               // A LOOKUP WE COULD NOT MAKE IS NOT A FREE NAME. Both lookups
               // answer null when they could not ask, and handing out a name on

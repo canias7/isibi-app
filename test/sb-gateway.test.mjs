@@ -269,7 +269,8 @@ test("an RPC Supabase refused comes back as its STATUS with a scrubbed body — 
 });
 
 test("a table write Supabase refused keeps its body — nothing in it is a platform secret, and the customer's sentence names the constraint", async () => {
-  const { send } = await rig({ answer: () => new Response(JSON.stringify({ code: "23505", message: "duplicate key value violates unique constraint site_aliases_pkey" }), { status: 409, headers: { "content-type": "application/json" } }) });
+  // The claim check's own read (A33-9) answers no row; the write is refused.
+  const { send } = await rig({ answer: (u, init) => (init && init.method === "POST") ? new Response(JSON.stringify({ code: "23505", message: "duplicate key value violates unique constraint site_aliases_pkey" }), { status: 409, headers: { "content-type": "application/json" } }) : json([]) });
   const r = await send("/sb/rest/v1/site_aliases", { method: "POST", headers: { "content-type": "application/json", prefer: "resolution=merge-duplicates" }, body: JSON.stringify({ alias: "x", slug: JOB.slug, uid: JOB.uid, current: true }) });
   assert.equal(r.status, 409);
   assert.match(await r.text(), /site_aliases_pkey/);
@@ -691,4 +692,43 @@ test("the own-account read: the token's uid, plain columns, never another accoun
   ];
   for (const s of refused) assert.equal(sbDecision(JOB, "GET", "/rest/v1/site_backends", q(s), "", MINT).ok, false, s + " was admitted");
   assert.equal(sbDecision(JOB, "GET", "/rest/v1/site_project", q("uid=eq." + JOB.uid + "&select=slug"), "", MINT).ok, false);
+});
+
+// ── A33-9 (2026-10-23): another site's address cannot be taken through the wall ──
+test("A33-9: a job may not upsert a name whose row is another site's, nor read uid", async () => {
+  const q = (s) => "?" + s;
+  // Reads name only the public columns.
+  assert.deepEqual(sbDecision(JOB, "GET", "/rest/v1/site_aliases", q("alias=eq.x&select=slug,uid"), "", MINT), { ok: false, why: "select" });
+  assert.deepEqual(sbDecision(JOB, "GET", "/rest/v1/site_aliases", q("alias=eq.x"), "", MINT), { ok: false, why: "select" });
+  assert.deepEqual(sbDecision(JOB, "GET", "/rest/v1/site_aliases", q("uid=eq." + JOB.uid + "&select=alias"), "", MINT), { ok: false, why: "query:uid" });
+  assert.equal(sbDecision(JOB, "GET", "/rest/v1/site_aliases", q("slug=eq.fretwork-1&current=is.false&select=alias&order=created_at.asc"), "", MINT).ok, true);
+  // A write names its claims for the handler to check.
+  const d = sbDecision(JOB, "POST", "/rest/v1/site_aliases", "", JSON.stringify({ alias: "bakery", slug: JOB.slug, uid: JOB.uid, current: true }), MINT);
+  assert.deepEqual(d.claims, { table: "site_aliases", col: "alias", names: ["bakery"] });
+  assert.deepEqual(sbDecision(JOB, "POST", "/rest/v1/site_aliases", "", JSON.stringify({ slug: JOB.slug, uid: JOB.uid }), MINT), { ok: false, why: "row:alias" });
+
+  // Through the handler: the name belongs to another site → refused, never forwarded.
+  const theirs = await rig({ answer: (u, init) => (init && init.method === "GET") ? json([{ alias: "bakery", slug: "other-1" }]) : json({ ok: true }) });
+  const r1 = await theirs.send("/sb/rest/v1/site_aliases", { method: "POST", headers: { "content-type": "application/json", prefer: "resolution=merge-duplicates" }, body: JSON.stringify({ alias: "bakery", slug: JOB.slug, uid: JOB.uid, current: true }) });
+  assert.equal(r1.status, 403);
+  assert.equal((await r1.json()).why, "claim");
+  assert.equal(theirs.calls.filter((c) => c.method === "POST").length, 0, "the write reached Supabase");
+  assert.match(theirs.calls[0].url, /\/rest\/v1\/site_aliases\?alias=in\.\(%22bakery%22\)&select=alias,slug$/);
+  // Its own row, or none → forwarded.
+  for (const rows of [[{ alias: "bakery", slug: JOB.slug }], []]) {
+    const ok = await rig({ answer: (u, init) => (init && init.method === "GET") ? json(rows) : json({ ok: true }) });
+    const r = await ok.send("/sb/rest/v1/site_aliases", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ alias: "bakery", slug: JOB.slug, uid: JOB.uid, current: true }) });
+    assert.equal(r.status, 200, JSON.stringify(rows));
+    assert.equal(ok.calls.filter((c) => c.method === "POST").length, 1);
+  }
+  // A check that cannot be made is a refusal, whatever its body reads like.
+  const down = await rig({ answer: (u, init) => (init && init.method === "GET") ? json([], 500) : json({ ok: true }) });
+  assert.equal((await down.send("/sb/rest/v1/site_aliases", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ alias: "bakery", slug: JOB.slug, uid: JOB.uid }) })).status, 403);
+});
+
+test("A33-9: the rename lane and the Publish preflight read the alias row uncached", () => {
+  const src = WORKER;
+  assert.match(src, /async function aliasRowFor\(env, label, \{ fresh = false \} = \{\}\) \{[\s\S]{0,200}const hit = fresh \? null : aliasRoutes\.get\(l\);/);
+  assert.match(src, /async function addressTaken\([\s\S]{0,400}aliasRowFor\(env, name, \{ fresh: true \}\)/);
+  assert.match(src, /const takenByAlias = await aliasRowFor\(env, wanted, \{ fresh: true \}\);/);
 });
