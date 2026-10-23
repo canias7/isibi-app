@@ -1,6 +1,6 @@
 # Owner Notes
 
-## 2026-10-23, late — deploy 2265: the evening batch is live (canary owed)
+## 2026-10-23, late — deploy 2265: the evening batch is live (confirmed by your canary press, run 40039829521)
 
 - New builds: the AI writes every component plus the header and footer; at most 6 sections per page; the reply says what wasn't built and that no database was made.
 - Big messages no longer get refused (the router picks items by number).
