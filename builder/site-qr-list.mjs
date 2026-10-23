@@ -74,7 +74,36 @@ export function readQrText(v) {
   // `WIFI:` are real business QRs and neither is one.
   const scheme = /^[A-Za-z][A-Za-z0-9+.-]*:/.exec(s);
   if (scheme && !OK_SCHEME.test(s)) return { text: null, why: "the scheme " + scheme[0] };
+  if (/^WIFI:/i.test(s) && !wifiFieldsOk(s.slice(5))) return { text: null, why: "a wifi code whose fields do not read back (a ; or \\ in a name or password needs a \\ before it)" };
   return { text: s, why: null };
+}
+
+/**
+ * DO A WIFI CODE'S FIELDS READ BACK? (2026-10-23, audit A31-7)
+ *
+ * The format ends a field at an unescaped `;`, so a password `sour;dough`
+ * written as-is is read by a phone as `sour` and a stray `dough`, and the code
+ * cannot join. Every field between the separators must be `KEY:value`, a
+ * network name must be there, and a `\` must escape something. A `:` or `,`
+ * inside a value is left alone: common readers end a field only at `;`.
+ */
+function wifiFieldsOk(body) {
+  const fields = [];
+  let cur = "";
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i];
+    if (c === "\\") {
+      if (i + 1 >= body.length) return false;
+      cur += c + body[++i];
+      continue;
+    }
+    if (c === ";") { fields.push(cur); cur = ""; continue; }
+    cur += c;
+  }
+  if (cur) fields.push(cur);
+  const set = fields.filter((f) => f !== "");
+  if (!set.every((f) => /^[A-Za-z][A-Za-z0-9]*:/.test(f))) return false;
+  return set.some((f) => /^S:./i.test(f));
 }
 
 /** A code's name: an identifier the page can write after a dot. */
@@ -172,7 +201,7 @@ export function foldQr(stored, designed) {
  * with a sentence in `qrRefusal`. A REMOVAL IS NOT A PATCH: it names every code
  * that goes and is read by the `qr` lane's `takeOff` (`site-lanes.mjs`).
  */
-export function patchQr(stored, patch) {
+export function patchQr(stored, patch, { check = null } = {}) {
   const list = qrList(stored);
   const names = list.map((c) => c.name);
   if (!list.length) return { ok: false, why: "no-codes", names };
@@ -189,7 +218,14 @@ export function patchQr(stored, patch) {
     return { ok: false, why: "which-code", names };
   }
   const cur = list[i];
-  const points = typeof p.points === "string" && p.points.trim() ? p.points.trim() : cur.points;
+  let points = typeof p.points === "string" && p.points.trim() ? p.points.trim() : cur.points;
+  // THE SITE'S OWN DESTINATION RULE, when the caller hands one (audit A31-4,
+  // `qrDestinationCheck`): a bare route resolved, a missing page refused.
+  if (points !== cur.points && typeof check === "function") {
+    const c = check(points);
+    if (!c || !c.ok) return { ok: false, why: (c && c.why) || "bad-destination", names, said: cur.name };
+    points = c.points;
+  }
   const label = typeof p.label === "string" && p.label.trim() ? p.label.trim().slice(0, 80) : cur.label;
   if (points !== cur.points && !readQrText(points).text) return { ok: false, why: "bad-destination", names, said: cur.name };
   if (points === cur.points && label === cur.label) return { ok: true, list, moved: false, name: cur.name };
@@ -214,6 +250,9 @@ export function qrRefusal(why, names, said) {
     case "which-code": return "This site has " + have.length + " QR codes (" + listed + ") — say which one you mean.";
     case "no-such-code": return "This site has no QR code called " + (said ? "`" + String(said).slice(0, 40) + "`" : "that") + " — its codes are: " + listed + ".";
     case "bad-destination": return "A QR code can carry a link, a phone number, an email address, a wifi network or plain text — not that. Nothing was changed.";
+    // The add-on's own two sentences for these (site-add.mjs `addRefusal`).
+    case "no-such-page": return "That code would open a page this site doesn't have. Name one of its pages, or a link, a number or an address — nothing was changed.";
+    case "no-address": return "I couldn't read this site's own address just now, so a code opening one of its pages can't be made yet — try again in a moment. Nothing was changed.";
     // THE CODES' FIGURES COULD NOT COME OFF WITH THEM (2026-10-02, W2): the
     // codes stay on the list and on the page, rather than leaving a page that
     // reads a code which is no longer there. `said` names the codes being

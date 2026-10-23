@@ -101,6 +101,20 @@ test("BC1 SHARED STORES THE TARGETS DO NOT NAME — two steps that both rewrite 
   assert.equal(holdsConfig({ phase: "route", route: null, targets: { writes: ["theme"], reads: [] } }), false, "a routing writes nothing");
 });
 
+test("BC2 THE MENU IS IN EVERY PAGE FILE (audit A27-8) — a menu write never runs beside a page write, by route or by named target; a text part beside a text part on another page, and a menu write beside a rules step, still run side by side", () => {
+  const part = (route, writes) => ({ phase: "run", route, targets: { writes, reads: [] } });
+  const nav = part({ intent: "edit", layer: "nav" }, []);
+  const words = part(text("/visit"), ["page:/visit"]);
+  const addonLink = part({ intent: "addon", op: "addon" }, ["new-page:/gifts", "menu"]);
+  const rules = part({ intent: "edit", layer: "rules" }, ["data:bookings"]);
+  assert.equal(besideConflict(nav, words), true, "the menu step beside a text change");
+  assert.equal(besideConflict(words, nav), true, "either order");
+  assert.equal(besideConflict(addonLink, words), true, "an addition's menu link beside a text change");
+  assert.equal(besideConflict(nav, part({ intent: "addon", op: "addon" }, ["new-page:/gifts"])), true, "the menu beside a new page");
+  assert.equal(besideConflict(nav, rules), false, "the menu beside a rules step");
+  assert.equal(besideConflict(words, part(text("/"), ["page:/"])), false, "two pages, no menu");
+});
+
 test("CTW1 THE ORDER AND THE RUNNING JOBS — a write waits for an earlier unfinished part it conflicts with, and for any running one; a routing waits only for what feeds its page list; a running routing holds no write back", () => {
   const mk = (n, at, phase, route, writes, status = "ready") => ({ n, at, phase, route, targets: { writes, reads: [] }, status, needs: [], jobs: [] });
   // Part 1 (page /) later in the order than part 0 (same page), not running.

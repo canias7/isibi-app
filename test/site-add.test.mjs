@@ -2563,7 +2563,7 @@ test("qrSiteRoute: ours by origin, and the route normalised the way a bare one i
   }
   // NOT OURS IS NOT OURS TO VALIDATE.
   for (const p of ["https://elsewhere.example/about", "tel:+441142700000",
-                   "WIFI:S=Shop;T=WPA;P=secret;;", "mailto:hi@fw.test", "not a url"]) {
+                   "WIFI:S:Shop;T:WPA;P:secret;;", "mailto:hi@fw.test", "not a url"]) {
     assert.deepEqual(qrSiteRoute(p, base), { ours: false, route: "" }, p);
   }
   // WITH NO ADDRESS NOTHING IS OURS, which is the fail-closed direction: a

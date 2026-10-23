@@ -191,8 +191,15 @@ export async function runLogoEdit(deps, { images, remove, tab } = {}) {
   // number and what to send. A text note beside the picture carries no `data`
   // and is not a candidate, as before.
   const given = Array.isArray(images) ? images.map(dataOf).filter(Boolean) : [];
-  if (given.length > 1) return { ok: false, reason: "several", files: given.length, msg: logoRefusal("several", { files: given.length, target: where }) };
-  const first = given.length ? given[0] : null;
+  // A FILE THAT SAYS IT IS NOT A PICTURE IS NOT A CANDIDATE (2026-10-23, audit
+  // A26-3). A request hands every one of its files to the logo part, so "here's
+  // our logo, and put the menu PDF on the menu page" arrived as two and was
+  // refused as "several". Only a data URL declaring a non-image type is set
+  // aside, so this chooses nothing between pictures; with no picture at all the
+  // first file is still read, and refused for what it is.
+  const pics = given.filter((d) => !/^data:(?!image\/)[^,;]*[;,]/i.test(d));
+  if (pics.length > 1) return { ok: false, reason: "several", files: pics.length, msg: logoRefusal("several", { files: pics.length, target: where }) };
+  const first = pics.length ? pics[0] : (given.length ? given[0] : null);
   const read = readLogoImage(first, deps);
   if (!read.ok) return { ok: false, reason: read.reason, msg: logoRefusal(read.reason) };
 

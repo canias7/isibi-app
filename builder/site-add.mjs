@@ -1084,7 +1084,7 @@ const ADDS = {
           type: "string",
           description:
             "The exact string the code carries: a full URL, `tel:` a number, `mailto:` an address, " +
-            "`WIFI:T:WPA;S:<network>;P:<password>;;`, `geo:lat,lng`, or plain text. One of the site's OWN pages " +
+            "`WIFI:T:WPA;S:<network>;P:<password>;;` (a `;` or `\\` in the network or password gets a `\\` before it), `geo:lat,lng`, or plain text. One of the site's OWN pages " +
             "is a real destination: answer its route (\"/\", \"/prices\") and it is resolved against the site's address.",
         },
         label: { type: "string", description: "The few words printed beside it, telling a visitor why they would scan it." },
@@ -6123,6 +6123,19 @@ export function droppedNote(dropped) {
  */
 const EDGE = Object.freeze({ rendered: 2, unsure: 1 });
 
+/**
+ * THE FILES A VISITOR CAN SEE A QR CODE IN (2026-10-23, audit A31-6): every
+ * page, and every component some page reaches (certainly or maybe), read by
+ * `routedSources`. The edit path asked `qrUnplaced` over the pages alone, so a
+ * code the add-on had shown through a component read as unplaced, and each
+ * later caption or destination change added a second figure to a page and a
+ * page step nobody asked for. "Maybe" counts as shown: the wrong way round
+ * is a duplicate code on a page, not a missing one.
+ */
+export function qrShownSources(pages, parts) {
+  return routedSources(pages, parts).filter((s) => s.routes.length || (s.maybeRoutes || []).length);
+}
+
 export function routedSources(pages, parts) {
   const ps = Array.isArray(pages) ? pages : [];
   const bs = (Array.isArray(parts) ? parts : []).filter(
@@ -6226,6 +6239,31 @@ export function routedSources(pages, parts) {
  * `tel:` reaching here (it parses, and its pathname is a phone number) is told
  * from a real page.
  */
+/**
+ * THE ADD-ON'S DESTINATION RULE, FOR THE EDIT LANE THAT RE-POINTS A CODE
+ * (2026-10-23, audit A31-4). `cleanAdd` resolves a bare route against the
+ * site's address and refuses a page the site lacks, in either spelling; the qr
+ * lane's patch did neither, so `/booking` was drawn as the literal text and an
+ * own-site URL to a missing page was printed as a 404. One rule, handed to
+ * `patchQr` as its `check`. `routes` are the site's pages as they stand.
+ */
+export function qrDestinationCheck({ base, routes } = {}) {
+  const have = Array.isArray(routes) ? routes : [];
+  const b = siteAddress(base);
+  return (points) => {
+    if (typeof points !== "string") return { ok: true, points };
+    if (points.startsWith("/")) {
+      const own = route(points);
+      if (!own || !have.includes(own)) return { ok: false, why: "no-such-page" };
+      if (!b) return { ok: false, why: "no-address" };
+      return { ok: true, points: new URL(own, b).href };
+    }
+    const mine = qrSiteRoute(points, b);
+    if (mine.ours && !have.includes(mine.route)) return { ok: false, why: "no-such-page" };
+    return { ok: true, points };
+  };
+}
+
 export function qrSiteRoute(points, base) {
   const miss = { ours: false, route: "" };
   if (!base || typeof points !== "string" || !points) return miss;

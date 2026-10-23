@@ -2000,7 +2000,7 @@ test("on a site that already has things of a kind, a requirement naming none of 
   const PART = { need: "the page shows opening hours", status: "elsewhere", step: "component", item: "hours-band" };
   const r = await addon("fw-stocked", "remind them the day before", {
     kinds: ["job"], stored: HAVE,
-    look: { qr: [{ name: "wifi", points: "WIFI:S=Fretwork;;", label: "Wi-Fi" }] },
+    look: { qr: [{ name: "wifi", points: "WIFI:S:Fretwork;;", label: "Wi-Fi" }] },
     answers: { job: { job: [JOB], requirements: [VAGUE, CODE, PART] } },
   });
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
@@ -6200,7 +6200,7 @@ test("a QR code this change made and published is not read as unseeable", async 
   assert.ok(!made[0].holds.includes("gofarther"), "the host's words are in the tokens: " + JSON.stringify(made[0].holds));
   assert.ok(!made[0].holds.includes("https"), "the scheme is in the tokens: " + JSON.stringify(made[0].holds));
   // A PAYLOAD THAT IS NOT A PAGE HAS NO PATH TO SPLIT, and contributes nothing.
-  const wifi = appliedFacts({ qrs: [{ name: "wifi", points: "WIFI:S=Fretwork;;", label: "Wi-Fi" }] });
+  const wifi = appliedFacts({ qrs: [{ name: "wifi", points: "WIFI:S:Fretwork;;", label: "Wi-Fi" }] });
   assert.deepEqual(wifi[0].holds, [], "a non-page payload produced tokens: " + JSON.stringify(wifi[0].holds));
   // …AND A SCENE IS AN APPLIED RESULT TOO.
   //
@@ -6319,7 +6319,7 @@ test("a code that opens no page does not answer a hand-off about one", async () 
     written: [writtenPage("/gallery")],
     answers: {
       page: { page: [page], requirements: [HANDOFF] },
-      qr: { qr: { name: "wifi", points: "WIFI:S=Fretwork;T=WPA;P=loaf;;", label: "Join our wifi" } },
+      qr: { qr: { name: "wifi", points: "WIFI:S:Fretwork;T:WPA;P:loaf;;", label: "Join our wifi" } },
     },
   });
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
@@ -6368,7 +6368,7 @@ test("a code the site already had is not claimed as this change's", async () => 
   const NAMED = { need: "The Wi-Fi code is on the site.", status: "covered", from: "page", kind: "qr", item: "wifi" };
   const r = await addon("fw-qr-had", "add a gallery page", {
     kinds: ["page"], publishes: true, sitePages: ["/"],
-    look: { qr: [{ name: "wifi", points: "WIFI:S=Fretwork;;", label: "Wi-Fi" }] },
+    look: { qr: [{ name: "wifi", points: "WIFI:S:Fretwork;;", label: "Wi-Fi" }] },
     written: [writtenPage("/gallery")],
     answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "Photographs", sections: ["A gallery"], components: [] }], requirements: [HANDOFF, NAMED] } },
   });
@@ -6548,7 +6548,7 @@ test("the QR step says which request its code answers, and the hand-off is assoc
     answers: {
       page: { page: [page], requirements: [HANDOFF] },
       qr: {
-        qr: { name: "wifi", points: "WIFI:S=Fretwork;T=WPA;P=loaf;;", label: "Join our wifi" },
+        qr: { name: "wifi", points: "WIFI:S:Fretwork;T:WPA;P:loaf;;", label: "Join our wifi" },
         requirements: [{ ...ECHO, by: "the gallery code", item: "gallery" }],
       },
     },
@@ -9251,7 +9251,7 @@ test("a full URL at this site's own origin is checked exactly as a bare route is
   // ── CONTROL — WHAT IS NOT OURS IS NOT OURS TO VALIDATE. An external site's
   // URL and the non-page payloads all ship exactly as written.
   for (const [n, points] of [["ext", "https://elsewhere.example/nope"], ["ring", "tel:+441142700000"],
-                             ["wifi", "WIFI:S=Shop;T=WPA;P=secret;;"], ["mail", "mailto:hi@fw.test"]]) {
+                             ["wifi", "WIFI:S:Shop;T:WPA;P:secret;;"], ["mail", "mailto:hi@fw.test"]]) {
     const r = await addon("fw-url-" + n, "add a QR code", {
       kinds: ["qr"], sitePages: SITE3, publishes: true,
       written: [addedTo("/", "<p>Scan me.</p>")],

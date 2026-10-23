@@ -115,6 +115,11 @@ export function navSlots(pages) {
       const open = m.index + m[0].length - 1; // at the `[`
       const close = arrayEnd(src, open);
       if (close < 0) continue;
+      // A FOOTER COLUMN'S LINKS ARE NOT THE MENU (2026-10-23, audit A27-6). The
+      // kit's NavFooter takes `columns: [{ title, links: [{ label, href }] }]`,
+      // the same shape as a menu, and each column read as one: a new menu item
+      // went into every column, and the columns led "the menu as it is now".
+      if (insideColumns(src, m.index)) continue;
       const body = src.slice(open + 1, close);
       const items = parseNavItems(body);
       // NO ITEM WITH A LABEL IS NOT A NAV. The favicon array lands here, and so
@@ -124,6 +129,24 @@ export function navSlots(pages) {
     }
   }
   return out;
+}
+
+/**
+ * Is `at` inside an array written as `columns: [` / `groups: [` (or the JSX
+ * `={[` form)? Each such array is measured from its own bracket by `arrayEnd`,
+ * never by a scan from the top of the file, which would cross JSX text whose
+ * apostrophes are not quotes.
+ */
+function insideColumns(src, at) {
+  // The prop or key itself, or a constant named for it (`const COLUMNS = [`,
+  // `const footerColumns: Col[] = [`), which a page hands to `columns={…}`.
+  for (const c of src.matchAll(/(?:\b(?:columns|groups)\s*(?:=\s*\{\s*|:\s*)|\bconst\s+\w*(?:columns|groups)\s*(?::[^=\n]*)?=\s*)\[/gi)) {
+    const open = c.index + c[0].length - 1;
+    if (open >= at) break;
+    const close = arrayEnd(src, open);
+    if (close > at) return true;
+  }
+  return false;
 }
 
 // THE MENUS A PAGE RENDERS, read from its syntax tree (`rendered-menus.mjs`).
@@ -424,7 +447,7 @@ export function parseNavItems(body) {
 /** Top-level commas only: a comma inside a nested brace or a string is not one. */
 function splitTop(text) {
   const out = [];
-  let depth = 0, quote = "", esc = false, start = 0;
+  let depth = 0, quote = "", esc = false, start = 0, cur = "";
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (quote) {
@@ -433,12 +456,24 @@ function splitTop(text) {
       if (c === quote) quote = "";
       continue;
     }
+    // A COMMENT IS NOT AN ELEMENT (2026-10-23, audit A27-4), as `arrayEnd` and
+    // `braceEnd` already read it. A `// …` line between two items made a part
+    // that did not start with `{`, which refused the whole list: a menu was
+    // skipped without a word, and a footer list read as absent got a second key.
+    // One between elements is dropped from the parts; one inside an element
+    // stays with it and is skipped only so its commas are not read as ours.
+    const skip = commentEnd(text, i);
+    if (skip) {
+      if (!depth) { cur += text.slice(start, i); start = i + skip; }
+      i += skip - 1;
+      continue;
+    }
     if (c === '"' || c === "'" || c === "`") { quote = c; continue; }
     if (c === "{" || c === "[" || c === "(") { depth++; continue; }
     if (c === "}" || c === "]" || c === ")") { depth--; continue; }
-    if (c === "," && !depth) { out.push(text.slice(start, i)); start = i + 1; }
+    if (c === "," && !depth) { out.push(cur + text.slice(start, i)); cur = ""; start = i + 1; }
   }
-  out.push(text.slice(start));
+  out.push(cur + text.slice(start));
   return out;
 }
 
@@ -1230,7 +1265,7 @@ export function readNav(reply, routes, shown) {
       // A LEGAL LINK TO A PAGE THAT DOES NOT EXIST is a not-found from the
       // bottom of every page on the site — the same reason a menu item is
       // checked against the real routes.
-      const why = href ? actionHrefProblem(href, known) : "incomplete";
+      const why = href ? listHrefProblem(href, known) : "incomplete";
       if (!a || why) { dropped.push({ label: a, href, why: why || "incomplete", list: prop }); continue; }
       kept.push({ [fields[0]]: a, href });
     }
@@ -1324,6 +1359,18 @@ export function readNav(reply, routes, shown) {
 function actionHrefProblem(href, known) {
   if (/^tel:/i.test(href)) return /^tel:\+?[0-9][0-9 ()./-]{4,24}$/.test(href) ? "" : "bad-number";
   return hrefProblem(href, known);
+}
+
+/**
+ * A FOOTER LIST ENTRY'S DESTINATION (2026-10-23, audit A27-5): a button's, and
+ * a bounded `mailto:` besides. The tool offers social `network: "email"` and
+ * the kit draws a Mail icon for it, yet `mailto:` was refused as `not-a-path`,
+ * so any social edit restating the list deleted the email icon and one could
+ * never be added. An address shape only: no query, no second address.
+ */
+function listHrefProblem(href, known) {
+  if (/^mailto:/i.test(href)) return /^mailto:[^\s@?&,;:<>"'/]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(href) ? "" : "bad-address";
+  return actionHrefProblem(href, known);
 }
 
 /**
@@ -1655,6 +1702,7 @@ function itemsLeftOut(dropped) {
     duplicate: "it was listed twice",
     incomplete: "it had no name or no destination",
     "bad-number": "that isn't a phone number a link can call",
+    "bad-address": "that isn't an email address a link can open",
     "not-a-path": "a link here goes to a page of this site or a full https:// address",
     offsite: "an address starting with // can't be used — give the full https:// address",
     "bad-anchor": "that isn't a section name a link can point at",
@@ -1883,7 +1931,7 @@ export function readAdditions(input, routes) {
     if (!to || !label || !href) { dropped.push({ label, href, why: "incomplete", ...list }); continue; }
     // THE MENU'S DESTINATIONS ARE THE MENU'S (`hrefProblem`); A FOOTER LINK'S
     // ARE A BUTTON'S, `tel:` included — the rules `readNav` holds each list to.
-    const why = to === "menu" ? hrefProblem(href, known) : actionHrefProblem(href, known);
+    const why = to === "menu" ? hrefProblem(href, known) : listHrefProblem(href, known);
     if (why) { dropped.push({ label, href, why, ...list }); continue; }
     let pages = null;
     if (Array.isArray(raw.pages) && raw.pages.length) {
@@ -2592,6 +2640,22 @@ export function readChromeObject(body, prop) {
   return out;
 }
 
+/**
+ * DOES THE OBJECT HOLD A FIELD WE COULD NOT READ? (2026-10-23, audit A27-3)
+ *
+ * The writer re-serialises the whole object from what `readChromeObject` read,
+ * so a field written as a constant (`phone: PHONE`), in single quotes or as a
+ * template literal was deleted from every footer by an edit to another field.
+ * Such a slot is refused instead, the rule `navSlots` lives under. An enum
+ * value we do not know stays dropped on purpose (see `readChromeObject`).
+ */
+function chromeObjectUnread(body, prop) {
+  const spec = CHROME_OBJECTS[prop] || {};
+  const text = String(body || "");
+  const read = readChromeObject(text, prop);
+  return Object.entries(spec).some(([f, s]) => s.kind !== "enum" && !Object.hasOwn(read, f) && new RegExp(`\\b${f}\\s*:`).test(text));
+}
+
 /** The `key: "value"` pairs of a contact object literal, as a plain map. */
 export function readContact(body) {
   return readChromeObject(body, "contact");
@@ -2622,6 +2686,7 @@ export function chromeObjectSlots(pages, prop) {
       const from = m.index + a.index + a[0].length - 1;
       const close = braceEnd(src, from);
       if (close < 0) continue;
+      if (chromeObjectUnread(src.slice(from + 1, close), prop)) continue;
       out.push({
         page: p.path, prop, kind: "jsx",
         at: m.index + a.index, to: close + 2,
@@ -2641,7 +2706,7 @@ export function chromeObjectSlots(pages, prop) {
         } else {
           const from = objAt + 1 + a.index + a[0].length - 1;
           const close = braceEnd(src, from);
-          if (close > 0) {
+          if (close > 0 && !chromeObjectUnread(src.slice(from + 1, close), prop)) {
             out.push({
               page: p.path, prop, kind: "obj",
               // Runs to the comma, so a full removal leaves no `contact: {},`
@@ -2805,7 +2870,7 @@ export function chromeListSlots(pages, prop) {
   for (const p of Array.isArray(pages) ? pages : []) {
     if (!p || typeof p.path !== "string" || typeof p.source !== "string") continue;
     const src = p.source;
-    let found = false;
+    let found = false, unread = false;
 
     const re = new RegExp("\\b" + prop + "\\s*(=\\s*\\{\\s*|:\\s*)\\[", "g");
     let m;
@@ -2817,11 +2882,15 @@ export function chromeListSlots(pages, prop) {
       // NOT THE SHAPE WE UNDERSTAND IS NOT OUR SLOT. A `social` array of
       // something else entirely is left alone rather than overwritten — the
       // same skip-rather-than-guess rule `navSlots` lives under.
-      if (items === null) continue;
+      if (items === null) { unread = true; continue; }
       found = true;
       out.push({ page: p.path, prop, at: open + 1, to: close, items });
     }
     if (found) continue;
+    // A LIST THAT IS THERE BUT COULD NOT BE READ IS NOT "NO LIST" (2026-10-23,
+    // audit A27-4). Inserting one beside it wrote a second key, which the later
+    // one overrides at runtime, so nothing changed while the reply said it had.
+    if (unread) continue;
 
     // Nowhere to edit, so where one would GO. The object form is preferred when
     // both are present, for the reason `actionSlots` records: a prop written

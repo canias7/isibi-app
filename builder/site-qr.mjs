@@ -282,7 +282,7 @@ export const QR_ITEM = {
       type: "string",
       description:
         "What scanning it does, as the exact string the code carries. A full URL (\"https://…\"); " +
-        "`WIFI:T:WPA;S:<network>;P:<password>;;` to join a network; `tel:` a number; `mailto:` an address; " +
+        "`WIFI:T:WPA;S:<network>;P:<password>;;` to join a network (a `;` or `\\` in the network or password gets a `\\` before it); `tel:` a number; `mailto:` an address; " +
         "`geo:lat,lng` a place. NEVER INVENT IT — a QR is the one thing on a page a visitor cannot read " +
         "before acting on it, so it carries something the brief actually gives you, or this code is " +
         "left out.",

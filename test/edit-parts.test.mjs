@@ -264,7 +264,7 @@ test("the look branch adds a page step to place the QR codes no page shows, name
   const gate = look.slice(look.lastIndexOf('if (lookRuns.includes("qr")', step), step);
   assert.ok(gate.length > 0 && gate.length < 600, "the step is not gated on the qr lane running");
   assert.match(look, /let lookRuns = acting;/, "on a legacy answer the placement no longer follows the picked lanes");
-  assert.match(gate, /const unplaced = qrUnplaced\(qrList\(wallLook && wallLook\.qr\), eSrc\)/,
+  assert.match(gate, /const unplaced = qrUnplaced\(qrList\(wallLook && wallLook\.qr\), qrParts0\.ok \? qrShownSources\(eSrc, qrParts0\.parts\) : eSrc\)/,
     "the unplaced codes are not derived from the stored list against every page");
   assert.match(gate, /if \(unplaced\.length\)/, "the step must fire only when some code is on no page");
   // The ask names the binding exactly, as marksDirective does, names the

@@ -312,7 +312,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // (2026-10-13, after run 144): the evidence a component's requirement is read
 // against, in place of "nobody can see one".
 import { addedByRoute, publishedTexts, componentEvidence } from "./builder/content-evidence.mjs";
-import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
+import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, qrShownSources, qrDestinationCheck, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig, writesSchema as partWritesSchema } from "./builder/request-plan.mjs";
@@ -16237,7 +16237,10 @@ async function composePublish(env, slug, dist, meta, pages, renamed = null, lang
         // reader that cannot silently half-parse it.
         // UNDER DRAFT-FIRST, THE STANDING DRAFT'S STAGED SIDECAR (2026-10-22,
         // audit A11-3): the live one does not hold a rename saved as a draft.
-        const po = await previousSidecar(buildDeps(env), slug, { draftFirst: draftFirst(env), liveKey: siteMetaKey(slug) });
+        // ONE MORE READ BEFORE GIVING UP (2026-10-23, audit A33-3): a gateway
+        // blip in the container is the common case, and it passes.
+        const po = await previousSidecar(buildDeps(env), slug, { draftFirst: draftFirst(env), liveKey: siteMetaKey(slug) })
+          .catch(() => previousSidecar(buildDeps(env), slug, { draftFirst: draftFirst(env), liveKey: siteMetaKey(slug) }));
         // THROUGH `manifestFromCsv`, THE ONE READER OF THIS SHAPE. The sidecar
         // keeps the two lists as `routesCsv`/`redirectsCsv` strings, and
         // `mergeRedirects` reads `prev.routes`/`prev.redirects` — so handing it
@@ -16271,7 +16274,17 @@ async function composePublish(env, slug, dist, meta, pages, renamed = null, lang
         dist["sitemap.xml"] = { t: sitemapXml(man.routes, new Date().toISOString().slice(0, 10)) };
         dist["robots.txt"] = { t: robotsTxt() };
       }
-    } catch (e) { console.error("seo manifest failed:", slug, e && e.message); }
+      // …AND A PUBLISH NEVER WRITES OVER WHAT IT COULD NOT READ (2026-10-23,
+      // audit A33-3). The sidecar is written whole at activation, so the null
+      // manifest above went live as empty route and redirect lists: every
+      // stored redirect was gone, and the next publish read that empty map as
+      // the history, so they never came back. Refused instead, as ours: a
+      // stage that throws is our failure, uncharged, and the site is as it was.
+      if (prevUnreadable) throw new Error("previous sidecar unreadable");
+    } catch (e) {
+      if (e && e.message === "previous sidecar unreadable") throw e;
+      console.error("seo manifest failed:", slug, e && e.message);
+    }
   }
   // EVERY DOCUMENT LAST, not just index.html. A page names the new hashed
   // bundle, so nothing may see it until the bundle it points at is fully
@@ -17829,7 +17842,12 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // refuses or a job that dies here leaves the live site exactly as it was and
   // a prefix the cap prunes. See site-builds.mjs.
   tm("compose", "start");
-  const composed = await composePublish(env, slug, built.files, {
+  // A COMPOSE THAT THROWS IS OURS, LIKE A STAGE THAT DOES (audit A33-3): the
+  // one throw it lets out is a previous sidecar it could not read, and nothing
+  // is written or live-changed by then.
+  let composed;
+  try {
+  composed = await composePublish(env, slug, built.files, {
     brand: (look && look.brand) || slug,
     description: (look && look.description) || undefined,
     image: await siteOgImage(env, slug, built.files),
@@ -17844,6 +17862,10 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // something else entirely.
     verify,
   }, pages, renamed, siteLangs.filter((l) => !l.primary).map((l) => l.prefix));
+  } catch (e) {
+    tm("compose", "fail", { why: String((e && e.message) || e).slice(0, 120) });
+    return { ok: false, error: "stage", ours: true, detail: String((e && e.message) || "the build could not be composed").slice(0, 200), code: "transient" };
+  }
   tm("compose", "ok", { routes: composed.routes.length });
   tm("stage", "start", { version, files: Object.keys(built.files || {}).length });
   let staged = null;
@@ -35915,7 +35937,11 @@ async function handleRequest(request, env, ctx) {
               // PLACED by the step that followed — a figure reading a binding
               // the same publish takes away. A removal places nothing.
               if (lookRuns.includes("qr") && !eRemoves.remove.includes("qr") && fallbackPage) {
-                const unplaced = qrUnplaced(qrList(wallLook && wallLook.qr), eSrc);
+                // THE COMPONENTS TOO (2026-10-23, audit A31-6): a code shown
+                // through one a page renders is placed. An unreadable store
+                // reads the pages alone, as before.
+                const qrParts0 = await editParts();
+                const unplaced = qrUnplaced(qrList(wallLook && wallLook.qr), qrParts0.ok ? qrShownSources(eSrc, qrParts0.parts) : eSrc);
                 if (unplaced.length) steps.push({ layer: "page", page: fallbackPage, fields: ["qr"], instruction: qrPlaceAsk(unplaced) });
               }
 
@@ -37607,6 +37633,8 @@ async function handleRequest(request, env, ctx) {
               // below the break, which is this repo's own recorded trap.
               const edb = await siteBackendBySlug(env, ownerSlug);
               let priorLook = null;
+              // The stored config itself, for `markRemove` below (audit A26-2).
+              let priorConfig = null;
               // THE WHOLE DESIGN, since 2026-08-23. This lane is the cheap rung a
               // colour change lands on, and with `tokens`/`style`/`seeds` off the
               // tool there is nothing else for it to move.
@@ -37641,6 +37669,7 @@ async function handleRequest(request, env, ctx) {
                 // an uploaded picture included, which the old pair kept in a
                 // key this path could not see.
                 priorLook = lookWithMarks(cfg.config);
+                priorConfig = cfg.config;
                 priorCss = cfg.config.css;
               } catch (e) {
                 // OURS, AND SAID (2026-09-23). A config read that failed escalated
@@ -37953,7 +37982,13 @@ async function handleRequest(request, env, ctx) {
                   // stores the list as it was, which the no-change reply
                   // below reads as "already like that".
                   if (field === "qr") {
-                    const patched = patchQr((priorLook || {}).qr, ran.value);
+                    // THE ADD-ON'S DESTINATION RULE (audit A31-4): the site's
+                    // address and its pages, so `/booking` is resolved and a page
+                    // the site lacks is refused. An address that cannot be read
+                    // refuses a bare route, as the add-on does.
+                    let qrBase = "";
+                    try { qrBase = await publicUrlFor(env, ownerSlug); } catch { qrBase = ""; }
+                    const patched = patchQr((priorLook || {}).qr, ran.value, { check: qrDestinationCheck({ base: qrBase, routes: eRoutes() }) });
                     if (!patched.ok) {
                       return Response.json({
                         ok: false, error: "qr", reason: patched.why, codes: patched.names, cost: 0,
@@ -38013,6 +38048,14 @@ async function handleRequest(request, env, ctx) {
               // reason for a behaviour that is right. `markRemove` is what the
               // removal leaves behind.
               const merged = mergeLook(priorLook, designed, {}, { instructed: true, asked: true, clear: eRemoves.remove.filter((f) => !takeOffLane(f)).concat([...takeOffAll]) });
+              // A MARK TAKEN OFF IS STORED AS A FORM (audit A26-2). The merge's
+              // wipe writes null, and `markOf` reads a stored null as "no form"
+              // and falls back to the legacy upload key, so a site still on the
+              // old pair kept showing the uploaded picture while the reply said
+              // it was gone. `markRemove` is what the logo rung stores.
+              for (const f of MARKS) {
+                if (eRemoves.remove.includes(f) && !takeOffLane(f) && merged[f] === null) merged[f] = markRemove(priorConfig, f);
+              }
               const moved = movedFields(priorLook, merged);
               // ── A CODE THAT COMES OFF TAKES ITS FIGURE WITH IT (2026-10-02, W2) ──
               //

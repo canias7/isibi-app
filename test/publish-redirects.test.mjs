@@ -302,6 +302,43 @@ for (const mode of ["sync", "job"]) {
   });
 }
 
+// AUDIT A33-3 (2026-10-23): a previous sidecar that cannot be read made the
+// publish write empty route and redirect lists over it, permanently.
+for (const mode of ["sync", "job"]) {
+  test("A33-3 a publish whose previous sidecar cannot be read is refused, and every stored redirect stays (" + mode + ")", async () => {
+    const s = await lifeOfTheSite(mode);
+    try {
+      const before = await sidecar(s.b, s.slug);
+      assert.equal(before.redirectsCsv, "/gallery=/,/the-starter=/starter", "the fixture's redirects are not stored");
+      const V = await live(s.b, s.slug);
+      const key = "sitemeta/" + s.slug + ".json";
+      const get = s.b.get;
+      let reads = 0;
+      const refunds = s.seen.rpc.filter((f) => f === "edit_refund").length;
+      // ONLY THE COMPOSE STEP'S READ OF THE PREVIOUS SIDECAR, found by its own
+      // frame: other steps of a publish read the same key for other reasons.
+      const fromCompose = () => /composePublish/.test(new Error().stack || "");
+      s.b.get = async (k) => { if (k === key && fromCompose()) { reads++; throw new Error("gateway 502"); } return get(k); };
+      const r = await edit(s.worker, s.env, s.slug, mode, { layer: "page", page: "/" }, "On the home page put the opening hours above the welcome.", s.seen);
+      s.b.get = get;
+      // A QUEUED JOB IS REFUNDED; THE SYNCHRONOUS ROUTE ANSWERS AS IT DOES FOR A STAGE THAT FAILED.
+      if (mode === "job") assert.equal(s.seen.rpc.filter((f) => f === "edit_refund").length, refunds + 1, "the refused publish was not refunded: " + JSON.stringify(r.reply));
+      assert.match(String(r.reply && r.reply.msg), /our build service/, JSON.stringify(r.reply));
+      assert.ok(reads >= 2, "the sidecar was not read again before giving up: " + reads);
+      assert.notEqual(r.status, 200, "the publish went through: " + JSON.stringify(r.reply));
+      assert.equal(await live(s.b, s.slug), V, "a new version went live");
+      assert.deepEqual(await sidecar(s.b, s.slug), before, "the stored redirects were overwritten");
+      // CONTROL: one failed read, then a good one, publishes and keeps them.
+      let once = 0;
+      s.b.get = async (k) => { if (k === key && fromCompose() && !once++) throw new Error("gateway 502"); return get(k); };
+      const ok = await edit(s.worker, s.env, s.slug, mode, { layer: "page", page: "/" }, "On the home page put the opening hours above the welcome.", s.seen);
+      s.b.get = get;
+      assert.equal(ok.status, 200, JSON.stringify(ok.reply));
+      assert.equal((await sidecar(s.b, s.slug)).redirectsCsv, "/gallery=/,/the-starter=/starter");
+    } finally { s.done(); }
+  });
+}
+
 test("a visitor at the removed page's address is sent home, and nothing else changes", async () => {
   const s = await lifeOfTheSite("sync");
   try {
