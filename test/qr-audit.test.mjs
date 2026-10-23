@@ -36,3 +36,16 @@ test("A31-7: a wifi code is checked field by field; an escaped one is accepted",
   const p = patchQr([WIFI], { name: "wifi", points: "WIFI:T:WPA;S:Bakery;P:sour;dough;;" });
   assert.equal(p.ok, false, JSON.stringify(p));
 });
+
+test("A31-6: a code shown through a component a page renders is placed; one in a component nothing renders is not", async () => {
+  const { qrShownSources } = await import("../builder/site-add.mjs");
+  const { qrUnplaced } = await import("../builder/site-qr-list.mjs");
+  const page = (path, body) => ({ path, source: "import { createFileRoute } from '@tanstack/react-router'\n" + body });
+  const pages = [page("index.tsx", "<main/>"), page("visit.tsx", "import { QrCard } from '@/routes/-parts/qr-card'\n<QrCard/>")];
+  const card = { name: "qr-card", source: "import { SITE_QRS } from '@/site-brand'\nexport function QrCard(){ return <img src={SITE_QRS.wifi.src}/> }" };
+  const orphan = { name: "qr-spare", source: "import { SITE_QRS } from '@/site-brand'\nexport function Spare(){ return <img src={SITE_QRS.ring.src}/> }" };
+  const codes = [{ name: "wifi" }, { name: "ring" }];
+  assert.deepEqual(qrUnplaced(codes, qrShownSources(pages, [card, orphan])), ["ring"]);
+  // THE OLD READING, pages alone, called the wifi code unplaced.
+  assert.deepEqual(qrUnplaced(codes, pages), ["wifi", "ring"]);
+});

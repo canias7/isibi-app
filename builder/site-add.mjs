@@ -6122,6 +6122,19 @@ export function droppedNote(dropped) {
  */
 const EDGE = Object.freeze({ rendered: 2, unsure: 1 });
 
+/**
+ * THE FILES A VISITOR CAN SEE A QR CODE IN (2026-10-23, audit A31-6): every
+ * page, and every component some page reaches (certainly or maybe), read by
+ * `routedSources`. The edit path asked `qrUnplaced` over the pages alone, so a
+ * code the add-on had shown through a component read as unplaced, and each
+ * later caption or destination change added a second figure to a page and a
+ * page step nobody asked for. "Maybe" counts as shown: the wrong way round
+ * is a duplicate code on a page, not a missing one.
+ */
+export function qrShownSources(pages, parts) {
+  return routedSources(pages, parts).filter((s) => s.routes.length || (s.maybeRoutes || []).length);
+}
+
 export function routedSources(pages, parts) {
   const ps = Array.isArray(pages) ? pages : [];
   const bs = (Array.isArray(parts) ? parts : []).filter(
