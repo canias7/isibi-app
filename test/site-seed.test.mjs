@@ -169,6 +169,13 @@ test("the usage carries the model it was priced at", async () => {
   assert.equal(out.usage.model, SEED_MODEL);
 });
 
+test("A28-5: the usage is priced at the model the request went to, not the default", async () => {
+  const { deps, sent } = sender(reply({ services: [{ name: "x" }] }));
+  const out = await topUpSeed(deps, { brief: "b", spec: SPEC, seed: null, model: "claude-opus-5" });
+  assert.equal(sent[0].model, "claude-opus-5");
+  assert.equal(out.usage.model, "claude-opus-5", "an Opus top-up was priced at the default model's rates");
+});
+
 // ── merging ─────────────────────────────────────────────────────────────────
 
 test("the designer's own rows survive the merge", () => {

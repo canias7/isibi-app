@@ -44,7 +44,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { hostIsBlocked } from "../site-ssrf.mjs";
+import { hostIsBlocked, resolvesBlocked } from "../site-ssrf.mjs";
 
 const ROOT = path.join(import.meta.dirname, "..");
 const WORKER = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
@@ -89,7 +89,7 @@ const SRC = [
   lift("async function siteReadUrl(url) {"),
 ].join("\n");
 
-const { siteReadUrl } = new Function("hostIsBlocked", SRC + "\nreturn { siteReadUrl, safeFetch };")(hostIsBlocked);
+const { siteReadUrl } = new Function("hostIsBlocked", "resolvesBlocked", SRC + "\nreturn { siteReadUrl, safeFetch };")(hostIsBlocked, resolvesBlocked);
 
 /**
  * Replace the global fetch and RECORD every URL asked for.
@@ -237,4 +237,42 @@ test("the driver really is worker.js's own reader, and its guard is the real one
   // every case above passes for the wrong reason.
   assert.equal(hostIsBlocked("169.254.169.254"), true);
   assert.equal(hostIsBlocked("cdn.example.org"), false);
+});
+
+// ── WHERE THE NAME GOES (2026-10-23, audit A16-5) ───────────────────────────
+//
+// Inside the container a fetch resolves the name itself, so a public-looking
+// name that resolves to loopback reached the build service next door. The
+// container installs `__SITE_RESOLVE_HOST`; driven here with a stand-in.
+async function withResolver(map, run) {
+  const had = Object.hasOwn(globalThis, "__SITE_RESOLVE_HOST");
+  globalThis.__SITE_RESOLVE_HOST = async (h) => { if (!Object.hasOwn(map, h)) throw new Error("ENOTFOUND"); return map[h]; };
+  try { return await run(); } finally { if (!had) delete globalThis.__SITE_RESOLVE_HOST; }
+}
+const PAGE = async () => new Response("<p>hello</p>", { status: 200, headers: { "content-type": "text/html" } });
+
+test("A16-5: a name that resolves to a blocked address is never fetched, on the first hop or a redirect", async () => {
+  const map = { "127.0.0.1.nip.io": ["127.0.0.1"], "meta.example.net": ["93.184.216.34", "169.254.169.254"], "example.com": ["93.184.216.34"], "bench.example.net": ["198.18.0.5"] };
+  for (const target of ["http://127.0.0.1.nip.io:8080/egress", "http://meta.example.net/", "http://bench.example.net/", "http://nowhere.example/"]) {
+    const { out, seen } = await withResolver(map, () => withFetch(PAGE, () => read(target)));
+    assert.deepEqual(outbound(seen), [], target + " was fetched");
+    assert.equal(out.ok, false);
+  }
+  const hop = await withResolver(map, () => withFetch(async (url) => url.startsWith("https://example.com/")
+    ? new Response(null, { status: 302, headers: { location: "http://127.0.0.1.nip.io:8080/model/result?id=x" } }) : PAGE(), () => read("https://example.com/a")));
+  assert.deepEqual(outbound(hop.seen), ["https://example.com/a"], "a redirect onto a name resolving to loopback was followed");
+  // A public name resolving to public addresses is read as before.
+  const ok = await withResolver(map, () => withFetch(PAGE, () => read("https://example.com/b")));
+  assert.deepEqual(outbound(ok.seen), ["https://example.com/b"]);
+  assert.equal(ok.out.ok, true);
+});
+
+test("A16-5: resolvesBlocked — cannot tell is blocked, no resolver is the Worker's string check alone, the special-use ranges are blocked", async () => {
+  assert.equal(await resolvesBlocked("example.com", undefined), false);
+  assert.equal(await resolvesBlocked("example.com", async () => ["93.184.216.34"]), false);
+  assert.equal(await resolvesBlocked("example.com", async () => []), true);
+  assert.equal(await resolvesBlocked("example.com", async () => { throw new Error("x"); }), true);
+  assert.equal(await resolvesBlocked("example.com", async () => ["::1"]), true);
+  for (const ip of ["192.0.0.8", "198.18.0.1", "198.19.255.255", "224.0.0.1", "239.1.1.1", "240.0.0.1", "255.255.255.255"]) assert.equal(hostIsBlocked(ip), true, ip);
+  for (const ip of ["192.0.2.1", "198.17.0.1", "198.20.0.1", "223.255.255.1", "8.8.8.8"]) assert.equal(hostIsBlocked(ip), false, ip);
 });

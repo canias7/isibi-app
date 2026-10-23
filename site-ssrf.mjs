@@ -30,6 +30,12 @@ function ipv4Blocked(o) {
   if (a === 172 && b >= 16 && b <= 31) return true;  // private
   if (a === 192 && b === 168) return true;           // private
   if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+  // 2026-10-23, audit A16-5: the special-use ranges a public name may still
+  // resolve into — IETF protocol assignments, benchmarking, multicast and the
+  // reserved block (broadcast included).
+  if (a === 192 && b === 0 && o[2] === 0) return true; // 192.0.0.0/24
+  if (a === 198 && (b === 18 || b === 19)) return true; // 198.18.0.0/15
+  if (a >= 224) return true;                         // 224.0.0.0/4 and 240.0.0.0/4
   return false;
 }
 
@@ -84,6 +90,27 @@ export function hostIsBlocked(rawHost) {
   const ip = parseIPv4(h);
   if (ip) return ipv4Blocked(ip);
   return false;                                      // regular hostname
+}
+
+/**
+ * WHERE A NAME REALLY GOES (2026-10-23, audit A16-5). `hostIsBlocked` reads
+ * the string; inside the container a fetch resolves the name and connects to
+ * whatever comes back, so `127.0.0.1.nip.io` reached the build service next
+ * door. `resolve(host)` answers the addresses (the container installs one;
+ * the Worker has none, and its runtime cannot reach a private range). Any
+ * blocked address, no address, or a lookup that fails is blocked: cannot
+ * tell is never "fine". An IP literal was already judged by the string.
+ * Known limit: the fetch resolves again, so a name re-pointed between the two
+ * lookups is not caught here.
+ */
+export async function resolvesBlocked(rawHost, resolve) {
+  if (typeof resolve !== "function") return false;
+  let h = String(rawHost || "").toLowerCase().trim();
+  if (h.startsWith("[") || h.includes(":") || parseIPv4(h.replace(/\.$/, ""))) return false;
+  let list;
+  try { list = await resolve(h); } catch { return true; }
+  if (!Array.isArray(list) || !list.length) return true;
+  return list.some((a) => typeof a !== "string" || !a || hostIsBlocked(a));
 }
 
 /**

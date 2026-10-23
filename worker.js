@@ -1,7 +1,7 @@
 import { sendConfirmation, recipient, pickProvider } from "./site-mail.mjs";
 import { sendSms, pickSmsProvider, toE164, SMS_SECRET_NAMES } from "./site-sms.mjs";
 import { dueJobs, runJob, jobOutcome, normalizeJob, validTimeZone, jobPanelRow, claimFilter } from "./site-jobs.mjs";
-import { hostIsBlocked, blockedReason } from "./site-ssrf.mjs";
+import { hostIsBlocked, blockedReason, resolvesBlocked } from "./site-ssrf.mjs";
 import { runRowEffects, resolveCreatedRow } from "./site-row-effects.mjs";
 import { deliverWebhook, firesFor, signPayload, retryable as webhookRetryable, MAX_PER_MINUTE as WEBHOOK_PER_MIN } from "./site-webhooks.mjs";
 import { drainQueue, enqueueRow, sameOwner, queueFull, retentionCutoffs, LEASE_MS as WEBHOOK_LEASE_MS, MAX_PENDING_PER_SITE } from "./site-webhook-queue.mjs";
@@ -2096,6 +2096,8 @@ async function safeFetch(startUrl, opts = {}, max = 4) {
     let u;
     try { u = new URL(current); } catch { return null; }
     if ((u.protocol !== "http:" && u.protocol !== "https:") || hostIsBlocked(u.hostname)) return null;
+    // AND WHERE THE NAME GOES, where a resolver exists (the container, audit A16-5).
+    if (await resolvesBlocked(u.hostname, globalThis.__SITE_RESOLVE_HOST)) return null;
     const r = await fetch(u.toString(), { ...opts, redirect: "manual" });
     if (r.status >= 300 && r.status < 400) {
       const loc = r.headers.get("location");
@@ -13923,9 +13925,20 @@ async function backendWriter(env, slug, { rehearse = null } = {}) {
     async seed(conn, schemaSpec, seed) {
       if (holding) {
         hold.add({ kind: "seed", spec: schemaSpec, seed: seed && typeof seed === "object" ? seed : {} });
-        const seeded = {};
-        for (const [t, rows] of Object.entries(seed && typeof seed === "object" ? seed : {})) if (Array.isArray(rows) && rows.length) seeded[t] = rows.length;
-        return { seeded, skipped: [], rows: {}, held: true };
+        // JUDGED BY THE ENGINE'S OWN RULES, NOTHING WRITTEN (2026-10-23, audit
+        // A28-6): every held row was counted as seeded — past the cap, on a
+        // table that is not display, on one that already has rows — so the
+        // skip note and "nothing can fill it" were never said. The engine runs
+        // with its inserts answered and not sent; "already has rows" is asked
+        // of the live table, and a table not live yet (or a read that fails)
+        // is empty, as it will be when the held schema lands.
+        const judged = await seedSiteRows(conn, schemaSpec, seed, {
+          sqlQuery: async (db, sql, params) => {
+            if (/^\s*INSERT\b/i.test(sql)) return [];
+            try { return await sqlQuery(db, sql, params); } catch { return []; }
+          },
+        });
+        return { ...judged, held: true };
       }
       return seedSiteRows(conn, schemaSpec, seed);
     },

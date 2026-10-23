@@ -472,8 +472,11 @@ test("runJob puts the gateway fetch in front of the process before the import an
   const before = globalThis.fetch;
   const restore = installGatewayFetch(good);
   assert.notEqual(globalThis.fetch, before);
+  // A16-5: the resolver `safeFetch` asks is installed with it, and goes with it.
+  assert.equal(typeof globalThis.__SITE_RESOLVE_HOST, "function", "the container installs no resolver for safeFetch");
   restore();
   assert.equal(globalThis.fetch, before);
+  assert.equal(Object.hasOwn(globalThis, "__SITE_RESOLVE_HOST"), false, "the resolver outlived its job");
 });
 
 test("the env: with a Supabase origin the two names carry the marker whatever the secrets said; without one, what was handed", () => {
@@ -549,7 +552,33 @@ const JOB_PATH_TABLES = [
   ["async function persistSiteJobs(", "site_functions", "POST"],
   ["async function readCreditsFor(", "credits", "GET"],
   ["async function writeBuildRecord(", "site_builds", "POST"],
+  // THE PROVISIONING HELPERS (2026-10-23, audit A09-8): each runs inside a
+  // container job (add-on, rules rung, revise), and two were refused there
+  // with every test green (A09-1's heal PATCH, A09-6's teardown read).
+  ["async function healSiteBackendDb(", "site_backends", "PATCH"],
+  ["async function siteNeonProject(", "site_project", "GET"],
+  ["async function neonTearingDown(", "neon_teardown", "GET"],
 ];
+
+test("A09-8: ensureSiteBackend's two claims are tables and methods the wall admits", () => {
+  const src = noComments(WORKER);
+  const at = src.indexOf("async function ensureSiteBackend(");
+  assert.ok(at > 0, "ensureSiteBackend not found");
+  const body = src.slice(at, src.indexOf("\n}\n", at));
+  assert.match(body, /fetch\(`\$\{SUPABASE_URL\}\/rest\/v1\/\$\{table\}`, \{\s*method: "POST"/, "the claim no longer POSTs to its table");
+  const claimed = [...body.matchAll(/claim\("([a-z_]+)"/g)].map((m) => m[1]);
+  assert.deepEqual([...new Set(claimed)].sort(), ["site_backends", "site_project"]);
+  for (const t of claimed) assert.ok(SB_TABLES[t] && SB_TABLES[t].POST, "ensureSiteBackend claims " + t + " and the wall refuses POST");
+});
+
+test("A09-8: the provisioning helpers' own requests pass the wall as each sends it", () => {
+  const src = noComments(WORKER);
+  const heal = src.slice(src.indexOf("async function healSiteBackendDb("), src.indexOf("\n}\n", src.indexOf("async function healSiteBackendDb(")));
+  assert.match(heal, /site_backends\?slug=eq\.\$\{encodeURIComponent\(s\)\}&uid=eq\.\$\{encodeURIComponent\(u\)\}&\$\{unsetDbFilter\(\)\}/);
+  const q = (s) => "?" + s;
+  assert.equal(sbDecision(JOB, "GET", "/rest/v1/neon_teardown", q("project_id=eq.p-quiet-1&select=id&limit=1"), "", MINT).ok, true, "the teardown read neonTearingDown sends is refused");
+  assert.equal(sbDecision(JOB, "GET", "/rest/v1/site_project", q("slug=eq." + JOB.slug + "&select=uid,neon_project,neon_branch,neon_role,neon_conn&limit=1"), "", MINT).ok, true, "siteNeonProject's read is refused");
+});
 
 test("every table a job-path helper touches is admitted by the wall with that method, read off the helper's own source", () => {
   const src = noComments(WORKER);

@@ -172,6 +172,11 @@ export const RULES_TOOL = {
               properties: {
                 start: { type: "string", description: "The whole-number column holding the start." },
                 end: { type: "string", description: "The whole-number column holding the end." },
+                on: {
+                  type: "array",
+                  items: { type: "string" },
+                  description: "The columns an overlap is counted within — the date, the room, the member of staff. Without them, two entries on different days clash.",
+                },
               },
               required: ["start", "end"],
             },
@@ -255,8 +260,9 @@ export function rulesDigest(tables) {
   const out = [];
   for (const t of Array.isArray(tables) ? tables : []) {
     if (!t || !t.name) continue;
+    const types = colTypes(t);
     const cols = (Array.isArray(t.columns) ? t.columns : [])
-      .map((c) => (typeof c === "string" ? { name: c, type: "text" } : c))
+      .map((c) => (typeof c === "string" ? { name: c, type: types.get(c.toLowerCase()) } : c))
       .filter((c) => c && c.name);
     const pair = resolveAccess(t);
     out.push("TABLE " + t.name);
@@ -265,15 +271,36 @@ export function rulesDigest(tables) {
     const on = [];
     if (t.confirm) on.push(t.confirm.fn ? "confirm (site's own function)" : "confirm → emails " + t.confirm.to);
     if (t.sms) on.push(t.sms.fn ? "sms (site's own function)" : "sms → texts " + t.sms.to);
-    if (t.unique) on.push("unique on " + [].concat(t.unique).join(" + "));
-    if (t.uniqueCI) on.push("unique (ignoring case) on " + [].concat(t.uniqueCI).join(" + "));
-    if (t.noOverlap) on.push("noOverlap on " + t.noOverlap.start + "…" + t.noOverlap.end);
+    if (t.webhooks) on.push("webhooks on " + (t.webhooks === true ? "created + updated + deleted" : [].concat(t.webhooks).join(" + ")));
+    // THE DESIGNER'S GROUPS ARE OBJECTS (`{columns, where}`, 2026-10-23, audit
+    // A29-7): joined as they were, every one read "[object Object]".
+    if (t.unique) on.push("unique on " + groupsSaid(t.unique));
+    if (t.uniqueCI) on.push("unique (ignoring case) on " + groupsSaid(t.uniqueCI));
+    if (t.noOverlap) on.push("noOverlap on " + t.noOverlap.start + "…" + t.noOverlap.end + scopeSaid(t.noOverlap));
     if (t.oncePerUser) on.push("oncePerUser on " + [].concat(t.oncePerUser).join(" + "));
     if (t.maxRows) on.push("maxRows " + t.maxRows);
     if (t.retired) on.push("CLOSED to the public");
     out.push("  rules now: " + (on.length ? on.join(" · ") : "none"));
   }
   return out.join("\n");
+}
+
+/** A unique declaration as the model can read it: plain names, or `{columns, where}` groups. */
+function groupsSaid(u) {
+  const list = [].concat(u);
+  if (list.every((g) => typeof g === "string")) return list.join(" + ");
+  return list.map((g) => {
+    if (typeof g === "string") return g;
+    const cols = g && Array.isArray(g.columns) ? g.columns.join(" + ") : "?";
+    return g && g.where ? cols + " (where " + [].concat(g.where).join(", ") + ")" : cols;
+  }).join("; ");
+}
+
+/** noOverlap's scope: the columns it counts within, and its condition. */
+function scopeSaid(no) {
+  const on = Array.isArray(no.on) ? no.on : (no.on ? [no.on] : []);
+  const w = no.where && typeof no.where === "object" ? no.where.col + " " + no.where.op + " " + no.where.val : (no.where ? String(no.where) : "");
+  return (on.length ? " within " + on.join(" + ") : "") + (w ? " (where " + w + ")" : "");
 }
 
 /**
@@ -310,12 +337,21 @@ export function rulesRequest({ instruction, tables, others = null, model = RULES
 
 const IDENT = /^[a-z][a-z0-9_]{0,40}$/;
 
-/** Column names off a stored table, lowercased, with their declared types. */
+/**
+ * Column names off a stored table, lowercased, with their declared types.
+ * `_meta` STORES BARE NAMES (2026-10-23, audit A29-5), the numeric ones listed
+ * in `num` and the JSON ones in `json`: read as "text", every stored number
+ * was, and noOverlap was refused on every real table.
+ */
 function colTypes(t) {
   const m = new Map();
+  const num = new Set((Array.isArray(t && t.num) ? t.num : []).map((x) => String(x).toLowerCase()));
+  const json = new Set((Array.isArray(t && t.json) ? t.json : []).map((x) => String(x).toLowerCase()));
   for (const c of Array.isArray(t && t.columns) ? t.columns : []) {
     const name = String(typeof c === "string" ? c : (c && c.name) || "").toLowerCase();
-    if (name) m.set(name, String((c && c.type) || "text").toLowerCase());
+    if (!name) continue;
+    if (typeof c === "string") m.set(name, num.has(name) ? "number" : json.has(name) ? "json" : "text");
+    else m.set(name, String((c && c.type) || "text").toLowerCase());
   }
   return m;
 }
@@ -398,14 +434,31 @@ export function readRules(reply, tables) {
     // chair. `unique` is named in the refusal because it is the answer.
     if (c.noOverlap && typeof c.noOverlap === "object" && !Array.isArray(c.noOverlap)) {
       const s = String(c.noOverlap.start || "").toLowerCase(), e = String(c.noOverlap.end || "").toLowerCase();
-      const intish = (col) => INT_TYPES.some((t) => (cols.get(col) || "").startsWith(t));
-      if (s !== e && cols.has(s) && cols.has(e) && intish(s) && intish(e)) { change.noOverlap = { start: s, end: e }; touched = true; }
+      // "number" is a stored column `_meta` lists in `num` — the schema
+      // engine's own test for a range it can build.
+      const intish = (col) => cols.get(col) === "number" || INT_TYPES.some((t) => (cols.get(col) || "").startsWith(t));
+      if (s !== e && cols.has(s) && cols.has(e) && intish(s) && intish(e)) {
+        // ITS SCOPE (A29-5): the columns it counts within. Named, they replace
+        // the stored ones; unnamed on the same pair, the stored scope stays —
+        // the merge replaces the whole rule, and a restated one lost it.
+        const on = pickCols(c.noOverlap.on, cols, 4);
+        const was = prior.noOverlap && typeof prior.noOverlap === "object" && String(prior.noOverlap.start || "").toLowerCase() === s && String(prior.noOverlap.end || "").toLowerCase() === e ? prior.noOverlap : null;
+        change.noOverlap = on.length ? { start: s, end: e, on } : (was ? { ...was, start: s, end: e } : { start: s, end: e });
+        touched = true;
+      }
       else refused.push({ table: prior.name, rule: "noOverlap", why: "not-integers" });
     }
 
     const max = Math.floor(Number(c.maxRows));
     if (Number.isFinite(max) && max > 0) { change.maxRows = Math.min(max, 10000000); touched = true; }
     if (c.retired === true || c.retired === false) { change.retired = c.retired; touched = true; }
+    // WEBHOOKS (2026-10-23, audit A29-6): offered by the tool and merged
+    // below, but never read here — turning them on was a billed no-match.
+    if (c.webhooks === true) { change.webhooks = true; touched = true; }
+    else if (Array.isArray(c.webhooks)) {
+      const acts = [...new Set(c.webhooks.map((a) => String(a).toLowerCase()).filter((a) => ["created", "updated", "deleted"].includes(a)))];
+      if (acts.length) { change.webhooks = acts; touched = true; }
+    }
 
     // CLEARING. The enum bounds it to what really goes away; anything else is
     // reported rather than dropped, because a rule the customer believes is off

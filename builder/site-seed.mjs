@@ -233,15 +233,18 @@ export async function topUpSeed(deps, { brief = "", spec = null, seed = null, mo
   // makes no call at all.
   if (!gaps.length) return { rows: {}, usage: null, gaps: [] };
   let reply;
+  // PRICED AT THE MODEL IT WAS SENT TO (2026-10-23, audit A28-5): the picker's
+  // quick model, not the platform default — Opus was billed at Grok's rates.
+  const req = seedRequest({ brief, tables: gaps, model });
   try {
-    reply = await deps.send(seedRequest({ brief, tables: gaps, model }));
+    reply = await deps.send(req);
   } catch {
     return { rows: {}, usage: null, gaps: gaps.map((g) => g.name), failed: true };
   }
   const rows = readSeedRows(reply, gaps);
   // Usage is reported whether or not the answer was usable: the tokens were
   // spent either way, and the rule here is charge for what is used.
-  return { rows, usage: seedUsage(reply, SEED_MODEL), gaps: gaps.map((g) => g.name) };
+  return { rows, usage: seedUsage(reply, req.model), gaps: gaps.map((g) => g.name) };
 }
 
 /**

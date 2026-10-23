@@ -34,6 +34,7 @@
 // refunds, so a non-zero exit here is the runtime failing, not the edit.
 
 import { readFileSync } from "node:fs";
+import { lookup } from "node:dns/promises";
 import { makeContainerEnv, makeContainerCtx, gatewayFetch } from "./container-env.mjs";
 import { longPost } from "./long-post.mjs";
 import { readDeadline, JOB_STOP_GRACE_MS, STOPPED_EXIT_CODE } from "./job-clock.mjs";
@@ -124,10 +125,19 @@ export function readLaunch(raw) {
  * env is built, so the bucket shim and every helper run under it. Answers the
  * restore, for a test that runs in a process that goes on living.
  */
+/** Every address a name resolves to, as strings. */
+export async function resolveHostAll(host) {
+  return (await lookup(host, { all: true, verbatim: true })).map((a) => a.address);
+}
+
 export function installGatewayFetch(launch, g = globalThis) {
   const real = g.fetch;
   g.fetch = gatewayFetch({ gateway: launch.gateway, sbUrl: launch.sb.url, fetch: real });
-  return () => { g.fetch = real; };
+  // THE RESOLVER `safeFetch` ASKS (2026-10-23, audit A16-5): here a fetch
+  // resolves names itself, so a pasted link is judged by its addresses too.
+  const hadResolver = Object.hasOwn(g, "__SITE_RESOLVE_HOST"), realResolver = g.__SITE_RESOLVE_HOST;
+  g.__SITE_RESOLVE_HOST = resolveHostAll;
+  return () => { g.fetch = real; if (hadResolver) g.__SITE_RESOLVE_HOST = realResolver; else delete g.__SITE_RESOLVE_HOST; };
 }
 
 /**
