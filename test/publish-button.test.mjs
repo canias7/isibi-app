@@ -106,7 +106,10 @@ test("it is gated on the slug, and DIMMED rather than hidden without one", () =>
   // customer wondering what they did wrong; the enabled one has to resolve the
   // contradiction between a button reading Publish and a panel reading "there is
   // nothing to publish", which it can only do before the click.
-  assert.equal((markup.match(/title="/g) || []).length, 2, "one of the two states has no tooltip");
+  // A THIRD under draft-first (audit A15-4): there is something to publish,
+  // so the pre-draft "your site is live" tooltip is not said.
+  assert.equal((markup.match(/title="/g) || []).length, 3, "one of the three states has no tooltip");
+  assert.match(markup, /site\.slug && globalThis\.draftFirstOn === true\s*\?\s*' title="Publish your saved changes/, "under draft-first the tooltip still says the site is live on its own");
 });
 
 test("the label is a constant, and the button claims no action it cannot do", () => {

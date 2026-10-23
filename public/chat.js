@@ -8707,10 +8707,32 @@ function siteDraftPanel(site, d) {
     }
   };
 }
+/** The Publish panel while the draft is read (audit A15-4): reading, then the draft door, or a failed read said as one. */
+async function siteDraftPanelRead(site) {
+  let box = document.getElementById('sitePubModal'); if (box) box.remove();
+  box = document.createElement('div'); box.id = 'sitePubModal'; box.className = 'si-modal';
+  box.innerHTML = '<div class="si-card"><div class="si-head"><b>Publish</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body">' +
+    '<p class="sp-intro" id="spReading">Reading your draft…</p></div></div>';
+  document.body.appendChild(box);
+  const close = () => box.remove();
+  box.querySelector('.si-x').onclick = close;
+  box.addEventListener('click', (e) => { if (e.target === box) close(); });
+  const d = await loadDraftState(site);
+  // CLOSED WHILE IT READ, OR ANOTHER PANEL OPENED: nothing more to draw.
+  if (document.getElementById('sitePubModal') !== box) return;
+  if (d && d.enabled === true) { siteDraftPanel(site, d); return; }
+  if (d) { close(); sitePublishPanel(site); return; }
+  const p = box.querySelector('#spReading');
+  if (p) p.textContent = 'Couldn’t read your draft just now — close this and try again in a moment. Nothing was published.';
+}
 function sitePublishPanel(site) {
   // UNDER DRAFT-FIRST the panel is the Publish door itself.
   const ds = site.slug ? siteDraftState[site.slug] : null;
   if (ds && ds.enabled === true) { siteDraftPanel(site, ds); loadDraftState(site); return; }
+  // DRAFT-FIRST ON AND NO READING YET (audit A15-4, 2026-10-23): the draft is
+  // read first, never answered with the face below, which says every change
+  // goes live on its own; a read that fails says so, with no Publish offered.
+  if (!ds && site.slug && globalThis.draftFirstOn === true) { siteDraftPanelRead(site); return; }
   const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
   // ONE PUBLIC ADDRESS. `siteChipUrl` is the single place that knows what a
   // site's address is; two copies of that answer is how the panel ends up
@@ -9034,7 +9056,9 @@ function renderSiteWorkspace(view, site) {
           // only when the server says draft-first is on.
           '<span class="st-draft-state" id="stDraftState" hidden></span>' +
           '<button type="button" class="st-publish" id="stPublish"' +
-            (site.slug
+            (site.slug && globalThis.draftFirstOn === true
+              ? ' title="Publish your saved changes, see its link, or take it off the web"'
+              : site.slug
               ? ' title="Your site is live — see its link, or take it off the web"'
               : ' disabled title="Build the first draft — your site goes live on its own"') +
             '>Publish</button>' +
