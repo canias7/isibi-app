@@ -81,11 +81,21 @@ export function isAsset(pathname: string): boolean {
 // `loaded` is separate from the value because NULL IS A REAL ANSWER — a site
 // whose designer wrote no description — and keying on the value alone would
 // re-read R2 on every request for exactly those sites.
+//
+// READ AGAIN AFTER `META_TTL_MS` (audit A11-4, 2026-10-23). The owner's panels
+// (verification, share picture, description) and the rename lane patch the
+// sidecar without a new script and tell the owner it is live; read once, a
+// warm isolate served the old head until Cloudflare recycled it. Now a patch
+// is served within half a minute, at one R2 read per isolate per half minute.
+// A failed re-read keeps the head already held.
+const META_TTL_MS = 30_000;
 let loaded = false;
+let loadedAt = 0;
 
 async function loadMeta(env: Env, previewing = false): Promise<void> {
-  if (loaded) return;
+  if (loaded && Date.now() - loadedAt < META_TTL_MS) return;
   loaded = true;
+  loadedAt = Date.now();
   try {
     // A DRAFT'S PREVIEW READS THE HEAD OF THE VERSION IT SERVES (2026-10-16,
     // after Codex's review of `fbd53dca`): its description, address and
@@ -111,7 +121,7 @@ async function loadMeta(env: Env, previewing = false): Promise<void> {
     // decoration on top of a document that renders perfectly without it, so the
     // failure mode is a plainer link preview rather than a site that is down.
     // `loaded` is already true, so this is not retried on every request of a
-    // sustained outage — the isolate recycles soon enough.
+    // sustained outage — only once `META_TTL_MS` has passed again.
   }
 }
 

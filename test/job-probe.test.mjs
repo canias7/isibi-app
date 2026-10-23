@@ -490,7 +490,8 @@ test("the Worker's probe route: owner-gated, pre-scoped, its own lane, and the j
   // the empty object.
   assert.match(block, /secrets: shape === "env" \? Object\.fromEntries\(Object\.entries\(jobSecrets\(env\)\)\.filter\(\(\[k\]\) => ENV_PROBE_NAMES\.includes\(k\)\)\) : \{\},/, "a probe launch carries secrets beyond the env probe's switch names");
   assert.equal((block.match(/jobSecrets/g) || []).length, 1, "the probe route reaches for the platform's secrets beyond the env probe's pick");
-  assert.deepEqual(ENV_PROBE_NAMES, ["DRAFT_FIRST", "PARALLEL_WRITES"], "the env probe's names grew past the publishing switches");
+  // AND THE MONEY SWITCH (audit A25-6, 2026-10-23): a switch, not a credential.
+  assert.deepEqual(ENV_PROBE_NAMES, ["DRAFT_FIRST", "PARALLEL_WRITES", "IMAGE_PURCHASES"], "the env probe's names grew past the publishing and money switches");
   assert.match(block, /kind: "probe"/, "the launch is not a probe");
   // AND READING ONE BACK IS THE SAME DOOR — a fire nobody can read is an
   // instrument with no dial.

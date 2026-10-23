@@ -268,3 +268,22 @@ test("CD7 THE SWITCHES BEFORE A PRESS — the Worker's reading, the job's calcul
   const off = switchChecks({ draftFirst: false, parallelWrites: false, jobDraftFirst: false, jobParallelWrites: false }, { probe: "env", draftFirst: false, parallelWrites: false }, { draftFirst: false, parallelWrites: false });
   assert.equal(combine(off).verdict, "pass", "both off, as wanted, did not pass");
 });
+
+test("CD7b THE MONEY SWITCH (audit A25-6, 2026-10-23): the env probe's line carries IMAGE_PURCHASES as the job child reads it, and a child reading purchases on while the Worker says off FAILS; a two-switch want reads as before", async () => {
+  const { envObserved, ENV_PROBE_NAMES } = await import("../builder/job-probe.mjs");
+  assert.ok(ENV_PROBE_NAMES.includes("IMAGE_PURCHASES"), "the probe launch is not handed the money switch");
+  const seen = envObserved(['{"probe":"env","draftFirst":true,"parallelWrites":true,"imagePurchases":true}']);
+  assert.equal(seen.imagePurchases, true);
+  assert.equal(Object.hasOwn(envObserved(['{"probe":"env","draftFirst":true,"parallelWrites":true}']), "imagePurchases"), false, "an older line's missing switch read as a value");
+  const rt = { draftFirst: true, parallelWrites: true, jobDraftFirst: true, jobParallelWrites: true, imagePurchases: false, jobImagePurchases: false };
+  const want = { draftFirst: true, parallelWrites: true, imagePurchases: false };
+  const leak = switchChecks(rt, seen, want);
+  assert.equal(leak["imagePurchases.jobObserved"].verdict, "fail", JSON.stringify(leak));
+  assert.equal(combine(leak).verdict, "fail");
+  const agreed = switchChecks(rt, { ...seen, imagePurchases: false }, want);
+  assert.equal(combine(agreed).verdict, "pass", JSON.stringify(agreed));
+  assert.equal(switchChecks(rt, seen, { draftFirst: true, parallelWrites: true })["imagePurchases.jobObserved"], undefined);
+  // THE CONTAINER'S LINE ITSELF names the switch.
+  const cj = (await import("node:fs")).readFileSync(new URL("../builder/container-job.mjs", import.meta.url), "utf8");
+  assert.match(cj, /log\(\{ probe: "env", draftFirst: out\.draftFirst, parallelWrites: out\.parallelWrites, imagePurchases: out\.imagePurchases \}\)/, "the container's env line does not carry the money switch");
+});

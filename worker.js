@@ -3918,6 +3918,9 @@ async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve
     unresolved,
     ...(unconfirmed.length ? { unconfirmed } : {}),
     ...(failed && urls.size < plan.shots.length ? { error: failed } : {}),
+    // PURCHASES SWITCHED OFF (audit A25-3, 2026-10-23): a refused shot was
+    // never asked of the image service, and its fact says so.
+    ...(refused.length && !imagePurchasesOn(env) ? { off: true } : {}),
   });
 }
 
@@ -15243,7 +15246,10 @@ const writeBesideMax = (env) => (writesBeside(env) ? WRITE_BESIDE_MAX : 1);
  * child builds from its launch (observed).
  */
 export function jobSwitches(env) {
-  return { draftFirst: draftFirst(env), parallelWrites: writesBeside(env) };
+  // THE MONEY SWITCH BESIDE THEM (audit A25-6, 2026-10-23): the free check
+  // reported only the Worker's reading of IMAGE_PURCHASES, so a launch that
+  // dropped it would let jobs buy while the route said off.
+  return { draftFirst: draftFirst(env), parallelWrites: writesBeside(env), imagePurchases: imagePurchasesOn(env) };
 }
 const turnPollMs = (env) => { const n = Number(env && env.PUBLISH_TURN_POLL_MS); return Number.isFinite(n) && n > 0 ? n : TURN_POLL_MS; };
 const turnWaitMs = (env) => { const n = Number(env && env.PUBLISH_TURN_WAIT_MS); return Number.isFinite(n) && n > 0 ? n : TURN_WAIT_MS; };
@@ -31980,6 +31986,7 @@ async function handleRequest(request, env, ctx) {
         parallelWrites: writesBeside(env),
         jobDraftFirst: jobSwitches(jobSecrets(env)).draftFirst,
         jobParallelWrites: jobSwitches(jobSecrets(env)).parallelWrites,
+        jobImagePurchases: jobSwitches(jobSecrets(env)).imagePurchases,
       });
     }
 
@@ -37308,6 +37315,11 @@ async function handleRequest(request, env, ctx) {
                     .filter((f) => f.name && !(f.purchase && mine.has(f.purchase)) && !(eJob && ((eJob.replay && eJob.replay.hides(f.url)) || (eJob.prepare === true && eJob.rec && typeof eJob.rec.hides === "function" && eJob.rec.hides(f.url)))))
                     .map(({ name, url }) => ({ name, url }));
                 },
+                // WHY THE LAST ONE WAS NOT MADE (audit A25-3, 2026-10-23):
+                // the switch off or the balance short, so the reply says so
+                // instead of "just now". Read right after a null, from the
+                // same two walls `generate` and `makeSitePhoto` stop at.
+                unmadeWhy: () => (!imagePurchasesOn(env) ? "off" : !imagesAffordable(1, { balance, usd: SITE_PHOTO_USD }) ? "short" : ""),
                 // ONE PHOTOGRAPH AT A TIME, priced against the real balance
                 // before each. Checked per picture rather than once up front
                 // because each one is ~19 credits: a batch that can afford two
@@ -47070,8 +47082,9 @@ async function handleRequest(request, env, ctx) {
               }
             }
             // AND IT TAKES EFFECT WITHOUT A REPUBLISH. The site's own Worker
-            // reads its head out of the sidecar, so patching that one key is the
-            // whole deployment — which matters because the alternative is a
+            // reads its head out of the sidecar (again every 30 seconds, audit
+            // A11-4: a warm isolate serves the patch within half a minute), so
+            // patching that one key is the whole deployment — which matters because the alternative is a
             // 40-second container run to change a string, and because somebody
             // pasting a token has a provider's "Verify" button open in the next
             // tab. Both writers derive from the stored config, so they can differ in
@@ -47400,8 +47413,9 @@ async function handleRequest(request, env, ctx) {
             }
             // AND IT IS LIVE WITHOUT A REPUBLISH — the share route's pattern and
             // the rename lane's. The published site's own script reads its head
-            // out of this sidecar on every request, so patching the one key IS
-            // the deployment: no container, no compile, no credits.
+            // out of this sidecar (again every 30 seconds, audit A11-4), so
+            // patching the one key IS the deployment: no container, no
+            // compile, no credits.
             //
             // BEST-EFFORT, AND THE STORED VALUE IS ALREADY SAFE: a failure here
             // means the new description appears at the site's next publish
@@ -47599,6 +47613,17 @@ async function handleRequest(request, env, ctx) {
               mReq = new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify(rest) });
             }
             r = await mediaRoute(env, mReq, mdeps, { scope: siteScope(mslug), sid: msid, step: mstep });
+            // FULL WHILE CHANGES ARE HELD (audit A10-5, 2026-10-23): a file
+            // deleted or replaced in the draft keeps its room until Publish, so
+            // "delete some first" alone sent the owner deleting files that
+            // freed nothing. Said as it is; what counts is unchanged.
+            if (mHolding && !msid && r && r.status === 409 && r.body && r.body.code === "full" && typeof r.body.error === "string") {
+              // A REPLACEMENT waits in the draft as a file of its own, so
+              // publishing alone does not make its room: it is said apart.
+              const why = mReplace ? " — on a published site a replacement waits in your draft as a separate file until you publish, so it needs room for one more; files you delete in your draft still count until you publish, so delete one and publish your draft to make room"
+                : " — files you delete or replace in your draft still count until you publish it, so publish your draft (or delete files and then publish) to make room";
+              r = { ...r, body: { ...r.body, error: r.body.error.replace(/ — delete some first$/, "") + why } };
+            }
             const REPLACING = (sid) => "site-drafts/" + mslug + "/replacing/" + sid + ".json";
             // THE HANDLERS' OWN SHAPES (2026-10-16): a start answers `session`,
             // and a finish answers the file FLAT (`{ ok, name, … }`). This read
@@ -47609,21 +47634,41 @@ async function handleRequest(request, env, ctx) {
               await env.SITES_BUCKET.put(REPLACING(r.body.session), JSON.stringify({ name: mReplace }), { httpMetadata: { contentType: "application/json" } });
               r = { ...r, body: { ...r.body, replacesInDraft: mReplace } };
             }
-            if (mHolding && msid && mstep === "complete" && r && r.status < 300 && r.body && r.body.ok === true && typeof r.body.name === "string" && isMediaName(r.body.name)) {
+            // PAIRED WHEREVER THE UPLOAD IS SEEN FINISHED (audit A10-3,
+            // 2026-10-23): the finish itself, a repeated finish, the status
+            // read a lost or unclear answer settles through, and a cancel that
+            // finds it finished. Only the finish's own 2xx paired it before,
+            // so a failed seal or a lost answer settled through status left
+            // the stand-in unpaired while the panel said "Replaced". The record
+            // is kept, marked paired with its revision, so a second sighting
+            // answers held again and never holds the pair twice.
+            const doneName = !(mHolding && msid && r && r.status < 300 && r.body) ? ""
+              : mstep === "complete" ? (r.body.ok === true && typeof r.body.name === "string" ? r.body.name : "")
+              : !mstep && (r.body.state === "done" || r.body.done === true) && r.body.file && typeof r.body.file.name === "string" ? r.body.file.name : "";
+            if (doneName && isMediaName(doneName)) {
               const pend = await env.SITES_BUCKET.get(REPLACING(msid));
               if (pend) {
-                let target = "";
-                try { target = String((JSON.parse(await pend.text()) || {}).name || ""); } catch { target = ""; }
+                let rec = {};
+                try { rec = JSON.parse(await pend.text()) || {}; } catch { rec = {}; }
+                const target = String(rec.name || "");
                 if (isMediaName(target)) {
-                  const w = await backendWriter(env, mslug);
-                  w.hold.add({ kind: "media-replace", name: target, with: r.body.name });
-                  const sealed = await sealHeld(env, mslug, w, {});
-                  if (!sealed.ok) r = { status: 503, body: { error: "the new file is uploaded, but it couldn't be saved to your draft — replace the file again", code: "draft", retry: true } };
+                  let revision = rec.paired === true ? rec.revision : null;
+                  if (rec.paired !== true) {
+                    const w = await backendWriter(env, mslug);
+                    w.hold.add({ kind: "media-replace", name: target, with: doneName });
+                    const sealed = await sealHeld(env, mslug, w, {});
+                    if (sealed.ok) {
+                      revision = sealed.revision;
+                      await env.SITES_BUCKET.put(REPLACING(msid), JSON.stringify({ name: target, paired: true, revision }), { httpMetadata: { contentType: "application/json" } }).catch(() => {});
+                    }
+                  }
+                  if (revision === null) r = { status: 503, body: { error: "the new file is uploaded, but it couldn't be saved to your draft — replace the file again", code: "draft", retry: true } };
                   else {
-                    await env.SITES_BUCKET.delete(REPLACING(msid)).catch(() => {});
-                    // FLAT, as every finish answers: the stand-in's own name,
-                    // the address it will play at, and that it is held.
-                    r = { ...r, body: { ...r.body, replaces: target, url: uploadUrl(mslug, target), held: true, draft: heldDraft(sealed.revision) } };
+                    // FLAT on a finish, as every finish answers; inside `file`
+                    // on a status or a cancel: the stand-in's own name, the
+                    // address it will play at, and that it is held.
+                    const held = { replaces: target, url: uploadUrl(mslug, target), held: true, draft: heldDraft(revision) };
+                    r = mstep === "complete" ? { ...r, body: { ...r.body, ...held } } : { ...r, body: { ...r.body, file: { ...r.body.file, ...held } } };
                   }
                 }
               }

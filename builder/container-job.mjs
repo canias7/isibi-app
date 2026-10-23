@@ -184,8 +184,8 @@ export async function runJob(launch, { importWorker, env, ctx, log = () => {}, s
       const worker = await importWorker();
       if (!worker || typeof worker.jobSwitches !== "function") throw new Error("the Worker module has no jobSwitches export");
       const s = worker.jobSwitches(jobEnv);
-      const out = { ok: true, shape: "env", draftFirst: s.draftFirst === true, parallelWrites: s.parallelWrites === true };
-      log({ probe: "env", draftFirst: out.draftFirst, parallelWrites: out.parallelWrites });
+      const out = { ok: true, shape: "env", draftFirst: s.draftFirst === true, parallelWrites: s.parallelWrites === true, imagePurchases: s.imagePurchases === true };
+      log({ probe: "env", draftFirst: out.draftFirst, parallelWrites: out.parallelWrites, imagePurchases: out.imagePurchases });
       return { ok: true, kind, id, ms: Date.now() - at, probe: out };
     } catch (e) {
       const out = { ok: false, shape: "env", error: String((e && e.message) || e).slice(0, 200) };

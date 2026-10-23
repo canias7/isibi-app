@@ -201,7 +201,9 @@ export function recoveryChecks(snap) {
  */
 export function switchChecks(runtime, probe, want) {
   const checks = {};
-  const pairs = [["draftFirst", "jobDraftFirst"], ["parallelWrites", "jobParallelWrites"]];
+  // THE MONEY SWITCH (audit A25-6, 2026-10-23) is checked when a wanted
+  // value is given for it, so an older caller's two-switch `want` reads as before.
+  const pairs = [["draftFirst", "jobDraftFirst"], ["parallelWrites", "jobParallelWrites"], ...(want && typeof want.imagePurchases === "boolean" ? [["imagePurchases", "jobImagePurchases"]] : [])];
   for (const [w, j] of pairs) {
     const r = runtime && typeof runtime === "object" ? runtime : {};
     checks[w + ".worker"] = typeof r[w] !== "boolean" ? unverified("the runtime route did not report " + w)

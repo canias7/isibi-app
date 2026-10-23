@@ -1730,6 +1730,9 @@ export function pictureOutcomes({ plan, budget, notOffered = [], buy = null, thr
     else if (unconfirmed.has(k)) out.push({ page, describe, status: "unknown", why: "purchase-unconfirmed" });
     else if (attempted.has(k) && split && unresolved.has(k)) out.push({ page, describe, status: "unknown", why: "still-pending" });
     else if (attempted.has(k) && split && !refused.has(k)) out.push({ page, describe, status: "unknown", why: "no-record" });
+    // NEVER ASKED WHILE PURCHASES ARE SWITCHED OFF (audit A25-3): not a
+    // failure of the image service, which was never called.
+    else if (attempted.has(k) && buy.off === true) out.push({ page, describe, status: "not-attempted", why: "off" });
     else if (attempted.has(k)) out.push({ page, describe, status: "failed" });
     else if (notTried.has(k)) out.push({ page, describe, status: "not-attempted", why: buy.full ? "library" : buy.slow ? "time" : "budget" });
     else out.push({ page, describe, status: "not-placed" });
