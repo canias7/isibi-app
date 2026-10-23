@@ -1,6 +1,11 @@
 # Owner Notes
 
 
+
+## 2026-10-23 — Audit findings 201–264 fixed and deployed (round 2, end of the list)
+
+Round 2 of your scheduled task. Six helpers re-checked findings 201–264 against the code as round 1 left it and fixed the real ones, each with a test that fails on the old code. A fresh reviewer double-checked the combined work and found three small things, all fixed; one conflict between two helpers was settled by keeping the more complete fix. You were sent before/after screenshots of the high-contrast fix. Full suite green (12,155 tests), GitHub's checks green, merged and deployed as deploy 2263. That finishes the audit list: every finding is fixed, confirmed already fixed, parked by you, or waiting on your decision (the records `docs/history/2026-10-23-r1-*.md` and `r2-*.md` list each with options).
+
 ## 2026-10-23 — Audit findings 103–200 fixed and deployed (round 1)
 
 Your scheduled task ran at 6 a.m. Eastern. Seven helpers re-checked findings 103–200 against the current code and fixed the real ones, each with a test that fails on the old code. A fresh reviewer then double-checked the combined work and found five mistakes, the worst being that a visitor could type a secret's name into a form field and get the owner's key sent out; all five were fixed before anything went live. Fourteen clashes between the branches were fixed too. Full suite green (12,110 tests), GitHub's checks green, merged and deployed as deploy 2262. The decisions that are yours are in the records `docs/history/2026-10-23-r1-*.md`. Round 2 (findings 201–264) starts next.
