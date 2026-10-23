@@ -14560,13 +14560,22 @@ async function runPublication(env, slug, j, etag, say = null) {
         // nothing of this revision is live, and it is not forced over that.
         if (liveV !== j.from) return before("the site changed while publishing");
         holdOn();
-        const act = await activateBuild(deps, {
+        const activate = async () => await activateBuild(deps, {
           slug, version: j.version, build: b.manifest.build || "", parent: liveV, job: null,
           expectEtag: ptrTag, previous: ptr || null,
           sidecar, sidecarKey: siteMetaKey(slug),
           liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
           putWorker: async () => putSiteWorker(env, slug, { ok: true, code: b.worker, build: b.manifest.build || "" }, { version: j.version }),
         });
+        let act = await activate();
+        if (!act.ok && act.error === "superseded") {
+          // ONLY THE ETAG MOVED (2026-10-23, audit S7-3): a fence stamp
+          // rewrites the pointer with the same version and new fence bytes,
+          // and `superseded` touched nothing. Still on `j.from`, the switch is
+          // tried once more on the new etag; anything else is the site moving.
+          const again = await readPtr();
+          if (again && again.pointer && String(again.pointer.version || "") === j.from) { ptr = again.pointer; ptrTag = again.etag; act = await activate(); }
+        }
         _pointerCache.delete(slug);
         if (!act.ok) {
           // AN ANSWER IS NOT THE OUTCOME: a write can land with its answer

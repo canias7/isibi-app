@@ -262,3 +262,35 @@ test("S7-1 THROUGH THE REAL PUBLISH — a runner inside a slow switch keeps its 
   assert.equal((await readJson(store, "current/" + slug + ".json")).version, V2);
   assert.equal((await readJson(store, "site-publishing/" + slug + ".json")).phase, "finished", "a renewal written after the journal closed reopened it");
 });
+
+// ── S7-3 (2026-10-23, round 2) ───────────────────────────────────────────────
+test("S7-3 THROUGH THE REAL PUBLISH — a fence stamp that rewrites the live pointer (same version, new etag) between the switch's read and its write does not retire the publication: the switch is tried again on the new etag and the revision goes live; a pointer that really moved is still refused", async () => {
+  const wk = await loadWorkerModule();
+  for (const moved of [false, true]) {
+    const slug = moved ? "s73-moved" : "s73-stamp";
+    const { store, env } = await draftSite(slug);
+    const ptrKey = "current/" + slug + ".json";
+    const put = store.put.bind(store);
+    let struck = 0;
+    store.put = async (k, v, o) => {
+      if (k === ptrKey && o && o.onlyIf && o.onlyIf.etagMatches && !struck++) {
+        const cur = await store.get(ptrKey);
+        const text = await cur.text();
+        // The stamp's shape: the same pointer with other bytes; or another version.
+        await put(ptrKey, moved ? text.replace(V1, "01790500000000-cccccc") : text + "\n", JSONCT);
+      }
+      return put(k, v, o);
+    };
+    await withWire({}, async () => {
+      const pub = await publish(wk, env, slug);
+      assert.equal(struck >= 1, true, "observer: the switch's pointer write was never seen");
+      if (!moved) {
+        assert.equal(pub.status, 200, pub.text);
+        assert.equal((await readJson(store, ptrKey)).version, V2, "the stamp retired the publication");
+      } else {
+        assert.equal(pub.status, 409, pub.text);
+        assert.match(pub.text, /the site changed while publishing/);
+      }
+    });
+  }
+});
