@@ -2,6 +2,13 @@
 
 
 
+## 2026-10-23 — Your three design choices: contrast check, button text, font weight (not merged, not deployed)
+
+- **The contrast check now sees page text on almost every theme (#208).** It used to skip any text over a see-through layer, and nearly every theme makes the page background see-through so its backdrop shows, so page text went unchecked on 467 of 500 themes. It now measures that text against the theme's paper colour. Other see-through layers are still skipped.
+- **Button text is readable on every theme (#207).** 115 themes had button labels below the accessibility minimum (4.5:1) in light mode, the worst 3.47. Each one's button colour moved by the smallest lightness step that reaches 4.5:1: on average 0.019 on the 0–1 lightness scale, at most 0.065 (vaporwave). Nothing else about any theme changed, and dark mode was already fine. A test now checks all 500.
+- **Downloaded fonts state their real weight (#149).** A downloaded font is a single regular file, but it was declared as covering every weight. It is now declared at the weight it really is. Bold headings in such a font are still the browser's imitation bold: fetching extra weights was not part of this choice.
+- Branch `decide-g-design`; nothing spent. Before/after screenshots of four themes' buttons are in the session. Record: `docs/history/2026-10-23-decide-design.md`.
+
 ## 2026-10-23 — Audit findings 201–264 fixed and deployed (round 2, end of the list)
 
 Round 2 of your scheduled task. Six helpers re-checked findings 201–264 against the code as round 1 left it and fixed the real ones, each with a test that fails on the old code. A fresh reviewer double-checked the combined work and found three small things, all fixed; one conflict between two helpers was settled by keeping the more complete fix. You were sent before/after screenshots of the high-contrast fix. Full suite green (12,155 tests), GitHub's checks green, merged and deployed as deploy 2263. That finishes the audit list: every finding is fixed, confirmed already fixed, parked by you, or waiting on your decision (the records `docs/history/2026-10-23-r1-*.md` and `r2-*.md` list each with options).
