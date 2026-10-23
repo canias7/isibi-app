@@ -293,3 +293,28 @@ test("editStopped has the stopped sentence, and the fire names the deadline the 
   assert.match(fire, /readJobMaxMs\(env, kindMs\)/, "the deploy's setting is not read, or not with the kind's clock as its fallback");
   assert.match(fire, /const budgetMs = setting\.ms;/, "the launch's clock is no longer the setting's answer");
 });
+
+test("S7-5 (2026-10-23) A JOB WHOSE LEASE THE LOST SWEEP TOOK STOPS — a beat answered `alive: false` makes the gate answer `stopped` and ends a turn wait; a transport failure or a live beat changes nothing; the heartbeat stops renewing the turn — driven out of the source", async () => {
+  const src = noComments(WORKER);
+  const from = at(src, "function makeJobCtx(env, {");
+  const to = at(src, "async function claimBuildRow(", "the function after makeJobCtx");
+  const text = src.slice(from, to);
+  let answer = { ok: true, alive: true };
+  const makeJobCtx = new Function("editRpc", "LEASE_TTL_S", text + "\nreturn makeJobCtx;")(async () => answer, 90);
+  const budget = { expired: () => false, canPublish: () => true };
+  const job = makeJobCtx({}, { id: ID, owner: "c_x", budget, trace: null });
+  await job.beat(null);
+  assert.deepEqual(job.gate("build"), { go: true, phase: "build" });
+  answer = { ok: false, error: "rpc", status: 503 };
+  await job.beat(null);
+  assert.deepEqual(job.gate("build"), { go: true, phase: "build" }, "a transport failure stopped a healthy job");
+  answer = { ok: false, alive: false };
+  await job.beat(null);
+  assert.equal(job.leaseLost(), true);
+  assert.deepEqual(job.gate("editing"), { go: false, why: "stopped" });
+  // The turn wait reads it, and the heartbeat no longer renews the turn.
+  const tt = src.slice(at(src, "async function takeTurn("), src.indexOf("\n}\n", at(src, "async function takeTurn(")));
+  assert.match(tt, /if \(typeof job\.leaseLost === "function" && job\.leaseLost\(\)\) \{ bs\.stopped = "stopped"; return null; \}/);
+  const hb = at(src, "jctx.beat(null).catch(() => {});");
+  assert.match(src.slice(hb, hb + 700), /if \(jctx\.beside && jctx\.beside\.turn && !jctx\.leaseLost\(\)\) \{\s*const held = jctx\.beside\.turn;\s*renewTurn\(/);
+});

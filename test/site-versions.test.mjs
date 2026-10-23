@@ -479,7 +479,7 @@ test("the restore route rolls back the version the CALLER named", () => {
   assert.ok(i > 0, "the restore route is gone — re-point this guard");
   const call = worker.slice(i, worker.indexOf(";", i));
   assert.match(call, /restoreVersion\(env, ownerSlug,/, "the slug comes from the authorised route, never the body");
-  assert.match(call, /,\s*vb\s*&&\s*vb\.id\)/, "the id must come from the request body");
+  assert.match(call, /,\s*vb\s*&&\s*vb\.id(, \{ refuseLegacy: draftFirst\(env\) \})?\)/, "the id must come from the request body");
 });
 
 test("the restore route's id is shape-checked exactly once", () => {

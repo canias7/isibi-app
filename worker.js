@@ -2966,9 +2966,19 @@ function backupDeps(env) {
     now: () => Date.now(),
     listSites: async () => {
       if (!env.SUPABASE_SERVICE_KEY || !env.SITES_BUCKET) return [];
-      const r = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?select=slug&limit=200`, { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });
-      const rows = await r.json().catch(() => []);
-      return Array.isArray(rows) ? rows : [];
+      // EVERY SITE, PAGED IN A STABLE ORDER (2026-10-23, audit A38-7): one
+      // unordered page of 200 left every site past it never backed up.
+      const out = [];
+      let after = "";
+      for (let page = 0; page < 50; page++) {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?select=slug&order=slug.asc&limit=1000` + (after ? "&slug=gt." + encodeURIComponent(after) : ""), { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });
+        const rows = r.ok ? await r.json().catch(() => null) : null;
+        if (!Array.isArray(rows)) break;
+        out.push(...rows);
+        if (rows.length < 1000 || !rows[rows.length - 1] || !rows[rows.length - 1].slug) break;
+        after = String(rows[rows.length - 1].slug);
+      }
+      return out;
     },
     exists: async (key) => !!(await env.SITES_BUCKET.head(key)),
     put: (key, json) => env.SITES_BUCKET.put(key, json, { httpMetadata: { contentType: "application/json" } }),
@@ -2978,8 +2988,13 @@ function backupDeps(env) {
     },
     remove: (key) => env.SITES_BUCKET.delete(key),
     dump: async (slug) => {
-      const conn = await siteBackendBySlug(env, slug);
-      if (!conn) throw new Error("no backend connection");
+      // THE FOUR-STATE READER (2026-10-23, audit A38-7): the fast lookup alone
+      // answers null for a blank `neon_db`, so such a site was never backed
+      // up and was re-tried every tick. Unreadable throws (retried); a site
+      // with no database is written as a table-less backup, like any site
+      // with nothing declared, so it is not looked up again all night.
+      const conn = await ownerSiteConn(env, slug);
+      if (!conn) return dumpSite({ loadSchema: async () => null, readTable: async () => [], readMeta: async () => ({}) }, { slug, now: Date.now() });
       return dumpSite({
         loadSchema: () => loadSiteSchema(conn),
         // The module hands over a NAME it has already refused underscores and
@@ -7002,6 +7017,7 @@ function makeJobCtx(env, { id, owner, budget, trace, uid = "", slug = "", progre
   // time and taken by another job — stops at its next gate, as a stop, never
   // publishing, repairing or writing the config on a turn it no longer holds.
   let turnLost = false;
+  let leaseLost = false;
   let beats = 0;
   let reserves = 0;
   // ── WHAT THE LEDGER REFUSED (2026-09-05) ──────────────────────────────
@@ -7028,6 +7044,8 @@ function makeJobCtx(env, { id, owner, budget, trace, uid = "", slug = "", progre
     /** Has this job lost the site's publish turn (`loseTurn`)? */
     turnLost: () => turnLost,
     loseTurn() { turnLost = true; },
+    /** Has the lost sweep taken this job's lease (`beat`, audit S7-5)? */
+    leaseLost: () => leaseLost,
     beats: () => beats,
     /**
      * How many times this job's rungs reserved credits — zero for a rung that
@@ -7064,6 +7082,11 @@ function makeJobCtx(env, { id, owner, budget, trace, uid = "", slug = "", progre
       // handles a consumer that has genuinely lost touch, and that is decided
       // on the other side.
       if (r && r.ok === true && r.cancel === true) cancelled = true;
+      // THE LEASE IS GONE (2026-10-23, audit S7-5): the row answered that it
+      // is closed or another run holds it — the lost sweep has refunded and
+      // re-filed this job. Only that answer, never a transport failure. The
+      // job stops at its next gate, and its turn is no longer renewed.
+      if (r && r.ok === false && r.alive === false) leaseLost = true;
       return r;
     },
     /**
@@ -7085,6 +7108,7 @@ function makeJobCtx(env, { id, owner, budget, trace, uid = "", slug = "", progre
       // The Worker's own consumer has no such binding and never reads this.
       if (env && env.JOB_STOP && env.JOB_STOP.signal && env.JOB_STOP.signal.aborted) return { go: false, why: "stopped" };
       if (cancelled) return { go: false, why: "cancelled" };
+      if (leaseLost) return { go: false, why: "stopped" };
       if (turnLost) return { go: false, why: "turn-lost" };
       if (budget && budget.expired()) return { go: false, why: "budget" };
       // A PUBLISH NEEDS ROOM, NOT JUST TIME (run 33, 2026-09-03). With 235s
@@ -14106,6 +14130,8 @@ function heldDraft(revision) {
 // lasts until a click or a sweep gets the step through — there is no bound on
 // that when the store keeps refusing. Nothing is rolled back to close it.
 const PUBLISH_STALE_MS = 3 * 60 * 1000;
+/** How often a runner inside the switch renews its journal (audit S7-1): well inside `PUBLISH_STALE_MS`. `PUBLISH_RENEW_MS` overrides it for tests. */
+const publishRenewMs = (env) => { const n = Number(env && env.PUBLISH_RENEW_MS); return Number.isFinite(n) && n > 0 ? n : 60 * 1000; };
 
 async function readPublication(env, slug) {
   const o = await env.SITES_BUCKET.get(PUBLISHING_KEY(slug));
@@ -14376,7 +14402,26 @@ async function runPublication(env, slug, j, etag, say = null) {
   // (`actionTalk`), never the sweep's. Never costs the publication.
   const tell = (stage, info) => { try { if (typeof say === "function") say(stage, info); } catch { /* the talk never costs the publish */ } };
   const deps = buildDeps(env);
+  // THE JOURNAL KEPT FRESH THROUGH THE SWITCH (2026-10-23, audit S7-1): the
+  // script upload inside it can take up to `DISPATCH_CALL_MS`, far past
+  // `PUBLISH_STALE_MS`, and a journal not written for that long was taken
+  // over by the tick while this runner was still in it — whose late undo
+  // then put the old version back under the recovered publication. Renewed
+  // on a timer from the switch's start; every other journal write stops the
+  // renewal first and waits for one in flight, so writes never cross.
+  let renewing = null; let renewal = Promise.resolve();
+  const holdOn = () => {
+    if (renewing) return;
+    renewing = setInterval(() => {
+      renewal = renewal.then(async () => {
+        if (!renewing) return;
+        try { const at = Date.now(); const e = await writePublication(env, slug, { ...j, at }, etag); if (e) { etag = e; j.at = at; } } catch { /* the next beat, or the write that follows */ }
+      });
+    }, publishRenewMs(env));
+  };
+  const holdOff = async () => { if (renewing) { clearInterval(renewing); renewing = null; } await renewal; };
   const save = async (patch) => {
+    await holdOff();
     Object.assign(j, patch, { at: Date.now() });
     const e = await writePublication(env, slug, j, etag);
     if (!e) throw Object.assign(new Error("the publication was taken over"), { code: "TAKEN_OVER" });
@@ -14387,6 +14432,7 @@ async function runPublication(env, slug, j, etag, say = null) {
   // is left exactly as it is (R2 has no conditional delete; a read-then-delete
   // removed a fresh journal in Codex's reproduction).
   const retire = async (phase) => {
+    await holdOff();
     try { const e = await writePublication(env, slug, { ...j, phase, running: false, at: Date.now() }, etag); if (e) etag = e; return !!e; }
     catch { return false; }
   };
@@ -14533,13 +14579,23 @@ async function runPublication(env, slug, j, etag, say = null) {
         // THE LIVE SITE MOVED ON (another version was put live meanwhile):
         // nothing of this revision is live, and it is not forced over that.
         if (liveV !== j.from) return before("the site changed while publishing");
-        const act = await activateBuild(deps, {
+        holdOn();
+        const activate = async () => await activateBuild(deps, {
           slug, version: j.version, build: b.manifest.build || "", parent: liveV, job: null,
           expectEtag: ptrTag, previous: ptr || null,
           sidecar, sidecarKey: siteMetaKey(slug),
           liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
           putWorker: async () => putSiteWorker(env, slug, { ok: true, code: b.worker, build: b.manifest.build || "" }, { version: j.version }),
         });
+        let act = await activate();
+        if (!act.ok && act.error === "superseded") {
+          // ONLY THE ETAG MOVED (2026-10-23, audit S7-3): a fence stamp
+          // rewrites the pointer with the same version and new fence bytes,
+          // and `superseded` touched nothing. Still on `j.from`, the switch is
+          // tried once more on the new etag; anything else is the site moving.
+          const again = await readPtr();
+          if (again && again.pointer && String(again.pointer.version || "") === j.from) { ptr = again.pointer; ptrTag = again.etag; act = await activate(); }
+        }
         _pointerCache.delete(slug);
         if (!act.ok) {
           // AN ANSWER IS NOT THE OUTCOME: a write can land with its answer
@@ -14555,6 +14611,7 @@ async function runPublication(env, slug, j, etag, say = null) {
         // THE POINTER NAMES THE VERSION — by this activation, by one whose
         // answer was lost, or by one that stopped part-way. Its other
         // effects are made true before anything is recorded as switched.
+        holdOn();
         const done = await completeActivation(env, slug, j.version, { sidecar });
         if (!done.ok) {
           // MOVED ON: newer work owns the live site; set aside next time the
@@ -15109,7 +15166,7 @@ async function servePreview(env, request, url, pv, ctx) {
   return new Response(res.body, { status: res.status, headers: h });
 }
 
-async function restoreVersion(env, slug, id) {
+async function restoreVersion(env, slug, id, { refuseLegacy = false } = {}) {
   const deps = buildDeps(env);
   let b = null;
   try { b = await readBuild(deps, slug, id); } catch (e) { console.error("build read failed:", slug, id, e && e.message); b = null; }
@@ -15129,8 +15186,10 @@ async function restoreVersion(env, slug, id) {
       previous: before || null,
       // THE OWNER'S PANEL CHANGES SURVIVE THE RESTORE (audit A11-2): the
       // verification tag always, the card and description when a panel set
-      // them after the version standing now went live.
-      sidecar: await withPanelFields(deps, slug, typeof b.sidecar === "string" ? b.sidecar : undefined, before && before.version ? String(before.version) : ""), sidecarKey: siteMetaKey(slug),
+      // them after the version standing now went live. AND THE ADDRESS AS IT
+      // STANDS (2026-10-23, audit A38-4): a version staged before a rename
+      // names the old address, which may since have been released.
+      sidecar: await withPanelFields(deps, slug, typeof b.sidecar === "string" ? b.sidecar : undefined, before && before.version ? String(before.version) : "", { origin: true }), sidecarKey: siteMetaKey(slug),
       liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
       putWorker: async () => {
         wput = await putSiteWorker(env, slug, { ok: true, code: b.worker, build: b.manifest.build || "" }, { version: id });
@@ -15161,6 +15220,11 @@ async function restoreVersion(env, slug, id) {
     }
     return { ok: true, id, files: b.manifest.files.length, swept: 0, worker: b.worker, build: b.manifest.build || "", activated: true, uploaded: act.uploaded, wput };
   }
+  // NO LEGACY COPY UNDER DRAFT-FIRST (2026-10-23, audit A38-6): the copy path
+  // drops the pointer, so a site still serving would read as never published
+  // and its held changes would go live at once. A build that could not be read
+  // lands here too, and is refused the same way.
+  if (refuseLegacy) return { ok: false, status: 409, error: "that version is from before versions were kept whole, so it can't be restored now that changes go live through Publish — pick a newer version" };
   const rb = await rollbackVersion(versionDepsWithSweep(env), { slug, id });
   if (!rb.ok) return rb;
   try { await env.SITES_BUCKET.delete(POINTER_KEY(slug)); }
@@ -15998,6 +16062,7 @@ async function takeTurn(env, slug, job) {
     bs.waits = (bs.waits || 0) + 1;
     if (typeof job.cancelled === "function" && job.cancelled()) { bs.stopped = "cancelled"; return null; }
     if (env && env.JOB_STOP && env.JOB_STOP.signal && env.JOB_STOP.signal.aborted) { bs.stopped = "stopped"; return null; }
+    if (typeof job.leaseLost === "function" && job.leaseLost()) { bs.stopped = "stopped"; return null; }
     if (job.budget && typeof job.budget.expired === "function" && job.budget.expired()) return null;
     if (Date.now() - started >= turnWaitMs(env)) { bs.waitedOut = true; return null; }
     await new Promise((r) => setTimeout(r, turnPollMs(env)));
@@ -24903,7 +24968,8 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     beat = setInterval(() => {
       jctx.beat(null).catch(() => {});
       // A RENEWAL THAT ANSWERS NO IS A LOST TURN (2026-10-15), never ignored.
-      if (jctx.beside && jctx.beside.turn) {
+      // NONE ONCE THE LEASE IS GONE (audit S7-5): the re-filed run waits on it.
+      if (jctx.beside && jctx.beside.turn && !jctx.leaseLost()) {
         const held = jctx.beside.turn;
         renewTurn(env, job.slug, held).then((ok) => { if (ok === false && jctx.beside.turn === held) loseTurn(jctx, job.slug, "its renewal was refused"); }).catch(() => {});
       }
@@ -46424,7 +46490,7 @@ async function handleRequest(request, env, ctx) {
                 if (d && d.rev > d.applied) return refuse("you have changes saved in your draft that aren't published yet — publish them or discard the draft first, then restore an older version", 409, { unpublished: true });
                 if (d && unpublishedVersions(d).has(String((vb && vb.id) || ""))) return refuse("that version was never published, so it can't be restored", 409);
               }
-              const rb = await restoreVersion(env, ownerSlug, vb && vb.id);
+              const rb = await restoreVersion(env, ownerSlug, vb && vb.id, { refuseLegacy: draftFirst(env) });
               if (!rb.ok) return refuse(rb.error || "rollback failed", rb.status || 500);
               talk.say(actionFacts("restore", "switched"));
               if (draftFirst(env) && rb.activated) {

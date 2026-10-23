@@ -340,7 +340,8 @@ reads `builds/<slug>/<SITE_VERSION>/client` and answers `x-site-version`.
 - **`restoreVersion` IS THE ONE RESTORE FOR BOTH LAYOUTS**: a build-layout
   version is an activation (its own `server.js`, its sidecar, its state copied
   back, the config's baked fields merged through `withConfig` so `verify` and
-  `share` survive); a legacy one is the copy path with the POINTER DROPPED.
+  `share` survive, and the sidecar carrying the live head's verification tags,
+  panel changes and current address through `withPanelFields`, audit A38-4); a legacy one is the copy path with the POINTER DROPPED.
 
 **AN ACTIVATION THAT CANNOT SERVE UNDOES ITSELF (2026-09-06).** Stage 7
 answered a failed script upload with `ok: true` — the pointer had moved, the
