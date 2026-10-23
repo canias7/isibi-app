@@ -68,7 +68,7 @@ test("AT 1 control — THE FORM ITSELF WRITTEN: imported from its own module and
   const r = reportOf("booking-form", ev);
   assert.equal(r.told[0].told, "shown");
   const facts = factsOf(r.told);
-  assert.ok(facts.some((t) => /^What this change added for it: a new booking-form on \/visit whose own words are “Book a table”, “Send booking”\. The published page showed those words as it first loaded\. Whether what was added is what was asked for is not checked here: The Visit page has a booking-form/.test(t)), JSON.stringify(facts));
+  assert.ok(facts.some((t) => /^What this change added for it: a new booking-form on \/visit whose own words are “Book a table”, “Send booking”\. The built page showed those words as it first loaded\. Whether what was added is what was asked for is not checked here: The Visit page has a booking-form/.test(t)), JSON.stringify(facts));
   assert.ok(facts.some((t) => /^Not verified: whether anything a visitor does/.test(t)), "seen was told without the untried behaviour beside it");
 });
 
@@ -210,7 +210,7 @@ test("AT 8 — NOT ON FIRST LOAD, OR HANDED AS A PROP, IS NOT A CLICK: the note 
   assert.doesNotMatch(note, /waits behind|opens|open it/, "the note said a visitor action reveals it");
   assert.match(note, /I haven't checked whether anything a visitor does brings it up/);
   const facts = factsOf(r.told);
-  const seen = facts.find((t) => /^What this change added for it: a new faq on \/visit .*Not all of it was on the published page as it first loaded/.test(t));
+  const seen = facts.find((t) => /^What this change added for it: a new faq on \/visit .*Not all of it was on the built page as it first loaded/.test(t));
   assert.ok(seen, JSON.stringify(facts));
   assert.match(seen, /passed as a value to a component on the page, which decides where and when to draw it/);
   assert.match(seen, /“Yes, on Fridays\.”/);
@@ -313,7 +313,7 @@ test("AT 13 — POSITIVE CONTROL: two cards, one per request, each with its own 
   const r = reportOfAll([cardReq(PARKING), cardReq(DOGS)], ev);
   assert.deepEqual(r.told.map((t) => t.told), ["shown", "shown"]);
   const dogs = factsFor(r.told, DOGS.need);
-  assert.ok(dogs.some((t) => t.includes("a new card on /visit whose own words are “Dogs are welcome inside.”") && t.includes("The published page showed those words as it first loaded")), JSON.stringify(dogs));
+  assert.ok(dogs.some((t) => t.includes("a new card on /visit whose own words are “Dogs are welcome inside.”") && t.includes("The built page showed those words as it first loaded")), JSON.stringify(dogs));
 });
 
 test("AT 15 — ONE ADDITION IS ITS OUTERMOST NEW INSTANCE, AND A NEW INSTANCE WITH NO WORDS OF ITS OWN IS STILL LISTED: a card nested inside the new card is part of that one addition; of two new cards, one whose copy is computed is listed with no words, and the facts say so", () => {

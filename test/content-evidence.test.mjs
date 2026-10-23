@@ -96,7 +96,7 @@ test("CE 3 — INITIALLY COLLAPSED (run 144's shape): stored, not shown on first
   assert.equal(r.told[0].state, "unverified", "the content is there; nothing exercised it");
   assert.deepEqual(r.told[0].hidden, [{ text: "Yes, reply STOP to any note.", placement: ["handed"] }]);
   const note = toldNote(r.told);
-  assert.match(note, /wasn't all on the published page as it first loaded/);
+  assert.match(note, /wasn't all on the page as it first loaded/);
   assert.match(note, /I haven't checked .*that what it says is what you asked for/, "the note claimed the request met (2026-10-13)");
   assert.match(note, /I haven't checked whether anything a visitor does brings it up/);
   assert.doesNotMatch(note, /waits behind|open it\b/, "the note claimed a visitor action reveals it (corrected 2026-10-13)");
@@ -106,7 +106,7 @@ test("CE 3 — INITIALLY COLLAPSED (run 144's shape): stored, not shown on first
   const f = facts.find((x) => /first loaded/.test(x.text));
   assert.ok(f, JSON.stringify(facts));
   assert.equal(f.kind, "note");
-  assert.match(f.text, /^What this change added for it: a new faq on \/bake-list whose own words are “Can I leave the list\?”, “Yes, reply STOP to any note\.” \(not on the page as it first loaded\)\. Not all of it was on the published page as it first loaded/);
+  assert.match(f.text, /^What this change added for it: a new faq on \/bake-list whose own words are “Can I leave the list\?”, “Yes, reply STOP to any note\.” \(not on the page as it first loaded\)\. Not all of it was on the built page as it first loaded/);
   assert.match(f.text, /Whether what was added is what was asked for is not checked here: The Bake List page/);
   // WHERE IT SITS, AS A LOCATION ONLY (corrected 2026-10-13): handed to a component, never "opens to its answer".
   assert.match(f.text, /passed as a value to a component on the page, which decides where and when to draw it/);
@@ -125,10 +125,10 @@ test("CE 4 — SHOWN ON LOAD: every added text on the first-load page — 'seen'
   const r = report(ev);
   assert.equal(r.told[0].told, "shown");
   assert.equal(r.told[0].hidden, undefined);
-  assert.match(toldNote(r.told), /it shows on the published page as it first loads/);
+  assert.match(toldNote(r.told), /it shows on the page as it first loads/);
   const facts4 = factsOf(r.told);
   const f = facts4.find((x) => /^What this change added for it/.test(x.text));
-  assert.match(f.text, /The published page showed those words as it first loaded\. Whether what was added is what was asked for is not checked here: /);
+  assert.match(f.text, /The built page showed those words as it first loaded\. Whether what was added is what was asked for is not checked here: /);
   assert.doesNotMatch(f.text, /^Added, and seen/, "seen was still told as the request met");
   assert.ok(facts4.some((x) => /^Not verified: whether anything a visitor does/.test(x.text)), "seen was not kept apart from untried");
   assert.match(toldNote(r.told), /I haven't tried anything a visitor might do with it/);
@@ -198,8 +198,8 @@ test("CE 7 — INCOMPLETE OR FAILED READS are never read as present or absent", 
   assert.equal(ev.faq.shown, "unread");
   let r = report(ev);
   assert.equal(r.told[0].told, "in-code");
-  assert.match(toldNote(r.told), /couldn't read the published page to see it/);
-  assert.match(factsOf(r.told).find((x) => /could not be read/.test(x.text)).text, /^What this change added for it: a new faq on \/bake-list whose own words are “Can I leave the list\?” \(not confirmed on the published page\).*The published page could not be read, so whether it shows is not known\. Whether what was added is what was asked for is not checked here/);
+  assert.match(toldNote(r.told), /couldn't read the built page to see it/);
+  assert.match(factsOf(r.told).find((x) => /could not be read/.test(x.text)).text, /^What this change added for it: a new faq on \/bake-list whose own words are “Can I leave the list\?” \(not confirmed on the built page\).*The built page could not be read, so whether it shows is not known\. Whether what was added is what was asked for is not checked here/);
   // (d) THE READ THE CAP CUT: a text not found there is unread, never hidden…
   ev = componentEvidence({ answers: ANSWERS, added, rendered: render("Bake List Can I leave the list?", false) });
   assert.equal(ev.faq.shown, "unread");
@@ -220,6 +220,25 @@ test("CE 7 — INCOMPLETE OR FAILED READS are never read as present or absent", 
   // (g) NO EVIDENCE AT ALL (a failure exit, or a record written before this): the old reading, exactly.
   assert.equal(report(null).told[0].told, "unseen");
   assert.equal(report({ faq: { stored: "added", shown: "maybe" } }).told[0].told, "unseen", "a malformed reading was trusted");
+});
+
+// A21-5: under DRAFT_FIRST the compile the render check read is the DRAFT, and
+// the same reply says the live site is unchanged. So no content sentence, to
+// the reply model or the customer, may call what it read the published page.
+test("CE 7a — the page read is never called the published page: it may be a draft", () => {
+  const added = addedByRoute({ before: [page(BEFORE)], after: [page(AFTER_FAQ)], parse });
+  const reads = {
+    shown: render("Bake List Can I leave the list? Yes, reply STOP to any note."),
+    behind: render("Bake List Can I leave the list?"),
+    "in-code": new Map(),
+  };
+  for (const [kind, rendered] of Object.entries(reads)) {
+    const r = report(componentEvidence({ answers: ANSWERS, added, rendered }));
+    assert.equal(r.told[0].told, kind, "the fixture is not the " + kind + " case");
+    const said = [toldNote(r.told), ...factsOf(r.told).map((x) => x.text)].join("\n");
+    assert.ok(said.length > 0, kind + ": nothing was said");
+    assert.doesNotMatch(said, /published page/, kind + ": " + said);
+  }
 });
 
 test("CE 7b — A COMPONENT ON TWO ROUTES WITH CONTENT ON ONLY ONE is unread, never added and never missing", () => {
@@ -287,7 +306,7 @@ test("CE 11 — THROUGH THE ROUTE, COLLAPSED: the answer, the stored record and 
   assert.equal(r.body.requirementsTold.length, 1, JSON.stringify(r.body.requirementsTold));
   assert.equal(r.body.requirementsTold[0].told, "behind", JSON.stringify(r.body.requirementsTold));
   assert.deepEqual(r.body.requirementsTold[0].hidden, [{ text: "Yes, reply STOP to any note.", placement: ["handed"] }]);
-  assert.match(r.body.coverNote, /wasn't all on the published page as it first loaded/);
+  assert.match(r.body.coverNote, /wasn't all on the page as it first loaded/);
   assert.doesNotMatch(r.body.coverNote, /can't see from here whether/);
   // THE STORED RECORD SAYS THE SAME (the last write, after the pages shipped).
   const kept = storedAnswer(r, "ce-collapsed");
@@ -295,7 +314,7 @@ test("CE 11 — THROUGH THE ROUTE, COLLAPSED: the answer, the stored record and 
   const o = kept.coverage.requirements.find((x) => x.item === "faq");
   assert.ok(o && o.state === "unverified" && o.content && o.content.shown === "some", "the stored record does not carry the reading: " + JSON.stringify(o));
   const facts = addonReplyFacts(r.body).facts;
-  assert.ok(facts.some((x) => /Not all of it was on the published page as it first loaded/.test(x.text)), JSON.stringify(facts));
+  assert.ok(facts.some((x) => /Not all of it was on the built page as it first loaded/.test(x.text)), JSON.stringify(facts));
   assert.ok(facts.some((x) => /^Not verified: whether anything a visitor does/.test(x.text)), JSON.stringify(facts));
   assert.ok(!facts.some((x) => /can see whether this is in place/.test(x.text)));
 });

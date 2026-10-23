@@ -2554,17 +2554,17 @@ export function toldNote(told) {
   // that whether it says what was asked is not checked.)
   const shown = of("shown");
   if (shown.length) {
-    parts.push("I've added something for this and it shows on the published page as it first loads, but I haven't checked that what it says is what you asked for: " + shown.map((r) => r.need).join("; ")
+    parts.push("I've added something for this and it shows on the page as it first loads, but I haven't checked that what it says is what you asked for: " + shown.map((r) => r.need).join("; ")
       + ". Have a look. I haven't tried anything a visitor might do with it.");
   }
   const behind = of("behind");
   if (behind.length) {
-    parts.push("I've added something for this to the page's code, but it wasn't all on the published page as it first loaded, and I haven't checked whether anything a visitor does brings it up, or that what it says is what you asked for: "
+    parts.push("I've added something for this to the page's code, but it wasn't all on the page as it first loaded, and I haven't checked whether anything a visitor does brings it up, or that what it says is what you asked for: "
       + behind.map((r) => r.need).join("; ") + ". Have a look.");
   }
   const inCode = of("in-code");
   if (inCode.length) {
-    parts.push("I've added something for this to the page's code, but I couldn't read the published page to see it, and I haven't checked that what it says is what you asked for: " + inCode.map((r) => r.need).join("; ") + " — have a look.");
+    parts.push("I've added something for this to the page's code, but I couldn't read the built page to see it, and I haven't checked that what it says is what you asked for: " + inCode.map((r) => r.need).join("; ") + " — have a look.");
   }
   // THE ZONE IS NOT QUOTED, because nothing here can see it: a job's applied
   // facts carry `everyMinutes` and `at` and no timezone. The reply's own
