@@ -1374,3 +1374,5 @@ model is selected on the picker"*. The scan never runs on its own after a build,
 and it uses the builder's selected model. Plan: `docs/plans/2026-10-21-site-security-scan.md`.
 Price: the fixed checks free, the model calls charged like every model call (*"just
 like we measure all the model calls"*). Everyone gets it (*"everyone is fine rn"*).
+
+- **A first build's reply tells what was left out** (owner, 2026-10-23, after the Saltmarsh & Sparrow build): the final reply must tell the customer what they asked for that the build did not make (e.g. orders, bookings, shop, sign-ups, forms, pages), that they can ask for those next as additions, and that no database project is created on a first build. **Model-written** from the build's real facts, never a hardcoded message. Not fixed yet: investigate first.
