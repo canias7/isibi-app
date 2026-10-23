@@ -12924,7 +12924,9 @@ function notifyOwnerOfSubmission(env, ctx, payload) {
       // Supabase, because this is looking up WHO to write to — our own record of
       // our own customer's address. It says nothing about which sender is used.
       emailOf: (uid) => ownerEmail(env, uid),
-      send: async ({ to, subject, html }) => {
+      // READ BEFORE THE CLAIM (audit A12-9): a missing key used to be found
+      // only after the five-minute window was taken.
+      ready: async () => {
         const secrets = await siteMailSecrets(env, payload.db, payload.slug)();
         const picked = pickProvider(secrets);
         const from = String(secrets.EMAIL_FROM || "").trim();
@@ -12933,8 +12935,9 @@ function notifyOwnerOfSubmission(env, ctx, payload) {
         // half is missing instead of wondering why nothing arrives.
         if (!picked) throw new Error("no mail provider key in this site's Secrets");
         if (!from) throw new Error("no EMAIL_FROM in this site's Secrets");
-        return postProviderEmail(picked.provider, picked.key, from, to, subject, html);
+        return { picked, from };
       },
+      send: async ({ to, subject, html }, { picked, from }) => postProviderEmail(picked.provider, picked.key, from, to, subject, html),
     }, payload);
     // It runs detached, so nothing else would ever see why it did not send.
     if (!out.sent && out.error) console.error("submission notify:", payload.slug, out.reason, out.error);

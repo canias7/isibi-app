@@ -2596,7 +2596,7 @@ const MAX_ITEM_TEXT = 240;
 
 /** What each part of a table does, as the platform does it. One line per `TABLE_PARTS` entry. */
 export const PART_SAYS = Object.freeze({
-  notify: "the owner is emailed about each new row (on a card-paid table, each paid order)",
+  notify: "the owner is emailed about each new row (on a card-paid table, each paid order), only once they have pasted their own email key and EMAIL_FROM in Secrets",
   confirm: "the person who adds a row is emailed (on a card-paid table, once the order is paid)",
   sms: "the person who adds a row is sent a text message (on a card-paid table, once the order is paid)",
   webhooks: "another system is told about its rows",

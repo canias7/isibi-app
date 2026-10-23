@@ -75,18 +75,31 @@ export function submissionEmail({ slug, table, row, extra = 0 } = {}) {
 
 /**
  * deps:
- *   claim(slug)          → {ok, owner_uid, missed} | {ok:false}
+ *   ready()              → anything (optional) | throws
+ *        the sender's own settings (the owner's key and EMAIL_FROM), read
+ *        BEFORE the claim (audit A12-9): a site with no key must not spend the
+ *        cooldown window on an email that cannot go. Its answer is handed to
+ *        send as the second argument.
+ *   claim(slug)          → {ok, owner_uid, missed?} | {ok:false}
  *        one atomic conditional update: sets notified_at and returns the row
  *        ONLY if notifications are on and the cooldown has passed. Whoever wins
- *        sends; everyone else in the window does nothing.
+ *        sends; everyone else in the window does nothing. `missed` (the count
+ *        dropped inside the window) is read when given; the Worker's claim does
+ *        not count them today, so the "…and N more" line does not appear.
  *   emailOf(uid)         → address | null
- *   send({to, subject, html}) → void
+ *   send({to, subject, html}, ready) → void
  *
  * Returns what it did, for the log — this runs detached, so a thrown error
  * would otherwise vanish.
  */
 export async function notifyOwner(deps, { slug, table, access, method, row } = {}) {
   if (!shouldNotify({ access, method })) return { sent: false, reason: "not_a_submission" };
+
+  let mail;
+  if (typeof deps.ready === "function") {
+    try { mail = await deps.ready(); }
+    catch (e) { return { sent: false, reason: "no_sender", error: String((e && e.message) || e) }; }
+  }
 
   let claim;
   // Nothing here may throw into the caller: the submission already succeeded,
@@ -101,7 +114,7 @@ export async function notifyOwner(deps, { slug, table, access, method, row } = {
   if (!to) return { sent: false, reason: "no_address" };
 
   const { subject, html } = submissionEmail({ slug, table, row, extra: claim.missed || 0 });
-  try { await deps.send({ to, subject, html }); }
+  try { await deps.send({ to, subject, html }, mail); }
   catch (e) { return { sent: false, reason: "send_failed", error: String((e && e.message) || e) }; }
   return { sent: true, to };
 }
