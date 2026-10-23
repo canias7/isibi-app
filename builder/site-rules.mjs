@@ -34,6 +34,8 @@ import { modelsFor } from "./build-models.mjs";
 import { QUESTION_FIELD, askOf } from "./clarify.mjs";
 import { ECHO_CHARS_PER_TOKEN, LIST_ANSWER_MAX_TOKENS } from "./input-budget.mjs";
 import { scopedData, needsOf, withNeeds, notShown } from "./site-apply.mjs";
+// THEIR OWN WORDS, compared the way a requirement's are (`groundRequirements`).
+import { plain } from "./site-requirements.mjs";
 
 /**
  * Haiku, deliberately, and the reason is the validation rather than the task
@@ -122,6 +124,13 @@ export const RULES_TOOL = {
                 "anyone signed in to the site. \"own\" is only the person who created the row. \"none\" is nobody: " +
                 "the owner still sees everything in their own panel, so this is right for a contact form.\n" +
                 "LEAVE IT OUT unless they are changing who can see this. The current value is listed below.",
+            },
+            // A WIDER READ RESTS ON THEIR WORDS (2026-10-23, audit A29-9).
+            readWords: {
+              type: "string",
+              description:
+                "WHEN YOU SET \"read\", copy here, word for word, what they wrote that says who should see it, from " +
+                "WHAT THEY ASKED FOR or an answer they gave. Leave it out when nothing they wrote says so.",
             },
             write: {
               type: "string",
@@ -402,7 +411,11 @@ export function readRules(reply, tables) {
 
     // THE PAIR. Read and write move independently — "let people browse" changes
     // the read and must not quietly open the write with it.
-    if (typeof c.read === "string" && READ_LEVELS.includes(c.read.toLowerCase())) { change.read = c.read.toLowerCase(); touched = true; }
+    if (typeof c.read === "string" && READ_LEVELS.includes(c.read.toLowerCase())) {
+      change.read = c.read.toLowerCase(); touched = true;
+      // Carried for the widening check only; `mergeRules` copies named rules, never this.
+      if (typeof c.readWords === "string" && c.readWords.trim()) change.readWords = c.readWords.trim();
+    }
     if (typeof c.write === "string" && WRITE_LEVELS.includes(c.write.toLowerCase())) { change.write = c.write.toLowerCase(); touched = true; }
 
     // CONFIRM AND SMS ARE VALIDATED BY THE MODULES THAT SEND THEM, not here.
@@ -554,6 +567,52 @@ const WHY = {
   "db-refused": "the database refused that rule, usually because entries already there break it",
 };
 
+/**
+ * A WIDER READ IS ASKED ABOUT UNLESS THEIR WORDS SAY SO (2026-10-23, audit A29-9).
+ *
+ * Opening a table that only the owner (`none`) or each visitor (`own`) could
+ * read to everyone (`public`) or every signed-in member (`members`) puts
+ * customers' entries in view, and the prompt was the only thing in the way. The
+ * owner's choice (a): such a change is a question back, unless the customer's
+ * own words plainly ask for it. The model quotes those words (`readWords`) and
+ * they must really be in what was written (the request or an answer they gave),
+ * the test `groundRequirements` holds a requirement to. No word is looked for;
+ * only whether the quote is theirs. Before and after are both `resolveAccess`,
+ * never a preset's name. A narrower or unchanged read is never asked about.
+ *
+ * Returns the widenings that rest on no words of theirs: `{ table, read }`.
+ */
+export const NARROW_READS = ["none", "own"];
+export const WIDE_READS = ["public", "members"];
+export function ungroundedWidenings(changes, tables, asked = []) {
+  const byName = new Map();
+  for (const t of Array.isArray(tables) ? tables : []) if (t && t.name) byName.set(String(t.name).toLowerCase(), t);
+  const texts = (Array.isArray(asked) ? asked : []).filter((t) => typeof t === "string" && t.trim()).map(plain);
+  const out = [];
+  for (const c of Array.isArray(changes) ? changes : []) {
+    if (!c || c.read === undefined) continue;
+    const prior = byName.get(String(c.table || "").toLowerCase());
+    if (!prior) continue;
+    const before = resolveAccess(prior).read;
+    const after = resolveAccess({ ...prior, read: c.read }).read;
+    if (!NARROW_READS.includes(before) || !WIDE_READS.includes(after)) continue;
+    const w = plain(c.readWords);
+    const theirs = w.length >= 2 && texts.some((t) => (" " + t + " ").includes(" " + w + " "));
+    if (!theirs) out.push({ table: prior.name, read: after });
+  }
+  return out;
+}
+
+/** The question for a widening: short and plain, naming the table and who would see it. */
+export function wideningAsk(list) {
+  const names = [...new Set(list.map((w) => w.table))];
+  const anyone = list.some((w) => w.read === "public");
+  return {
+    text: "That would let " + (anyone ? "anyone" : "anyone signed in to your site") + " see every entry in " + names.join(", ") + ". Should I do that?",
+    options: [anyone ? "Yes, anyone can see them" : "Yes, signed-in members can see them", "No, keep them private"],
+  };
+}
+
 /** What the customer is told. One sentence per table, then anything refused. */
 export function rulesReply({ applied = [], refused = [] } = {}) {
   const bits = [];
@@ -621,7 +680,7 @@ export function withoutRefused(applied, dbRefused, refused) {
 }
 const RULE_FEATURES = ["unique", "oncePerUser", "noOverlap"];
 
-export async function runRulesEdit(deps, { instruction, tables, scope = null, model = RULES_MODEL } = {}) {
+export async function runRulesEdit(deps, { instruction, tables, scope = null, model = RULES_MODEL, answers = [] } = {}) {
   const usable = (Array.isArray(tables) ? tables : []).filter((t) => t && t.name);
   if (!usable.length) return { ok: false, escalate: true, reason: "no-tables", usage: null };
 
@@ -668,6 +727,11 @@ export async function runRulesEdit(deps, { instruction, tables, scope = null, mo
   // mention the refusal at all — which reads as "nothing happened" on the one
   // path where the customer most needs to hear why.
   if (!changes.length) return { ok: false, escalate: false, reason: "no-match", refused, usage, msg: rulesReply({ refused }) };
+  // A WIDER READ ON THE MODEL'S WORD ALONE IS A QUESTION (audit A29-9): asked
+  // like any step's question, before anything is billed or applied, so nothing
+  // proposed beside it is done.
+  const wide = ungroundedWidenings(changes, view, [instruction, ...(Array.isArray(answers) ? answers : [])]);
+  if (wide.length) return { ok: false, escalate: false, reason: "ask", ask: wideningAsk(wide), widening: wide, usage };
 
   const { spec, applied } = mergeRules({ tables: usable }, changes);
   // ONE APPLY FOR THE WHOLE SPEC, not one per table. `applySiteSchema` walks

@@ -529,7 +529,7 @@ export function cleanRequirements(raw, from = "") {
 }
 
 /** Words as compared: one case, no punctuation, single spaces — any language's letters and digits kept. */
-const plain = (t) => String(t || "").toLocaleLowerCase()
+export const plain = (t) => String(t || "").toLocaleLowerCase()
   .replace(/[\u2018\u2019\u201b\u2032]/g, "'").replace(/[\u201c\u201d\u201f\u2033]/g, '"')
   .replace(/[^\p{L}\p{N}']+/gu, " ").replace(/\s+/g, " ").trim();
 

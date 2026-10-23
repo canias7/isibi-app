@@ -36989,7 +36989,9 @@ async function handleRequest(request, env, ctx) {
                 // table that already exists — and it persists `_meta` itself, so
                 // there is no second write that could disagree with the DDL.
                 apply: async (spec) => { const made = await applySiteSchema(rdb, normalizeSchema(spec)); return { refusedRules: (made && Array.isArray(made.refusedRules)) ? made.refusedRules : [] }; },
-              }, { instruction: eInstruction, tables: rSpec.tables, scope: stepScopeOf(eb && eb.scope), model: eQuickModel });
+              }, { instruction: eInstruction, tables: rSpec.tables, scope: stepScopeOf(eb && eb.scope), model: eQuickModel,
+                // THE ANSWERS THIS STEP IS SHOWN, so a widening they confirmed is theirs (audit A29-9).
+                answers: (readContext(eCtx) || []).map((p) => p.a) });
               // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
               if (rStop) return await editStopped(env, { job: eJob, why: rStop, phase: "apply", trace: editTrace, ctx });
               if (rOut.ask) return stepAsk("rules", rOut.ask);
