@@ -1,5 +1,13 @@
 # Owner Notes
 
+## 2026-10-23, night — `router-hold-by-item`: parts held back by number, not by copied words (not merged, not deployed)
+
+- The problem: on saltmarsh-and-sparrow a 20-item list was refused at once ("I couldn't separate the part of your message I was leaving for later…"). The router had copied the later part's words, reworded them, and the code could not find them in your message.
+- Now: your message is split into its items by code (numbered lines, bullets, or else sentences), the router is shown them numbered, and it says which items to keep for later by number (e.g. 5–20). The code then takes those items word for word from your own message, so this refusal cannot happen for a number answer. The old copied-words answer still works as before.
+- Numbers that are not items are ignored. If the router keeps every item for later, item 1 is done now and the rest later (your brief said "existing path", which would be the same refusal; say if you want something else).
+- The charge is unchanged, as you said.
+- Tests: 6 new cases (a red check on the old code, 12 of 12 mutants killed, the comment-only control survived). Full suite 12,310 run: 12,306 pass, 3 skipped, 1 fail (the known node_modules symlink case here). The server image changes (predicted `ce54a2e2067d1f1b`, from `145239c1c143183b`). Nothing spent, no model called. Record: `docs/history/2026-10-23-router-hold-by-item.md`.
+
 ## 2026-10-23, evening — deploy 2264: your decisions are live
 
 - Merged and deployed `decide-all` (`923d278c1`) on your word. Tests green; the server image rolled as predicted (`145239c1c143183b`).

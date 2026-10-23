@@ -959,6 +959,95 @@ function liveAlsoAsked() {
   return { type: "array", items: { type: "string" }, description: LIVE_ALSO_AT + d.slice(FIRST_ALSO_AT.length) };
 }
 
+// ── WHAT IS HELD BACK, NAMED BY ITEM NUMBER (2026-10-23, the owner) ─────────
+//
+// Live, saltmarsh-and-sparrow, a 20-item numbered message: the router held
+// part back by copying words into `alsoAsked`, reworded them, and the route
+// could not find them in the message (`route/held-unread`), so the whole
+// message was refused. Owner: the router names what to hold back by ITEM
+// NUMBER, not by copying words. The message is split into items by code
+// (`messageItems`), shown to the router numbered, and the numbers it answers
+// with are turned back into the customer's own text (`itemsToWords`), so a
+// part held back by number is always found. The words form is still read.
+export const HELD_ITEMS = {
+  type: "array",
+  items: { type: "integer" },
+  description:
+    "ONLY WHEN THEIR MESSAGE IS ALSO SHOWN ITEM BY ITEM (\"THEIR MESSAGE, ITEM BY ITEM\" below it). Name each item " +
+    "your answer holds back by its number in brackets, instead of copying its words into alsoAsked: [5] is 5. " +
+    "The same rule as alsoAsked decides what is held back — almost always nothing. When you use this, leave " +
+    "alsoAsked out; the items held back, in item order, are the changes numbered 1, 2 and so on in dependsOn and " +
+    "targets. Never hold back every item: at least one is what your answer makes.",
+};
+
+/**
+ * THE ITEMS OF A MESSAGE, split by code, never by a model (2026-10-23).
+ * `[{ n, text }]`, `n` from 1, each `text` the customer's own characters as
+ * they stand in the message. A list (two or more lines that start with a
+ * number and `.` or `)`, or a bullet) is split at those lines, a line that
+ * follows one belonging to it; any words before the first are not an item
+ * (they stay with whatever runs). Otherwise lines, and sentences within them.
+ * Fewer than two items is `[]`: nothing to number.
+ */
+const ITEM_LINE = /^[ \t]*(?:\d{1,3}[.)]|[-*•])[ \t]+\S/;
+export function messageItems(message) {
+  if (typeof message !== "string") return [];
+  const lines = message.split(/\r?\n/);
+  if (lines.filter((l) => ITEM_LINE.test(l)).length >= 2) {
+    const groups = [];
+    let cur = null;
+    for (const l of lines) {
+      if (ITEM_LINE.test(l)) { if (cur) groups.push(cur); cur = [l]; }
+      else if (cur) cur.push(l);
+    }
+    if (cur) groups.push(cur);
+    const items = groups.map((c) => c.join("\n").trim()).filter((t) => WORD_CHAR.test(t));
+    return items.length >= 2 ? items.map((text, i) => ({ n: i + 1, text })) : [];
+  }
+  const sentences = [];
+  for (const l of lines) {
+    for (const t of l.split(/(?<=[.!?])\s+/u)) if (WORD_CHAR.test(t)) sentences.push(t.trim());
+  }
+  return sentences.length >= 2 ? sentences.map((text, i) => ({ n: i + 1, text })) : [];
+}
+
+/** The block the router is shown under the message, or `""` when there are no items. */
+export function itemsBlock(items) {
+  return Array.isArray(items) && items.length >= 2
+    ? "THEIR MESSAGE, ITEM BY ITEM (the same words; to hold any back, name them by number in heldItems)\n" +
+      items.map((it) => "[" + it.n + "] " + it.text.replace(/\s+/g, " ")).join("\n")
+    : "";
+}
+
+/**
+ * AN ANSWER THAT HOLDS ITEMS BACK BY NUMBER, read as the customer's own text
+ * (2026-10-23). `heldItems` becomes `alsoAsked`: each held item's text, in
+ * item order, exactly as it stands in the message, so the routes always find
+ * it. A number that is not an item is ignored (`items-out`); every item held
+ * keeps the first with the answer (`items-all-held`), since an answer makes
+ * something; no item number read, no items shown, or the answer written out
+ * from the conversation (`resolved`), leaves the answer as it came: the words
+ * form, read as before. Never coerced: `"5"` is not 5.
+ */
+export function itemsToWords(input, items, trace = null) {
+  const mark = noteTo(trace);
+  if (!input || typeof input !== "object" || !given(input.heldItems)) return input;
+  const { heldItems, ...rest } = input;
+  if (!Array.isArray(items) || items.length < 2 || given(input.resolved)) { mark("items-ignored"); return rest; }
+  if (!Array.isArray(heldItems)) { mark("items-unread"); return rest; }
+  const n = items.length;
+  const pick = [];
+  for (const v of heldItems) {
+    if (!Number.isInteger(v) || v < 1 || v > n) { mark("items-out"); continue; }
+    if (!pick.includes(v)) pick.push(v);
+  }
+  if (!pick.length) return rest;
+  pick.sort((a, b) => a - b);
+  if (pick.length === n) { mark("items-all-held"); pick.shift(); }
+  mark("items-held");
+  return { ...rest, alsoAsked: pick.map((i) => items[i - 1].text) };
+}
+
 // ── WHICH CHANGE NEEDS WHICH, SAID BY THE MODEL (2026-10-03) ────────────────
 //
 // Owner: *"Explain how multiple dependent operations are ordered even when the
@@ -1106,6 +1195,7 @@ export const LIVE_ASK_TOOL = {
         },
       } : { intent: { ...ASK_TOOL.input_schema.properties.intent, enum: [...ASK_TOOL.input_schema.properties.intent.enum, "security"], description: liveIntentDescription() + "\n\n" + LIVE_SECURITY_CLAUSE } }),
       alsoAsked: liveAlsoAsked(),
+      heldItems: HELD_ITEMS,
       dependsOn: DEPENDS_ON,
       targets: TARGETS,
       model3d: MODEL3D_FIELD,
@@ -1329,7 +1419,7 @@ function liveBlock({ canAsk = false, pending = null, context = [], part = null }
   return waiting + (told ? "\n" + told : "") + asking;
 }
 
-export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false, model = ASK_MODEL, live = false, canAsk = false, pending = null, context = [], part = null, tablesNone = false, history = null, summary = null, answering = false } = {}) {
+export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false, model = ASK_MODEL, live = false, canAsk = false, pending = null, context = [], part = null, tablesNone = false, history = null, summary = null, answering = false, items = null } = {}) {
   // A FIRST BUILD'S MESSAGE IS CUT TO ITS OWN BOUND, AS IT ALWAYS WAS; a site
   // that exists sends it whole (2026-10-03, the size policy): the route has
   // already refused one past `MAX_INPUT_CHARS`, so nothing here shortens what
@@ -1414,7 +1504,7 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
     // THE CONVERSATION SO FAR (2026-10-14), its small window only — enough to
     // tell "do that" from a question and to write `resolved` — before their
     // message. Absent when the page sent none.
-    messages: [{ role: "user", content: "THEIR SITE\n" + siteDigest(site, { tablesNone }) + state + round + (summaryBlock(summary) ? "\n\n" + summaryBlock(summary) : "") + (historyBlock(history) ? "\n\n" + historyBlock(history) : "") + "\n\nTHEIR MESSAGE\n" + text + (live && partBlock(part) ? "\n\n" + partBlock(part) : "") }],
+    messages: [{ role: "user", content: "THEIR SITE\n" + siteDigest(site, { tablesNone }) + state + round + (summaryBlock(summary) ? "\n\n" + summaryBlock(summary) : "") + (historyBlock(history) ? "\n\n" + historyBlock(history) : "") + "\n\nTHEIR MESSAGE\n" + text + (live && itemsBlock(items) ? "\n\n" + itemsBlock(items) : "") + (live && partBlock(part) ? "\n\n" + partBlock(part) : "") }],
   };
 }
 
@@ -1499,6 +1589,13 @@ export const ROUTE_REASONS = Object.freeze({
   // SEVERAL PARTS HELD BACK (2026-10-03): the router gave a list, each part its
   // own entry, carried as the hand-over's list and taken out by every route.
   "also-several": Object.freeze({ kind: "context", what: "several separate parts were held back, each its own entry" }),
+  // HELD BACK BY ITEM NUMBER (2026-10-23, `itemsToWords`).
+  "items-shown": Object.freeze({ kind: "context", what: "the message was shown to the router item by item" }),
+  "items-held": Object.freeze({ kind: "context", what: "items were held back by number, taken as the customer's own text" }),
+  "items-out": Object.freeze({ kind: "changed", what: "a held-back item number that is not an item, ignored" }),
+  "items-all-held": Object.freeze({ kind: "changed", what: "every item was held back; the first stays with the answer" }),
+  "items-unread": Object.freeze({ kind: "changed", what: "held-back item numbers that could not be read, left out" }),
+  "items-ignored": Object.freeze({ kind: "changed", what: "held-back item numbers with no items shown, left out" }),
   // WHICH CHANGE NEEDS WHICH (2026-10-03, `readDepends`): named by the model,
   // or unreadable and left out whole — the parts then carry no stated order.
   "depends-named": Object.freeze({ kind: "context", what: "the answer said which changes need others done first" }),
@@ -1670,7 +1767,11 @@ export function readRouting(reply, opts = {}) {
   if (o.live !== true) return readDecision(reply, o);
   const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
   const use = blocks.find((b) => b && b.type === "tool_use");
-  const input = (use && use.input) || {};
+  // HELD BACK BY ITEM NUMBER (2026-10-23) is read as the customer's own text
+  // before anything else reads the answer, so every reader sees `alsoAsked`.
+  const input = itemsToWords((use && use.input) || {}, o.items, o.trace) || {};
+  // AND THE ANSWER EVERY LATER READER IS HANDED CARRIES THE SAME INPUT.
+  if (use && input !== use.input) reply = { ...reply, content: blocks.map((b) => (b === use ? { ...b, input } : b)) };
   const mark = noteTo(o.trace);
   const fallback = FALLBACK_WITH_SITE;
   let answered;
@@ -3162,6 +3263,11 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
     failure: routeFailure(stage, e, { model, classify: deps && deps.classify }),
     decision: routeDecision([...shown, stage === "request" ? "request-failed" : "send-failed"]),
   });
+  // THE MESSAGE'S ITEMS (2026-10-23): on a site that exists, for a message of
+  // its own (not an answer to a waiting question), numbered for the router so
+  // it holds parts back by number (`heldItems`).
+  const items = live && !waiting ? messageItems(text) : [];
+  if (items.length) shown.push("items-shown");
   let request;
   try {
     // A FIRST BUILD'S MESSAGE IS CUT TO ITS OWN BOUND (`askRequest`); a site
@@ -3183,7 +3289,7 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
     // reply's call uses, and said in the decision when shown or cut.
     if (shownHistory.turns.length) shown.push("history-shown");
     if (shownHistory.turns.length && (shownHistory.left > 0 || shownHistory.turns.some((t) => t.cut))) shown.push("history-cut");
-    request = askRequest({ message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, context: waiting ? told : (partOf ? (readContext(context) || []) : told), part: partOf, tablesNone: tablesNone === true, history: shownHistory.turns.length ? shownHistory : null, summary: keptSummary, answering: canClarify && answering === true && picked !== true });
+    request = askRequest({ items, message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, context: waiting ? told : (partOf ? (readContext(context) || []) : told), part: partOf, tablesNone: tablesNone === true, history: shownHistory.turns.length ? shownHistory : null, summary: keptSummary, answering: canClarify && answering === true && picked !== true });
   } catch (e) {
     return fail("request", e);
   }
@@ -3205,7 +3311,7 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
   // from a list that may be partial is never read as a page the site lacks.
   const readAs = (r, open, tr) => readRouting(r, {
     canClarify, picked: picked === true, hasSite: !!hasSite, pages, pagesComplete: pagesComplete !== false, trace: tr, history: shownHistory.turns.length > 0,
-    live, canAsk: open, pending: !!waiting, chosen: !!(waiting && waiting.chosen === true),
+    live, canAsk: open, pending: !!waiting, chosen: !!(waiting && waiting.chosen === true), items,
   });
   let trace = { reasons: shown.slice(), input: undefined };
   let routed = readAs(reply, canAsk, trace);
@@ -3253,7 +3359,7 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
     } else if (hit.length) {
       let again;
       try {
-        again = withReuse(askRequest({ message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, context: told, history: shownHistory.turns.length ? shownHistory : null, summary: keptSummary }), hit);
+        again = withReuse(askRequest({ items, message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, context: told, history: shownHistory.turns.length ? shownHistory : null, summary: keptSummary }), hit);
       } catch (e) {
         return fail("request", e);
       }
