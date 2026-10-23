@@ -1,5 +1,15 @@
 # Owner Notes
 
+## 2026-10-23, night — Slash commands in the project chat, first one `/sentinel` (branch `slash-commands`, not merged, not deployed)
+
+- Typing "/" at the start of a message opens a small menu above the box: each command with one line about it. Typing filters it, arrows and Enter (or a click) pick, Esc closes.
+- The commands are one list in `public/chat.js` (`SLASH_COMMANDS`), so the ones you send next are one line each.
+- `/sentinel` runs the deep security scan through the same code as the "Run deep scan" button. It shows the price on a button first ("Scan · about N credits") and spends nothing until you press it. "Not now" spends nothing.
+- A "/word" that is not a command is never sent as an edit: it stays in the box and the menu says no command matches.
+- The quick check and the existing button are unchanged.
+- Kept separate: /sentinel's three short lines and the scan report sentence are still fixed text (no writer the page can call yet), and asking for a scan in plain words still starts it without a price step (as before).
+- Nothing spent, no model called. Record: `docs/history/2026-10-23-slash-commands.md`.
+
 ## 2026-10-23, evening — deploy 2264: your decisions are live
 
 - Merged and deployed `decide-all` (`923d278c1`) on your word. Tests green; the server image rolled as predicted (`145239c1c143183b`).

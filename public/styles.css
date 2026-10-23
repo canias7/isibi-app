@@ -5434,3 +5434,12 @@ body::after { display: none; }
 .st-sec-find.st-sec-unsure { border-left-color: var(--line-2); border-style: dashed; }
 .st-sec-thorough { display: flex; align-items: center; gap: .4rem; margin-top: .5rem; font-size: .82rem; font-weight: 600; color: var(--text); cursor: pointer; }
 .st-sec-thorough em { font-style: normal; font-weight: 400; color: var(--muted); }
+/* Slash commands (2026-10-23): "/" at the start of the message opens this menu above the box. */
+.st-comp { position: relative; }
+.st-slash { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); z-index: 30; background: var(--bg); border: 1px solid var(--line-2); border-radius: 14px; box-shadow: 0 6px 24px rgba(0,0,0,.12); padding: .3rem; max-height: 240px; overflow-y: auto; }
+.st-slash[hidden] { display: none; }
+.st-slash-it { display: flex; align-items: baseline; gap: .7rem; width: 100%; text-align: left; font: inherit; font-size: .86rem; color: var(--text); background: none; border: 0; border-radius: 9px; padding: .45rem .6rem; cursor: pointer; }
+.st-slash-it b { font-weight: 600; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .84rem; }
+.st-slash-it span { color: var(--muted); font-size: .82rem; }
+.st-slash-it.on, .st-slash-it:hover { background: var(--panel-2); }
+.st-slash-none { font-size: .84rem; color: var(--muted); padding: .45rem .6rem; }

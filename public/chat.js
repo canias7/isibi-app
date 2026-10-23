@@ -8137,6 +8137,18 @@ async function siteSecurityDeep(site) {
   if (typeof fetchCredits === 'function') fetchCredits();
   return rep;
 }
+// THE DEEP SCAN'S REPORT, SAID IN THE THREAD: one sentence-builder for the
+// router's `security` answer and for `/sentinel`, so the two never drift.
+function siteSecuritySay(rep) {
+  if (!rep) return 'I couldn\u2019t run the security scan just now. Try again in a moment, or open More \u2192 Security.';
+  const n = Array.isArray(rep.findings) ? rep.findings.length : 0;
+  const u = Array.isArray(rep.unsure) ? rep.unsure.length : 0;
+  const top = (rep.findings || []).slice(0, 3).map((f) => '\u2022 ' + f.title).join('\n');
+  return (n ? 'I checked your site\u2019s security and found ' + n + ' thing' + (n === 1 ? '' : 's') + ' to look at:\n' + top : 'I checked your site\u2019s security and found no problems.')
+    + (u ? '\n' + u + ' more could not be settled from the code alone.' : '')
+    + '\nThe full report, with a Fix it button for each, is in More \u2192 Security.'
+    + (Number(rep.cost) > 0 ? '\nThe scan used ' + rep.cost + ' credit' + (Number(rep.cost) === 1 ? '' : 's') + '.' : '');
+}
 const secEstimate = {};
 function paintSecPrice(slug) {
   const e = secEstimate[slug];
@@ -9168,6 +9180,7 @@ function renderSiteWorkspace(view, site) {
               '<div class="st-thread" id="stThread"></div>' +
               ctxLineHTML(site) +
               '<div class="st-comp">' +
+                '<div class="st-slash" id="stSlash" role="listbox" aria-label="Commands" hidden></div>' +
                 '<textarea id="stRevise" class="st-comp-in" rows="2" placeholder="Ask Go Farther…"></textarea>' +
                 '<div class="st-attach" id="stAttach"></div>' +
                 '<div class="st-comp-row">' +
@@ -9309,7 +9322,7 @@ function renderSiteWorkspace(view, site) {
     const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
     thread.innerHTML = (site.msgs || []).map((m) => m.r === 'u'
       ? '<div class="st-msg u">' + esc(m.t) + '</div>'
-      : '<div class="st-msg a">' + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + (m.talkLive === true ? (Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, true) : '<div class="st-think"><i></i>Working on it</div>') : Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, false, true) : '') + siteMsgText(m, linkify) + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + '' + siteAskHTML(m, site) + siteModel3dHTML(m, site) + (m.request ? siteRequestHTML(m, site) : '') + (m.jobCard ? siteJobCardHTML(m, site) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
+      : '<div class="st-msg a">' + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + (m.talkLive === true ? (Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, true) : '<div class="st-think"><i></i>Working on it</div>') : Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, false, true) : '') + siteMsgText(m, linkify) + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + '' + siteAskHTML(m, site) + siteModel3dHTML(m, site) + siteSentinelHTML(m) + (m.request ? siteRequestHTML(m, site) : '') + (m.jobCard ? siteJobCardHTML(m, site) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
     ).join('') + (siteBusyHere(site)
       ? (siteBuild
           ? '<div class="st-msg a st-busy st-busy-react">' + reactLiveStepsHTML() + '</div>'
@@ -9340,6 +9353,11 @@ function renderSiteWorkspace(view, site) {
       if (m3Go && thread.contains(m3Go)) { siteModel3dGo(site.id, m3Go.getAttribute('data-m3d-go')); return; }
       const m3No = e.target.closest('[data-m3d-no]');
       if (m3No && thread.contains(m3No)) { siteModel3dNo(site.id, m3No.getAttribute('data-m3d-no')); return; }
+      // /sentinel's PRICE CARD (2026-10-23): the scan button spends, Not now does not.
+      const snGo = e.target.closest('[data-sentinel-go]');
+      if (snGo && thread.contains(snGo)) { siteSentinelGo(site.id, snGo.getAttribute('data-sentinel-go')); return; }
+      const snNo = e.target.closest('[data-sentinel-no]');
+      if (snNo && thread.contains(snNo)) { siteSentinelNo(site.id, snNo.getAttribute('data-sentinel-no')); return; }
       // A REQUEST'S CARD (2026-10-03): a part's rewrite. (Its stop is the chatbox's, 2026-10-21.)
       const reqGo = e.target.closest('[data-req-approve]');
       if (reqGo && thread.contains(reqGo)) { siteRequestApprove(site.id, reqGo.getAttribute('data-req-approve'), Number(reqGo.getAttribute('data-req-part'))); return; }
@@ -9742,6 +9760,154 @@ function renderSiteWorkspace(view, site) {
   wireBuildEffort();
   if (typeof wireCtxLine === 'function') wireCtxLine();
 }
+// ── SLASH COMMANDS BEGIN (2026-10-23, the owner: "like Claude's / menu") ──
+//
+// "/" AT THE START OF THE MESSAGE opens a small menu above the box: each
+// command with one line about it; typing filters it; arrows and Enter (or a
+// click) pick; Esc closes. THE REGISTRY IS THIS ONE ARRAY: a new command is a
+// new entry (`name`, `desc`, `run(site)`), and nothing else needs to change.
+// A message that starts with "/word" is a command: a word that is not one is
+// never sent to the builder as an edit — the menu stays open saying so.
+const SLASH_COMMANDS = [
+  // THE DEEP SECURITY SCAN, the panel's own handler (`siteSecurityDeep`), with
+  // the panel's price shown first on a button: nothing is spent until pressed.
+  { name: 'sentinel', desc: 'Deep security scan of your site — shows the price first', run: (site) => siteSentinel(site) },
+];
+// The text being typed as a command, or null: only a "/" at the very start,
+// and only until the first space (after that it is a message, or a command sent).
+function slashQuery(text) {
+  if (typeof text !== 'string') return null;
+  const m = /^\/([A-Za-z0-9-]*)$/.exec(text);
+  return m ? m[1].toLowerCase() : null;
+}
+function slashMatches(q) {
+  const k = typeof q === 'string' ? q.toLowerCase() : '';
+  return SLASH_COMMANDS.filter((c) => c.name.startsWith(k));
+}
+// A message sent that is a command: `{ name, cmd }` (cmd null when unknown), or null.
+function slashCommandOf(text) {
+  if (typeof text !== 'string') return null;
+  const m = /^\/([A-Za-z0-9-]+)(?:\s|$)/.exec(text.trim());
+  if (!m) return null;
+  const name = m[1].toLowerCase();
+  return { name, cmd: SLASH_COMMANDS.find((c) => c.name === name) || null };
+}
+let slashSel = 0;
+let slashShut = null; // the box's value when Esc closed the menu: it stays shut until the value changes
+function slashMenuHTML(q, sel) {
+  const list = slashMatches(q);
+  if (!list.length) return '<div class="st-slash-none">No command matches /' + esc(q) + '</div>';
+  return list.map((c, i) => '<button type="button" class="st-slash-it' + (i === sel ? ' on' : '') + '" role="option" aria-selected="' + (i === sel) + '" data-slash="' + esc(c.name) + '">' +
+    '<b>/' + esc(c.name) + '</b><span>' + esc(c.desc) + '</span></button>').join('');
+}
+function slashBox() { return typeof document !== 'undefined' ? document.getElementById('stSlash') : null; }
+function slashClose() { const b = slashBox(); if (b) { b.hidden = true; b.innerHTML = ''; } }
+function slashOpen() { const b = slashBox(); return !!(b && !b.hidden); }
+// Repaint from the box's text; answers whether the menu is open. `force` opens
+// it for a word already sent that is not a command (no match, said there).
+function slashPaint(ta, force) {
+  const b = slashBox();
+  if (!b || !ta) return false;
+  let q = slashQuery(ta.value);
+  if (q === null && force) { const c = slashCommandOf(ta.value); if (c) q = c.name; }
+  if (q === null || (!force && slashShut === ta.value)) { slashClose(); return false; }
+  const n = slashMatches(q).length;
+  if (slashSel >= n) slashSel = 0;
+  b.innerHTML = slashMenuHTML(q, slashSel);
+  b.hidden = false;
+  return true;
+}
+// Keys while the menu is open; answers whether the key was the menu's.
+function slashKey(e, ta, site) {
+  if (!slashOpen()) return false;
+  const q = slashQuery(ta.value);
+  const list = q === null ? [] : slashMatches(q);
+  if (e.key === 'Escape') { e.preventDefault(); slashShut = ta.value; slashClose(); return true; }
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (list.length) slashSel = (slashSel + (e.key === 'ArrowDown' ? 1 : list.length - 1)) % list.length;
+    slashPaint(ta);
+    return true;
+  }
+  if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
+    e.preventDefault();
+    if (list.length) slashPick(list[slashSel] || list[0], ta, site);
+    return true; // no match: nothing is sent, the menu says so
+  }
+  return false;
+}
+function slashPick(cmd, ta, site) {
+  if (!cmd) return;
+  if (ta) ta.value = '';
+  try { siteDraft(site.id).t = ''; } catch (e) { /* no draft */ }
+  slashSel = 0; slashShut = null; slashClose();
+  cmd.run(site);
+}
+// The Send button's first look: answers true when the message was a command
+// (run, or unknown and held in the box with the menu saying so), never sent.
+function slashSend(t, ta, site) {
+  const c = slashCommandOf(t);
+  if (!c) return false;
+  if (c.cmd) { slashPick(c.cmd, ta, site); return true; }
+  slashShut = null;
+  slashPaint(ta, true);
+  return true;
+}
+// /sentinel: the panel's price, then the panel's handler on the press.
+function sentinelKey() { return (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID().replace(/-/g, '') : String(Date.now()); }
+async function siteSentinel(site) {
+  if (!site || siteBusy) return;
+  const origin = site.id;
+  site.msgs.push({ r: 'u', t: '/sentinel' });
+  if (!site.slug) { site.msgs.push({ r: 'a', t: 'There is no site to scan yet — build one first.' }); sitesSave(); if (siteOpenId === origin) renderSites(); return; }
+  const live = { r: 'a', t: '', talkLive: true, prog: [{ text: 'Sizing the scan…' }] };
+  site.msgs.push(live);
+  sitesSave(); if (siteOpenId === origin) renderSites();
+  const slug = site.slug;
+  let est = null;
+  try {
+    // THE PANEL'S OWN PRICE READ (`loadSiteSecurity`): free, sized to this site, at the picker's model.
+    const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/security?estimate=1&picker=' + encodeURIComponent(buildPicker));
+    const d = await r.json().catch(() => null);
+    if (r.ok && d && d.estimate && d.estimate.standard && Number.isFinite(d.estimate.standard.credits)) { est = d.estimate; secEstimate[slug] = d.estimate; }
+  } catch (e) { est = null; }
+  live.talkLive = false; delete live.prog;
+  if (!est) live.t = 'I couldn’t get the deep scan’s price just now. Nothing was charged — try again in a moment.';
+  else live.sentinel = { key: sentinelKey(), state: 'offer', credits: est.standard.credits };
+  sitesSave(); if (siteOpenId === origin) renderSites();
+}
+// THE PANEL BUTTON'S OWN LABEL (`paintSecPrice`): the price is on the button that spends.
+function siteSentinelHTML(m) {
+  if (!m || !m.sentinel || m.sentinel.state !== 'offer') return '';
+  const k = esc(m.sentinel.key);
+  const n = Number(m.sentinel.credits);
+  return '<div class="st-m3d st-sentinel">' +
+    '<button type="button" class="st-m3d-go" data-sentinel-go="' + k + '">' + (n > 0 ? 'Scan · about ' + esc(String(n)) + ' credit' + (n === 1 ? '' : 's') : 'Run deep scan') + '</button>' +
+    '<button type="button" class="st-pick-cancel" data-sentinel-no="' + k + '">Not now</button></div>';
+}
+function sentinelMsg(s, key) { return s && Array.isArray(s.msgs) ? s.msgs.find((x) => x && x.sentinel && x.sentinel.key === key) : null; }
+function siteSentinelNo(origin, key) {
+  const s = siteById(origin); const m = sentinelMsg(s, key);
+  if (!m || m.sentinel.state !== 'offer') return;
+  m.sentinel.state = 'declined';
+  s.msgs.push({ r: 'a', t: 'Okay — no scan, and nothing was charged.' });
+  sitesSave(); if (siteOpenId === origin) renderSites();
+}
+async function siteSentinelGo(origin, key) {
+  const s = siteById(origin); const m = sentinelMsg(s, key);
+  if (!s || !m || m.sentinel.state !== 'offer' || !s.slug) return;
+  m.sentinel.state = 'scanning';
+  const live = { r: 'a', t: '', talkLive: true, prog: [{ text: 'Scanning… (a minute or two)' }] };
+  s.msgs.push(live);
+  sitesSave(); if (siteOpenId === origin) renderSites();
+  // THE SAME HANDLER AS THE PANEL'S "Run deep scan" AND THE ROUTER'S `security`.
+  const rep = await siteSecurityDeep(s);
+  live.talkLive = false; delete live.prog;
+  live.t = siteSecuritySay(rep);
+  m.sentinel.state = 'done';
+  sitesSave(); if (siteOpenId === origin) renderSites();
+}
+// ── SLASH COMMANDS END ──
 // THE WORKSPACE COMPOSER'S WIRING, lifted out of `renderSiteWorkspace` so the
 // one place a held message comes back (`siteUnsentBack`) is driven together
 // with the send button it feeds. It runs on every redraw of the open site and
@@ -9765,15 +9931,25 @@ function wireSiteComposer(site) {
   if (stopBtn) stopBtn.onclick = () => siteStopWork(siteById(siteOpenId));
   if (ta) {
     ta.value = draft.t;
-    ta.oninput = () => { draft.t = ta.value; };
+    ta.oninput = () => { draft.t = ta.value; slashPaint(ta); };
+    slashShut = null; slashPaint(ta);
   }
+  const slashMenu = document.getElementById('stSlash');
+  if (slashMenu && ta) slashMenu.onmousedown = (e) => {
+    const it = e.target.closest && e.target.closest('[data-slash]');
+    if (!it) return;
+    e.preventDefault();
+    slashPick(SLASH_COMMANDS.find((c) => c.name === it.getAttribute('data-slash')), ta, site);
+  };
   if (sendBtn && ta) {
     sendBtn.onclick = () => {
       const t = ta.value.trim();
       // ANOTHER PROJECT'S WORK NO LONGER HOLDS THIS ONE (#138): `siteBusy` is this project's own.
+      // A SLASH COMMAND IS NEVER SENT AS A MESSAGE (2026-10-23): run, or held with the menu saying no match.
+      if (t && !siteBusy && slashSend(t, ta, site)) return;
       if (!t || siteBusy) return; ta.value = ''; draft.t = ''; siteSend(t);
     };
-    ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendBtn.onclick(); } };
+    ta.onkeydown = (e) => { if (slashKey(e, ta, site)) return; if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendBtn.onclick(); } };
     ta.focus();
   }
 }
@@ -10871,16 +11047,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // scan runs on the picker's model, and its report is said in the thread
     // and drawn in More → Security.
     if (d.intent === 'security' && site.slug) {
-      siteSecurityDeep(site).then((rep) => {
-        if (!rep) { finish('I couldn\u2019t run the security scan just now. Try again in a moment, or open More \u2192 Security.'); return; }
-        const n = Array.isArray(rep.findings) ? rep.findings.length : 0;
-        const u = Array.isArray(rep.unsure) ? rep.unsure.length : 0;
-        const top = (rep.findings || []).slice(0, 3).map((f) => '\u2022 ' + f.title).join('\n');
-        finish((n ? 'I checked your site\u2019s security and found ' + n + ' thing' + (n === 1 ? '' : 's') + ' to look at:\n' + top : 'I checked your site\u2019s security and found no problems.')
-          + (u ? '\n' + u + ' more could not be settled from the code alone.' : '')
-          + '\nThe full report, with a Fix it button for each, is in More \u2192 Security.'
-          + (Number(rep.cost) > 0 ? '\nThe scan used ' + rep.cost + ' credit' + (Number(rep.cost) === 1 ? '' : 's') + '.' : ''));
-      });
+      siteSecurityDeep(site).then((rep) => finish(siteSecuritySay(rep)));
       return;
     }
     // On a live site only an explicit `build` reaches this `go()`: the check
