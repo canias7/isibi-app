@@ -1649,6 +1649,31 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-req-why summary::after { content: ' \203A'; }
 .st-req-why[open] summary::after { content: ' \2039'; }
 .st-req-why p { margin: .3rem 0 0; line-height: 1.45; color: var(--text); }
+/* ── THE PARALLEL CARD (2026-10-23, the owner's approved design, without the
+   bar): one card for a message split into several parts, one row per part
+   that opens on what the part said, and a soft box under it. Greys only. */
+.st-par-opening { font-size: .86rem; line-height: 1.45; margin: 0 0 .45rem; }
+.st-par { border: 1px solid var(--line); border-radius: 10px; padding: .45rem .65rem; margin: .3rem 0; }
+.st-par-head { font-size: .84rem; padding: .1rem 0 .3rem; }
+.st-par-head span { color: var(--muted); font-size: .78rem; }
+.st-par-row { display: flex; align-items: center; gap: .5rem; padding: .38rem 0; border-top: 1px solid var(--line); font-size: .84rem; cursor: pointer; user-select: none; }
+.st-par-title { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.st-par-tag { flex: none; margin-left: auto; font-size: .72rem; color: var(--muted); }
+.st-par-car { flex: none; width: .7rem; font-size: .66rem; color: var(--muted); text-align: center; }
+.st-par-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; box-sizing: border-box; border: 1.5px solid var(--muted); }
+.st-par-done .st-par-dot { background: var(--text); border-color: var(--text); }
+.st-par-run .st-par-dot { border-color: var(--text); border-top-color: transparent; animation: stparspin .9s linear infinite; }
+.st-par-ask .st-par-dot { border-style: dashed; border-color: var(--text); }
+.st-par-bad .st-par-dot { border-color: var(--text); }
+@keyframes stparspin { to { transform: rotate(360deg); } }
+.st-par-body { padding: 0 0 .5rem 1.1rem; font-size: .8rem; color: var(--muted); }
+.st-par-body[hidden] { display: none; }
+.st-par-body .st-req-prog { margin-top: .1rem; }
+.st-par-said { margin: .2rem 0; line-height: 1.45; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.st-par-retry { font: inherit; font-size: .76rem; margin-top: .35rem; padding: .2rem .6rem; border: 1px solid var(--line-2, var(--line)); border-radius: 8px; background: none; color: var(--text); cursor: pointer; }
+.st-par-retry:hover { background: var(--panel-2); }
+.st-par-box { background: var(--panel-2); border-radius: 10px; padding: .6rem .7rem; margin-top: .45rem; font-size: .84rem; line-height: 1.45; white-space: pre-wrap; }
+.st-par-box .st-pick, .st-par-box > div { white-space: normal; }
 .st-prog-done { margin: 0 0 .5rem; }
 /* Every progress line so far where "Thinking" was, for a job this page watches. */
 .st-steps-live .st-req-prog { margin: 0; }

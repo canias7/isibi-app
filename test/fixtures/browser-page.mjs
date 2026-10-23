@@ -61,6 +61,8 @@ const REQ_HELD = cutStatement("\nconst SITE_REQ_HELD = {", "\n};\n", "saving:");
 const REQ_HELD_ADDED = cutStatement("\nconst SITE_REQ_HELD_ADDED = {", "\n};\n", "saving:");
 // WHICH OF A TASK'S LINES EACH OF THOSE STATUSES SHOWS (2026-10-06).
 const REQ_SAID = cutStatement("\nconst SITE_SAID_FOR = {", "\n};\n", "notdone");
+// THE PARALLEL CARD'S STATES (2026-10-23).
+const PAR_STATE = cutStatement("\nconst SITE_PAR_STATE = {", "\n};\n", "needs-rewrite");
 
 // THE FUNCTIONS: the send and route handlers, the question block, and both
 // readers' whole selection (the lists the sweep's readers run, so a reply here
@@ -114,6 +116,9 @@ const FNS = [...new Set([
   "siteUndoTouches",
   // AND THE WATCH OF A JOB THIS PAGE FILED, for one that gives up.
   "watchEditJob",
+  // THE PARALLEL CARD (2026-10-23): a split message's one card, its snapshot
+  // kept on the message for a reload, and its rows' presses.
+  "siteParView", "siteParState", "siteParSnap", "siteParHidden", "siteReqCardHTML", "siteParClick", "siteParRetry",
 ])];
 // AND THE TWO OF THEM THAT ARE `async function`s.
 const ASYNC_FNS = ["siteRequestShow", "siteRequestJobReply", "siteReqNothingSince"];
@@ -127,6 +132,7 @@ const LINES = [...new Set([
   "const editReplyFollowing =", "const FRAME_SANDBOX =", "const siteTablesOrder =", "const SITE_DRAFT_HOST =", "const siteDraftState =",
   "const SITE_JOB_STATUS =", "const SITE_JOB_RUNNING =", "const siteJobFollowing =", "const editWatched =",
   "const SITE_JOB_SAID =",
+  "const SITE_PAR_LABEL =", "const siteParOpen =",
 ])];
 // THE RENDER'S OWN FRAME STEP (2026-10-05, the owner's review: *"test the
 // rendered iframe URL, not merely previewV increasing"*): where `renderSites`
@@ -156,6 +162,7 @@ const SRC = [
   REQ_HELD,
   REQ_HELD_ADDED,
   REQ_SAID,
+  PAR_STATE,
   "function wireThread(thread, site) {" + CLICKS + "}",
   "function siteDrawFrame(site, active, isReact) {" + FRAME_STEP + "\n}",
 ].join("\n");

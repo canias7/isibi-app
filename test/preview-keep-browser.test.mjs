@@ -230,13 +230,13 @@ async function watchAndPublish({ site, request, path: at = "/" }) {
     const loadsBefore = loadsOf().length;
     const readsBefore = app.reads();
     // THE POLLING: the page reads the request again and again; its card moves from Queued to In progress.
-    await waitFor(app, async () => app.reads() >= readsBefore + 4 && /In progress/.test(await app.thread()), 40000, "four more readings and the card's progress");
+    await waitFor(app, async () => app.reads() >= readsBefore + 4 && /In progress|working…/.test(await app.thread()), 40000, "four more readings and the card's progress");
     const during = {
       mark: await app.frameMark(),
       redrawn: await app.threadRedrawn(),
       loads: loadsOf().slice(loadsBefore),
       state: await frameState(app),
-      card: (await app.thread()).match(/In progress|Waiting for another part/g) || [],
+      card: (await app.thread()).match(/In progress|working…|Waiting for another part/g) || [],
     };
     // THE PUBLISHES, ONE PART AT A TIME: the server's published version moves
     // on, the page reads it and moves the preview — and the frame's CONTENT is
@@ -286,7 +286,8 @@ test("KEEP 1 — a bakery's home page: the page reads its running request again 
   assert.deepEqual(r.errors, []);
   assert.ok(r.readsDuring >= 4, "the page did not keep reading the request");
   assert.equal(r.during.redrawn, true, "the workspace was never drawn again while the request was read — nothing was tested");
-  assert.ok(r.during.card.includes("In progress"), "the card never showed the progress");
+  // A split message's parallel card (2026-10-23) labels a working part "working…".
+  assert.ok(r.during.card.includes("In progress") || r.during.card.includes("working…"), "the card never showed the progress");
   assert.equal(r.during.mark, "kept-1", "a reading replaced the frame element");
   assert.deepEqual(r.during.loads, [], "the frame was loaded again while nothing was published");
   assert.equal(r.during.state.scroll, 900, "the preview's scroll was lost to a reading");

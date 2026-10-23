@@ -9473,7 +9473,10 @@ async function writeTaskLines(env, task, owner, rec) {
   const tasks = unwrittenTasks(rec).slice(0, TASK_BATCH);
   let out;
   try {
-    out = await writeTasks({ send: quickSend(env, "progress", progressBudget) }, { tasks, context: progressContext(rec), model });
+    // A SPLIT REQUEST'S OPENING LINE (2026-10-23), asked for with its first
+    // tasks: the number of parts is the fact it is written from.
+    const split = rec.op === "request" && !rec.opening && Array.isArray(rec.taskWords) && rec.taskWords.length >= 2 ? rec.taskWords.length : 0;
+    out = await writeTasks({ send: quickSend(env, "progress", progressBudget) }, { tasks, context: progressContext(rec), model, split });
   } catch { out = { ok: false, why: "send", usage: [], attempts: 0 }; }
   try {
     console.log(usageLogLine({ kind: "tasks", id: job, ok: out.ok, why: out.why, model, tasks: tasks.length, attempts: out.attempts, usage: out.usage, ms: Date.now() - t0 }));
@@ -9487,7 +9490,7 @@ async function writeTaskLines(env, task, owner, rec) {
     return false;
   }
   const done = await progressUpdate(env, job, (r) => {
-    const next = commitTasks(r, { owner, tasks: out.tasks, now: Date.now() });
+    const next = commitTasks(r, { owner, tasks: out.tasks, now: Date.now(), opening: out.opening || "" });
     return next ? { rec: next } : null;
   });
   // MORE TO WRITE — a task added while the call ran, or milestones waiting.
@@ -9671,6 +9674,9 @@ async function saidForRequest(env, rec) {
   const at = await progressRecordAt(env, await requestTasksId(rec.slug, rec.key));
   if (!at.rec || at.rec.uid !== rec.uid) return out;
   for (const p of rec.parts) { const said = saidOf(at.rec, p.n); if (said) out[p.n] = said; }
+  // AND A SPLIT REQUEST'S OPENING LINE (2026-10-23), under a key no part's
+  // number can be (`requestView` reads it as `opening`).
+  if (at.rec.opening) out.opening = at.rec.opening;
   return out;
 }
 

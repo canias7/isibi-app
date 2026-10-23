@@ -282,6 +282,8 @@
       if (!t) return null;
       out[k] = t;
     }
+    // AND ITS SHORT TITLE (2026-10-23, the parallel card), when written.
+    if (typeof v.title === "string" && v.title.trim()) out.title = v.title.trim();
     return out;
   }
 
