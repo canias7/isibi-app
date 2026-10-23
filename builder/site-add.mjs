@@ -1083,7 +1083,7 @@ const ADDS = {
           type: "string",
           description:
             "The exact string the code carries: a full URL, `tel:` a number, `mailto:` an address, " +
-            "`WIFI:T:WPA;S:<network>;P:<password>;;`, `geo:lat,lng`, or plain text. One of the site's OWN pages " +
+            "`WIFI:T:WPA;S:<network>;P:<password>;;` (a `;` or `\\` in the network or password gets a `\\` before it), `geo:lat,lng`, or plain text. One of the site's OWN pages " +
             "is a real destination: answer its route (\"/\", \"/prices\") and it is resolved against the site's address.",
         },
         label: { type: "string", description: "The few words printed beside it, telling a visitor why they would scan it." },

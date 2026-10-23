@@ -33,7 +33,7 @@ import { PLAN_EDIT_FIELDS } from "./site-plan.mjs";
 import { normalizeSeeds, SEEDS_FIELD } from "./site-seeds.mjs";
 import { resolveTheme } from "./site-theme-registry.mjs";
 import { cleanFavicon, readWordmark } from "./site-favicon.mjs";
-import { qrList } from "./site-qr-list.mjs";
+import { qrList, readQrText } from "./site-qr-list.mjs";
 import { MARKS, isMark, readMark, ownedMark } from "./site-mark.mjs";
 
 /**
@@ -699,6 +699,17 @@ export function mergeLook(prior, designed, body, { instructed = false, asked = f
     // FIELD-AWARE, so a palette is judged by `normalizeSeeds` whatever shape it
     // arrived in rather than by a heuristic that has an outside. See `keepsValue`.
     out[k] = order.find((v) => keepsValue(k, v)) ?? null;
+    // A DESIGNED CODE THAT CAN NEVER BE DRAWN IS NOT STORED (2026-10-23, audit
+    // A31-5). The publish refuses it with a log line only, while the page writer
+    // is told about every stored code and the name stays taken. Only the
+    // designer's answer is filtered here: a stored list is left as it was, so an
+    // unrelated edit never reports the codes as changed.
+    // A designed list with nothing to drop keeps its own shape.
+    if (k === "qr" && out[k] != null && out[k] === d[k]) {
+      const codes = qrList(out[k]);
+      const drawn = codes.filter((c) => readQrText(c.points).text);
+      if (drawn.length !== codes.length) out[k] = drawn;
+    }
     // A MARK LEAVES HERE AS A FORM, WHATEVER IT ARRIVED AS (2026-09-07).
     //
     // Neither tool changed for the one-mark work: the design step and the
@@ -915,7 +926,8 @@ const FIELD_KEEPS = {
   // `qrList` — so a legacy value keeps counting, an answered list with at
   // least one real code counts, and `[]` or junk does not replace a good
   // stored list. Same single-validator rule as the four above it.
-  qr: (v) => qrList(v).length > 0,
+  // …AND A CODE COUNTS ONLY WHEN IT CAN BE DRAWN (2026-10-23, audit A31-5).
+  qr: (v) => qrList(v).some((c) => readQrText(c.points).text),
 };
 
 export function keepsValue(field, v) {

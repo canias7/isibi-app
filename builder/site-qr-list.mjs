@@ -74,7 +74,36 @@ export function readQrText(v) {
   // `WIFI:` are real business QRs and neither is one.
   const scheme = /^[A-Za-z][A-Za-z0-9+.-]*:/.exec(s);
   if (scheme && !OK_SCHEME.test(s)) return { text: null, why: "the scheme " + scheme[0] };
+  if (/^WIFI:/i.test(s) && !wifiFieldsOk(s.slice(5))) return { text: null, why: "a wifi code whose fields do not read back (a ; or \\ in a name or password needs a \\ before it)" };
   return { text: s, why: null };
+}
+
+/**
+ * DO A WIFI CODE'S FIELDS READ BACK? (2026-10-23, audit A31-7)
+ *
+ * The format ends a field at an unescaped `;`, so a password `sour;dough`
+ * written as-is is read by a phone as `sour` and a stray `dough`, and the code
+ * cannot join. Every field between the separators must be `KEY:value`, a
+ * network name must be there, and a `\` must escape something. A `:` or `,`
+ * inside a value is left alone: common readers end a field only at `;`.
+ */
+function wifiFieldsOk(body) {
+  const fields = [];
+  let cur = "";
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i];
+    if (c === "\\") {
+      if (i + 1 >= body.length) return false;
+      cur += c + body[++i];
+      continue;
+    }
+    if (c === ";") { fields.push(cur); cur = ""; continue; }
+    cur += c;
+  }
+  if (cur) fields.push(cur);
+  const set = fields.filter((f) => f !== "");
+  if (!set.every((f) => /^[A-Za-z][A-Za-z0-9]*:/.test(f))) return false;
+  return set.some((f) => /^S:./i.test(f));
 }
 
 /** A code's name: an identifier the page can write after a dot. */
