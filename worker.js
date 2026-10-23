@@ -11035,6 +11035,48 @@ async function handleCheckout({ env, conn, slug, body, origin, schema, ctx = nul
  * in each time; `SITE_API_CACHE` is optional exactly as it is for the API
  * cache, and a Worker without it keeps the in-isolate layer alone.
  */
+// ── A ROUTED ANSWER, KEPT UNDER ITS REQUEST KEY (audit A13-1, 2026-10-23) ──
+//
+// The owner's choice (1): every answer the routing route gives a site's
+// message sent with its key is kept under that key, and the same message sent
+// again is answered from it — no model is asked and nothing is charged. Before
+// this only accepted edits and additions were answered so; a conversation, a
+// question back or any other outcome resent under its key asked the router
+// (and the conversation model) again while the ledger's `repeat` took nothing.
+// The kept answer is bound to the account, the site and a digest of the
+// message (its words and the answer it carries), as `site-idem.mjs` binds a
+// key to its body: the same key with other words is refused at no cost. It
+// lives in KV with an expiry (`ROUTE_ANSWER_TTL_S`), and an answer that cannot
+// be read is no answer: the route runs as it always has, never a guess.
+const ROUTE_ANSWER_TTL_S = 86_400;
+const routeAnswerId = (slug, key) => "route-answer:" + slug + ":" + key;
+async function routeAnswerDigest(uid, slug, rb) {
+  const text = JSON.stringify([String(uid || ""), String(slug || ""), rb && typeof rb.message === "string" ? rb.message : null, rb && rb.ask !== undefined ? rb.ask : null]);
+  const d = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
+  return Array.from(d, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+/** `{ state: "none" | "ok" | "unread", v }`: a kept answer read whole, or nothing to act on. */
+async function readRouteAnswer(env, slug, key, now = Date.now()) {
+  const kv = env && env.SITE_API_CACHE;
+  if (!kv || typeof kv.get !== "function") return { state: "none", v: null };
+  let v;
+  try { v = await kv.get(routeAnswerId(slug, key), { type: "json" }); } catch { return { state: "unread", v: null }; }
+  if (v === null || v === undefined) return { state: "none", v: null };
+  if (!v || typeof v !== "object" || v.v !== 1 || typeof v.uid !== "string" || typeof v.digest !== "string" ||
+    typeof v.body !== "string" || !Number.isInteger(v.status) || !Number.isFinite(v.at)) return { state: "unread", v: null };
+  if (now - v.at > ROUTE_ANSWER_TTL_S * 1000) return { state: "none", v: null };
+  return { state: "ok", v };
+}
+/** The answer as served, kept under its key; a write that fails keeps nothing and fails nothing. */
+async function keepRouteAnswer(env, slug, key, uid, digest, res, now = Date.now()) {
+  const kv = env && env.SITE_API_CACHE;
+  if (!kv || typeof kv.put !== "function" || !res || res.status !== 200) return;
+  try {
+    const body = await res.clone().text();
+    await kv.put(routeAnswerId(slug, key), JSON.stringify({ v: 1, uid, digest, at: now, status: res.status, body }), { expirationTtl: ROUTE_ANSWER_TTL_S });
+  } catch (e) { console.error("route answer keep:", slug, errorClassForLog(e)); }
+}
+
 const SITE_IDEM = makeIdem();
 function idemFor(env, slug, scope, key, fp = null) {
   const kv = env && env.SITE_API_CACHE;
@@ -32830,7 +32872,23 @@ async function handleRequest(request, env, ctx) {
       const rReplyAsk = !rJob && rb && rb.hasSite === true && rb.firstBuild !== true
         ? replyAsked(rb, { slug: typeof rb.slug === "string" ? rb.slug : undefined, name: rb.site && typeof rb.site.name === "string" ? rb.site.name : undefined, pages: rb.site && Array.isArray(rb.site.pages) ? rb.site.pages.map((p) => (typeof p === "string" ? p : p && typeof p.path === "string" ? p.path : "")).filter(Boolean) : [] })
         : null;
-      return withModelReply(env, await (async () => {
+      // THE SAME MESSAGE UNDER ITS KEY, ANSWERED FROM THE KEPT ANSWER (audit
+      // A13-1): before the balance read, any model and the reply writer.
+      const rKeepSlug = typeof rb.slug === "string" && /^[a-z0-9][a-z0-9-]{0,80}$/.test(rb.slug) ? rb.slug : "";
+      const rKeepKey = !rJob && requestFlowOn(env) && rb.hasSite === true && rb.firstBuild !== true && !!rKeepSlug && !!env.SITES_BUCKET && isRequestKey(rb.idem) &&
+        editAsyncFor(env, { uid: ru.id, slug: rKeepSlug }) ? rb.idem : "";
+      let rKeepDigest = "";
+      if (rKeepKey && env.SITE_API_CACHE) {
+        try { rKeepDigest = await routeAnswerDigest(ru.id, rKeepSlug, rb); } catch { rKeepDigest = ""; }
+        const kept = rKeepDigest ? await readRouteAnswer(env, rKeepSlug, rKeepKey) : { state: "unread", v: null };
+        if (kept.state === "ok" && kept.v.uid === ru.id) {
+          if (kept.v.digest === rKeepDigest) return new Response(kept.v.body, { status: kept.v.status, headers: { "content-type": "application/json" } });
+          return Response.json({ ok: false, error: "key-reused", cost: 0,
+            msg: "That message arrived under the key of a different one, so I haven't sent it on and nothing was charged. Send it again and it will go as a new message." }, { status: 409 });
+        }
+      }
+      let rKeep = false;
+      const rRes = await withModelReply(env, await (async () => {
       // ── ONE MESSAGE, KEPT WHOLE UP TO THE SIZE POLICY AND REFUSED PAST IT ──
       //
       // (2026-10-03, the owner's first information-limits batch: *"Within that
@@ -33586,8 +33644,12 @@ async function handleRequest(request, env, ctx) {
         }
         if (accepted) return Response.json(accepted);
       }
+      // KEPT UNDER ITS KEY (audit A13-1) when a model answered and it is not a failure.
+      if (rKey && rKeepDigest && rKey === rKeepKey && routed.usage && routed.failed !== true) rKeep = true;
       return Response.json(rOut);
       })(), "route", rReplyAsk);
+      if (rKeep) await keepRouteAnswer(env, rKeepSlug, rKeepKey, ru.id, rKeepDigest, rRes);
+      return rRes;
     }
 
     // Website builder — provision this site's database and apply its declared
