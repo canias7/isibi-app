@@ -2325,6 +2325,8 @@ export function requestView(rec, { progress = null, said = null, runs = null, pr
   return {
     key: rec.key, state: rec.state, ended: rec.ended === true, stop: rec.stop === true, at: rec.at, updatedAt: rec.updatedAt,
     routedUnsaid: !saidByPart0 && Number.isInteger(rec.routedCost) && rec.routedCost > 0 ? rec.routedCost : 0,
+    // A SPLIT REQUEST'S OPENING LINE (2026-10-23), the model's own, when written.
+    ...(said && typeof said === "object" && typeof said.opening === "string" && said.opening.trim() ? { opening: said.opening.trim() } : {}),
     parts: rec.parts.map((p) => ({
       n: p.n, words: typeof p.shown === "string" && p.shown ? p.shown : p.words, status: p.status,
       // BEING PREPARED, OR PREPARED AND WAITING ITS TURN TO BE APPLIED

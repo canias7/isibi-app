@@ -291,6 +291,26 @@ function readSaid(e) {
   return out;
 }
 
+// ── A PART'S SHORT TITLE AND A SPLIT REQUEST'S OPENING LINE (2026-10-23) ────
+//
+// The owner's parallel card: one card for a message split into several parts,
+// each row named by a short title, under one opening line that says the work
+// goes side by side. Both are the model's own, written by the same task-lines
+// call from the facts it is given (how many parts, and each part's words);
+// both are optional — a title that does not read leaves the part named by its
+// words, as before, and no opening line is shown without one. Nothing here
+// writes a sentence for the customer.
+/** A task's short title, one line, or "" when it does not read. */
+function readTitle(v) {
+  const t = typeof v === "string" ? flat(v) : "";
+  return t && t.length <= 120 && !/\[t\d+\]/.test(t) ? t : "";
+}
+/** A split request's opening line, or "" when it does not read. */
+export function readOpening(v) {
+  const t = typeof v === "string" ? v.replace(/\r\n/g, "\n").trim() : "";
+  return t && t.length <= 600 && !/\[t\d+\]/.test(t) ? t : "";
+}
+
 /**
  * The written task lines: null when none are written yet, false when they do
  * not read — an entry for no task, a task twice, a state missing. They may
@@ -305,7 +325,8 @@ function readTaskLines(v, words) {
     if (!e || typeof e !== "object" || !words.some((t) => t.n === e.n) || out.some((o) => o.n === e.n)) return false;
     const said = readSaid(e);
     if (!said) return false;
-    out.push({ n: e.n, ...said });
+    const title = readTitle(e.title);
+    out.push({ n: e.n, ...said, ...(title ? { title } : {}) });
   }
   return out.length ? out : null;
 }
@@ -360,6 +381,7 @@ export function readProgressRecord(raw) {
     tries: Number.isInteger(raw.tries) && raw.tries >= 0 ? raw.tries : 0,
     ...(num(raw.retryAt) !== null ? { retryAt: raw.retryAt } : {}),
     taskWords, tasks,
+    ...(raw.op === "request" && readOpening(raw.opening) ? { opening: readOpening(raw.opening) } : {}),
     ...(raw.talk === true ? { talk: true } : {}),
     taskTries: Number.isInteger(raw.taskTries) && raw.taskTries >= 0 ? raw.taskTries : 0,
     tasksWhy: typeof raw.tasksWhy === "string" && raw.tasksWhy ? raw.tasksWhy.slice(0, 40) : null,
@@ -706,14 +728,15 @@ const leaseHeld = (rec, owner, now) => !!(rec && rec.writer && rec.writer.owner 
  * of them does not read or names no task the record holds. A task added while
  * the call ran still waits (`tasksNeeded`), for the writer to be asked again.
  */
-export function commitTasks(rec, { owner, tasks, now }) {
+export function commitTasks(rec, { owner, tasks, now, opening = "" }) {
   if (!leaseHeld(rec, owner, now) || !tasksNeeded(rec) || !Array.isArray(tasks)) return null;
   const had = Array.isArray(rec.tasks) ? rec.tasks : [];
   const fresh = tasks.filter((t) => !(t && typeof t === "object" && had.some((h) => h.n === t.n)));
   if (!fresh.length) return null;
   const read = readTaskLines([...had, ...fresh], rec.taskWords);
   if (!read) return null;
-  return { ...rec, tasks: read, writer: null, taskTries: 0, retryAt: undefined };
+  const open = rec.op === "request" && !rec.opening ? readOpening(opening) : "";
+  return { ...rec, tasks: read, writer: null, taskTries: 0, retryAt: undefined, ...(open ? { opening: open } : {}) };
 }
 
 /**
@@ -775,7 +798,7 @@ export function failLate(rec, { owner, why, now, final = false }) {
 /** One task's lines for a reader — one per state in `TASK_STATES` — or null when they are not written. */
 export function saidOf(rec, n) {
   const t = rec && Array.isArray(rec.tasks) ? rec.tasks.find((x) => x.n === n) : null;
-  return t ? Object.fromEntries(TASK_STATES.map((k) => [k, t[k]])) : null;
+  return t ? { ...Object.fromEntries(TASK_STATES.map((k) => [k, t[k]])), ...(t.title ? { title: t.title } : {}) } : null;
 }
 
 /**
@@ -1555,10 +1578,15 @@ export const TASK_TOOL = {
         description: "One entry per task, its id exactly as written in brackets.",
         items: {
           type: "object",
-          properties: { id: { type: "string" }, ...Object.fromEntries(TASK_STATES.map((k) => [k, { type: "string" }])) },
+          properties: {
+            id: { type: "string" },
+            ...Object.fromEntries(TASK_STATES.map((k) => [k, { type: "string" }])),
+            title: { type: "string", description: "A short title naming the task, the way you would label it in a list, in the language of their request." },
+          },
           required: ["id", ...TASK_STATES],
         },
       },
+      opening: { type: "string", description: "Only when you are told the request was split: the one sentence you would say first, telling them you will work on its changes side by side." },
     },
     required: ["tasks"],
   },
@@ -1586,13 +1614,16 @@ export const TASK_SYSTEM =
   "- Write in the language of their request. Keep each line short, usually one sentence, with no greeting, emoji or symbols unless asked.";
 
 /** The request one task-lines call sends: every task, each with its id and the customer's words for it. `fix` names what a first answer got wrong. */
-export function taskRequest({ tasks, context = "", model, fix = null }) {
+export function taskRequest({ tasks, context = "", model, fix = null, split = 0 }) {
   const told = [];
   if (fix && fix.missing && fix.missing.length) told.push("YOUR LAST ANSWER LEFT OUT, OR LEFT A STATE EMPTY FOR, " + fix.missing.join(", ") + ".");
   if (fix && fix.ids) told.push("YOUR LAST ANSWER PUT A TASK'S ID IN A LINE.");
   const body = (context ? context + "\n\n" : "") +
     "THE TASKS (write each in every state; put its id in tasks):\n" +
     tasks.map((t) => "[t" + t.n + "] " + flat(t.words)).join("\n") +
+    // THE FACT OF THE SPLIT (2026-10-23): how many parts, worked on side by
+    // side; the model writes the opening line from it and the tasks above.
+    (Number.isInteger(split) && split >= 2 ? "\n\nTHE REQUEST WAS SPLIT INTO " + split + " CHANGES THAT YOU WILL WORK ON SIDE BY SIDE: write opening." : "") +
     (told.length ? "\n\n" + told.join(" ") + " Write them again." : "");
   return {
     model,
@@ -1626,7 +1657,14 @@ export function readTasks(reply, tasks) {
   const missing = want.filter((id) => !got.has(id));
   const ids = [...got.values()].some((said) => TASK_STATES.some((k) => /\[t\d+\]/.test(said[k])));
   const ok = want.length > 0 && !missing.length && !ids;
-  return { ok, tasks: ok ? tasks.map((t) => ({ n: t.n, ...got.get("t" + t.n) })) : [], missing, ids, why: ok ? "" : ids ? "ids" : "uncovered" };
+  const titles = new Map();
+  for (const e of input.tasks) {
+    const id = e && typeof e.id === "string" ? e.id.trim() : "";
+    const title = readTitle(e && e.title);
+    if (got.has(id) && title && !titles.has(id)) titles.set(id, title);
+  }
+  const opening = readOpening(input.opening);
+  return { ok, tasks: ok ? tasks.map((t) => ({ n: t.n, ...got.get("t" + t.n), ...(titles.has("t" + t.n) ? { title: titles.get("t" + t.n) } : {}) })) : [], missing, ids, why: ok ? "" : ids ? "ids" : "uncovered", ...(ok && opening ? { opening } : {}) };
 }
 
 /**
@@ -1636,7 +1674,7 @@ export function readTasks(reply, tasks) {
  * first answer that left a task or a state out, or put an id in a line, is
  * asked once more, told which.
  */
-export async function writeTasks(deps, { tasks, context = "", model, deadlineMs = PROGRESS_DEADLINE_MS, now = () => Date.now() } = {}) {
+export async function writeTasks(deps, { tasks, context = "", model, split = 0, deadlineMs = PROGRESS_DEADLINE_MS, now = () => Date.now() } = {}) {
   const usage = [];
   if (!Array.isArray(tasks) || !tasks.length) return { ok: false, why: "no-tasks", usage, attempts: 0 };
   if (!deps || typeof deps.send !== "function") return { ok: false, why: "send", usage, attempts: 0 };
@@ -1652,7 +1690,7 @@ export async function writeTasks(deps, { tasks, context = "", model, deadlineMs 
     let reply;
     try {
       reply = await Promise.race([
-        Promise.resolve().then(() => deps.send(taskRequest({ tasks, context, model, fix }))),
+        Promise.resolve().then(() => deps.send(taskRequest({ tasks, context, model, fix, split }))),
         new Promise((_, no) => { timer = setTimeout(() => no(Object.assign(new Error("tasks deadline"), { deadline: true })), left); }),
       ]);
     } catch (e) {
@@ -1662,7 +1700,7 @@ export async function writeTasks(deps, { tasks, context = "", model, deadlineMs 
     }
     usage.push(progressUsage(reply, model));
     const read = readTasks(reply, tasks);
-    if (read.ok) return { ok: true, tasks: read.tasks, usage, attempts };
+    if (read.ok) return { ok: true, tasks: read.tasks, usage, attempts, ...(read.opening ? { opening: read.opening } : {}) };
     why = read.why;
     if (why === "unreadable" || why === "cut") break;
     fix = { missing: read.missing, ids: read.ids };

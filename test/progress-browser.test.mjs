@@ -155,7 +155,8 @@ const kept = (page) => page.evaluate(() => {
 });
 const lineTexts = (page, sel) => page.$$eval(sel, (els) => els.map((e) => e.textContent.replace(/^\d+:\d\d/, "").trim()));
 /** Each part's title on the thread's cards, in order. */
-const titles = (page) => page.$$eval(".st-req-part .st-req-words", (els) => els.map((e) => e.textContent));
+// A split message's card (the parallel card, 2026-10-23) names its parts in `.st-par-title`.
+const titles = (page) => page.$$eval(".st-req-part .st-req-words, .st-par-title", (els) => els.map((e) => e.textContent));
 
 test("PATH A — a request's card: the part's fixed label stays, its lines appear under it with the newest live, read after read without doubling; once ended they stay, muted, above its reply — and none of them is a thread message. The part is named by its words until the model's lines for it come, then by the line for its state: doing while it runs, done once it has", { skip: SKIP, timeout: 120000 }, async () => {
   let finished = false;
@@ -323,15 +324,15 @@ test("TENSES — one request, three parts: each named by the model's line for th
   const app = await openApp(S);
   try {
     const { page } = app;
-    await page.waitForFunction(() => document.querySelectorAll(".st-req-part").length === 3, null, { timeout: 20000 });
+    await page.waitForFunction(() => document.querySelectorAll(".st-par-part").length === 3, null, { timeout: 20000 });
     assert.deepEqual(await titles(page), [SAID_SOLO.done, SAID_A.doing, SAID_MENU.planned]);
     for (const t of await titles(page)) assert.ok(![SOLO_WORDS, WORDS, MENU_WORDS].some((w) => t.includes(w)), "a customer's words were shown, or put after a prefix: " + t);
     await shot(page, "names-tenses.png");
     stage = 1;
-    await page.waitForFunction((t) => [...document.querySelectorAll(".st-req-part .st-req-words")].some((e) => e.textContent === t), SAID_MENU.doing, { timeout: 20000 });
+    await page.waitForFunction((t) => [...document.querySelectorAll(".st-par-title")].some((e) => e.textContent === t), SAID_MENU.doing, { timeout: 20000 });
     assert.deepEqual(await titles(page), [SAID_SOLO.done, SAID_A.done, SAID_MENU.doing]);
     stage = 2;
-    await page.waitForFunction((t) => [...document.querySelectorAll(".st-req-part .st-req-words")].some((e) => e.textContent === t), SAID_MENU.done, { timeout: 30000 });
+    await page.waitForFunction((t) => [...document.querySelectorAll(".st-par-title")].some((e) => e.textContent === t), SAID_MENU.done, { timeout: 30000 });
     assert.deepEqual(await titles(page), [SAID_SOLO.done, SAID_A.done, SAID_MENU.done]);
     await shot(page, "names-tenses-finished.png");
     assert.deepEqual(app.errors, []);
@@ -440,12 +441,12 @@ test("CARDS — THE CANARY'S READER READS A REQUEST'S CARD AS DRAWN (2026-10-06,
   const app = await openApp(S, { seed: { site: siteRecord() } });
   try {
     const { page } = app;
-    await page.waitForFunction(() => document.querySelectorAll(".st-req-part .st-req-prog li").length === 2, null, { timeout: 20000 });
+    await page.waitForFunction(() => document.querySelectorAll(".st-par-part .st-req-prog li").length === 2, null, { timeout: 20000 });
     const s = await page.evaluate("(" + READER + ")()");
     const running = progressSnapshot(s, KEY);
     assert.ok(running, "the reader found no card for the request: " + JSON.stringify(Object.keys(s.cards || {})));
     assert.equal(running.ended, false);
-    assert.deepEqual(running.parts.map((p) => [p.n, p.status, p.words, p.label]), [[0, "started", SAID_A.doing, "In progress"], [1, "ready", SAID_SOLO.planned, "Next"]]);
+    assert.deepEqual(running.parts.map((p) => [p.n, p.status, p.words, p.label]), [[0, "started", SAID_A.doing, "working…"], [1, "ready", SAID_SOLO.planned, "waiting"]]);
     assert.deepEqual(running.parts[0].lines, LINES.slice(0, 2).map((l) => l.text), "the lines were not read without their times");
     assert.equal(running.parts[0].live, LINES[1].text, "the newest line was not read as live");
     assert.deepEqual(running.parts[1].lines, []);
@@ -454,7 +455,7 @@ test("CARDS — THE CANARY'S READER READS A REQUEST'S CARD AS DRAWN (2026-10-06,
     // THE FIRST PART DONE, THE SECOND WAITING: its lines kept, none live — so
     // the canary takes no first line here.
     phase = "kept";
-    await page.waitForFunction(() => document.querySelectorAll(".st-req-part .st-req-prog li").length === 3 && !document.querySelector(".st-req-prog li.live"), null, { timeout: 30000 });
+    await page.waitForFunction(() => document.querySelectorAll(".st-par-part .st-req-prog li").length === 3 && !document.querySelector(".st-req-prog li.live"), null, { timeout: 30000 });
     const kept = progressSnapshot(await page.evaluate("(" + READER + ")()"), KEY);
     assert.equal(kept.ended, false, "the request read as ended while its second part waited");
     assert.deepEqual(kept.parts.map((p) => [p.n, p.status, p.lines.length, p.live]), [[0, "done", 3, ""], [1, "ready", 0, ""]]);
@@ -463,8 +464,8 @@ test("CARDS — THE CANARY'S READER READS A REQUEST'S CARD AS DRAWN (2026-10-06,
     // THE END, TOLD APART FROM THE KEPT MOMENT BY THE SECOND PART'S DONE LINE
     // (three lines and none live is already true before it).
     await page.waitForFunction((doneLine) => {
-      const parts = document.querySelectorAll(".st-req-part");
-      const w = parts[1] && parts[1].querySelector(".st-req-words");
+      const parts = document.querySelectorAll(".st-par-part");
+      const w = parts[1] && parts[1].querySelector(".st-par-title");
       return parts.length === 2 && !!w && w.textContent.trim() === doneLine && !document.querySelector(".st-req-prog li.live");
     }, SAID_SOLO.done, { timeout: 30000 });
     const s2 = await page.evaluate("(" + READER + ")()");
@@ -496,21 +497,21 @@ test("PARALLEL — a part prepared beside another part's job is shown in progres
   const app = await openApp(S);
   try {
     const { page } = app;
-    const statusOf = (i) => page.$$eval(".st-req-part .st-req-status", (els, j) => (els[j] ? els[j].textContent : null), i);
-    await page.waitForFunction(() => document.querySelectorAll(".st-req-part").length === 2, null, { timeout: 20000 });
-    await page.waitForFunction(() => [...document.querySelectorAll(".st-req-part .st-req-status")].some((e) => e.textContent === "Working on it alongside"), null, { timeout: 20000 });
+    const statusOf = (i) => page.$$eval(".st-par-tag", (els, j) => (els[j] ? els[j].textContent : null), i);
+    await page.waitForFunction(() => document.querySelectorAll(".st-par-part").length === 2, null, { timeout: 20000 });
+    await page.waitForFunction(() => [...document.querySelectorAll(".st-par-tag")].some((e) => e.textContent === "Working on it alongside"), null, { timeout: 20000 });
     assert.deepEqual(await titles(page), [SAID_TIK.doing, SAID_PIC.doing], "a part being prepared is not named by its in-progress line");
     await shot(page, "parallel-preparing.png");
     stage = 1;
-    await page.waitForFunction(() => [...document.querySelectorAll(".st-req-part .st-req-status")].some((e) => e.textContent === "Ready, applying next"), null, { timeout: 20000 });
+    await page.waitForFunction(() => [...document.querySelectorAll(".st-par-tag")].some((e) => e.textContent === "Ready, applying next"), null, { timeout: 20000 });
     assert.notEqual(await statusOf(1), "Done");
     assert.deepEqual(await titles(page), [SAID_TIK.doing, SAID_PIC.doing], "a prepared part is shown as finished before its job applied it");
     await shot(page, "parallel-prepared.png");
     stage = 2;
-    await page.waitForFunction((t) => [...document.querySelectorAll(".st-req-part .st-req-words")].some((e) => e.textContent === t), SAID_TIK.done, { timeout: 30000 });
+    await page.waitForFunction((t) => [...document.querySelectorAll(".st-par-title")].some((e) => e.textContent === t), SAID_TIK.done, { timeout: 30000 });
     assert.doesNotMatch(String(await statusOf(1)), /alongside|applying next/, "the preparation chip stayed once the part's own job ran");
     stage = 3;
-    await page.waitForFunction((t) => [...document.querySelectorAll(".st-req-part .st-req-words, .st-req-done .st-req-words")].some((e) => e.textContent === t), SAID_PIC.done, { timeout: 30000 });
+    await page.waitForFunction((t) => [...document.querySelectorAll(".st-par-title")].some((e) => e.textContent === t), SAID_PIC.done, { timeout: 30000 });
     await shot(page, "parallel-done.png");
     assert.deepEqual(app.errors, []);
   } finally { await closeApp(app); }

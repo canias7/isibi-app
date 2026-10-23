@@ -297,19 +297,20 @@ test("DFU4 ONE MESSAGE, TWO PARTS, UNDER DRAFT-FIRST, ON THE PAGE: the part that
     app = await openApp(P, site);
     const { page, errors, shot } = app;
     // THE LAST CARD: the earlier request (before the switch) keeps its own above it.
-    const labels = () => page.evaluate(() => { const c = [...document.querySelectorAll(".st-req")].pop(); return c ? [...c.querySelectorAll(".st-req-part > .st-req-status")].map((e) => e.textContent) : []; });
+    // A SPLIT MESSAGE IS ONE PARALLEL CARD (2026-10-23): each part's small label (`.st-par-tag`).
+    const labels = () => page.evaluate(() => { const c = [...document.querySelectorAll(".st-par")].pop(); return c ? [...c.querySelectorAll(".st-par-tag")].map((e) => e.textContent) : []; });
 
     await page.fill("#stRevise", NEEDS + ", and " + ADD + ".");
     await page.click("#stSend");
     // THE WAITING PART NAMES THE PART IT WAITS FOR; THE OTHER ASKS.
-    await page.waitForFunction(() => { const c = [...document.querySelectorAll(".st-req")].pop(); return !!c && [...c.querySelectorAll(".st-req-part > .st-req-status")].some((e) => e.textContent === "Waiting for part 2"); }, null, { timeout: 60000 });
+    await page.waitForFunction(() => { const c = [...document.querySelectorAll(".st-par")].pop(); return !!c && [...c.querySelectorAll(".st-par-tag")].some((e) => e.textContent === "waiting for part 2"); }, null, { timeout: 60000 });
     await page.waitForSelector("[data-ask-pick]", { timeout: 60000 });
-    assert.deepEqual(await labels(), ["Waiting for part 2", "Waiting for your answer"]);
+    assert.deepEqual(await labels(), ["waiting for part 2", "needs you"]);
     await shot("dfu4-waiting-and-question");
     // THE ANSWER, ON THE PAGE.
     await page.click("[data-ask-pick] >> text=Loaves");
     await page.click("[data-ask-go]");
-    await page.waitForFunction(() => { const c = [...document.querySelectorAll(".st-req")].pop(); const l = c ? [...c.querySelectorAll(".st-req-part > .st-req-status")].map((e) => e.textContent) : []; return l.length === 2 && l.every((t) => t === "Saved as a draft"); }, null, { timeout: 120000 });
+    await page.waitForFunction(() => { const c = [...document.querySelectorAll(".st-par")].pop(); const l = c ? [...c.querySelectorAll(".st-par-tag")].map((e) => e.textContent) : []; return l.length === 2 && l.every((t) => t === "saved as draft"); }, null, { timeout: 120000 });
     assert.ok(P.pages().includes("gallery.tsx"), "the gallery was not made");
     // THE LIVE SITE DID NOT MOVE.
     assert.equal(P.readObj("current/" + P.slug + ".json"), pointer0, "the live pointer moved before Publish");

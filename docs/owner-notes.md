@@ -1,5 +1,19 @@
 # Owner Notes
 
+## 2026-10-23, late night — the parallel card: your two label changes (branch `parallel-card`, not merged, not deployed)
+
+- A part saved to the draft now says "saved as draft" instead of "done" (the header still counts it as done).
+- A part waiting on another names it: "waiting for About story", or "waiting for part 3" when that part has no title yet.
+- Tests: 2 new cases, red on the old labels; sweep 2 of 2 killed, the comment-only control survived; the card's tests and the progress, preview-keep, draft and canary page tests green (DFU4 now reads "waiting for part 2", then "saved as draft"). Full suite not run (skipped for speed, as you asked). Screenshots re-rendered. Nothing spent.
+
+## 2026-10-23, night — the parallel card, branch `parallel-card` (not merged, not deployed)
+
+- Built your approved design (left column, no bar). When one message splits into several parts, the chat shows one card: the model's opening line saying it will work on the changes side by side, "Working on N changes · K done", then one row per part with a grey dot, its short title, a small state label and a caret.
+- Each row opens on that part's own text: its live progress while working, its reply once finished. The working row opens by itself and closes when done; you can open or close any row. A part that didn't work shows its reply and a Try again button that sends that part's words again.
+- Under the card: the waiting question with its answers while working, then the model's summary of the whole request when it ends.
+- The opening line and the short titles are written by the model (the same small call that writes the progress lines). If it writes none, no opening line shows, and a row is named by the model's line for its state (or your own words if none is written). A single-part message looks as before. The card comes back after a reload.
+- Tests: 9 new cases, red on the old code; sweep 14 of 14 killed, the comment-only control survived. Five browser tests that drew a split message the old way now read the new card, and the canary's page reader reads it too (on a split message it now sees each part's reply inside the card). One thing for you: under draft-first the short label says "done" for a part saved as a draft (the old card said "Saved as a draft"); the summary says it was saved. Screenshots use stub writer text. Nothing spent, no model called. Record: `docs/history/2026-10-23-parallel-card.md`.
+
 ## 2026-10-23, late night — Add-ons repair a page that didn't compile, no stray databases, preview loads cleanly, /sentinel talks (branch `fix-addon-preview`, not merged, not deployed)
 
 - **An add-on whose page didn't compile now gets fixed instead of giving up.** The `saltmarsh-and-sparrow` failure was an import written `/components/...` instead of `@/components/...`. Those misspellings are now corrected automatically, but only when the file really exists (a kit part or one of the site's own components); nothing is guessed. If the compile still fails, the page writer is shown the compiler's message once and the site is compiled once more. That repair is charged only if it worked; a failed addition still costs nothing.

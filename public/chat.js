@@ -4937,7 +4937,7 @@ const chatPulled = new Set();
 const chatSentSig = new Map();
 const chatTimers = new Map();
 function chatKeyOf(s) { const k = String((s && (s.chat || s.id)) || ''); return CHAT_KEY_RE.test(k) ? k : ''; }
-function chatSig(s) { const m = Array.isArray(s.msgs) ? s.msgs : []; return m.length + '|' + (m.length ? JSON.stringify(m[m.length - 1]).length : 0) + '|' + (s.name || '') + '|' + (s.slug || '') + '|' + JSON.stringify(s.clarify || null).length + '|' + JSON.stringify(s.jobCards || null).length + '|' + JSON.stringify(s.ask || null).length; }
+function chatSig(s) { const m = Array.isArray(s.msgs) ? s.msgs : []; return m.length + '|' + (m.length ? JSON.stringify(m[m.length - 1]).length : 0) + '|' + (s.name || '') + '|' + (s.slug || '') + '|' + JSON.stringify(s.clarify || null).length + '|' + JSON.stringify(s.jobCards || null).length + '|' + JSON.stringify(s.ask || null).length + '|' + (Array.isArray(s.msgs) ? s.msgs.reduce((n, x) => n + (x && x.rq ? JSON.stringify(x.rq).length : 0), 0) : 0); }
 function chatAdopt(s, c) {
   if (!s || !c || !Array.isArray(c.msgs)) return;
   s.msgs = c.msgs.slice();
@@ -9393,9 +9393,9 @@ function renderSiteWorkspace(view, site) {
   const thread = document.getElementById('stThread');
   if (thread) {
     const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
-    thread.innerHTML = (site.msgs || []).map((m) => m.r === 'u'
+    thread.innerHTML = (site.msgs || []).filter((m) => !siteParHidden(m, site)).map((m) => m.r === 'u'
       ? '<div class="st-msg u">' + esc(m.t) + '</div>'
-      : '<div class="st-msg a">' + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + (m.talkLive === true ? (Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, true) : '<div class="st-think"><i></i>Working on it</div>') : Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, false, true) : '') + siteMsgText(m, linkify) + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + '' + siteAskHTML(m, site) + siteModel3dHTML(m, site) + siteSentinelHTML(m) + (m.request ? siteRequestHTML(m, site) : '') + (m.jobCard ? siteJobCardHTML(m, site) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
+      : '<div class="st-msg a">' + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + (m.talkLive === true ? (Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, true) : '<div class="st-think"><i></i>Working on it</div>') : Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, false, true) : '') + siteMsgText(m, linkify) + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + '' + siteAskHTML(m, site) + siteModel3dHTML(m, site) + siteSentinelHTML(m) + (m.request ? siteReqCardHTML(m, site) : '') + (m.jobCard ? siteJobCardHTML(m, site) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
     ).join('') + (siteBusyHere(site)
       ? (siteBuild
           ? '<div class="st-msg a st-busy st-busy-react">' + reactLiveStepsHTML() + '</div>'
@@ -9412,6 +9412,8 @@ function renderSiteWorkspace(view, site) {
     // per-node handler would be rebound constantly and lost on the next repaint.
     thread.onclick = (e) => {
       if (!e.target.closest) return;
+      // THE PARALLEL CARD (2026-10-23): a row opened or closed, a part tried again.
+      if (siteParClick(e, thread)) return;
       // PICK, THEN CONTINUE (option E): a click picks, Continue sends.
       const askPick = e.target.closest('[data-ask-pick]');
       if (askPick && thread.contains(askPick)) { sitePick(sitePickKeyLive(siteById(siteOpenId)), askPick.getAttribute('data-ask-pick')); return; }
@@ -11377,6 +11379,7 @@ function siteRequestStart(origin, d, imgs, key) {
     siteReqAsked.add(q.id);
     siteReqPut(s, view.key, siteReplyMsg(askReplyMsg('', q)));
   }
+  siteParSnap(s, view.key);
   s.updatedAt = Date.now();
   sitesSave();
   if (siteOpenId === origin) renderSites();
@@ -11477,6 +11480,7 @@ async function siteRequestShow(origin, key, view, reply, replyFor, replyState) {
   }
   const done = view.ended && all && replyState !== 'pending';
   if (done) st.closed = true;
+  siteParSnap(s, key);
   s.updatedAt = Date.now();
   sitesSave();
   if (siteOpenId === origin) renderSites();
@@ -11913,6 +11917,174 @@ function siteRequestHTML(m, site) {
   // just have the button in the chatbox"): the composer's stop does it
   // (`siteRunningWork`).
   return '<div class="st-req"><ol class="st-req-parts">' + rows + '</ol></div>';
+}
+
+// ── THE PARALLEL CARD (2026-10-23, the owner's approved design) ─────────────
+//
+// One message split into several parts is drawn as ONE card: the model's
+// opening line (the request's `opening`, written from the number of parts and
+// their words), a header with the counts, and one compact row per part — a
+// grey dot for its state, its short title (the model's `said.title`; its words
+// until one is written), a small state label and a caret. Each row opens on
+// what that part said: its live lines while it works, its own reply once it
+// ends — the replies that were separate messages on the thread before. The
+// working row opens by itself and closes when it is done; the customer can open
+// or close any. A part that did not work offers Try again, which sends that
+// part's own words as a new message (no single-part retry exists). Under the
+// card, a soft box: the question a part waits on, with its answers, and once
+// the whole request has ended, the request's own model-written reply.
+// A SINGLE-PART MESSAGE keeps today's card (`siteRequestHTML`). The labels here
+// are UI labels; every sentence shown comes from the model or the customer.
+// AFTER A RELOAD, on any device: the card's message carries a snapshot of the
+// view (`rq`, `siteParSnap`), kept with the chat on the server.
+const SITE_PAR_STATE = {
+  done: 'done', partial: 'done',
+  started: 'run', unverified: 'run', uncertain: 'run', recovering: 'run',
+  waiting: 'ask', approval: 'ask',
+  blocked: 'wait', ready: 'wait', queued: 'wait',
+  failed: 'bad', 'not-run': 'bad', cancelled: 'bad', expired: 'bad', refused: 'bad', 'needs-rewrite': 'bad',
+};
+const SITE_PAR_LABEL = { done: 'done', run: 'working…', ask: 'needs you', wait: 'waiting', bad: 'didn’t work' };
+// Which rows the customer opened or closed, by the state they were in then: a
+// row that moves on (working to done) goes back to its own default.
+const siteParOpen = new Map();
+/** The view a request's card draws: this page's latest reading, or the snapshot kept on its message. */
+function siteParView(m, site) {
+  const st = site && site.requests && m && m.request ? site.requests[m.request] : null;
+  const v = st && st.view && Array.isArray(st.view.parts) ? st.view : m && m.rq && Array.isArray(m.rq.parts) ? m.rq : null;
+  return v && v.parts.length >= 2 ? v : null;
+}
+/** A part's state on the card: done, run (working), ask (needs the customer), wait, or bad (did not work). */
+function siteParState(p) {
+  const status = p && typeof p.status === 'string' ? p.status : '';
+  if ((status === 'blocked' || status === 'ready' || status === 'queued') && Object.hasOwn(SITE_REQ_PREP, p.prep)) return 'run';
+  if (status === 'waiting' && p.question && p.question.queued === true) return 'wait';
+  return Object.hasOwn(SITE_PAR_STATE, status) ? SITE_PAR_STATE[status] : 'wait';
+}
+/** A part's short name on the card: the model's title, its line for its state, else its words. */
+function siteParTitle(p) {
+  const said = EditPoll.taskSaid(p && p.said);
+  const prep = p && (p.status === 'blocked' || p.status === 'ready' || p.status === 'queued') && Object.hasOwn(SITE_REQ_PREP, p.prep) ? p.prep : '';
+  return (said && said.title) || siteSaidFor(p && p.said, prep ? 'doing' : SITE_SAID_FOR[p && p.status]) || String((p && p.words) || '');
+}
+/** A part's small label (2026-10-23, the owner's two changes): "saved as draft"
+ * for a part saved to the draft under draft-first, not "done"; a part held for
+ * another names it ("waiting for <its title>", else "waiting for part N"), from
+ * the server's `needs` (places on the card, numbered from 0). */
+function siteParTag(p, parts, state) {
+  const status = p && typeof p.status === 'string' ? p.status : '';
+  if (state === 'done' && p.draft && Number.isInteger(p.draft.revision) && p.draft.revision > 0) return 'saved as draft';
+  if (state === 'wait' && status === 'blocked' && Array.isArray(p.needs)) {
+    const names = p.needs.filter((x) => Number.isInteger(x) && x >= 0).map((x) => {
+      const t = x < parts.length ? EditPoll.taskSaid(parts[x].said) : null;
+      return t && t.title ? t.title : 'part ' + (x + 1);
+    });
+    if (names.length) return 'waiting for ' + names.join(' and ');
+  }
+  return SITE_PAR_LABEL[state];
+}
+/** The snapshot of a request's view kept on its card's message, for a reload. */
+function siteParSnap(s, key) {
+  const st = s && s.requests ? s.requests[key] : null;
+  const v = st && st.view;
+  const m = s && Array.isArray(s.msgs) ? s.msgs.find((x) => x && x.request === key) : null;
+  if (!m || !v || !Array.isArray(v.parts) || v.parts.length < 2) return;
+  m.rq = {
+    ended: v.ended === true, ...(typeof v.opening === 'string' && v.opening ? { opening: v.opening } : {}),
+    parts: v.parts.map((p) => ({
+      n: p.n, words: String(p.words || ''), status: String(p.status || ''),
+      ...(p.prep ? { prep: p.prep } : {}), ...(Array.isArray(p.needs) ? { needs: p.needs.slice() } : {}),
+      ...(p.draft && Number.isInteger(p.draft.revision) ? { draft: { revision: p.draft.revision } } : {}), ...(p.question ? { question: { queued: p.question.queued === true } } : {}),
+      jobs: Array.isArray(p.jobs) ? p.jobs.slice() : [],
+      ...(EditPoll.taskSaid(p.said) ? { said: EditPoll.taskSaid(p.said) } : {}),
+      ...(Array.isArray(p.progress) && p.progress.length ? { progress: p.progress.slice(-8) } : {}),
+    })),
+  };
+}
+/** Whether a message is drawn inside a parallel card rather than on the thread. */
+function siteParHidden(m, site) {
+  if (!m || m.r !== 'a' || !m.req || m.request) return false;
+  const card = (site.msgs || []).find((x) => x && x.request === m.req);
+  const v = card ? siteParView(card, site) : null;
+  if (!v) return false;
+  if (m.for === 'end') return true;
+  if (m.ask) return !!(site.ask && site.ask.id === m.ask);
+  return !!m.job && v.parts.some((p) => Array.isArray(p.jobs) && p.jobs.includes(m.job));
+}
+/** The request's card: the parallel card for several parts, today's for one. */
+function siteReqCardHTML(m, site) {
+  const v = siteParView(m, site);
+  if (!v) return siteRequestHTML(m, site);
+  const key = m.request;
+  const st = site.requests && site.requests[key];
+  const link = (t) => esc(t).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  const own = (site.msgs || []).filter((x) => x && x.r === 'a' && x.req === key && !x.request);
+  const states = v.parts.map(siteParState);
+  const done = states.filter((x) => x === 'done').length;
+  const bad = states.filter((x) => x === 'bad').length;
+  const ended = v.ended === true;
+  const head = '<div class="st-par-head"><b>' + (ended ? '' : 'Working on ') + v.parts.length + ' changes</b><span> · ' + done + ' done' + (ended && bad ? ' · ' + bad + ' didn’t work' : '') + '</span></div>';
+  const rows = v.parts.map((p, i) => {
+    const state = states[i];
+    // A PART PREPARED BESIDE THE JOB OF ANOTHER PART: the chip of the single-part card is its label.
+    const prep = (p.status === 'blocked' || p.status === 'ready' || p.status === 'queued') && Object.hasOwn(SITE_REQ_PREP, p.prep) ? p.prep : '';
+    const title = siteParTitle(p);
+    const o = siteParOpen.get(site.id + '|' + key + '|' + p.n);
+    const open = o && o.state === state ? o.open : state === 'run';
+    const replies = own.filter((x) => x.job && Array.isArray(p.jobs) && p.jobs.includes(x.job));
+    let body = progressListHTML(p.progress, state === 'run') + replies.map((x) => '<div class="st-par-said">' + siteMsgText(x, link) + '</div>').join('');
+    if (!replies.length && !(Array.isArray(p.progress) && p.progress.length) && state !== 'run') {
+      const line = siteSaidFor(p.said, SITE_SAID_FOR[p.status]);
+      if (line) body += '<div class="st-par-said">' + link(line) + '</div>';
+    }
+    if (p.status === 'approval' && st) body += (st.approving || []).includes(p.n) ? '<span class="st-req-status">Starting…</span>' : '<button type="button" class="st-opt st-req-go" data-req-approve="' + esc(key) + '" data-req-part="' + esc(String(p.n)) + '"><span>Rewrite the whole site for this</span></button>';
+    if (p.status === 'uncertain' && st && (p.purchaseState || 'unknown') === 'unknown' && p.buyAgain !== false) body += (st.rebuying || []).includes(p.n) ? '<span class="st-req-status">Starting…</span>' : '<button type="button" class="st-opt st-req-go" data-req-buy="' + esc(key) + '" data-req-part="' + esc(String(p.n)) + '"><span>Buy the picture again (may cost again)</span></button>';
+    if (state === 'bad' && String(p.words || '').trim()) body += '<button type="button" class="st-par-retry" data-par-retry="' + esc(key) + '" data-par-n="' + esc(String(p.n)) + '">Try again</button>';
+    // ONE PART: its row, and its dropdown, drawn closed as well (`hidden`), so
+    // what the part said stays on the page for whoever reads it.
+    return '<div class="st-par-part st-par-' + state + (open ? ' open' : '') + '">' +
+      '<div class="st-par-row" data-par-row="' + esc(key) + '" data-par-n="' + esc(String(p.n)) + '" role="button" tabindex="0" aria-expanded="' + (open ? 'true' : 'false') + '">' +
+      '<span class="st-par-dot"></span><span class="st-par-title">' + esc(title) + '</span><span class="st-par-tag">' + esc(prep ? SITE_REQ_PREP[prep] : siteParTag(p, v.parts, state)) + '</span><span class="st-par-car">' + (open ? '▾' : '▸') + '</span></div>' +
+      '<div class="st-par-body"' + (open ? '' : ' hidden') + '>' + (body || '<div class="st-par-said st-par-none">…</div>') + '</div></div>';
+  }).join('');
+  // THE SOFT BOX: the live question, else the request's own reply once ended.
+  const q = own.find((x) => x.ask && site.ask && site.ask.id === x.ask);
+  const end = own.filter((x) => x.for === 'end').pop();
+  const box = q ? '<div class="st-par-box">' + siteMsgText(q, link) + siteAskHTML(q, site) + '</div>'
+    : end ? '<div class="st-par-box">' + siteMsgText(end, link) + '</div>' : '';
+  return (typeof v.opening === 'string' && v.opening ? '<div class="st-par-opening">' + link(v.opening) + '</div>' : '') +
+    '<div class="st-par" data-par="' + esc(key) + '">' + head + rows + '</div>' + box;
+}
+/** A press inside a parallel card: a row opened or closed, or a part tried again. True when it was one. */
+function siteParClick(e, thread) {
+  const retry = e.target.closest('[data-par-retry]');
+  if (retry && thread.contains(retry)) { siteParRetry(siteOpenId, retry.getAttribute('data-par-retry'), Number(retry.getAttribute('data-par-n'))); return true; }
+  const row = e.target.closest('[data-par-row]');
+  if (!row || !thread.contains(row)) return false;
+  const key = row.getAttribute('data-par-row');
+  const n = Number(row.getAttribute('data-par-n'));
+  const s = siteById(siteOpenId);
+  const card = s && (s.msgs || []).find((x) => x && x.request === key);
+  const v = card ? siteParView(card, s) : null;
+  const p = v ? v.parts.find((x) => x && x.n === n) : null;
+  if (!p) return true;
+  const state = siteParState(p);
+  const id = s.id + '|' + key + '|' + n;
+  const o = siteParOpen.get(id);
+  const was = o && o.state === state ? o.open : state === 'run';
+  siteParOpen.set(id, { state, open: !was });
+  renderSites();
+  return true;
+}
+/** TRY AGAIN for a part that did not work: its own words, sent as a new message. */
+function siteParRetry(origin, key, n) {
+  const s = siteById(origin);
+  const card = s && (s.msgs || []).find((x) => x && x.request === key);
+  const v = card ? siteParView(card, s) : null;
+  const p = v ? v.parts.find((x) => x && x.n === n) : null;
+  if (!p || siteParState(p) !== 'bad') return;
+  const words = String(p.words || '').trim();
+  if (words) siteSend(words, true);
 }
 
 // ── EACH TASK NAMED BY THE MODEL'S OWN LINE (2026-10-06) ────────────────────
@@ -18161,7 +18333,8 @@ const TypeIn = (() => {
   const primed = new Set();       // site ids whose thread was read once
   let frame = 0;
   const reduce = () => { try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; } };
-  const SKIP = 'ul.st-req-prog, .st-req, .st-acts, .st-opts, .st-pick, .st-think, details, .st-note, button';
+  // .st-par: a split message's parallel card (2026-10-23), drawn like .st-req.
+  const SKIP = 'ul.st-req-prog, .st-req, .st-par, .st-acts, .st-opts, .st-pick, .st-think, details, .st-note, button';
   function targets(thread) {
     const out = [];
     thread.querySelectorAll('ul.st-req-prog > li').forEach((li) => out.push(li));

@@ -147,6 +147,8 @@ const SRC = [
   cut("function siteWithPages("),
   cutStatement("document.addEventListener('keydown', (e) => {"),
   cutClick(),
+  // THE PARALLEL CARD'S PRESSES (2026-10-23), which the delegation asks first.
+  cut("function siteParClick("),
   cut("function esc("),
   cutLine("const SITES_KEY ="),
   // …AND WHAT ANOTHER TAB SAVED, TAKEN IN BEFORE A SAVE (2026-10-07): noticed by the browser's `storage` event, never here.
@@ -1178,11 +1180,15 @@ test("the platform's own words never take the composer's draft: every call that 
   assert.ok(calls.length >= 4, "the census found too few sends to mean anything: " + JSON.stringify(calls));
   for (const args of calls) {
     if (/^['"`]/.test(args)) assert.match(args, /,\s*true$/, "a sentence the platform wrote is sent as the customer's draft: " + args.slice(0, 60));
+    // A PARALLEL CARD'S TRY AGAIN (2026-10-23): a part's own words sent again,
+    // which leaves whatever is in the composer where it is.
+    else if (args === "words, true") continue;
     else assert.doesNotMatch(args, /,/, "a send from the composer passes something besides its words: " + args);
   }
+  assert.equal(calls.filter((a) => a === "words, true").length, 1, "the parallel card's Try again no longer leaves the composer's draft alone");
   // The third (2026-10-23, #115): the composer's own words sent again once the
   // draft video/audio has moved into the site's library.
-  assert.deepEqual(calls.filter((a) => !/^['"`]/.test(a)).sort(), ["prompt", "t", "t"], "the composer's sends are not the three expected");
+  assert.deepEqual(calls.filter((a) => !/^['"`]/.test(a) && a !== "words, true").sort(), ["prompt", "t", "t"], "the composer's sends are not the three expected");
 });
 
 test("a file still being read when another site is opened lands on the site it was chosen on", async () => {

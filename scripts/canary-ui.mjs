@@ -2916,6 +2916,9 @@ function readComposerInPage() {
   // kept — read only while the two counts agree.
   let kept = [];
   try { const open = siteById(siteOpenId); kept = open && Array.isArray(open.msgs) ? open.msgs : []; } catch (e) { kept = []; }
+  // …LESS THOSE DRAWN INSIDE A SPLIT MESSAGE'S PARALLEL CARD (2026-10-23),
+  // which the thread leaves out (`siteParHidden`).
+  try { const open = siteById(siteOpenId); if (typeof siteParHidden === "function") kept = kept.filter((m) => !siteParHidden(m, open)); } catch (e) { /* the page has no parallel card */ }
   const drawn = [...document.querySelectorAll("#stThread .st-msg")];
   const aligned = drawn.filter((m) => !m.classList.contains("st-busy")).length === kept.length;
   const heldJob = (m) => {
@@ -2973,7 +2976,7 @@ function readComposerInPage() {
       who: m.classList.contains("u") ? "u" : "a",
       busy: m.classList.contains("st-busy"),
       // A REQUEST'S CARD, not a reply (`newReplies`).
-      card: !!m.querySelector(".st-req"),
+      card: !!(m.querySelector(".st-req") || m.querySelector(".st-par")),
       text: ownText(m),
       // THE PROGRESS KEPT ABOVE A FINISHED JOB'S REPLY, read apart from it.
       progress: keptLines(m),
@@ -3033,19 +3036,23 @@ function readComposerInPage() {
         drawn.forEach((m, i) => {
           if (!aligned || m.classList.contains("st-busy")) return;
           const k = kept[i] && typeof kept[i].request === "string" ? kept[i].request : "";
-          if (!k || !m.querySelector(".st-req")) return;
+          if (!k || !(m.querySelector(".st-req") || m.querySelector(".st-par"))) return;
           const view = all[k] && all[k].view ? all[k].view : null;
           const state = view && Array.isArray(view.parts) ? view.parts : [];
           out[k] = {
             ended: !!(view && view.ended),
-            parts: [...m.querySelectorAll(".st-req-part")].map((li, j) => {
+            // THE PARALLEL CARD (2026-10-23): a split message's rows, each
+            // read with its dropdown (`.st-par-body`, drawn even while closed).
+            parts: [...m.querySelectorAll(".st-req-part"), ...m.querySelectorAll(".st-par-part")].map((li, j) => {
+              const par = li.classList.contains("st-par-part");
+              const row = par ? (li.querySelector(".st-par-row") || li) : li;
               const st = state[j] || null;
               const live = li.querySelector(".st-req-prog li.live");
               return {
                 n: st && Number.isInteger(st.n) ? st.n : j,
                 status: st && typeof st.status === "string" ? st.status : "",
-                words: words(li.querySelector(".st-req-words")),
-                label: words(li.querySelector(".st-req-status")),
+                words: words(row.querySelector(par ? ".st-par-title" : ".st-req-words")),
+                label: words(row.querySelector(par ? ".st-par-tag" : ".st-req-status")),
                 lines: [...li.querySelectorAll(".st-req-prog li")].map(keptLine).filter(Boolean),
                 live: live ? keptLine(live) : "",
                 said: st && st.said && typeof st.said === "object" ? { ...st.said } : null,
