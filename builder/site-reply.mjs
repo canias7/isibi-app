@@ -1028,6 +1028,13 @@ export function editReplyFacts(e, { routedCost = null, inRequest = false } = {})
       const n = Number(e.applied) || 0;
       const now = strings(e.changed).map(quote);
       F.add("changed", "Changed the wording" + (n > 1 ? " in " + n + " places" : "") + (now.length ? "; it now reads " + listOf(now) : "") + ".");
+      // ASKED FOR AND NOT MADE (2026-10-23, fix-edit-flow): the step's own list.
+      for (const nd of (Array.isArray(e.notDone) ? e.notDone : [])) {
+        if (!nd || typeof nd.what !== "string" || !nd.what) continue;
+        F.add("not-done", nd.why === "refused"
+          ? "Not made: " + flat(nd.what) + " could not be written safely into the page, so those were left as they were."
+          : "Not made: " + quote(nd.what) + " — the wording step could not find it among the site's words, so it is unchanged.");
+      }
       for (const link of (Array.isArray(e.staleTel) ? e.staleTel : [])) {
         if (!link || typeof link.href !== "string" || !link.href) continue;
         F.add("not-done", /^mailto:/.test(link.href)
@@ -1722,12 +1729,18 @@ export function requestReplyFacts(v) {
   for (const p of parts) {
     const w = quote(p.words);
     const item = "part:" + p.n;
+    // WHAT THE PART'S STEP REALLY DID (2026-10-23, fix-edit-flow): its own
+    // record (`made`, `changed`), never the words they asked with.
+    const did = typeof p.made === "string" && p.made ? " What its step recorded doing: " + flat(p.made) + "." : "";
+    const wrote = Array.isArray(p.changed) && p.changed.length ? " The words it wrote: " + listOf(p.changed.filter((x) => typeof x === "string").map(quote)) + "." : "";
+    // WHAT IT DID NOT MAKE, when no reply of its own says it (its own reply names each, from the same answer).
+    const undone = !own(p) && Array.isArray(p.notDone) ? p.notDone.filter((x) => x && typeof x.what === "string" && x.what) : [];
     if (p.status === "done") {
-      F.add("changed", "Done: " + w + (own(p) ? " — its own reply above says what changed."
+      F.add("changed", "Finished the part that asked for " + w + "." + did + wrote + (own(p) ? " Its own reply above says what changed."
         // MADE BY THE FULL REWRITE THEY GAVE THE GO-AHEAD FOR (2026-10-03): no
         // step's reply says it, so this one does, with what it cost.
-        : p.approved ? " — by the full rewrite of every page, on their go-ahead. Every page was written again, so parts of the site this did not mention may read differently now." + paidAll(p)
-        : typeof p.answer === "string" ? " — they asked a question, answered above." : "."), item);
+        : p.approved ? " It was made by the full rewrite of every page, on their go-ahead. Every page was written again, so parts of the site this did not mention may read differently now." + paidAll(p)
+        : typeof p.answer === "string" ? " They asked a question, answered above." : ""), item);
     } else if (p.status === "approval") {
       // WAITING FOR THEIR GO-AHEAD (2026-10-03): nothing starts until they press
       // it, and what needs this part waits with it rather than being given up.
@@ -1737,7 +1750,9 @@ export function requestReplyFacts(v) {
     } else if (p.status === "partial") {
       // DONE IN PART (2026-10-03): its step named something it was asked for
       // and did not do; its own reply says what. Nothing that needed it ran.
-      F.add("not-done", "Done only in part: " + w + (own(p) ? " — its own reply above says what was made and what was not." : "."), item);
+      F.add("not-done", "Done only in part: the part that asked for " + w + "." + did + wrote +
+        (undone.length ? " What it did not make: " + listOf(undone.map((x) => quote(x.what))) + "." : "") +
+        (own(p) ? " Its own reply above says what was made and what was not." : ""), item);
     } else if (p.status === "not-run") {
       const before = parts.find((x) => x.n === neededOf(p));
       F.add("not-done", "Not started: " + w + ", because it needed " + named(neededOf(p)) + " done first, and " +

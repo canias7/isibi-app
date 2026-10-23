@@ -140,11 +140,51 @@ export const TEXT_TOOL = {
           required: ["id", "to"],
         },
       },
+      // WHAT THEY ASKED FOR AND THIS CANNOT DO (2026-10-23, fix-edit-flow):
+      // the model's own plan, so a message asking for three changes where one
+      // was found is reported as done in part, never as done. Live on
+      // saltmarsh-and-sparrow, a price hidden from this list was left as it
+      // was and the reply said the whole message was made.
+      notDone: {
+        type: "array",
+        description:
+          "Each separate change they asked for that you could NOT make from the numbered list — the words they mean " +
+          "are not in it, or it is not a wording change. One short plain phrase each, in their terms (\"the Saturday " +
+          "price\"). Leave it empty when every change they asked for is in `edits`.",
+        items: { type: "string" },
+      },
       question: QUESTION_FIELD,
     },
     required: ["edits"],
   },
 };
+
+/**
+ * WHAT THE MODEL SAID IT COULD NOT DO, and how many of its own entries were
+ * refused here (2026-10-23, fix-edit-flow). Both are requested changes not
+ * made: the first in the model's words, the second counted, never named by us.
+ */
+export function readTextNotDone(reply, items) {
+  const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
+  const use = blocks.find((b) => b && b.type === "tool_use");
+  const input = (use && use.input) || {};
+  const list = Array.isArray(items) ? items : [];
+  const out = [];
+  for (const w of Array.isArray(input.notDone) ? input.notDone : []) {
+    if (typeof w !== "string") continue;
+    const t = w.trim().slice(0, 200);
+    if (t) out.push({ what: t, why: "not-found" });
+  }
+  // An entry putting back what is already there is no change asked for.
+  const offered = (Array.isArray(input.edits) ? input.edits : []).filter((e) => {
+    if (!e || typeof e !== "object") return false;
+    const it = list[Math.floor(Number(e.id))];
+    return !(it && typeof e.to === "string" && e.to.trim() === it.text);
+  }).length;
+  const refused = Math.max(0, offered - readTextEdits(reply, list).length);
+  if (refused > 0) out.push({ what: refused + " of the wording changes it chose", why: "refused" });
+  return out.slice(0, 8);
+}
 
 const SYSTEM =
   "You change the wording on a small business's published website. You are given every piece of text on it, numbered, " +
@@ -498,7 +538,10 @@ export async function runTextEdit(deps, { instruction, pages, scope = null, mode
   // out-of-date copy, so retrying is what fixes it and a bigger lane is not.
   // Nothing is published either way; `ok:false` is the whole contract.
   if (!ed.ok) return { ok: false, escalate: false, reason: "stale", detail: ed.error, usage, ...seen };
-  return { ok: true, pages: ed.pages, applied: ed.applied, edits, usage, ...seen };
+  // A PART OF THE MESSAGE NOT MADE IS SAID, NEVER SWALLOWED (2026-10-23):
+  // `ok` stays true for what did go in, and `notDone` makes it partial.
+  const notDone = readTextNotDone(reply, shown);
+  return { ok: true, pages: ed.pages, applied: ed.applied, edits, usage, ...seen, ...(notDone.length ? { notDone, partial: true } : {}) };
 }
 
 // ── THE DATA LAYER: the content the site STORES ──────────────────────────────

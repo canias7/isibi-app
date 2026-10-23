@@ -1521,6 +1521,14 @@ export function pickTool(kinds = ADD_KINDS) {
               // of the kinds named here, and is started as soon as they are
               // decided — every other designer at once. Required, so an entry
               // that says nothing is unread and its kind waits as it always did.
+              // WHERE A FRAME ITEM POINTS (2026-10-23, fix-edit-flow): read so a
+              // link to a page the site does not have is never handed to the
+              // menu editor, which only points at pages that exist.
+              to: {
+                type: "string",
+                description: "For `frame` only: the path of the page the new menu link or button points at (\"/gallery\"), " +
+                  "whether or not the site has it; empty when it points at no page of the site (a phone number, a social profile).",
+              },
               uses: {
                 type: "array",
                 maxItems: MAX_ADDS,
@@ -1656,6 +1664,25 @@ export function readAddScopes(reply, kinds) {
   return out;
 }
 
+/** The page a picked `frame` item points at, as a site path, or "" (2026-10-23, fix-edit-flow). */
+export function readFrameTo(reply, kinds) {
+  if (!(Array.isArray(kinds) && kinds.includes("frame"))) return "";
+  const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
+  const use = blocks.find((b) => b && b.type === "tool_use");
+  const raw = use && use.input && Array.isArray(use.input.scopes) ? use.input.scopes : [];
+  const s = raw.find((x) => x && typeof x === "object" && x.kind === "frame");
+  const t = s && typeof s.to === "string" ? s.to.trim().toLowerCase().replace(/\/+$/, "") : "";
+  const path = t === "" ? "" : t.startsWith("/") ? t : "/" + t;
+  return /^\/[a-z0-9][a-z0-9/_-]{0,80}$/.test(path) ? path : "";
+}
+
+/** Does a frame item point at a page the site lacks? Only when it names one. */
+export function frameToMissing(frameTo, pages) {
+  if (typeof frameTo !== "string" || !frameTo) return false;
+  const have = (Array.isArray(pages) ? pages : []).filter((x) => typeof x === "string").map((x) => x.toLowerCase().replace(/\/+$/, "") || "/");
+  return !have.includes(frameTo);
+}
+
 /**
  * WHAT EACH PICKED KIND'S DESIGN USES OF THE OTHERS, as `{ kind: [kinds] }`
  * (2026-10-11): only for a kind the picker named, the first entry for it, and
@@ -1756,7 +1783,7 @@ export async function pickAdds(deps, { message, kinds = ADD_KINDS, current = "",
   // A QUESTION BACK (2026-10-02): what is to be added cannot be told without a
   // detail they left out. The caller asks it before anything runs.
   const picked = readAdds(reply, kinds);
-  return { kinds: picked, scopes: readAddScopes(reply, picked), uses: readAddUses(reply, picked), ask: askOf(reply) || undefined, usage: addUsage(reply, model), failed: false };
+  return { kinds: picked, scopes: readAddScopes(reply, picked), uses: readAddUses(reply, picked), ...((t) => (t ? { frameTo: t } : {}))(readFrameTo(reply, picked)), ask: askOf(reply) || undefined, usage: addUsage(reply, model), failed: false };
 }
 
 /* --------------------------------------------------------------- the design */
@@ -5516,12 +5543,53 @@ function lineRendered(stream, pat) {
  * one could. An alternative count past the cap is unknown: none sure, any
  * possible.
  */
-function lineCounts(source, pat, opts) {
+function lineCounts(source, pat, opts, count = lineRendered) {
   const { alts, overflow } = renderedAlternatives(source, opts);
   if (overflow) return { least: 0, most: Infinity };
   if (!alts.length) return { least: 0, most: 0 };
-  const n = alts.map((a) => lineRendered(a, pat));
+  const n = alts.map((a) => count(a, pat));
   return { least: Math.min(...n), most: Math.max(...n) };
+}
+
+// ── A LINE WHOSE PARTS ARE RENDERED APART (2026-10-23, fix-edit-flow) ────────
+//
+// Live on saltmarsh-and-sparrow, a review — “quote” — Name — was refused as
+// "not landed" because the page rendered the quote and the attribution as
+// two pieces (a blockquote and a caption, stars or a portrait between them).
+// The line is split where its own punctuation separates it (quote marks, a
+// dash, a line break) — never into single words — and each piece must be
+// rendered whole, in the order asked, close together: at most `PART_GAP`
+// rendered words between one piece and the next. Not keyword matching: every
+// word of every piece is still required, in order. Lines with a link are not
+// split (a link is bound to the words it shows).
+const PART_GAP = 12;
+export function lineParts(words) {
+  const s = String(words == null ? "" : words);
+  if (LINK_IN_WORDS.test(s)) { LINK_IN_WORDS.lastIndex = 0; return []; }
+  LINK_IN_WORDS.lastIndex = 0;
+  const pieces = s.split(/[\u201c\u201d"\u2014\u2013\n]+|\s-\s|\s~\s/).map((x) => plainWords(x)).filter(Boolean);
+  return pieces.length >= 2 ? pieces.map((x) => x.split(" ").map((w) => ({ w, href: null, group: -1 }))) : [];
+}
+function at(stream, i, pat) {
+  if (i + pat.length > stream.length) return false;
+  for (let k = 0; k < pat.length; k++) if (!stream[i + k].w || stream[i + k].w !== pat[k].w) return false;
+  return true;
+}
+/** How many times the pieces render in order, each whole, at most PART_GAP rendered tokens apart, without overlaps. */
+function partsRendered(stream, parts) {
+  if (!parts.length) return 0;
+  let n = 0;
+  for (let i = 0; i < stream.length; i++) {
+    if (!at(stream, i, parts[0])) continue;
+    let end = i + parts[0].length, ok = true;
+    for (let p = 1; p < parts.length && ok; p++) {
+      let found = -1;
+      for (let j = end; j <= end + PART_GAP && j < stream.length; j++) if (at(stream, j, parts[p])) { found = j; break; }
+      if (found < 0) ok = false; else end = found + parts[p].length;
+    }
+    if (ok) { n++; i = end - 1; }
+  }
+  return n;
 }
 /**
  * `files`: the site's stored files a page may import — its own components
@@ -5544,7 +5612,16 @@ export function wordsLanded(before, after, items, { files = [], filesBefore = nu
     // component this cannot read holds, is not this change's.
     const had = lineCounts(was.get(file) || "", pat, { path: file, files: filesBefore || files }).most;
     const has = lineCounts(now.get(file) || "", pat, { path: file, files }).least;
-    if (!(has > had)) missing.push({ page: it.page, words: it.words });
+    if (has > had) continue;
+    // ITS PIECES, RENDERED APART BUT TOGETHER (`lineParts`), held to the same
+    // one-more-occurrence rule over every way the page comes out.
+    const parts = lineParts(it.words);
+    if (parts.length) {
+      const pHad = lineCounts(was.get(file) || "", parts, { path: file, files: filesBefore || files }, partsRendered).most;
+      const pHas = lineCounts(now.get(file) || "", parts, { path: file, files }, partsRendered).least;
+      if (pHas > pHad) continue;
+    }
+    missing.push({ page: it.page, words: it.words });
   }
   return { ok: missing.length === 0, missing };
 }

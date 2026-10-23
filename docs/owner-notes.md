@@ -1,5 +1,15 @@
 # Owner Notes
 
+## 2026-10-23, night — `fix-edit-flow`: the faults from today's live edit tests (not merged, not deployed)
+
+- A button in a page's own picture band and opening hours written into a page now go to the wording step, not the menu editor. The router is told what each step can reach; the menu editor reaches only the header and footer that every page shares.
+- Prices like "£4.25" can be changed by the wording step now. When the wording step can't make part of what you asked, it says which part, the request shows it as partly done, and the reply says so.
+- An added review whose quote and name show up separately on the page is no longer refused. Every word still has to be there, in order, close together.
+- The summary after a request with several parts says what each step really did, not "Done:" followed by your words.
+- A part split off another one now waits for the page the first part was making. If that part failed, the split-off part doesn't run and the reply says why. Its routing isn't charged a second time. A menu link to a page that doesn't exist is refused at no cost instead of going to the menu editor.
+- A question waiting for your answer no longer counts as running work: the box shows Send, not Stop. Every question comes with answer buttons written by the model, plus "Something else…". "Cancel this request" now works even when another question is waiting. Stop clears the question. A message sent after a question has closed is sent again as a new message instead of being dropped.
+- Nothing spent, no model called. Record: `docs/history/2026-10-23-fix-edit-flow.md`.
+
 ## 2026-10-23, late night (2) — `build-ai-writes-all`: new pages reach the new menus; the fallback is checked (not merged, not deployed)
 
 - **A page added to a new-style site now goes into its menu.** Its header and footer are its own files, so the add-on step now puts the new page's link into the written header (and the footer's page links, if it has them), in the same publish as the page. Where the header's link list is clear, the link is a copy of the last one (no model call); otherwise one small model call adds it, billed with the addition. Old sites work as before.

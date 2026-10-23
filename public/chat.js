@@ -10731,8 +10731,15 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // REQUEST'S OWN, ARE MORE THAN ONE REQUEST CAN CARRY (`answer-files-full`,
     // 2026-10-03): the question stays, the answer and its files come back.
     if (!isBuild && d && d.ok === false && (d.error === 'stale-question' || d.error === 'answer-too-long' || d.error === 'answers-full' || d.error === 'message-too-long' || d.error === 'answer-files-full') && (routeSaid || (typeof d.msg === 'string' && d.msg.trim()))) {
-      if (d.error === 'stale-question') siteAskClear(origin);
-      else siteHoldUnsent(origin, t, imgs, key);
+      if (d.error === 'stale-question') {
+        siteAskClear(origin);
+        // AN ANSWER TO A QUESTION NO LONGER LIVE IS SENT AS A NEW MESSAGE
+        // (2026-10-23, fix-edit-flow): after a Stop, the next thing typed went
+        // as an answer to the stopped request's question and was dropped. It
+        // goes again, once, as what it is — under a new key, with no answer.
+        const s3 = answer && !isBuild ? siteById(origin) : null;
+        if (s3) { siteRoute(s3, t, origin, false, imgs, finish, undefined, undefined, EditPoll.newIdemKey()); return; }
+      } else siteHoldUnsent(origin, t, imgs, key);
       finish(routeSaid || d.msg);
       return;
     }
@@ -11358,6 +11365,9 @@ function siteRequestStop(origin, key) {
   apiFetch('/api/site/request/' + encodeURIComponent(s.slug) + '/' + encodeURIComponent(key), { method: 'DELETE' }).then(async (r) => {
     const b = await r.json().catch(() => null);
     if (!r.ok || !b || b.ok !== true || !siteRequestOf(b)) { failed(); return; }
+    // STOPPED, SO NO QUESTION OF IT WAITS (2026-10-23, fix-edit-flow): left
+    // set, the next message was sent as an answer to the stopped request.
+    { const s2 = siteById(origin); if (s2 && s2.ask && (!s2.ask.request || s2.ask.request.key === key)) siteAskClear(origin); }
     const done = await siteRequestShow(origin, key, b.request, EditPoll.modelReply(b), b.replyFor, b.replyState);
     if (!done) siteRequestFollow(origin, key);
   }).catch(failed);
@@ -16049,7 +16059,9 @@ function siteAskCancel() {
   apiFetch('/api/site/' + encodeURIComponent(site.slug) + '/question', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     // THE PICKED MODEL, for the acknowledgement the route has it write.
-    body: JSON.stringify({ id: asked.id, cancel: true, picker: buildPicker, ...(typeof sendEffort === 'function' ? sendEffort() : null) }),
+    // AND ITS REQUEST PART (2026-10-23, fix-edit-flow): the part is ended by
+    // its own question even when the site's one slot holds another.
+    body: JSON.stringify({ id: asked.id, cancel: true, ...(asked.request && typeof asked.request.key === 'string' && Number.isInteger(asked.request.part) ? { request: { key: asked.request.key, part: asked.request.part } } : {}), picker: buildPicker, ...(typeof sendEffort === 'function' ? sendEffort() : null) }),
   }).then(async (r) => {
     const c = await r.json().catch(() => null);
     if (!r.ok || !c || c.ok !== true || typeof c.cancelled !== 'boolean') {
@@ -16308,6 +16320,17 @@ function siteSend(text, leaveDraft) {
 // started), a standalone job (the server cancels it, until it has published),
 // else the page's own build or wait (`siteStop`: the page stops waiting; the
 // server cannot cancel a running build, and the message says so).
+// A REQUEST IS RUNNING WORK ONLY WHILE A PART OF IT IS (2026-10-23,
+// fix-edit-flow): one whose every unfinished part waits on the customer — a
+// question, a go-ahead — or on such a part, is not, so the composer shows
+// Send and what they type goes as an answer or a new message. A view with no
+// readable parts is running, as before (cannot-tell is never "idle").
+function siteRequestWorking(v) {
+  const SITE_PART_WORKING = ['ready', 'queued', 'started', 'unverified', 'recovering', 'uncertain'];
+  const parts = v && Array.isArray(v.parts) ? v.parts.filter((p) => p && typeof p.status === 'string') : null;
+  if (!parts || !parts.length) return true;
+  return parts.some((p) => SITE_PART_WORKING.includes(p.status));
+}
 function siteRunningWork(site) {
   if (!site) return null;
   const msgs = Array.isArray(site.msgs) ? site.msgs : [];
@@ -16316,7 +16339,7 @@ function siteRunningWork(site) {
     if (!m || typeof m.request !== 'string' || !m.request) continue;
     const st = site.requests && typeof site.requests === 'object' ? site.requests[m.request] : null;
     const v = st && st.view;
-    if (v && !v.ended && !v.stop) return { kind: 'request', key: m.request };
+    if (v && !v.ended && !v.stop && siteRequestWorking(v)) return { kind: 'request', key: m.request };
   }
   const cards = site.jobCards && typeof site.jobCards === 'object' && !Array.isArray(site.jobCards) ? site.jobCards : {};
   for (const k of Object.keys(cards)) {

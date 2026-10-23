@@ -461,6 +461,20 @@ export const ASK_TOOL = {
           "\"text\" — ONLY the words change and nothing else: a heading, a sentence, a button label, a phone number, an " +
           "address, a price written on the page. Nothing moves and nothing changes colour. This is the cheapest thing the " +
           "builder can do, so prefer it whenever it is honestly true.\n" +
+          // ── WHAT THIS LAYER REACHES THAT "nav" DOES NOT (2026-10-23, fix-edit-flow) ──
+          //
+          // Live on saltmarsh-and-sparrow: "make the Book a table button say X"
+          // (a button in the home page's hero) and "change Saturday's opening
+          // hours" (a timetable written into the page, no tables) were both
+          // answered "nav", whose editor reaches only the frame — the header's
+          // menu and its one button, the footer's details — and changed
+          // nothing. Said by reach, not by word: what each editor can touch.
+          "THIS LAYER REACHES EVERY WORD WRITTEN INSIDE A PAGE'S OWN SECTIONS — a button's label in a page's hero or " +
+          "a section, a timetable, a price list or opening hours written into the page itself (not stored rows: the " +
+          "tables the site has are named above, and with none every list is written into its page). Rewording any of " +
+          "that is this layer even when it is a button or opening hours: the menu layer, nav, reaches only the frame shared by " +
+          "every page (the header's menu and its one button, the footer's details), so it cannot change words a page " +
+          "section carries.\n" +
           "WORDS THAT ARE NOT ON THE PAGE YET ARE NOT THIS LAYER: a line, a sentence or a paragraph ADDED to a page is " +
           "intent \"addon\". This layer rewords what is already there.\n" +
           "\"look\" — colour, theme, fonts, how round the corners are, the TAB ICON (the favicon — \"make the tab " +
@@ -564,13 +578,16 @@ export const ASK_TOOL = {
           "and no attachment expected. THE WORD \"LOGO\" IS THE SIGNAL and it is a strong one: a picture attached to " +
           "a message about the header, the top of the site, or the brand mark is this and not \"picture\".\n" +
           "\"nav\" — THE SAME-ON-EVERY-PAGE FRAME: the menu, the one button beside it, and the contact details at " +
-          "the BOTTOM of every page.\n" +
+          "the BOTTOM of every page. IT REACHES NOTHING INSIDE A PAGE'S OWN SECTIONS: a button, a timetable or opening " +
+          "hours a page section carries are that page's words (\"text\", or \"look\" with other changes), even when " +
+          "the frame has something with a similar name.\n" +
           "THE FOOTER'S DETAILS — the phone number, email address, postal address and opening line a visitor " +
           "scrolls to the bottom for. \"Our number at the bottom is wrong\", \"the address is wrong, we've moved\", " +
           "\"the opening hours have changed\", \"take the opening times off\". It is the same block on every page, so " +
           "it changes everywhere at once and costs almost nothing.\n" +
           "A FULL DAY-BY-DAY TIMETABLE IS NOT THIS — that is rows the site stores, so it is \"data\". This is the " +
-          "one line at the bottom (\"Tue–Sun 12–10\").\n" +
+          "one line at the bottom (\"Tue–Sun 12–10\"). Hours or a timetable WRITTEN INTO A PAGE'S OWN SECTION, with no " +
+          "table storing them, are that page's words: \"text\".\n" +
           "THE SOCIAL ICONS AND THE SMALL PRINT are here too — \"our Instagram link goes to the old account\", \"the " +
           "Privacy link in the small print is broken\", \"take the Twitter icon off\". Same block, same page-wide " +
           "change, same near-zero cost.\n" +
@@ -580,7 +597,7 @@ export const ASK_TOOL = {
           "THE MENU — which items are in it, what order they come in, taking one out. \"Put Book first\", \"rename " +
           "Pricing to Prices in the menu\", \"take Pricing out of the nav\", \"the menu should be Home, Services, " +
           "Contact\".\n" +
-          "THE BUTTON — what it says AND where it goes. \"Change the Book button to Get a quote\", \"make the button " +
+          "THE FRAME'S BUTTON — the one beside the menu in the header, on every page — what it says AND where it goes. A button inside a page's own section (a hero, a band) is not this one: its label is \"text\". \"Change the Book button to Get a quote\", \"make the button " +
           "call us instead\", \"point the button at the contact page\", \"drop the button\". " +
           "A phone number belongs here: for a trade whose customers ring rather than book, that button IS the site's " +
           "whole purpose.\n" +

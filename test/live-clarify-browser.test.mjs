@@ -234,11 +234,15 @@ test("A BROWSER WITHOUT THE FILES DOES NOT ANSWER WITHOUT THEM: nothing is sent,
 // 4. AN ANSWER THE ROUTE WILL NOT ACT ON
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("A STALE ANSWER STARTS NOTHING: the card comes off and the route's own sentence is said", async () => {
+test("A STALE ANSWER IS SENT AGAIN AS A NEW MESSAGE, once: the card comes off, the words go again with no answer (under a new key: the fixture's key is fixed), and the route's own sentence is said when that too is refused", async () => {
   const p = page({ site: asking(), answer: (url) => (url === ROUTE ? { status: 409, body: { ok: false, error: "stale-question", why: "closed", cost: 0, msg: STALE } } : null) });
   p.ctx.siteSend("Visit");
   await settle();
-  assert.equal(p.calls.length, 1, "work was sent on a stale answer");
+  // 2026-10-23, fix-edit-flow: after a Stop, the next message was dropped as a stale answer.
+  assert.equal(p.calls.length, 2, "the words were not sent again as a new message");
+  assert.ok(p.calls[0].body.ask, "the first send was not an answer");
+  assert.equal(p.calls[1].body.ask, undefined, "the second send was still an answer");
+  assert.equal(p.calls[1].body.message, "Visit");
   assert.equal(p.ask(), null, "a question the server has closed kept its card");
   assert.deepEqual(p.last(), { r: "a", t: STALE });
   assert.equal(p.busy(), false);

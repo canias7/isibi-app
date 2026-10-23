@@ -272,7 +272,7 @@ test("WORKER COMBINED REQUEST, ONE PART FAILED — the request's own reply is wr
     const reqReply = P.replyLog.find((facts) => facts.some((f) => /^Not done: “add a gallery page”/.test(f.text)));
     assert.ok(reqReply, "the request's own reply was not written: " + JSON.stringify(P.replyLog.map((f) => f.map((x) => x.id))));
     const ks = kOf(reqReply);
-    const scope = "For " + reqReply.find((f) => /^Done: /.test(f.text)).text.match(/^Done: (“[^”]*”)/)[1] + ": ";
+    const scope = "For " + reqReply.find((f) => /^Finished the part that asked for /.test(f.text)).text.match(/^Finished the part that asked for (“[^”]*”)/)[1] + ": ";
     assert.deepEqual(ks, checkFacts(ev).map((f) => scope + f.text), "the done part's checks were not said under its own words");
     assert.ok(!ks.some((t) => /gallery/.test(t)), "the failed part was given a check");
     const addonReply = P.replyLog.find((facts) => facts.some((f) => /^Nothing was added/.test(f.text)));

@@ -67,6 +67,9 @@ function nameIsCode(before) {
 const EMAIL = /^[\w.+-]+@[\w-]+(\.[\w-]+)*\.[a-z]{2,}$/i;
 
 /** A whole string that is plainly not something a person wrote to be read. */
+const PRICE_ONE = "(?:[£$€¥₹]\\s?\\d[\\d,]*(?:\\.\\d{1,2})?|\\d[\\d,]*(?:\\.\\d{1,2})?\\s?(?:€|£|p|kr|zł))";
+const PRICE = new RegExp("^" + PRICE_ONE + "(?:\\s?[–—-]\\s?" + PRICE_ONE + ")?$");
+
 function looksLikeCode(v) {
   const s = String(v);
   if (!s.trim()) return true;
@@ -92,6 +95,12 @@ function looksLikeCode(v) {
   // two letters); `@/components/ui/card` and Tailwind's `@container` have no
   // local part and are refused by the `^[./@]` rule below in any case.
   if (EMAIL.test(s)) return false;
+  // A PRICE IS PROSE, WHATEVER ITS CASE (2026-10-23, fix-edit-flow). "£4.25"
+  // has no whitespace and no capital, so it was hidden as an identifier and
+  // the text step could not change a price written on the page (live on
+  // saltmarsh-and-sparrow). A currency sign beside a number, or a range of
+  // them, is never an identifier; a bare number stays code (a size, an index).
+  if (PRICE.test(s)) return false;
   if (!/\s/.test(s) && !/[A-Z]/.test(s)) return true;
   // Paths, urls, imports, tokens, class strings, template holes.
   if (/^[./@]/.test(s)) return true;

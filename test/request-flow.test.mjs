@@ -1531,7 +1531,7 @@ test("G1 — a part whose routing fails on our side is asked once more, then end
     const facts = toldIn(P, await readWritten(P, REQ(P, r.key)));
     // "NOTHING WAS CHARGED" IS READ FROM ITS JOBS' ROWS, which say so above.
     assert.match(facts, /Not done: “add a gallery page” — working out what it needed failed on our side\. Nothing was charged for it\./);
-    assert.match(facts, /Done: “Change the site description/);
+    assert.match(facts, /Finished the part that asked for “Change the site description[^|]*What its step recorded doing: changed it with the look step/);
   });
 });
 
@@ -2287,12 +2287,12 @@ test("M4 — with no words for the set-aside link, the addition is done only in 
     for (const m of menus(P)) { assert.match(m, /Gallery \/gallery/, m); assert.doesNotMatch(m, /Our photos/, m); }
     assert.deepEqual(jobLine(P, r.key), ["addon:done"]);
     const facts = toldIn(P, await readWritten(P, REQ(P, r.key)));
-    assert.match(facts, /Done only in part: “Add a gallery page and put a link to it in the menu[^”]*” — its own reply above says what was made and what was not\./, facts);
+    assert.match(facts, /Done only in part: the part that asked for “Add a gallery page and put a link to it in the menu[^”]*”\.[^|]*Its own reply above says what was made and what was not\./, facts);
     assert.match(facts, /Not started: “make the menu's Gallery link say Our photos”, because it needed “[^”]+” done first, and that was only partly done\. Nothing was charged for it\./, facts);
   });
 });
 
-test("M5 — run 95's R1 shape: the new page's own placement puts its link in every menu, so the link's own part finds it already done — nothing published, its step not charged, its routing charge kept — and the part that needed it runs", async () => {
+test("M5 — run 95's R1 shape: the new page's own placement puts its link in every menu, so the link's own part finds it already done — nothing published, its step not charged, its routing not charged again (it was carved by the addition's job) — and the part that needed it runs", async () => {
   const RENAME = "make the menu's Gallery link say Our photos";
   await withPlatform({
     slug: slugOf("m5"), pages: NAV_PAGES, replies: true,
@@ -2325,7 +2325,8 @@ test("M5 — run 95's R1 shape: the new page's own placement puts its link in ev
     assert.deepEqual([said.ok, said.satisfied, said.changed, said.cost], [true, true, [], 0], JSON.stringify(said));
     assert.deepEqual([linkEdit.state, linkEdit.publish_started_at || null, linkEdit.published_at || null], ["done", null, null], "the part already done was published");
     assert.deepEqual(reserveOf(P, linkEdit.id), [], "the step that changed nothing was charged");
-    assert.ok(reserveOf(P, linkRoute.id).reduce((a, c) => a + c, 0) > 0, "the link part's routing was not charged — the case did not happen");
+    // CARVED BY THE ADDITION'S JOB, SO ITS ROUTING IS NOT CHARGED AGAIN (2026-10-23, fix-edit-flow).
+    assert.deepEqual(reserveOf(P, linkRoute.id), [], "the carved link part's routing was charged again");
     // THE PART THAT NEEDED IT RAN AFTER IT, against the menu the page's placement made.
     const order = P.jobsOf(r.key).map((j) => j.idem_key.replace(r.key + "-", "").split("-")[0]);
     assert.ok(order.lastIndexOf("p" + link.n) < order.indexOf("p" + rename.n), order.join(" "));

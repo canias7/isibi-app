@@ -314,7 +314,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // (2026-10-13, after run 144): the evidence a component's requirement is read
 // against, in place of "nobody can see one".
 import { addedByRoute, publishedTexts, componentEvidence } from "./builder/content-evidence.mjs";
-import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, qrShownSources, qrDestinationCheck, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
+import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, frameToMissing, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, qrShownSources, qrDestinationCheck, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig, writesSchema as partWritesSchema } from "./builder/request-plan.mjs";
@@ -33929,7 +33929,11 @@ async function handleRequest(request, env, ctx) {
         // a retry of the same message — a lost response, another tab — that
         // reaches the model again is not charged again. Every other call pays
         // as it always has. None of them fails the route over the ledger.
-        if (rJob) {
+        // A CARVED PART'S ROUTING IS NOT CHARGED (2026-10-23, fix-edit-flow):
+        // the message's routing already described it (`partOf`'s `carved`,
+        // set by the request, never by a caller). Live: 3 credits, nothing done.
+        if (rJob && rPart && rPart.carved === true) rCost = 0;
+        else if (rJob) {
           try {
             const rr = rCost > 0 ? await editRpc(env, "edit_reserve", { p_id: rJob.id, p_seq: 1, p_cost: rCost }) : null;
             if (rr && rr.ok === true) { if (typeof rJob.noteReserve === "function") rJob.noteReserve(); rCost = Number(rr.cost) || 0; }
@@ -38748,6 +38752,9 @@ async function handleRequest(request, env, ctx) {
               return Response.json({
                 ok: true, layer: "text", applied: out.applied, files: pub.files, render: pub.render, renderNote: pub.renderNote, checks: pub.checks, draft: pub.draft,
                 changed: out.edits.map((e) => e.to).slice(0, 8),
+                // WHAT IT WAS ASKED AND DID NOT MAKE (2026-10-23, fix-edit-flow),
+                // from the step's own plan; omitted when empty.
+                notDone: Array.isArray(out.notDone) && out.notDone.length ? out.notDone : undefined,
                 // Omitted when empty, so an ordinary wording change's response
                 // is byte-identical and the field's PRESENCE is the signal.
                 staleTel: staleTel.length ? staleTel.slice(0, 4) : undefined,
@@ -42698,6 +42705,13 @@ async function handleRequest(request, env, ctx) {
             // unsaid. Refused instead, at no cost, with both halves named.
             if (aRowAside && aHop && aKinds.length === 1) {
               return aNone({ ok: false, error: "add", kind: "row", reason: "row-alone", cost: 0, msg: addRefusal("row-alone", "row") + " Nothing was changed." }, 422);
+            }
+            // A FRAME LINK TO A PAGE THE SITE DOES NOT HAVE (2026-10-23,
+            // fix-edit-flow) is never handed to the menu editor, which only
+            // points at pages that exist: refused at no cost, the page named.
+            if (aHop === "frame" && aKinds.length === 1 && frameToMissing(aPicked.frameTo, aSrc.map((p) => routeOf(p && p.path)).filter(Boolean))) {
+              return aNone({ ok: false, error: "add", kind: "frame", reason: "frame-no-page", page: aPicked.frameTo, cost: 0,
+                msg: "The site has no " + aPicked.frameTo + " page yet, so there is nothing for that link to point at. Nothing was changed or charged." }, 422);
             }
             if (aHop && aKinds.length === 1) return aFailure("layer", { layer: addLayerIn(aHop, aKinds), kind: aHop });
             const aSkipped = aKinds.filter((k) => addLayerIn(k, aKinds));
@@ -47582,24 +47596,40 @@ async function handleRequest(request, env, ctx) {
               // the request, which moves on — what needed the part is not run,
               // and everything independent of it goes ahead.
               let qView;
-              if (closed.ok && closed.record && closed.record.requestKey) {
-                const qk = closed.record.requestKey;
-                // A READ THAT FAILED IS READ AGAIN, AND A PART LEFT WAITING IS
-                // NOT TOLD AS CANCELLED (2026-10-23, audit A35-4): one thrown
-                // read ended the loop and the reply still said "cancelled",
-                // while the part waited and its question was offered again.
-                let settled = false;
+              // A READ THAT FAILED IS READ AGAIN, AND A PART LEFT WAITING IS
+              // NOT TOLD AS CANCELLED (2026-10-23, audit A35-4): one thrown
+              // read ended the loop and the reply still said "cancelled",
+              // while the part waited and its question was offered again.
+              // `null` unread; otherwise whether this press ended the part.
+              const qCancelPart = async (qk, part, id) => {
                 for (let k = 0; k < 6; k++) {
                   let at = null;
                   try { at = await loadRequest(env, ownerSlug, qk); } catch { continue; }
-                  if (!at || !at.rec || at.rec.uid !== ou.id) { settled = true; break; }
-                  const next = cancelPart(at.rec, closed.record.part, closed.record.id);
-                  if (!next) { qView = requestView(at.rec); settled = true; break; }
+                  if (!at || !at.rec || at.rec.uid !== ou.id) return { ended: false };
+                  const next = cancelPart(at.rec, part, id);
+                  if (!next) { qView = requestView(at.rec); return { ended: false }; }
                   let t = null;
                   try { t = await saveRequestRecord(env, next, at.etag); } catch { t = null; }
-                  if (t) { const moved = await advanceRequest(env, ctx, ownerSlug, qk, "question-cancelled"); qView = requestView(moved || next); settled = true; break; }
+                  if (t) { const moved = await advanceRequest(env, ctx, ownerSlug, qk, "question-cancelled"); qView = requestView(moved || next); return { ended: true }; }
                 }
-                if (!settled) return Response.json({ ok: false, error: "unread" }, { status: 503 });
+                return null;
+              };
+              // THE CARD'S OWN REQUEST PART (2026-10-23, fix-edit-flow): a
+              // part's question is offered from its request's view even when
+              // the site's one slot holds another question (`storeAskIfFree`
+              // kept it out), so "Cancel this request" found the slot's id
+              // different and said there was nothing to cancel. The part is
+              // ended by its own question id, whatever the slot holds; the slot
+              // is left as it is.
+              const qReq = qb.request && typeof qb.request === "object" && isRequestKey(qb.request.key) && Number.isInteger(qb.request.part) && qb.request.part >= 0 ? qb.request : null;
+              let qPartEnded = false;
+              if (closed.ok && closed.record && closed.record.requestKey) {
+                const r1 = await qCancelPart(closed.record.requestKey, closed.record.part, closed.record.id);
+                if (!r1) return Response.json({ ok: false, error: "unread" }, { status: 503 });
+              } else if (!closed.ok && qReq) {
+                const r2 = await qCancelPart(qReq.key, qReq.part, qb.id);
+                if (!r2) return Response.json({ ok: false, error: "unread" }, { status: 503 });
+                qPartEnded = r2.ended === true;
               }
               // ALREADY CLOSED IS STILL A QUESTION NOTHING CAN ACT ON, so the
               // cancel is not refused; `cancelled` says whether this one closed it,
@@ -47609,7 +47639,7 @@ async function handleRequest(request, env, ctx) {
               // put off, beside the request it cancelled. The cancel itself is
               // done and stays done whatever the reply does.
               return withModelReply(env, Response.json({
-                ok: true, cancelled: closed.ok === true, why: closed.ok ? undefined : closed.why,
+                ok: true, cancelled: closed.ok === true || qPartEnded, why: closed.ok || qPartEnded ? undefined : closed.why,
                 putOff: closed.ok && closed.record.held.length ? closed.record.held : undefined,
                 request: qView,
               }), "cancel", replyAsked({
