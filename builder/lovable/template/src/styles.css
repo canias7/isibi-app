@@ -278,10 +278,11 @@
 /* Contrast: muted ink becomes ink, hairlines become rules, focus is full ink.
    Tokens only — the components never restate colours, so this applies to every
    component at once, including ones that never heard of the toggle. These
-   selectors sit at the end of the file on purpose: .app-high-contrast ties
-   with :root and .dark on specificity, so source order is what makes the
-   override win. */
-.app-high-contrast {
+   selectors outrank :root and .dark ON SPECIFICITY (audit A34-1): a build
+   appends the theme's own :root and .dark palette, and the model's sheet,
+   after this file, so a tie on specificity lost to them on source order and
+   high contrast did nothing on any themed site. */
+:root.app-high-contrast {
   --foreground: oklch(0 0 0);
   --card-foreground: oklch(0 0 0);
   --popover-foreground: oklch(0 0 0);
@@ -300,7 +301,7 @@
   --ring: oklch(1 0 0);
 }
 @media (prefers-contrast: more) {
-  :root {
+  html:root {
     --foreground: oklch(0 0 0);
     --card-foreground: oklch(0 0 0);
     --popover-foreground: oklch(0 0 0);
@@ -309,7 +310,7 @@
     --input: oklch(0.45 0 0);
     --ring: oklch(0 0 0);
   }
-  .dark {
+  html.dark {
     --foreground: oklch(1 0 0);
     --card-foreground: oklch(1 0 0);
     --popover-foreground: oklch(1 0 0);

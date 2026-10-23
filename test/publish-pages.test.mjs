@@ -1419,6 +1419,28 @@ test("a typecheck failure is NEVER retried", async () => {
   assert.equal(out.cost, pageCredits(USAGE), "the model's own output failing is charged");
 });
 
+test("A22-3: a bundle failure citing a page — the container's real answer — is not re-run", async () => {
+  // Since 2026-08-30 the container never sends `typecheck`: a page that fails
+  // to compile comes back as `stage: "build"` with vite's error. That is as
+  // deterministic as the stand-in above, so the same pages are compiled once.
+  const { deps, calls } = harness({
+    compile: async () => ({ ok: false, stage: "build", error: 'vite build failed: Rollup failed to resolve import "./nope" from "/app/src/routes/index.tsx".' }),
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "cafe" });
+  const seen = calls.compile.map((p) => JSON.stringify(p));
+  for (let i = 1; i < seen.length; i++) assert.notEqual(seen[i], seen[i - 1], "the same failing pages were compiled twice in a row");
+  assert.ok(calls.compile.length >= 1);
+  assert.equal(out.retriedBuild, undefined, "a page's own bundle failure was retried as if the container had died");
+  // …but a KILLED step is retried even when it printed a page's name first.
+  let n = 0;
+  const k = harness({ compile: async () => (++n === 1
+    ? { ok: false, stage: "build", error: "/app/src/routes/index.tsx:1:1: transforming\nvite build was killed by SIGTERM" }
+    : { ok: true, files: { "index.html": { t: "<ok>" } } }) });
+  const ko = await publishPages(k.deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(n, 2, "a drained container that had cited a page was not retried");
+  assert.equal(ko.page, "app");
+});
+
 test("two container failures fall back, and still cost nothing", async () => {
   const { deps, calls } = harness({
     compile: async () => ({ ok: false, stage: "build", error: "the build service returned nothing" }),
@@ -1936,8 +1958,8 @@ test("A22-4 a first build whose one band does not bundle ships with that band st
     generate: async () => gen([good(), shell], { input: { pages: [good(), shell], parts: [part], notes: "" } }),
     compile: async () => {
       n++;
-      // THE FIRST BUNDLER FAILURE IS ASKED ONCE MORE (`compileWithRetry`), so two.
-      if (n <= 2) return { ok: false, stage: "build", error: "/app/src/routes/-parts/band-prices.tsx:1:60: ERROR: Unexpected end of file" };
+      // A FAILURE CITING A PAGE IS NOT ASKED AGAIN (A22-3), so one.
+      if (n <= 1) return { ok: false, stage: "build", error: "/app/src/routes/-parts/band-prices.tsx:1:60: ERROR: Unexpected end of file" };
       return { ok: true, files: { "index.html": { t: "<ok>" } } };
     },
   });
@@ -1945,11 +1967,11 @@ test("A22-4 a first build whose one band does not bundle ships with that band st
   assert.equal(out.page, "app", "one band that did not bundle lost the whole site: " + JSON.stringify(out.salvage));
   assert.deepEqual(out.salvagedParts, ["band-prices"]);
   assert.deepEqual(out.salvage.foreign, []);
-  assert.equal(calls.compiledParts.length, 3);
+  assert.equal(calls.compiledParts.length, 2);
   assert.match(calls.compiledParts[0][0].source, /Prices/, "the first compile was not handed the band as written");
-  assert.match(calls.compiledParts[2][0].source, /return null/, "the recompile was not handed the stubbed part");
-  assert.doesNotMatch(calls.compiledParts[2][0].source, /Prices/);
-  assert.equal(calls.compiledParts[2][0].name, "band-prices");
+  assert.match(calls.compiledParts[1][0].source, /return null/, "the recompile was not handed the stubbed part");
+  assert.doesNotMatch(calls.compiledParts[1][0].source, /Prices/);
+  assert.equal(calls.compiledParts[1][0].name, "band-prices");
 });
 
 test("salvagePlan refuses when the HOME page is the one that failed", () => {
@@ -2107,7 +2129,7 @@ test("A PAGE THAT DOES NOT BUNDLE COSTS ONE PAGE — the container's real failur
   const out = await publishPages(deps, { spec: SPEC, slug: "x", livePages: [] });
   assert.equal(out.page, "app", "one page that did not bundle still took the whole site");
   assert.deepEqual(out.salvaged, ["menu.tsx"]);
-  assert.equal(calls.compile.length, 3, "the failure, its one retry, and the compile with the stub");
+  assert.equal(calls.compile.length, 2, "the failure (citing a page, so not retried: A22-3) and the compile with the stub");
   assert.match(calls.stored[0].find((p) => p.path === "menu.tsx").source, /isn't finished yet/);
   assert.match(out.salvageNote, /menu/, "the missing section is not told");
   // AND THE FAILING LINE IS CITED FROM VITE'S FORM, as it was from tsc's.

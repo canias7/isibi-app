@@ -206,8 +206,8 @@ function harness(over = {}) {
 }
 const fails = { ok: false, stage: "build", error: VITE_ERR, typeErrors: TSC_ERR };
 const okBuild = (t) => ({ ok: true, files: { "index.html": { t } }, render: { ok: true, findings: [] } });
-// THE FAKE FAILS ON THE BROKEN SOURCE EVERY TIME, as the real bundler does —
-// so the bundler retry `compileWithRetry` makes fails too.
+// THE FAKE FAILS ON THE BROKEN SOURCE EVERY TIME, as the real bundler does.
+// A failure citing a page is not retried (A22-3, 2026-10-23), so one compile.
 const byContent = (t) => (i, pages) => (pages.find((p) => p.path === "menu.tsx").source === BROKEN ? fails : okBuild(t));
 // A FIX THAT PARSES BUT THE BUNDLER REFUSES (re-anchored 2026-10-22, A03-5):
 // a fix that does not parse is now refused by the tweak reader before any
@@ -219,7 +219,7 @@ test("FLAG OFF (no dep): no call, and salvage stubs the page exactly as before",
   const { deps, calls } = harness({ compile: byContent("<salvaged>") });
   const out = await publishPages(deps, { spec: SPEC, slug: "s", livePages: [] });
   assert.equal(calls.fix.length, 0);
-  assert.equal(calls.compile.length, 3, "the first compile, its one bundler retry, and salvage's");
+  assert.equal(calls.compile.length, 2, "the first compile (citing a page, so not retried) and salvage's");
   assert.deepEqual(out.salvaged, ["menu.tsx"]);
   assert.equal(out.compileRepair, undefined);
   assert.ok(!calls.notes.some(([s]) => s.startsWith("compile-fix")));
@@ -229,7 +229,7 @@ test("a fixed page is recompiled once, and the fixed build and source publish �
   const { deps, calls } = harness({ compile: byContent("<fixed>"), fix: async () => tweakAnswer(FIXED) });
   const out = await publishPages(deps, { spec: SPEC, slug: "s", livePages: [] });
   assert.equal(calls.fix.length, 1, "one try");
-  assert.equal(calls.compile.length, 3, "the first compile, its retry, and the one recompile");
+  assert.equal(calls.compile.length, 2, "the first compile and the one recompile");
   assert.equal(calls.publish[0]["index.html"].t, "<fixed>");
   assert.equal(calls.stored[0].find((p) => p.path === "menu.tsx").source, FIXED, "the fixed source is stored");
   assert.equal(out.salvaged, undefined);
@@ -252,7 +252,7 @@ test("NEVER WORSE: a fix that does not compile leaves salvage to stub the ORIGIN
   const out = await publishPages(deps, { spec: SPEC, slug: "s", livePages: [] });
   assert.equal(calls.fix.length, 1, "one try only, no loop");
   const last = calls.compile[calls.compile.length - 1];
-  assert.equal(calls.compile.filter((ps) => ps.find((p) => p.path === "menu.tsx").source === WORSE).length, 2, "the fix compiled once (and its bundler retry), never fixed again");
+  assert.equal(calls.compile.filter((ps) => ps.find((p) => p.path === "menu.tsx").source === WORSE).length, 1, "the fix compiled once, never fixed again");
   assert.ok(last.find((p) => p.path === "menu.tsx").source !== BROKEN && last.find((p) => p.path === "menu.tsx").source !== WORSE, "salvage stubbed it");
   assert.equal(last.find((p) => p.path === "index.tsx").source, HOME.source, "the home page as written");
   assert.deepEqual(out.salvaged, ["menu.tsx"]);
@@ -266,7 +266,7 @@ test("a refused fix (cannot) is not recompiled; salvage as today", async () => {
   const cannot = { content: [{ type: "tool_use", name: "write_tweak", input: { cannot: "needs a new component" } }], usage: { input_tokens: 10, output_tokens: 5 } };
   const { deps, calls } = harness({ compile: byContent("<salvaged>"), fix: async () => cannot });
   const out = await publishPages(deps, { spec: SPEC, slug: "s", livePages: [] });
-  assert.equal(calls.compile.length, 3, "first, its retry, salvage's — no recompile for a refusal");
+  assert.equal(calls.compile.length, 2, "first, then salvage's — no recompile for a refusal");
   assert.deepEqual(out.salvaged, ["menu.tsx"]);
   assert.equal(out.compileRepair.refused[0].reason, "cannot");
 });

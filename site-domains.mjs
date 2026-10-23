@@ -371,6 +371,22 @@ export function siteHostFor(slug) {
 }
 
 /** The full public URL of a published site, pretty when there is one. */
+/**
+ * A stored share picture moved to a site's new name (audit A33-8, 2026-10-23).
+ * A rename changes the address without a publish; a picture left on the old
+ * host is a 301 hop, and a 404 once that address is forgotten. Only a site
+ * host of ours is moved, and the path (`/card.png`, `/u/<storage slug>/…`) is
+ * kept: the new name's host serves both. Mutates `side`.
+ */
+export function rehostShareImage(side, name) {
+  const host = siteHostFor(name);
+  if (!side || typeof side.image !== "string" || !host) return;
+  try {
+    const u = new URL(side.image);
+    if (u.protocol === "https:" && siteHostSlug(u.hostname)) { u.hostname = host; side.image = u.toString(); }
+  } catch { /* not an address: left as it is */ }
+}
+
 export function siteUrlFor(slug, origin) {
   const host = siteHostFor(slug);
   if (host) return "https://" + host + "/";

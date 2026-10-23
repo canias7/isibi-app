@@ -735,7 +735,7 @@ test("a stylesheet change beside a removal names both: the look's own sentence, 
   assert.deepEqual(r.reply.layers, ["look", "page"], label + ": layers");
   assert.equal(r.reply.css, true, label + ": the stylesheet was not reported as changed");
   assertOps(r, [GONE], label);
-  assert.equal(r.said.text, "Updated the look — the design. The stylesheet sets none of the kit's own colour variables, so the site renders on the default palette. Took /gallery off the site. Every publish is kept, so say the word if you want it back.", label + ": the customer's sentence");
+  assert.equal(r.said.text, "Updated the look — the design. Took /gallery off the site. Every publish is kept, so say the word if you want it back.", label + ": the customer's sentence");
 });
 
 for (const mode of ["sync", "job"]) {

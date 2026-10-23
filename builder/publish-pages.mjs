@@ -304,8 +304,11 @@ export const buildFloor = (designModel) =>
  *               how a build double-bills.
  *   validate  — the model returned no usable page. ITS OUTPUT. Charged.
  *   home      — the pages came back with no index.tsx. ITS OUTPUT. Charged.
- *   typecheck — the page does not compile. ITS OUTPUT, and the most common
- *               real failure there is. Charged.
+ *   typecheck — the page does not compile. ITS OUTPUT. Charged. Only an older
+ *               container sends it: since 2026-08-30 the typecheck reports and
+ *               a page that does not compile arrives as `build` (below), so in
+ *               practice it is free, as docs/build-path.md says a placeholder
+ *               is (audit A22-3).
  *   build     — the bundler stage. OURS.  <-- see below, this one is a judgement
  *   publish   — writing to storage threw. OURS.
  *   generate  — the model API never answered. OURS (and there is no usage to
@@ -1012,14 +1015,17 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
    * that was already running. The same asynchrony that produces the "container
    * template is behind" failure, wearing a different face.
    *
-   * `stage: "typecheck"` is NEVER retried, and that exclusion is what stops this
-   * being a slow no-op on the common failure: a page that does not compile does
-   * not compile the second time either, and the customer would wait another 40
-   * seconds for the same placeholder. Anything at `stage: "build"` gets one more
-   * go — a genuine bundler error (an import tsc allowed and vite cannot resolve)
-   * is deterministic too, so the cost of being generous here is one wasted
-   * container run on a rare path, against catching every future spelling of "the
-   * process was killed" without a list of signals to keep up to date.
+   * A FAILURE THAT CITES A PAGE IS NEVER RETRIED (audit A22-3, 2026-10-23): a
+   * page that does not compile does not compile the second time either, and the
+   * customer would wait another 40 seconds for the same placeholder. This used
+   * to rest on `stage: "typecheck"` being the code's failure, but the container
+   * has not sent that stage since 2026-08-30: a page that fails to bundle comes
+   * back as `stage: "build"` with vite's error. So the line is drawn by
+   * `salvageable`, the reader salvage uses: a failure naming a page is the
+   * code's; one naming none (unreachable, empty), or a killed step whatever it
+   * printed before the signal, gets one more go, which
+   * still catches every future spelling of "the process was killed" without a
+   * list of signals to keep up to date.
    *
    * No delay between the two. Starting a fresh container instance has its own
    * cold start, which is the spacing — and a sleep would be a guess at how long
@@ -1029,7 +1035,7 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
     let bd = await compile(pages);
     // NOT AFTER A WAIT THAT RAN OUT (2026-09-04): `withRoom` already made every
     // try the cap allowed, and one more immediately is the try it just made.
-    if (!bd.ok && bd.stage === "build" && !bd.room) {
+    if (!bd.ok && bd.stage === "build" && !bd.room && (wasKilled(bd.error) || !salvageable(bd))) {
       // THE FIRST DRAIN IS THE DIAGNOSIS, so it is written once and not
       // overwritten. This was an unconditional assignment and the salvage path
       // calls this function again, so a build drained mid-bundle, retried, and

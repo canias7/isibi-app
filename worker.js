@@ -13,7 +13,7 @@ import { handleInbound, MAX_BODY as INBOUND_MAX_BODY, MAX_PER_MINUTE as INBOUND_
 // reach the API. Invisible until the line ran, which is the whole class of bug
 // `test/worker-imports.test.mjs` now covers.
 import { resolveAlias, cleanAlias, renameRows, aliasRefusal, renameRequest, readRename, readForget } from "./builder/site-alias.mjs";
-import { OWN_ZONES, APP_ZONE, SITE_ZONE, normalizeHostname, isOwnHostname, isAppHostname, servedAtRoot, isPublishedSiteRequest, siteHostSlug, siteHostFor, siteUrlFor, siteOrigin, claimRefusal, dnsInstructions, readStatus, mountRootFor, absolutizeAssets } from "./site-domains.mjs";
+import { OWN_ZONES, APP_ZONE, SITE_ZONE, normalizeHostname, isOwnHostname, isAppHostname, servedAtRoot, isPublishedSiteRequest, siteHostSlug, siteHostFor, siteUrlFor, siteOrigin, rehostShareImage, claimRefusal, dnsInstructions, readStatus, mountRootFor, absolutizeAssets } from "./site-domains.mjs";
 import { checkDns, dnsSentence } from "./site-dns.mjs";
 import { detectProvider, providerSentence } from "./site-registrar.mjs";
 import { offerFor as dcOfferFor, applyUrl as dcApplyUrl, signQuery as dcSign, rsaSigner as dcSigner } from "./site-domain-connect.mjs";
@@ -12321,11 +12321,13 @@ const aliasCurrent = makeCache({ ttlMs: 300_000, max: 4000 });
 
 /**
  * The alias row for one label, or `NO_ALIAS`, or null when we could not ask.
+ * `fresh` skips the cached answer (audit A33-9): a conflict check before a
+ * claim must not pass on a five-minute-old miss another site has since filled.
  */
-async function aliasRowFor(env, label) {
+async function aliasRowFor(env, label, { fresh = false } = {}) {
   const l = typeof label === "string" ? label.toLowerCase() : "";
   if (!l) return NO_ALIAS;
-  const hit = aliasRoutes.get(l);
+  const hit = fresh ? null : aliasRoutes.get(l);
   if (hit) return hit;
   if (!env.SUPABASE_SERVICE_KEY) return null;
   try {
@@ -12393,6 +12395,28 @@ function addressOf(name) { return siteUrlFor(name, "https://" + APP_ZONE); }
 async function publicUrlFor(env, slug) {
   const name = await publicNameFor(env, slug);
   return siteHostFor(name) ? addressOf(name) : addressOf(slug);
+}
+/**
+ * THE SHARE PICTURE'S HOST IS THE PUBLIC NAME'S (audit A33-8, 2026-10-23).
+ * It was the storage slug's, which after a rename is a 301 hop and, once the
+ * owner forgets that address, a 404 for every path: every og:image broke. The
+ * current name's host serves the site's `/card.png` and `/u/<storage slug>/`.
+ * `rehostShareImage` (site-domains.mjs) moves a stored picture's host when a
+ * rename changes the address without a publish.
+ */
+async function shareOriginFor(env, slug) {
+  const host = siteHostFor(await publicNameFor(env, slug));
+  return host ? "https://" + host : siteOrigin(slug, "https://" + APP_ZONE);
+}
+/** A restored version's sidecar text with its share picture on the current name's host. */
+async function withShareHost(env, slug, sidecar) {
+  if (typeof sidecar !== "string") return sidecar;
+  try {
+    const sd = JSON.parse(sidecar);
+    const was = sd && sd.image;
+    rehostShareImage(sd, await publicNameFor(env, slug));
+    return sd.image === was ? sidecar : JSON.stringify(sd);
+  } catch { return sidecar; }
 }
 
 /**
@@ -14571,7 +14595,7 @@ async function runPublication(env, slug, j, etag, say = null) {
       let liveV = ptr ? String(ptr.version || "") : "";
       // THE ADDRESS THE VERSION NAMES: a held rename is baked into its sidecar.
       let sidecar = typeof b.sidecar === "string" ? b.sidecar : undefined;
-      if (rename && sidecar) { try { const sd = JSON.parse(sidecar); sd.origin = addressOf(rename.to); sidecar = JSON.stringify(sd); } catch { /* the version's own */ } }
+      if (rename && sidecar) { try { const sd = JSON.parse(sidecar); sd.origin = addressOf(rename.to); rehostShareImage(sd, rename.to); sidecar = JSON.stringify(sd); } catch { /* the version's own */ } }
       // THE OWNER'S PANEL CHANGES SINCE `j.from` WENT LIVE (audit A11-2), and
       // with no rename of its own, the address as it stands (audit A33-2b).
       if (j.from !== j.version) sidecar = await withPanelFields(deps, slug, sidecar, j.from, { origin: !rename });
@@ -14625,6 +14649,7 @@ async function runPublication(env, slug, j, etag, say = null) {
           const cur = await env.SITES_BUCKET.get(siteMetaKey(slug));
           const side = sidecarOf(cur ? await cur.text() : null);
           side.origin = addressOf(rename.to);
+          rehostShareImage(side, rename.to);
           await env.SITES_BUCKET.put(siteMetaKey(slug), JSON.stringify(side), { httpMetadata: { contentType: "application/json" } });
         } catch (e) { return keep("switch", "the site's address could not be set (" + errorClassForLog(e) + ")", "unknown"); }
       }
@@ -14805,7 +14830,7 @@ async function addressTaken(env, slug, name) {
     if (taken === null) return "could not be checked";
     if (taken) return "is taken";
   }
-  const row = await aliasRowFor(env, name);
+  const row = await aliasRowFor(env, name, { fresh: true });
   if (row === null) return "could not be checked";
   if (row && row !== NO_ALIAS && row.slug !== slug) return "is taken";
   return "";
@@ -15187,9 +15212,11 @@ async function restoreVersion(env, slug, id, { refuseLegacy = false } = {}) {
       // THE OWNER'S PANEL CHANGES SURVIVE THE RESTORE (audit A11-2): the
       // verification tag always, the card and description when a panel set
       // them after the version standing now went live. AND THE ADDRESS AS IT
-      // STANDS (2026-10-23, audit A38-4): a version staged before a rename
-      // names the old address, which may since have been released.
-      sidecar: await withPanelFields(deps, slug, typeof b.sidecar === "string" ? b.sidecar : undefined, before && before.version ? String(before.version) : "", { origin: true }), sidecarKey: siteMetaKey(slug),
+      // STANDS (audit A38-4, A33-5): a name is not versioned, so the restored
+      // version's origin (its name when staged) would put a renamed site's
+      // canonical back on the old, redirecting address.
+      // Its share picture too (audit A33-8), when the version predates a rename.
+      sidecar: await withShareHost(env, slug, await withPanelFields(deps, slug, typeof b.sidecar === "string" ? b.sidecar : undefined, before && before.version ? String(before.version) : "", { origin: true })), sidecarKey: siteMetaKey(slug),
       liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
       putWorker: async () => {
         wput = await putSiteWorker(env, slug, { ok: true, code: b.worker, build: b.manifest.build || "" }, { version: id });
@@ -18438,8 +18465,9 @@ async function siteOgImage(env, slug, dist) {
   // composed a share card this publish — computed up front because the exits
   // below want it, and an upload-listing failure must degrade TO the card
   // rather than past it.
+  const base = await shareOriginFor(env, slug);
   let card = dist && dist["card.png"]
-    ? siteOrigin(slug, "https://" + APP_ZONE) + "/card.png"
+    ? base + "/card.png"
     : null;
   try {
     if (!env.SITES_BUCKET) return card;
@@ -18453,7 +18481,7 @@ async function siteOgImage(env, slug, dist) {
       try {
         // Through the pointer (stage 7): the live card is the live build's.
         if (await env.SITES_BUCKET.head(assetKeyFor(await sitePointer(env, slug), slug, "card.png"))) {
-          card = siteOrigin(slug, "https://" + APP_ZONE) + "/card.png";
+          card = base + "/card.png";
         }
       } catch (e) { /* cannot tell → no card claim; the uploads may still answer */ }
     }
@@ -18472,7 +18500,7 @@ async function siteOgImage(env, slug, dist) {
     } catch (e) { /* an unreadable config is no choice, never no image */ }
     if (chosen) {
       const hit = objs.find((o) => o && !o.visitor && o.key.split("/").pop() === chosen && uploadIsImage(chosen));
-      if (hit) return siteOrigin(slug, "https://" + APP_ZONE) + "/u/" + slug + "/" + chosen;
+      if (hit) return base + "/u/" + slug + "/" + chosen;
     }
     // OWNER UPLOADS NEXT — a person's own picture beats the composed card,
     // the same precedence the logo and the icon live under. And no `|| objs[0]`
@@ -18486,7 +18514,7 @@ async function siteOgImage(env, slug, dist) {
     // og:image that is not an image renders nothing in a chat app's card.
     const first = objs.find((o) => o && !o.visitor && uploadIsImage(o.key.split("/").pop()));
     if (!first) return card;
-    return siteOrigin(slug, "https://" + APP_ZONE) + "/u/" + slug + "/" + first.key.split("/").pop();
+    return base + "/u/" + slug + "/" + first.key.split("/").pop();
   } catch (e) { console.error("og image lookup failed:", slug, e && e.message); return card; }
 }
 
@@ -28113,7 +28141,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // revise about a phone number cannot cost a site its look. An UNUSABLE one
       // does too — `readCss` answers `usable: false` for a non-string and for an
       // empty string, and neither is an instruction to strip the site bare.
-      const cssAsk = readCss(designed && designed.css);
+      const cssAsk = readCss(designed && designed.css, { themed: !!resolveTheme(merged.theme) });
       const siteCss = cssAsk.usable ? cssAsk.css : priorCss;
       if (cssAsk.usable && siteCss !== priorCss) {
         const w = await patchSiteConfig(env, slug, db, { css: siteCss });
@@ -37062,7 +37090,7 @@ async function handleRequest(request, env, ctx) {
               // site's own slug, which the alias check below already reads as
               // no conflict. Only the site check needed telling.
               const takenBySite = wanted === ownerSlug ? false : await siteNameTaken(env, wanted);
-              const takenByAlias = await aliasRowFor(env, wanted);
+              const takenByAlias = await aliasRowFor(env, wanted, { fresh: true });
               const aliasConflict = takenByAlias && takenByAlias !== NO_ALIAS && takenByAlias.slug !== ownerSlug;
               // A LOOKUP WE COULD NOT MAKE IS NOT A FREE NAME. Both lookups
               // answer null when they could not ask, and handing out a name on
@@ -37139,6 +37167,7 @@ async function handleRequest(request, env, ctx) {
                 const cur = await env.SITES_BUCKET.get(siteMetaKey(ownerSlug));
                 const side = sidecarOf(cur ? await cur.text() : null);
                 side.origin = addressOf(wanted);
+                rehostShareImage(side, wanted);
                 await env.SITES_BUCKET.put(siteMetaKey(ownerSlug), JSON.stringify(side), { httpMetadata: { contentType: "application/json" } });
                 live = true;
               } catch (e) { console.error("rename sidecar patch failed:", ownerSlug, e && e.message); }
@@ -38327,7 +38356,7 @@ async function handleRequest(request, env, ctx) {
               // anti-re-roll guarantee instead. An unusable answer keeps what is
               // stored: `readCss` refuses a non-string and an empty string, and
               // neither is an instruction to strip a customer's site bare.
-              const cssAsk = readCss(designed && designed.css);
+              const cssAsk = readCss(designed && designed.css, { themed: !!resolveTheme(merged.theme) });
               const nextCss = cssAsk.usable ? cssAsk.css : priorCss;
               const cssMoved = nextCss !== priorCss;
 
@@ -43807,7 +43836,7 @@ async function handleRequest(request, env, ctx) {
             // `css` follows the look lane's rule too: replaced when usable,
             // never merged, never stripped by an empty answer.
             const aMerged = mergeLook(aLook, aDesigned, {}, { instructed: true });
-            const aCssAsk = readCss(aDesigned && aDesigned.css);
+            const aCssAsk = readCss(aDesigned && aDesigned.css, { themed: !!resolveTheme(aMerged.theme || aLook.theme) });
             const aNextCss = aCssAsk.usable ? aCssAsk.css : aCss;
             // WHAT GETS STORED, AND WHAT THE REPLY CALLS MOVED — ASKED ONCE
             // AND READ TWICE (2026-09-17). Below the publish, `deadQrs` can
