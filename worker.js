@@ -35,7 +35,7 @@ import { readSchemaState, reconcileSpec, RECOVER_QUERIES, liveDeclared } from ".
 import { policiesFor, grantsFor } from "./site-rls.mjs";
 import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerImport, handleOwnerMembers, handleOwnerAnalytics, assertOwner, editGateRefusal } from "./site-owner.mjs";
 import { MAX_IMPORT_BYTES } from "./site-csv.mjs";
-import { takeIdemKey, makeIdem, replayHeaders } from "./site-idem.mjs";
+import { takeIdemKey, makeIdem, replayHeaders, idemFingerprint } from "./site-idem.mjs";
 import { placeAttachedPhotos, attachedFilesNote, ownPhotoFacts, ownPhotoSentence } from "./builder/attached-photos.mjs";
 import { importSite, importBriefBlock, readImportSite, placeImportedPhotos, publicUrl as importPublicUrl } from "./builder/site-import.mjs";
 import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_MODEL_BYTES, MAX_VISITOR_UPLOAD_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName, dispositionFor, readDownloadName, DOWNLOAD_NAME_KEY, uploadIsImage, uploadKind, UPLOAD_URL_PATH } from "./site-uploads.mjs";
@@ -137,7 +137,7 @@ function agentQueueRing(env) {
   return (runId) => q.send({ runId });
 }
 import { cleanHeadDescription, pickableImages, headAnswer } from "./site-head-edit.mjs";
-import { normalizePayment, parseCart, priceCart, checkoutSessionArgs, formEncode, paidFromEvent } from "./site-payments.mjs";
+import { normalizePayment, parseCart, priceCart, checkoutSessionArgs, formEncode, paidFromEvent, failedFromEvent } from "./site-payments.mjs";
 import { rescopeCookie } from "./site-cookie.mjs";
 import { drainTeardown } from "./site-teardown.mjs";
 import { drainRebuild, BATCH as REBUILD_BATCH, BUSY_DEFER_SEC as REBUILD_BUSY_SEC, REBUILD_OP, REBUILD_START_DELAY_S, rebuildIdem } from "./site-rebuild.mjs";
@@ -228,7 +228,7 @@ import { runNavEdit, applyAdditions, menuLinksKept } from "./builder/site-nav.mj
 import { runLogoEdit } from "./builder/site-logo.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
-import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings } from "./site-access.mjs";
+import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings, canWriteAccess } from "./site-access.mjs";
 import { converse, readHistory, converseRequest, requestChars, CONTEXT_CHARS } from "./builder/site-converse.mjs";
 import { planWindow, compact as compactChat, COMPACT_AT } from "./builder/chat-context.mjs";
 // The pair a `display` table resolves to. Named once, from the presets, so the
@@ -10990,9 +10990,10 @@ async function handleCheckout({ env, conn, slug, body, origin, schema, ctx = nul
  * cache, and a Worker without it keeps the in-isolate layer alone.
  */
 const SITE_IDEM = makeIdem();
-function idemFor(env, slug, scope, key) {
+function idemFor(env, slug, scope, key, fp = null) {
   const kv = env && env.SITE_API_CACHE;
   return SITE_IDEM.for(slug, scope, key, {
+    fp,
     get: kv ? (id) => kv.get(id, { type: "json" }) : null,
     put: kv ? (id, v, ttl) => kv.put(id, JSON.stringify(v), { expirationTtl: ttl }) : null,
   });
@@ -11077,6 +11078,29 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
   // and a Request body can only be consumed a single time.
   let sent = request.method === "GET" || request.method === "HEAD" ? undefined : await request.text();
 
+  // ONE SUBMISSION, ONCE (owner, 2026-09-03 — the backend services round).
+  //
+  // A page that sends an `Idempotency-Key` gets the answer it already got for
+  // that key, for ten minutes, without the row being written twice: the
+  // double-click, the phone that lost signal after the POST left. Read before
+  // the upstream write, because a replay is exactly the request that must not
+  // reach Postgres, and BEFORE THE SPAM GATE (audit A30-4): a double-click
+  // sends the same single-use token twice, so verifying first refused the
+  // second press as a bot instead of handing it the first one's answer. Only
+  // a 2xx is ever remembered (`idemStorable`), so a refused submission
+  // retried with the field fixed — same key, by design — still goes through;
+  // and only a request with the same contents is replayed (`fp`, audit A30-5).
+  // The layers and their limits are written up in `site-idem.mjs`.
+  let idem = null;
+  if (which === "data" && request.method === "POST") {
+    const key = takeIdemKey(request.headers);
+    if (key) {
+      idem = idemFor(env, slug, "data/" + String(path).split("/")[0].toLowerCase(), key, await idemFingerprint(sent));
+      const prior = await idem.read();
+      if (prior) return new Response(prior.body, { status: prior.status, headers: replayHeaders(prior) });
+    }
+  }
+
   // KEEPING BOTS OUT, BEFORE THE ROW EXISTS.
   //
   // Verified after the insert is a spam filter that files the spam first, so
@@ -11084,8 +11108,10 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
   // only thing on this path that can — everything else here (notify, confirm,
   // webhook) runs after the row is safe.
   if (which === "data" && request.method === "POST") {
-    const gate = await turnstileGate(env, request, { slug, db, path, sent });
+    // A gate that throws must not leave the key claimed for the press behind it.
+    const gate = await turnstileGate(env, request, { slug, db, path, sent }).catch((e) => { if (idem) idem.release(); throw e; });
     if (gate.refused) {
+      if (idem) idem.release();
       // `message`, not `error`: that is the field `rows.ts` reads to show a
       // visitor what went wrong, so a refusal says something rather than
       // rendering "request failed (403)". The `code` is ours and unknown to
@@ -11093,26 +11119,6 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
       return Response.json({ message: gate.refused, code: "turnstile" }, { status: 403 });
     }
     if (gate.sent !== undefined) sent = gate.sent;
-  }
-
-  // ONE SUBMISSION, ONCE (owner, 2026-09-03 — the backend services round).
-  //
-  // A page that sends an `Idempotency-Key` gets the answer it already got for
-  // that key, for ten minutes, without the row being written twice: the
-  // double-click, the phone that lost signal after the POST left. Read HERE,
-  // after the spam gate and before the upstream write, because a replay is
-  // exactly the request that must not reach Postgres. Only a 2xx is ever
-  // remembered (`idemStorable`), so a refused submission retried with the
-  // field fixed — same key, by design — still goes through. The layers and
-  // their limits are written up in `site-idem.mjs`.
-  let idem = null;
-  if (which === "data" && request.method === "POST") {
-    const key = takeIdemKey(request.headers);
-    if (key) {
-      idem = idemFor(env, slug, "data/" + String(path).split("/")[0].toLowerCase(), key);
-      const prior = await idem.read();
-      if (prior) return new Response(prior.body, { status: prior.status, headers: replayHeaders(prior) });
-    }
   }
   try {
     const r = await fetch(target, {
@@ -11253,6 +11259,9 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
   } catch (e) {
     console.error("site " + which + " proxy failed:", slug, path, e && e.message);
     return Response.json({ error: "couldn't reach that just now" }, { status: 503 });
+  } finally {
+    // A press that never stored an answer lets the one waiting behind it through.
+    if (idem) idem.release();
   }
 }
 
@@ -11887,7 +11896,23 @@ async function claimNotify(env, slug) {
   const row = Array.isArray(rows) && rows[0];
   // No row means either notifications are off or another isolate got there
   // first. Both are "do nothing", and neither is an error.
-  return row ? { ok: true, owner_uid: row.uid } : { ok: false };
+  return row ? { ok: true, owner_uid: row.uid, at: row.notified_at } : { ok: false };
+}
+
+// THE WINDOW HANDED BACK (audit A12-9): the claim's winner found no mail key,
+// so nothing was sent and the next submission may try. Only this claim's own
+// stamp is cleared; a later winner's is never touched.
+async function unclaimNotify(env, slug, claim) {
+  const at = claim && typeof claim.at === "string" ? claim.at : "";
+  if (!at) return;
+  const q = `slug=eq.${encodeURIComponent(slug)}&notified_at=eq.${encodeURIComponent(at)}`;
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?${q}`, {
+    method: "PATCH",
+    headers: svcHeaders(env, { "content-type": "application/json", Prefer: "return=minimal" }),
+    body: JSON.stringify({ notified_at: null }),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!r.ok) throw new Error("unclaim " + r.status);
 }
 
 // The Go Farther account that owns the site. auth.users is not reachable through
@@ -12447,6 +12472,14 @@ const turnstileConfig = memoize(turnstileCfg, async (slug, env, db) => {
     try { out[field] = (await readSecret({ get: async () => r.cipher }, env, { slug, name })) || ""; }
     catch { /* absent */ }
   }
+  // HALF A PAIR IS OFF (audit A30-7). With the secret and no site key no
+  // widget can render, so no token can exist and every submission would be
+  // refused, for good and in silence. Off, said in the log, like a secret
+  // that will not decrypt.
+  if (out.secret && !out.siteKey) {
+    console.error("turnstile:", slug, "TURNSTILE_SECRET is set without TURNSTILE_SITE_KEY: the check stays off");
+    out.secret = "";
+  }
   return out;
 });
 
@@ -12473,7 +12506,7 @@ async function turnstileGate(env, request, { slug, db, path, sent }) {
   }, { path, sent, contentType: request.headers.get("content-type"), ip: request.headers.get("CF-Connecting-IP") || "" });
   if (rpc) {
     const { verdict, ...decided } = rpc;
-    if (verdict && verdict.state === "unknown") console.error("turnstile:", slug, verdict.reason);
+    if (verdict && (!verdict.ok || verdict.state === "unknown")) console.error("turnstile:", slug, verdict.state, verdict.reason);
     return decided;
   }
   // ONE ROW PER SUBMISSION WHERE THE CHECK IS ON (audit A30-2). A body that is
@@ -12490,7 +12523,7 @@ async function turnstileGate(env, request, { slug, db, path, sent }) {
       const spec = await loadSiteSchema(db);
       d = (spec && spec.tables || []).find((x) => String(x.name).toLowerCase() === t) || null;
     } catch { return {}; }
-    if (!d || String(d.access || "").toLowerCase() !== "collect") return {};
+    if (!d || !canWriteAccess(d)) return {};
     return { refused: "Please send one submission at a time." };
   }
   const had = TURNSTILE_FIELD in body;
@@ -12515,7 +12548,9 @@ async function turnstileGate(env, request, { slug, db, path, sent }) {
     const spec = await loadSiteSchema(db);
     def = (spec && spec.tables || []).find((t) => String(t.name).toLowerCase() === table) || null;
   } catch { return out; }
-  if (!def || String(def.access || "").toLowerCase() !== "collect") return out;
+  // ANYONE MAY WRITE IT, asked of the pair (audit A30-6): never the stored
+  // preset name, which a pair-declared table carries as `collect` regardless.
+  if (!def || !canWriteAccess(def)) return out;
 
   const verdict = await turnstileVerify({
     post: (u, form) => fetch(u, {
@@ -12533,7 +12568,9 @@ async function turnstileGate(env, request, { slug, db, path, sent }) {
     // reputation Cloudflare scores their token against.
     ip: request.headers.get("CF-Connecting-IP") || "",
   });
-  if (verdict.state === "unknown") console.error("turnstile:", slug, verdict.reason);
+  // EVERY VERDICT THAT IS NOT A PASS IS SAID (audit A30-7): a refusal used to
+  // leave no trace, so an owner whose visitors were all refused could not see it.
+  if (!verdict.ok || verdict.state === "unknown") console.error("turnstile:", slug, verdict.state, verdict.reason);
   if (verdict.ok) return out;
   return { ...out, refused: "That didn't look like it came from a person. Please try again." };
 }
@@ -12583,7 +12620,7 @@ async function pendingWebhooks(env, ownerId, slug) {
  */
 function siteRowEffects(env, ctx, { slug, db, def, table, action, row, submission }) {
   return runRowEffects({
-    notify: (r) => notifyOwnerOfSubmission(env, ctx, { slug, db, table, access: def.access, method: "POST", row: r }),
+    notify: (r) => notifyOwnerOfSubmission(env, ctx, { slug, db, table, access: def, method: "POST", row: r }),
     confirm: (r) => confirmSubmitter(env, ctx, { slug, db, def, row: r }),
     sms: (r) => smsSubmitter(env, ctx, { slug, db, def, row: r }),
     webhook: (a, r) => emitWebhook(env, ctx, { slug, db, def, table, action: a, row: r }),
@@ -12921,10 +12958,13 @@ function notifyOwnerOfSubmission(env, ctx, payload) {
   const p = (async () => {
     const out = await notifyOwner({
       claim: (s2) => claimNotify(env, s2),
+      unclaim: (s2, c) => unclaimNotify(env, s2, c),
       // Supabase, because this is looking up WHO to write to — our own record of
       // our own customer's address. It says nothing about which sender is used.
       emailOf: (uid) => ownerEmail(env, uid),
-      send: async ({ to, subject, html }) => {
+      // READ BY THE CLAIM'S WINNER, and a missing key hands the window back
+      // (`unclaim`, audit A12-9): it used to spend the five minutes on nothing.
+      ready: async () => {
         const secrets = await siteMailSecrets(env, payload.db, payload.slug)();
         const picked = pickProvider(secrets);
         const from = String(secrets.EMAIL_FROM || "").trim();
@@ -12933,8 +12973,9 @@ function notifyOwnerOfSubmission(env, ctx, payload) {
         // half is missing instead of wondering why nothing arrives.
         if (!picked) throw new Error("no mail provider key in this site's Secrets");
         if (!from) throw new Error("no EMAIL_FROM in this site's Secrets");
-        return postProviderEmail(picked.provider, picked.key, from, to, subject, html);
+        return { picked, from };
       },
+      send: async ({ to, subject, html }, { picked, from }) => postProviderEmail(picked.provider, picked.key, from, to, subject, html),
     }, payload);
     // It runs detached, so nothing else would ever see why it did not send.
     if (!out.sent && out.error) console.error("submission notify:", payload.slug, out.reason, out.error);
@@ -22054,7 +22095,21 @@ export async function reconcileEditJob(env, id, hint = null) {
   // three facts below would call it "never staged" and refund entries that
   // may be on the site. Its one fact is its key.
   const rowKey = String(row.op || "") === "addon" ? rowReviewKey(row) : "";
-  if (rowKey) {
+  // UNLESS IT WAS HELD (audit A13-3): under draft-first the entries are this
+  // job's own draft revision and no key is ever written, so the key would be
+  // closed and refunded while the draft keeps them. A revision naming this
+  // job is settled by the draft rule below; a draft that cannot be read is
+  // cannot-tell, never "nothing saved".
+  let rowFacts = null;
+  if (rowKey && draftFirst(env)) {
+    rowFacts = await reconcileFacts(env, row);
+    const d = rowFacts.draft;
+    if (d.state === "unreadable") {
+      return { ...(await applyReconcile(env, row, { verdict: "unknown", kind: "draft-unreadable", why: "the site's draft record could not be read, so whether this job's entries were held is not known" })), job: String(row.id) };
+    }
+    if (!(d.state === "read" && d.record.revs.some((x) => x && x.job === String(row.id)))) rowFacts = null;
+  }
+  if (rowKey && !rowFacts) {
     const rf = await rowReviewFacts(env, row, rowKey, { close: true });
     const out = rowReviewVerdict(rf);
     // THE ROUTES' OWN READER OF THE PARTS PUT OFF (2026-10-02, batch 2), handed
@@ -22062,7 +22117,7 @@ export async function reconcileEditJob(env, id, hint = null) {
     const applied = await applyReconcile(env, row, { ...out, compose: (refunded) => rowReviewReply(out, row, refunded, { held: heldList }) });
     return { ...applied, job: String(row.id), facts: { row: rowReviewPublic(rf, rowKey) } };
   }
-  const facts = await reconcileFacts(env, row);
+  const facts = rowFacts || await reconcileFacts(env, row);
   let out = reconcileVerdict(facts);
   if (out.verdict === "retry") out = await retryLostUpload(env, row, facts, out);
   // A SAVED DRAFT'S PREVIEW, AS FAR AS IT IS KNOWN: a claim standing for the
@@ -29812,6 +29867,22 @@ async function handleRequest(request, env, ctx) {
         let event = null;
         try { event = JSON.parse(raw); } catch { return Response.json({ error: "bad body" }, { status: 400 }); }
         const paid = paidFromEvent(event);
+        // EXPIRED OR FAILED (audit A12-6): an abandoned session or a bank debit
+        // that did not settle. Only a still-pending order moves, so a late or
+        // repeated event never unmarks one already paid.
+        const lapsed = paid ? null : failedFromEvent(event);
+        if (lapsed && lapsed.slug === wslug) {
+          try {
+            const sch = await loadSiteSchema(wconn);
+            const t = (sch && Array.isArray(sch.tables) ? sch.tables : []).find((x) => String(x.name).toLowerCase() === lapsed.table && normalizePayment(x));
+            if (!t) return Response.json({ ok: true, ignored: "not a payable table" });
+            await sqlQuery(wconn, `UPDATE ${sqlIdent(t.name)} SET payment_status=?, payment_ref=? WHERE id=? AND payment_status='pending'`, [lapsed.status, lapsed.ref, lapsed.orderId]);
+          } catch (e) {
+            console.error("wh lapse:", wslug, e && (e.detail || e.message));
+            return Response.json({ error: "could not record that checkout" }, { status: 500 });
+          }
+          return Response.json({ ok: true });
+        }
         if (!paid) return Response.json({ ok: true, ignored: true });
         // The event names its own slug, and it must be THIS one. The signature
         // already proves the sender holds this site's secret, so this is belt
@@ -32208,6 +32279,7 @@ async function handleRequest(request, env, ctx) {
         if (!chit.ok) { const t = tooMany(chit); return Response.json(t.body, { status: t.status, headers: t.headers }); }
         const cconn = await siteBackendBySlug(env, cslug);
         if (!cconn) return Response.json({ error: "no such site" }, { status: 404 });
+        let cidem = null;
         try {
           // "PAY" PRESSED TWICE IS ONE CHECKOUT. The same key the data proxy
           // honours: a repeat within ten minutes gets the session it already
@@ -32215,13 +32287,18 @@ async function handleRequest(request, env, ctx) {
           // only one gets paid — but the customer sees the first tab's session
           // expire under them, and a `pending` row per press on a table that
           // records the attempt is two rows for one basket.
+          // The same basket only (audit A30-5): another basket under the same
+          // key is a new checkout, never the earlier session.
           const ckey = takeIdemKey(request.headers);
-          const cidem = ckey ? idemFor(env, cslug, "checkout", ckey) : null;
+          const craw = await request.text().catch(() => "");
+          cidem = ckey ? idemFor(env, cslug, "checkout", ckey, await idemFingerprint(craw)) : null;
           const prior = cidem ? await cidem.read() : null;
           if (prior) return new Response(prior.body, { status: prior.status, headers: replayHeaders(prior) });
+          let cbody = {};
+          try { cbody = JSON.parse(craw); } catch { cbody = {}; }
           const cres = await handleCheckout({
             env, conn: cconn, slug: cslug,
-            body: await request.json().catch(() => ({})),
+            body: cbody,
             origin: url.origin,
             schema: await loadSiteSchema(cconn),
             ctx,
@@ -32240,6 +32317,8 @@ async function handleRequest(request, env, ctx) {
           // statement. Logged so a failing shop is diagnosable from our side.
           console.error("checkout:", cslug, e && (e.detail || e.message));
           return Response.json({ error: "we couldn't start that payment — please try again" }, { status: 502 });
+        } finally {
+          if (cidem) cidem.release();
         }
       }
     }

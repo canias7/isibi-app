@@ -105,7 +105,8 @@ function bucket(slug) {
   return {
     store,
     async get(k) { const v = store.get(k); return v === undefined ? null : obj(v); },
-    async put(k, v) { store.set(k, String(v)); },
+    // AN OBJECT BACK, as R2 answers a put that landed (a conditional draft save reads it).
+    async put(k, v) { store.set(k, String(v)); return { key: k }; },
     async delete(k) { store.delete(k); },
     async list() { return { objects: [], truncated: false }; },
     async head(k) { return store.has(k) ? { key: k } : null; },
@@ -1193,13 +1194,20 @@ test("the cleaner: a display list's declared columns only, capped, each refusal 
  * database, one ledger. The browser's own POST body; the reply a poll would
  * hand back is the job row's stored `result`.
  */
-async function openSite({ db, mode = "job", answers = { pick_adds: PICK_ROW, add_to_site: { row: [ENTRY] } }, markRefuses = 0, markLost = null, commitRefuses = false, exempt = false, mayLost = null }) {
+async function openSite({ db, mode = "job", answers = { pick_adds: PICK_ROW, add_to_site: { row: [ENTRY] } }, markRefuses = 0, markLost = null, commitRefuses = false, exempt = false, mayLost = null, draftFirst = false }) {
   const slug = "addon-row-lost-" + mode + "-" + hex(4);
   const store = bucket(slug);
+  // PUBLISHED, UNDER DRAFT-FIRST (audit A13-3): a live pointer, so an entry is
+  // held, and that version's manifest (another job's), as a published site has.
+  if (draftFirst) {
+    store.store.set("current/" + slug + ".json", JSON.stringify({ version: "01790000000000-aaaaaa" }));
+    store.store.set("source/" + slug + "/head.json", JSON.stringify({ version: "01790000000000-aaaaaa" }));
+    store.store.set("builds/" + slug + "/01790000000000-aaaaaa/manifest.json", JSON.stringify({ job: "an-earlier-job", build: "b0", files: [{ path: "server.js" }] }));
+  }
   const w = wire({ db, slug, answers, markRefuses, markLost, commitRefuses, exempt, mayLost });
   const worker = await loadWorker();
   const mod = await loadWorkerModule();
-  const env = baseEnv(store, mode === "job" ? { EDIT_ASYNC: "1", EDIT_ASYNC_CANARY: slug, BUILD_QUEUE: { send: async () => {} } } : {});
+  const env = { ...baseEnv(store, mode === "job" ? { EDIT_ASYNC: "1", EDIT_ASYNC_CANARY: slug, BUILD_QUEUE: { send: async () => {} } } : {}), ...(draftFirst ? { DRAFT_FIRST: "on" } : {}) };
   const stored = (id) => {
     const r = w.seen.rows.get(id);
     assert.ok(r && r.result && typeof r.result.body === "string", "the job stored no reply");
@@ -1471,6 +1479,31 @@ test("a confirmed entry whose record the ledger refuses is parked and kept from 
     assert.deepEqual(r.body.rows.map((x) => [x.id, x.label]), [[12, "Rye & Caraway"]]);
     assert.equal(r.body.cost, j.cost);
     assert.equal(r.said.text, "Done — added “Rye & Caraway” to loaves (entry 12).");
+  } finally { s.restore(); }
+});
+
+test("A13-3 UNDER DRAFT-FIRST, A HELD ENTRY WHOSE RECORD THE LEDGER REFUSES is parked and kept from its own draft revision: never refunded, never told nothing was added, the live list untouched", async () => {
+  // The held path writes no `_meta` key, so the row review used to close the
+  // empty key and refund while the draft kept the entry for the owner's Publish.
+  const db = bakeryDb();
+  const s = await openSite({ db, mode: "job", commitRefuses: true, draftFirst: true });
+  try {
+    const r = await s.send();
+    const j = s.row(r.job);
+    assert.equal(db.rows("loaves").length, 6, "a held entry reached the live list");
+    const draft = JSON.parse(s.store.store.get("site-drafts/" + s.slug + ".json") || "null");
+    const mine = draft && Array.isArray(draft.revs) ? draft.revs.find((x) => x && x.job === String(r.job)) : null;
+    assert.ok(mine && mine.held, "the entry was not held in the draft — this case tests nothing");
+    assert.equal(s.seen.rpc.filter((x) => x.fn === "edit_committed").length, 1);
+    assert.equal(s.seen.rpc.filter((x) => x.fn === "edit_refund").length, 1, "the unrecorded outcome was not parked");
+    assert.deepEqual(s.seen.refunds, [], "a held entry was refunded");
+    assert.equal(db.meta("addon-row:job:" + r.job), undefined, "the review closed a key the held path never wrote");
+    assert.equal(s.seen.rpc.filter((x) => x.fn === "edit_reconcile").length, 1);
+    assert.equal(j.needs_review, false);
+    assert.equal(j.billing, "finalized", "a held entry was not kept");
+    assert.equal(r.body.ok, true, JSON.stringify(r.body));
+    assert.equal(r.body.draft && r.body.draft.revision, mine.n);
+    assert.doesNotMatch(JSON.stringify(r.body || {}), /nothing was added/i);
   } finally { s.restore(); }
 });
 
@@ -2146,6 +2179,34 @@ test("the reconcile knows a row write only by its own key on the row, and the ow
     assert.notEqual(r2.kind, "closed-now");
     assert.equal(db.log().slice(before).filter((e) => /_meta/.test(e.query)).length, 0, "another job's key was read for this one");
     assert.equal(db.meta("addon-row:job:" + id), undefined);
+  } finally { w.restore(); }
+});
+
+test("A13-3 UNDER DRAFT-FIRST, a row write in review whose draft cannot be read is left unknown: its key is not closed and nothing is refunded; with no revision of its own, its key decides as before", async () => {
+  const mod = await loadWorkerModule();
+  const db = bakeryDb();
+  const slug = "addon-row-df-" + hex(4);
+  const w = wire({ db, slug, answers: {} });
+  try {
+    const store = bucket(slug);
+    const env = { ...baseEnv(store), DRAFT_FIRST: "on" };
+    const id = hex(16), plain = hex(16);
+    const parked = (jid) => ({ id: jid, uid: USER.id, slug, op: "addon", state: "failed", phase: null, billing: "reserved", cost: 2,
+      needs_review: true, review_note: "edit did not ship", artifact_build: "addon-row:job:" + jid, worker_status: null, publish_started_at: "2026-10-01T05:00:00Z",
+      published_at: null, result: null, lease_owner: "owner-x", updated_at: "2026-10-01T05:00:00Z" });
+    store.store.set("site-drafts/" + slug + ".json", "{not json");
+    w.seen.rows.set(id, parked(id));
+    const r = await mod.reconcileEditJob(env, id);
+    assert.equal(r.verdict, "unknown");
+    assert.equal(r.kind, "draft-unreadable");
+    assert.equal(db.meta("addon-row:job:" + id), undefined, "the key was closed on an unreadable draft");
+    assert.deepEqual(w.seen.refunds, []);
+    // A DRAFT HOLDING ONLY ANOTHER JOB'S REVISION: this one was not held, so
+    // the key is the fact, closed and refunded as before.
+    store.store.set("site-drafts/" + slug + ".json", JSON.stringify({ v: 2, version: "01790000000000-aaaaaa", build: "", base: "01790000000000-aaaaaa", job: "another", at: "2026-10-01T04:00:00Z", history: [], preview: "p", rev: 1, applied: 0, revs: [{ n: 1, job: "another", version: "01790000000000-aaaaaa", held: "h1", at: "2026-10-01T04:00:00Z" }] }));
+    w.seen.rows.set(plain, parked(plain));
+    const r2 = await mod.reconcileEditJob(env, plain);
+    assert.equal(r2.kind, "closed-now", JSON.stringify(r2));
   } finally { w.restore(); }
 });
 

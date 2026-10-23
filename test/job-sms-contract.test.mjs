@@ -21,7 +21,7 @@
 //
 // PROVED HERE: `runJob` routes a `channel: "sms"` message to the SMS sender
 // rather than the mail sender, hands it the number as the real parser returns
-// it, hands it the SMS credential rather than the email one, and holds it
+// it, hands it the SMS credential rather than the email one, and skips it
 // (`unsent`, never `failed`) when that credential is absent.
 //
 // NOT PROVED HERE, and no amount of stubbing can: that a provider ACCEPTS the
@@ -37,6 +37,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { addTool, MESSAGE_CONTRACT } from "../builder/site-add.mjs";
 import { runJob, shapeMessages } from "../site-jobs.mjs";
+import { toE164 } from "../site-sms.mjs";
 
 /** The two steps that have to know what a job's function may return. */
 const TOLD = ["function", "job"];
@@ -61,20 +62,35 @@ test("both steps that decide a job's messages are told the channel contract", ()
   assert.ok(/NO `subject`/.test(MESSAGE_CONTRACT), "the contract does not say a text takes no subject");
 });
 
+test("what the contract says about numbers and missing keys is what the runner does (audit A12-8)", () => {
+  // Driven against the real parser: the example the contract calls sendable is
+  // read, and the local one it calls unsendable is refused.
+  const quoted = [...MESSAGE_CONTRACT.matchAll(/\\"(\+?[0-9 ]{7,})\\"|"(\+?[0-9 ]{7,})"/g)].map((m) => m[1] || m[2]);
+  const ok = quoted.filter((n) => n.startsWith("+"));
+  const local = quoted.filter((n) => !n.startsWith("+"));
+  assert.ok(ok.length >= 1 && local.length >= 1, "the contract quotes no example numbers: " + JSON.stringify(quoted));
+  for (const n of ok) assert.ok(toE164(n), n + " is called sendable but the parser refuses it");
+  for (const n of local) assert.equal(toE164(n), null, n + " is quoted but the parser reads it");
+  assert.match(MESSAGE_CONTRACT, /cannot be sent and the message is dropped/);
+  // Nothing stores an unsent message: the runner only counts it (`unsent`).
+  assert.doesNotMatch(MESSAGE_CONTRACT, /held rather than lost|any ordinary form/);
+  assert.match(MESSAGE_CONTRACT, /SKIPPED, not held or sent later/);
+});
+
 test("the email default is what the runtime really does with an absent or unknown channel", () => {
   // THE DEFAULT IS ASSERTED AGAINST `shapeMessages` ITSELF, never against the
   // sentence — a prompt that describes behaviour the code does not have is this
   // repository's recorded "promise nothing ever compiled", and the check that
   // catches it is driving the thing the sentence is about.
   const to = (m) => (m && typeof m.to === "string" && m.to.includes("@") ? m.to : null);
-  // THE STUB IS THE REAL PARSER'S SHAPE: digits first, then the test — "07700
-  // 900000" has no run of seven consecutive digits, and a stub that reads the
-  // raw string drops exactly the number the contract says is accepted.
-  const phone = (v) => { const d = String(v || "").replace(/\D/g, ""); return d.length >= 7 ? "+44" + d.replace(/^0/, "") : null; };
+  // THE REAL PARSER, not a stub (audit A12-8): an earlier stub read local
+  // numbers as UK ones, so the contract promised "07700 900000" was read while
+  // the runner's own `toE164` (worker.js `phone: (v) => toE164(v)`) drops it.
+  const phone = toE164;
   const out = shapeMessages([
     { to: "a@b.test", subject: "s", body: "b" },                      // no channel at all
     { channel: "carrier-pigeon", to: "c@d.test", subject: "s", body: "b" }, // a channel nobody knows
-    { channel: "sms", to: "07700 900000", body: "your slot is at 9" },
+    { channel: "sms", to: "+44 7700 900000", body: "your slot is at 9" },
   ], to, phone);
   assert.deepEqual(out.messages.map((m) => m.channel), ["email", "email", "sms"],
     "the email default is not what the runtime does: " + JSON.stringify(out));
@@ -100,7 +116,7 @@ function jobRun({ rows, smsKey = { sid: "s" }, emailKey = { key: "e" } }) {
     stamp: async () => ({ won: true }),
     callFn: async () => rows,
     recipient: (m, k) => (m && typeof m[k] === "string" && m[k].includes("@") ? m[k] : null),
-    phone: (v) => { const d = String(v || "").replace(/\D/g, ""); return d.length >= 7 ? "+44" + d.replace(/^0/, "") : null; },
+    phone: toE164,
     credentials: async () => emailKey,
     smsCredentials: async () => smsKey,
     send: async (m) => { sentEmail.push(m); return { ok: true }; },
@@ -113,7 +129,7 @@ function jobRun({ rows, smsKey = { sid: "s" }, emailKey = { key: "e" } }) {
 test("a designed SMS reaches the SMS sender, and the email beside it reaches the email sender", async () => {
   const { out, sentSms, sentEmail } = await jobRun({
     rows: [
-      { channel: "sms", to: "07700 900000", body: "Reminder: your fitting is tomorrow at 9." },
+      { channel: "sms", to: "+44 7700 900000", body: "Reminder: your fitting is tomorrow at 9." },
       { channel: "email", to: "owner@shop.test", subject: "Tomorrow's bookings", body: "<p>One fitting.</p>" },
     ],
   });
@@ -130,14 +146,14 @@ test("a designed SMS reaches the SMS sender, and the email beside it reaches the
   assert.equal(sentEmail[0].key, "e", "the email credential was not used for the email");
 });
 
-test("a text on a site with no SMS key is held and said, never counted as failed", async () => {
+test("a text on a site with no SMS key is skipped and said, never counted as failed", async () => {
   // THE OTHER HALF OF THE CONTRACT'S LAST SENTENCE, and the reason it is worth
   // writing down: an owner who has pasted one key and not the other has a job
   // that half works, and "0 failed / 1 waiting on a key" is the only reading
   // that tells them which key to go and paste.
   const { out, sentSms, sentEmail } = await jobRun({
     rows: [
-      { channel: "sms", to: "07700 900000", body: "Reminder." },
+      { channel: "sms", to: "+44 7700 900000", body: "Reminder." },
       { channel: "email", to: "owner@shop.test", subject: "s", body: "b" },
     ],
     smsKey: null,
@@ -145,7 +161,7 @@ test("a text on a site with no SMS key is held and said, never counted as failed
   assert.equal(out.ok, true);
   assert.equal(out.sent, 1, "the email did not go out");
   assert.equal(out.failed, 0, "a message waiting on a key was counted as a failure");
-  assert.equal(out.unsent, 1, "the held text was not reported at all");
+  assert.equal(out.unsent, 1, "the skipped text was not reported at all");
   assert.equal(sentSms.length, 0);
   assert.equal(sentEmail.length, 1);
 });

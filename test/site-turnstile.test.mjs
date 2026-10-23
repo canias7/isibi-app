@@ -252,11 +252,14 @@ test("changing a secret forgets what this isolate cached", () => {
   assert.ok(del > 0, "cleared when a secret is deleted");
 });
 
-test("the gate is scoped to `collect`, or it breaks every member write", () => {
+test("the gate is scoped to tables anyone may write, or it breaks every member write", () => {
+  // THE PROPERTY, asked of the pair (audit A30-6): the stored preset name is
+  // `collect` on every pair-declared table, whatever its pair says.
   const i = worker.indexOf("async function turnstileGate(");
   assert.ok(i > 0);
-  const fn = worker.slice(i, i + 3000);
-  assert.ok(/access\s*\|\|\s*""\)\.toLowerCase\(\)\s*!==\s*"collect"/.test(fn), "non-collect tables pass through");
+  const fn = worker.slice(i, i + 4000);
+  assert.equal(fn.match(/if \(!(d|def) \|\| !canWriteAccess\(\1\)\) return (\{\}|out);/g).length, 2, "non-collect tables pass through");
+  assert.doesNotMatch(fn, /\.access \|\| ""\)\.toLowerCase\(\)/, "the raw preset name is read");
 });
 
 test("the visitor's address is the one header a caller cannot set", () => {

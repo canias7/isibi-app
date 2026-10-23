@@ -17,6 +17,8 @@
 //  3. The submission is attacker-controlled text going into an HTML email. Same
 //     class of problem as the CSV export, and the same discipline: escape it.
 
+import { canWriteAccess } from "./site-access.mjs";
+
 const ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 export const escapeHtml = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ESC[c]);
 
@@ -29,14 +31,16 @@ const MAX_VALUE_CHARS = 200;
 /**
  * Is this a submission worth an email?
  *
- * `collect` only. A `user` or `feed` row is a member writing their own content —
+ * A table ANYONE may write to (audit A30-6): `access` is the table's
+ * definition (or a preset name), asked through `resolveAccess`, never the
+ * stored preset string — a pair-declared table is stamped `collect` whatever
+ * its pair says. In preset terms, `collect` only. A `user` or `feed` row is a member writing their own content —
  * a recipe, a post — and mailing the owner about each one is a notification
  * about somebody using the site normally. `display` cannot be written by anyone
  * but the owner, who does not need telling about their own edit.
  */
 export function shouldNotify({ access, method } = {}) {
-  return String(method || "").toUpperCase() === "POST" &&
-         String(access || "").toLowerCase() === "collect";
+  return String(method || "").toUpperCase() === "POST" && canWriteAccess(access);
 }
 
 /**
@@ -75,12 +79,21 @@ export function submissionEmail({ slug, table, row, extra = 0 } = {}) {
 
 /**
  * deps:
- *   claim(slug)          → {ok, owner_uid, missed} | {ok:false}
+ *   claim(slug)          → {ok, owner_uid, missed?} | {ok:false}
  *        one atomic conditional update: sets notified_at and returns the row
  *        ONLY if notifications are on and the cooldown has passed. Whoever wins
- *        sends; everyone else in the window does nothing.
+ *        sends; everyone else in the window does nothing. `missed` (the count
+ *        dropped inside the window) is read when given; the Worker's claim does
+ *        not count them today, so the "…and N more" line does not appear.
+ *   ready()              → anything (optional) | throws
+ *        the sender's own settings (the owner's key and EMAIL_FROM), read by
+ *        the claim's winner only, so a site with notifications off pays no
+ *        read. Its answer is handed to send as the second argument.
+ *   unclaim(slug, claim) → void (optional)
+ *        hands the window back when `ready` throws (audit A12-9): a site with
+ *        no key must not spend the cooldown on an email that cannot go.
  *   emailOf(uid)         → address | null
- *   send({to, subject, html}) → void
+ *   send({to, subject, html}, ready) → void
  *
  * Returns what it did, for the log — this runs detached, so a thrown error
  * would otherwise vanish.
@@ -95,13 +108,22 @@ export async function notifyOwner(deps, { slug, table, access, method, row } = {
   catch (e) { return { sent: false, reason: "claim_failed", error: String((e && e.message) || e) }; }
   if (!claim || !claim.ok) return { sent: false, reason: "cooling_down_or_off" };
 
+  let mail;
+  if (typeof deps.ready === "function") {
+    try { mail = await deps.ready(); }
+    catch (e) {
+      if (typeof deps.unclaim === "function") { try { await deps.unclaim(slug, claim); } catch { /* the window lapses on its own */ } }
+      return { sent: false, reason: "no_sender", error: String((e && e.message) || e) };
+    }
+  }
+
   let to;
   try { to = await deps.emailOf(claim.owner_uid); }
   catch (e) { return { sent: false, reason: "lookup_failed", error: String((e && e.message) || e) }; }
   if (!to) return { sent: false, reason: "no_address" };
 
   const { subject, html } = submissionEmail({ slug, table, row, extra: claim.missed || 0 });
-  try { await deps.send({ to, subject, html }); }
+  try { await deps.send({ to, subject, html }, mail); }
   catch (e) { return { sent: false, reason: "send_failed", error: String((e && e.message) || e) }; }
   return { sent: true, to };
 }

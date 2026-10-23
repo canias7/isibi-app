@@ -15,10 +15,15 @@
 // was never stored (only a 2xx is) and the corrected request must reach
 // Postgres.
 //
-// TWO LAYERS OF MEMORY, and the honest limits of each. The in-isolate map is
-// synchronous and catches the case that actually happens — a double-click
-// lands both requests on the same edge within a second, before KV could have
-// been read back. KV (`SITE_API_CACHE`, the same namespace the API cache uses)
+// TWO LAYERS OF MEMORY, and the honest limits of each. The in-isolate map
+// catches the case that actually happens — a double-click lands both requests
+// on the same edge within a second, before KV could have been read back — and
+// it can only do that because a miss CLAIMS the key (audit A30-4): the answer
+// is stored only once the upstream has answered, so without the claim the
+// second press, arriving while the first is still in flight, read nothing and
+// wrote too. Now it waits for the first press's answer and is handed it; a
+// first press that is refused or fails releases the claim, and the second goes
+// through on its own. KV (`SITE_API_CACHE`, the same namespace the API cache uses)
 // carries the answer across isolates and across the ten minutes; it is
 // eventually consistent, so two presses a few seconds apart routed to
 // DIFFERENT isolates can both reach Postgres. That window is small and named
@@ -29,9 +34,18 @@
 // passes `get`/`put` over its namespace; a site with no KV bound keeps the
 // in-isolate layer alone, which is still the layer that catches the click.
 //
+// THE KEY IS TIED TO WHAT WAS SENT (audit A30-5). The page keeps its key until
+// it sees a success, so after an answer lost on the way back the NEXT press —
+// perhaps another time slot, a fixed phone number — carries the same key. A
+// stored answer is handed back only to a request with the same contents
+// (`fp`, `idemFingerprint`); a changed one is a new submission and reaches the
+// database.
+//
 // WHY NOT A DATABASE UNIQUE ON THE KEY: the key is not a column any site
 // declared, and the page's rows must not carry one — the same reasoning that
 // strips the Turnstile field before PostgREST sees it.
+
+import { TOKEN_FIELD } from "./site-turnstile.mjs";
 
 /** The request header, as every payment API spells it. Read case-insensitively. */
 export const IDEM_HEADER = "idempotency-key";
@@ -77,6 +91,21 @@ export function idemStorable(status, body) {
   return String(body == null ? "" : body).length <= IDEM_MAX_BODY;
 }
 
+/**
+ * What a submission says, as a short digest: the body with the spam check's
+ * single-use token taken out, because a retry carries a fresh token and the
+ * same contents. A body that is not one JSON object is digested as sent.
+ */
+export async function idemFingerprint(sent) {
+  let text = String(sent == null ? "" : sent);
+  try {
+    const o = JSON.parse(text);
+    if (o && typeof o === "object" && !Array.isArray(o) && Object.hasOwn(o, TOKEN_FIELD)) { delete o[TOKEN_FIELD]; text = JSON.stringify(o); }
+  } catch { /* not JSON: as sent */ }
+  const d = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
+  return Array.from(d.slice(0, 16), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 /** The headers a replayed answer carries. */
 export function replayHeaders(stored) {
   return {
@@ -92,12 +121,17 @@ export function replayHeaders(stored) {
  *   get(id)           → stored value | null   (may throw; a throw is a miss)
  *   put(id, v, ttlS)  → void                  (may throw; a throw is silent)
  *
- * `for(slug, scope, key, io)` answers `{ id, read(), write(v) }`; `io` may
- * override `get`/`put` per call, which is how the Worker binds a per-request
- * `env` to a store that outlives the request.
+ * `for(slug, scope, key, io)` answers `{ id, read(), write(v), release() }`;
+ * `io` may override `get`/`put` per call, which is how the Worker binds a
+ * per-request `env` to a store that outlives the request, and may carry `fp`,
+ * the submission's digest: an answer stored for other contents is a miss.
+ * A miss claims the key in this isolate until `write` or `release`, and a
+ * second `read` meanwhile waits for it; the caller releases in a `finally`.
  */
 export function makeIdem({ get = null, put = null, now = Date.now, ttl = IDEM_TTL_S, maxMemory = 2000 } = {}) {
   const memory = new Map();
+  /** id → { fp, done: Promise, settle() }: a press still waiting on the upstream. */
+  const pending = new Map();
   const sweep = () => {
     if (memory.size <= maxMemory) return;
     const t = now();
@@ -112,29 +146,50 @@ export function makeIdem({ get = null, put = null, now = Date.now, ttl = IDEM_TT
       const id = idemId(slug, scope, key);
       const g = io.get !== undefined ? io.get : get;
       const p = io.put !== undefined ? io.put : put;
+      const fp = typeof io.fp === "string" && io.fp ? io.fp : null;
+      // The same contents, or a caller that sent none to compare.
+      const same = (v) => !fp || v.fp === fp;
+      let mine = null;
+      const release = () => { if (mine && pending.get(id) === mine) pending.delete(id); if (mine) mine.settle(); mine = null; };
       return {
         id,
         async read() {
+          // ANOTHER PRESS OF THE SAME SUBMISSION IS STILL UPSTREAM: wait for it.
+          for (let w = pending.get(id); w && w !== mine; w = pending.get(id)) {
+            if (w.fp !== fp) break;
+            await w.done;
+          }
           const e = memory.get(id);
-          if (e && e.until > now()) return e.v;
-          if (e) memory.delete(id);
+          if (e && e.until > now() && same(e.v)) return e.v;
+          if (e && e.until <= now()) memory.delete(id);
+          // A MISS CLAIMS THE KEY, before the shared layer is asked.
+          if (!mine) {
+            let settle;
+            const done = new Promise((r) => { settle = r; });
+            mine = { fp, done, settle };
+            pending.set(id, mine);
+          }
           if (!g) return null;
           let v = null;
           try { v = await g(id); } catch { v = null; }
-          if (!shaped(v)) return null;
+          if (!shaped(v) || !same(v)) return null;
           // Warm the isolate for the next press. The remaining shared window
           // is unknown here, so the local copy takes the full one; being
           // remembered a little longer costs nothing a duplicate would not.
           memory.set(id, { v, until: now() + ttl * 1000 });
+          release();
           return v;
         },
         async write(v) {
           if (!shaped(v) || !idemStorable(v.status, v.body)) return false;
+          if (fp) v = { ...v, fp };
           memory.set(id, { v, until: now() + ttl * 1000 });
+          release();
           sweep();
           if (p) { try { await p(id, v, ttl); } catch { /* the in-isolate layer still holds it */ } }
           return true;
         },
+        release,
       };
     },
     size: () => memory.size,

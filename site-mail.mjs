@@ -27,6 +27,7 @@
 // which key they paste in; the model never names one, so switching provider is
 // a Secrets edit rather than a rebuild.
 import { sanitizeMailHtml } from "./site-row-effects.mjs";
+import { canWriteAccess } from "./site-access.mjs";
 
 export const MAIL_PROVIDERS = [
   { secret: "RESEND_KEY", provider: "resend" },
@@ -159,7 +160,8 @@ export async function sendConfirmation(deps, { def, row, slug }) {
     // `collect` only. A `user` or `feed` row is a member writing their own
     // content, and mailing them about it is a notification for using the site
     // normally; `display` is the owner editing their own data.
-    if (!def || String(def.access || "").toLowerCase() !== "collect") return { sent: false, reason: "not a collect table" };
+    // Asked of the pair, never the stored preset name (audit A30-6).
+    if (!def || !canWriteAccess(def)) return { sent: false, reason: "not a collect table" };
 
     const conf = normalizeConfirm(def);
     if (!conf) return { sent: false, reason: "no confirm declared" };

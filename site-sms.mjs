@@ -16,6 +16,7 @@
 // never-throws contract, same "the model decides the message, the platform owns
 // the wire". A site that already declares `confirm` gets SMS by adding `sms`,
 // and either may be used alone.
+import { canWriteAccess } from "./site-access.mjs";
 
 /**
  * The providers the vault knows, in the order they are tried. The OWNER picks by
@@ -159,7 +160,8 @@ export async function sendSms(deps, { def, row, slug }) {
     // `collect` only, matching the mail path exactly. A `user`/`feed` row is a
     // member writing their own content, and texting them about it is a message
     // they pay for — in attention — for using the site normally.
-    if (!def || String(def.access || "").toLowerCase() !== "collect") return { sent: false, reason: "not a collect table" };
+    // Asked of the pair, never the stored preset name (audit A30-6).
+    if (!def || !canWriteAccess(def)) return { sent: false, reason: "not a collect table" };
 
     const conf = normalizeSms(def);
     if (!conf) return { sent: false, reason: "no sms declared" };
