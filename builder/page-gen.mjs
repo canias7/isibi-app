@@ -4525,12 +4525,75 @@ export function withoutCharts(rules) {
   return rules.slice(0, from) + rules.slice(to);
 }
 
+/**
+ * ── THE RULES FOR A SITE THAT WRITES ITS OWN PARTS (2026-10-23) ────────────
+ *
+ * A site built since `build-ai-writes-all` has no kit parts and no
+ * `SiteChrome`: its header and footer are its own files
+ * (`-parts/site-header.tsx`, `-parts/site-footer.tsx`) and every band writes
+ * its own components. Telling its writers "THE KIT FOR EVERY CONTROL" in the
+ * cached block and "write your own" in the user message is two instructions
+ * that disagree, so such a site gets its OWN cached block: the kit rule (3),
+ * the shadcn form wiring, the chart rule and the chart catalogue are replaced
+ * by what is true there, and a closing block says it wins.
+ *
+ * A KIT SITE'S BLOCK IS UNCHANGED, byte for byte, so its cache stays warm:
+ * this is a separate prefix chosen by a FACT about the site (its written
+ * frame), the way the database and `kind` already choose one.
+ *
+ * EVERY CUT PROVES BOTH LANDMARKS FIRST; a landmark that moved leaves that
+ * stretch as it was, and the closing block still wins.
+ */
+export const OWN_PARTS_SITE_RULES = `
+
+━━━ THIS SITE WRITES ITS OWN PARTS — THESE RULES WIN OVER ANYTHING ABOVE ━━━
+- There is NO component kit on this site. Import nothing from "@/components/ui/" except these plumbing modules, by their exact paths: "@/components/ui/safe-image" (every picture), "@/components/ui/lang-switch" (the language switcher) and a module the brief names by path for a picture, a 3D scene or a code. No Button, Card, Section, Hero, Badge, Accordion, Form or any other kit part, and nothing from "@/components/charts/".
+- Write every control and component yourself with plain JSX and Tailwind, inside the file you are writing: buttons are <button>/<Link> styled with the tokens, inputs are <input>/<select>/<textarea> with a <label>.
+- Paint ONLY with the theme's semantic tokens (bg-background, text-foreground, bg-card, text-card-foreground, bg-primary, text-primary-foreground, bg-muted, text-muted-foreground, border-border, ring-ring); never a literal colour.
+- There is NO \`SiteChrome\`. The header and the footer are this site's own components, \`SiteHeader\` in "@/routes/-parts/site-header" and \`SiteFooter\` in "@/routes/-parts/site-footer" (default exports). A page shows them around one <main id="main">; never wrap a page in \`SiteChrome\` and never write a second header or footer inside a page.
+`;
+
+const OWN_KIT_RULE = `3. NO KIT: WRITE EVERY CONTROL YOURSELF. This site has no ready-made components.
+   Buttons, inputs, selects, checkboxes and dialogs are plain elements you write and style
+   with the theme's tokens. The few plumbing modules you may import are named at the end of
+   these rules.`;
+
+function cutBetween(text, from, to, put) {
+  const at = text.indexOf(from);
+  if (at < 0) return text;
+  const end = text.indexOf(to, at + from.length);
+  if (end < 0) return text;
+  return text.slice(0, at) + put + text.slice(end);
+}
+
+export function ownPartsRules(rules) {
+  let r = String(rules == null ? "" : rules);
+  r = cutBetween(r, "3. THE KIT FOR EVERY CONTROL", "\n\n4. ", OWN_KIT_RULE);
+  r = r.replace("through shadcn's `Form`/`FormField`/`FormControl`.\n   Those components speak to react-hook-form and to nothing else.",
+    "wired to plain <input>, <select> and <textarea> elements you write yourself\n   (register them with react-hook-form; show each field's error beside it).");
+  const chartAt = r.search(/\n\d+\. A CHART COMES FROM/);
+  if (chartAt >= 0) {
+    const num = r.slice(chartAt + 1).match(/^\d+/)[0];
+    const end = r.indexOf("\n\n" + (Number(num) + 1) + ". ", chartAt + 1);
+    if (end >= 0) r = r.slice(0, chartAt + 1) + num + ". NO CHART MODULES. A figure that needs a chart is drawn with plain SVG and the theme's tokens." + r.slice(end);
+  }
+  const from = r.indexOf("\n## Charts");
+  if (from >= 0) {
+    const to = r.indexOf("\n## ", from + 5);
+    if (to >= 0) r = r.slice(0, from) + r.slice(to);
+  }
+  return r + OWN_PARTS_SITE_RULES;
+}
+
 /** Which system block this build gets: by database, and by whether charts earn their place. */
-export function pageRulesFor(spec, kind = "") {
+export function pageRulesFor(spec, kind = "", { ownParts = false } = {}) {
   // `siteHasBackend`, NOT `siteHasTables` (2026-09-14): a connection or a
   // callable function is a backend a page may reach, and the frontend rules
   // forbid reaching for either in as many words.
-  const rules = siteHasBackend(spec) ? PAGE_RULES : FRONTEND_PAGE_RULES;
+  const rules0 = siteHasBackend(spec) ? PAGE_RULES : FRONTEND_PAGE_RULES;
+  // A SITE THAT WRITES ITS OWN PARTS (2026-10-23) gets its own block; a phone
+  // app keeps its kit frame (`AppChrome`), so the variant is a website's only.
+  const rules = ownParts === true && !(spec && spec.surface === "app") ? ownPartsRules(rules0) : rules0;
   const base = String(kind) === "shopfront" ? withoutCharts(rules) : rules;
   // A PHONE APP (2026-10-20): the same rules, and these last, which win.
   return spec && spec.surface === "app" ? base + APP_PAGE_RULES : base;
@@ -4541,6 +4604,13 @@ export function pageRulesFor(spec, kind = "") {
  * it's literally just the same process"). Read last, so where they differ from
  * the site rules above — the chrome, the widths, the footer — these win.
  */
+/** The user-message half of the own-parts rule, for a writer editing such a site. */
+export const OWN_PARTS_NOTE =
+  "THIS SITE WRITES ITS OWN PARTS — THIS WINS. Import nothing from \"@/components/ui/\" except \"@/components/ui/safe-image\", " +
+  "\"@/components/ui/lang-switch\" and a module the brief names by path; write every control and component yourself with plain JSX, " +
+  "Tailwind and the theme's semantic tokens. There is no SiteChrome: the header and footer are the site's own " +
+  "\"@/routes/-parts/site-header\" and \"@/routes/-parts/site-footer\" (default exports SiteHeader and SiteFooter).";
+
 export const APP_PAGE_RULES = `
 
 ━━━ THIS IS A PHONE APP, NOT A WEBSITE — THESE RULES WIN OVER ANYTHING ABOVE ━━━
@@ -4568,7 +4638,7 @@ TOUCH AND FEEL
 - Never mention a website, "visit our site", search engines or a sitemap.
 `;
 
-export function pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode = "revise", target = "", kind = "", keep = [] } = {}) {
+export function pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode = "revise", target = "", kind = "", keep = [], ownParts = false } = {}) {
   // THE ATTACHED FILES \u2014 images and PDFs \u2014 and where they sit is load-bearing
   // twice over.
   //
@@ -4587,7 +4657,11 @@ export function pagesRequest({ brief, spec, brand, attachments, model, priorPage
   // caller and test already sees, so adding this feature changes no request that
   // does not use it.
   const blocks = Array.isArray(attachments) ? attachments.filter(Boolean) : [];
-  const text = pagesPrompt(brief, spec, brand, blocks.length, priorPages, mode, target, keep);
+  const text0 = pagesPrompt(brief, spec, brand, blocks.length, priorPages, mode, target, keep);
+  // AN OWN-PARTS SITE'S WRITER (2026-10-23) is told the rule in its message
+  // too, after everything else, the way the band writers are.
+  const own = ownParts === true && !(spec && spec.surface === "app");
+  const text = own ? text0 + "\n\n" + OWN_PARTS_NOTE : text0;
   return {
     // The composer's Builder picker chooses this; `modelsFor()` with no
     // argument is the default pair, which is what the eval harness and every
@@ -4614,7 +4688,7 @@ export function pagesRequest({ brief, spec, brand, attachments, model, priorPage
     // chosen by a FACT about the site rather than by chance, so each stays warm
     // rather than being an occasional miss. Nearly every brief is a shopfront,
     // so the small one is the hot one.
-    system: [{ type: "text", text: pageRulesFor(spec, kind), cache_control: { type: "ephemeral" } }],
+    system: [{ type: "text", text: pageRulesFor(spec, kind, { ownParts: own }), cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: blocks.length ? [...blocks, { type: "text", text }] : text }],
   };
 }
@@ -4646,12 +4720,12 @@ export function pagesRequest({ brief, spec, brand, attachments, model, priorPage
  * (the container has its own) is still a drop-in and nothing here has to know
  * which one it got.
  */
-export async function generateSitePages(keys, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null, call = callBuilderModel, kind = "", keep = []) {
+export async function generateSitePages(keys, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null, call = callBuilderModel, kind = "", keep = [], { ownParts = false } = {}) {
   // One definition, shared with the eval harness — see pagesRequest. Restating
   // it here would mean the harness tunes against a different request from the
   // one production runs. Held in a const so the usage below can be stamped with
   // the model that was actually sent.
-  const req = pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode, target, kind, keep });
+  const req = pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode, target, kind, keep, ownParts });
   // Provider decided in ONE place — see callBuilderModel. It answers in
   // Anthropic's shape whichever one served it, so every line below this is
   // unchanged and cannot tell the difference.

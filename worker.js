@@ -149,7 +149,7 @@ import { applySiteSchema, loadSiteSchema, readSiteSchema, parseSchemaSpec, norma
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { usageOf as pageUsageOf, PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, partsSent, priorPagesSent, pageId, sceneOn, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
-import { splitPlan, bandRefusal, BAND_MARK, bandMarks, generateSiteBands } from "./builder/page-bands.mjs";
+import { splitPlan, bandRefusal, BAND_MARK, bandMarks, generateSiteBands, ownFallbackDirective } from "./builder/page-bands.mjs";
 import { MAX_MODEL_FANOUT } from "./builder/model-fanout.mjs";
 // THE DESIGN STEP CUT INTO WAVES OF AGENTS (2026-09-10). Plain module, testable
 // outside the Worker: it takes the design tool and the CALLER as arguments
@@ -226,6 +226,7 @@ import { editableFiles, splitEditable, partPath, partNameOf, PART_DIR } from "./
 import { FOUNDATION_FILES } from "./builder/foundation-files.mjs";
 import { runNavEdit, applyAdditions, menuLinksKept } from "./builder/site-nav.mjs";
 import { runLogoEdit } from "./builder/site-logo.mjs";
+import { writtenFrame, ownPartsSite, runFrameEdit } from "./builder/site-frame.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
 import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings, canWriteAccess } from "./site-access.mjs";
@@ -19475,7 +19476,21 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         // zero imports across the 100-site corpus. Only this call site knows it;
         // the edit and addon rungs pass no plan, and their `kind: ""` keeps the
         // catalogue, which is the safe direction.
-        return await generateSitePages(env, briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief, media }), spec, brand, attachments, model, priorPages, undefined, undefined, budget, call, plan && plan.kind);
+        // ── A FIRST BUILD NEVER SHIPS THE KIT BY FALLBACK (2026-10-23) ──────
+        //
+        // The one call used to wrap the page in `SiteChrome` and read "THE KIT
+        // FOR EVERY CONTROL". On a first website build it now reads the
+        // own-parts block and is told to write the header and the footer as
+        // the two parts the band path writes (`ownFallbackDirective`), from
+        // the same facts the frame writers get. A revise and a phone app are
+        // unchanged.
+        const ownFirst = !revise && !priorPages && !(spec && spec.surface === "app");
+        const ownTail = ownFirst ? "\n\n" + ownFallbackDirective({
+          spec, brand, lines: bandLines, chrome: chromeFor(plan, brand, siteDescription),
+          actions: plan && Array.isArray(plan.action) ? plan.action : [],
+          notBuilt: plan && Array.isArray(plan.notBuilt) ? plan.notBuilt : [],
+        }) : "";
+        return await generateSitePages(env, briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief, media }) + ownTail, spec, brand, attachments, model, priorPages, undefined, undefined, budget, call, plan && plan.kind, [], { ownParts: ownFirst });
       } catch (e) {
         // THE SENTINEL IS READ BEFORE ANY FAILURE HANDLING, which is not
         // tidiness: `retryHere` would read this as a failure that spent nothing
@@ -37916,6 +37931,55 @@ async function handleRequest(request, env, ctx) {
               // NARROWS what the rung may do — nothing the frame has is
               // changed, replaced or taken away (`additionOnly`) — so a
               // client that sends it can only make an edit more careful.
+              // ── A WRITTEN FRAME IS EDITED AS SOURCE (2026-10-23) ──────────
+              //
+              // A site built since `build-ai-writes-all` has no `SiteChrome`:
+              // its header and footer are its own files under `-parts/`, so
+              // the menu editor below would find no props to read and answer
+              // `no-nav`. Such a site's menu, header button, footer contact,
+              // hours and social links are changed by editing those two files
+              // (`runFrameEdit`): one call, the files checked (routes, kit,
+              // default export), then the publish compiles them. A site with
+              // `SiteChrome` never enters here (`writtenFrame` answers null).
+              {
+                const fRead = await editParts();
+                if (fRead.ok && writtenFrame(eSrc, fRead.parts)) {
+                  const fOut = await runFrameEdit({ send: eQuick() }, {
+                    instruction: eInstruction, pages: eSrc, parts: fRead.parts, routes: navRoutes,
+                    model: eQuickModel, addition: eb.addition === true,
+                  });
+                  if (fOut.ask) return stepAsk("nav", fOut.ask);
+                  if (!fOut.ok && fOut.reason === "send") return modelDown(fOut.error, "I couldn't reach the model that sets the menu — try again in a moment.");
+                  if (!fOut.ok && fOut.reason === "unchanged") {
+                    return Response.json({
+                      ok: true, satisfied: true, layer: "nav", frame: true, changed: [], msg: fOut.msg,
+                      cost: eJob ? 0 : await eCharge(fOut.usage), usage: fOut.usage,
+                    });
+                  }
+                  if (!fOut.ok) {
+                    return Response.json({
+                      ok: false, error: fOut.reason, frame: true, cost: await eCharge(fOut.usage), usage: fOut.usage,
+                      problems: fOut.problems || undefined, msg: fOut.msg,
+                    }, { status: 422 });
+                  }
+                  const fPub = await publishStep(env, {
+                    slug: ownerSlug, pages: eSrc, parts: fOut.parts,
+                    label: versionLabel({ revise: true, changeNote: eRun }),
+                  });
+                  if (!fPub.ok) {
+                    return Response.json({
+                      ok: false, error: lostOr(fPub, "compile"), cost: 0, frame: true,
+                      msg: compileMsg(fPub, "That change to the header or footer didn't compile, so your site is untouched."),
+                      detail: fPub.detail,
+                    }, { status: 422 });
+                  }
+                  return Response.json({
+                    ok: true, frame: true, layer: "nav", msg: fOut.msg, changed: fOut.changed,
+                    files: fPub.files, render: fPub.render, renderNote: fPub.renderNote, checks: fPub.checks, draft: fPub.draft,
+                    cost: await eCharge(fOut.usage, fPub), usage: fOut.usage,
+                  });
+                }
+              }
               const nOut = await runNavEdit({
                 send: eQuick(),
               }, { instruction: eInstruction, pages: eSrc, routes: navRoutes, model: eQuickModel, addition: eb.addition === true });
@@ -38330,6 +38394,7 @@ async function handleRequest(request, env, ctx) {
               // first of a request's file and an answer's is not a choice
               // anybody made.
               const eImages = Array.isArray(eb && eb.images) ? eb.images.slice(0, MAX_ATTACHMENTS) : [];
+              let lFrameUsage = null, lFrameChanged = null;
               const lOut = await runLogoEdit({
                 sniff: sniffImage,
                 // The same content-hashed library every other upload lands in,
@@ -38393,10 +38458,33 @@ async function handleRequest(request, env, ctx) {
                   // mark fell back to rather than assuming the floor.
                   return next;
                 },
-                publish: () => publishStep(env, {
-                  slug: ownerSlug, pages: eSrc,
-                  label: versionLabel({ revise: true, changeNote: eRun }),
-                }),
+                // A WRITTEN FRAME PLACES THE LOGO ITSELF (2026-10-23). On a site
+                // with `SiteChrome` the stored mark reaches the header at compile
+                // time and no file changes. A site whose header is its own file
+                // (`-parts/site-header.tsx`) shows `SITE_LOGO` only where that
+                // file puts it, so an added header logo also runs the frame edit
+                // with the customer's words ("next to the name"), told the logo
+                // is now set; its files go to this same publish. A frame edit that
+                // fails or changes nothing leaves the publish as it was.
+                publish: async () => {
+                  let lParts = null;
+                  if (!eRemove && !(!eHanded && eb && eb.tab === true)) {
+                    const lRead = await editParts();
+                    if (lRead.ok && writtenFrame(eSrc, lRead.parts)) {
+                      const lf = await runFrameEdit({ send: eQuick() }, {
+                        instruction: eInstruction, pages: eSrc, parts: lRead.parts,
+                        routes: [...new Set(eSrc.map((p) => routeOf(p.path)).filter(Boolean))], model: eQuickModel,
+                        note: "THE LOGO IS NOW SET: `SITE_LOGO` holds its address. Show it in the header where the customer asked (beside or in place of the name), with alt text the business's name.",
+                      });
+                      lFrameUsage = lf.usage || null;
+                      if (lf.ok) { lParts = lf.parts; lFrameChanged = lf.changed; }
+                    }
+                  }
+                  return publishStep(env, {
+                    slug: ownerSlug, pages: eSrc, ...(lParts ? { parts: lParts } : {}),
+                    label: versionLabel({ revise: true, changeNote: eRun }),
+                  });
+                },
               // `eRemove`, THE STEP'S — not the body's. The logo rung is only ever
               // the router's own step (no lane dispatches here), so the two are
               // equal on every path that reaches this line today; the step's is
@@ -38410,18 +38498,19 @@ async function handleRequest(request, env, ctx) {
                 // reads as the builder ignoring what was asked. A refusal here
                 // is the honest answer and it says what to do instead.
                 return Response.json({
-                  ok: false, error: lOut.reason, cost: 0, msg: lOut.msg,
+                  ok: false, error: lOut.reason, cost: lFrameUsage ? await eCharge(lFrameUsage) : 0, msg: lOut.msg,
                 }, { status: 422 });
               }
               return Response.json({
                 ok: true, layer: "logo", msg: lOut.msg,
+                frame: lFrameChanged ? lFrameChanged : undefined,
                 // WHICH SLOT IT LANDED IN, from the module rather than re-read
                 // off the request: the module is what chose, and a second
                 // reading here is a second thing that can disagree about where
                 // a customer's artwork went.
                 target: lOut.target || "logo",
                 removed: !!lOut.removed, url: lOut.url || "", files: lOut.files,
-                cost: 0, usage: null,
+                cost: lFrameUsage ? await eCharge(lFrameUsage) : 0, usage: lFrameUsage,
               });
             }
             if (eLayer === "text") {
@@ -40095,7 +40184,10 @@ async function handleRequest(request, env, ctx) {
                 // NO CLOCK OF ITS OWN, exactly as before; AND THE ANSWERS this
                 // step was given (2026-10-02), through the same transport every
                 // other call on this route goes through (`clarifyTransport`).
-                null, clarifyCall(jobCall(eJob, pagesCall(env)), { shown: () => eCtx, all: () => eCtxAll || [], part: ePartShown }));
+                null, clarifyCall(jobCall(eJob, pagesCall(env)), { shown: () => eCtx, all: () => eCtxAll || [], part: ePartShown }),
+                // A SITE THAT WRITES ITS OWN PARTS (2026-10-23) is edited by a
+                // writer told the same: the own-parts block, never the kit's.
+                "", [], { ownParts: ownPartsSite(eSrc, pStoredParts) });
               } catch (e) {
                 console.error("page edit generate failed:", ownerSlug, e && e.message);
                 const pKind = upstreamKind(e && e.detail, e && e.status);
@@ -45093,7 +45185,9 @@ async function handleRequest(request, env, ctx) {
               // route that does not go through `aQuick`, and the longest.
               }), aSpec, aMerged.brand || aLook.brand || ownerSlug, [], aModels.pages, aWriterSrc, "addon", undefined, aJob && aJob.budget,
               // THE ANSWERS, through the transport every other call here uses.
-              clarifyCall(jobCall(aJob, pagesCall(env)), { shown: () => aCtxShown, all: () => aCtxAll || [], part: aPartShown }), "", aKeepPages);
+              clarifyCall(jobCall(aJob, pagesCall(env)), { shown: () => aCtxShown, all: () => aCtxAll || [], part: aPartShown }), "", aKeepPages,
+              // AN OWN-PARTS SITE'S ADDITION writes its own parts too (2026-10-23).
+              { ownParts: ownPartsSite(aSrc, aStoredParts) });
               aPagesMs = Date.now() - aPagesT0;
               aPagesWrote = aGen && aGen.input && Array.isArray(aGen.input.pages) ? aGen.input.pages.length : 0;
               aMark("pages", "ok", { files: aPagesWrote, ms: aPagesMs });

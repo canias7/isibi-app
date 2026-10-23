@@ -501,6 +501,42 @@ export function framePrompt({ brief, spec, brand, lines, chrome, actions, notBui
     "- Its content lines up with the page: mx-auto max-w-6xl px-6.\n\n" + OWN_PARTS_RULE;
 }
 
+/**
+ * THE SINGLE-CALL FALLBACK ON A FIRST BUILD (2026-10-23). When the band split
+ * refuses (`sync`, `door`, `thin`, `nofanout`), the one `write_pages` call
+ * writes the page; it used to wrap it in the kit's `SiteChrome`. It is now
+ * told to write the header and the footer itself, as the two parts the band
+ * path writes (`site-header`, `site-footer` in `parts`, default exports
+ * `SiteHeader`/`SiteFooter`), from the same facts the frame writers get, and
+ * to compose the page the way `pageShell` does. So a first build lands with a
+ * written frame whichever path wrote it, and the edits that read the frame
+ * (`site-frame.mjs`) find the same two files.
+ */
+export function ownFallbackDirective({ brief, spec, brand, lines, chrome, actions, notBuilt } = {}) {
+  const facts = (role) => {
+    const p = framePrompt({ brief: "", spec, brand, lines, chrome, actions, notBuilt, role });
+    const at = p.indexOf("THE FACTS\n");
+    const end = p.indexOf("\n\n", at + 10);
+    return at >= 0 ? p.slice(at + 10, end >= 0 ? end : undefined) : "";
+  };
+  return [
+    "## Components to build",
+    "",
+    "This site has no ready-made components and no SiteChrome. Return these two in `parts`, not in `pages`:",
+    "",
+    "- **site-header** — the site's HEADER: one `<header>` with the name (or the logo), the navigation, the primary action as its button; on a phone, a menu you write yourself (useState). Default export `SiteHeader`. Import it as `@/routes/-parts/site-header`.",
+    "- **site-footer** — the site's FOOTER: one `<footer>` with the name, what the business is, and how to reach it ONLY as the brief states it (never an invented phone, email, address, hours or social account). Default export `SiteFooter`. Import it as `@/routes/-parts/site-footer`.",
+    "",
+    "THE FACTS FOR BOTH",
+    facts("header"),
+    "",
+    "EVERY PAGE IS COMPOSED LIKE THIS, and nothing else wraps it:",
+    '<div className="flex min-h-svh flex-col bg-background text-foreground"><SiteHeader /><main id="main" tabIndex={-1} className="flex-1 outline-none">…the page…</main><SiteFooter /></div>',
+    "",
+    OWN_PARTS_RULE,
+  ].join("\n");
+}
+
 /** The exact body sent for the header or the footer: a band's, with the frame's own prompt. */
 export function frameRequest({ brief, spec, brand, lines, chrome, actions, notBuilt, role, model, kind = "", attachments } = {}) {
   const blocks = Array.isArray(attachments) ? attachments.filter(Boolean) : [];
@@ -510,7 +546,9 @@ export function frameRequest({ brief, spec, brand, lines, chrome, actions, notBu
     max_tokens: SITE_PAGES_MAX_TOKENS,
     tools: [BAND_TOOL],
     tool_choice: { type: "tool", name: "write_band" },
-    system: [{ type: "text", text: pageRulesFor(spec, kind), cache_control: { type: "ephemeral" } }],
+    // THE OWN-PARTS BLOCK (2026-10-23): a first build's writers no longer read
+    // "THE KIT FOR EVERY CONTROL" above the user message's "write your own".
+    system: [{ type: "text", text: pageRulesFor(spec, kind, { ownParts: true }), cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: blocks.length ? [...blocks, { type: "text", text }] : text }],
   };
 }
@@ -549,7 +587,9 @@ export function bandRequest({
     max_tokens: SITE_PAGES_MAX_TOKENS,
     tools: [BAND_TOOL],
     tool_choice: { type: "tool", name: "write_band" },
-    system: [{ type: "text", text: pageRulesFor(spec, kind), cache_control: { type: "ephemeral" } }],
+    // THE OWN-PARTS BLOCK (2026-10-23): a first build's writers no longer read
+    // "THE KIT FOR EVERY CONTROL" above the user message's "write your own".
+    system: [{ type: "text", text: pageRulesFor(spec, kind, { ownParts: true }), cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: blocks.length ? [...blocks, { type: "text", text }] : text }],
   };
 }
