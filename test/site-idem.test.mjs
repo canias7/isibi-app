@@ -165,6 +165,7 @@ test("the data proxy reads the key BEFORE the spam gate (audit A30-4) and BEFORE
   // digest strips the token itself (`idemFingerprint`).
   assert.ok(read < gate, "the replay must be looked for before the token is spent");
   assert.match(proxy, /if \(gate\.refused\) \{\n      if \(idem\) idem\.release\(\);/, "a refused press keeps the key claimed");
+  assert.match(proxy, /turnstileGate\(env, request, \{ slug, db, path, sent \}\)\.catch\(\(e\) => \{ if \(idem\) idem\.release\(\); throw e; \}\)/, "a gate that throws keeps the key claimed");
   assert.match(proxy, /\} finally \{\n    \/\/ A press that never stored an answer lets the one waiting behind it through\.\n    if \(idem\) idem\.release\(\);/);
   assert.ok(read < upstream, "a replay that still reaches Postgres is the bug");
   assert.ok(upstream < write && write < notify, "the answer is remembered after the upstream and before the slow hooks");

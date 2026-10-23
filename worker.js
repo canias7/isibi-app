@@ -11108,7 +11108,8 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
   // only thing on this path that can — everything else here (notify, confirm,
   // webhook) runs after the row is safe.
   if (which === "data" && request.method === "POST") {
-    const gate = await turnstileGate(env, request, { slug, db, path, sent });
+    // A gate that throws must not leave the key claimed for the press behind it.
+    const gate = await turnstileGate(env, request, { slug, db, path, sent }).catch((e) => { if (idem) idem.release(); throw e; });
     if (gate.refused) {
       if (idem) idem.release();
       // `message`, not `error`: that is the field `rows.ts` reads to show a
