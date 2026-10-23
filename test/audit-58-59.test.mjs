@@ -202,3 +202,23 @@ test("A38-4 THROUGH THE REAL RESTORE — an address the live head carries (a ren
     assert.equal(after.css, undefined, "observer: the restored version's own fields went live");
   });
 });
+
+// ── A38-6 (2026-10-23, round 2) ──────────────────────────────────────────────
+test("A38-6 THROUGH THE REAL RESTORE — under draft-first a legacy-layout version is refused: the pointer stays (the site still reads as published, its changes still held) and nothing is copied over the served files", async () => {
+  const wk = await loadWorkerModule();
+  const slug = "a38-legacy";
+  const { store, env } = await draftSite(slug);
+  const OLDV = "01780000000000-legacy";
+  await store.put("versions/" + slug + "/" + OLDV + "/_manifest.json", JSON.stringify({ files: ["index.html"], worker: true }), JSONCT);
+  await store.put("versions/" + slug + "/" + OLDV + "/index.html", "<p>legacy</p>", { httpMetadata: { contentType: "text/html" } });
+  await store.put("versions/" + slug + "/" + OLDV + "/_worker.js", "export default {}", { httpMetadata: { contentType: "text/javascript" } });
+  await withWire({}, async () => {
+    const pub = await publish(wk, env, slug);
+    assert.equal(pub.status, 200, pub.text);
+    const rs = await app(wk, env, "POST", "/api/site/" + slug + "/versions/restore", { id: OLDV });
+    assert.equal((await readJson(store, "current/" + slug + ".json")).version, V2, "the legacy restore dropped the pointer");
+    assert.equal(await store.get("sites/" + slug + "/index.html"), null, "the legacy files were copied over the served prefix");
+    assert.equal(rs.status, 409, rs.text);
+    assert.match(String(rs.body && rs.body.error), /can't be restored while changes wait for Publish/);
+  });
+});

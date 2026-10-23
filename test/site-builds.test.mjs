@@ -456,7 +456,7 @@ test("the platform's own readers resolve through the pointer; the delete path ta
   assert.match(w, /env\.SITES_BUCKET\.head\(assetKeyFor\(await sitePointer\(env, slug\), slug, "card\.png"\)\)/, "the card lookup does not resolve through the pointer");
   assert.match(w, /versionsRemoved \+= await deleteAllBuilds\(buildDeps\(env\), dslug\);/, "deleting a site leaves its builds and pointer behind");
   assert.match(w, /mergeVersions\(await listVersions\(versionDeps\(env\), \{ slug: ownerSlug \}\), await listBuilds\(buildDeps\(env\), ownerSlug\)\)/, "the versions list does not show both layouts");
-  assert.match(w, /const rb = await restoreVersion\(env, ownerSlug, vb && vb\.id\);/, "the restore route does not go through the one restore function");
+  assert.match(w, /const rb = await restoreVersion\(env, ownerSlug, vb && vb\.id(, \{ refuseLegacy: draftFirst\(env\) \})?\);/, "the restore route does not go through the one restore function");
   assert.match(w, /rollback: \(\{ slug, id \}\) => restoreVersion\(env, slug, id\),/, "putting a site back online does not restore through the one restore function");
   // The one restore function: a build-layout version is an activation (its own
   // script, its own sidecar, its state restored); a legacy one is the copy path

@@ -15104,7 +15104,7 @@ async function servePreview(env, request, url, pv, ctx) {
   return new Response(res.body, { status: res.status, headers: h });
 }
 
-async function restoreVersion(env, slug, id) {
+async function restoreVersion(env, slug, id, { refuseLegacy = false } = {}) {
   const deps = buildDeps(env);
   let b = null;
   try { b = await readBuild(deps, slug, id); } catch (e) { console.error("build read failed:", slug, id, e && e.message); b = null; }
@@ -15158,6 +15158,11 @@ async function restoreVersion(env, slug, id) {
     }
     return { ok: true, id, files: b.manifest.files.length, swept: 0, worker: b.worker, build: b.manifest.build || "", activated: true, uploaded: act.uploaded, wput };
   }
+  // NO LEGACY COPY UNDER DRAFT-FIRST (2026-10-23, audit A38-6): the copy path
+  // drops the pointer, so a site still serving would read as never published
+  // and its held changes would go live at once. A build that could not be read
+  // lands here too, and is refused the same way.
+  if (refuseLegacy) return { ok: false, status: 409, error: "that version is from before versions were kept whole, so it can't be restored while changes wait for Publish — pick a newer version" };
   const rb = await rollbackVersion(versionDepsWithSweep(env), { slug, id });
   if (!rb.ok) return rb;
   try { await env.SITES_BUCKET.delete(POINTER_KEY(slug)); }
@@ -46419,7 +46424,7 @@ async function handleRequest(request, env, ctx) {
                 if (d && d.rev > d.applied) return refuse("you have changes saved in your draft that aren't published yet — publish them or discard the draft first, then restore an older version", 409, { unpublished: true });
                 if (d && unpublishedVersions(d).has(String((vb && vb.id) || ""))) return refuse("that version was never published, so it can't be restored", 409);
               }
-              const rb = await restoreVersion(env, ownerSlug, vb && vb.id);
+              const rb = await restoreVersion(env, ownerSlug, vb && vb.id, { refuseLegacy: draftFirst(env) });
               if (!rb.ok) return refuse(rb.error || "rollback failed", rb.status || 500);
               talk.say(actionFacts("restore", "switched"));
               if (draftFirst(env) && rb.activated) {
