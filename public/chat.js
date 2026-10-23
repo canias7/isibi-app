@@ -10670,6 +10670,15 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // that moment, so nothing acted — the message comes back to the box to send
     // again, and the card comes off. (A question asked again is never an
     // ending now: the route keeps it with a note, and it is drawn below.)
+    // ── OUT OF CREDITS FOR THIS WORK (audit A13-2, 2026-10-23) ─────────────
+    // The route refused paid work below its floor before taking it on: nothing
+    // was filed and nothing more charged. The route's own sentence, and the
+    // message back in the box to send again once topped up.
+    if (!isBuild && d && d.ok === false && d.need === 'credits' && typeof d.msg === 'string' && d.msg.trim()) {
+      siteHoldUnsent(origin, t, imgs, key);
+      finish(d.msg);
+      return;
+    }
     if (!isBuild && d && d.ok === false && d.error === 'question-busy' && (routeSaid || (typeof d.msg === 'string' && d.msg.trim()))) {
       siteAskClear(origin);
       siteHoldUnsent(origin, t, imgs, key);

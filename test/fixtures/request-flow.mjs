@@ -614,7 +614,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
           if (took <= 0) out = { ok: false, error: "insufficient", taken: 0, balance: credits.balance };
           else { credits.balance -= took; ledgerRow(USER.id, "build", ref, args.p_reason, -took); out = { ok: true, taken: took, balance: credits.balance, exempt: false, repeat: false, short: took < want }; }
         }
-      } else if (fn === "get_credits") out = credits.balance;
+      } else if (fn === "get_credits") out = founder ? 1000000 : credits.balance; // a founder: the live function's sentinel
       else if (fn === "use_credits") {
         const c = Number(args.cost) || 0;
         if (founder) out = credits.balance;

@@ -172,7 +172,7 @@ import { splitGraph, designInGraph, DESIGN_GRAPH } from "./builder/design-graph.
 // COMMENTS HERE AND CALLED IN NONE. It decided the PAGES charge inside
 // `publish-pages.mjs` and nothing applied it to the design charge this route
 // takes first — see the reversal beside `publishPlaceholder`.
-import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, ourFault, MIN_CREDITS, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
+import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, ourFault, MIN_CREDITS, filingIsFree, filingFloorRefusal, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
 // `countImageSlots` IS NOT IMPORTED ANY MORE, and its absence is the record of
 // why: it counts `@@IMG:` TOKENS, which both the edit page rung and the addon
 // forbid in their own directives, so on every obedient answer it was zero. Both
@@ -33493,6 +33493,19 @@ async function handleRequest(request, env, ctx) {
       // Anything else — a question about the site, a question back, a failure,
       // a plan that cannot be read — is answered as it always was.
       if (rKey && routed.failed !== true) {
+        // THE FLOOR AT ACCEPTANCE (audit A13-2): work taken on here is filed
+        // as jobs by the server with no one to ask again, so paid work below
+        // the floor is refused now — nothing accepted, no part filed, no more
+        // model calls. The balance is the one read above, less this routing
+        // call's charge; not read (`rBal` null) fails open, as that read does.
+        if ((rOut.intent === "edit" || rOut.intent === "addon") && !(rWaiting && rWaiting.requestKey && rAsk && rAsk.answered === true)) {
+          const rFloor = await filingFloorRefusal({
+            free: filingIsFree({ op: rOut.intent, layer: String(rOut.layer || ""), remove: rOut.remove === true, rename: rOut.rename, held: Array.isArray(rOut.alsoAsked) ? rOut.alsoAsked.length : 0 }),
+            readBalance: async () => { if (rBal === null) throw new Error("unread"); return rBal - (Number.isInteger(rCost) && rCost > 0 ? rCost : 0); },
+            where: rKeySlug,
+          });
+          if (rFloor) return Response.json({ ...rFloor, intent: rOut.intent, routedCost: Number.isInteger(rCost) ? rCost : 0 }, { status: 402 });
+        }
         let accepted = null;
         try {
           accepted = await acceptRequest(env, ctx, { uid: ru.id, rb, slug: rKeySlug, key: rKey, out: rOut, ask: rAsk, waiting: rWaiting, instruction: rInstruction !== undefined ? rInstruction : rOut.resolved });
@@ -34738,6 +34751,13 @@ async function handleRequest(request, env, ctx) {
               // missing key, a site under review, a queue that would not
               // take it) and the receipt — because the addon route files
               // jobs the same way now and two copies of a refusal drift.
+              // THE FLOOR FIRST (audit A13-2): paid work below it is refused
+              // here, nothing filed and no model called (`filingFloorRefusal`).
+              const eFloor = await filingFloorRefusal({
+                free: filingIsFree({ layer: String((eb && eb.layer) || ""), remove: !!(eb && eb.remove === true), rename: eb && eb.rename, handedOff: !!(eb && eb.handedOff === true) }),
+                readBalance: () => readCredits(request.headers.get("Authorization") || ""), where: ownerSlug,
+              });
+              if (eFloor) return Response.json(eFloor, { status: 402 });
               return enqueueReply(await enqueueEditJob(env, {
                 slug: ownerSlug, uid: ou.id,
                 url: url.toString(), body: ebRaw, idem: eb && eb.idem,
@@ -40824,6 +40844,10 @@ async function handleRequest(request, env, ctx) {
             };
             if (aPart) { aAskOut.requestKey = aPart.key; aAskOut.part = aPart.part; aReplyOut.inRequest = true; }
             if (!aJob && editAsyncFor(env, { uid: ou.id, slug: ownerSlug })) {
+              // THE FLOOR FIRST (audit A13-2): an addition is always paid, so
+              // below it nothing is accepted or filed and no model is called.
+              const aFloor = await filingFloorRefusal({ free: false, readBalance: () => readCredits(request.headers.get("Authorization") || ""), where: ownerSlug });
+              if (aFloor) return Response.json(aFloor, { status: 402 });
               // AN ADDITION POSTED STRAIGHT TO THIS ROUTE (round 7) — the router's
               // answer this page acted on when it did not take the message on, an
               // edit that handed its ask here, an older page — joins the durable
