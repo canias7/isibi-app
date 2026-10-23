@@ -24,9 +24,9 @@ test("import: the pages really read, or that it could not be read and the build 
 });
 
 test("importphotos: the photos really copied, and the ones that could not be", () => {
-  assert.deepEqual(texts(buildStepFacts({ s: "importphotos", placed: 5, missing: 0 })), ["prepared: Using 5 of their photos from their current site on the pages. Not published yet."]);
+  assert.deepEqual(texts(buildStepFacts({ s: "importphotos", placed: 5, missing: 0 })), ["prepared: Using 5 of their photos from their current site on the pages."]);
   assert.deepEqual(texts(buildStepFacts({ s: "importphotos", placed: 1, missing: 2 })), [
-    "prepared: Using one of their photos from their current site on the pages. Not published yet.",
+    "prepared: Using one of their photos from their current site on the pages.",
     "notdone: Could not copy 2 photos from their current site.",
   ]);
   assert.deepEqual(buildStepFacts({ s: "importphotos", placed: 0, missing: 0 }), []);

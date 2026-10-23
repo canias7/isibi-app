@@ -172,7 +172,7 @@ test("MPH 2 — CONTROL: the photograph is made: the photographs milestone says 
     const made = factsOf(rec).find((f) => f.stage === "photos" && f.text.includes(BENCH));
     assert.ok(made, "no photographs fact for the made photograph");
     assert.equal(made.state, "prepared");
-    assert.match(made.text, /was made and put on the page\. Not published yet\./);
+    assert.match(made.text, /was made and put on the page\./);
     assert.ok(!factsOf(rec).some((f) => f.state === "notdone"), "a fact says something was not made");
     for (const t of replayLines(rec).texts) assert.doesNotMatch(t, /NOT DONE IN THIS WORK/, "a line was told something is missing when nothing is");
     assert.equal(reserveOf(P, addJob.id).filter((e) => e.ref.endsWith("#5")).length, 1, "the photograph was not charged once");
@@ -234,7 +234,7 @@ test("MPH 6 — missingFacts and the writer's request: a notdone fact already sa
   assert.equal(missingFacts(rec).length, 1);
   assert.ok(missingFacts(rec)[0].includes(BENCH));
   const ctx = progressContext(rec);
-  assert.match(ctx, /NOT DONE IN THIS WORK, AS IT STANDS \(each stays exactly as said here in every update; never say or suggest that any of them is on the site or was done otherwise\):\n- The photograph “three bakers shaping loaves/);
+  assert.match(ctx, /NOT DONE IN THIS WORK, AS IT STANDS \(already told to them once: do not say any of them again, and never say or suggest that any of them is on the site or was done otherwise\):\n- The photograph “three bakers shaping loaves/);
   assert.ok(ctx.indexOf("WHAT YOUR EARLIER UPDATES SAID") < ctx.indexOf("NOT DONE IN THIS WORK"), "the missing list is not after the earlier updates");
   const req = progressRequest({ facts: [rec.marks[2].facts[0]], context: ctx, model: "m" });
   assert.ok(req.messages[0].content.includes("NOT DONE IN THIS WORK"), "the request does not carry the missing list");
@@ -252,7 +252,7 @@ test("MPH 6 — missingFacts and the writer's request: a notdone fact already sa
 
 test("MPH 7 — the writer's instructions: what was asked for is not what was made (no detail from the request no fact states, a photograph named), and anything still not made stays missing in every update", () => {
   assert.match(PROGRESS_SYSTEM, /What they asked for is not what was made: describe a page or anything else only with what the facts say it has, never with details from their request that no fact states, such as a photograph\./);
-  assert.match(PROGRESS_SYSTEM, /Anything listed as not done stays exactly as it is said there in every update: never say or suggest that it is on the site or was done otherwise\./);
+  assert.match(PROGRESS_SYSTEM, /Anything listed as not done stays not done: never say or suggest that it is on the site or was done otherwise\. Say it once, where it is news; never repeat it on later updates\./);
 });
 
 test("MPH 8 — the build's step: photographs not made are said as not done, counted; none missing says nothing", () => {

@@ -450,15 +450,15 @@ export function buildStepFacts(step) {
     // chosen by the page writers and bought later, and their own steps
     // (`photos-*`) say so when — and only when — that happens.
     case "design": return [fact("designed", "Designed the site: its pages and its look. Nothing is built yet.")];
-    case "provision": return s.db === 0 ? [] : [fact("prepared", "Set up the site's database. The site is not published yet.")];
-    case "schema": return n("tables") ? [fact("prepared", "Made " + pl(n("tables"), "the table", "tables") + " the site stores its information in. Not published yet.")] : [];
-    case "seed": return [fact("prepared", "Filled in the starting entries. Not published yet.")];
+    case "provision": return s.db === 0 ? [] : [fact("prepared", "Set up the site's database.")];
+    case "schema": return n("tables") ? [fact("prepared", "Made " + pl(n("tables"), "the table", "tables") + " the site stores its information in.")] : [];
+    case "seed": return [fact("prepared", "Filled in the starting entries.")];
     case "gen": return [fact("doing", "Writing the pages now.")];
     case "photos-alongside": return n("started") ? [fact("doing", "Buying " + pl(n("started"), "the photograph", "photographs") + " for the site while the pages are being written.")] : [];
     case "fired": return [fact("doing", "Waiting for the page writing to finish; the photographs already started carry on meanwhile.")];
     case "photos-wait": return n("open") ? [fact("doing", "The pages are written. Waiting for " + pl(n("open"), "a photograph", "photographs") + " still being bought before placing " + (n("open") === 1 ? "it" : "them") + ".")] : [];
     case "photo-recovered": return [fact("doing", "Recovered " + pl(n("n") || 1, "a photograph", "photographs") + " that had been made but not saved, instead of buying " + ((n("n") || 1) === 1 ? "it" : "them") + " again.")];
-    case "photos-joined": return n("used") ? [fact("prepared", "Placed " + pl(n("used"), "the photograph", "photographs") + " on the pages. Not published yet.")] : [];
+    case "photos-joined": return n("used") ? [fact("prepared", "Placed " + pl(n("used"), "the photograph", "photographs") + " on the pages.")] : [];
     // THE PHOTOGRAPHS THAT WERE NOT MADE (2026-10-10, after the Add-on press's
     // line claimed a photograph that never arrived): counted from the purchase's
     // own result, said as not done, and kept missing in every later line
@@ -488,11 +488,11 @@ export function buildStepFacts(step) {
       const own = name === "ownphotos";
       const some = (k) => (k === 1 ? (own ? "one of their own photographs" : "one file from their library") : k + (own ? " of their own photographs" : " files from their library"));
       const out = [];
-      if (n("placed")) out.push(fact("prepared", "Put " + some(n("placed")) + " on the pages. Not published yet."));
+      if (n("placed")) out.push(fact("prepared", "Put " + some(n("placed")) + " on the pages."));
       if (n("missing")) out.push(fact("notdone", "Could not use " + some(n("missing")) + "."));
       return out;
     }
-    case "bands": return n("wrote") ? [fact("prepared", "Wrote the pages in " + pl(n("wrote"), "one section", "sections") + " side by side" + (n("bands") > n("wrote") ? ", " + n("wrote") + " of the " + n("bands") + " planned" : "") + ". Not published yet.")] : [];
+    case "bands": return n("wrote") ? [fact("prepared", "Wrote the pages in " + pl(n("wrote"), "one section", "sections") + " side by side" + (n("bands") > n("wrote") ? ", " + n("wrote") + " of the " + n("bands") + " planned" : "") + ".")] : [];
     // THE WRITING AS IT GOES (2026-10-19): the container's own count — sections
     // of a page written side by side, or parts of the site one call finished.
     case "writing":
@@ -502,7 +502,7 @@ export function buildStepFacts(step) {
     case "lang-beside": return [fact("doing", "Translating the site's words into its other languages.")];
     case "compile-retry": return [fact("doing", "The first try at putting the site together did not start; trying again.")];
     case "repairing": return n("pages") ? [fact("doing", "Fixing " + pl(n("pages"), "a page", "pages") + " the browser check found a problem on.")] : [];
-    case "repaired": return n("failed") ? [fact("notdone", "The fix did not build, so the pages stay as they were before it.")] : n("pages") ? [fact("prepared", "Fixed " + pl(n("pages"), "the page", "pages") + " and put the site together again. Not published yet.")] : [];
+    case "repaired": return n("failed") ? [fact("notdone", "The fix did not build, so the pages stay as they were before it.")] : n("pages") ? [fact("prepared", "Fixed " + pl(n("pages"), "the page", "pages") + " and put the site together again.")] : [];
     // THEIR CURRENT SITE, READ FOR A REBUILD (2026-10-22, owner approved): only
     // what the import really did — the pages it read, or that it could not read
     // the site and the build goes on from the message alone; then the photos of
@@ -513,17 +513,17 @@ export function buildStepFacts(step) {
       return [fact("notdone", "Couldn't read their current site, so the site is being built from their message alone.")];
     case "importphotos": {
       const out = [];
-      if (n("placed")) out.push(fact("prepared", "Using " + pl(n("placed"), "one of their photos", "of their photos") + " from their current site on the pages. Not published yet."));
+      if (n("placed")) out.push(fact("prepared", "Using " + pl(n("placed"), "one of their photos", "of their photos") + " from their current site on the pages."));
       if (n("missing")) out.push(fact("notdone", "Could not copy " + pl(n("missing"), "one photo", "photos") + " from their current site."));
       return out;
     }
     case "looking": return [fact("doing", "Checking how it looks…")];
-    case "looked": return n("failed") ? [fact("notdone", "A fix to how it looks did not build, so the pages stay as they were before it.")] : n("pages") ? [fact("prepared", "Fixed how " + pl(n("pages"), "the page looks", "pages look") + " and put the site together again. Not published yet.")] : [fact("checked", "Looked at the pages: nothing needed fixing.")];
+    case "looked": return n("failed") ? [fact("notdone", "A fix to how it looks did not build, so the pages stay as they were before it.")] : n("pages") ? [fact("prepared", "Fixed how " + pl(n("pages"), "the page looks", "pages look") + " and put the site together again.")] : [fact("checked", "Looked at the pages: nothing needed fixing.")];
     // THE COMPILE REPAIR (2026-10-22, ideas #11-#13): one try at a page that
     // did not build. "A placeholder" only when salvage really stubbed it.
     case "compile-fixing": return n("pages") ? [fact("doing", n("pages") === 1 ? "Fixing a page that didn't build…" : "Fixing " + n("pages") + " pages that didn't build…")] : [];
     case "compile-fixed":
-      if (!n("failed")) return n("pages") ? [fact("prepared", "Fixed it. Not published yet.")] : [];
+      if (!n("failed")) return n("pages") ? [fact("prepared", "Fixed it.")] : [];
       return [fact("notdone", n("stubbed") ? "Couldn't fix it, so it's a placeholder for now." : "Couldn't fix it.")];
     case "salvaged": return n("stubbed") ? [fact("notdone", (n("stubbed") === 1 ? "One page" : n("stubbed") + " pages") + " would not build, so " + (n("stubbed") === 1 ? "it shows" : "they show") + " a simple holding page for now.")] : [];
     default: return [];
@@ -980,7 +980,7 @@ function heldStep(d) {
   return !!(dr && typeof dr === "object" && dr.published === false && dr.held === true);
 }
 function stepDoneFact(d, what) {
-  if (!DB_LAYERS.includes(d.step.layer)) return fact("prepared", "Made, not published yet: " + what + ".");
+  if (!DB_LAYERS.includes(d.step.layer)) return fact("prepared", "Made: " + what + ".");
   return heldStep(d)
     ? fact("prepared", "Held in their draft, not in effect yet: " + what + ". It takes effect when they press Publish.")
     : fact("applied", "Changed in the site's database: " + what + ".");
@@ -1137,8 +1137,8 @@ export function addonPagesFacts({ added = [], changed = [], linked = [], photos 
   const out = [];
   const a = pathsOf(added);
   const c = pathsOf(changed).filter((x) => !a.includes(x));
-  if (a.length) out.push(fact("prepared", (a.length === 1 ? "New page written, not published yet: " : "New pages written, not published yet: ") + listOf(a) + "."));
-  if (c.length) out.push(fact("prepared", (c.length === 1 ? "Existing page changed for this addition, not published yet: " : "Existing pages changed for this addition, not published yet: ") + listOf(c) + "."));
+  if (a.length) out.push(fact("prepared", (a.length === 1 ? "New page written: " : "New pages written: ") + listOf(a) + "."));
+  if (c.length) out.push(fact("prepared", (c.length === 1 ? "Existing page changed for this addition: " : "Existing pages changed for this addition: ") + listOf(c) + "."));
   // ONE FACT FOR EACH SET OF NEW PAGES LINKED TO, naming every page that got it.
   const groups = new Map();
   for (const l of Array.isArray(linked) ? linked : []) {
@@ -1150,7 +1150,7 @@ export function addonPagesFacts({ added = [], changed = [], linked = [], photos 
     if (!groups.get(key).at.includes(at)) groups.get(key).at.push(at);
   }
   for (const g of groups.values()) {
-    out.push(fact("prepared", "A menu link to " + listOf(g.to) + " added, and nothing else changed, not published yet, on " + (g.at.length === 1 ? "the existing page " : "the existing pages ") + listOf(g.at) + "."));
+    out.push(fact("prepared", "A menu link to " + listOf(g.to) + " added, and nothing else changed, on " + (g.at.length === 1 ? "the existing page " : "the existing pages ") + listOf(g.at) + "."));
   }
   if (!out.length) return [];
   // THE PHOTOGRAPHS STILL TO MAKE (2026-10-10): the pages are written before
@@ -1185,7 +1185,7 @@ export function addonPhotosFacts({ planned = [], bought = [], pending = [], unsu
     const d = key(p && typeof p === "object" ? p.describe : p);
     if (!d || seen.has(d)) continue;
     seen.add(d);
-    if (made.has(d)) out.push(fact("prepared", "The photograph " + quote(d) + " was made and put on the page. Not published yet."));
+    if (made.has(d)) out.push(fact("prepared", "The photograph " + quote(d) + " was made and put on the page."));
     else if (waiting.has(d)) continue;
     else if (cannotTell.has(d)) out.push(fact("notdone", "The photograph " + quote(d) + " could not be confirmed as made, so its place on the page is left empty."));
     else out.push(fact("notdone", "The photograph " + quote(d) + " could not be made, so its place on the page is left empty."));
@@ -1325,7 +1325,7 @@ export function sectionDoneFacts(lines, done, of) {
   if (!list.length) return [];
   const k = Number.isInteger(done) && done > 0 ? done : 0;
   const n = Number.isInteger(of) && of > 0 ? of : 0;
-  return [fact("prepared", "Finished writing " + (list.length === 1 ? "the section: " : "these sections: ") + list.join("; ") + (k && n ? " (" + Math.min(k, n) + " of " + n + " done)" : "") + ". Not published yet.")];
+  return [fact("prepared", "Finished writing " + (list.length === 1 ? "the section: " : "these sections: ") + list.join("; ") + (k && n ? " (" + Math.min(k, n) + " of " + n + " done)" : "") + ".")];
 }
 /**
  * WHAT IS GOING ON THE PAGE RIGHT NOW (2026-10-19, owner: "i dont only want
@@ -1353,7 +1353,7 @@ const COMPILE_STAGE_SAID = Object.freeze({
   renderMs: "Opening every page in a real browser to check it shows properly.",
 });
 export function compileStageFacts(stage) {
-  return typeof stage === "string" && Object.hasOwn(COMPILE_STAGE_SAID, stage) ? [fact("doing", COMPILE_STAGE_SAID[stage] + " Not published yet.")] : [];
+  return typeof stage === "string" && Object.hasOwn(COMPILE_STAGE_SAID, stage) ? [fact("doing", COMPILE_STAGE_SAID[stage])] : [];
 }
 export function designPartFacts(got) {
   const g = got && typeof got === "object" ? got : {};
@@ -1459,6 +1459,31 @@ export const PROGRESS_TOOL = {
 // CONCISE ON PURPOSE (the owner: *"Keep instructions concise rather than
 // relying on an arbitrary short character limit"*). It asks for a short line;
 // nothing in code measures one.
+// THE VOICE (owner, 2026-10-23): "progress talk lines must sound like a
+// professional speaking to a client, still FIRST PERSON, but NOT starting every
+// line with I / I am, and no repeated boilerplate tails." The owner approved
+// the Saltmarsh lines below as the voice to aim for; they show the tone, they
+// are not a template, and the facts still decide what may be said. Shared by
+// every live writer: the update (PROGRESS_SYSTEM), the conversational update
+// (TALK_SYSTEM, which also words Publish, Restore and Discard), the task lines
+// and the parallel opening (TASK_SYSTEM), and the security scan's lines
+// (builder/security-say.mjs, SCAN_LINE_RULE).
+export const PROGRESS_VOICE =
+  "THE VOICE\n" +
+  "- Sound like a professional speaking to a client: confident, plain and warm, with no jargon.\n" +
+  "- First person, but never \"I\" or \"I am\" as the default opener: vary how lines begin, with the task, the result or what comes next, and use \"I\" only where it is natural.\n" +
+  "- Each line says something new and specific, using the real names from the facts (their site's address, pages, sections, colours, their own words).\n" +
+  "- No repeated tails: say that the site is a draft, unpublished or waiting for Publish once, where the facts say it, not at the end of every line.\n" +
+  "- A problem is said once, in the line where it happens; later lines never repeat it, and never contradict it.\n" +
+  "- The tone the owner approved, for one site's build (a tone to match, never words to copy; say only what your own facts say):\n" +
+  "  Starting with the structure: a single home page at saltmarsh-and-sparrow.gofarther.app.\n" +
+  "  The look is settled \u2014 sea-glass green, sand and white, with serif headings to match the coastal feel.\n" +
+  "  Now writing the home page: the harbour welcome, your opening hours, today's bakes and the sisters' story.\n" +
+  "  Reviews and the \"this week\" events strip are in. Moving on to the details.\n" +
+  "  One photo didn't come through, so I've kept that space clean rather than leaving a gap.\n" +
+  "  Everything checks out in a real browser on phone and desktop.\n" +
+  "  Your site is saved as a draft \u2014 have a look, and press Publish whenever you're happy.\n";
+
 export const PROGRESS_SYSTEM =
   "You are an AI website builder, writing one short progress update in the chat while you are still working on a customer's request. " +
   "Your code records each step as it really happens and gives you the facts since your last update, each with an id and a state. " +
@@ -1472,16 +1497,17 @@ export const PROGRESS_SYSTEM =
   "next: planned; not started.\n" +
   "notdone: could not be made; the final message will say why.\n\n" +
   "RULES\n" +
-  "- Speak in the first person, naturally and conversationally, the way you would tell them yourself: next facts as what you will do, doing facts as what you are doing now, the rest as what you have done or could not do.\n" +
+  "- Speak in the first person, as THE VOICE below says: next facts as what you will do, doing facts as what you are doing now, the rest as what you have done or could not do.\n" +
   "- Describe each fact as its state says, and say nothing the facts do not: no other steps, results, times or problems.\n" +
   "- What they asked for is not what was made: describe a page or anything else only with what the facts say it has, never with details from their request that no fact states, such as a photograph.\n" +
-  "- Anything listed as not done stays exactly as it is said there in every update: never say or suggest that it is on the site or was done otherwise.\n" +
+  "- Anything listed as not done stays not done: never say or suggest that it is on the site or was done otherwise. Say it once, where it is news; never repeat it on later updates.\n" +
   "- Never say or suggest that anything is published or live, or that their request is finished: the builder's final message says that.\n" +
   "- Do not repeat what your earlier updates said.\n" +
   "- The request's other parts are separate work: never describe them as this update's, or as done unless their state says finished.\n" +
   "- Describe their site in their own words; never mention steps, tools, files, code, models, ids or states.\n" +
   "- Write in the language of their request. Keep it short, usually a sentence or two, with no greeting, sign-off, emoji or symbols unless asked.\n" +
-  "- In says, list every fact's id with the state you described it as.";
+  "- In says, list every fact's id with the state you described it as.\n\n" +
+  PROGRESS_VOICE;
 
 // ── THE CONVERSATIONAL UPDATE (talk, 2026-10-13) ────────────────────────────
 //
@@ -1533,17 +1559,18 @@ export const TALK_SYSTEM =
   "next: planned; not started.\n" +
   "notdone: could not be done; the final message will say why.\n\n" +
   "RULES\n" +
-  "- Speak in the first person, naturally. If you have not written an update yet, begin with how you will go about it, from the decided and next facts; later, when the facts change the plan, say how it changed.\n" +
+  "- Speak in the first person, as THE VOICE below says. If you have not written an update yet, begin with how you will go about it, from the decided and next facts; later, when the facts change the plan, say how it changed.\n" +
   "- Say only what the facts say, each as its state says: next facts as what you will do, doing facts as what you are doing now, the rest as what you have done, found or could not do.\n" +
   "- Say you checked something only for a checked fact, and only what that check covers: a site that builds has not been looked at, an automated check is not a visual review, and something existing does not mean what they asked for is met.\n" +
   "- Say something is live only for a published fact, and never that their whole request is finished: the final message says that.\n" +
   "- Give a reason only where a fact's recorded reason gives it.\n" +
-  "- Anything not done stays not done in every update: never say or suggest it is on the site.\n" +
+  "- Anything not done stays not done: never say or suggest it is on the site, and say it once, where it is news, not again on later updates.\n" +
   "- The request's other parts are separate work: mention them only to say what runs alongside this or what this waits for, as their states say.\n" +
   "- Say what matters to them, in their words; never mention files, tools, models, ids or states, and never repeat an earlier update.\n" +
   "- Be as long as the news needs and no longer. Write in the language of their request, with no greeting, sign-off, emoji or symbols unless asked.\n" +
   "- explain is optional: a short account of your approach and the decisions so far, with reasons only from recorded reasons. Leave it empty when there is nothing new; it is never a stream of thoughts.\n" +
-  "- In says, list every fact's id with the state you described it as.";
+  "- In says, list every fact's id with the state you described it as.\n\n" +
+  PROGRESS_VOICE;
 
 /** The request one conversational call sends: every fact of the batch, whole, each recorded reason beside its fact. */
 export function talkRequest({ facts, context = "", model, fix = null }) {
@@ -1608,10 +1635,11 @@ export const TASK_SYSTEM =
   "notdone: it was not done; say so.\n" +
   "Give no reasons: the final message gives them.\n\n" +
   "RULES\n" +
-  "- Speak in the first person, naturally and conversationally, the way you would tell them yourself.\n" +
+  "- Speak in the first person, as THE VOICE below says; the lines of different tasks, the titles and the opening never all begin the same way.\n" +
   "- Say what the task is in your own words; never hand their words back as an instruction.\n" +
   "- Never say a change is published or live, and never mention steps, tools, files, code, models or ids.\n" +
-  "- Write in the language of their request. Keep each line short, usually one sentence, with no greeting, emoji or symbols unless asked.";
+  "- Write in the language of their request. Keep each line short, usually one sentence, with no greeting, emoji or symbols unless asked.\n\n" +
+  PROGRESS_VOICE;
 
 /** The request one task-lines call sends: every task, each with its id and the customer's words for it. `fix` names what a first answer got wrong. */
 export function taskRequest({ tasks, context = "", model, fix = null, split = 0 }) {
@@ -1737,7 +1765,7 @@ export function progressContext(rec, { others = [], waited = [] } = {}) {
   // NOT DONE, AS IT STANDS (2026-10-10): told on every later line, after the earlier
   // updates, so nothing written then can take it back.
   const missing = missingFacts(rec);
-  if (missing.length) lines.push("NOT DONE IN THIS WORK, AS IT STANDS (each stays exactly as said here in every update; never say or suggest that any of them is on the site or was done otherwise):\n" + missing.map((t) => "- " + t).join("\n"));
+  if (missing.length) lines.push("NOT DONE IN THIS WORK, AS IT STANDS (already told to them once: do not say any of them again, and never say or suggest that any of them is on the site or was done otherwise):\n" + missing.map((t) => "- " + t).join("\n"));
   return lines.join("\n\n");
 }
 

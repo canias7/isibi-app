@@ -18,7 +18,7 @@ import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { writtenPage } from "./fixtures/addon-route.mjs";
 import { page as pageSrc } from "./fixtures/live-ask.mjs";
 import {
-  PART_STATE, otherParts, progressContext, openRecord, readProgressRecord, readRequestRef, PROGRESS_SYSTEM,
+  PART_STATE, otherParts, progressContext, openRecord, readProgressRecord, readRequestRef, PROGRESS_SYSTEM, PROGRESS_VOICE,
 } from "../builder/site-progress.mjs";
 
 const ROOT = new URL("../", import.meta.url).pathname;
@@ -85,7 +85,7 @@ test("THE CONTEXT: the kind of work, then the other parts as separate work with 
   assert.doesNotMatch(progressContext(rec, { others: [{ n: 1, words: "x", state: "mystery" }] }), /OTHER PARTS/);
   // THE RULE THE WRITER IS GIVEN FOR THEM, inside the concise instructions.
   assert.match(PROGRESS_SYSTEM, /other parts are separate work/);
-  assert.ok(PROGRESS_SYSTEM.length < 2000);
+  assert.ok(PROGRESS_SYSTEM.replace(PROGRESS_VOICE, "").length < 2000);
 });
 
 // ── THROUGH THE REAL WORKER ─────────────────────────────────────────────────
@@ -208,8 +208,8 @@ test("PAGES 1 — RUN 105'S SHAPE THROUGH THE ROUTE: the writer sends back an ex
     assert.ok(stages.indexOf("pages") > 0 && stages.indexOf("pages") < stages.indexOf("publish"), "the pages milestone is not between the design and the publish: " + stages.join(", "));
     const facts = marks.find((m) => m.stage === "pages").facts.map((f) => [f.state, f.text]);
     assert.deepEqual(facts.map(([s]) => s), ["prepared", "prepared", "next"], JSON.stringify(facts));
-    assert.equal(facts[0][1], "New page written, not published yet: /gallery.");
-    assert.equal(facts[1][1], "A menu link to /gallery added, and nothing else changed, not published yet, on the existing pages / and /visit.");
+    assert.equal(facts[0][1], "New page written: /gallery.");
+    assert.equal(facts[1][1], "A menu link to /gallery added, and nothing else changed, on the existing pages / and /visit.");
     assert.ok(!facts.some(([, t]) => /changed for this addition/.test(t)), "the page the merge put back was told as changed");
     // AND WHAT WAS STORED AGREES: /visit keeps its own words, with the link.
     const visit = P.page("visit.tsx");

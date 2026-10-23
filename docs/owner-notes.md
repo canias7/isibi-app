@@ -1,5 +1,13 @@
 # Owner Notes
 
+## 2026-10-23 — Progress lines in your voice for clients (branch `progress-voice`, not merged, not deployed)
+
+- Every live progress writer now carries one shared voice block with your approved Saltmarsh lines: first person but not "I" at the start of every line, openings varied, real names, no repeated tails, a problem said once, the draft/Publish status said once at the end. It covers builds, edits, add-ons, request parts (and the parallel card's opening line and titles), Publish/Restore/Discard, and the /sentinel scan's lines.
+- The repeated tail was partly in our code: about a dozen step facts ended in "Not published yet." and were fed to the writer on every line. Those tails are gone (the "prepared" state already tells the writer it is unpublished).
+- The repeated photo note came from the "not done" list being handed to every later line with "each stays exactly as said here in every update". It is still handed over (so no line can claim the photo), but now as "already told to them once: do not say it again".
+- The scan's lines are now each given the lines already shown, so they stop repeating each other.
+- Tests: a new file of 6 cases (red on the old code), 7 of 7 mutants killed, the comment-only control survived; the progress, security and parallel test files green (337). Older tests that pinned "Not published yet." or the old wording were updated on purpose. Nothing spent, no model called. Record: `docs/history/2026-10-23-progress-voice.md`.
+
 ## 2026-10-23, late night — the parallel card: your two label changes (branch `parallel-card`, not merged, not deployed)
 
 - A part saved to the draft now says "saved as draft" instead of "done" (the header still counts it as done).
