@@ -58,6 +58,8 @@ test("the gate reads the shape first and refuses a bad one on a protected collec
   const branch = fn.slice(shape, refuse);
   assert.ok(/const body = shape\.row \|\| null;\s*\n\s*if \(!body\) \{/.test(fn), "the refusal branch is taken exactly when the body is not one row");
   assert.ok(/if \(!secret\) return \{\};/.test(branch), "a site without the secret is unaffected");
-  assert.ok(/!== "collect"\) return \{\};/.test(branch), "a non-collect table is unaffected");
+  // RE-ANCHORED 2026-10-23 (r1-combine): audit A30-6 asks the table's
+  // resolved pair (`canWriteAccess`), never the stored preset name `collect`.
+  assert.ok(/!canWriteAccess\(d\)\) return \{\};/.test(branch), "a table visitors cannot write is unaffected");
   assert.ok(!/JSON\.parse\(sent \|\| "null"\)/.test(fn), "the old silent pass on a bad body is gone");
 });

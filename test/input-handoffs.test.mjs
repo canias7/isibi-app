@@ -453,7 +453,14 @@ test("A RELOAD OF A SITE WITH EIGHT PAGES KEEPS ALL EIGHT: the save keeps every 
     sbToast: () => {},
     // NO OTHER TAB HAS WRITTEN (2026-10-07): the save takes nothing in first.
     sitesStoredStale: false,
+    // 2026-10-23 (r1-combine): the save now keeps at most twenty records
+    // (`sitesKept`, preferring the open one, `siteOpenId`); both are carried
+    // in, the function out of chat.js, so the save runs as the page runs it.
+    siteOpenId: "o",
   });
+  const keptAt = CHAT.indexOf("\nfunction sitesKept(");
+  assert.ok(keptAt > 0, "sitesKept's landmark is gone from chat.js");
+  vm.runInContext(CHAT.slice(keptAt, CHAT.indexOf("\n}\n", keptAt) + 3), ctx);
   vm.runInContext(CHAT.slice(open, shut + 3), ctx);
   ctx.sitesSave();
   const [saved] = JSON.parse(stored.get("zephyr_sites_v1"));

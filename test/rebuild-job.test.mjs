@@ -199,12 +199,17 @@ test("the same tick takes out the litter under `jobs/` — driven, not read", as
   // exactly where a regex looks for it (this is what the sweep's W9 showed).
   const { listed } = await tick({ rows: [] });
   const jobs = listed.filter((p) => typeof p === "string" && p.startsWith("jobs/"));
-  assert.equal(jobs.length, 2, "the cron listed " + JSON.stringify(listed) + " — it must sweep one bucket of both job prefixes");
+  // RE-ANCHORED 2026-10-23 (r1-combine): audit A24-4 added a third prefix,
+  // `jobs/prepared/` (request jobs' staged answers), to the same rotation.
+  assert.equal(jobs.length, 3, "the cron listed " + JSON.stringify(listed) + " — it must sweep one bucket of all three job prefixes");
   assert.ok(jobs.some((p) => p.startsWith("jobs/edit/")), "the edit jobs' own prefix was never listed");
-  assert.ok(jobs.some((p) => !p.startsWith("jobs/edit/")), "the build jobs' prefix was never listed");
-  // The two name the SAME bucket, which is what makes the rotation cover
-  // everything rather than half of it.
-  assert.equal(jobs[1], "jobs/edit/" + jobs[0].slice("jobs/".length));
+  assert.ok(jobs.some((p) => p.startsWith("jobs/prepared/")), "the prepared jobs' prefix was never listed");
+  const build = jobs.find((p) => !p.startsWith("jobs/edit/") && !p.startsWith("jobs/prepared/"));
+  assert.ok(build, "the build jobs' prefix was never listed");
+  // All name the SAME bucket, which is what makes the rotation cover
+  // everything rather than part of it.
+  const nib = build.slice("jobs/".length);
+  assert.ok(jobs.includes("jobs/edit/" + nib) && jobs.includes("jobs/prepared/" + nib), "the prefixes name different buckets: " + JSON.stringify(jobs));
 });
 
 test("a job already filed is FOUND rather than filed twice, and its answer is the verdict", async () => {

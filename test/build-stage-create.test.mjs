@@ -121,6 +121,10 @@ function loadPainter({ stage, site, busy = true, phase = "thinking", startedAt =
     line("const SITE_ZONE = ") + "\n" + line("const SITE_ZONE_LIVE = ") + "\n" +
     line("const ST_PHASE_ORDER = ") + "\n" +
     "let sitesCache = null;\n" +
+    // 2026-10-23 (r1-combine): audit A15-6 made the stage ask `siteBusyHere`,
+    // which reads `siteBusyFor` (null: busy for whichever site is open), so
+    // both are carried out of the file, as every name the path touches is.
+    "let siteBusyFor = null;\n" + cut("siteBusyHere") + "\n" +
     cut("esc") + "\n" + cut("sitesLoad") + "\n" + cut("siteById") + "\n" +
     cut("sitePages") + "\n" + cut("siteActivePage") + "\n" + cut("siteChipUrl") + "\n" +
     cut("stBuildRunning") + "\n" + cut("buildStageHTML") + "\n" +

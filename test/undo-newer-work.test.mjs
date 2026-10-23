@@ -238,7 +238,10 @@ test("NEWER 3 — A MESSAGE SENT WHILE THE SERVER IS ASKED: the late read keeps 
 const CHAT = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const cut = (head) => { const at = CHAT.indexOf("\n" + head); assert.ok(at > 0, head + " is gone"); return CHAT.slice(at, CHAT.indexOf("\n}\n", at) + 3); };
 const cutLine = (head) => { const at = CHAT.indexOf("\n" + head); assert.ok(at > 0, head + " is gone"); return CHAT.slice(at, CHAT.indexOf("\n", at + 1) + 1); };
-const SAVE_SRC = [cutLine("const SITES_KEY ="), cutLine("let sitesCache ="), cutLine("const SITE_REQ_KEEP_MS ="), cutLine("let sitesStoredStale ="), cutLine("try { window.addEventListener('storage'"), cut("function sitesLoad("), cut("function sitesMerge("), cut("function sitesSave(")].join("\n");
+const SAVE_SRC = [cutLine("const SITES_KEY ="), cutLine("let sitesCache ="), cutLine("const SITE_REQ_KEEP_MS ="), cutLine("let sitesStoredStale ="), cutLine("try { window.addEventListener('storage'"), cut("function sitesLoad("), cut("function sitesMerge("),
+  // 2026-10-23 (r1-combine): the save keeps at most twenty records through
+  // `sitesKept`, preferring the open one (`siteOpenId`); both carried out.
+  cutLine("let siteOpenId ="), cut("function sitesKept("), cut("function sitesSave(")].join("\n");
 /**
  * ONE BROWSER: its storage, shared by every tab opened in it, and each write
  * told to the other tabs as the browser tells them (`storage`, never to the

@@ -349,8 +349,11 @@ test("an array holding anything but plain literals is left alone", () => {
   // Replacing it would drop a binding — the skip-rather-than-guess rule
   // `navSlots` lives under.
   const src = 'const CHROME = { social: [...FEEDS, { network: "x", href: "https://x" }] };';
-  assert.equal(chromeListSlots([{ path: "i.tsx", source: src }], "social")[0].items, null,
-    "a spread array was treated as an editable list");
+  // RE-ANCHORED 2026-10-23 (r1-combine): since audit A27-4 an unreadable list
+  // offers no slot at all (an insert beside it wrote a second key), where it
+  // used to offer an insert point with `items: null`. Neither is an edit.
+  const slots = chromeListSlots([{ path: "i.tsx", source: src }], "social");
+  assert.deepEqual(slots, [], "a spread array was treated as an editable list, or given a second key beside it");
 });
 
 test("a legal link to a page the site has not got is refused, not written", () => {

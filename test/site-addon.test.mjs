@@ -242,8 +242,15 @@ test("a site too large to inline keeps the ADDON contract and names what it coul
   // A REVISE STILL DEGRADES THE OLD WAY, and that is right there: an unreturned
   // page is a DELETED page, so "return only what changed" really is unfollowable
   // without the source in hand.
+  // RE-ANCHORED 2026-10-23 (r1-combine): audit A21-3 changed the revise over
+  // the window from "too large to show here" (names only, rewrite in full) to
+  // showing what fits and forbidding a return of any page not shown, since
+  // an unreturned page is kept there now. It still must not lie: it says the
+  // site is too large to show whole and names what it could not show.
   const r = priorPagesBlock(many, "revise");
-  assert.match(r, /too large to show here/, "revise must degrade rather than lie");
+  assert.match(r, /too large to show you whole/, "revise must degrade rather than lie");
+  assert.match(r, /THE PAGES YOU CANNOT SEE ARE STILL THERE AND ARE UNCHANGED/, "revise does not name what it could not show");
+  assert.match(r, /Do NOT return a file for any of them/, "revise may replace a page it was not shown");
   assert.ok(!/RETURN ONLY WHAT IS NEW OR CHANGED/.test(r));
 
   // AND ONE PAGE BIGGER THAN THE WHOLE WINDOW IS STILL SHOWN, because an addon

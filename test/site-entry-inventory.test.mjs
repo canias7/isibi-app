@@ -149,6 +149,9 @@ const SRC = [
   cutLine("const SITES_KEY ="),
   // …AND WHAT ANOTHER TAB SAVED, TAKEN IN BEFORE A SAVE (2026-10-07): noticed by the browser's `storage` event, never here.
   cutLine("let sitesStoredStale ="),
+  // 2026-10-23 (r1-combine): the save keeps at most twenty records through
+  // `sitesKept`, so it is carried out of the file beside it.
+  cut("function sitesKept("),
   cut("function sitesSave("),
   cutLine("const NATIVE_IMAGE ="),
   cutLine("const TEXTISH ="),

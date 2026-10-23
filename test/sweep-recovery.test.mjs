@@ -190,8 +190,11 @@ test("both readers answer the sweep's reply before they say what the change did"
     const first = C.indexOf(next, at);
     assert.ok(ask > at && first > at && ask < first, name + " reads the reply before asking whether it is the sweep's");
     const line = C.slice(ask, C.indexOf("\n", ask));
-    assert.match(line, /return EditPoll\.outcomeMessage\('recovered'\)/, name + " does not answer with the recovered sentence");
+    // RE-ANCHORED 2026-10-23 (r1-combine): audit A14-2..A14-5 made the
+    // sentence follow draft-first (`recoveredMessage(e, draftFirst)`, the
+    // poll module's own), in place of the one fixed `outcomeMessage('recovered')`.
+    assert.match(line, /return EditPoll\.recoveredMessage\(\w+, globalThis\.draftFirstOn === true\)/, name + " does not answer with the recovered sentence");
   }
   // AND THE SENTENCE IS THE POLL MODULE'S, so it is driven there (test/edit-poll.test.mjs), not read here.
-  assert.equal((C.match(/outcomeMessage\('recovered'\)/g) || []).length, 2, "the recovered sentence is answered somewhere else too, or nowhere");
+  assert.equal((C.match(/EditPoll\.recoveredMessage\(/g) || []).length, 2, "the recovered sentence is answered somewhere else too, or nowhere");
 });
