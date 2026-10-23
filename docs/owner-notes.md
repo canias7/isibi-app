@@ -1,5 +1,13 @@
 # Owner Notes
 
+## 2026-10-23, late night — `build-ai-writes-all`: edits on the new sites work (not merged, not deployed)
+
+- **Menu, button, footer and logo changes now work on sites built the new way.** Their header and footer are their own files, so "take Gallery out of the menu", "add Instagram to the footer", "change the header button" and "put a logo next to the name" now edit those two files. The answer is checked (only real pages linked, no kit parts) and compiled before anything is published; if it doesn't compile, the site is untouched. Sites built the old way behave exactly as before.
+- **The new sites get their own rules.** Their writers are no longer told "use the kit for every control"; edits and additions on those sites are told to write their own parts too. Old sites keep their rules (and their cache) byte for byte.
+- **The fallback path follows the same rules.** When the sections can't be written in parallel, the single writer now writes the header and footer itself, as the same two files, with no kit.
+- One small change: adding a logo on a new-style site now costs one small model call (placing it in the header).
+- Nothing spent, no model called. Record: `docs/history/2026-10-23-ai-writes-all.md`.
+
 ## 2026-10-23, night — `build-ai-writes-all`: the first build writes everything itself (not merged, not deployed)
 
 - Your decision, "the AI should write everything, that's the point", is on the branch `build-ai-writes-all`.

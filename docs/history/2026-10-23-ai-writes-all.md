@@ -127,3 +127,90 @@ Not merged, not deployed. Nothing paid, no model called, no live write.
 - The cap now also applies when a stored plan with more than six bands is
   re-read (plans before 2026-10-21 allowed eight); the overflow then sits in
   `plan.notBuilt`, which only a first build's reply reads.
+
+## Second round: the three gaps before it can ship (`ab966c4ea`)
+
+Nothing paid, no model called, no live write.
+
+1. **Menu, button, footer and logo edits on a written frame.** A site has a
+   written frame when `site-header` and/or `site-footer` are stored parts and
+   no page names `SiteChrome` (`writtenFrame`, `builder/site-frame.mjs`; a fact
+   about the files, no keyword rule). On such a site the `nav` rung (which the
+   look door's `action` lane and the add-on step's frame additions also reach)
+   runs `runFrameEdit` instead of the menu editor: one quick call is shown the
+   change, the site's routes and both files whole, and answers each file it
+   changed, whole (`edit_frame`). Each answered file is checked before
+   anything is stored (default export kept, no `SiteChrome`, nothing from the
+   kit but `safe-image`/`lang-switch`, every internal `to=`/`href=` one of the
+   site's routes); a file answered unchanged is not a change ("already so",
+   `satisfied`, not charged on a job); a bad file refuses the whole answer.
+   Then `publishStep` compiles the pages with the new parts, so a file that
+   does not build leaves the site untouched. The logo rung on such a site
+   stores the logo as before and, in the same publish, runs the frame edit
+   with the customer's words and the note that `SITE_LOGO` is set ("put a logo
+   next to the name"); a frame edit that fails leaves the logo publish as it
+   was. A `SiteChrome` site never enters either path.
+2. **Own-parts rules.** `pageRulesFor(spec, kind, { ownParts })`: an own-parts
+   site's cached block replaces rule 3 ("THE KIT FOR EVERY CONTROL") with
+   "NO KIT: WRITE EVERY CONTROL YOURSELF", the shadcn form wiring with plain
+   elements, the chart rule with "no chart modules", drops `## Charts`, and
+   ends with a block that wins (plumbing paths only, tokens only, no
+   `SiteChrome`, the header/footer parts by path). A kit site's block is
+   byte-identical (cache kept); a phone app keeps its block. The first
+   build's band and frame writers read it; the page rung and the addition's
+   writer pass `ownParts: ownPartsSite(pages, parts)`, and `pagesRequest` adds
+   `OWN_PARTS_NOTE` to the message.
+3. **The single-call fallback.** On a first website build (not a revise, not
+   a phone app) the one `write_pages` call reads the own-parts block and its
+   brief ends with `ownFallbackDirective`: write `site-header` and
+   `site-footer` in `parts` (default exports `SiteHeader`/`SiteFooter`), from
+   the frame writers' facts, composed like `pageShell`, no `SiteChrome`. So
+   the fallback lands the same two files the band path writes, and item 1's
+   detection finds them. The Dockerfile copies `builder/site-frame.mjs`.
+
+### Tests
+
+- New: `test/written-frame-edit.test.mjs`, 16 cases (module, the real edit
+  route on a written frame for the menu, the footer link, the header button,
+  a refused route, a kit-site control, the logo; the rules blocks; the edit
+  request; the fallback directive and its wiring).
+- Red check against the branch's prior product files (swapped in place from
+  `git show HEAD`, restored from saved copies): with the prior `worker.js`, 7
+  of 16 fail (every route case but the kit control, the edit wiring, the
+  fallback wiring); with the prior `page-bands.mjs` the file cannot load (no
+  `ownFallbackDirective`), and the prior `page-gen.mjs` has no `ownParts`.
+- Changed only what the decision changed: `page-bands` (the band's block is
+  the own-parts block), `edit-page-rpc-state` (the band equals an own-parts
+  page call; the state paragraph rides both). Every existing `SiteChrome`
+  menu, logo and edit test is unchanged and green (`menu-per-page`,
+  `site-nav`, `edit-failure-paths`, and the rest).
+- **Sweep** (from a green file, restored from saved copies, nothing committed
+  during it): 12 of 12 mutants killed (SiteChrome ignored, route check off,
+  unchanged read as a change, nav never taking the frame path, the logo
+  publish dropping the parts, `ownParts` ignored, kit rule kept, bands on the
+  kit block, the page rung not told, the fallback not own-parts, the fallback
+  brief without the directive, the directive without the facts); the
+  comment-only control survived.
+- **Full suite** after the last change: `12335 / 12331 / 1 / 3`; the one
+  failure is `no-generated-deps`' symlink case (`node_modules` linked in).
+- **Image prediction** (`containerInputs`/`imageId` over the commit):
+  `origin/main` `145239c1c143183b` (226 inputs, 194 paths) to `ab966c4ea`
+  `3472236405d03300` (227 inputs, 195 paths: `site-frame.mjs` joined);
+  the app image `65022ce71e3d7274` unchanged.
+
+### Risks still open
+
+- The frame edit is one quick-model rewrite of a whole file; a model may
+  still restyle or reword beyond the ask. Checked mechanically (routes, kit,
+  export, compile), not judged by the keep check the page rung uses.
+- The add-on step's menu-link writer for a NEW page (`applyAdditions` in the
+  add-on route) still writes `SiteChrome` links; on a written frame a new
+  page is not added to the menu until the customer asks.
+- The fallback is told, not forced: a model may still wrap the page in
+  `SiteChrome` or import kit parts; nothing refuses it, and kit imports are
+  only counted on the band path.
+- Other lanes that write TSX (the look door's quick writers, `runTweak`) are
+  not told own parts; they restyle existing code and their prompts do not
+  push the kit.
+- A logo added on a written frame now costs the frame edit's call (the logo
+  rung was free).
