@@ -1,0 +1,69 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+body{margin:0;font:14px/1.5 -apple-system,Inter,Helvetica,Arial;background:#f4f4f2;color:#1b1b1b}
+.wrap{display:grid;grid-template-columns:repeat(2,440px);gap:30px;padding:22px}
+h2{font-size:11.5px;color:#888;font-weight:500;margin:0 0 10px;text-transform:uppercase;letter-spacing:.05em}
+.chat{background:#fff;border:1px solid #e6e6e6;border-radius:16px;height:640px;display:flex;flex-direction:column;overflow:hidden}
+.thread{flex:1;overflow:hidden;padding:14px 16px}
+.u{background:#f2f2f2;border-radius:14px;padding:8px 12px;margin:0 0 12px auto;width:fit-content;max-width:80%}
+.a{margin:0 0 12px}
+.dock{padding:0 12px 12px}
+.box{border:1px solid #ddd;border-radius:14px;padding:10px 12px;color:#999;display:flex;justify-content:space-between;align-items:center;background:#fff}
+.send{width:24px;height:24px;border-radius:50%;background:#111;color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px}
+.spin{width:9px;height:9px;border:1.5px solid #bbb;border-top-color:#333;border-radius:50%;flex:none;display:inline-block}
+.ring{width:9px;height:9px;border:1.5px solid #bbb;border-radius:50%;flex:none;display:inline-block}
+.dot{width:9px;height:9px;background:#555;border-radius:50%;flex:none;display:inline-block}
+.pane{border:1px solid #e3e3e3;border-radius:12px;margin-bottom:8px;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.05);overflow:hidden}
+.top{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;font-size:12.5px;color:#444;border-bottom:1px solid #eee;background:#fafaf9}
+.scroll{height:250px;overflow:hidden;position:relative;padding:10px 12px;font-size:13px}
+.scroll .asked{color:#888;font-size:12px;margin-bottom:8px}
+.lines{border-left:2px solid #e3e3e3;padding-left:10px;color:#555}
+.lines p{margin:0 0 7px}
+.sb{position:absolute;right:3px;top:30px;width:4px;height:90px;background:#d6d6d6;border-radius:3px}
+.new{position:absolute;left:50%;transform:translateX(-50%);bottom:10px;background:#111;color:#fff;font-size:11.5px;border-radius:14px;padding:3px 10px}
+.li{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #f0f0f0;font-size:13px}.li:last-child{border:0}
+.x{margin-left:auto;color:#999;font-size:12px}.sub{color:#777;font-size:12px}
+.fade{position:absolute;left:0;right:0;top:0;height:22px;background:linear-gradient(#fff,rgba(255,255,255,0))}
+</style></head><body><div class="wrap">
+
+<div><h2>Tapped the pill · the list</h2><div class="chat">
+<div class="thread">
+<div class="u">Add a Bookshop page with search and a reserve button, make the buttons rounder, and fill in a search description</div>
+<div class="a">On it — I'll work on these in the background. Keep talking to me while they run.</div>
+<div class="u">What fonts is the site using?</div>
+<div class="a">Libre Baskerville for headings and Source Sans for body text.</div>
+<div class="u">Also change Saturday hours to 8am–7pm</div>
+<div class="a">Added — it'll start once the Bookshop page is done.</div>
+</div>
+<div class="dock"><div class="pane">
+<div class="top"><span>4 things · 2 in progress</span><span>Stop all · ▴</span></div>
+<div class="li"><span class="spin"></span><div><div style="font-weight:500">Bookshop page</div><div class="sub">Writing the search and genre filter now…</div></div><span class="x">›</span></div>
+<div class="li"><span class="spin"></span><div><div style="font-weight:500">Rounder buttons</div><div class="sub">Checking the new style on every page…</div></div><span class="x">›</span></div>
+<div class="li"><span class="ring"></span><div><div style="font-weight:500">Saturday hours</div><div class="sub">Next — after the Bookshop page</div></div><span class="x">›</span></div>
+<div class="li"><span class="dot"></span><div><div style="font-weight:500">Search description</div><div class="sub">Saved as draft · just now</div></div><span class="x">›</span></div>
+</div><div class="box">Ask Go Farther…<span class="send">↑</span></div></div>
+</div></div>
+
+<div><h2>Tapped "Bookshop page" · its own scroll box</h2><div class="chat">
+<div class="thread">
+<div class="u">Add a Bookshop page with search and a reserve button, make the buttons rounder, and fill in a search description</div>
+<div class="a">On it — I'll work on these in the background. Keep talking to me while they run.</div>
+<div class="u">What fonts is the site using?</div>
+<div class="a">Libre Baskerville for headings and Source Sans for body text.</div>
+</div>
+<div class="dock"><div class="pane">
+<div class="top"><span>‹ Back &nbsp;·&nbsp; <b style="font-weight:500">Bookshop page</b></span><span style="display:flex;gap:8px;align-items:center"><span class="spin"></span>Stop</span></div>
+<div class="scroll"><div class="fade"></div><div class="sb"></div>
+<div class="asked">You asked: “Add a Bookshop page with search and a reserve button”</div>
+<div class="lines">
+<p>– I've planned the page: a book list, a search box, genre buttons and a reserve form.</p>
+<p>– Setting up a place to keep your books and reservations — only you will see reservations.</p>
+<p>– Writing the book list now, with title, author, condition and price.</p>
+<p>– The list is done. Now the search box: it matches titles and authors as you type.</p>
+<p>– Writing the search and genre filter now…</p>
+<p>– Adding the Reserve button: it asks for a name and email and holds the book for three days.</p>
+</div>
+<div class="new">↓ new</div></div>
+</div><div class="box">Ask Go Farther…<span class="send">↑</span></div></div>
+</div></div>
+
+</div></body></html>
