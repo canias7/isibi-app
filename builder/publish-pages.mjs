@@ -189,6 +189,56 @@ export const pageCredits = (...parts) => Math.max(1, Math.ceil(totalCost(...part
 export const MIN_CREDITS = 8;
 
 /**
+ * THE FLOOR AT FILING (audit A13-2, #126; the owner's choice, 2026-10-23: "refuse
+ * at filing below a credit floor of 5 credits, for paid work only").
+ *
+ * A queued edit or addition was filed with no balance read at all; its job then
+ * made its model calls, the reserve was refused, the publish gate withheld the
+ * result, and the platform paid for the calls. Read once, where the job would be
+ * filed, and refused there below this many credits: nothing filed, no model
+ * called, cost 0. A floor, not the cost: the job's own reserve still decides.
+ */
+export const FILING_FLOOR = 5;
+
+/** The one sentence a refusal at filing says (402, `need: "credits"`). */
+export const FILING_REFUSAL_MSG = "You're out of credits — top up to keep changing your site.";
+
+/**
+ * WHETHER THIS FILING CAN COST NOTHING, from what the router already chose.
+ * Free by rule: the logo step, a page removed or moved (`page` with `remove`
+ * or `rename`) — the rungs the publish gate exempts. A hand-over drops the
+ * router's page verbs (the edit route's own `eHanded` rule), so it is paid. An
+ * addition is always paid. Parts held back for later (`alsoAsked`, counted
+ * only where the caller plans them, the request's acceptance) may be paid.
+ * Anything not known to be free is paid: the floor is the safe side.
+ */
+export function filingIsFree({ op = "edit", layer = "", remove = false, rename = "", handedOff = false, held = 0 } = {}) {
+  if (op !== "edit") return false;
+  if (Number(held) > 0) return false;
+  if (layer === "logo") return true;
+  if (layer === "page" && handedOff !== true && (remove === true || (typeof rename === "string" && rename.trim() !== ""))) return true;
+  return false;
+}
+
+/**
+ * THE GATE AT FILING. `null` lets the filing go ahead; otherwise the refusal's
+ * body (status 402). Free work is never read for. A balance that cannot be read
+ * — a throw, or anything that is not a finite number — FAILS OPEN and is logged,
+ * as the routing route's own read does: the job's reserve still refuses a
+ * balance that cannot cover it. A founder reads the ledger's sentinel from
+ * `get_credits` and so is never below the floor.
+ */
+export async function filingFloorRefusal({ free, readBalance, log = console.error, where = "" }) {
+  if (free === true) return null;
+  let n;
+  try { n = await readBalance(); }
+  catch (e) { log("filing floor: balance unread, filed anyway", where, String((e && e.name) || "Error")); return null; }
+  if (typeof n !== "number" || !Number.isFinite(n)) { log("filing floor: balance unreadable, filed anyway", where); return null; }
+  if (n >= FILING_FLOOR) return null;
+  return { ok: false, error: "not enough credits", need: "credits", cost: 0, floor: FILING_FLOOR, msg: FILING_REFUSAL_MSG };
+}
+
+/**
  * What a COLD schema call really costs, measured.
  *
  * From `build smoke` 2026-08-13: `in 236 · out 1490 · cacheRead 0 ·
