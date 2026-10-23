@@ -182,7 +182,7 @@ function shownFile(args) {
  * supplied answer is refused, so a case passes only on the calls it names.
  * Every SQL statement, debit, job RPC and publish upload is recorded.
  */
-function withWire(answers, slug, run) {
+function withWire(answers, slug, run, { cancel = false } = {}) {
   const real = globalThis.fetch;
   const seen = { calls: [], requests: {}, sql: [], debits: [], credited: [], rpc: [], uploads: 0 };
   let reserved = 0;
@@ -196,7 +196,7 @@ function withWire(answers, slug, run) {
       seen.rpc.push({ fn, args });
       switch (fn) {
         case "edit_claim": return json({ ok: true, claimed: true, state: "claimed", billing: "none", uid: USER.id, slug, needs_review: false });
-        case "edit_beat": return json({ ok: true, alive: true, state: "routing", cancel: false });
+        case "edit_beat": return json({ ok: true, alive: true, state: "routing", cancel });
         case "edit_reserve": reserved += Number(args.p_cost) || 0; return json({ ok: true, charged: Number(args.p_cost) || 0, cost: reserved, billing: "reserved" });
         case "edit_exempt": return json({ ok: true, billing: "exempt", state: "routing" });
         case "edit_may_publish": return json({ ok: true, granted: true });
@@ -272,7 +272,7 @@ function browserPost(site, d, instruction) {
 // ONE MESSAGE THROUGH THE WHOLE CHAIN — synchronously, or through the queue
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function chain({ pages, routes, message, routed, answers = {}, mode = "sync" }) {
+async function chain({ pages, routes, message, routed, answers = {}, mode = "sync", cancel = false }) {
   const slug = "list-sort-" + mode + "-" + hex(4);
   const store = bucket(slug, pages);
   const compiler = installCompiler();
@@ -333,7 +333,7 @@ async function chain({ pages, routes, message, routed, answers = {}, mode = "syn
         finalized: seen.rpc.filter((r) => r.fn === "edit_finalize").map((r) => r.args.p_ok),
         refunds: seen.rpc.filter((r) => r.fn === "edit_refund").length,
       };
-    });
+    }, { cancel });
   } finally { compiler.uninstall(); }
 }
 
@@ -639,3 +639,32 @@ test("supplied answers, a forbidden answer: `data` for the same request would re
   assert.ok(press.ok);
   assert.deepEqual(routeVerdict(press.expect, r.d).diffs.map((d) => d.key), ["layer"], "a press expecting look would post this data answer");
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A STOP IS HONOURED BEFORE A ROW IS WRITTEN (2026-10-23, audit S3-2)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The data lane publishes nothing, so the edit route's pre-publish gate never
+// ran for it: a job whose cancel was asked (`edit_cancel` answered
+// `cancel: true`) reserved, wrote the row and finalized as charged. Now the
+// lane asks the job's gate after the reserve and before the first write.
+const PRICE = "Make the white loaf cost 5.50.";
+const SET_PRICE = { changes: [{ table: "loaves", id: 2, values: { price: 5.5 } }] };
+for (const cancel of [true, false]) {
+  test("S3-2 a queued data edit whose cancel was asked writes no row and is refunded; without one it writes (cancel " + cancel + ")", async () => {
+    const r = await chain({ pages: BAKERY, routes: BAKERY_ROUTES, message: PRICE, routed: { intent: "edit", layer: "data" }, answers: { [T.data]: SET_PRICE }, mode: "job", cancel });
+    if (cancel) {
+      assert.deepEqual(writes(r), [], "a stopped job wrote: " + JSON.stringify(writes(r)));
+      assert.equal(r.body.ok, false);
+      assert.equal(r.body.error, "cancelled");
+      assert.equal(r.body.cost, 0);
+      assert.ok(r.refunds >= 1, "the reserve was not given back");
+      assert.deepEqual(r.finalized, [false]);
+    } else {
+      // The control reaches the write (this wire's database hands no row
+      // back, so the reply is `write`); what matters is that it was not stopped.
+      assert.equal(writes(r).filter((q) => /^\s*UPDATE "loaves"/i.test(q)).length, 1, "the control wrote no row: " + JSON.stringify(writes(r)));
+      assert.notEqual(r.body.error, "cancelled");
+    }
+  });
+}

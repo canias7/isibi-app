@@ -146,22 +146,26 @@ const lineId = (args, file, line) => {
 
 const ROUTE_RENAME = { intent: "edit", layer: "rename", targets: [{ change: 0, writes: ["address"] }] };
 
-function firedBakery(name, { aliases = null, sites = [] } = {}) {
+// `beside` and `replies` (2026-10-23, audit S6-4): the site lock as production
+// runs it (same-request jobs beside each other) and model-written replies on.
+// `held(lane)`, when given, is awaited inside the text and row model calls.
+function firedBakery(name, { aliases = null, sites = [], beside = false, replies = false, held = null } = {}) {
   const compiler = installCompiler();
   const db = rowsDb({ tables: { loaves: { columns: LOAF_COLUMNS, rows: BAKERY_LOAVES, next: 12 } }, meta: { schema: JSON.stringify({ tables: [LOAVES] }) } });
   const said = (args) => String(args.messages[0].content);
+  const hold = async (lane, out) => { if (held) await held(lane); return out; };
   let bothRouted = 0;
   const P = platform({
-    slug: slugOf(name), pages: PAGES2, db, liveScripts: true, balance: 400, aliases, sites,
+    slug: slugOf(name), pages: PAGES2, db, liveScripts: true, balance: 400, aliases, sites, beside, replies,
     answers: {
       // THE WHOLE MESSAGE IS ROUTED ONCE (two parts); the price part's own
       // routing, which carries the message as context, answers data.
       route: (args) => (/Rename the site/.test(said(args)) ? ROUTE_RENAME : /TikTok/.test(said(args)) && /Dark Rye/.test(said(args)) ? (bothRouted++ === 0 ? ROUTE_BOTH : ROUTE_DATA) : /TikTok/.test(said(args)) ? ROUTE_TEXT : /Gift/.test(said(args)) ? ROUTE_ADD : ROUTE_DATA),
-      [T.text]: (args) => (/@harbourloafbakery/.test(said(args)) ? { edits: [{ id: lineId(args, "visit.tsx", TT_TO), to: TT_LATER }] } : { edits: [{ id: lineId(args, "visit.tsx", TT_FROM), to: TT_TO }] }),
+      [T.text]: (args) => hold("text", /@harbourloafbakery/.test(said(args)) ? { edits: [{ id: lineId(args, "visit.tsx", TT_TO), to: TT_LATER }] } : { edits: [{ id: lineId(args, "visit.tsx", TT_FROM), to: TT_TO }] }),
       write_row_changes: (args) => {
         const asked = (said(args).split("WHAT THEY ASKED FOR\n")[1] || "").split("\n")[0];
         const m = /£(\d+\.\d+)/.exec(asked);
-        return { changes: [{ table: "loaves", id: 2, values: { price: m ? Number(m[1]) : 0 } }] };
+        return hold("row", { changes: [{ table: "loaves", id: 2, values: { price: m ? Number(m[1]) : 0 } }] });
       },
       new_address: (args) => { const asked = (said(args).split("What they asked for:\n")[1] || "").split("\n")[0]; const m = /to ([a-z0-9-]+)\.?\s*$/i.exec(asked); return m ? { name: m[1] } : {}; },
       [T.adds]: { kinds: ["page"] },
@@ -311,6 +315,88 @@ test("DH6 PARALLEL WRITES IN THE CONTAINER, THROUGH THE REAL GATEWAY (found live
     assert.deepEqual(P.record(both.r.key).parts.map((p) => p.status), ["done", "done"], JSON.stringify(P.record(both.r.key).parts.map((p) => [p.status, p.why])));
     // THE TURN WAS TAKEN THROUGH THE GATEWAY (the object exists, written by a container job).
     assert.ok(P.readObj(turnKey(P.slug)), "no job took the site's publish turn");
+    const d = draftOf(P);
+    assert.ok(d && d.rev === 2, "the two parts did not each save a draft revision: " + JSON.stringify(d && d.revs));
+    assert.equal(liveVersion(P), v0, "the live pointer moved before Publish");
+    assert.equal(P.liveScript(), live0, "the live script changed before Publish");
+    assert.equal(price(db, 2), price0, "the live price changed before Publish");
+  } finally { await finished(P, compiler); }
+});
+
+// TWO CONTAINER JOBS OF ONE REQUEST, OVERLAPPING, THROUGH THE REAL GATEWAY
+// (2026-10-23, audit S6-4): DH6 runs its two jobs one after the other under
+// the applied lock, and PPM2 overlaps its jobs on the platform's own bucket.
+// Here both at once: the lock production runs (`beside`), each fired job
+// started without waiting for the other, every storage call through the
+// Worker's gateway, model-written replies on and picture purchases off.
+test("DH7 TWO CONTAINER JOBS OF ONE REQUEST OVERLAP THROUGH THE REAL GATEWAY — beside each other, each takes the publish turn through the gateway, nothing is refused, both end done as draft revisions, and nothing live moves", async () => {
+  const started = {};
+  const spans = {};
+  const waitFor = async (cond, ms = 3000) => { const end = Date.now() + ms; while (Date.now() < end && !cond()) await new Promise((ok) => setTimeout(ok, 5)); return cond(); };
+  // EACH MODEL CALL WAITS FOR THE OTHER JOB'S TO HAVE STARTED: run one after
+  // the other, the first waits its three seconds out and the spans do not meet.
+  let armed = false;
+  const held = async (lane) => {
+    if (!armed) return;
+    started[lane] = Date.now();
+    const other = lane === "text" ? "row" : "text";
+    // …AND STAYS IN ITS CALL A MOMENT AFTER, so the two spans share time
+    // rather than touch at one millisecond.
+    if (await waitFor(() => started[other] !== undefined)) await new Promise((ok) => setTimeout(ok, 25));
+    spans[lane] = [started[lane], Date.now()];
+  };
+  const { P, db, compiler, ns } = firedBakery("beside-overlap", { beside: true, replies: true, held });
+  try {
+    const worker = await loadWorkerModule();
+    P.env.IMAGE_PURCHASES = "off";
+    const first = await sendFired(P, ns, worker, TIKTOK);
+    assert.equal(first.jobs[0].state, "done", JSON.stringify(first.jobs[0].result).slice(0, 300));
+    const v0 = liveVersion(P);
+    assert.ok(v0, "the first edit published nothing — nothing here tests a live site");
+    const live0 = P.liveScript();
+    const price0 = price(db, 2);
+    Object.assign(P.env, { DRAFT_FIRST: "on", PARALLEL_WRITES: "on", PUBLISH_TURN_POLL_MS: "5" });
+    wire.calls.splice(0);
+    armed = true;
+    const r = await sendMessage(P, { message: TIKTOK_LATER + " " + RYE_PART });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    // EVERY FIRED JOB STARTED WITHOUT WAITING FOR THE ONE BEFORE IT.
+    const running = [];
+    const ran = [];
+    for (let i = 0; i < 40; i++) {
+      await pump(P);
+      while (ns.launches.length) {
+        const l = ns.launches.shift();
+        const launch = JSON.parse(l.body);
+        ran.push(launch.id);
+        running.push(P.run(async () => {
+          const ctx = makeCtx();
+          await worker.runContainerJob(containerEnvOf(P.env, l.body, { worker, wire }), ctx, { kind: launch.kind, id: launch.id, holder: launch.holder || "" });
+          await Promise.allSettled(ctx.pending);
+        }));
+      }
+      await new Promise((ok) => setTimeout(ok, 15));
+      const rec = P.record(r.key);
+      const busy = P.queue.length || ns.launches.length;
+      if (!busy && rec && (rec.ended || rec.state !== "running")) break;
+      if (!busy) { await Promise.race([Promise.allSettled(running), new Promise((ok) => setTimeout(ok, 40))]); if (!P.queue.length && !ns.launches.length) await tick(P); }
+    }
+    await Promise.allSettled(running);
+    const jobs = P.jobsOf(r.key);
+    assert.ok(jobs.length >= 2 && jobs.every((j) => ran.includes(j.id)), "a job ran in the Worker: " + JSON.stringify({ ran, jobs: jobs.map((j) => j.id) }));
+    for (const j of jobs) assert.equal(j.state, "done", j.op + " " + j.idem_key + ": " + JSON.stringify(j.result).slice(0, 400));
+    assert.deepEqual(P.record(r.key).parts.map((p) => p.status), ["done", "done"], JSON.stringify(P.record(r.key).parts.map((p) => [p.status, p.why])));
+    // THE TWO JOBS' MODEL CALLS OVERLAPPED.
+    assert.ok(spans.text && spans.row, "a lane's model call was not made: " + JSON.stringify(spans));
+    assert.ok(spans.text[0] < spans.row[1] && spans.row[0] < spans.text[1], "the two jobs ran one after the other: " + JSON.stringify(spans));
+    // BOTH JOBS READ THE SITE'S TURN THROUGH THE GATEWAY, AND IT WAS TAKEN
+    // THERE. (Whether the row's job takes it too depends on the moment: it
+    // may find it held and save its held change without it.)
+    const byJob = (c) => c.path.split("/")[3];
+    const edits = jobs.filter((j) => j.op === "edit").map((j) => j.id);
+    const turnCalls = wire.calls.filter((c) => c.key === turnKey(P.slug));
+    for (const id of edits) assert.ok(turnCalls.some((c) => byJob(c) === id), "a job never asked the gateway for the turn: " + id);
+    assert.ok(turnCalls.some((c) => c.method === "PUT" && c.status === 200), "the turn was never taken through the gateway");
     const d = draftOf(P);
     assert.ok(d && d.rev === 2, "the two parts did not each save a draft revision: " + JSON.stringify(d && d.revs));
     assert.equal(liveVersion(P), v0, "the live pointer moved before Publish");

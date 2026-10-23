@@ -453,8 +453,13 @@ test("the data and rules rungs reserve through `before`, answer `unbilled` befor
     // RE-ANCHORED 2026-10-09 (the parallel-tasks batch): a preparation's stop
     // may come first in the hook — it counts the stop and answers false, so
     // nothing is reserved and nothing is written; the reserve is unchanged.
-    assert.match(call, new RegExp("before: async \\(usage\\) => \\{ (?:if \\(isPrep\\) \\{ eJob\\.reached = \\(Number\\(eJob\\.reached\\) \\|\\| 0\\) \\+ 1; return false; \\} )?" + cost + " = await eCharge\\(usage\\); " + cost.replace("Cost", "Billed") + " = true; return !\\(eCharges\\.refused\\(\\) > 0\\); \\}"),
-      who + ": the module is not handed a `before` that reserves and reads the route's refusals");
+    assert.match(call, new RegExp("before: async \\(usage\\) => \\{ (?:if \\(isPrep\\) \\{ eJob\\.reached = \\(Number\\(eJob\\.reached\\) \\|\\| 0\\) \\+ 1; return false; \\} )?" + cost + " = await eCharge\\(usage\\); " + cost.replace("Cost", "Billed") + " = true; if \\(eCharges\\.refused\\(\\) > 0\\) return false; " + cost.replace("Cost", "Stop") + " = await applyStop\\(eJob\\); return !" + cost.replace("Cost", "Stop") + "; \\}"),
+      who + ": the module is not handed a `before` that reserves, reads the route's refusals and asks the job's gate");
+    // RE-ANCHORED 2026-10-23 (audit S3-2): A STOP ASKED BEFORE THE WRITE
+    // answers through `editStopped`, ahead of anything the module answered.
+    const stopAt = route.indexOf("if (" + cost.replace("Cost", "Stop") + ") return await editStopped(env, { job: eJob, why: " + cost.replace("Cost", "Stop") + ", phase: \"apply\"", start);
+    const askAt = route.indexOf(who === "data" ? "if (dOut.ask)" : "if (rOut.ask)", start);
+    assert.ok(stopAt > start && askAt > stopAt, who + ": a stop asked in `before` is not answered through editStopped first");
     // THE HOOK RESERVES, AND THE HOOK ALONE. A refusal answers before a write
     // and, on every later reply, the recorded charge is reported rather than a
     // second reserve placed under a new sequence.

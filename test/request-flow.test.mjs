@@ -289,6 +289,42 @@ test("C2 — a step asks while an independent part continues; a part that needs 
   });
 });
 
+// A STOPPED PART'S QUESTION LEAVES THE SLOT (2026-10-23, audit A35-3): Stop
+// cancelled the waiting part and left its question pending for a day, so the
+// next message was taken as its answer, routed and charged, with nothing to
+// resume. It is closed as cancelled, and an answer to it is refused free.
+test("A35-3 — Stop on a request whose part waits on a question closes the question; an answer sent to it is refused before routing, at no cost", async () => {
+  const QD = { text: "Which word should lead — overnight or slow?", options: ["Overnight", "Slow"] };
+  await withPlatform({
+    slug: slugOf("a353"),
+    answers: {
+      route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }, { intent: "edit", layer: "look", answered: true }],
+      [T.pick]: [{ fields: ["description"], scopes: [{ part: "description", words: DESC }] }],
+      "lane:description": { question: QD },
+      ...{ [T.adds]: GALLERY[T.adds], "add:page": GALLERY["add:page"], [T.pages]: GALLERY[T.pages] },
+    },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    const s1 = await settle(P, r.key);
+    assert.equal(s1.rec.parts[0].status, "waiting", JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why])));
+    const q = P.question();
+    assert.equal(q.status, "pending");
+    assert.equal(q.part, 0);
+    const stop = await call(P, "DELETE", "/api/site/request/" + P.slug + "/" + r.key);
+    assert.equal(stop.status, 200, JSON.stringify(stop.body));
+    const s2 = await settle(P, r.key);
+    assert.equal(s2.rec.parts[0].status, "cancelled");
+    assert.equal(P.question().id, q.id);
+    assert.equal(P.question().status, "cancelled", "the stopped part's question is still live in the slot");
+    const calls = P.modelLog.length;
+    const spent = P.spent();
+    const a = await sendMessage(P, { message: "Overnight", ask: { id: q.id, chosen: true } });
+    assert.equal(a.body.error, "stale-question", JSON.stringify(a.body));
+    assert.equal(P.modelLog.length, calls, "the answer to a stopped part's question was routed");
+    assert.equal(P.spent(), spent, "the answer to a stopped part's question was charged");
+  });
+});
+
 // ─── CLARIFY AND RESUME, CONSOLIDATED (2026-10-13, after run 150) ──────────
 //
 // The owner: *"prepare one consolidated, image-free clarification/resume test
@@ -491,6 +527,59 @@ test("C5 — a part's question nobody answers for a day expires, as the question
     assert.equal(rec.ended, true);
   });
 });
+
+// AN ANSWER TO A QUESTION ITS PART NO LONGER WAITS ON (2026-10-23, audit
+// A35-4): a stale copy in the slot, the part on to its next question; the
+// answer resumed the part with words meant for the other question.
+test("C4c — an answer to a question its part has moved on from never resumes the part", async () => {
+  const QD = { text: "Which word should lead — overnight or slow?", options: ["Overnight", "Slow"] };
+  await withPlatform({
+    slug: slugOf("c4c"),
+    answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }, { intent: "edit", layer: "look", answered: true }], ...DESCRIBE, "lane:description": { question: QD }, ...GALLERY },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    await settle(P, r.key);
+    const q = P.question();
+    assert.equal(q.requestKey, r.key);
+    // THE PART IS NOW ON ANOTHER QUESTION; THE SLOT STILL HOLDS THE OLD ONE.
+    const rec = P.record(r.key);
+    assert.equal(rec.parts[0].question.id, q.id);
+    const Y = "e".repeat(32);
+    rec.parts[0].question = { ...rec.parts[0].question, id: Y };
+    await P.bucket.put("requests/" + P.slug + "/" + r.key + ".json", JSON.stringify(rec));
+    await sendMessage(P, { message: "Overnight", ask: { id: q.id, chosen: true } });
+    const after = P.record(r.key).parts[0];
+    assert.equal(after.status, "waiting", "the part was resumed by an answer to a question it no longer waits on");
+    assert.equal(after.question && after.question.id, Y);
+  });
+});
+
+// A CANCEL WHOSE REQUEST READ FAILS (2026-10-23, audit A35-4): one thrown read
+// ended the loop, the part kept waiting, and the reply still said cancelled.
+for (const reads of [1, 6]) {
+  test("C4b — a part's question cancelled while the request read fails " + reads + " time(s): read again and ended, or not told as cancelled", async () => {
+    const QD = { text: "Which word should lead — overnight or slow?", options: ["Overnight", "Slow"] };
+    await withPlatform({
+      slug: slugOf("c4b" + reads),
+      answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }], ...DESCRIBE, "lane:description": { question: QD }, ...GALLERY },
+    }, async (P) => {
+      const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+      await settle(P, r.key);
+      const q = P.question();
+      assert.equal(q.requestKey, r.key);
+      P.failGetFrom((k) => k.includes(r.key), { count: reads });
+      const c = await call(P, "POST", "/api/site/" + P.slug + "/question", { id: q.id, cancel: true });
+      if (reads === 1) {
+        assert.equal(c.body.cancelled, true, JSON.stringify(c.body));
+        assert.equal(P.record(r.key).parts[0].status, "cancelled", "the cancel did not end the part");
+      } else {
+        assert.notEqual(c.body && c.body.cancelled, true, "a part left waiting was told as cancelled: " + JSON.stringify(c.body));
+        assert.equal(c.status, 503);
+        assert.equal(P.record(r.key).parts[0].status, "waiting");
+      }
+    });
+  });
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // D. ATTACHMENTS KEPT ON THE SERVER FOR THE PART THAT READS THEM

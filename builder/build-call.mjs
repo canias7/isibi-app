@@ -65,6 +65,8 @@ export async function patientCall(fn, { tries = MODEL_CALL_TRIES, log = () => {}
     catch (e) {
       last = e;
       if (e && e.status) throw e;
+      // ITS ERROR SENT DOWN AN OPEN STREAM is the provider's answer too (A23-3).
+      if (e && e.name === STREAM_ERROR) throw e;
       if (i < tries) log("model call attempt " + i + " of " + tries + " failed (" + String((e && e.name) || "Error") + ": " + String((e && e.message) || e).slice(0, 120) + ") — asking again");
     }
   }
@@ -490,6 +492,18 @@ export function joinAnthropicStream(text) {
   };
 }
 
+/** A PROVIDER'S ERROR SENT DOWN AN OPEN STREAM (2026-10-23, audit A23-3) is
+ * named `StreamError`: it is the provider's own answer, like a status, with
+ * no status to carry it. The name is what crosses the container's failure
+ * shape (`kind`), so `retryHere` refuses to buy the call again. A stream
+ * merely cut short keeps the plain `Error` it has always had (refired). */
+export const STREAM_ERROR = "StreamError";
+function streamError(message) {
+  const e = new Error(message);
+  e.name = STREAM_ERROR;
+  return e;
+}
+
 /** The streamed xAI response, read and folded — or thrown, with the same
  * shapes the non-streaming path throws: a mid-stream error keeps the
  * provider's envelope in `detail` (so `upstreamKind` and the billing sentence
@@ -502,7 +516,7 @@ async function readXaiStream(r) {
   // flag. It is the non-streaming body — read it as one.
   if (joined === null) return JSON.parse(text);
   if (joined.error) {
-    const e = new Error("xai stream error");
+    const e = streamError("xai stream error");
     e.detail = xaiErrorDetail(JSON.stringify(joined.error));
     throw e;
   }
@@ -518,7 +532,7 @@ async function readAnthropicStream(r) {
   const joined = joinAnthropicStream(text);
   if (joined === null) return JSON.parse(text);
   if (joined.error) {
-    const e = new Error("anthropic stream error");
+    const e = streamError("anthropic stream error");
     e.detail = JSON.stringify(joined.error).slice(0, 300);
     throw e;
   }
@@ -600,6 +614,8 @@ export function retryHere(fail) {
   // already exists for — and this decides whether a customer is billed twice,
   // so it may not depend on which runtime happened to raise it.
   if (f.kind === "TimeoutError" || f.kind === "AbortError") return false;
+  // A PROVIDER'S ERROR ON AN OPEN STREAM is its answer, as a status is.
+  if (f.kind === STREAM_ERROR) return false;
   return true;
 }
 

@@ -21262,6 +21262,22 @@ async function editStopped(env, { job, why, phase, trace, ctx, msg, kept = false
   }, { status: review ? 409 : 503 });
 }
 
+/**
+ * MAY A ROW OR A RULE BE WRITTEN NOW? (2026-10-23, audit S3-2) The data and
+ * rules lanes publish nothing, so the edit route's pre-publish gate never ran
+ * for them and a Stop was acknowledged and then applied and charged. Asked
+ * after the reserve and before the first write: the lease is renewed once, so
+ * a cancel set while the job was queued is read now rather than at the next
+ * heartbeat, and the job's own gate answers. `null` means go (and on the
+ * synchronous path, which has no job); otherwise the reason, for `editStopped`.
+ */
+async function applyStop(job) {
+  if (!job || typeof job.gate !== "function") return null;
+  if (typeof job.beat === "function") { try { await job.beat("apply"); } catch { /* a blink is not a cancel */ } }
+  const g = job.gate("apply");
+  return g && g.go === false ? String(g.why || "cancelled") : null;
+}
+
 /** The scheduled sweep of lost, stale and reviewed jobs. Exported for the test, which drives a dead consumer's job through it. */
 export async function runLostEditJobs(env) {
   if (!env.SUPABASE_SERVICE_KEY || !env.CREDITS_MINT_SECRET) return;
@@ -22841,6 +22857,7 @@ async function offerRequestQuestions(env, rec, etag) {
   let tag = etag;
   try {
     const { record: live } = await loadAsk(env.SITES_BUCKET, rec.slug);
+    await closeOrphanQuestion(env, cur, live);
     for (const p of questionsToOffer(cur, live)) {
       const q = p.question;
       const ask = packAsk({
@@ -22858,6 +22875,26 @@ async function offerRequestQuestions(env, rec, etag) {
     }
   } catch (e) { console.error("request question:", rec.slug, errorClassForLog(e)); }
   return { rec: cur, etag: tag };
+}
+
+/**
+ * A PART'S QUESTION WHOSE PART NO LONGER WAITS ON IT, TAKEN OUT OF THE SLOT
+ * (2026-10-23, audit A35-3/A35-4). A Stop, a part past its day, or an answer
+ * whose resume landed after an older advance had offered the question again
+ * left it pending there for a day: its next answer was routed and charged
+ * with nothing to resume, and every other question queued behind it. Closed
+ * as cancelled, so an answer to it is refused before routing, at no cost.
+ * ONLY ONCE ITS PART HAS ENDED: a waiting part's answer whose resume did not
+ * save waits on it again, a follow-up is written over it in the slot before
+ * the part records it (`replaceAsk`), and a running part's job puts its own
+ * question in the slot before its part is told it waits.
+ */
+async function closeOrphanQuestion(env, rec, live) {
+  if (!live || live.status !== "pending" || live.requestKey !== rec.key || !Number.isInteger(live.part)) return;
+  const p = rec.parts[live.part];
+  if (p && !REQ_PART_TERMINAL.includes(p.status)) return;
+  try { await closeAsk(env.SITES_BUCKET, { slug: rec.slug, id: live.id, uid: rec.uid, status: "cancelled" }); }
+  catch (e) { console.error("request question close:", rec.slug, errorClassForLog(e)); }
 }
 
 // ── A PART'S PREPARATION (2026-10-08, the parallel-tasks batch) ─────────────
@@ -24399,6 +24436,11 @@ async function resumeRequestPart(env, ctx, { uid, slug, key, out, waiting, ask, 
     for (let k = 0; k < 6 && !rec; k++) {
       const at = await loadRequest(env, slug, rkey);
       if (!at.rec || at.rec.uid !== uid || !at.etag) return { failed: true };
+      // AN ANSWER TO A QUESTION THE PART NO LONGER WAITS ON (2026-10-23, audit
+      // A35-4): a stale copy left in the slot while the part moved on to its
+      // next question. It never resumes the part with words meant for another.
+      const was = at.rec.parts[n];
+      if (was && was.status === "waiting" && was.question && was.question.id !== waiting.id) { gone = at.rec; break; }
       const next = out.intent === "clarify"
         ? askedAgain(at.rec, n, { ask: { ...(out.question || {}), request: waiting.request, stage: "route", round: waiting.round + 1 }, context: ask.context })
         : answerPart(at.rec, n, { routed: out, resume: waiting.request, context: ask.context, round: waiting.round });
@@ -36539,7 +36581,7 @@ async function handleRequest(request, env, ctx) {
               // applied; the funnel reserves here, and a refusal answers
               // `unbilled` with no row touched. Recorded, so the replies below
               // report this charge rather than placing a second one.
-              let dCost = 0, dBilled = false;
+              let dCost = 0, dBilled = false, dStop = null;
               const dRefused = [];
               const dHeldNow = new Set();
               const dOut = await runDataEdit({
@@ -36547,7 +36589,7 @@ async function handleRequest(request, env, ctx) {
                 // WHAT THE STEP WAS SHOWN (2026-10-11): counted on the job.
                 seen: (x) => noteSeen(eJob, x),
                 // PREPARED: the change is chosen; no row is touched here.
-                before: async (usage) => { if (isPrep) { eJob.reached = (Number(eJob.reached) || 0) + 1; return false; } dCost = await eCharge(usage); dBilled = true; return !(eCharges.refused() > 0); },
+                before: async (usage) => { if (isPrep) { eJob.reached = (Number(eJob.reached) || 0) + 1; return false; } dCost = await eCharge(usage); dBilled = true; if (eCharges.refused() > 0) return false; dStop = await applyStop(eJob); return !dStop; },
                 // ONE STATEMENT PER CHANGE, parameterised, with the table name
                 // taken from the DECLARED schema rather than from the model —
                 // it is the only part that cannot be a bound parameter.
@@ -36630,6 +36672,7 @@ async function handleRequest(request, env, ctx) {
                 // nothing on a build that never mentions the order.
               }, { instruction: eInstruction, tables: dTables, recent: dRecent.kept.length ? dRecent.kept : null, pages: eSrc, scope: stepScopeOf(eb && eb.scope), model: eQuickModel });
               // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
+              if (dStop) return await editStopped(env, { job: eJob, why: dStop, phase: "apply", trace: editTrace, ctx });
               if (dOut.ask) return stepAsk("data", dOut.ask);
 
               if (!dOut.ok) {
@@ -36904,12 +36947,12 @@ async function handleRequest(request, env, ctx) {
               // BILLED BEFORE THE SCHEMA IS TOUCHED (2026-09-05, 1a-ii) — the
               // data rung's shape: the module asks `before` with the usage in
               // hand and no DDL emitted.
-              let rCost = 0, rBilled = false;
+              let rCost = 0, rBilled = false, rStop = null;
               const rOut = await runRulesEdit({
                 send: eQuick(),
                 seen: (x) => noteSeen(eJob, x),
                 // PREPARED: the rules are chosen; nothing is granted here.
-                before: async (usage) => { if (isPrep) { eJob.reached = (Number(eJob.reached) || 0) + 1; return false; } rCost = await eCharge(usage); rBilled = true; return !(eCharges.refused() > 0); },
+                before: async (usage) => { if (isPrep) { eJob.reached = (Number(eJob.reached) || 0) + 1; return false; } rCost = await eCharge(usage); rBilled = true; if (eCharges.refused() > 0) return false; rStop = await applyStop(eJob); return !rStop; },
                 // ONE APPLY FOR THE MERGED SPEC. `applySiteSchema` re-emits
                 // every table's REVOKEs, grants and policies in order, which is
                 // what makes a pair change and a `retired` take effect on a
@@ -36918,6 +36961,7 @@ async function handleRequest(request, env, ctx) {
                 apply: async (spec) => { const made = await applySiteSchema(rdb, normalizeSchema(spec)); return { refusedRules: (made && Array.isArray(made.refusedRules)) ? made.refusedRules : [] }; },
               }, { instruction: eInstruction, tables: rSpec.tables, scope: stepScopeOf(eb && eb.scope), model: eQuickModel });
               // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
+              if (rStop) return await editStopped(env, { job: eJob, why: rStop, phase: "apply", trace: editTrace, ctx });
               if (rOut.ask) return stepAsk("rules", rOut.ask);
 
               if (!rOut.ok) {
@@ -46634,16 +46678,22 @@ async function handleRequest(request, env, ctx) {
               let qView;
               if (closed.ok && closed.record && closed.record.requestKey) {
                 const qk = closed.record.requestKey;
+                // A READ THAT FAILED IS READ AGAIN, AND A PART LEFT WAITING IS
+                // NOT TOLD AS CANCELLED (2026-10-23, audit A35-4): one thrown
+                // read ended the loop and the reply still said "cancelled",
+                // while the part waited and its question was offered again.
+                let settled = false;
                 for (let k = 0; k < 6; k++) {
                   let at = null;
-                  try { at = await loadRequest(env, ownerSlug, qk); } catch { at = null; }
-                  if (!at || !at.rec || at.rec.uid !== ou.id) break;
+                  try { at = await loadRequest(env, ownerSlug, qk); } catch { continue; }
+                  if (!at || !at.rec || at.rec.uid !== ou.id) { settled = true; break; }
                   const next = cancelPart(at.rec, closed.record.part, closed.record.id);
-                  if (!next) { qView = requestView(at.rec); break; }
+                  if (!next) { qView = requestView(at.rec); settled = true; break; }
                   let t = null;
                   try { t = await saveRequestRecord(env, next, at.etag); } catch { t = null; }
-                  if (t) { const moved = await advanceRequest(env, ctx, ownerSlug, qk, "question-cancelled"); qView = requestView(moved || next); break; }
+                  if (t) { const moved = await advanceRequest(env, ctx, ownerSlug, qk, "question-cancelled"); qView = requestView(moved || next); settled = true; break; }
                 }
+                if (!settled) return Response.json({ ok: false, error: "unread" }, { status: 503 });
               }
               // ALREADY CLOSED IS STILL A QUESTION NOTHING CAN ACT ON, so the
               // cancel is not refused; `cancelled` says whether this one closed it,

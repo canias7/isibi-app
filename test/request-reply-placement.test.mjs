@@ -26,7 +26,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { page, settle as drain, copy } from "./fixtures/browser-page.mjs";
-import { platform, pump, pumpBeside, sendMessage, call, T } from "./fixtures/request-flow.mjs";
+import { platform, pump, pumpBeside, sendMessage, call, tick, T } from "./fixtures/request-flow.mjs";
 import { writtenPage } from "./fixtures/addon-route.mjs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
@@ -662,5 +662,42 @@ test("PLACE 6b — a question another device's request asks while this page is o
     assert.equal(P.record(K2).ended, true);
     assert.deepEqual(shape(b), ["card:" + K2, "a:" + K2 + "#", "u:" + K2, "a:" + K2 + "#"]);
     assert.equal(b.s.requests[K2].own, true);
+  });
+});
+
+// A PART'S QUESTION REPLACED BY A NEW MESSAGE COMES BACK ON THE SAME PAGE
+// (2026-10-23, audit A35-2): the server offers it again, since its part still
+// waits, but the page never made a question live twice, so the request said
+// "waiting for your answer" with no way to give it until a reload.
+test("PLACE 11 — a part's question replaced by a message typed beside it is made live again on the same page when the server offers it again", async () => {
+  const QB = { text: "From which hour do you open?", options: ["Seven", "Eight"] };
+  await withPage({
+    slug: slugOf("p11"), replies: true,
+    answers: {
+      ...ANSWERS,
+      route: [{ intent: "edit", layer: "look" }, { intent: "edit", layer: "look", answered: false }],
+      "lane:description": (args, n) => (n === 0 ? { question: QB } : NEWS[which(args, n)]),
+    },
+  }, async (P) => {
+    await sendMessage(P, { message: MSGS[1], key: K2 });
+    await pump(P);
+    const qb = P.question();
+    assert.equal(qb.requestKey, K2);
+    const b = opened(openPage(P, wire(P)));
+    await idle();
+    await looks(b);
+    assert.equal(b.ask() && b.ask().id, qb.id);
+    // TYPED BESIDE THE CARD: not an answer, so the question is replaced and the card comes off.
+    b.ctx.siteSend(MSGS[4]);
+    await idle();
+    assert.equal(P.question().status, "superseded");
+    assert.equal(b.ask(), null);
+    // THE SERVER OFFERS IT AGAIN (its part still waits), and this page makes it live again.
+    await pump(P);
+    await tick(P);
+    assert.equal(P.question().id, qb.id);
+    assert.equal(P.question().status, "pending");
+    await looks(b, 4);
+    assert.equal(b.ask() && b.ask().id, qb.id, "the question offered again was never made live on this page");
   });
 });
