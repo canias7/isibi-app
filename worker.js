@@ -2966,9 +2966,19 @@ function backupDeps(env) {
     now: () => Date.now(),
     listSites: async () => {
       if (!env.SUPABASE_SERVICE_KEY || !env.SITES_BUCKET) return [];
-      const r = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?select=slug&limit=200`, { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });
-      const rows = await r.json().catch(() => []);
-      return Array.isArray(rows) ? rows : [];
+      // EVERY SITE, PAGED IN A STABLE ORDER (2026-10-23, audit A38-7): one
+      // unordered page of 200 left every site past it never backed up.
+      const out = [];
+      let after = "";
+      for (let page = 0; page < 50; page++) {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?select=slug&order=slug.asc&limit=1000` + (after ? "&slug=gt." + encodeURIComponent(after) : ""), { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });
+        const rows = r.ok ? await r.json().catch(() => null) : null;
+        if (!Array.isArray(rows)) break;
+        out.push(...rows);
+        if (rows.length < 1000 || !rows[rows.length - 1] || !rows[rows.length - 1].slug) break;
+        after = String(rows[rows.length - 1].slug);
+      }
+      return out;
     },
     exists: async (key) => !!(await env.SITES_BUCKET.head(key)),
     put: (key, json) => env.SITES_BUCKET.put(key, json, { httpMetadata: { contentType: "application/json" } }),
@@ -2978,8 +2988,13 @@ function backupDeps(env) {
     },
     remove: (key) => env.SITES_BUCKET.delete(key),
     dump: async (slug) => {
-      const conn = await siteBackendBySlug(env, slug);
-      if (!conn) throw new Error("no backend connection");
+      // THE FOUR-STATE READER (2026-10-23, audit A38-7): the fast lookup alone
+      // answers null for a blank `neon_db`, so such a site was never backed
+      // up and was re-tried every tick. Unreadable throws (retried); a site
+      // with no database is written as a table-less backup, like any site
+      // with nothing declared, so it is not looked up again all night.
+      const conn = await ownerSiteConn(env, slug);
+      if (!conn) return dumpSite({ loadSchema: async () => null, readTable: async () => [], readMeta: async () => ({}) }, { slug, now: Date.now() });
       return dumpSite({
         loadSchema: () => loadSiteSchema(conn),
         // The module hands over a NAME it has already refused underscores and

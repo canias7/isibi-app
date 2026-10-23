@@ -271,3 +271,29 @@ test("the panel shows the nightly copies, and an unreadable list is not an empty
   assert.match(panel, /Couldn’t load the backups/, "a failed load reads as an empty schedule");
   assert.match(panel, /'\/backups\/' \+ encodeURIComponent\(/, "the Download button posts nowhere");
 });
+
+test("A38-7 (2026-10-23) EVERY SITE IS BACKED UP — the dump opens the database through the four-state reader (a blank link is not 'no backend'), a site with no database is written table-less instead of failing every tick, and the site list is paged in slug order past 200", () => {
+  const at = worker.indexOf("function backupDeps(env)");
+  const end = worker.indexOf("async function runScheduledSiteJobs", at);
+  assert.ok(at > 0 && end > at, "backupDeps landmarks");
+  const deps = worker.slice(at, end);
+  const d0 = deps.indexOf("dump: async (slug)");
+  assert.ok(d0 > 0, "the dump landmark");
+  const dump = deps.slice(d0);
+  assert.match(dump, /const conn = await ownerSiteConn\(env, slug\);/);
+  assert.equal(/siteBackendBySlug\(/.test(deps), false, "the backup still opens the database with the fast lookup alone");
+  assert.equal(/no backend connection/.test(deps), false, "a site with no database still fails every tick");
+  assert.match(dump, /if \(!conn\) return dumpSite\(\{ loadSchema: async \(\) => null/);
+  const l0 = deps.indexOf("listSites:"); const l1 = deps.indexOf("exists:");
+  assert.ok(l0 > 0 && l1 > l0, "the listSites landmarks");
+  const list = deps.slice(l0, l1);
+  assert.match(list, /order=slug\.asc/);
+  assert.match(list, /&slug=gt\." \+ encodeURIComponent\(after\)/);
+  assert.match(list, /after = String\(rows\[rows\.length - 1\]\.slug\)/);
+  assert.equal(/limit=200\b/.test(list), false, "the 200-site ceiling is back");
+});
+
+test("A38-7 a site with no database dumps as a table-less backup (dumpSite with a null schema)", async () => {
+  const d = await dumpSite({ loadSchema: async () => null, readTable: async () => [], readMeta: async () => ({}) }, { slug: "plain-1", now: Date.UTC(2026, 9, 23) });
+  assert.deepEqual(d, { v: 1, slug: "plain-1", at: "2026-10-23T00:00:00.000Z", tables: {}, meta: {} });
+});
