@@ -149,7 +149,7 @@ test("the wall probe reaches no model, no publish and no ledger", () => {
 test("the probe is behind auth and bounded", () => {
   const a = W.indexOf('url.pathname === "/api/_slow"');
   const route = W.slice(a, a + 2000);
-  assert.match(route, /authUser\(request\)/, "the probe is open to anybody");
+  assert.match(route, /await operatorRefusal\(request, env\)/, "the probe is open to anybody");
   assert.match(route, /Math\.min\(MAX, Number\(url\.searchParams\.get\("ms"\)\)/,
     "the probe's duration is unbounded — an open request that pins a Worker for as long as it likes");
 });

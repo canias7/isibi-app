@@ -219,6 +219,7 @@ jobs:
             DESIGN_SPLIT_EVERYONE
             DESIGN_GRAPH_CANARY
             DESIGN_GRAPH_EVERYONE
+            OPERATOR_UIDS
             MODEL_REPLIES
             PROGRESS_REPLIES
             PROGRESS_TALK
@@ -600,6 +601,15 @@ jobs:
           # and three merges have shipped nothing that way.
           DESIGN_GRAPH_CANARY: ${{ secrets.DESIGN_GRAPH_CANARY || '-' }}
           DESIGN_GRAPH_EVERYONE: ${{ secrets.DESIGN_GRAPH_EVERYONE || 'on' }}
+          # ── WHO MAY PRESS THE PROBE ROUTES (A16-7, 2026-10-23) ─────────────
+          #
+          # `/api/_slow`, `/api/_hold`, `/api/_egress` and `/api/site/job-probe`
+          # answer only a signed-in account whose user id is in this list
+          # (comma or space separated uuids; `operatorUids` in worker.js).
+          # Anything else in the list is dropped. EMPTY REFUSES EVERY REQUEST
+          # (403). The fallback is `-`, not empty, for the reason given at
+          # EDIT_ASYNC_CANARY above: it parses to no uid at all.
+          OPERATOR_UIDS: ${{ secrets.OPERATOR_UIDS || '-' }}
           # Mail needs NO secret here. The Worker sends through Cloudflare Email
           # Service via the `send_email` binding in wrangler.jsonc (2026-07-30,
           # replacing Go Farther) — nothing to mint, upload each deploy, or rotate.

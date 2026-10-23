@@ -177,7 +177,7 @@ export const SB_TABLES = {
   // belongs to another site — PostgREST's merge-duplicates would otherwise
   // repoint that site's address at this one (checked by the handler, which
   // reads the names' rows before forwarding).
-  site_aliases: { GET: { columns: ["alias", "slug", "current", "created_at"] }, POST: { rows: { slug: "slug", uid: "uid" }, claim: "alias" }, DELETE: { filter: { slug: "slug" } } },
+  site_aliases: { GET: { columns: ["alias", "slug", "current", "created_at"] }, POST: { rows: { slug: "slug", uid: "uid" }, claim: "alias", storage: "site_backends" }, DELETE: { filter: { slug: "slug" } } },
   site_functions: { GET: { filter: { slug: "slug" } }, POST: { rows: { slug: "slug", owner_id: "uid" } } },
   site_builds: { POST: { rows: { slug: "slug" } } },
   credits: { GET: { filter: { user_id: "uid" } } },
@@ -340,6 +340,10 @@ export function sbDecision(who, method, path, search, text, mint) {
     }
     return { ok: true, body: JSON.stringify(pb) };
   }
+  // A CLAIMING WRITE TAKES NO QUERY (A16-4, 2026-10-23): no `on_conflict`
+  // naming another column, no `columns`, nothing that changes which row a
+  // merge lands on. The name column is the conflict target by itself.
+  if (rule.claim) for (const k of params.keys()) return { ok: false, why: "query:" + k };
   let body;
   try { body = JSON.parse(String(text || "")); } catch { return { ok: false, why: "body" }; }
   const rows = Array.isArray(body) ? body : [body];
@@ -352,7 +356,7 @@ export function sbDecision(who, method, path, search, text, mint) {
     }
     if (rule.claim && (typeof row[rule.claim] !== "string" || !SLUG_RE.test(row[rule.claim]))) return { ok: false, why: "row:" + rule.claim };
   }
-  if (rule.claim) return { ok: true, body: JSON.stringify(body), claims: { table, col: rule.claim, names: rows.map((r) => r[rule.claim]) } };
+  if (rule.claim) return { ok: true, body: JSON.stringify(body), claims: { table, col: rule.claim, names: rows.map((r) => r[rule.claim]), ...(rule.storage ? { storage: rule.storage } : {}) } };
   return { ok: true, body: JSON.stringify(body) };
 }
 
@@ -369,7 +373,17 @@ export async function claimsOwn(who, claims, { url, key, fetch: f = globalThis.f
     });
     if (!r.ok) return false;
     const rows = await r.json();
-    return Array.isArray(rows) && rows.every((x) => x && typeof x === "object" && x.slug === who.slug);
+    if (!(Array.isArray(rows) && rows.every((x) => x && typeof x === "object" && x.slug === who.slug))) return false;
+    // A NAME THAT IS ANOTHER SITE'S STORAGE NAME (A16-4, 2026-10-23): an
+    // unused alias equal to another site's slug would take that site's
+    // address. Every existing site row named must be the job's own site.
+    if (!claims.storage) return true;
+    const s = await (f || globalThis.fetch)(String(url).replace(/\/+$/, "") + "/rest/v1/" + claims.storage + "?slug=in.(" + list + ")&select=slug", {
+      method: "GET", headers: { apikey: key, authorization: "Bearer " + key }, signal: AbortSignal.timeout(timeoutMs || SB_TIMEOUT_MS),
+    });
+    if (!s.ok) return false;
+    const sites = await s.json();
+    return Array.isArray(sites) && sites.every((x) => x && typeof x === "object" && x.slug === who.slug);
   } catch { return false; }
 }
 

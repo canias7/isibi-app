@@ -455,7 +455,7 @@ test("the Worker's probe route: owner-gated, pre-scoped, its own lane, and the j
   assert.ok(at > 0 && end > at, "the probe route's window has no end — rescope this guard");
   const block = NO_COMMENTS.slice(at, end);
 
-  assert.match(block, /if \(!\(await authUser\(request\)\)\) return UNAUTHED\(\);/, "the probe route is not owner-gated");
+  assert.match(block, /\{ const refused = await operatorRefusal\(request, env\); if \(refused\) return refused; \}/, "the probe route is not operator-gated");
   assert.match(block, /laneName\("hold-probe"\)/, "a probe can be pointed at a customer's own lane");
   assert.doesNotMatch(block, /laneName\(slug/, "the caller chooses the lane");
   // PRE-SCOPED ALWAYS: the token opens nothing in R2.
@@ -573,6 +573,7 @@ test("the probe route is DRIVEN, not read: a real POST mints a job and reaches t
     },
   };
   const env = {
+    OPERATOR_UIDS: "00000000-0000-4000-8000-000000000001",
     SITE_BUILD_CONTAINER: {
       idFromName: (n) => { lanes.push(n); return { name: n, toString: () => n }; },
       get: () => instance,
@@ -712,6 +713,7 @@ test("reading a probe back is driven too — the runner polls this every 30 seco
     },
   };
   const env = {
+    OPERATOR_UIDS: "00000000-0000-4000-8000-000000000001",
     SITE_BUILD_CONTAINER: { idFromName: (n) => ({ name: n }), get: () => instance },
     SITE_SECRETS_KEY: "a-test-secrets-key",
     SUPABASE_SERVICE_KEY: "a-test-service-key",

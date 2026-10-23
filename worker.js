@@ -1732,6 +1732,25 @@ async function authUser(request) {
 
 const UNAUTHED = () => Response.json({ error: "sign in required" }, { status: 401 });
 
+// THE OPERATOR ALLOWLIST (A16-7, 2026-10-23). The probe routes (`/api/_slow`,
+// `/api/_hold`, `/api/_egress`, `/api/site/job-probe`) hold a container lane or
+// a Worker for minutes; any signed-in account could press them. They answer
+// only a user id listed in OPERATOR_UIDS. Only well-formed uuids count, so an
+// empty, missing or mistyped value refuses everyone: the safe direction.
+const OPERATOR_UID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+function operatorUids(env) {
+  const raw = env && typeof env.OPERATOR_UIDS === "string" ? env.OPERATOR_UIDS : "";
+  return new Set(raw.split(/[\s,]+/).map((x) => x.trim().toLowerCase()).filter((x) => OPERATOR_UID_RE.test(x)));
+}
+/** null when the caller may press a probe, else the refusal (401 signed out, 403 not an operator). */
+async function operatorRefusal(request, env) {
+  const user = await authUser(request);
+  if (!user) return UNAUTHED();
+  const id = user && typeof user.id === "string" ? user.id.toLowerCase() : "";
+  if (!id || !operatorUids(env).has(id)) return Response.json({ error: "operators only" }, { status: 403 });
+  return null;
+}
+
 // Baseline security headers on every response (audit item). script-src is
 // 'self' with NO 'unsafe-inline' (all handlers are wired via addEventListener /
 // data-act hooks, so injected HTML can't execute as script); style-src keeps
@@ -30403,7 +30422,7 @@ async function handleRequest(request, env, ctx) {
       }
     }
     if (url.pathname === "/api/_hold" && request.method === "GET") {
-      if (!(await authUser(request))) return UNAUTHED();
+      { const refused = await operatorRefusal(request, env); if (refused) return refused; }
       if (!env.SITE_BUILD_CONTAINER) return Response.json({ ok: false, error: "no container binding" }, { status: 503 });
       const c = getContainer(env.SITE_BUILD_CONTAINER, laneName("hold-probe"));
       if (url.searchParams.get("check")) {
@@ -30509,7 +30528,7 @@ async function handleRequest(request, env, ctx) {
     // is asked, so a caller-chosen lane is a way to starve a real build — the
     // hold probe's own rule, and the same lane name for the same reason.
     if (url.pathname === "/api/site/job-probe") {
-      if (!(await authUser(request))) return UNAUTHED();
+      { const refused = await operatorRefusal(request, env); if (refused) return refused; }
       if (!env.SITE_BUILD_CONTAINER) return Response.json({ ok: false, error: "no container binding" }, { status: 503 });
       const c = getContainer(env.SITE_BUILD_CONTAINER, laneName("hold-probe"));
       // READING ONE BACK IS THE SAME DOOR, because a fire whose result nobody
@@ -30573,7 +30592,7 @@ async function handleRequest(request, env, ctx) {
     // PINNED TO THE SAME ONE LANE as the hold probe, for the same reason — a
     // caller-chosen lane is one that could starve a real build.
     if (url.pathname === "/api/_egress" && request.method === "GET") {
-      if (!(await authUser(request))) return UNAUTHED();
+      { const refused = await operatorRefusal(request, env); if (refused) return refused; }
       if (!env.SITE_BUILD_CONTAINER) return Response.json({ ok: false, error: "no container binding" }, { status: 503 });
       const c = getContainer(env.SITE_BUILD_CONTAINER, laneName("hold-probe"));
       const t0 = Date.now();
@@ -30590,7 +30609,7 @@ async function handleRequest(request, env, ctx) {
       }
     }
     if (url.pathname === "/api/_slow" && request.method === "GET") {
-      if (!(await authUser(request))) return UNAUTHED();
+      { const refused = await operatorRefusal(request, env); if (refused) return refused; }
       const MAX = 900000;
       const ms = Math.max(0, Math.min(MAX, Number(url.searchParams.get("ms")) || 0));
       const t0 = Date.now();

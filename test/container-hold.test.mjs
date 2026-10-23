@@ -295,7 +295,7 @@ test("the probe route exists, is gated, and can occupy only one lane", () => {
   const i = worker.indexOf('url.pathname === "/api/_hold"');
   assert.ok(i > 0, "the hold probe route is gone — the mechanism becomes unprovable");
   const blk = worker.slice(i, worker.indexOf('url.pathname === "/api/_slow"', i));
-  assert.match(blk, /authUser\(request\)/, "the probe is unauthenticated — it occupies a build lane");
+  assert.match(blk, /await operatorRefusal\(request, env\)/, "the probe is not operator-gated — it occupies a build lane");
   // ANCHORED ON THE CALL, NOT ON A MENTION. `laneName("hold-probe")` appears
   // twice in this block — once picking the container and once in the response's
   // own `lane:` field — so a bare match is satisfied by the REPORT while the

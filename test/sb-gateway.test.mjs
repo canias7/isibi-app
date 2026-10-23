@@ -704,7 +704,7 @@ test("A33-9: a job may not upsert a name whose row is another site's, nor read u
   assert.equal(sbDecision(JOB, "GET", "/rest/v1/site_aliases", q("slug=eq.fretwork-1&current=is.false&select=alias&order=created_at.asc"), "", MINT).ok, true);
   // A write names its claims for the handler to check.
   const d = sbDecision(JOB, "POST", "/rest/v1/site_aliases", "", JSON.stringify({ alias: "bakery", slug: JOB.slug, uid: JOB.uid, current: true }), MINT);
-  assert.deepEqual(d.claims, { table: "site_aliases", col: "alias", names: ["bakery"] });
+  assert.deepEqual(d.claims, { table: "site_aliases", col: "alias", names: ["bakery"], storage: "site_backends" });
   assert.deepEqual(sbDecision(JOB, "POST", "/rest/v1/site_aliases", "", JSON.stringify({ slug: JOB.slug, uid: JOB.uid }), MINT), { ok: false, why: "row:alias" });
 
   // Through the handler: the name belongs to another site → refused, never forwarded.

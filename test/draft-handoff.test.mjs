@@ -80,7 +80,7 @@ test("DH1 THE SETTING SURVIVES SERIALIZATION INTO A JOB — jobSecrets, the laun
 // ── DH2 ─────────────────────────────────────────────────────────────────────
 
 test("DH2 THE FREE CHECK SEES BOTH SWITCHES — the runtime route answers them at the Worker and as a job is handed them (calculated); the route's own `env` probe launch, run by the container's runner, answers what the job child read (observed), carrying only the two switch names", async () => {
-  const user = { id: "u-dh2", email: "dh2@example.com" };
+  const user = { id: "00000000-0000-4000-8000-0000000000d2", email: "dh2@example.com" };
   const slug = slugOf("rt");
   const real = globalThis.fetch;
   const fired = [];
@@ -95,7 +95,7 @@ test("DH2 THE FREE CHECK SEES BOTH SWITCHES — the runtime route answers them a
     const mod = await loadWorkerModule();
     const container = { idFromName: (n) => n, get: () => ({ fetch: async (req) => { fired.push(await req.text()); return Response.json({ ok: true }); } }) };
     for (const [secrets, want] of [[{ DRAFT_FIRST: "on", PARALLEL_WRITES: "on" }, true], [{}, false]]) {
-      const env = { DEPLOY_ID: "dh2", SITES_BUCKET: {}, SITE_BUILD_CONTAINER: container, SITE_SECRETS_KEY: "x".repeat(48), ...secrets };
+      const env = { DEPLOY_ID: "dh2", SITES_BUCKET: {}, SITE_BUILD_CONTAINER: container, SITE_SECRETS_KEY: "x".repeat(48), OPERATOR_UIDS: user.id, ...secrets };
       const ctx = makeCtx();
       const rt = await worker.fetch(new Request("https://gofarther.dev/api/site/runtime?slug=" + slug, { headers: { authorization: "Bearer t" } }), env, ctx);
       const j = await rt.json();
