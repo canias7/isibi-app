@@ -1732,6 +1732,8 @@ export function actionFacts(kind, stage, info = {}) {
     case "publish:changes": return k(i.n) ? [fact("applied", "Made " + (k(i.n) === 1 ? "one change" : k(i.n) + " changes") + " to entries on the live site.")] : [];
     case "publish:already": return [fact("checked", "That version was already live, so nothing needed to change.")];
     case "publish:done": return k(i.skipped) ? [fact("notdone", (k(i.skipped) === 1 ? "One change" : k(i.skipped) + " changes") + " could not be saved, so " + (k(i.skipped) === 1 ? "it was" : "they were") + " set aside; everything else is live.")] : [];
+    // REFUSED WHILE OFFLINE (decide-all, #118/#119): told from these facts, never the route's sentence.
+    case "publish:offline": return [fact("notdone", "Nothing was published: their site is off the web, and nothing on it changed."), fact("next", "Putting it back online first, then publishing, makes the draft live.")];
     case "publish:failed": return [fact("notdone", "Publishing stopped" + (err ? ": " + err : "") + ".")];
     case "restore:start": return [fact("doing", "Putting back the earlier version they picked.")];
     case "restore:switched": return [fact("published", "Their live site now shows that earlier version again.")];

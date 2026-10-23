@@ -103,7 +103,11 @@ test("a move that lands after the owner opened another project says the message 
   const after = body.slice(move, body.indexOf("return;\n    }", move));
   const resend = after.indexOf("siteOpenId === owner");
   assert.ok(resend > 0, "the resend is no longer tied to the project the files moved into");
-  assert.match(after.slice(resend), /else[\s\S]{0,80}sbToast\(/, "a move landing on another open project drops the message without a word");
+  // DECIDE-ALL, the owner's rule (no fixed customer sentence): the words go back
+  // into that project's own box beside its moved files, never dropped, and no
+  // fixed toast speaks for them.
+  assert.match(after.slice(resend), /else[\s\S]{0,40}siteDraft\(owner\)[\s\S]{0,80}\.t = t/, "a move landing on another open project drops the message");
+  assert.ok(!/else[^\n]{0,40}sbToast\(/.test(after.slice(resend)), "a fixed toast still speaks for the held message");
 });
 
 // ── 22 (#162, A25-1): a photo attached to a message is stored and offered first

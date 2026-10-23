@@ -62,13 +62,13 @@ had counted only two environmental failures):
   shows English except where the owner's own wording stands. **Found, not
   fixed (backlog):** the build path's own translation fold
   (`buildAndPublishPages`) does not lay overrides over its pages, so a revise
-  publishes the machine translation until the next edit.
+  publishes the machine translation until the next edit. **Fixed in the follow-up:** the revise reads `langOverrides` with the config and the fold lays them over each language's pages (never into the cache), as `recompileAndPublish` does (red first: `decide-all-writers`).
 - **Media adopt (20) vs picture attachments (22).** Adopt moves only video and
   audio chips; picture parts carry images on the job. **Fixed:** with one busy
   state per project (32), a move that lands after the owner opened another
   project skipped the resend silently; it now says so (red first:
   `decide-media` "a move that lands after the owner opened another project").
-  **Found, not fixed (backlog):** `siteMediaMoving` is page-wide.
+  **Found, then fixed in the follow-up:** `siteMediaMoving` is a set of project ids, so a move out in one project never holds another's Send.
 - **Operator gate (sec-12) vs the job probe.** `/api/site/job-probe`,
   `/api/_slow`, `/api/_hold`, `/api/_egress` all gate through
   `operatorRefusal`; no merged branch adds a probe or `/api/_` route. The only
@@ -95,9 +95,9 @@ fallback when no reply is written.
 | Translation stuck / behind / failed (9) | `langs` outcomes read by `langFacts`, by language name |
 | Owner's translated wording kept / its source changed (31) | `langOverride {tag, changed}` and new `langStale {tag: [sources]}`; `langFacts` |
 | Checkpoint refused (request part) | already facts (`requestReplyFacts`, `checkpoint-refused`); unchanged |
-| Publish refused while offline (10) | `refusal: {code:"site-offline"}` carried, and `refusalFacts` reads it; **but the Publish panel is a toast UI with no reply writer**, so the toast still shows the route's sentence. Left for the owner |
-| Read-widening question (sec-3) | the question card's text is composed by code (`wideningAsk`, with the structured `widening` list); turning it into a model-written question needs a question-writing call. Left for the owner |
-| Draft media move failures (20) and the new "files are now in that site's library" toast | browser toasts, no server reply on `media/adopt`; a written reply would be a model call per move. Left for the owner |
+| Publish refused while offline (10) | **Done (follow-up).** The route tells the refusal to the Publish talk writer (`actionTalk`, `writeProgress`) from `actionFacts("publish","offline")`; `talk.end` now answers the line it wrote, and the route waits for it (up to `OFFLINE_REPLY_WAIT_MS`, 9 s) and answers it as `reply`. The panel shows `reply` first; `OFFLINE_PUBLISH_REFUSAL` is shown only when no line was written (talk off, no id, writer failed) |
+| Read-widening question (sec-3) | **Done (follow-up).** Each widening now carries `from` (who sees it now); `wideningFacts` (table, now, after, the options) goes to `wideningQuestion`, the same writer and budget as the repeated-question note (`writeReply`, quick model, 240 chars). The two answers stay the step's structured `options`; `wideningAsk`'s text is kept only when no question is written |
+| Draft media move failures (20) and the "files are now in that site's library" toast | **Done (follow-up).** The words go with the move (`request`); a file left behind is told by the edit reply writer (`writeModelReply("edit", …)`, one cheap call, only when something is left behind) from `refusal {code:"media-unmoved", files:[{name, why}], moved, again}`, answered as `reply` and shown in place of `SiteMedia.adopt`'s sentence (now the fallback); the words go back in the box. **The toast is removed**: a move that lands after another project was opened puts the words back into that project's own box beside its (now library) files, so its own edit reply tells what was done with them |
 | Missed-notification line (33) | an email body built by the site's own notifier template (`submissionEmail` in `site-notify.mjs`), with no model; templated by design. Reported, unchanged |
 | Offline-abandoned publication | an internal journal state (`abandoned: "offline"`), never shown to the customer |
 
@@ -108,6 +108,27 @@ name; the build's stop, name and logo; the wiring through the server and the
 page). Red: the file fails on the merged tree before the change (the exports
 do not exist). Sweep: 11 of 11 mutants killed, the comment-only control
 survived.
+
+## The follow-up (2026-10-23, later): the last four paths, the overrides, the media flag
+
+The owner wants no fixed customer message at all, so the three rows left for
+the owner above are now done (each row says how), and the two backlog items
+are fixed. Guard tests: `test/decide-all-writers.test.mjs` (10 cases: the
+facts reach the writer and the code's sentence is not handed over as them;
+each route and page is wired; the fallback is reached only without a written
+line; the overrides on the revise; the per-project flag). Red: all 10 fail on
+`c0a47034a`'s sources. Sweep: 11 of 11 mutants killed, the comment-only
+control survived. Updated guards: `decide-media` (the held move's words go
+back to their own project, no fixed toast), `decide-all-replies` (the new
+`media-unmoved` code), `rules-widening` (the landmark), `progress-more` (the
+talk's no-op `end` answers an empty line).
+
+Full suite after the follow-up (measured): `12304 / 12299 / 2 / 3`. The two
+failures are `no-generated-deps` (the linked `node_modules`, as always here)
+and `media-verify`'s browser mode, which passed 11 of 11 run alone right after
+(timing under the full run's load; it touches none of this change). An earlier
+run while the disk was full timed out 13 browser cases, which all passed run
+alone (14 of 14).
 
 ## The suite
 

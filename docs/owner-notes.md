@@ -1,5 +1,14 @@
 # Owner Notes
 
+## 2026-10-23, later — `decide-all`: the last fixed customer messages are model-written (not merged, not deployed)
+
+- Publish refused while the site is offline: the Publish panel now shows the line the Publish talk writer writes from the refusal's facts. The old sentence shows only if no line could be written.
+- The "should everyone see these entries?" question: its wording is now written from the facts (the table, who sees it now, who would see it after). The two answer buttons are unchanged.
+- Video/audio that could not be moved into the site's library: told by the same writer as edit replies (one small call, only when a file was left behind), naming each file and why. Your words go back in the message box.
+- The "files are now in that site's library" toast is gone. If you open another project while files are moving, your words go back into the first project's message box next to its files. Pressing Send there sends them, and that edit's own reply says what happened.
+- Also fixed: a revise build now puts your own translated wording back on its pages, and the video/audio move no longer blocks other projects.
+- Nothing spent, no model called. Screenshots use stub writer text. Record: `docs/history/2026-10-23-decide-all.md`.
+
 
 ## 2026-10-23 — Every decided branch on one branch, `decide-all` (not merged, not deployed)
 

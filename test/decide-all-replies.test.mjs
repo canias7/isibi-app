@@ -31,6 +31,7 @@ test("every decided refusal is told from its facts, and the step's own sentence 
     "qr-forget-blocked": { host: "old.gofarther.app", codes: ["Table card"] },
     "site-offline": {},
     "name-too-long": { chars: 50, max: 43, suggested: "short-name" },
+    "media-unmoved": { files: [{ name: "Jingle.wav", why: "it was no longer kept" }], moved: 0, again: "attach" },
   };
   assert.deepEqual(Object.keys(cases).sort(), [...DECIDED_REFUSALS].sort(), "a decided refusal has no case here");
   for (const [code, extra] of Object.entries(cases)) {

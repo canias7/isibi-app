@@ -4218,7 +4218,8 @@ window.addEventListener('popstate', () => {
 });
 let siteDevice = 'desktop'; // preview viewport: desktop | tablet | phone
 let siteBusy = false;       // a build/revision is "running" (sample: brief delay)
-let siteMediaMoving = false; // draft video/audio being moved into the site's library before an edit is sent (#115)
+// PER PROJECT (decide-all, as `siteSlots`): the projects whose draft video/audio is being moved into their site's library before an edit is sent (#115). A move out in one project never holds another's Send. `var` so a harness may run this again.
+var siteMediaMoving = new Set();
 // WHOSE BUSY STATE IT IS (audit A15-6, 2026-10-23): the project that set
 // `siteBusy`. Its live steps and Stop are drawn only there (`siteBusyHere`),
 // and Stop elsewhere stops nothing; another project says why it cannot send.
@@ -8762,6 +8763,10 @@ function siteDraftPanel(site, d) {
       } else {
         again();
         // AFTER THE SWITCH the new pages are live: never say nothing changed.
+        // A WRITTEN LINE FIRST (decide-all): a refusal the writer told from its
+        // facts (`reply`, e.g. the site is offline); the route's sentence only
+        // as the fallback when none was written.
+        if (out && typeof out.reply === 'string' && out.reply) { if (typeof sbToast === 'function') sbToast(out.reply); return; }
         if (typeof sbToast === 'function') sbToast(out && out.live === 'switched' ? 'Your new pages are live, but publishing stopped before it finished \u2014 press Publish again to finish (it is also retried automatically)' : out && out.live === 'unknown' ? 'Publishing stopped while switching your site \u2014 press Publish again to finish (it is also retried automatically)' : (out && out.error) || 'Could not publish just now \u2014 nothing changed on your live site');
       }
     } catch (e) {
@@ -16151,23 +16156,28 @@ function siteSend(text, leaveDraft) {
     // #115): moved into the site's library first, then the message goes with
     // its library address. Nothing is sent while the move is out or failed.
     if (site.slug && sitePages(site).length && !site.clarify && ready.some((m) => m.draft)) {
-      if (siteMediaMoving) return;
-      siteMediaMoving = true;
       const owner = siteOpenId;
+      if (siteMediaMoving.has(owner)) return;
+      siteMediaMoving.add(owner);
       SiteMedia.adopt(site.slug, ready, async (path, body) => {
         const res = await apiFetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
         return { status: res.status, body: await res.json().catch(() => null) };
-      }).then((r) => {
-        siteMediaMoving = false;
+      }, t).then((r) => {
+        siteMediaMoving.delete(owner);
         paintAttachStrip();
-        if (!r.ok) { if (typeof sbToast === 'function') sbToast(r.error); return; }
+        // NOTHING SENT, SO THE WORDS GO BACK IN THE BOX (as the reply's facts say);
+        // `r.error` is the writer's reply when one was written, the fallback otherwise.
+        if (!r.ok) { const d = siteDraft(owner); if (d && !String(d.t || '').trim()) { d.t = t; sitesSave(); if (siteOpenId === owner && typeof renderSites === 'function') renderSites(); } if (typeof sbToast === 'function') sbToast(r.error); return; }
         // THE SAME WORDS, sent again from the composer (only reached when
         // `leaveDraft` is false), now carrying the files' library addresses.
         // ANOTHER PROJECT OPENED WHILE THE MOVE WAS OUT (one busy state per
         // project, #138): the words are that project's, so they are not sent
-        // here, and the owner is told rather than left wondering.
+        // here. NO FIXED SENTENCE (decide-all, the owner's rule): the words go
+        // back into that project's own message box beside its files, now
+        // library files, so opening it and pressing Send sends them, and that
+        // edit's own model-written reply tells what was done with the files.
         if (siteOpenId === owner) siteSend(t);
-        else if (typeof sbToast === 'function') sbToast('Your files are now in that site’s library — open it and send your message again.');
+        else { const d = siteDraft(owner); if (d && !String(d.t || '').trim()) d.t = t; sitesSave(); }
       });
       return;
     }

@@ -296,12 +296,16 @@
    * with each moved chip now a library file, or `{ ok: false, error }` with
    * the sentence to show and nothing sent; a chip that was moved stays moved.
    */
-  function adopt(slug, chips, post) {
+  function adopt(slug, chips, post, request) {
     var drafts = (chips || []).filter(function (c) { return c && c.draft && c.state === "done" && c.ref; });
     if (!drafts.length) return Promise.resolve({ ok: true, moved: 0 });
     var path = "/api/site/" + encodeURIComponent(slug) + "/media/adopt";
     return Promise.resolve().then(function () {
-      return post(path, { files: drafts.map(function (c) { return c.ref; }) });
+      var body = { files: drafts.map(function (c) { return c.ref; }) };
+      // THEIR WORDS GO WITH THE MOVE (decide-all), so a file left behind is told
+      // by the reply writer from the facts (`reply`), not by a fixed sentence.
+      if (typeof request === "string" && request) body.request = request;
+      return post(path, body);
     }).then(function (r) {
       var b = (r && r.body) || {};
       if (!r || r.status !== 200 || b.ok !== true) {
@@ -320,6 +324,7 @@
           var m = miss.filter(function (x) { return x && x.file === c.ref; })[0];
           return "“" + c.name + "”" + (m && m.why ? " (" + m.why + ")" : "");
         }).join(", ");
+        if (typeof b.reply === "string" && b.reply) return { ok: false, moved: moved, error: b.reply, written: true };
         return { ok: false, moved: moved, error: "I couldn’t move " + said + " into this site’s library, so nothing was sent — attach " + (left.length > 1 ? "them" : "it") + " again." };
       }
       return { ok: true, moved: moved };

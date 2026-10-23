@@ -23,17 +23,7 @@ here; take a closed one out of both.**
 - **#141 outgoing-link DNS rebinding (needs a proxy)**: deferred by owner 2026-10-23.
 - **#203 a custom domain as the site's primary address**: deferred by owner 2026-10-23.
 - **#148 the full stylesheet in the downloaded site**: deferred by owner 2026-10-23.
-- **A revise build does not lay the owner's translated wording over its
-  pages** (2026-10-23, found in the `decide-all` review): `langOverrides`
-  (#196) are applied on every edit publish (`recompileAndPublish`), but the
-  build path's own translation fold in `buildAndPublishPages` writes the
-  language pages from the cache alone, so a revise publishes the machine
-  translation until the next edit. The overrides stay stored.
-  `docs/history/2026-10-23-decide-all.md`.
-- **The draft-media move is one flag for the whole page** (2026-10-23,
-  `decide-all` review): `siteMediaMoving` is page-wide, so while one project's
-  move is out a second project's Send with draft media returns without a
-  word. `docs/history/2026-10-23-decide-all.md`.
+- **Fixed on `decide-all` (2026-10-23, the follow-up)**: a revise build now lays the owner's translated wording (`langOverrides`) over its pages, and the draft-media move flag is per project. `docs/history/2026-10-23-decide-all.md`.
 
 - **A row a function writes runs no side effect** (2026-10-22, audit A12-1's
   remainder). A capacity-limited booking goes through `data/rpc/<fn>` on a

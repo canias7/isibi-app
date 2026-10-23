@@ -598,7 +598,8 @@ export function ungroundedWidenings(changes, tables, asked = []) {
     if (!NARROW_READS.includes(before) || !WIDE_READS.includes(after)) continue;
     const w = plain(c.readWords);
     const theirs = w.length >= 2 && texts.some((t) => (" " + t + " ").includes(" " + w + " "));
-    if (!theirs) out.push({ table: prior.name, read: after });
+    // `from`: who can see them now, a fact the question is written from (decide-all).
+    if (!theirs) out.push({ table: prior.name, read: after, from: before });
   }
   return out;
 }

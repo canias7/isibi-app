@@ -1451,7 +1451,7 @@ export function languageNamed(tag) {
 }
 
 /** The refusal codes the decided branches carry (`refusal.code`). */
-export const DECIDED_REFUSALS = Object.freeze(["out-of-credits", "menu-page-unknown", "menu-no-menu", "qr-forget-blocked", "site-offline", "name-too-long"]);
+export const DECIDED_REFUSALS = Object.freeze(["out-of-credits", "menu-page-unknown", "menu-no-menu", "qr-forget-blocked", "site-offline", "name-too-long", "media-unmoved"]);
 
 /** The facts of a structured refusal; false when `r` is not one, so the caller falls back. */
 export function refusalFacts(F, r) {
@@ -1473,6 +1473,14 @@ export function refusalFacts(F, r) {
   } else if (r.code === "site-offline") {
     F.add("not-done", "Nothing was published: the site is off the web.");
     F.add("note", "Putting it back online first, then publishing, makes the changes live.");
+  } else if (r.code === "media-unmoved") {
+    // DRAFT VIDEO OR AUDIO NOT MOVED INTO THE SITE'S LIBRARY (decide-all, #115):
+    // each file by the name they gave it, with why; the message was not sent.
+    const files = (Array.isArray(r.files) ? r.files : []).filter((f) => f && said(f.name));
+    F.add("not-done", "Their message was not sent: " + (files.length ? listOf(files.map((f) => quote(f.name) + (said(f.why) ? " (" + said(f.why) + ")" : ""))) : "their attached file") + " could not be moved into this site's library first.");
+    if (num(r.moved) > 0) F.add("changed", count(num(r.moved), "other attached file") + " did move into the site's library.");
+    F.add("nothing", "Nothing on their site changed, and nothing was charged; their words are still in the message box.");
+    F.add("note", r.again === "attach" ? "Attaching the file again, then sending, lets it go ahead." : "Sending again in a moment lets it go ahead.");
   } else if (r.code === "name-too-long") {
     F.add("not-done", "The site was not started: the name asked for is " + (num(r.chars) ? num(r.chars) + " characters, " : "") + "longer than the " + (num(r.max) || 43) + " characters a new site's name can be.");
     if (said(r.suggested)) F.add("note", "A shorter name works, for example " + quote(r.suggested) + ".");
@@ -1805,6 +1813,26 @@ export function repeatNoteFacts({ question, earlier = [], atLimit = false } = {}
   F.add("pending", atLimit
     ? "Nothing more will be done until they answer once more or cancel the request; either is fine."
     : "Their request is waiting for this one answer.");
+  return { skip: null, facts: F.out };
+}
+
+/**
+ * THE READ-WIDENING QUESTION, FROM ITS FACTS (decide-all, sec-3): each table
+ * by name, who can see its entries now and who would after. The writer words
+ * the question; the two answers stay the step's structured choices, shown
+ * under it. `{ skip, facts }`.
+ */
+const READ_SAYS = Object.freeze({ public: "anyone visiting the site", members: "anyone signed in to the site", own: "only the person who added each entry", none: "only the site's owner" });
+export function wideningFacts(list, options = []) {
+  const rows = (Array.isArray(list) ? list : []).filter((w) => w && said(w.table) && READ_SAYS[w.read]);
+  if (!rows.length) return { skip: "unreadable", facts: [] };
+  const F = factList();
+  rows.forEach((w, i) => {
+    F.add("question", "Their request would change who can see the entries in " + quote(w.table) + ": now " + (READ_SAYS[w.from] || "a narrower group") + "; after the change " + READ_SAYS[w.read] + ".", "widen:" + i);
+  });
+  F.add("pending", "Nothing has changed yet; the change waits for their yes or no.");
+  const opts = strings(options);
+  if (opts.length) F.add("note", "Their answer choices are shown right under your question, in their own words: " + listOf(opts.map(quote)) + ". Do not list or repeat them; ask one short yes-or-no question.");
   return { skip: null, facts: F.out };
 }
 

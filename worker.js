@@ -265,7 +265,7 @@ import { routeMessage, routeDecision, routeFailure, clarifiedBrief, siteDigest, 
 // work moves from one step to another — the parts put off, the scope, and why.
 import { readHandOver, handOverLine, heldReport, deferredOf } from "./builder/hand-over.mjs";
 import { loadAsk, storeAsk, storeAskIfFree, closeAsk, replaceAsk, askLive, packAsk, ASKER_RE, newAskId, askOf, readAsk, withQuestion, readContext, shownContext, repeatOf, appendAnswer, againNote, clarifyTransport, clarifyCall, MAX_NOTE_CHARS, MAX_SAME_ASK, MAX_ASKED } from "./builder/clarify.mjs";
-import { repliesOn, buildReplyFacts, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelReplyFacts, repeatNoteFacts, requestReplyFacts, replyContext, writeReply, withReplyText, REPLY_CALL_MS, REPLY_BG_CALL_MS, REPLY_BG_DEADLINE_MS, REPLY_BG_ATTEMPTS, REPLY_BG_RETRY_S, REPLY_LEASE_MS, REPLY_HORIZON_MS, REPLY_RETRY_GRACE_MS, readReplyRecord, replyNext, replyClaim, replyOutcomeOf, outcomeOf, outcomeReads } from "./builder/site-reply.mjs";
+import { repliesOn, buildReplyFacts, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelReplyFacts, repeatNoteFacts, wideningFacts, requestReplyFacts, replyContext, writeReply, withReplyText, REPLY_CALL_MS, REPLY_BG_CALL_MS, REPLY_BG_DEADLINE_MS, REPLY_BG_ATTEMPTS, REPLY_BG_RETRY_S, REPLY_LEASE_MS, REPLY_HORIZON_MS, REPLY_RETRY_GRACE_MS, readReplyRecord, replyNext, replyClaim, replyOutcomeOf, outcomeOf, outcomeReads } from "./builder/site-reply.mjs";
 // PROGRESS WHILE AN EDIT OR AN ADD-ON RUNS (2026-10-06): the milestones' facts,
 // the per-job record and its one writer's rules, the call and its check.
 import {
@@ -7632,6 +7632,8 @@ async function offlineMarked(env, slug) {
   catch { return null; }
 }
 /** What Publish answers on a site that is off the web (audit #118). */
+/** How long the offline refusal waits for its written line (decide-all) before the fallback answers. */
+const OFFLINE_REPLY_WAIT_MS = 9000;
 const OFFLINE_PUBLISH_REFUSAL = "Your site is off the web, so nothing was published. Press \u201cPut it back online\u201d first, then Publish.";
 
 // An uncached slug lookup. siteBackendBySlug caches for five minutes, which is
@@ -8761,7 +8763,7 @@ function watchBuildStage(c, stageId, onStage) {
 const ACTION_TALK_PREFIX = "action-talk/";
 const actionTalkKey = (uid, id) => ACTION_TALK_PREFIX + uid + "/" + id + ".json";
 function actionTalk(env, ctx, { id, uid, slug, kind }) {
-  const none = { say() {}, end() {}, on: false };
+  const none = { say() {}, end() { return Promise.resolve(""); }, on: false };
   if (!talkOn(env) || !env || !env.SITES_BUCKET || !isJobId(id) || typeof uid !== "string" || !uid || !ACTION_KINDS.includes(kind)) return none;
   const rec = { v: 1, kind, slug: String(slug || ""), lines: [], done: false, at: Date.now() };
   // EACH STORE TELLS THE PRESS'S ROOM TOO (2026-10-19), so its stream is pushed.
@@ -8788,7 +8790,8 @@ function actionTalk(env, ctx, { id, uid, slug, kind }) {
   return {
     on: true,
     say,
-    end(facts) { say(facts); chain = chain.then(async () => { rec.done = true; await put(); }).catch(() => {}); hold(chain); },
+    // ANSWERS THE LINE IT WROTE (decide-all): "" when none was, so a caller may show it in place of a fixed sentence.
+    end(facts) { const before = rec.lines.length; say(facts); chain = chain.then(async () => { rec.done = true; await put(); }).catch(() => {}); hold(chain); return chain.then(() => (rec.lines.length > before ? rec.lines[rec.lines.length - 1].text : ""), () => ""); },
   };
 }
 /** How long a job's end waits for its progress to close, so a store that hangs never holds the job's outcome. */
@@ -9840,6 +9843,31 @@ async function repeatNote(env, { question, earlier, atLimit, request, answers, p
   } catch { out = { ok: false, why: "send", usage: [], attempts: 0 }; }
   try { console.log("reply: note", out.ok ? "written" : "fell back (" + out.why + ")", "attempts", out.attempts); } catch { /* never */ }
   return out.ok ? out.text : fallback;
+}
+
+/**
+ * THE READ-WIDENING QUESTION, WRITTEN FROM ITS FACTS (decide-all, sec-3): the
+ * rules step found a widening that rests on no words of theirs (`widening`:
+ * each table, who sees it now, who would after). The same writer and budget
+ * as `repeatNote`; the answers stay the step's structured choices. The
+ * question code composed (`ask`) is kept only when none can be written.
+ */
+const WIDENING_QUESTION_CHARS = 240;
+async function wideningQuestion(env, { ask, widening, request, answers, picker, slug }) {
+  if (!ask || typeof ask.text !== "string" || !repliesOn(env)) return ask;
+  const read = wideningFacts(widening, ask.options);
+  if (read.skip) return ask;
+  let out;
+  try {
+    out = await writeReply({ send: quickSend(env, "reply", replyBudget) }, {
+      facts: read.facts,
+      context: replyContext({ request, answers, site: { slug } }) + "\n\nWRITE ONLY THE QUESTION: ONE OR TWO SHORT SENTENCES, UNDER 240 CHARACTERS IN ALL.",
+      model: modelsFor(picker).quick,
+      maxChars: WIDENING_QUESTION_CHARS,
+    });
+  } catch { out = { ok: false, why: "send", usage: [], attempts: 0 }; }
+  try { console.log("reply: widening question", out.ok ? "written" : "fell back (" + out.why + ")", "attempts", out.attempts); } catch { /* never */ }
+  return out.ok && typeof out.text === "string" && out.text.trim() ? { ...ask, text: out.text.trim() } : ask;
 }
 
 // ── THE SITE'S LIVE QUESTION, AROUND A ROUTING CALL (2026-10-02) ───────────
@@ -18897,7 +18925,7 @@ async function siteOgImage(env, slug, dist) {
 // on. `packResume` has stored the two side by side since the day it was written,
 // which is the tell: a bearer token has no `.id`, so anything that asks `auth`
 // for one gets `undefined` and never says so. See the band door below.
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid = "", siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, priorParts = null, mark, say = null, budget = null, genPathOut = null, canFire = false, resumeCall = null, resumeFanout = false, picker = null, models = null, billRef = null, jobId = null, assertLease = null, attachmentIds = null, media = null, held = null, stopCheck = null }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid = "", siteDescription, theme, css, plan, tsx, lang, langs, langStrings, langOverrides = null, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, priorParts = null, mark, say = null, budget = null, genPathOut = null, canFire = false, resumeCall = null, resumeFanout = false, picker = null, models = null, billRef = null, jobId = null, assertLease = null, attachmentIds = null, media = null, held = null, stopCheck = null }) {
   // `media` (2026-10-14): the owner's video and audio, by address, for the
   // page writers (`briefWithLayout`) — and on the build's args, so a resumed
   // build is shown the same files.
@@ -19597,7 +19625,11 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         const mergedStrings = nextCache(r.have, strings, r.failed ? null : r.fresh, r.lost);
         langsChanged = langsChanged || JSON.stringify(mergedStrings) !== JSON.stringify(r.had);
         langCache[r.l.tag] = mergedStrings;
-        const t = translatePages(pages, r.l.prefix, strings, strings.map((sTxt) => mergedStrings[sTxt]), { routes: primaryRoutes });
+        // THE OWNER'S OWN WORDING LAID OVER THE CACHE (#196), as the spine does
+        // (`recompileAndPublish`): never written into it, so a revise publishes
+        // their wording, not the machine translation (decide-all backlog).
+        const laid = applyOverrides(mergedStrings, readOverrides(langOverrides)[r.l.tag], strings).merged;
+        const t = translatePages(pages, r.l.prefix, strings, strings.map((sTxt) => (laid[sTxt] == null ? sTxt : laid[sTxt])), { routes: primaryRoutes });
         for (const tp of t.pages) files[tp.path] = tp.source;
         if (dropped) console.error("translate truncated", slug, r.l.tag, dropped + " strings over the cap");
       }
@@ -28455,7 +28487,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // not read the cache re-translates the whole site — slower and never
       // wrong, but a Haiku call spent on strings already answered. Empty on a
       // first build, which is the ordinary case.
-      let priorLangStrings = null;
+      let priorLangStrings = null, priorLangOverrides = null;
       if (priorBrief) {
         try {
           // OUT OF R2, with `_meta` as the read-only fallback for a site built
@@ -28476,7 +28508,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           priorLook = lookWithMarks(cfg.config);
           priorCss = cfg.config.css;
           priorVerify = cfg.config.verify;
-          priorLangStrings = cfg.config.langStrings;
+          priorLangStrings = cfg.config.langStrings; priorLangOverrides = cfg.config.langOverrides;
         } catch (e) {
           // ⚠ CANNOT-TELL STOPS THE REVISE (2026-10-22, the builder audit's
           // A26-1). This was logged and passed over, under "losing it re-rolls
@@ -29012,7 +29044,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             // never sent, so a first build asking for a bilingual site in as
             // many words published monolingual, and the answer sat nowhere.
             langs: look.langs,
-            langStrings: priorLangStrings,
+            langStrings: priorLangStrings, langOverrides: priorLangOverrides,
             // THE TWO MARKS, OFF THE MERGED LOOK, THROUGH THE ONE PROJECTION.
             // These were four hand-written fields, two of them read straight off
             // the config because an upload could not survive `mergeLook`. Since
@@ -37518,7 +37550,8 @@ async function handleRequest(request, env, ctx) {
                 answers: (readContext(eCtx) || []).map((p) => p.a) });
               // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
               if (rStop) return await editStopped(env, { job: eJob, why: rStop, phase: "apply", trace: editTrace, ctx });
-              if (rOut.ask) return stepAsk("rules", rOut.ask);
+              // THE WIDENING QUESTION, WORDED BY THE WRITER FROM ITS FACTS (decide-all, sec-3).
+              if (rOut.ask) return stepAsk("rules", Array.isArray(rOut.widening) && rOut.widening.length ? await wideningQuestion(env, { ask: rOut.ask, widening: rOut.widening, request: eRun, answers: readContext(eCtx) || [], picker: eb && eb.picker, slug: ownerSlug }) : rOut.ask);
 
               if (!rOut.ok) {
                 if (!rOut.escalate) {
@@ -47165,8 +47198,13 @@ async function handleRequest(request, env, ctx) {
               const talk = actionTalk(env, ctx, { id: pbody && pbody.talk, uid: ou.id, slug: ownerSlug, kind: "publish" });
               talk.say(actionFacts("publish", "start", { revision }));
               const r = await publishDraft(env, ownerSlug, { revision, version }, { uid: ou.id, say: (st, info) => talk.say(actionFacts("publish", st, info)) });
-              talk.end(r.ok ? actionFacts("publish", r.already ? "already" : "done", { skipped: Array.isArray(r.skipped) ? r.skipped.length : 0 }) : actionFacts("publish", "failed", { error: r.error }));
-              if (!r.ok) return Response.json({ ok: false, error: r.error, stage: r.stage, live: r.live || undefined, publishing: r.publishing === true, ...(r.blocked ? { blocked: true, revision: r.revision } : {}), state: await readState() }, { status: r.status || 409 });
+              const offlineRefused = !r.ok && r.refusal && r.refusal.code === "site-offline";
+              const ended = talk.end(r.ok ? actionFacts("publish", r.already ? "already" : "done", { skipped: Array.isArray(r.skipped) ? r.skipped.length : 0 }) : offlineRefused ? actionFacts("publish", "offline") : actionFacts("publish", "failed", { error: r.error }));
+              // REFUSED WHILE OFFLINE (decide-all): the panel shows the talk writer's
+              // own line from the refusal's facts (`reply`); `error` is only the
+              // fallback when no line could be written in time.
+              const offlineReply = offlineRefused ? await Promise.race([ended, new Promise((res) => setTimeout(() => res(""), OFFLINE_REPLY_WAIT_MS))]).catch(() => "") : "";
+              if (!r.ok) return Response.json({ ok: false, error: r.error, ...(offlineRefused ? { refusal: r.refusal, ...(offlineReply ? { reply: offlineReply } : {}) } : {}), stage: r.stage, live: r.live || undefined, publishing: r.publishing === true, ...(r.blocked ? { blocked: true, revision: r.revision } : {}), state: await readState() }, { status: r.status || 409 });
               return Response.json({ ok: true, published: r.version, revision: r.revision, already: r.already === true, worker: r.worker, skipped: r.skipped || [], state: await readState() });
             }
             if (dd && request.method === "POST") {
@@ -48532,7 +48570,17 @@ async function handleRequest(request, env, ctx) {
             const found = await draftMediaFor(env, ou.id, names);
             const moved = found.files.length ? await adoptDraftMedia(env, ou.id, ownerSlug, found.files) : { placed: [], missing: [] };
             // `file` IS THE STORED NAME (the chip's ref); `name` is the one the owner gave it.
-            return Response.json({ ok: true, placed: moved.placed.map((p) => ({ ...p, file: String(p.url || "").split("/").pop() })), missing: [...found.missing, ...moved.missing] });
+            const adoptMissing = [...found.missing, ...moved.missing];
+            // WHAT COULD NOT BE MOVED, TOLD BY THE EDIT REPLY WRITER FROM ITS FACTS
+            // (decide-all, the owner's rule): one cheap call, only when something
+            // was left behind; the page's own sentence is the fallback.
+            let adoptReply = null;
+            if (adoptMissing.length && repliesOn(env)) {
+              const request = rd.body && typeof rd.body.request === "string" ? rd.body.request.slice(0, 8000) : "";
+              const refusal = { code: "media-unmoved", files: adoptMissing.map((m) => ({ name: String(m.name || m.file || ""), why: String(m.why || "") })), moved: moved.placed.length, again: adoptMissing.every((m) => /no longer kept|whole file|does not hold|not found/.test(String(m.why || ""))) ? "attach" : "retry" };
+              adoptReply = await writeModelReply(env, "edit", { ok: false, error: "media-unmoved", cost: 0, unchanged: true, refusal }, { request, slug: ownerSlug, answers: [] }).catch(() => null);
+            }
+            return Response.json({ ok: true, placed: moved.placed.map((p) => ({ ...p, file: String(p.url || "").split("/").pop() })), missing: adoptMissing, ...(adoptReply ? { reply: adoptReply } : {}) });
           } else if (mdr) {
             if (!env.SITES_BUCKET) return Response.json({ error: "storage not configured" }, { status: 501 });
             const mslug = mdr[1].toLowerCase();

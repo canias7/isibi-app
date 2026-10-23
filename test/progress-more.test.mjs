@@ -180,7 +180,7 @@ test("R4 every step of every press has a fact in a talking state, and nothing is
 });
 
 test("R4 THE WIRING: each route says its steps through the press's own talk, and the page reads them", () => {
-  assert.match(W, /function actionTalk\(env, ctx, \{ id, uid, slug, kind \}\) \{\s*\n\s*const none = \{ say\(\) \{\}, end\(\) \{\}, on: false \};\s*\n\s*if \(!talkOn\(env\)/, "the press talks with talk off, or the helper is gone");
+  assert.match(W, /function actionTalk\(env, ctx, \{ id, uid, slug, kind \}\) \{\s*\n\s*const none = \{ say\(\) \{\}, end\(\) \{ return Promise\.resolve\(""\); \}, on: false \};\s*\n\s*if \(!talkOn\(env\)/, "the press talks with talk off, or the helper is gone");
   assert.match(W, /const talk = actionTalk\(env, ctx, \{ id: pbody && pbody\.talk, uid: ou\.id, slug: ownerSlug, kind: "publish" \}\);/);
   assert.match(W, /publishDraft\(env, ownerSlug, \{ revision, version \}, \{ uid: ou\.id, say: \(st, info\) => talk\.say\(actionFacts\("publish", st, info\)\) \}\)/);
   assert.match(W, /const talk = actionTalk\(env, ctx, \{ id: dbody && dbody\.talk, uid: ou\.id, slug: ownerSlug, kind: "discard" \}\);/);
