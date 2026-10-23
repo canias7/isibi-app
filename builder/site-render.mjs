@@ -313,12 +313,29 @@ export function probe() {
   // picture-backed ancestor with NO BOX of its own (`display: contents`, which
   // Tailwind spells `contents`): it never enters `painted`, so only the walk can
   // see it. Measured — without this line that page reports 1:1.
+  //
+  // THE THEME'S OWN OPENED PAPER IS THE ONE TRANSLUCENT LAYER WE DO KNOW
+  // (audit A34-3, #208, the owner's choice 2026-10-23). A world or glass theme
+  // re-declares `--background` as its paper at alpha 0.35-0.88 so the backdrop
+  // shows through, and every page sits inside site-chrome's `bg-background`, so
+  // skipping every translucent layer skipped page text on 467 of 500 themes. A
+  // layer whose colour IS the root's `--background` is measured as that paper
+  // made opaque: the colour the theme designed its text against. Any other
+  // translucent layer is still skipped, as above.
+  const paper = (() => {
+    const v = getComputedStyle(document.documentElement).getPropertyValue("--background").trim();
+    if (!v) return null; // an empty fillStyle is ignored and would keep the last colour
+    const c = rgba(v);
+    return c && c.a > 0.05 ? { r: c.r, g: c.g, b: c.b, a: 1 } : null;
+  })();
+  const isPaper = (c) => !!paper &&
+    Math.abs(c.r - paper.r) <= 2 && Math.abs(c.g - paper.g) <= 2 && Math.abs(c.b - paper.b) <= 2;
   const solidBehind = (el) => {
     for (let n = el; n && n !== document.documentElement.parentNode; n = n.parentElement) {
       const cs = getComputedStyle(n);
       const c = rgba(cs.backgroundColor);
       if (c && c.a >= 0.95) return c;
-      if (c && c.a > 0.05) return null; // translucent layer in the way — do not guess
+      if (c && c.a > 0.05) return isPaper(c) ? paper : null; // the theme's paper, or a layer we do not guess
       if (cs.backgroundImage && cs.backgroundImage !== "none") return null; // painted, colour unreadable
     }
     const html = rgba(getComputedStyle(document.documentElement).backgroundColor);

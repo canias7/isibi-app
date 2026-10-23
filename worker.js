@@ -16797,12 +16797,29 @@ async function fetchSiteFonts(families = []) {
       if (buf.length < 4 || buf.length > 2_000_000) continue;
       let bin = ""; for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
       out[f.id] = btoa(bin);
+      // THE WEIGHT THIS FILE REALLY IS (audit A20-3, #149). The face used to be
+      // declared `font-weight:100 900`, claiming one static file covers every
+      // weight; it rides to the container beside the bytes (`fontWeightsOf`).
+      f.weight = weight;
       if (j.category) f.kind = j.category === "monospace" ? "mono" : (j.category === "serif" ? "serif" : "sans");
     } catch (e) {
       console.error("font fetch failed:", f.id, String((e && e.message) || e).slice(0, 120));
     }
   }
   return out;
+}
+
+/** The weight of each fetched file, for the container's `@font-face` (audit
+ *  #149). Only a family whose file was fetched, and only a weight that is a
+ *  CSS weight; anything else is left out, never guessed. Undefined when empty,
+ *  as `fontFiles` is. */
+function fontWeightsOf(families, files) {
+  const w = {};
+  for (const f of (families || [])) {
+    if (!f || typeof f.id !== "string" || !files || !Object.hasOwn(files, f.id)) continue;
+    if (typeof f.weight === "string" && /^[1-9]00$/.test(f.weight)) w[f.id] = f.weight;
+  }
+  return Object.keys(w).length ? w : undefined;
 }
 
 // brief + schema → route files → `tsc --noEmit` + `vite build` in the container →
@@ -17971,6 +17988,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
           // caused it.
           worker: true,
           fontFiles: Object.keys(fontFiles).length ? fontFiles : undefined,
+          fontWeights: fontWeightsOf(cssRead.fonts, fontFiles),
         });
         // BOUNDED, for the reason the build path's copy is — and this spine
         // matters at least as much: every cheap edit on the platform publishes
@@ -19502,7 +19520,8 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
           // when there is no script. So this is the switch that decides which,
           // and it is on for everything built from here.
           worker: true,
-          fontFiles: Object.keys(fontFiles).length ? fontFiles : undefined });
+          fontFiles: Object.keys(fontFiles).length ? fontFiles : undefined,
+          fontWeights: fontWeightsOf(cssRead.fonts, fontFiles) });
         // THE LAST UNBOUNDED AWAIT ON THIS PATH, closed 2026-08-22.
         //
         // `BUILDER_CALL_MS` bounds the two MODEL calls and this carried no

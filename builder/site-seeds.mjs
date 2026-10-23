@@ -193,13 +193,19 @@ export function mirrorSeeds(light) {
  *
  *   body    hand-written min 10.67 (light) / 12.07 (dark) — floor 7
  *   muted   hand-written min  3.55 (light) /  4.42 (dark) — floor 3
- *   button  hand-written min  3.47 (light) /  4.60 (dark) — floor 3
+ *   button  hand-written min  4.50 (light) /  4.60 (dark) — floor 3
+ *           (3.47 in light until 2026-10-23, when audit #207 moved the light
+ *           accent of the 115 themes below 4.5:1 by the smallest step that
+ *           clears it)
  *
  * 3.0 AND NOT 4.5 FOR THE MUTED PAIR, deliberately and consistently with the rest
  * of the platform: `site-render.mjs`'s own contrast pass uses 3.0 for exactly this
  * reason — every theme's muted caption, placeholder and disabled control sits in
- * the 3-4.5 band ON PURPOSE, and a 4.5 floor would reject deliberate design. A
- * button label is large text, where 3:1 is the standard's own bar.
+ * the 3-4.5 band ON PURPOSE, and a 4.5 floor would reject deliberate design.
+ * A button label is NOT large text: the kit Button is `text-sm font-medium`,
+ * normal text under WCAG, whose bar is 4.5:1. Every registry theme clears that
+ * (test/site-theme-registry.test.mjs); the floor of 3 here only rejects a
+ * model-made palette that is plainly broken.
  */
 export const FLOORS = Object.freeze([
   { fg: "foreground", bg: "background", min: 7, what: "body text" },

@@ -851,7 +851,7 @@ function writeSiteBrand({ title, lang, langs, logo, icon: sent, slug, seeds, tra
 // `fontFiles` carries any font that had to be FETCHED, already downloaded by the
 // Worker and passed as base64. The Worker does the fetching because it certainly
 // has network at request time, which is not something to assume of a container.
-function writeFonts(fonts, fontFiles, pageFonts, cssFonts) {
+function writeFonts(fonts, fontFiles, pageFonts, cssFonts, fontWeights) {
   const pair = resolvePair(fonts || {});
   // ── THE FAMILIES THE SITE'S OWN STYLESHEET NAMES ────────────────────────────
   //
@@ -920,7 +920,7 @@ function writeFonts(fonts, fontFiles, pageFonts, cssFonts) {
   let base = null;
   try { base = fs.readFileSync(STYLES_BASE, "utf8"); }
   catch { try { base = fs.readFileSync(STYLES, "utf8"); } catch { base = null; } }
-  const decls = fontCss(pair, written, pageScopes, cssFaces);
+  const decls = fontCss(pair, written, pageScopes, cssFaces, fontWeights);
   // ── AN INSTALLED FAMILY IS @import-ED FROM THE STYLESHEET ────────────────────
   //
   // THE NPM IMPORT IN `fonts.ts` EMITS THE FILES AND NOT ONE RULE. Measured on a
@@ -940,9 +940,10 @@ function writeFonts(fonts, fontFiles, pageFonts, cssFonts) {
   // `url()` rewritten to the hashed asset. Nothing else here changes.
   //
   // WHY NOT SEND EVERY FAMILY DOWN THE FETCH PATH INSTEAD, which demonstrably
-  // works: the API hands back ONE STATIC WEIGHT for the latin subset, so
-  // `font-weight:100 900` on it is a lie and every heading is synthetically
-  // bolded. The installed 24 exist precisely to ship the real variable file.
+  // works: the API hands back ONE STATIC WEIGHT for the latin subset. It used
+  // to be declared `font-weight:100 900`, which was a lie; since audit #149 it
+  // is declared at the weight it really is (`fontWeights`), so a heading asking
+  // for 700 gets the browser's synthetic bold of that one file. The installed 24 exist precisely to ship the real variable file.
   //
   // FIRST IN THE FILE, because `@import` after any rule is ignored per spec —
   // which puts these above `decls.faces` (the fetched families' own @font-face)
@@ -2397,7 +2398,7 @@ const server = http.createServer((req, res) => {
         // THE PUBLISH'S OWN PREFIX (stage 7): minted by the Worker before this
         // call, baked so the script serves it and answers it.
         version: payload.version, parent: payload.parent });
-      const fontsUsed = writeFonts(payload.fonts, payload.fontFiles, payload.pageFonts, payload.cssFonts);
+      const fontsUsed = writeFonts(payload.fonts, payload.fontFiles, payload.pageFonts, payload.cssFonts, payload.fontWeights);
       // THE WHOLE PATCH, NOT `styleUsed`, and the difference is a feature.
       // `styleUsed` is the ENUM map — `parseStyle(...).style` — which is exactly
       // right for `transition` above and drops an AUTHORED backdrop on the floor,

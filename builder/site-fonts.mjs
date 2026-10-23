@@ -379,9 +379,19 @@ export function resolvePageFonts(req, { max = MAX_PAGE_FONTS } = {}) {
  * Two scopes asking for the same face would otherwise declare it twice, which
  * is a second download in some browsers and dead bytes in the rest.
  */
-export function fontCss(pair, fetched = {}, pages = [], extra = []) {
+export function fontCss(pair, fetched = {}, pages = [], extra = [], weights = {}) {
   const faces = [];
   const seen = new Set();
+  // THE WEIGHT THE FILE REALLY IS (audit A20-3, #149, the owner's choice
+  // 2026-10-23). A fetched face is ONE static file, and it was declared
+  // `font-weight:100 900`, claiming it covers every weight. It is now declared
+  // at the weight the Worker fetched. A weight we were not told (an older
+  // Worker, a key that is not a CSS weight) is left undeclared, which the
+  // browser reads as `normal`: never the full range again, and never a guess.
+  const weightOf = (id) => {
+    const w = weights && typeof weights === "object" && Object.hasOwn(weights, id) ? weights[id] : null;
+    return typeof w === "string" && /^[1-9]00$/.test(w) ? `font-weight:${w};` : "";
+  };
   const addFace = (f) => {
     if (!f || f.source !== "fetch") return;
     const file = fetched[f.id];
@@ -389,7 +399,7 @@ export function fontCss(pair, fetched = {}, pages = [], extra = []) {
     seen.add(f.id);
     faces.push(
       `@font-face{font-family:"${f.family}";src:url("${file}") format("woff2");` +
-      `font-weight:100 900;font-style:normal;font-display:swap;}`,
+      `${weightOf(f.id)}font-style:normal;font-display:swap;}`,
     );
   };
   const addFaces = (p) => { for (const slot of ["heading", "body"]) addFace(p && p[slot]); };

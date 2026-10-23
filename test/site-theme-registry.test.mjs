@@ -21,6 +21,7 @@ import { readSchemaTool } from "./integration/schema-tool.mjs";
 import { ALL_THEMES, THEME_IDS, THEME_SHORTLIST, resolveTheme, themeFontPair } from "../builder/site-theme-registry.mjs";
 import { SHORTLIST } from "../builder/site-fonts.mjs";
 import { mergeLook, keepsValue, EDIT_FIELDS } from "../builder/site-edit.mjs";
+import { paletteFor, contrast, themeCss } from "../builder/site-theme.mjs";
 
 const ROOT = path.join(import.meta.dirname, "..");
 const worker = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
@@ -176,4 +177,45 @@ test("the stored theme reaches the build path, the payloads, and the resume reco
   // The spine reads it off the stored look, so a typo fix keeps the theme.
   assert.match(worker, /theme: \(look && look\.theme\) \|\| undefined,/,
     "the cheap-edit spine no longer carries the stored theme — a typo fix republishes plain");
+});
+
+/* ── every theme's button label is readable (audit A34-2, #207) ───────────── */
+
+// The engine's own pair invariant (test/site-theme.test.mjs) runs over the two
+// shipped themes and a fixture. Production resolves all 500, and 115 of them
+// shipped a button label below 4.5:1 in light mode (ballet 3.85, vaporwave
+// 3.47). The kit Button is `text-sm font-medium`, normal text under WCAG, so
+// 4.5:1 is the bar. The owner's choice (2026-10-23): move each failing theme's
+// light accent by the smallest lightness step that clears it.
+test("every registry theme's button label clears 4.5:1, in both modes, in the palette and in the shipped css", () => {
+  const failures = [];
+  let checked = 0;
+  const lastRoot = (css, token) => {
+    let v = null;
+    for (const m of css.matchAll(/(^|\n)\s*:root\s*\{([^}]*)\}/g)) {
+      const d = new RegExp("--" + token + ":\\s*oklch\\(([\\d.]+) ([\\d.]+) ([\\d.]+)\\)").exec(m[2]);
+      if (d) v = d.slice(1, 4).map(Number);
+    }
+    return v;
+  };
+  for (const name of THEME_IDS) {
+    const t = ALL_THEMES[name];
+    for (const mode of ["light", "dark"]) {
+      const p = paletteFor(t, mode);
+      for (const [bg, fg] of [["primary", "primary-foreground"], ["sidebar-primary", "sidebar-primary-foreground"]]) {
+        const r = contrast(p[bg], p[fg]);
+        if (!(r >= 4.5)) failures.push(`${name}/${mode}: ${fg} on ${bg} is ${r.toFixed(2)}:1`);
+      }
+    }
+    const css = themeCss(t);
+    const a = lastRoot(css, "primary"), b = lastRoot(css, "primary-foreground");
+    assert.ok(a && b, `${name}: the shipped css carries no :root --primary pair to measure`);
+    const r = contrast(a, b);
+    if (!(r >= 4.5)) failures.push(`${name}/css: --primary-foreground on --primary is ${r.toFixed(2)}:1`);
+    checked++;
+  }
+  // The observer was alive: every theme in the registry, not an empty loop.
+  assert.equal(checked, THEME_IDS.length);
+  assert.ok(checked >= 500, `only ${checked} themes checked`);
+  assert.deepEqual(failures, []);
 });
