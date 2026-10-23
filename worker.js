@@ -24321,6 +24321,11 @@ async function resumeRequestPart(env, ctx, { uid, slug, key, out, waiting, ask, 
     for (let k = 0; k < 6 && !rec; k++) {
       const at = await loadRequest(env, slug, rkey);
       if (!at.rec || at.rec.uid !== uid || !at.etag) return { failed: true };
+      // AN ANSWER TO A QUESTION THE PART NO LONGER WAITS ON (2026-10-23, audit
+      // A35-4): a stale copy left in the slot while the part moved on to its
+      // next question. It never resumes the part with words meant for another.
+      const was = at.rec.parts[n];
+      if (was && was.status === "waiting" && was.question && was.question.id !== waiting.id) { gone = at.rec; break; }
       const next = out.intent === "clarify"
         ? askedAgain(at.rec, n, { ask: { ...(out.question || {}), request: waiting.request, stage: "route", round: waiting.round + 1 }, context: ask.context })
         : answerPart(at.rec, n, { routed: out, resume: waiting.request, context: ask.context, round: waiting.round });

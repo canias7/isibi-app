@@ -528,6 +528,32 @@ test("C5 — a part's question nobody answers for a day expires, as the question
   });
 });
 
+// AN ANSWER TO A QUESTION ITS PART NO LONGER WAITS ON (2026-10-23, audit
+// A35-4): a stale copy in the slot, the part on to its next question; the
+// answer resumed the part with words meant for the other question.
+test("C4c — an answer to a question its part has moved on from never resumes the part", async () => {
+  const QD = { text: "Which word should lead — overnight or slow?", options: ["Overnight", "Slow"] };
+  await withPlatform({
+    slug: slugOf("c4c"),
+    answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }, { intent: "edit", layer: "look", answered: true }], ...DESCRIBE, "lane:description": { question: QD }, ...GALLERY },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    await settle(P, r.key);
+    const q = P.question();
+    assert.equal(q.requestKey, r.key);
+    // THE PART IS NOW ON ANOTHER QUESTION; THE SLOT STILL HOLDS THE OLD ONE.
+    const rec = P.record(r.key);
+    assert.equal(rec.parts[0].question.id, q.id);
+    const Y = "e".repeat(32);
+    rec.parts[0].question = { ...rec.parts[0].question, id: Y };
+    await P.bucket.put("requests/" + P.slug + "/" + r.key + ".json", JSON.stringify(rec));
+    await sendMessage(P, { message: "Overnight", ask: { id: q.id, chosen: true } });
+    const after = P.record(r.key).parts[0];
+    assert.equal(after.status, "waiting", "the part was resumed by an answer to a question it no longer waits on");
+    assert.equal(after.question && after.question.id, Y);
+  });
+});
+
 // A CANCEL WHOSE REQUEST READ FAILS (2026-10-23, audit A35-4): one thrown read
 // ended the loop, the part kept waiting, and the reply still said cancelled.
 for (const reads of [1, 6]) {
