@@ -95,7 +95,7 @@ export const DESIGN_WAVES = [
       // THE LOOK, AND THE TWO DRAWINGS. Needs `brand` (the marks draw it) and
       // `kind` (a tool's front page is the tool). This is the agent that was
       // making the plan wait.
-      fields: ["theme", "css", "wordmark", "favicon"],
+      fields: ["theme", "css", "wordmark", "logo", "favicon"],
     },
   ],
   [

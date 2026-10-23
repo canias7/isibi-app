@@ -51,6 +51,11 @@ const bare = (src) => src.replace(/^\s*(?:\/\/|\*|\/\*)[^\n]*$/gm, (m) => " ".re
 // `webQueries` decide whether writing a site's COPY needs a search, which is a
 // property of a build and nothing a customer asks to change afterwards.
 const WEB = ["needsWeb", "webQueries"];
+// `logo` (audit A26-4, the owner's choice 2026-10-23) names an ATTACHMENT, not a
+// part of the look: the build stores that file and sets the image `wordmark`
+// from it, and a later change to the logo is the logo rung's, with the file
+// attached. It has no lane on purpose, so it is excluded by name here.
+const ATTACHMENT_ONLY = ["logo"];
 
 // THE NAME HAS DRIFTED TWICE AND IS NOW DERIVED FROM NOTHING, so it says the
 // number out loud and the assertions below say it again. It read "EIGHTEEN"
@@ -60,7 +65,10 @@ const WEB = ["needsWeb", "webQueries"];
 test("the two paths cover the same TWENTY-ONE fields — asserted both ways", async () => {
   const { tool } = await readSchemaTool();
   const all = Object.keys(tool.input_schema.properties);
-  const designed = all.filter((k) => !WEB.includes(k));
+  const designed = all.filter((k) => !WEB.includes(k) && !ATTACHMENT_ONLY.includes(k));
+  for (const k of ATTACHMENT_ONLY) {
+    assert.ok(all.includes(k), "`" + k + "` is gone from the design tool, so excluding it here excludes nothing");
+  }
 
   for (const k of WEB) {
     assert.ok(all.includes(k), "`" + k + "` is gone from the design tool, so excluding it here excludes nothing");

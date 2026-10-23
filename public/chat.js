@@ -16156,7 +16156,11 @@ function siteSend(text, leaveDraft) {
         if (!r.ok) { if (typeof sbToast === 'function') sbToast(r.error); return; }
         // THE SAME WORDS, sent again from the composer (only reached when
         // `leaveDraft` is false), now carrying the files' library addresses.
+        // ANOTHER PROJECT OPENED WHILE THE MOVE WAS OUT (one busy state per
+        // project, #138): the words are that project's, so they are not sent
+        // here, and the owner is told rather than left wondering.
         if (siteOpenId === owner) siteSend(t);
+        else if (typeof sbToast === 'function') sbToast('Your files are now in that site’s library — open it and send your message again.');
       });
       return;
     }

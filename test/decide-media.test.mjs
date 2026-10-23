@@ -89,6 +89,23 @@ test("the composer moves draft chips before an edit is sent", () => {
   assert.ok(move > 0 && line > move, "the draft move does not come before the message is composed");
 });
 
+// DECIDE-ALL (2026-10-23): with one busy state per project (#138), the owner
+// can open another project while the move is out. The words are then not sent
+// (they belong to the project the files moved into), and that must be said,
+// not dropped without a word.
+test("a move that lands after the owner opened another project says the message was not sent", () => {
+  const src = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  const at = src.indexOf("function siteSend(");
+  assert.ok(at > 0);
+  const body = src.slice(at, src.indexOf("\nfunction ", at + 10));
+  const move = body.indexOf("SiteMedia.adopt(");
+  assert.ok(move > 0, "the draft move is gone");
+  const after = body.slice(move, body.indexOf("return;\n    }", move));
+  const resend = after.indexOf("siteOpenId === owner");
+  assert.ok(resend > 0, "the resend is no longer tied to the project the files moved into");
+  assert.match(after.slice(resend), /else[\s\S]{0,80}sbToast\(/, "a move landing on another open project drops the message without a word");
+});
+
 // ── 22 (#162, A25-1): a photo attached to a message is stored and offered first
 import { jobBody } from "../builder/request.mjs";
 import { storeAttachedPhotos, attachedFirst } from "../builder/attached-photos.mjs";

@@ -65,6 +65,10 @@ test("SB1 THE BLOCKED CARD NAMES THE CHANGE AND OFFERS SET ASIDE AND NOT NOW; SE
     await page.click("#spSetAside");
     await page.waitForFunction(() => window.sent.length === 1);
     assert.deepEqual(await page.evaluate(() => window.sent), [{ url: "/api/site/fold-lane-bakery/publish/set-aside", body: { revision: 3 } }]);
+    // THE TOAST FOLLOWS THE ANSWER, a tick after the request is recorded; under
+    // a full suite's load that tick was missed (decide-all, 2026-10-23), so it
+    // is waited for, not sampled.
+    await page.waitForFunction(() => window.toasts.length > 0, null, { timeout: 5000 }).catch(() => {});
     assert.match((await page.evaluate(() => window.toasts)).join(" "), /1 change was set aside/);
   } finally { await b.close(); }
   // NOT NOW: the panel closes and nothing is sent.

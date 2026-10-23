@@ -141,7 +141,10 @@ export const DESIGN_GRAPH = [
     // that read against the theme you just picked", and that half is dropped:
     // it is contrast only, and the field names its own safe answer, "a plate
     // behind the letters is the safe shape".
-    fields: ["wordmark"],
+    // `logo` (audit A26-4, 2026-10-23) is the customer's attached logo, named
+    // by its attachment id; it stands in place of the drawn mark, so the agent
+    // deciding the mark is the one that names it.
+    fields: ["wordmark", "logo"],
     needs: ["identity"],
   },
   {

@@ -34866,7 +34866,7 @@ async function handleRequest(request, env, ctx) {
       // 2026-10-23): video or audio attached before the site existed is moved
       // into its library before the edit is sent.
       const mad = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/media\/adopt$/i);
-      const xp =url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/export$/i);
+      const xp = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/export$/i);
       const nt = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/notify$/i);
       // Off the web and back, at the same address. The panel had an Unpublish
       // button for months that POSTed `/api/site/unpublish` — a route with ZERO
