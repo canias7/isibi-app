@@ -289,6 +289,42 @@ test("C2 — a step asks while an independent part continues; a part that needs 
   });
 });
 
+// A STOPPED PART'S QUESTION LEAVES THE SLOT (2026-10-23, audit A35-3): Stop
+// cancelled the waiting part and left its question pending for a day, so the
+// next message was taken as its answer, routed and charged, with nothing to
+// resume. It is closed as cancelled, and an answer to it is refused free.
+test("A35-3 — Stop on a request whose part waits on a question closes the question; an answer sent to it is refused before routing, at no cost", async () => {
+  const QD = { text: "Which word should lead — overnight or slow?", options: ["Overnight", "Slow"] };
+  await withPlatform({
+    slug: slugOf("a353"),
+    answers: {
+      route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }, { intent: "edit", layer: "look", answered: true }],
+      [T.pick]: [{ fields: ["description"], scopes: [{ part: "description", words: DESC }] }],
+      "lane:description": { question: QD },
+      ...{ [T.adds]: GALLERY[T.adds], "add:page": GALLERY["add:page"], [T.pages]: GALLERY[T.pages] },
+    },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    const s1 = await settle(P, r.key);
+    assert.equal(s1.rec.parts[0].status, "waiting", JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why])));
+    const q = P.question();
+    assert.equal(q.status, "pending");
+    assert.equal(q.part, 0);
+    const stop = await call(P, "DELETE", "/api/site/request/" + P.slug + "/" + r.key);
+    assert.equal(stop.status, 200, JSON.stringify(stop.body));
+    const s2 = await settle(P, r.key);
+    assert.equal(s2.rec.parts[0].status, "cancelled");
+    assert.equal(P.question().id, q.id);
+    assert.equal(P.question().status, "cancelled", "the stopped part's question is still live in the slot");
+    const calls = P.modelLog.length;
+    const spent = P.spent();
+    const a = await sendMessage(P, { message: "Overnight", ask: { id: q.id, chosen: true } });
+    assert.equal(a.body.error, "stale-question", JSON.stringify(a.body));
+    assert.equal(P.modelLog.length, calls, "the answer to a stopped part's question was routed");
+    assert.equal(P.spent(), spent, "the answer to a stopped part's question was charged");
+  });
+});
+
 // ─── CLARIFY AND RESUME, CONSOLIDATED (2026-10-13, after run 150) ──────────
 //
 // The owner: *"prepare one consolidated, image-free clarification/resume test

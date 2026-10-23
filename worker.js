@@ -22742,6 +22742,7 @@ async function offerRequestQuestions(env, rec, etag) {
   let tag = etag;
   try {
     const { record: live } = await loadAsk(env.SITES_BUCKET, rec.slug);
+    await closeOrphanQuestion(env, cur, live);
     for (const p of questionsToOffer(cur, live)) {
       const q = p.question;
       const ask = packAsk({
@@ -22759,6 +22760,26 @@ async function offerRequestQuestions(env, rec, etag) {
     }
   } catch (e) { console.error("request question:", rec.slug, errorClassForLog(e)); }
   return { rec: cur, etag: tag };
+}
+
+/**
+ * A PART'S QUESTION WHOSE PART NO LONGER WAITS ON IT, TAKEN OUT OF THE SLOT
+ * (2026-10-23, audit A35-3/A35-4). A Stop, a part past its day, or an answer
+ * whose resume landed after an older advance had offered the question again
+ * left it pending there for a day: its next answer was routed and charged
+ * with nothing to resume, and every other question queued behind it. Closed
+ * as cancelled, so an answer to it is refused before routing, at no cost.
+ * ONLY ONCE ITS PART HAS ENDED: a waiting part's answer whose resume did not
+ * save waits on it again, a follow-up is written over it in the slot before
+ * the part records it (`replaceAsk`), and a running part's job puts its own
+ * question in the slot before its part is told it waits.
+ */
+async function closeOrphanQuestion(env, rec, live) {
+  if (!live || live.status !== "pending" || live.requestKey !== rec.key || !Number.isInteger(live.part)) return;
+  const p = rec.parts[live.part];
+  if (p && !REQ_PART_TERMINAL.includes(p.status)) return;
+  try { await closeAsk(env.SITES_BUCKET, { slug: rec.slug, id: live.id, uid: rec.uid, status: "cancelled" }); }
+  catch (e) { console.error("request question close:", rec.slug, errorClassForLog(e)); }
 }
 
 // ── A PART'S PREPARATION (2026-10-08, the parallel-tasks batch) ─────────────
