@@ -1,5 +1,15 @@
 # Owner Notes
 
+## 2026-10-23 — Your choices for audit findings 20–25 (photos, logo, video, menus, QR codes; not merged, not deployed)
+
+- **20**: a video or recording attached before the site existed is now moved into the site's library before the message goes out as an edit, so the edit can use it. If the move fails, nothing is sent and the chat says why.
+- **21**: kept as is, as you chose.
+- **22**: a photo attached to a message is stored with the site and listed first to the picture step, so "use this photo" places your photo instead of buying one.
+- **23**: a logo attached to the first build goes in the header when the designer names it as the logo. If it can't be placed, the reply tells the customer to send it again now as a logo change.
+- **24**: a menu change about one page ("on the status page, take Home out of the menu") now changes only that page's menu. A page the site doesn't have is refused by name.
+- **25**: "forget the old address" now refuses while any of the site's own QR codes still open that address, and names those codes.
+- Records: `docs/history/2026-10-23-decide-media.md`. Branch `decide-g-media`. Nothing spent.
+
 
 
 ## 2026-10-23 — The five decided fixes combined on one branch (not merged, not deployed)

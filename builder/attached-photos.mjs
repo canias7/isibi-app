@@ -159,3 +159,59 @@ export function ownPhotoSentence(facts, { state = "stopped" } = {}) {
   for (const m of facts.missing) bits.push("I couldn't put " + m.name + " on " + m.page + ": " + m.reason + ".");
   return bits.join(" ");
 }
+
+/**
+ * A PHOTO ATTACHED TO AN EDIT, STORED AND OFFERED FIRST TO THE PICTURE STEP
+ * (audit A25-1, #162; owner, 2026-10-23). Every image the message carries is
+ * stored as an owner upload (`store(name, bytes)` → `{url}` or `{error}`,
+ * `storeOwnPhoto`) and answered as a library entry marked `attached`, so the
+ * picture step lists it first and can place it instead of buying one. What
+ * could not be stored is answered in `missing`, with why. Never throws.
+ */
+export async function storeAttachedPhotos(images, named, store) {
+  const bytes = attachedImageBytes(images, named);
+  const files = [], missing = [];
+  for (const f of bytes.values()) {
+    let r;
+    try { r = await store(f.name, f.bytes); } catch (err) { r = { error: String((err && err.message) || err).slice(0, 120) }; }
+    if (!r || typeof r.url !== "string" || !r.url) { missing.push({ name: f.name, reason: (r && r.error) || "it could not be stored" }); continue; }
+    const stored = r.url.split("/").pop();
+    if (stored) files.push({ name: stored, url: r.url, attached: true, from: f.name });
+  }
+  return { files, missing };
+}
+
+/**
+ * A LOGO ATTACHED TO A FIRST BUILD, INTO THE HEADER (audit A26-4, #168; owner,
+ * 2026-10-23). The design step names the attachment that is the customer's
+ * logo (`logo`, its id); it is stored as an owner upload and answered as the
+ * header mark's image form. Answers `{ wordmark, name }` or `{ missing:
+ * { name, reason } }`, or null when no logo was named. Never throws.
+ */
+export async function placeAttachedLogo(ref, files, named, store) {
+  if (typeof ref !== "string" || !ref.trim()) return null;
+  const which = resolveAttached(ref, named);
+  if (!which.ok) return { missing: { name: ref.trim().slice(0, 80), reason: which.reason } };
+  const file = attachedImageBytes(files, named).get(which.file.id);
+  if (!file) return { missing: { name: which.file.name, reason: "that attachment is not an image" } };
+  let r;
+  try { r = await store(file.name, file.bytes); } catch (err) { r = { error: String((err && err.message) || err).slice(0, 120) }; }
+  if (!r || typeof r.url !== "string" || !r.url) return { missing: { name: file.name, reason: (r && r.error) || "it could not be stored" } };
+  return { wordmark: { form: "image", url: r.url }, name: file.name };
+}
+
+/** What the build's reply says about an attached logo: placed, or send it again now as a logo change. */
+export function ownLogoSentence(r) {
+  if (!r) return "";
+  if (r.wordmark) return "Your logo " + r.name + " is in the header.";
+  const m = r.missing || {};
+  return "I couldn't put " + (m.name || "your logo") + " in the header" + (m.reason ? " (" + m.reason + ")" : "") +
+    " — send it again now as a logo change, for example “use this as my logo” with the file attached, and I'll put it there.";
+}
+
+/** The library with the message's own photos first, each once. */
+export function attachedFirst(attachedFiles, library) {
+  const first = (Array.isArray(attachedFiles) ? attachedFiles : []).filter((f) => f && f.name);
+  const seen = new Set(first.map((f) => f.name));
+  return [...first, ...(Array.isArray(library) ? library : []).filter((f) => f && f.name && !seen.has(f.name))];
+}

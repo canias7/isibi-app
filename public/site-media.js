@@ -286,7 +286,49 @@
     });
   }
 
-  var api = { isMedia: isMedia, kindOf: kindOf, upload: upload, confirm: confirm, fingerprint: fingerprint, PART_TRIES: PART_TRIES, CHECK_TRIES: CHECK_TRIES, RECORD_MS: RECORD_MS };
+  /**
+   * DRAFT FILES INTO A SITE THAT NOW EXISTS (audit A10-4, #115; owner,
+   * 2026-10-23). A file attached before the site existed is kept for the
+   * account; when the message goes as an edit, it is moved into the site's
+   * library first (`POST /api/site/<slug>/media/adopt`) and named with its
+   * library address. `adopt(slug, chips, post)` moves every ready draft chip;
+   * `post(path, body)` answers `{ status, body }`. It answers `{ ok: true }`
+   * with each moved chip now a library file, or `{ ok: false, error }` with
+   * the sentence to show and nothing sent; a chip that was moved stays moved.
+   */
+  function adopt(slug, chips, post) {
+    var drafts = (chips || []).filter(function (c) { return c && c.draft && c.state === "done" && c.ref; });
+    if (!drafts.length) return Promise.resolve({ ok: true, moved: 0 });
+    var path = "/api/site/" + encodeURIComponent(slug) + "/media/adopt";
+    return Promise.resolve().then(function () {
+      return post(path, { files: drafts.map(function (c) { return c.ref; }) });
+    }).then(function (r) {
+      var b = (r && r.body) || {};
+      if (!r || r.status !== 200 || b.ok !== true) {
+        return { ok: false, error: "I couldn’t move your file into this site’s library just now, so nothing was sent — try again in a moment." };
+      }
+      var placed = Array.isArray(b.placed) ? b.placed : [];
+      var moved = 0;
+      drafts.forEach(function (c) {
+        var p = placed.filter(function (f) { return f && f.file === c.ref; })[0];
+        if (p) { c.draft = false; c.url = p.url || ""; c.base = "/api/site/" + encodeURIComponent(slug) + "/media"; moved++; }
+      });
+      var left = drafts.filter(function (c) { return c.draft; });
+      if (left.length) {
+        var miss = Array.isArray(b.missing) ? b.missing : [];
+        var said = left.map(function (c) {
+          var m = miss.filter(function (x) { return x && x.file === c.ref; })[0];
+          return "“" + c.name + "”" + (m && m.why ? " (" + m.why + ")" : "");
+        }).join(", ");
+        return { ok: false, moved: moved, error: "I couldn’t move " + said + " into this site’s library, so nothing was sent — attach " + (left.length > 1 ? "them" : "it") + " again." };
+      }
+      return { ok: true, moved: moved };
+    }, function () {
+      return { ok: false, error: "I couldn’t move your file into this site’s library just now, so nothing was sent — try again in a moment." };
+    });
+  }
+
+  var api = { isMedia: isMedia, kindOf: kindOf, upload: upload, confirm: confirm, adopt: adopt, fingerprint: fingerprint, PART_TRIES: PART_TRIES, CHECK_TRIES: CHECK_TRIES, RECORD_MS: RECORD_MS };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.SiteMedia = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);

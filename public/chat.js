@@ -4217,6 +4217,7 @@ window.addEventListener('popstate', () => {
 });
 let siteDevice = 'desktop'; // preview viewport: desktop | tablet | phone
 let siteBusy = false;       // a build/revision is "running" (sample: brief delay)
+let siteMediaMoving = false; // draft video/audio being moved into the site's library before an edit is sent (#115)
 // WHOSE BUSY STATE IT IS (audit A15-6, 2026-10-23): the project that set
 // `siteBusy`. Its live steps and Stop are drawn only there (`siteBusyHere`),
 // and Stop elsewhere stops nothing; another project says why it cannot send.
@@ -12080,7 +12081,7 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
       // picture, and there is nothing else to resolve it against. Sent on that
       // layer alone so no other edit carries a megabyte of base64 it will not
       // read.
-      images: d.layer === 'logo' && Array.isArray(imgs) && imgs.length ? imgs.slice(0, 3) : undefined,
+      images: (d.layer === 'logo' || d.layer === 'picture') && Array.isArray(imgs) && imgs.length ? imgs.slice(0, 3) : undefined,
       // THE RETRY KEY. Ignored entirely while the async flag is off, which is
       // what keeps the synchronous path byte-identical.
       idem: idem,
@@ -16073,6 +16074,26 @@ function siteSend(text, leaveDraft) {
     if (md.some((m) => m.state === 'up')) { if (typeof sbToast === 'function') sbToast('Your file is still uploading \u2014 send once it says ready.'); return; }
     if (md.some((m) => m.state === 'unsure')) { md.filter((m) => m.state === 'unsure').forEach((m) => mediaRecheck(m, 6)); if (typeof sbToast === 'function') sbToast('Still confirming your file finished uploading \u2014 send once it says ready.'); return; }
     const ready = md.filter((m) => m.state === 'done' && m.ref);
+    // A FILE KEPT BEFORE THE SITE EXISTED, SENT NOW AS AN EDIT (audit A10-4,
+    // #115): moved into the site's library first, then the message goes with
+    // its library address. Nothing is sent while the move is out or failed.
+    if (site.slug && sitePages(site).length && !site.clarify && ready.some((m) => m.draft)) {
+      if (siteMediaMoving) return;
+      siteMediaMoving = true;
+      const owner = siteOpenId;
+      SiteMedia.adopt(site.slug, ready, async (path, body) => {
+        const res = await apiFetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        return { status: res.status, body: await res.json().catch(() => null) };
+      }).then((r) => {
+        siteMediaMoving = false;
+        paintAttachStrip();
+        if (!r.ok) { if (typeof sbToast === 'function') sbToast(r.error); return; }
+        // THE SAME WORDS, sent again from the composer (only reached when
+        // `leaveDraft` is false), now carrying the files' library addresses.
+        if (siteOpenId === owner) siteSend(t);
+      });
+      return;
+    }
     if (ready.length) {
       t = t + '\n\n' + ready.map(mediaRefLine).join('\n');
       const drafts = ready.filter((m) => m.draft).map((m) => m.ref);

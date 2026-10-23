@@ -860,10 +860,15 @@ export function pictureDigest(slots, library) {
     for (const s of list) out.push("  \"" + s.alt + "\"" + (isEmptySlot(s) ? "   (empty — no picture yet)" : ""));
   }
   if (!out.length) out.push("(this site has no picture slots at all)");
-  const files = (Array.isArray(library) ? library : []).filter((f) => f && f.name).slice(0, 60);
+  // A PHOTO ATTACHED TO THIS MESSAGE COMES FIRST (audit A25-1, #162), marked,
+  // so "use this photo" places the owner's own picture rather than a bought one.
+  const all = (Array.isArray(library) ? library : []).filter((f) => f && f.name);
+  const files = [...all.filter((f) => f.attached === true), ...all.filter((f) => f.attached !== true)].slice(0, 60);
   out.push("");
   out.push(files.length
-    ? "PHOTOGRAPHS THE OWNER HAS UPLOADED\n" + files.map((f) => "  " + f.name).join("\n")
+    ? "PHOTOGRAPHS THE OWNER HAS UPLOADED\n" + files.map((f) => "  " + f.name + (f.attached === true
+      ? "   (ATTACHED TO THIS MESSAGE" + (f.from ? " as \"" + String(f.from).replace(/"/g, "'").slice(0, 80) + "\"" : "") + " — the photo they mean when they say \"this photo\" or \"my own photo\"; use it before describing a new one)"
+      : "")).join("\n")
     : "PHOTOGRAPHS THE OWNER HAS UPLOADED\n  (none yet)");
   return out.join("\n");
 }
