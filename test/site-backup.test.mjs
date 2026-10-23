@@ -284,6 +284,9 @@ test("A38-7 (2026-10-23) EVERY SITE IS BACKED UP — the dump opens the database
   assert.equal(/siteBackendBySlug\(/.test(deps), false, "the backup still opens the database with the fast lookup alone");
   assert.equal(/no backend connection/.test(deps), false, "a site with no database still fails every tick");
   assert.match(dump, /if \(!conn\) return dumpSite\(\{ loadSchema: async \(\) => null/);
+  // ONLY A SITE WITH NO DATABASE IS TABLE-LESS (2026-10-23, review of r2-combine):
+  // a database with no derivable connection throws, so the day is retried.
+  assert.match(dump, /if \(!conn && \(await siteBackendDetail\(env, slug\)\)\.state !== "none"\) throw /);
   const l0 = deps.indexOf("listSites:"); const l1 = deps.indexOf("exists:");
   assert.ok(l0 > 0 && l1 > l0, "the listSites landmarks");
   const list = deps.slice(l0, l1);

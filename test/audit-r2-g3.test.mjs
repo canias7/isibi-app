@@ -24,7 +24,7 @@ test("A33-5 a restore keeps the live address, not the restored version's old nam
   assert.ok(rs > 0 && rsEnd > rs, "restoreVersion landmarks");
   assert.match(worker.slice(rs, rsEnd), /sidecar: await withShareHost\(env, slug, await withPanelFields\(deps, slug, [^\n]*, \{ origin: true \}\)\), sidecarKey/,
     "restoreVersion does not carry the live address (or the share picture's host)");
-  assert.match(worker, /async function withShareHost\(env, slug, sidecar\) \{[\s\S]{0,200}rehostShareImage\(sd, await publicNameFor\(env, slug\)\);/);
+  assert.match(worker, /async function withShareHost\(env, slug, sidecar\) \{[\s\S]{0,200}rehostShareImage\(sd, await publicNameFor\(env, slug, \{ fresh: true \}\)\);/);
   // Back online is this same function.
   assert.match(worker, /rollback: \(\{ slug, id \}\) => restoreVersion\(env, slug, id\),/);
 });
@@ -52,7 +52,7 @@ test("A33-8 the share picture is built on the public name's host and follows a r
   assert.ok(at > 0 && body.length > 500, "siteOgImage landmarks");
   assert.match(body, /const base = await shareOriginFor\(env, slug\);/);
   assert.doesNotMatch(body, /siteOrigin\(slug/, "a share URL is still built on the storage slug's host");
-  assert.match(worker, /async function shareOriginFor\(env, slug\) \{\n  const host = siteHostFor\(await publicNameFor\(env, slug\)\);/);
+  assert.match(worker, /async function shareOriginFor\(env, slug\) \{\n[\s\S]{0,160}const host = siteHostFor\(await publicNameFor\(env, slug, \{ fresh: true \}\)\);/);
   // Every place a rename writes the live address moves the picture with it.
   assert.equal((worker.match(/\.origin = addressOf\(([\w.]+)\);(?: |\n\s*)rehostShareImage\(\w+, \1\);/g) || []).length, 3,
     "a rename writes the address without moving the share picture");

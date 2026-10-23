@@ -310,7 +310,7 @@
     --input: oklch(0.45 0 0);
     --ring: oklch(0 0 0);
   }
-  html.dark {
+  html.dark, html .dark {
     --foreground: oklch(1 0 0);
     --card-foreground: oklch(1 0 0);
     --popover-foreground: oklch(1 0 0);

@@ -410,8 +410,11 @@ test("a shared link's preview image is on the SITE's domain, not the platform's"
   // edit could share it — a correct change failing a test about which side of an
   // equals sign the expression sits on. What matters is that the URL is built
   // from the SITE's origin, wherever that happens.
-  assert.match(w, /siteOrigin\(slug, "https:\/\/" \+ APP_ZONE\) \+ "\/u\/"/,
-    "the preview image is not built from the site's own origin");
+  // RE-ANCHORED 2026-10-23 (audit A33-8): the host is the site's PUBLIC
+  // name's (`shareOriginFor`), falling back to the storage slug's site origin
+  // — still the site's own domain, never the platform's.
+  assert.match(w, /const base = await shareOriginFor\(env, slug\);/, "the preview image is not built from the site's own origin");
+  assert.match(w, /return host \? "https:\/\/" \+ host : siteOrigin\(slug, "https:\/\/" \+ APP_ZONE\);/, "the share host's fallback is not the site's own origin");
   // …and that BOTH publish paths get one, plus the share picker's sidecar
   // recompute (2026-08-28) — the third reader, which re-derives the preview
   // through the same function rather than composing its own copy of the

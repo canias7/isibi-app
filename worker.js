@@ -2993,7 +2993,11 @@ function backupDeps(env) {
       // up and was re-tried every tick. Unreadable throws (retried); a site
       // with no database is written as a table-less backup, like any site
       // with nothing declared, so it is not looked up again all night.
+      // ONLY STATE `none` IS TABLE-LESS (review of r2-combine): a database
+      // that exists but derives no connection (its project row missing) is a
+      // failure to retry, never an empty backup that blocks the day's real one.
       const conn = await ownerSiteConn(env, slug);
+      if (!conn && (await siteBackendDetail(env, slug)).state !== "none") throw new Error("site database has no connection to back up");
       if (!conn) return dumpSite({ loadSchema: async () => null, readTable: async () => [], readMeta: async () => ({}) }, { slug, now: Date.now() });
       return dumpSite({
         loadSchema: () => loadSiteSchema(conn),
@@ -12358,10 +12362,10 @@ async function aliasRowFor(env, label, { fresh = false } = {}) {
  * say a new name for. Both answer the slug, and both are right — the difference
  * between them is invisible here and matters nowhere else.
  */
-async function publicNameFor(env, slug) {
+async function publicNameFor(env, slug, { fresh = false } = {}) {
   const s = typeof slug === "string" ? slug.toLowerCase() : "";
   if (!s || !env.SUPABASE_SERVICE_KEY) return s;
-  const hit = aliasCurrent.get(s);
+  const hit = fresh ? null : aliasCurrent.get(s);
   if (hit) return hit === NO_ALIAS ? s : hit;
   try {
     const r = await fetch(
@@ -12405,7 +12409,8 @@ async function publicUrlFor(env, slug) {
  * rename changes the address without a publish.
  */
 async function shareOriginFor(env, slug) {
-  const host = siteHostFor(await publicNameFor(env, slug));
+  // FRESH (review of r2-combine): a publish just after a rename must not take the old name from the 5-minute cache.
+  const host = siteHostFor(await publicNameFor(env, slug, { fresh: true }));
   return host ? "https://" + host : siteOrigin(slug, "https://" + APP_ZONE);
 }
 /** A restored version's sidecar text with its share picture on the current name's host. */
@@ -12414,7 +12419,7 @@ async function withShareHost(env, slug, sidecar) {
   try {
     const sd = JSON.parse(sidecar);
     const was = sd && sd.image;
-    rehostShareImage(sd, await publicNameFor(env, slug));
+    rehostShareImage(sd, await publicNameFor(env, slug, { fresh: true }));
     return sd.image === was ? sidecar : JSON.stringify(sd);
   } catch { return sidecar; }
 }
