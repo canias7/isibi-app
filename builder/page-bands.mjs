@@ -1507,3 +1507,142 @@ export function assembleBands({ route, chrome, bands, taken, app = false, frame 
   const source = imports.join("\n") + "\n\n" + pageShell({ route, chrome, names, app, ...(framed ? { frame: framed } : {}) }) + "\n";
   return { source: dedupeImports(source).source, parts, refused };
 }
+
+// ── THE SINGLE-CALL FALLBACK, CHECKED (2026-10-23) ──────────────────────────
+//
+// `ownFallbackDirective` TELLS the one call to write `site-header` and
+// `site-footer` and no `SiteChrome`; nothing made it so. These read what the
+// call answered and, when it wrapped a page in `SiteChrome` or left a frame
+// part out, ask ONE bounded repair turn for exactly the written parts (and the
+// pages that named `SiteChrome`, recomposed). The repair is taken only when
+// its answer leaves nothing to repair; otherwise the call's own answer stands
+// — it compiles either way, the kit is still in the template — and the counts
+// say so on the trace (`fallback` mark).
+
+const FALLBACK_FRAME = [
+  { role: "header", file: "site-header", name: "SiteHeader" },
+  { role: "footer", file: "site-footer", name: "SiteFooter" },
+];
+const CHROME_WORD = /\bSiteChrome\b/;
+
+function partNamed(parts, file) {
+  return (Array.isArray(parts) ? parts : []).find((p) => p && typeof p.name === "string" && p.name.trim().toLowerCase() === file && typeof p.source === "string" && p.source.trim());
+}
+
+/** What the fallback's answer holds: kit imports, files naming `SiteChrome`, and whether each frame part is there. */
+export function fallbackFrameCounts(input) {
+  const pages = input && Array.isArray(input.pages) ? input.pages : [];
+  const parts = input && Array.isArray(input.parts) ? input.parts : [];
+  const files = [...pages, ...parts].filter((f) => f && typeof f.source === "string");
+  const header = !!partNamed(parts, "site-header");
+  const footer = !!partNamed(parts, "site-footer");
+  const siteChrome = files.filter((f) => CHROME_WORD.test(f.source)).length;
+  return { kitImports: kitImportCount(files), siteChrome, header, footer, repair: siteChrome > 0 || !header || !footer };
+}
+
+export const FRAME_REPAIR_TOOL = {
+  name: "repair_frame",
+  description: "Answer the site's written header and footer, and every page that used SiteChrome, rewritten without it.",
+  input_schema: {
+    type: "object",
+    properties: {
+      parts: {
+        type: "array",
+        description: "site-header and site-footer, each COMPLETE: { name, source }.",
+        items: { type: "object", properties: { name: { type: "string" }, source: { type: "string" } }, required: ["name", "source"] },
+      },
+      pages: {
+        type: "array",
+        description: "Each page that used SiteChrome, COMPLETE and composed with SiteHeader and SiteFooter instead: { path, source }. Leave out every other page.",
+        items: { type: "object", properties: { path: { type: "string" }, source: { type: "string" } }, required: ["path", "source"] },
+      },
+    },
+    required: ["parts"],
+  },
+};
+
+/** The exact body of the one repair turn. */
+export function fallbackRepairRequest({ input, counts, directive = "", spec, kind = "", model } = {}) {
+  const c = counts || fallbackFrameCounts(input);
+  const pages = input && Array.isArray(input.pages) ? input.pages : [];
+  const parts = input && Array.isArray(input.parts) ? input.parts : [];
+  const wrong = [];
+  if (c.siteChrome) wrong.push("- A page uses SiteChrome. This site has no SiteChrome: compose each page with SiteHeader and SiteFooter as below, and keep every other line of the page exactly as it is.");
+  if (!c.header) wrong.push("- The header part `site-header` is missing.");
+  if (!c.footer) wrong.push("- The footer part `site-footer` is missing.");
+  const shown = [
+    ...pages.filter((p) => p && typeof p.source === "string" && CHROME_WORD.test(p.source)).map((p) => "THE PAGE " + p.path + "\n" + p.source),
+    ...FALLBACK_FRAME.map((f) => partNamed(parts, f.file)).filter(Boolean).map((p) => "THE PART " + p.name + "\n" + p.source),
+  ];
+  return {
+    model: model || modelsFor().pages,
+    max_tokens: SITE_PAGES_MAX_TOKENS,
+    tools: [FRAME_REPAIR_TOOL],
+    tool_choice: { type: "tool", name: FRAME_REPAIR_TOOL.name },
+    system: [{ type: "text", text: pageRulesFor(spec, kind, { ownParts: true }), cache_control: { type: "ephemeral" } }],
+    messages: [{
+      role: "user",
+      content: "THE SITE YOU WROTE IS MISSING ITS WRITTEN FRAME\n" + wrong.join("\n") +
+        "\n\nAnswer through repair_frame: both parts whole, and each page that used SiteChrome, whole.\n\n" +
+        String(directive || "") + (shown.length ? "\n\n" + shown.join("\n\n") : ""),
+    }],
+  };
+}
+
+/** The repaired answer, or `null` when the repair leaves something to repair. */
+export function readFallbackRepair(reply, input) {
+  const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
+  const use = blocks.find((b) => b && b.type === "tool_use" && b.name === FRAME_REPAIR_TOOL.name);
+  const got = use && use.input && typeof use.input === "object" ? use.input : null;
+  if (!got || reply.stop_reason === "max_tokens") return null;
+  const pages = (input && Array.isArray(input.pages) ? input.pages : []).map((p) => {
+    const r = (Array.isArray(got.pages) ? got.pages : []).find((x) => x && x.path === p.path && typeof x.source === "string" && x.source.trim());
+    return r ? { ...p, source: r.source } : p;
+  });
+  const parts = [...(input && Array.isArray(input.parts) ? input.parts : [])];
+  for (const f of FALLBACK_FRAME) {
+    const r = (Array.isArray(got.parts) ? got.parts : []).find((x) => x && typeof x.name === "string" && x.name.trim().toLowerCase() === f.file && typeof x.source === "string" && x.source.trim());
+    if (!r) continue;
+    const at = parts.findIndex((p) => p && typeof p.name === "string" && p.name.trim().toLowerCase() === f.file);
+    const part = { name: f.file, source: r.source };
+    if (at >= 0) parts[at] = part; else parts.push(part);
+  }
+  const next = { ...input, pages, parts };
+  return fallbackFrameCounts(next).repair ? null : next;
+}
+
+function addUsage(a, b) {
+  if (!a) return b || null;
+  if (!b) return a;
+  return { ...a, in: (a.in || 0) + (b.in || 0), out: (a.out || 0) + (b.out || 0), cacheRead: (a.cacheRead || 0) + (b.cacheRead || 0), cacheWrite: (a.cacheWrite || 0) + (b.cacheWrite || 0) };
+}
+
+/**
+ * The fallback's answer, checked and repaired at most once. NEVER THROWS.
+ * `gen` is `generateSitePages`' answer; `send(req)` makes the one repair call
+ * (same model as the fallback, so the usage adds up on one rate). Answers
+ * `{ gen, counts }` — `gen` with the repaired input and the repair's usage
+ * added when it was taken; `counts` for the trace: the call's own numbers,
+ * `repair` 1 when a turn was asked, `repaired` 1 when it was taken, and the
+ * numbers after.
+ */
+export async function enforceFallbackFrame(gen, { send, directive, spec, kind, model } = {}) {
+  const input = gen && gen.input && typeof gen.input === "object" ? gen.input : null;
+  if (!input) return { gen, counts: null };
+  const before = fallbackFrameCounts(input);
+  const counts = { kitImports: before.kitImports, siteChrome: before.siteChrome, header: before.header ? 1 : 0, footer: before.footer ? 1 : 0, repair: 0, repaired: 0 };
+  if (!before.repair || typeof send !== "function") return { gen, counts };
+  counts.repair = 1;
+  let reply = null;
+  try {
+    reply = await send(fallbackRepairRequest({ input, counts: before, directive, spec, kind, model }));
+  } catch {
+    return { gen, counts };
+  }
+  const used = usageOf(reply, model || modelsFor().pages);
+  const fixed = readFallbackRepair(reply, input);
+  const out = { ...gen, usage: addUsage(gen.usage, used) };
+  if (!fixed) return { gen: out, counts };
+  const after = fallbackFrameCounts(fixed);
+  return { gen: { ...out, input: fixed }, counts: { ...counts, repaired: 1, kitImportsAfter: after.kitImports, siteChromeAfter: after.siteChrome } };
+}

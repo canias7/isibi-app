@@ -316,7 +316,7 @@ test("a page written in pieces leaves a bands step; a page written in one call l
 
   // The single call is BELOW the fan-out's catch and must carry no mark of its
   // own — asserted against the real neighbour rather than by position.
-  const single = between(WCODE, "console.log(\"build: the container would not take a fan-out", "return await generateSitePages(env, briefWithLayout", "the fallback to one call");
+  const single = between(WCODE, "console.log(\"build: the container would not take a fan-out", "const singleAnswer = await generateSitePages(env, briefWithLayout", "the fallback to one call");
   assert.ok(!/mark\?\.\("bands"/.test(single), "the fallback marks the build as split after falling back to the one call");
 
   // AND THE TWO NUMBERS THAT SAY WHETHER THE SPLIT PAID (2026-09-10).

@@ -149,7 +149,7 @@ import { applySiteSchema, loadSiteSchema, readSiteSchema, parseSchemaSpec, norma
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { usageOf as pageUsageOf, PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, partsSent, priorPagesSent, pageId, sceneOn, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
-import { splitPlan, bandRefusal, BAND_MARK, bandMarks, generateSiteBands, ownFallbackDirective } from "./builder/page-bands.mjs";
+import { splitPlan, bandRefusal, BAND_MARK, bandMarks, generateSiteBands, ownFallbackDirective, enforceFallbackFrame } from "./builder/page-bands.mjs";
 import { MAX_MODEL_FANOUT } from "./builder/model-fanout.mjs";
 // THE DESIGN STEP CUT INTO WAVES OF AGENTS (2026-09-10). Plain module, testable
 // outside the Worker: it takes the design tool and the CALLER as arguments
@@ -226,7 +226,7 @@ import { editableFiles, splitEditable, partPath, partNameOf, PART_DIR } from "./
 import { FOUNDATION_FILES } from "./builder/foundation-files.mjs";
 import { runNavEdit, applyAdditions, menuLinksKept } from "./builder/site-nav.mjs";
 import { runLogoEdit } from "./builder/site-logo.mjs";
-import { writtenFrame, ownPartsSite, runFrameEdit } from "./builder/site-frame.mjs";
+import { writtenFrame, ownPartsSite, runFrameEdit, addFrameLinks, FRAME_PARTS } from "./builder/site-frame.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
 import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings, canWriteAccess } from "./site-access.mjs";
@@ -6110,8 +6110,10 @@ function pagesCall(env) {
 // stopped one argument short of the module's signature twice before — the
 // recorded wiring trap, where the value is computed and the hop drops it — so
 // the guard below derives this call's argument list from `genPages`' own.
-const generateSitePages = (env, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null, call = undefined, kind = "", keep = []) =>
-  genPages(keysFrom(env), brief, spec, brand, attachments, model, priorPages, mode, target, budget, call || pagesCall(env), kind, keep);
+// AND THE OPTIONS AFTER `keep` (2026-10-23): `{ ownParts }` was passed by
+// three callers and dropped here, so no page call ever read the own-parts block.
+const generateSitePages = (env, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null, call = undefined, kind = "", keep = [], opts = undefined) =>
+  genPages(keysFrom(env), brief, spec, brand, attachments, model, priorPages, mode, target, budget, call || pagesCall(env), kind, keep, opts);
 
 // HOW MUCH LONGER THE WORKER WAITS THAN THE CONTAINER DOES.
 //
@@ -19490,7 +19492,21 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
           actions: plan && Array.isArray(plan.action) ? plan.action : [],
           notBuilt: plan && Array.isArray(plan.notBuilt) ? plan.notBuilt : [],
         }) : "";
-        return await generateSitePages(env, briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief, media }) + ownTail, spec, brand, attachments, model, priorPages, undefined, undefined, budget, call, plan && plan.kind, [], { ownParts: ownFirst });
+        const singleAnswer = await generateSitePages(env, briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief, media }) + ownTail, spec, brand, attachments, model, priorPages, undefined, undefined, budget, call, plan && plan.kind, [], { ownParts: ownFirst });
+        // ── TOLD, AND NOW CHECKED (2026-10-23) ─────────────────────────────
+        //
+        // The directive above is an instruction; `enforceFallbackFrame` reads
+        // what came back — kit imports, `SiteChrome`, the two frame parts —
+        // and when a page names `SiteChrome` or a part is missing asks ONE
+        // bounded repair turn for the written parts, taken only when it leaves
+        // nothing to repair. The counts ride the `fallback` mark.
+        if (!ownFirst) return singleAnswer;
+        const oneFix = await enforceFallbackFrame(singleAnswer, {
+          send: (req) => pagesCall(env)(keysFrom(env), req, budget),
+          directive: ownTail.trim(), spec, kind: plan && plan.kind, model: singleAnswer && singleAnswer.usage && singleAnswer.usage.model,
+        });
+        if (oneFix.counts) try { mark?.("fallback", oneFix.counts); } catch { /* a trace must never break a build */ }
+        return oneFix.gen;
       } catch (e) {
         // THE SENTINEL IS READ BEFORE ANY FAILURE HANDLING, which is not
         // tidiness: `retryHere` would read this as a failure that spent nothing
@@ -45697,9 +45713,31 @@ async function handleRequest(request, env, ctx) {
             // there and stays. Only a page that made it is linked (`aGone`).
             // A placement on one page — a button, a band — was the page
             // writer's, and is left exactly as it wrote it.
+            // ON A WRITTEN FRAME (2026-10-23, `build-ai-writes-all`) there is
+            // no `SiteChrome` for `applyAdditions` to write: the new page's
+            // link goes into the written header (and the footer's own link
+            // list, when it has one) instead — `addFrameLinks`, a copy of the
+            // list's last entry where the list is unambiguous, else one frame
+            // edit as an addition — and rides the same publish as the page,
+            // which compiles the parts with the pages. A `SiteChrome` site
+            // never enters (`writtenFrame` answers null).
+            // ITS ONE MODEL CALL IS BILLED WITH THE DESIGNERS' (`aDesignUsage`,
+            // on the addition's one bill), so it is offered only while that
+            // bill is still to come: once the designers were charged ahead of a
+            // schema apply (`aFirstPlaced`), only the copy is made.
+            let aFrameParts = null;
             {
               const aLinks = menuLinkAdds(aWanted, aGone);
-              if (aLinks.length) {
+              const aFrameBase = aPartsRead.ok ? mergeParts(aPartsRead.parts, Array.isArray(aValid && aValid.parts) ? aValid.parts : []) : null;
+              if (aLinks.length && aFrameBase && writtenFrame(aMerge.pages, aFrameBase)) {
+                const aFl = await addFrameLinks(aFirstPlaced ? {} : { send: aQuick("frame-links") }, {
+                  pages: aMerge.pages, parts: aFrameBase, adds: aLinks,
+                  routes: [...new Set(aMerge.pages.map((p) => routeOf(p.path)).filter(Boolean))],
+                });
+                if (aFl.usage) aDesignUsage.push(aFl.usage);
+                if (aFl.ok) aFrameParts = aFl.parts.filter((p) => p && FRAME_PARTS.some((f) => f.file === String(p.name || "").toLowerCase()));
+                aMark("menu-links", aFl.ok ? "ok" : "skip", { frame: true, how: aFl.how || aFl.reason, changed: aFl.ok ? aFl.changed.length : 0 });
+              } else if (aLinks.length) {
                 const aIn = applyAdditions(aMerge.pages, aLinks);
                 if (aIn.changed.length) {
                   const aKnown = new Set([...(aMerge.added || []), ...(aMerge.changed || [])]);
@@ -45828,6 +45866,8 @@ async function handleRequest(request, env, ctx) {
             let aParts = (aFreshParts.length && aPartsRead.ok)
               ? mergeParts(aPartsRead.parts, aFreshParts)
               : null;
+            // THE WRITTEN FRAME'S NEW LINKS, merged last (`addFrameLinks` above).
+            if (aFrameParts && aFrameParts.length && aPartsRead.ok) aParts = mergeParts(aParts || aPartsRead.parts, aFrameParts);
             // ── AND EVERY PHOTOGRAPH THE SITE SHOWED IS STILL SHOWN ─────────
             //
             // (2026-09-17, owner: *"Preserve existing photographs when buying

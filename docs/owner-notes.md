@@ -1,5 +1,12 @@
 # Owner Notes
 
+## 2026-10-23, late night (2) — `build-ai-writes-all`: new pages reach the new menus; the fallback is checked (not merged, not deployed)
+
+- **A page added to a new-style site now goes into its menu.** Its header and footer are its own files, so the add-on step now puts the new page's link into the written header (and the footer's page links, if it has them), in the same publish as the page. Where the header's link list is clear, the link is a copy of the last one (no model call); otherwise one small model call adds it, billed with the addition. Old sites work as before.
+- **The single-writer fallback is now checked, not just told.** When a first build falls back to one writer, its answer is counted (ready-made parts used, the old shared header used, header and footer present). If the old header was used or a part is missing, the writer gets one repair turn for exactly those parts; the repair is kept only if it fixes everything. The counts are on the build's record.
+- Found on the way and fixed: the "write your own parts" rules were not actually reaching the single writer, page edits or additions (a dropped setting inside the server). They do now.
+- Nothing spent, no model called. Record: `docs/history/2026-10-23-ai-writes-all.md`.
+
 ## 2026-10-23, late night — `build-ai-writes-all`: edits on the new sites work (not merged, not deployed)
 
 - **Menu, button, footer and logo changes now work on sites built the new way.** Their header and footer are their own files, so "take Gallery out of the menu", "add Instagram to the footer", "change the header button" and "put a logo next to the name" now edit those two files. The answer is checked (only real pages linked, no kit parts) and compiled before anything is published; if it doesn't compile, the site is untouched. Sites built the old way behave exactly as before.

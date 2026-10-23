@@ -299,6 +299,9 @@ export function budgetStage(steps) {
     // a moment later. Added 2026-09-10; the census in `build-budget.test.mjs`
     // is what required it, by existing.
     bands: "generate",
+    // `fallback` (2026-10-23): the single call's answer counted and, at most
+    // once, its written frame repaired — still the generation, like `bands`.
+    fallback: "generate",
     // `fired` is `gen` on the two-phase path: the generation call was handed to
     // the container and this invocation is about to return. Everything up to it
     // survives — the database is live, the schema applied, the look merged — and

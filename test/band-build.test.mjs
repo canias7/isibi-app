@@ -245,7 +245,7 @@ test("resumeFanout is computed at the collector, forwarded, and read at the buil
 });
 
 test("the fan-out and the single call share one caller, one budget and one sentinel", () => {
-  const blk = between(WCODE, "const call = resumeCall", "return await generateSitePages(env, briefWithLayout", "the generate dep");
+  const blk = between(WCODE, "const call = resumeCall", "const singleAnswer = await generateSitePages(env, briefWithLayout", "the generate dep");
   // ONE `call`. The fire, the report, the lease and the sentinel are the ones
   // the single path already uses; the only difference is what is handed over.
   assert.ok(/generateSiteBands\(\{/.test(blk), "the fan-out is not called at all");
@@ -265,7 +265,7 @@ test("a container that will not take a fan-out falls through to the one call", (
   // rollout is asynchronous — so for a minute after a deploy the previous image
   // can still be serving. That minute must be single-call builds, not failed
   // ones.
-  const blk = between(WCODE, "generateSiteBands({", "return await generateSitePages(env, briefWithLayout", "the fallback");
+  const blk = between(WCODE, "generateSiteBands({", "const singleAnswer = await generateSitePages(env, briefWithLayout", "the fallback");
   assert.ok(/if \(!isNoFanout\(e\)\) throw e;/.test(blk), "every throw is now swallowed, or none is");
   // The sentinel is thrown by the fire and by nothing else, and only for a list.
   assert.ok(/if \(!genId && Array\.isArray\(req\)\) throw noFanoutError\(\);/.test(WCODE),

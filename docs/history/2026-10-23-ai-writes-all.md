@@ -214,3 +214,90 @@ Nothing paid, no model called, no live write.
   push the kit.
 - A logo added on a written frame now costs the frame edit's call (the logo
   rung was free).
+
+## Third round: the two remaining risks closed
+
+Nothing paid, no model called, no live write.
+
+1. **A new page's menu link on a written frame.** The add-on step linked a new
+   page with `applyAdditions`, which writes `SiteChrome`'s `links`; a written
+   frame has none, so the page was in no menu. Now, when `writtenFrame` holds
+   for the merged pages and parts, `addFrameLinks` (`builder/site-frame.mjs`)
+   puts the link in the written header, and in the footer when the footer has
+   its own link list, instead. Deterministic first and only where the list is
+   unambiguous (`insertFrameLinks`): exactly one run of two or more entries of
+   one shape — objects `{ to: "/x", label: "X" }` (keys `to`/`href`,
+   `label`/`name`/`title`/`text`, either order) or sibling `<Link to="/x" …>X</Link>`
+   — gains a copy of its last entry with the path and words replaced (classes
+   kept); an entry already listed is not added; two lists (a desktop and a
+   mobile menu), a lone link, or words needing escape are never guessed. Then
+   one `runFrameEdit` call as an addition (the add-on's quick transport,
+   `aQuick("frame-links")`, its usage in the addition's bill). Each changed
+   file passes `frameFileProblems` (routes, kit, export); the changed parts are
+   merged into `aParts` and ride the same publish as the new page, which
+   compiles them. The `menu-links` mark carries `frame`, `how`
+   (`inserted`/`model`/the refusal) and `changed`. A `SiteChrome` site runs
+   `applyAdditions` exactly as before.
+2. **The single-call fallback, enforced.** On a first website build the one
+   call's answer is read by `enforceFallbackFrame` (`builder/page-bands.mjs`):
+   `fallbackFrameCounts` counts kit imports (`kitImportCount`, the band path's
+   counter), files naming `SiteChrome`, and whether `site-header` and
+   `site-footer` are there. When a page names `SiteChrome` or a part is
+   missing, ONE bounded repair turn (`fallbackRepairRequest`, tool
+   `repair_frame`, the own-parts block, `SITE_PAGES_MAX_TOKENS`, the fallback's
+   own model so the usage adds on one rate) is shown what is wrong, the
+   directive, the pages that used `SiteChrome` and the parts there are, and
+   answers the two parts and those pages whole. It is taken only when its
+   answer leaves nothing to repair; otherwise the call's own answer stands (it
+   compiles; the kit is still in the template). A send that throws leaves the
+   answer as it was. The counts ride the build trace as the `fallback` mark
+   (`kitImports`, `siteChrome`, `header`, `footer`, `repair`, `repaired`, and
+   `kitImportsAfter`/`siteChromeAfter` when repaired); `fallback` maps to the
+   `generate` stage (`build-budget.mjs`). On the fired path the check runs when
+   the answer is collected (the same dep, `resumeCall`).
+3. **Found on the way: the Worker's hop dropped `{ ownParts }`.** The wrapper
+   `generateSitePages` in `worker.js` took 13 arguments and forwarded 13, so
+   the options object the fallback, the page rung and the addition's writer
+   passed never reached `page-gen.mjs`: none of those calls read the own-parts
+   block. It now forwards `opts`.
+
+### Tests
+
+- New: `test/written-frame-links.test.mjs`, 6 cases: the insertion (objects,
+  JSX, already listed, ambiguous, lone, escaping); `addFrameLinks` (inserted
+  with no call, one frame edit as an addition when there is no list, nothing on
+  a `SiteChrome` site); the real add-on route on a written frame (the header
+  and footer handed to the compiler and stored carry the new page, no page
+  gains `SiteChrome`); the counts; the repair (one turn, taken, refused,
+  nothing to repair, a throwing send, usage added); the wiring.
+- Red check against the branch's prior product files (swapped in from
+  `git show HEAD`, restored from saved copies): with the prior `worker.js`, the
+  route case and the wiring case fail (2 of 6); with the prior modules the file
+  cannot load (no `insertFrameLinks`/`FRAME_REPAIR_TOOL`).
+- Changed only what moved: the fallback's landmark in `band-build` and
+  `split-timing` (`const singleAnswer = await generateSitePages(`), and the stage
+  census in `build-budget` required `fallback` to have a stage.
+- **Sweep** (from a green file, restored from saved copies, nothing committed
+  during it): 12 of 12 mutants killed (frame path never taken, frame parts not
+  merged, two lists accepted, footer skipped, frame edit not an addition, the
+  `SiteChrome` guard off, a missing part not repaired, a bad repair accepted,
+  the repair's usage dropped, the mark dropped, the hop dropping `opts`, the
+  fallback not enforced); the comment-only control survived.
+- The frame-link call is billed with the designers (`aDesignUsage`, the
+  addition's one bill); it is offered only while that bill is still to come
+  (once the designers were charged ahead of a schema apply, only the
+  deterministic copy is made). Two more mutants for that (14 of 14 killed).
+- **Full suite**: the last complete run (`12341 / 12335 / 3 / 3`) failed only
+  `no-generated-deps`' symlink case (`node_modules` linked), `media-verify`'s
+  browser case (passes alone; load), and `site-tweak`'s ordering guard, which
+  was a substring collision (`oneGen` contains `eGen = await generateSitePages(`),
+  fixed by renaming to `singleAnswer`; the affected files then 84 of 84. A
+  final full run was stopped on the coordinator's word (the combined branch
+  runs it).
+
+### Risks still open
+
+- A header with two link lists (desktop and mobile) always takes the model
+  path; after the designers were billed early it gets no link (as before).
+- The repair turn is a model rewrite of the pages that used `SiteChrome`;
+  checked by counts and the compile, not by a keep check.

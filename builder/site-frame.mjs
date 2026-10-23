@@ -260,3 +260,115 @@ export async function runFrameEdit(deps, { instruction, pages, parts, routes, ad
   }
   return { ok: true, parts: withFrame(parts, read.frame, read.changed), changed: read.changed, msg: frameReply(read.changed), usage };
 }
+
+// ── A NEW PAGE'S LINK IN THE WRITTEN FRAME (2026-10-23) ─────────────────────
+//
+// The add-on step puts a new page in every menu with `applyAdditions`, which
+// writes `SiteChrome`'s `links` prop. A written frame has no such prop, so on
+// such a site the link goes into the written header (and the footer, when it
+// has a link list of its own) instead — in the same publish as the new page,
+// which compiles the parts with the pages.
+//
+// DETERMINISTIC FIRST, AND ONLY WHERE THE LIST IS UNAMBIGUOUS: exactly one run
+// of two or more link entries of one shape in the file — either objects
+// `{ to: "/x", label: "X" }` (keys `to`/`href` and `label`/`name`/`title`/
+// `text`, either order) in an array, or sibling `<Link to="/x" …>X</Link>`
+// elements. The new entry is a copy of the run's last one with the path and
+// the words replaced, so its classes and shape are the writer's own. Anything
+// else is not guessed: the caller hands the change to `runFrameEdit` as an
+// addition.
+
+const LIST_KEY_TO = "(?:to|href)";
+const LIST_KEY_LABEL = "(?:label|name|title|text)";
+const OBJ_RE = new RegExp(
+  "\\{\\s*(?:" + LIST_KEY_TO + "\\s*:\\s*([\"'])(\\/[^\"']*)\\1\\s*,\\s*" + LIST_KEY_LABEL + "\\s*:\\s*([\"'])([^\"']*)\\3" +
+  "|" + LIST_KEY_LABEL + "\\s*:\\s*([\"'])([^\"']*)\\5\\s*,\\s*" + LIST_KEY_TO + "\\s*:\\s*([\"'])(\\/[^\"']*)\\7)\\s*,?\\s*\\}", "g");
+const JSX_RE = /<Link\b[^>]*?\bto\s*=\s*(["'])(\/[^"']*)\1[^>]*>([^<{}]*)<\/Link>/g;
+
+function runsOf(source, re, sepOk) {
+  const runs = [];
+  let cur = [];
+  for (const m of String(source).matchAll(re)) {
+    const prev = cur[cur.length - 1];
+    if (prev && sepOk(source.slice(prev.index + prev[0].length, m.index))) cur.push(m);
+    else { if (cur.length) runs.push(cur); cur = [m]; }
+  }
+  if (cur.length) runs.push(cur);
+  return runs.filter((r) => r.length >= 2);
+}
+
+const objPath = (m) => (m[2] !== undefined ? m[2] : m[8]);
+const objLabel = (m) => (m[4] !== undefined ? m[4] : m[6]);
+const reEsc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** The source with each add appended to its one link list; `null` when no list is unambiguous. */
+export function insertFrameLinks(source, adds) {
+  const s = typeof source === "string" ? source : "";
+  const items = (Array.isArray(adds) ? adds : []).filter((a) => a && typeof a.href === "string" && a.href.startsWith("/") && typeof a.label === "string" && a.label.trim());
+  if (!s || !items.length) return null;
+  if (items.some((a) => /["'`{}<>\\\n$]/.test(a.label + a.href))) return null;
+  const objRuns = runsOf(s, OBJ_RE, (gap) => /^\s*,\s*$/.test(gap));
+  const jsxRuns = runsOf(s, JSX_RE, (gap) => /^\s*$/.test(gap));
+  if (objRuns.length + jsxRuns.length !== 1) return null;
+  const isObj = objRuns.length === 1;
+  const run = isObj ? objRuns[0] : jsxRuns[0];
+  const have = new Set(run.map((m) => routeKey(isObj ? objPath(m) : m[2])));
+  const fresh = items.filter((a) => !have.has(routeKey(a.href)));
+  if (!fresh.length) return { source: s, added: [] };
+  const last = run[run.length - 1];
+  const before = run[run.length - 2];
+  const gap = s.slice(before.index + before[0].length, last.index);
+  const clones = fresh.map((a) => {
+    if (isObj) {
+      const quoted = new RegExp("([\"'])" + reEsc(objLabel(last)) + "\\1");
+      return last[0].replace(new RegExp("([\"'])" + reEsc(objPath(last)) + "\\1"), "$1" + a.href + "$1").replace(quoted, "$1" + a.label + "$1");
+    }
+    const words = last[3];
+    const lead = words.match(/^\s*/)[0], tail = words.match(/\s*$/)[0];
+    const open = last[0].slice(0, last[0].length - words.length - "</Link>".length).replace(/(\bto\s*=\s*["'])\/[^"']*/, "$1" + a.href);
+    return open + lead + a.label + tail + "</Link>";
+  });
+  const end = last.index + last[0].length;
+  const out = s.slice(0, end) + clones.map((c) => gap + c).join("") + s.slice(end);
+  return { source: out, added: fresh.map((a) => a.href) };
+}
+
+/**
+ * The new pages' links in the written frame. NEVER THROWS.
+ *
+ * `adds` are `menuLinkAdds`' entries (`{ item: { label, href } }`). The header
+ * takes them; the footer takes them only when it has its own link list. When
+ * the header's list is not unambiguous, one `runFrameEdit` call (an addition)
+ * is asked instead, when `deps.send` is given.
+ * `{ ok: true, parts, changed, how, usage }` or `{ ok: false, reason, usage }`.
+ */
+export async function addFrameLinks(deps, { pages, parts, routes, adds } = {}) {
+  const frame = writtenFrame(pages, parts);
+  if (!frame) return { ok: false, reason: "no-frame", usage: null };
+  const items = (Array.isArray(adds) ? adds : []).map((a) => a && a.item).filter((i) => i && typeof i.href === "string" && typeof i.label === "string");
+  if (!items.length) return { ok: false, reason: "nothing", usage: null };
+  const head = frame.header ? insertFrameLinks(frame.header.source, items) : null;
+  if (head) {
+    const next = { ...frame };
+    const changed = [];
+    for (const p of FRAME_PARTS) {
+      if (!frame[p.role]) continue;
+      const r = p.role === "header" ? head : insertFrameLinks(frame[p.role].source, items);
+      if (!r || !r.added.length) continue;
+      if (frameFileProblems(r.source, routes).length) return { ok: false, reason: "refused", usage: null };
+      next[p.role] = { name: frame[p.role].name, source: r.source };
+      changed.push(p.role);
+    }
+    if (!changed.length) return { ok: false, reason: "unchanged", usage: null };
+    return { ok: true, parts: withFrame(parts, next, changed), changed, how: "inserted", usage: null };
+  }
+  if (!deps || typeof deps.send !== "function") return { ok: false, reason: "no-list", usage: null };
+  const said = items.map((i) => "\"" + i.label + "\" (" + i.href + ")").join(", ");
+  const out = await runFrameEdit(deps, {
+    instruction: "Add a link to the new page" + (items.length > 1 ? "s " : " ") + said +
+      " to the header's menu, after its other page links, and to the footer's page links if the footer lists the pages.",
+    pages, parts, routes, addition: true,
+  });
+  if (!out.ok) return { ok: false, reason: out.reason, usage: out.usage || null };
+  return { ok: true, parts: out.parts, changed: out.changed, how: "model", usage: out.usage };
+}
