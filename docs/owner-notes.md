@@ -5,7 +5,8 @@
 - Merged and deployed `decide-all` (`923d278c1`) on your word. Tests green; the server image rolled as predicted (`145239c1c143183b`).
 - Live now: decisions 1, 2, 3, 5, 6, 8–25, 27, 28, 30–33, and every customer message is model-written (fixed text only as a fallback). Decision 7 was applied to the database earlier today.
 - Your secret `OPERATOR_UIDS` reached the server.
-- Still owed: your canary press (~20 min after 18:12 UTC); applying the small database change for 33 (asks you first).
+- Confirmed live by your canary press (run 40004528546, 18:35 UTC): new code, new image, your secret works, nothing charged.
+- Still owed: applying the small database change for 33 (asks you first).
 - Kept for later: decisions 4, 26, 29; the 113 unchecked low findings; turning 3D on.
 
 ## 2026-10-23, later — `decide-all`: the last fixed customer messages are model-written (not merged, not deployed)

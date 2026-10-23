@@ -34,7 +34,7 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 
 ## Where things stand (2026-09-30)
 
-- **2026-10-23, 18:12 UTC: `main` is `923d278c1` (deploy 2264, green; image `145239c1c143183b`, as predicted; deployed, not runtime-confirmed).** The owner's decisions batch (`docs/history/2026-10-23-decide-all.md`). `build_debit` applied to Supabase. Owed: canary press; `supabase/proposed/notify_missed.sql` (asks first). The bullet below is the earlier deploy.
+- **2026-10-23, 18:12 UTC: `main` is `923d278c1` (deploy 2264, green; image `145239c1c143183b`, as predicted; runtime-confirmed by canary run 40004528546).** The owner's decisions batch (`docs/history/2026-10-23-decide-all.md`). `build_debit` applied to Supabase. Owed: `supabase/proposed/notify_missed.sql` (asks first). The bullet below is the earlier deploy.
 - **2026-10-23, 13:40 UTC: `main` is `091f153e1` (deploy 2263, green; deployed, not runtime-confirmed)**: audit findings 201–264 (round 2, the end of the audit list); `docs/history/2026-10-23-r2-*.md`. Every finding 1–264 is now fixed, confirmed already fixed, parked, or waiting on an owner decision listed in the records.
 - **2026-10-23, 12:05 UTC: `main` is `838cf7364` (deploy 2262, green; deployed, not runtime-confirmed)**: audit findings 103–200 (round 1); `docs/history/2026-10-23-r1-*.md`. Deploy 2261 (`cab34c133`, 2026-10-22) carried the add-on partial fixes, audit g1–g6 and the owner's five decisions, runtime-confirmed by canary run 39850507671.
 - **2026-10-22, 07:44 UTC: `main` is `89a67ec40` (deploy 2259, green; served `chat.js` matches; runtime-confirmed by canary run 39802537938, image `af25591ff1cc217a`).** The bullet below is the earlier deploy.
