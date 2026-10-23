@@ -372,7 +372,7 @@ export const SHELL_GUARD =
  * a perfectly good stylesheet built out of a shape mistake — and this repo has
  * shipped that coercion as a real bug three times.
  */
-export function readCss(css) {
+export function readCss(css, { themed = false } = {}) {
   if (typeof css !== "string") {
     // ── A REFUSED SHEET IS SAID OUT LOUD; AN ABSENT ONE IS NOT ────────────────
     //
@@ -417,9 +417,11 @@ export function readCss(css) {
 
   // THE KIT'S OWN TOKENS. A stylesheet defining neither is a site rendering on
   // the template's default palette whatever else it says — reported, because
-  // from outside that is indistinguishable from a deliberate choice.
+  // from outside that is indistinguishable from a deliberate choice. NOT SAID
+  // WHEN A THEME APPLIES (audit A34-4): the theme supplies the palette, and a
+  // narrow sheet ("orange buttons") is the expected answer on top of it.
   const defines = CORE_TOKENS.filter((t) => new RegExp(t.replace(/-/g, "\\-") + "\\s*:").test(scanned));
-  if (!defines.length) {
+  if (!defines.length && !themed) {
     notes.push("The stylesheet sets none of the kit's own colour variables, so the site renders on the default palette.");
   }
 

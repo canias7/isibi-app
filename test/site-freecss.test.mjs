@@ -261,7 +261,7 @@ test("…AND THE ENGINES THEY DROVE ARE GONE TOO, which is the 2026-08-24 half",
   // perfectly on a platform where no site can have a look at all: the stylesheet
   // is still read, still stored and still sent. The chain below asserts it link
   // by link; this is the floor that stops THIS test going vacuous.
-  assert.match(code, /readCss\(designed && designed\.css\)/,
+  assert.match(code, /readCss\(designed && designed\.css[,)]/,
     "the build path no longer reads the model's stylesheet");
   // …AND `EDIT_FIELDS` STILL NAMES `seeds` AND `fonts`, deliberately. Nothing
   // sends them any more, and `mergeLook` rebuilds its output from that list — so
@@ -277,7 +277,7 @@ test("THE STYLESHEET REACHES THE PAGE — every link, because any one kills it s
   // 1. the designer can answer at all
   assert.match(tool, /\n\s{6}css: \{/, "design_schema has no css field");
   // 2. …the answer is read through the module rather than trusted raw
-  assert.match(worker, /readCss\(designed && designed\.css\)/, "the build path never reads the answer");
+  assert.match(worker, /readCss\(designed && designed\.css[,)]/, "the build path never reads the answer");
   // 3. …it is stored
   assert.match(worker, /patchSiteConfig\(env, slug, db, \{ css: siteCss \}\)/, "the stylesheet is never stored");
   // 4. …and read back EVERYWHERE THE LOOK IS.
@@ -620,4 +620,21 @@ test("AND ITS ENGINE RUNS IN EXACTLY ONE PLACE", () => {
     "the container no longer resolves the theme — every themed site ships the default look");
   assert.match(read("builder/site-identity.mjs"), /normalizeSeeds\(/,
     "the favicon's ground is no longer judged by the one palette engine");
+});
+
+// ── A34-4: THE "DEFAULT PALETTE" NOTE IS NOT SAID ON A THEMED SITE ───────────
+// Every build since 2026-08-27 carries a theme, and the look lane is told to
+// write only the asked-for rules on top of it, so `:root{--primary:…}` is the
+// ordinary answer. The theme supplies the palette: the note was false there.
+test("A34-4: a narrow sheet on a themed site is not told it renders on the default palette", () => {
+  assert.doesNotMatch(cssNote(readCss(":root{--primary:#e67e22}", { themed: true })), /default palette/,
+    "a themed site's narrow sheet still carries the default-palette note");
+  assert.match(cssNote(readCss(":root{--primary:#e67e22}")), /default palette/,
+    "the note is gone for a site with no theme too");
+  assert.match(cssNote(readCss(":root{--primary:#e67e22}", { themed: false })), /default palette/);
+  // Each of the three places a model sheet is read tells readCss about the theme.
+  const w = read("worker.js");
+  const calls = [...w.matchAll(/readCss\((a?[dD]esigned) && \1\.css(?:, \{ themed: !!resolveTheme\(([^)]*)\) \})?\)/g)];
+  assert.equal(calls.length, 3, "the three model-sheet reads were not found");
+  for (const c of calls) assert.ok(c[2], "a model-sheet read does not pass the theme: " + c[0]);
 });

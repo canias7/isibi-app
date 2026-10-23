@@ -28027,7 +28027,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // revise about a phone number cannot cost a site its look. An UNUSABLE one
       // does too — `readCss` answers `usable: false` for a non-string and for an
       // empty string, and neither is an instruction to strip the site bare.
-      const cssAsk = readCss(designed && designed.css);
+      const cssAsk = readCss(designed && designed.css, { themed: !!resolveTheme(merged.theme) });
       const siteCss = cssAsk.usable ? cssAsk.css : priorCss;
       if (cssAsk.usable && siteCss !== priorCss) {
         const w = await patchSiteConfig(env, slug, db, { css: siteCss });
@@ -38241,7 +38241,7 @@ async function handleRequest(request, env, ctx) {
               // anti-re-roll guarantee instead. An unusable answer keeps what is
               // stored: `readCss` refuses a non-string and an empty string, and
               // neither is an instruction to strip a customer's site bare.
-              const cssAsk = readCss(designed && designed.css);
+              const cssAsk = readCss(designed && designed.css, { themed: !!resolveTheme(merged.theme) });
               const nextCss = cssAsk.usable ? cssAsk.css : priorCss;
               const cssMoved = nextCss !== priorCss;
 
@@ -43721,7 +43721,7 @@ async function handleRequest(request, env, ctx) {
             // `css` follows the look lane's rule too: replaced when usable,
             // never merged, never stripped by an empty answer.
             const aMerged = mergeLook(aLook, aDesigned, {}, { instructed: true });
-            const aCssAsk = readCss(aDesigned && aDesigned.css);
+            const aCssAsk = readCss(aDesigned && aDesigned.css, { themed: !!resolveTheme(aMerged.theme || aLook.theme) });
             const aNextCss = aCssAsk.usable ? aCssAsk.css : aCss;
             // WHAT GETS STORED, AND WHAT THE REPLY CALLS MOVED — ASKED ONCE
             // AND READ TWICE (2026-09-17). Below the publish, `deadQrs` can

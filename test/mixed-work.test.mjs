@@ -104,7 +104,7 @@ const MW5_QR_FACT = /QR code[^]*“Wholesale”[^]*no page shows it/;
 const MW5_SCENE_FACT = /scene[^]*no page (shows|draws) it/i;
 const MW6_FACT = /Nothing was made for a connection to an outside service: the builder could not design it/;
 const MW7_FACT = /asked to run every minute[^]*runs every 15 minutes/;
-const MW2_FIVE = "Updated the look — the description, the design. The stylesheet sets none of the kit's own colour variables, so the site renders on the default palette. Updated /visit. "
+const MW2_FIVE = "Updated the look — the description, the design. Updated /visit. "
   + BOULE_SAID + " " + MENU_SAID + ROLL_BACK;
 const PHOTO_OFF = { pictures: [{ page: "index.tsx", alt: BOULE, remove: true }] };
 

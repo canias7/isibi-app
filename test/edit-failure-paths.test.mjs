@@ -1112,7 +1112,7 @@ const MENU_ASK = "Rename the Shop menu item to Store.";
 const MENU_REFUSED = "I couldn't work out what the menu should be. Tell me what to add, take out or move.";
 const BOTH_ASK = "Make the footer navy and rename the Shop menu item to Store.";
 const NAVY = { css: "footer { background: navy; }" };
-const LOOK_SAID = "Updated the look — the design. The stylesheet sets none of the kit's own colour variables, so the site renders on the default palette.";
+const LOOK_SAID = "Updated the look — the design.";
 const TIMEOUT = Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });
 
 for (const mode of ["sync", "job"]) {
