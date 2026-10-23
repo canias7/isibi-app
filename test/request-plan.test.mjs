@@ -479,7 +479,8 @@ test("the request's own reply facts: one per part, a part with its own reply nam
   const view = (parts) => ({ parts: parts.map((p, n) => ({ n, words: "part " + n, jobs: [], ...p })) });
   assert.equal(requestReplyFacts(view([{ status: "done", jobs: ["j"] }, { status: "done", jobs: ["k"] }])).skip, "nothing-to-add");
   const f = requestReplyFacts(view([{ status: "done", jobs: ["j"] }, { status: "not-run", why: "needs:0" }, { status: "queued", why: "site-review" }])).facts.map((x) => x.text);
-  assert.match(f[0], /^Done: “part 0” — its own reply above says what changed\./);
+  // WHAT ITS STEP DID, NEVER "Done: <asked words>" (2026-10-23, fix-edit-flow).
+  assert.match(f[0], /^Finished the part that asked for “part 0”\. Its own reply above says what changed\./);
   assert.match(f[1], /^Not started: “part 1”, because it needed “part 0” done first/);
   assert.match(f[2], /Their site takes no new changes until an earlier change that stopped part-way through publishing has been checked/);
 });

@@ -688,6 +688,8 @@ export function notDoneOf(body, op = "edit") {
   }
   for (const p of list(b.partial)) if (plain(p) && !p.ask && p.error !== "clarify") add(p.page || p.layer || "step", p.error || p.reason || "not-done");
   for (const n of list(b.notBuilt)) if (plain(n)) add(n.field || "lane", "not-built");
+  // A STEP'S OWN LIST OF WHAT IT WAS ASKED AND DID NOT MAKE (2026-10-23, the text step).
+  for (const n of list(b.notDone)) if (plain(n) && str(n.what)) add(n.what, n.why || "not-done");
   for (const k of list(b.keptParts)) add(str(k) || "component", "kept");
   for (const k of list(b.unseenParts)) add(str(k) || "component", "unseen");
   for (const d of list(b.dropped)) if (plain(d) && d.why !== "duplicate") add(d.label || d.href || "entry", d.why || "left-out");
@@ -765,6 +767,22 @@ function handedRoute(from, to, read) {
     cost: from.cost, handedOff: to.handedOff === true, fromAddon: to.fromAddon === true,
     hops: (from.hops || 0) + 1,
   };
+}
+
+/** The pages a step's answer says it added (`added`), as site paths. */
+function createdPages(body) {
+  const b = plain(body) ? body : {};
+  return (Array.isArray(b.added) ? b.added : []).filter((x) => typeof x === "string" && x)
+    .map((x) => (x.startsWith("/") ? x : "/" + x.replace(/^src\/routes\//, "").replace(/\.tsx$/, "").replace(/^index$/, "")).toLowerCase())
+    .filter((x) => /^\/[a-z0-9][a-z0-9/_-]{0,80}$|^\/$/.test(x));
+}
+
+/** The words a part's step says it wrote (`changed`), as strings, at most 8 (2026-10-23, fix-edit-flow). */
+export function changedOf(body) {
+  const b = plain(body) ? body : {};
+  // THE TEXT STEP'S `changed` IS THE WORDS IT WROTE; other steps' are files or fields.
+  if (b.layer !== "text") return [];
+  return (Array.isArray(b.changed) ? b.changed : []).filter((x) => typeof x === "string" && x.trim()).slice(0, 8).map((x) => x.slice(0, 200));
 }
 
 /** A short account of what a part's job really did, for the parts after it (`partBlock`): never customer-facing. */
@@ -1137,6 +1155,12 @@ function settle(rec, p, job, row, now) {
       p.phase = "run";
       // WHAT ITS OWN ROUTING SAID IT TOUCHES (change 0), beside what it was accepted with.
       if (read.targets && read.targets[0]) addTargets(p, read.targets[0]);
+      // WHAT IT READS IS KNOWN ONLY NOW (2026-10-23, fix-edit-flow): a part
+      // carved from another was given no targets when it was made, so the
+      // waiting `inferNeeds` adds — a link to the page its parent creates —
+      // is worked out again here, and a part needing one that broke is not
+      // run (the request's next step says which).
+      if (read.targets && read.targets[0]) inferNeeds(rec.parts);
       if (read.alsoAsked.length) {
         const needsFirst = read.dependsOn.filter((d) => d.change === 0).flatMap((d) => d.after);
         const made = carveParts(rec, p.n, read.alsoAsked, { dependsOn: read.dependsOn.filter((d) => d.change !== 0), sibling: needsFirst, targets: read.targets });
@@ -1173,7 +1197,14 @@ function settle(rec, p, job, row, now) {
   }
   const read = readRun(ans);
   job.end.act = read.act;
-  if (read.deferred && read.deferred.length) carveParts(rec, p.n, read.deferred);
+  if (read.deferred && read.deferred.length) {
+    // WHAT THIS PART CREATED, recorded on it before its words are carved
+    // (2026-10-23, fix-edit-flow): a carved part that then names that page
+    // waits for it (`inferNeeds`), and is not run when it broke.
+    const made = createdPages(ans && ans.body);
+    if (made.length) addTargets(p, { writes: made.map((pg) => "new-page:" + pg), reads: [] });
+    carveParts(rec, p.n, read.deferred);
+  }
   // A PART THIS STEP LEFT FOR LATER THAT IS NO PART OF THE REQUEST NOW — not
   // the customer's words, or all of this part's — is work asked for and not
   // done, never dropped.
@@ -1205,6 +1236,9 @@ function settle(rec, p, job, row, now) {
     delete p.left;
     p.outcome = { job: job.id, kind: "done", ...((d) => (d ? { draft: d } : {}))(answerDraft(ans.body)) };
     p.done = doneSummary(ans.body);
+    // WHAT IT REALLY WROTE (2026-10-23, fix-edit-flow): the step's own
+    // `changed`, so the request's summary states that, never the asked words.
+    { const ch = changedOf(ans.body); if (ch.length) p.changed = ch; else delete p.changed; }
     if (read.ask) { p.status = "waiting"; p.question = { round: (p.askRound || 0) + 1, ...read.ask, at: now }; p.phase = "answer"; return; }
     // DONE ONLY WHEN NOTHING ASKED FOR WAS LEFT UNDONE: what it named as not
     // done makes it partial, which nothing that needs it treats as finished.
@@ -2015,6 +2049,11 @@ export function partOf(rec, n) {
   const others = otherSpans(rec, n);
   return {
     key: rec.key, part: n, original: rec.message,
+    // CARVED FROM ANOTHER PART BY A JOB (2026-10-23, fix-edit-flow): its words
+    // were already read, and paid for, by the job that carved them, so its
+    // own routing job is not charged again (live: 3 credits, nothing done).
+    // Parts the message's own routing held back keep their charge, as before.
+    ...(me && me.source === "carved" ? { carved: true } : {}),
     done: rec.parts.filter((q) => q.n !== n && need.has(q.n) && q.status === "done" && q.done).map((q) => ({ words: q.words, said: q.done })),
     ...(others.length ? { others } : {}),
     context: rec.context,
@@ -2195,7 +2234,7 @@ export function readRequestOf(v) {
   // many requirements it held — read strictly; anything else is none.
   const hf = plain(v.heldFrom) && typeof v.heldFrom.job === "string" && /^[0-9a-f]{8,64}$/.test(v.heldFrom.job) && Number.isInteger(v.heldFrom.count) && v.heldFrom.count >= 0
     ? { job: v.heldFrom.job, count: v.heldFrom.count } : null;
-  return { key: v.key, part: v.part, original, done, ...(others.length ? { others } : {}), context, ...(hf ? { heldFrom: hf } : {}), ...(v.paused === true ? { paused: true } : {}) };
+  return { key: v.key, part: v.part, original, done, ...(others.length ? { others } : {}), context, ...(hf ? { heldFrom: hf } : {}), ...(v.paused === true ? { paused: true } : {}), ...(v.carved === true ? { carved: true } : {}) };
 }
 
 // ── WHAT THE PAGE AND THE REPLY ARE SHOWN ────────────────────────────────────
@@ -2337,6 +2376,11 @@ export function requestView(rec, { progress = null, said = null, runs = null, pr
       ...(p.place && p.published ? { published: true, waitingPhotos: (p.place.photos || []).length } : {}),
       ...(p.status === "waiting" && p.question ? { question: { id: p.question.id, text: p.question.text, options: p.question.options, ...(p.question.note ? { note: p.question.note } : {}), ...(p.question.queued ? { queued: true } : {}) } } : {}),
       ...(typeof p.answer === "string" ? { answer: p.answer } : {}),
+      // WHAT ITS STEP RECORDED DOING AND WHAT IT LEFT UNDONE (2026-10-23,
+      // fix-edit-flow): the facts the request's summary is written from.
+      ...((p.status === "done" || p.status === "partial") && typeof p.done === "string" && p.done ? { made: p.done } : {}),
+      ...((p.status === "done" || p.status === "partial") && Array.isArray(p.changed) && p.changed.length ? { changed: p.changed.slice(0, 8) } : {}),
+      ...(p.status === "partial" && Array.isArray(p.notDone) && p.notDone.length ? { notDone: p.notDone.slice(0, 8).map((x) => ({ what: String((x && x.what) || ""), why: String((x && x.why) || "") })) } : {}),
       // THE JOBS WHOSE OWN REPLY EXPLAINS THIS PART: every run that ended with an
       // answer, never a hand-over (the page says nothing for one, as it never
       // did) or a job that ended without an answer.

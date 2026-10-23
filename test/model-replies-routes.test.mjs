@@ -697,12 +697,14 @@ test("AN ADD-ON REFUSED: nothing to add is said in the reply with the builder's 
   }, { slug });
 });
 
-test("AN ANSWER THE ROUTE WILL NOT ACT ON, ON THE PAGE: a question already answered (409), one too long (422) or a request whose answers are full (422) is explained in its own reply — nothing routed, run or charged, the question kept where it waits — and the page shows the reply alone", async () => {
+test("AN ANSWER THE ROUTE WILL NOT ACT ON, ON THE PAGE: one too long (422) or a request whose answers are full (422) is explained in its own reply — nothing routed, run or charged, the question kept where it waits — and the page shows the reply alone", async () => {
   const worker = await loadWorker();
   const cases = [
     // A STALE ANSWER IS REFUSED BEFORE ANY MODEL CALL; ONE TOO LONG, OR PAST A
     // FULL HISTORY, AFTER THE ROUTER SAID IT ANSWERS THE QUESTION — uncharged.
-    ["closed", (store, slug) => { const q = seedQuestion(store, slug, { status: "cancelled" }); return q; }, "Visit", 409, "stale-question", false],
+    // A STALE ANSWER (409) IS NO LONGER SHOWN ALONE (2026-10-23, fix-edit-flow):
+    // the page sends the words again once as a new message, so its case moved
+    // to test/live-clarify-browser.test.mjs ("A STALE ANSWER IS SENT AGAIN").
     // TOO LONG FOR WHAT THE REQUEST CARRIES (2026-10-03, the size policy): an
     // answer past ONE message never leaves the page (test/input-handoffs.test.mjs);
     // one that would take the request with its answers past what a request

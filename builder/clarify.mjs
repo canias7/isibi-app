@@ -96,7 +96,7 @@
 
 import { MAX_INPUT_CHARS } from "./input-budget.mjs";
 import {
-  MAX_OPTIONS, readAsk, usableAsk, heldList, EDIT_LAYERS,
+  MAX_OPTIONS, MIN_OPTIONS, readAsk, usableAsk, heldList, EDIT_LAYERS,
   MAX_ASKED, MAX_HISTORY, MAX_SAME_ASK, MAX_ANSWER_CHARS, MAX_NOTE_CHARS, CONTEXT_HEADING,
   readContext, shownContext, repeatOf, appendAnswer, contextBlock, withContext, reuseNote, withReuse, againNote,
   withPart,
@@ -148,16 +148,22 @@ export const QUESTION_FIELD = Object.freeze({
     "question naming what is open. When you can act, act and leave this out.",
   properties: {
     text: { type: "string", description: "The question, in one or two short, plain sentences, written to them." },
+    // ALWAYS WITH ANSWERS TO PICK (2026-10-23, fix-edit-flow): the menu
+    // editor's questions came with none (live, saltmarsh-and-sparrow), so the
+    // card showed a question and nothing to press. Its answers are the model's,
+    // from what it was shown; the card adds "Something else…" for typing.
     options: {
       type: "array",
+      minItems: MIN_OPTIONS,
       maxItems: MAX_OPTIONS,
       items: { type: "string" },
       description:
-        "Up to four short answers they might give, each a few words, when the answer is one of a few things " +
-        "you were shown. Leave it out when it is not. They can always type their own.",
+        "Two to four short answers they are most likely to give, each a few words, written from what you were " +
+        "shown — the things it could be, or what could happen to it. Always give them: they are shown as buttons " +
+        "under the question, beside a row where they can type their own.",
     },
   },
-  required: ["text"],
+  required: ["text", "options"],
 });
 
 /** A step's tool with the question field beside its own — never replacing one it already has. */

@@ -819,7 +819,8 @@ test("the router's nav layer names the BUTTON as well as the menu", () => {
   const src = fs.readFileSync(new URL("../builder/site-ask.mjs", import.meta.url), "utf8");
   const at = src.indexOf('"\\"nav\\" —');
   const window = src.slice(at, src.indexOf('"\\"page\\" —', at));
-  assert.match(window, /THE BUTTON — what it says AND where it goes/);
+  // THE FRAME'S BUTTON (2026-10-23, fix-edit-flow): a page section's own button label is "text".
+  assert.match(window, /THE FRAME'S BUTTON — the one beside the menu in the header, on every page — what it says AND where it goes/);
   // The phone case is named explicitly: it is 46 of the 288 buttons in the
   // corpus, and for a trade it is the entire conversion path.
   assert.match(window, /phone number belongs here/);

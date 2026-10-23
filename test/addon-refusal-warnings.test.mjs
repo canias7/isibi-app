@@ -592,7 +592,8 @@ test("WARN 7 — the whole path in a request: an addition whose pages did not al
     const answer = P.answerOf(job);
     assert.deepEqual(answer.warningsTold, PAGES.map((p) => ({ what: "page", name: p })), JSON.stringify(answer).slice(0, 600));
     // THE WRITER WAS GIVEN EACH, FROM THAT ANSWER, AS ITS OWN FACT…
-    const given = P.replyLog.find((fs) => fs.some((x) => x.text.includes("/faq")));
+    // THE ADDITION'S OWN FACTS (the request's summary names its pages too since 2026-10-23, fix-edit-flow).
+    const given = P.replyLog.find((fs) => fs.some((x) => x.text.startsWith("A page this change set out to add") && x.text.includes("/faq")));
     assert.ok(given, "the background writer never wrote the addition's reply");
     for (const p of PAGES) assert.equal(given.filter((x) => x.text === "A page this change set out to add did not make it through, so it is not on the site: " + p + ".").length, 1, p + ": " + JSON.stringify(given));
     // …AND THE REPLY IT KEPT NAMES EVERY ONE.

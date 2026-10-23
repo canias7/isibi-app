@@ -1545,7 +1545,7 @@ test("CC 2b — THE SECOND ADD-ON'S WRITER ANSWERS FROM THE PAGE BEFORE THE FIRS
     assert.ok(texts.includes("Updated /about."), JSON.stringify(P.replyLog));
     assert.ok(texts.some((t) => t.startsWith("Nothing was added.") && t.includes("Do you deliver? Yes, on Fridays.")), JSON.stringify(P.replyLog));
     assert.ok(texts.some((t) => /^Not done: “add an opening hours section to the About page”/.test(t)), JSON.stringify(P.replyLog));
-    assert.ok(texts.some((t) => /^Done: “Please add a questions section to the About page, and …”/.test(t)), "the summary named the done part by more than its own words");
+    assert.ok(texts.some((t) => /^Finished the part that asked for “Please add a questions section to the About page, and …”\./.test(t)), "the summary named the done part by more than its own words");
     assert.equal(texts.filter((t) => t === "Updated /about.").length, 1, "the refused part was told as updated");
     uniqueRefs(P);
   },
@@ -1698,7 +1698,7 @@ test("CC 4 — THE ADD-ON PART FAILS ON OUR SIDE BESIDE A HEADING CHANGE: the he
     const texts = factTexts(P);
     assert.ok(texts.includes("Changed the wording; it now reads “Harbour Loaf Bakery”."), JSON.stringify(P.replyLog));
     assert.ok(texts.includes("Not done: “add a questions section to the About page” — its own reply above says why."), JSON.stringify(P.replyLog));
-    assert.ok(!texts.some((t) => /Updated \/about|^Done: “add a questions/.test(t)), "the failed addition was told as done");
+    assert.ok(!texts.some((t) => /Updated \/about|^Finished the part that asked for “add a questions/.test(t)), "the failed addition was told as done");
     uniqueRefs(P);
   },
 }));
@@ -1717,7 +1717,7 @@ test("CC 5 — THE EDIT PART FAILS BESIDE AN ADD-ON: the section lands and stays
     assert.ok(texts.includes("Nothing on their site changed."));
     assert.ok(texts.includes("This change cost them nothing."));
     assert.ok(texts.includes("Updated /about."));
-    assert.ok(texts.includes("Done: “add a questions section to the About page” — its own reply above says what changed."), JSON.stringify(P.replyLog));
+    assert.ok(texts.some((t) => t.startsWith("Finished the part that asked for “add a questions section to the About page”.") && t.endsWith("Its own reply above says what changed.")), JSON.stringify(P.replyLog));
     assert.ok(texts.some((t) => /^Not done: “Please make the home heading say Harbour Loaf Bakery, and …” — its own reply above says why\.$/.test(t)), JSON.stringify(P.replyLog));
     uniqueRefs(P);
   },
