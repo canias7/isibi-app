@@ -133,7 +133,19 @@
     var unsure = function (session) {
       return { ok: false, uncertain: true, session: session, code: "unconfirmed", error: "couldn’t confirm the upload finished yet — it will be checked again" };
     };
+    // A REPLACEMENT HELD IN THE DRAFT (audit A15-1, 2026-10-23): the start
+    // answered `replacesInDraft`, and only the answer to `complete` holds it
+    // (the server pairs it there; a status read never does). Such an upload
+    // is finished only by an answer that says `held`: a lost or unclear end
+    // is said as not saved to the draft, never "Replaced", and no record of it
+    // is kept, so pressing again sends the file again and holds it.
+    var holding = false;
+    var notHeld = function () {
+      rec.drop();
+      return { ok: false, code: "draft", error: "couldn\u2019t confirm the new file was saved to your draft \u2014 check the list, or replace the file again" };
+    };
     var finished = function (file, extra) {
+      if (holding && !(file && file.held === true)) return notHeld();
       rec.put({ sid: extra.session, at: now(), state: "done", file: file });
       var out = { ok: true, file: file };
       if (extra.reused) out.reused = true;
@@ -167,6 +179,7 @@
       };
       // AN UNCLEAR END IS ASKED ABOUT, never taken as a failure.
       var settle = function (round) {
+        if (holding) return Promise.resolve(notHeld());
         return check(api, session, wait).then(function (c) {
           if (c.state === "done") return finished(c.file, { session: session, recovered: true });
           if (c.state === "gone") { rec.drop(); return { ok: false, error: "that upload expired before it finished — send the file again", code: "no_session" }; }
@@ -231,7 +244,8 @@
         var size = Number(r.body.partBytes) || 0;
         var parts = Number(r.body.parts) || 0;
         if (!(size > 0) || !(parts > 0)) return said(null, "couldn't start that upload");
-        rec.put({ sid: session, at: now(), state: "open" });
+        holding = typeof r.body.replacesInDraft === "string" && !!r.body.replacesInDraft;
+        rec.put({ sid: session, at: now(), state: "open", holding: holding || undefined });
         return run(session, size, parts, []);
       }, function () { return { ok: false, error: "couldn't start that upload", code: "network" }; });
     };
@@ -243,6 +257,10 @@
     // one, and never a replacement's bytes in place of the original.
     var prior = rec.get();
     if (!prior) return begin();
+    // A HELD REPLACEMENT IS NEVER REUSED FROM A RECORD: what finished it was
+    // the hold, which a status read cannot show (audit A15-1).
+    if (opts.replace && prior.state === "done") { rec.drop(); return begin(); }
+    holding = prior.holding === true;
     return check(api, prior.sid, wait, 2).then(function (c) {
       if (c.state === "done") return finished(c.file, { session: prior.sid, reused: true });
       if (c.state === "open" && c.parts > 0 && c.partBytes > 0) {
