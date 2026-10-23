@@ -764,7 +764,10 @@ test("fireOutcome: every answer judged by what it MEANS, and an unknown one neve
     ["stop", { fired: false, why: "no-key" }],
     ["stop", { fired: false, why: "no-object" }],
     ["stop", { fired: false, why: "answered 404: nf" }],
-    ["stop", { fired: false, why: "answered 429: {}" }],
+    // A DRAINING OR FULL CONTAINER IS WAITED OUT ON THE QUEUE (audit A08-6,
+    // 2026-10-23, the owner's option 1), not failed at once.
+    ["defer", { fired: false, why: "answered 429: {}" }],
+    ["defer", { fired: false, why: 'answered 503: {"ok":false,"error":"stopping"}' }],
     ["stop", { fired: false, why: "answered 200: {}" }],
     ["stop", { fired: false, why: "a reason nobody has seen yet" }],
     ["stop", { fired: false }],
@@ -780,7 +783,7 @@ test("fireOutcome: every answer judged by what it MEANS, and an unknown one neve
   // NO ANSWER IS BOTH. A reason that reached two arms would make the consumer's
   // branch order load-bearing, which is not a property anybody wrote down.
   const arms = new Set(cases.map(([w]) => w));
-  assert.deepEqual([...arms].sort(), ["fired", "inline", "retry", "stop"], "an arm of the decision is never exercised");
+  assert.deepEqual([...arms].sort(), ["defer", "fired", "inline", "retry", "stop"], "an arm of the decision is never exercised");
   // THE RETRY IS BOUNDED AND THE WAIT IS REAL — the two numbers the consumer
   // loops on, so a zero or a missing one cannot make it spin.
   assert.ok(Number.isInteger(FIRE_RETRY_MAX) && FIRE_RETRY_MAX >= 2 && FIRE_RETRY_MAX <= 10, "the retry bound is not a small integer: " + FIRE_RETRY_MAX);

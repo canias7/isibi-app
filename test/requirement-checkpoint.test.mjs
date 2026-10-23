@@ -317,7 +317,7 @@ test("CK 7c — A24-2 (2026-10-23): THE PAUSED JOB'S CHECKPOINT MISSING AND ITS 
   });
   assert.ok(sawIn && refused > 0, "the job never met the wall — the case tests nothing");
   assert.equal(o.status, "failed", JSON.stringify(o.rec.parts[0]));
-  assert.equal(o.rec.parts[0].why, "checkpoint-unread");
+  assert.equal(o.rec.parts[0].why, "checkpoint-refused");
   assert.equal(j.sent.length, 0);
   aboutUnchanged(P);
 });

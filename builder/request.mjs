@@ -1068,16 +1068,20 @@ function recoverHeld(p, job, ans, error, why, now) {
   // what the Worker would have read as missing: lost without a copy, and run
   // again to be staged from the copy when there is one.
   const lost = error === "checkpoint-unread" && (why === "malformed" || ((why === "missing" || why === "refused") && !copy));
+  // A REFUSAL IS SAID AS ONE (audit S1-7, 2026-10-23): the service running
+  // the part was not allowed to read the checkpoint, which is not the same as
+  // the checkpoint being unreadable, and the reply says which.
+  const reason = error === "checkpoint-unread" && why === "refused" ? "checkpoint-refused" : error;
   if (lost) {
     delete p.recover;
-    endUnfinished(p, leftOf(ans.body), error, { job: job.id, kind: "refused" });
+    endUnfinished(p, leftOf(ans.body), reason, { job: job.id, kind: "refused" });
     return;
   }
   const was = plain(p.recover) ? p.recover : {};
   const tries = (Number.isInteger(was.tries) ? was.tries : 0) + 1;
   const since = Number.isFinite(was.since) ? was.since : now;
-  p.recover = { why: error, tries, since, next: now + heldRecoverDelay(tries), last: String(why || "").slice(0, 80) };
-  p.status = "recovering"; p.why = error;
+  p.recover = { why: reason, tries, since, next: now + heldRecoverDelay(tries), last: String(why || "").slice(0, 80) };
+  p.status = "recovering"; p.why = reason;
   const left = strongerLeft(p.left, leftOf(ans.body));
   if (left) p.left = left;
   p.outcome = { job: job.id, kind: "recovering" };

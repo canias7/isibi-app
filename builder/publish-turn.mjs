@@ -37,6 +37,21 @@ export const TURN_WAIT_MS = 2 * TURN_TTL_MS;
 export const TURN_UNREAD_MAX = 5;
 
 /**
+ * A HOLDER THAT HAS STOPPED RENEWING (audit S7-4, 2026-10-23, the owner's
+ * option 1). A live job renews its turn on its heartbeat (30 s) and Publish
+ * every 60 s, each rewriting `at`; a job whose lease has expired (90 s with no
+ * beat) is the only kind another writer can claim beside, and its turn's `at`
+ * is then at least that old. Such a holder may have died between its draft
+ * record and its editable copy, so a reader waits for the turn to lapse and
+ * repairs under it, rather than reading the copy as current.
+ */
+export const TURN_STALE_MS = 75 * 1000;
+export function turnLooksDead(turn, now = Date.now()) {
+  if (!turn || typeof turn !== "object" || !Number.isFinite(turn.until) || !Number.isFinite(turn.at) || turn.at <= 0) return false;
+  return turn.until > now && now - turn.at >= TURN_STALE_MS;
+}
+
+/**
  * A turn record for its holder. `gen` is the turn's FENCE (2026-10-15, after
  * review): every turn taken carries a larger one than the turn before it
  * (`nextGen`), and every write a holder makes to the site's guarded keys is

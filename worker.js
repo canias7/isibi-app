@@ -72,7 +72,7 @@ import {
   // hold back for a compile, read from where it lives.
   MIN_BUILD_MS,
   // The job runner (2026-09-04): who runs a queued job, what it is handed.
-  jobRunnerOn, fireOutcome, FIRE_RETRY_MAX, FIRE_RETRY_MS, NO_CONTAINER_MSG, NO_CONTAINER_EDIT_MSG, jobRunnerFor, jobSecrets, JOB_FIRE_MS, JOB_TOKEN_GRACE_S,
+  jobRunnerOn, fireOutcome, FIRE_RETRY_MAX, FIRE_RETRY_MS, FIRE_DEFER_MAX, FIRE_DEFER_HOLD_S, STAGE_WAIT_MAX, firedImageOf, runMarkKey, NO_CONTAINER_MSG, NO_CONTAINER_EDIT_MSG, jobRunnerFor, jobSecrets, JOB_FIRE_MS, JOB_TOKEN_GRACE_S,
   // One job per site at a time (stage 6, 2026-09-05): how long a refused
   // claim waits before its message is re-sent.
   SITE_BUSY_DEFER_S,
@@ -316,7 +316,7 @@ import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig, writesSchema as partWritesSchema } from "./builder/request-plan.mjs";
-import { turnKey, turnRecord, readTurn, turnFree, nextGen, rebaseFiles, TURN_POLL_MS, TURN_WAIT_MS, TURN_UNREAD_MAX } from "./builder/publish-turn.mjs";
+import { turnKey, turnRecord, readTurn, turnFree, nextGen, rebaseFiles, TURN_POLL_MS, TURN_WAIT_MS, TURN_UNREAD_MAX, TURN_TTL_MS, turnLooksDead } from "./builder/publish-turn.mjs";
 import { PART_TERMINAL as REQ_PART_TERMINAL, heldFromOf, rewriteWire, othersOpenIn } from "./builder/request.mjs";
 import { visualReviewOn, buildRepairOn } from "./builder/visual-review.mjs";
 import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, carrySuperseded, supersededNote, holdRequirements, heldCheckpoint, heldDelta, applyHeldDelta, readHeld, sameCheckpoint, heldNote, ownerOf, handoffsByStep, applyVerdicts, COVERAGE_STEPS, linkEvidence } from "./builder/site-requirements.mjs";
@@ -2312,8 +2312,14 @@ export default {
           // site. A claim that could not be read at all is deferred ONCE, the
           // message carrying `tries`, since a consumer that cannot ask the
           // gate cannot tell whether a deploy is rolling under it.
-          const owner = newLeaseOwner();
-          const claim = await editRpc(env, "edit_claim", claimArgs(env, edit.id, owner));
+          // A DEFERRED FIRE COMES BACK HOLDING ITS LEASE (audit A08-6,
+          // 2026-10-23): the delivery that deferred kept the lease under its
+          // name, so the site stayed this job's; this one takes it over by
+          // that name. A lease that lapsed or moved is a fresh claim.
+          let owner = newLeaseOwner();
+          let claim = await takeDeferredLease(env, edit);
+          if (claim) owner = edit.holder;
+          else claim = await editRpc(env, "edit_claim", claimArgs(env, edit.id, owner));
           if (deferredClaim(claim) || unreadClaim(claim)) {
             await deferEditJob(env, edit, claim);
           } else if (!claim || claim.claimed !== true) {
@@ -2321,7 +2327,16 @@ export default {
           } else {
             // ITS PART'S PREPARATION, PUT WHERE THE JOB CAN READ IT (2026-10-08),
             // before it runs here or in the site's container.
-            await stagePrepared(env, edit.id);
+            const staged = await stagePrepared(env, edit.id);
+            // A CHECKPOINT NOT YET STAGED FILES NOTHING (audit S1-7, the
+            // owner's option 2): the job goes back on the queue a minute out,
+            // bounded (`STAGE_WAIT_MAX`), when it would run in a container; past the bound it runs, and its own
+            // read answers `refused` or `unreadable` under its own reason.
+            const held = staged && staged.held;
+            if (held && held.retry === true && jobRunnerOn(env) && await deferClaimed(env, edit, owner, "stageWaits", STAGE_WAIT_MAX,
+              "the paused part's checkpoint could not be staged (" + String(held.why || "") + ")")) {
+              // DEFERRED: nothing fired, nothing spent.
+            } else {
             // THE LEASE IS RENEWED WHILE THE FIRE WAITS FOR ROOM (up to
             // JOB_FIRE_MS), so a slow container cannot let it lapse under the
             // sweep; cleared before the inline run, which beats for itself.
@@ -2364,7 +2379,10 @@ export default {
                 await new Promise((r) => setTimeout(r, FIRE_RETRY_MS));
               }
             } finally { clearInterval(beat); }
-            if (act === "fired") {
+            if (act === "defer" && await deferFire(env, edit, owner, why)) {
+              // BACK ON THE QUEUE A MINUTE OUT (audit A08-6): the container
+              // was draining or full; nothing ran and nothing was spent.
+            } else if (act === "fired") {
               console.log("job runner: fired", edit.id, "into the site's container", why || "");
             } else if (act === "inline") {
               // NOT A CONTAINER JOB AT ALL — the runner is off, there is no
@@ -2382,6 +2400,7 @@ export default {
                 p_id: edit.id, p_ok: false,
                 p_result: { status: 503, type: "application/json", body: JSON.stringify({ ok: false, error: "no-container", job: edit.id, detail: why.slice(0, 120), msg: NO_CONTAINER_EDIT_MSG }) },
               });
+            }
             }
           }
         } else if (msg) {
@@ -7230,6 +7249,51 @@ async function deferEditJob(env, edit, claim) {
   }
   return resendMessage(env, { kind: EDIT_JOB_KIND, id },
     "edit queue: " + id + " deferred — " + (gated ? "a deploy is rolling (" + String(claim.other || "?") + ")" : "the site is busy with " + String(claim.other || "?")) + " (" + n + ")");
+}
+
+/**
+ * A DEFERRED FIRE'S LEASE, TAKEN OVER BY NAME (audit A08-6, 2026-10-23). The
+ * message names the lease the deferring delivery kept; the handoff renews it
+ * under the same name. Answers a claim-shaped answer, or null for a fresh
+ * claim (no name, or the lease lapsed or moved).
+ */
+async function takeDeferredLease(env, edit) {
+  if (!edit || !edit.holder) return null;
+  const h = await editRpc(env, "edit_handoff", { p_id: edit.id, p_owner: edit.holder, p_next: edit.holder, p_ttl: LEASE_TTL_S, p_state: null, p_slug: null });
+  if (!h || h.ok !== true) return null;
+  return { ok: true, claimed: true, state: h.state, uid: h.uid, slug: h.slug };
+}
+
+/**
+ * A CONTAINER DRAINING OR FULL (audit A08-6, 2026-10-23, the owner's option
+ * 1): the job goes back on the queue a minute out, its lease kept under its
+ * name past the delay so the site stays in line for it, bounded by
+ * `FIRE_DEFER_MAX` (the 13-minute drain). True when it was deferred; false
+ * when the bound is spent or the re-send could not be made, and the caller
+ * fails it `no-container` as before.
+ */
+async function deferFire(env, edit, owner, why) {
+  return deferClaimed(env, edit, owner, "fireWaits", FIRE_DEFER_MAX, "the container is draining or full (" + String(why).slice(0, 60) + ")");
+}
+
+/**
+ * A CLAIMED JOB SENT BACK ON THE QUEUE A MINUTE OUT, its lease kept under its
+ * name past the delay (`takeDeferredLease`), counted on the message under
+ * `field` and bounded by `max`. Each count is carried on, so one kind of wait
+ * never resets another's. True when it was deferred.
+ */
+async function deferClaimed(env, edit, owner, field, max, why) {
+  const n = Number(edit[field]) || 0;
+  if (n >= max) {
+    console.error("edit queue:", edit.id, "—", why, "through", n, "deferrals; going on");
+    return false;
+  }
+  await editRpc(env, "edit_handoff", { p_id: edit.id, p_owner: owner, p_next: null, p_ttl: FIRE_DEFER_HOLD_S, p_state: null, p_slug: null });
+  const carried = {};
+  for (const k of ["fireWaits", "stageWaits"]) if (Number.isInteger(edit[k])) carried[k] = edit[k];
+  const sent = await resendMessage(env, { kind: EDIT_JOB_KIND, id: edit.id, holder: owner, ...carried, [field]: n + 1 },
+    "edit queue: " + edit.id + " deferred — " + why + " (" + (n + 1) + "/" + max + ")");
+  return sent.deferred === true;
 }
 
 /**
@@ -13209,7 +13273,7 @@ async function loadSiteSource(env, slug) {
  * rebuild, the owner's text editor and "Back online" — now asks `checked` and
  * stops when the answer is not the live version's.
  */
-async function loadSiteSourceForEdit(env, slug, { checked = false, prepare = false } = {}) {
+async function loadSiteSourceForEdit(env, slug, { checked = false, prepare = false, mine = "" } = {}) {
   // A PREPARATION ONLY READS (2026-10-23, audit A24-1): it runs beside the
   // jobs with no lock, and a repair from it put a running job's unpublished
   // config back (the version's baked look over the job's own write) whenever
@@ -13217,7 +13281,9 @@ async function loadSiteSourceForEdit(env, slug, { checked = false, prepare = fal
   // the job its answers are replayed in checks the editable state itself.
   if (checked && prepare === true) return { ...await readSiteSource(env, slug, { strict: true }), recovery: { ok: true, why: "prepare", wrote: [] } };
   let recovery;
-  try { recovery = await ensureEditableState(env, slug); }
+  // A CHECKED READER WAITS OUT A DEAD HOLDER'S TURN (audit S7-4); `mine` is
+  // the turn the caller holds itself, which it never waits for.
+  try { recovery = await ensureEditableState(env, slug, checked ? { waitDead: true, mine: typeof mine === "string" ? mine : "" } : {}); }
   catch (e) {
     console.error("editable state: check failed for", slug, e && e.message);
     recovery = { ok: false, why: "threw" };
@@ -15285,7 +15351,7 @@ async function restoreVersion(env, slug, id, { refuseLegacy = false } = {}) {
  * wrong. Answers rather than throws; a check that cannot be made costs
  * nothing but a line in the log.
  */
-async function ensureEditableState(env, slug, { turnOwner = null, keepConfig = false, fence = null } = {}) {
+async function ensureEditableState(env, slug, { turnOwner = null, keepConfig = false, fence = null, waitDead = false, mine = "" } = {}) {
   if (!env || !env.SITES_BUCKET || !slug) return { ok: true, why: "no-bucket" };
   // WITH JOBS OF ONE REQUEST SIDE BY SIDE (2026-10-15, `PARALLEL_WRITES`), a
   // repair writes only under the site's publish turn: another job may be
@@ -15296,8 +15362,19 @@ async function ensureEditableState(env, slug, { turnOwner = null, keepConfig = f
   // every job checks again under its own turn before it publishes.
   if (writesBeside(env) && !turnOwner) {
     let t = null;
-    try { t = await tryTurn(env, slug, "repair:" + crypto.randomUUID()); }
+    const repairer = "repair:" + crypto.randomUUID();
+    try { t = await tryTurn(env, slug, repairer); }
     catch (e) { console.error("editable state: turn unreadable for", slug, errorClassForLog(e)); return { ok: false, why: "turn" }; }
+    // A HOLDER THAT STOPPED RENEWING IS WAITED OUT (audit S7-4, 2026-10-23,
+    // the owner's option 1): a checked reader (`waitDead`) never reads the
+    // copy as current under a dead job's turn, whose change may be in the
+    // draft and not yet in the copy. It waits for the turn to lapse, then
+    // repairs under it. A live holder is left to itself, as before.
+    if (!t && waitDead) {
+      const d = await turnOfDeadHolder(env, slug, repairer, mine);
+      if (d.turn) t = d.turn;
+      else if (!d.live) return { ok: false, why: d.why, wrote: [] };
+    }
     if (!t) return { ok: true, why: "turn-held", wrote: [] };
     try { return await ensureEditableState(env, slug, { turnOwner: t.owner, fence: { gen: Number(t.gen) || 0 } }); }
     finally { await giveTurn(env, slug, t); }
@@ -15450,6 +15527,37 @@ async function tryTurn(env, slug, owner, job = "") {
     onlyIf: etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" },
   });
   return put ? { ...rec, slug, etag: put.etag || null } : null;
+}
+/**
+ * WAIT OUT A TURN WHOSE HOLDER STOPPED RENEWING (audit S7-4): looked at every
+ * `turnPollMs`, for no longer than a turn's life and a minute. `{ turn }`
+ * once it lapsed and was taken; `{ live: true }` when the holder renews (or
+ * is this caller, `mine`), and the caller goes on as before; `{ why }` when
+ * the store fails or the dead turn outlasts the wait.
+ */
+async function turnOfDeadHolder(env, slug, owner, mine = "") {
+  const deadline = Date.now() + TURN_TTL_MS + 60 * 1000;
+  let waited = false;
+  for (;;) {
+    let obj = null;
+    try { obj = (await readTurnObj(env, slug)).obj; }
+    catch (e) { console.error("editable state: turn unreadable for", slug, errorClassForLog(e)); return { why: "turn" }; }
+    const held = obj && obj.turn;
+    if (held && mine && held.owner === mine) return { live: true };
+    if (!held || !turnLooksDead(held, Date.now())) {
+      if (!waited) return { live: true };
+      let t = null;
+      try { t = await tryTurn(env, slug, owner); }
+      catch (e) { console.error("editable state: turn unreadable for", slug, errorClassForLog(e)); return { why: "turn" }; }
+      if (t) return { turn: t };
+      // TAKEN BY ANOTHER THE MOMENT IT LAPSED: a live holder now.
+      return { live: true };
+    }
+    if (Date.now() >= deadline) return { why: "turn-dead" };
+    if (!waited) console.log("editable state:", slug, "— the turn's holder", held.owner, "stopped renewing; waiting for it to lapse");
+    waited = true;
+    await new Promise((r) => setTimeout(r, turnPollMs(env)));
+  }
 }
 /** Give a turn back, only while it is still the one taken: a lapsed turn another job now holds is never touched. */
 async function giveTurn(env, slug, t) {
@@ -17240,7 +17348,7 @@ async function publishBeside(env, opts) {
     if (st && st.why === "turn-lost") loseTurn(job, slug, "found at the editable-state check");
     if (bs.lost) return { ok: false, error: "turn-lost", ours: true, detail: "another change in this request took the turn to publish — nothing of this change was published" };
     if (!st || st.ok !== true) return { ok: false, error: "read", ours: true, detail: "couldn't check the site's editable state before publishing — nothing was changed" };
-    const cur = await loadSiteSourceForEdit(env, slug, { checked: true });
+    const cur = await loadSiteSourceForEdit(env, slug, { checked: true, mine: t.owner });
     if (!cur || cur.ok !== true) return { ok: false, error: "read", ours: true, detail: cur && cur.why === "editable-state" ? "couldn't check the site's editable state before publishing — nothing was changed" : "couldn't read the site as it is now — nothing was changed" };
     const r = rebaseFiles(bs.base, opts.pages, cur.pages);
     if (!r.ok) { tm("publish:rebase", "fail", { conflicts: r.conflicts, bad: !!r.bad }); return { ok: false, error: "conflict", ours: true, conflicts: r.conflicts, detail: "another change in this request changed " + (r.conflicts.join(", ") || "the same files") + " at the same time — nothing was changed" }; }
@@ -20970,6 +21078,10 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
             const fire = await fireContainerJob(env, id, { holder: lease, kind: "build", who });
             act = fireOutcome(fire);
             why = String((fire && fire.why) || "");
+            // A BUILD IS NOT DEFERRED (audit A08-6 covers edits): its run
+            // record has started, so it keeps what it had: a 429 stops, a
+            // draining 503 is asked again, bounded.
+            if (act === "defer") act = /^answered 429\b/.test(why) ? "stop" : "retry";
             if (act !== "retry" || n + 1 >= FIRE_RETRY_MAX) break;
             console.log("job runner: asking again for build", id, "—", why, "(" + (n + 1) + "/" + FIRE_RETRY_MAX + ")");
             await new Promise((r) => setTimeout(r, FIRE_RETRY_MS));
@@ -23738,7 +23850,10 @@ async function runRequestPrep(env, ctx, task) {
 async function stagePrepared(env, id) {
   await stagePreparation(env, id);
   await stageKept(env, id);
-  await stageHeld(env, id);
+  // THE CHECKPOINT'S STAGING IS ANSWERED (audit S1-7, 2026-10-23): the
+  // consumer files nothing while a checkpoint the part must resume from could
+  // not be staged for a reason that recovers.
+  return { held: await stageHeld(env, id) };
 }
 
 /**
@@ -23773,13 +23888,19 @@ async function stageHeld(env, id) {
     if (hf) {
       // …FROM THE STORE, OR THE COPY ITS REQUEST PART KEPT, OR WHAT CHANGED
       // SINCE AN EARLIER CHECKPOINT OF THE PART (`resolveHeld`, round 14).
-      const held = await resolveHeld(env, p, { job: hf.job, count: hf.count });
-      if (held.failed) return;
+      // TRIED AGAIN WHILE THE STORE FAILS (audit S1-7, the owner's option
+      // 2): in the container the job cannot read another job's checkpoint
+      // itself, so the Worker's staging is the only copy it gets. A read
+      // that recovers is asked `HELD_TRIES` times; still failing, the
+      // consumer is told to file nothing yet (`retry`).
+      let held = await resolveHeld(env, p, { job: hf.job, count: hf.count });
+      for (let i = 1; held.failed && held.why === "unreadable" && i < HELD_TRIES; i++) held = await resolveHeld(env, p, { job: hf.job, count: hf.count });
+      if (held.failed) return { need: true, staged: false, why: String(held.why || "unreadable"), retry: held.why === "unreadable" };
       for (let i = 0; i < HELD_TRIES; i++) {
-        try { await env.SITES_BUCKET.put(jobHeldInKey(id), JSON.stringify({ ...heldCheckpoint(held.list, held.asked), from: hf.job }), { httpMetadata: { contentType: "application/json" } }); return; }
+        try { await env.SITES_BUCKET.put(jobHeldInKey(id), JSON.stringify({ ...heldCheckpoint(held.list, held.asked), from: hf.job }), { httpMetadata: { contentType: "application/json" } }); return { need: true, staged: true }; }
         catch (e) { console.error("edit queue: held requirements not staged for", id, "try", i + 1, errorClassForLog(e)); }
       }
-      return;
+      return { need: true, staged: false, why: "write", retry: true };
     }
     const paused = p.jobs.filter((j) => j && j.kind === "run" && typeof j.id === "string" && j.id && j.id !== id && j.end
       && (j.end.act === "clarify" || j.end.act === "uncertain"));
@@ -25525,7 +25646,15 @@ async function fireContainerJob(env, id, { holder = "", kind = "edit", who: iden
   if (status === 200) {
     let j = null;
     try { j = JSON.parse(text); } catch { j = null; }
-    if (j && j.ok === true) return { fired: true };
+    if (j && j.ok === true) {
+      // THE IMAGE IT RUNS ON, ON THE JOB'S RUN MARK (audit A08-7): recorded,
+      // never refused on; a mark that cannot be written is said and ignored.
+      const image = firedImageOf(j);
+      try { await env.SITES_BUCKET.put(runMarkKey(kind, id), JSON.stringify({ kind, id, image, at: new Date().toISOString() })); }
+      catch (e) { console.error("job runner: could not record the image for", id, errorClassForLog(e)); }
+      console.log("job runner:", id, "runs on image", image);
+      return { fired: true, image };
+    }
   }
   return { fired: false, why: "answered " + status + (text ? ": " + String(text).slice(0, 80) : "") };
 }
@@ -35012,7 +35141,7 @@ async function handleRequest(request, env, ctx) {
             // now are (`replayPrepared`, `pages`); everything else reads the store.
             const eSource = eJob && eJob.prepare === true && Array.isArray(eJob.pages) && eJob.pages.length
               ? { ok: true, pages: eJob.pages }
-              : await loadSiteSourceForEdit(env, ownerSlug, { checked: true, prepare: !!(eJob && eJob.prepare === true) });
+              : await loadSiteSourceForEdit(env, ownerSlug, { checked: true, prepare: !!(eJob && eJob.prepare === true), mine: (eJob && eJob.beside && eJob.beside.turn && eJob.beside.turn.owner) || "" });
             if (eSource.ok) await noteBase(env, ownerSlug, eJob, eSource.pages);
             if (!eSource.ok) return explain("route/no-source-unreadable", undefined,
               // A CHECK THAT STOPPED BEFORE ITS FIRST WRITE (the turn could not
@@ -40962,7 +41091,7 @@ async function handleRequest(request, env, ctx) {
             // rung sends is what keeps that a fact rather than a coincidence.
             if (modelKeyMissing(env, modelsFor(ab && ab.picker).quick)) return aFailure("unconfigured");
 
-            const aRead = await loadSiteSourceForEdit(env, ownerSlug, { checked: true, prepare: !!(aJob && aJob.prepare === true) });
+            const aRead = await loadSiteSourceForEdit(env, ownerSlug, { checked: true, prepare: !!(aJob && aJob.prepare === true), mine: (aJob && aJob.beside && aJob.beside.turn && aJob.beside.turn.owner) || "" });
             if (aRead.ok) await noteBase(env, ownerSlug, aJob, aRead.pages);
             if (!aRead.ok) return aFailure(aRead.why === "editable-state" ? "editable-state" : "no-source", { recovery: aRead.recovery });
             const aSrc = aRead.pages;
