@@ -301,27 +301,28 @@ test("ROUTE 4 — unpublished work: a design that could not be put back is saved
   assert.match(screen(g.body, false), /in your uploads, though it isn't on your site/);
 });
 
-test("ROUTE 5 — a database made along the way and then a stop before anything went into it: a change, said as one — never 'Nothing was added'", async () => {
+// ⚠ REVERSED 2026-10-23 (`saltmarsh-and-sparrow`'s orphan database): on the
+// page path the database is made only at the seam, after the pages compiled,
+// so a stop before it — or a compile that failed — makes no database at all.
+// The earlier cases here pinned "a database made along the way" as the
+// outcome of exactly those stops; that outcome was the defect.
+test("ROUTE 5 — a stop before the pages compiled makes no database: nothing changed, said as nothing — the database waits for a compile that passed", async () => {
   const r = await addon("fo-provisioned", "keep a list of repairs", {
     backend: "none", provisions: true, kinds: ["table"], publishes: true, written: [],
     answers: { table: { table: [{ table: { name: "repairs", columns: [{ name: "who", type: "text" }] } }] } },
   });
   assert.equal(r.body.ok, false, JSON.stringify(r.body).slice(0, 300));
-  assert.ok(r.neonCalls.length > 0, "nothing was provisioned — this case tests nothing");
-  assert.deepEqual(r.body.outcome, { state: "partial", published: false, database: "none", provisioned: true });
-  const f = facts(r.body);
-  assert.equal(f[0], "changed: The site has its own database now, made for this addition; nothing from it is stored in it yet.");
-  assert.match(f[1], /^not-done: The rest of it did not go through: nothing was published, so the site's pages are as they were\. The builder's own reason: /);
-  assert.ok(!f.some((x) => /Nothing was added/.test(x)), JSON.stringify(f));
-  assert.equal(replyOutcomeOf(addonReplyFacts(r.body)), "partly");
-  // …AND A COMPILE THAT FAILS AFTER THE DATABASE WAS MADE: never "untouched".
+  assert.equal(r.neonCalls.length, 0, "a database was made for an addition that stopped before its pages compiled");
+  assert.deepEqual(r.body.outcome, NOTHING);
+  // …AND A COMPILE THAT FAILS: no database, and the site is untouched.
   const c = await addon("fo-prov-compile", "keep a list of repairs and show it", {
     backend: "none", provisions: true, kinds: ["table", "page"], publishes: true, compileFail: true, written: [writtenPage("/repairs")],
     answers: { table: { table: [{ table: { name: "repairs", columns: [{ name: "who", type: "text" }] } }] }, page: { page: [PAGE("/repairs", "Repairs")] } },
   });
-  assert.deepEqual([c.body.error, c.body.outcome], ["compile", { state: "partial", published: false, database: "none", provisioned: true }], JSON.stringify(c.body).slice(0, 300));
-  assert.equal(c.body.msg, "That addition didn't compile, so it wasn't published — try describing it differently.");
-  assert.equal(c.body.coverNote, "I did set up a database for your site along the way — nothing from this is stored in it yet.");
+  assert.equal(c.neonCalls.length, 0, "a database was made for pages that did not compile");
+  assert.deepEqual([c.body.error, c.body.outcome], ["compile", NOTHING], JSON.stringify(c.body).slice(0, 300));
+  assert.equal(c.body.msg, "That addition didn't compile, so your site is untouched — try describing it differently.");
+  assert.doesNotMatch(String(c.body.coverNote || ""), /database/);
 });
 
 test("ROUTE 6 — a judgment that did not finish stops before anything is applied or charged: no outcome is claimed for a requirement nobody established, and the screen says only its own sentence", async () => {
@@ -668,15 +669,14 @@ test("PROV 4 — controls through the route: a database made and an apply that l
   const f = facts(r.body);
   assert.deepEqual(f.slice(0, 2), ["changed: Part of this addition went in and is live: the site now stores repairs.", "changed: The site has its own database now."]);
   assert.ok(!f.some((x) => /may have gone in|nothing from it/.test(x)), JSON.stringify(f));
-  // …AND A STOP BEFORE ANY APPLY: nothing from this is stored, as the evidence says.
+  // …AND A COMPILE THAT FAILED BEFORE ANY APPLY (2026-10-23): no database is
+  // made at all — it waits for a compile that passed — so nothing changed.
   const c = await addon("fo-prov-before", "keep a list of repairs and show it", {
     backend: "none", provisions: true, kinds: ["table", "page"], publishes: true, compileFail: true, written: [writtenPage("/repairs")], answers: shows,
   });
   assert.ok(!c.sql.some((q) => /CREATE TABLE IF NOT EXISTS "repairs"/i.test(q)), "the apply ran before a compile that failed");
-  assert.deepEqual(c.body.outcome, { state: "partial", published: false, database: "none", provisioned: true });
-  assert.equal(c.body.coverNote, MADE_NOTHING);
-  assert.equal(screen(c.body, false), c.body.msg + " " + MADE_NOTHING);
-  assert.equal(facts(c.body)[0], "changed: The site has its own database now, made for this addition; nothing from it is stored in it yet.");
+  assert.equal(c.neonCalls.length, 0, "a database was made for pages that did not compile");
+  assert.deepEqual(c.body.outcome, NOTHING);
 });
 
 test("PROV 5 — stored and replayed: the route's answer for a database made and an apply that stopped part-way is served by the real poll route as stored, and the browser with no model reply shows the database made with what went in not known; a stored answer the facts do read says the same", async () => {

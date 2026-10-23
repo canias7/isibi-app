@@ -706,11 +706,12 @@ for (const [name, opts] of stoppedRoutes) test(`REAL stop ${name}: direct and qu
   if (name.startsWith("recovery-")) assert.equal(r.body.recovery.ok, false);
   if (name === "recovery-partial-write") assert.equal(r.store.store.get(sourceKey("bounded-" + name)), json([storedPage("/")]));
   if (name === "provisioned-output-empty") {
-    assert.ok(r.neonCalls.length > 0, "provisioning preceded this stop");
-    // AND IT IS SAID (2026-10-06): the site has a database now, and nothing of
-    // this addition is in it — a stop after provisioning is not "nothing changed".
-    assert.deepEqual(r.body.outcome, { state: "partial", published: false, database: "none", provisioned: true });
-    assert.equal(r.body.coverNote, "I did set up a database for your site along the way — nothing from this is stored in it yet.");
+    // ⚠ REVERSED 2026-10-23 (`saltmarsh-and-sparrow`'s orphan database): on
+    // the page path the database waits for a compile that passed, so a stop
+    // before it makes none, and the outcome says nothing changed.
+    assert.equal(r.neonCalls.length, 0, "a database was made for an addition that stopped before its pages compiled");
+    assert.deepEqual(r.body.outcome, { state: "none", published: false, database: "none" });
+    assert.doesNotMatch(String(r.body.coverNote || ""), /database/);
   }
   assert.doesNotMatch(r.body.msg, /nothing (?:changed|charged)|\bfree\b/i);
   await browserReply(r);

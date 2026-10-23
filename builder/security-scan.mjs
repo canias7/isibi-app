@@ -236,8 +236,11 @@ export async function deepScan(deps, { model, files = [], facts = "", tables = [
       try {
         const reply = await deps.send(huntRequest({ model, area: a, code, facts: facts + missedNote }));
         if (reply && reply.usage) usage.push(reply.usage);
-        return readCandidates(reply).map((c) => ({ ...c, code, checkers }));
-      } catch { return []; }
+        const got = readCandidates(reply).map((c) => ({ ...c, code, checkers }));
+        // EACH AREA AS IT FINISHES (2026-10-23): facts for the progress talk.
+        say("area", { area: a.title, found: got.length });
+        return got;
+      } catch { say("area", { area: a.title, found: 0, failed: true }); return []; }
     }));
     // THE SAME PROBLEM FOUND TWICE IS CHALLENGED ONCE.
     for (const c of hunts.flat()) { const k = (c.where + "|" + c.title).toLowerCase(); if (!seen.has(k)) { seen.add(k); all.push(c); } }
@@ -253,7 +256,9 @@ export async function deepScan(deps, { model, files = [], facts = "", tables = [
         return readVerdict(reply);
       } catch { return { verdict: "needs_checking", reason: "", fix: "" }; }
     }));
-    return combineVerdicts(vs);
+    const v = combineVerdicts(vs);
+    say("verdict", { title: c.title, severity: c.severity, verdict: v.verdict });
+    return v;
   }));
   const confirmed = [], unsure = [];
   candidates.forEach((c, i) => {

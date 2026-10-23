@@ -814,7 +814,7 @@ export async function addon(slug, instruction, opts) {
   // with, its first-load `texts` included, so a case can say what the
   // published page showed.
   const c = (opts && opts.publishes)
-    ? installCompiler(opts.compileFail ? { ok: false, error: "compile failed" } : opts.notServed ? { worker: false } : opts.render !== undefined ? { render: opts.render } : {})
+    ? installCompiler(opts.compileFail ? { ok: false, error: opts.compileError || "compile failed" } : opts.compileFailFirst ? { failFirst: opts.compileFailFirst, error: opts.compileError || "compile failed" } : opts.notServed ? { worker: false } : opts.render !== undefined ? { render: opts.render } : {})
     : null;
   try {
     const worker = await loadWorker();

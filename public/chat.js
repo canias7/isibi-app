@@ -5462,8 +5462,68 @@ function sitePreviewSrc(site, path) {
   // own preview host instead; after Publish (nothing unpublished) it is the
   // live address again.
   const d = siteDraftFrame(site);
-  const base = d ? d.preview : site.url;
+  // WHILE THE DRAFT READING IS NOT IN (2026-10-23): never the live address,
+  // which on a site never published is the "This site isn't published yet"
+  // placeholder. The last draft address this session saw opens at once; with
+  // none, nothing loads and the frame shows its loading state
+  // (`sitePreviewLoading`).
+  const pending = !d && typeof sitePreviewLoading === 'function' ? sitePreviewPending(site) : null;
+  if (pending === 'loading') return '';
+  const base = d ? d.preview : pending ? pending : site.url;
+  if (d && typeof siteFrameRemember === 'function') siteFrameRemember(site, d.preview);
   return base + (at !== '/' ? String(at).replace(/^\//, '') : '') + '?v=' + (site.previewV || 0);
+}
+// ── THE FRAME BEFORE THE DRAFT IS READ (2026-10-23) ─────────────────────────
+//
+// `siteDraftState` starts empty and is filled by `loadDraftState`, so the
+// first paint of a reopened site pointed the frame at the live address and a
+// never-published site flashed "This site isn't published yet…" before its
+// draft appeared. Now, until the reading is in: the last draft address this
+// session showed for the site (memory, then sessionStorage), or a neutral
+// loading state — never the live placeholder. A reading that failed falls back
+// to what the frame showed before this change.
+const siteDraftFailed = {};
+const siteFrameMemo = {};
+const SITE_FRAME_KEY = (slug) => 'gf.draftFrame.' + slug;
+function siteFrameRemember(site, preview) {
+  const slug = String((site && site.slug) || '');
+  if (!slug || typeof preview !== 'string') return;
+  siteFrameMemo[slug] = preview;
+  try { if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(SITE_FRAME_KEY(slug), preview); } catch (e) { /* storage may be blocked */ }
+}
+function siteFrameForget(site) {
+  const slug = String((site && site.slug) || '');
+  if (!slug) return;
+  delete siteFrameMemo[slug];
+  try { if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(SITE_FRAME_KEY(slug)); } catch (e) { /* storage may be blocked */ }
+}
+function siteFrameRemembered(slug) {
+  if (typeof siteFrameMemo[slug] === 'string') return siteFrameMemo[slug];
+  let v = null;
+  try { v = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(SITE_FRAME_KEY(slug)) : null; } catch (e) { v = null; }
+  return typeof v === 'string' && SITE_DRAFT_HOST.test(v) ? v : null;
+}
+/**
+ * What the frame shows while it cannot show the draft: `null` (the live
+ * address, as before), a remembered draft address, or `'loading'`.
+ */
+function sitePreviewPending(site) {
+  const slug = String((site && site.slug) || '');
+  if (!slug || typeof siteDraftState !== 'object') return null;
+  const known = Object.prototype.hasOwnProperty.call(siteDraftState, slug);
+  if (!known) {
+    if (siteDraftFailed[slug]) return null;
+    return siteFrameRemembered(slug) || 'loading';
+  }
+  // A DRAFT WHOSE PREVIEW IS NOT READY YET, on a site never published: its
+  // live address is only the placeholder, so the frame waits instead.
+  const w = siteDraftWaiting(site);
+  if (w && w.state === 'unpublished') return siteFrameRemembered(slug) || 'loading';
+  return null;
+}
+/** Whether the frame shows its loading state rather than any address. */
+function sitePreviewLoading(site) {
+  return !siteDraftFrame(site) && sitePreviewPending(site) === 'loading';
 }
 // THE DRAFT THE FRAME SHOWS, or null for the live site: the server's own
 // reading (`GET /api/site/<slug>/draft`) when draft-first is on, the draft is
@@ -8119,16 +8179,18 @@ function wireSecFix(site) {
 }
 // THE DEEP SCAN, from the panel or the chat (phase D): the picker's model,
 // charged by what its calls cost. Answers when the report is in.
-async function siteSecurityDeep(site) {
+async function siteSecurityDeep(site, opts) {
   if (!site || !site.slug) return null;
+  const want = opts && opts.say === true ? { say: true, message: String(opts.message || '').slice(0, 500) } : null;
+  const givenKey = opts && typeof opts.key === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(opts.key) ? opts.key : '';
   const b = document.getElementById('secDeep');
   if (b) { b.disabled = true; b.textContent = 'Scanning\u2026 (a minute or two)'; }
   let rep = null;
   try {
-    const key = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID().replace(/-/g, '') : String(Date.now());
-    const r = await apiFetch('/api/site/' + encodeURIComponent(site.slug) + '/security', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deep: true, picker: buildPicker, ...(typeof sendEffort === 'function' ? sendEffort() : null), thorough: !!(document.getElementById('secThorough') || {}).checked, key }) });
+    const key = givenKey || ((typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID().replace(/-/g, '') : String(Date.now()));
+    const r = await apiFetch('/api/site/' + encodeURIComponent(site.slug) + '/security', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deep: true, picker: buildPicker, ...(typeof sendEffort === 'function' ? sendEffort() : null), thorough: !!(document.getElementById('secThorough') || {}).checked, key, ...(want || {}) }) });
     const d = await r.json().catch(() => null);
-    if (r.ok && d && d.ok) rep = d.report;
+    if (r.ok && d && d.ok) { rep = d.report; if (rep && want && typeof d.say === 'string') rep.say = d.say; }
     else if (typeof sbToast === 'function') sbToast((d && d.error) || 'Couldn\u2019t run the scan just now. Try again in a moment.');
   } catch (e) { if (typeof sbToast === 'function') sbToast('Lost the connection \u2014 try again.'); }
   const box = document.getElementById('secResults');
@@ -8136,6 +8198,18 @@ async function siteSecurityDeep(site) {
   const b2 = document.getElementById('secDeep'); if (b2) { b2.disabled = false; b2.textContent = 'Run deep scan'; paintSecPrice(site.slug); }
   if (typeof fetchCredits === 'function') fetchCredits();
   return rep;
+}
+// THE DEEP SCAN'S REPORT, SAID IN THE THREAD: one sentence-builder for the
+// router's `security` answer and for `/sentinel`, so the two never drift.
+function siteSecuritySay(rep) {
+  if (!rep) return 'I couldn\u2019t run the security scan just now. Try again in a moment, or open More \u2192 Security.';
+  const n = Array.isArray(rep.findings) ? rep.findings.length : 0;
+  const u = Array.isArray(rep.unsure) ? rep.unsure.length : 0;
+  const top = (rep.findings || []).slice(0, 3).map((f) => '\u2022 ' + f.title).join('\n');
+  return (n ? 'I checked your site\u2019s security and found ' + n + ' thing' + (n === 1 ? '' : 's') + ' to look at:\n' + top : 'I checked your site\u2019s security and found no problems.')
+    + (u ? '\n' + u + ' more could not be settled from the code alone.' : '')
+    + '\nThe full report, with a Fix it button for each, is in More \u2192 Security.'
+    + (Number(rep.cost) > 0 ? '\nThe scan used ' + rep.cost + ' credit' + (Number(rep.cost) === 1 ? '' : 's') + '.' : '');
 }
 const secEstimate = {};
 function paintSecPrice(slug) {
@@ -8529,11 +8603,21 @@ async function loadDraftState(site) {
   // `44676fcd`): what the page last read stands, and the reading is tried
   // again on the follow's backoff while the workspace is watched — one 503
   // no longer ends the following.
-  if (!d) { siteDraftFollowAgain(site, { failed: true }); return null; }
+  // THE FIRST READING ENDS THE FRAME'S LOADING STATE (2026-10-23), in either
+  // direction: a failure falls back to the live address, an answer to what it says.
+  const firstRead = !Object.prototype.hasOwnProperty.call(siteDraftState, slug);
+  if (!d) {
+    if (firstRead && typeof siteDraftFailed === 'object' && !siteDraftFailed[slug]) { siteDraftFailed[slug] = true; if (siteOpenId === site.id && typeof renderSites === 'function') renderSites(); }
+    siteDraftFollowAgain(site, { failed: true });
+    return null;
+  }
   const was = siteDraftFrameKey(siteDraftState[slug]);
   siteDraftState[slug] = d;
+  // NOTHING UNPUBLISHED: no draft address to remember for the next open.
+  if (!(d.enabled === true && d.unpublished === true) && typeof siteFrameForget === 'function') siteFrameForget(site);
   paintDraftChip(d);
   siteDraftFollow(site, d, was);
+  if (firstRead && siteDraftFrameKey(d) === was && siteOpenId === site.id && typeof renderSites === 'function') renderSites();
   return d;
 }
 // THE PREVIEW'S STATE AS THE SERVER READ IT: `previewState` (ready, pending,
@@ -8925,7 +9009,8 @@ function renderSiteWorkspace(view, site) {
   // NOT READY YET (audit A07-5): the frame shows the live site, and says so.
   const draftWaiting = draftShown ? null : siteDraftWaiting(site);
   const waitState = draftWaiting ? siteDraftPreviewState(draftWaiting) : '';
-  const previewUrl = draftShown ? 'Draft preview \u00b7 not published' + (pvState === 'pending' ? ' \u00b7 updating\u2026' : pvState === 'failed' ? ' \u00b7 couldn\u2019t update the preview yet' : pvState === 'unknown' ? ' \u00b7 checking\u2026' : '')
+  const frameLoading = site.surface !== 'app' && sitePreviewLoading(site);
+  const previewUrl = frameLoading ? 'Loading your preview\u2026' : draftShown ? 'Draft preview \u00b7 not published' + (pvState === 'pending' ? ' \u00b7 updating\u2026' : pvState === 'failed' ? ' \u00b7 couldn\u2019t update the preview yet' : pvState === 'unknown' ? ' \u00b7 checking\u2026' : '')
     : draftWaiting ? 'Live site \u00b7 ' + (waitState === 'failed' ? 'couldn\u2019t prepare your preview yet' : 'preparing your preview\u2026')
     : siteChipUrl(site, active && active.path);
   const picker = pages.length > 1
@@ -9168,6 +9253,7 @@ function renderSiteWorkspace(view, site) {
               '<div class="st-thread" id="stThread"></div>' +
               ctxLineHTML(site) +
               '<div class="st-comp">' +
+                '<div class="st-slash" id="stSlash" role="listbox" aria-label="Commands" hidden></div>' +
                 '<textarea id="stRevise" class="st-comp-in" rows="2" placeholder="Ask Go Farther…"></textarea>' +
                 '<div class="st-attach" id="stAttach"></div>' +
                 '<div class="st-comp-row">' +
@@ -9252,7 +9338,7 @@ function renderSiteWorkspace(view, site) {
                   ? '<div class="st-datawrap" id="stData"><div class="st-empty">Loading your data…</div></div>'
                   : stageView === 'more'
                     ? siteMoreView(site)
-                    : '<div class="st-frame"><div class="st-frame-bar"><span class="st-frame-url">' + esc(previewUrl) + '</span></div><iframe id="stFrame" sandbox="' + FRAME_SANDBOX + '" data-site="' + esc(site.id) + '" title="Site preview"></iframe></div>') +
+                    : '<div class="st-frame"><div class="st-frame-bar"><span class="st-frame-url">' + esc(previewUrl) + '</span></div><iframe id="stFrame" sandbox="' + FRAME_SANDBOX + '" data-site="' + esc(site.id) + '" title="Site preview"></iframe>' + (frameLoading ? '<div class="st-frame-loading" role="status"><span class="st-frame-spin" aria-hidden="true"></span><span>Loading your preview\u2026</span></div>' : '') + '</div>') +
           // The fix bar overlays the preview iframe, so it asks the stage's own
           // question rather than keeping a second copy of it — found by the
           // guard that counts copies, which is what that guard is for.
@@ -9309,7 +9395,7 @@ function renderSiteWorkspace(view, site) {
     const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
     thread.innerHTML = (site.msgs || []).map((m) => m.r === 'u'
       ? '<div class="st-msg u">' + esc(m.t) + '</div>'
-      : '<div class="st-msg a">' + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + (m.talkLive === true ? (Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, true) : '<div class="st-think"><i></i>Working on it</div>') : Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, false, true) : '') + siteMsgText(m, linkify) + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + '' + siteAskHTML(m, site) + siteModel3dHTML(m, site) + (m.request ? siteRequestHTML(m, site) : '') + (m.jobCard ? siteJobCardHTML(m, site) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
+      : '<div class="st-msg a">' + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + (m.talkLive === true ? (Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, true) : '<div class="st-think"><i></i>Working on it</div>') : Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, false, true) : '') + siteMsgText(m, linkify) + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + '' + siteAskHTML(m, site) + siteModel3dHTML(m, site) + siteSentinelHTML(m) + (m.request ? siteRequestHTML(m, site) : '') + (m.jobCard ? siteJobCardHTML(m, site) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
     ).join('') + (siteBusyHere(site)
       ? (siteBuild
           ? '<div class="st-msg a st-busy st-busy-react">' + reactLiveStepsHTML() + '</div>'
@@ -9340,6 +9426,11 @@ function renderSiteWorkspace(view, site) {
       if (m3Go && thread.contains(m3Go)) { siteModel3dGo(site.id, m3Go.getAttribute('data-m3d-go')); return; }
       const m3No = e.target.closest('[data-m3d-no]');
       if (m3No && thread.contains(m3No)) { siteModel3dNo(site.id, m3No.getAttribute('data-m3d-no')); return; }
+      // /sentinel's PRICE CARD (2026-10-23): the scan button spends, Not now does not.
+      const snGo = e.target.closest('[data-sentinel-go]');
+      if (snGo && thread.contains(snGo)) { siteSentinelGo(site.id, snGo.getAttribute('data-sentinel-go')); return; }
+      const snNo = e.target.closest('[data-sentinel-no]');
+      if (snNo && thread.contains(snNo)) { siteSentinelNo(site.id, snNo.getAttribute('data-sentinel-no')); return; }
       // A REQUEST'S CARD (2026-10-03): a part's rewrite. (Its stop is the chatbox's, 2026-10-21.)
       const reqGo = e.target.closest('[data-req-approve]');
       if (reqGo && thread.contains(reqGo)) { siteRequestApprove(site.id, reqGo.getAttribute('data-req-approve'), Number(reqGo.getAttribute('data-req-part'))); return; }
@@ -9742,6 +9833,186 @@ function renderSiteWorkspace(view, site) {
   wireBuildEffort();
   if (typeof wireCtxLine === 'function') wireCtxLine();
 }
+// ── SLASH COMMANDS BEGIN (2026-10-23, the owner: "like Claude's / menu") ──
+//
+// "/" AT THE START OF THE MESSAGE opens a small menu above the box: each
+// command with one line about it; typing filters it; arrows and Enter (or a
+// click) pick; Esc closes. THE REGISTRY IS THIS ONE ARRAY: a new command is a
+// new entry (`name`, `desc`, `run(site)`), and nothing else needs to change.
+// A message that starts with "/word" is a command: a word that is not one is
+// never sent to the builder as an edit — the menu stays open saying so.
+const SLASH_COMMANDS = [
+  // THE DEEP SECURITY SCAN, ASKED FOR AS THEY WOULD ASK IT (owner, 2026-10-23:
+  // "like the user telling the model to start a security check"): the command
+  // is sent as an ordinary message — shown in the thread with what it means —
+  // through the router, whose `security` answer gets the model's own reply
+  // with what it will check and the price (`siteSecurityOffer`). Nothing is
+  // spent on the scan until they confirm.
+  { name: 'sentinel', desc: 'Ask for a deep security check of your site — you see the price first', run: (site) => { if (site && !siteBusy) siteSend('/sentinel — please run a deep security check of my site', true); } },
+];
+// The text being typed as a command, or null: only a "/" at the very start,
+// and only until the first space (after that it is a message, or a command sent).
+function slashQuery(text) {
+  if (typeof text !== 'string') return null;
+  const m = /^\/([A-Za-z0-9-]*)$/.exec(text);
+  return m ? m[1].toLowerCase() : null;
+}
+function slashMatches(q) {
+  const k = typeof q === 'string' ? q.toLowerCase() : '';
+  return SLASH_COMMANDS.filter((c) => c.name.startsWith(k));
+}
+// A message sent that is a command: `{ name, cmd }` (cmd null when unknown), or null.
+function slashCommandOf(text) {
+  if (typeof text !== 'string') return null;
+  const m = /^\/([A-Za-z0-9-]+)(?:\s|$)/.exec(text.trim());
+  if (!m) return null;
+  const name = m[1].toLowerCase();
+  return { name, cmd: SLASH_COMMANDS.find((c) => c.name === name) || null };
+}
+let slashSel = 0;
+let slashShut = null; // the box's value when Esc closed the menu: it stays shut until the value changes
+function slashMenuHTML(q, sel) {
+  const list = slashMatches(q);
+  if (!list.length) return '<div class="st-slash-none">No command matches /' + esc(q) + '</div>';
+  return list.map((c, i) => '<button type="button" class="st-slash-it' + (i === sel ? ' on' : '') + '" role="option" aria-selected="' + (i === sel) + '" data-slash="' + esc(c.name) + '">' +
+    '<b>/' + esc(c.name) + '</b><span>' + esc(c.desc) + '</span></button>').join('');
+}
+function slashBox() { return typeof document !== 'undefined' ? document.getElementById('stSlash') : null; }
+function slashClose() { const b = slashBox(); if (b) { b.hidden = true; b.innerHTML = ''; } }
+function slashOpen() { const b = slashBox(); return !!(b && !b.hidden); }
+// Repaint from the box's text; answers whether the menu is open. `force` opens
+// it for a word already sent that is not a command (no match, said there).
+function slashPaint(ta, force) {
+  const b = slashBox();
+  if (!b || !ta) return false;
+  let q = slashQuery(ta.value);
+  if (q === null && force) { const c = slashCommandOf(ta.value); if (c) q = c.name; }
+  if (q === null || (!force && slashShut === ta.value)) { slashClose(); return false; }
+  const n = slashMatches(q).length;
+  if (slashSel >= n) slashSel = 0;
+  b.innerHTML = slashMenuHTML(q, slashSel);
+  b.hidden = false;
+  return true;
+}
+// Keys while the menu is open; answers whether the key was the menu's.
+function slashKey(e, ta, site) {
+  if (!slashOpen()) return false;
+  const q = slashQuery(ta.value);
+  const list = q === null ? [] : slashMatches(q);
+  if (e.key === 'Escape') { e.preventDefault(); slashShut = ta.value; slashClose(); return true; }
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (list.length) slashSel = (slashSel + (e.key === 'ArrowDown' ? 1 : list.length - 1)) % list.length;
+    slashPaint(ta);
+    return true;
+  }
+  if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
+    e.preventDefault();
+    if (list.length) slashPick(list[slashSel] || list[0], ta, site);
+    return true; // no match: nothing is sent, the menu says so
+  }
+  return false;
+}
+function slashPick(cmd, ta, site) {
+  if (!cmd) return;
+  if (ta) ta.value = '';
+  try { siteDraft(site.id).t = ''; } catch (e) { /* no draft */ }
+  slashSel = 0; slashShut = null; slashClose();
+  cmd.run(site);
+}
+// The Send button's first look: answers true when the message was a command
+// (run, or unknown and held in the box with the menu saying so), never sent.
+function slashSend(t, ta, site) {
+  const c = slashCommandOf(t);
+  if (!c) return false;
+  if (c.cmd) { slashPick(c.cmd, ta, site); return true; }
+  slashShut = null;
+  slashPaint(ta, true);
+  return true;
+}
+// A COMMAND THAT IS A REQUEST sends its words as their own message, through
+// the ordinary send (`siteSend`, the platform's words: the draft is left), so
+// the router and the model answer it.
+// THE SECURITY SCAN'S OFFER (2026-10-23): the router read the message as a
+// scan of this site — typed /sentinel or said in plain words, one path. The
+// server sizes the scan from the site's files and tables (`planScan`), prices
+// it, and the model writes the reply: what it will check and the price. The
+// scan itself waits for their press, and nothing is charged for it until then.
+function sentinelKey() { return (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID().replace(/-/g, '') : String(Date.now()); }
+async function siteSecurityOffer(site, message, origin, finish) {
+  const slug = site && site.slug;
+  if (!slug) { finish('There is no site to check yet \u2014 build one first.'); return; }
+  let d = null;
+  try {
+    const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/security?estimate=1&picker=' + encodeURIComponent(buildPicker) + '&say=1&message=' + encodeURIComponent(String(message || '').slice(0, 500)));
+    const j = await r.json().catch(() => null);
+    if (r.ok && j && j.estimate && j.estimate.standard && Number.isFinite(j.estimate.standard.credits)) d = j;
+  } catch (e) { d = null; }
+  if (!d) { finish('I couldn\u2019t size the security check just now. Nothing was charged \u2014 try again in a moment.'); return; }
+  secEstimate[slug] = d.estimate;
+  // THE MODEL'S OWN WORDS (`say`); only when none could be written, the bare
+  // facts the server read, so the price is never hidden.
+  const n = d.estimate.standard.credits;
+  const areas = Array.isArray(d.estimate.standard.areas) ? d.estimate.standard.areas : [];
+  finish(typeof d.say === 'string' && d.say.trim() ? d.say.trim()
+    : 'Security check: ' + (areas.length ? areas.join(', ') : 'your site') + ' \u00b7 about ' + n + ' credit' + (n === 1 ? '' : 's') + '. Nothing is charged until you confirm.');
+  const s = siteById(origin);
+  const last = s && s.msgs.length ? s.msgs[s.msgs.length - 1] : null;
+  if (!last) return;
+  last.sentinel = { key: sentinelKey(), state: 'offer', credits: n, message: String(message || '').slice(0, 500), working: typeof d.working === 'string' ? d.working.trim() : '' };
+  sitesSave(); if (siteOpenId === origin) renderSites();
+}
+// THE CONFIRMATION: two plain buttons under the model's reply, which carries the price.
+function siteSentinelHTML(m) {
+  if (!m || !m.sentinel || m.sentinel.state !== 'offer') return '';
+  const k = esc(m.sentinel.key);
+  return '<div class="st-m3d st-sentinel">' +
+    '<button type="button" class="st-m3d-go" data-sentinel-go="' + k + '">Yes, run the check</button>' +
+    '<button type="button" class="st-pick-cancel" data-sentinel-no="' + k + '">Not now</button></div>';
+}
+function sentinelMsg(s, key) { return s && Array.isArray(s.msgs) ? s.msgs.find((x) => x && x.sentinel && x.sentinel.key === key) : null; }
+function siteSentinelNo(origin, key) {
+  const s = siteById(origin); const m = sentinelMsg(s, key);
+  if (!m || m.sentinel.state !== 'offer') return;
+  m.sentinel.state = 'declined';
+  s.msgs.push({ r: 'u', t: 'Not now' });
+  s.msgs.push({ r: 'a', t: 'Okay \u2014 no scan, and nothing was charged.' });
+  sitesSave(); if (siteOpenId === origin) renderSites();
+}
+async function siteSentinelGo(origin, key) {
+  const s = siteById(origin); const m = sentinelMsg(s, key);
+  if (!s || !m || m.sentinel.state !== 'offer' || !s.slug) return;
+  m.sentinel.state = 'scanning';
+  s.msgs.push({ r: 'u', t: 'Yes, run the check' });
+  // THE MODEL'S OWN LINE FOR WHILE IT WORKS (`working`), written with the offer.
+  const live = { r: 'a', t: '', talkLive: true, prog: [{ text: m.sentinel.working || 'Scanning\u2026' }] };
+  s.msgs.push(live);
+  sitesSave(); if (siteOpenId === origin) renderSites();
+  // THE SCAN'S LIVE LINES (2026-10-23): each step it reports, in the model's
+  // words, read while it runs (`GET /security?progress=<key>`).
+  const scanKey = sentinelKey();
+  let polling = true;
+  const poll = async () => {
+    while (polling) {
+      await new Promise((r) => setTimeout(r, 4000));
+      if (!polling) break;
+      try {
+        const r = await apiFetch('/api/site/' + encodeURIComponent(s.slug) + '/security?progress=' + encodeURIComponent(scanKey) + '&picker=' + encodeURIComponent(buildPicker));
+        const d = await r.json().catch(() => null);
+        if (polling && d && Array.isArray(d.lines) && d.lines.length) { live.prog = d.lines.slice(-6).map((text) => ({ text: String(text) })); if (siteOpenId === origin) renderSites(); }
+      } catch (e) { /* the next read tries again */ }
+    }
+  };
+  poll();
+  // THE SAME HANDLER AS THE PANEL'S "Run deep scan"; the report in the model's words.
+  const rep = await siteSecurityDeep(s, { say: true, message: m.sentinel.message, key: scanKey });
+  polling = false;
+  live.talkLive = false; delete live.prog;
+  live.t = rep && typeof rep.say === 'string' && rep.say.trim() ? rep.say.trim() : siteSecuritySay(rep);
+  m.sentinel.state = 'done';
+  sitesSave(); if (siteOpenId === origin) renderSites();
+}
+// ── SLASH COMMANDS END ──
 // THE WORKSPACE COMPOSER'S WIRING, lifted out of `renderSiteWorkspace` so the
 // one place a held message comes back (`siteUnsentBack`) is driven together
 // with the send button it feeds. It runs on every redraw of the open site and
@@ -9765,15 +10036,25 @@ function wireSiteComposer(site) {
   if (stopBtn) stopBtn.onclick = () => siteStopWork(siteById(siteOpenId));
   if (ta) {
     ta.value = draft.t;
-    ta.oninput = () => { draft.t = ta.value; };
+    ta.oninput = () => { draft.t = ta.value; slashPaint(ta); };
+    slashShut = null; slashPaint(ta);
   }
+  const slashMenu = document.getElementById('stSlash');
+  if (slashMenu && ta) slashMenu.onmousedown = (e) => {
+    const it = e.target.closest && e.target.closest('[data-slash]');
+    if (!it) return;
+    e.preventDefault();
+    slashPick(SLASH_COMMANDS.find((c) => c.name === it.getAttribute('data-slash')), ta, site);
+  };
   if (sendBtn && ta) {
     sendBtn.onclick = () => {
       const t = ta.value.trim();
       // ANOTHER PROJECT'S WORK NO LONGER HOLDS THIS ONE (#138): `siteBusy` is this project's own.
+      // A SLASH COMMAND IS NEVER SENT AS A MESSAGE (2026-10-23): run, or held with the menu saying no match.
+      if (t && !siteBusy && slashSend(t, ta, site)) return;
       if (!t || siteBusy) return; ta.value = ''; draft.t = ''; siteSend(t);
     };
-    ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendBtn.onclick(); } };
+    ta.onkeydown = (e) => { if (slashKey(e, ta, site)) return; if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendBtn.onclick(); } };
     ta.focus();
   }
 }
@@ -10877,19 +11158,10 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // A SECURITY SCAN, ASKED FOR IN THE CHAT (2026-10-21, phase D): the deep
     // scan runs on the picker's model, and its report is said in the thread
     // and drawn in More → Security.
-    if (d.intent === 'security' && site.slug) {
-      siteSecurityDeep(site).then((rep) => {
-        if (!rep) { finish('I couldn\u2019t run the security scan just now. Try again in a moment, or open More \u2192 Security.'); return; }
-        const n = Array.isArray(rep.findings) ? rep.findings.length : 0;
-        const u = Array.isArray(rep.unsure) ? rep.unsure.length : 0;
-        const top = (rep.findings || []).slice(0, 3).map((f) => '\u2022 ' + f.title).join('\n');
-        finish((n ? 'I checked your site\u2019s security and found ' + n + ' thing' + (n === 1 ? '' : 's') + ' to look at:\n' + top : 'I checked your site\u2019s security and found no problems.')
-          + (u ? '\n' + u + ' more could not be settled from the code alone.' : '')
-          + '\nThe full report, with a Fix it button for each, is in More \u2192 Security.'
-          + (Number(rep.cost) > 0 ? '\nThe scan used ' + rep.cost + ' credit' + (Number(rep.cost) === 1 ? '' : 's') + '.' : ''));
-      });
-      return;
-    }
+    // ⚠ NEVER STRAIGHT TO THE PAID SCAN (2026-10-23): it ran on the router's
+    // answer alone, with no price. The model's reply names what it will check
+    // and the price; the scan waits for their press (`siteSecurityOffer`).
+    if (d.intent === 'security' && site.slug) return siteSecurityOffer(site, t, origin, finish);
     // On a live site only an explicit `build` reaches this `go()`: the check
     // above refused every answer it could not act on. What an answered
     // question put off earlier rides with it, to be named when it ends.

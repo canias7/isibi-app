@@ -643,6 +643,35 @@ export function oneKitModuleFor(inner) {
   return want;
 }
 
+/** Every `from "…"` (and bare `import "…"`) specifier, quote kept. */
+const ALIAS_SPEC = /(\bfrom\s*|\bimport\s+)(["'])([^"'\n]+)\2/g;
+
+/**
+ * The `@/` spelling of a misspelt project import, or null.
+ *
+ * Accepts a leading `/`, `/app/`, `/src/`, `src/`, `~/`, `@components` (no
+ * slash) or a bare `components/` — and, for kit modules only, `./` or `../`
+ * chains, which can never reach `src/components` from a route correctly
+ * spelt. Answers only when the target exists: a kit `ui/` module the kit has,
+ * or `routes/-parts/<name>` for a component in `partNames`. Never guesses.
+ */
+export function aliasFor(spec, partNames) {
+  const raw = String(spec == null ? "" : spec).trim();
+  if (!raw || raw.startsWith("@/")) return null;
+  const s = raw.replace(/\.(tsx|ts|jsx|js)$/, "");
+  const m = /^(~\/|@(?=[a-z])|\/(?:app\/)?(?:src\/)?|src\/|(?:\.\.?\/)+(?:src\/)?|)(components\/[A-Za-z0-9/_-]+|routes\/-parts\/[A-Za-z0-9_-]+)$/.exec(s);
+  if (!m) return null;
+  const relative = /^\./.test(m[1]);
+  const rest = m[2];
+  if (rest.startsWith("components/")) {
+    const cand = "@/" + rest;
+    return /^@\/components\/ui\/[a-z0-9-]+$/.test(cand) && kitPathExists(cand) ? cand : null;
+  }
+  if (relative) return null;   // a relative path to a part may be right as written
+  const name = rest.slice("routes/-parts/".length);
+  return partNames && partNames.has(name) ? "@/" + rest : null;
+}
+
 /** An import of one or more named members from somewhere under `@/components/`. */
 const KIT_IMPORT = /import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*(["'`])(@\/components\/[^"'`]+)\2/g;
 
@@ -692,7 +721,14 @@ const KIT_IMPORT = /import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*(["'`])(@\/compone
  * cannot collide with anything: the name was imported and does not exist, so it
  * has no other binding in the module.
  */
-export function repairImports(pages) {
+export function repairImports(pages, { parts = null } = {}) {
+  // THE SITE'S OWN COMPONENTS BY NAME, so a misspelt alias to one of them is
+  // rewritten only when that component really exists (2026-10-23).
+  const partNames = new Set();
+  for (const q of Array.isArray(parts) ? parts : []) {
+    const n = q && typeof q.name === "string" ? q.name.trim() : "";
+    if (n) partNames.add(n);
+  }
   // NAMED `repaired`, NOT `out`. `test/declarable-enforced.test.mjs` cuts
   // `out.push({` and `norm.push({` out of a bundle that INCLUDES this file, to
   // prove the schema features it checks are really enforced — so an unrelated
@@ -728,6 +764,21 @@ export function repairImports(pages) {
     // ones below, and no `kind` field says which — a member name can never start
     // with `@/`, so a reader already has the answer and a field beside it would
     // be two lists of the same thing.
+    // ── A MISSPELT ALIAS, MADE `@/` WHEN ITS FILE EXISTS (2026-10-23) ───────
+    //
+    // `saltmarsh-and-sparrow` wrote `from "/components/ui/section-header"`:
+    // vite read the leading slash as the disk root, the bundle failed, and
+    // nothing above repaired it because every pass here matched `@/` only.
+    // Rewritten only when the target is a file the project really has: a kit
+    // `ui/` module, or one of the site's own components. Anything else stays
+    // as written for the compile to report honestly.
+    src = src.replace(ALIAS_SPEC, (whole, kw, q, spec) => {
+      const to = aliasFor(spec, partNames);
+      if (!to || to === spec) return whole;
+      fixed.push({ path: where, module: to.slice(to.lastIndexOf("/") + 1), from: spec, to });
+      return kw + q + to + q;
+    });
+
     src = src.replace(KIT_IMPORT, (whole, inner, q, spec) => {
       if (kitPathExists(spec)) return whole;
       const want = oneKitModuleFor(inner);

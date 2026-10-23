@@ -166,6 +166,8 @@ const SRC = [
   cut("function paintAttachStrip("),
   cut("function siteHoldUnsent("),
   cut("function siteUnsentBack("),
+  // SLASH COMMANDS (2026-10-23): the composer asks the block first, so it is carried whole, landmark to landmark.
+  CHAT.slice(CHAT.indexOf("// \u2500\u2500 SLASH COMMANDS BEGIN"), CHAT.indexOf("// \u2500\u2500 SLASH COMMANDS END \u2500\u2500")),
   cut("function wireSiteComposer("),
   cut("function siteCreate("),
 ].join("\n");

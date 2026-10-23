@@ -432,7 +432,8 @@ test("a failed compile preserves the live site, and unusable output stops", () =
   assert.ok(!code.includes('error: "no-database"'), "the addon still refuses a table for want of a database — the first backend tier makes one now");
   const tiers = code.indexOf("const aBackend = backendDesigned(aDesigned);");
   // RE-ANCHORED 2026-10-16: started there, beside the page writer, settled after it.
-  const prov = code.indexOf("aProvWait = ensureSiteBackend(", tiers);
+  // RE-ANCHORED 2026-10-23: the provision is built here (`aProvRun`) and, on the page path, run at the seam after a successful compile.
+  const prov = code.indexOf("const aProvRun = () => ensureSiteBackend(", tiers);
   const schema = code.indexOf("mergeAddonSchema(", tiers);
   assert.ok(tiers > 0 && prov > tiers && schema > prov, "the database is not made between the fold and the schema work");
   assert.match(code.slice(prov, schema), /aSpec = \{ tables: \[\] \};/, "a database just made is not described as storing nothing");

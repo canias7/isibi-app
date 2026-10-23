@@ -1486,7 +1486,7 @@ test("THE BACKEND HOPS: the site is described with its columns and tiers, design
   // RE-ANCHORED 2026-10-16: the provision STARTS here and runs beside the
   // page writer (`aProvWait`); its failure is said by `aProvFailed`, moved
   // unchanged, and it is settled after the page call (`aProvCheck`).
-  const prov = at(b, "aProvWait = ensureSiteBackend(env, ownerSlug, ou.id, aInstruction,", "provision");
+  const prov = at(b, "const aProvRun = () => ensureSiteBackend(env, ownerSlug, ou.id, aInstruction,", "provision"); // RE-ANCHORED 2026-10-23: built here, run at the seam on the page path
   const schema = at(b, "const folded = mergeAddonSchema(", "schema");
   assert.ok(tiers < prov && prov < schema, "the provision is not between the fold and the schema work");
   const gate = b.slice(tiers, prov);
@@ -1616,7 +1616,7 @@ test("THE ROUTE RUNS THE ADD STEP WHERE IT RAN THE BUILD'S DESIGNER, and folds w
   const clean = at(b, "aNotAdded.push({ kind: k, why: clean.why, msg: addRefusal(clean.why, k) });", "clean");
   const fold = at(b, "const aFold = foldAdds(aAnswers, aLook, aSite);", "fold");
   const designed = at(b, "const aDesigned = aFold.designed;", "designed");
-  const prov = at(b, "aProvWait = ensureSiteBackend(env, ownerSlug, ou.id, aInstruction, (n) => aMark(\"prov:\" + n, \"ok\")).then((db) => {", "provision");
+  const prov = at(b, "const aProvRun = () => ensureSiteBackend(env, ownerSlug, ou.id, aInstruction, (n) => aMark(\"prov:\" + n, \"ok\")).then((db) => {", "provision");
   const schema = at(b, "const folded = mergeAddonSchema(aDraftView ? aSpec : (aSpec.tables || []), aDesigned);", "schema");
   const merged = at(b, "const aMerged = mergeLook(aLook, aDesigned, {}, { instructed: true });", "merge");
   assert.ok(pick < hop && hop < run && run < clean && clean < fold && fold < designed && designed < prov && prov < schema && schema < merged, "the addon's steps are out of order");
