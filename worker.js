@@ -46878,8 +46878,9 @@ async function handleRequest(request, env, ctx) {
               }
             }
             // AND IT TAKES EFFECT WITHOUT A REPUBLISH. The site's own Worker
-            // reads its head out of the sidecar, so patching that one key is the
-            // whole deployment — which matters because the alternative is a
+            // reads its head out of the sidecar (again every 30 seconds, audit
+            // A11-4: a warm isolate serves the patch within half a minute), so
+            // patching that one key is the whole deployment — which matters because the alternative is a
             // 40-second container run to change a string, and because somebody
             // pasting a token has a provider's "Verify" button open in the next
             // tab. Both writers derive from the stored config, so they can differ in
@@ -47208,8 +47209,9 @@ async function handleRequest(request, env, ctx) {
             }
             // AND IT IS LIVE WITHOUT A REPUBLISH — the share route's pattern and
             // the rename lane's. The published site's own script reads its head
-            // out of this sidecar on every request, so patching the one key IS
-            // the deployment: no container, no compile, no credits.
+            // out of this sidecar (again every 30 seconds, audit A11-4), so
+            // patching the one key IS the deployment: no container, no
+            // compile, no credits.
             //
             // BEST-EFFORT, AND THE STORED VALUE IS ALREADY SAFE: a failure here
             // means the new description appears at the site's next publish
