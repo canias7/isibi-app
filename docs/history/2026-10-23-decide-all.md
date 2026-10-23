@@ -158,3 +158,5 @@ modules changed).
 - Image prediction: `SiteBuildContainer` `ebfbd45c42ea43ac` (origin/main, 225
   inputs, 193 paths) → `695e09e12f6cedb3` (decide-all, 226 inputs, 194
   paths): it rolls. `AppBuildContainer` `65022ce71e3d7274` both ends (reused).
+
+- After the follow-up (`b8db3e5cc`): `SiteBuildContainer` `145239c1c143183b` (226 inputs, 194 paths; the builder modules changed), against `695e09e12f6cedb3` at `c0a47034a` and `ebfbd45c42ea43ac` on origin/main (both re-read the same way to check the method). `AppBuildContainer` `65022ce71e3d7274` at every end (reused).
