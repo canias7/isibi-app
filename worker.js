@@ -14658,6 +14658,7 @@ async function runPublication(env, slug, j, etag, say = null) {
       // which the next run closes without doing anything again.
       const m = await markApplied(deps, slug, { revision: j.n, refs: j.refs });
       if (!m.ok) return keep("record", m.error || "the draft could not be marked published", "switched");
+      await dropReplacingRecords(env, slug, j.n);
       if (!(await retire("finished"))) console.error("publish: finished, the journal not closed", slug, j.n);
     }
     return { ok: true, version: j.version, revision: j.n, skipped: Array.isArray(j.skipped) ? j.skipped : [] };
@@ -14669,6 +14670,35 @@ async function runPublication(env, slug, j, etag, say = null) {
     if (j.phase === "switching") return keep("switch", errorClassForLog(e), "unknown");
     return before("publishing stopped (" + errorClassForLog(e) + ")", 502);
   }
+}
+
+/**
+ * THE HELD-REPLACEMENT RECORDS DON'T PILE UP (review of r1-combine,
+ * 2026-10-23): once Publish has applied a revision, every record paired at or
+ * below it has done its work, and one never paired that is older than the
+ * draft's upload window (`MEDIA_DRAFT_MS`, doubled) belongs to an upload
+ * abandoned long since. Best effort: a failure leaves the record for the next
+ * Publish. Site deletion removes the rest (`clearSiteDraft`).
+ */
+async function dropReplacingRecords(env, slug, published, { now = Date.now() } = {}) {
+  const B = env.SITES_BUCKET;
+  if (!B || typeof B.list !== "function") return;
+  const prefix = "site-drafts/" + slug + "/replacing/";
+  try {
+    let cursor;
+    do {
+      const page = await B.list({ prefix, ...(cursor ? { cursor } : {}) });
+      for (const o of page.objects || []) {
+        let rec = null;
+        try { const g = await B.get(o.key); rec = g ? JSON.parse(await g.text()) : null; } catch { rec = null; }
+        const done = rec && rec.paired === true && Number.isFinite(rec.revision) && rec.revision <= published;
+        const at = o.uploaded instanceof Date ? o.uploaded.getTime() : Date.parse(o.uploaded || "");
+        const stale = !(rec && rec.paired === true) && Number.isFinite(at) && now - at > 2 * MEDIA_DRAFT_MS;
+        if (done || stale) await B.delete(o.key).catch(() => {});
+      }
+      cursor = page.truncated ? page.cursor : undefined;
+    } while (cursor);
+  } catch (e) { console.error("publish: replacement records not tidied", slug, errorClassForLog(e)); }
 }
 
 /** Is the address `name` taken by anyone but this site? "" when free, else why not. */
@@ -47661,13 +47691,25 @@ async function handleRequest(request, env, ctx) {
                 const target = String(rec.name || "");
                 if (isMediaName(target)) {
                   let revision = rec.paired === true ? rec.revision : null;
-                  if (rec.paired !== true) {
+                  // THE MARK NEVER LOST SILENTLY (review of r1-combine,
+                  // 2026-10-23): a seal that landed and a paired mark that did
+                  // not left the next sighting holding the pair a second time.
+                  // The hold's id is written into the record BEFORE the seal;
+                  // a sighting that finds it proves the seal from the draft's
+                  // own revisions (`savedRevision`) and only writes the mark.
+                  // Any record write that fails answers 503, retry.
+                  const putRec = (body) => env.SITES_BUCKET.put(REPLACING(msid), JSON.stringify(body), { httpMetadata: { contentType: "application/json" } }).then(() => true, () => false);
+                  if (rec.paired !== true && typeof rec.sealing === "string" && rec.sealing) {
+                    let proven = null;
+                    try { proven = savedRevision((await readDraft(buildDeps(env), mslug)).draft, { held: rec.sealing }); } catch { proven = null; }
+                    if (proven) revision = (await putRec({ name: target, paired: true, revision: proven.n })) ? proven.n : null;
+                  }
+                  if (rec.paired !== true && revision === null) {
                     const w = await backendWriter(env, mslug);
                     w.hold.add({ kind: "media-replace", name: target, with: doneName });
-                    const sealed = await sealHeld(env, mslug, w, {});
-                    if (sealed.ok) {
-                      revision = sealed.revision;
-                      await env.SITES_BUCKET.put(REPLACING(msid), JSON.stringify({ name: target, paired: true, revision }), { httpMetadata: { contentType: "application/json" } }).catch(() => {});
+                    if (await putRec({ name: target, sealing: w.hold.id })) {
+                      const sealed = await sealHeld(env, mslug, w, {});
+                      if (sealed.ok && await putRec({ name: target, paired: true, revision: sealed.revision })) revision = sealed.revision;
                     }
                   }
                   if (revision === null) r = { status: 503, body: { error: "the new file is uploaded, but it couldn't be saved to your draft — replace the file again", code: "draft", retry: true } };

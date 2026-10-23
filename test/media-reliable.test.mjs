@@ -342,6 +342,43 @@ test("MR4c A HELD REPLACEMENT IS PAIRED WHEREVER ITS UPLOAD IS SEEN FINISHED (au
   });
 });
 
+// Review of r1-combine (2026-10-23): a seal that landed and a paired mark
+// that did not used to be swallowed, and the next sighting held the pair again.
+test("MR4d A PAIRED MARK THAT FAILS TO LAND ANSWERS 503 AND IS NEVER HELD TWICE — the next sighting proves the seal from the draft and writes the mark; Publish then removes the record", async () => {
+  const worker = await loadWorker();
+  let failMark = false;
+  const store = mediaBucket({ hooks: { beforePut: async (key, body) => { if (failMark && /\/replacing\//.test(key) && /"paired":true/.test(typeof body === "string" ? body : new TextDecoder().decode(body))) throw new Error("r2 put failed"); } } });
+  const slug = "mr-mark";
+  const env = { ...envFor(store), SITE_WORKERS: { get: () => ({ fetch: async () => new Response("page") }) } };
+  await withWire({}, async () => {
+    const song = fixture("tone.mp3"), song2 = other(song);
+    const a = await upload(worker, env, slug, song, "Welcome.mp3");
+    await liveSite(store, slug);
+    env.DRAFT_FIRST = "on";
+    const base = "/api/site/" + slug + "/media";
+    const st = await app(worker, env, "POST", base, { json: { name: "Welcome 2.mp3", size: song2.length, type: "", replace: a.done.body.name } });
+    const sid = st.body.session;
+    const p1 = await app(worker, env, "PUT", base + "/" + sid + "/1", { body: song2 });
+    failMark = true;
+    const done = await app(worker, env, "POST", base + "/" + sid + "/complete", { json: { parts: [{ n: 1, etag: p1.body.etag }] } });
+    failMark = false;
+    assert.equal(done.status, 503, "a lost paired mark was answered as success: " + JSON.stringify(done.body));
+    assert.equal(done.body.retry, true);
+    const s1 = await app(worker, env, "GET", base + "/" + sid);
+    assert.equal(s1.body.file && s1.body.file.held, true, JSON.stringify(s1.body));
+    await app(worker, env, "POST", base + "/" + sid + "/complete", { json: { parts: [{ n: 1, etag: p1.body.etag }] } });
+    const deps = { get: (k) => store.get(k), list: (o) => store.list(o) };
+    const { draft } = await readDraft(deps, slug);
+    const ops = (await unpublishedOps(deps, slug, draft)).filter((o) => o && o.kind === "media-replace");
+    assert.equal(ops.length, 1, "the pair was held " + ops.length + " times");
+    assert.equal((await allKeys(store, "site-drafts/" + slug + "/replacing/")).length, 1);
+    const d = await app(worker, env, "GET", "/api/site/" + slug + "/draft");
+    const pub = await app(worker, env, "POST", "/api/site/" + slug + "/publish", { json: { revision: d.body.revision, version: d.body.draft } });
+    assert.equal(pub.status, 200, JSON.stringify(pub.body));
+    assert.deepEqual(await allKeys(store, "site-drafts/" + slug + "/replacing/"), [], "a paired, published record was kept forever");
+  });
+});
+
 // ── MR5 ─────────────────────────────────────────────────────────────────────
 
 test("MR5 THE PREVIEW'S HEAD IS THE DRAFT'S VERSION'S OWN — a draft save writes no shared sidecar and leaves the live one; the site script reads the head staged with the version it serves; the container's storage wall admits that and refuses the old shared key (the overlap itself: draft-preview-head DPH1)", async () => {
