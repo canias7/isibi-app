@@ -99,12 +99,13 @@ export const MESSAGE_CONTRACT =
   "never the shape: leave it out and the message is EMAILED, and anything that is not \"sms\" is emailed too — " +
   "email is the default because it costs the owner nothing per send. " +
   "An EMAIL needs all three of `to` (an address), `subject` and `body`, and is dropped if any is missing or empty. " +
-  "An SMS needs `to` (a phone number in any ordinary form — \"07700 900000\" and \"+44 7700 900000\" are both read) " +
+  "An SMS needs `to` (a phone number in FULL INTERNATIONAL form with its leading + — \"+44 7700 900000\"; a local " +
+  "number such as \"07700 900000\" cannot be sent and the message is dropped) " +
   "and `body`; it takes NO `subject`, because a text has none. " +
   "Return \"sms\" only where the message really wants to be a text — a same-day reminder, a ready-to-collect — " +
   "and email for anything with a subject line to it. The owner pastes an email key and an SMS key separately in " +
-  "Settings, so a message whose channel has no key yet is held rather than lost, and the owner is told which key " +
-  "is missing.";
+  "Settings; a message whose channel has no key yet is SKIPPED, not held or sent later, and the owner is told " +
+  "which key is missing.";
 import { TABLE_ITEM, FUNCTION_ITEM, API_ITEM, JOB_ITEM } from "./site-table.mjs";
 // ── A JOB MAY WRITE ITS OWN FUNCTION (owner, 2026-10-22, option B) ────────
 //
