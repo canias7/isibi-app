@@ -34,7 +34,7 @@ import { loadWorker, loadWorkerModule, makeCtx } from "./fixtures/worker-harness
 import { withWire, envFor } from "./fixtures/live-ask.mjs";
 import { mediaBucket } from "./fixtures/r2-media.mjs";
 import { MEDIA_PART_BYTES, MEDIA_DRAFT_MS, mediaLimits, MEDIA_DEFAULTS } from "../site-media.mjs";
-import { DRAFT_KEY, saveAsDraft } from "../site-draft.mjs";
+import { DRAFT_KEY, saveAsDraft, readDraft, unpublishedOps } from "../site-draft.mjs";
 import { buildPrefix, MANIFEST_FILE, SERVER_FILE } from "../site-builds.mjs";
 import { allowedJobKey } from "../builder/job-gateway.mjs";
 import { jobSecrets, JOB_ENV_NAMES } from "../builder/edit-job.mjs";
@@ -288,6 +288,52 @@ test("MR4b FULL WHILE A DELETE IS HELD (audit A10-5, 2026-10-23) — under draft
     assert.equal(full.body.code, "full");
     assert.match(full.body.error, /still count until you publish/, "the refusal does not say a held delete frees room only at Publish: " + full.body.error);
     assert.doesNotMatch(full.body.error, /delete some first/, "the advice that frees nothing is still given");
+  });
+});
+
+// ── MR4c ────────────────────────────────────────────────────────────────────
+
+test("MR4c A HELD REPLACEMENT IS PAIRED WHEREVER ITS UPLOAD IS SEEN FINISHED (audit A10-3, 2026-10-23) — a finish whose draft save failed answers 503; the status read the client settles through then pairs it and says held; a repeated finish and status say held again; the pair is held once and the preview plays the new bytes", async () => {
+  const worker = await loadWorker();
+  let failDraft = false;
+  const store = mediaBucket({ hooks: { beforePut: async (key) => { if (failDraft && key === DRAFT_KEY("mr-pair")) throw new Error("r2 put failed"); } } });
+  const slug = "mr-pair";
+  const env = { ...envFor(store), SITE_WORKERS: { get: () => ({ fetch: async () => new Response("page") }) } };
+  await withWire({}, async () => {
+    const song = fixture("tone.mp3"), song2 = other(song);
+    const a = await upload(worker, env, slug, song, "Welcome.mp3");
+    await liveSite(store, slug);
+    env.DRAFT_FIRST = "on";
+    const base = "/api/site/" + slug + "/media";
+    const st = await app(worker, env, "POST", base, { json: { name: "Welcome 2.mp3", size: song2.length, type: "", replace: a.done.body.name } });
+    assert.equal(st.status < 300, true, JSON.stringify(st.body));
+    const sid = st.body.session;
+    const p1 = await app(worker, env, "PUT", base + "/" + sid + "/1", { body: song2 });
+    failDraft = true;
+    const done = await app(worker, env, "POST", base + "/" + sid + "/complete", { json: { parts: [{ n: 1, etag: p1.body.etag }] } });
+    failDraft = false;
+    assert.equal(done.status, 503, JSON.stringify(done.body));
+    assert.equal(done.body.code, "draft");
+    // THE CLIENT'S SETTLE: the status read.
+    const s1 = await app(worker, env, "GET", base + "/" + sid);
+    assert.equal(s1.status, 200, JSON.stringify(s1.body));
+    assert.equal(s1.body.state, "done");
+    assert.equal(s1.body.file && s1.body.file.held, true, "the status read did not pair the held replacement: " + JSON.stringify(s1.body));
+    assert.equal(s1.body.file.replaces, a.done.body.name);
+    // SEEN AGAIN: a repeated finish and status still say held.
+    const again = await app(worker, env, "POST", base + "/" + sid + "/complete", { json: { parts: [{ n: 1, etag: p1.body.etag }] } });
+    assert.equal(again.body && again.body.held, true, "a repeated finish answered as if the file were replaced live: " + JSON.stringify(again.body));
+    const s2 = await app(worker, env, "GET", base + "/" + sid);
+    assert.equal(s2.body.file && s2.body.file.held, true);
+    // HELD ONCE, as the draft's own reader counts what Publish would apply.
+    const deps = { get: (k) => store.get(k), list: (o) => store.list(o) };
+    const { draft } = await readDraft(deps, slug);
+    const ops = (await unpublishedOps(deps, slug, draft)).filter((o) => o && o.kind === "media-replace");
+    assert.equal(ops.length, 1, "the pair was held " + ops.length + " times: " + JSON.stringify(ops));
+    // THE PREVIEW PLAYS THE NEW BYTES AT THE OLD ADDRESS.
+    const rec = JSON.parse(bare(await (await store.get(DRAFT_KEY(slug))).text()));
+    const pv = await hit(worker, env, "GET", slug + "--draft-" + rec.preview + ".gofarther.app", a.done.body.url, { headers: { range: "bytes=0-99" } });
+    assert.deepEqual([pv.status, [...pv.bytes]], [206, [...song2.subarray(0, 100)]], "the preview does not play the replacement");
   });
 });
 

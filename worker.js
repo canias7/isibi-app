@@ -47426,21 +47426,41 @@ async function handleRequest(request, env, ctx) {
               await env.SITES_BUCKET.put(REPLACING(r.body.session), JSON.stringify({ name: mReplace }), { httpMetadata: { contentType: "application/json" } });
               r = { ...r, body: { ...r.body, replacesInDraft: mReplace } };
             }
-            if (mHolding && msid && mstep === "complete" && r && r.status < 300 && r.body && r.body.ok === true && typeof r.body.name === "string" && isMediaName(r.body.name)) {
+            // PAIRED WHEREVER THE UPLOAD IS SEEN FINISHED (audit A10-3,
+            // 2026-10-23): the finish itself, a repeated finish, the status
+            // read a lost or unclear answer settles through, and a cancel that
+            // finds it finished. Only the finish's own 2xx paired it before,
+            // so a failed seal or a lost answer settled through status left
+            // the stand-in unpaired while the panel said "Replaced". The record
+            // is kept, marked paired with its revision, so a second sighting
+            // answers held again and never holds the pair twice.
+            const doneName = !(mHolding && msid && r && r.status < 300 && r.body) ? ""
+              : mstep === "complete" ? (r.body.ok === true && typeof r.body.name === "string" ? r.body.name : "")
+              : !mstep && (r.body.state === "done" || r.body.done === true) && r.body.file && typeof r.body.file.name === "string" ? r.body.file.name : "";
+            if (doneName && isMediaName(doneName)) {
               const pend = await env.SITES_BUCKET.get(REPLACING(msid));
               if (pend) {
-                let target = "";
-                try { target = String((JSON.parse(await pend.text()) || {}).name || ""); } catch { target = ""; }
+                let rec = {};
+                try { rec = JSON.parse(await pend.text()) || {}; } catch { rec = {}; }
+                const target = String(rec.name || "");
                 if (isMediaName(target)) {
-                  const w = await backendWriter(env, mslug);
-                  w.hold.add({ kind: "media-replace", name: target, with: r.body.name });
-                  const sealed = await sealHeld(env, mslug, w, {});
-                  if (!sealed.ok) r = { status: 503, body: { error: "the new file is uploaded, but it couldn't be saved to your draft — replace the file again", code: "draft", retry: true } };
+                  let revision = rec.paired === true ? rec.revision : null;
+                  if (rec.paired !== true) {
+                    const w = await backendWriter(env, mslug);
+                    w.hold.add({ kind: "media-replace", name: target, with: doneName });
+                    const sealed = await sealHeld(env, mslug, w, {});
+                    if (sealed.ok) {
+                      revision = sealed.revision;
+                      await env.SITES_BUCKET.put(REPLACING(msid), JSON.stringify({ name: target, paired: true, revision }), { httpMetadata: { contentType: "application/json" } }).catch(() => {});
+                    }
+                  }
+                  if (revision === null) r = { status: 503, body: { error: "the new file is uploaded, but it couldn't be saved to your draft — replace the file again", code: "draft", retry: true } };
                   else {
-                    await env.SITES_BUCKET.delete(REPLACING(msid)).catch(() => {});
-                    // FLAT, as every finish answers: the stand-in's own name,
-                    // the address it will play at, and that it is held.
-                    r = { ...r, body: { ...r.body, replaces: target, url: uploadUrl(mslug, target), held: true, draft: heldDraft(sealed.revision) } };
+                    // FLAT on a finish, as every finish answers; inside `file`
+                    // on a status or a cancel: the stand-in's own name, the
+                    // address it will play at, and that it is held.
+                    const held = { replaces: target, url: uploadUrl(mslug, target), held: true, draft: heldDraft(revision) };
+                    r = mstep === "complete" ? { ...r, body: { ...r.body, ...held } } : { ...r, body: { ...r.body, file: { ...r.body.file, ...held } } };
                   }
                 }
               }
