@@ -28,10 +28,15 @@ export function visualReviewOn(env) {
   return typeof v === "string" && ["1", "true", "on", "yes"].includes(v.trim().toLowerCase());
 }
 
-/** The build repair's switch (ideas #11-#13, `site-repair.mjs`): read the same way, off by default. */
+/**
+ * The build repair's switch (ideas #11-#13, `site-repair.mjs`). ON BY DEFAULT
+ * since 2026-10-23 (owner: a first build's page that does not compile gets
+ * the repair round before the stand-in); `BUILD_REPAIR` set to 0/false/off/no
+ * turns it off.
+ */
 export function buildRepairOn(env) {
   const v = env && env.BUILD_REPAIR;
-  return typeof v === "string" && ["1", "true", "on", "yes"].includes(v.trim().toLowerCase());
+  return !(typeof v === "string" && ["0", "false", "off", "no"].includes(v.trim().toLowerCase()));
 }
 
 export { SHOT_ROUTES, MAX_SHOT_HEIGHT, shotRoutes };

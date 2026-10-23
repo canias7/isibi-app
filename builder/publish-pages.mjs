@@ -463,6 +463,9 @@ export function errorCitations(error) {
  * whatever its stage says, and must never be read as a bad page and
  * stubbed. `typecheck` is still accepted for an older container that sends it.
  */
+/** How many compile repair rounds a build gets before salvage (owner, 2026-10-23). */
+export const MAX_COMPILE_ROUNDS = 2;
+
 export function salvageable(built) {
   if (!built || built.ok) return false;
   if (built.stage !== "build" && built.stage !== "typecheck") return false;
@@ -1605,34 +1608,56 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
    * The usage rides into `repairUsage`, so the ONE `pageCredits` call prices
    * it on the build's bill. A fix that compiles replaces the pages; one that
    * does not leaves `built` and `pages` exactly as they were, and salvage
-   * below does what it always did — never worse. No second try.
+   * below does what it always did — never worse.
+   *
+   * WIDENED (owner, 2026-10-23): on by default, UP TO TWO ROUNDS (the second
+   * fed the second compile's own error, on the first round's corrected pages,
+   * still a failure of the code: `salvageable`), the build's clock asked
+   * before each (`deps.compileRepairRoom`), and CHARGED ONLY WHEN IT FIXED THE
+   * BUILD: the usage joins `repairUsage` (the ONE `pageCredits` call, so the
+   * pages charge) only on a compile that came back ok.
    */
   let compileFix = null;
   if (buildRepair && salvageable(built)) {
-    const cites = errorCitations(built.error);
-    const known = new Set(pages.map((p) => p.path));
-    const n = new Set(cites.map((c) => c.file.replace(/^(?:src\/)?routes\//, "")).filter((f) => known.has(f))).size;
-    if (n) {
-      note("compile-fixing", { pages: Math.min(n, 3) });
+    const spent = [];
+    let cur = pages;
+    let failing = built;
+    for (let round = 1; round <= MAX_COMPILE_ROUNDS && salvageable(failing); round++) {
+      const cites = errorCitations(failing.error);
+      const known = new Set(cur.map((p) => p.path));
+      const n = new Set(cites.map((c) => c.file.replace(/^(?:src\/)?routes\//, "")).filter((f) => known.has(f))).size;
+      if (!n) break;
+      let room = true;
+      try { room = typeof deps.compileRepairRoom === "function" ? !!deps.compileRepairRoom() : true; } catch { room = false; }
+      if (!room) { if (compileFix) compileFix.stopped = "time"; else out.compileRepairSkipped = "time"; note("compile-fix-skip", { round, why: "time" }); break; }
+      note("compile-fixing", { pages: Math.min(n, 3), round });
       const cr = await compileRepairPages({
-        error: built.error, typeErrors: built.typeErrors, pages, citations: cites, cited: citedLines(built.error, pages, 8),
+        error: failing.error, typeErrors: failing.typeErrors, pages: cur, citations: cites, cited: citedLines(failing.error, cur, 8),
         send: deps.compileRepair, model: deps.compileRepairModel, tried,
       });
-      for (const u of cr.usage) repairUsage.push(u);
-      compileFix = { tried: cr.repaired.length + cr.refused.length, refused: cr.refused, ...(cr.skipped.length ? { skipped: cr.skipped } : {}), ...(cr.causes.length ? { causes: cr.causes } : {}) };
-      if (cr.repaired.length) {
-        const second = await compileWithRetry(cr.pages);
-        if (second.ok) {
-          built = second;
-          pages = cr.pages;
-          compileFix.fixed = cr.repaired.map((x) => x.path);
-        } else {
-          compileFix.failedStage = String(second.stage || "build");
-          compileFix.failedError = String(second.error || "").slice(0, 200);
-        }
+      spent.push(...cr.usage);
+      const prev = compileFix || { tried: 0, refused: [] };
+      compileFix = { ...prev, rounds: round, tried: prev.tried + cr.repaired.length + cr.refused.length, refused: prev.refused.concat(cr.refused), ...(cr.skipped.length ? { skipped: cr.skipped } : {}), ...(cr.causes.length ? { causes: cr.causes } : {}) };
+      if (!cr.repaired.length) break;
+      const second = await compileWithRetry(cr.pages);
+      const fixedNow = [...new Set([...(prev.touched || []), ...cr.repaired.map((x) => x.path)])];
+      compileFix.touched = fixedNow;
+      if (second.ok) {
+        built = second;
+        pages = cr.pages;
+        compileFix.fixed = fixedNow;
+        delete compileFix.failedStage; delete compileFix.failedError;
+        // CHARGED ONLY NOW: the build compiled because of it.
+        for (const u of spent) repairUsage.push(u);
+        compileFix.charged = true;
+        break;
       }
-      out.compileRepair = compileFix;
+      compileFix.failedStage = String(second.stage || "build");
+      compileFix.failedError = String(second.error || "").slice(0, 200);
+      failing = second;
+      cur = cr.pages;
     }
+    if (compileFix) { delete compileFix.touched; out.compileRepair = compileFix; }
   }
 
   if (salvageable(built)) {

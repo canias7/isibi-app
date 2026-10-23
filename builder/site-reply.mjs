@@ -1137,10 +1137,22 @@ export function editReplyFacts(e, { routedCost = null, inRequest = false } = {})
       refusalMoney(F, e, routedCost);
     }
   }
+  if (e.ok === true) compileRepairFact(F, e.compileRepaired);
   if (e.ok === true) heldDraftFact(F, e);
   heldFacts(F, e, e.ok === true, inRequest === true);
   questionFact(F, e.clarify);
   return questionOnly(F.out) ? { skip: "question-only", facts: [] } : { skip: null, facts: F.out };
+}
+
+/**
+ * A COMPILE THE REPAIR ROUND FIXED (2026-10-23): said only as a fact, from
+ * the pages the round really changed; nothing when it did not run or fix.
+ */
+export function compileRepairFact(F, cr) {
+  if (!cr || typeof cr !== "object") return;
+  const pg = (Array.isArray(cr.pages) ? cr.pages : []).filter((x) => typeof x === "string" && x).map((x) => quote(x.replace(/\.tsx$/i, "")));
+  if (!pg.length) return;
+  F.add("note", "The first version of " + listOf(pg) + " did not compile; it was corrected automatically" + (cr.rounds === 2 ? " on a second try" : "") + ", and the corrected version is what was saved.");
 }
 
 /** An interval in minutes as a customer reads it: "every 15 minutes", "every day". */
@@ -1374,6 +1386,7 @@ export function addonReplyFacts(a, { routedCost = null, inRequest = false } = {}
     heldPhotoFacts(F, a.held, inRequest === true);
     if (routedCost !== null && num(routedCost) > 0) F.add("money", "Reading their message cost " + count(num(routedCost), "credit") + ".");
   }
+  if (a.ok === true) compileRepairFact(F, a.compileRepaired);
   if (a.ok === true) heldDraftFact(F, a);
   heldFacts(F, a, a.ok === true, inRequest === true);
   questionFact(F, a.clarify);
@@ -1678,6 +1691,7 @@ export function buildReplyFacts(bf) {
           : "Nothing was charged for this build.");
     }
   }
+  compileRepairFact(F, bf.compileRepaired);
   // WHAT THE PUBLISH CHECKED (2026-10-14), from the build's own evidence.
   for (const f of checkFacts(bf.checks)) F.add(f.kind, f.text);
   const st = bf.settlement;

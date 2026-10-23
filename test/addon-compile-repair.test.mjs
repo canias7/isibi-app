@@ -105,11 +105,12 @@ test("a compile that failed on the code is repaired once and the addition publis
   assert.ok(asked.includes("no-such-module-zz"), "the compiler's message did not reach the writer");
 });
 
-test("a repair that still does not compile is reported as before, after exactly one more compile", async () => {
+test("a repair that still does not compile is reported as before, after at most two more compiles", async () => {
   const r = await run("fw-crepair-fail", { compileFail: true });
   assert.equal(r.body && r.body.ok, false, JSON.stringify(r.body));
   assert.equal(r.body.error, "compile");
-  assert.equal(r.compiles.length, 2, "the round is bounded at one recompile");
+  // ROUND TWO IS ASKED (2026-10-23, up to two rounds) and answers the same page, which is refused as no change, so nothing more compiles.
+  assert.equal(r.compiles.length, 2, "the rounds are bounded");
   // A FAILED ADDITION COSTS NOTHING: the round that did not fix it is not charged.
   assert.deepEqual(r.charges, []);
 });
