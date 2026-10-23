@@ -15109,8 +15109,11 @@ async function restoreVersion(env, slug, id) {
       previous: before || null,
       // THE OWNER'S PANEL CHANGES SURVIVE THE RESTORE (audit A11-2): the
       // verification tag always, the card and description when a panel set
-      // them after the version standing now went live.
-      sidecar: await withPanelFields(deps, slug, typeof b.sidecar === "string" ? b.sidecar : undefined, before && before.version ? String(before.version) : ""), sidecarKey: siteMetaKey(slug),
+      // them after the version standing now went live. AND THE ADDRESS AS IT
+      // STANDS (audit A33-5): a name is not versioned, so the restored
+      // version's origin (its name when staged) would put a renamed site's
+      // canonical back on the old, redirecting address.
+      sidecar: await withPanelFields(deps, slug, typeof b.sidecar === "string" ? b.sidecar : undefined, before && before.version ? String(before.version) : "", { origin: true }), sidecarKey: siteMetaKey(slug),
       liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
       putWorker: async () => {
         wput = await putSiteWorker(env, slug, { ok: true, code: b.worker, build: b.manifest.build || "" }, { version: id });
