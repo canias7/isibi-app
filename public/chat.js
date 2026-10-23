@@ -8692,6 +8692,9 @@ function siteDraftPanel(site, d) {
         // still is).
         if (out.state) siteDraftFollow(site, out.state, frameWas);
         const setAside = Array.isArray(out.skipped) ? out.skipped.length : 0;
+        // ALREADY PUBLISHED (audit A15-5): the server changed nothing, and says
+        // so (`already`); never told as a publication.
+        if (out.already === true) { if (typeof sbToast === 'function') sbToast('Nothing new to publish — that draft was already published, so your live site was not changed'); return; }
         if (typeof sbToast === 'function') sbToast(setAside ? 'Published \u2014 ' + setAside + ' change' + (setAside === 1 ? ' was' : 's were') + ' set aside' : out.state && out.state.unpublished ? 'Published \u2014 a newer draft is still saved, not published' : 'Published \u2014 your live site is up to date');
       } else if (r.status === 202 && out.publishing) {
         go.textContent = 'Publishing\u2026';
@@ -16467,6 +16470,10 @@ async function siteVersions(site) {
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d.ok) { if (typeof sbToast === 'function') sbToast(d.error || 'Couldn’t restore that version.'); return load(); }
       if (typeof sbToast === 'function') sbToast('Restored — your site is live on that build.');
+      // THE DRAFT MOVED WITH IT under draft-first (`rebaseDraft`): read again,
+      // so the Publish panel and the frame are not left on the old draft
+      // (audit A15-5).
+      if (globalThis.draftFirstOn === true && typeof loadDraftState === 'function') loadDraftState(site);
       load();
     } catch (e) { if (typeof sbToast === 'function') sbToast('Lost the connection — try again.'); load(); }
   };
