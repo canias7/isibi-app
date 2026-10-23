@@ -16691,6 +16691,10 @@ function compileMsg(pub, theirs, landed = false, kept = false) {
   if (pub.error === "not-served") {
     return said("That didn't go through — the new version was built but couldn't be put live, so your site is still serving what it was. This is on us; try again in a moment.");
   }
+  // A VERSION WITH NO SCRIPT, REFUSED BEFORE THE DRAFT (audit A07-4).
+  if (pub.error === "no-script") {
+    return said("That didn't go through — the new version was built, but its server part couldn't be packaged, so nothing was saved. This is on us; try again in a moment.");
+  }
   // A holder that lost the site's lease between its compile and its publish:
   // something else has the site, so refusing is the CORRECT outcome and the
   // sentence says to send it again rather than apologising for a fault.
@@ -17836,6 +17840,14 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     return { ok: false, error: "stage", ours: true, detail: String((staged && staged.error) || "the build could not be staged").slice(0, 200), code: (staged && staged.code) || undefined, key: (staged && staged.key) || undefined };
   }
   tm("stage", "ok", { files: staged.files, worker: staged.worker });
+  // A VERSION STAGED WITHOUT ITS SCRIPT IS NEVER SAVED AS THE DRAFT (audit
+  // A07-4, 2026-10-23): live, the activation undoes it ("not-served"); as a
+  // draft it would be recorded and committed (billed) with a preview that can
+  // never go up and a revision Publish refuses. Ours, refunded, nothing saved.
+  if (draftFirst(env) && staged.worker !== true) {
+    tm("stage", "fail", { why: "no script staged" });
+    return { ok: false, error: "no-script", ours: true, detail: ("the site's server script was not packaged" + (built.worker && typeof built.worker.why === "string" ? ": " + built.worker.why : "")).slice(0, 200) };
+  }
   // ── A FREE RUNG IS EXEMPTED FIRST ───────────────────────────────────────
   //
   // The gate grants only a job that is `reserved` or `exempt`, and a rung that
@@ -19209,6 +19221,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         },
       });
       if (!staged || staged.ok !== true) throw new Error("the build could not be staged: " + String((staged && staged.error) || "stage"));
+      // NO SCRIPT, NO DRAFT (audit A07-4): ours and uncharged, as the live
+      // path's undone activation is.
+      if (draftFirst(env) && staged.worker !== true) throw new Error("the build's server script was not packaged, so it was not saved as the draft");
       // ACTIVATED: pointer, sidecar, live marker, the site's own script LAST —
       // after the files it serves are all in R2 — then the source and the
       // parts into the editable locations. A pointer that cannot be read is

@@ -252,6 +252,35 @@ test("DOR3 A HARD STOP AFTER THE COMMIT — the lost-job sweep's bare `recovered
   } finally { await done(); }
 });
 
+test("DOR3b A VERSION WITH NO SCRIPT (audit A07-4) — the container compiles the edit but packages no server script: nothing is saved to the draft, nothing committed or billed, the job refunded and told it is on us; live untouched", async () => {
+  const { P, v0, done } = await bakery();
+  try {
+    installCompiler({ worker: false });
+    const before = draftOf(P);
+    const r = await sendMessage(P, { message: "Change our TikTok link on the Visit page to @harbourbakes." });
+    await drive(P, r.key);
+    const j = editJobs(P, r.key)[0];
+    const b = bodyOf(j);
+    assert.equal(b.ok, false, JSON.stringify(b).slice(0, 300));
+    assert.equal(savedRevision(draftOf(P), { job: j.id }), null, "a version with no script was saved as the draft");
+    assert.deepEqual(draftOf(P), before);
+    assert.notEqual(j.billing, "finalized", "a draft with no script was billed");
+    assert.equal(refunded(P, j.id), reserved(P, j.id), "not refunded in full");
+    assert.match(String(b.msg || ""), /couldn't be packaged, so nothing was saved/, String(b.msg));
+    assert.equal(live(P), v0);
+  } finally { await done(); }
+});
+
+test("DOR3c THE BUILD PATH REFUSES THE SAME, before its activation (audit A07-4; read from the source, the Build's stage dep)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const stage = src.indexOf('if (!staged || staged.ok !== true) throw new Error("the build could not be staged: "');
+  assert.ok(stage > 0, "the Build's stage landmark moved");
+  const act = src.indexOf("const act = await activateBuild(buildDeps(env), {", stage);
+  assert.ok(act > stage, "the Build's activation landmark moved");
+  assert.match(src.slice(stage, act), /if \(draftFirst\(env\) && staged\.worker !== true\) throw new Error\(/, "a Build staged without its script is saved as the draft");
+});
+
 test("DOR4 FAILURE BEFORE THE WRITE — the draft record never lands: nothing of the job is in the draft, it is refunded, and its part is not done", async () => {
   const { P, v0, done } = await bakery();
   try {
