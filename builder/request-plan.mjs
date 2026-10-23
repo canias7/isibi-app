@@ -610,8 +610,16 @@ export function besideConflict(a, b) {
   if (conflicts(a, b)) return true;
   if (writesConfig(a) && writesConfig(b)) return true;
   if (writesSchema(a) && writesSchema(b)) return true;
+  // THE MENU LIVES IN EVERY PAGE FILE (2026-10-23, audit A27-8). The menu step
+  // and an addition's menu link rewrite each page's `links`, and the publish
+  // rebases whole files, so a menu write running beside any page write always
+  // lost at publish and re-ran alone after a wasted model call. Only running
+  // side by side is refused here; preparation order (`conflicts`) is unchanged.
+  if ((writesMenu(a) && writesPage(b)) || (writesMenu(b) && writesPage(a))) return true;
   return false;
 }
+const writesMenu = (p) => effectiveTargets(p).writes.some((w) => w === "menu");
+const writesPage = (p) => effectiveTargets(p).writes.some((w) => /^(?:new-)?page:/.test(w));
 // THE REMOVAL DOOR (2026-10-22, audit A03-4): a `nav` or `picture` route with
 // `remove` opens the lane picker, and the lanes it names beside the removal
 // are look's own (the stylesheet, the theme, the description, the marks),
