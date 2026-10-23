@@ -45,6 +45,15 @@ const PAGE = (body) => `<!doctype html><html><head><meta charset="utf-8"><style>
   .cap p { font-size:16px; margin:6px 0 0; }
 </style></head><body>${body}</body></html>`;
 
+// The shape `openRootCss` writes (site-theme.mjs): the paper at alpha 0.35 in
+// light, 0.42 in dark, on `:root`/`.dark`, and site-chrome's `bg-background`.
+const OPENED = (body, dark = false) => `<!doctype html><html${dark ? ' class="dark"' : ""}><head><meta charset="utf-8"><style>
+  :root { --background: oklch(0.97 0.02 85 / 0.35); }
+  .dark { --background: oklch(0.18 0.02 270 / 0.42); }
+  body { margin:0; font-family: system-ui; background: ${dark ? "#101018" : "#f4efe4"}; }
+  .chrome { min-height: 400px; padding: 40px; background-color: var(--background); }
+</style></head><body><div class="chrome">${body}</div></body></html>`;
+
 const COPY = "Walk in or book a chair online today, seven days a week.";
 const cap = (colour) => `<div class="cap" style="color:${colour}"><h1>Sharp Fade Barbers</h1><p>${COPY}</p></div>`;
 
@@ -77,6 +86,27 @@ const CASES = [
     `<!doctype html><html><body style="margin:0"><div style="background:#fff;padding:40px"><button style="background:#f2f2f2;background-image:linear-gradient(#fff,#eee);color:#e8e8e8;font-size:16px;padding:12px 20px">Book a chair now today</button></div></body></html>`],
   ["faint copy on white", false,
     PAGE(`<div style="background:#fff;padding:40px"><p style="color:#ededed;font-size:16px">${COPY}</p></div>`)],
+
+  // ── THE THEME'S OPENED PAPER (audit A34-3, #208) ───────────────────────────
+  // A world theme re-declares `--background` as its paper at alpha 0.35 and the
+  // page sits in site-chrome's `bg-background`. The probe used to skip every
+  // translucent layer, so page text on 467 of 500 themes was never measured.
+  // It now measures against the paper made opaque, and only that layer.
+  ["dark copy on a world theme's opened paper", true,
+    OPENED(`<p style="color:#2a2620;font-size:16px">${COPY}</p>`)],
+  ["faint copy on a world theme's opened paper", false,
+    OPENED(`<p style="color:#d8d2c4;font-size:16px">${COPY}</p>`)],
+  ["faint copy on a world theme's opened paper in dark mode", false,
+    OPENED(`<p style="color:#2c2c34;font-size:16px">${COPY}</p>`, true)],
+  // Any OTHER translucent layer is still a layer we do not guess through.
+  ["faint copy on a translucent layer that is not the paper", true,
+    OPENED(`<div style="background:rgba(0,0,0,.5);padding:20px"><p style="color:#d8d2c4;font-size:16px">${COPY}</p></div>`)],
+  // ...including one a step off the paper (its red 60 lower).
+  ["faint copy on a translucent layer a step off the paper", true,
+    OPENED(`<div style="background:rgb(from var(--background) calc(r - 60) g b / 0.5);padding:20px"><p style="color:#d8d2c4;font-size:16px">${COPY}</p></div>`)],
+  // A page with no `--background` at all has no paper to measure against.
+  ["dark copy on a translucent layer with no theme paper", true,
+    PAGE(`<div style="background:rgba(0,0,0,.5);padding:40px"><p style="color:#222;font-size:16px">${COPY}</p></div>`)],
 ];
 
 const pages = new Map();
