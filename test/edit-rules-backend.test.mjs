@@ -659,7 +659,7 @@ test("no refusal this round added claims the whole request was free", () => {
   // The rules rung's own window, landmark to landmark on CODE, with both ends
   // asserted — a missing landmark gives `slice(-1, -1)` and passes everything.
   const at = wsrc.indexOf("const rBack = await siteBackendDetail(env, ownerSlug);");
-  const end = wsrc.indexOf("let rCost = 0, rBilled = false;", at);
+  const end = wsrc.indexOf("let rCost = 0, rBilled = false, rStop = null;", at);
   assert.ok(at > 0, "the rules rung's opening landmark is gone — this scan is over nothing");
   assert.ok(end > at, "the rules rung's closing landmark is gone or moved above the opening one");
   const rung = blank(wsrc.slice(at, end));

@@ -21097,6 +21097,22 @@ const editJobKey = (id) => EDIT_JOB_PREFIX + String(id);
  * `publish-pages.mjs` makes about `settle`, and the reason run 90's page was
  * lost across four separate failure branches.
  */
+/**
+ * MAY A ROW OR A RULE BE WRITTEN NOW? (2026-10-23, audit S3-2) The data and
+ * rules lanes publish nothing, so the edit route's pre-publish gate never ran
+ * for them and a Stop was acknowledged and then applied and charged. Asked
+ * after the reserve and before the first write: the lease is renewed once, so
+ * a cancel set while the job was queued is read now rather than at the next
+ * heartbeat, and the job's own gate answers. `null` means go (and on the
+ * synchronous path, which has no job); otherwise the reason, for `editStopped`.
+ */
+async function applyStop(job) {
+  if (!job || typeof job.gate !== "function") return null;
+  if (typeof job.beat === "function") { try { await job.beat("apply"); } catch { /* a blink is not a cancel */ } }
+  const g = job.gate("apply");
+  return g && g.go === false ? String(g.why || "cancelled") : null;
+}
+
 async function editStopped(env, { job, why, phase, trace, ctx, msg, kept = false, landed = [], extra = null }) {
   const r = await editRpc(env, "edit_refund", { p_id: job.id, p_state: why === "cancelled" ? "cancelled" : "failed", p_note: why + " at " + phase });
   try { if (trace) trace.mark("stopped", "fail", { why, phase, refunded: Number((r && r.refunded) || 0) }); } catch { /* never */ }
@@ -36419,7 +36435,7 @@ async function handleRequest(request, env, ctx) {
               // applied; the funnel reserves here, and a refusal answers
               // `unbilled` with no row touched. Recorded, so the replies below
               // report this charge rather than placing a second one.
-              let dCost = 0, dBilled = false;
+              let dCost = 0, dBilled = false, dStop = null;
               const dRefused = [];
               const dHeldNow = new Set();
               const dOut = await runDataEdit({
@@ -36427,7 +36443,7 @@ async function handleRequest(request, env, ctx) {
                 // WHAT THE STEP WAS SHOWN (2026-10-11): counted on the job.
                 seen: (x) => noteSeen(eJob, x),
                 // PREPARED: the change is chosen; no row is touched here.
-                before: async (usage) => { if (isPrep) { eJob.reached = (Number(eJob.reached) || 0) + 1; return false; } dCost = await eCharge(usage); dBilled = true; return !(eCharges.refused() > 0); },
+                before: async (usage) => { if (isPrep) { eJob.reached = (Number(eJob.reached) || 0) + 1; return false; } dCost = await eCharge(usage); dBilled = true; if (eCharges.refused() > 0) return false; dStop = await applyStop(eJob); return !dStop; },
                 // ONE STATEMENT PER CHANGE, parameterised, with the table name
                 // taken from the DECLARED schema rather than from the model —
                 // it is the only part that cannot be a bound parameter.
@@ -36510,6 +36526,7 @@ async function handleRequest(request, env, ctx) {
                 // nothing on a build that never mentions the order.
               }, { instruction: eInstruction, tables: dTables, recent: dRecent.kept.length ? dRecent.kept : null, pages: eSrc, scope: stepScopeOf(eb && eb.scope), model: eQuickModel });
               // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
+              if (dStop) return await editStopped(env, { job: eJob, why: dStop, phase: "apply", trace: editTrace, ctx });
               if (dOut.ask) return stepAsk("data", dOut.ask);
 
               if (!dOut.ok) {
@@ -36784,12 +36801,12 @@ async function handleRequest(request, env, ctx) {
               // BILLED BEFORE THE SCHEMA IS TOUCHED (2026-09-05, 1a-ii) — the
               // data rung's shape: the module asks `before` with the usage in
               // hand and no DDL emitted.
-              let rCost = 0, rBilled = false;
+              let rCost = 0, rBilled = false, rStop = null;
               const rOut = await runRulesEdit({
                 send: eQuick(),
                 seen: (x) => noteSeen(eJob, x),
                 // PREPARED: the rules are chosen; nothing is granted here.
-                before: async (usage) => { if (isPrep) { eJob.reached = (Number(eJob.reached) || 0) + 1; return false; } rCost = await eCharge(usage); rBilled = true; return !(eCharges.refused() > 0); },
+                before: async (usage) => { if (isPrep) { eJob.reached = (Number(eJob.reached) || 0) + 1; return false; } rCost = await eCharge(usage); rBilled = true; if (eCharges.refused() > 0) return false; rStop = await applyStop(eJob); return !rStop; },
                 // ONE APPLY FOR THE MERGED SPEC. `applySiteSchema` re-emits
                 // every table's REVOKEs, grants and policies in order, which is
                 // what makes a pair change and a `retired` take effect on a
@@ -36798,6 +36815,7 @@ async function handleRequest(request, env, ctx) {
                 apply: async (spec) => { const made = await applySiteSchema(rdb, normalizeSchema(spec)); return { refusedRules: (made && Array.isArray(made.refusedRules)) ? made.refusedRules : [] }; },
               }, { instruction: eInstruction, tables: rSpec.tables, scope: stepScopeOf(eb && eb.scope), model: eQuickModel });
               // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
+              if (rStop) return await editStopped(env, { job: eJob, why: rStop, phase: "apply", trace: editTrace, ctx });
               if (rOut.ask) return stepAsk("rules", rOut.ask);
 
               if (!rOut.ok) {
