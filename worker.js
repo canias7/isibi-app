@@ -21097,22 +21097,6 @@ const editJobKey = (id) => EDIT_JOB_PREFIX + String(id);
  * `publish-pages.mjs` makes about `settle`, and the reason run 90's page was
  * lost across four separate failure branches.
  */
-/**
- * MAY A ROW OR A RULE BE WRITTEN NOW? (2026-10-23, audit S3-2) The data and
- * rules lanes publish nothing, so the edit route's pre-publish gate never ran
- * for them and a Stop was acknowledged and then applied and charged. Asked
- * after the reserve and before the first write: the lease is renewed once, so
- * a cancel set while the job was queued is read now rather than at the next
- * heartbeat, and the job's own gate answers. `null` means go (and on the
- * synchronous path, which has no job); otherwise the reason, for `editStopped`.
- */
-async function applyStop(job) {
-  if (!job || typeof job.gate !== "function") return null;
-  if (typeof job.beat === "function") { try { await job.beat("apply"); } catch { /* a blink is not a cancel */ } }
-  const g = job.gate("apply");
-  return g && g.go === false ? String(g.why || "cancelled") : null;
-}
-
 async function editStopped(env, { job, why, phase, trace, ctx, msg, kept = false, landed = [], extra = null }) {
   const r = await editRpc(env, "edit_refund", { p_id: job.id, p_state: why === "cancelled" ? "cancelled" : "failed", p_note: why + " at " + phase });
   try { if (trace) trace.mark("stopped", "fail", { why, phase, refunded: Number((r && r.refunded) || 0) }); } catch { /* never */ }
@@ -21161,6 +21145,22 @@ async function editStopped(env, { job, why, phase, trace, ctx, msg, kept = false
       // AND WHAT ALREADY WENT THROUGH OUTSIDE THE PUBLISH (2026-09-25).
       + landedSaid(landed),
   }, { status: review ? 409 : 503 });
+}
+
+/**
+ * MAY A ROW OR A RULE BE WRITTEN NOW? (2026-10-23, audit S3-2) The data and
+ * rules lanes publish nothing, so the edit route's pre-publish gate never ran
+ * for them and a Stop was acknowledged and then applied and charged. Asked
+ * after the reserve and before the first write: the lease is renewed once, so
+ * a cancel set while the job was queued is read now rather than at the next
+ * heartbeat, and the job's own gate answers. `null` means go (and on the
+ * synchronous path, which has no job); otherwise the reason, for `editStopped`.
+ */
+async function applyStop(job) {
+  if (!job || typeof job.gate !== "function") return null;
+  if (typeof job.beat === "function") { try { await job.beat("apply"); } catch { /* a blink is not a cancel */ } }
+  const g = job.gate("apply");
+  return g && g.go === false ? String(g.why || "cancelled") : null;
 }
 
 /** The scheduled sweep of lost, stale and reviewed jobs. Exported for the test, which drives a dead consumer's job through it. */
