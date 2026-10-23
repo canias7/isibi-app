@@ -16196,7 +16196,10 @@ async function composePublish(env, slug, dist, meta, pages, renamed = null, lang
         // reader that cannot silently half-parse it.
         // UNDER DRAFT-FIRST, THE STANDING DRAFT'S STAGED SIDECAR (2026-10-22,
         // audit A11-3): the live one does not hold a rename saved as a draft.
-        const po = await previousSidecar(buildDeps(env), slug, { draftFirst: draftFirst(env), liveKey: siteMetaKey(slug) });
+        // ONE MORE READ BEFORE GIVING UP (2026-10-23, audit A33-3): a gateway
+        // blip in the container is the common case, and it passes.
+        const po = await previousSidecar(buildDeps(env), slug, { draftFirst: draftFirst(env), liveKey: siteMetaKey(slug) })
+          .catch(() => previousSidecar(buildDeps(env), slug, { draftFirst: draftFirst(env), liveKey: siteMetaKey(slug) }));
         // THROUGH `manifestFromCsv`, THE ONE READER OF THIS SHAPE. The sidecar
         // keeps the two lists as `routesCsv`/`redirectsCsv` strings, and
         // `mergeRedirects` reads `prev.routes`/`prev.redirects` — so handing it
@@ -16230,7 +16233,17 @@ async function composePublish(env, slug, dist, meta, pages, renamed = null, lang
         dist["sitemap.xml"] = { t: sitemapXml(man.routes, new Date().toISOString().slice(0, 10)) };
         dist["robots.txt"] = { t: robotsTxt() };
       }
-    } catch (e) { console.error("seo manifest failed:", slug, e && e.message); }
+      // …AND A PUBLISH NEVER WRITES OVER WHAT IT COULD NOT READ (2026-10-23,
+      // audit A33-3). The sidecar is written whole at activation, so the null
+      // manifest above went live as empty route and redirect lists: every
+      // stored redirect was gone, and the next publish read that empty map as
+      // the history, so they never came back. Refused instead, as ours: a
+      // stage that throws is our failure, uncharged, and the site is as it was.
+      if (prevUnreadable) throw new Error("previous sidecar unreadable");
+    } catch (e) {
+      if (e && e.message === "previous sidecar unreadable") throw e;
+      console.error("seo manifest failed:", slug, e && e.message);
+    }
   }
   // EVERY DOCUMENT LAST, not just index.html. A page names the new hashed
   // bundle, so nothing may see it until the bundle it points at is fully
@@ -17784,7 +17797,12 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // refuses or a job that dies here leaves the live site exactly as it was and
   // a prefix the cap prunes. See site-builds.mjs.
   tm("compose", "start");
-  const composed = await composePublish(env, slug, built.files, {
+  // A COMPOSE THAT THROWS IS OURS, LIKE A STAGE THAT DOES (audit A33-3): the
+  // one throw it lets out is a previous sidecar it could not read, and nothing
+  // is written or live-changed by then.
+  let composed;
+  try {
+  composed = await composePublish(env, slug, built.files, {
     brand: (look && look.brand) || slug,
     description: (look && look.description) || undefined,
     image: await siteOgImage(env, slug, built.files),
@@ -17799,6 +17817,10 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // something else entirely.
     verify,
   }, pages, renamed, siteLangs.filter((l) => !l.primary).map((l) => l.prefix));
+  } catch (e) {
+    tm("compose", "fail", { why: String((e && e.message) || e).slice(0, 120) });
+    return { ok: false, error: "stage", ours: true, detail: String((e && e.message) || "the build could not be composed").slice(0, 200), code: "transient" };
+  }
   tm("compose", "ok", { routes: composed.routes.length });
   tm("stage", "start", { version, files: Object.keys(built.files || {}).length });
   let staged = null;
