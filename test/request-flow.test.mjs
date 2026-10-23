@@ -651,6 +651,24 @@ test("E4 — deleting a site takes its requests with it: the markers first, so t
   assert.match(body, /rqCursor = \(got && got\.truncated\) \? got\.cursor : undefined/, "the requests wipe does not follow the cursor — it can leave objects behind");
 });
 
+test("E4b — A24-4 (2026-10-23): deleting a site takes what its request jobs kept under their own ids — the staged answers, the use records, every kept model reply — while a neighbour's are untouched", async () => {
+  await withPlatform({ slug: slugOf("e4b"), answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }], ...DESCRIBE, ...GALLERY } }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    const { rec } = await settle(P, r.key);
+    assert.equal(rec.state, "done");
+    const ids = P.jobsOf(r.key).map((j) => j.id);
+    const kept = () => [...P.objects.keys()].filter((k) => k.startsWith("jobs/prepared/") && ids.some((id) => k.startsWith("jobs/prepared/" + id)));
+    // THE OBSERVER IS ALIVE: the jobs kept something under their ids.
+    assert.ok(kept().length > 0, "no job kept anything under jobs/prepared/ — the case tests nothing: " + JSON.stringify([...P.objects.keys()].filter((k) => k.startsWith("jobs/"))));
+    const other = "jobs/prepared/" + "f".repeat(32) + ".kept.json";
+    P.writeObj(other, JSON.stringify({ calls: [] }));
+    const del = await call(P, "DELETE", "/api/site/" + P.slug);
+    assert.equal(del.status, 200, JSON.stringify(del.body));
+    assert.deepEqual(kept(), [], "a deleted site's jobs left their kept records behind");
+    assert.ok(P.readObj(other), "another job's record was removed");
+  });
+});
+
 test("E5 — a part's job that ended in the site's container moves its request on through the gateway's /next, bound to that job's own token: the Worker checks the request names the job, and nothing else moves it", async () => {
   const JOB = "1".repeat(8) + "-2222-3333-4444-" + "5".repeat(12);
   const KEY = "k".repeat(20);

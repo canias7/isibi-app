@@ -143,7 +143,7 @@ const answer = (verdict, kind, why, mine, extra = {}) => ({ verdict, kind, why, 
 //                   record that says it was trimmed, or one the earlier
 //                   60-revision limit cut, proves no absence
 const trimmedFact = (d, rec) => (typeof d.trimmed === "boolean" ? d.trimmed : !!rec.trimmed || (rec.revs.length >= 60 && !!rec.revs[0] && rec.revs[0].n > 1));
-function draftVerdict(facts, job, mine) {
+export function draftVerdict(facts, job, mine) {
   const d = facts.draft;
   if (!d || !job.id) return null;
   if (d.state === "unreadable") return answer("unknown", "draft-unreadable", "the site's draft record could not be read, so whether this job's work was saved is not known", mine);

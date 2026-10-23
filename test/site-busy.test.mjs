@@ -621,8 +621,11 @@ test("the editable copy: four editing readers read through the repairing reader,
     // RE-ANCHORED 2026-10-11 (round 10): a step prepared inside a job is
     // handed that job's pages (it publishes nothing — the job does); every
     // other edit still reads, and goes on to publish, through the repair.
-    ": await loadSiteSourceForEdit(env, ownerSlug, { checked: true });",
-    "const aRead = await loadSiteSourceForEdit(env, ownerSlug, { checked: true });",
+    // RE-ANCHORED 2026-10-23 (audit A24-1): a preparation run in the Worker
+    // reads without repairing (`prepare`, it publishes nothing); the job reads,
+    // and goes on to publish, through the repair as before.
+    ": await loadSiteSourceForEdit(env, ownerSlug, { checked: true, prepare: !!(eJob && eJob.prepare === true) });",
+    "const aRead = await loadSiteSourceForEdit(env, ownerSlug, { checked: true, prepare: !!(aJob && aJob.prepare === true) });",
     // CHECKED SINCE 2026-10-08 (H5): read once above `buildArgs`, and a revise
     // whose live pages cannot be confirmed stops before any page is written.
     "const priorRead = existing ? await loadSiteSourceForEdit(env, slug, { checked: true }) : null;",
@@ -713,7 +716,15 @@ test("the editable copy: four editing readers read through the repairing reader,
   // it never publishes and never opens a page for an edit.
   // AND TWO OF THEM (2026-10-21): the scan's own read, and its price estimate's.
   assert.equal(bare.filter((b) => b === "readSiteSource(env, scslug)").length, 2, "the security scan's reads are gone, or no longer bare");
-  assert.equal(bare.length, 12, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
+  // RE-ANCHORED 2026-10-23 — 12 → 13, AND THE THIRTEENTH IS A PREPARATION'S
+  // READ (audit A24-1), inside the repairing wrapper: a step prepared beside
+  // the jobs reads the store strictly and repairs nothing, because a repair
+  // from it put a running job's unpublished look back. A preparation never
+  // publishes; the job its answers are replayed in reads through the repair.
+  { const w0 = W.indexOf("async function loadSiteSourceForEdit(");
+    const arm = W.indexOf("if (checked && prepare === true) return { ...await readSiteSource(env, slug, { strict: true })", w0);
+    assert.ok(w0 > 0 && arm > w0 && arm < W.indexOf("ensureEditableState(env, slug)", w0), "the preparation's read is not the wrapper's own non-repairing arm"); }
+  assert.equal(bare.length, 13, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
   assert.ok(W.includes("const pages = url.searchParams.get(\"force\") === \"1\" ? null : await loadSiteSource(env, uslug).catch(() => null);"), "the media delete's read is gone, or does more than read which pages name a file");
   assert.ok(W.includes("withinMs(loadSiteSource(env, slug), CONVERSE_READ_MS, \"converse pages:\", slug)"), "the conversation's read is gone, or does more than read the pages for a reply");
   assert.ok(W.includes("loadSiteSource(env, slug).then((pp) => pageLabels("), "the request's label read is gone, or does more than read labels");
@@ -732,8 +743,10 @@ test("the editable copy: four editing readers read through the repairing reader,
   // nobody can reproduce by reading the file is a count that drifts.
   // 3 → 4 (2026-10-21): the deep security scan's read, which needs to know a
   // failed read from no pages, as the Code tab's does.
-  assert.equal(bare.filter((b) => b.startsWith("readSiteSource")).length, 5,
-    "the five reads are not the plain wrapper's, the checked wrapper's, the Code tab's and the security scan's two: " + bare.join(" | "));
+  // 5 → 6 (2026-10-23, audit A24-1): the checked wrapper's preparation arm,
+  // a strict read that repairs nothing (argued for above).
+  assert.equal(bare.filter((b) => b.startsWith("readSiteSource")).length, 6,
+    "the six reads are not the plain wrapper's, the checked wrapper's two, the Code tab's and the security scan's two: " + bare.join(" | "));
   assert.match(fnW("loadSiteSource"), /const r = await readSiteSource\(env, slug\);/,
     "the wrapper no longer delegates — there are two readers of the store, which drift");
   const wrap = fnW("loadSiteSourceForEdit");
@@ -742,7 +755,8 @@ test("the editable copy: four editing readers read through the repairing reader,
   assert.match(wrap, /return loadSiteSource\(env, slug\);/);
   // THE MARKER, LAST, ON EVERY COPY: the spine's, the build's, the restore's.
   const spine = fnW("recompileAndPublish");
-  const marks = spine.indexOf("await saveLandmarks(env, slug, built.render && built.render.landmarks);");
+  // (RE-ANCHORED 2026-10-23, audit A22-5: the map is merged by route after a cut check.)
+  const marks = spine.indexOf("await saveLandmarks(env, slug, built.render && built.render.landmarks, { partial: !!(built.render && built.render.partial === true) });");
   const head = spine.indexOf("await writeHead(adeps, slug, version);");
   assert.ok(marks > 0 && head > marks, "the spine's copy does not end with the marker");
   const buildPath = W.slice(W.indexOf("sourceStored = await saveSiteSource(env, slug, pages);"), W.indexOf("keep: (answer) => saveGenAnswer(env, slug, answer),"));

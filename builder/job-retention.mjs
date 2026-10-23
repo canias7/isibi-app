@@ -65,16 +65,22 @@ export const RETENTION_LIST_LIMIT = 300;
 export const MAX_RETENTION_DELETES = 100;
 
 /**
- * THE TWO PREFIXES THIS TICK LOOKS AT. `jobs/edit/` needs its own because a
+ * THE PREFIXES THIS TICK LOOKS AT. `jobs/edit/` needs its own because a
  * key under it is `jobs/edit/<id>` — the nibble is not where `jobs/<nibble>`
  * looks — and the `e` bucket therefore sees every edit object as well as its
  * own, which costs one listing and loses nothing.
+ *
+ * AND `jobs/prepared/` (2026-10-23, audit A24-4): every request job's staged
+ * answers, its use record, every model reply it kept and a paused part's
+ * checkpoints, keyed `jobs/prepared/<id>…`, which neither prefix above
+ * reaches. None is read past its request: a part waits a day at most for an
+ * answer (`WAIT_MS`) and a day more recovering, far inside the seven days.
  */
 export function retentionPrefixes(now, tickMs = RETENTION_TICK_MS) {
   const t = Number.isFinite(now) ? now : 0;
   const step = Number.isFinite(tickMs) && tickMs > 0 ? tickMs : RETENTION_TICK_MS;
   const n = RETENTION_NIBBLES[Math.abs(Math.floor(t / step)) % RETENTION_NIBBLES.length];
-  return ["jobs/" + n, "jobs/edit/" + n];
+  return ["jobs/" + n, "jobs/edit/" + n, "jobs/prepared/" + n];
 }
 
 /**

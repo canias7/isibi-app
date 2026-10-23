@@ -180,7 +180,8 @@ test("`loadSiteSourceForEdit` answers the PAGES, and every rung that needs the c
   // named for the whole and answers the PAGES, and a rung that needs the site's
   // own components asks `loadSiteParts` where it needs them (the text lane's case
   // above proves that hop for the lane that has it).
-  const at = WORKER.indexOf("async function loadSiteSourceForEdit(env, slug, { checked = false } = {}) {");
+  // (RE-ANCHORED 2026-10-23, audit A24-1: the signature gained `prepare`.)
+  const at = WORKER.indexOf("async function loadSiteSourceForEdit(env, slug, { checked = false, prepare = false } = {}) {");
   assert.ok(at > 0, "the pages reader moved — re-derive this landmark");
   const body = WORKER.slice(at, WORKER.indexOf("\n}", at));
   // ONE REPAIR, AND IT IS HERE: `ensureEditableState` is what puts a copy one

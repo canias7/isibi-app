@@ -185,7 +185,7 @@ import { renderNote } from "./builder/site-render.mjs";
 import { checksOf, readChecks, DRAFT_SAID } from "./builder/check-evidence.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker, DISPATCH_CALL_MS } from "./builder/site-dispatch.mjs";
-import { reconcileVerdict, reconcileReply, storedAnswer, publicFacts, findMine, RECONCILE_RETRY_MAX } from "./builder/site-reconcile.mjs";
+import { reconcileVerdict, draftVerdict, reconcileReply, storedAnswer, publicFacts, findMine, RECONCILE_RETRY_MAX } from "./builder/site-reconcile.mjs";
 import { MIGRATIONS_KEY, readMigrations, newMigration, withApplied, upsertMigration, markMigration, pendingMigration, jobMigration, reconciledMigration, migrationNote, migrationSummary } from "./builder/site-migrations.mjs";
 // ── THE LOOK IS THE STYLESHEET, AND ONE NAME SURVIVES THE ENGINE ────────────
 //
@@ -13116,7 +13116,13 @@ async function loadSiteSource(env, slug) {
  * rebuild, the owner's text editor and "Back online" — now asks `checked` and
  * stops when the answer is not the live version's.
  */
-async function loadSiteSourceForEdit(env, slug, { checked = false } = {}) {
+async function loadSiteSourceForEdit(env, slug, { checked = false, prepare = false } = {}) {
+  // A PREPARATION ONLY READS (2026-10-23, audit A24-1): it runs beside the
+  // jobs with no lock, and a repair from it put a running job's unpublished
+  // config back (the version's baked look over the job's own write) whenever
+  // PARALLEL_WRITES was off. It reads the store strictly and repairs nothing;
+  // the job its answers are replayed in checks the editable state itself.
+  if (checked && prepare === true) return { ...await readSiteSource(env, slug, { strict: true }), recovery: { ok: true, why: "prepare", wrote: [] } };
   let recovery;
   try { recovery = await ensureEditableState(env, slug); }
   catch (e) {
@@ -13240,11 +13246,21 @@ const ANSWER_KEY = (slug) => "source/" + String(slug).toLowerCase() + "/answer.j
 // output, and a stale observation must never be mistaken for a current input.
 const LANDMARKS_KEY = (slug) => "source/" + String(slug).toLowerCase() + "/landmarks.json";
 
-async function saveLandmarks(env, slug, marks) {
+async function saveLandmarks(env, slug, marks, { partial = false } = {}) {
   if (!env.SITES_BUCKET || !Array.isArray(marks) || !marks.length) return false;
   try {
+    // A CHECK CUT BY ITS BUDGET IS MERGED BY ROUTE, NEVER WRITTEN OVER THE MAP
+    // (2026-10-23, audit A22-5): the landmarks are captured at desktop width,
+    // after every phone route, so a cut run carries only the routes it reached
+    // there. Those routes are replaced; every other route keeps what the last
+    // build saw of it, rather than vanishing from the next edit's aim.
+    let kept = [];
+    if (partial === true) {
+      const reached = new Set(marks.map((m) => String((m && m.route) || "/")));
+      kept = (await loadLandmarks(env, slug)).filter((m) => !reached.has(String((m && m.route) || "/")));
+    }
     await env.SITES_BUCKET.put(LANDMARKS_KEY(slug), JSON.stringify({
-      at: new Date().toISOString(), slug, marks,
+      at: new Date().toISOString(), slug, marks: kept.concat(marks),
     }), { httpMetadata: { contentType: "application/json" } });
     return true;
   } catch (e) { console.error("landmarks save failed:", slug, e && e.message); return false; }
@@ -18018,7 +18034,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       // edit EDITS and the map is only what helps it aim, so a map that fails
       // to store must never be able to cost the source.
       tm("r2:landmarks", "start");
-      await saveLandmarks(env, slug, built.render && built.render.landmarks);
+      await saveLandmarks(env, slug, built.render && built.render.landmarks, { partial: !!(built.render && built.render.partial === true) });
       tm("r2:landmarks", "ok", { marks: ((built.render && built.render.landmarks) || []).length });
       // AND THE MARKER LAST (stage 6): the editable copy names the version it
       // came from, so the next job can tell a finished copy from one that
@@ -19387,7 +19403,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   // GATED ON A REAL PUBLISH. A build that failed has no live page, and a map
   // describing one that was never served would aim the next edit at elements
   // nobody can see.
-  if (out && out.ok && out.render) await saveLandmarks(env, slug, out.render.landmarks);
+  if (out && out.ok && out.render) await saveLandmarks(env, slug, out.render.landmarks, { partial: out.render.partial === true });
   if (out && bDraftSaved) out.draft = bDraftSaved;
   // THE BUILD CHECKLIST'S PLAN (2026-10-22, idea #14): derived in code from the
   // design this build was handed, checked by `pageNotes` against what landed.
@@ -19626,15 +19642,32 @@ async function deleteSiteFor(env, uid, dslug) {
     // on, and a request moved on for a site that is gone would route its next
     // part — a paid model call — for nothing. Cursor-followed and best-effort,
     // as the backups are, before the row the delete needs to be retried.
+    // AND WHAT ITS JOBS KEPT UNDER THEIR OWN IDS (2026-10-23, audit A24-4):
+    // the staged answers, every model reply, the checkpoints quoting the
+    // customer's words — `jobs/prepared/<id>…`, named from each request
+    // record's jobs before the record goes. One that cannot be read leaves its
+    // jobs' copies to the seven-day rotation (`retentionPrefixes`).
+    const rqJobs = new Set();
     try {
       if (env.SITES_BUCKET) {
         for (const prefix of [REQUEST_LIVE_ROOT + dslug + "/", REQUEST_ROOT + dslug + "/"]) {
           let rqCursor;
           do {
             const got = await env.SITES_BUCKET.list({ prefix, cursor: rqCursor, limit: 500 });
-            for (const o of (got && got.objects) || []) await env.SITES_BUCKET.delete(o.key);
+            for (const o of (got && got.objects) || []) {
+              if (prefix === REQUEST_ROOT + dslug + "/" && /^[^/]+\.json$/.test(o.key.slice(prefix.length))) {
+                try {
+                  const rec = JSON.parse(await (await env.SITES_BUCKET.get(o.key)).text());
+                  for (const p of Array.isArray(rec && rec.parts) ? rec.parts : []) for (const j of Array.isArray(p && p.jobs) ? p.jobs : []) if (j && isJobId(j.id)) rqJobs.add(j.id);
+                } catch { /* left to the rotation */ }
+              }
+              await env.SITES_BUCKET.delete(o.key);
+            }
             rqCursor = (got && got.truncated) ? got.cursor : undefined;
           } while (rqCursor);
+        }
+        for (const id of rqJobs) {
+          for (const k of [jobPrepKey(id), prepUseKey(id), jobKeptKey(id), jobHeldKey(id), jobHeldInKey(id)]) await env.SITES_BUCKET.delete(k);
         }
       }
     } catch (e) { console.error("site requests delete failed:", dslug, e && e.message); }
@@ -22040,6 +22073,19 @@ export async function reconcileEditJob(env, id, hint = null) {
   // may be on the site. Its one fact is its key.
   const rowKey = String(row.op || "") === "addon" ? rowReviewKey(row) : "";
   if (rowKey) {
+    // A ROW HELD IN THE DRAFT IS SAVED, NOT LOST (2026-10-23, audit A17-3):
+    // under draft-first the step seals its rows into the draft and never
+    // writes the live key, so the key alone would close and refund rows that
+    // go live at Publish. This job's own revision in the draft record decides
+    // first, as it does for a page job (`draftVerdict`); a record that cannot
+    // be read, or a revision that cannot be proven, stays unknown. No draft,
+    // or none naming this job, falls through to the key.
+    const df = await reconcileFacts(env, row);
+    const dv = draftVerdict(df, df.job, df.mine);
+    if (dv) {
+      const applied = await applyReconcile(env, row, dv);
+      return { ...applied, job: String(row.id), facts: publicFacts(df) };
+    }
     const rf = await rowReviewFacts(env, row, rowKey, { close: true });
     const out = rowReviewVerdict(rf);
     // THE ROUTES' OWN READER OF THE PARTS PUT OFF (2026-10-02, batch 2), handed
@@ -23689,7 +23735,15 @@ async function readHeldIn(env, id, from) {
         const o = await env.SITES_BUCKET.get(key);
         if (!o) { last = "missing"; continue; }
         text = await o.text();
-      } catch (e) { last = "unreadable:" + errorClassForLog(e); continue; }
+      } catch (e) {
+        // A KEY THE JOB'S WALL REFUSES IS AN ANSWER TOO (2026-10-23, audit
+        // A24-2): in the container another job's checkpoint is never readable
+        // (the gateway admits only this job's own `jobs/` keys), so asking
+        // again for a day changes nothing. `refused`, at once, read by the
+        // request driver as a checkpoint this job cannot see.
+        if (e && e.name === "GatewayError" && e.status === 403) return { ok: false, why: "refused" };
+        last = "unreadable:" + errorClassForLog(e); continue;
+      }
       try { return { ok: true, v: JSON.parse(text) }; } catch { return { ok: true, v: null }; }
     }
     return { ok: false, why: last };
@@ -34599,7 +34653,7 @@ async function handleRequest(request, env, ctx) {
             // now are (`replayPrepared`, `pages`); everything else reads the store.
             const eSource = eJob && eJob.prepare === true && Array.isArray(eJob.pages) && eJob.pages.length
               ? { ok: true, pages: eJob.pages }
-              : await loadSiteSourceForEdit(env, ownerSlug, { checked: true });
+              : await loadSiteSourceForEdit(env, ownerSlug, { checked: true, prepare: !!(eJob && eJob.prepare === true) });
             if (eSource.ok) await noteBase(env, ownerSlug, eJob, eSource.pages);
             if (!eSource.ok) return explain("route/no-source-unreadable", undefined,
               // A CHECK THAT STOPPED BEFORE ITS FIRST WRITE (the turn could not
@@ -38438,6 +38492,13 @@ async function handleRequest(request, env, ctx) {
               });
               // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
               if (tw.ask) return stepAsk("page", tw.ask);
+              // A PREPARATION WITH NO PARSER STOPS AT THE TWEAK (2026-10-23,
+              // audit A24-3): preparations run in the Worker, which cannot read
+              // a page that renders the site's own components (`no-parser`),
+              // while the part's job runs where the parser loads and replays
+              // this same tweak call. The rewrite is left to that job, if it
+              // needs it — never paid for here and then thrown away.
+              if (isPrep && tw.reason === "needs-parts" && tw.why === "no-parser") return prepStop();
               // A TWEAK WHOSE FILE DOES NOT PARSE FALLS BACK TO THE REWRITE
               // (2026-10-22, audit A03-5, the owner's choice): `readTweak`
               // refuses it as `syntax`, so the branch below is skipped and the
@@ -40504,7 +40565,7 @@ async function handleRequest(request, env, ctx) {
             // rung sends is what keeps that a fact rather than a coincidence.
             if (modelKeyMissing(env, modelsFor(ab && ab.picker).quick)) return aFailure("unconfigured");
 
-            const aRead = await loadSiteSourceForEdit(env, ownerSlug, { checked: true });
+            const aRead = await loadSiteSourceForEdit(env, ownerSlug, { checked: true, prepare: !!(aJob && aJob.prepare === true) });
             if (aRead.ok) await noteBase(env, ownerSlug, aJob, aRead.pages);
             if (!aRead.ok) return aFailure(aRead.why === "editable-state" ? "editable-state" : "no-source", { recovery: aRead.recovery });
             const aSrc = aRead.pages;

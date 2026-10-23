@@ -825,6 +825,12 @@ export function tweakReply(page) {
  * this module and the dependency stays at its edge.
  */
 let PARSER = undefined;
+/**
+ * FOR THE TESTS ONLY (2026-10-23, audit A24-3): stand a parser in — `null` is
+ * the Worker's own answer (no parser) — or `undefined` to load it again. The
+ * product never calls this.
+ */
+export function standInTweakParser(p) { PARSER = p; }
 
 export async function tweakParser() {
   if (PARSER !== undefined) return PARSER;

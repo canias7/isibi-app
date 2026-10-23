@@ -1901,6 +1901,52 @@ test("salvagePlan stubs the page the compiler named", () => {
   assert.equal(p.reason, "");
 });
 
+// A22-4 (2026-10-23): a band or component this build wrote lives at
+// `-parts/<name>.tsx`; one that does not bundle is stubbed as a part, never
+// reported as "a file the build didn't write", and judged by its importers.
+test("A22-4 salvagePlan stubs a part this build wrote, keeps it when a live page imports it, and still calls a part it did not write foreign", () => {
+  const shell = { path: "index.tsx", source: 'import BandPrices from "@/routes/-parts/band-prices";' };
+  const parts = [{ name: "band-prices", source: "export default function BandPrices() { return <div>; }" }];
+  const err = "/app/src/routes/-parts/band-prices.tsx:14:7: ERROR: Expected \">\" but found \"<\"";
+  const p = salvagePlan(err, [shell, good("menu.tsx")], [], parts);
+  assert.deepEqual(p.parts, ["band-prices"]);
+  assert.deepEqual(p.foreign, []);
+  assert.deepEqual(p.stub, []);
+  assert.equal(p.reason, "");
+  // A PAGE THE SITE SERVES IMPORTS IT: refused wholesale, as that page would be.
+  const live = salvagePlan(err, [shell, good("menu.tsx")], ["index.tsx"], parts);
+  assert.deepEqual(live.kept, ["index.tsx"]);
+  assert.equal(live.parts, undefined);
+  // NOT TOLD WHAT IS LIVE: refused, as for a page.
+  assert.match(salvagePlan(err, [shell], undefined, parts).reason, /couldn't tell/);
+  // A PART THIS BUILD DID NOT WRITE stays foreign.
+  assert.deepEqual(salvagePlan(err, [shell], [], []).foreign, ["src/routes/-parts/band-prices.tsx"]);
+});
+
+test("A22-4 a first build whose one band does not bundle ships with that band stubbed, and the stub is what is compiled", async () => {
+  const shell = { ...good(), source: good().source + '\nimport BandPrices from "@/routes/-parts/band-prices";' };
+  const part = { name: "band-prices", source: "export default function BandPrices() { return <section>Prices</section>; }" };
+  let n = 0;
+  const { deps, calls } = harness({
+    generate: async () => gen([shell], { input: { pages: [shell], parts: [part], notes: "" } }),
+    compile: async () => {
+      n++;
+      // THE FIRST BUNDLER FAILURE IS ASKED ONCE MORE (`compileWithRetry`), so two.
+      if (n <= 2) return { ok: false, stage: "build", error: "/app/src/routes/-parts/band-prices.tsx:1:60: ERROR: Unexpected end of file" };
+      return { ok: true, files: { "index.html": { t: "<ok>" } } };
+    },
+  });
+  const out = await publishPages(deps, { spec: SPEC, slug: "x", livePages: [] });
+  assert.equal(out.page, "app", "one band that did not bundle lost the whole site: " + JSON.stringify(out.salvage));
+  assert.deepEqual(out.salvagedParts, ["band-prices"]);
+  assert.deepEqual(out.salvage.foreign, []);
+  assert.equal(calls.compiledParts.length, 3);
+  assert.match(calls.compiledParts[0][0].source, /Prices/, "the first compile was not handed the band as written");
+  assert.match(calls.compiledParts[2][0].source, /return null/, "the recompile was not handed the stubbed part");
+  assert.doesNotMatch(calls.compiledParts[2][0].source, /Prices/);
+  assert.equal(calls.compiledParts[2][0].name, "band-prices");
+});
+
 test("salvagePlan refuses when the HOME page is the one that failed", () => {
   // Stubbing index leaves the one address a customer shares rendering an apology,
   // and the header that reaches every other page went with the source. The `home`

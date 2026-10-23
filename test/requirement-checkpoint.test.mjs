@@ -304,6 +304,24 @@ test("CK 9 control — TWO PAUSES: the second checkpoint (three requirements) is
   assertBoth(o, [COLL, SEARCH, NUMBER]);
 });
 
+test("CK 7c — A24-2 (2026-10-23): THE PAUSED JOB'S CHECKPOINT MISSING AND ITS FALLBACK READ REFUSED BY THE CONTAINER'S WALL (403, as the job gateway answers another job's `jobs/` key): the part fails at once as the Worker's read would — never recovering for a day on a refusal no retry can change", { timeout: 30000 }, async () => {
+  let refused = 0;
+  const refusal = () => { refused++; return Object.assign(new Error("gateway refused the key"), { name: "GatewayError", status: 403, code: "forbidden" }); };
+  let sawIn = false;
+  // THE WORKER STAGES FIRST (and finds nothing to stage); only the job's own
+  // reads, after its staged copy, meet the wall.
+  const fromJob = (k) => { if (HELD_IN.test(k)) sawIn = true; return sawIn && HELD.test(k); };
+  const { o, j, P } = await faqCase("7c", {
+    between: (P) => { for (const k of [...P.objects.keys()].filter((k) => HELD.test(k))) P.objects.delete(k); },
+    faults: (P, at) => { if (at === "resume") for (let i = 0; i < 20; i++) P.failGet(fromJob, refusal); },
+  });
+  assert.ok(sawIn && refused > 0, "the job never met the wall — the case tests nothing");
+  assert.equal(o.status, "failed", JSON.stringify(o.rec.parts[0]));
+  assert.equal(o.rec.parts[0].why, "checkpoint-unread");
+  assert.equal(j.sent.length, 0);
+  aboutUnchanged(P);
+});
+
 test("CK 9 — THE LATEST CHECKPOINT UNREADABLE, AN OLDER ONE READABLE: the older, smaller scope is never used in its place — the part fails, saying the checkpoint could not be read, with nothing applied", { timeout: 30000 }, async () => {
   const { o, j, P } = await twoPauses("9", {
     between2: (P, key) => {
