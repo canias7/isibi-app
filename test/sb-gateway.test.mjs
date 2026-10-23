@@ -472,8 +472,11 @@ test("runJob puts the gateway fetch in front of the process before the import an
   const before = globalThis.fetch;
   const restore = installGatewayFetch(good);
   assert.notEqual(globalThis.fetch, before);
+  // A16-5: the resolver `safeFetch` asks is installed with it, and goes with it.
+  assert.equal(typeof globalThis.__SITE_RESOLVE_HOST, "function", "the container installs no resolver for safeFetch");
   restore();
   assert.equal(globalThis.fetch, before);
+  assert.equal(Object.hasOwn(globalThis, "__SITE_RESOLVE_HOST"), false, "the resolver outlived its job");
 });
 
 test("the env: with a Supabase origin the two names carry the marker whatever the secrets said; without one, what was handed", () => {
