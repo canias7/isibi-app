@@ -591,6 +591,10 @@ function Unfinished() {
  * re-running a build. It is carried out on the response for that reason; the
  * comment here used to claim the eval read it, and nothing did.
  */
+function partImportRe(name) {
+  const n = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(["'])(?:@/routes/-parts/|\\./-parts/)${n}(?:\\.tsx)?\\1`);
+}
 export function salvagePlan(error, pages, live, parts = []) {
   const known = new Set((pages || []).map((p) => p.path));
   // THE BUILD'S OWN PARTS ARE ITS FILES TOO (2026-10-23, audit A22-4): with
@@ -600,6 +604,7 @@ export function salvagePlan(error, pages, live, parts = []) {
   // one that a page the site already serves imports is `kept`, as that page is.
   const ownParts = new Set((Array.isArray(parts) ? parts : []).map((p) => p && p.name).filter((n) => typeof n === "string" && n));
   const stubParts = new Set();
+  let homeUsesPart = false;
   // The two questions kept apart: WHAT is published, and whether we were told at
   // all. Only an explicit Set or Array counts as an answer.
   const toldWhatIsLive = live instanceof Set || Array.isArray(live);
@@ -612,8 +617,15 @@ export function salvagePlan(error, pages, live, parts = []) {
     const bare = cited.replace(/^(?:src\/)?routes\//, "");
     const part = /^-parts\/(.+)\.tsx$/.exec(bare);
     if (part && ownParts.has(part[1])) {
-      const users = (pages || []).filter((p) => String((p && p.source) || "").includes(PART_IMPORT + part[1] + '"'));
-      for (const u of users) if (published.has(u.path)) kept.add(u.path);
+      // USERS BY EITHER IMPORT FORM AND EITHER QUOTE (review, 2026-10-23):
+      // `@/routes/-parts/<name>` or `./-parts/<name>`, single or double quoted,
+      // with or without the extension. The exact double-quoted alias missed the
+      // rest, and a part the home page used could be stubbed.
+      const users = (pages || []).filter((p) => partImportRe(part[1]).test(String((p && p.source) || "")));
+      for (const u of users) {
+        if (published.has(u.path)) kept.add(u.path);
+        else if (u.path === "index.tsx") homeUsesPart = true;
+      }
       stubParts.add(part[1]);
       continue;
     }
@@ -633,7 +645,7 @@ export function salvagePlan(error, pages, live, parts = []) {
     return { stub: [], foreign: [], kept: [...kept].sort(), reason: "the page that failed is one the site is already serving" };
   }
   if (!stub.size && !stubParts.size) return { stub: [], foreign: [], kept: [], reason: "the error names no page" };
-  if (stub.has("index.tsx")) return { stub: [], foreign: [], kept: [], reason: "the home page is the one that failed" };
+  if (stub.has("index.tsx") || homeUsesPart) return { stub: [], foreign: [], kept: [], reason: "the home page is the one that failed" };
   if (!toldWhatIsLive) {
     // UNKNOWN, NOT EMPTY. Stubbing from here is a coin flip on whether the page
     // about to be replaced with an apology is one a visitor can load right now,

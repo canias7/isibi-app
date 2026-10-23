@@ -1905,7 +1905,10 @@ test("salvagePlan stubs the page the compiler named", () => {
 // `-parts/<name>.tsx`; one that does not bundle is stubbed as a part, never
 // reported as "a file the build didn't write", and judged by its importers.
 test("A22-4 salvagePlan stubs a part this build wrote, keeps it when a live page imports it, and still calls a part it did not write foreign", () => {
-  const shell = { path: "index.tsx", source: 'import BandPrices from "@/routes/-parts/band-prices";' };
+  // Re-anchored 2026-10-23 (review of r1-combine): the importer was index.tsx,
+  // and a part the home page uses now refuses like a failed home page, so the
+  // stub case uses a page other than home; the kept case is unchanged.
+  const shell = { path: "prices.tsx", source: 'import BandPrices from "@/routes/-parts/band-prices";' };
   const parts = [{ name: "band-prices", source: "export default function BandPrices() { return <div>; }" }];
   const err = "/app/src/routes/-parts/band-prices.tsx:14:7: ERROR: Expected \">\" but found \"<\"";
   const p = salvagePlan(err, [shell, good("menu.tsx")], [], parts);
@@ -1914,8 +1917,8 @@ test("A22-4 salvagePlan stubs a part this build wrote, keeps it when a live page
   assert.deepEqual(p.stub, []);
   assert.equal(p.reason, "");
   // A PAGE THE SITE SERVES IMPORTS IT: refused wholesale, as that page would be.
-  const live = salvagePlan(err, [shell, good("menu.tsx")], ["index.tsx"], parts);
-  assert.deepEqual(live.kept, ["index.tsx"]);
+  const live = salvagePlan(err, [shell, good("menu.tsx")], ["prices.tsx"], parts);
+  assert.deepEqual(live.kept, ["prices.tsx"]);
   assert.equal(live.parts, undefined);
   // NOT TOLD WHAT IS LIVE: refused, as for a page.
   assert.match(salvagePlan(err, [shell], undefined, parts).reason, /couldn't tell/);
@@ -1924,11 +1927,13 @@ test("A22-4 salvagePlan stubs a part this build wrote, keeps it when a live page
 });
 
 test("A22-4 a first build whose one band does not bundle ships with that band stubbed, and the stub is what is compiled", async () => {
-  const shell = { ...good(), source: good().source + '\nimport BandPrices from "@/routes/-parts/band-prices";' };
+  // Re-anchored 2026-10-23 (review of r1-combine): the band sits on a page
+  // other than home, since a part the home page uses now refuses salvage.
+  const shell = { ...good("prices.tsx"), source: good("prices.tsx").source + '\nimport BandPrices from "@/routes/-parts/band-prices";' };
   const part = { name: "band-prices", source: "export default function BandPrices() { return <section>Prices</section>; }" };
   let n = 0;
   const { deps, calls } = harness({
-    generate: async () => gen([shell], { input: { pages: [shell], parts: [part], notes: "" } }),
+    generate: async () => gen([good(), shell], { input: { pages: [good(), shell], parts: [part], notes: "" } }),
     compile: async () => {
       n++;
       // THE FIRST BUNDLER FAILURE IS ASKED ONCE MORE (`compileWithRetry`), so two.
@@ -2974,4 +2979,28 @@ test("TALK: a note that throws never costs the build", async () => {
   const out = await publishPages(deps, { spec: SPEC, slug: "s" });
   assert.equal(out.page, "app");
   assert.equal(calls.publish.length, 1);
+});
+
+// Review of r1-combine (2026-10-23): a part's users are found by either import
+// form (`@/routes/-parts/x` or `./-parts/x`) and either quote; a part the home
+// page uses refuses salvage like a failed home page; a live user keeps it.
+test("salvagePlan finds a part's users by both import forms and quotes, and refuses a part the home page uses", () => {
+  const parts = [{ name: "band-prices", source: "x" }];
+  const err = "/app/src/routes/-parts/band-prices.tsx:14:7: ERROR: Expected \">\" but found \"<\"";
+  const other = { path: "about.tsx", source: "export default function A() { return null; }" };
+  for (const imp of ["import B from '@/routes/-parts/band-prices';", 'import B from "./-parts/band-prices";', "import B from './-parts/band-prices.tsx';", 'import B from "@/routes/-parts/band-prices";']) {
+    const menu = { path: "menu.tsx", source: imp };
+    const live = salvagePlan(err, [other, menu], ["menu.tsx"], parts);
+    assert.deepEqual(live.kept, ["menu.tsx"], imp);
+    const home = { path: "index.tsx", source: imp };
+    const h = salvagePlan(err, [home, other], [], parts);
+    assert.match(h.reason, /home page/, imp);
+    assert.equal(h.parts, undefined, imp);
+  }
+  // A part only a new, non-home page uses is still stubbed.
+  const fresh = salvagePlan(err, [other, { path: "menu.tsx", source: "import B from './-parts/band-prices';" }], [], parts);
+  assert.deepEqual(fresh.parts, ["band-prices"]);
+  // A different part with a shared prefix is not a user.
+  const near = salvagePlan(err, [{ path: "index.tsx", source: "import B from './-parts/band-prices-2';" }], [], parts);
+  assert.deepEqual(near.parts, ["band-prices"]);
 });
