@@ -33189,6 +33189,12 @@ async function handleRequest(request, env, ctx) {
       // too — which rung stopped, whether anything was refunded — and gating
       // this on success would answer a bare `status: failed` while the sentence
       // the handler wrote sat unread in the row.
+      // A BARE SWEEP `recovered` UNDER DRAFT-FIRST (audit A14-5, 2026-10-23)
+      // is read against the draft record here too, as the request driver
+      // reads it (`draftSavedEvidence`): the page takes the part's own reply
+      // from this poll, and a job proven saved as a draft is never served as
+      // a publish whose details were lost. The row itself is not rewritten.
+      if (draftFirst(env)) { const saved = await draftSavedEvidence(env, String(row.slug || ""), ejid, row); if (saved) row.result = { ...(row.result || {}), ...saved }; }
       const res = row.result;
       if (isTerminalEdit(row.state) && res && typeof res.body === "string") {
         // ITS COST IS THE ROW'S (2026-09-25) — see `servedEditReply`: the

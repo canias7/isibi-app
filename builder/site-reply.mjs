@@ -57,7 +57,7 @@
 import { readContext, MAX_ANSWER_CHARS } from "./site-ask.mjs";
 import { pieceSaid } from "./site-requirements.mjs";
 import { seedRowsOf, rowPlaces } from "./seed-rows.mjs";
-import { checkFacts, browserOnlyFacts, savedDraftOf, savedDraftFacts } from "./check-evidence.mjs";
+import { checkFacts, browserOnlyFacts, savedDraftOf, savedDraftFacts, readChecks } from "./check-evidence.mjs";
 import { REWRITE_MAX_CHARS } from "./input-budget.mjs";
 
 /** The switch: `MODEL_REPLIES` = "on" in the Worker's vars. Anything else keeps every reply as it was. */
@@ -863,23 +863,33 @@ function refusalMoney(F, body, routedCost) {
 
 const LOOK_SAY = { lang: "the language", brand: "the name", description: "the description", theme: "the theme", favicon: "the tab icon", wordmark: "the logo" };
 
-/** What the page operations that published did (`pageOpsSaid`). */
-function pageOpFacts(F, ops) {
+/**
+ * SAVED TO THE DRAFT, NOT PUBLISHED (audit A14-3, 2026-10-23): the answer's
+ * own evidence says so (`checks.draft`), or it carries a held draft. Its page
+ * and photograph facts are then said of the draft, never of the live site.
+ */
+function inDraft(e) {
+  const c = readChecks(e && e.checks);
+  return !!(c && c.draft === true) || !!heldDraftOf(e && e.draft);
+}
+
+/** What the page operations that published did (`pageOpsSaid`); `draft`: only saved to the draft. */
+function pageOpFacts(F, ops, draft = false) {
   let gone = false;
   for (const op of (Array.isArray(ops) ? ops : [])) {
     if (!op || typeof op !== "object") continue;
     const page = typeof op.page === "string" && op.page ? op.page : "";
     const removed = paths(op.removed);
     if (Array.isArray(op.removed) && op.removed.length) {
-      F.add("changed", "Took " + (removed.length ? listOf(removed) : "that page") + " off the site.");
+      F.add("changed", "Took " + (removed.length ? listOf(removed) : "that page") + " off the site" + (draft ? " in the draft; the live site still has it until the owner presses Publish." : "."));
       gone = true;
     } else if (typeof op.renamedTo === "string" && op.renamedTo) {
-      F.add("changed", "Moved " + (page || "that page") + " to " + op.renamedTo + "; the old address sends visitors to the new one.");
+      F.add("changed", "Moved " + (page || "that page") + " to " + op.renamedTo + (draft ? " in the draft; once the owner presses Publish, the old address sends visitors to the new one." : "; the old address sends visitors to the new one."));
     } else {
       F.add("changed", "Updated " + (page || "the page") + ".");
     }
   }
-  if (gone) F.add("undo", "Every published version is kept, so a page taken off can be put back if they ask.");
+  if (gone) F.add("undo", draft ? "Nothing is live yet, so a page taken off in the draft can be put back if they ask." : "Every published version is kept, so a page taken off can be put back if they ask.");
 }
 
 /** What a change did beside what was asked for (`editOutcomes`), every layer. */
@@ -899,8 +909,10 @@ function outcomeFacts(F, e) {
   if (heldPix > 0) F.add("note", (heldPix === 1 ? "The photograph" : "The " + heldPix + " photographs") + " already on the page stayed; only what was asked about changed.");
   const lostPix = Number(e.photosRemoved) || 0;
   const offPix = typeof e.photosTakenOff === "number" && e.photosTakenOff > 0 ? e.photosTakenOff : 0;
-  if (lostPix > 0) F.add("changed", count(lostPix, "photograph") + (lostPix === 1 ? " is" : " are") + " no longer on the site.");
-  if (offPix > 0) F.add("undo", "To undo that, they can roll back to the previous build in Cloud → Versions.");
+  const draft = inDraft(e);
+  if (lostPix > 0) F.add("changed", count(lostPix, "photograph") + (lostPix === 1 ? " is" : " are") + " no longer on the site" + (draft ? " in the draft; the live site still shows " + (lostPix === 1 ? "it" : "them") + " until the owner presses Publish." : "."));
+  if (offPix > 0 && draft) F.add("undo", "To undo that, they can say “put the " + (offPix === 1 ? "photo" : "photos") + " back” before publishing.");
+  else if (offPix > 0) F.add("undo", "To undo that, they can roll back to the previous build in Cloud → Versions.");
   else if (lostPix > 0) F.add("undo", "To undo that, they can say “put the " + (lostPix === 1 ? "photo" : "photos") + " back”.");
   const parts = Array.isArray(e.partial) ? e.partial : [];
   partialFacts(F, e.clarify ? parts.filter((p) => !(p && p.error === "clarify")) : parts);
@@ -1051,7 +1063,7 @@ export function editReplyFacts(e, { routedCost = null, inRequest = false } = {})
       if (e.failed) F.add("not-done", count(Number(e.failed) || 1, "entry", "entries") + " could not be saved; trying that one again may work.");
       if (!rows.length && !sorted) F.add("changed", "The change was made.");
     } else if (layer === "page" && ((Array.isArray(e.removed) && e.removed.length) || (typeof e.renamedTo === "string" && e.renamedTo))) {
-      pageOpFacts(F, [e]);
+      pageOpFacts(F, [e], inDraft(e));
     } else if (layer === "page") {
       F.add("changed", "Updated " + (typeof e.page === "string" && e.page ? e.page : "the page") + ".");
       const reord = strings(e.reordered);
@@ -1066,7 +1078,7 @@ export function editReplyFacts(e, { routedCost = null, inRequest = false } = {})
       const bits = moved.concat(strings(e.tokens), strings(e.style), e.css ? ["the design"] : []);
       const where = typeof e.tokensPage === "string" && e.tokensPage ? " on " + e.tokensPage : "";
       if (bits.length) F.add("changed", "Changed " + listOf(bits) + where + ".");
-      pageOpFacts(F, ops);
+      pageOpFacts(F, ops, inDraft(e));
       const takeOff = said(e.takeOffNote);
       if (takeOff) F.add("not-done", takeOff);
       if (moved.includes("the name")) {
@@ -1467,7 +1479,12 @@ export function buildReplyFacts(bf) {
   // it) says it is on the site; `unconfirmed` keeps visibility open.
   const made = of("made");
   const madeAt = (stage) => made.filter((x) => x.stage === stage);
-  if (madeAt("published").length) F.add("changed", "Photographs made and shown on a published page: " + named(madeAt("published")));
+  // A BUILD SAVED AS THE DRAFT (audit A14-4, 2026-10-23): its own evidence
+  // says so (`checks.draft`); "published" then means published to the draft,
+  // and the live site is unchanged.
+  const bc = readChecks(bf.checks);
+  const draft = !!(bc && bc.draft === true);
+  if (madeAt("published").length) F.add("changed", (draft ? "Photographs made and shown on a page of the draft (not live until the owner presses Publish): " : "Photographs made and shown on a published page: ") + named(madeAt("published")));
   if (madeAt("unconfirmed").length) F.add("note", "Photographs made and included in the published site's files; whether a page shows them could not be confirmed, so do not say they are on the site: " + named(madeAt("unconfirmed")));
   if (madeAt("not-shown").length) F.add("not-done", "Photographs made and in the site's files, but no published page shows them, so they are not on the site: " + named(madeAt("not-shown")));
   if (madeAt("in-source").length) F.add("not-done", "Photographs made and written into the pages, but the site did not go live with them, so they are not on the site yet: " + named(madeAt("in-source")));
@@ -1511,7 +1528,7 @@ export function buildReplyFacts(bf) {
     if (u && typeof u.section === "string" && u.section.trim()) F.add("not-done", "This part of the page could not be written and is left out for now (it can be asked for again): " + quote(u.section));
   }
   for (const pg of Array.isArray(bf.salvaged) ? bf.salvaged : []) {
-    F.add("not-done", "The page " + quote(String(pg).replace(/\.tsx$/i, "")) + " did not compile, so it shows a short stand-in for now; the rest of the site is live.");
+    F.add("not-done", "The page " + quote(String(pg).replace(/\.tsx$/i, "")) + " did not compile, so it shows a short stand-in for now; " + (draft ? "the rest of the site is saved in the draft, and the live site is unchanged until the owner presses Publish." : "the rest of the site is live."));
   }
   // WHAT WAS DONE ABOUT A DESIGN THAT CAME BACK WRONG (2026-10-08, the ninth
   // batch), from the attempts actually made — never a promise of one.

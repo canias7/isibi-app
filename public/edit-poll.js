@@ -194,6 +194,21 @@
   }
 
   /**
+   * WHICH RECOVERED SENTENCE (audit A14-5, 2026-10-23). One the server proved
+   * saved as a draft (`reconciled: "draft-saved"`, its draft unpublished) is
+   * said as saved to the draft; with draft-first on and no such proof,
+   * neither published nor draft is claimed; otherwise the sentence above.
+   */
+  function recoveredMessage(body, draftFirst) {
+    var d = body && typeof body === "object" ? body.draft : null;
+    if (body && body.reconciled === "draft-saved" && d && typeof d === "object" && d.published === false) {
+      return "Your change was saved to your draft — but the details of what it did were lost along the way. It goes live when you press Publish.";
+    }
+    if (draftFirst === true) return "Your change was saved — but the details of what it did were lost along the way. Reload the preview to see it.";
+    return outcomeMessage("recovered");
+  }
+
+  /**
    * THE REPLY A MODEL WROTE FOR THIS ENDING, or null (2026-10-03).
    *
    * The server writes it from the facts of what really happened
@@ -1004,6 +1019,7 @@
     shouldRetryPoll: shouldRetryPoll,
     outcomeMessage: outcomeMessage,
     isRecovered: isRecovered,
+    recoveredMessage: recoveredMessage,
     modelReply: modelReply,
     MODEL_REPLY_MAX: MODEL_REPLY_MAX,
     progressLines: progressLines,

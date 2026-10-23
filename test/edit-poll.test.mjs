@@ -824,6 +824,27 @@ test("recovered: the sweep's reply is a success whose details were lost", () => 
   assert.deepEqual(P.readPoll(200, P.FINAL_VALUE, { ok: true, recovered: true }), { act: "reply" });
 });
 
+test("recovered under draft-first (audit A14-5): a proven draft save is said as saved to the draft; unproven, neither published nor draft is claimed", () => {
+  const draftSaved = { ok: true, recovered: true, reconciled: "draft-saved", draft: { published: false, revision: 4 } };
+  const d = P.recoveredMessage(draftSaved, true);
+  assert.match(d, /saved to your draft/);
+  assert.match(d, /press Publish/);
+  assert.doesNotMatch(d, /published/);
+  // the same proof is read whatever the switch says
+  assert.equal(P.recoveredMessage(draftSaved, false), d);
+  const unsure = P.recoveredMessage({ ok: true, recovered: true }, true);
+  assert.match(unsure, /lost/);
+  assert.doesNotMatch(unsure, /published|draft/);
+  // a draft that says it was published is not a draft save
+  assert.equal(P.recoveredMessage({ ok: true, recovered: true, reconciled: "draft-saved", draft: { published: true } }, false), P.outcomeMessage("recovered"));
+  // CONTROL: draft-first off, no proof: the published sentence as before
+  assert.equal(P.recoveredMessage({ ok: true, recovered: true }, false), P.outcomeMessage("recovered"));
+  // the page's two readers use it
+  const chat = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  assert.equal((chat.match(/EditPoll\.recoveredMessage\((a|e), globalThis\.draftFirstOn === true\)/g) || []).length, 2);
+  assert.doesNotMatch(chat, /outcomeMessage\('recovered'\)/);
+});
+
 // ── RESUME CARRIES THE ASK (stage 2b, 2026-09-05) ─────────────────────────
 
 test("the record carries the ask, the route and the hop's coordinates, bounded", () => {

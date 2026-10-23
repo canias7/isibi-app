@@ -240,6 +240,15 @@ test("DOR3 A HARD STOP AFTER THE COMMIT — the lost-job sweep's bare `recovered
     assert.equal(rec.parts[0].outcome.kind, "draft", JSON.stringify(rec.parts[0].outcome));
     assert.match(rec.parts[0].done, /saved the change as draft revision/);
     assert.equal(live(P), v0);
+    // THE JOB POLL, WHICH THE PAGE READS FOR THE PART'S OWN REPLY (audit
+    // A14-5), reads the bare answer against the draft record too: never
+    // served as a publish whose details were lost.
+    const poll = await call(P, "GET", "/api/site/edit/" + j.id);
+    assert.equal(poll.status, 200, JSON.stringify(poll.body).slice(0, 300));
+    assert.equal(poll.body.recovered, true);
+    assert.equal(poll.body.reconciled, "draft-saved", JSON.stringify(poll.body).slice(0, 300));
+    assert.equal(poll.body.draft.published, false);
+    assert.equal(poll.body.draft.revision, mine.n);
   } finally { await done(); }
 });
 

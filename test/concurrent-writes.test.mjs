@@ -15,6 +15,7 @@ import { platform, sendMessage, deliver, settle, T } from "./fixtures/request-fl
 import { blockNetwork } from "./fixtures/no-network.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { page as pageSrc } from "./fixtures/live-ask.mjs";
+import { requestView } from "../builder/request.mjs";
 
 blockNetwork();
 
@@ -297,6 +298,10 @@ test("CW5 A REAL OVERLAP CAUGHT AT PUBLISH, THEN RUN AGAIN ALONE — the router 
     assert.equal(reserveOf(P, runs[1].id).length, 1, "the second try was not charged exactly once");
     assert.ok(P.page("visit.tsx").includes(TT_TO) && !P.page("visit.tsx").includes(TT_FROM), "the Visit change was not kept on its second try");
     assert.ok(P.page("index.tsx").includes(HOME_TO), "the home change was lost to the second try");
+    // THE PAGE IS SHOWN ONLY THE SECOND TRY'S REPLY (audit A14-2): the lost
+    // try's "Send it again." would ask the owner to resend what the server
+    // already re-ran.
+    assert.deepEqual(requestView(rec).parts[0].jobs, [runs[1].id], "the page lists the lost try's reply under the part");
   });
 });
 

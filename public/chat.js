@@ -13676,7 +13676,7 @@ function addonReplyText(a) {
   // died before its finalize is finalized by the same sweep with the same
   // reply, and this is the reader its watcher hands it to. Counted, it would
   // read as '✅ Done.' with every list empty.
-  if (EditPoll.isRecovered(a)) return EditPoll.outcomeMessage('recovered');
+  if (EditPoll.isRecovered(a)) return EditPoll.recoveredMessage(a, globalThis.draftFirstOn === true);
   const added = (Array.isArray(a.added) ? a.added : []).map(sitePathOf).filter(Boolean);
   // A PAGE WHOSE ONE CHANGE IS THE NEW PAGE'S LINK (`restored`, settled on the
   // server once every step ran — 2026-10-05, run 101) is said on its own, never
@@ -14311,7 +14311,7 @@ function pageOpsSaid(ops) {
 }
 
 function editReply(e) {
-  if (EditPoll.isRecovered(e)) return EditPoll.outcomeMessage('recovered');
+  if (EditPoll.isRecovered(e)) return EditPoll.recoveredMessage(e, globalThis.draftFirstOn === true);
   // ── WHAT EACH STEP THAT RAN BESIDE OTHERS SAID IT DID (2026-10-03) ────────
   //
   // The mixed-work audit's MW1: several steps answer `look`, and the look

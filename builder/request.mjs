@@ -2157,8 +2157,8 @@ export function readRequestOf(v) {
 
 // ── WHAT THE PAGE AND THE REPLY ARE SHOWN ────────────────────────────────────
 
-/** A run job whose own reply explains its part: it ended with an answer, and was not a hand-over. */
-const shownRun = (j) => j.kind === "run" && !!j.id && !!j.end && !["hop", "climb", "answerless", "held-retry"].includes(j.end.act);
+/** A run job whose own reply explains its part: it ended with an answer, and was not a hand-over, nor a try lost to its own request's overlap (run again by the request, so its "Send it again." is not the owner's to follow: audit A14-2). */
+const shownRun = (j) => j.kind === "run" && !!j.id && !!j.end && !["hop", "climb", "answerless", "held-retry", "overlap"].includes(j.end.act);
 
 /**
  * A PART'S PROGRESS LINES (2026-10-06): each of its run jobs' lines in the
