@@ -216,6 +216,32 @@ test("TWO PICTURES ARE REFUSED, NEITHER CHOSEN: nothing stored, saved or publish
   assert.equal((await runLogoEdit(d, { images: ["", { name: "notes.txt", text: "our colours" }, dataUrl(PNG)] })).ok, true);
 });
 
+// A PDF BESIDE THE LOGO IS NOT A SECOND LOGO (2026-10-23, audit A26-3). A
+// request hands every file to the logo part, so a menu PDF meant for another
+// part turned one picture into the "several" refusal.
+test("A26-3: one picture beside a PDF is the logo; two pictures beside a PDF are still refused; a lone PDF is refused for what it is", async () => {
+  const PDF = { name: "menu.pdf", data: "data:application/pdf;base64,JVBERi0xLjQK" };
+  {
+    const { d, seen } = deps();
+    const r = await runLogoEdit(d, { images: [{ name: "logo.png", data: dataUrl(PNG) }, PDF] });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(seen.stored, 1);
+  }
+  {
+    const { d } = deps();
+    const r = await runLogoEdit(d, { images: [PDF, dataUrl(PNG), { name: "b.png", data: dataUrl(PNG) }] });
+    assert.equal(r.reason, "several");
+    assert.equal(r.files, 2, "the PDF was counted as a picture");
+  }
+  {
+    const { d, seen } = deps();
+    const r = await runLogoEdit(d, { images: [PDF] });
+    assert.equal(r.ok, false);
+    assert.equal(r.reason, "unreadable", JSON.stringify(r));
+    assert.equal(seen.stored, 0);
+  }
+});
+
 test("a refusal never publishes and never saves", async () => {
   const { d, seen } = deps();
   const r = await runLogoEdit(d, { images: ["data:image/svg+xml;base64,PHN2Zz4="] });
