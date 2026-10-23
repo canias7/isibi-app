@@ -624,7 +624,7 @@ test("the checkout rate limit is ACTED ON, not merely present", () => {
   assert.match(block, /_dataLimiter\.hit\(/);
   assert.match(block, /if \(!chit\.ok\)[\s\S]{0,120}?tooMany\(chit\)/);
   // And before the body is read, or a flood still gets us to buffer it.
-  orderedIn(block, "_dataLimiter.hit(", "request.json()", "limit before reading the body");
+  orderedIn(block, "_dataLimiter.hit(", "await request.text()", "limit before reading the body");
 });
 
 test("the two webhooks are separate handlers — one must never mint platform credits", () => {

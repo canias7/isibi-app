@@ -35,7 +35,7 @@ import { readSchemaState, reconcileSpec, RECOVER_QUERIES, liveDeclared } from ".
 import { policiesFor, grantsFor } from "./site-rls.mjs";
 import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerImport, handleOwnerMembers, handleOwnerAnalytics, assertOwner, editGateRefusal } from "./site-owner.mjs";
 import { MAX_IMPORT_BYTES } from "./site-csv.mjs";
-import { takeIdemKey, makeIdem, replayHeaders } from "./site-idem.mjs";
+import { takeIdemKey, makeIdem, replayHeaders, idemFingerprint } from "./site-idem.mjs";
 import { placeAttachedPhotos, attachedFilesNote, ownPhotoFacts, ownPhotoSentence } from "./builder/attached-photos.mjs";
 import { importSite, importBriefBlock, readImportSite, placeImportedPhotos, publicUrl as importPublicUrl } from "./builder/site-import.mjs";
 import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_MODEL_BYTES, MAX_VISITOR_UPLOAD_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName, dispositionFor, readDownloadName, DOWNLOAD_NAME_KEY, uploadIsImage, uploadKind, UPLOAD_URL_PATH } from "./site-uploads.mjs";
@@ -10990,9 +10990,10 @@ async function handleCheckout({ env, conn, slug, body, origin, schema, ctx = nul
  * cache, and a Worker without it keeps the in-isolate layer alone.
  */
 const SITE_IDEM = makeIdem();
-function idemFor(env, slug, scope, key) {
+function idemFor(env, slug, scope, key, fp = null) {
   const kv = env && env.SITE_API_CACHE;
   return SITE_IDEM.for(slug, scope, key, {
+    fp,
     get: kv ? (id) => kv.get(id, { type: "json" }) : null,
     put: kv ? (id, v, ttl) => kv.put(id, JSON.stringify(v), { expirationTtl: ttl }) : null,
   });
@@ -11077,6 +11078,29 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
   // and a Request body can only be consumed a single time.
   let sent = request.method === "GET" || request.method === "HEAD" ? undefined : await request.text();
 
+  // ONE SUBMISSION, ONCE (owner, 2026-09-03 — the backend services round).
+  //
+  // A page that sends an `Idempotency-Key` gets the answer it already got for
+  // that key, for ten minutes, without the row being written twice: the
+  // double-click, the phone that lost signal after the POST left. Read before
+  // the upstream write, because a replay is exactly the request that must not
+  // reach Postgres, and BEFORE THE SPAM GATE (audit A30-4): a double-click
+  // sends the same single-use token twice, so verifying first refused the
+  // second press as a bot instead of handing it the first one's answer. Only
+  // a 2xx is ever remembered (`idemStorable`), so a refused submission
+  // retried with the field fixed — same key, by design — still goes through;
+  // and only a request with the same contents is replayed (`fp`, audit A30-5).
+  // The layers and their limits are written up in `site-idem.mjs`.
+  let idem = null;
+  if (which === "data" && request.method === "POST") {
+    const key = takeIdemKey(request.headers);
+    if (key) {
+      idem = idemFor(env, slug, "data/" + String(path).split("/")[0].toLowerCase(), key, await idemFingerprint(sent));
+      const prior = await idem.read();
+      if (prior) return new Response(prior.body, { status: prior.status, headers: replayHeaders(prior) });
+    }
+  }
+
   // KEEPING BOTS OUT, BEFORE THE ROW EXISTS.
   //
   // Verified after the insert is a spam filter that files the spam first, so
@@ -11086,6 +11110,7 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
   if (which === "data" && request.method === "POST") {
     const gate = await turnstileGate(env, request, { slug, db, path, sent });
     if (gate.refused) {
+      if (idem) idem.release();
       // `message`, not `error`: that is the field `rows.ts` reads to show a
       // visitor what went wrong, so a refusal says something rather than
       // rendering "request failed (403)". The `code` is ours and unknown to
@@ -11093,26 +11118,6 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
       return Response.json({ message: gate.refused, code: "turnstile" }, { status: 403 });
     }
     if (gate.sent !== undefined) sent = gate.sent;
-  }
-
-  // ONE SUBMISSION, ONCE (owner, 2026-09-03 — the backend services round).
-  //
-  // A page that sends an `Idempotency-Key` gets the answer it already got for
-  // that key, for ten minutes, without the row being written twice: the
-  // double-click, the phone that lost signal after the POST left. Read HERE,
-  // after the spam gate and before the upstream write, because a replay is
-  // exactly the request that must not reach Postgres. Only a 2xx is ever
-  // remembered (`idemStorable`), so a refused submission retried with the
-  // field fixed — same key, by design — still goes through. The layers and
-  // their limits are written up in `site-idem.mjs`.
-  let idem = null;
-  if (which === "data" && request.method === "POST") {
-    const key = takeIdemKey(request.headers);
-    if (key) {
-      idem = idemFor(env, slug, "data/" + String(path).split("/")[0].toLowerCase(), key);
-      const prior = await idem.read();
-      if (prior) return new Response(prior.body, { status: prior.status, headers: replayHeaders(prior) });
-    }
   }
   try {
     const r = await fetch(target, {
@@ -11253,6 +11258,9 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
   } catch (e) {
     console.error("site " + which + " proxy failed:", slug, path, e && e.message);
     return Response.json({ error: "couldn't reach that just now" }, { status: 503 });
+  } finally {
+    // A press that never stored an answer lets the one waiting behind it through.
+    if (idem) idem.release();
   }
 }
 
@@ -32226,6 +32234,7 @@ async function handleRequest(request, env, ctx) {
         if (!chit.ok) { const t = tooMany(chit); return Response.json(t.body, { status: t.status, headers: t.headers }); }
         const cconn = await siteBackendBySlug(env, cslug);
         if (!cconn) return Response.json({ error: "no such site" }, { status: 404 });
+        let cidem = null;
         try {
           // "PAY" PRESSED TWICE IS ONE CHECKOUT. The same key the data proxy
           // honours: a repeat within ten minutes gets the session it already
@@ -32233,13 +32242,18 @@ async function handleRequest(request, env, ctx) {
           // only one gets paid — but the customer sees the first tab's session
           // expire under them, and a `pending` row per press on a table that
           // records the attempt is two rows for one basket.
+          // The same basket only (audit A30-5): another basket under the same
+          // key is a new checkout, never the earlier session.
           const ckey = takeIdemKey(request.headers);
-          const cidem = ckey ? idemFor(env, cslug, "checkout", ckey) : null;
+          const craw = await request.text().catch(() => "");
+          cidem = ckey ? idemFor(env, cslug, "checkout", ckey, await idemFingerprint(craw)) : null;
           const prior = cidem ? await cidem.read() : null;
           if (prior) return new Response(prior.body, { status: prior.status, headers: replayHeaders(prior) });
+          let cbody = {};
+          try { cbody = JSON.parse(craw); } catch { cbody = {}; }
           const cres = await handleCheckout({
             env, conn: cconn, slug: cslug,
-            body: await request.json().catch(() => ({})),
+            body: cbody,
             origin: url.origin,
             schema: await loadSiteSchema(cconn),
             ctx,
@@ -32258,6 +32272,8 @@ async function handleRequest(request, env, ctx) {
           // statement. Logged so a failing shop is diagnosable from our side.
           console.error("checkout:", cslug, e && (e.detail || e.message));
           return Response.json({ error: "we couldn't start that payment — please try again" }, { status: 502 });
+        } finally {
+          if (cidem) cidem.release();
         }
       }
     }

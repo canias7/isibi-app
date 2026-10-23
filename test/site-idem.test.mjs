@@ -3,7 +3,7 @@
 //
 // The failure this exists to catch is the one the module's own comment names:
 // a double-click writing two bookings. The store is small; what has to stay
-// true is WHERE it sits on the write path (after the spam gate, before the
+// true is WHERE it sits on the write path (before the spam gate and the
 // upstream write), WHAT it remembers (a success and nothing else) and WHEN the
 // page renews its key (after a success and never before).
 import { test } from "node:test";
@@ -144,15 +144,15 @@ function between(src, from, to, what) {
 
 test("the Worker's store is ONE, at module scope, bound to the request's KV per call", () => {
   assert.match(worker, /\nconst SITE_IDEM = makeIdem\(\);/, "a store made per request forgets the first press before the second arrives");
-  const fn = between(worker, "function idemFor(env, slug, scope, key) {", "\nasync function proxySiteService(");
+  const fn = between(worker, "function idemFor(env, slug, scope, key, fp = null) {", "\nasync function proxySiteService(");
   assert.match(fn, /env && env\.SITE_API_CACHE/, "the KV namespace is not read");
-  assert.match(fn, /SITE_IDEM\.for\(slug, scope, key, \{/);
+  assert.match(fn, /SITE_IDEM\.for\(slug, scope, key, \{\n    fp,/, "the submission's digest is not handed to the store (audit A30-5)");
   assert.match(fn, /kv\.get\(id, \{ type: "json" \}\)/);
   assert.match(fn, /kv\.put\(id, JSON\.stringify\(v\), \{ expirationTtl: ttl \}\)/);
   assert.match(fn, /get: kv \? .* : null/, "without KV the get must be null, not a call on undefined");
 });
 
-test("the data proxy reads the key AFTER the spam gate and BEFORE the upstream write, and stores only what came back", () => {
+test("the data proxy reads the key BEFORE the spam gate (audit A30-4) and BEFORE the upstream write, and stores only what came back", () => {
   const proxy = between(worker, "async function proxySiteService(", "\n// ── Cloudflare for SaaS");
   const gate = proxy.indexOf("const gate = await turnstileGate(");
   const read = proxy.indexOf("const prior = await idem.read();");
@@ -160,14 +160,19 @@ test("the data proxy reads the key AFTER the spam gate and BEFORE the upstream w
   const write = proxy.indexOf("idem.write({ status: r.status, body, ct:");
   const notify = proxy.indexOf("siteRowEffects(env, ctx, {");
   for (const [n, i] of Object.entries({ gate, read, upstream, write, notify })) assert.ok(i > 0, `landmark missing: ${n}`);
-  assert.ok(gate < read, "the replay must not skip the spam gate's strip of the token");
+  // A double-click sends one single-use token twice: verified first, the
+  // second press was refused as a bot instead of replayed (audit A30-4). The
+  // digest strips the token itself (`idemFingerprint`).
+  assert.ok(read < gate, "the replay must be looked for before the token is spent");
+  assert.match(proxy, /if \(gate\.refused\) \{\n      if \(idem\) idem\.release\(\);/, "a refused press keeps the key claimed");
+  assert.match(proxy, /\} finally \{\n    \/\/ A press that never stored an answer lets the one waiting behind it through\.\n    if \(idem\) idem\.release\(\);/);
   assert.ok(read < upstream, "a replay that still reaches Postgres is the bug");
   assert.ok(upstream < write && write < notify, "the answer is remembered after the upstream and before the slow hooks");
   // Scoped to a data POST and to the table, never to a read or a member edit.
   const scope = between(proxy, "let idem = null;", "const prior = await idem.read();");
   assert.match(scope, /which === "data" && request\.method === "POST"/);
   assert.match(scope, /takeIdemKey\(request\.headers\)/);
-  assert.match(scope, /"data\/" \+ String\(path\)\.split\("\/"\)\[0\]\.toLowerCase\(\)/, "the scope is not the table");
+  assert.match(scope, /"data\/" \+ String\(path\)\.split\("\/"\)\[0\]\.toLowerCase\(\), key, await idemFingerprint\(sent\)\)/, "the scope is not the table, or the contents are not compared");
   assert.match(proxy, /if \(prior\) return new Response\(prior\.body, \{ status: prior\.status, headers: replayHeaders\(prior\) \}\);/);
   // Off the customer's wait when the runtime allows it.
   const after = between(proxy, "idem.write({ status: r.status, body, ct:", "// AFTER THE ROW IS WRITTEN:");
@@ -183,7 +188,8 @@ test("checkout honours the same key, cloning the answer so the customer still ge
   const write = route.indexOf("cidem.write({ status: cres.status, body: ctext,");
   for (const [n, i] of Object.entries({ key, read, call, clone, write })) assert.ok(i > 0, `landmark missing: ${n}`);
   assert.ok(key < read && read < call && call < clone && clone < write);
-  assert.match(route, /idemFor\(env, cslug, "checkout", ckey\)/);
+  assert.match(route, /idemFor\(env, cslug, "checkout", ckey, await idemFingerprint\(craw\)\)/, "another basket under the same key is replayed (audit A30-5)");
+  assert.match(route, /\} finally \{\n          if \(cidem\) cidem\.release\(\);/);
   assert.match(route, /return cres;/);
 });
 
