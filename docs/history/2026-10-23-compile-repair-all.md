@@ -104,3 +104,7 @@ writer's.
   survived first and was killed after a module case was added).
 - Full suite (`node --test "test/*.test.mjs"`): **12412 / 12407 / 2 / 3** (tests / pass / fail / skipped). The two failures are the known env-only ones: `media-verify` browser mode and the node_modules symlink case. A first run before three guards were re-anchored read `12412 / 12403 / 6 / 3` (the same two, `canary-reopen-browser` REOPEN 1 timing, and `edit-reserve-refused`, `progress-more`, `wiring` anchors on the edit funnel line and the build deps order, fixed by keeping `pendingPublish`'s line whole, moving `compileRepairRoom` below `note`, and letting `wiring`'s cost guard accept the repair's addition).
 - Sweep re-run after those moves: 15 of 15 killed, control survived.
+
+## Image
+
+Predicted over both ends (`containerInputs`, `imageId`): the site image `665ab9d93b9dce93` (c28f63e86) to **`f28858b9eda3840f`** (160584105), 229 inputs; the app image unchanged at `65022ce71e3d7274` (9 inputs). Records only after 160584105, so the prediction stands for this branch head.
