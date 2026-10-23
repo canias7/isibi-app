@@ -455,7 +455,7 @@ test("the consumer claims after the object, beats while it works, hands its name
   assert.ok(del > 0 && claim > del && rec > claim, "the claim is not between the object's delete and the recorder");
   assert.match(fn, /const lease = row\.held \? rowOwner : null;/);
   assert.match(fn, /const rowBeat = lease \? buildRowBeat\(env, id, lease\) : null;/, "the beat is not gated on holding the lease");
-  assert.match(fn, /runSiteBuild\(replayRequest\(job\), env, \{ rec, tr, budget, auth: job\.auth, jobId: id, lease, jobOwner: \(\) => buildJobOwner\(env, id, job\.uid\) \}\)/, "the consumer's lease name does not reach the build");
+  assert.match(fn, /runSiteBuild\(replayRequest\(job\), env, \{ rec, tr, budget, auth: job\.auth, jobId: id, lease, jobOwner: \(\) => buildJobOwner\(env, id, job\.uid\), stopCheck \}\)/, "the consumer's lease name does not reach the build");
   assert.match(fn, /\} finally \{\s+if \(rowBeat\) clearInterval\(rowBeat\);\s+\}/, "the beat is not cleared in a finally");
   // THE CLOSE COMES AFTER THE RESULT IS WRITTEN, and reads the outcome off it.
   // THROUGH THE ONE DELIVERY RULE SINCE 2026-10-08 (`storeBuildResult`).
@@ -477,7 +477,7 @@ test("the fire hands the lease to the container after the record and before the 
     "the stored design carries the job id — a second copy of the record's own key");
   // THE SIGNATURE TAKES THE LEASE, defaulted so the inline path hands none.
   // `billId` (round 4): an inline fallback's job id, for its billing identity only.
-  assert.match(W, /async function runSiteBuild\(request, env, \{ rec, tr, budget, auth, jobId = null, lease = null, jobOwner = null, billId = null \}\)/);
+  assert.match(W, /async function runSiteBuild\(request, env, \{ rec, tr, budget, auth, jobId = null, lease = null, jobOwner = null, billId = null, stopCheck = null \}\)/);
 });
 
 test("the job id rides to the fire: buildArgs → buildAndPublishPages → containerPagesFire → the container's report object", () => {

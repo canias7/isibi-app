@@ -180,6 +180,12 @@ export const LOST_SITE_MSG = "That build stopped part-way and we lost track of i
 export const LOST_MSG = "That build stopped before it got anywhere and we lost track of it on our side. Send your brief again to build the site.";
 export const FAILED_MSG = "That build didn't finish. Send your brief again to try it once more.";
 export const CANCELLED_MSG = "That build was stopped.";
+// A STOP PRESSED WHILE THE BUILD WAS RUNNING (S3-4, 2026-10-23, the owner's
+// choice 1): the next stage is refused and every debit the build made is
+// reversed, so the sentence can say nothing was charged — and, when a reversal
+// could not be confirmed, says that instead of claiming a clean zero.
+export const STOPPED_FREE_MSG = "That build was stopped before it finished. Nothing was published or saved, and nothing was charged for it.";
+export const STOPPED_SHORT_MSG = "That build was stopped before it finished. Nothing was published or saved, but I couldn't confirm that everything it charged was returned yet.";
 export const COLLECTED_MSG = "That build has finished and its answer was already collected — open your project to see the site.";
 // ONE JOB PER SITE AT A TIME (stage 6): a job whose site stayed busy for the
 // whole of its wait is failed by the claim itself, with nothing charged.

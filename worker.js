@@ -104,7 +104,7 @@ import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { quickChecks } from "./site-security.mjs";
 import { deepScan, planScan } from "./builder/security-scan.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
-import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
+import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, STOPPED_FREE_MSG, STOPPED_SHORT_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE, carryPanelFields, keepPanelDescription } from "./site-meta.mjs";
 import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, applyRowQuery, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec, previousSidecar, heldMediaSource, heldStandIns, previewServed, ftsFilterOf, FTS_CATALOG_SQL, ftsJudgeSql, ftsJudgeParams, heldChangedIds, deadNewFunctions, jobsWithoutDead } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
@@ -18552,7 +18552,7 @@ async function siteOgImage(env, slug, dist) {
 // on. `packResume` has stored the two side by side since the day it was written,
 // which is the tell: a bearer token has no `.id`, so anything that asks `auth`
 // for one gets `undefined` and never says so. See the band door below.
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid = "", siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, priorParts = null, mark, say = null, budget = null, genPathOut = null, canFire = false, resumeCall = null, resumeFanout = false, picker = null, models = null, billRef = null, jobId = null, assertLease = null, attachmentIds = null, media = null, held = null }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid = "", siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, priorParts = null, mark, say = null, budget = null, genPathOut = null, canFire = false, resumeCall = null, resumeFanout = false, picker = null, models = null, billRef = null, jobId = null, assertLease = null, attachmentIds = null, media = null, held = null, stopCheck = null }) {
   // `media` (2026-10-14): the owner's video and audio, by address, for the
   // page writers (`briefWithLayout`) — and on the build's args, so a resumed
   // build is shown the same files.
@@ -19530,6 +19530,10 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       // and with no publish there is no pages charge. A duplicate delivery of
       // the same job finds its own claim and goes on; the pointer's own etag
       // still decides between two of them.
+      // A STOP PRESSED WHILE THE PAGES WERE WRITTEN (S3-4) refuses the
+      // activation: nothing goes live or into the draft, and the build's
+      // caller reverses every debit. After this line a stop is too late.
+      if (typeof stopCheck === "function" && (await stopCheck()) === true) throw Object.assign(new Error("the build was stopped before it was published"), { stopped: true });
       const fenced = await buildPublishGate(env, jobId);
       let before = null; let beforeTag = null;
       try { const t = await readPointerTag(buildDeps(env), slug); before = t.pointer; beforeTag = t.etag; }
@@ -21056,7 +21060,15 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
     // NULL ON THE INLINE FALL-THROUGH, which is the honest answer there: a
     // build the producer ran itself has no queue job, so it cannot be resumed
     // and correctly keeps waiting for its generation the old way.
-    const res = await runSiteBuild(replayRequest(job), env, { rec, tr, budget, auth: job.auth, jobId: id, lease, jobOwner: () => buildJobOwner(env, id, job.uid) });
+    // THE STOP, READ AT EACH STAGE (S3-4, 2026-10-23): the row's own
+    // `edit_beat`, through this side's lease (the one RPC a container job may
+    // call), answers whether a Stop was pressed. A beat that cannot be read is
+    // not a stop, as on the edit path.
+    const stopCheck = lease ? async () => {
+      const g = await editRpc(env, "edit_beat", { p_id: id, p_owner: lease, p_ttl: LEASE_TTL_S, p_phase: null });
+      return !!(g && g.ok === true && g.cancel === true);
+    } : null;
+    const res = await runSiteBuild(replayRequest(job), env, { rec, tr, budget, auth: job.auth, jobId: id, lease, jobOwner: () => buildJobOwner(env, id, job.uid), stopCheck });
     out = packResult({
       status: res.status,
       type: res.headers.get("content-type") || "application/json",
@@ -21121,7 +21133,9 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
   let payload = null;
   try { payload = JSON.parse(out.body); } catch { payload = null; }
   if (row.row) {
-    await closeBuildRow(env, id, buildOutcome(out.status, payload), "the build failed");
+    // A BUILD STOPPED MID-WAY (S3-4) closes its row cancelled, not failed.
+    if (payload && payload.cancelled === true && out.status === 410) await editRpc(env, "edit_refund", { p_id: id, p_state: "cancelled", p_note: "stopped while the build ran" });
+    else await closeBuildRow(env, id, buildOutcome(out.status, payload), "the build failed");
   }
   // A REQUEST'S REWRITE ENDED (2026-10-03): the request moves on now — the
   // dependents its part held run — not at the next sweep. Not on a build that
@@ -26386,7 +26400,7 @@ function buildHeld(body) {
   return heldParts(hit && hit[0] === "brief" ? asked : asked.slice(0, REWRITE_MAX_CHARS), body && body.alsoAsked);
 }
 
-async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null, lease = null, jobOwner = null, billId = null }) {
+async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null, lease = null, jobOwner = null, billId = null, stopCheck = null }) {
   // THE CUSTOMER'S EFFORT ON A REPLAYED BUILD (2026-10-20, deploy 2228's Low
   // build thought as much as its High one): a queued or container build is run
   // here from its stored request, never through `handleRequest`, so its effort
@@ -26953,6 +26967,41 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         refundShort = left > 0 || unknown;
         return left > 0 || unknown ? { cost: left, refundShort: true } : { cost: 0 };
       };
+      // ── A STOP PRESSED MID-BUILD REFUSES THE NEXT STAGE (S3-4, 2026-10-23) ──
+      //
+      // The owner's choice (1): a build whose row was stopped (`edit_cancel`,
+      // read through the queue consumer's own lease as `stopCheck`) runs no
+      // further stage — design, provisioning, generation, publish — and EVERY
+      // debit it made is reversed by ref, so the platform absorbs the model
+      // work already done, as a Stop does everywhere else. Nothing is published
+      // and nothing is saved as a draft: the last check sits right before the
+      // activation. A stop that arrives after the activation is too late, and
+      // the build stays done and charged. A founder is never credited back:
+      // `credit_reverse` is bounded by the ref's own row, and an exempt build
+      // has none. Only a queued build with a lease carries a check; the inline
+      // route has no row to be stopped through and runs as it always did.
+      const stopSeen = { stage: "" };
+      const stopRead = async () => {
+        if (typeof stopCheck !== "function") return false;
+        try { return (await stopCheck()) === true; } catch { return false; }
+      };
+      const stoppedAnswer = async (stage) => {
+        // EVERY REF, IN FULL, by the ledger's own rows — what this invocation
+        // remembers and what a lost answer may have taken alike.
+        const back = await refundBuildByRef(env, bu.id, billRef, "cancelled");
+        const short = back.short;
+        console.log("build stopped:", jobId || billId || "", "at", stage, "returned", back.returned, short ? "(short)" : "");
+        return Response.json({
+          ok: false, cancelled: true, stage, job: jobId || undefined,
+          ...(short ? { refundShort: true } : { cost: 0 }),
+          msg: short ? STOPPED_SHORT_MSG : STOPPED_FREE_MSG,
+        }, { status: 410 });
+      };
+      const stopGate = async (stage) => {
+        if (!(await stopRead())) return null;
+        stopSeen.stage = stage;
+        return stoppedAnswer(stage);
+      };
       if (!body.schema) {
         if (!brief) return Response.json({ ok: false, error: "no brief" }, { status: 400 });
         // A DEPOSIT, NOT THE PRICE. Taken before the call because `use_credits`
@@ -27030,6 +27079,8 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // model call's time, which is the one number here nobody should be
         // guessing about.
         tr.at("gate");
+        // STOPPED BEFORE THE DESIGN CALL (S3-4): the deposit comes back.
+        { const st = await stopGate("design"); if (st) return st; }
 
         // WHAT THE SITE IS NOW — read BEFORE the model call, because it is an
         // input to it. An edit was never told it was an edit: the designer got
@@ -27623,6 +27674,8 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // — which is in-process and instant. A step name that hides a network call
       // is worse than no step at all: it attributes the wait to the wrong thing.
       tr.at("owner");
+      // STOPPED AFTER THE DESIGN, BEFORE ANYTHING IS PROVISIONED (S3-4).
+      { const st = await stopGate("provision"); if (st) return st; }
 
       // ── A REVISE KNOWS THE DATABASE THE SITE HAS, READ-ONLY (2026-09-25) ──
       //
@@ -28361,6 +28414,8 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // what a page-generation failure already leaves. `generate` is not in
       // `CHARGED_STAGES`, so the pages are not billed either; the schema call is,
       // because it really ran.
+      // STOPPED BEFORE THE PAGES ARE WRITTEN (S3-4): no stand-in, no generation.
+      { const st = await stopGate("generate"); if (st) return st; }
       if (budget.expired()) {
         pages.stage = "generate";
         pages.error = "the build ran out of time before the pages were written";
@@ -28637,6 +28692,9 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             // told which row's lease it holds and where to beat. Null on the
             // inline path, where there is no row to hold.
             jobId,
+            // THE LAST STOP CHECK (S3-4), asked right before the activation;
+            // a stop read there is remembered, and the build ends below.
+            stopCheck: typeof stopCheck === "function" ? async () => { const hit = await stopRead(); if (hit) stopSeen.stage = "publish"; return hit; } : null,
           };
           pages = await buildAndPublishPages(env, buildArgs);
         } catch (e) {
@@ -28664,6 +28722,9 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           }
         }
       }
+      // STOPPED RIGHT BEFORE THE ACTIVATION (S3-4): nothing went live or into
+      // the draft, and every debit this build made is reversed.
+      if (stopSeen.stage === "publish") return stoppedAnswer("publish");
 
       // ── FIRED, NOT FINISHED: STORE AND GO ──────────────────────────────
       //
