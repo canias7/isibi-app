@@ -533,14 +533,16 @@ test("the rules tool's webhook events match the deliverer's, and survive the nor
 const storedBookings = {
   name: "sessions", access: "collect",
   columns: ["customer", "slot_date", "status", "start_min", "end_min", "extras"],
-  num: ["start_min", "end_min"], json: ["extras"],
+  // `int` added 2026-10-23 (review of r1-combine): the schema engine now lists
+  // its integer columns beside `num`, and noOverlap accepts only those.
+  num: ["start_min", "end_min"], int: ["start_min", "end_min"], json: ["extras"],
   unique: [{ columns: ["slot_date", "start_min"], where: "status:ne:cancelled" }],
   noOverlap: { start: "start_min", end: "end_min", on: ["slot_date"], where: { col: "status", op: "ne", val: "cancelled" } },
 };
 
 test("A29-5: a stored numeric column reads as a number, and noOverlap on it is accepted, its scope kept", () => {
   const d = rulesDigest([storedBookings]);
-  assert.match(d, /start_min \(number\), end_min \(number\)/);
+  assert.match(d, /start_min \(integer\), end_min \(integer\)/);
   assert.match(d, /extras \(json\)/);
   assert.match(d, /customer \(text\)/);
   const r = readRules(one({ table: "sessions", noOverlap: { start: "start_min", end: "end_min" } }), [storedBookings]);
@@ -568,4 +570,23 @@ test("A29-7: the designer's unique groups and noOverlap's scope are said, never 
   assert.match(d, /unique on slot_date \+ start_min \(where status:ne:cancelled\)/);
   assert.match(d, /noOverlap on start_min…end_min within slot_date \(where status ne cancelled\)/);
   assert.match(rulesDigest([{ ...storedBookings, unique: ["a", "b"] }]), /unique on a \+ b/);
+});
+
+// Review of r1-combine (2026-10-23): noOverlap is built over int4range, so a
+// REAL or NUMERIC pair is refused, declared or stored; only integers pass.
+test("noOverlap accepts only integer columns, never REAL or NUMERIC ones", () => {
+  const base = { name: "sessions", columns: ["slot_date", "start_min", "end_min"], num: ["start_min", "end_min"] };
+  const ask = one({ table: "sessions", noOverlap: { start: "start_min", end: "end_min" } });
+  const notInt = [{ table: "sessions", rule: "noOverlap", why: "not-integers" }];
+  assert.deepEqual(readRules(ask, [base]).refused, notInt, "a stored REAL pair was accepted");
+  assert.deepEqual(readRules(ask, [{ ...base, int: ["start_min", "end_min"] }]).refused, []);
+  assert.deepEqual(readRules(ask, [{ ...base, int: ["start_min"] }]).refused, notInt);
+  for (const type of ["real", "numeric", "number", "float"]) {
+    const t = { name: "sessions", columns: [{ name: "start_min", type }, { name: "end_min", type }] };
+    assert.deepEqual(readRules(ask, [t]).refused, notInt, type);
+  }
+  for (const type of ["integer", "int", "bigint", "int4"]) {
+    const t = { name: "sessions", columns: [{ name: "start_min", type }, { name: "end_min", type }] };
+    assert.deepEqual(readRules(ask, [t]).refused, [], type);
+  }
 });

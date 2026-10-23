@@ -346,11 +346,14 @@ const IDENT = /^[a-z][a-z0-9_]{0,40}$/;
 function colTypes(t) {
   const m = new Map();
   const num = new Set((Array.isArray(t && t.num) ? t.num : []).map((x) => String(x).toLowerCase()));
+  // `int` (2026-10-23, review of r1-combine): the integer columns among `num`.
+  // `num` also lists REAL and NUMERIC, which noOverlap's int4range cannot use.
+  const int = new Set((Array.isArray(t && t.int) ? t.int : []).map((x) => String(x).toLowerCase()));
   const json = new Set((Array.isArray(t && t.json) ? t.json : []).map((x) => String(x).toLowerCase()));
   for (const c of Array.isArray(t && t.columns) ? t.columns : []) {
     const name = String(typeof c === "string" ? c : (c && c.name) || "").toLowerCase();
     if (!name) continue;
-    if (typeof c === "string") m.set(name, num.has(name) ? "number" : json.has(name) ? "json" : "text");
+    if (typeof c === "string") m.set(name, int.has(name) ? "integer" : num.has(name) ? "number" : json.has(name) ? "json" : "text");
     else m.set(name, String((c && c.type) || "text").toLowerCase());
   }
   return m;
@@ -434,9 +437,11 @@ export function readRules(reply, tables) {
     // chair. `unique` is named in the refusal because it is the answer.
     if (c.noOverlap && typeof c.noOverlap === "object" && !Array.isArray(c.noOverlap)) {
       const s = String(c.noOverlap.start || "").toLowerCase(), e = String(c.noOverlap.end || "").toLowerCase();
-      // "number" is a stored column `_meta` lists in `num` — the schema
-      // engine's own test for a range it can build.
-      const intish = (col) => cols.get(col) === "number" || INT_TYPES.some((t) => (cols.get(col) || "").startsWith(t));
+      // INTEGER TYPES ONLY (review of r1-combine, 2026-10-23): the constraint
+      // is built over int4range. "number", "real" and "numeric" are REAL or
+      // NUMERIC columns (`num` lists them too), so they are refused here; a
+      // stored column counts only when `_meta` lists it in `int`.
+      const intish = (col) => INT_TYPES.includes(cols.get(col) || "");
       if (s !== e && cols.has(s) && cols.has(e) && intish(s) && intish(e)) {
         // ITS SCOPE (A29-5): the columns it counts within. Named, they replace
         // the stored ones; unnamed on the same pair, the stored scope stays —

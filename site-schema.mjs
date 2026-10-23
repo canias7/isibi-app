@@ -1048,7 +1048,7 @@ export async function applySiteSchema(uuid, spec) {
     // every member write fails a WITH CHECK against a column that is not there.
     const rw = resolveAccess(t);
     const cols = []; let hasPk = false;
-    const colNames = []; const numCols = []; const jsonCols = []; const seen = new Set(); const refs = {}; const refModes = {}; const rules = {};
+    const colNames = []; const numCols = []; const intCols = []; const jsonCols = []; const seen = new Set(); const refs = {}; const refModes = {}; const rules = {};
     const appAdds = []; // [name-type] for each declared app column, ALTER-added on re-apply so a REVISE that adds a field actually gets the column (CREATE IF NOT EXISTS won't)
     const appAddNames = []; // each declared app column's own name, beside `appAdds`, so a column that did not go in is named (2026-10-07)
     // Auto-slug config: table-level `"slug":"title"` or `{"from":"title"}` → the platform
@@ -1106,7 +1106,7 @@ export async function applySiteSchema(uuid, spec) {
         else if (typeof c.default === "string" && c.default.length <= 200) dl = "'" + c.default.replace(/'/g, "''") + "'";
         if (dl != null) def += " DEFAULT " + dl;
       }
-      cols.push(def); colNames.push(c.name); if (isNum) numCols.push(String(c.name).toLowerCase()); if (isJson) jsonCols.push(String(c.name).toLowerCase());
+      cols.push(def); colNames.push(c.name); if (isNum) numCols.push(String(c.name).toLowerCase()); if (ctype === "integer" || ctype === "int") intCols.push(String(c.name).toLowerCase()); if (isJson) jsonCols.push(String(c.name).toLowerCase());
       appAdds.push(cn + " " + ty); // bare type only — ALTER ADD COLUMN can't carry NOT NULL/UNIQUE/PK on a populated table; required-ness is enforced at the API layer anyway
       appAddNames.push(String(c.name));
       // A declared foreign key (`ref`/`references`) is stored as metadata only — the
@@ -1243,7 +1243,7 @@ export async function applySiteSchema(uuid, spec) {
     // keeps per column, and the declaration never offers them.
     if (notAdded.size) {
       const keep = (n) => !notAdded.has(String(n).toLowerCase());
-      for (const list of [colNames, numCols, jsonCols]) { const kept = list.filter(keep); list.length = 0; list.push(...kept); }
+      for (const list of [colNames, numCols, intCols, jsonCols]) { const kept = list.filter(keep); list.length = 0; list.push(...kept); }
       for (const map of [refs, refModes, rules]) for (const k of Object.keys(map)) if (!keep(k)) delete map[k];
       notAddedBy.set(String(t.name).toLowerCase(), notAdded);
     }
@@ -1715,7 +1715,7 @@ export async function applySiteSchema(uuid, spec) {
     // longer possible. What follows it are the only things that must be
     // RECOMPUTED rather than copied — the columns that were really created, the
     // resolved access, and the reference/rule metadata built in this loop.
-    norm.push({ ...t, name: t.name, access, retired: t.retired, columns: colNames, refs, refModes: Object.keys(refModes).length ? refModes : null, rules, num: numCols, json: jsonCols });
+    norm.push({ ...t, name: t.name, access, retired: t.retired, columns: colNames, refs, refModes: Object.keys(refModes).length ? refModes : null, rules, num: numCols, int: intCols, json: jsonCols });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
