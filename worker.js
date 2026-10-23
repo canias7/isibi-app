@@ -22042,7 +22042,21 @@ export async function reconcileEditJob(env, id, hint = null) {
   // three facts below would call it "never staged" and refund entries that
   // may be on the site. Its one fact is its key.
   const rowKey = String(row.op || "") === "addon" ? rowReviewKey(row) : "";
-  if (rowKey) {
+  // UNLESS IT WAS HELD (audit A13-3): under draft-first the entries are this
+  // job's own draft revision and no key is ever written, so the key would be
+  // closed and refunded while the draft keeps them. A revision naming this
+  // job is settled by the draft rule below; a draft that cannot be read is
+  // cannot-tell, never "nothing saved".
+  let rowFacts = null;
+  if (rowKey && draftFirst(env)) {
+    rowFacts = await reconcileFacts(env, row);
+    const d = rowFacts.draft;
+    if (d.state === "unreadable") {
+      return { ...(await applyReconcile(env, row, { verdict: "unknown", kind: "draft-unreadable", why: "the site's draft record could not be read, so whether this job's entries were held is not known" })), job: String(row.id) };
+    }
+    if (!(d.state === "read" && d.record.revs.some((x) => x && x.job === String(row.id)))) rowFacts = null;
+  }
+  if (rowKey && !rowFacts) {
     const rf = await rowReviewFacts(env, row, rowKey, { close: true });
     const out = rowReviewVerdict(rf);
     // THE ROUTES' OWN READER OF THE PARTS PUT OFF (2026-10-02, batch 2), handed
@@ -22050,7 +22064,7 @@ export async function reconcileEditJob(env, id, hint = null) {
     const applied = await applyReconcile(env, row, { ...out, compose: (refunded) => rowReviewReply(out, row, refunded, { held: heldList }) });
     return { ...applied, job: String(row.id), facts: { row: rowReviewPublic(rf, rowKey) } };
   }
-  const facts = await reconcileFacts(env, row);
+  const facts = rowFacts || await reconcileFacts(env, row);
   let out = reconcileVerdict(facts);
   if (out.verdict === "retry") out = await retryLostUpload(env, row, facts, out);
   // A SAVED DRAFT'S PREVIEW, AS FAR AS IT IS KNOWN: a claim standing for the
