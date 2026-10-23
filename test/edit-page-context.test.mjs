@@ -49,7 +49,7 @@ import { TEXT_TOOL } from "../builder/site-apply.mjs";
 // picture spaces came back through the addon composer as "✅ Done." — a
 // fixture in a different shape from reality, one route over.
 import { editBrowserReply } from "../scripts/addon-sweep.mjs";
-import { SITE_PAGES_TOOL, partsDirective, tsxDirective, partsSent, siteComponentApi, MAX_PART_CHARS } from "../builder/page-gen.mjs";
+import { SITE_PAGES_TOOL, partsDirective, tsxDirective, partsSent, siteComponentApi, MAX_PART_CHARS, MAX_PARTS_CHARS } from "../builder/page-gen.mjs";
 import { PICTURE_TOOL } from "../builder/site-picture.mjs";
 
 const USER = { id: "u-editctx-1", email: "owner@example.com" };
@@ -588,6 +588,43 @@ test("a component too large to show is refused rather than rewritten blind, and 
         "the customer is told WHICH component and not WHY: " + JSON.stringify(said.text));
     });
   } finally { c.uninstall(); }
+});
+
+// A21-4: OTHER PAGES' COMPONENTS STORED FIRST MUST NOT CROWD OUT THIS PAGE'S.
+// Three band-sized parts no page here imports fill the budget in stored order;
+// card-a, small and rendered by the page being edited, was withheld as "too
+// long" and its rewrite refused, whatever the customer asked.
+test("the edited page's own components are shown first, whatever was stored before them", async () => {
+  const slug = "ctx-crowded";
+  const each = Math.floor(MAX_PARTS_CHARS / 3) - 20;
+  const band = (n) => ({ name: "band-" + n, source: "export default function B" + n + "(){return <section/>}\n// " + "y".repeat(each - 60) });
+  const bands = [1, 2, 3].map((n) => band(n));
+  assert.ok(bands.every((p) => p.source.length <= MAX_PART_CHARS) && bands.reduce((t, p) => t + p.source.length, 0) + A_OLD.length > MAX_PARTS_CHARS, "the fixture does not crowd the budget");
+  const store = bucket(slug, { parts: [...bands, { name: "card-a", source: A_OLD }, { name: "card-b", source: B_OLD }] });
+  const c = installCompiler();
+  try {
+    await withWire({
+      [TWEAK_TOOL.name]: { cannot: "that needs the component rewritten" },
+      [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: HOME_EDITED }], parts: [{ name: "card-a", source: A_NEW }] },
+    }, async (calls) => {
+      const { body } = await edit(slug, "change the opening hours to six", { store });
+      assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
+      const prompt = pagePrompt(calls);
+      assert.ok(prompt.includes(esc(A_OLD)), "the card the page renders was withheld behind other pages' parts");
+      assert.equal(body.keptParts, undefined, "the customer was told the card was too long: " + JSON.stringify(body.keptParts));
+    });
+  } finally { c.uninstall(); }
+});
+
+test("partsSent: `first` fills the budget first and changes nothing else", () => {
+  const big = (n, len) => ({ name: n, source: "x".repeat(len) });
+  const each = Math.floor(MAX_PARTS_CHARS / 3);
+  const list = [big("a", each), big("b", each), big("c", each), big("d", 10)];
+  assert.deepEqual(partsSent(list).withheld, ["d"], "control: in stored order the small one is crowded out");
+  const r = partsSent(list, { first: ["d"] });
+  assert.deepEqual(r.shown.map((p) => p.name), ["a", "b", "d"], "not the first named, then what fits, in stored order");
+  assert.deepEqual(r.withheld, ["c"]);
+  assert.deepEqual(r.names, ["a", "b", "c", "d"], "names left stored order");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

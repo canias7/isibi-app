@@ -38796,7 +38796,11 @@ async function handleRequest(request, env, ctx) {
               // silently. Said here because a sweep reports this as a survivor
               // and cannot say why.
               const pStoredParts = pPartsRead.ok ? pPartsRead.parts : null;
-              const pSentParts = partsSent(pStoredParts, { unreadable: !pPartsRead.ok });
+              // THE COMPONENTS THIS PAGE IMPORTS GO IN FIRST (audit A21-4), or
+              // other pages' parts stored earlier fill the budget and the one
+              // the customer is asking about is withheld as "too long".
+              const pOwnParts = [...String((target && target.source) || "").matchAll(/["'](?:@\/routes\/|\.\/)-parts\/([^"'/]+?)(?:\.tsx)?["']/g)].map((m) => m[1]);
+              const pSentParts = partsSent(pStoredParts, { unreadable: !pPartsRead.ok, first: pOwnParts });
               // AND THE KIT SIGNATURES FOR THE PAGE BEING EDITED. `plan` is
               // how `siteComponentApi` is reached, and without it the writer
               // was rewriting a page built from `<Accordion>` with no idea of
@@ -38883,7 +38887,7 @@ async function handleRequest(request, env, ctx) {
                   // replaced the real file by name. `partsSent` splits the two
                   // lists from one input, so no component can be in both and
                   // none can be missing from both.
-                  tsx: eLook2.tsx, parts: pStoredParts, partsUnreadable: !pPartsRead.ok,
+                  tsx: eLook2.tsx, parts: pStoredParts, partsUnreadable: !pPartsRead.ok, partsFirst: pOwnParts,
                   gif: eLook2.gif, qr: eLook2.qr, three: eLook2.three,
                   // AND THE LOOK IT IS WEARING, sent as ALREADY APPLIED. The
                   // stylesheet is appended last at build time so it wins on

@@ -2206,7 +2206,7 @@ export function briefForPages({ brief, priorBrief } = {}) {
  * eval and every other caller that has no budget to state then sends exactly the
  * request it sent before this existed.
  */
-export function briefWithLayout({ brief, plan, images, tsx, parts, partsUnreadable, theme, css, gif, qr, three, media } = {}) {
+export function briefWithLayout({ brief, plan, images, tsx, parts, partsUnreadable, partsFirst, theme, css, gif, qr, three, media } = {}) {
   // THE AUTHORED PLAN IS THE ONLY SOURCE NOW. It briefly fell back to
   // `layoutDirective(family)` for sites built before 2026-08-20; the family
   // table went the same day, so there is nothing to fall back TO.
@@ -2265,7 +2265,7 @@ export function briefWithLayout({ brief, plan, images, tsx, parts, partsUnreadab
   // against the store might name a component that already exists, and asking
   // for it is asking for the rewrite the wall then has to refuse. A dead
   // control that ANSWERS, which this repository has paid for before.
-  const sent = partsSent(parts, { unreadable: partsUnreadable });
+  const sent = partsSent(parts, { unreadable: partsUnreadable, first: partsFirst });  // `partsFirst`: the edited page's own go in first (audit A21-4)
   const already = partsDirective(sent);
   if (already) out.push(already);
   const built = sent.unreadable ? "" : tsxDirective(tsx, sent.names);
@@ -2524,15 +2524,26 @@ export function partsSent(parts, opts) {
   const list = unreadable ? [] : (Array.isArray(parts) ? parts : [])
     .filter((p) => p && typeof p === "object" && typeof p.name === "string" && typeof p.source === "string" && p.name.trim() && p.source);
   const shown = [], withheld = [], names = [];
+  // THE PAGE'S OWN COMPONENTS FILL THE BUDGET FIRST (audit A21-4). In stored
+  // order, eight band files and other pages' components took the room and a
+  // 4k card the edited page renders was withheld as "too long" — whatever the
+  // customer asked. `opts.first` names them; the rest fill what is left, and
+  // `shown` goes out in stored order whatever the selection did.
+  const first = new Set((opts && Array.isArray(opts.first) ? opts.first : []).filter((n) => typeof n === "string").map((n) => n.trim()));
+  const order = [...list.filter((p) => first.has(p.name.trim())), ...list.filter((p) => !first.has(p.name.trim()))];
+  const picked = new Set();
   let total = 0;
-  for (const p of list) {
+  for (const p of order) {
     const name = p.name.trim();
     if (names.includes(name)) continue;
     names.push(name);
     if (p.source.length > MAX_PART_CHARS || total + p.source.length > MAX_PARTS_CHARS) { withheld.push(name); continue; }
     total += p.source.length;
-    shown.push({ name, source: p.source });
+    picked.add(p);
   }
+  for (const p of list) if (picked.has(p)) shown.push({ name: p.name.trim(), source: p.source });
+  // `names` IN STORED ORDER too, as it always was.
+  names.sort((a, b) => list.findIndex((p) => p.name.trim() === a) - list.findIndex((p) => p.name.trim() === b));
   return { shown, withheld, names, unreadable };
 }
 
