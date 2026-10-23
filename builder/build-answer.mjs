@@ -204,7 +204,7 @@ export const NOTE_FIELDS = ["salvageNote", "imagesNote", "renderNote", "keptNote
  * of balance, no room in the container, a database that could not be made)
  * keep their fixed messages and never enter here.
  */
-export const BUILD_FAILURE_KINDS = ["design-unusable", "design-truncated", "design-timeout", "held-unread", "generate-failed", "compile-failed"];
+export const BUILD_FAILURE_KINDS = ["design-unusable", "design-truncated", "design-timeout", "held-unread", "generate-failed", "compile-failed", "stopped"];
 
 /**
  * WHAT WAS DONE ABOUT A DESIGN THAT CAME BACK WRONG (2026-10-08, the ninth
@@ -215,8 +215,16 @@ export const BUILD_FAILURE_KINDS = ["design-unusable", "design-truncated", "desi
 export const DESIGN_ATTEMPT_READINGS = ["malformed:repair", "truncated:repair", "transient:again"];
 const DESIGN_OUTCOMES = ["repaired", "question", "exhausted"];
 
-export function buildFacts({ images = null, context = null, unwritten = null, salvaged = null, settlement = null, failure = null, design = null, checks = null } = {}) {
+export function buildFacts({ images = null, context = null, unwritten = null, salvaged = null, settlement = null, failure = null, design = null, checks = null, refusal = null, ownLogo = null } = {}) {
   const out = {};
+  // A STRUCTURED REFUSAL (decide-all, 2026-10-23: a new site's name too long)
+  // and THE CUSTOMER'S ATTACHED LOGO (#168), told by the reply writer.
+  if (refusal && typeof refusal === "object" && typeof refusal.code === "string") out.refusal = refusal;
+  if (ownLogo && typeof ownLogo === "object") {
+    out.ownLogo = ownLogo.wordmark
+      ? { placed: true, name: typeof ownLogo.name === "string" ? ownLogo.name : "" }
+      : { placed: false, name: ownLogo.missing && typeof ownLogo.missing.name === "string" ? ownLogo.missing.name : "", reason: ownLogo.missing && typeof ownLogo.missing.reason === "string" ? ownLogo.missing.reason : "" };
+  }
   // WHAT THE PUBLISH CHECKED (2026-10-14, `check-evidence.mjs`), kept only
   // when it reads, for the reply's `k` facts.
   if (readChecks(checks)) out.checks = checks;

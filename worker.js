@@ -14635,7 +14635,7 @@ async function runPublication(env, slug, j, etag, say = null) {
   // OFFLINE WINS (audit #118/#119): no publication runs, by the click or the
   // sweep, while the site is off the web or that cannot be told. Nothing of it
   // is done here; Back online, then Publish, carries it on.
-  if ((await offlineMarked(env, slug)) !== false) return { ok: false, status: 409, offline: true, live: "unchanged", error: OFFLINE_PUBLISH_REFUSAL };
+  if ((await offlineMarked(env, slug)) !== false) return { ok: false, status: 409, offline: true, live: "unchanged", refusal: { code: "site-offline" }, error: OFFLINE_PUBLISH_REFUSAL };
   // EACH STAGE, SAID AS IT IS REACHED (2026-10-19): the click's own talk
   // (`actionTalk`), never the sweep's. Never costs the publication.
   const tell = (stage, info) => { try { if (typeof say === "function") say(stage, info); } catch { /* the talk never costs the publish */ } };
@@ -15102,7 +15102,7 @@ async function applyHeldAlias(env, slug, a, { uid = "" } = {}) {
 async function publishDraft(env, slug, pick, { uid = "", say = null } = {}) {
   const deps = buildDeps(env);
   // OFFLINE WINS (audit #118): refused before any journal is written.
-  if ((await offlineMarked(env, slug)) !== false) return { ok: false, status: 409, offline: true, live: "unchanged", error: OFFLINE_PUBLISH_REFUSAL };
+  if ((await offlineMarked(env, slug)) !== false) return { ok: false, status: 409, offline: true, live: "unchanged", refusal: { code: "site-offline" }, error: OFFLINE_PUBLISH_REFUSAL };
   if (typeof pick === "string") pick = { version: pick };
   let draft = null;
   try { draft = (await readDraft(deps, slug)).draft; }
@@ -15177,7 +15177,7 @@ async function publishDraft(env, slug, pick, { uid = "", say = null } = {}) {
  * recorded instead of stopping it. A temporary stop still stops it.
  */
 async function setAsidePublication(env, slug, revision) {
-  if ((await offlineMarked(env, slug)) !== false) return { ok: false, status: 409, offline: true, live: "unchanged", error: OFFLINE_PUBLISH_REFUSAL };
+  if ((await offlineMarked(env, slug)) !== false) return { ok: false, status: 409, offline: true, live: "unchanged", refusal: { code: "site-offline" }, error: OFFLINE_PUBLISH_REFUSAL };
   let cur;
   try { cur = await readPublication(env, slug); }
   catch { return { ok: false, status: 503, error: "the publication record could not be read — nothing was changed" }; }
@@ -18760,6 +18760,8 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // and `cached: true` when nothing needed asking. Absent on a monolingual
     // site, so the ordinary publish is byte-identical on the wire.
     langs: langOutcomes.length ? langOutcomes : undefined,
+    // THE OWNER'S OWN WORDING WHOSE SOURCE CHANGED (#196), by language, for the reply writer.
+    langStale: Object.keys(langStale).length ? langStale : undefined,
     // AND WHICH LANGUAGE WE REFUSED. `resolveLangs` returns a per-language
     // reason (`cap`, `unreadable`, `duplicate`, `reserved`, `page`) and its
     // docstring says each "is a real failure it prevents" — every reader kept
@@ -26947,7 +26949,11 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // is certainly free (`null`) is new; a site that exists, or a lookup that
         // could not tell, keeps its name. Refused here, before any money moves.
         if (namedRow === null && namedSlug.length > MAX_NEW_SLUG) {
-          return Response.json({ ok: false, error: "name too long", cost: 0, msg: "That site name is too long: a new site's name can be at most " + MAX_NEW_SLUG + " characters. Say a shorter name in your next message, e.g. \"call it " + capNewSlug(namedSlug) + "\"." }, { status: 400 });
+          // TOLD BY THE REPLY WRITER (decide-all): the limit, the length and a
+          // shorter name as facts; `msg` is only the fallback.
+          const tooLong = { code: "name-too-long", chars: namedSlug.length, max: MAX_NEW_SLUG, suggested: capNewSlug(namedSlug) };
+          return Response.json(await narrateBuild(env, { ok: false, error: "name too long", cost: 0, refusal: tooLong, buildFacts: buildFacts({ refusal: tooLong }), msg: "That site name is too long: a new site's name can be at most " + MAX_NEW_SLUG + " characters. Say a shorter name in your next message, e.g. \"call it " + capNewSlug(namedSlug) + "\"." },
+            { picker: String((body && body.picker) || ""), request: String((body && body.brief) || ""), slug: "" }), { status: 400 });
         }
       }
       // ── IS THIS A FIRST BUILD? ──────────────────────────────────────────
@@ -27371,11 +27377,14 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         const back = await refundBuildByRef(env, bu.id, billRef, "cancelled");
         const short = back.short;
         console.log("build stopped:", jobId || billId || "", "at", stage, "returned", back.returned, short ? "(short)" : "");
-        return Response.json({
+        // TOLD BY THE REPLY WRITER (decide-all, the owner's rule): the stop and
+        // its money as facts; the fixed sentence is only the fallback.
+        return Response.json(await narrateBuild(env, {
           ok: false, cancelled: true, stage, job: jobId || undefined,
           ...(short ? { refundShort: true } : { cost: 0 }),
           msg: short ? STOPPED_SHORT_MSG : STOPPED_FREE_MSG,
-        }, { status: 410 });
+          buildFacts: buildFacts({ failure: { kind: "stopped", cost: 0, short: !!short } }),
+        }, { picker: String((body && body.picker) || ""), request: String((body && body.brief) || ""), slug: namedSlug || "" }), { status: 410 });
       };
       const stopGate = async (stage) => {
         if (!(await stopRead())) return null;
@@ -29753,6 +29762,8 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         buildFacts: buildFacts({
           images: pages.images, context: contextOut, unwritten: pages.unwritten, salvaged: pages.salvaged,
           checks: buildChecks(pages),
+          // THE CUSTOMER'S ATTACHED LOGO (#168), told by the reply writer.
+          ownLogo,
           failure: inlineFailure(pages, { cost: schemaCost + (Number(pages.cost) || 0), short: !!refundShort }),
           // A design corrected on the way (the ninth batch), told as done.
           design: designRecovery,
@@ -35268,7 +35279,8 @@ async function handleRequest(request, env, ctx) {
                 free: filingIsFree({ layer: String((eb && eb.layer) || ""), remove: !!(eb && eb.remove === true), rename: eb && eb.rename, handedOff: !!(eb && eb.handedOff === true) }),
                 readBalance: () => readCredits(request.headers.get("Authorization") || ""), where: ownerSlug,
               });
-              if (eFloor) return Response.json(eFloor, { status: 402 });
+              // TOLD BY THE REPLY WRITER (decide-all): the refusal's facts.
+              if (eFloor) return withModelReply(env, Response.json(eFloor, { status: 402 }), "edit", eReplyOut);
               return enqueueReply(await enqueueEditJob(env, {
                 slug: ownerSlug, uid: ou.id,
                 url: url.toString(), body: ebRaw, idem: eb && eb.idem,
@@ -37626,6 +37638,7 @@ async function handleRequest(request, env, ctx) {
                   const fCodes = qrCodesOnHost(fLook && fLook.qr, fHost);
                   if (fCodes.length) {
                     return Response.json({ ok: false, layer: "rename", qrBlocked: fCodes.map((c) => c.name), cost: await eCharge(rUsage),
+                      refusal: { code: "qr-forget-blocked", host: fHost || drop, codes: fCodes.map((c) => c.name) },
                       msg: qrForgetRefusal(fHost || drop, fCodes) }, { status: 422 });
                   }
                 }
@@ -37858,6 +37871,8 @@ async function handleRequest(request, env, ctx) {
                   if (nOut.reason === "send") return modelDown(nOut.error, "I couldn't reach the model that sets the menu — try again in a moment.");
                   return Response.json({
                     ok: false, error: nOut.reason, cost: await eCharge(nOut.usage), usage: nOut.usage,
+                    // A STRUCTURED REFUSAL (decide-all), for the reply writer.
+                    refusal: nOut.refusal || undefined,
                     // The module writes this — it is the only thing that knows
                     // which items were dropped and why.
                     msg: nOut.msg || "That change couldn't be made — try again.",
@@ -41486,7 +41501,7 @@ async function handleRequest(request, env, ctx) {
               // THE FLOOR FIRST (audit A13-2): an addition is always paid, so
               // below it nothing is accepted or filed and no model is called.
               const aFloor = await filingFloorRefusal({ free: false, readBalance: () => readCredits(request.headers.get("Authorization") || ""), where: ownerSlug });
-              if (aFloor) return Response.json(aFloor, { status: 402 });
+              if (aFloor) return withModelReply(env, Response.json(aFloor, { status: 402 }), "addon", aReplyOut);
               // AN ADDITION POSTED STRAIGHT TO THIS ROUTE (round 7) — the router's
               // answer this page acted on when it did not take the message on, an
               // edit that handed its ask here, an older page — joins the durable

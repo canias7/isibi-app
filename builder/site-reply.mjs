@@ -1108,6 +1108,9 @@ export function editReplyFacts(e, { routedCost = null, inRequest = false } = {})
       });
     }
     outcomeFacts(F, e);
+    langFacts(F, e);
+  } else if (refusalFacts(F, e.refusal)) {
+    refusalMoney(F, e, routedCost);
   } else {
     if (e.error === "clarify") {
       // A step that asked and did nothing else: nothing ran, nothing charged.
@@ -1216,6 +1219,7 @@ export function addonReplyFacts(a, { routedCost = null, inRequest = false } = {}
   if (a.ok === true && a.recovered === true) return recoveredFacts(a);
   if (typeof a.ok !== "boolean") return { skip: "unreadable", facts: [] };
   if (technicalAnswer(a)) return { skip: "technical", facts: [] };
+  if (a.ok === false && a.refusal) { const R = factList(); if (refusalFacts(R, a.refusal)) return { skip: null, facts: R.out }; }
   const F = factList();
   if (a.ok === true) {
     const added = paths(a.added);
@@ -1380,7 +1384,9 @@ export function routeReplyFacts(d) {
   if (!d || typeof d !== "object" || Array.isArray(d)) return { skip: "unreadable", facts: [] };
   if (d.failed === true) return { skip: "technical", facts: [] };
   const F = factList();
-  if (d.error === "stale-question") {
+  if (refusalFacts(F, d.refusal)) {
+    // a structured refusal (decide-all): its facts are above
+  } else if (d.error === "stale-question") {
     F.add("not-done", d.why === "expired"
       ? "The question they were answering had expired, so their reply was not acted on."
       : "The question they were answering had already been answered or set aside, so their reply was not acted on.");
@@ -1425,6 +1431,84 @@ export function routeReplyFacts(d) {
     return { skip: "not-an-ending", facts: [] };
   }
   return { skip: null, facts: F.out };
+}
+
+// ── THE OWNER'S 2026-10-23 DECISIONS, TOLD BY THE REPLY WRITER (decide-all) ──
+//
+// The owner's rule: no customer sentence is written by code. Each outcome the
+// decided branches added is carried on the answer as STRUCTURED facts — a
+// reason code and its numbers, pages, codes and language — and turned here
+// into the facts the reply writer tells. The step's own `msg` stays only as
+// the fallback the page shows when no reply could be written.
+
+/** A language as the reply writer is told it: its English name with its tag, never the tag alone. */
+export function languageNamed(tag) {
+  const t = typeof tag === "string" ? tag.trim() : "";
+  if (!t) return "";
+  let name = "";
+  try { name = new Intl.DisplayNames(["en"], { type: "language" }).of(t) || ""; } catch { name = ""; }
+  return name && name.toLowerCase() !== t.toLowerCase() ? name + " (" + t + ")" : "the " + t + " language";
+}
+
+/** The refusal codes the decided branches carry (`refusal.code`). */
+export const DECIDED_REFUSALS = Object.freeze(["out-of-credits", "menu-page-unknown", "menu-no-menu", "qr-forget-blocked", "site-offline", "name-too-long"]);
+
+/** The facts of a structured refusal; false when `r` is not one, so the caller falls back. */
+export function refusalFacts(F, r) {
+  if (!r || typeof r !== "object" || Array.isArray(r) || !DECIDED_REFUSALS.includes(r.code)) return false;
+  const pages = paths(r.pages);
+  if (r.code === "out-of-credits") {
+    F.add("not-done", "Not started: their credit balance is below the " + (num(r.floor) || 5) + " credits paid work needs before it is taken on.");
+    F.add("nothing", "Nothing on their site changed, and nothing was charged for the change.");
+    F.add("note", "Topping up credits lets them send it again.");
+  } else if (r.code === "menu-page-unknown") {
+    F.add("not-done", "No menu was changed: the menu change named " + (pages.length ? listOf(pages) : "a page") + ", which the site does not have.");
+    F.add("note", "Naming which page's menu they mean lets it go ahead.");
+  } else if (r.code === "menu-no-menu") {
+    F.add("not-done", "No menu was changed: " + (pages.length ? listOf(pages) : "the page named") + (pages.length > 1 ? " have" : " has") + " no menu of " + (pages.length > 1 ? "their" : "its") + " own.");
+  } else if (r.code === "qr-forget-blocked") {
+    const codes = strings(r.codes).map(quote);
+    F.add("not-done", "The old address " + (said(r.host) ? said(r.host) + " " : "") + "was not forgotten: " + (codes.length ? "the site's own QR " + (codes.length === 1 ? "code " : "codes ") + listOf(codes) + (codes.length === 1 ? " still opens" : " still open") : "a QR code of the site's still opens") + " it.");
+    F.add("note", "Pointing " + (codes.length === 1 ? "that code" : "those codes") + " at the new address, or taking " + (codes.length === 1 ? "it" : "them") + " off, lets the old address go.");
+  } else if (r.code === "site-offline") {
+    F.add("not-done", "Nothing was published: the site is off the web.");
+    F.add("note", "Putting it back online first, then publishing, makes the changes live.");
+  } else if (r.code === "name-too-long") {
+    F.add("not-done", "The site was not started: the name asked for is " + (num(r.chars) ? num(r.chars) + " characters, " : "") + "longer than the " + (num(r.max) || 43) + " characters a new site's name can be.");
+    if (said(r.suggested)) F.add("note", "A shorter name works, for example " + quote(r.suggested) + ".");
+    F.add("nothing", "Nothing was charged.");
+  }
+  return true;
+}
+
+/**
+ * THE TRANSLATIONS' OUTCOMES (#195), THE OWNER'S OWN WORDING (#196) AND
+ * WORDING WHOSE SOURCE CHANGED: `langs` ({ tag, ok, why, behind }),
+ * `langOverride` ({ tag, changed: [{ from, said }] }) and `langStale`
+ * ({ [tag]: [source strings] }), each language by name.
+ */
+export function langFacts(F, e) {
+  if (!e || typeof e !== "object") return;
+  for (const o of Array.isArray(e.langs) ? e.langs : []) {
+    if (!o || typeof o.tag !== "string") continue;
+    const lang = languageNamed(o.tag);
+    if (o.ok === false && o.why === "stuck") F.add("not-done", "The " + lang + " pages were not translated this time: the same words could not be translated before, and they are not tried again until those words change; those pages show the main language's words.", "lang:" + o.tag);
+    else if (o.ok === false) F.add("not-done", "The " + lang + " pages could not be translated this time and show the main language's words; the next change tries again.", "lang:" + o.tag);
+    else if (num(o.behind)) F.add("not-done", num(o.behind) + " phrases on the " + lang + " pages could not be translated this time and show the main language's words.", "lang:" + o.tag);
+  }
+  const ov = e.langOverride && typeof e.langOverride === "object" ? e.langOverride : null;
+  if (ov && typeof ov.tag === "string") {
+    const lang = languageNamed(ov.tag);
+    (Array.isArray(ov.changed) ? ov.changed : []).forEach((c, i) => {
+      if (c && typeof c.said === "string") F.add("changed", "On the " + lang + " pages the wording now reads " + quote(c.said) + (typeof c.from === "string" && c.from ? " (where the main language says " + quote(c.from) + ")" : "") + ".", "ov:" + i);
+    });
+    F.add("note", "That " + lang + " wording is kept as their own, so later translations do not replace it.");
+  }
+  const st = e.langStale && typeof e.langStale === "object" && !Array.isArray(e.langStale) ? e.langStale : null;
+  for (const tag of st ? Object.keys(st) : []) {
+    const src = strings(st[tag]).map(quote);
+    if (src.length) F.add("note", "Their own " + languageNamed(tag) + " wording for " + listOf(src) + " was kept, but the main-language words it was made from have changed; the " + languageNamed(tag) + " pages are worth checking.", "stale:" + tag);
+  }
 }
 
 /** THE FACTS OF A CANCEL: what the question route answered (`{ cancelled, why, putOff }`). */
@@ -1546,6 +1630,12 @@ export function buildReplyFacts(bf) {
       else if (dg.outcome === "exhausted") F.add("not-done", "While planning their site, " + what + "; that did not produce a usable plan either. Their request itself was fine and does not need to be shortened.");
     }
   }
+  refusalFacts(F, bf.refusal);
+  const lg = bf.ownLogo;
+  if (lg && typeof lg === "object") {
+    if (lg.placed === true) F.add("changed", "Their own logo" + (said(lg.name) ? " " + quote(lg.name) : "") + " is in the site's header.");
+    else F.add("not-done", "Their logo" + (said(lg.name) ? " " + quote(lg.name) : "") + " could not be put in the header" + (said(lg.reason) ? " (" + said(lg.reason) + ")" : "") + "; sending it again now as a logo change, with the file attached, puts it there.");
+  }
   // WHY AN INLINE BUILD STOPPED (2026-10-08, the eighth batch), with what it
   // cost, by the route's own ledger reading.
   const fl = bf.failure;
@@ -1557,6 +1647,7 @@ export function buildReplyFacts(bf) {
       "held-unread": "The part of their message left for later could not be separated from the part to build now, so nothing was changed; sending the changes one at a time would work",
       "generate-failed": "Their database is live, but writing the pages did not work this time, so the site shows its data model for now; sending it again retries",
       "compile-failed": "The pages were written but did not compile, so the site shows its data model for now; sending it again retries",
+      "stopped": "They pressed Stop, so the build stopped before its next step and nothing more was built",
     };
     if (why[fl.kind]) {
       F.add("not-done", why[fl.kind] + ".");

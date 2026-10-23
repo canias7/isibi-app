@@ -10266,9 +10266,14 @@ function failureCostLine(fl) {
 // one, and otherwise a plain state line — never the canned explanation the
 // facts replace. The recorded facts and the money go in the note.
 function buildFailureView(d) {
-  const f = d && d.buildFacts && d.buildFacts.failure;
+  // A STRUCTURED REFUSAL BEFORE ANYTHING RAN (decide-all: a new site's name
+  // too long): the reply writer's words, or the server's own sentence only
+  // when none was written; nothing was charged.
+  const refused = d && d.buildFacts && d.buildFacts.refusal && !d.buildFacts.failure;
+  const f = refused ? { cost: 0 } : d && d.buildFacts && d.buildFacts.failure;
   if (!f) return null;
   const model = (typeof EditPoll !== 'undefined' && EditPoll.modelReply) ? EditPoll.modelReply(d) : '';
+  if (refused) return { lead: model || (typeof d.msg === 'string' && d.msg.trim() ? d.msg : 'The build didn’t start.'), note: failureCostLine(f) };
   const told = buildToldLines(d) || [];
   const rest = model ? [...told.filter((l) => l !== model), failureCostLine(f)] : told;
   return { lead: (model || 'The build didn’t finish.'), note: rest.filter(Boolean).join('\n') };
@@ -10735,9 +10740,11 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // The route refused paid work below its floor before taking it on: nothing
     // was filed and nothing more charged. The route's own sentence, and the
     // message back in the box to send again once topped up.
-    if (!isBuild && d && d.ok === false && d.need === 'credits' && typeof d.msg === 'string' && d.msg.trim()) {
+    if (!isBuild && d && d.ok === false && d.need === 'credits' && (routeSaid || (typeof d.msg === 'string' && d.msg.trim()))) {
       siteHoldUnsent(origin, t, imgs, key);
-      finish(d.msg);
+      // THE REPLY WRITER'S WORDS FROM THE REFUSAL'S FACTS (decide-all); the
+      // route's own sentence only when no reply was written.
+      finish(routeSaid || d.msg);
       return;
     }
     if (!isBuild && d && d.ok === false && d.error === 'question-busy' && (routeSaid || (typeof d.msg === 'string' && d.msg.trim()))) {

@@ -2407,13 +2407,13 @@ export async function runNavEdit(deps, { instruction, pages, routes, model = NAV
   // change by name — never widened to every page.
   const scope = wantsMenu ? readMenuScope(toolInput(reply), routes) : { pages: null, unknown: [] };
   if (scope.unknown.length) {
-    return { ok: false, escalate: false, reason: "no-menu", usage,
+    return { ok: false, escalate: false, reason: "no-menu", usage, refusal: { code: "menu-page-unknown", pages: scope.unknown.slice() },
       msg: "There's no " + scope.unknown.join(" or ") + " page on the site, so I didn't change any menu — say which page's menu you mean." };
   }
   const inScope = (s) => !scope.pages || scope.pages.includes(routeOf(s.page));
   const scopedSlots = slots.filter(inScope);
   if (wantsMenu && scope.pages && !scopedSlots.length) {
-    return { ok: false, escalate: false, reason: "no-menu", usage,
+    return { ok: false, escalate: false, reason: "no-menu", usage, refusal: { code: "menu-no-menu", pages: scope.pages.slice() },
       msg: scope.pages.join(" and ") + (scope.pages.length > 1 ? " have" : " has") + " no menu of " + (scope.pages.length > 1 ? "their" : "its") + " own to change, so nothing was changed." };
   }
   const menuMoves = wantsMenu ? menuChange(menuUnion(scopedSlots), read.links) : null;

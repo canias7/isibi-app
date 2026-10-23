@@ -235,7 +235,7 @@ export async function filingFloorRefusal({ free, readBalance, log = console.erro
   catch (e) { log("filing floor: balance unread, filed anyway", where, String((e && e.name) || "Error")); return null; }
   if (typeof n !== "number" || !Number.isFinite(n)) { log("filing floor: balance unreadable, filed anyway", where); return null; }
   if (n >= FILING_FLOOR) return null;
-  return { ok: false, error: "not enough credits", need: "credits", cost: 0, floor: FILING_FLOOR, msg: FILING_REFUSAL_MSG };
+  return { ok: false, error: "not enough credits", need: "credits", cost: 0, floor: FILING_FLOOR, refusal: { code: "out-of-credits", floor: FILING_FLOOR }, msg: FILING_REFUSAL_MSG };
 }
 
 /**
