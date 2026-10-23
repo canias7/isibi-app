@@ -591,7 +591,14 @@ export function readEditMessage(body) {
   // claim could not be read — build-job.mjs's one reader, bounded by the
   // consumer (`CLAIM_RETRY_MAX`), absent on a first delivery.
   const tries = readTries(body);
-  return tries === undefined ? { kind: EDIT_JOB_KIND, id: body.id } : { kind: EDIT_JOB_KIND, id: body.id, tries };
+  const out = tries === undefined ? { kind: EDIT_JOB_KIND, id: body.id } : { kind: EDIT_JOB_KIND, id: body.id, tries };
+  // A DEFERRED FIRE'S OWN FIELDS (audit A08-6, 2026-10-23): the lease name the
+  // deferring delivery kept, for this one to take over, and how often the fire
+  // was deferred. Each held to its shape; anything else is a first delivery.
+  if (typeof body.holder === "string" && /^[A-Za-z0-9_:-]{4,80}$/.test(body.holder)) out.holder = body.holder;
+  if (Number.isInteger(body.fireWaits) && body.fireWaits >= 1 && body.fireWaits <= 100) out.fireWaits = body.fireWaits;
+  if (Number.isInteger(body.stageWaits) && body.stageWaits >= 1 && body.stageWaits <= 100) out.stageWaits = body.stageWaits;
+  return out;
 }
 
 /**
@@ -1161,6 +1168,42 @@ export const FIRE_RETRY_MAX = 3;
 /** How long it waits between those asks. */
 export const FIRE_RETRY_MS = 2000;
 
+/**
+ * A DEFERRED FIRE (audit A08-6, 2026-10-23): how long a container may drain
+ * after SIGTERM (`TERM_DRAIN_MS` in build-server.mjs, 13 minutes), and so how
+ * many queue deferrals, each `SITE_BUSY_DEFER_S` apart, a job waits out before
+ * it is failed `no-container` as before. One more than the drain needs.
+ */
+export const FIRE_DEFER_DRAIN_MS = 13 * 60 * 1000;
+export const FIRE_DEFER_MAX = Math.ceil(FIRE_DEFER_DRAIN_MS / 1000 / SITE_BUSY_DEFER_S) + 1;
+/**
+ * THE IMAGE A FIRED JOB RUNS ON (audit A08-7, 2026-10-23, the owner's option
+ * 1, a first step): read off the container's `/job/run` answer, which names
+ * `IMAGE_ID` or `unstamped`. Anything else (an older image that names none, a
+ * body that does not read) is `unknown`, never a value.
+ */
+export function firedImageOf(answer) {
+  const v = answer && typeof answer === "object" ? answer.image : undefined;
+  if (typeof v === "string" && (/^[a-f0-9]{16}$/.test(v) || v === "unstamped")) return v;
+  return "unknown";
+}
+
+/** THE JOB'S RUN MARK: where the image is recorded, beside the job's own object, inside the retention sweep's prefixes. */
+export function runMarkKey(kind, id) {
+  if (typeof id !== "string" || !/^[a-z0-9][a-z0-9_-]{3,80}$/i.test(id)) throw new Error("edit-job: refusing a run mark for an id we did not mint");
+  return (kind === "build" ? "jobs/" : EDIT_JOB_PREFIX) + id + ".ran.json";
+}
+
+/**
+ * A PAUSED PART'S CHECKPOINT NOT YET STAGED (audit S1-7, 2026-10-23, the
+ * owner's option 2): how many minute-apart deferrals the consumer waits for
+ * the staging to land before it lets the job run and answer for itself.
+ */
+export const STAGE_WAIT_MAX = 5;
+
+/** How long the released lease stands while the message waits: past its delay, so the next delivery takes it over by name. */
+export const FIRE_DEFER_HOLD_S = SITE_BUSY_DEFER_S + 60;
+
 /** What the customer is told when the container could not take their job. */
 export const NO_CONTAINER_MSG = "Our build service could not pick this up just now, so nothing was changed and nothing was charged. Please try again in a few minutes.";
 // THE EDIT'S OWN SENTENCE SAYS NOTHING ABOUT MONEY (2026-09-25). The routing
@@ -1187,6 +1230,13 @@ export function fireOutcome(fire) {
   if (why === "off" || why === "no-binding" || why === "not-this-one") return "inline";
   // ALREADY THERE. The container's own duplicate guard, by job id.
   if (/^answered 409\b/.test(why)) return "fired";
+  // A CONTAINER DRAINING OR FULL (audit A08-6, 2026-10-23, the owner's
+  // option 1): `503 {"error":"stopping"}` is an instance draining after the
+  // platform's SIGTERM, for up to its 13-minute drain, and `429` is its job
+  // cap. Asking again 2 s later cannot outlast either, so the job goes back on
+  // the queue a minute out (`FIRE_DEFER_MAX`), never failed at once.
+  if (/^answered 503\b/.test(why) && /"error"\s*:\s*"stopping"/.test(why)) return "defer";
+  if (/^answered 429\b/.test(why)) return "defer";
   // TRANSIENT: no room after the wait, a socket failure, the service 5xx-ing.
   if (why.startsWith("room:") || why.startsWith("fetch:")) return "retry";
   const m = /^answered (\d{3})\b/.exec(why);

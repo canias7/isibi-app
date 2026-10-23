@@ -1658,6 +1658,8 @@ export function requestReplyFacts(v) {
       F.add("not-done", "Not done: " + w + (own(p) ? " — its own reply above says why."
         : p.why === "routing-failed" ? " — working out what it needed failed on our side." + paid(p)
         // ITS SAVED REQUIREMENTS COULD NOT BE READ BACK (round 14): nothing was changed for it.
+        // REFUSED, NOT UNREAD (audit S1-7, 2026-10-23): the service running it was not allowed to read it.
+        : p.why === "checkpoint-refused" ? " — what they asked for before its question was kept, but the service running this part was not allowed to read it back, on our side, so nothing was changed for it, and it was not run on a shorter list. They can send it again." + paid(p)
         : p.why === "checkpoint-unread" || p.why === "checkpoint-unsaved" ? " — what they asked for before its question could not be read back on our side, so nothing was changed for it, and it was not run on a shorter list. They can send it again." + paid(p)
         : p.why === "rewrite-too-long" ? " — it needed the full rewrite, which reads at most " + REWRITE_MAX_CHARS.toLocaleString("en-GB") + " characters of a request, and it is longer, so it was not offered or run. They can send it shorter, or in smaller changes." + paid(p)
         : p.why === "rewrite-not-written" ? " — the full rewrite they gave the go-ahead for ran, but its pages could not be written, so their site stayed exactly as it was." + paid(p)

@@ -149,7 +149,7 @@ const ROUTE_RENAME = { intent: "edit", layer: "rename", targets: [{ change: 0, w
 // `beside` and `replies` (2026-10-23, audit S6-4): the site lock as production
 // runs it (same-request jobs beside each other) and model-written replies on.
 // `held(lane)`, when given, is awaited inside the text and row model calls.
-function firedBakery(name, { aliases = null, sites = [], beside = false, replies = false, held = null } = {}) {
+function firedBakery(name, { aliases = null, sites = [], beside = false, replies = false, held = null, more = null } = {}) {
   const compiler = installCompiler();
   const db = rowsDb({ tables: { loaves: { columns: LOAF_COLUMNS, rows: BAKERY_LOAVES, next: 12 } }, meta: { schema: JSON.stringify({ tables: [LOAVES] }) } });
   const said = (args) => String(args.messages[0].content);
@@ -171,6 +171,8 @@ function firedBakery(name, { aliases = null, sites = [], beside = false, replies
       [T.adds]: { kinds: ["page"] },
       "add:page": { page: [{ path: "/gift-vouchers", name: "Gift vouchers", purpose: "sell gift vouchers", sections: ["what a voucher buys"], components: ["card"] }] },
       [T.pages]: { pages: [{ path: "src/routes/gift-vouchers.tsx", source: GIFT }] },
+      // A CASE'S OWN ANSWERS OVER THESE (2026-10-23, audit S2-4's DH10).
+      ...(more ? more({ said, hold }) : {}),
     },
   });
   const ns = firingNamespace((lane) => getContainer(null, lane));
@@ -402,6 +404,103 @@ test("DH7 TWO CONTAINER JOBS OF ONE REQUEST OVERLAP THROUGH THE REAL GATEWAY —
     assert.equal(liveVersion(P), v0, "the live pointer moved before Publish");
     assert.equal(P.liveScript(), live0, "the live script changed before Publish");
     assert.equal(price(db, 2), price0, "the live price changed before Publish");
+  } finally { await finished(P, compiler); }
+});
+
+// A LOOK PART BESIDE A TEXT PART, BOTH IN THE CONTAINER, OVERLAPPING, THROUGH
+// THE REAL GATEWAY (2026-10-23, audits A08-5 and S2-4, the owner's option 1
+// for each). DH6 and DH7 drive a text part beside a data part, whose data
+// part seals outside the turn. Here the look step holds the site's turn from
+// its start (`takeTurn` before its config write), so its editable-state
+// check stamps the fence keys and writes the config through the wire, while
+// the text part waits for the turn and then publishes rebased onto it.
+const DESC_ASK = "Change the site description to say we bake overnight sourdough.";
+const DESC_TO = "Overnight sourdough from a harbour side street.";
+const ROUTE_LOOK_BOTH = { intent: "edit", layer: "look", alsoAsked: [TIKTOK_LATER], targets: [{ change: 0, writes: ["theme"] }, { change: 1, writes: ["page:/visit"] }] };
+test("DH10 A LOOK PART HOLDING THE TURN FROM ITS START OVERLAPS A TEXT PART, BOTH IN THE CONTAINER THROUGH THE REAL GATEWAY — the look job takes the turn first, stamps its fence and writes the description through the wire; the text job waits for the turn and publishes after it; nothing is refused, both parts end done as draft revisions, and nothing live moves", async () => {
+  const started = {};
+  const spans = {};
+  const waitFor = async (cond, ms = 3000) => { const end = Date.now() + ms; while (Date.now() < end && !cond()) await new Promise((ok) => setTimeout(ok, 5)); return cond(); };
+  let armed = false;
+  const held = async (lane) => {
+    if (!armed || (lane !== "look" && lane !== "text")) return;
+    started[lane] = Date.now();
+    const other = lane === "text" ? "look" : "text";
+    if (await waitFor(() => started[other] !== undefined)) await new Promise((ok) => setTimeout(ok, 25));
+    spans[lane] = [started[lane], Date.now()];
+  };
+  let lookRouted = 0;
+  const { P, db, compiler, ns } = firedBakery("look-beside", {
+    beside: true, held,
+    more: ({ said, hold }) => ({
+      route: (args) => (/site description/.test(said(args)) ? (lookRouted++ === 0 ? ROUTE_LOOK_BOTH : ROUTE_TEXT) : /TikTok/.test(said(args)) ? ROUTE_TEXT : ROUTE_DATA),
+      [T.pick]: { fields: ["description"], scopes: [{ part: "description", words: DESC_ASK }] },
+      "lane:description": () => hold("look", DESC_TO),
+    }),
+  });
+  try {
+    const worker = await loadWorkerModule();
+    P.env.IMAGE_PURCHASES = "off";
+    const first = await sendFired(P, ns, worker, TIKTOK);
+    assert.equal(first.jobs[0].state, "done", JSON.stringify(first.jobs[0].result).slice(0, 300));
+    const v0 = liveVersion(P);
+    assert.ok(v0, "the first edit published nothing — nothing here tests a live site");
+    const live0 = P.liveScript();
+    const price0 = price(db, 2);
+    Object.assign(P.env, { DRAFT_FIRST: "on", PARALLEL_WRITES: "on", PUBLISH_TURN_POLL_MS: "5" });
+    wire.calls.splice(0);
+    armed = true;
+    const r = await sendMessage(P, { message: DESC_ASK + " " + TIKTOK_LATER });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const running = [];
+    const ran = [];
+    for (let i = 0; i < 40; i++) {
+      await pump(P);
+      while (ns.launches.length) {
+        const l = ns.launches.shift();
+        const launch = JSON.parse(l.body);
+        ran.push(launch.id);
+        running.push(P.run(async () => {
+          const ctx = makeCtx();
+          await worker.runContainerJob(containerEnvOf(P.env, l.body, { worker, wire }), ctx, { kind: launch.kind, id: launch.id, holder: launch.holder || "" });
+          await Promise.allSettled(ctx.pending);
+        }));
+      }
+      await new Promise((ok) => setTimeout(ok, 15));
+      const rec = P.record(r.key);
+      const busy = P.queue.length || ns.launches.length;
+      if (!busy && rec && (rec.ended || rec.state !== "running")) break;
+      if (!busy) { await Promise.race([Promise.allSettled(running), new Promise((ok) => setTimeout(ok, 40))]); if (!P.queue.length && !ns.launches.length) await tick(P); }
+    }
+    await Promise.allSettled(running);
+    const jobs = P.jobsOf(r.key);
+    assert.ok(jobs.length >= 2 && jobs.every((j) => ran.includes(j.id)), "a job ran in the Worker: " + JSON.stringify({ ran, jobs: jobs.map((j) => j.id) }));
+    for (const j of jobs) assert.equal(j.state, "done", j.op + " " + j.idem_key + ": " + JSON.stringify(j.result).slice(0, 400));
+    assert.deepEqual(P.record(r.key).parts.map((p) => p.status), ["done", "done"], JSON.stringify(P.record(r.key).parts.map((p) => [p.status, p.why])));
+    // THE TWO JOBS RAN AT ONCE: their model calls shared time.
+    assert.ok(spans.look && spans.text, "a lane's model call was not made: " + JSON.stringify(spans));
+    assert.ok(spans.look[0] < spans.text[1] && spans.text[0] < spans.look[1], "the two jobs ran one after the other: " + JSON.stringify(spans));
+    // BOTH JOBS TOOK THE TURN THROUGH THE GATEWAY, the look job's from its start.
+    const byJob = (c) => c.path.split("/")[3];
+    const layerOf = (j) => { const a = P.answerOf(j); return a && a.layer; };
+    const lookJob = jobs.find((j) => layerOf(j) === "look");
+    // THE PART'S OWN RUN, NOT ITS ROUTING JOB (which answers the layer too): the later one.
+    const textJob = jobs.filter((j) => layerOf(j) === "text").pop();
+    assert.ok(lookJob && textJob, "no look job or no text job: " + JSON.stringify(jobs.map(layerOf)));
+    const ids = [lookJob.id, textJob.id];
+    const turnPuts = wire.calls.filter((c) => c.key === turnKey(P.slug) && c.method === "PUT" && c.status === 200);
+    for (const id of ids) assert.ok(turnPuts.some((c) => byJob(c) === id), "a job never took the turn through the gateway: " + id + " " + JSON.stringify(turnPuts.map(byJob)));
+    // THE LOOK JOB'S FENCED CONFIG WRITE WENT THROUGH THE WIRE.
+    assert.ok(wire.calls.some((c) => byJob(c) === lookJob.id && c.method === "PUT" && c.key === "config/" + P.slug + ".json" && c.status === 200),
+      "the look job's config write did not go through the gateway");
+    // BOTH CHANGES IN THE EDITABLE STATE, AS DRAFT REVISIONS; NOTHING LIVE.
+    assert.equal(P.look().description, DESC_TO, "the description was not kept");
+    assert.ok(String(P.readObj("source/" + P.slug + "/pages.json") || "").includes(TT_LATER), "the text part's line is not in the editable copy");
+    const d = draftOf(P);
+    assert.ok(d && d.rev === 2, "the two parts did not each save a draft revision: " + JSON.stringify(d && d.revs));
+    assert.equal(liveVersion(P), v0, "the live pointer moved before Publish");
+    assert.equal(P.liveScript(), live0, "the live script changed before Publish");
+    assert.equal(price(db, 2), price0, "the live price changed");
   } finally { await finished(P, compiler); }
 });
 

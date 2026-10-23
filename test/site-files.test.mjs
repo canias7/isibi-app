@@ -181,14 +181,14 @@ test("`loadSiteSourceForEdit` answers the PAGES, and every rung that needs the c
   // own components asks `loadSiteParts` where it needs them (the text lane's case
   // above proves that hop for the lane that has it).
   // (RE-ANCHORED 2026-10-23, audit A24-1: the signature gained `prepare`.)
-  const at = WORKER.indexOf("async function loadSiteSourceForEdit(env, slug, { checked = false, prepare = false } = {}) {");
+  const at = WORKER.indexOf("async function loadSiteSourceForEdit(env, slug, { checked = false, prepare = false, mine = \"\" } = {}) {");
   assert.ok(at > 0, "the pages reader moved — re-derive this landmark");
   const body = WORKER.slice(at, WORKER.indexOf("\n}", at));
   // ONE REPAIR, AND IT IS HERE: `ensureEditableState` is what puts a copy one
   // version behind the live site back from that version's own state, and it
   // covers BOTH stores in a single pass — which is why a second whole-source
   // reader asking for it again was never needed.
-  assert.match(body, /ensureEditableState\(env, slug\)/, "the read no longer repairs the editable copy first");
+  assert.match(body, /ensureEditableState\(env, slug[,)]/, "the read no longer repairs the editable copy first");
   assert.match(body, /return loadSiteSource\(env, slug\)/, "it answers something other than the stored pages");
   assert.ok(!body.includes("loadSiteParts"), "it reads the components too — then it is the whole-source reader under a name that says half");
   // THE OBSERVER IS PROVED ALIVE BEFORE THE ABSENCE: the landmark above must be

@@ -1828,7 +1828,10 @@ const server = http.createServer((req, res) => {
       if ([...JOBS.values()].filter((j) => j.state === "running").length >= MAX_JOBS) return send(res, 429, { ok: false, error: "too many jobs on this container" });
       const started = startJob(launch, jBody);
       if (!started.ok) return send(res, 500, { ok: false, error: started.error });
-      return send(res, 200, { ok: true, id: launch.id, pid: started.pid });
+      // THE IMAGE THIS JOB RUNS ON (audit A08-7, 2026-10-23, the owner's
+      // option 1, a first step): named in the answer, so the Worker records
+      // it on the job's run mark. Nothing is refused on it yet.
+      return send(res, 200, { ok: true, id: launch.id, pid: started.pid, image: IMAGE_ID || "unstamped" });
     });
     return;
   }

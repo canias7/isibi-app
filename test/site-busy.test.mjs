@@ -624,8 +624,10 @@ test("the editable copy: four editing readers read through the repairing reader,
     // RE-ANCHORED 2026-10-23 (audit A24-1): a preparation run in the Worker
     // reads without repairing (`prepare`, it publishes nothing); the job reads,
     // and goes on to publish, through the repair as before.
-    ": await loadSiteSourceForEdit(env, ownerSlug, { checked: true, prepare: !!(eJob && eJob.prepare === true) });",
-    "const aRead = await loadSiteSourceForEdit(env, ownerSlug, { checked: true, prepare: !!(aJob && aJob.prepare === true) });",
+    // RE-ANCHORED 2026-10-23 (audit S7-4): each names the turn its job holds
+    // (`mine`), so a checked read waits out only another, dead holder's turn.
+    ": await loadSiteSourceForEdit(env, ownerSlug, { checked: true, prepare: !!(eJob && eJob.prepare === true), mine: (eJob && eJob.beside && eJob.beside.turn && eJob.beside.turn.owner) || \"\" });",
+    "const aRead = await loadSiteSourceForEdit(env, ownerSlug, { checked: true, prepare: !!(aJob && aJob.prepare === true), mine: (aJob && aJob.beside && aJob.beside.turn && aJob.beside.turn.owner) || \"\" });",
     // CHECKED SINCE 2026-10-08 (H5): read once above `buildArgs`, and a revise
     // whose live pages cannot be confirmed stops before any page is written.
     "const priorRead = existing ? await loadSiteSourceForEdit(env, slug, { checked: true }) : null;",
@@ -723,7 +725,7 @@ test("the editable copy: four editing readers read through the repairing reader,
   // publishes; the job its answers are replayed in reads through the repair.
   { const w0 = W.indexOf("async function loadSiteSourceForEdit(");
     const arm = W.indexOf("if (checked && prepare === true) return { ...await readSiteSource(env, slug, { strict: true })", w0);
-    assert.ok(w0 > 0 && arm > w0 && arm < W.indexOf("ensureEditableState(env, slug)", w0), "the preparation's read is not the wrapper's own non-repairing arm"); }
+    assert.ok(w0 > 0 && arm > w0 && arm < W.indexOf("ensureEditableState(env, slug, checked ?", w0), "the preparation's read is not the wrapper's own non-repairing arm"); }
   assert.equal(bare.length, 13, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
   assert.ok(W.includes("const pages = url.searchParams.get(\"force\") === \"1\" ? null : await loadSiteSource(env, uslug).catch(() => null);"), "the media delete's read is gone, or does more than read which pages name a file");
   assert.ok(W.includes("withinMs(loadSiteSource(env, slug), CONVERSE_READ_MS, \"converse pages:\", slug)"), "the conversation's read is gone, or does more than read the pages for a reply");
@@ -750,7 +752,8 @@ test("the editable copy: four editing readers read through the repairing reader,
   assert.match(fnW("loadSiteSource"), /const r = await readSiteSource\(env, slug\);/,
     "the wrapper no longer delegates — there are two readers of the store, which drift");
   const wrap = fnW("loadSiteSourceForEdit");
-  assert.match(wrap, /try \{ recovery = await ensureEditableState\(env, slug\); \}\s+catch/, "the wrapper does not preserve the repair outcome");
+  // RE-ANCHORED 2026-10-23 (audit S7-4): a checked read asks it to wait out a dead holder's turn.
+  assert.match(wrap, /try \{ recovery = await ensureEditableState\(env, slug, checked \? \{ waitDead: true, mine: [^}]*\} : \{\}\); \}\s+catch/, "the wrapper does not preserve the repair outcome");
   assert.match(wrap, /recovery\.ok !== true/, "a returned recovery failure is ignored");
   assert.match(wrap, /return loadSiteSource\(env, slug\);/);
   // THE MARKER, LAST, ON EVERY COPY: the spine's, the build's, the restore's.
