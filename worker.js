@@ -46550,16 +46550,22 @@ async function handleRequest(request, env, ctx) {
               let qView;
               if (closed.ok && closed.record && closed.record.requestKey) {
                 const qk = closed.record.requestKey;
+                // A READ THAT FAILED IS READ AGAIN, AND A PART LEFT WAITING IS
+                // NOT TOLD AS CANCELLED (2026-10-23, audit A35-4): one thrown
+                // read ended the loop and the reply still said "cancelled",
+                // while the part waited and its question was offered again.
+                let settled = false;
                 for (let k = 0; k < 6; k++) {
                   let at = null;
-                  try { at = await loadRequest(env, ownerSlug, qk); } catch { at = null; }
-                  if (!at || !at.rec || at.rec.uid !== ou.id) break;
+                  try { at = await loadRequest(env, ownerSlug, qk); } catch { continue; }
+                  if (!at || !at.rec || at.rec.uid !== ou.id) { settled = true; break; }
                   const next = cancelPart(at.rec, closed.record.part, closed.record.id);
-                  if (!next) { qView = requestView(at.rec); break; }
+                  if (!next) { qView = requestView(at.rec); settled = true; break; }
                   let t = null;
                   try { t = await saveRequestRecord(env, next, at.etag); } catch { t = null; }
-                  if (t) { const moved = await advanceRequest(env, ctx, ownerSlug, qk, "question-cancelled"); qView = requestView(moved || next); break; }
+                  if (t) { const moved = await advanceRequest(env, ctx, ownerSlug, qk, "question-cancelled"); qView = requestView(moved || next); settled = true; break; }
                 }
+                if (!settled) return Response.json({ ok: false, error: "unread" }, { status: 503 });
               }
               // ALREADY CLOSED IS STILL A QUESTION NOTHING CAN ACT ON, so the
               // cancel is not refused; `cancelled` says whether this one closed it,

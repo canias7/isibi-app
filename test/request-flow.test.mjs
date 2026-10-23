@@ -528,6 +528,33 @@ test("C5 — a part's question nobody answers for a day expires, as the question
   });
 });
 
+// A CANCEL WHOSE REQUEST READ FAILS (2026-10-23, audit A35-4): one thrown read
+// ended the loop, the part kept waiting, and the reply still said cancelled.
+for (const reads of [1, 6]) {
+  test("C4b — a part's question cancelled while the request read fails " + reads + " time(s): read again and ended, or not told as cancelled", async () => {
+    const QD = { text: "Which word should lead — overnight or slow?", options: ["Overnight", "Slow"] };
+    await withPlatform({
+      slug: slugOf("c4b" + reads),
+      answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }], ...DESCRIBE, "lane:description": { question: QD }, ...GALLERY },
+    }, async (P) => {
+      const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+      await settle(P, r.key);
+      const q = P.question();
+      assert.equal(q.requestKey, r.key);
+      P.failGetFrom((k) => k.includes(r.key), { count: reads });
+      const c = await call(P, "POST", "/api/site/" + P.slug + "/question", { id: q.id, cancel: true });
+      if (reads === 1) {
+        assert.equal(c.body.cancelled, true, JSON.stringify(c.body));
+        assert.equal(P.record(r.key).parts[0].status, "cancelled", "the cancel did not end the part");
+      } else {
+        assert.notEqual(c.body && c.body.cancelled, true, "a part left waiting was told as cancelled: " + JSON.stringify(c.body));
+        assert.equal(c.status, 503);
+        assert.equal(P.record(r.key).parts[0].status, "waiting");
+      }
+    });
+  });
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // D. ATTACHMENTS KEPT ON THE SERVER FOR THE PART THAT READS THEM
 // ─────────────────────────────────────────────────────────────────────────────
