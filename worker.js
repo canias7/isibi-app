@@ -317,7 +317,7 @@ import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig, writesSchema as partWritesSchema } from "./builder/request-plan.mjs";
 import { turnKey, turnRecord, readTurn, turnFree, nextGen, rebaseFiles, TURN_POLL_MS, TURN_WAIT_MS, TURN_UNREAD_MAX } from "./builder/publish-turn.mjs";
-import { PART_TERMINAL as REQ_PART_TERMINAL, heldFromOf, rewriteWire } from "./builder/request.mjs";
+import { PART_TERMINAL as REQ_PART_TERMINAL, heldFromOf, rewriteWire, othersOpenIn } from "./builder/request.mjs";
 import { visualReviewOn, buildRepairOn } from "./builder/visual-review.mjs";
 import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, carrySuperseded, supersededNote, holdRequirements, heldCheckpoint, heldDelta, applyHeldDelta, readHeld, sameCheckpoint, heldNote, ownerOf, handoffsByStep, applyVerdicts, COVERAGE_STEPS, linkEvidence } from "./builder/site-requirements.mjs";
 import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.mjs";
@@ -15385,14 +15385,16 @@ function loseTurn(job, slug, why) {
 /**
  * MAY ANOTHER PART OF THIS JOB'S REQUEST BE RUNNING BESIDE IT? (2026-10-16)
  * True while any other part has not ended — it may be running, or be filed
- * beside this one — and when the request cannot be read (the safe answer).
+ * beside this one — unless it waits on this one, and when the request cannot
+ * be read (the safe answer).
  */
 async function othersOpen(env, slug, request) {
   if (!request || !request.key) return true;
   try {
     const { rec } = await loadRequest(env, slug, request.key);
-    if (!rec || !Array.isArray(rec.parts)) return true;
-    return rec.parts.some((p) => p && p.n !== request.part && !REQ_PART_TERMINAL.includes(p.status));
+    // A PART THAT CANNOT START BEFORE THIS ONE ENDS is not beside it
+    // (2026-10-23, audit S2-3: `othersOpenIn`).
+    return othersOpenIn(rec, request.part);
   } catch { return true; }
 }
 async function turnStillMine(env, slug, job) {
@@ -24898,7 +24900,11 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
       // `schema` (2026-10-16): whether the part was cleared to change the
       // site's schema beside others; unreadable, it was.
       jctx.beside = { base: null, baseParts: null, turn: null, holds: true, schema: true, waits: 0, request: { key: requestOf.key, part: requestOf.part } };
-      try {
+      // A ROUTING WRITES NOTHING (2026-10-23, audit A02-3): told by its own
+      // stored address, never by a record read that can fail and leave it
+      // holding the site's turn through its model call.
+      if (/\/api\/site\/route(?![\w/-])/.test(String(job.url || ""))) { jctx.beside.holds = false; jctx.beside.schema = false; }
+      else try {
         const { rec: rrec } = await loadRequest(env, job.slug, requestOf.key);
         const rp = rrec && Array.isArray(rrec.parts) ? rrec.parts[requestOf.part] : null;
         if (rp) { jctx.beside.holds = partHoldsConfig(rp); jctx.beside.schema = partWritesSchema(rp) || rp.serial === true; }

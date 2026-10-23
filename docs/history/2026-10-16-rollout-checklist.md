@@ -38,7 +38,7 @@ container cannot write the note and does not upload the site's script.
 
 | File | What it does | Needed for |
 |---|---|---|
-| `supabase/proposed/request_beside.sql` | lets the jobs of one request hold the site together | `PARALLEL_WRITES` only. Without it the second job waits on the site's lock, as before; nothing breaks |
+| `supabase/proposed/request_beside.sql` | lets the jobs of one request hold the site together | `PARALLEL_WRITES` only. Without it the second job waits on the site's lock, as before; nothing is unsafe, but a job filed beside two long ones can run out of its 45 site-busy deferrals (about 50 minutes) and its part fail `site-busy` (audit A05-4). Applied 2026-10-17 |
 
 No other SQL. Draft-first, Publish and hosted media need none: their state
 is in R2.
