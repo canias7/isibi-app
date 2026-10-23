@@ -114,7 +114,7 @@ test("B3-5 A11-2 WIRING — Publish (when it moves the pointer) and restore hand
   const rsEnd = worker.indexOf("putWorker:", rs);
   assert.ok(rs > 0 && rsEnd > rs, "restoreVersion landmarks");
   const r = worker.slice(rs, rsEnd);
-  assert.match(r, /sidecar: await withPanelFields\(deps, slug, /);
+  assert.match(r, /sidecar: await (?:withShareHost\(env, slug, await )?withPanelFields\(deps, slug, /);
   assert.doesNotMatch(r, /sidecar: typeof b\.sidecar === "string" \? b\.sidecar : undefined, sidecarKey/);
   assert.match(worker, /async function withPanelFields\(deps, slug, sidecar, prior(, opts = \{\})?\) \{[\s\S]{0,400}carryPanelFields\(sidecar, live, was(, opts)?\)/);
 });

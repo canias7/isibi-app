@@ -22,8 +22,9 @@ test("A33-5 a restore keeps the live address, not the restored version's old nam
   const rs = worker.indexOf("async function restoreVersion(");
   const rsEnd = worker.indexOf("putWorker:", rs);
   assert.ok(rs > 0 && rsEnd > rs, "restoreVersion landmarks");
-  assert.match(worker.slice(rs, rsEnd), /sidecar: await withPanelFields\(deps, slug, [^\n]*, \{ origin: true \}\), sidecarKey/,
-    "restoreVersion does not carry the live address");
+  assert.match(worker.slice(rs, rsEnd), /sidecar: await withShareHost\(env, slug, await withPanelFields\(deps, slug, [^\n]*, \{ origin: true \}\)\), sidecarKey/,
+    "restoreVersion does not carry the live address (or the share picture's host)");
+  assert.match(worker, /async function withShareHost\(env, slug, sidecar\) \{[\s\S]{0,200}rehostShareImage\(sd, await publicNameFor\(env, slug\)\);/);
   // Back online is this same function.
   assert.match(worker, /rollback: \(\{ slug, id \}\) => restoreVersion\(env, slug, id\),/);
 });

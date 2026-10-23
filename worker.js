@@ -12390,6 +12390,16 @@ async function shareOriginFor(env, slug) {
   const host = siteHostFor(await publicNameFor(env, slug));
   return host ? "https://" + host : siteOrigin(slug, "https://" + APP_ZONE);
 }
+/** A restored version's sidecar text with its share picture on the current name's host. */
+async function withShareHost(env, slug, sidecar) {
+  if (typeof sidecar !== "string") return sidecar;
+  try {
+    const sd = JSON.parse(sidecar);
+    const was = sd && sd.image;
+    rehostShareImage(sd, await publicNameFor(env, slug));
+    return sd.image === was ? sidecar : JSON.stringify(sd);
+  } catch { return sidecar; }
+}
 
 /**
  * EVERY OLD NAME A SITE HAS HAD — the demoted rows. Read fresh, never cached:
@@ -15128,7 +15138,8 @@ async function restoreVersion(env, slug, id) {
       // STANDS (audit A33-5): a name is not versioned, so the restored
       // version's origin (its name when staged) would put a renamed site's
       // canonical back on the old, redirecting address.
-      sidecar: await withPanelFields(deps, slug, typeof b.sidecar === "string" ? b.sidecar : undefined, before && before.version ? String(before.version) : "", { origin: true }), sidecarKey: siteMetaKey(slug),
+      // Its share picture too (audit A33-8), when the version predates a rename.
+      sidecar: await withShareHost(env, slug, await withPanelFields(deps, slug, typeof b.sidecar === "string" ? b.sidecar : undefined, before && before.version ? String(before.version) : "", { origin: true })), sidecarKey: siteMetaKey(slug),
       liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
       putWorker: async () => {
         wput = await putSiteWorker(env, slug, { ok: true, code: b.worker, build: b.manifest.build || "" }, { version: id });

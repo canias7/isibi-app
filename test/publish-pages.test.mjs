@@ -1431,6 +1431,14 @@ test("A22-3: a bundle failure citing a page — the container's real answer — 
   for (let i = 1; i < seen.length; i++) assert.notEqual(seen[i], seen[i - 1], "the same failing pages were compiled twice in a row");
   assert.ok(calls.compile.length >= 1);
   assert.equal(out.retriedBuild, undefined, "a page's own bundle failure was retried as if the container had died");
+  // …but a KILLED step is retried even when it printed a page's name first.
+  let n = 0;
+  const k = harness({ compile: async () => (++n === 1
+    ? { ok: false, stage: "build", error: "/app/src/routes/index.tsx:1:1: transforming\nvite build was killed by SIGTERM" }
+    : { ok: true, files: { "index.html": { t: "<ok>" } } }) });
+  const ko = await publishPages(k.deps, { spec: SPEC, slug: "cafe" });
+  assert.equal(n, 2, "a drained container that had cited a page was not retried");
+  assert.equal(ko.page, "app");
 });
 
 test("two container failures fall back, and still cost nothing", async () => {

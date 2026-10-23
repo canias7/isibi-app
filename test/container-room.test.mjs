@@ -324,7 +324,7 @@ test("the spine names a room failure as ours, and the build path as a free build
   assert.match(build, /const raw = r\.text;/, "the build path reads the body a second time");
   // publish-pages: no immediate retry after a wait that ran out, and the note
   // names our capacity rather than the pages.
-  assert.match(PP, /if \(!bd\.ok && bd\.stage === "build" && !bd\.room(?: && !salvageable\(bd\))?\) \{/);
+  assert.match(PP, /if \(!bd\.ok && bd\.stage === "build" && !bd\.room(?: && \(wasKilled\(bd\.error\) \|\| !salvageable\(bd\)\))?\) \{/);
   assert.match(PP, /if \(built\.room\) out\.room = String\(built\.room\);/);
   assert.match(PP, /built\.room\n\s+\? "Our build service had no room to compile the pages/);
 });

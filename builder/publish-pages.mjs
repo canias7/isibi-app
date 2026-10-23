@@ -1022,7 +1022,8 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
    * has not sent that stage since 2026-08-30: a page that fails to bundle comes
    * back as `stage: "build"` with vite's error. So the line is drawn by
    * `salvageable`, the reader salvage uses: a failure naming a page is the
-   * code's; one naming none (killed, unreachable, empty) gets one more go, which
+   * code's; one naming none (unreachable, empty), or a killed step whatever it
+   * printed before the signal, gets one more go, which
    * still catches every future spelling of "the process was killed" without a
    * list of signals to keep up to date.
    *
@@ -1034,7 +1035,7 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
     let bd = await compile(pages);
     // NOT AFTER A WAIT THAT RAN OUT (2026-09-04): `withRoom` already made every
     // try the cap allowed, and one more immediately is the try it just made.
-    if (!bd.ok && bd.stage === "build" && !bd.room && !salvageable(bd)) {
+    if (!bd.ok && bd.stage === "build" && !bd.room && (wasKilled(bd.error) || !salvageable(bd))) {
       // THE FIRST DRAIN IS THE DIAGNOSIS, so it is written once and not
       // overwritten. This was an unconditional assignment and the salvage path
       // calls this function again, so a build drained mid-bundle, retried, and
