@@ -1456,16 +1456,31 @@ export async function applySiteSchema(uuid, spec) {
           // `table_reservations`-and-a-bit is exactly the shape that declares
           // `noOverlap`. Uncaught, that 502'd the whole build. Now the site keeps
           // its other tables and the ONE guarantee it could not have is named.
-          let cname = null;
-          try { cname = derivedIdent("ex_", t.name, "_nooverlap"); }
+          let cname = null, cnew = null;
+          try { cname = derivedIdent("ex_", t.name, "_nooverlap"); cnew = derivedIdent("ex_", t.name, "_nooverlap_new"); }
           catch (e) { refused.push({ table: t.name, feature: "noOverlap", rule: sc + "/" + ec, why: String((e && e.message) || e).slice(0, 160) }); }
           if (cname) {
           const parts = on.map((c) => sqlIdent(c) + " WITH =")
             .concat(["int4range(" + sqlIdent(sc) + ", " + sqlIdent(ec) + ") WITH &&"]);
-          try { await sqlQuery(uuid, "ALTER TABLE " + tn + " DROP CONSTRAINT IF EXISTS " + cname); } catch {}
+          // THE NEW ONE IN BEFORE THE OLD ONE GOES (audit A30-9). It was DROP
+          // then ADD, two autocommit statements: while the ADD validated every
+          // row the table took overlapping bookings, and an ADD refused left no
+          // guarantee at all. Now the new rule is added under its own name
+          // (a leftover of an interrupted apply cleared first), and only once
+          // it stands is the old dropped and the new renamed into its place; a
+          // refused one leaves the old rule standing and is reported.
+          try { await sqlQuery(uuid, "ALTER TABLE " + tn + " DROP CONSTRAINT IF EXISTS " + cnew); } catch {}
           try {
-            await sqlQuery(uuid, "ALTER TABLE " + tn + " ADD CONSTRAINT " + cname +
+            await sqlQuery(uuid, "ALTER TABLE " + tn + " ADD CONSTRAINT " + cnew +
               " EXCLUDE USING gist (" + parts.join(", ") + ")" + (where ? " WHERE (" + where + ")" : ""));
+            try {
+              await sqlQuery(uuid, "ALTER TABLE " + tn + " DROP CONSTRAINT IF EXISTS " + cname);
+              await sqlQuery(uuid, "ALTER TABLE " + tn + " RENAME CONSTRAINT " + cnew + " TO " + cname);
+            } catch (e) {
+              // The new rule stands under its working name: guarded, and said.
+              refused.push({ table: t.name, feature: "noOverlap", rule: "replace", why: (e && e.detail) || String((e && e.message) || e).slice(0, 160) });
+              console.error("noOverlap replace failed:", t.name, e && e.detail);
+            }
           } catch (e) {
             // REPORTED as well as logged, for the reason `checks` already is: a
             // double booking is the exact thing this constraint exists to refuse,
