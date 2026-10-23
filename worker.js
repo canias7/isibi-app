@@ -3916,6 +3916,9 @@ async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve
     unresolved,
     ...(unconfirmed.length ? { unconfirmed } : {}),
     ...(failed && urls.size < plan.shots.length ? { error: failed } : {}),
+    // PURCHASES SWITCHED OFF (audit A25-3, 2026-10-23): a refused shot was
+    // never asked of the image service, and its fact says so.
+    ...(refused.length && !imagePurchasesOn(env) ? { off: true } : {}),
   });
 }
 
@@ -37128,6 +37131,11 @@ async function handleRequest(request, env, ctx) {
                     .filter((f) => f.name && !(f.purchase && mine.has(f.purchase)) && !(eJob && ((eJob.replay && eJob.replay.hides(f.url)) || (eJob.prepare === true && eJob.rec && typeof eJob.rec.hides === "function" && eJob.rec.hides(f.url)))))
                     .map(({ name, url }) => ({ name, url }));
                 },
+                // WHY THE LAST ONE WAS NOT MADE (audit A25-3, 2026-10-23):
+                // the switch off or the balance short, so the reply says so
+                // instead of "just now". Read right after a null, from the
+                // same two walls `generate` and `makeSitePhoto` stop at.
+                unmadeWhy: () => (!imagePurchasesOn(env) ? "off" : !imagesAffordable(1, { balance, usd: SITE_PHOTO_USD }) ? "short" : ""),
                 // ONE PHOTOGRAPH AT A TIME, priced against the real balance
                 // before each. Checked per picture rather than once up front
                 // because each one is ~19 credits: a batch that can afford two

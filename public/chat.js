@@ -10120,7 +10120,7 @@ function buildFactLines(f) {
   madeAt((st) => !['published', 'unconfirmed', 'not-shown', 'in-source'].includes(st), 'Pictures made and stored, not on the site');
   group('own', 'Your own photos, handed to the page writer');
   group('failed', 'Pictures tried, not returned');
-  group('not-attempted', 'Pictures not tried', { library: 'image library full', time: 'out of time', budget: 'credits left' });
+  group('not-attempted', 'Pictures not tried', { library: 'image library full', time: 'out of time', budget: 'credits left', off: 'photo purchases switched off' });
   group('not-placed', 'Pictures not placed by the page writer');
   group('not-offered', 'Pictures not offered', { cap: 'at most 6 per build', tool: 'a working tool gets none', kept: 'existing photographs kept' });
   group('unknown', 'Pictures, outcome unknown', { 'still-pending': 'still being made when the wait ended', 'purchase-error': 'the purchase failed', 'no-record': 'no record' });

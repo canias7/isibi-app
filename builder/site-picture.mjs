@@ -1391,7 +1391,7 @@ export function pictureUsage(reply, model = PICTURE_MODEL) {
 }
 
 /** What the customer is told. Names the picture, because they cannot see a src. */
-export function pictureReply({ used = [], made = [], cleared = [], framed = [], removed = [], refused = [], failed = 0 } = {}) {
+export function pictureReply({ used = [], made = [], cleared = [], framed = [], removed = [], refused = [], failed = 0, failedWhy = "" } = {}) {
   const bits = [];
   const name = (c) => "“" + c.slot.alt + "”";
   if (used.length) bits.push("put your own photograph" + (used.length > 1 ? "s" : "") + " on " + used.map(name).join(", "));
@@ -1453,13 +1453,25 @@ export function pictureReply({ used = [], made = [], cleared = [], framed = [], 
     notes.push("I couldn't check how " + unchecked.map(name).join(", ") + " sits on the page just now, so I left " +
       them(unchecked) + ".");
   }
-  if (!msg && notes.length) return notes.join(" ");
-  if (!msg) msg = "I couldn't match that to any of the pictures on your site.";
-  if (notes.length) msg += " " + notes.join(" ");
+  if (!msg && notes.length && !failed) return notes.join(" ");
+  // NO-MATCH ONLY WHEN NOTHING WAS MATCHED (audit A25-5, 2026-10-23): a
+  // picture that could not be made WAS matched — the model named its slot —
+  // so a failed-only answer no longer opens with "I couldn't match that".
+  if (!msg && !failed) msg = "I couldn't match that to any of the pictures on your site.";
+  if (notes.length) msg += (msg ? " " : "") + notes.join(" ");
   // A PICTURE THAT COULD NOT BE MADE IS SAID OUT LOUD. It leaves the slot
   // exactly as it was, which looks identical to a change that was never asked
   // for — and the owner has to know before they go looking for it.
-  if (failed) msg += " " + (failed === 1 ? "One picture" : failed + " pictures") + " couldn't be made just now — those slots are unchanged.";
+  // WITH ITS REASON WHEN ONE IS KNOWN (audit A25-3, 2026-10-23): purchases
+  // switched off, or credits short, is no "just now" — a retry cannot work.
+  if (failed) {
+    const which = failed === 1 ? "One picture" : failed + " pictures";
+    const slots = failed === 1 ? "that slot is" : "those slots are";
+    const why = failedWhy === "off" ? which + " couldn't be made because new pictures can't be made for sites at the moment, so " + slots + " unchanged. I can use one of the photographs your site already has instead — tell me which."
+      : failedWhy === "short" ? which + " couldn't be made because there aren't enough credits for a new picture, so " + slots + " unchanged."
+      : which + " couldn't be made just now — those slots are unchanged.";
+    msg += (msg ? " " : "") + why;
+  }
   return msg;
 }
 
@@ -1469,6 +1481,7 @@ export function pictureReply({ used = [], made = [], cleared = [], framed = [], 
  * `deps.send(request)`      → the Messages API response.
  * `deps.library()`          → the owner's uploaded photographs: [{name, url}].
  * `deps.generate(describe)` → a made picture's URL, or null. May be absent.
+ * `deps.unmadeWhy()`        → after a null: "off", "short" or "". May be absent.
  *
  * ESCALATES ONLY WHEN THE SITE HAS NO PICTURE SLOTS AT ALL. A model that read
  * the slots and matched none does NOT escalate: the rungs above cannot swap a
@@ -1583,6 +1596,11 @@ export async function runPictureEdit(deps, { instruction, pages, model = PICTURE
   const byName = new Map((Array.isArray(library) ? library : []).map((f) => [f && f.name, f && f.url]).filter(([n]) => n));
   const resolved = [], used = [], made = [], cleared = [], framed = [], removed = [];
   let failed = 0;
+  // WHY EACH ONE WAS NOT MADE, when the caller can say (`deps.unmadeWhy`):
+  // "off" or "short". One shared reason is told; mixed or unknown reads as
+  // before.
+  const whys = [];
+  const unmade = () => { failed++; let w = ""; try { w = typeof deps.unmadeWhy === "function" ? String(deps.unmadeWhy() || "") : ""; } catch { w = ""; } whys.push(w); };
   for (const c of picked) {
     if (c.cut) { resolved.push(c); removed.push(c); continue; }
     if (c.focus) framed.push(c);
@@ -1593,14 +1611,15 @@ export async function runPictureEdit(deps, { instruction, pages, model = PICTURE
     if (c.focus && !c.clear && !c.file && !c.describe) { resolved.push(c); continue; }
     if (c.clear) { resolved.push({ ...c, url: "" }); cleared.push(c); continue; }
     if (c.file) { resolved.push({ ...c, url: byName.get(c.file) || "" }); used.push(c); continue; }
-    if (typeof deps.generate !== "function") { failed++; continue; }
+    if (typeof deps.generate !== "function") { failed++; whys.push(""); continue; }
     let url = null;
     try { url = await deps.generate(c.describe); } catch { url = null; }
-    if (!url) { failed++; continue; }
+    if (!url) { unmade(); continue; }
     resolved.push({ ...c, url });
     made.push(c);
   }
-  if (!resolved.length) return { ok: false, escalate: false, reason: "nothing-made", usage, failed, msg: pictureReply({ failed }) };
+  const failedWhy = whys.length && whys.every((w) => w && w === whys[0]) ? whys[0] : "";
+  if (!resolved.length) return { ok: false, escalate: false, reason: "nothing-made", usage, failed, msg: pictureReply({ failed, failedWhy }) };
 
   const { pages: next, changed, overlapped } = applyPictures(pages, resolved);
   if (overlapped.length) {
@@ -1608,6 +1627,6 @@ export async function runPictureEdit(deps, { instruction, pages, model = PICTURE
   }
   return {
     ok: true, pages: next, changed, used, made, cleared, framed, removed, refused, failed, usage,
-    msg: pictureReply({ used, made, cleared, framed, removed, refused, failed }),
+    msg: pictureReply({ used, made, cleared, framed, removed, refused, failed, failedWhy }),
   };
 }

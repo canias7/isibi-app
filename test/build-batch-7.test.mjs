@@ -301,8 +301,8 @@ function realBuy(makeSitePhoto) {
   const W = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   const src = W.slice(W.indexOf("async function buySitePhotos("), W.indexOf("// Resolve @@SPRITE"));
   assert.ok(src.length > 1000 && src.includes("const unresolved ="), "buySitePhotos moved — rescope this");
-  const names = ["imagesAffordable", "SITE_PHOTO_USD", "siteUploadList", "MAX_FILES_PER_SITE", "photoWait", "planImages", "imageSources", "applyImages", "shotKey", "makeSitePhoto"];
-  const vals = [images.imagesAffordable, 0.15, async () => [], 200, images.photoWait, images.planImages, images.imageSources, images.applyImages, images.shotKey, makeSitePhoto];
+  const names = ["imagesAffordable", "SITE_PHOTO_USD", "siteUploadList", "MAX_FILES_PER_SITE", "photoWait", "planImages", "imageSources", "applyImages", "shotKey", "makeSitePhoto", "imagePurchasesOn"];
+  const vals = [images.imagesAffordable, 0.15, async () => [], 200, images.photoWait, images.planImages, images.imageSources, images.applyImages, images.shotKey, makeSitePhoto, images.imagePurchasesOn];
   return new Function(...names, src + "\nreturn buySitePhotos;")(...vals);
 }
 const TOKEN_PAGE = (d1, d2) => [{ path: "index.tsx", source: '<img src="@@IMG:' + d1 + '@@" /><img src="@@IMG:' + d2 + '@@" />' }];
@@ -338,6 +338,18 @@ test("2b CONTROL: every shot answers before the wait ends — no unresolved list
   const r = await withPictureFacts(buy({}, { slug: "harbour-loaf", pages: TOKEN_PAGE("a loaf on the counter", "the ovens at dawn"), parts: [], budget: 2, balance: 500, reserve: 0, clock: null }), { plan, budget: 6 });
   assert.deepEqual(r.unresolved, []);
   assert.deepEqual(r.pictures.map((x) => x.status), ["made", "failed"]);
+});
+
+test("2b SWITCHED OFF (audit A25-3, 2026-10-23): a build whose purchases were refused by IMAGE_PURCHASES=off records them as not tried because purchases are off, never as the image service's failure; switched on, the same refusal is still a failure", async () => {
+  const plan = normalizePlan({ ...GOOD_DESIGN, images: [{ page: "/", describe: "the ovens at dawn" }] });
+  const buy = realBuy(async () => ({ url: null, stage: "refused", error: images.IMAGE_PURCHASES_OFF }));
+  const args = { slug: "harbour-loaf", pages: TOKEN_PAGE("the ovens at dawn", "the ovens at dawn"), parts: [], budget: 1, balance: 500, reserve: 0, clock: null };
+  const off = await withPictureFacts(buy({ IMAGE_PURCHASES: "off" }, args), { plan, budget: 6 });
+  assert.equal(off.off, true);
+  assert.deepEqual(off.pictures.map((x) => [x.status, x.why]), [["not-attempted", "off"]]);
+  const on = await withPictureFacts(buy({}, args), { plan, budget: 6 });
+  assert.equal(on.off, undefined);
+  assert.deepEqual(on.pictures.map((x) => x.status), ["failed"]);
 });
 
 // ── 3. the model-written explanation on every path ─────────────────────────

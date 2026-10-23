@@ -1475,8 +1475,8 @@ export function buildReplyFacts(bf) {
   if (stored.length) F.add("not-done", "Photographs made and stored, but not on any page that was published, so they are not on the site: " + named(stored));
   if (of("own").length) F.add("note", "Their own photographs, which they supplied, were handed to the page writer to use: " + named(of("own")) + ". Whether each was placed is not recorded.");
   if (of("failed").length) F.add("not-done", "Photographs tried and not made (the image service answered without them), so their frames are empty placeholders: " + named(of("failed")));
-  const why = { library: "their image library is full", time: "the build ran out of time before buying them", budget: "the credits left could not pay for them" };
-  for (const w of ["library", "time", "budget"]) {
+  const why = { library: "their image library is full", time: "the build ran out of time before buying them", budget: "the credits left could not pay for them", off: "new photographs cannot be made for sites at the moment (not a passing fault; trying again will not help)" };
+  for (const w of ["library", "time", "budget", "off"]) {
     const xs = of("not-attempted").filter((x) => x.why === w);
     if (xs.length) F.add("not-done", "Photographs the page asked for but never tried, because " + why[w] + ", so their frames are empty placeholders: " + named(xs));
   }
