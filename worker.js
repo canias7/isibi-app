@@ -37507,6 +37507,8 @@ async function handleRequest(request, env, ctx) {
               // below the break, which is this repo's own recorded trap.
               const edb = await siteBackendBySlug(env, ownerSlug);
               let priorLook = null;
+              // The stored config itself, for `markRemove` below (audit A26-2).
+              let priorConfig = null;
               // THE WHOLE DESIGN, since 2026-08-23. This lane is the cheap rung a
               // colour change lands on, and with `tokens`/`style`/`seeds` off the
               // tool there is nothing else for it to move.
@@ -37541,6 +37543,7 @@ async function handleRequest(request, env, ctx) {
                 // an uploaded picture included, which the old pair kept in a
                 // key this path could not see.
                 priorLook = lookWithMarks(cfg.config);
+                priorConfig = cfg.config;
                 priorCss = cfg.config.css;
               } catch (e) {
                 // OURS, AND SAID (2026-09-23). A config read that failed escalated
@@ -37913,6 +37916,14 @@ async function handleRequest(request, env, ctx) {
               // reason for a behaviour that is right. `markRemove` is what the
               // removal leaves behind.
               const merged = mergeLook(priorLook, designed, {}, { instructed: true, asked: true, clear: eRemoves.remove.filter((f) => !takeOffLane(f)).concat([...takeOffAll]) });
+              // A MARK TAKEN OFF IS STORED AS A FORM (audit A26-2). The merge's
+              // wipe writes null, and `markOf` reads a stored null as "no form"
+              // and falls back to the legacy upload key, so a site still on the
+              // old pair kept showing the uploaded picture while the reply said
+              // it was gone. `markRemove` is what the logo rung stores.
+              for (const f of MARKS) {
+                if (eRemoves.remove.includes(f) && !takeOffLane(f) && merged[f] === null) merged[f] = markRemove(priorConfig, f);
+              }
               const moved = movedFields(priorLook, merged);
               // ── A CODE THAT COMES OFF TAKES ITS FIGURE WITH IT (2026-10-02, W2) ──
               //
