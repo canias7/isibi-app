@@ -162,15 +162,24 @@ export function normalizeApi(raw) {
  * public or degraded data — so the page would render something plausible and
  * wrong, which is worse than an error the owner can see and fix.
  *
- * Parameters are URL-ENCODED on the way in. Unencoded, a `&` in a postcode
- * field appends a query parameter of the caller's choosing to the owner's
- * request — the injection this substitution exists to make impossible.
+ * Parameters are ESCAPED FOR WHERE THEY LAND (audit A30-8). In a URL they are
+ * URL-encoded: unencoded, a `&` in a postcode field appends a query parameter
+ * of the caller's choosing to the owner's request — the injection this
+ * substitution exists to make impossible. Inside a JSON body they are
+ * JSON-escaped (a quote cannot end the string), and in a header value a line
+ * break is taken out; URL-encoding there sent "SW1A%201AA" to the service.
  */
-export function fill(text, { secrets, params }) {
+const ESCAPE = {
+  url: (s) => encodeURIComponent(s),
+  json: (s) => JSON.stringify(s).slice(1, -1),
+  header: (s) => s.replace(/[\r\n]/g, ""),
+};
+export function fill(text, { secrets, params, escape = "url" }) {
   let missing = null;
+  const esc = Object.hasOwn(ESCAPE, escape) ? ESCAPE[escape] : ESCAPE.url;
   let out = String(text || "").replace(PARAM_RE, (_, p) => {
     const v = params && Object.prototype.hasOwnProperty.call(params, p.toLowerCase()) ? params[p.toLowerCase()] : "";
-    return encodeURIComponent(String(v == null ? "" : v));
+    return esc(String(v == null ? "" : v));
   });
   out = out.replace(SECRET_RE, (whole, name) => {
     const v = secrets && secrets[name];
@@ -310,13 +319,15 @@ export async function callApi(deps, { ownerId, slug, api, params, now }) {
 
   const headers = {};
   for (const [k, v] of Object.entries(api.headers || {})) {
-    const f = fill(v, { secrets: deps.secrets, params });
+    const f = fill(v, { secrets: deps.secrets, params, escape: "header" });
     if (f.missing) return { status: 503, body: { error: "this site's connection to that service isn't set up yet" }, missing: f.missing };
     headers[k] = f.text;
   }
   let body;
   if (api.method === "POST") {
-    const f = fill(api.body, { secrets: deps.secrets, params });
+    // JSON unless the connection declared another type (a form body is URL-encoded).
+    const type = String(headers["Content-Type"] || headers["content-type"] || "application/json").toLowerCase();
+    const f = fill(api.body, { secrets: deps.secrets, params, escape: type.includes("json") ? "json" : "url" });
     if (f.missing) return { status: 503, body: { error: "this site's connection to that service isn't set up yet" }, missing: f.missing };
     body = f.text;
     if (!headers["Content-Type"] && !headers["content-type"]) headers["Content-Type"] = "application/json";
