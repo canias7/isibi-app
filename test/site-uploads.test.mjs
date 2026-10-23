@@ -393,6 +393,12 @@ test("acceptsVisitorUploads needs BOTH a writable level and a place to put it", 
   assert.equal(acceptsVisitorUploads({}), false);
 });
 
+test("A29-8 — a closed (retired) table takes no visitor upload", () => {
+  assert.equal(acceptsVisitorUploads(VSPEC.bookings), true, "observer: the open form accepts");
+  assert.equal(acceptsVisitorUploads({ ...VSPEC.bookings, retired: true }), false);
+  assert.equal(acceptsVisitorUploads({ ...VSPEC.bookings, retired: false }), true);
+});
+
 test("the throttle runs before the bytes are read or hashed", async () => {
   // A flood must cost as close to nothing as possible, and this is the endpoint
   // a stranger can call.

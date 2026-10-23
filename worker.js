@@ -25400,7 +25400,13 @@ async function buildFireIdentity(env, job) {
   try { body = JSON.parse(job.body); } catch { body = null; }
   const named = cleanBuildSlug(body && body.slug);
   if (!named) return { uid: job.uid, slug: "", pre: true };
-  const owner = await siteOwnerBySlug(named, env);
+  // READ FRESH, AND CANNOT-TELL IS NOT FREE (audit A16-6): the memoized
+  // lookup answered null for a failed read as for a free name, so a Supabase
+  // blip fired the build with a token for a stranger's site. A failed read
+  // fires it pre-scoped; the job's own scope op asks again when it names it.
+  let owner = null;
+  try { const r = await siteBackendRowFresh(env, named); owner = (r && r.uid) || null; }
+  catch { return { uid: job.uid, slug: "", pre: true }; }
   if (owner && owner !== job.uid) return null;
   return { uid: job.uid, slug: named, pre: false };
 }
@@ -39183,6 +39189,11 @@ async function handleRequest(request, env, ctx) {
                 return explain("page/spec-unreadable", {}, { backend: eSpecStop });
               }
               if (!eCfgRead) return explain("page/config-unreadable", { page: wantRoute });
+              // A STYLESHEET WITH NO STORED LOOK IS EXISTING DESIGN (audit
+              // A37-5): the look rung edits it and the add-on explains rather
+              // than rewrite it, so this rung says so at no cost too; only a
+              // site with neither climbs to the rewrite.
+              if (!eLook2 && eCss2.trim()) return explain("page/css-only", { page: wantRoute });
               if (!eLook2) return escalate("no-look");
               // UNREACHABLE once the config was read: every branch above either
               // sets a schema or sets a stop. Said rather than climbed if it ever

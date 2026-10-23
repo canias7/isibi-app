@@ -543,6 +543,9 @@ export const MAX_VISITOR_BYTES = 25_000_000;
  */
 export function acceptsVisitorUploads(def) {
   if (!def) return false;
+  // A closed (`retired`) table keeps no visitor privilege (grantsFor,
+  // policiesFor), so its upload door is closed too (audit A29-8).
+  if (def.retired) return false;
   if (!canWriteAccess(def) && !canMemberWrite(def)) return false;
   return (Array.isArray(def.columns) ? def.columns : [])
     .map((c) => String(typeof c === "string" ? c : (c && c.name) || ""))
