@@ -21,7 +21,7 @@
 // Postgres, not in the page, so the dishes stay in the owner's own words. That
 // limit is real and is stated to the customer rather than discovered by them.
 import { extractText, applyEdit } from "./site-text.mjs";
-import { pageForLang } from "./site-langs.mjs";
+import { pageForLang, MAX_EXTRA_LANGS } from "./site-langs.mjs";
 
 /** The most strings one call will carry. */
 export const MAX_STRINGS = 900;
@@ -198,8 +198,22 @@ export function usableTranslation(from, to) {
  * request: a language whose translation could not be used says so, and so does
  * one where some phrases stayed in the original wording.
  */
-export function langNote(outcomes) {
+export function langNote(outcomes, refused = []) {
   const out = [];
+  // A LANGUAGE `resolveLangs` REFUSED IS SAID TOO (audit A32-4). It was put on
+  // the answer as `langsRefused` and no reply read it, so "add Italian" as a
+  // fourth language was told as done and no /it ever appeared. One sentence
+  // per refusal, from its own reason.
+  const WHY = {
+    cap: (l) => "The site can be offered in at most " + MAX_EXTRA_LANGS + " other languages, so " + l + " was not added.",
+    duplicate: (l) => l + " was not added: the site already has a language at the same address.",
+    reserved: (l) => l + " was not added: its address is one the site already uses for something else.",
+    page: (l) => l + " was not added: the site has a page at the address that language would use.",
+    unreadable: (l) => "“" + l + "” was not added: it is not a language code I can read.",
+  };
+  for (const r of Array.isArray(refused) ? refused : []) {
+    if (r && typeof r.lang === "string" && Object.hasOwn(WHY, r.why)) out.push(WHY[r.why](r.lang));
+  }
   for (const o of Array.isArray(outcomes) ? outcomes : []) {
     if (!o || typeof o.tag !== "string") continue;
     const kept = Number(o.kept) || 0;

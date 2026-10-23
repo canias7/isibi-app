@@ -18082,7 +18082,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     if (!r || typeof r !== "object" || r.applied !== false) continue;
     lookSoft.push({ what, notes: (Array.isArray(r.notes) ? r.notes : []).slice(0, 2).map((x) => String(x).slice(0, 160)) });
   }
-  return { ok: true, files: wrote, look, render, renderNote: [renderNote(built.render), langNote(langOutcomes)].filter(Boolean).join(" ") || undefined,
+  return { ok: true, files: wrote, look, render, renderNote: [renderNote(built.render), langNote(langOutcomes, langsRefused)].filter(Boolean).join(" ") || undefined,
     // WHICH VERSION WENT LIVE (stage 7): the prefix the site now serves, and
     // what a reconcile compares against the pointer and `x-site-version`.
     version,
