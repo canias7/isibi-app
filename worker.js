@@ -15176,7 +15176,10 @@ const writeBesideMax = (env) => (writesBeside(env) ? WRITE_BESIDE_MAX : 1);
  * child builds from its launch (observed).
  */
 export function jobSwitches(env) {
-  return { draftFirst: draftFirst(env), parallelWrites: writesBeside(env) };
+  // THE MONEY SWITCH BESIDE THEM (audit A25-6, 2026-10-23): the free check
+  // reported only the Worker's reading of IMAGE_PURCHASES, so a launch that
+  // dropped it would let jobs buy while the route said off.
+  return { draftFirst: draftFirst(env), parallelWrites: writesBeside(env), imagePurchases: imagePurchasesOn(env) };
 }
 const turnPollMs = (env) => { const n = Number(env && env.PUBLISH_TURN_POLL_MS); return Number.isFinite(n) && n > 0 ? n : TURN_POLL_MS; };
 const turnWaitMs = (env) => { const n = Number(env && env.PUBLISH_TURN_WAIT_MS); return Number.isFinite(n) && n > 0 ? n : TURN_WAIT_MS; };
@@ -31821,6 +31824,7 @@ async function handleRequest(request, env, ctx) {
         parallelWrites: writesBeside(env),
         jobDraftFirst: jobSwitches(jobSecrets(env)).draftFirst,
         jobParallelWrites: jobSwitches(jobSecrets(env)).parallelWrites,
+        jobImagePurchases: jobSwitches(jobSecrets(env)).imagePurchases,
       });
     }
 

@@ -50,11 +50,14 @@ test("DH1 THE SETTING SURVIVES SERIALIZATION INTO A JOB — jobSecrets, the laun
   const worker = await loadWorkerModule();
   assert.equal(typeof worker.jobSwitches, "function", "the Worker module has no jobSwitches export — this case is watching nothing");
   const cases = [
-    [{ DRAFT_FIRST: "on", PARALLEL_WRITES: "on" }, { draftFirst: true, parallelWrites: true }],
-    [{ DRAFT_FIRST: "ON" }, { draftFirst: true, parallelWrites: false }],
-    [{}, { draftFirst: false, parallelWrites: false }],
-    [{ DRAFT_FIRST: "off", PARALLEL_WRITES: "off" }, { draftFirst: false, parallelWrites: false }],
-    [{ DRAFT_FIRST: "yes" }, { draftFirst: false, parallelWrites: false }],
+    [{ DRAFT_FIRST: "on", PARALLEL_WRITES: "on" }, { draftFirst: true, parallelWrites: true, imagePurchases: true }],
+    [{ DRAFT_FIRST: "ON" }, { draftFirst: true, parallelWrites: false, imagePurchases: true }],
+    [{}, { draftFirst: false, parallelWrites: false, imagePurchases: true }],
+    [{ DRAFT_FIRST: "off", PARALLEL_WRITES: "off" }, { draftFirst: false, parallelWrites: false, imagePurchases: true }],
+    [{ DRAFT_FIRST: "yes" }, { draftFirst: false, parallelWrites: false, imagePurchases: true }],
+    // THE MONEY SWITCH (audit A25-6, 2026-10-23): `off` in the Worker is `off`
+    // in the job child, through the same serialization.
+    [{ IMAGE_PURCHASES: "off" }, { draftFirst: false, parallelWrites: false, imagePurchases: false }],
   ];
   for (const kind of ["edit", "build", "resume"]) {
     for (const [workerEnv, want] of cases) {

@@ -264,6 +264,9 @@ if (SHAPE === "env") {
   const want = {
     draftFirst: WANT_DRAFT !== null ? WANT_DRAFT : (rt && typeof rt.draftFirst === "boolean" ? rt.draftFirst : null),
     parallelWrites: WANT_PARALLEL !== null ? WANT_PARALLEL : (rt && typeof rt.parallelWrites === "boolean" ? rt.parallelWrites : null),
+    // THE MONEY SWITCH (audit A25-6): wanted as the Worker reads it, so a job
+    // child reading it differently fails the check.
+    ...(rt && typeof rt.imagePurchases === "boolean" ? { imagePurchases: rt.imagePurchases } : {}),
   };
   log("");
   log(`step 6 — observed in a job child: ${seen ? JSON.stringify(seen) : "NOTHING READ"}`);

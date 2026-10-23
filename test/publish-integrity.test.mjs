@@ -832,6 +832,8 @@ test("the diagnostic answers the two effective eligibilities and the deploy iden
     // THE PUBLISHING SWITCHES (2026-10-16): neither is set here, so both
     // read off at the Worker and as a container job is handed them.
     draftFirst: false, parallelWrites: false, jobDraftFirst: false, jobParallelWrites: false,
+    // THE MONEY SWITCH AS A JOB IS HANDED IT (audit A25-6, 2026-10-23).
+    jobImagePurchases: true,
   });
 });
 

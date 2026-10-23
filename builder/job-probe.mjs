@@ -84,7 +84,7 @@ export const PROBE_SHAPES = ["hold", "wire", "env"];
  * answers it as not runnable. The launch carries only these names, picked
  * from `jobSecrets(env)`, so no credential reaches a probe.
  */
-export const ENV_PROBE_NAMES = ["DRAFT_FIRST", "PARALLEL_WRITES"];
+export const ENV_PROBE_NAMES = ["DRAFT_FIRST", "PARALLEL_WRITES", "IMAGE_PURCHASES"];
 
 /**
  * THE `env` PROBE'S ANSWER, READ OUT OF A FINISHED RECORD'S TAIL (2026-10-16):
@@ -103,7 +103,9 @@ export function envObserved(tail) {
       try { v = JSON.parse(v.slice(at)); } catch { continue; }
     }
     if (v && typeof v === "object" && v.probe === "env" && typeof v.draftFirst === "boolean" && typeof v.parallelWrites === "boolean") {
-      return { probe: "env", draftFirst: v.draftFirst, parallelWrites: v.parallelWrites };
+      // THE MONEY SWITCH (audit A25-6) when the line carries it; an older
+      // container's line without it still reads, with it unobserved.
+      return { probe: "env", draftFirst: v.draftFirst, parallelWrites: v.parallelWrites, ...(typeof v.imagePurchases === "boolean" ? { imagePurchases: v.imagePurchases } : {}) };
     }
   }
   return null;
