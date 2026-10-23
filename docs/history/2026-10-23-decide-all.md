@@ -128,3 +128,12 @@ Predicted with `containerInputs`/`imageId` over git objects at each end:
 file for the new head. `AppBuildContainer` is unchanged (`65022ce71e3d7274`).
 The image rolls (other's `lang-override.mjs` is a new COPY input, and builder
 modules changed).
+
+## Final readings (measured after the runs)
+
+- Full suite on the code of `decide-all` (commit after the replies change):
+  `12294 / 12290 / 1 / 3`; the one failure is `no-generated-deps` (the linked
+  `node_modules`, environmental, fails the same on every tree here).
+- Image prediction: `SiteBuildContainer` `ebfbd45c42ea43ac` (origin/main, 225
+  inputs, 193 paths) → `695e09e12f6cedb3` (decide-all, 226 inputs, 194
+  paths): it rolls. `AppBuildContainer` `65022ce71e3d7274` both ends (reused).

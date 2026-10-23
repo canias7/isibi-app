@@ -1,5 +1,15 @@
 # Owner Notes
 
+
+## 2026-10-23 — Every decided branch on one branch, `decide-all` (not merged, not deployed)
+
+- The jobs, design, publish, media and other decisions are merged on top of the combined five. Only the owner-notes and three code imports conflicted; all kept both sides.
+- The full test run found four mistakes the media branch had shipped (most important: the new "attached logo" field stopped every first build's design from splitting into its parallel parts). Fixed.
+- Your rule about replies is applied to the new messages: running out of credits, a stopped build, a name that is too long, the logo, the per-page menu refusals, the QR-code refusal, and the translation notes now reach the reply writer as facts (language by name), and the fixed sentences are only the fallback. Four are not done and are yours to decide: the Publish panel's offline toast, the read-widening question card, the video/audio move toasts, and the missed-notification email line (an email template by design).
+- Two things found and noted in the backlog: a revise build does not put your own translated wording back on its pages until the next edit, and the video/audio move flag is shared by every project on the page.
+- #141, #203 and #148 are in the backlog as deferred by you.
+- Tests: 12,294 run, all pass but one that fails here because of how the test machine links its libraries. The container image changes (predicted `695e09e12f6cedb3`). Nothing spent. Record: `docs/history/2026-10-23-decide-all.md`.
+
 ## 2026-10-23 — Your choices for audit findings 20–25 (photos, logo, video, menus, QR codes; not merged, not deployed)
 
 - **20**: a video or recording attached before the site existed is now moved into the site's library before the message goes out as an edit, so the edit can use it. If the move fails, nothing is sent and the chat says why.
