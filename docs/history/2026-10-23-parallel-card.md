@@ -95,3 +95,24 @@ counts it so it is sent).
   failed part opened, finished.
 
 Nothing spent, no model called, no live writes.
+
+## The owner's two label changes (2026-10-23, later)
+
+The owner approved the card with two label changes, both in `siteParTag`
+(`public/chat.js`, beside `siteParTitle`, which now names a row and the part
+it waits for the same way):
+
+1. A part done or partly done with a draft revision (`p.draft.revision > 0`,
+   draft-first: saved, not published) is labelled **"saved as draft"**; the
+   header still counts it done. This settles the DFU4 question above.
+2. A held part (`blocked`, not prepared beside another job) with the server's
+   `needs` (places on the card, from 0) is labelled **"waiting for <that
+   part's title>"**, or "waiting for part N" without a title, joined by "and".
+
+The reload snapshot (`siteParSnap`) keeps `needs` and `draft.revision`.
+Tests: 2 new cases in `test/parallel-card.test.mjs`, red with the old label
+(9 pass, 2 fail); sweep 2 mutants killed, the comment-only control survived;
+DFU4 updated ("waiting for part 2", then "saved as draft"). Run green:
+parallel-card, progress-browser, preview-keep-browser, draft-ui-browser,
+site-entry-inventory, canary-ui (180 tests). **The full suite was not run**
+(skipped for speed on the owner's word). Screenshots re-rendered.

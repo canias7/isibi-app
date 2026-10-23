@@ -303,14 +303,14 @@ test("DFU4 ONE MESSAGE, TWO PARTS, UNDER DRAFT-FIRST, ON THE PAGE: the part that
     await page.fill("#stRevise", NEEDS + ", and " + ADD + ".");
     await page.click("#stSend");
     // THE WAITING PART NAMES THE PART IT WAITS FOR; THE OTHER ASKS.
-    await page.waitForFunction(() => { const c = [...document.querySelectorAll(".st-par")].pop(); return !!c && [...c.querySelectorAll(".st-par-tag")].some((e) => e.textContent === "waiting"); }, null, { timeout: 60000 });
+    await page.waitForFunction(() => { const c = [...document.querySelectorAll(".st-par")].pop(); return !!c && [...c.querySelectorAll(".st-par-tag")].some((e) => e.textContent === "waiting for part 2"); }, null, { timeout: 60000 });
     await page.waitForSelector("[data-ask-pick]", { timeout: 60000 });
-    assert.deepEqual(await labels(), ["waiting", "needs you"]);
+    assert.deepEqual(await labels(), ["waiting for part 2", "needs you"]);
     await shot("dfu4-waiting-and-question");
     // THE ANSWER, ON THE PAGE.
     await page.click("[data-ask-pick] >> text=Loaves");
     await page.click("[data-ask-go]");
-    await page.waitForFunction(() => { const c = [...document.querySelectorAll(".st-par")].pop(); const l = c ? [...c.querySelectorAll(".st-par-tag")].map((e) => e.textContent) : []; return l.length === 2 && l.every((t) => t === "done"); }, null, { timeout: 120000 });
+    await page.waitForFunction(() => { const c = [...document.querySelectorAll(".st-par")].pop(); const l = c ? [...c.querySelectorAll(".st-par-tag")].map((e) => e.textContent) : []; return l.length === 2 && l.every((t) => t === "saved as draft"); }, null, { timeout: 120000 });
     assert.ok(P.pages().includes("gallery.tsx"), "the gallery was not made");
     // THE LIVE SITE DID NOT MOVE.
     assert.equal(P.readObj("current/" + P.slug + ".json"), pointer0, "the live pointer moved before Publish");

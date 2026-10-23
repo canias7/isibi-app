@@ -1,5 +1,11 @@
 # Owner Notes
 
+## 2026-10-23, late night — the parallel card: your two label changes (branch `parallel-card`, not merged, not deployed)
+
+- A part saved to the draft now says "saved as draft" instead of "done" (the header still counts it as done).
+- A part waiting on another names it: "waiting for About story", or "waiting for part 3" when that part has no title yet.
+- Tests: 2 new cases, red on the old labels; sweep 2 of 2 killed, the comment-only control survived; the card's tests and the progress, preview-keep, draft and canary page tests green (DFU4 now reads "waiting for part 2", then "saved as draft"). Full suite not run (skipped for speed, as you asked). Screenshots re-rendered. Nothing spent.
+
 ## 2026-10-23, night — the parallel card, branch `parallel-card` (not merged, not deployed)
 
 - Built your approved design (left column, no bar). When one message splits into several parts, the chat shows one card: the model's opening line saying it will work on the changes side by side, "Working on N changes · K done", then one row per part with a grey dot, its short title, a small state label and a caret.

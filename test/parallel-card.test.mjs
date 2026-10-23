@@ -33,7 +33,7 @@ function cutConst(head) {
   if (!/\{\s*$/.test(line)) return line;
   return CHAT.slice(open, CHAT.indexOf("\n};\n", open) + 4);
 }
-const FNS = ["esc", "progressListHTML", "siteSaidFor", "siteMsgText", "siteParView", "siteParState", "siteParSnap", "siteParHidden", "siteReqCardHTML", "siteParClick", "siteParRetry"];
+const FNS = ["esc", "progressListHTML", "siteSaidFor", "siteMsgText", "siteParView", "siteParState", "siteParTitle", "siteParTag", "siteParSnap", "siteParHidden", "siteReqCardHTML", "siteParClick", "siteParRetry"];
 const CONSTS = ["const SITE_PAR_STATE =", "const SITE_PAR_LABEL =", "const siteParOpen =", "const SITE_REQ_PREP =", "const SITE_SAID_FOR ="];
 const SRC = [...FNS.map((n) => cut("function " + n + "(")), ...CONSTS.map(cutConst)].join("\n");
 
@@ -223,4 +223,27 @@ test("the opening line and the titles are the writer's, from the fact of the spl
   const today = cut("function siteRequestHTML(");
   const literals = (src.match(/'[^'\n]*'/g) || []).map((x) => x.slice(1, -1).replace(/<[^>]*>?/g, " ").replace(/^[^A-Za-z]+/, "").trim()).filter((t) => /[A-Za-z]{3,}\s+[A-Za-z]{3,}\s+[A-Za-z]{3,}/.test(t) && !/class=|data-|type=|aria-|role=/.test(t) && !today.includes(t));
   assert.deepEqual(literals, [], "a sentence is written in the card's code");
+});
+
+test("the owner's labels (2026-10-23): a part saved to the draft says \"saved as draft\", and the header still counts it done", () => {
+  const s = site8();
+  s.requests[KEY].view.parts[0].draft = { revision: 4 };
+  const html = load(s).html();
+  const rows = html.split('<div class="st-par-part ').slice(1);
+  assert.match(rows[0], /<span class="st-par-tag">saved as draft</);
+  assert.match(rows[1], /<span class="st-par-tag">done</, "a part with no draft revision keeps \"done\"");
+  assert.match(html, /Working on 8 changes<\/b><span> · 3 done<\/span>/);
+});
+
+test("the owner's labels (2026-10-23): a part held for another names it by its title, else by its place", () => {
+  const s = site8();
+  s.requests[KEY].view.parts[6].needs = [2];
+  let rows = load(s).html().split('<div class="st-par-part ').slice(1);
+  assert.match(rows[6], /<span class="st-par-tag">waiting for Title 3</);
+  delete s.requests[KEY].view.parts[2].said.title;
+  rows = load(s).html().split('<div class="st-par-part ').slice(1);
+  assert.match(rows[6], /<span class="st-par-tag">waiting for part 3</);
+  s.requests[KEY].view.parts[6].needs = [];
+  rows = load(s).html().split('<div class="st-par-part ').slice(1);
+  assert.match(rows[6], /<span class="st-par-tag">waiting</);
 });

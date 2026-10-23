@@ -118,7 +118,7 @@ const FNS = [...new Set([
   "watchEditJob",
   // THE PARALLEL CARD (2026-10-23): a split message's one card, its snapshot
   // kept on the message for a reload, and its rows' presses.
-  "siteParView", "siteParState", "siteParSnap", "siteParHidden", "siteReqCardHTML", "siteParClick", "siteParRetry",
+  "siteParView", "siteParState", "siteParTitle", "siteParTag", "siteParSnap", "siteParHidden", "siteReqCardHTML", "siteParClick", "siteParRetry",
 ])];
 // AND THE TWO OF THEM THAT ARE `async function`s.
 const ASYNC_FNS = ["siteRequestShow", "siteRequestJobReply", "siteReqNothingSince"];

@@ -11679,6 +11679,28 @@ function siteParState(p) {
   if (status === 'waiting' && p.question && p.question.queued === true) return 'wait';
   return Object.hasOwn(SITE_PAR_STATE, status) ? SITE_PAR_STATE[status] : 'wait';
 }
+/** A part's short name on the card: the model's title, its line for its state, else its words. */
+function siteParTitle(p) {
+  const said = EditPoll.taskSaid(p && p.said);
+  const prep = p && (p.status === 'blocked' || p.status === 'ready' || p.status === 'queued') && Object.hasOwn(SITE_REQ_PREP, p.prep) ? p.prep : '';
+  return (said && said.title) || siteSaidFor(p && p.said, prep ? 'doing' : SITE_SAID_FOR[p && p.status]) || String((p && p.words) || '');
+}
+/** A part's small label (2026-10-23, the owner's two changes): "saved as draft"
+ * for a part saved to the draft under draft-first, not "done"; a part held for
+ * another names it ("waiting for <its title>", else "waiting for part N"), from
+ * the server's `needs` (places on the card, numbered from 0). */
+function siteParTag(p, parts, state) {
+  const status = p && typeof p.status === 'string' ? p.status : '';
+  if (state === 'done' && p.draft && Number.isInteger(p.draft.revision) && p.draft.revision > 0) return 'saved as draft';
+  if (state === 'wait' && status === 'blocked' && Array.isArray(p.needs)) {
+    const names = p.needs.filter((x) => Number.isInteger(x) && x >= 0).map((x) => {
+      const t = x < parts.length ? EditPoll.taskSaid(parts[x].said) : null;
+      return t && t.title ? t.title : 'part ' + (x + 1);
+    });
+    if (names.length) return 'waiting for ' + names.join(' and ');
+  }
+  return SITE_PAR_LABEL[state];
+}
 /** The snapshot of a request's view kept on its card's message, for a reload. */
 function siteParSnap(s, key) {
   const st = s && s.requests ? s.requests[key] : null;
@@ -11689,7 +11711,8 @@ function siteParSnap(s, key) {
     ended: v.ended === true, ...(typeof v.opening === 'string' && v.opening ? { opening: v.opening } : {}),
     parts: v.parts.map((p) => ({
       n: p.n, words: String(p.words || ''), status: String(p.status || ''),
-      ...(p.prep ? { prep: p.prep } : {}), ...(p.question ? { question: { queued: p.question.queued === true } } : {}),
+      ...(p.prep ? { prep: p.prep } : {}), ...(Array.isArray(p.needs) ? { needs: p.needs.slice() } : {}),
+      ...(p.draft && Number.isInteger(p.draft.revision) ? { draft: { revision: p.draft.revision } } : {}), ...(p.question ? { question: { queued: p.question.queued === true } } : {}),
       jobs: Array.isArray(p.jobs) ? p.jobs.slice() : [],
       ...(EditPoll.taskSaid(p.said) ? { said: EditPoll.taskSaid(p.said) } : {}),
       ...(Array.isArray(p.progress) && p.progress.length ? { progress: p.progress.slice(-8) } : {}),
@@ -11721,10 +11744,9 @@ function siteReqCardHTML(m, site) {
   const head = '<div class="st-par-head"><b>' + (ended ? '' : 'Working on ') + v.parts.length + ' changes</b><span> · ' + done + ' done' + (ended && bad ? ' · ' + bad + ' didn’t work' : '') + '</span></div>';
   const rows = v.parts.map((p, i) => {
     const state = states[i];
-    const said = EditPoll.taskSaid(p.said);
     // A PART PREPARED BESIDE THE JOB OF ANOTHER PART: the chip of the single-part card is its label.
     const prep = (p.status === 'blocked' || p.status === 'ready' || p.status === 'queued') && Object.hasOwn(SITE_REQ_PREP, p.prep) ? p.prep : '';
-    const title = (said && said.title) || siteSaidFor(p.said, prep ? 'doing' : SITE_SAID_FOR[p.status]) || String(p.words || '');
+    const title = siteParTitle(p);
     const o = siteParOpen.get(site.id + '|' + key + '|' + p.n);
     const open = o && o.state === state ? o.open : state === 'run';
     const replies = own.filter((x) => x.job && Array.isArray(p.jobs) && p.jobs.includes(x.job));
@@ -11740,7 +11762,7 @@ function siteReqCardHTML(m, site) {
     // what the part said stays on the page for whoever reads it.
     return '<div class="st-par-part st-par-' + state + (open ? ' open' : '') + '">' +
       '<div class="st-par-row" data-par-row="' + esc(key) + '" data-par-n="' + esc(String(p.n)) + '" role="button" tabindex="0" aria-expanded="' + (open ? 'true' : 'false') + '">' +
-      '<span class="st-par-dot"></span><span class="st-par-title">' + esc(title) + '</span><span class="st-par-tag">' + (prep ? SITE_REQ_PREP[prep] : SITE_PAR_LABEL[state]) + '</span><span class="st-par-car">' + (open ? '▾' : '▸') + '</span></div>' +
+      '<span class="st-par-dot"></span><span class="st-par-title">' + esc(title) + '</span><span class="st-par-tag">' + esc(prep ? SITE_REQ_PREP[prep] : siteParTag(p, v.parts, state)) + '</span><span class="st-par-car">' + (open ? '▾' : '▸') + '</span></div>' +
       '<div class="st-par-body"' + (open ? '' : ' hidden') + '>' + (body || '<div class="st-par-said st-par-none">…</div>') + '</div></div>';
   }).join('');
   // THE SOFT BOX: the live question, else the request's own reply once ended.
