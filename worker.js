@@ -11895,7 +11895,23 @@ async function claimNotify(env, slug) {
   const row = Array.isArray(rows) && rows[0];
   // No row means either notifications are off or another isolate got there
   // first. Both are "do nothing", and neither is an error.
-  return row ? { ok: true, owner_uid: row.uid } : { ok: false };
+  return row ? { ok: true, owner_uid: row.uid, at: row.notified_at } : { ok: false };
+}
+
+// THE WINDOW HANDED BACK (audit A12-9): the claim's winner found no mail key,
+// so nothing was sent and the next submission may try. Only this claim's own
+// stamp is cleared; a later winner's is never touched.
+async function unclaimNotify(env, slug, claim) {
+  const at = claim && typeof claim.at === "string" ? claim.at : "";
+  if (!at) return;
+  const q = `slug=eq.${encodeURIComponent(slug)}&notified_at=eq.${encodeURIComponent(at)}`;
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?${q}`, {
+    method: "PATCH",
+    headers: svcHeaders(env, { "content-type": "application/json", Prefer: "return=minimal" }),
+    body: JSON.stringify({ notified_at: null }),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!r.ok) throw new Error("unclaim " + r.status);
 }
 
 // The Go Farther account that owns the site. auth.users is not reachable through
@@ -12941,11 +12957,12 @@ function notifyOwnerOfSubmission(env, ctx, payload) {
   const p = (async () => {
     const out = await notifyOwner({
       claim: (s2) => claimNotify(env, s2),
+      unclaim: (s2, c) => unclaimNotify(env, s2, c),
       // Supabase, because this is looking up WHO to write to — our own record of
       // our own customer's address. It says nothing about which sender is used.
       emailOf: (uid) => ownerEmail(env, uid),
-      // READ BEFORE THE CLAIM (audit A12-9): a missing key used to be found
-      // only after the five-minute window was taken.
+      // READ BY THE CLAIM'S WINNER, and a missing key hands the window back
+      // (`unclaim`, audit A12-9): it used to spend the five minutes on nothing.
       ready: async () => {
         const secrets = await siteMailSecrets(env, payload.db, payload.slug)();
         const picked = pickProvider(secrets);

@@ -79,17 +79,19 @@ export function submissionEmail({ slug, table, row, extra = 0 } = {}) {
 
 /**
  * deps:
- *   ready()              → anything (optional) | throws
- *        the sender's own settings (the owner's key and EMAIL_FROM), read
- *        BEFORE the claim (audit A12-9): a site with no key must not spend the
- *        cooldown window on an email that cannot go. Its answer is handed to
- *        send as the second argument.
  *   claim(slug)          → {ok, owner_uid, missed?} | {ok:false}
  *        one atomic conditional update: sets notified_at and returns the row
  *        ONLY if notifications are on and the cooldown has passed. Whoever wins
  *        sends; everyone else in the window does nothing. `missed` (the count
  *        dropped inside the window) is read when given; the Worker's claim does
  *        not count them today, so the "…and N more" line does not appear.
+ *   ready()              → anything (optional) | throws
+ *        the sender's own settings (the owner's key and EMAIL_FROM), read by
+ *        the claim's winner only, so a site with notifications off pays no
+ *        read. Its answer is handed to send as the second argument.
+ *   unclaim(slug, claim) → void (optional)
+ *        hands the window back when `ready` throws (audit A12-9): a site with
+ *        no key must not spend the cooldown on an email that cannot go.
  *   emailOf(uid)         → address | null
  *   send({to, subject, html}, ready) → void
  *
@@ -99,18 +101,21 @@ export function submissionEmail({ slug, table, row, extra = 0 } = {}) {
 export async function notifyOwner(deps, { slug, table, access, method, row } = {}) {
   if (!shouldNotify({ access, method })) return { sent: false, reason: "not_a_submission" };
 
-  let mail;
-  if (typeof deps.ready === "function") {
-    try { mail = await deps.ready(); }
-    catch (e) { return { sent: false, reason: "no_sender", error: String((e && e.message) || e) }; }
-  }
-
   let claim;
   // Nothing here may throw into the caller: the submission already succeeded,
   // and a broken mailer must not look like a broken booking form.
   try { claim = await deps.claim(slug); }
   catch (e) { return { sent: false, reason: "claim_failed", error: String((e && e.message) || e) }; }
   if (!claim || !claim.ok) return { sent: false, reason: "cooling_down_or_off" };
+
+  let mail;
+  if (typeof deps.ready === "function") {
+    try { mail = await deps.ready(); }
+    catch (e) {
+      if (typeof deps.unclaim === "function") { try { await deps.unclaim(slug, claim); } catch { /* the window lapses on its own */ } }
+      return { sent: false, reason: "no_sender", error: String((e && e.message) || e) };
+    }
+  }
 
   let to;
   try { to = await deps.emailOf(claim.owner_uid); }
