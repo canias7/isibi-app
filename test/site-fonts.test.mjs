@@ -369,9 +369,9 @@ test("A FAMILY THE STYLESHEET NAMES IS FETCHED AND BUNDLED — the whole new cha
   // 6. …where BOTH halves happen. A @font-face with no npm import leaves an
   //    installed family unbundled; an import with no face leaves a fetched one
   //    with no file. Either alone renders the fallback and reports success.
-  assert.match(container, /writeFonts\(payload\.fonts, payload\.fontFiles, payload\.pageFonts, payload\.cssFonts\)/,
+  assert.match(container, /writeFonts\(payload\.fonts, payload\.fontFiles, payload\.pageFonts, payload\.cssFonts, payload\.fontWeights\)/,
     "the container never receives the stylesheet's families");
-  assert.match(container, /fontCss\(pair, written, pageScopes, cssFaces\)/,
+  assert.match(container, /fontCss\(pair, written, pageScopes, cssFaces, fontWeights\)/,
     "no @font-face is emitted for a family the stylesheet names");
   assert.match(container, /fontImports\(pair, pageScopes, cssFaces\)/,
     "an installed family the stylesheet names is bundled by nothing");
@@ -486,4 +486,76 @@ test("a SITE's pair is still always filled — there is nothing under it", () =>
   assert.equal(resolvePair({}).body.id, DEFAULT_FONTS.body);
   assert.match(resolvePair({ heading: "helvetica" }).notes[0], /Used the default instead\./,
     "a site really does use the default, and must say so");
+});
+
+/* ── a fetched face is declared at the weight it really is (audit A20-3, #149) ── */
+
+// The Worker fetches ONE static file per family (the 400, or the lexically
+// first weight), and `fontCss` declared it `font-weight:100 900`, claiming it
+// covers every weight. The owner's choice (2026-10-23): declare the real weight.
+// Driven through the real `fetchSiteFonts` and `fontWeightsOf`, lifted from
+// worker.js with a stubbed network, then the real `fontCss`.
+const WORKER_SRC = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8");
+const lift = (name) => {
+  const at = WORKER_SRC.search(new RegExp("\\n(async )?function " + name + "\\("));
+  assert.ok(at > 0, name + " is not in worker.js");
+  const end = WORKER_SRC.indexOf("\n}\n", at);
+  assert.ok(end > at, name + " has no end");
+  return WORKER_SRC.slice(at, end + 2);
+};
+const liftedFonts = () => new Function("fetch",
+  lift("fetchSiteFonts") + "\n" + lift("fontWeightsOf") + "\nreturn { fetchSiteFonts, fontWeightsOf };");
+const WOFF2 = Uint8Array.from([0x77, 0x4f, 0x46, 0x32, 1, 2, 3, 4]); // "wOF2…"
+const stubFetch = (variants) => async (url) => {
+  if (String(url).startsWith("meta:")) return { ok: true, json: async () => ({ variants, category: "serif" }) };
+  return { ok: true, arrayBuffer: async () => WOFF2.buffer };
+};
+const face = (weight) => ({ normal: { latin: { url: { woff2: "file:" + weight } } } });
+
+test("a fetched face is declared at the weight the Worker fetched, never 100 900", async () => {
+  const pair = resolvePair({ heading: "geist", body: "geist" });
+  const fam = resolveFont("Cormorant Garamond");
+  assert.equal(fam.source, "fetch", "the fixture is not exercising the fetch half at all");
+  for (const [variants, want] of [[{ "300": face(300), "400": face(400), "700": face(700) }, "400"],
+    [{ "700": face(700), "900": face(900) }, "700"]]) {
+    const { fetchSiteFonts, fontWeightsOf } = liftedFonts()(stubFetch(variants));
+    const f = { ...fam, url: "meta:" + fam.id };
+    const files = await fetchSiteFonts([f]);
+    assert.ok(files[fam.id], "the stub did not reach a downloaded file — the observer is dead");
+    const weights = fontWeightsOf([f], files);
+    assert.deepEqual(weights, { [fam.id]: want });
+    const css = fontCss(pair, { [fam.id]: "/fonts/" + fam.id + ".woff2" }, [], [fam], weights).faces;
+    assert.match(css, new RegExp(`@font-face\\{font-family:"Cormorant Garamond";[^}]*font-weight:${want};`));
+    assert.ok(!/font-weight:\s*\d+\s+\d+/.test(css), "a single static file is declared as a weight range: " + css);
+  }
+});
+
+test("a weight nobody told us is left undeclared, never guessed and never the full range", () => {
+  const pair = resolvePair({ heading: "Bebas Neue", body: "geist" });
+  const files = { "bebas-neue": "/fonts/bebas-neue.woff2" };
+  for (const weights of [undefined, {}, { "bebas-neue": "bold" }, { "bebas-neue": 700 }, { "bebas-neue": "750" },
+    Object.create({ "bebas-neue": "700" })]) {
+    const css = fontCss(pair, files, [], [], weights).faces;
+    assert.match(css, /@font-face\{font-family:"Bebas Neue"/, "the face itself vanished — the observer is dead");
+    assert.ok(!css.includes("font-weight"), `declared a weight from ${JSON.stringify(weights)}: ${css}`);
+  }
+  assert.match(fontCss(pair, files, [], [], { "bebas-neue": "400" }).faces, /font-weight:400;/);
+});
+
+test("fontWeightsOf names only a fetched family with a CSS weight", () => {
+  const { fontWeightsOf } = liftedFonts()(async () => { throw new Error("no network here"); });
+  assert.deepEqual(fontWeightsOf([{ id: "a", weight: "400" }, { id: "b", weight: "700" }], { a: "x", b: "y" }), { a: "400", b: "700" });
+  assert.deepEqual(fontWeightsOf([{ id: "a", weight: "400" }, { id: "b", weight: "700" }], { a: "x" }), { a: "400" });
+  assert.equal(fontWeightsOf([{ id: "a", weight: "wght" }, { id: "b" }], { a: "x", b: "y" }), undefined);
+  assert.equal(fontWeightsOf([], {}), undefined);
+  assert.equal(fontWeightsOf(undefined, {}), undefined);
+});
+
+test("the weights ride both container payloads into writeFonts and fontCss", () => {
+  const container = fs.readFileSync(path.join(ROOT, "builder/build-server.mjs"), "utf8");
+  assert.equal((WORKER_SRC.match(/fontWeights: fontWeightsOf\(cssRead\.fonts, fontFiles\)/g) || []).length, 2,
+    "both container payloads must carry the fetched weights");
+  assert.match(container, /function writeFonts\(fonts, fontFiles, pageFonts, cssFonts, fontWeights\)/);
+  assert.match(container, /fontCss\(pair, written, pageScopes, cssFaces, fontWeights\)/);
+  assert.match(container, /writeFonts\(payload\.fonts, payload\.fontFiles, payload\.pageFonts, payload\.cssFonts, payload\.fontWeights\)/);
 });
