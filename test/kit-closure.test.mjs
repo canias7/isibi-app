@@ -122,6 +122,31 @@ test("DRIVEN: a specifier that climbs out of the project resolves to nothing", (
   assert.ok(seen.every((p) => p.startsWith("src/")), "a specifier escaped the src prefix: " + seen.join(", "));
 });
 
+// A19-4: 29 chart modules import `./_ink`; following only `@/` left it out
+// and reported nothing missing, so the downloaded project could not build.
+test("DRIVEN: a kit file's relative imports are followed, fenced to src/", () => {
+  const files = {
+    "src/components/charts/lib/a.tsx": 'import { inkOn } from "./_ink";\nimport { u } from "../../../lib/u";\nimport { z } from "../../../../outside";',
+    "src/components/charts/lib/_ink.ts": "export const inkOn = 1;",
+    "src/lib/u.ts": "export const u = 1;",
+  };
+  const seen = [];
+  const r = kitClosure(['import { A } from "@/components/charts/lib/a";'], (p) => { seen.push(p); return mapReader(files)(p); });
+  assert.deepEqual(r.files.map((f) => f.path), ["src/components/charts/lib/_ink.ts", "src/components/charts/lib/a.tsx", "src/lib/u.ts"]);
+  assert.deepEqual(r.missing, []);
+  assert.ok(seen.every((p) => p.startsWith("src/")), "a relative import escaped src/: " + seen.join(", "));
+  // A SEED's relative imports are the site's own files, not the kit's.
+  assert.deepEqual(kitClosure(['import P from "./-parts/hero";'], mapReader(files)).files, []);
+});
+
+test("REAL: a chart domain the page writer is told to import brings its `_ink.ts`", () => {
+  const readKit = (rel) => { try { return fs.readFileSync(path.join(TEMPLATE, rel), "utf8"); } catch { return null; } };
+  const r = kitClosure(['import { MortalityTable } from "@/components/charts/lib/actuarial";'], readKit);
+  const paths = r.files.map((f) => f.path);
+  assert.ok(paths.includes("src/components/charts/lib/actuarial.tsx"), "the observer is dead: the domain module itself is missing");
+  assert.ok(paths.includes("src/components/charts/lib/_ink.ts"), "actuarial.tsx imports ./_ink and the closure left it out: " + paths.join(", "));
+});
+
 test("MEASURED: the closure over 100 real generated sites, and the defect it closes", () => {
   const corpus = path.join(here, "fixtures/corpus");
   const readKit = (rel) => {

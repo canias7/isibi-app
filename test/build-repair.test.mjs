@@ -57,6 +57,17 @@ test("#12: each route's exceptions, rejections and console errors ride the repor
   ], "deduped across widths, one entry per route, kind and message");
 });
 
+// A19-3: a cut-short check reached only some routes and viewports, so it
+// cannot call a rule dead; a whole run still can.
+test("A19-3: a cut render report carries no dead selectors; a whole one does", () => {
+  const obs = [{ route: "/", viewport: "phone", hasRoot: true, textLength: 500, runtime: [] }];
+  const cut = renderReport(obs, { cut: true, deadSelectors: ["body[data-page=\"/es/menu\"] h1"], selectorsLooked: 1 });
+  assert.equal(cut.partial, true);
+  assert.equal(Object.hasOwn(cut, "deadSelectors"), false, "a partial run reported a rule dead");
+  const whole = renderReport(obs, { deadSelectors: ["header button"], selectorsLooked: 1 });
+  assert.deepEqual(whole.deadSelectors, ["header button"], "control: a whole run lost its dead rule");
+});
+
 test("#12: a clean report carries no runtime field (byte-identical)", () => {
   const r = renderReport([{ route: "/", viewport: "phone", hasRoot: true, textLength: 500, runtime: [] }]);
   assert.equal(Object.hasOwn(r, "runtimeErrors"), false);

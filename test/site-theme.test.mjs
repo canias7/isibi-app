@@ -770,6 +770,15 @@ test("every backdrop paints both modes, fixed, and every decor lays one texture"
     const out = worldCss({ ...FIXTURE, decor });
     assert.match(out, /body \{ background-image:/, `${decor} lays nothing`);
     assert.ok(!out.includes("#"), `${decor} used a raw hex colour — everything here derives`);
+    // One malformed layer drops the WHOLE background-image list (A19-2): no
+    // NaN or undefined, every `at` is two lengths, no unitless non-zero stop.
+    assert.ok(!/NaN|undefined/.test(out), `${decor} emitted NaN or undefined`);
+    for (const m of out.matchAll(/gradient\(circle at ([^,]+),/g)) {
+      assert.equal(m[1].trim().split(/\s+/).length, 2, `${decor} has a malformed position: ${m[1]}`);
+    }
+    for (const m of out.matchAll(/\)\s+(-?[\d.]+)(?=[,)\s])/g)) {
+      assert.equal(Number(m[1]), 0, `${decor} has a unitless stop ${m[1]}`);
+    }
   }
   // Decor SCROLLS while backdrops stay fixed — one stack, two behaviours.
   const both = worldCss({ ...FIXTURE, backdrop: "field", decor: "stripes" });

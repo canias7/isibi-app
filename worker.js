@@ -17763,8 +17763,12 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // service is sent the same list and judges it alone; the filter here is the
   // belt for a container still on the previous image, which judges every rule
   // and would otherwise hold this edit for one it never touched.
+  //
+  // ⚠ A CUT-SHORT CHECK PROVES NO RULE DEAD (audit A19-3). `partial` means the
+  // budget ran out before every route and viewport was opened, so a rule for a
+  // late page or the desktop pass "matched nothing" only because nothing looked.
   const verifyOnly = Array.isArray(verifyCss) ? new Set(verifyCss) : null;
-  const deadCss = verifyOnly && verifyOnly.size && built.render && Array.isArray(built.render.deadSelectors)
+  const deadCss = verifyOnly && verifyOnly.size && built.render && built.render.partial !== true && Array.isArray(built.render.deadSelectors)
     ? built.render.deadSelectors.filter((s) => verifyOnly.has(s)) : [];
   if (deadCss.length) {
     return {
@@ -18188,7 +18192,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     if (!r || typeof r !== "object" || r.applied !== false) continue;
     lookSoft.push({ what, notes: (Array.isArray(r.notes) ? r.notes : []).slice(0, 2).map((x) => String(x).slice(0, 160)) });
   }
-  return { ok: true, files: wrote, look, render, renderNote: [renderNote(built.render), langNote(langOutcomes)].filter(Boolean).join(" ") || undefined,
+  return { ok: true, files: wrote, look, render, renderNote: [renderNote(built.render), langNote(langOutcomes, langsRefused)].filter(Boolean).join(" ") || undefined,
     // WHICH VERSION WENT LIVE (stage 7): the prefix the site now serves, and
     // what a reconcile compares against the pointer and `x-site-version`.
     version,
@@ -39008,7 +39012,11 @@ async function handleRequest(request, env, ctx) {
               // silently. Said here because a sweep reports this as a survivor
               // and cannot say why.
               const pStoredParts = pPartsRead.ok ? pPartsRead.parts : null;
-              const pSentParts = partsSent(pStoredParts, { unreadable: !pPartsRead.ok });
+              // THE COMPONENTS THIS PAGE IMPORTS GO IN FIRST (audit A21-4), or
+              // other pages' parts stored earlier fill the budget and the one
+              // the customer is asking about is withheld as "too long".
+              const pOwnParts = [...String((target && target.source) || "").matchAll(/["'](?:@\/routes\/|\.\/)-parts\/([^"'/]+?)(?:\.tsx)?["']/g)].map((m) => m[1]);
+              const pSentParts = partsSent(pStoredParts, { unreadable: !pPartsRead.ok, first: pOwnParts });
               // AND THE KIT SIGNATURES FOR THE PAGE BEING EDITED. `plan` is
               // how `siteComponentApi` is reached, and without it the writer
               // was rewriting a page built from `<Accordion>` with no idea of
@@ -39095,7 +39103,7 @@ async function handleRequest(request, env, ctx) {
                   // replaced the real file by name. `partsSent` splits the two
                   // lists from one input, so no component can be in both and
                   // none can be missing from both.
-                  tsx: eLook2.tsx, parts: pStoredParts, partsUnreadable: !pPartsRead.ok,
+                  tsx: eLook2.tsx, parts: pStoredParts, partsUnreadable: !pPartsRead.ok, partsFirst: pOwnParts,
                   gif: eLook2.gif, qr: eLook2.qr, three: eLook2.three,
                   // AND THE LOOK IT IS WEARING, sent as ALREADY APPLIED. The
                   // stylesheet is appended last at build time so it wins on

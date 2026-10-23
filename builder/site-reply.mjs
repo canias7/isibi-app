@@ -418,7 +418,7 @@ const UNMATCHED = "Whether what was added is what was asked for is not checked h
 function additionsSaid(list) {
   if (!Array.isArray(list) || !list.length) return "something whose own words were not listed";
   return list.map((a) => "a new " + flat(a.name) + " on " + flat(a.route) + (a.words.length
-    ? " whose own words are " + a.words.map((w) => "\u201c" + flat(w.text) + "\u201d" + (w.seen === false ? " (not on the page as it first loaded)" : w.seen === null ? " (not confirmed on the published page)" : "")).join(", ")
+    ? " whose own words are " + a.words.map((w) => "\u201c" + flat(w.text) + "\u201d" + (w.seen === false ? " (not on the page as it first loaded)" : w.seen === null ? " (not confirmed on the built page)" : "")).join(", ")
     : " with no words of its own that could be read")).join("; ");
 }
 const untriedSaid = (need) => "Not verified: whether anything a visitor does (opening, switching, choosing or sending) shows or changes it. No such interaction was identified or tried: " + need + ".";
@@ -440,11 +440,11 @@ const TOLD_FACTS = Object.freeze({
   // what was added, addition by addition, and what the page showed of it —
   // and that whether that is what was asked is NOT checked here. The reply
   // model compares the words with the request; nothing here does it by rule.
-  shown: ["note", (o) => "What this change added for it: " + additionsSaid(o.additions) + ". The published page showed those words as it first loaded. "
+  shown: ["note", (o) => "What this change added for it: " + additionsSaid(o.additions) + ". The built page showed those words as it first loaded. "
     + UNMATCHED + o.need + "."],
-  behind: ["note", (o) => "What this change added for it: " + additionsSaid(o.additions) + ". Not all of it was on the published page as it first loaded; in the code it sits "
+  behind: ["note", (o) => "What this change added for it: " + additionsSaid(o.additions) + ". Not all of it was on the built page as it first loaded; in the code it sits "
     + whereSaid(o.hidden) + "." + hiddenSaid(o.hidden) + " " + UNMATCHED + o.need + "."],
-  "in-code": ["note", (o) => "What this change added for it: " + additionsSaid(o.additions) + ". The published page could not be read, so whether it shows is not known. "
+  "in-code": ["note", (o) => "What this change added for it: " + additionsSaid(o.additions) + ". The built page could not be read, so whether it shows is not known. "
     + UNMATCHED + o.need + "."],
   scheduled: ["note", (o) => "Scheduled as asked; its automatic running has not been seen yet: " + o.need + "." + partlySaid(o)],
   // WHAT THE SITE ALREADY HAD (2026-10-06): there and unchecked, like "set

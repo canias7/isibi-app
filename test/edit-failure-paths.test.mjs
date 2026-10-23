@@ -88,7 +88,7 @@ function bucket(slug) {
  * heartbeat answer that the customer asked to stop, and the heartbeat fire at
  * once. `skew` moves the clock forward by that much after the first build.
  */
-async function drive({ mode = "sync", routed, ask, pick = null, lanes = null, nav, navThrows = null, render = null, cancel = false, skew = 0, site = null, collect = null, balance = 100, creditBack = true, compileOk = true, rename = null, granted = true }) {
+async function drive({ mode = "sync", routed, ask, pick = null, lanes = null, nav, navThrows = null, render = null, cancel = false, skew = 0, site = null, collect = null, balance = 100, creditBack = true, compileOk = true, rename = null, granted = true, fonts = null }) {
   const slug = site ? site.slug : "fail-" + mode + "-" + hex32().slice(0, 8);
   const b = site ? site.b : bucket(slug);
   const id = hex32(), secret = hex32();
@@ -103,6 +103,9 @@ async function drive({ mode = "sync", routed, ask, pick = null, lanes = null, na
   const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const u = String((input && input.url) || input || "");
+    // A FONT HOST, when a case supplies one (audit A20-5): `fonts(u)` answers
+    // the Fontsource API and its files, or null to fall through.
+    if (fonts) { const f = await fonts(u); if (f) return f; }
     let args = {};
     try { args = JSON.parse(String((init && init.body) || "{}")); } catch { args = {}; }
     const rpc = u.match(/\/rest\/v1\/rpc\/(edit_\w+)/);
@@ -321,6 +324,41 @@ test("control: a correction that lands keeps the corrected stylesheet it publish
   assert.equal(r.reply && r.reply.ok, true, "the corrected edit did not publish: " + JSON.stringify(r.reply));
   assert.equal(r.committed, true, "the corrected edit was not committed");
   assert.equal(r.config.css, CLEAN_CSS.css, "the published stylesheet was wound back under the live site");
+});
+
+// A CUT-SHORT RENDER CHECK PROVES NO RULE DEAD (audit A19-3): the rule may
+// sit on a route or viewport the budget never reached, so the edit publishes
+// with no correction round instead of being held for a guess.
+for (const mode of ["sync", "job"]) {
+  test(`a ${mode} edit is not held for a rule a cut-short render check never reached`, async () => {
+    const r = await drive({ mode, routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [DEAD_CSS, STILL_DEAD], render: () => ({ ...DEAD, partial: true }) });
+    assert.equal(r.reply && r.reply.ok, true, "the edit was held for a partial check: " + JSON.stringify(r.reply));
+    assert.equal(r.builds.length, 1, "a correction ran for a rule the check never reached");
+    assert.equal(r.config.css, DEAD_CSS.css, "the stylesheet the edit wrote was not kept");
+  });
+}
+
+// THE FONT FETCH'S SUCCESS PATH, DRIVEN (audit A20-5). Every other stub of the
+// Fontsource API answers 404, so the variant choice, the woff2 download and
+// the bytes handed to the build never ran in a test. A Fontsource-shaped answer
+// with two weights and two subsets: the regular latin woff2 is the one sent.
+test("a family the stylesheet names is fetched from Fontsource and its woff2 bytes reach the build", async () => {
+  const BYTES = new Uint8Array([0x77, 0x4f, 0x46, 0x32, 1, 2, 3, 4]);
+  const asked = [];
+  const file = (w, s, ext) => "https://cdn.test/be-vietnam-pro-" + s + "-" + w + "-normal." + ext;
+  const variant = (w) => ({ normal: Object.fromEntries(["latin", "vietnamese"].map((s) => [s, { url: { woff2: file(w, s, "woff2"), woff: file(w, s, "woff") } }])) });
+  const fonts = (u) => {
+    if (u === "https://api.fontsource.org/v1/fonts/be-vietnam-pro") { asked.push(u); return json({ id: "be-vietnam-pro", category: "serif", variants: { "700": variant("700"), "400": variant("400") } }); }
+    if (u.startsWith("https://cdn.test/")) { asked.push(u); return new Response(BYTES, { status: 200 }); }
+    return null;
+  };
+  const css = 'body{font-family:"Be Vietnam Pro",sans-serif}';
+  const r = await drive({ mode: "sync", routed: { layer: "look" }, ask: "Use Be Vietnam Pro for the text.", pick: PICK_CSS, lanes: [{ css }], fonts });
+  assert.equal(r.reply && r.reply.ok, true, "the edit did not publish: " + JSON.stringify(r.reply));
+  assert.deepEqual(asked, ["https://api.fontsource.org/v1/fonts/be-vietnam-pro", file("400", "latin", "woff2")], "not the API then the regular latin woff2");
+  const sent = JSON.parse(r.builds[0]).fontFiles;
+  assert.ok(sent && typeof sent === "object", "the build was sent no font files");
+  assert.equal(sent["be-vietnam-pro"], Buffer.from(BYTES).toString("base64"), "the bytes the build got are not the file fetched");
 });
 
 // ── A PUBLISH IS HELD ONLY FOR THE RULES THIS REQUEST WROTE (2026-09-26) ────

@@ -2206,7 +2206,7 @@ export function briefForPages({ brief, priorBrief } = {}) {
  * eval and every other caller that has no budget to state then sends exactly the
  * request it sent before this existed.
  */
-export function briefWithLayout({ brief, plan, images, tsx, parts, partsUnreadable, theme, css, gif, qr, three, media } = {}) {
+export function briefWithLayout({ brief, plan, images, tsx, parts, partsUnreadable, partsFirst, theme, css, gif, qr, three, media } = {}) {
   // THE AUTHORED PLAN IS THE ONLY SOURCE NOW. It briefly fell back to
   // `layoutDirective(family)` for sites built before 2026-08-20; the family
   // table went the same day, so there is nothing to fall back TO.
@@ -2265,7 +2265,7 @@ export function briefWithLayout({ brief, plan, images, tsx, parts, partsUnreadab
   // against the store might name a component that already exists, and asking
   // for it is asking for the rewrite the wall then has to refuse. A dead
   // control that ANSWERS, which this repository has paid for before.
-  const sent = partsSent(parts, { unreadable: partsUnreadable });
+  const sent = partsSent(parts, { unreadable: partsUnreadable, first: partsFirst });  // `partsFirst`: the edited page's own go in first (audit A21-4)
   const already = partsDirective(sent);
   if (already) out.push(already);
   const built = sent.unreadable ? "" : tsxDirective(tsx, sent.names);
@@ -2524,15 +2524,26 @@ export function partsSent(parts, opts) {
   const list = unreadable ? [] : (Array.isArray(parts) ? parts : [])
     .filter((p) => p && typeof p === "object" && typeof p.name === "string" && typeof p.source === "string" && p.name.trim() && p.source);
   const shown = [], withheld = [], names = [];
+  // THE PAGE'S OWN COMPONENTS FILL THE BUDGET FIRST (audit A21-4). In stored
+  // order, eight band files and other pages' components took the room and a
+  // 4k card the edited page renders was withheld as "too long" — whatever the
+  // customer asked. `opts.first` names them; the rest fill what is left, and
+  // `shown` goes out in stored order whatever the selection did.
+  const first = new Set((opts && Array.isArray(opts.first) ? opts.first : []).filter((n) => typeof n === "string").map((n) => n.trim()));
+  const order = [...list.filter((p) => first.has(p.name.trim())), ...list.filter((p) => !first.has(p.name.trim()))];
+  const picked = new Set();
   let total = 0;
-  for (const p of list) {
+  for (const p of order) {
     const name = p.name.trim();
     if (names.includes(name)) continue;
     names.push(name);
     if (p.source.length > MAX_PART_CHARS || total + p.source.length > MAX_PARTS_CHARS) { withheld.push(name); continue; }
     total += p.source.length;
-    shown.push({ name, source: p.source });
+    picked.add(p);
   }
+  for (const p of list) if (picked.has(p)) shown.push({ name: p.name.trim(), source: p.source });
+  // `names` IN STORED ORDER too, as it always was.
+  names.sort((a, b) => list.findIndex((p) => p.name.trim() === a) - list.findIndex((p) => p.name.trim() === b));
   return { shown, withheld, names, unreadable };
 }
 
@@ -2819,6 +2830,18 @@ export function priorPagesSent(pages, { max = MAX_PRIOR_CHARS, keep = [] } = {})
   return { shown: list.filter((p) => shown.includes(p)), withheld, names: list.map((p) => p.path), chars: total };
 }
 
+/**
+ * What a rewrite over the window is shown, and what it may not return (audit
+ * A21-3). `priorPagesSent` with no `keep`, but WITHOUT its at-least-one
+ * fallback: the add-on shows one page whatever its size, while a rewrite's one
+ * page over the window would inline it whole. Empty under the window.
+ */
+export function reviseSent(pages) {
+  const sel = priorPagesSent(pages);
+  if (sel.chars <= MAX_PRIOR_CHARS) return sel;
+  return { ...sel, shown: [], withheld: sel.names, chars: 0 };
+}
+
 export function priorPagesBlock(pages, mode = "revise", target = "", { keep = [] } = {}) {
   const list = (Array.isArray(pages) ? pages : [])
     .filter((p) => p && typeof p.path === "string" && typeof p.source === "string" && p.source.trim());
@@ -2924,11 +2947,31 @@ export function priorPagesBlock(pages, mode = "revise", target = "", { keep = []
       "wrote this site; a change they did not ask for reads to them as their site being replaced.\n\n" +
       seen.map((p) => "--- " + p.path + " ---\n" + p.source).join("\n\n");
   }
+  // ── A REWRITE TOO LARGE TO SHOW IS SHOWN WHAT FITS (audit A21-3) ──────────
+  //
+  // This said "write them again in full … the same wording" over page NAMES,
+  // and every page that came back replaced its stored one: copy the writer was
+  // never shown, rewritten from the brief. Now the add-on's rule: as many pages
+  // as fit, the rest named as unseen and not to be returned, and the publish
+  // (`publishPages`) drops any it returns anyway. ONE SELECTION, `priorPagesSent`
+  // with no `keep`, read the same way there (`reviseSent`).
   if (total > MAX_PRIOR_CHARS) {
-    return "\n\nTHE SITE AS IT STANDS\nIt has these pages: " + list.map((p) => p.path).join(", ") +
-      ". They are too large to show here, so write them again in full \u2014 keep the same pages, the same " +
-      "sections and the same wording wherever the instruction does not ask for a change. A page you do not " +
-      "return is kept exactly as it is; to delete one, put its file in `remove`.";
+    const { shown: seen, withheld: unseen } = reviseSent(list);
+    if (!seen.length) {
+      return "\n\nTHE SITE AS IT STANDS\nIt has these pages: " + unseen.join(", ") + ". They are too large to " +
+        "show here. Do NOT return a file for any of them; one returned anyway is thrown away. A page you do not " +
+        "return is kept exactly as it is; to delete one, put its file in `remove`.";
+    }
+    return "\n\nTHE SITE AS IT STANDS \u2014 THIS IS WHAT YOU ARE EDITING\n" +
+      "Below is the current source of " + seen.length + " of this site's " + list.length + " pages, exactly as " +
+      "they are published right now. This site is too large to show you whole.\n\n" +
+      "THE PAGES YOU CANNOT SEE ARE STILL THERE AND ARE UNCHANGED: " + unseen.join(", ") + ". Do NOT return a " +
+      "file for any of them \u2014 you have not been shown what you would be replacing, and one returned anyway " +
+      "is thrown away. You may link to them by route.\n\n" +
+      "Return the pages you are shown as an EDIT of them: change only what the instruction asks for, and leave " +
+      "everything else BYTE-IDENTICAL \u2014 the same headings, the same sentences, the same sections in the same " +
+      "order. A page you do not return is kept exactly as it is; to delete one, put its file in `remove`.\n\n" +
+      seen.map((p) => "--- " + p.path + " ---\n" + p.source).join("\n\n");
   }
   return "\n\nTHE SITE AS IT STANDS \u2014 THIS IS WHAT YOU ARE EDITING\n" +
     "Below is the CURRENT source of every page, exactly as it is published right now.\n\n" +

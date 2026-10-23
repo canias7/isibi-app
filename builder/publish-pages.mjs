@@ -14,7 +14,7 @@
 // functions, so the real decision logic can be driven against fakes with no
 // model call, no container and no R2.
 
-import { validatePages, lintPages, repairImports, mergeParts } from "./page-gen.mjs";
+import { validatePages, lintPages, repairImports, mergeParts, reviseSent } from "./page-gen.mjs";
 import { partStub, PART_IMPORT } from "./page-bands.mjs";
 // THE REWRITE'S PAGE MERGE AND ITS SENTENCE (2026-10-02, the whole-router
 // audit's W3). `site-addon.mjs` imports nothing, so this adds no cycle.
@@ -1244,6 +1244,15 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
   }
   if (revising) {
     const askedOff = gen && gen.input && Array.isArray(gen.input.remove) ? gen.input.remove : [];
+    // A PAGE THE WRITER WAS NOT SHOWN IS NOT REPLACED (audit A21-3). Over the
+    // window the prompt (`priorPagesBlock`) shows `reviseSent`'s selection
+    // and names the rest; one of those returned anyway was written blind, so
+    // the stored page stands. Under the window nothing is withheld.
+    const unseen = new Set(reviseSent(priorPages).withheld);
+    if (unseen.size) {
+      const blind = v.pages.filter((p) => p && unseen.has(p.path)).map((p) => p.path);
+      if (blind.length) { v.pages = v.pages.filter((p) => !(p && unseen.has(p.path))); out.unseenDropped = blind; }
+    }
     const revised = mergeRevisedPages(priorPages, v.pages, askedOff);
     // A REWRITE THAT WROTE NOTHING AND TOOK NOTHING OFF is still the empty
     // answer the refusal below is for — kept pages alone are not a change.

@@ -1670,7 +1670,9 @@ test("the translation calls are billed, and a refused language is reported", () 
     }
   }
 
-  // THE REFUSED LANGUAGE IS REPORTED. `resolveLangs` returns a per-language
+  // THE REFUSED LANGUAGE IS RETURNED (and since audit A32-4 told: `langNote`
+  // reads it into `renderNote`, held in translate-unsafe.test.mjs and
+  // site-render.test.mjs). `resolveLangs` returns a per-language
   // reason and every reader kept only `langs` — while `mergeLook` had already
   // STORED the refused tag and `movedFields` reported the look as changed. So
   // the customer is told it landed, no switcher appears, no prefixed routes

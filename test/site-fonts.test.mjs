@@ -226,6 +226,22 @@ test("the font index is the real Fontsource catalogue", () => {
   }
 });
 
+// A20-4: a suffixed name answered the least specific base family, or a cut of
+// the right one (small caps, a script subset). Each of these was the audit's probe.
+test("a commercial suffix keeps the most specific family, and a cut is never a typo", () => {
+  assert.equal(matchFontName("Merriweather Sans Pro"), "merriweather-sans", "a sans answered with the serif");
+  assert.equal(matchFontName("Roboto Slab Pro"), "roboto-slab");
+  assert.equal(matchFontName("Sofia Sans Pro"), "sofia-sans", "a sans answered with the script face");
+  assert.equal(matchFontName("Playfair Display Pro"), "playfair-display", "answered with the small caps");
+  assert.equal(matchFontName("IBM Plex Sans Pro"), "ibm-plex-sans", "answered with the Korean subset");
+  // A leftover that is not a commercial suffix is not a cut of the family.
+  assert.equal(matchFontName("Roboto Slab Bold"), null);
+  // Controls: a cut named is a cut matched; typos and short forms still resolve.
+  assert.equal(matchFontName("Playfair Display SC"), "playfair-display-sc");
+  assert.equal(matchFontName("playfair dsiplay"), "playfair-display");
+  assert.equal(matchFontName("ibm plex"), "ibm-plex-sans");
+});
+
 test("normalizeFontName is total — no input throws", () => {
   for (const v of [null, undefined, 0, {}, [], "   ", "!!!"]) {
     assert.equal(typeof normalizeFontName(v), "string");

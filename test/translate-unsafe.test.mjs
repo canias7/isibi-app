@@ -84,3 +84,21 @@ test("the customer is told when a language could not be made, from its outcome",
   assert.match(langNote([{ tag: "fr", ok: false, why: "unusable" }]), /fr pages could not be translated this time/);
   assert.match(langNote([{ tag: "es", ok: true, kept: 2 }]), /^2 phrases on the es pages/);
 });
+
+// A32-4: `langsRefused` rode on the answer and no reply read it, so a fourth
+// language was told as added and never appeared. The refusals come from the
+// real `resolveLangs`, never typed here.
+test("a language resolveLangs refused is told, by its own reason", async () => {
+  const { resolveLangs, MAX_EXTRA_LANGS } = await import("../builder/site-langs.mjs");
+  const { refused } = resolveLangs("en", ["es", "fr", "de", "it", "es-MX"], { routes: ["/"] });
+  assert.deepEqual(refused.map((r) => r.why), ["cap", "cap"], "the fixture no longer hits the cap");
+  const note = langNote([], refused);
+  assert.match(note, new RegExp("at most " + MAX_EXTRA_LANGS + " other languages, so it was not added\\..*so es-mx was not added", "i"));
+  const dup = resolveLangs("en", ["es", "es-MX"]).refused;
+  assert.match(langNote([], dup), /es-MX was not added: the site already has a language at the same address/);
+  const page = resolveLangs("en", ["es"], { routes: ["/es"] }).refused;
+  assert.match(langNote([], page), /es was not added: the site has a page at the address/);
+  // Controls: nothing refused, nothing said; an unknown reason is not guessed at.
+  assert.equal(langNote([], resolveLangs("en", ["es"]).refused), "");
+  assert.equal(langNote([], [{ lang: "xx", why: "mystery" }, { lang: "yy", why: "constructor" }]), "");
+});

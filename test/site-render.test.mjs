@@ -763,7 +763,7 @@ test("EVERY EDIT LANE FORWARDS THE RENDER REPORT it paid for", () => {
   assert.match(spine, /built\.render && \(built\.render\.ok === false \|\| \(built\.render\.findings \|\| \[\]\)\.length\)/,
     "the spine drops the container's render report again, or lost the noteworthy gate");
   // (2026-10-22, audit A32-1: the language note rides beside it.)
-  assert.match(spine, /renderNote: \[renderNote\(built\.render\), langNote\(langOutcomes\)\]\.filter\(Boolean\)\.join\(" "\) \|\| undefined/,
+  assert.match(spine, /renderNote: \[renderNote\(built\.render\), langNote\(langOutcomes, langsRefused\)\]\.filter\(Boolean\)\.join\(" "\) \|\| undefined/,
     "the human sentence beside the report is gone");
   // …and every call site forwards it. DERIVED from the call sites themselves,
   // so an eighth lane added later is covered without anybody remembering this

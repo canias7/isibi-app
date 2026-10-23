@@ -270,3 +270,52 @@ test("W3 — through the real rewrite route: a writer that returns the home page
   assert.deepEqual(r.partNames, ["ovens", "band"], "the kept gallery's component was not handed to the container");
   assert.deepEqual(r.stored.map((p) => p.path).sort(), ["gallery.tsx", "index.tsx", "menu.tsx", "visit.tsx"], "the stored source lost a page");
 });
+
+// ── A SITE TOO LARGE TO SHOW (audit A21-3) ──────────────────────────────────
+//
+// Over `MAX_PRIOR_CHARS` the rewrite was told page NAMES and "write them again
+// in full … the same wording", and each returned page replaced its stored one.
+// Now the prompt shows what fits (`priorPagesSent`) and names the rest, and a
+// returned page that was not shown is dropped: the stored page stands.
+import { priorPagesBlock, priorPagesSent, MAX_PRIOR_CHARS } from "../builder/page-gen.mjs";
+
+const pad = (route, title, n) => page(route, "<h1>" + title + "</h1><p>" + "Our own words. ".repeat(n) + "</p>");
+const BIG = [
+  { path: "index.tsx", source: pad("/", "Home", 2800) },
+  { path: "menu.tsx", source: pad("/menu", "Menu", 2800) },
+  { path: "visit.tsx", source: pad("/visit", "Visit", 2800) },
+];
+
+test("A21-3: over the window the rewrite is shown what fits and told the rest are not to be returned", () => {
+  const total = BIG.reduce((n, p) => n + p.source.length, 0);
+  assert.ok(total > MAX_PRIOR_CHARS, "the fixture is not over the window: " + total);
+  const sel = priorPagesSent(BIG);
+  assert.ok(sel.shown.length >= 1 && sel.withheld.length >= 1, "the fixture does not split: " + JSON.stringify(sel.withheld));
+  const b = priorPagesBlock(BIG);
+  assert.doesNotMatch(b, /write them again in full/, "the names-only rewrite instruction is back");
+  for (const p of sel.shown) assert.ok(b.includes(p.source), p.path + " was selected and not shown");
+  for (const w of sel.withheld) {
+    assert.ok(b.includes(w), w + " is not named as unseen");
+    assert.ok(!b.includes(BIG.find((p) => p.path === w).source), w + " was shown though withheld");
+  }
+  assert.match(b, /Do NOT return a file for any of them/);
+});
+
+test("A21-3: a rewrite over the window keeps a stored page it was not shown, and still takes the ones it was", async () => {
+  const sel = priorPagesSent(BIG);
+  const shownPath = sel.shown[0].path, blindPath = sel.withheld[0];
+  const route = (p) => (p === "index.tsx" ? "/" : "/" + p.replace(/\.tsx$/, ""));
+  const r = await revise({ pages: [
+    { path: shownPath, source: page(route(shownPath), "<h1>Edited</h1>") },
+    { path: blindPath, source: page(route(blindPath), "<h1>Written blind</h1>") },
+  ] }, { priorPages: BIG, priorParts: { ok: true, parts: [] } });
+  assert.equal(r.stored[blindPath], BIG.find((p) => p.path === blindPath).source, "a page the writer never saw was replaced");
+  assert.match(r.stored[shownPath], /Edited/, "control: the page it was shown was not taken");
+  assert.deepEqual(r.out.unseenDropped, [blindPath]);
+});
+
+test("A21-3 control: under the window a returned page replaces its stored one as before", async () => {
+  const r = await revise({ pages: [{ path: "visit.tsx", source: page("/visit", "<h1>Visit us</h1>") }] });
+  assert.match(r.stored["visit.tsx"], /Visit us/);
+  assert.equal(Object.hasOwn(r.out, "unseenDropped"), false);
+});

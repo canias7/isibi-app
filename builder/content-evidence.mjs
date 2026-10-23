@@ -15,7 +15,7 @@
  *   stored   the text this change added to the page's stored code — read from
  *            the syntax tree, before against after, never from the request's
  *            words. Present in code is not the same as shown.
- *   shown    whether that text was on the published page as it first loads,
+ *   shown    whether that text was on the built page (draft or live) as it first loads,
  *            read from the render check's own browser (`body.innerText`, which
  *            leaves out what is closed, hidden or not yet drawn). Absent there
  *            with the text in the code says only that: not drawn on first
