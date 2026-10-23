@@ -389,6 +389,31 @@ test("DFB6 THE LIBRARY UNDER A DRAFT — a picture taken off and a recording rep
   assert.deepEqual([again.status, again.json.already], [200, true]);
 });
 
+test("DFB7b (audit A28-6) HELD STARTER ROWS ARE JUDGED BY THE ENGINE'S OWN RULES: past the cap, a table that takes submissions and a list that already has rows are said as skipped, never counted as seeded, and nothing is written", async () => {
+  const { draftFirstApi } = await loadWorkerModule();
+  const notes = { name: "notes", columns: [{ name: "body", type: "text" }], read: "none", write: "public" };
+  const hours = { name: "hours", columns: [{ name: "day", type: "text" }], read: "public", write: "none" };
+  const spec = { tables: [LOAVES, hours, notes] };
+  const slug = slugOf("dfb7b");
+  const site = previewSite(slug, []);
+  const real = globalThis.fetch; globalThis.fetch = site.fetchStub;
+  try {
+    const w = await draftFirstApi.backendWriter(site.env, slug);
+    assert.equal(w.holding, true);
+    const writes0 = site.db.writes().length;
+    const fifteen = Array.from({ length: 15 }, (_, i) => ({ day: "Day " + (i + 1) }));
+    const out = await w.seed("postgres://u:p@ep-draft.neon.tech/neondb", spec, { hours: fifteen, notes: [{ body: "made up" }], loaves: [{ name: "Spelt" }] });
+    assert.equal(out.held, true);
+    assert.deepEqual(out.seeded, { hours: 12 }, "held starter rows were counted past the engine's rules: " + JSON.stringify(out.seeded));
+    assert.ok(out.skipped.some((s) => /^hours: 3 starter rows past the first 12/.test(s)), out.skipped.join(" | "));
+    assert.ok(out.skipped.some((s) => /^notes: only display tables are seeded/.test(s)), out.skipped.join(" | "));
+    assert.ok(out.skipped.some((s) => /^loaves: already has rows/.test(s)), out.skipped.join(" | "));
+    assert.equal(out.rows.hours.unattempted, 3);
+    assert.equal(site.db.writes().length, writes0, "a held starter row reached the database");
+    assert.deepEqual(w.hold.ops.map((o) => o.kind), ["seed"]);
+  } finally { globalThis.fetch = real; }
+});
+
 test("DFB7 BACKEND WRITES ARE HELD WHERE A LIVE SITE WOULD SEE THEM — on a published site the schema, starter rows and jobs are held and the database is not written; before the first publication the schema and rows are written (nobody uses the database yet) and the jobs are still held; with the switch off every write goes live as before; the publication applies the schema, the jobs and the starter rows", async () => {
   const { draftFirstApi } = await loadWorkerModule();
   const spec = { tables: [LOAVES, { name: "hours", columns: [{ name: "day", type: "text" }], read: "public", write: "none" }], jobs: [{ name: "nightly", every: "1d", sql: "select 1" }] };

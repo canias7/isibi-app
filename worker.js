@@ -13866,9 +13866,20 @@ async function backendWriter(env, slug, { rehearse = null } = {}) {
     async seed(conn, schemaSpec, seed) {
       if (holding) {
         hold.add({ kind: "seed", spec: schemaSpec, seed: seed && typeof seed === "object" ? seed : {} });
-        const seeded = {};
-        for (const [t, rows] of Object.entries(seed && typeof seed === "object" ? seed : {})) if (Array.isArray(rows) && rows.length) seeded[t] = rows.length;
-        return { seeded, skipped: [], rows: {}, held: true };
+        // JUDGED BY THE ENGINE'S OWN RULES, NOTHING WRITTEN (2026-10-23, audit
+        // A28-6): every held row was counted as seeded — past the cap, on a
+        // table that is not display, on one that already has rows — so the
+        // skip note and "nothing can fill it" were never said. The engine runs
+        // with its inserts answered and not sent; "already has rows" is asked
+        // of the live table, and a table not live yet (or a read that fails)
+        // is empty, as it will be when the held schema lands.
+        const judged = await seedSiteRows(conn, schemaSpec, seed, {
+          sqlQuery: async (db, sql, params) => {
+            if (/^\s*INSERT\b/i.test(sql)) return [];
+            try { return await sqlQuery(db, sql, params); } catch { return []; }
+          },
+        });
+        return { ...judged, held: true };
       }
       return seedSiteRows(conn, schemaSpec, seed);
     },
