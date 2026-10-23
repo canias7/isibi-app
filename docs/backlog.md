@@ -20,6 +20,7 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
+- **The audit's 113 low findings, never checked** (2026-10-23): raised but not verified (owner's lighter-check choice); none fixed. Waiting on the owner's go-ahead to check and fix them in batches. `docs/audits/2026-10-17-builder-audit.md`.
 - **#141 outgoing-link DNS rebinding (needs a proxy)**: deferred by owner 2026-10-23.
 - **#203 a custom domain as the site's primary address**: deferred by owner 2026-10-23.
 - **#148 the full stylesheet in the downloaded site**: deferred by owner 2026-10-23.

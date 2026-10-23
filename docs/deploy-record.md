@@ -2031,6 +2031,10 @@ deploy's ignore list, so the push started deploy run 38747702721.
   - Cost 18 credits (97 → 79).
   - Before the fix, the same prompt failed at 602,445 ms with `fetch failed` (2026-10-18, build `11a381e8`).
 
+## Deploy 2264 — 2026-10-23 18:12 UTC (`923d278c1`)
+
+The owner's decisions batch (`decide-all`): decisions 1, 2, 3, 5, 6, 8–25, 27, 28, 30–33, plus the no-fixed-messages follow-up; merged as a fast-forward from `a8fbfe876` on the owner's word "merge and deploy when its done". Required CI green on `923d278c1` (unit run 39997867299, site build run 39997867482). No edit jobs open, no run in progress before the push. Deploy run 40000974291 green (18:09–18:12 UTC). Image **rolled** `ebfbd45c42ea43ac` → `145239c1c143183b`, as predicted (226 inputs); `AppBuildContainer` `65022ce71e3d7274` unchanged. `OPERATOR_UIDS` uploaded as a Worker secret (owner set it). Assets uploaded: `chat.js`, `site-media.js`. Decision 7 (`build_debit`) was applied to Supabase separately, 2026-10-23, no deploy needed. **Deployed, not runtime-confirmed**: the owner's canary press is owed (after ~20 min for the image roll).
+
 ## Deploy 2259 — 2026-10-22 07:39 UTC (`89a67ec40`)
 
 The second merge of the day (audit fixes 53, 55–60, 62, 79, 82, 84, 88, 99, 100, 102, preview search and the reload fix), on the owner's word "merge when they done". Required CI green on `89a67ec40` (unit run 39740919581, site build run 39740919562). Deploy run 39742014019 green (07:39–07:44 UTC). The served `chat.js` sha256 starts `c63055f3140f8d7d`, the same as the merged `public/chat.js`. **Runtime-confirmed** by the owner's free canary press, run 39802537938 (15:12 UTC, from `main` on `fretwork-1`): both readers answered `89a67ec40ed3`, image `af25591ff1cc217a`, async and runner on, all free checks passed, nothing charged (balance 603).
