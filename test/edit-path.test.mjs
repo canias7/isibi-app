@@ -1052,6 +1052,35 @@ test("the landmark map is STORED after a publish, or the next edit is blind agai
   } finally { c.uninstall(); }
 });
 
+test("A22-5 a render check cut by its budget MERGES the stored map by route: the routes it reached are replaced, every other route keeps its marks; a whole run still replaces the map", async () => {
+  // THE CUT RUN REACHED ONLY "/" AT DESKTOP, so it carries "/" alone.
+  const old = [
+    { name: "header-button", selector: ".old-home", tag: "a", section: "header", text: "Old", route: "/" },
+    { name: "menu-title", selector: ".menu-title", tag: "h1", section: "main", text: "Menu", route: "/menu" },
+  ];
+  for (const partial of [true, false]) {
+    const render = { ok: true, checked: 2, pages: 1, findings: [], landmarks: DEAD_RENDER.landmarks, ...(partial ? { partial: true } : {}) };
+    const c = installCompiler({ render });
+    try {
+      await withWire(
+        { pick_lanes: { fields: ["css"] }, edit_site: { css: '[data-slot="site-link"]{color:#014421}' } },
+        async () => {
+          const slug = "marks-cut-" + (partial ? "p" : "w");
+          const b = bucket(slug);
+          b.store.set("source/" + slug + "/landmarks.json", JSON.stringify({ at: "2026-10-01T00:00:00Z", slug, marks: old }));
+          const { body } = await edit(slug, "make the header button green", { store: b });
+          assert.equal(body && body.ok, true, "the edit did not publish: " + JSON.stringify(body));
+          const saved = JSON.parse(b.store.get("source/" + slug + "/landmarks.json"));
+          const byRoute = (r) => saved.marks.filter((m) => m.route === r).map((m) => m.selector);
+          assert.deepEqual(byRoute("/"), ['[data-slot="site-link"]'], "the reached route was not replaced (partial " + partial + ")");
+          assert.deepEqual(byRoute("/menu"), partial ? [".menu-title"] : [],
+            partial ? "a cut run wiped the marks of a route it never reached" : "a whole run kept a stale route's marks");
+        },
+      );
+    } finally { c.uninstall(); }
+  }
+});
+
 test("a bilingual site's translation is CHARGED, on the customer's balance, beside the lanes' own bill (run 39)", async () => {
   // RUN 39 (2026-09-04): fretwork-1's Spanish and French were translated for
   // the first time — two Grok calls, 88 strings each — and charged to nobody.

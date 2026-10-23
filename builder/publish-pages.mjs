@@ -15,6 +15,7 @@
 // model call, no container and no R2.
 
 import { validatePages, lintPages, repairImports, mergeParts } from "./page-gen.mjs";
+import { partStub, PART_IMPORT } from "./page-bands.mjs";
 // THE REWRITE'S PAGE MERGE AND ITS SENTENCE (2026-10-02, the whole-router
 // audit's W3). `site-addon.mjs` imports nothing, so this adds no cycle.
 import { mergeRevisedPages, keptReply, routeOf } from "./site-addon.mjs";
@@ -590,8 +591,15 @@ function Unfinished() {
  * re-running a build. It is carried out on the response for that reason; the
  * comment here used to claim the eval read it, and nothing did.
  */
-export function salvagePlan(error, pages, live) {
+export function salvagePlan(error, pages, live, parts = []) {
   const known = new Set((pages || []).map((p) => p.path));
+  // THE BUILD'S OWN PARTS ARE ITS FILES TOO (2026-10-23, audit A22-4): with
+  // the band split every section lives at `-parts/<name>.tsx`, and a cited
+  // part this build wrote is stubbed as a part (`partStub`), never called a
+  // file the build didn't write. A part is judged by the pages importing it:
+  // one that a page the site already serves imports is `kept`, as that page is.
+  const ownParts = new Set((Array.isArray(parts) ? parts : []).map((p) => p && p.name).filter((n) => typeof n === "string" && n));
+  const stubParts = new Set();
   // The two questions kept apart: WHAT is published, and whether we were told at
   // all. Only an explicit Set or Array counts as an answer.
   const toldWhatIsLive = live instanceof Set || Array.isArray(live);
@@ -602,6 +610,13 @@ export function salvagePlan(error, pages, live) {
   for (const c of errorCitations(error)) {
     const cited = c.file;
     const bare = cited.replace(/^(?:src\/)?routes\//, "");
+    const part = /^-parts\/(.+)\.tsx$/.exec(bare);
+    if (part && ownParts.has(part[1])) {
+      const users = (pages || []).filter((p) => String((p && p.source) || "").includes(PART_IMPORT + part[1] + '"'));
+      for (const u of users) if (published.has(u.path)) kept.add(u.path);
+      stubParts.add(part[1]);
+      continue;
+    }
     // A path is OURS only when stripping the routes prefix lands on a page this
     // build actually wrote. `src/components/ui/faq.tsx` never will, which is what
     // separates a page mistake from a kit one.
@@ -617,7 +632,7 @@ export function salvagePlan(error, pages, live) {
     // answer they had before salvage existed, and it is the safe one.
     return { stub: [], foreign: [], kept: [...kept].sort(), reason: "the page that failed is one the site is already serving" };
   }
-  if (!stub.size) return { stub: [], foreign: [], kept: [], reason: "the error names no page" };
+  if (!stub.size && !stubParts.size) return { stub: [], foreign: [], kept: [], reason: "the error names no page" };
   if (stub.has("index.tsx")) return { stub: [], foreign: [], kept: [], reason: "the home page is the one that failed" };
   if (!toldWhatIsLive) {
     // UNKNOWN, NOT EMPTY. Stubbing from here is a coin flip on whether the page
@@ -633,7 +648,7 @@ export function salvagePlan(error, pages, live) {
     // cannot be reached past this one either way.
     return { stub: [], foreign: [], kept: [], reason: "we couldn't tell which pages the site is already serving" };
   }
-  return { stub: [...stub].sort(), foreign: [], kept: [], reason: "" };
+  return { stub: [...stub].sort(), foreign: [], kept: [], reason: "", ...(stubParts.size ? { parts: [...stubParts].sort() } : {}) };
 }
 
 /**
@@ -1544,9 +1559,10 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
   }
 
   if (salvageable(built)) {
-    const plan = salvagePlan(built.error, pages, livePages);
-    out.salvage = { stubbed: plan.stub, foreign: plan.foreign, kept: plan.kept, reason: plan.reason };
-    if (plan.stub.length) {
+    const plan = salvagePlan(built.error, pages, livePages, sitePartsForBuild);
+    const badParts = new Set(plan.parts || []);
+    out.salvage = { stubbed: plan.stub, foreign: plan.foreign, kept: plan.kept, reason: plan.reason, ...(badParts.size ? { stubbedParts: [...badParts] } : {}) };
+    if (plan.stub.length || badParts.size) {
       // THE FIRST FAILURE IS WHAT GETS DIAGNOSED, not the second. A salvaged build
       // returns `ok`, so without keeping these the error that actually happened is
       // gone — and it is the only record of what the generator got wrong. `stage`
@@ -1556,6 +1572,9 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
       out.cited = citedLines(built.error, pages);
       const bad = new Set(plan.stub);
       const patched = pages.map((p) => (bad.has(p.path) ? { ...p, source: stubPage(p.path) } : p));
+      // A PART STUBBED IS A SECTION THAT DRAWS NOTHING, its import still valid.
+      const partsBefore = sitePartsForBuild;
+      if (badParts.size) sitePartsForBuild = sitePartsForBuild.map((p) => (badParts.has(p.name) ? { ...p, source: partStub("Part"), stub: true } : p));
       // THE RETRY WRAPPER, not the bare compile. A container drained mid-build
       // is the exact race `compileWithRetry` exists for — measured live twice —
       // and this call had no second attempt, so unlucky rollout timing turned a
@@ -1565,7 +1584,7 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
       // NO MANUAL COUNT HERE. `compile` counts its own runs now, so this line
       // was adding one to a total the call on the line above had just reset.
       const second = await compileWithRetry(patched);
-      if (second.ok) note("salvaged", { stubbed: plan.stub.length });
+      if (second.ok) note("salvaged", { stubbed: plan.stub.length + badParts.size });
       if (second.ok) {
         built = second;
         // THE STUB IS WHAT GETS STORED, and a revise therefore edits the stub
@@ -1574,7 +1593,9 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
         // reads unmistakably as unfinished, which is the instruction.
         pages = patched;
         out.salvaged = plan.stub;
+        if (badParts.size) { v.parts = sitePartsForBuild; out.salvagedParts = [...badParts]; }
       } else {
+        sitePartsForBuild = partsBefore;
         out.salvage.secondStage = second.stage;
         out.salvage.secondError = String(second.error || "").slice(0, 200);
       }

@@ -124,7 +124,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     async get(k) {
       // A READ THAT FAILS (`failGet`): the store down for that one call.
       const g = getFaults.findIndex((x) => x.match(k));
-      if (g >= 0) { getFaults.splice(g, 1); throw new Error("r2 unavailable"); }
+      if (g >= 0) { const f = getFaults.splice(g, 1)[0]; throw (typeof f.error === "function" ? f.error() : new Error("r2 unavailable")); }
       // READS LET THROUGH, THEN FAILED (`failGetFrom`, round 14): the first
       // `skip` matching reads answer, the next `count` fail.
       for (const c of countedGets) { if (c.match(k) && c.seen++ >= c.skip && c.failed < c.count) { c.failed++; throw new Error("r2 unavailable"); } }
@@ -908,7 +908,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     /** The next write to a key `match(key, body)` accepts lands, runs `then(key)`, and throws: a committed write whose answer is lost. */
     losePut(match, then) { putFaults.push({ kind: "lose", match, then }); },
     /** The next read of a key `match(key)` accepts throws. */
-    failGet(match) { getFaults.push({ match }); },
+    failGet(match, error = null) { getFaults.push({ match, error }); },
     /** Let the first `skip` reads matching through, then fail the next `count`. */
     failGetFrom(match, { skip = 0, count = 1 } = {}) { countedGets.push({ match, skip, count, seen: 0, failed: 0 }); },
     /** The next read of the job table whose address `match(url)` accepts answers 503. */

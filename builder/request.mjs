@@ -1044,7 +1044,10 @@ function recoverHeld(p, job, ans, error, why, now) {
   job.end.act = "held-retry";
   const hf = heldFromOf(p);
   const copy = !!hf && (Array.isArray(hf.list) || !!hf.delta);
-  const lost = error === "checkpoint-unread" && (why === "malformed" || (why === "missing" && !copy));
+  // A CHECKPOINT THE CONTAINER'S WALL REFUSED (`refused`, audit A24-2) is
+  // what the Worker would have read as missing: lost without a copy, and run
+  // again to be staged from the copy when there is one.
+  const lost = error === "checkpoint-unread" && (why === "malformed" || ((why === "missing" || why === "refused") && !copy));
   if (lost) {
     delete p.recover;
     endUnfinished(p, leftOf(ans.body), error, { job: job.id, kind: "refused" });

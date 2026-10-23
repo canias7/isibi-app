@@ -1453,9 +1453,10 @@ const WORKER_DIR = process.env.WORKER_DIR || path.join(APP, "worker");
  * A module the job imports and the image does not carry dies at import
  * INSIDE the container, after the Worker's consumer has fired the job and
  * gone: nothing claims it, and the lost-edit sweep is what closes it. The
- * Worker runs a job itself only when this service REFUSES the launch. So a
- * tree that does not import turns every launch into a 503 here, which is the
- * Worker's inline path — the failure moves to the place with a fallback.
+ * Worker no longer runs a container job itself when this service refuses
+ * (2026-09-14): a 503 is asked again a few times (`fireOutcome`) and then
+ * finalized `no-container`, so a tree that does not import turns every
+ * launch into that clear failure, said before any model call is spent.
  * `null` until the check has answered; the route awaits it.
  */
 let WORKER_TREE = null;
@@ -1806,21 +1807,24 @@ const server = http.createServer((req, res) => {
       // STOPPING REFUSES FIRST (stage 3a, 2026-09-05). Once the platform has
       // sent SIGTERM this instance is draining what it holds and will exit the
       // moment that lands — a job started now would be killed with it, its
-      // lease lapsing under the sweep. A 503 is the Worker's inline path, said
-      // in its log; before this the door took launches while stopping.
+      // lease lapsing under the sweep. The Worker asks a 503 again a few times
+      // and then finalizes the job `no-container` (`fireOutcome`; a drain can
+      // outlast those tries, audit A08-6); before this the door took launches
+      // while stopping.
       if (_stopping) return send(res, 503, { ok: false, error: "stopping" });
       if (jTooBig) return send(res, 413, { ok: false, error: "request too large" });
       let launch;
       try { launch = readLaunch(jBody); } catch (e) { return send(res, 400, { ok: false, error: String((e && e.message) || e) }); }
-      // A TREE THAT DOES NOT IMPORT REFUSES HERE, where the Worker still has
-      // its inline path — never later, inside a child nobody is waiting on.
+      // A TREE THAT DOES NOT IMPORT REFUSES HERE, where the Worker is still
+      // waiting on the answer — never later, inside a child nobody is waiting on.
       const tree = WORKER_TREE || await WORKER_TREE_CHECK;
       if (!tree.ok) return send(res, 503, { ok: false, error: tree.error });
       sweepJobs();
       if (JOBS.has(launch.id) && JOBS.get(launch.id).state === "running") return send(res, 409, { ok: false, error: "that job is already running here", id: launch.id });
       // BOUNDED, like the generation jobs: one lane is one site, so more than
       // a few live jobs means the queue is delivering one site's edits faster
-      // than they finish. A refusal here is the Worker's inline path.
+      // than they finish. The Worker reads this 429 as final (`fireOutcome`
+      // "stop") and finalizes the job `no-container` (audit A08-6).
       if ([...JOBS.values()].filter((j) => j.state === "running").length >= MAX_JOBS) return send(res, 429, { ok: false, error: "too many jobs on this container" });
       const started = startJob(launch, jBody);
       if (!started.ok) return send(res, 500, { ok: false, error: started.error });

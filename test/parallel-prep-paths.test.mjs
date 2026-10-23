@@ -19,6 +19,9 @@ import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { writtenPage } from "./fixtures/addon-route.mjs";
 import { page as pageSrc } from "./fixtures/live-ask.mjs";
 import { rowsDb, BAKERY_LOAVES, LOAF_COLUMNS } from "./fixtures/rows-db.mjs";
+import { CONFIG_KEY } from "../site-config.mjs";
+import { SOURCE_KEY, PARTS_KEY } from "./fixtures/live-ask.mjs";
+import { standInTweakParser } from "../builder/site-tweak.mjs";
 
 blockNetwork();
 
@@ -65,7 +68,7 @@ const lineId = (args, file, line) => {
  * for that call (or 4 s). `check.before` runs after the preparation and before
  * the other task's job; `check.after` once the request has ended.
  */
-async function overlapCase({ slug, first = { kind: "photo", page: "/" }, other, db = null, check }) {
+async function overlapCase({ slug, first = { kind: "photo", page: "/" }, other, db = null, check, env = null }) {
   let markerSeen = null;
   const seen = new Promise((ok) => { markerSeen = ok; });
   let opened = null;
@@ -88,6 +91,8 @@ async function overlapCase({ slug, first = { kind: "photo", page: "/" }, other, 
     slug, pages: PAGES, images: true, ...(db ? { db } : {}), answers,
     ...(first.kind === "photo" ? { imageWith: hold } : {}),
   }, async (P) => {
+    if (check && check.setup) await check.setup(P);
+    if (env) Object.assign(P.env, env);
     const words = first.kind === "text" ? TEXT_WORDS : first.kind === "data" ? (first.table === "hours" ? "open the bakery at 8 on Mondays" : RYE) : PHOTO;
     const r = await sendMessage(P, { message: words + ", and " + other.words + "." });
     assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -104,6 +109,7 @@ async function overlapCase({ slug, first = { kind: "photo", page: "/" }, other, 
     // (A held text edit is released by the other task's call and publishes
     // the Visit page while the preparation is still running, so its cases
     // check what the preparation wrote in `check.before`.)
+    if (check && check.midway) await check.midway(P);
     const strict = first.kind === "data";
     const before = strict ? siteEtags(P) : null;
     await deliver(P, prep[0]);
@@ -147,6 +153,34 @@ test("PATH look — a site-description lane answered while a stored row's change
     check: {
       before: (P) => assert.deepEqual(siteObjectsWith(P, NEW_DESC), [], "the preparation stored the look"),
       after: (P) => assert.ok(siteObjectsWith(P, NEW_DESC).length > 0, "the look was not stored by its job"),
+    },
+  });
+});
+
+test("A24-1 A PREPARATION NEVER REPAIRS THE EDITABLE STATE (2026-10-23): with PARALLEL_WRITES off, a config written ahead of the live version by a running job (here, written while the first task's job is held) is not put back by the other task's preparation; nothing of the site is written by it", async () => {
+  const DESC = "change the site description to say we bake overnight sourdough";
+  const NEW_DESC = "Overnight sourdough from a Bristol side street.";
+  const V = "01790468089054-8btpep";
+  const db = loavesDb();
+  await overlapCase({
+    slug: slugOf("norepair"), db, first: { kind: "data" }, env: { PARALLEL_WRITES: "off" },
+    other: {
+      words: DESC, writes: ["identity"], route: { intent: "edit", layer: "look" }, marker: "lane:description", logged: T.lane,
+      answers: { [T.pick]: { fields: ["description"], scopes: [{ part: "description", words: DESC }] }, "lane:description": NEW_DESC },
+    },
+    check: {
+      // THE LIVE VERSION AND ITS BAKED LOOK, the editable copy level with it.
+      setup: (P) => {
+        P.writeObj("current/" + P.slug + ".json", JSON.stringify({ version: V, build: "b1", parent: "", job: null, activatedAt: "2026-10-01T00:00:00Z" }));
+        P.writeObj("source/" + P.slug + "/head.json", JSON.stringify({ version: V, at: "2026-10-01T00:00:00Z" }));
+        P.writeObj("builds/" + P.slug + "/" + V + "/state/config.json", P.readObj(CONFIG_KEY(P.slug)));
+      },
+      // A LOOK JOB'S CONFIG WRITE, ahead of its publish.
+      midway: (P) => {
+        const c = JSON.parse(P.readObj(CONFIG_KEY(P.slug)));
+        P.writeObj(CONFIG_KEY(P.slug), JSON.stringify({ ...c, look: { ...c.look, theme: "nocturne" } }));
+      },
+      before: (P) => assert.equal(P.look().theme, "nocturne", "the preparation put the running job's look back"),
     },
   });
 });
@@ -339,6 +373,38 @@ test("PATH page tweak — the Visit page's heading made bigger by the TWEAK (the
         assert.ok(P.page("visit.tsx").includes("We are on Harbour Street."), "the page's words were not kept");
         assert.equal(calls(P, T.pages).length, 0, "an unintended rewrite was asked for");
         assert.ok(shown.length >= 1 && shown.every((p) => /visit/.test(String(p))), "the tweak was shown another page: " + JSON.stringify(shown));
+      },
+    },
+  });
+});
+
+test("A24-3 PATH page tweak, NO PARSER IN THE PREPARATION (the Worker's own answer) on a page that renders one of the site's components: the preparation stops at the tweak and never asks the page writer; the job, where the parser loads, replays the tweak and applies it once (2026-10-23)", async () => {
+  const WORDS = "make the heading on the Visit page bigger";
+  const BIG = '<h1 className="text-5xl">Come to the bakery</h1>';
+  const db = loavesDb();
+  const visit = pageSrc("/visit", "<section className=\"come\"><h1>Come to the bakery</h1><p>We are on Harbour Street.</p><HoursCard /></section>")
+    .replace(/^/, 'import HoursCard from "@/routes/-parts/hours-card";\n');
+  await overlapCase({
+    slug: slugOf("tweak-np"), db, first: { kind: "data" },
+    other: {
+      words: WORDS, writes: ["page:/visit"], route: { intent: "edit", layer: "page", page: "/visit" }, marker: T.tweak,
+      answers: { [T.tweak]: (args) => { const f = shownFile(args); return { source: String(f && f.source).replace("<h1>Come to the bakery</h1>", BIG) }; } },
+    },
+    check: {
+      setup: (P) => {
+        P.writeObj(PARTS_KEY(P.slug), JSON.stringify([{ name: "hours-card", source: "export default function HoursCard() { return <p>Open 8 till 4</p>; }" }]));
+        P.writeObj(SOURCE_KEY(P.slug), JSON.stringify(PAGES.map((p) => (p.path === "visit.tsx" ? { ...p, source: visit } : p))));
+      },
+      midway: () => standInTweakParser(null),
+      before: (P) => {
+        standInTweakParser(undefined);
+        assert.equal(calls(P, T.tweak).length, 1, "the tweak was not asked in the preparation");
+        assert.equal(calls(P, T.pages).length, 0, "the preparation fell through to the page writer's rewrite");
+      },
+      after: (P) => {
+        assert.ok(P.page("visit.tsx").includes(BIG), "the page was not changed by its job");
+        assert.ok(P.page("visit.tsx").includes("<HoursCard />"), "the component was lost");
+        assert.equal(calls(P, T.pages).length, 0, "an unintended rewrite was asked for");
       },
     },
   });

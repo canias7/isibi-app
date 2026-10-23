@@ -2237,3 +2237,72 @@ for (const mode of ["sync", "job"]) {
     assert.equal(JSON.stringify(db2.rows("loaves")), rows0, "an entry held in the draft was written live");
   });
 }
+
+test("A17-3 A ROW HELD IN THE DRAFT IS NOT REFUNDED AS NOT SAVED (2026-10-23): the review finds this job's own revision in the draft record and keeps it `draft-saved`, leaving the live key open; with no draft naming the job, the key still decides", async () => {
+  const mod = await loadWorkerModule();
+  const { saveDraftRecord, HELD_KEY } = await import("../site-draft.mjs");
+  const db = bakeryDb();
+  const slug = "addon-row-held-" + hex(4);
+  const w = wire({ db, slug, answers: {} });
+  try {
+    const store = bucket(slug);
+    const env = { ...baseEnv(store), DRAFT_FIRST: "on" };
+    const id = hex(16), other = hex(16);
+    const parked = (jid) => ({ id: jid, uid: USER.id, slug, op: "addon", state: "failed", phase: null, billing: "reserved", cost: 2,
+      needs_review: true, review_note: "edit did not ship", artifact_build: "addon-row:job:" + jid, worker_status: null, publish_started_at: "2026-10-01T05:00:00Z",
+      published_at: null, result: null, lease_owner: "owner-x", updated_at: "2026-10-01T05:00:00Z", created_at: "2026-10-01T04:59:00Z" });
+    // THE DRAFT AS THE HOLD LEAVES IT: the live version's code, and this job's
+    // held rows sealed as a revision naming it, with its journal.
+    const version = "01790468089054-8btpep";
+    store.store.set("builds/" + slug + "/" + version + "/manifest.json", JSON.stringify({ job: "an-earlier-job", files: ["index.html"] }));
+    const heldId = hex(12);
+    const heldOps = [{ kind: "row", table: "loaves", op: "insert", values: ENTRY.values }];
+    store.store.set(HELD_KEY(slug, heldId), JSON.stringify({ ops: heldOps }));
+    const deps = { get: (k) => store.get(k), put: async (k, v) => { await store.put(k, v); return { etag: hex(6) }; } };
+    const saved = await saveDraftRecord(deps, slug, { version, job: id, held: { id: heldId, ops: heldOps } });
+    assert.equal(saved.draft.revs[0].held, heldId, "the revision does not carry its held changes");
+    assert.equal(saved.ok, true, JSON.stringify(saved));
+    w.seen.rows.set(id, parked(id));
+    const before = db.log().length;
+    const r = await mod.reconcileEditJob(env, id);
+    assert.equal(r.verdict, "kept", JSON.stringify(r).slice(0, 400));
+    assert.equal(r.kind, "draft-saved");
+    assert.equal(db.meta("addon-row:job:" + id), undefined, "the held row's live key was closed");
+    assert.equal(db.log().slice(before).filter((e) => /_meta/.test(e.query)).length, 0, "the live key was read for a row the draft holds");
+    const settled = w.seen.rpc.filter((x) => x.fn === "edit_reconcile");
+    assert.equal(settled.length, 1);
+    assert.equal(settled[0].args.p_committed, true, "the held row was refunded");
+    // THE OBSERVER IS ALIVE: a row job the draft does not name is still read by its key, closed and refunded.
+    w.seen.rows.set(other, parked(other));
+    const r2 = await mod.reconcileEditJob(env, other);
+    assert.equal(r2.kind, "closed-now", JSON.stringify(r2).slice(0, 400));
+  } finally { w.restore(); }
+});
+
+for (const mode of ["sync", "job"]) {
+  test(`DFH2 AN ENTRY HELD IN A DRAFT IS TRIED FIRST (2026-10-18, audit A09-2): a name already on the list is refused at once with its reason, nothing held, written or charged; a new name passes the check (${mode})`, async () => {
+    const db = bakeryDb({ unique: ["name"] });
+    const rows0 = JSON.stringify(db.rows("loaves"));
+    const dup = { table: "loaves", values: { name: "Dark Rye", price: 5, description: "Again." } };
+    const r = await chain({ mode, db, draftFirst: true, answers: { pick_adds: PICK_ROW, add_to_site: { row: [dup] } } });
+    assert.equal(r.body && r.body.error, "row-refused", JSON.stringify(r.body).slice(0, 400));
+    assert.match(String(r.body.msg), /already there/);
+    assert.equal(Number(r.body.cost) || 0, 0, "a refused entry was charged");
+    assert.equal(JSON.stringify(db.rows("loaves")), rows0, "the live list moved");
+    assert.ok(![...r.store.store.keys()].some((k) => /draft/.test(k)), "a refused entry reached the draft: " + [...r.store.store.keys()].filter((k) => /draft/.test(k)));
+    assert.ok(!r.seen.rpc.some((x) => /edit_reserve|edit_publish_mark/.test(JSON.stringify(x))), "a refused entry reserved or marked: " + JSON.stringify(r.seen.rpc).slice(0, 300));
+    // THE OBSERVER IS ALIVE: a new name is not refused by the check.
+    const db2 = bakeryDb({ unique: ["name"] });
+    const ok = await chain({ mode, db: db2, draftFirst: true, answers: { pick_adds: PICK_ROW, add_to_site: { row: [ENTRY] } } });
+    assert.notEqual(ok.body && ok.body.error, "row-refused", JSON.stringify(ok.body).slice(0, 400));
+    // A LIST NOT LIVE YET (a table Postgres does not have): that is not the
+    // entry's fault, so the check lets it through to be held.
+    const db3 = bakeryDb({ unique: ["name"] });
+    db3.dropTable && db3.dropTable("loaves");
+    const notLive = await chain({ mode, db: db3, draftFirst: true, answers: { pick_adds: PICK_ROW, add_to_site: { row: [ENTRY] } } });
+    assert.notEqual(notLive.body && notLive.body.error, "row-refused", "an entry was refused for a table not live yet: " + JSON.stringify(notLive.body).slice(0, 400));
+    assert.ok(db3.log().some((e) => /^-- rehearsed: INSERT INTO "loaves"/.test(e.query)), "the not-live case never reached the rehearsal — it tests nothing");
+    if (mode === "job") assert.ok(ok.seen.rpc.some((x) => /edit_reserve/.test(JSON.stringify(x))), "the reserve observer sees nothing even when an entry goes ahead: " + JSON.stringify(ok.seen.rpc).slice(0, 300));
+    assert.equal(JSON.stringify(db2.rows("loaves")), rows0, "an entry held in the draft was written live");
+  });
+}

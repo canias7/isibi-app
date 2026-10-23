@@ -78,23 +78,25 @@ test("old enough, and nothing else: the prefix is the wall and an unreadable age
   for (const junk of [null, undefined, "objects", 7, {}]) assert.deepEqual(expiredJobKeys(junk, { now: NOW }), []);
 });
 
-test("a tick lists both prefixes, deletes in ONE call, and cannot throw", async () => {
+test("a tick lists its three prefixes, deletes in ONE call, and cannot throw", async () => {
   const calls = { list: [], remove: [] };
   const objs = {
     "jobs/7": [{ key: "jobs/7one.json", uploaded: old(JOB_RETENTION_MS * 2) }, { key: "jobs/7new.json", uploaded: old(1000) }],
     "jobs/edit/7": [{ key: "jobs/edit/7two", uploaded: old(JOB_RETENTION_MS * 2) }],
+    // A24-4 (2026-10-23): what a request job kept under its own id.
+    "jobs/prepared/7": [{ key: "jobs/prepared/7three.kept.json", uploaded: old(JOB_RETENTION_MS * 2) }, { key: "jobs/prepared/7four.held.json", uploaded: old(1000) }],
   };
   const deps = {
     list: async (prefix, limit) => { calls.list.push([prefix, limit]); return objs[prefix] || []; },
     remove: async (keys) => { calls.remove.push(keys); },
   };
   const out = await sweepJobObjects(deps, { now: NOW + 7 * RETENTION_TICK_MS });
-  assert.deepEqual(calls.list.map((c) => c[0]), ["jobs/7", "jobs/edit/7"]);
+  assert.deepEqual(calls.list.map((c) => c[0]), ["jobs/7", "jobs/edit/7", "jobs/prepared/7"]);
   assert.equal(calls.list[0][1], RETENTION_LIST_LIMIT, "the listing is not bounded");
   assert.equal(calls.remove.length, 1, "the batch was deleted key by key");
-  assert.deepEqual(calls.remove[0], ["jobs/7one.json", "jobs/edit/7two"]);
-  assert.equal(out.deleted, 2);
-  assert.equal(out.listed, 3);
+  assert.deepEqual(calls.remove[0], ["jobs/7one.json", "jobs/edit/7two", "jobs/prepared/7three.kept.json"]);
+  assert.equal(out.deleted, 3);
+  assert.equal(out.listed, 5);
   assert.deepEqual(out.errors, []);
 
   // NOTHING TO TAKE OUT is no delete at all — the ordinary tick.
@@ -104,7 +106,7 @@ test("a tick lists both prefixes, deletes in ONE call, and cannot throw", async 
 
   // A LISTING THAT FAILED is reported, and the other prefix is still swept.
   const half = await sweepJobObjects({
-    list: async (p) => { if (p.startsWith("jobs/edit/")) throw new Error("r2 down"); return [{ key: "jobs/7one.json", uploaded: old(JOB_RETENTION_MS * 2) }]; },
+    list: async (p) => { if (p.startsWith("jobs/edit/")) throw new Error("r2 down"); return p === "jobs/7" ? [{ key: "jobs/7one.json", uploaded: old(JOB_RETENTION_MS * 2) }] : []; },
     remove: async () => {},
   }, { now: NOW + 7 * RETENTION_TICK_MS });
   assert.equal(half.deleted, 1);
@@ -121,7 +123,22 @@ test("a tick lists both prefixes, deletes in ONE call, and cannot throw", async 
   // And deps that are not deps at all do not take the cron down.
   const none = await sweepJobObjects({}, { now: NOW });
   assert.equal(none.deleted, 0);
-  assert.equal(none.errors.length, 2);
+  assert.equal(none.errors.length, 3);
+});
+
+test("A24-4 (2026-10-23): a request job's records under jobs/prepared/ are taken out in one full rotation once seven days old, never before", async () => {
+  const id = "c".repeat(32);
+  const keys = [".json", ".use.json", ".kept.json", ".held.json", ".held-in.json"].map((x) => "jobs/prepared/" + id + x);
+  const rotation = async (age) => {
+    const removed = [];
+    for (let t = 0; t < RETENTION_NIBBLES.length; t++) {
+      const now = NOW + t * RETENTION_TICK_MS;
+      await sweepJobObjects({ list: async (prefix) => keys.filter((k) => k.startsWith(prefix)).map((key) => ({ key, uploaded: new Date(now - age) })), remove: async (ks) => { removed.push(...ks); } }, { now });
+    }
+    return removed;
+  };
+  assert.deepEqual(await rotation(JOB_RETENTION_MS - 60_000), [], "a record younger than seven days was taken out");
+  assert.deepEqual((await rotation(JOB_RETENTION_MS + 60_000)).sort(), [...keys].sort(), "a request job's records were not taken out in one full rotation");
 });
 
 test("the cron runs it, with the real bucket and one delete for the batch", () => {
