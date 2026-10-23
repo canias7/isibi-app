@@ -12455,6 +12455,14 @@ const turnstileConfig = memoize(turnstileCfg, async (slug, env, db) => {
     try { out[field] = (await readSecret({ get: async () => r.cipher }, env, { slug, name })) || ""; }
     catch { /* absent */ }
   }
+  // HALF A PAIR IS OFF (audit A30-7). With the secret and no site key no
+  // widget can render, so no token can exist and every submission would be
+  // refused, for good and in silence. Off, said in the log, like a secret
+  // that will not decrypt.
+  if (out.secret && !out.siteKey) {
+    console.error("turnstile:", slug, "TURNSTILE_SECRET is set without TURNSTILE_SITE_KEY: the check stays off");
+    out.secret = "";
+  }
   return out;
 });
 
@@ -12481,7 +12489,7 @@ async function turnstileGate(env, request, { slug, db, path, sent }) {
   }, { path, sent, contentType: request.headers.get("content-type"), ip: request.headers.get("CF-Connecting-IP") || "" });
   if (rpc) {
     const { verdict, ...decided } = rpc;
-    if (verdict && verdict.state === "unknown") console.error("turnstile:", slug, verdict.reason);
+    if (verdict && (!verdict.ok || verdict.state === "unknown")) console.error("turnstile:", slug, verdict.state, verdict.reason);
     return decided;
   }
   // ONE ROW PER SUBMISSION WHERE THE CHECK IS ON (audit A30-2). A body that is
@@ -12543,7 +12551,9 @@ async function turnstileGate(env, request, { slug, db, path, sent }) {
     // reputation Cloudflare scores their token against.
     ip: request.headers.get("CF-Connecting-IP") || "",
   });
-  if (verdict.state === "unknown") console.error("turnstile:", slug, verdict.reason);
+  // EVERY VERDICT THAT IS NOT A PASS IS SAID (audit A30-7): a refusal used to
+  // leave no trace, so an owner whose visitors were all refused could not see it.
+  if (!verdict.ok || verdict.state === "unknown") console.error("turnstile:", slug, verdict.state, verdict.reason);
   if (verdict.ok) return out;
   return { ...out, refused: "That didn't look like it came from a person. Please try again." };
 }
