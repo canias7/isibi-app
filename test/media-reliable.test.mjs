@@ -288,6 +288,7 @@ test("MR4b FULL WHILE A DELETE IS HELD (audit A10-5, 2026-10-23) — under draft
     assert.equal(full.body.code, "full");
     assert.match(full.body.error, /still count until you publish/, "the refusal does not say a held delete frees room only at Publish: " + full.body.error);
     assert.doesNotMatch(full.body.error, /delete some first/, "the advice that frees nothing is still given");
+    assert.doesNotMatch(full.body.error, /a replacement waits/, "a new file was told about a replacement");
     // A REPLACEMENT AT THE LIMIT: its own room is said, not "publish" alone.
     const rep = await app(worker, env, "POST", "/api/site/" + slug + "/media", { json: { name: "Welcome 2.mp3", size: song.length, type: "", replace: a.done.body.name } });
     assert.equal(rep.status, 409, JSON.stringify(rep.body));
