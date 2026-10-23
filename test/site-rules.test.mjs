@@ -525,3 +525,47 @@ test("the rules tool's webhook events match the deliverer's, and survive the nor
   const normalised = normalizeSchema(merged.spec).tables.find((t) => t.name === "t");
   assert.deepEqual(normalised.webhooks, ["created"], "the normaliser must drop the invented event");
 });
+
+// ── the stored shape (2026-10-23, audit A29-5, A29-6, A29-7) ─────────────────
+//
+// `_meta` holds BARE column names, the numeric ones in `num`: the fixtures
+// above use typed objects, which the stored schema never has.
+const storedBookings = {
+  name: "sessions", access: "collect",
+  columns: ["customer", "slot_date", "status", "start_min", "end_min", "extras"],
+  num: ["start_min", "end_min"], json: ["extras"],
+  unique: [{ columns: ["slot_date", "start_min"], where: "status:ne:cancelled" }],
+  noOverlap: { start: "start_min", end: "end_min", on: ["slot_date"], where: { col: "status", op: "ne", val: "cancelled" } },
+};
+
+test("A29-5: a stored numeric column reads as a number, and noOverlap on it is accepted, its scope kept", () => {
+  const d = rulesDigest([storedBookings]);
+  assert.match(d, /start_min \(number\), end_min \(number\)/);
+  assert.match(d, /extras \(json\)/);
+  assert.match(d, /customer \(text\)/);
+  const r = readRules(one({ table: "sessions", noOverlap: { start: "start_min", end: "end_min" } }), [storedBookings]);
+  assert.deepEqual(r.refused, [], "a stored integer pair was refused as not-integers");
+  assert.deepEqual(r.changes[0].noOverlap.on, ["slot_date"], "restating the rule dropped its stored scope");
+  const scoped = readRules(one({ table: "sessions", noOverlap: { start: "start_min", end: "end_min", on: ["customer", "nope"] } }), [storedBookings]);
+  assert.deepEqual(scoped.changes[0].noOverlap, { start: "start_min", end: "end_min", on: ["customer"] });
+  // A text pair is still refused.
+  const text = readRules(one({ table: "sessions", noOverlap: { start: "slot_date", end: "customer" } }), [storedBookings]);
+  assert.deepEqual(text.refused, [{ table: "sessions", rule: "noOverlap", why: "not-integers" }]);
+  assert.ok(RULES_TOOL.input_schema.properties.tables.items.properties.noOverlap.properties.on, "the tool offers no scope");
+});
+
+test("A29-6: a webhooks answer reaches the change, and the digest says what is on", () => {
+  const r = readRules(one({ table: "sessions", webhooks: ["created", "bogus", "created"] }), [storedBookings]);
+  assert.deepEqual(r.changes, [{ table: "sessions", webhooks: ["created"] }]);
+  assert.deepEqual(readRules(one({ table: "sessions", webhooks: ["bogus"] }), [storedBookings]).changes, []);
+  assert.match(rulesDigest([{ ...storedBookings, webhooks: ["created"] }]), /webhooks on created/);
+  assert.match(rulesDigest([{ ...storedBookings, webhooks: true }]), /webhooks on created \+ updated \+ deleted/);
+});
+
+test("A29-7: the designer's unique groups and noOverlap's scope are said, never [object Object]", () => {
+  const d = rulesDigest([storedBookings]);
+  assert.ok(!d.includes("[object Object]"), d);
+  assert.match(d, /unique on slot_date \+ start_min \(where status:ne:cancelled\)/);
+  assert.match(d, /noOverlap on start_min…end_min within slot_date \(where status ne cancelled\)/);
+  assert.match(rulesDigest([{ ...storedBookings, unique: ["a", "b"] }]), /unique on a \+ b/);
+});
