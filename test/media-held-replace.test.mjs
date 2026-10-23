@@ -57,6 +57,18 @@ test("the complete answer lost: not told as replaced from a status read", async 
   assert.ok(!r.recovered);
 });
 
+test("a held replacement never asks status (it cannot hold), and a finish that does not say held is not a replacement", async () => {
+  const lost = routes({ completeAs: () => ({ status: 503, body: { code: "draft" } }) });
+  await send(lost, memoryStore());
+  assert.ok(!lost.calls.includes("status"), "a status read stood in for the hold: " + lost.calls.join(","));
+  const unheld = routes({ completeAs: () => ({ status: 201, body: { ok: true, name: "take2.mp3" } }) });
+  const store = memoryStore();
+  const r = await send(unheld, store);
+  assert.equal(r.ok, false, JSON.stringify(r));
+  assert.equal(r.code, "draft");
+  assert.equal(store.m.size, 0);
+});
+
 test("a done record of a replacement is never reused: the file is sent and finished again", async () => {
   const store = memoryStore();
   const api = routes({ completeAs: () => HELD });
