@@ -457,6 +457,20 @@ test("A MESSAGE BESIDE A WAITING QUESTION: the router says whether it answers it
   }
 });
 
+// A QUESTION ABOUT THE SITE IS NOT AN ANSWER (2026-10-23, audit A35-5): an
+// `ask` reply the router marks answered:true closed the waiting question and,
+// for a request part, marked the part done without its work.
+test("A35-5 a side question read as answered:true is a side question: the waiting question is not answered by it", async () => {
+  const pending = { request: "Add our Instagram link to the footer", question: Q, chosen: false };
+  const side = await liveRoute({ intent: "ask", answered: true, answer: "Yes, that format works." }, { pending });
+  assert.notEqual(side.r.failed, true, JSON.stringify(side.r));
+  assert.equal(side.r.intent, "ask");
+  assert.equal(side.r.answered, false, "a question about the site answered the waiting question");
+  // The control: an edit that answers still answers.
+  const yes = await liveRoute({ intent: "edit", layer: "text", answered: true }, { pending });
+  assert.equal(yes.r.answered, true);
+});
+
 test("A CLEAR REQUEST GOES STRAIGHT THROUGH, with nothing about questions on its answer", async () => {
   const r = (await liveRoute({ intent: "edit", layer: "text" })).r;
   assert.equal(r.intent, "edit");

@@ -3211,6 +3211,12 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
   // kept as it came, under the note (`clarify-again` with no `clarify-reused`
   // before it), and the waiting request stays as it is for the customer's
   // next answer or their Cancel.
+  // A QUESTION ABOUT THE SITE IS NOT AN ANSWER (2026-10-23, audit A35-5): the
+  // schema only suggests pairing `ask` with answered:false, and an answer read
+  // as answered:true with intent `ask` closed the waiting question and, for a
+  // request part, marked the part done without its work. It is read as the
+  // side question it is: the reply is given and the question keeps waiting.
+  if (waiting && routed.unusable !== true && routed.intent === "ask" && routed.answered === true) routed = { ...routed, answered: false };
   if (waiting && routed.unusable !== true && routed.intent === "clarify" && routed.answered === true) {
     // THE ANSWER WHOLE, as the route stores it (2026-10-03): one past the size
     // policy never reaches here — the route refuses it first.
