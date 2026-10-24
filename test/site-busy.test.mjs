@@ -726,7 +726,12 @@ test("the editable copy: four editing readers read through the repairing reader,
   { const w0 = W.indexOf("async function loadSiteSourceForEdit(");
     const arm = W.indexOf("if (checked && prepare === true) return { ...await readSiteSource(env, slug, { strict: true })", w0);
     assert.ok(w0 > 0 && arm > w0 && arm < W.indexOf("ensureEditableState(env, slug, checked ?", w0), "the preparation's read is not the wrapper's own non-repairing arm"); }
-  assert.equal(bare.length, 13, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
+  // RE-ANCHORED 2026-10-24 — 13 → 14, AND THE FOURTEENTH IS THE VISUAL
+  // REVIEW'S DECISION READ in the seam (`recompileAndPublish`): it compares the
+  // publish's pages with the editable copy to tell a front-end change from a
+  // back-end one. It only reads; it never opens a page for an edit.
+  assert.ok(W.includes("const [srcBefore, partsBefore] = await Promise.all([readSiteSource(env, slug), readSiteParts(env, slug)]);"), "the visual review's decision read is gone, or does more than read");
+  assert.equal(bare.length, 14, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
   assert.ok(W.includes("const pages = url.searchParams.get(\"force\") === \"1\" ? null : await loadSiteSource(env, uslug).catch(() => null);"), "the media delete's read is gone, or does more than read which pages name a file");
   assert.ok(W.includes("withinMs(loadSiteSource(env, slug), CONVERSE_READ_MS, \"converse pages:\", slug)"), "the conversation's read is gone, or does more than read the pages for a reply");
   assert.ok(W.includes("loadSiteSource(env, slug).then((pp) => pageLabels("), "the request's label read is gone, or does more than read labels");
@@ -747,7 +752,7 @@ test("the editable copy: four editing readers read through the repairing reader,
   // failed read from no pages, as the Code tab's does.
   // 5 → 6 (2026-10-23, audit A24-1): the checked wrapper's preparation arm,
   // a strict read that repairs nothing (argued for above).
-  assert.equal(bare.filter((b) => b.startsWith("readSiteSource")).length, 6,
+  assert.equal(bare.filter((b) => b.startsWith("readSiteSource")).length, 7, // 2026-10-24: + the visual review's decision read in the seam
     "the six reads are not the plain wrapper's, the checked wrapper's two, the Code tab's and the security scan's two: " + bare.join(" | "));
   assert.match(fnW("loadSiteSource"), /const r = await readSiteSource\(env, slug\);/,
     "the wrapper no longer delegates — there are two readers of the store, which drift");

@@ -1997,7 +1997,7 @@ test("the translation calls are CHARGED — by the spine, before the commit poin
   // route's reader of its own refusals; the property here is the funnel.)
   assert.match(w, /pendingPublish = \{ [^\n]*charge: \(usage\) => eCharge\(\{ langUsage: usage \}\)(?:, [^\n]*?)? \};/,
     "the deferred publish hands the spine no funnel, or one that is not eCharge");
-  assert.match(w, /cost: done\.reduce\(\(n, d\) => n \+ \(Number\(d\.body && d\.body\.cost\) \|\| 0\), 0\) \+ \(finalPub \? Number\(finalPub\.langCharged\) \|\| 0 : 0\)(?:\s*\/\/[^\n]*\n\s*\+ \(finalPub && finalPub\.compileRepaired \? Number\(finalPub\.compileRepaired\.charged\) \|\| 0 : 0\))?,/,
+  assert.match(w, /cost: done\.reduce\(\(n, d\) => n \+ \(Number\(d\.body && d\.body\.cost\) \|\| 0\), 0\) \+ \(finalPub \? Number\(finalPub\.langCharged\) \|\| 0 : 0\)(?:\s*\/\/[^\n]*\n\s*\+ \(finalPub && finalPub\.compileRepaired \? Number\(finalPub\.compileRepaired\.charged\) \|\| 0 : 0\))?(?:\s*\/\/[^\n]*\n\s*\+ \(finalPub && finalPub\.visualReview \? Number\(finalPub\.visualReview\.charged\) \|\| 0 : 0\))?,/,
     "the merged reply's cost does not add what the spine charged — every step's own bill was placed before the spine ran");
 
   // ── THE ADDON ROUTE: reserve #3 under a job, the one collect otherwise ──

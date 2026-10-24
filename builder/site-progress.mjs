@@ -1406,6 +1406,16 @@ export function spineCheckFacts({ render = null, cssChecked = 0 } = {}) {
 }
 
 /**
+ * THE VISUAL REVIEW FIXED SOMETHING (2026-10-24): one fact, only then. A
+ * review that found nothing, or whose fix did not build, says nothing here.
+ */
+export function visualReviewFacts(vr) {
+  const n = vr && Number.isInteger(vr.fixed) && vr.fixed > 0 ? vr.fixed : 0;
+  if (!n) return [];
+  return [fact("checked", "Looked at the changed pages in a browser and fixed " + (n === 1 ? "one thing" : n + " things") + " that did not look right.")];
+}
+
+/**
  * THE PUBLISH FINISHED: `activate` answered ok — the live pointer moved to the
  * new version and the site's own script was uploaded (one that could not be
  * undoes itself). Said as published, never as "checked live": no read of the

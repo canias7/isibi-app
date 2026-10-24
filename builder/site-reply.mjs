@@ -1172,6 +1172,7 @@ export function editReplyFacts(e, { routedCost = null, inRequest = false } = {})
     }
   }
   if (e.ok === true) compileRepairFact(F, e.compileRepaired);
+  if (e.ok === true) visualReviewFact(F, e.visualReview);
   if (e.ok === true) heldDraftFact(F, e);
   heldFacts(F, e, e.ok === true, inRequest === true);
   questionFact(F, e.clarify);
@@ -1187,6 +1188,14 @@ export function compileRepairFact(F, cr) {
   const pg = (Array.isArray(cr.pages) ? cr.pages : []).filter((x) => typeof x === "string" && x).map((x) => quote(x.replace(/\.tsx$/i, "")));
   if (!pg.length) return;
   F.add("note", "The first version of " + listOf(pg) + " did not compile; it was corrected automatically" + (cr.rounds === 2 ? " on a second try" : "") + ", and the corrected version is what was saved.");
+}
+
+/** WHAT THE VISUAL REVIEW FIXED (2026-10-24), one fact and only when it
+ *  fixed something that then built and was saved. */
+export function visualReviewFact(F, vr) {
+  const n = vr && typeof vr === "object" && Number.isInteger(vr.fixed) && vr.fixed > 0 ? vr.fixed : 0;
+  if (!n) return;
+  F.add("note", "After the change, the pages were looked at in a browser and " + (n === 1 ? "one thing that did not look right was" : n + " things that did not look right were") + " fixed before saving.");
 }
 
 /** An interval in minutes as a customer reads it: "every 15 minutes", "every day". */
@@ -1421,6 +1430,7 @@ export function addonReplyFacts(a, { routedCost = null, inRequest = false } = {}
     if (routedCost !== null && num(routedCost) > 0) F.add("money", "Reading their message cost " + count(num(routedCost), "credit") + ".");
   }
   if (a.ok === true) compileRepairFact(F, a.compileRepaired);
+  if (a.ok === true) visualReviewFact(F, a.visualReview);
   if (a.ok === true) heldDraftFact(F, a);
   heldFacts(F, a, a.ok === true, inRequest === true);
   questionFact(F, a.clarify);

@@ -96,7 +96,7 @@ export function dispatchOk() {
 // payloads carry `worker: true` and the container packages a script for every
 // one of them. A case that wants a build with no script says `worker: false`
 // and is then testing the shape the pipeline produces when packaging fails.
-export function installCompiler({ ok = true, error = "", render = null, worker = true, frames = null, before = null, model = null, failFirst = 0 } = {}) {
+export function installCompiler({ ok = true, error = "", render = null, worker = true, frames = null, before = null, model = null, failFirst = 0, shots = null, failWhen = null } = {}) {
   const calls = [];
   let builds = 0;
   COMPILER = {
@@ -132,7 +132,8 @@ export function installCompiler({ ok = true, error = "", render = null, worker =
       if (typeof before === "function") await before(body);
       // `failFirst` (2026-10-23): the first N compiles fail on the code, the rest succeed.
       builds++;
-      if (!ok || builds <= failFirst) return new Response(JSON.stringify({ ok: false, error: error || "compile failed" }), { status: 200 });
+      // `failWhen(body)` (2026-10-24): a compile of a chosen payload fails on the code.
+      if (!ok || builds <= failFirst || (typeof failWhen === "function" && failWhen(body))) return new Response(JSON.stringify({ ok: false, error: error || "compile failed" }), { status: 200 });
       // THE FILES BACK, WHICH IS WHAT AN UNCHANGED SOURCE REALLY COMPILES TO.
       // Inventing a dist here would be a fixture in a shape the pipeline never
       // produces, and this repo has paid for that one more than once.
@@ -169,7 +170,10 @@ export function installCompiler({ ok = true, error = "", render = null, worker =
             version: body.version || "",
           }
         : null;
-      return new Response(JSON.stringify({ ok: true, files, ...(rep ? { render: rep } : {}), ...(wk ? { worker: wk } : {}) }),
+      // THE SCREENSHOTS (2026-10-24), only when the payload asked (`shots`), as
+      // the real render check answers them: `{route, viewport, height, png}`.
+      const sh = body.shots && shots ? (typeof shots === "function" ? shots(body) : shots) : null;
+      return new Response(JSON.stringify({ ok: true, files, ...(rep ? { render: rep } : {}), ...(wk ? { worker: wk } : {}), ...(Array.isArray(sh) && sh.length ? { shots: sh } : {}) }),
         { status: 200, headers: { "content-type": "application/json" } });
     },
   };

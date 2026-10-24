@@ -1,5 +1,15 @@
 # Owner Notes
 
+## 2026-10-24 — The visual review is on, for front-end changes only (branch `visual-review-frontend`, not merged, not deployed)
+
+- **Your rule**: the AI looks at the site in a browser and fixes what looks wrong only when a change alters what visitors see, never for back-end work like the database.
+- **On by default now**, on first builds, on revises and on every change after them. It is decided from the files the change really altered, never from the wording of the request: a page, a part (header, footer, a band), the stylesheet, the theme or the logo means it runs. A data row, a rule, a new table or function with no page, a setting or SEO description, or a restore means it does not.
+- It looks at the changed pages (home plus up to two more, phone and desktop width) once. A fix that does not build is repaired once, and if it still does not build the change is published without it.
+- It is billed on the same job as the change, only through that change's own bill; a publish with no bill (our own rebuilds, Back online) never runs it. Estimate: about 2–5 credits per visible change, plus a minute or two only when it fixes something. Back-end changes: nothing.
+- The customer hears about it only when it fixed something.
+- To switch it off everywhere: set the `VISUAL_REVIEW` secret to `off` and redeploy.
+- Nothing spent, no model called. Record: `docs/history/2026-10-24-visual-review-frontend.md`.
+
 ## 2026-10-24 — combine C: six finished branches in one candidate (branch `combine-c`, not merged, not deployed)
 
 - Brings together compile repair everywhere, the exact-edits tweak, the progress voice, the next-step hint, background work and the file picker (plus the 503 notes).

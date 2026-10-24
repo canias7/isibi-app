@@ -31,13 +31,13 @@ const FIX = [{ route: "/", problem: "huge gap above the list on phone", edits: [
 
 /* ------------------------------------------------------------ the switch */
 
-test("VISUAL_REVIEW is off unless an affirmative word", () => {
-  assert.equal(visualReviewOn({}), false);
-  assert.equal(visualReviewOn(null), false);
-  assert.equal(visualReviewOn({ VISUAL_REVIEW: "" }), false);
-  assert.equal(visualReviewOn({ VISUAL_REVIEW: "off" }), false);
-  assert.equal(visualReviewOn({ VISUAL_REVIEW: ["on"] }), false, "a non-string is refused, never coerced");
+test("VISUAL_REVIEW is ON unless an off word (2026-10-24)", () => {
+  assert.equal(visualReviewOn({}), true);
+  assert.equal(visualReviewOn(null), true);
+  assert.equal(visualReviewOn({ VISUAL_REVIEW: "" }), true);
+  assert.equal(visualReviewOn({ VISUAL_REVIEW: ["off"] }), true, "a non-string is not read as a word");
   for (const v of ["1", "true", "on", "yes", " ON "]) assert.equal(visualReviewOn({ VISUAL_REVIEW: v }), true, v);
+  for (const v of ["0", "false", "off", "no", " OFF "]) assert.equal(visualReviewOn({ VISUAL_REVIEW: v }), false, v);
 });
 
 /* ----------------------------------------------------- the screenshots */
@@ -62,7 +62,7 @@ test("render-check captures shots only when asked, capped, before overlays open"
 
 test("the container answers shots only when the payload asks", () => {
   const src = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
-  assert.match(src, /payload\.shots === true \? \{ shots \} : \{\}/);
+  assert.match(src, /payload\.shots === true \|\| Array\.isArray\(payload\.shots\) \? \{ shots, \.\.\.\(Array\.isArray\(payload\.shots\) \? \{ shotPrefer: payload\.shots \} : \{\}\) \} : \{\}/);
   assert.match(src, /\.\.\.\(shots\.length \? \{ shots \} : \{\}\)/);
 });
 
@@ -213,9 +213,9 @@ test("the progress line says it is checking how it looks", () => {
   assert.match(f[0].text || JSON.stringify(f[0]), /Checking how it looks/);
 });
 
-test("the Worker wires it behind the switch, first builds only, and the image carries the module", () => {
+test("the Worker wires it behind the switch, first builds and revises, and the image carries the module", () => {
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(w, /const visualOn = visualReviewOn\(env\) && !revise;/);
+  assert.match(w, /const visualOn = visualReviewOn\(env\);/);
   assert.match(w, /shots: visualOn \|\| undefined,/);
   assert.match(w, /visualReview: visualOn \? /);
   assert.match(w, /visualModel: models\.pages,/);

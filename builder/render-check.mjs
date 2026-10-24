@@ -408,7 +408,11 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
   // model refuses an image that size), and a failed capture costs the shot,
   // never the check.
   const shotsOut = Array.isArray(opts && opts.shots) ? opts.shots : null;
-  const shotSet = new Set(shotsOut ? shotRoutes(list) : []);
+  // THE CHANGED PAGES FIRST (2026-10-24): a seam publish names the routes it
+  // changed (`opts.shotPrefer`), so the review looks at what it is reviewing;
+  // `/` is still taken first by `shotRoutes`, and only routes the site has.
+  const prefer = Array.isArray(opts && opts.shotPrefer) ? opts.shotPrefer.filter((r) => typeof r === "string" && list.includes(r)) : [];
+  const shotSet = new Set(shotsOut ? shotRoutes([...prefer, ...list]) : []);
   const sandboxed = chromiumSandboxed();
   if (!list.length) return renderReport([], { ok: false, error: "no routes to look at", sandboxed });
 
