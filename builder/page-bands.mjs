@@ -62,6 +62,7 @@ import {
   SITE_PAGES_MAX_TOKENS,
 } from "./page-gen.mjs";
 import { modelsFor } from "./build-models.mjs";
+import { withQuestion, askOf } from "./clarify.mjs";
 import { routeOf } from "./site-addon.mjs";
 // NO IMPORT FROM `model-fanout.mjs` ANY MORE (2026-09-11). This module used to
 // read `MAX_MODEL_FANOUT` for the `wide` refusal; the fan-out queues past that
@@ -360,6 +361,14 @@ export const BAND_TOOL = {
 };
 
 /**
+ * THE SAME TOOL WITH THE ONE QUESTION FIELD (2026-10-24, build questions): a
+ * first build's band and frame writers may ask the one detail they cannot
+ * write without, as the edit and add-on writers may. Sent only when the build
+ * route says the build may still ask (`ask`), and never to a part.
+ */
+export const BAND_TOOL_ASK = withQuestion(BAND_TOOL);
+
+/**
  * The page, top to bottom, with the band being written marked.
  *
  * A BAND IS TOLD ABOUT ITS NEIGHBOURS AND NEVER SHOWN THEM. It has to know they
@@ -538,13 +547,13 @@ export function ownFallbackDirective({ brief, spec, brand, lines, chrome, action
 }
 
 /** The exact body sent for the header or the footer: a band's, with the frame's own prompt. */
-export function frameRequest({ brief, spec, brand, lines, chrome, actions, notBuilt, role, model, kind = "", attachments } = {}) {
+export function frameRequest({ brief, spec, brand, lines, chrome, actions, notBuilt, role, model, kind = "", attachments, ask = false } = {}) {
   const blocks = Array.isArray(attachments) ? attachments.filter(Boolean) : [];
   const text = framePrompt({ brief, spec, brand, lines, chrome, actions, notBuilt, role });
   return {
     model: model || modelsFor().pages,
     max_tokens: SITE_PAGES_MAX_TOKENS,
-    tools: [BAND_TOOL],
+    tools: [ask === true ? BAND_TOOL_ASK : BAND_TOOL],
     tool_choice: { type: "tool", name: "write_band" },
     // THE OWN-PARTS BLOCK (2026-10-23): a first build's writers no longer read
     // "THE KIT FOR EVERY CONTROL" above the user message's "write your own".
@@ -578,14 +587,14 @@ export function frameRequest({ brief, spec, brand, lines, chrome, actions, notBu
  * both cached blocks, for `pagesRequest`'s own reason.
  */
 export function bandRequest({
-  brief, spec, brand, lines, index, name, model, kind = "", attachments,
+  brief, spec, brand, lines, index, name, model, kind = "", attachments, ask = false,
 } = {}) {
   const blocks = Array.isArray(attachments) ? attachments.filter(Boolean) : [];
   const text = bandPrompt({ brief, spec, brand, lines, index, name });
   return {
     model: model || modelsFor().pages,
     max_tokens: SITE_PAGES_MAX_TOKENS,
-    tools: [BAND_TOOL],
+    tools: [ask === true ? BAND_TOOL_ASK : BAND_TOOL],
     tool_choice: { type: "tool", name: "write_band" },
     // THE OWN-PARTS BLOCK (2026-10-23): a first build's writers no longer read
     // "THE KIT FOR EVERY CONTROL" above the user message's "write your own".
@@ -961,7 +970,7 @@ export function bandsFromAnswers(answers, lines) {
  * would charge a floor per band.
  */
 export async function generateSiteBands({
-  brief, spec, brand, attachments, model, kind = "", route, chrome, lines, tsx, actions, notBuilt,
+  brief, spec, brand, attachments, model, kind = "", route, chrome, lines, tsx, actions, notBuilt, ask = false,
 } = {}, keys, call, budget = null) {
   const file = bandFile(route);
   const bandLines = Array.isArray(lines) ? lines : [];
@@ -987,10 +996,10 @@ export async function generateSiteBands({
   const partList = app ? partsOf(tsx) : [];
   const reqs = [
     ...bandLines.map((line, i) => bandRequest({
-      brief, spec, brand, lines: bandLines, index: i, name: bandName(line, i), model, kind, attachments,
+      brief, spec, brand, lines: bandLines, index: i, name: bandName(line, i), model, kind, attachments, ask,
     })),
     ...frame.map((f) => frameRequest({
-      brief, spec, brand, lines: bandLines, chrome, actions, notBuilt, role: f.role, model, kind, attachments,
+      brief, spec, brand, lines: bandLines, chrome, actions, notBuilt, role: f.role, model, kind, attachments, ask,
     })),
     ...partList.map((part) => partRequest({
       brief, spec, brand, lines: bandLines, part, model, kind, attachments,
@@ -1072,6 +1081,16 @@ export async function generateSiteBands({
       if (slot) eachMs[slot] = (eachMs[slot] || 0) + a.ms;
     }
     if (!waveMs && a && Number.isFinite(a.waveMs)) waveMs = a.waveMs;
+  }
+  // ── A WRITER ASKED (2026-10-24, build questions) ──────────────────────────
+  // Only when the tool offered it. ONE QUESTION PER BUILD: the first writer's
+  // in page order (bands, then the header and footer) is the one shown; the
+  // rest of the fan-out is not assembled, so nothing written beside an
+  // unanswered question is published or charged.
+  if (ask === true) {
+    const asked = [...list].filter((a) => a && a.state === "done" && Number.isInteger(a.i) && a.i < bandLines.length + frame.length)
+      .sort((x, y) => x.i - y.i).map((a) => askOf(a.answer)).find(Boolean);
+    if (asked) return { input: null, ask: asked, usage, bands: bandLines.length, wrote: 0, agentMs, waveMs, eachMs };
   }
   const bands = bandsFromAnswers(list, bandLines);
   // EVERY BAND EMPTY IS NOT A PAGE. `assembleBands` would answer a shell

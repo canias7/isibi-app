@@ -8180,7 +8180,7 @@ async function composeModelReply(env0, kind, body, ask, { background = false, on
  * the page says a fixed outage line and shows what was recorded; nothing is
  * invented and nothing is lost. Never throws.
  */
-async function narrateBuild(env, body, { picker = "", request = "", name = "", slug = "", background = false } = {}) {
+async function narrateBuild(env, body, { picker = "", request = "", name = "", slug = "", background = false, uid = "", chat = "" } = {}) {
   try {
     const bf = body && body.buildFacts;
     if (!bf) return body;
@@ -8189,9 +8189,13 @@ async function narrateBuild(env, body, { picker = "", request = "", name = "", s
     // NEVER ATTEMPTED IS NOT FAILED (2026-10-08, the seventh batch): with the
     // switch off no writer was asked, and the page must not say one failed.
     if (!repliesOn(env)) return { ...body, replyState: "not-attempted", replyWhy: "off" };
+    // WHAT A NEXT STEP MUST NOT REPEAT (2026-10-24, build questions' parity
+    // item 3): the suggestions already made in the build's chat, and the
+    // off-menu pages, as `composeModelReply` passes them for an edit.
+    const recent = await recentSuggestedFor(env, uid, chat);
     const out = await writeReply({ send: quickSend(env, "reply", background ? replyBgBudget : replyBudget) }, {
       facts: read.facts,
-      context: replyContext({ request, site: { name, slug, pages: [] } }),
+      context: replyContext({ request, site: { name, slug, pages: [] }, recent, offMenu: offMenuPages(body) }),
       model: modelsFor(picker).quick,
       ...(background ? { deadlineMs: REPLY_BG_DEADLINE_MS } : {}),
       talk: talkOn(env),
@@ -19060,7 +19064,7 @@ async function siteOgImage(env, slug, dist) {
 // on. `packResume` has stored the two side by side since the day it was written,
 // which is the tell: a bearer token has no `.id`, so anything that asks `auth`
 // for one gets `undefined` and never says so. See the band door below.
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid = "", siteDescription, theme, css, plan, tsx, lang, langs, langStrings, langOverrides = null, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, priorParts = null, mark, say = null, budget = null, genPathOut = null, canFire = false, resumeCall = null, resumeFanout = false, picker = null, models = null, billRef = null, jobId = null, assertLease = null, attachmentIds = null, media = null, held = null, stopCheck = null }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid = "", siteDescription, theme, css, plan, tsx, lang, langs, langStrings, langOverrides = null, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, priorParts = null, mark, say = null, budget = null, genPathOut = null, canFire = false, resumeCall = null, resumeFanout = false, askPages = false, replyChat = undefined, picker = null, models = null, billRef = null, jobId = null, assertLease = null, attachmentIds = null, media = null, held = null, stopCheck = null }) {
   // `media` (2026-10-14): the owner's video and audio, by address, for the
   // page writers (`briefWithLayout`) — and on the build's args, so a resumed
   // build is shown the same files.
@@ -19525,6 +19529,8 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
               // write a part at all, which is why `planRefusal` refused to split
               // any build that declared one.
               tsx,
+              // A FIRST BUILD'S WRITERS MAY ASK (2026-10-24, build questions).
+              ask: askPages === true && !revise && !priorPages,
             }, env, call, budget);
             // THE ONE MARK THAT SAYS A PAGE WAS WRITTEN IN PIECES (2026-09-10,
             // owner: "lets fix that"). The design step has recorded which
@@ -19599,12 +19605,17 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         // the same facts the frame writers get. A revise and a phone app are
         // unchanged.
         const ownFirst = !revise && !priorPages && !(spec && spec.surface === "app");
+        // A FIRST BUILD'S WRITER MAY ASK (2026-10-24, build questions).
+        const pageAsk = askPages === true && !revise && !priorPages ? { ask: true } : {};
         const ownTail = ownFirst ? "\n\n" + ownFallbackDirective({
           spec, brand, lines: bandLines, chrome: chromeFor(plan, brand, siteDescription),
           actions: plan && Array.isArray(plan.action) ? plan.action : [],
           notBuilt: plan && Array.isArray(plan.notBuilt) ? plan.notBuilt : [],
         }) : "";
-        const singleAnswer = await generateSitePages(env, briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief, media }) + ownTail, spec, brand, attachments, model, priorPages, undefined, undefined, budget, call, plan && plan.kind, [], { ownParts: ownFirst });
+        const singleAnswer = await generateSitePages(env, briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief, media }) + ownTail, spec, brand, attachments, model, priorPages, undefined, undefined, budget, call, plan && plan.kind, [], { ownParts: ownFirst, ...pageAsk });
+        // A QUESTION BACK (2026-10-24) is the answer as it stands: no frame
+        // repair is asked of a writer that wrote nothing.
+        if (singleAnswer && singleAnswer.ask) return singleAnswer;
         // ── TOLD, AND NOW CHECKED (2026-10-23) ─────────────────────────────
         //
         // The directive above is an instruction; `enforceFallbackFrame` reads
@@ -22736,7 +22747,7 @@ async function deliverLostAnswer(env, { id, uid, mark, now }) {
     if (plan.act === "call" && c.ok) {
       let design = null;
       try { const o = await env.SITES_BUCKET.get(resumeKey(id)); const r = o ? readResume(JSON.parse(await o.text())) : null; design = r && r.design ? r.design : null; } catch { design = null; }
-      told = await narrateBuild(env, body, { picker: design && design.picker, request: ownWords(design && design.brief), name: design && design.brand, slug, background: true });
+      told = await narrateBuild(env, body, { picker: design && design.picker, request: ownWords(design && design.brief), name: design && design.brand, slug, background: true, uid, chat: design && design.replyChat });
       const result = told.replySource === "model" && typeof told.reply === "string"
         ? { state: "written", text: told.reply, ...(told.suggested ? { suggested: told.suggested } : {}) }
         : { state: told.replyState || "unavailable", ...(told.replyWhy ? { why: told.replyWhy } : {}) };
@@ -26750,6 +26761,34 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
       await recordRefire(env, id, claimed, stored, pages.resume, decision, tr, rec, lease);
       return;
     }
+    // ── A COLLECTED ANSWER THAT ASKS (2026-10-24, build questions) ──────────
+    // The page writer's question, read off the stored answer with the tool it
+    // was sent (`askPages` rides the record): the same answer the inline
+    // route gives — every debit given back by ref, the question kept on the
+    // server for the router's answer path, nothing published.
+    if (pages && pages.stage === "question" && pages.question) {
+      const back = await refundBuildByRef(env, claimed.uid, design.billRef, "refund");
+      const qSlug = (stored && stored.slug) || design.slug || "";
+      const q = pages.question;
+      let askId;
+      if (q.unusable !== true) {
+        const rec2 = packAsk({
+          id: newAskId(), uid: claimed.uid, slug: qSlug, stage: "route", round: 1, question: q,
+          request: ownWords(design && design.brief) || "", held: [], at: Date.now(),
+          attached: Number(design.attachmentsSent) > 0, context: [], by: "build:pages",
+        });
+        if (rec2) {
+          try { if ((await storeAskIfFree(env.SITES_BUCKET, rec2)) === true) askId = rec2.id; }
+          catch (e) { console.error("build question store:", qSlug, errorClassForLog(e)); }
+        }
+      }
+      const qBody = q.unusable === true
+        ? { ok: false, resumed: decision.act, stage: "pages", error: "ask-unusable", ours: true, cost: 0, ...(back.short ? { refundShort: true } : {}),
+          msg: "I needed to ask you something before writing your pages, but the question came back in a form I couldn't show you — this is on us, and nothing was charged. Send your request again and I'll ask once more." }
+        : { ok: false, resumed: decision.act, stage: "pages", intent: "clarify", question: { ...(askId ? { id: askId } : {}), text: q.text, options: q.options },
+          ...(askId ? { askSlug: qSlug } : {}), cost: 0, ...(back.short ? { refundShort: true } : {}) };
+      out = packResult({ status: 200, type: "application/json", body: JSON.stringify({ ...qBody, resumed: decision.act }), uid: claimed.uid });
+    } else {
     // ── AND IT MUST SAY WHICH SITE IT MADE ───────────────────────────────────
     //
     // THE DEFECT THIS FIXES: this answer was `{ok: true, resumed, ...pages}`,
@@ -26848,9 +26887,10 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
       type: "application/json",
       // TOLD BY THE REPLY WRITER, in the background budget: nobody is waiting
       // on this connection (2026-10-08, the sixth batch).
-      body: JSON.stringify(await narrateBuild(env, rBody, { picker: design && design.picker, request: ownWords(design && design.brief), name: design && design.brand, slug: rSlug, background: true })),
+      body: JSON.stringify(await narrateBuild(env, rBody, { picker: design && design.picker, request: ownWords(design && design.brief), name: design && design.brand, slug: rSlug, background: true, uid: claimed.uid, chat: design && design.replyChat })),
       uid: claimed.uid,
     });
+    }
   } catch (e) {
     // ── A FAILED RESUME MUST SAY WHICH ROUTE IT TOOK ──────────────────────────
     //
@@ -26945,7 +26985,7 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
     // and the accounting stay; when the writer cannot, `replyState` says so.
     try {
       const failed = JSON.parse(out.body);
-      if (failed && failed.buildFacts) out = { ...out, body: JSON.stringify(await narrateBuild(env, failed, { picker: design && design.picker, request: ownWords(design && design.brief), name: design && design.brand, slug: (claimed && claimed.slug) || (design && design.slug) || "", background: true })) };
+      if (failed && failed.buildFacts) out = { ...out, body: JSON.stringify(await narrateBuild(env, failed, { picker: design && design.picker, request: ownWords(design && design.brief), name: design && design.brand, slug: (claimed && claimed.slug) || (design && design.slug) || "", background: true, uid: claimed && claimed.uid, chat: design && design.replyChat })) };
     } catch (ne) { console.error("build resume: the failed answer's narration threw for", id, String((ne && ne.message) || ne)); }
   } finally {
     // THE ROW'S HEARTBEAT STOPS WITH THE WORK, on every exit — a refire's
@@ -27358,7 +27398,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           msg: "I couldn't separate the part of your message I was leaving for later from the part to change now, so I haven't changed anything. Send the changes one at a time and I'll make each.",
           buildFacts: buildFacts({ failure: { kind: "held-unread", cost: 0 } }),
         };
-        return Response.json(await narrateBuild(env, hBody, { picker: String(body.picker || ""), request: String(body.brief || ""), slug: namedSlug || "" }), { status: 422 });
+        return Response.json(await narrateBuild(env, hBody, { picker: String(body.picker || ""), request: String(body.brief || ""), slug: namedSlug || "", uid: bu && bu.id, chat: chatId }), { status: 422 });
       }
       bHeld.parts = bLater.held.slice();
       // WHY IT CAME HERE, AND WHICH PAGE IT IS ABOUT (2026-10-02, W24): the
@@ -27681,7 +27721,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           ...(short ? { refundShort: true } : { cost: 0 }),
           msg: short ? STOPPED_SHORT_MSG : STOPPED_FREE_MSG,
           buildFacts: buildFacts({ failure: { kind: "stopped", cost: 0, short: !!short } }),
-        }, { picker: String((body && body.picker) || ""), request: String((body && body.brief) || ""), slug: namedSlug || "" }), { status: 410 });
+        }, { picker: String((body && body.picker) || ""), request: String((body && body.brief) || ""), slug: namedSlug || "", uid: bu && bu.id, chat: chatId }), { status: 410 });
       };
       const stopGate = async (stage) => {
         if (!(await stopRead())) return null;
@@ -28183,7 +28223,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           });
           if (!dKind) return Response.json(dBody, { status: 503 });
           dBody.buildFacts = buildFacts({ failure: { kind: dKind, cost: dBody.cost, short: !!refundShort }, design: designRecovery });
-          return Response.json(await narrateBuild(env, dBody, { picker: models.picker, request: brief, slug: namedSlug || "" }), { status: 503 });
+          return Response.json(await narrateBuild(env, dBody, { picker: models.picker, request: brief, slug: namedSlug || "", uid: bu && bu.id, chat: chatId }), { status: 503 });
         }
         // A DESIGNER THAT DECLARED NO TABLES IS NOT AUTOMATICALLY AN ERROR — see
         // the one refusal below, after the ownership lookup. It used to be
@@ -29167,6 +29207,15 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             throw err;
           }
           buildArgs = {
+            // A FIRST BUILD'S PAGE WRITERS MAY ASK ONE QUESTION (2026-10-24,
+            // build questions) — only while this build carries no answer yet,
+            // so a build asks once at most. Stored with the resume record, so
+            // a collected answer is read with the tool it was sent.
+            askPages: firstBuild && !(Array.isArray(body.qa) && body.qa.length) && body.noAsk !== true,
+            // THE CHAT THE BUILD WAS ASKED IN (2026-10-24), kept on the resume
+            // record so a collected build's reply reads the suggestions already
+            // made there (`recentSuggestedFor`) and does not repeat one.
+            replyChat: chatId || undefined,
             // THE DRAFT'S HELD CHANGES (draft-first): they ride the revision
             // this build saves — here as the hold itself, and on a resume as
             // the `{ id, ops }` its record kept, written then if not yet.
@@ -29429,6 +29478,42 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // STOPPED RIGHT BEFORE THE ACTIVATION (S3-4): nothing went live or into
       // the draft, and every debit this build made is reversed.
       if (stopSeen.stage === "publish") return stoppedAnswer("publish");
+
+      // ── THE PAGE WRITER ASKED THEM SOMETHING (2026-10-24, build questions) ──
+      //
+      // The first build's question round, as the designer's question opens it
+      // (`stage: "design"` above), now from the page writers too. Nothing was
+      // compiled or published, and the build charges nothing: every debit it
+      // made is given back. The question is kept on the server as an edit's
+      // is (`packAsk`, the brief as the request it resumes, 24 hours, closed
+      // once), so the router's answer path resumes it from any device; one
+      // that cannot be kept is still asked, from this browser's round.
+      if (pages && pages.stage === "question" && pages.question) {
+        const back = await refundFields();
+        const q = pages.question;
+        if (q.unusable === true) {
+          return Response.json({
+            ok: false, stage: "pages", error: "ask-unusable", ours: true, ...back,
+            msg: "I needed to ask you something before writing your pages, but the question came back in a form I couldn't show you — this is on us, and nothing was charged. Send your request again and I'll ask once more.",
+          }, { status: 503 });
+        }
+        let askId;
+        const rec = packAsk({
+          id: newAskId(), uid: bu.id, slug, stage: "route", round: 1, question: q,
+          request: String(bLater.run || ""), held: [], at: Date.now(),
+          attached: Array.isArray(attached.blocks) && attached.blocks.length > 0, context: [], by: "build:pages",
+        });
+        if (rec && env.SITES_BUCKET) {
+          try { if ((await storeAskIfFree(env.SITES_BUCKET, rec)) === true) askId = rec.id; }
+          catch (e) { console.error("build question store:", slug, errorClassForLog(e)); }
+        }
+        return Response.json({
+          ok: false, stage: "pages", intent: "clarify",
+          question: { ...(askId ? { id: askId } : {}), text: q.text, options: q.options },
+          ...(askId ? { askSlug: slug } : {}),
+          ...back,
+        }, { status: 200 });
+      }
 
       // ── FIRED, NOT FINISHED: STORE AND GO ──────────────────────────────
       //
@@ -30076,7 +30161,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           ...(firstBuild ? { notBuilt: buildArgs && buildArgs.plan && buildArgs.plan.notBuilt, noDatabase: !db } : {}),
         }) || undefined,
         designRecovery: designRecovery || undefined,
-      }, { picker: models.picker, request: brief, name: brand, slug }));
+      }, { picker: models.picker, request: brief, name: brand, slug, uid: bu && bu.id, chat: chatId }));
       })(), bHeld.parts);
 }
 
@@ -33699,16 +33784,26 @@ async function handleRequest(request, env, ctx) {
       }, { status: 409 });
       const closeLost = (c) => !c.ok && c.why !== "expired" && c.why !== "missing";
       let rWaiting = null;
+      // AN ANSWER TO A FIRST BUILD'S PAGE QUESTION (2026-10-24, build
+      // questions): a claim sent from a project with no site yet, under the
+      // slug the build's design chose. Read and closed below as a site's is.
+      const rBuildAsk = !rJob && !rLive && rb.firstBuild === true && !!rSlug && !!env.SITES_BUCKET;
       // A WAITING QUESTION THIS MESSAGE DID NOT NAME (2026-10-14): closed after
       // routing, unless the message is conversation.
       let rOpenQ = null;
       if (rClaim !== undefined) {
-        if (!rLive || !rClaim) return staleAnswer("other");
+        // A FIRST BUILD'S PAGE QUESTION (2026-10-24, build questions) is kept
+        // under the slug its design chose, before the site has pages: its
+        // answer is read here exactly as a site's is — this owner's, pending,
+        // within the day, closed once — and only a question the build's page
+        // writer asked (`by: "build:pages"`) may be answered this way.
+        if (!(rLive || rBuildAsk) || !rClaim) return staleAnswer("other");
         let st = null;
         try { st = await loadAsk(env.SITES_BUCKET, rSlug); } catch (e) { console.error("question read:", rSlug, errorClassForLog(e)); }
         if (!st) return rStoreFailed(undefined);
         const live = askLive(st.record, { id: rClaim.id, uid: ru.id, slug: rSlug });
         if (!live.ok) return staleAnswer(live.why);
+        if (rBuildAsk && st.record.by !== "build:pages") return staleAnswer("other");
         rWaiting = { ...st.record, chosen: rClaim.chosen };
         // AN ANSWER TO A PART'S QUESTION MAY BRING FILES OF ITS OWN (2026-10-03):
         // they join the request's, which the server already holds, and together
@@ -33927,7 +34022,11 @@ async function handleRequest(request, env, ctx) {
       // WHAT IT TAKES TO OFFER A PART'S QUESTION AGAIN, for its request's step.
       let rQuestionFor;
       if (routed.failed !== true) {
-        const resumed = !!(rWaiting && routed.answered === true);
+        // A FIRST BUILD'S ROUTER IS NOT SENT THE LIVE TOOL, so it never says
+        // `answered`: it reads the message as the round's answer (`answering`)
+        // unless it answers it as conversation, which leaves the question
+        // waiting exactly as a site's side question does.
+        const resumed = !!(rWaiting && (routed.answered === true || (rBuildAsk && routed.intent !== "ask")));
         const asking = routed.intent === "clarify" && rLive;
         let rContext = [];
         if (resumed) {
@@ -48739,13 +48838,16 @@ async function handleRequest(request, env, ctx) {
             // line and the report, each written from its facts
             // (`builder/security-say.mjs`); null when replies are off or none
             // could be written, and the page then shows the bare facts.
-            const scanSay = async (facts, words, picker, rule, maxChars) => {
+            // WITH THE SUGGESTIONS ALREADY MADE IN ITS CHAT (2026-10-24, build
+            // questions' parity item 3), so its next step is not a repeat.
+            const scanSay = async (facts, words, picker, rule, maxChars, chat) => {
               if (!repliesOn(env)) return null;
               let out;
               try {
+                const recent = await recentSuggestedFor(env, ou.id, chat);
                 out = await writeReply({ send: quickSend(env, "reply", replyBudget) }, {
                   facts,
-                  context: replyContext({ request: String(words || "").slice(0, 500), site: { slug: scslug } }) + (rule ? "\n\n" + rule : ""),
+                  context: replyContext({ request: String(words || "").slice(0, 500), site: { slug: scslug }, recent }) + (rule ? "\n\n" + rule : ""),
                   model: modelsFor(picker).quick,
                   ...(maxChars ? { maxChars } : {}),
                 });
@@ -48789,7 +48891,7 @@ async function handleRequest(request, env, ctx) {
               if (url.searchParams.get("say") === "1") {
                 const words = url.searchParams.get("message") || "";
                 [said, working] = await Promise.all([
-                  scanSay(securityOfferFacts({ plan: std, credits: stdCredits }), words, url.searchParams.get("picker"), "THIS IS AN OFFER: NOTHING HAS RUN YET. SAY WHAT THE CHECK WILL LOOK AT AND ITS PRICE, AND THAT THEY CONFIRM WITH THE BUTTON BELOW."),
+                  scanSay(securityOfferFacts({ plan: std, credits: stdCredits }), words, url.searchParams.get("picker"), "THIS IS AN OFFER: NOTHING HAS RUN YET. SAY WHAT THE CHECK WILL LOOK AT AND ITS PRICE, AND THAT THEY CONFIRM WITH THE BUTTON BELOW.", undefined, url.searchParams.get("chat") || ""),
                   scanSay(securityWorkingFacts({ plan: std }), words, url.searchParams.get("picker"), SCAN_LINE_RULE, 160),
                 ]);
               }
@@ -48881,7 +48983,7 @@ async function handleRequest(request, env, ctx) {
             try { await env.SITES_BUCKET.put(reportKey, JSON.stringify(report), { httpMetadata: { contentType: "application/json" } }); } catch { /* the answer still stands */ }
             // THE REPORT IN THE MODEL'S WORDS, when the chat asked (`say`).
             const reportSaid = scbody && scbody.say === true && report.kind === "deep"
-              ? await scanSay(securityReportFacts(report), scbody.message, scbody.picker, "THE CHECK HAS FINISHED. SAY WHAT IT FOUND.")
+              ? await scanSay(securityReportFacts(report), scbody.message, scbody.picker, "THE CHECK HAS FINISHED. SAY WHAT IT FOUND.", undefined, typeof scbody["chat"] === "string" ? scbody["chat"] : "")
               : null;
             return Response.json({ ok: true, report, ...(reportSaid ? { say: reportSaid } : {}) });
           } else if (sq) {

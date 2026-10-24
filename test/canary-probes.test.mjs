@@ -388,7 +388,9 @@ test("each probe is posted as the browser posts it, with the site's real page li
   assert.ok(at > 0 && line.length > 20, "the browser's routing call moved — the observer is alive");
   // `ask` (2026-10-02) — `{ id, chosen }` — rides ONLY an answer to a site's
   // live question, and is absent on a fresh message, which is what a probe is.
-  assert.match(line, /ask: !isBuild && answer && typeof answer\.id === 'string' \? \{ id: answer\.id, chosen: answer\.chosen === true \} : undefined/,
+  // …AND, SINCE 2026-10-24, an answer to a first build's kept page question
+  // (`answering` with the round's id) — still never on a fresh message.
+  assert.match(line, /ask: !isBuild && answer && typeof answer\.id === 'string' \? \{ id: answer\.id, chosen: answer\.chosen === true \}\s*(\/\/[^\n]*\s*)*: isBuild && answering && round && typeof round\.askId === 'string' \? \{ id: round\.askId, chosen: picked === true \} : undefined/,
     "the browser sends `ask` on a message that answers nothing");
   // AND LESS WHAT THE PAGE SENDS FOR THE SERVER'S OWN REQUEST FLOW (2026-10-03):
   // the message's key, its files, the zone and the undo rows. A probe never
@@ -401,7 +403,7 @@ test("each probe is posted as the browser posts it, with the site's real page li
   // AND LESS THE FILES' NAMES (2026-10-14): sent only beside files the page
   // holds, which a probe never has.
   assert.match(line, /files: typeof ChatTalk !== 'undefined' && \(\(imgs && imgs\.length\) \|\| keptImgs\.length\)/, "the browser sends file names with no file — the observer is stale");
-  const fields = [...code.replace(/ask: !isBuild && answer[^}]*\} : undefined/, "").matchAll(/([a-zA-Z]+):/g)].map((m) => m[1]).filter((k) => k !== "picker" && k !== "files" && k !== "chat" && !REQUEST_FLOW.includes(k));
+  const fields = [...code.replace(/ask: !isBuild && answer[\s\S]*?\} : undefined/, "").matchAll(/([a-zA-Z]+):/g)].map((m) => m[1]).filter((k) => k !== "picker" && k !== "files" && k !== "chat" && !REQUEST_FLOW.includes(k));
   // AND LESS THE CHAT'S ID (2026-10-20): it makes the reply read the account's
   // kept conversation, and a probe has none of its own; it sends `history: []`.
   assert.match(line, /chat: \(typeof chatKeyOf === 'function' && chatKeyOf\(/, "the browser no longer sends its chat's id — the observer is stale");

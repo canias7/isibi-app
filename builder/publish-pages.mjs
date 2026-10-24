@@ -1141,6 +1141,21 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
 
   out.genMs = Date.now() - tGen;
 
+  // ── THE WRITER ASKED THEM SOMETHING (2026-10-24, build questions) ─────────
+  //
+  // A first build's page writer may ask the one detail it cannot write
+  // without, as an edit's writers may. Nothing it wrote beside the question is
+  // read, nothing is compiled or published, and nothing is charged here: the
+  // caller gives back what the build took and asks the question. Before
+  // `keep`, so no half-answer is stored as the build's source either.
+  if (gen && gen.ask && typeof gen.ask === "object") {
+    out.stage = "question";
+    out.charged = false;
+    out.question = gen.ask;
+    out.usage = gen.usage || null;
+    return out;
+  }
+
   // ── THE MODEL'S ANSWER IS KEPT BEFORE ANYTHING IS ALLOWED TO REFUSE IT ─────
   //
   // WHAT ITS ABSENCE COSTS, measured on run 90 (`coalhole-1`, 2026-08-30). The

@@ -76,7 +76,10 @@ export function buildBucket(entries = {}, hooks = {}, entriesMeta = {}) {
  * the route answered and everything it was seen doing.
  */
 // `stored` (2026-10-14) seeds the bucket — a draft video kept for the account, say.
-export async function driveBuild({ design, body, ledger = {}, usage = { input_tokens: 100, output_tokens: 50 }, env: extraEnv = {}, onFetch = null, stored = {}, storedMeta = {} } = {}) {
+// `pages` (2026-10-24, build questions) answers the page writers' calls
+// (`write_pages`, `write_band`) with a supplied answer: `(body) => ({ input })`;
+// left out, they answer 503 as before.
+export async function driveBuild({ design, pages = null, body, ledger = {}, usage = { input_tokens: 100, output_tokens: 50 }, env: extraEnv = {}, onFetch = null, stored = {}, storedMeta = {} } = {}) {
   const seen = { tools: [], designer: [], rpc: [], neon: 0 };
   let claimed = false;
   globalThis.fetch = async (input, init) => {
@@ -124,6 +127,12 @@ export async function driveBuild({ design, body, ledger = {}, usage = { input_to
           ? [{ type: "tool_use", id: "t1", name: "design_schema", input: design.input }]
           : [{ type: "text", text: design.text || "Here is a design." }];
         return json({ stop_reason: design.input ? "tool_use" : (design.stop || "end_turn"), content, usage });
+      }
+      if (typeof pages === "function" && (tool === "write_pages" || tool === "write_band")) {
+        seen.pageCalls = (seen.pageCalls || 0) + 1;
+        const a = await pages(b);
+        if (a instanceof Response) return a;
+        return json({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "p1", name: tool, input: a.input }], usage: a.usage || usage });
       }
       return new Response("stop here", { status: 503 });
     }

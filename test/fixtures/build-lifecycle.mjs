@@ -140,12 +140,14 @@ export async function fireInterim(b, id, led, { design = GOOD_DESIGN, brief = BR
 }
 
 /** THE REAL RESUME of that build, finishing with a stored generation: it writes the build's own final answer. */
-export async function finishResume(b, id, led, { credits = null, source = null, reply = undefined, env: extraEnv = {}, seen = [], over = null } = {}) {
+// `given` (2026-10-24, build questions): the generation's stored answer as
+// the case supplies it — a page writer's question, say.
+export async function finishResume(b, id, led, { credits = null, source = null, reply = undefined, env: extraEnv = {}, seen = [], over = null, given = null } = {}) {
   const rec = JSON.parse(b.store.get(resumeKey(id)));
   // THE GENERATION'S ANSWER: the plain shape the collector has always taken
   // (no page it can use — the build ends on its own refusal), or, with a
   // `source`, the page writer's real tool answer, so the build publishes.
-  const answer = source == null
+  const answer = given != null ? given : source == null
     ? { pages: [{ path: "index.tsx", source: "export default function I(){return null}" }] }
     : { stop_reason: "tool_use", usage: { input_tokens: 10, output_tokens: 10 }, content: [{ type: "tool_use", id: "w1", name: "write_pages", input: { pages: [{ path: "index.tsx", source }], notes: "" } }] };
   b.store.set(genKey(rec.report), JSON.stringify({ state: "done", answer }));

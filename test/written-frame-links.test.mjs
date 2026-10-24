@@ -190,7 +190,8 @@ test("FALLBACK 3 — the wiring: the first build's one call is enforced and mark
   const at = WCODE.indexOf("const singleAnswer = await generateSitePages(");
   assert.ok(at > 0, "the fallback's page call is gone");
   const blk = WCODE.slice(at, WCODE.indexOf("} catch (e) {", at));
-  assert.match(blk, /\{ ownParts: ownFirst \}/);
+  // AND A FIRST BUILD'S QUESTION (2026-10-24, build questions): `pageAsk`.
+  assert.match(blk, /\{ ownParts: ownFirst, \.\.\.pageAsk \}/);
   assert.match(blk, /if \(!ownFirst\) return singleAnswer;/);
   assert.match(blk, /enforceFallbackFrame\(singleAnswer,/);
   assert.match(blk, /if \(oneFix\.counts\) try \{ mark\?\.\("fallback", oneFix\.counts\); \}/);

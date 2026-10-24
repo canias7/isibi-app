@@ -8181,7 +8181,8 @@ function wireSecFix(site) {
 // charged by what its calls cost. Answers when the report is in.
 async function siteSecurityDeep(site, opts) {
   if (!site || !site.slug) return null;
-  const want = opts && opts.say === true ? { say: true, message: String(opts.message || '').slice(0, 500) } : null;
+  // THE CHAT IT WAS ASKED IN (2026-10-24), so the report's next step is not one already suggested there.
+  const want = opts && opts.say === true ? { say: true, message: String(opts.message || '').slice(0, 500), chat: (typeof chatKeyOf === 'function' && chatKeyOf(site)) || undefined } : null;
   const givenKey = opts && typeof opts.key === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(opts.key) ? opts.key : '';
   const b = document.getElementById('secDeep');
   if (b) { b.disabled = true; b.textContent = 'Scanning\u2026 (a minute or two)'; }
@@ -9952,7 +9953,7 @@ async function siteSecurityOffer(site, message, origin, finish) {
   if (!slug) { finish('There is no site to check yet \u2014 build one first.'); return; }
   let d = null;
   try {
-    const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/security?estimate=1&picker=' + encodeURIComponent(buildPicker) + '&say=1&message=' + encodeURIComponent(String(message || '').slice(0, 500)));
+    const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/security?estimate=1&picker=' + encodeURIComponent(buildPicker) + '&say=1&message=' + encodeURIComponent(String(message || '').slice(0, 500)) + (typeof chatKeyOf === 'function' && chatKeyOf(site) ? '&chat=' + encodeURIComponent(chatKeyOf(site)) : ''));
     const j = await r.json().catch(() => null);
     if (r.ok && j && j.estimate && j.estimate.standard && Number.isFinite(j.estimate.standard.credits)) d = j;
   } catch (e) { d = null; }
@@ -10619,13 +10620,18 @@ const ROUTE_EDIT_LAYERS = ['data', 'text', 'look', 'page', 'rules', 'picture', '
 // own words and up to four answers — none is allowed, since a typed answer is
 // always taken. Nothing is coerced: words that are not text, or any answer
 // that is not, make it no question at all.
+// ── AND ONE THE PAGE WRITER ASKED (2026-10-24, build questions) ─────────────
+// `stage: 'pages'`, read the same way. The server keeps that question as an
+// edit's is kept (`id`, under the slug the design chose, `askSlug`), so its
+// answer is checked and closed there; both ride the round when present.
 function designQuestion(d) {
   const q = d && d.question;
   const words = (v) => typeof v === 'string' && v.trim() !== '';
-  if (!d || d.intent !== 'clarify' || d.stage !== 'design' || !q || !words(q.text)) return null;
+  if (!d || d.intent !== 'clarify' || (d.stage !== 'design' && d.stage !== 'pages') || !q || !words(q.text)) return null;
   const opts = Array.isArray(q.options) ? q.options : [];
   if (!opts.every(words)) return null;
-  return { text: q.text, options: opts.slice(0, 4) };
+  const kept = typeof q.id === 'string' && /^[0-9a-f]{32}$/.test(q.id) && typeof d.askSlug === 'string' && /^[a-z0-9][a-z0-9-]{0,80}$/.test(d.askSlug);
+  return { text: q.text, options: opts.slice(0, 4), ...(kept ? { id: q.id, slug: d.askSlug } : {}) };
 }
 function routeQuestion(d) {
   const q = d && d.question;
@@ -10971,7 +10977,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // Pinned to the default, the router is that shape again with a different
     // provider in the seat, and a dead one sends every customer to the fallback
     // intent: a build on an empty project, an add-on on a live site.
-    body: JSON.stringify({ message: t, site: digest, picker: buildPicker, ...(typeof sendEffort === 'function' ? sendEffort() : null), firstBuild: !!isBuild, brief: brief, qa: qa, answering: !!answering, picked: !!picked, attached: !!((imgs && imgs.length) || keptImgs.length), slug: site.slug || '', hasSite: !!(site.slug && sitePages(site).length),
+    body: JSON.stringify({ message: t, site: digest, picker: buildPicker, ...(typeof sendEffort === 'function' ? sendEffort() : null), firstBuild: !!isBuild, brief: brief, qa: qa, answering: !!answering, picked: !!picked, attached: !!((imgs && imgs.length) || keptImgs.length), slug: site.slug || (isBuild && answering && round && typeof round.askSlug === 'string' ? round.askSlug : ''), hasSite: !!(site.slug && sitePages(site).length),
       // ── THE CONVERSATION SO FAR, AND THE FILES BY NAME (2026-10-14) ───────
       // This project's own thread, never another's, without the message being
       // sent; the server windows it and says what it left out. The files go by
@@ -10979,7 +10985,10 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
       history: typeof ChatTalk !== 'undefined' ? ChatTalk.historyWire((siteById(origin) || site).msgs, t) : undefined,
       chat: (typeof chatKeyOf === 'function' && chatKeyOf(siteById(origin) || site)) || undefined,
       files: typeof ChatTalk !== 'undefined' && ((imgs && imgs.length) || keptImgs.length) ? ChatTalk.fileWire(keptImgs.concat(Array.isArray(imgs) ? imgs : [])) : undefined,
-      ask: !isBuild && answer && typeof answer.id === 'string' ? { id: answer.id, chosen: answer.chosen === true } : undefined,
+      ask: !isBuild && answer && typeof answer.id === 'string' ? { id: answer.id, chosen: answer.chosen === true }
+        // A FIRST BUILD'S KEPT PAGE QUESTION (2026-10-24): answered by its id,
+        // under the slug it was kept at, so the server checks and closes it.
+        : isBuild && answering && round && typeof round.askId === 'string' ? { id: round.askId, chosen: picked === true } : undefined,
       // ── WHAT THE SERVER KEEPS WHEN IT TAKES THE WORK ON (2026-10-03) ──────
       // A site's message the server accepts as a request is finished there,
       // every part of it, whether or not this page stays open: so it carries
@@ -11057,7 +11066,20 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // CHECKED BEFORE ANYTHING IS SENT. Past this line a live site's answer is a
     // decision every branch below can act on as it stands.
     if (!isBuild && !(r.ok && routeActionable(d, site))) return lost(r);
+    // A FIRST BUILD'S KEPT QUESTION THAT IS NO LONGER LIVE (2026-10-24):
+    // answered on another device, or past its day. Nothing is built from this
+    // answer — closed once, as an edit's question is — and the round ends.
+    if (isBuild && round && round.askId && d && d.ok === false && d.error === 'stale-question') {
+      const s4 = siteById(origin);
+      if (s4 && s4.clarify) { s4.clarify = null; sitesSave(); }
+      finish(typeof d.msg === 'string' && d.msg.trim() ? d.msg : 'That question was already answered, so I didn\u2019t act on your reply.');
+      return;
+    }
     if (!r.ok || !d) return go();
+    // THE REQUEST THE KEPT QUESTION WAS ASKED ABOUT, from the server
+    // (2026-10-24): the brief it holds, so an answer from another device
+    // builds what was asked, not the answer alone.
+    if (isBuild && d.ask && d.ask.answered === true && typeof d.instruction === 'string' && d.instruction.trim()) brief = d.instruction;
     // THE SITE'S OWN TABLES, AS THE ROUTE READ THEM (2026-10-05, the owner's
     // reviews). The route reads them itself whenever it can (`routeDigest`):
     // this page's list is a hint, sent for the times that read cannot answer.
@@ -15953,6 +15975,8 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
       alsoAsked: EditPoll.heldWire(h.alsoAsked),
       handOver: h.handOver && typeof h.handOver === 'object' && !Array.isArray(h.handOver) ? h.handOver : undefined,
     };
+  // THE ROUND WAS SKIPPED (2026-10-24): no page writer asks on this build.
+  if (mode === 'build' && ho && typeof ho === 'object' && ho.noAsk === true) body.noAsk = true;
   // THIS SEND'S OWN CONTROLLER (#138), kept under its project so Stop there stops it alone.
   let siteAbort = new AbortController();
   if (typeof siteAborts !== 'undefined') siteAborts.set(origin, siteAbort);
@@ -16042,7 +16066,7 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
       siteBuildStop(origin);
       const s0 = siteById(origin);
       if (!s0) return;
-      s0.clarify = { brief: t, qa: Array.isArray(qa) ? qa.slice() : [], imgs: imgs || [] };
+      s0.clarify = { brief: t, qa: Array.isArray(qa) ? qa.slice() : [], imgs: imgs || [], ...(dq.id ? { askId: dq.id, askSlug: dq.slug } : {}) };
       s0.msgs.push({ r: 'a', t: dq.text, q: dq.text, opts: dq.options });
       s0.updatedAt = Date.now();
       sitesSave();
@@ -16492,7 +16516,9 @@ function siteAnswer(label, skip, picked) {
     // many this button exists to avoid.
     site.clarify = null;
     sitesSave();
-    reactSend(site, round.brief, origin, 'build', imgs, finish, round.qa);
+    // "JUST BUILD IT" ASKS NOTHING MORE (2026-10-24): the build's page writers
+    // are told not to ask (`noAsk`), so a skipped round never comes back.
+    reactSend(site, round.brief, origin, 'build', imgs, finish, round.qa, { noAsk: true });
     return;
   }
   // ANSWERING, and the server is told so. Without it the router may classify a

@@ -1,5 +1,15 @@
 # Owner Notes
 
+## 2026-10-24 — the first build can ask you one question, like edits do (branch `build-questions`, not merged, not deployed)
+
+- The AI writing a new site's pages (the one writer, or the section writers and the header and footer writers) may now ask you one thing it can't write without, just as the edit writers can. The question and its answer buttons are the model's own words.
+- When it asks, nothing is compiled or published and **you are charged nothing**: everything the build took goes back, as with the designer's question.
+- The question is now kept on the server, the same way an edit's is: you can answer it from another device, it lasts a day, and it can only be answered once. Answering it builds your original request with your answer beside it.
+- One question per build: a build that already has an answer, or that you sent with "Skip — just build it", is not offered another.
+- A build's reply and the security check's words are now told which next steps were already suggested in the chat, so they don't repeat one.
+- Limits: a build that asks has already designed (and, with tables, made its database); the answered build designs again. When several section writers run together and one asks, the others' work is thrown away (not charged).
+- Nothing spent, no model called; all tests use supplied answers. Record: `docs/history/2026-10-24-build-questions.md`.
+
 ## 2026-10-24 — combine C: six finished branches in one candidate (branch `combine-c`, not merged, not deployed)
 
 - Brings together compile repair everywhere, the exact-edits tweak, the progress voice, the next-step hint, background work and the file picker (plus the 503 notes).
