@@ -115,4 +115,4 @@ when it proposes a fix. Back-end-only changes: zero.
   `wiring` edit cost); both re-anchored, and those files pass (99 of 99 with
   the review files). The two left are environment-only: the media browser
   case (load) and the `node_modules` symlink case.
-- Image prediction: in the commit message and the report.
+- Image prediction (`containerInputs` + `imageId`, 231 inputs): site image `0bae00a7003bcc23` (main `692087cde`) → `8fc2abe34087d682` (rebuilt: `build-server.mjs`, `render-check.mjs`, `visual-review.mjs`); app-builder image `65022ce71e3d7274` unchanged.
