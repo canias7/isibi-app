@@ -1183,13 +1183,12 @@ export const NOT_BUILT_FIELD = {
   type: "array",
   items: { type: "string" },
   description:
-    "What the brief asks for that this first build will NOT make, one short phrase each, in the customer's own terms. " +
-    "This build makes every page and every section the brief asks for, with a header and a footer, and it has NO database: nothing a visitor " +
-    "sends can be stored, so there are no accounts, no saved bookings or orders and no sign-up list. " +
-    "Never list a page or a section here — plan it instead. List only " +
-    "every feature that would need stored data or a working back end (a form that must save what is sent, " +
-    "a newsletter sign-up, booking, ordering, accounts). Each is something the customer can ask for next as an addition. " +
-    "Never fake one on the page instead. An empty list when everything asked for is built.",
+    "Every feature the brief asks for that needs stored data or a working back end, one short phrase each, in the customer's own terms " +
+    "(a form that must save what is sent, a newsletter sign-up, booking, ordering, accounts, a list the owner edits). " +
+    "This build makes every page and every section the brief asks for, with a header and a footer; the step after you designs the " +
+    "database for exactly the features listed here (2026-10-24), and whatever it still cannot make is told to the customer. " +
+    "Never list a page or a section here — plan it instead, including the form or list itself. " +
+    "Never fake one on the page instead. An empty list when nothing asked for needs stored data, and then the site gets no database.",
 };
 
 export const IMAGES_FIELD = {

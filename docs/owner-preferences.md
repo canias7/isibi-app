@@ -1395,3 +1395,16 @@ page, never a band and never a cut; nothing planned is dropped or moved to
 limits, file sizes, 8 model calls at once), each named in
 `docs/history/2026-10-24-first-build-uncapped.md`. The add-on step's own caps
 are not part of this decision.
+
+## The first build makes the database its pages need; no build caps (2026-10-24)
+
+Owner's word (2026-10-24): the first build creates the site's database when
+the site needs one, and the remaining caps go (six photographs, three repaired
+pages, 900 translated strings, three files per compile-repair round). **So: a
+first build whose pages have forms that save what visitors send, or lists the
+owner edits, declares and provisions those tables (RLS on every table, access
+by `resolveAccess`, starter rows) in the same build; a site that needs nothing
+stored still gets no database (the Neon project cap and cost are why); and a
+build buys, repairs and translates everything it needs, in batches or eight at
+a time, never dropping any.** This supersedes the 2026-08-24 "frontend-only
+first build". `IMAGE_PURCHASES` off still buys no photograph.

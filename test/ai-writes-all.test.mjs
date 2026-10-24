@@ -200,9 +200,9 @@ test("notBuilt and noDatabase reach the reply writer's facts", () => {
 });
 
 test("both build answers hand the reply writer notBuilt and noDatabase, on first builds only", () => {
-  assert.match(WORKER, /\.\.\.\(firstBuild \? \{ notBuilt: buildArgs && buildArgs\.plan && buildArgs\.plan\.notBuilt, noDatabase: !db \} : \{\}\)/,
+  assert.match(WORKER, /\.\.\.\(firstBuild \? \{ notBuilt: buildArgs && buildArgs\.plan && buildArgs\.plan\.notBuilt, noDatabase: !db, \.\.\.\(db \? \{ madeTables: spec\.tables\.map\(/,
     "the inline first build's answer does not carry the two facts");
-  assert.match(WORKER, /\.\.\.\(!design\.priorPages \? \{ notBuilt: design\.plan && design\.plan\.notBuilt, noDatabase: !rBackend \} : \{\}\)/,
+  assert.match(WORKER, /\.\.\.\(!design\.priorPages \? \{ notBuilt: design\.plan && design\.plan\.notBuilt, noDatabase: !rBackend, \.\.\.\(rBackend \? \{ madeTables: rTables\.map\(/,
     "the collected first build's answer does not carry the two facts");
   // AND THE DESIGN'S OWN LIST REACHES THE PLAN THE BUILD IS HANDED.
   assert.match(WORKER, /if \(firstBuild && designed\) buildArgs\.plan = withNotBuilt\(buildArgs\.plan, designed\.notBuilt\);\s*pages = await buildAndPublishPages\(env, buildArgs\);/,

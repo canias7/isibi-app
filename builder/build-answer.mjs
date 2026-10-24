@@ -215,7 +215,7 @@ export const BUILD_FAILURE_KINDS = ["design-unusable", "design-truncated", "desi
 export const DESIGN_ATTEMPT_READINGS = ["malformed:repair", "truncated:repair", "transient:again"];
 const DESIGN_OUTCOMES = ["repaired", "question", "exhausted"];
 
-export function buildFacts({ images = null, context = null, unwritten = null, salvaged = null, settlement = null, failure = null, design = null, checks = null, refusal = null, ownLogo = null, notBuilt = null, noDatabase = null, compileRepaired = null } = {}) {
+export function buildFacts({ images = null, context = null, unwritten = null, salvaged = null, settlement = null, failure = null, design = null, checks = null, refusal = null, ownLogo = null, notBuilt = null, noDatabase = null, madeTables = null, compileRepaired = null } = {}) {
   const out = {};
   // WHAT WAS ASKED FOR AND NOT BUILT, AND WHETHER THE BUILD MADE NO DATABASE
   // (2026-10-23, owner: the first build's reply names what was left out, so
@@ -224,6 +224,8 @@ export function buildFacts({ images = null, context = null, unwritten = null, sa
   const nb = (Array.isArray(notBuilt) ? notBuilt : []).filter((x) => typeof x === "string" && x.trim()).map((x) => x.trim());
   if (nb.length) out.notBuilt = nb;
   if (typeof noDatabase === "boolean") out.noDatabase = noDatabase;
+  // THE TABLES A FIRST BUILD MADE (2026-10-24), names only, strings only.
+  if (Array.isArray(madeTables)) { const t = madeTables.filter((n) => typeof n === "string" && n); if (t.length) out.madeTables = t; }
   // A STRUCTURED REFUSAL (decide-all, 2026-10-23: a new site's name too long)
   // and THE CUSTOMER'S ATTACHED LOGO (#168), told by the reply writer.
   if (refusal && typeof refusal === "object" && typeof refusal.code === "string") out.refusal = refusal;

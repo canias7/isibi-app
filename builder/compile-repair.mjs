@@ -16,8 +16,12 @@
  * failure as before.
  */
 import { runTweak } from "./site-tweak.mjs";
+import { permits, MAX_MODEL_FANOUT } from "./model-fanout.mjs";
 
-export const MAX_FILES = 3;
+// NO CEILING NOW (owner, 2026-10-24, first-build-db-limits): every page the
+// error names (else every page this change wrote) is repaired in the round,
+// `MAX_MODEL_FANOUT` at a time. Only this constant and its gate changed here.
+export const MAX_FILES = Infinity;
 export const MAX_ERROR = 4000;
 
 export const COMPILE_REPAIR_RULES =
@@ -49,7 +53,9 @@ export async function compileRepairRound({ error, pages, touched, send, model, c
   if (!room) return { ran: false, why: "time", ...empty, built: null, pages: null };
   if (typeof send !== "function" || typeof compile !== "function") return { ran: false, why: "no-deps", ...empty, built: null, pages: null };
 
+  const gate = permits(MAX_MODEL_FANOUT);
   const results = await Promise.all(work.map(async (p) => {
+    const free = await gate.take();
     try {
       const res = await runTweak({
         instruction: "This page did not compile. The compiler said:\n" + said,
@@ -60,7 +66,7 @@ export async function compileRepairRound({ error, pages, touched, send, model, c
       return { p, res };
     } catch (e) {
       return { p, res: { ok: false, reason: "send", usage: null, error: e } };
-    }
+    } finally { free(); }
   }));
   const fixed = new Map();
   const repaired = [], refused = [], usage = [];

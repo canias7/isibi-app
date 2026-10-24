@@ -45,6 +45,7 @@ import { runTweak, MAX_TWEAK_CHARS } from "./site-tweak.mjs";
 import { SERIOUS } from "./site-render.mjs";
 import { routeOf } from "./site-addon.mjs";
 import { buildRepairOn } from "./visual-review.mjs";
+import { permits, MAX_MODEL_FANOUT } from "./model-fanout.mjs";
 
 /**
  * How many pages one build will pay to repair.
@@ -61,7 +62,10 @@ import { buildRepairOn } from "./visual-review.mjs";
  * WHAT IS DROPPED IS REPORTED, never silently cut — the rule this repo already
  * lives under: a bounded sweep that says nothing reads as "covered everything".
  */
-export const MAX_REPAIRS = 3;
+// NO CEILING NOW (owner, 2026-10-24, first-build-db-limits): every page the
+// report or the compiler names is repaired, `MAX_MODEL_FANOUT` at a time, and
+// `dropped` stays 0. The false-alarm risk above is paid in calls, not hidden.
+export const MAX_REPAIRS = Infinity;
 
 /**
  * What the model is told.
@@ -222,7 +226,13 @@ export async function repairPages({ report, pages, send, runtime = false, tried 
   if (!brief.work.length) return out;
   if (tried instanceof Set) for (const w of brief.work) if (w.signature) tried.add(w.signature);
 
+  // `MAX_MODEL_FANOUT` AT A TIME now that `MAX_REPAIRS` is unbounded (2026-10-24).
+  const gate = permits(MAX_MODEL_FANOUT);
   const results = await Promise.all(brief.work.map(async (w) => {
+    const free = await gate.take();
+    try { return await repairOne(w); } finally { free(); }
+  }));
+  async function repairOne(w) {
     // SIZE IS CHECKED BEFORE PAYING, which `runTweak` also does — kept here as
     // well so the refusal is reported against the page by name rather than as
     // an anonymous `too-big` in a list.
@@ -247,7 +257,7 @@ export async function repairPages({ report, pages, send, runtime = false, tried 
       res = { ok: false, reason: "send", usage: null, error: e };
     }
     return { w, res };
-  }));
+  }
 
   const fixed = new Map();
   for (const { w, res } of results) {
@@ -456,7 +466,12 @@ export async function compileRepairPages({ error, typeErrors, pages, cited, cita
   out.dropped = brief.dropped;
   out.skipped = brief.skipped;
   if (!brief.work.length) return out;
+  const gate = permits(MAX_MODEL_FANOUT);
   const results = await Promise.all(brief.work.map(async (w) => {
+    const free = await gate.take();
+    try { return await compileOne(w); } finally { free(); }
+  }));
+  async function compileOne(w) {
     if (tried instanceof Set) tried.add(w.signature);
     if (w.cause) out.causes.push({ path: w.path, cause: w.cause.slice(0, 200) });
     if (typeof w.source !== "string" || w.source.length > MAX_TWEAK_CHARS) return { w, res: { ok: false, reason: "too-big", usage: null } };
@@ -465,7 +480,7 @@ export async function compileRepairPages({ error, typeErrors, pages, cited, cita
       res = await runTweak({ instruction: w.instruction, path: w.route || w.path, source: w.source, send, rules: COMPILE_REPAIR_RULES, heading: "WHY IT DID NOT BUILD", ...(model ? { model } : {}) });
     } catch (e) { res = { ok: false, reason: "send", usage: null, error: e }; }
     return { w, res };
-  }));
+  }
   const fixed = new Map();
   for (const { w, res } of results) {
     if (res && res.usage) out.usage.push(res.usage);

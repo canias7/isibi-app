@@ -31,8 +31,11 @@ auth-gated, idempotent, a slug claimed by whoever builds it first (409).
    undoable, a wrong "ask" is indistinguishable from the builder being broken.
 2. **Design** (`design_schema`, one tool call) — the model answers the whole plan.
 3. **Provision** — a Neon project + database, but **only if the spec declares
-   tables or the site already has one**. A first build is frontend-only by
-   default, so most sites never get a database.
+   tables or the site already has one**. Since 2026-10-24 a first build whose
+   design names features that need stored data (`notBuilt`) makes one backend
+   design call (`builder/first-build-db.mjs`) and gets those tables; a site
+   that needs nothing stored still gets no database
+   (`docs/history/2026-10-24-first-build-db-limits.md`).
 4. **Generate** (`write_pages`) — ONE model call, no repair pass.
 5. **Compile** — `tsc --noEmit` then `vite build` in the container. **The
    typecheck REPORTS; only `vite build` refuses** (owner, 2026-08-30: *"I want

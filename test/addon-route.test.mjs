@@ -4352,19 +4352,17 @@ test("a token in a component this change never touched is not bought", async () 
   assert.ok(!r.shots.some((s) => s.includes("stranger")), "a stranger's picture was bought: " + JSON.stringify(r.shots));
 });
 
-test("more pictures than the platform will buy are refused at the cleaner, by the platform's own cap", async () => {
+test("NO PHOTOGRAPH CAP (2026-10-24): twenty pictures asked for are all kept by the cleaner", async () => {
   // THE CEILING IS `IMAGE_CAP` AND IT IS THE SPEND PATH'S, not a number of the
   // add step's: `planImages` slices there too, so a wider cap here would clean
   // an entry nothing downstream will ever buy — and the customer would be told
   // it was added.
   const SITE_P = { name: "x", kind: "shopfront", pages: ["/"], tables: [], hasDatabase: false, qr: null, three: null, tsx: [] };
-  const many = Array.from({ length: IMAGE_CAP + 1 }, (_, i) => ({ page: "/", describe: "picture number " + i, name: "shot" + i }));
+  assert.equal(IMAGE_CAP, Infinity);
+  const many = Array.from({ length: 20 }, (_, i) => ({ page: "/", describe: "picture number " + i, name: "shot" + i }));
   const c = cleanAdd("photo", many, SITE_P);
-  assert.equal(c.value.length, IMAGE_CAP, "the cleaner kept " + c.value.length + " pictures against a cap of " + IMAGE_CAP);
-  // ⚠ RE-ANCHORED 2026-09-19: a picture carries its own name now, so the drop
-  // says WHICH one — where this read `name: ""`, which is the sentence the
-  // over-cap branch exists to give and could not fill in. Strictly stronger.
-  assert.deepEqual(c.skipped, [{ why: "over-cap", name: "shot" + IMAGE_CAP }], "the one left out was not named");
+  assert.equal(c.value.length, 20, "the cleaner kept " + c.value.length + " of 20 pictures");
+  assert.ok(!(c.skipped || []).some((s) => s.why === "over-cap"), "a picture was dropped as over-cap");
 });
 
 // ── A PHOTOGRAPH IS DESIGNED HERE, ALONE OR BESIDE ANYTHING (2026-10-02) ───

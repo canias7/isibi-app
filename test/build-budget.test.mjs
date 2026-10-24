@@ -658,7 +658,9 @@ test("EVERY step of the build path maps to a stage — derived from the marks, n
     && n !== "body" && n !== "links" && n !== "gate" && n !== "import" && n !== "importing"
     // The design's recovery (the ninth batch) runs before the design is in
     // hand, so "design" is its true stage.
-    && n !== "design-recovery");
+    && n !== "design-recovery"
+    // The first build's backend design (2026-10-24) is part of the design step.
+    && n !== "backend-design");
   assert.deepEqual(unknown, [],
     `these build marks have no stage, so a deadline there would tell the customer nothing was set up: ${unknown.join(", ")}`);
 });

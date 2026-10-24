@@ -151,9 +151,11 @@ test("the budget binds on what the MODEL wrote, not only on what the family aske
   assert.equal(r.overflow, 9, "the ones that will fall back are counted, not silently dropped");
 });
 
-test("the hard cap holds even when the caller asks for more", () => {
+test("NO CAP (2026-10-24): twenty pictures asked for are twenty planned; the budget still binds", () => {
+  assert.equal(IMAGE_CAP, Infinity);
   const src = Array.from({ length: 20 }, (_, i) => '"@@IMG:shot ' + i + '@@"').join(" ");
-  assert.equal(planImages([page("a.tsx", src)], 50).shots.length, IMAGE_CAP);
+  assert.equal(planImages([page("a.tsx", src)], 50).shots.length, 20);
+  assert.equal(planImages([page("a.tsx", src)], 7).shots.length, 7);
 });
 
 test("a long description is sent WHOLE (2026-10-08: the 240 cut was no provider bound) — and its key and prompt keep every word", () => {
@@ -311,11 +313,10 @@ test("AN UNUSABLE LIST DEGRADES TO THE COUNT, never to no instruction", () => {
   }
 });
 
-test("the designer's list cannot ask for more than the cap either", () => {
-  const many = Array.from({ length: IMAGE_CAP + 4 }, (_, i) => ({ page: "/", describe: "picture number " + i }));
+test("the designer's list of twenty is handed over whole (no cap, 2026-10-24)", () => {
+  const many = Array.from({ length: 20 }, (_, i) => ({ page: "/", describe: "picture number " + i }));
   const d = imageDirective(many);
-  assert.match(d, new RegExp("gets " + IMAGE_CAP + " real"));
-  assert.ok(!d.includes("picture number " + IMAGE_CAP), "a picture past the cap was handed over");
+  assert.ok(d.includes("picture number 19"), "a picture past the old six was not handed over");
 });
 
 test("A DECLARED LIST IS THE BUDGET, and an EMPTY one is a real answer", () => {
@@ -330,8 +331,8 @@ test("A DECLARED LIST IS THE BUDGET, and an EMPTY one is a real answer", () => {
   assert.equal(planBudget({ ...base, images: [{ page: "/", describe: "a" }, { page: "/work", describe: "b" }] }), 2);
   // AND IT IS STILL CAPPED. The declaration decides how many, not whether the
   // ceiling applies — each one is real money.
-  const many = Array.from({ length: IMAGE_CAP + 3 }, () => ({ page: "/", describe: "x" }));
-  assert.equal(planBudget({ ...base, images: many }), IMAGE_CAP);
+  const many = Array.from({ length: 20 }, () => ({ page: "/", describe: "x" }));
+  assert.equal(planBudget({ ...base, images: many }), 20, "no cap: twenty declared is a budget of twenty");
 });
 
 test("a declared picture for a page the site has not got is dropped", () => {
@@ -377,7 +378,7 @@ test("WHAT THE PAGE WRITER IS SHOWN IS THE LIST, BOUNDED BY THE BUDGET", () => {
   assert.equal(imageBrief({ images: "three" }, 2), 2);
   assert.equal(imageBrief({ images: [] }, 2), 2, "an empty list produced an empty brief rather than the count");
   // …and it can never exceed the cap however it is asked.
-  assert.equal(imageBrief(null, 999), IMAGE_CAP);
+  assert.equal(imageBrief(null, 20), 20);
   assert.equal(imageBrief(plan, -1), 0);
 });
 
@@ -400,8 +401,8 @@ test("…and one with nothing to draw is dropped at the plan too", () => {
   assert.equal(planBudget(plan), 1, "a blank description still spent a slot of the budget");
 });
 
-test("the directive can never ask for more than the cap", () => {
-  assert.match(imageDirective(999), new RegExp("gets " + IMAGE_CAP + " real"));
+test("the directive states the whole count (no cap) and nothing for nonsense", () => {
+  assert.match(imageDirective(20), /gets 20 real/);
   assert.match(imageDirective(-3), /none on this site/);
   assert.match(imageDirective("four"), /none on this site/);
 });

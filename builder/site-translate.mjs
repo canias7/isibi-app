@@ -24,7 +24,10 @@ import { extractText, applyEdit } from "./site-text.mjs";
 import { pageForLang, MAX_EXTRA_LANGS } from "./site-langs.mjs";
 
 /** The most strings one call will carry. */
-export const MAX_STRINGS = 900;
+// NO CEILING NOW (owner, 2026-10-24, first-build-db-limits): every string is
+// collected and `translationBatches` cuts them into calls of at most
+// `BATCH_MAX_STRINGS` / `BATCH_MAX_CHARS`, three at a time. `dropped` stays 0.
+export const MAX_STRINGS = Infinity;
 
 // ── BATCHES, AND A FAILURE REMEMBERED (2026-10-23, the owner's choice on audit
 // #195 / A32-2) ────────────────────────────────────────────────────────────

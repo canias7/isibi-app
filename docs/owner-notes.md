@@ -1,5 +1,15 @@
 # Owner Notes
 
+## 2026-10-24 — The first build makes the database its pages need, and the last build limits go (branch `first-build-db-limits`, not merged, not deployed)
+
+- On your word, a first build whose pages have a booking form, an order form, a sign-up or a list you edit (a menu, prices) now gets its database in the same build: the tables, starter rows for your lists, the security rules on every table, and the forms and lists connected to them.
+- A site that asks for nothing to be stored still gets no database, as before. That rule was there for a real reason (each database is a paid project, and there is a platform limit of 100), so it stays.
+- How: the designer still plans the pages and names the features that need storing; one extra design call then designs only their tables. If that call fails, the build carries on as today, with no database, and the reply names what was not built.
+- The reply now says the database was made and names its tables; "no database" is said only when none was made; "not built" names only what genuinely could not be made.
+- Removed limits: six photographs per build (now as many as the site asks for, still only when purchases are on, the balance covers them and there is time; bought eight at a time), three repaired pages per build, 900 translated strings (now all, in batches), and three files per compile-repair round (now every file the error names). Size limits and eight-at-once stay.
+- The photograph change also lifts the add-on's six-photo limit (overlaps the add-on limits branch).
+- The site image will be rebuilt. Nothing spent. Record: `docs/history/2026-10-24-first-build-db-limits.md`.
+
 ## 2026-10-24 — The first build has no page, section or component limit (branch `first-build-uncapped`, not merged, not deployed)
 
 - On your word ("eliminate the sections, the cap on the sections, the cap on the pages, the cap on the components on the first build"), the designer now plans as many pages, sections and components as the brief needs. Nothing it plans is cut or moved to "not built".

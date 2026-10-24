@@ -22,6 +22,7 @@
 // Every model answer is a stand-in, the ledger is a stand-in, R2 is a Map
 // with R2's conditions. Nothing runs against production.
 
+import * as fanout from "../builder/model-fanout.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -301,8 +302,8 @@ function realBuy(makeSitePhoto) {
   const W = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   const src = W.slice(W.indexOf("async function buySitePhotos("), W.indexOf("// Resolve @@SPRITE"));
   assert.ok(src.length > 1000 && src.includes("const unresolved ="), "buySitePhotos moved — rescope this");
-  const names = ["imagesAffordable", "SITE_PHOTO_USD", "siteUploadList", "MAX_FILES_PER_SITE", "photoWait", "planImages", "imageSources", "applyImages", "shotKey", "makeSitePhoto", "imagePurchasesOn"];
-  const vals = [images.imagesAffordable, 0.15, async () => [], 200, images.photoWait, images.planImages, images.imageSources, images.applyImages, images.shotKey, makeSitePhoto, images.imagePurchasesOn];
+  const names = ["imagesAffordable", "SITE_PHOTO_USD", "siteUploadList", "MAX_FILES_PER_SITE", "photoWait", "planImages", "imageSources", "applyImages", "shotKey", "makeSitePhoto", "imagePurchasesOn", "permits", "MAX_MODEL_FANOUT"];
+  const vals = [images.imagesAffordable, 0.15, async () => [], 200, images.photoWait, images.planImages, images.imageSources, images.applyImages, images.shotKey, makeSitePhoto, images.imagePurchasesOn, fanout.permits, fanout.MAX_MODEL_FANOUT];
   return new Function(...names, src + "\nreturn buySitePhotos;")(...vals);
 }
 const TOKEN_PAGE = (d1, d2) => [{ path: "index.tsx", source: '<img src="@@IMG:' + d1 + '@@" /><img src="@@IMG:' + d2 + '@@" />' }];

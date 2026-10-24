@@ -47,14 +47,15 @@ test("the site's own components: rewritten only when that component exists", () 
   assert.equal(repairImports(page(src)).pages[0].source, src);
 });
 
-test("the repair round picks the pages the error names, among those this change wrote, at most a few", () => {
+test("the repair round picks the pages the error names, among those this change wrote, every one (no cap, 2026-10-24)", () => {
   const pages = [{ path: "a.tsx", source: "a" }, { path: "b.tsx", source: "b" }, { path: "index.tsx", source: "i" }];
   assert.deepEqual(pagesForError("error in src/routes/b.tsx: cannot resolve", pages, ["a.tsx", "b.tsx"]).map((p) => p.path), ["b.tsx"]);
   assert.deepEqual(pagesForError("unknown", pages, ["a.tsx", "b.tsx"]).map((p) => p.path), ["a.tsx", "b.tsx"]);
   // A page this change did not write is never offered, even when named.
   assert.deepEqual(pagesForError("index.tsx broke", pages, ["a.tsx"]).map((p) => p.path), ["a.tsx"]);
   const many = Array.from({ length: 9 }, (_, i) => ({ path: "p" + i + ".tsx", source: "x" }));
-  assert.equal(pagesForError("", many, many.map((p) => p.path)).length, MAX_FILES);
+  assert.equal(MAX_FILES, Infinity);
+  assert.equal(pagesForError("", many, many.map((p) => p.path)).length, 9);
 });
 
 test("the round does not run without the clock's room or a message, and never compiles then", async () => {

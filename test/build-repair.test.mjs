@@ -181,12 +181,13 @@ test("#11: the repair request — the failing page, its exact errors, the cause,
   assert.deepEqual(r.usage, [{ model: "grok-4.6", in: 4000, out: 900, cacheRead: 0, cacheWrite: 0 }]);
 });
 
-test("#11: never more than MAX_REPAIRS pages; a page the build did not write is never sent", () => {
+test("#11: every page the compiler names is sent (no cap, 2026-10-24); a page the build did not write is never sent", () => {
   const pages = Array.from({ length: 5 }, (_, i) => ({ path: "p" + i + ".tsx", source: BROKEN }));
   const err = pages.map((p) => `/app/src/routes/${p.path}:1:1: ERROR: Expected ";"`).join("\n") + "\n/app/src/components/ui/x.tsx:1:1: ERROR: y";
   const b = compileBrief({ error: err, pages, citations: errorCitations(err) });
-  assert.equal(b.work.length, MAX_REPAIRS);
-  assert.equal(b.dropped, 5 - MAX_REPAIRS);
+  assert.equal(MAX_REPAIRS, Infinity);
+  assert.equal(b.work.length, 5);
+  assert.equal(b.dropped, 0);
   assert.ok(b.work.every((w) => w.path.startsWith("p")));
 });
 
