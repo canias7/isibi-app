@@ -43,8 +43,8 @@ Saved on the owner's word: **a list only, nothing built yet.**
   - the code and its name, e.g. **"Grok error 503 · Service Unavailable"**; when the provider sends a word with no number, it is mapped to the standard code (unavailable → 503, overloaded → 529, rate limited → 429), and a real number is shown as sent;
   - the provider's own words, word for word;
   - a link to the provider's status page: **status.x.ai** for Grok (official, named in docs.x.ai's Debugging page), status.claude.com for Claude;
-  - "Retrying in 0:24 · attempt 2 of 6 · no charge while waiting", counting down live.
+  - **No attempt count** (owner, 2026-10-24): "Retrying in 4:59 · no charge while waiting", counting down live, and it **keeps retrying every 5 minutes until the model answers**. Past the job's 50-minute limit the part is parked ("waiting for Grok"), the site is freed, and the background tick keeps trying every 5 minutes, resuming from the saved step.
 - On recovery: "✓ Grok is answering again", then the model's own progress lines resume.
-- If every retry fails (about 20 minutes): the code, the attempts, the link, "Nothing was built or charged for this part", and a Try again button.
+- There is no "every retry failed" end state; the customer can press Stop, or switch to Claude. (Open for the owner: a long cap such as 24 hours, and whether to switch to Claude automatically.)
 - **A retry picks up where it stopped**: only the call that failed is sent again, inside the same job; steps already finished (e.g. the tables designed) are kept, nothing finished is redone or charged again.
 - Mockup: `scratchpad/retry-mock/m3.html` (this session).
