@@ -1,5 +1,14 @@
 # Owner Notes
 
+## 2026-10-23, late night — the quick page writer now sends only the lines it changes (idea #18; branch `tweak-exact-edits`, not merged, not deployed)
+
+- **What changed.** The cheap page step ("make that heading bigger", "move the hours above the map") used to send back the whole page, and we checked it was the same except for the change. Now it sends only exact replacements: "this exact text → that text". Each piece of old text must appear exactly once on the page; if it doesn't (missing, or appears twice), nothing is changed and the writer is told which piece and why, and gets one more try. A second miss goes to the full rewrite, exactly as a refused quick change always has.
+- **The old checks still run** on the result: same words on the page, same address, the code still parses, the site's own components, and the lint. Then the compile and its repair, as before.
+- **One shared piece of code.** The visual review already worked this way; both now use the same helper, so they can't disagree about "exactly once".
+- **Cheaper answers.** The output ceiling for this step halved (16,000 → 8,000 tokens) because the answer is only the changed lines.
+- **Same for the repairs.** The compile repair and the page repair use the same quick writer, so they also answer with exact edits now.
+- Nothing spent, no model called. The small paid test you mentioned for #18 is still owed (asks first). Container image predicted `87696d43a1f54ac4`. Record: `docs/history/2026-10-23-tweak-exact-edits.md`.
+
 ## 2026-10-23, late night — every path that writes code now repairs a page that didn't compile (branch `compile-repair-all`, not merged, not deployed)
 
 - **What changed.** Before, only add-ons got a model repair when a page didn't compile. Now every path does: first builds (and revises), the edit page rung, the quick writers, the frame edit, logo, menu, "Back online" and anything else that publishes. The repair sits in the one place everything publishes through, so a new path can't miss it; a test lists every publish call and fails if one is left out.
