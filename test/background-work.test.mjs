@@ -46,8 +46,8 @@ function cutConst(head) {
 }
 const FNS = ["esc", "progressListHTML", "siteSaidFor", "siteMsgText", "siteParState", "siteParTitle", "siteParTag", "siteParSnap",
   "siteRequestWorking", "siteRunningWork", "siteBusyHere", "siteComposerStops",
-  "siteBgState", "siteBgItems", "siteBgWhen", "siteBgLine", "siteBgHTML", "siteBgJobHTML", "siteBgPaint", "siteBgScrolled", "siteBgClick", "siteBgStopAll", "siteBgStopPart", "siteBgRetry", "siteBgShowMe"];
-const CONSTS = ["const SITE_PAR_STATE =", "const SITE_PAR_LABEL =", "const SITE_REQ_PREP =", "const SITE_SAID_FOR =", "const SITE_BG_KEEP_MS =", "const siteBgUi ="];
+  "siteBgState", "siteBgKeep", "siteBgHolds", "siteReqCardHTML", "siteReqCardShows", "siteParView", "siteBgItems", "siteBgWhen", "siteBgLine", "siteBgHTML", "siteBgJobHTML", "siteBgPaint", "siteBgScrolled", "siteBgClick", "siteBgStopAll", "siteBgStopPart", "siteBgRetry", "siteBgShowMe"];
+const CONSTS = ["const SITE_PAR_STATE =", "const SITE_PAR_LABEL =", "const SITE_REQ_PREP =", "const SITE_SAID_FOR =", "const SITE_BG_KEEP_MS =", "const siteBgUi =", "const SITE_BG_KEEP_KEY =", "const siteParOpen ="];
 const SRC = [...FNS.map((n) => cut("function " + n + "(")), ...CONSTS.map(cutConst)].join("\n");
 
 const said = (title, doing) => ({ planned: "p", doing: doing || "d", waiting: "w", unconfirmed: "u", done: "I've done " + title + ".", partial: "pa", notdone: "I couldn't do " + title + ".", title });
@@ -73,7 +73,7 @@ function siteOf({ endedB = false } = {}) {
     jobCards: {},
   };
 }
-function load(site, { busy = false } = {}) {
+function load(site, { busy = false, store = null } = {}) {
   const posts = [], stops = [], sent = [], toasts = [];
   let draws = 0;
   const host = { innerHTML: "", onclick: null, querySelector: () => null };
@@ -91,6 +91,9 @@ function load(site, { busy = false } = {}) {
     siteReqState: (o, k, v) => { site.requests[k].view = v; return site.requests[k]; },
     siteSend: (t, leave) => sent.push([t, leave]),
     sbToast: (t) => toasts.push(t),
+    siteAskHTML: (m) => '<div class="ask-buttons" data-ask="' + m.ask + '"></div>',
+    siteRequestHTML: () => '<div class="st-req">CARD</div>',
+    ...(store ? { sessionStorage: store } : {}),
     apiFetch: async (url, init) => { posts.push([url, init.method, JSON.parse(init.body)]); return { ok: true, json: async () => ({ ok: true, request: site.requests[KA].view }) }; },
   });
   vm.runInContext(SRC, ctx);
@@ -283,6 +286,65 @@ test("R — a reload keeps a single-part request's snapshot on its message, and 
   assert.match(text(q.html()), /1 thing · 1 in progress .* Blue Picking the blue/);
 });
 
+// ── D: no duplicate display ─────────────────────────────────────────────────
+test("D — while the panel lists a request's parts its card is not drawn on the thread: only the model's opening line and the soft box; once it ends, only its summary", () => {
+  const site = siteOf();
+  site.requests[KA].view.opening = "I'll work on these three side by side.";
+  site.msgs.push({ r: "a", t: "All three are saved as a draft.", req: KA, for: "end" });
+  const p = load(site);
+  const card = (k) => p.ctx.siteReqCardHTML(site.msgs.find((m) => m.request === k), site);
+  // WHAT IS SHOWN: the card's part list sits inside a hidden holder (kept for
+  // the UI canary's reader), never drawn.
+  const shown = (h) => h.replace(/<div class="st-bg-held" hidden>[\s\S]*$/, "") + (h.match(/<div class="st-par-box">[\s\S]*$/) || [""])[0];
+  let a = card(KA);
+  assert.match(a, /<div class="st-bg-held" hidden><div class="st-par" data-par=/, "the parallel card is drawn beside the panel");
+  assert.doesNotMatch(shown(a), /st-par-row|st-par-head|class="st-par"/, "the parallel card is drawn beside the panel");
+  assert.match(a, /st-par-opening">I&#39;ll work on these three side by side\.</);
+  assert.equal(card(KB), '<div class="st-bg-held" hidden><div class="st-req">CARD</div></div>', "a single-part request's card is drawn beside the panel");
+  assert.equal(p.ctx.siteReqCardShows(site.msgs.find((m) => m.request === KB), site), false, "an empty card message is drawn");
+  assert.equal(p.ctx.siteReqCardShows(site.msgs.find((m) => m.request === KA), site), true);
+  // ENDED AND OFF THE PANEL (a reload long after): the summary stays, no card.
+  site.requests[KA].view.ended = true;
+  for (const q of site.requests[KA].view.parts) q.status = "done";
+  site.requests[KA].doneAt = { 0: 0, 1: 0, 2: 0 };
+  assert.equal(p.ctx.siteBgItems(site, 10 * 60 * 1000).filter((x) => x.key === KA).length, 0);
+  a = card(KA);
+  assert.doesNotMatch(shown(a), /st-par-row|class="st-par"/, "the card came back once the request left the panel");
+  assert.match(a, /st-par-box">.*All three are saved as a draft\./s, "the summary is gone from the thread");
+  const reloaded = { id: "s1", msgs: JSON.parse(JSON.stringify(site.msgs)) };
+  reloaded.msgs.find((m) => m.request === KA).rq = { ended: true, opening: "I'll work on these three side by side.", parts: site.requests[KA].view.parts };
+  const r = load(reloaded);
+  const ra = r.ctx.siteReqCardHTML(reloaded.msgs.find((m) => m.request === KA), reloaded);
+  assert.doesNotMatch(shown(ra), /class="st-par"/, "a reload drew the card");
+  assert.match(ra, /All three are saved as a draft\./, "a reload lost the summary");
+  // THE THREAD DRAWS A CARD MESSAGE THAT SHOWS NOTHING HIDDEN, and the holder is never displayed.
+  assert.match(CHAT, /'<div class="st-msg a"' \+ \(m\.request && !m\.t && !m\.jobCard && !siteReqCardShows\(m, site\) \? ' hidden' : ''\)/);
+  assert.match(readFileSync(new URL("../public/styles.css", import.meta.url), "utf8"), /\.st-msg\[hidden\], \.st-bg-held\[hidden\] \{ display: none !important; \}/);
+});
+
+// ── K: the panel kept across a reload ───────────────────────────────────────
+test("K — the panel's open state and the job shown are kept for a reload, per project, in session storage; storage that throws keeps the old behaviour", () => {
+  const mem = new Map();
+  const store = { getItem: (k) => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)) };
+  const site = siteOf();
+  const p = load(site, { store });
+  p.press({ "data-bg": "open" });
+  p.press({ "data-bg-row": KA + "|0" });
+  assert.deepEqual(JSON.parse(mem.get("gf.bgPanel.s1")), { open: true, job: KA + "|0" });
+  const q = load(site, { store });
+  assert.match(text(q.html()), /‹ Back · Bookshop page/, "a reload lost the job view");
+  q.press({ "data-bg": "close" });
+  assert.deepEqual(JSON.parse(mem.get("gf.bgPanel.s1")), { open: false, job: "" });
+  assert.match(load(site, { store }).html(), /st-bg-pill/, "a reload reopened a closed panel");
+  const other = { ...siteOf(), id: "s2" };
+  assert.match(load(other, { store }).html(), /st-bg-pill/, "another project took this one's panel");
+  const bad = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } };
+  const b = load(site, { store: bad });
+  assert.match(b.html(), /st-bg-pill/);
+  b.press({ "data-bg": "open" });
+  assert.match(b.html(), /st-bg-pane/, "storage that throws broke the panel");
+});
+
 // ── SV: the server ──────────────────────────────────────────────────────────
 test("SV — stopPart names one part; nextStep cancels it when it has no live job, and leaves the others", () => {
   const rec = { key: KA, ended: false, stop: false, parts: [{ n: 0, status: "started", jobs: [{ id: "j0", kind: "run" }] }, { n: 1, status: "ready", jobs: [] }, { n: 2, status: "done", jobs: [] }] };
@@ -298,11 +360,11 @@ test("SV — stopPart names one part; nextStep cancels it when it has no live jo
 
 const DESC = "Change the site description to say we bake overnight sourdough";
 const LOOK = { [T.pick]: { fields: ["description"], scopes: [{ part: "description", words: DESC }] }, "lane:description": "Overnight sourdough." };
-test("SV — a question sent while a request's job runs is answered at once and touches nothing; a change sent then runs as a new request beside it", async () => {
+test("SV — a question sent while a request's job runs is answered at once and touches nothing; a change sent then JOINS that request as a new part", async () => {
   const compiler = installCompiler();
   const P = platform({
     slug: "bg-sv1-" + Math.random().toString(16).slice(2, 8),
-    answers: { route: [{ intent: "edit", layer: "look" }, { intent: "ask", answer: "Libre Baskerville for headings and Source Sans for body text." }, { intent: "edit", layer: "look" }], ...LOOK },
+    answers: { route: [{ intent: "edit", layer: "look" }, { intent: "ask", answer: "Libre Baskerville for headings and Source Sans for body text." }, { intent: "edit", layer: "look" }, { intent: "edit", layer: "look" }], ...LOOK },
   });
   try {
     const a = await sendMessage(P, { message: DESC + "." });
@@ -318,16 +380,78 @@ test("SV — a question sent while a request's job runs is answered at once and 
     assert.equal(P.record(q.key), null, "a question made a request");
     assert.equal(JSON.stringify(P.record(a.key)), recA, "the question changed the running request");
     assert.deepEqual(P.rpcLog.slice(rpcBefore).map((r) => r.fn).filter((f) => /^edit_(cancel|create|claim|reserve)/.test(f)), [], "the question touched a job");
-    // A CHANGE, while the first still runs: its own request, beside it.
-    const b = await sendMessage(P, { message: DESC + " and that we open at 7." });
+    // A CHANGE, while the first still runs: a new part of that request.
+    const B = DESC + " and that we open at 7.";
+    const b = await sendMessage(P, { message: B });
     assert.equal(b.status, 200);
-    assert.ok(P.record(b.key), "a change sent while a request ran was not accepted as its own request");
-    assert.equal(JSON.stringify(P.record(a.key)), recA, "the new change altered the running request");
+    assert.equal(P.record(b.key), null, "a change sent while a request ran started a separate request");
+    assert.equal(b.body.request.key, a.key, "the reply does not name the live request");
+    const joined = P.record(a.key);
+    assert.equal(joined.parts.length, 2);
+    assert.equal(joined.parts[1].words, B);
+    assert.equal(joined.parts[1].joined, b.key);
+    assert.deepEqual(joined.joined.map((j) => [j.key, j.parts]), [[b.key, [1]]]);
+    assert.equal(JSON.stringify(joined.parts[0]), JSON.stringify(JSON.parse(recA).parts[0]), "joining changed the part already running");
+    // THE SAME MESSAGE AGAIN (a retry under its key) adds nothing.
+    const b2 = await sendMessage(P, { message: B, key: b.key });
+    assert.equal(b2.status, 200);
+    assert.equal(b2.body.request.key, a.key);
+    assert.equal(P.record(a.key).parts.length, 2, "a retry of the joined message joined twice");
     const sa = await settle(P, a.key);
-    const sb = await settle(P, b.key);
     assert.equal(sa.rec.parts[0].status, "done");
-    assert.equal(sb.rec.parts[0].status, "done");
+    assert.equal(sa.rec.parts[1].status, "done");
   } finally { P.close(); compiler.uninstall(); }
+});
+
+test("SV — a joined change that refers to what a running part creates waits for it (needs), and the view names it; a request that ended first leaves the change a request of its own", async () => {
+  const MENU = "Put the gallery page in the menu";
+  const compiler = installCompiler();
+  const P = platform({
+    slug: "bg-sv4-" + Math.random().toString(16).slice(2, 8),
+    answers: { route: [
+      { intent: "edit", layer: "look", targets: [{ change: 0, writes: ["new-page:/gallery"] }] },
+      { intent: "edit", layer: "nav", targets: [{ change: 0, writes: ["menu"], reads: ["page:/gallery"] }] },
+      { intent: "edit", layer: "look" },
+      { intent: "edit", layer: "look" },
+    ], ...LOOK },
+  });
+  try {
+    const a = await sendMessage(P, { message: DESC + "." });
+    const b = await sendMessage(P, { message: MENU + "." });
+    assert.equal(b.body.request.key, a.key);
+    const rec = P.record(a.key);
+    assert.deepEqual(rec.parts[1].needs, [0], "the joined part does not wait for the part that creates its page");
+    assert.equal(rec.parts[1].status, "blocked");
+    assert.deepEqual(rec.parts[0].needs, [], "the running part started waiting on the new one");
+    const view = b.body.request.parts[1];
+    assert.equal(view.status, "blocked");
+    assert.deepEqual(view.needs, [0], "the view does not say what the joined part waits for");
+    // ENDED FIRST: the next change is its own request.
+    const ended = await settle(P, a.key);
+    assert.ok(ended.rec.ended, "the request did not end");
+    const c = await sendMessage(P, { message: DESC + " and say we deliver." });
+    assert.ok(P.record(c.key), "a change after the request ended joined an ended request");
+    assert.equal(c.body.request.key, c.key);
+  } finally { P.close(); compiler.uninstall(); }
+});
+
+test("SV — appendParts: numbers after the parts there, keeps their needs and carving, idempotent, refuses an ended or stopped request", () => {
+  const rec = { key: KA, message: "one", ended: false, stop: false, joined: [], parts: [
+    { n: 0, words: "one", at: -1, needs: [], held: ["x"], putOff: [], status: "started", jobs: [], targets: { writes: [], reads: ["page:/menu-page"] } },
+    { n: 1, words: "x", at: 0, parent: 0, needs: [], held: [], putOff: [], status: "blocked", jobs: [], targets: null },
+  ] };
+  const r = RQ.appendParts(rec, { key: KB, message: "make /menu-page", routed: { intent: "edit", layer: "look", targets: [{ change: 0, writes: ["new-page:/menu-page"] }] } });
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.deepEqual(r.parts, [2]);
+  assert.deepEqual(r.rec.parts[0].needs, [], "an old part was made to wait on a joined one");
+  assert.deepEqual(r.rec.parts[0].held, ["x"]);
+  assert.equal(r.rec.parts[1].parent, 0);
+  assert.equal(r.rec.parts[2].n, 2);
+  assert.equal(r.rec.message, "one\n\nmake /menu-page");
+  assert.equal(rec.parts.length, 2, "the record read was changed in place");
+  assert.ok(RQ.appendParts(r.rec, { key: KB, message: "make /menu-page", routed: { intent: "edit", layer: "look" } }).duplicate);
+  assert.equal(RQ.appendParts({ ...rec, ended: true }, { key: KB, message: "y", routed: { intent: "edit" } }).why, "ended");
+  assert.equal(RQ.appendParts({ ...rec, stop: true }, { key: KB, message: "y", routed: { intent: "edit" } }).why, "ended");
 });
 
 test("SV — POST /stop with a part: a part not yet running is cancelled as stopped and the rest goes on; a running part's job is cancelled through its own door", async () => {

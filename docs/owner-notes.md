@@ -1,5 +1,13 @@
 # Owner Notes
 
+## 2026-10-23, later still — Background work: your three fixes (branch `background-work`, not merged, not deployed)
+
+- **A change sent while a request runs now joins it.** It becomes new rows of that same request, not a separate one. So if it needs something the running work creates (a menu link to the page being added), it waits for it, and its row says "Next — after Bookshop page". Sending the same message twice adds it once. If the request finished just before, the change starts as its own request, as before.
+- **No more double display.** While the panel lists a request's jobs, the request card is not drawn in the chat as well. The chat keeps the model's opening line, any question waiting for you, and the model's summary at the end. Once the request has finished and left the panel, the chat still shows the summary, and a reload shows the same thing. (The card is still in the page, hidden, because the UI canary reads it from there; moving the canary to the panel is a separate job.)
+- **The panel remembers itself on reload**: open or closed, and which job you were looking at, per project (this browser tab only).
+- Tests: each fix has tests that fail on the previous code (the server route is driven for real; the page is checked in a real browser). Sweep: 15 of 15 changes caught, the comment-only control survived. Five screenshots, including the joined change.
+- Nothing spent, no model called. Record: `docs/history/2026-10-23-background-work.md` §5.
+
 ## 2026-10-23, late night — Background work: keep chatting while the builder works (branch `background-work`, not merged, not deployed)
 
 - Built your approved mock (option A, the pill). The message box keeps **Send** while changes run; Enter works. Stop moved into the panel.

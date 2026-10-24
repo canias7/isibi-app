@@ -564,6 +564,62 @@ export function carveParts(rec, parentN, words, { dependsOn = [], sibling = [], 
   return made;
 }
 
+// ── A CHANGE SENT WHILE THE REQUEST RUNS (2026-10-23, background work) ──────
+
+/**
+ * A NEW MESSAGE JOINS THE LIVE REQUEST as parts of its own: planned as any
+ * message is (`planParts`, with its routing answer), numbered after the parts
+ * already there, its words added to the request's message (so a later carve
+ * finds them), and then the waiting the model did not say is read over all
+ * the parts (`inferNeeds`), so a new part that refers to something an earlier
+ * part creates waits for it. The parts already there are never changed: they
+ * do not start waiting on the new ones, and what they carved or held stays.
+ *
+ * `{ ok: true, rec, parts }` (a new record; `parts` the new numbers), the
+ * same parts with `duplicate` when this message key already joined, or
+ * `{ ok: false, why }`: `ended` (the request ended or was stopped: the message
+ * becomes a request of its own), or the plan's own refusal.
+ */
+export function appendParts(rec, { key, message, routed, at = Date.now() } = {}) {
+  if (!rec || !Array.isArray(rec.parts)) return { ok: false, why: "no-request" };
+  if (!isRequestKey(key)) return { ok: false, why: "key" };
+  const joined = Array.isArray(rec.joined) ? rec.joined : [];
+  const had = joined.find((j) => j && j.key === key);
+  if (had) return { ok: true, rec, parts: had.parts.slice(), duplicate: true };
+  if (rec.ended || rec.stop) return { ok: false, why: "ended" };
+  const text = typeof message === "string" ? message.trim() : "";
+  if (!text || text.length > MAX_INPUT_CHARS) return { ok: false, why: "message" };
+  const planned = planParts(text, routed);
+  if (!planned.ok) return planned;
+  const next = clone(rec);
+  const base = next.parts.length;
+  const offset = next.message.length + 2;
+  next.message = next.message + "\n\n" + text;
+  const kept = next.parts.map((p) => p.needs.slice());
+  const made = [];
+  for (const p of planned.parts) {
+    p.n += base;
+    p.needs = p.needs.map((m) => m + base);
+    if (Number.isInteger(p.parent)) p.parent += base;
+    p.at = offset + Math.max(0, p.at);
+    p.joined = key;
+    next.parts.push(p);
+    made.push(p.n);
+  }
+  inferNeeds(next.parts);
+  // THE PARTS ALREADY THERE KEEP THEIR OWN WAITING: only a new part waits.
+  kept.forEach((needs, i) => { next.parts[i].needs = needs; });
+  refuseCycles(next.parts);
+  // A NEW ANSWERED PART THAT NOW WAITS is routed again when its turn comes,
+  // as `planParts` does for part 0 (its answer was made before what it needs).
+  const first = next.parts[base];
+  if (first && first.needs.length && first.phase === "run") { first.phase = "route"; first.route = null; first.runs = null; first.held = []; first.putOff = []; }
+  for (const n of made) { const p = next.parts[n]; if (p.status !== "refused") p.status = p.needs.length ? "blocked" : "ready"; }
+  next.joined = [...joined, { key, at, parts: made }];
+  next.updatedAt = at;
+  return { ok: true, rec: settleState(next, at), parts: made };
+}
+
 // ── READING A JOB'S STORED ANSWER ────────────────────────────────────────────
 
 /** The stored answer of a job row (`edit_get`): `{ status, body }`, or `null` when it has none that reads. */

@@ -1705,6 +1705,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-bg-lines .st-req-prog { margin: 0 0 .4rem; border-left: 2px solid var(--line); padding-left: .6rem; }
 .st-bg-new { position: absolute; left: 50%; bottom: .5rem; transform: translateX(-50%); font: inherit; font-size: .72rem; color: var(--bg, #fff); background: var(--text); border: 0; border-radius: 999px; padding: .15rem .65rem; cursor: pointer; }
 .st-bg-new[hidden] { display: none; }
+.st-msg[hidden], .st-bg-held[hidden] { display: none !important; }
 .st-prog-done { margin: 0 0 .5rem; }
 /* Every progress line so far where "Thinking" was, for a job this page watches. */
 .st-steps-live .st-req-prog { margin: 0; }

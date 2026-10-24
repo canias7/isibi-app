@@ -46,6 +46,9 @@ function load(site) {
     siteById: (id) => (id === site.id ? site : null),
     siteAskHTML: (m) => '<div class="ask-buttons" data-ask="' + m.ask + '"></div>',
     siteRequestHTML: () => '<div class="st-req">TODAY</div>',
+    // THE CARD ITSELF, as drawn when the background panel does not hold the
+    // request (background work, 2026-10-23: `siteBgHolds`).
+    siteBgHolds: () => false,
     siteSend: (t, leave) => sent.push([t, leave]),
     renderSites: () => { draws++; },
   });

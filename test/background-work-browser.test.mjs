@@ -66,6 +66,8 @@ function viewA(S) {
       { n: 0, words: "Add a Bookshop page with search and a reserve button", status: "started", ids: [J("a")], jobs: [], charged: 0, route: "addon", said: said("Bookshop page", "I'm adding your Bookshop page.", "I've added your Bookshop page."), progress: LONG.slice(0, S.lines).map((text, i) => ({ job: J("a"), n: i, ms: i * 1000, text })) },
       { n: 1, words: "change Saturday hours to 8am–7pm", status: "blocked", needs: [0], ids: [], jobs: [], charged: 0, said: said("Saturday hours", "d", "Done.") },
       { n: 2, words: "fill in a search description", status: "done", ids: [J("c")], jobs: [J("c")], charged: 1, route: "text", draft: { revision: 4, preview: "ready" }, said: said("Search description", "d", "I've written your search description.") },
+      // A CHANGE SENT WHILE IT RUNS, JOINED AS A NEW PART that waits for the page it links to.
+      ...(S.joined ? [{ n: 3, words: "Put the Bookshop page in the menu", status: "blocked", needs: [0], ids: [], jobs: [], charged: 0, said: said("Bookshop in the menu", "d", "Done.") }] : []),
     ],
   };
 }
@@ -105,6 +107,7 @@ async function openApp(S) {
       if (p === "/api/site/request/" + SLUG + "/" + KA) return json(route, { ok: true, request: viewA(S) });
       if (p === "/api/site/request/" + SLUG + "/" + KB) return json(route, { ok: true, request: viewB() });
       // A QUESTION: the routing route answers it at once, as `intent: "ask"` does.
+      if (p === "/api/site/route" && S.join) { S.joined = true; return json(route, { ok: true, intent: "edit", layer: "nav", cost: 1, joined: KA, request: viewA(S) }); }
       if (p === "/api/site/route") return json(route, { ok: true, intent: "ask", answer: "Libre Baskerville for headings and Source Sans for body text.", replyFrom: "conversation", cost: 1 });
       if (p === "/api/site/routes") return json(route, { ok: true, slug: SLUG, routes: ["/", "/bookshop"] });
       if (p === "/api/site/" + SLUG + "/question") return json(route, { ok: true, question: null });
@@ -143,6 +146,9 @@ test("BACKGROUND WORK — Send while parts run; the pill, the panel, a part's ow
     // SEND, NEVER STOP, while they run.
     assert.ok(await page.$("#stSend"), "the box has no Send while parts run");
     assert.equal(await page.$("#stStop"), null, "the box shows Stop while parts run");
+    // NO DUPLICATE: the thread keeps the model's opening line, never the card the panel lists.
+    assert.match(await page.textContent("#stThread"), /I'll work on these three side by side\./);
+    assert.equal(await page.$$eval("#stThread .st-par, #stThread .st-req, #stThread .st-par-row", (els) => els.filter((e) => e.getClientRects().length > 0).length), 0, "the request card is drawn on the thread beside the panel");
     await shot(page, "1-pill-closed.png");
     // THE PANEL.
     await page.click(".st-bg-pill");
@@ -220,10 +226,39 @@ test("BACKGROUND WORK — Send while parts run; the pill, the panel, a part's ow
     await page.click('.st-bg-top [data-bg="stopall"]');
     for (let i = 0; i < 40 && app.calls.filter((c) => c.method === "DELETE").length < 2; i++) await page.waitForTimeout(50);
     assert.deepEqual(app.calls.filter((c) => c.method === "DELETE").map((c) => c.path).sort(), ["/api/site/request/" + SLUG + "/" + KA, "/api/site/request/" + SLUG + "/" + KB].sort());
-    // A RELOAD brings the pill back.
+    // A RELOAD keeps the panel open on the job view shown.
+    await page.click('.st-bg-row[data-bg-row="' + KB + '|0"]');
+    await page.waitForSelector(".st-bg-jobview");
+    await page.reload({ waitUntil: "load" });
+    await page.waitForSelector(".st-bg-jobview", { timeout: 20000 });
+    assert.match(await page.textContent(".st-bg-jobview .st-bg-top"), /‹ Back · Rounder buttons/, "a reload lost the job view");
+    // CLOSED, A RELOAD keeps it closed: the pill.
+    await page.click('.st-bg-jobview [data-bg="back"]');
+    await page.click('.st-bg-top [data-bg="close"]');
     await page.reload({ waitUntil: "load" });
     await page.waitForSelector(".st-bg-pill", { timeout: 20000 });
     assert.match(await page.textContent(".st-bg-pill"), /things in progress/);
+    assert.equal(await page.$(".st-bg-pane"), null, "a reload reopened a closed panel");
+    assert.deepEqual(app.errors, []);
+  } finally { await app.ctx.close(); await app.browser.close(); }
+});
+
+test("BACKGROUND WORK — a change sent while a request runs joins it: one more row, \"Next — after <title>\", and no second card on the thread", { skip: SKIP, timeout: 120000 }, async () => {
+  const S = { lines: 4, ended: false, join: true };
+  const app = await openApp(S);
+  const { page } = app;
+  try {
+    await page.waitForSelector(".st-bg-pill", { timeout: 20000 });
+    await page.fill("#stRevise", "Put the Bookshop page in the menu");
+    await page.press("#stRevise", "Enter");
+    await page.waitForFunction(() => /4 things in progress/.test((document.querySelector(".st-bg-pill") || {}).textContent || ""), null, { timeout: 20000 });
+    await page.click(".st-bg-pill");
+    await page.waitForSelector('.st-bg-row[data-bg-row="' + KA + '|3"]');
+    const sub = await page.textContent('.st-bg-row[data-bg-row="' + KA + '|3"] .st-bg-sub');
+    assert.equal(sub, "Next — after Bookshop page");
+    assert.equal(await page.$$eval("#stThread .st-par, #stThread .st-req", (els) => els.filter((e) => e.getClientRects().length > 0).length), 0, "the joined change drew a card on the thread");
+    assert.equal(app.calls.filter((c) => c.path === "/api/site/route").length, 1);
+    await shot(page, "5-joined-change-next-after.png");
     assert.deepEqual(app.errors, []);
   } finally { await app.ctx.close(); await app.browser.close(); }
 });

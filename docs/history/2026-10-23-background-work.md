@@ -65,6 +65,48 @@ calls, no live writes, not merged.
 
 ## 4. Not done
 
-- Appending a change to the live request: it runs as a new request instead.
+- ~~Appending a change to the live request~~: done in §5.
 - Standalone jobs (request flow off) are not listed in the panel and keep the box's Stop.
-- "Next" names only what a part waits for inside its own request. A part from another request waiting on the site lock shows "Next".
+- "Next — after <title>" names what a part waits for (`needs`). A joined part that needs nothing still runs after the request's earlier parts (one job at a time), and its row says only "Next". A part from another request waiting on the site lock shows "Next".
+
+## 5. The owner's three fixes (same branch, ordinary commit)
+
+- **A change sent while a request runs joins it** (`appendParts` in `builder/request.mjs`; `joinLiveRequest` in `worker.js`, called from `acceptRequest`).
+  - The route reads the owner's live markers for the site (`requests-live/<slug>/`). It takes the newest request that has not ended or stopped, plans the message as any message (`planParts` with its routing answer), and numbers the new parts after the ones there.
+  - The message is appended to the request's `message`, so a later carve finds its words. `inferNeeds` then runs over all the parts. The parts already there keep their own `needs`, `held` and parents. A new answered part that now waits is routed again on its turn, as `planParts` does for part 0.
+  - The record is written on its etag (4 tries). It records `joined: [{ key, at, parts }]`, and each new part carries `joined: <message key>`.
+  - Idempotent on the message key: a key already joined to any live request answers that request (`duplicate`), and a key that is a request of its own goes through the acceptance as before.
+  - Only the routing route joins (`acceptRequest`'s `join`). An addition posted straight to the add-on route (`addonAsRequest`) is still a request of its own.
+  - Not joined: an answer to a question, a message carrying files (a request's files are kept under its own key), and a request that ended or stopped between the read and the write. Those messages are taken on as a request of their own.
+  - A change typed beside a waiting question still closes that question as replaced. Joined to the waiting request, it lets the request's step offer the same question again in the same call.
+  - The reply carries `request` (the live request's view) and `joined`. The page already follows that request by its key, so the new rows appear in the same panel.
+- **No duplicate display** (`siteBgHolds`, `siteReqCardHTML`, `siteReqCardShows` in `public/chat.js`; `.st-msg[hidden], .st-bg-held[hidden]` in `public/styles.css`).
+  - While the panel lists any of a request's parts, or once the request has ended, its card's part list is not drawn on the thread. The thread keeps the model's opening line, the waiting question box, and the request's model-written summary.
+  - A single-part request's status card is not drawn; its part's own reply stays on the thread. A card message that shows nothing is drawn `hidden`. A reload reads the same rule from the snapshot (`rq`).
+  - **The part list is kept in the page, hidden** (`<div class="st-bg-held" hidden>`), not dropped. The UI canary's reader (`scripts/canary-ui.mjs`, about line 3039) and the browser guards that read cards (`progress-browser`, `preview-keep-browser`) read `.st-req`/`.st-par` parts from the page. Hidden, nothing of the card is shown, and those readers still find it. Moving the canary's reader to the panel is not done.
+  - The full card is still drawn for a request the panel does not hold (one stopped with parts left).
+- **The panel kept across a reload** (`siteBgState`, `siteBgKeep`): open or closed and the job view shown, per project, in `sessionStorage` (`gf.bgPanel.<site id>`). Every read and write is in try/catch, so blocked storage leaves the panel closed, as before. A job not listed yet after a reload shows the list and keeps the choice.
+
+### Tests (§5)
+
+- `test/background-work.test.mjs`, 16 cases (+4, one rewritten):
+  - **SV-join** drives the real `/api/site/route` twice. The second change joins the first request: no record under its own key, part 1 has its words and `joined`, and part 0 is unchanged. A retry under the same key adds nothing. Both parts finish done.
+  - **SV-needs**: a joined change reading `page:/gallery`, which the running part creates, waits for it (`needs [0]`, `blocked`, in the view too). After the request ends, the next change is its own request.
+  - **SV-append**: `appendParts`' numbering, the old parts' needs, carving and parent kept, idempotence, and an ended or stopped request refused.
+  - **D**: the card is not drawn while listed, only the opening line. Once the request has ended and left the panel, only the summary shows, and the same after a reload.
+  - **K**: open and job kept per project, and storage that throws.
+- `test/background-work-browser.test.mjs` (real Chromium, real `chat.js`/`styles.css`), checked in the browser:
+  - no `.st-par`/`.st-req` on the thread beside the panel, and the opening line kept;
+  - a reload reopens the job view, and a closed panel stays closed;
+  - a second case shows a joined change as one more row, "Next — after Bookshop page", with no second card.
+- `test/parallel-card.test.mjs`: its harness stubs `siteBgHolds` to false, to keep testing the card renderer itself.
+- Re-anchored to joining:
+  - `parallel-requests` XR: its second message carries a file, so it stays the second request this guard is about.
+  - `request-reply-placement` PLACE 5: the message sent after the reload joins the first request, and its replies and the request's own reply go with it.
+  - `request-reply-placement` PLACE 11: the replaced question is offered again by the joined request's step, the same one, pending.
+- **Red check** on `aa5edf8e5`'s `chat.js`, `request.mjs` and `worker.js` (missing functions cut as empty): D, K, SV-join, SV-needs and SV-append fail, and the 11 earlier cases pass. Both browser cases fail.
+- **Sweep**: 15 of 15 mutants killed (appendParts ×6, worker ×3, chat ×6), restored from saved copies each time. The comment-only control survived.
+- **Full suite**: `12421 / 12414 / 4 / 3` on the full run. Two of the four failures were source guards anchored on the assistant message's opening tag (`build-live-lines`, `reply-held-page`); both are re-anchored and pass. `canary-reopen-browser` REOPEN 1 passes alone (it timed out under the full run's load). The fourth is the environment's node_modules symlink case. So after the fixes: `12421 / 12417 / 1 / 3`, with only the environment failure (the two re-anchored files and the reopen file re-run, 29 / 29).
+- Screenshots (real `chat.js` + `styles.css`), in `shots-bg/` in the session scratchpad: 1–4 re-rendered, plus `5-joined-change-next-after.png`.
+- Image prediction: IMAGE_LINE
+
