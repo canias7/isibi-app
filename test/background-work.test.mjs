@@ -127,10 +127,10 @@ test("P — the pill counts the unfinished parts; open, the panel's header count
   const p = load(site);
   const pill = p.html(1000);
   assert.match(pill, /class="st-bg-pill" data-bg="open"/);
-  assert.equal(text(pill), "3 things in progress ▾");
+  assert.equal(text(pill), "3 tasks in progress ▾");
   p.press({ "data-bg": "open" });
   const panel = p.html(1000);
-  assert.match(text(panel), /^4 things · 2 in progress Stop all ▴/);
+  assert.match(text(panel), /^4 tasks · 2 in progress Stop all ▴/);
   const rows = [...panel.matchAll(/class="st-bg-row st-par-(\w+)" data-bg-row="([^"]+)"[^]*?st-bg-name">([^<]*)<\/span><span class="st-bg-sub">([^<]*)</g)].map((m) => [m[1], m[2], m[3], m[4]]);
   assert.deepEqual(rows, [
     ["run", KA + "|0", "Bookshop page", "line 3"],
@@ -283,7 +283,7 @@ test("R — a reload keeps a single-part request's snapshot on its message, and 
   const reloaded = { id: "s1", msgs: JSON.parse(JSON.stringify(site.msgs)) };
   const q = load(reloaded);
   q.press({ "data-bg": "open" });
-  assert.match(text(q.html()), /1 thing · 1 in progress .* Blue Picking the blue/);
+  assert.match(text(q.html()), /1 task · 1 in progress .* Blue Picking the blue/);
 });
 
 // ── D: no duplicate display ─────────────────────────────────────────────────
