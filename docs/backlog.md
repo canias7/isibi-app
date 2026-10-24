@@ -3223,3 +3223,16 @@ failures and pending parts from request records); the model writes only the
 goal and the customer's preferences. Cheaper, faster, no forgotten or stale
 wishes; feeds #23 (long-chat summary) and next-step hints. ~3–5 days offline.
 To discuss with the owner first.
+
+## "Ponytail" ladder for the builder's writers (owner, 2026-10-24: "note it for later")
+
+From the open-source Ponytail ruleset (write the least code: stop at the first
+step that solves it). For the builder's page writer, add-on writer and edit
+lanes: 1 did the customer ask for it; 2 does the site already have it (reuse
+its parts, tables, pages); 3 is it in the kit (2,112 components); 4 does the
+browser do it (native form, date input, CSS); 5 is it already installed (never
+add packages); 6 can it be a small exact edit (#18); 7 only then minimal new
+code. Non-negotiable: validation, spam protection, owner-only data,
+accessibility, everything asked. First builds: code only, not design (keep
+sections, photos, copy rich). Measure on the stored corpus (lines, compile
+errors, cost) plus a few paid comparison runs. ~2–3 days offline.
