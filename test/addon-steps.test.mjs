@@ -269,21 +269,18 @@ test("the function body had TWO walls a factor of two apart, and now has one", (
   assert.equal(ok.value[0].body, "select 1");
 });
 
-test("an answer longer than the cap is NAMED, not silently shortened", () => {
-  // `.slice(0, cap)` ran BEFORE the loop that names refusals, so an answer with
-  // seven connections against a cap of four lost three with nothing on
-  // `skipped`, nothing in the reply, and the customer told it was done. Every
-  // other refusal in that file is a sentence; this one is too now.
+test("an answer longer than the old cap is KEPT WHOLE (owner, 2026-10-24: no add-on limits)", () => {
+  // Until 2026-10-24 seven connections against a cap of four kept four and
+  // named three `over-cap`. There is no cap now: all seven are kept, none named.
   const site = { tables: [], functions: [], apis: [], jobs: [], jobFns: [], url: "https://x.gofarther.app/", pages: ["/"] };
   const many = Array.from({ length: 7 }, (_, i) => ({ name: "a" + i, url: "https://x.example/" + i }));
   const r = cleanAdd("api", many, site);
   assert.equal(r.ok, true);
-  assert.equal(r.value.length, 4, "the cap moved — re-derive this case");
-  assert.deepEqual(r.skipped.map((s) => s.why), ["over-cap", "over-cap", "over-cap"]);
-  assert.deepEqual(r.skipped.map((s) => s.name), ["a4", "a5", "a6"], "a dropped entry is not named");
-  assert.match(addRefusal("over-cap"), /another message/);
-  // …AND THE QR CAP KEEPS ITS OWN SENTENCE: `too-many` is about a site that
-  // already carries as many codes as it can, which is a different thing to say.
+  assert.equal(r.value.length, 7, "a connection past the old cap was cut");
+  assert.deepEqual(r.skipped, []);
+  // THE ONE COUNT LEFT (the photographs bought) keeps a sentence of its own,
+  // which asks nobody to send anything again, and stays apart from the QR cap.
+  assert.doesNotMatch(addRefusal("over-cap"), /another message/);
   assert.notEqual(addRefusal("over-cap"), addRefusal("too-many"));
 });
 
@@ -844,9 +841,12 @@ test("the frontend audit's offered set is the KIND'S OWN, and a list is never re
   // asked for was stored as something else, on every page that ran past the
   // cap. A shortened list is a refusal of the entries, which is a different
   // sentence; this is the recorded `params` finding, one tier over.
-  const long = [{ path: "/long", name: "L", purpose: "p", sections: Array.from({ length: 40 }, (_, i) => "band " + i), components: ["gallery"] }];
+  // RE-ANCHORED 2026-10-24: `MAX_SECTIONS` no longer cuts (no add-on limits),
+  // so the list is shortened the other way the cleaner shortens one — blank
+  // entries it drops.
+  const long = [{ path: "/long", name: "L", purpose: "p", sections: Array.from({ length: 40 }, (_, i) => (i % 2 ? "" : "band " + i)), components: ["gallery"] }];
   const kept = cleanAdd("page", long, ctx).value;
-  assert.ok(kept[0].sections.length < 40, "the cap no longer cuts — this case cannot divide the two readings");
+  assert.ok(kept[0].sections.length < 40, "the cleaner no longer shortens — this case cannot divide the two readings");
   assert.deepEqual(auditFrontend("page", long, kept).changed, [], "a list the cap shortened was reported as changed");
   // (3) `scanned` IS A REAL COUNT, not a flag. Every list this audit answers is
   // a NEGATIVE assertion and `[].every(...)` is true, so the floor on what was

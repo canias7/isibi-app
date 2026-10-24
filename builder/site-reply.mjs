@@ -54,7 +54,7 @@
 // DEPENDENCY-LIGHT: the Worker and the job child both import it, and the job
 // image copies `builder/` modules by name (the Dockerfile's worker line).
 
-import { readContext, MAX_ANSWER_CHARS } from "./site-ask.mjs";
+import { readContext, MAX_ANSWER_CHARS, wordsIn } from "./site-ask.mjs";
 import { pieceSaid } from "./site-requirements.mjs";
 import { seedRowsOf, rowPlaces } from "./seed-rows.mjs";
 import { checkFacts, browserOnlyFacts, savedDraftOf, savedDraftFacts, readChecks } from "./check-evidence.mjs";
@@ -743,10 +743,33 @@ function failureFacts(F, out, why) {
  * they are its other parts, which the server runs after this one by itself —
  * so nobody is asked to send them again.
  */
-function heldFacts(F, body, done, inRequest = false) {
+function heldFacts(F, body, done, inRequest = false, { partWords = "", carved = null } = {}) {
   const now = partsOf(body.deferred);
   const parts = now.concat(partsOf(body.putOff).filter((p) => !now.includes(p)));
+  // THE FRAME HANDED ON (2026-10-24): done next by the menu/frame editor, as an
+  // addition, in this same request (`frameFollowOn`), whether or not its words
+  // could be carved apart.
+  const hop = inRequest && body.frameHop && typeof body.frameHop === "object" ? body.frameHop : null;
+  const hopWords = hop && typeof hop.words === "string" ? hop.words : "";
+  if (hop) F.add("pending", "The new item in the header or footer is not part of this step: it is handed to the menu editor, as an addition, and done right after this step in the same request, without them sending it again" + (hopWords ? ": " + quote(hopWords) : "") + ".");
   for (const p of parts) {
+    if (hop && p === hopWords) continue;
+    // ONLY A PART THAT EXISTS IS PROMISED (2026-10-24, driftwood-and-daughters):
+    // the request carves a held entry into a part of its own only when it is
+    // the customer's words and shorter than the part it came from (`carveParts`);
+    // `carved`, when known, is the request's own answer. An entry that cannot
+    // be one is said as not done, never as "done separately".
+    const isPart = !inRequest ? false
+      : Array.isArray(carved) ? carved.includes(p)
+      : !partWords ? true
+      // Words outside this part's are another part of the request already (the
+      // router's, or one put off before); words inside it are carved only when
+      // shorter than the whole, so the whole part's words are never a part.
+      : (() => { const w = wordsIn(partWords, p); return !w || w.length < String(partWords).trim().length; })();
+    if (inRequest && !isPart) {
+      F.add("not-done", "Not done in this step, and it could not be set apart as a part of its own, so it has not run: " + quote(p) + ".");
+      continue;
+    }
     // NOT RUN IS NOT ABSENT (2026-10-08, run 107): a part of the same request
     // that comes after this one has only not run yet. Its status says nothing
     // about the site — this step may already have made some or all of it — so
@@ -1065,7 +1088,7 @@ export function deviceFacts(F, d) {
   if (still.length) F.add("note", "Measured at the " + listOf(still) + " width, the page looks the same as before.", "devices-same");
 }
 
-export function editReplyFacts(e, { routedCost = null, inRequest = false } = {}) {
+export function editReplyFacts(e, { routedCost = null, inRequest = false, partWords = "", carved = null } = {}) {
   if (!e || typeof e !== "object" || Array.isArray(e)) return { skip: "unreadable", facts: [] };
   if (e.escalate === true) return { skip: "escalate", facts: [] };
   if (typeof e.job === "string" && typeof e.poll === "string") return { skip: "receipt", facts: [] };
@@ -1192,7 +1215,7 @@ export function editReplyFacts(e, { routedCost = null, inRequest = false } = {})
   if (e.ok === true) compileRepairFact(F, e.compileRepaired);
   if (e.ok === true) salvageFact(F, e.salvaged, e.salvageRefund);
   if (e.ok === true) heldDraftFact(F, e);
-  heldFacts(F, e, e.ok === true, inRequest === true);
+  heldFacts(F, e, e.ok === true, inRequest === true, { partWords, carved });
   questionFact(F, e.clarify);
   return questionOnly(F.out) ? { skip: "question-only", facts: [] } : { skip: null, facts: F.out };
 }
@@ -1309,7 +1332,7 @@ function placedFacts(F, a) {
 }
 
 /** THE FACTS OF AN ADD-ON'S FINAL ANSWER, synchronous or a queued job's stored one. */
-export function addonReplyFacts(a, { routedCost = null, inRequest = false } = {}) {
+export function addonReplyFacts(a, { routedCost = null, inRequest = false, partWords = "", carved = null } = {}) {
   if (!a || typeof a !== "object" || Array.isArray(a)) return { skip: "unreadable", facts: [] };
   if (a.escalate === true) return { skip: "escalate", facts: [] };
   if (typeof a.job === "string" && typeof a.poll === "string") return { skip: "receipt", facts: [] };
@@ -1469,7 +1492,7 @@ export function addonReplyFacts(a, { routedCost = null, inRequest = false } = {}
   if (a.ok === true) compileRepairFact(F, a.compileRepaired);
   if (a.ok === true) salvageFact(F, a.salvaged, a.salvageRefund);
   if (a.ok === true) heldDraftFact(F, a);
-  heldFacts(F, a, a.ok === true, inRequest === true);
+  heldFacts(F, a, a.ok === true, inRequest === true, { partWords, carved });
   questionFact(F, a.clarify);
   return questionOnly(F.out) ? { skip: "question-only", facts: [] } : { skip: null, facts: F.out };
 }

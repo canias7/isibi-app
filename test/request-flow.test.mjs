@@ -2276,19 +2276,28 @@ test("M4 — with no words for the set-aside link, the addition is done only in 
   }, async (P) => {
     const r = await sendMessage(P, { message: GALLERY_WITH_LINK.replace(/\.$/, "") + ", then " + RENAME + "." });
     const { rec } = await settle(P, r.key);
-    assert.deepEqual(statuses(rec), ["partial", "not-run"], JSON.stringify(rec.parts.map((p) => [p.words, p.status, p.why])));
+    // RE-ANCHORED 2026-10-24 (driftwood-and-daughters: the frame set aside twice
+    // and lost). The set-aside link is no longer only "not done": with no words
+    // of its own it is HANDED ON to the menu editor, as an addition, with the
+    // part's words, in the same request (`frameFollowOn`). Here the menu editor
+    // has no answer on the wire, so that part fails, and the rename that needed
+    // the link is still not run and not charged.
+    assert.deepEqual(statuses(rec), ["done", "not-run", "failed"], JSON.stringify(rec.parts.map((p) => [p.words, p.status, p.why])));
     assert.equal(rec.parts[1].why, "needs:0");
-    assert.deepEqual(rec.parts[0].notDone, [{ what: "frame", why: "set-aside" }]);
-    assert.equal(rec.state, "partial");
+    assert.equal(rec.parts[2].source, "frame-hop");
+    assert.equal(rec.parts[2].parent, 0);
+    assert.equal(rec.parts[2].route.layer, "nav");
+    assert.equal(rec.parts[2].route.fromAddon, true, "the frame is not handed on as an addition");
+    assert.notEqual(rec.state, "done");
     // THE PAGE STANDS, IN EVERY MENU BY ITS OWN DESIGN (its placement is the
     // menu, the default, and the builder puts it there: 2026-10-04); THE
-    // RENAME THAT NEEDED THE SET-ASIDE PART NEVER RAN; ONLY ONE JOB EVER RAN.
+    // RENAME THAT NEEDED THE SET-ASIDE PART NEVER RAN.
     assert.ok(P.pages().includes("gallery.tsx"));
     for (const m of menus(P)) { assert.match(m, /Gallery \/gallery/, m); assert.doesNotMatch(m, /Our photos/, m); }
-    assert.deepEqual(jobLine(P, r.key), ["addon:done"]);
+    assert.ok(jobLine(P, r.key).includes("addon:done"), JSON.stringify(jobLine(P, r.key)));
     const facts = toldIn(P, await readWritten(P, REQ(P, r.key)));
-    assert.match(facts, /Done only in part: the part that asked for “Add a gallery page and put a link to it in the menu[^”]*”\.[^|]*Its own reply above says what was made and what was not\./, facts);
-    assert.match(facts, /Not started: “make the menu's Gallery link say Our photos”, because it needed “[^”]+” done first, and that was only partly done\. Nothing was charged for it\./, facts);
+    assert.match(facts, /Not started: “make the menu's Gallery link say Our photos”/, facts);
+    assert.match(facts, /Nothing was charged for it\./, facts);
   });
 });
 

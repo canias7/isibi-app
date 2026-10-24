@@ -37,7 +37,7 @@ import { MIN_EVERY_MINUTES, MAX_EVERY_MINUTES, AT_RE as JOBS_AT_RE, ON_RE as JOB
 import { REQUIREMENT_ITEM } from "../builder/site-requirements.mjs";
 import { wordsParts as WP, wordsLanded as WL, renderedLinks as RL } from "../builder/site-add.mjs";
 import {
-  ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, PLACING_ADDS, MAKES_PAGES, addLayerIn, LIST_ADDS, MAX_ADDS, MAX_ADD_PAGES, MAX_ADD_COMPONENTS, MAX_ADD_TABLES, MAX_ADD_ROWS, MAX_ADD_WORDS, MAX_SECTIONS, MAX_ADD_SEED_ROWS, MAX_MESSAGE, ADD_MODEL, ADD_DESIGN_RULE,
+  ADD_PAGE_BATCH, ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, PLACING_ADDS, MAKES_PAGES, addLayerIn, LIST_ADDS, MAX_ADDS, MAX_ADD_PAGES, MAX_ADD_COMPONENTS, MAX_ADD_TABLES, MAX_ADD_ROWS, MAX_ADD_WORDS, MAX_SECTIONS, MAX_ADD_SEED_ROWS, MAX_MESSAGE, ADD_MODEL, ADD_DESIGN_RULE,
   BACKEND_ADDS, BACKEND_KEYS, MAX_ADD_FUNCTIONS, MAX_ADD_APIS, MAX_ADD_JOBS, MIN_JOB_MINUTES, MAX_JOB_MINUTES, AT_RE, ON_RE, onceDay, backendDesigned, pageless, jobEvery,
   addLayer, pickTool, pickRequest, readAdds, pickAdds, addUsage,
   addTool, addRule, composeRule, RULE_PARTS, addRequest, siteNote, readAddAnswer, runAdd,
@@ -295,14 +295,14 @@ test("the words kind takes one line for a page the site has, and refuses empty o
   }
   assert.equal(cleanAdd("words", [{ page: "/visit", words: "x".repeat(MAX_WORDS_CHARS) }], SITE_W).ok, true, "the longest allowed line was refused");
   assert.match(addRefusal("no-words"), /the line itself, and the page it goes on/);
-  // SIX LINES, AND EVERY ONE PAST THEM NAMED (2026-10-03, the mixed-work fixes):
-  // the cap left the tool, where it told the model to leave lines out, and is
-  // the cleaner's — so a seventh line is named as left out, never dropped.
-  const seven = Array.from({ length: MAX_ADD_WORDS + 1 }, (_, i) => ({ page: "/visit", words: "Line number " + (i + 1) + "." }));
-  const many = cleanAdd("words", seven, SITE_W);
+  // NO ADD-ON LIMITS (owner, 2026-10-24): the six-line cap is gone, so a
+  // seventh line (and a ninth) is kept, never named past a cap.
+  assert.equal(MAX_ADD_WORDS, Infinity);
+  const nine = Array.from({ length: 9 }, (_, i) => ({ page: "/visit", words: "Line number " + (i + 1) + "." }));
+  const many = cleanAdd("words", nine, SITE_W);
   assert.equal(many.ok, true, JSON.stringify(many));
-  assert.equal(many.value.length, MAX_ADD_WORDS, "not exactly six lines were kept");
-  assert.deepEqual(many.skipped.map((k) => [k.why, k.name]), [["over-cap", "Line number 7."]], "the seventh line is not named, by its own words, as past the cap");
+  assert.equal(many.value.length, 9, "a line past the old six was cut");
+  assert.deepEqual(many.skipped, []);
 });
 
 // THE SENTENCE FOR AN ADDITION THAT DID NOT LAND names what is missing and
@@ -570,13 +570,14 @@ test("the table kind asks for the ONE table shape the build asks for — by iden
     const item = addTool(k).input_schema.properties[k].items;
     assert.equal(item.properties.tsx.items, TSX_ITEM, k + " declares parts in a shape of its own");
     assert.equal(item.properties.tsx.maxItems, MAX_TSX);
-    assert.equal(item.properties.components.maxItems, MAX_COMPONENTS);
+    // NO ADD-ON LIMITS (owner, 2026-10-24): the 15-component manifest bound is gone.
+    assert.equal(item.properties.components.maxItems, undefined, k + "'s manifest is capped again (" + MAX_COMPONENTS + " was the old bound)");
   }
 });
 
 // ── NO LOW LIMITS WHILE TESTING (owner, 2026-09-02) ─────────────────────────
 test("a message may name every kind, and the kinds that come in numbers answer lists with ceilings a site can hold", () => {
-  assert.equal(MAX_ADDS, ADD_KINDS.length, "a message cannot name every kind it asks for");
+  assert.ok(MAX_ADDS >= ADD_KINDS.length, "a message cannot name every kind it asks for");
   // `photo` JOINED 2026-09-17: a message may ask for several pictures, so the
   // answer is a list like every other kind that comes in numbers. `row`
   // JOINED 2026-10-01 for the same reason: "add a rye and a spelt" is two
@@ -596,7 +597,8 @@ test("a message may name every kind, and the kinds that come in numbers answer l
     // The backend's own ceilings are the engine's (it keeps eight of each
     // tier), and a message that adds four connections or four jobs is
     // already a site that reads as several.
-    assert.ok(caps[k] >= (k === "api" || k === "job" ? 4 : 6), k + " has a low cap: " + caps[k]);
+    // NO ADD-ON LIMITS (owner, 2026-10-24): every list kind but the photographs bought is uncapped.
+    if (k !== "photo") assert.equal(caps[k], Infinity, k + " still has a cap: " + caps[k]);
     assert.ok(Array.isArray(p.items.required) && p.items.required.length, k + "'s entries require nothing");
   }
   // …AND A PHOTOGRAPH'S CAP IS THE PLATFORM'S OWN, not a number of this
@@ -604,12 +606,10 @@ test("a message may name every kind, and the kinds that come in numbers answer l
   // wider one would clean a picture nothing downstream will ever buy.
   assert.equal(caps.photo, IMAGE_CAP);
   for (const k of [...OWN_ADDS, ...PLACING_ADDS].filter((x) => !LIST_ADDS.includes(x))) assert.equal(addTool(k).input_schema.properties[k].type, "object", k + " is a list of a thing a site has one of");
-  // The page cap is the page writer's own ceiling: a seventh page would be
-  // dropped there, so promising it here would be a page nobody gets.
-  assert.ok(MAX_ADD_PAGES <= MAX_PAGES, "the add step promises more pages than the page writer keeps");
-  assert.ok(MAX_ADD_COMPONENTS >= 6 && MAX_ADD_TABLES >= 3);
-  assert.ok(MAX_ADD_FUNCTIONS >= 3 && MAX_ADD_FUNCTIONS <= 8 && MAX_ADD_APIS >= 2 && MAX_ADD_APIS <= 8 && MAX_ADD_JOBS >= 2 && MAX_ADD_JOBS <= 8,
-    "a backend cap outruns the engine's eight, or promises fewer than a lookup, its cancel and its amend");
+  // NO ADD-ON LIMITS (owner, 2026-10-24). The pages are written ADD_PAGE_BATCH
+  // to a writer, so page-gen's MAX_PAGES bounds one batch, never the addition.
+  assert.ok(ADD_PAGE_BATCH <= MAX_PAGES, "one batch asks a writer for more pages than it keeps");
+  for (const c of [MAX_ADD_PAGES, MAX_ADD_COMPONENTS, MAX_ADD_TABLES, MAX_ADD_FUNCTIONS, MAX_ADD_APIS, MAX_ADD_JOBS]) assert.equal(c, Infinity);
   // And the rules say "as many as they asked for", never "one".
   //
   // `table` IS THE EXCEPTION AND IT IS A DELIBERATE REVERSAL (owner,
@@ -743,7 +743,7 @@ test("the picker's tool is built from the kinds and describes every one of them"
   assert.equal(t.name, "pick_adds");
   const kinds = t.input_schema.properties.kinds;
   assert.deepEqual(kinds.items.enum, ADD_KINDS);
-  assert.equal(kinds.maxItems, MAX_ADDS);
+  assert.equal(kinds.maxItems, undefined, "the picker is told to leave kinds out again");
   // RE-ANCHORED 2026-10-02 (the owner's review: *"Reconcile contradictory
   // prompts, including the add-on picker's instruction to choose the closest
   // kind when uncertain"*): no `minItems`, and no closest kind — a picker that
@@ -941,7 +941,7 @@ test("cleanAdd: a page is repaired where it can be and refused where a guess wou
   const g = ok.value[0];
   assert.equal(g.path, "/gallery"); assert.equal(g.file, "gallery.tsx"); assert.equal(g.name, "Gallery");
   assert.deepEqual(g.components, ["gallery", "site-chrome"]);
-  assert.equal(g.sections.length, MAX_SECTIONS);
+  assert.equal(g.sections.length, 22, "a band past the old twelve was cut (owner, 2026-10-24: no add-on limits)");
   assert.deepEqual(g.tsx, [{ name: "seat-map", does: "seats", props: "rows: X[]" }]);
   assert.deepEqual(ok.skipped, []);
   assert.equal(cleanAdd("page", { ...g, path: "/" }, SITE).why, "no-path", "the home page is a page to add");
@@ -977,10 +977,9 @@ test("cleanAdd: a list keeps every usable entry, names the rest, and refuses onl
   // Every entry bad: refused with the FIRST reason, the rest still named.
   const none = cleanAdd("page", [{ path: "/" }, { path: "/about", name: "About", purpose: "p", sections: [], components: [] }], MULTI);
   assert.equal(none.ok, false); assert.equal(none.why, "no-path"); assert.equal(none.skipped.length, 2);
-  // Capped at the list's ceiling, silently — a seventh page is one the page
-  // writer would drop anyway.
-  const pages = Array.from({ length: MAX_ADD_PAGES + 3 }, (_, i) => ({ path: "/p" + i, name: "P" + i, purpose: "p", sections: ["a"], components: [] }));
-  assert.equal(cleanAdd("page", pages, SITE).value.length, MAX_ADD_PAGES);
+  // NO ADD-ON LIMITS (owner, 2026-10-24): nine pages are nine pages.
+  const pages = Array.from({ length: 9 }, (_, i) => ({ path: "/p" + i, name: "P" + i, purpose: "p", sections: ["a"], components: [] }));
+  assert.equal(cleanAdd("page", pages, SITE).value.length, 9);
   // Components and tables the same way; a table named twice is once.
   const comps = cleanAdd("component", [{ page: "/", does: "quotes", components: ["testimonial"] }, { page: "/", does: "x", components: [] }], SITE);
   assert.equal(comps.value.length, 1); assert.deepEqual(comps.skipped, [{ why: "no-component", name: "x" }]);
@@ -1589,7 +1588,8 @@ test("THE ROUTE RUNS THE ADD STEP WHERE IT RAN THE BUILD'S DESIGNER, and folds w
   // as skipped, or set aside and never designed.
   for (const fn of ["pickAdds(", "runAdd(", "cleanAdd(", "foldAdds(", "addLayerIn(", "addRefusal(", "alreadyReply("]) assert.ok(b.includes(fn), "the addon does not call " + fn);
   assert.ok(!/\baddLayer\(/.test(b), "the addon asks the kind's own layer somewhere the message decides it");
-  assert.equal((b.match(/addLayerIn\(/g) || []).length, 4, "the addon does not ask the one reader at the escalate, the set-aside list and the loop gate");
+  // FIVE SINCE 2026-10-24: the frame handed on (`aFrameHop`) names its layer through the one reader too.
+  assert.equal((b.match(/addLayerIn\(/g) || []).length, 5, "the addon does not ask the one reader at the escalate, the set-aside list, the frame hand-on and the loop gate");
   assert.match(W, /import \{[^}]*\bpickAdds\b[^}]*\} from "\.\/builder\/site-add\.mjs"/, "a call to a name never imported is a ReferenceError on the addon path");
   // The order: picked, hopped, refused-by-name, designed, cleaned, folded, merged.
   const pick = at(b, "const aPicked = await pickAdds(", "pick");
@@ -1635,7 +1635,10 @@ test("THE ROUTE RUNS THE ADD STEP WHERE IT RAN THE BUILD'S DESIGNER, and folds w
   // The page call is told the addition and shown the kit parts' props.
   const gen = at(b, "aGen = await generateSitePages(env, briefWithLayout({", "page call");
   const call = b.slice(gen, b.indexOf("}), aSpec", gen));
-  assert.match(call, /brief: aInstruction \+ \(aFold\.directive \? "\\n\\n" \+ aFold\.directive : ""\)/, "the directive does not ride the brief");
+  // RE-ANCHORED 2026-10-24 (no add-on limits): each parallel page writer's
+  // brief carries its batch's directive, and one batch is the whole directive.
+  assert.match(call, /brief: aInstruction \+ \(aDirective \? "\\n\\n" \+ aDirective : ""\)/, "the directive does not ride the brief");
+  assert.match(b.slice(gen - 400, gen), /aFold\.batchDirectives\.length > 1 \? aFold\.batchDirectives : \[aFold\.directive\]/, "one writer is not handed the whole directive");
   // RE-ANCHORED 2026-09-17, and the expectation is WIDER rather than moved
   // (owner: *"required kit signatures"*). This was pinned to `aFold.components`
   // — the union of what THIS change declares — so a writer editing a page

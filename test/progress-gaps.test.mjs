@@ -354,10 +354,12 @@ test("OUTCOME 5 — A REQUEST'S PART, BY ITS STATUS: one held for review shows t
     g.open();
     await running;
   });
-  // PARTIAL AND WAITING: request-flow's M4 (a set-aside link) and a step's question.
+  // PARTIAL AND WAITING: a set-aside list entry with no words of its own (the
+  // set-aside link was this case's shape until 2026-10-24, when the frame
+  // began to be handed on to the menu editor instead) and a step's question.
   await withPlatform({
     slug: slugOf("oc5b"), pages: NAV_PAGES, replies: true, progress: true,
-    answers: { route: [{ intent: "addon" }], [T.adds]: { kinds: ["page", "frame"] }, "add:page": { page: [PAGE("/gallery", "Gallery")] }, [T.pages]: { pages: [writtenPage("/gallery")] } },
+    answers: { route: [{ intent: "addon" }], [T.adds]: { kinds: ["page", "row"] }, "add:page": { page: [PAGE("/gallery", "Gallery")] }, [T.pages]: { pages: [writtenPage("/gallery")] } },
   }, async (P) => {
     const r = await sendMessage(P, { message: GALLERY_LINK });
     const { rec } = await settle(P, r.key);

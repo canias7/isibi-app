@@ -1411,3 +1411,13 @@ stored still gets no database (the Neon project cap and cost are why); and a
 build buys, repairs and translates everything it needs, in batches or eight at
 a time, never dropping any.** This supersedes the 2026-08-24 "frontend-only
 first build". `IMAGE_PURCHASES` off still buys no photograph.
+
+## No add-on limits (2026-10-24)
+
+Owner: *"No addon limits"* (and earlier, 2026-09-02: *"no limit on things that
+can be added"*). The add-on step keeps everything a message asks for: no cap
+on pages, components, tables, entries, functions, connections, jobs, bands or
+lines of words, nothing named `over-cap`, and never "send the rest again".
+Where a bound must remain for safety it carries the excess into further
+batches or parts in the same job, never drops it, and keeps a page together
+with the tables and functions it uses. Record: `docs/history/2026-10-24-addon-uncapped.md`.
