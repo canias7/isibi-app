@@ -1106,9 +1106,19 @@ export async function generateSiteBands({
   // not be undone, and every instrument built on those four numbers keeps
   // reading what it has always read.
   const allParts = [...bandFiles, ...parts];
+  // EACH FILE'S OWN SPEND (2026-10-24, pay only for what landed): one writer
+  // per file, in the fan-out's order — bands, then the frame, then the declared
+  // parts — so a section that ends a stand-in is not charged its writer's
+  // share. Only when that order is provably the files' order.
+  const fileUsage = {};
+  if (bandFiles.length === bands.length + frame.length) {
+    const byI = new Map(list.filter((a) => a && Number.isInteger(a.i)).map((a) => [a.i, a]));
+    allParts.forEach((p, i) => { const a = byI.get(i); if (a && p && typeof p.name === "string") fileUsage["-parts/" + p.name + ".tsx"] = { ...usageOf(a.answer, usage.model), model: usage.model }; });
+  }
   return {
     input: { pages: [{ path: file, source }], ...(allParts.length ? { parts: allParts } : {}) },
     usage,
+    fileUsage,
     bands: bands.length,
     wrote: bands.filter((b) => b.source).length,
     // WHAT WAS ASKED FOR AND WHAT CAME BACK, for the parts as for the bands.

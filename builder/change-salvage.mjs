@@ -21,7 +21,7 @@
 //
 // Plain module, no I/O, never throws.
 
-import { errorCitations, partStandIn, routeIdFor } from "./publish-pages.mjs";
+import { errorCitations, partStandIn, routeIdFor, pageCredits, totalCost } from "./publish-pages.mjs";
 import { PART_DIR } from "./compile-repair.mjs";
 
 export const MAX_SALVAGE_ROUNDS = 3;
@@ -124,4 +124,71 @@ export function anythingLanded({ pages, parts, storedPages, storedParts, kept = 
     if (oldPart.get(p.name) !== String(p.source == null ? "" : p.source)) return true;
   }
   return false;
+}
+
+// ── PAY ONLY FOR WHAT LANDED (owner, 2026-10-24: "if 20 things are asked and
+// 1 ends up a stand-in or kept as it was, charge only for what worked") ──────
+//
+// A writer's charge covers every file it produced. When salvage keeps one of
+// them as it was or stands one in, that file's share of the WRITER's spend is
+// not charged: by the file's own usage when it is known (a band writer, one
+// file each), otherwise in proportion to the files the writer produced. Only
+// the writer's share moves; the routing call, the design, the repairs, the
+// translations and the photographs on the same bill stay as they were. The
+// bill keeps its one rounding (`pageCredits`), so the reduced bill is the same
+// arithmetic run on the writer's landed share, and the refund is the
+// difference: never more than the bill, never negative.
+
+/** The one spelling every caller compares files in: `index.tsx`, `menu/index.tsx`, `-parts/band-a.tsx`. */
+export function salvageKey(file) {
+  return String(file || "").replace(/^\/+/, "").replace(/^(?:src\/)?routes\//, "");
+}
+
+/** A part's key, from its bare name. */
+export const partKey = (name) => PART_DIR + String(name || "") + ".tsx";
+
+/** The keys of the parts in `parts` whose source differs from `before` (all of them when `before` is unread). */
+export function writtenPartKeys(parts, before) {
+  const was = new Map((Array.isArray(before) ? before : []).filter((x) => x && typeof x.name === "string").map((x) => [x.name, x.source]));
+  return (Array.isArray(parts) ? parts : []).filter((x) => x && typeof x.name === "string" && was.get(x.name) !== x.source).map((x) => partKey(x.name));
+}
+
+/** A usage object with its counts scaled by `f` (0..1); text fields kept. */
+export function scaleUsage(u, f) {
+  if (!u || typeof u !== "object") return u;
+  const out = { ...u };
+  for (const k of ["in", "out", "cacheRead", "cacheWrite", "searches"]) {
+    if (Number.isFinite(out[k])) out[k] = out[k] * f;
+  }
+  return out;
+}
+
+/**
+ * THE BILL A WRITER'S FILES EARN ONCE SALVAGE HAS RUN.
+ *
+ * `writer`: the writer's usage objects; `others`: everything else on the same
+ * bill; `written`: the files the writer produced (any spelling `salvageKey`
+ * reads); `salvaged`: `{ kept, standIn }`; `perFile`: optional `{ file: usage }`
+ * for files whose own spend is known. Answers `{ full, landed, refund, hit, of }`:
+ * `hit` the written files that ended salvaged, `of` how many it produced.
+ * Pure; never throws; `refund` is 0 when nothing the writer wrote was salvaged.
+ */
+export function landedBill({ writer = [], others = [], written = [], salvaged = null, perFile = null } = {}) {
+  const w = (Array.isArray(writer) ? writer : [writer]).filter((u) => u && typeof u === "object");
+  const o = (Array.isArray(others) ? others : [others]).filter((u) => u && typeof u === "object");
+  const files = [...new Set((Array.isArray(written) ? written : []).filter((f) => typeof f === "string" && f).map(salvageKey))];
+  const gone = new Set([...(salvaged && Array.isArray(salvaged.kept) ? salvaged.kept : []), ...(salvaged && Array.isArray(salvaged.standIn) ? salvaged.standIn : [])]
+    .filter((f) => typeof f === "string" && f).map(salvageKey));
+  const hit = files.filter((f) => gone.has(f));
+  const full = pageCredits(...o, ...w);
+  const none = { full, landed: full, refund: 0, hit, of: files.length };
+  if (!hit.length || !w.length) return none;
+  const writerUsd = totalCost(...w);
+  if (!(writerUsd > 0)) return none;
+  // BY THE FILE'S OWN SPEND when every salvaged file has one; otherwise by count.
+  const own = perFile && typeof perFile === "object" ? perFile : null;
+  const known = !!own && hit.every((f) => Object.hasOwn(own, f) && own[f] && typeof own[f] === "object");
+  const share = known ? Math.min(1, hit.reduce((s, f) => s + totalCost(own[f]), 0) / writerUsd) : hit.length / files.length;
+  const landed = pageCredits(...o, ...w.map((u) => scaleUsage(u, Math.max(0, 1 - share))));
+  return { full, landed, refund: Math.max(0, full - landed), hit, of: files.length };
 }

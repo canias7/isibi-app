@@ -318,7 +318,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 import { addedByRoute, publishedTexts, componentEvidence } from "./builder/content-evidence.mjs";
 import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, frameToMissing, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, qrShownSources, qrDestinationCheck, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 import { compileRepairRound, compileRepairRounds, writtenPaths, withParts, splitParts } from "./builder/compile-repair.mjs";
-import { salvageRound, anythingLanded, MAX_SALVAGE_ROUNDS } from "./builder/change-salvage.mjs";
+import { salvageRound, anythingLanded, MAX_SALVAGE_ROUNDS, landedBill, partKey, writtenPartKeys } from "./builder/change-salvage.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig, writesSchema as partWritesSchema } from "./builder/request-plan.mjs";
@@ -26927,7 +26927,7 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
         ...resumeHeld(claimed),
         ...resumeMedia(claimed),
         ...(rContext ? { context: rContext } : {}),
-        buildFacts: buildFacts({ images: pages && pages.images, context: rContext, unwritten: pages && pages.unwritten, salvaged: pages && pages.salvaged, salvagedParts: pages && pages.salvagedParts, compileRepaired: pages && pages.compileRepair,
+        buildFacts: buildFacts({ images: pages && pages.images, context: rContext, unwritten: pages && pages.unwritten, salvaged: pages && pages.salvaged, salvagedParts: pages && pages.salvagedParts, salvageRefund: pages && pages.salvageRefund, compileRepaired: pages && pages.compileRepair,
           // WHAT ITS PUBLISH CHECKED (2026-10-14), only for a site that went live.
           checks: buildChecks(pages),
           // The same ordinary stop the inline answer names (the eighth batch).
@@ -30158,7 +30158,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // SAVED AS THE SITE'S DRAFT, NOT PUBLISHED (2026-10-16).
         ...(pages.draft && typeof pages.draft === "object" ? { draft: pages.draft } : {}),
         buildFacts: buildFacts({
-          images: pages.images, context: contextOut, unwritten: pages.unwritten, salvaged: pages.salvaged, salvagedParts: pages.salvagedParts, compileRepaired: pages.compileRepair,
+          images: pages.images, context: contextOut, unwritten: pages.unwritten, salvaged: pages.salvaged, salvagedParts: pages.salvagedParts, salvageRefund: pages.salvageRefund, compileRepaired: pages.compileRepair,
           checks: buildChecks(pages),
           // THE CUSTOMER'S ATTACHED LOGO (#168), told by the reply writer.
           ownLogo,
@@ -36366,6 +36366,19 @@ async function handleRequest(request, env, ctx) {
             // collects refused, and what they took, so a refused publish can
             // give the earlier ones back. Under a job the row is the record.
             const syncLedger = { refusals: [], taken: 0 };
+            // THE LAST CHARGE, AND EVERY WRITER'S (2026-10-24, pay only for
+            // what landed): which parts it priced, what it took and, under a
+            // job, the ledger ref it took it under — so a file a writer wrote
+            // that the publish kept as it was or stood in is given back.
+            let eLast = null;
+            const eWriterBills = [];
+            // A WRITER'S BILL AND ITS FILES (the page rung's), only when it took something.
+            const eNoteWriter = (took, writer, written) => {
+              const w = writer.filter(Boolean);
+              if (eLast && took > 0) eWriterBills.push({ took, ref: eLast.ref, writer: w, others: eLast.parts.filter((x) => !w.includes(x)), written });
+              return took;
+            };
+            const eTook = (r, seq) => { const n = Number(r.charged) || 0; if (eLast) { eLast.took = n; eLast.ref = eJob.id + "#" + seq; } return n; };
             const eCharge = async (usage, ...more) => {
               // NOTHING IS CHARGED FOR A PREPARATION: its job bills what it uses.
               if (eJob && eJob.prepare === true) return 0;
@@ -36380,8 +36393,9 @@ async function handleRequest(request, env, ctx) {
                 pickBilled = true;
                 return true;
               });
-              if (!parts.length) return 0;
+              if (!parts.length) { eLast = null; return 0; }
               billedAll.push(...parts);
+              eLast = { parts, took: 0, ref: null };
               // ── ON THE ASYNC PATH THE MONEY GOES THROUGH POSTGRES ────────
               //
               // Same amount, same `pageCredits` arithmetic, one transaction
@@ -36403,7 +36417,7 @@ async function handleRequest(request, env, ctx) {
                 // gate can tell a free rung from one whose reserve never ran.
                 // Counted only on `ok`: a refused or unanswered reserve leaves
                 // the row at `none`, and the gate must go on reading it that way.
-                if (r && r.ok === true) { if (typeof eJob.noteReserve === "function") eJob.noteReserve(); return Number(r.charged) || 0; }
+                if (r && r.ok === true) { if (typeof eJob.noteReserve === "function") eJob.noteReserve(); return eTook(r, eSeq); }
                 // RECORDED, NEVER SWALLOWED (2026-09-05). A refused reserve
                 // answers 0 here exactly as a free rung does, and the spine's
                 // gate — the one place every charge passes before the commit
@@ -36420,6 +36434,7 @@ async function handleRequest(request, env, ctx) {
               try {
                 const took = await collectCredits(eAuth, bill);
                 if (took > 0) syncLedger.taken += took; else if (bill > 0) syncLedger.refusals.push("insufficient");
+                eLast.took = took;
                 return took;
               } catch { syncLedger.refusals.push("rpc"); return 0; }
             };
@@ -41058,7 +41073,8 @@ async function handleRequest(request, env, ctx) {
                 // lesson `pageCredits` already carries. `twSpent` is null when
                 // the cheap rung never reached the provider.
                 files: pPub.files, render: pPub.render, renderNote: pPub.renderNote, checks: pPub.checks, draft: pPub.draft,
-                cost: await eCharge(eGen && eGen.usage, twSpent, twJudged, pKeep.usage, ...pPartUsage, ePick && ePick.usage), usage: eGen && eGen.usage, tweakUsage: twSpent || undefined,
+                cost: await eCharge(eGen && eGen.usage, twSpent, twJudged, pKeep.usage, ...pPartUsage, ePick && ePick.usage)
+                  .then((t) => eNoteWriter(t, [eGen && eGen.usage], [target.path, ...writtenPartKeys(pParts, ePartsAt0)])), usage: eGen && eGen.usage, tweakUsage: twSpent || undefined,
                 // THE CHEAP WRITER'S FILE DID NOT PARSE, SO THIS ONE RAN
                 // (A03-5). Omitted otherwise, so an ordinary reply is unchanged.
                 tweakFallback: twFallback || undefined,
@@ -41678,6 +41694,38 @@ async function handleRequest(request, env, ctx) {
             // never read them at all leaves both sides empty, which says the
             // same thing. Reading the store here would be a THIRD read of it
             // in one message, against the rule the snapshot exists for.
+            // ── PAY ONLY FOR WHAT LANDED (owner, 2026-10-24) ────────────────
+            // A file a writer produced that the one publish kept as it was or
+            // stood in (`finalPub.salvaged`) is given back its share of that
+            // writer's charge (`landedBill`: by count of the files it wrote).
+            // ONLY AFTER THE PUBLISH WENT OUT, so a refusal's own refund never
+            // meets this one. Under a job by the reserve's own ref
+            // (`credit_reverse`, bounded by what that row took; a founder's
+            // reserve wrote no row, took nothing, and is never recorded here);
+            // synchronously through `credit_back`, which never credits a founder.
+            let eSalvageRefund = null;
+            if (finalPub && finalPub.ok && finalPub.salvaged && eWriterBills.length) {
+              let back = 0;
+              const files = [];
+              for (const wb of eWriterBills) {
+                const bill = landedBill({ writer: wb.writer, others: wb.others, written: wb.written, salvaged: finalPub.salvaged });
+                const give = Math.min(bill.refund, wb.took);
+                if (!(give > 0)) continue;
+                if (eJob) {
+                  if (!wb.ref) continue;
+                  const r = await reverseCredits(env, ou.id, wb.ref, "salvage", give);
+                  if (r.ok && r.refunded > 0) { back += r.refunded; files.push(...bill.hit); }
+                  else if (!r.ok) console.error("edit salvage refund could not be made:", ownerSlug, wb.ref);
+                } else {
+                  // IN THE RPC'S OWN CHUNKS OF 10, every chunk counted (`refundCredits`
+                  // stops at 50); bounded by `give`, itself never above what was taken.
+                  let left = give, gave = 0;
+                  for (let i = 0; i < 1000 && left > 0; i++) { const ch = Math.min(10, left); if (await creditBack(env, ou.id, ch)) gave += ch; left -= ch; }
+                  if (gave > 0) { back += gave; syncLedger.taken = Math.max(0, syncLedger.taken - gave); files.push(...bill.hit); }
+                }
+              }
+              if (back > 0) eSalvageRefund = { credits: back, files: [...new Set(files)] };
+            }
             let picsRemoved, picsFrames, picsKept, picsTakenOff;
             if (finalPub && finalPub.ok && pendingPublish) {
               // WHAT THE PICTURE STEPS SAID THEY TOOK OFF, WITH THEIR SPACE —
@@ -41738,6 +41786,8 @@ async function handleRequest(request, env, ctx) {
               compileRepaired: finalPub && finalPub.compileRepaired ? finalPub.compileRepaired : undefined,
               // FILES KEPT AS THEY WERE AND NEW ONES STANDING IN (2026-10-24).
               salvaged: finalPub && finalPub.salvaged ? finalPub.salvaged : undefined,
+              // WHAT THOSE FILES WERE GIVEN BACK (2026-10-24), already off `cost`.
+              salvageRefund: eSalvageRefund || undefined,
               render: finalPub ? finalPub.render : (last && last.body.render),
               // A TRANSLATED WORDING STORED AS THE OWNER'S OWN (#196) is said beside it.
               renderNote: [...ranOk.map((d) => d.body.langNote), finalPub ? finalPub.renderNote : (last && last.body.renderNote)].filter((x) => typeof x === "string" && x).join(" ") || undefined,
@@ -41864,6 +41914,8 @@ async function handleRequest(request, env, ctx) {
               photos: picsFrames,
               photosTakenOff: picsTakenOff,
             };
+            // WHAT THE SALVAGED FILES WERE GIVEN BACK IS OFF THE STATED COST (2026-10-24).
+            if (eSalvageRefund) merged.cost = Math.max(0, merged.cost - eSalvageRefund.credits);
             // ── AND ANYTHING A RUNG REPORTS THAT THIS MERGE DOES NOT MODEL ──
             //
             // Eight rungs answer here and each has diagnostics of its own — a
@@ -46161,6 +46213,9 @@ async function handleRequest(request, env, ctx) {
             if (aPrep) return aPrepStop();
             let aCost = 0;
             if (aJob) aCost = aFirstPlaced ? aFirst + await aCharge(aBill, 4) : await aCharge(aBill);
+            // THE WRITER'S OWN RESERVE, by sequence (2026-10-24): a file it
+            // wrote that ends kept or standing in is given back by that ref.
+            const aWriterTook = aJob ? (aFirstPlaced ? aCost - aFirst : aCost) : 0;
             if (aJob && aCharges.refused() > 0) { const u = unbilledBody(aCharges); return aFail(u.body, u.status); }
 
             // THE COMPONENTS THE ADDON WROTE GO WITH THE PAGES, merged over the
@@ -47355,6 +47410,32 @@ async function handleRequest(request, env, ctx) {
             // ends up billing for a picture nobody got.
             if (!aJob) aCost = await aCharge(pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage, ...aRepairUsage, ...aLangUsage, aPhotoBill));
             else aCost += (Number(aRepairRound && aRepairRound.charged) || 0) + aLangCharged + aPhotoCharged;
+            // ── PAY ONLY FOR WHAT LANDED (owner, 2026-10-24) ────────────────
+            // A page or part the writer wrote that ended kept as it was or
+            // standing in (`aPub.salvaged`) is given back its share of the
+            // writer's spend (`landedBill`, by count), bounded by what that
+            // charge took. Under a job by the writer's own reserve ref
+            // (`credit_reverse`, bounded by that row; a founder's reserve wrote
+            // no row and took nothing); synchronously through `credit_back`,
+            // which never credits a founder, in its chunks of 10.
+            const aWritten = [...(aValid.pages || []).map((p) => p && p.path), ...aFreshParts.map((p) => p && partKey(p.name))];
+            const aSalvageBill = aPub.salvaged ? landedBill({
+              writer: [aGen && aGen.usage],
+              others: aJob ? (aFirstPlaced ? [aPick && aPick.usage] : [...aDesignUsage, aSeedUsage, aPick && aPick.usage])
+                : [...aDesignUsage, aSeedUsage, ...aRepairUsage, ...aLangUsage, aPhotoBill],
+              written: aWritten, salvaged: aPub.salvaged,
+            }) : null;
+            let aSalvageRefund = null;
+            const aGive = aSalvageBill ? Math.min(aSalvageBill.refund, aJob ? aWriterTook : aCost) : 0;
+            if (aGive > 0 && aJob) {
+              const back = await reverseCredits(env, ou.id, aJob.id + "#" + (aFirstPlaced ? 4 : 1), "salvage", aGive);
+              if (back.ok && back.refunded > 0) { aCost = Math.max(0, aCost - back.refunded); aSalvageRefund = { credits: back.refunded, files: aSalvageBill.hit }; }
+              else if (!back.ok) console.error("addon salvage refund could not be made:", ownerSlug, aJob.id);
+            } else if (aGive > 0) {
+              let left = aGive, gave = 0;
+              for (let i = 0; i < 1000 && left > 0; i++) { const ch = Math.min(10, left); if (await creditBack(env, ou.id, ch)) gave += ch; left -= ch; }
+              if (gave > 0) { aCost = Math.max(0, aCost - gave); aSalvageRefund = { credits: gave, files: aSalvageBill.hit }; }
+            }
             // THE PARSER THE MENU READER READS THE PUBLISHED PAGES WITH (2026-10-08,
             // Codex's review of 7fc7056d): null in a runtime with none, where every
             // link put in is told as not known.
@@ -47641,6 +47722,8 @@ async function handleRequest(request, env, ctx) {
               compileRepaired: aCompileRepair && aCompileRepair.built ? { pages: aCompileRepair.repaired.slice(), rounds: aCompileRepair.rounds } : undefined,
               // FILES KEPT AS THEY WERE AND NEW ONES STANDING IN (2026-10-24).
               salvaged: aPub.salvaged || undefined,
+              // WHAT THOSE FILES WERE NOT CHARGED (2026-10-24), already off `cost`.
+              salvageRefund: aSalvageRefund || undefined,
               renderNote: [aPub.renderNote, addRepairNote(aRepairRound)].filter(Boolean).join(" ") || undefined,
               checks: aPub.checks, draft: aPub.draft,
               // WHAT THE ROUND DID, for a reader that judges rather than reads:

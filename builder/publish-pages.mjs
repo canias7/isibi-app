@@ -35,6 +35,9 @@ import { pictureStages } from "./site-images.mjs";
 // What the published routes render (2026-10-08, the eighth batch): the same
 // render analysis the menus use. Neither module imports this one.
 import { picturesShown } from "./rendered-pictures.mjs";
+// What a stand-in is not charged (2026-10-24). A cycle (`change-salvage.mjs`
+// imports this module) that is safe: neither module calls the other at load.
+import { landedBill, partKey } from "./change-salvage.mjs";
 
 // List rates over the platform's $0.008/credit basis, PER MODEL.
 //
@@ -1264,6 +1267,23 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
     // the owner's own image library and is deliberately NOT wiped by a publish,
     // so they still have every picture they paid for and a revise can use them.
     const c = pageCredits(gen.usage, priorUsage, out.images ? { images: out.images.made } : null, ...repairUsage, ...langUsage);
+    // PAY ONLY FOR WHAT LANDED (owner, 2026-10-24): a page or a band that
+    // published as a stand-in is not charged its share of the writer's spend —
+    // by the band's own usage when the fan-out knows it, otherwise by count.
+    // Taken off BEFORE the one debit, so nothing is taken and then given back.
+    let owed = c;
+    if (stage === "published") {
+      const sv = { kept: [], standIn: [...(Array.isArray(out.salvaged) ? out.salvaged : []), ...(Array.isArray(out.salvagedParts) ? out.salvagedParts.map(partKey) : [])] };
+      if (sv.standIn.length) {
+        const gi = (gen && gen.input) || {};
+        const bill = landedBill({
+          writer: [gen.usage], others: [priorUsage, out.images ? { images: out.images.made } : null, ...repairUsage, ...langUsage],
+          written: [...(Array.isArray(gi.pages) ? gi.pages.map((p) => p && p.path) : []), ...(Array.isArray(gi.parts) ? gi.parts.map((p) => p && partKey(p.name)) : [])],
+          salvaged: sv, perFile: gen && gen.fileUsage,
+        });
+        if (bill.refund > 0 && bill.full === c) { owed = bill.landed; out.salvageRefund = { credits: bill.refund, files: bill.hit }; }
+      }
+    }
     // WHAT WAS BILLED AND WHAT WAS COLLECTED ARE TWO NUMBERS, and conflating
     // them is what let this path charge nothing for months. `use_credits` is a
     // gate: a bill larger than the balance debits ZERO and answers -1 rather
@@ -1271,10 +1291,10 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
     // not happened. `out.cost` is now what actually left the ledger — the
     // number that matches the customer's balance — and `out.billed` is what the
     // work really cost, so the shortfall stays visible instead of vanishing.
-    out.billed = (out.billed || 0) + c;
+    out.billed = (out.billed || 0) + owed;
     let took = 0;
     try {
-      const got = await deps.useCredits(c);
+      const got = await deps.useCredits(owed);
       if (got && typeof got === "object") {
         // THE LEDGER'S OWN ANSWER (stage 1c): `taken` is what left the account,
         // `exempt` says the account pays nothing by rule (a founder) and is
@@ -1287,7 +1307,7 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
         // A dep that reports nothing is the legacy void contract; treat it as
         // having taken the full amount rather than silently reading 0, or every
         // older caller would start reporting free builds.
-        took = typeof got === "number" ? Math.max(0, got) : c;
+        took = typeof got === "number" ? Math.max(0, got) : owed;
       }
     } catch (e) {
       // NEVER FAIL A BUILD OVER THE LEDGER — and never read a lost answer as

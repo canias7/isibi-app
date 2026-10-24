@@ -1,5 +1,15 @@
 # Owner Notes
 
+## 2026-10-24 — customers pay only for what landed when a file is left out (branch `standin-refund`, not merged, not deployed)
+
+- **Why**: you said that if 20 things are asked and 1 ends up a stand-in or kept as it was, the customer should be charged only for what worked.
+- **Now**: when a change publishes with a file kept as it was or a new page or section standing in, that file's share of the writing is not charged. The share is worked out from that file's own cost when we know it (first-build sections, one writer each). Otherwise it is split evenly over the files the writer produced: 1 of 4 files gives back about a quarter of the writing.
+- **Only the writing moves.** Reading the message, the design, the repairs, the translations and the photographs are still charged as before.
+- **How the money moves**: a first build simply takes less in its one charge. An edit or add-on gives the share back after the publish has gone out, through the existing refund by reference (or `credit_back` when there is no job), never more than that charge took. A founder is never credited back.
+- The amount given back is taken off the cost the customer is told, and the reply is told it ("N credits of the writing … were taken off the bill").
+- **Left open**: on a queued edit, the job's stored cost column still shows the full reserve (the ledger itself is right). Fixing that needs a database change, which is your call.
+- Tests: 6 new cases through the real edit and add-on routes and the build's billing step. 5 of them fail on `standin-everywhere`. Sweep: 22 of 23 changes caught (the one left changes nothing that can be measured), and the comment-only control survived. Full suite `12484 / 12479 / 2 / 3`; both failures are from this environment. Nothing spent. Record: `docs/history/2026-10-24-standin-refund.md`.
+
 ## 2026-10-24 — when an edit or add-on still won't compile, only the broken file is left out (branch `standin-everywhere`, not merged, not deployed)
 
 - **Why**: you asked for the stand-in "everywhere". First builds already left a broken band out and built the rest. Edits and add-ons still refused the whole change when the automatic repair failed.

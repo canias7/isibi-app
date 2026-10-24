@@ -1172,7 +1172,7 @@ export function editReplyFacts(e, { routedCost = null, inRequest = false } = {})
     }
   }
   if (e.ok === true) compileRepairFact(F, e.compileRepaired);
-  if (e.ok === true) salvageFact(F, e.salvaged);
+  if (e.ok === true) salvageFact(F, e.salvaged, e.salvageRefund);
   if (e.ok === true) heldDraftFact(F, e);
   heldFacts(F, e, e.ok === true, inRequest === true);
   questionFact(F, e.clarify);
@@ -1195,12 +1195,24 @@ export function compileRepairFact(F, cr) {
  * it was because the change to it would not compile, and a new part standing
  * in, empty. Facts for the reply writer, so the customer knows to ask again.
  */
-export function salvageFact(F, s) {
+export function salvageFact(F, s, refund = null) {
   if (!s || typeof s !== "object") return;
   const nm = (x) => (Array.isArray(x) ? x : []).filter((f) => typeof f === "string" && f).map((f) => quote(f.replace(/^-parts\//, "").replace(/\.tsx?$/i, "")));
   const kept = nm(s.kept), stand = nm(s.standIn);
   if (kept.length) F.add("not-done", "The change to " + listOf(kept) + " would not compile even after an automatic correction, so " + (kept.length > 1 ? "those files were" : "that file was") + " kept exactly as it was; the rest of the change was saved. They can ask for that part again.");
   if (stand.length) F.add("not-done", "The new " + listOf(stand) + " would not compile even after an automatic correction, so an empty stand-in holds " + (stand.length > 1 ? "their places" : "its place") + " (the page still opens, with nothing in it yet); the rest of the change was saved. They can ask for it again.");
+  salvageRefundFact(F, refund);
+}
+
+/**
+ * PAID ONLY FOR WHAT LANDED (2026-10-24): what the files kept as they were or
+ * standing in were not charged, from the route's own `salvageRefund` (already
+ * off the stated cost). Nothing is said when nothing was given back.
+ */
+export function salvageRefundFact(F, r) {
+  const n = r && typeof r === "object" ? num(r.credits) : null;
+  if (n === null || !(n > 0)) return;
+  F.add("money", "They were not charged for the part that did not land: " + count(n, "credit") + " of the writing for it " + (n === 1 ? "was" : "were") + " taken off the bill, and the cost stated is what they paid.");
 }
 
 /** An interval in minutes as a customer reads it: "every 15 minutes", "every day". */
@@ -1435,7 +1447,7 @@ export function addonReplyFacts(a, { routedCost = null, inRequest = false } = {}
     if (routedCost !== null && num(routedCost) > 0) F.add("money", "Reading their message cost " + count(num(routedCost), "credit") + ".");
   }
   if (a.ok === true) compileRepairFact(F, a.compileRepaired);
-  if (a.ok === true) salvageFact(F, a.salvaged);
+  if (a.ok === true) salvageFact(F, a.salvaged, a.salvageRefund);
   if (a.ok === true) heldDraftFact(F, a);
   heldFacts(F, a, a.ok === true, inRequest === true);
   questionFact(F, a.clarify);
@@ -1703,6 +1715,7 @@ export function buildReplyFacts(bf) {
   for (const sec of Array.isArray(bf.standIn) ? bf.standIn : []) {
     F.add("not-done", "One section of the page (" + quote(String(sec)) + ") did not compile, so it is left out for now (a stand-in draws nothing in its place); the rest of the page is built" + (draft ? " and saved in the draft." : " and live.") + " It can be asked for again.");
   }
+  salvageRefundFact(F, bf.salvageRefund);
   // WHAT WAS DONE ABOUT A DESIGN THAT CAME BACK WRONG (2026-10-08, the ninth
   // batch), from the attempts actually made — never a promise of one.
   const dg = bf.design;
