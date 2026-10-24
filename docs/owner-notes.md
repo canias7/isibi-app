@@ -34,6 +34,24 @@
 - Still without a retry (listed in the record): the look "no change", page-writer "no change", add-on "not landed" and "rewrote", the add-on judge and "declined", and the build's design and pages.
 - Tests: 16 new, 10 of 13 original cases red on main. Sweep 15 of 15 caught, control survived. Full suite 12,640: 12,634 pass, 3 fail (environment, a timing flake that passes alone, and the new file that was not yet committed during the run), 3 skipped. Site image rebuilt (2d440bd194450245 → fa5a328a6849668f, 235 → 236 inputs). Nothing spent. Record: `docs/history/2026-10-24-retry-with-reason.md`.
 
+## 2026-10-24 — a change too big for the quick steps now splits itself and carries on (branch `auto-split-edits`, not merged, not deployed)
+
+- Before: a change too big for the quicker steps stopped and asked you to "send it as smaller changes". Now it re-plans itself: the router is told why the step could not do it and splits it into parts, and those parts run in the panel like any others. You never resend.
+- A single change sent on its own (not part of a longer request) is sent again by the page with the same reason and becomes a request with parts.
+- Guard: a part that comes back too big again may split once more; after that it stops and says why. Changes that smaller parts cannot fix (a change of what kind of site it is, a site without its saved design) stop as before. The full rewrite is never offered.
+- Money: nothing done is redone; the re-planning call on a request is free, as is the routing of the parts it makes; each part's own work is charged as usual. One gap for your decision: on a single change sent on its own, the page's second routing call is charged as an ordinary message (1–2 credits).
+- Tests: 8 new with supplied answers; 7 fail on main (the 8th is a control). Record: `docs/history/2026-10-24-auto-split-edits.md`.
+- Also closed the gap left by "no questions after a charge": once any earlier part of a request has been charged, every later part (split parts included) asks you nothing and goes ahead with a stated default. This branch now includes `no-ask-after-charge`, so the two must be combined together.
+
+## 2026-10-24 — no questions after a charge (branch `no-ask-after-charge`, not merged, not deployed)
+
+- **Questions are asked only before anything is charged.** The router, the build's design and page questions, and the first step of an edit or add-on still ask as before. Once credits have been reserved or taken for a request, every AI step after that is not offered a question. It picks a sensible default from the site and your message, and the reply says what it used and that you can ask for the other choice.
+- **The case from the data is fixed.** An addition with a database (a table shown on a page) reserves its credits before the page writer runs. That writer can no longer stop to ask about layout: it goes ahead, and the reply says "it used …".
+- **If an AI asks anyway**, it is told once that it can't and which of its own choices to use. If it still asks, the step ends in the question and is not charged (the job is refunded, as before).
+- **Questions may no longer ask for what the site or your words already say or imply**: where a link or button should go, how something should be worded, how it should look.
+- **One open edge**: a request split into separate jobs (parts) does not carry the "already charged" mark from one part's job to the next.
+- **Tests**: 17 new cases through the real edit and add-on routes with supplied answers. 8 of them fail on main, and the other 8 are controls that pass there. 12 older cases written to the old rule were updated. Sweep: 21 of 21 caught, and the comment-only control survived. Full suite: 12,641 run, 2 environment-only failures, and 3 old-rule cases fixed afterwards. The site image will be rebuilt. Nothing was spent. Record: `docs/history/2026-10-24-no-ask-after-charge.md`.
+
 ## 2026-10-24 — combine-d: thirteen finished branches in one candidate (not merged, not deployed)
 
 - Combined from `main` (692087cde): reply bubble, progress voice, per-device builds, stand-ins and refunds, first-build database and limits, no add-on caps, "tasks" label, build panel Stop, edit file picker, rebuild scope, build questions, request needs, visual review, and two docs branches.

@@ -197,6 +197,23 @@ export const PREP_ADDON = true;
 /** Hand-overs one part may make before the full rewrite is the only way left: an edit's, the add-on's, and one more. */
 export const HOPS_MAX = 3;
 
+/**
+ * A CHANGE TOO BIG FOR THE SMALLER STEPS SPLITS ITSELF (owner, 2026-10-24:
+ * an edit or addition that is too big re-plans itself as smaller parts and
+ * carries on, never asking the customer to resend). A part whose step says
+ * `split` is routed again, the router told the step's reason and asked to
+ * split the words into parts it can do (`split` on the routing job's
+ * `request`, `partBlock`'s section); the parts it holds back are carved as
+ * parts of their own and run, each charged as any part is. `SPLIT_MAX` is how
+ * deep that goes: a part split once, or carved from one, that comes back too
+ * big may split once more; beyond that it ends `too-big`, honestly, with the
+ * step's reason. `SPLIT_NOT` are the reasons a smaller part cannot fix (a
+ * change of what kind of site it is, a site without its saved design): those
+ * end as before.
+ */
+export const SPLIT_MAX = 2;
+export const SPLIT_NOT = Object.freeze(["build", "no-look", "no-meta", "needs-pages"]);
+
 // ── STATUSES ─────────────────────────────────────────────────────────────────
 //
 // A part is never said to be done, or being done, before its own row says so.
@@ -1301,6 +1318,13 @@ function settle(rec, p, job, row, now) {
     const read = readRoute(ans);
     if (read.act !== "failed" && read.act !== "waiting") p.retries = 0;
     job.end.act = read.act;
+    // A ROUTING ASKED TO SPLIT A PART (2026-10-24) has been answered: the ask
+    // is spent, whatever came back (a failed call is asked again with it).
+    const splitting = plain(p.splitAsk) ? p.splitAsk : null;
+    if (splitting && read.act !== "failed") delete p.splitAsk;
+    // …AND IT NEVER OFFERS THE FULL REWRITE: an answer of `build` to "split
+    // this" ends the part too big, as the step said, with its reason.
+    if (splitting && read.act === "rewrite") { endUnfinished(p, "", "too-big", { job: job.id, kind: "escalate" }); p.split = splitting.why; if (splitting.reason) p.splitReason = splitting.reason; return; }
     if (read.act === "route") {
       p.route = { ...read.route, hops: 0 };
       p.phase = "run";
@@ -1315,6 +1339,9 @@ function settle(rec, p, job, row, now) {
       if (read.alsoAsked.length) {
         const needsFirst = read.dependsOn.filter((d) => d.change === 0).flatMap((d) => d.after);
         const made = carveParts(rec, p.n, read.alsoAsked, { dependsOn: read.dependsOn.filter((d) => d.change !== 0), sibling: needsFirst, targets: read.targets });
+        // A PART CARVED FROM A SPLIT IS AS DEEP AS ITS PARENT: it may split
+        // once more only while its parent could (`SPLIT_MAX`).
+        if (Number.isInteger(p.splitDepth)) for (const m of made) { rec.parts[m].splitDepth = p.splitDepth; if (splitting) rec.parts[m].splitOf = p.n; }
         // THE PART NEEDS A PART IT HELD BACK FIRST: it waits for it, and is
         // routed again when its turn comes.
         const before = needsFirst.map((i) => made.byChange[i]).filter((m) => Number.isInteger(m) && m !== p.n && !rec.parts[m].needs.includes(p.n));
@@ -1380,6 +1407,24 @@ function settle(rec, p, job, row, now) {
     if (to.act === "retry-build") { askApproval(p, "retry-build", now); if (p.status === "approval") p.retry = true; p.outcome = { job: job.id, kind: "escalate" }; return; }
     // TOO BIG FOR THE SMALLER STEPS: said, and left to the customer to send
     // in smaller changes. The whole site is never rewritten for a change.
+    // …UNLESS IT CAN SPLIT ITSELF (owner, 2026-10-24): routed again, told why,
+    // and asked for parts it can do. Only when nothing of it went in (nothing
+    // is redone) and under `SPLIT_MAX`; the climbing job's own charge stands
+    // as its row says, and the routing again is not charged (`partOf`).
+    const reason = typeof read.reason === "string" ? read.reason.slice(0, 40) : "";
+    const depth = Number.isInteger(p.splitDepth) ? p.splitDepth : 0;
+    if (to.act === "split" && depth < SPLIT_MAX && !SPLIT_NOT.includes(reason) && !leftOf(ans.body) && !p.left && !lost.length) {
+      p.splitDepth = depth + 1;
+      p.splitAsk = { why: to.why, ...(reason ? { reason } : {}) };
+      // WHAT IT RUNS STAYS (`runs`: part 0's whole message, its held parts
+      // beside it), so the parts held back before are still found and taken
+      // out; the routing again reads its own words.
+      p.phase = "route"; p.route = null; p.hops = 0;
+      job.end.act = "split";
+      p.outcome = { job: job.id, kind: "split" };
+      p.status = "ready"; p.why = null;
+      return;
+    }
     if (to.act === "split") { endUnfinished(p, "", "too-big", { job: job.id, kind: "escalate" }); p.split = to.why; if (typeof read.reason === "string" && read.reason) p.splitReason = read.reason.slice(0, 40); return; }
     if (to.act === "stop") { endUnfinished(p, "", "handed-back", { job: job.id, kind: "escalate" }); return; }
     endUnfinished(p, "", "unreadable"); return;
@@ -2273,6 +2318,15 @@ export function partOf(rec, n) {
     // own routing job is not charged again (live: 3 credits, nothing done).
     // Parts the message's own routing held back keep their charge, as before.
     ...(me && me.source === "carved" ? { carved: true } : {}),
+    // ROUTED AGAIN TO SPLIT ITSELF (2026-10-24): the step's reason, so the
+    // router is asked for parts it can do — and, the words already routed and
+    // paid for, not charged again.
+    // ALREADY CHARGED (2026-10-24, the owner: no question after a charge): an
+    // earlier job of this request — any part's, routing or run — ended with a
+    // charge on its row (`chargedOf`), so this part's steps offer the customer
+    // no question and state their default (`clarifyTransport`'s `charged`).
+    ...(rec.parts.some((q) => Array.isArray(q.jobs) && q.jobs.some((j) => j && j.end && Number(j.end.cost) > 0)) ? { charged: true } : {}),
+    ...(me && plain(me.splitAsk) ? { split: { why: String(me.splitAsk.why || "").slice(0, 20), ...(me.splitAsk.reason ? { reason: me.splitAsk.reason } : {}) } } : {}),
     done: rec.parts.filter((q) => q.n !== n && need.has(q.n) && q.status === "done" && q.done).map((q) => ({ words: q.words, said: q.done })),
     ...(others.length ? { others } : {}),
     context: rec.context,
@@ -2456,7 +2510,14 @@ export function readRequestOf(v) {
   // many requirements it held — read strictly; anything else is none.
   const hf = plain(v.heldFrom) && typeof v.heldFrom.job === "string" && /^[0-9a-f]{8,64}$/.test(v.heldFrom.job) && Number.isInteger(v.heldFrom.count) && v.heldFrom.count >= 0
     ? { job: v.heldFrom.job, count: v.heldFrom.count } : null;
-  return { key: v.key, part: v.part, original, done, ...(others.length ? { others } : {}), context, ...(hf ? { heldFrom: hf } : {}), ...(v.paused === true ? { paused: true } : {}), ...(v.carved === true ? { carved: true } : {}) };
+  return { key: v.key, part: v.part, original, done, ...(others.length ? { others } : {}), context, ...(hf ? { heldFrom: hf } : {}), ...(v.paused === true ? { paused: true } : {}), ...(v.carved === true ? { carved: true } : {}), ...(readSplit(v.split) ? { split: readSplit(v.split) } : {}), ...(v.charged === true ? { charged: true } : {}) };
+}
+
+/** A routing job's split ask (`partOf`'s `split`), read strictly: `{ why, reason? }`, or null. */
+export function readSplit(v) {
+  if (!plain(v) || typeof v.why !== "string" || !/^[a-z-]{1,20}$/.test(v.why)) return null;
+  if (v.reason !== undefined && (typeof v.reason !== "string" || !/^[a-z0-9_-]{1,40}$/i.test(v.reason))) return null;
+  return { why: v.why, ...(typeof v.reason === "string" ? { reason: v.reason } : {}) };
 }
 
 // ── WHAT THE PAGE AND THE REPLY ARE SHOWN ────────────────────────────────────
@@ -2573,6 +2634,10 @@ export function requestView(rec, { progress = null, said = null, runs = null, pr
       ...(p.retry === true ? { retry: true } : {}),
       // WHY ITS STEP COULD NOT MAKE IT, when it ended too big (2026-10-24).
       ...(p.why === "too-big" && typeof p.splitReason === "string" ? { splitReason: p.splitReason } : {}),
+      // SPLITTING ITSELF (2026-10-24): being routed again into smaller parts,
+      // and, for a part that came of it, the part it was split from.
+      ...(plain(p.splitAsk) ? { splitting: true } : {}),
+      ...(Number.isInteger(p.splitOf) ? { splitOf: p.splitOf } : {}),
       // WHAT ITS REWRITE ASKED, when it stopped to ask (2026-10-24).
       ...(typeof p.asked === "string" && p.asked ? { asked: p.asked } : {}),
       // EVERY JOB IT FILED, in order — its routing, its runs, its rewrite —

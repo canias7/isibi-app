@@ -10881,7 +10881,7 @@ function siteTablesAfter(origin, e) {
 // `picked` (2026-10-14): the answer was PRESSED from our own options, the only
 // reply that may never be read as conversation. A typed reply may be a side
 // question, and stays one.
-function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, key, picked) {
+function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, key, picked, split) {
   // THE BRIEF THE BUILD RUNS ON, not the message that was just typed. After a
   // clarify round `t` is "Book a time slot" and the real brief — "a barber shop
   // in Leeds" — is three messages back. Losing it here would build a site about
@@ -10992,6 +10992,9 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
       // THE PREVIEW'S DEVICE (2026-10-24, per-device edits): a hint for the
       // router; the customer's words decide which screens a change is for.
       device: typeof siteDevice === 'string' ? siteDevice : undefined,
+      // TOO BIG FOR ONE STEP, SENT AGAIN TO SPLIT ITSELF (owner, 2026-10-24):
+      // the step's reason, so the router splits it into parts (`climbed`).
+      split: !isBuild && split && typeof split === 'object' ? split : undefined,
       // ── THE CONVERSATION SO FAR, AND THE FILES BY NAME (2026-10-14) ───────
       // This project's own thread, never another's, without the message being
       // sent; the server windows it and says what it left out. The files go by
@@ -11210,7 +11213,19 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // page that is not there, an ask nobody could place, a failure of ours)
     // bought ~25 credits of rewritten pages and the same unanswered request.
     // Those are said now, for nothing, and the rewrite runs where it can help.
-    if (d.intent === 'edit' && site.slug) return siteEdit(site, d, run, origin, finish, (ho) => finish(EditPoll.climbSaid(ho)), sendImgs);
+    // ⚠ AND SINCE 2026-10-24 (later) A CHANGE TOO BIG FOR THE STEPS SPLITS
+    // ITSELF (owner: "split itself into smaller parts and carry on"): the same
+    // words are routed again with the step's reason (`split`), under a new
+    // key, so the server takes them on as a request of parts and this page
+    // shows them in its panel. Once only: a message already sent to split
+    // that climbs again is said (`climbSaid`), as are the reasons smaller
+    // parts cannot fix (`EditPoll.splitOf`).
+    const climbed = (ho) => {
+      const sp = !split ? EditPoll.splitOf(ho) : null;
+      if (sp) { siteRoute(siteById(origin) || site, run, origin, false, sendImgs, finish, undefined, undefined, EditPoll.newIdemKey(), false, sp); return; }
+      finish(EditPoll.climbSaid(ho));
+    };
+    if (d.intent === 'edit' && site.slug) return siteEdit(site, d, run, origin, finish, climbed, sendImgs);
     // THE MIDDLE RUNG. Adds a page or a table and keeps everything else; costs a
     // few credits where the revise below costs ~25 and rewrites pages that were
     // fine. Falls through to that revise only on the add-on route's own escalate
@@ -11219,7 +11234,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // A 3D MODEL THEY ASKED FOR (2026-10-22): its price first, and a button;
     // nothing is spent until it is pressed (`siteModel3dOffer`).
     if (d.intent === 'addon' && site.slug && d.model3d && typeof d.model3d.subject === 'string') return siteModel3dOffer(site, d.model3d, origin, finish, sendImgs);
-    if (d.intent === 'addon' && site.slug) return siteAddon(site, run, origin, finish, (ho) => finish(EditPoll.climbSaid(ho)), d, sendImgs);
+    if (d.intent === 'addon' && site.slug) return siteAddon(site, run, origin, finish, climbed, d, sendImgs);
     // A PHONE APP OF THE SITE (2026-10-20, owner: "it has to be through model
     // calls"): the router read the message as asking for one; the app builder makes it.
     if (d.intent === 'app' && site.slug) return siteMakeApp(site, d.platform, finish);

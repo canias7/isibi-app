@@ -231,6 +231,7 @@ function page({ answers = {}, onRender } = {}) {
     },
     waiting() { return held.map((h) => h.kind); },
     lines() { return reqs.map(line); },
+    splitPosts() { return reqs.filter((r) => r.kind === "route").map((r) => r.body && r.body.split); },
     said() { return s.msgs.filter((m) => m.r === "a").map((m) => m.t); },
     asked() { return s.msgs.filter((m) => m.r === "u").map((m) => m.t); },
     busy() { return ctx.siteBusy; },
@@ -496,21 +497,27 @@ test("a hop handed to the add-on releases the site when the add-on ends", async 
 // fallback). One hop, then up used to hand the ask to the rewrite; now the
 // climb is said at once, at no cost, and the site is free for the next message.
 const CLIMB_SAID = "That needs more than the quicker steps can make in one go, so I haven’t changed anything, and I won’t rewrite your whole site for it. Send it as smaller changes, one at a time (each page or section on its own), and I’ll make each.";
-test("a hop that climbs is said, never handed to the rewrite: nothing more is posted and the site is free at once", async () => {
-  const p = page({ answers: merge({ route: [routeTo("data")], edit: [ok(HOP), ok(HOP_PAGE)] }, MESSAGE_2) });
+// ⚠ RE-ANCHORED 2026-10-24 (auto-split, the owner's decision: a change too big
+// for the steps splits itself): the climb first routes the same words again,
+// once, with the step's reason (`split`); a second climb is said.
+const splitRoutes = (p) => p.splitPosts();
+test("a hop that climbs is routed again once to split itself, then said, never handed to the rewrite: the site is free at once", async () => {
+  const p = page({ answers: merge({ route: [routeTo("data"), routeTo("data")], edit: [ok(HOP), ok(HOP_PAGE), ok(HOP), ok(HOP_PAGE)] }, MESSAGE_2) });
   await p.send(M1);
-  const lines = ["route: " + M1, "edit data: " + M1, "edit text: " + M1];
+  const lines = ["route: " + M1, "edit data: " + M1, "edit text: " + M1, "route: " + M1, "edit data: " + M1, "edit text: " + M1];
   assert.deepEqual(p.lines(), lines, "the climb reached another route");
+  assert.deepEqual(splitRoutes(p), [undefined, { why: "climb", reason: "needs-place" }], "the second routing call did not carry the split ask");
   assert.deepEqual(p.said(), [CLIMB_SAID]);
   assertIdle(p, "after the climb was said");
   await thenMessage2(p, { lines, said: [CLIMB_SAID] });
 });
 
-test("a QUEUED hop that climbs is said, never handed to the rewrite: nothing more is posted and the site is free at once", async () => {
-  const p = page({ answers: merge({ route: [routeTo("data")], edit: [ok(HOP), receipt("job-hop")], poll: [stored(HOP_PAGE)] }, MESSAGE_2) });
+test("a QUEUED hop that climbs is routed again once to split itself, then said, never handed to the rewrite: the site is free at once", async () => {
+  const p = page({ answers: merge({ route: [routeTo("data"), routeTo("data")], edit: [ok(HOP), receipt("job-hop"), ok(HOP), receipt("job-hop2")], poll: [stored(HOP_PAGE), stored(HOP_PAGE)] }, MESSAGE_2) });
   await p.send(M1);
-  const lines = ["route: " + M1, "edit data: " + M1, "edit text: " + M1, "poll job-hop"];
+  const lines = ["route: " + M1, "edit data: " + M1, "edit text: " + M1, "poll job-hop", "route: " + M1, "edit data: " + M1, "edit text: " + M1, "poll job-hop2"];
   assert.deepEqual(p.lines(), lines, "the climb reached another route");
+  assert.deepEqual(splitRoutes(p), [undefined, { why: "climb", reason: "needs-place" }], "the second routing call did not carry the split ask");
   assert.deepEqual(p.said(), [CLIMB_SAID]);
   assertIdle(p, "after the climb was said");
   await thenMessage2(p, { lines, said: [CLIMB_SAID] });

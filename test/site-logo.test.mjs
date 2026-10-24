@@ -501,7 +501,7 @@ test("THE ROUTE IS REACHABLE AND THE CLIENT SENDS THE PICTURE", () => {
   // message's own (`sendImgs`), and an answered question adds its request's.
   assert.match(chat, /let sendImgs = Array\.isArray\(imgs\) \? imgs\.slice\(0, 3\) : \[\];/, "the work's files are not the message's own");
   // RE-ANCHORED 2026-10-24: its fallback is the said climb, never the rewrite (`go`).
-  assert.match(chat, /siteEdit\(site, d, run, origin, finish, \(ho\) => finish\(EditPoll\.climbSaid\(ho\)\), sendImgs\)/, "siteEdit is not given the attachments");
+  assert.match(chat, /siteEdit\(site, d, run, origin, finish, climbed, sendImgs\)/, "siteEdit is not given the attachments");
 });
 
 test("…and the router can name the layer", () => {

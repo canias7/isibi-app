@@ -269,7 +269,7 @@ import { routeMessage, routeDecision, routeFailure, clarifiedBrief, START_OVER_B
 // THE HAND-OVER (2026-10-02, the whole-router audit's batch 2): what travels when
 // work moves from one step to another — the parts put off, the scope, and why.
 import { readHandOver, handOverLine, heldReport, deferredOf } from "./builder/hand-over.mjs";
-import { loadAsk, storeAsk, storeAskIfFree, closeAsk, replaceAsk, askLive, packAsk, ASKER_RE, newAskId, askOf, readAsk, withQuestion, readContext, shownContext, repeatOf, appendAnswer, againNote, clarifyTransport, clarifyCall, MAX_NOTE_CHARS, MAX_SAME_ASK, MAX_ASKED } from "./builder/clarify.mjs";
+import { loadAsk, storeAsk, storeAskIfFree, closeAsk, replaceAsk, askLive, packAsk, ASKER_RE, newAskId, askOf, readAsk, withQuestion, readContext, shownContext, repeatOf, appendAnswer, againNote, clarifyTransport, clarifyCall, defaultedReport, MAX_NOTE_CHARS, MAX_SAME_ASK, MAX_ASKED } from "./builder/clarify.mjs";
 import { repliesOn, buildReplyFacts, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelReplyFacts, repeatNoteFacts, wideningFacts, requestReplyFacts, replyContext, writeReply, withReplyText, recentSuggestions, offMenuPages, REPLY_CALL_MS, REPLY_BG_CALL_MS, REPLY_BG_DEADLINE_MS, REPLY_BG_ATTEMPTS, REPLY_BG_RETRY_S, REPLY_LEASE_MS, REPLY_HORIZON_MS, REPLY_RETRY_GRACE_MS, readReplyRecord, replyNext, replyClaim, replyOutcomeOf, outcomeOf, outcomeReads } from "./builder/site-reply.mjs";
 // PROGRESS WHILE AN EDIT OR AN ADD-ON RUNS (2026-10-06): the milestones' facts,
 // the per-job record and its one writer's rules, the call and its check.
@@ -290,7 +290,7 @@ import {
 import {
   isRequestKey, requestFlowOn, recordKey as requestRecordKey, liveKey as requestLiveKey, fileKey as requestFileKey, requestReplyKey,
   parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ORPHAN_MARKER_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts, requestMaking,
-  nextStep, readLabels, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, heldPurchaseState, heldReasons, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, requestView, liveJobIds, stopPart, partJobId, appendParts, questionsToOffer, noteOffered,
+  nextStep, readLabels, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, heldPurchaseState, heldReasons, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, readSplit, requestView, liveJobIds, stopPart, partJobId, appendParts, questionsToOffer, noteOffered,
   approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt, editJobOutcome, answerless, wantsEvidence,
 } from "./builder/request.mjs";
 // ONE SIZE POLICY FOR WHAT A CUSTOMER SAYS ON A SITE THAT EXISTS (2026-10-03).
@@ -25453,6 +25453,10 @@ async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, 
   }
   const planned = planParts(message, out, { putOff: answered && ask.putOff ? ask.putOff : [] });
   if (!planned.ok) return null;
+  // A STANDALONE EDIT THAT WAS TOO BIG, SENT AGAIN BY ITS PAGE TO SPLIT ITSELF
+  // (owner, 2026-10-24): its parts have split once already, so each may split
+  // once more and no further (`SPLIT_MAX`).
+  if (readSplit(rb && rb.split)) for (const p of planned.parts) p.splitDepth = 1;
   // EVERY FILE THE MESSAGE CARRIES MUST READ (round 9), or it is not taken on
   // as a request that would hold fewer than it was sent: answered as before,
   // with the page still holding its files.
@@ -34545,6 +34549,11 @@ async function handleRequest(request, env, ctx) {
           // THE PREVIEW'S DEVICE (2026-10-24, per-device edits): a hint the
           // router is told; the customer's words decide. One of three names or none.
           device: readDeviceHint(rb && rb.device),
+          // TOO BIG FOR ONE STEP, ROUTED AGAIN TO SPLIT ITSELF (owner,
+          // 2026-10-24): a part's own ask (`partOf`'s `split`, set by the
+          // request), or a standalone edit's from its page after its step
+          // climbed — read strictly either way (`readSplit`).
+          split: rPart ? (rPart.split || null) : readSplit(rb && rb.split),
           // THE CONVERSATION SO FAR (2026-10-14): the page's own copy of this
           // project's thread, read and windowed by `readHistory` there.
           history: rb.history,
@@ -34891,7 +34900,9 @@ async function handleRequest(request, env, ctx) {
         // A CARVED PART'S ROUTING IS NOT CHARGED (2026-10-23, fix-edit-flow):
         // the message's routing already described it (`partOf`'s `carved`,
         // set by the request, never by a caller). Live: 3 credits, nothing done.
-        if (rJob && rPart && rPart.carved === true) rCost = 0;
+        // …NOR A PART ROUTED AGAIN TO SPLIT ITSELF (2026-10-24): its words were
+        // routed and paid for once; the split is ours, never charged twice.
+        if (rJob && rPart && (rPart.carved === true || !!rPart.split)) rCost = 0;
         else if (rJob) {
           try {
             const rr = rCost > 0 ? await editRpc(env, "edit_reserve", { p_id: rJob.id, p_seq: 1, p_cost: rCost }) : null;
@@ -36291,6 +36302,8 @@ async function handleRequest(request, env, ctx) {
             // every exit is a `return` inside it, and its last statement is an
             // unconditional reply, so the wrapper always has one to report on.
             const eHeldOut = { parts: [], earlier: [] };
+            // WHAT A STEP ASSUMED INSTEAD OF ASKING AFTER A CHARGE (2026-10-24, `defaultedReport`).
+            const eDefaulted = [];
             // ── AND A STEP'S QUESTION IS KEPT THERE TOO (2026-10-02) ───────
             //
             // A step that asked instead of acting (`stepAsk`) writes nothing;
@@ -36306,7 +36319,7 @@ async function handleRequest(request, env, ctx) {
             // other part of the ending has run; a queued job keeps what the
             // reply needs instead, and the poll writes it.
             const eReplyOut = replyAsked({}, { slug: ownerSlug, job: false });
-            return replyEnding(env, await askReport(env, await heldReport(await (async () => {
+            return replyEnding(env, await askReport(env, await heldReport(await defaultedReport(await (async () => {
             // ── THE EDIT LANE ─────────────────────────────────────────────
             //
             // Two layers live here and neither runs the page generator, which
@@ -36450,10 +36463,20 @@ async function handleRequest(request, env, ctx) {
             // `ctx` FIXES WHAT ONE CALL IS SHOWN (2026-10-11): a call started
             // beside others (the look door's lanes) is shown its own answers,
             // never whichever `eCtx` the loop has moved on to.
+            // HAS THIS REQUEST BEEN CHARGED YET (2026-10-24, the owner: no question
+            // after a charge)? A reserve that landed on the job, or a synchronous
+            // collect that took credits. Once it has, every call below is sent with
+            // no question offered and states what it assumed (`clarifyTransport`).
+            // Read late (the ledger is declared below), and false when it cannot say.
+            // …OR AN EARLIER JOB OF THE SAME REQUEST WAS (2026-10-24, auto-split:
+            // the request carries it, `partOf`'s `charged`, set by the request,
+            // never by a caller): a later part asks nothing either.
+            const eChargedYet = () => { try { if (ePart && ePart.charged === true) return true; return eJob ? (typeof eJob.reserves === "function" && eJob.reserves() > 0) : syncLedger.taken > 0; } catch { return false; } };
+            const eReplayHas = (r) => (eJob && eJob.prepare !== true && eJob.replay && typeof eJob.replay.has === "function" ? eJob.replay.has(r) : false);
             const eQuick = (what = "", ctx) => clarifyTransport(jobSend(eJob, quickSend(env, what, eJob && eJob.budget)), {
               shown: () => (ctx !== undefined ? ctx : eCtx),
               all: () => eCtxAll || [],
-              part: ePartShown,
+              part: ePartShown, charged: eChargedYet, replayHas: eReplayHas, onDefault: (d) => { eDefaulted.push(...d); },
               onReuse: (hit) => { try { if (editTrace) editTrace.mark("clarify:reuse", "ok", { what, answers: hit.length }); } catch { /* the record never costs the job */ } },
             });
             // THE BLACK BOX STARTS HERE — see `editTrace` where it is declared.
@@ -41259,7 +41282,7 @@ async function handleRequest(request, env, ctx) {
               // THE PAGE WRITER, KEPT CALLABLE (round 2 of the retry rule): its last
               // request and answer are recorded (`pRec`) so an answer that failed the
               // checks below can be asked once more with the reason (`pWrite`).
-              const pInner = clarifyCall(jobCall(eJob, pagesCall(env)), { shown: () => eCtx, all: () => eCtxAll || [], part: ePartShown });
+              const pInner = clarifyCall(jobCall(eJob, pagesCall(env)), { shown: () => eCtx, all: () => eCtxAll || [], part: ePartShown, charged: eChargedYet, replayHas: eReplayHas, onDefault: (d) => { eDefaulted.push(...d); } });
               const pRec = recordCall(pInner);
               let pWrite = null;
               try {
@@ -42790,7 +42813,7 @@ async function handleRequest(request, env, ctx) {
               return Response.json(merged, { status: 422 });
             }
             return Response.json(merged);
-            })(), eHeldOut.parts, eHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: eAskOut.round, held: [...new Set([...eHeldOut.earlier, ...eHeldOut.parts])], request: eAskOut.request, attached: eAskOut.attached, context: eAskOut.context, picker: eReplyOut.picker, requestKey: eAskOut.requestKey, part: eAskOut.part, prep: eAskOut.prep === true }), "edit", eReplyOut);
+            })(), eDefaulted), eHeldOut.parts, eHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: eAskOut.round, held: [...new Set([...eHeldOut.earlier, ...eHeldOut.parts])], request: eAskOut.request, attached: eAskOut.attached, context: eAskOut.context, picker: eReplyOut.picker, requestKey: eAskOut.requestKey, part: eAskOut.part, prep: eAskOut.prep === true }), "edit", eReplyOut);
           }
 
           if (ad) {
@@ -42799,6 +42822,8 @@ async function handleRequest(request, env, ctx) {
             // the held-back part on its successes only. The body is not
             // re-indented; every exit is a `return` inside it.
             const aHeldOut = { parts: [], earlier: [] };
+            // WHAT A STEP ASSUMED INSTEAD OF ASKING AFTER A CHARGE (2026-10-24, `defaultedReport`).
+            const aDefaulted = [];
             // AND A QUESTION THE PICKER ASKED IS KEPT THERE TOO (2026-10-02,
             // `askReport`, the edit route's own ending), with every answer the
             // request carries: nothing of an addition is applied before a
@@ -42809,7 +42834,7 @@ async function handleRequest(request, env, ctx) {
             // THE PHOTOGRAPHS BEGUN BESIDE THE PAGE WRITER (2026-10-11): every
             // way out of this route ends with them accounted for (`earlyPhotosEnd`).
             const aEarlyPhotos = { task: null, prep: false, clock: null };
-            return replyEnding(env, await askReport(env, await heldReport(await earlyPhotosEnd(aEarlyPhotos, await (async () => {
+            return replyEnding(env, await askReport(env, await heldReport(await defaultedReport(await earlyPhotosEnd(aEarlyPhotos, await (async () => {
             // ── THE ADDON LANE ────────────────────────────────────────────
             //
             // The rung between edit and build: add a page the site does not
@@ -42970,10 +42995,16 @@ async function handleRequest(request, env, ctx) {
             };
             // `opts.refusals`: this call handles a prior refusal — only the
             // add-on designer's first request does (`aPriorOf`).
+            // HAS THIS ADDITION BEEN CHARGED YET (2026-10-24): a reserve that landed
+            // on the job (the row step, or the first reserve before the page
+            // writer). Synchronously the collect comes after the work, so never.
+            // …OR AN EARLIER JOB OF THE SAME REQUEST WAS (2026-10-24, `partOf`'s `charged`).
+            const aChargedYet = () => { try { if (aPart && aPart.charged === true) return true; return !!aJob && typeof aJob.reserves === "function" && aJob.reserves() > 0; } catch { return false; } };
+            const aReplayHas = (r) => (aJob && aJob.prepare !== true && aJob.replay && typeof aJob.replay.has === "function" ? aJob.replay.has(r) : false);
             const aQuick = (what = "", opts) => clarifyTransport(aCounted(jobSend(aJob, quickSend(env, what, aJob && aJob.budget), opts)), {
               shown: () => aShownTo(what),
               all: () => aCtxAll || [],
-              part: aPartShown,
+              part: aPartShown, charged: aChargedYet, replayHas: aReplayHas, onDefault: (d) => { aDefaulted.push(...d); },
               onReuse: (hit) => { try { if (editTrace) editTrace.mark("clarify:reuse", "ok", { what, answers: hit.length }); } catch { /* the record never costs the job */ } },
             });
             // THE BLACK BOX, the edit route's own: every phase marks itself,
@@ -46416,7 +46447,7 @@ async function handleRequest(request, env, ctx) {
             const aRecs = [];
             let aWriterRetry = null, aWriterFirstUsage = null, aWriterRetried = false;
             const aCallFor = (i) => {
-              const inner = clarifyCall(jobCall(aJob, pagesCall(env)), { shown: () => aCtxShown, all: () => aCtxAll || [], part: aPartShown });
+              const inner = clarifyCall(jobCall(aJob, pagesCall(env)), { shown: () => aCtxShown, all: () => aCtxAll || [], part: aPartShown, charged: aChargedYet, replayHas: aReplayHas, onDefault: (d) => { aDefaulted.push(...d); } });
               if (aWriterRetry && aRecs[i] && aRecs[i].last) return aRecs[i].again(aWriterRetry.text, inner);
               aRecs[i] = recordCall(inner);
               return aRecs[i].call;
@@ -48737,7 +48768,7 @@ async function handleRequest(request, env, ctx) {
               } : undefined,
               cost: aCost,
             });
-            })()), aHeldOut.parts, aHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: aAskOut.round, held: [...new Set([...aHeldOut.earlier, ...aHeldOut.parts])], request: aAskOut.request, attached: aAskOut.attached, context: aAskOut.context, picker: aReplyOut.picker, requestKey: aAskOut.requestKey, part: aAskOut.part, prep: aAskOut.prep === true }), "addon", aReplyOut);
+            })()), aDefaulted), aHeldOut.parts, aHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: aAskOut.round, held: [...new Set([...aHeldOut.earlier, ...aHeldOut.parts])], request: aAskOut.request, attached: aAskOut.attached, context: aAskOut.context, picker: aReplyOut.picker, requestKey: aAskOut.requestKey, part: aAskOut.part, prep: aAskOut.prep === true }), "addon", aReplyOut);
           }
           if (tx) {
             // ── CHANGING THE WORDS, WITH NO MODEL CALL ────────────────────

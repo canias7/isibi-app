@@ -99,7 +99,7 @@ import {
   MAX_OPTIONS, MIN_OPTIONS, readAsk, usableAsk, heldList, EDIT_LAYERS,
   MAX_ASKED, MAX_HISTORY, MAX_SAME_ASK, MAX_ANSWER_CHARS, MAX_NOTE_CHARS, CONTEXT_HEADING,
   readContext, shownContext, repeatOf, appendAnswer, contextBlock, withContext, reuseNote, withReuse, againNote,
-  withPart,
+  withPart, withNote,
 } from "./site-ask.mjs";
 
 // The question's reader is the router's own, so the router and every step hold
@@ -143,7 +143,9 @@ export const QUESTION_FIELD = Object.freeze({
     "ONLY WHEN YOU CANNOT DO THIS WITHOUT ONE DETAIL THEY LEFT OUT, and nothing you were shown settles it — " +
     "which of several things they mean, or what should happen to it. Then ask them that one thing here and " +
     "leave the rest of your answer empty: nothing is changed until they reply. Never ask to check that they " +
-    "meant it, never for something you can see, never for a choice you can make sensibly yourself, and never " +
+    "meant it, never for something you can see, never for a choice you can make sensibly yourself, never for " +
+    "anything the site you were shown or their own words already answer or imply (where a link or button " +
+    "should lead, how something should be worded, how it should look or be laid out): work it out and act, and never " +
     "what they already answered (WHAT THEY ALREADY TOLD YOU); if that left it open, ask a more specific " +
     "question naming what is open. When you can act, act and leave this out.",
   properties: {
@@ -292,10 +294,11 @@ export function packAsk({ id, uid, slug, stage, round, question, request, held =
  * part's words refer to. `null` for an ordinary message, whose requests are
  * byte-identical to what they were.
  */
-export function clarifyTransport(send, { shown = () => [], all = () => [], onReuse = null, part = () => null } = {}) {
+export function clarifyTransport(send, { shown = () => [], all = () => [], onReuse = null, part = () => null, charged = null, onDefault = null, replayHas = null } = {}) {
   return async (request) => {
     const every = readContext(all()) || [];
     const req = withPart(withContext(request, shown()), typeof part === "function" ? part() : null);
+    if (chargedNow(charged)) return defaultingCall(send, req, onDefault, replayHas);
     const reply = await send(req);
     const ask = askOf(reply);
     const hit = ask ? repeatOf(every, ask) : [];
@@ -303,6 +306,150 @@ export function clarifyTransport(send, { shown = () => [], all = () => [], onReu
     if (typeof onReuse === "function") { try { onReuse(hit); } catch { /* the trace never costs the call */ } }
     return send(withReuse(req, hit));
   };
+}
+
+// ── NO QUESTION AFTER A CHARGE (owner, 2026-10-24) ─────────────────────────
+//
+// Owner: *"the model may ask the customer a question only BEFORE anything is
+// charged; once work has been charged, it must not stop to ask — it goes ahead
+// with a sensible stated default and says so."* Three add-on page writers
+// asked about design choices after 12–13 credits were reserved
+// (docs/plans/2026-10-24-model-wrong-failures.md §3).
+//
+// `charged()` is the route's own reading of its ledger (a reserve that landed
+// on the job, or a synchronous collect that took credits). Once it is true,
+// every call through this transport is sent WITHOUT the question field
+// (`noAskRequest`): in its place each tool carries `defaulted`, where the
+// model states what it chose for a detail that was left out. What it states
+// is heard (`onDefault`) and becomes a fact the reply says ("I used X; tell
+// me if you'd prefer Y"). A model that asks anyway (it was not offered the
+// field) is not shown to the customer: it is sent once more, told it cannot
+// ask and which answer to go ahead with — its own first offered answer — and
+// that default is recorded even if it states none. Only a reply that STILL
+// asks is returned with its question, so the step ends in a question and the
+// route charges nothing for it (an answer that is not ok is refunded).
+// Before any charge nothing here changes: the question field is offered as
+// it always was.
+
+/** What a model may state it assumed: at most this many entries, each at most this long. */
+export const MAX_DEFAULTED = 6;
+export const MAX_DEFAULTED_CHARS = 300;
+
+/** The field that takes the question's place once work is charged. */
+export const DEFAULTED_FIELD = Object.freeze({
+  type: "array",
+  maxItems: MAX_DEFAULTED,
+  description:
+    "THEY CANNOT BE ASKED ANYTHING NOW: work on this request has already started and been charged. Where a detail " +
+    "you need was left out and nothing you were shown settles it, choose the most sensible option yourself — from " +
+    "the site you were shown, its existing pages, wording and look, and their message — act on it, and record " +
+    "each such choice here so they are told and can change it. Leave this out when you assumed nothing.",
+  items: {
+    type: "object",
+    properties: {
+      assumed: { type: "string", description: "What you chose, in a few plain words written to them (\"a two-column layout\")." },
+      instead: { type: "string", description: "Optional: the most likely other choice they might prefer, in a few words." },
+    },
+    required: ["assumed"],
+  },
+});
+
+function chargedNow(charged) {
+  if (typeof charged !== "function") return false;
+  try { return charged() === true; } catch { return false; }
+}
+
+/** The same request with no question offered: every tool's `question` swapped for `defaulted`. */
+export function noAskRequest(request) {
+  if (!request || typeof request !== "object" || !Array.isArray(request.tools)) return request;
+  let touched = false;
+  const tools = request.tools.map((t) => {
+    const schema = t && t.input_schema;
+    const props = schema && schema.properties;
+    if (!props || !Object.hasOwn(props, "question")) return t;
+    touched = true;
+    const { question: _q, ...rest } = props;
+    const required = Array.isArray(schema.required) ? schema.required.filter((r) => r !== "question") : schema.required;
+    return { ...t, input_schema: { ...schema, properties: { ...rest, defaulted: DEFAULTED_FIELD }, ...(required === undefined ? {} : { required }) } };
+  });
+  return touched ? { ...request, tools } : request;
+}
+
+const flatLine = (s, n) => (typeof s === "string" ? s.replace(/\s+/g, " ").trim().slice(0, n) : "");
+
+/** What a reply states it assumed (`defaulted`), each entry checked; [] when none or unreadable. */
+export function defaultedOf(reply) {
+  const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
+  const use = blocks.find((b) => b && b.type === "tool_use");
+  const list = use && use.input && Array.isArray(use.input.defaulted) ? use.input.defaulted : [];
+  const out = [];
+  for (const d of list.slice(0, MAX_DEFAULTED)) {
+    const assumed = d && typeof d === "object" ? flatLine(d.assumed, MAX_DEFAULTED_CHARS) : typeof d === "string" ? flatLine(d, MAX_DEFAULTED_CHARS) : "";
+    if (!assumed) continue;
+    const instead = d && typeof d === "object" ? flatLine(d.instead, MAX_DEFAULTED_CHARS) : "";
+    out.push({ assumed, ...(instead ? { instead } : {}) });
+  }
+  return out;
+}
+
+/** The note a model that asked after a charge is sent again with. */
+export function defaultNote(ask) {
+  const q = ask && typeof ask.text === "string" ? ask.text : "";
+  const first = ask && Array.isArray(ask.options) && typeof ask.options[0] === "string" ? ask.options[0] : "";
+  return "THEY CANNOT BE ASKED ANYTHING NOW: work on this request has already been charged, so do not ask. " +
+    (q ? "You wanted to ask: “" + q + "”. " : "") +
+    (first ? "Go ahead with “" + first + "” unless the site or their message clearly points to another choice, " : "Choose the most sensible option from the site and their message, ") +
+    "act on it now, and record what you chose in `defaulted`.";
+}
+
+// A CALL PREPARED BEFORE THE CHARGE (a later step's model work, made while an
+// earlier step ran, `builder/prepared.mjs`) was made with its question field
+// offered, and is replayed only for that exact request. `replayHas(req)` says
+// whether the record holds it: then it is sent as prepared (answered from the
+// record, nothing spent) and a question in it takes the same road as any
+// other below. Every request that reaches a model after a charge carries no
+// question field.
+async function preparedFirst(replayHas, req) {
+  if (typeof replayHas !== "function") return false;
+  try { return (await replayHas(req)) === true; } catch { return false; }
+}
+
+async function defaultingCall(send, req, onDefault, replayHas) {
+  const offered = noAskRequest(req);
+  let reply = await send((await preparedFirst(replayHas, req)) ? req : offered);
+  let ask = askOf(reply);
+  const heard = defaultedOf(reply);
+  if (ask) {
+    reply = await send(withNote(offered, defaultNote(ask)));
+    if (askOf(reply)) return reply;
+    const again = defaultedOf(reply);
+    const first = Array.isArray(ask.options) && typeof ask.options[0] === "string" ? flatLine(ask.options[0], MAX_DEFAULTED_CHARS) : "";
+    const second = Array.isArray(ask.options) && typeof ask.options[1] === "string" ? flatLine(ask.options[1], MAX_DEFAULTED_CHARS) : "";
+    heard.length = 0;
+    heard.push(...(again.length ? again : first ? [{ assumed: first, ...(second ? { instead: second } : {}) }] : []));
+    ask = null;
+  }
+  if (heard.length && typeof onDefault === "function") { try { onDefault(heard.slice()); } catch { /* the record never costs the call */ } }
+  return reply;
+}
+
+/**
+ * THE ROUTE'S ANSWER WITH WHAT WAS ASSUMED ON IT (`defaulted`), for the reply
+ * writer (`defaultedFact` in site-reply.mjs). Only on an answer that is ok —
+ * an assumption behind work that did not ship is nothing to tell — and only
+ * when something was assumed; otherwise the answer is returned as it came.
+ */
+export async function defaultedReport(res, list) {
+  const got = Array.isArray(list) ? list.filter((d) => d && typeof d.assumed === "string" && d.assumed) : [];
+  if (!got.length || !res || !res.headers || !String(res.headers.get("content-type") || "").includes("application/json")) return res;
+  let body;
+  try { body = await res.clone().json(); } catch { return res; }
+  if (!body || typeof body !== "object" || Array.isArray(body) || body.ok !== true) return res;
+  const seen = new Set();
+  const defaulted = got.filter((d) => { const k = d.assumed + "\u0000" + (d.instead || ""); if (seen.has(k)) return false; seen.add(k); return true; });
+  const headers = new Headers(res.headers);
+  headers.delete("content-length");
+  return new Response(JSON.stringify({ ...body, defaulted }), { status: res.status, headers });
 }
 
 /** The same, for a call shaped `(keys, request, budget)` — the page writer's. */

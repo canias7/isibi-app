@@ -1425,3 +1425,33 @@ with the tables and functions it uses. Record: `docs/history/2026-10-24-addon-un
 - **The visual review runs only for front-end changes** (owner, 2026-10-24): *"only when you're changing the front end … if you're changing … the back end, like the database … you don't need it"*. Decided from the files a change really alters (pages, parts, stylesheet, theme, logo), never from the request's words; data rows, rules, tables, functions, schedules, settings and restores are never reviewed.
 - **Retry once with the check's own reason** (owner, 2026-10-24): wherever a model's answer fails an exact check, send the same request once more with the model's previous answer and the failed check in plain words, at the **same effort and on the same model** (do not raise effort or switch model), then the existing refusal or climb. One retry only. Record: `docs/history/2026-10-24-retry-with-reason.md`.
 - **A task never fails completely without at least one retry** (owner, 2026-10-24): small AI imperfections are acceptable (a slightly different colour, a word off), but every model-driven step that would end a task as failed, refused or not done gets at least one retry first (same model, same effort, with the reason). Exclusions: provider outages (handled by the provider-wait work), our own account errors (billing, keys), and a request that is genuinely impossible (an honest refusal).
+
+## A change too big for the smaller steps splits itself (2026-10-24)
+
+Owner: an edit or add-on that is too big for the smaller steps should **split
+itself into smaller parts and carry on, instead of stopping**; the customer
+never has to resend. **So: when a step says a change is too big, the request
+routes that part again, tells the router the step's reason and asks it for
+parts it can do; those parts run as any parts do (their order, the panel's
+rows, each charged as usual); a standalone edit is sent again by its page and
+becomes a request of parts.** Nothing already done is redone and nothing is
+charged twice (the split routing and a carved part's routing are free). A part
+that comes back too big again may split once more; beyond that it ends
+honestly with the step's reason. Reasons smaller parts cannot fix (a change of
+what kind of site it is, a site without its saved design, a site with no
+pages) end as before, and the full rewrite is never offered for any of it.
+Record: `docs/history/2026-10-24-auto-split-edits.md`.
+
+## No question after a charge (2026-10-24)
+
+Owner: *"the model may ask the customer a question only BEFORE anything is
+charged; once work has been charged, it must not stop to ask — it goes ahead
+with a sensible stated default and says so in the reply facts."* So the router,
+the build's design and page questions, and an edit or add-on step that runs
+before any reserve or collect keep their question; every model call made after
+the request's first charge is sent with no question field, chooses a sensible
+default from the site and the message, and the reply says what was assumed
+("I used X; tell me if you'd prefer Y"). A step that still asks after that is
+never charged for it. Questions must never ask for what the site or the
+message already answers or implies. Record:
+`docs/history/2026-10-24-no-ask-after-charge.md`.

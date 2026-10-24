@@ -79,7 +79,7 @@ for (const mode of ["sync", "job"]) {
           { fields: ["images"], scopes: [{ part: "images", words: PHOTO, answers: [1, 2] }] },
         ],
         [T.tweak]: { source: HOME_BIG },
-        [PIC]: (args, n) => (n === 0 ? { pictures: [], question: QPIC } : { pictures: [{ page: "contact.tsx", alt: "The shop front at dawn", focus: "top" }] }),
+        [PIC]: (args, n) => (n <= 1 ? /* asks even when told it cannot (after the heading's charge, 2026-10-24) */ { pictures: [], question: QPIC } : { pictures: [{ page: "contact.tsx", alt: "The shop front at dawn", focus: "top" }] }),
       }, async (seen) => {
         // THE ROUTER ASKS WHICH PHOTO; THE ANSWER RIDES BESIDE THE REQUEST.
         const a = (await routeCall(worker, envFor(store), { slug, message: MESSAGE })).body;
@@ -120,7 +120,7 @@ for (const mode of ["sync", "job"]) {
         assert.equal(r2.body.ok, true, "the resumed photo change did not run: " + JSON.stringify(r2.body).slice(0, 400));
         assert.equal(seen.inputs[T.tweak].length, 1, "the heading that ran was written again on the answer");
         assert.ok(!seen.inputs[T.pick][1].includes(HEADING), "the resumed picker was shown the heading that ran");
-        assert.ok(seen.inputs[PIC][1].endsWith(contextBlock([CONTACT_ANSWER, { q: QPIC.text, a: "The sign" }])), "the photo step was not shown both answers on the resumed request");
+        assert.ok(seen.inputs[PIC].at(-1).endsWith(contextBlock([CONTACT_ANSWER, { q: QPIC.text, a: "The sign" }])), "the photo step was not shown both answers on the resumed request");
         assert.equal(focusOf(storedPage(store, slug, "contact.tsx")), "top", "the photo change was not made on the answer");
         assert.equal(storedPage(store, slug, "index.tsx"), HOME_BIG, "the heading moved again");
         assert.equal(charged(seen, m1), 2, "the answer's routing call and the photo step — and the heading not charged again");
@@ -161,8 +161,8 @@ test("SEVERAL UNFINISHED OPERATIONS NEED DIFFERENT EARLIER ANSWERS: each step's 
           { part: "images", words: PHOTO, answers: [2] },
         ] },
       ],
-      [T.tweak]: (args, n) => [{ source: HOME_BIG }, { source: "", question: QMOVE }, { source: VISIT_MOVED }][n],
-      [PIC]: (args, n) => (n === 0 ? { pictures: [], question: QPIC } : { pictures: [{ page: "contact.tsx", alt: "The shop front at dawn", focus: "top" }] }),
+      [T.tweak]: (args, n) => [{ source: HOME_BIG }, { source: "", question: QMOVE }, { source: "", question: QMOVE }, { source: VISIT_MOVED }][n] /* the move asks even when told it cannot (2026-10-24) */,
+      [PIC]: (args, n) => (n <= 1 ? /* asks even when told it cannot (2026-10-24) */ { pictures: [], question: QPIC } : { pictures: [{ page: "contact.tsx", alt: "The shop front at dawn", focus: "top" }] }),
       route: { intent: "edit", layer: "look", answered: true },
     }, async (seen) => {
       const m0 = marks(seen);
@@ -192,9 +192,9 @@ test("SEVERAL UNFINISHED OPERATIONS NEED DIFFERENT EARLIER ANSWERS: each step's 
       assert.equal(r2.body.ok, true, JSON.stringify(r2.body).slice(0, 400));
       assert.ok(seen.inputs[T.pick][1].endsWith(contextBlock([BAND, WHICH_PHOTO, asked])), "the resumed picker was not shown exactly the answers still for the request");
       assert.ok(!seen.inputs[T.pick][1].includes(HOW_BIG.a), "the resumed picker was shown the finished change's answer");
-      assert.ok(seen.inputs[T.tweak][2].endsWith(contextBlock([BAND, asked])), "the resumed move was not shown its own two answers");
-      assert.ok(seen.inputs[PIC][1].endsWith(contextBlock([WHICH_PHOTO])), "the resumed photo step was not shown its own answer");
-      assert.equal(seen.inputs[T.tweak].length, 3, "the heading was written again");
+      assert.ok(seen.inputs[T.tweak].at(-1).endsWith(contextBlock([BAND, asked])), "the resumed move was not shown its own two answers");
+      assert.ok(seen.inputs[PIC].at(-1).endsWith(contextBlock([WHICH_PHOTO])), "the resumed photo step was not shown its own answer");
+      assert.equal(seen.inputs[T.tweak].length, 4, "the heading was written again");
       assert.equal(storedPage(store, slug, "visit.tsx"), VISIT_MOVED);
       assert.equal(focusOf(storedPage(store, slug, "contact.tsx")), "top");
     }, { slug });

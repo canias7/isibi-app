@@ -1213,12 +1213,28 @@ export function editReplyFacts(e, { routedCost = null, inRequest = false, partWo
     }
   }
   if (e.ok === true) compileRepairFact(F, e.compileRepaired);
+  if (e.ok === true) defaultedFact(F, e.defaulted);
   if (e.ok === true) salvageFact(F, e.salvaged, e.salvageRefund);
   if (e.ok === true) visualReviewFact(F, e.visualReview);
   if (e.ok === true) heldDraftFact(F, e);
   heldFacts(F, e, e.ok === true, inRequest === true, { partWords, carved });
   questionFact(F, e.clarify);
   return questionOnly(F.out) ? { skip: "question-only", facts: [] } : { skip: null, facts: F.out };
+}
+
+/**
+ * WHAT A STEP ASSUMED INSTEAD OF ASKING (2026-10-24, no questions after a
+ * charge): each choice the model stated (`defaulted`, `clarifyTransport`),
+ * said as a note the reply must cover — what was used, and that they can ask
+ * for the other choice. Nothing when nothing was assumed.
+ */
+export function defaultedFact(F, list) {
+  (Array.isArray(list) ? list : []).forEach((d, i) => {
+    if (!d || typeof d.assumed !== "string" || !d.assumed.trim()) return;
+    const other = typeof d.instead === "string" && d.instead.trim() ? d.instead.trim() : "";
+    F.add("note", "A detail was not given, so the builder chose it rather than stop to ask: it used " + quote(d.assumed.trim()) +
+      (other ? "; say that they can have " + quote(other) + " instead by asking" : "; say that they can ask for something else") + ".", "defaulted:" + i);
+  });
 }
 
 /**
@@ -1499,6 +1515,7 @@ export function addonReplyFacts(a, { routedCost = null, inRequest = false, partW
     if (routedCost !== null && num(routedCost) > 0) F.add("money", "Reading their message cost " + count(num(routedCost), "credit") + ".");
   }
   if (a.ok === true) compileRepairFact(F, a.compileRepaired);
+  if (a.ok === true) defaultedFact(F, a.defaulted);
   if (a.ok === true) salvageFact(F, a.salvaged, a.salvageRefund);
   if (a.ok === true) visualReviewFact(F, a.visualReview);
   if (a.ok === true) heldDraftFact(F, a);
