@@ -1626,7 +1626,7 @@ test("THE ROUTE RUNS THE ADD STEP WHERE IT RAN THE BUILD'S DESIGNER, and folds w
   assert.match(b.slice(pick, hop), /model: aModels\.quick/, "the picker is not on the picked model");
   assert.match(b.slice(run, clean), /model: aModels\.quick/, "an add is not on the picked model");
   assert.match(b.slice(run, clean), /if \(ran\.usage\) aDesignUsage\.push\(ran\.usage\);/, "an add's usage is not billed");
-  assert.match(b, /pageCredits\(\.\.\.aDesignUsage, aGen && aGen\.usage, aSeedUsage\)/, "the picker's and the adds' usages are not on the one bill");
+  assert.match(b, /pageCredits\(\.\.\.aDesignUsage, aGen && aGen\.usage, aSeedUsage(?:, aPick && aPick\.usage)?\)/, "the picker's and the adds' usages are not on the one bill");
   // A cleaner's refusal and a declined step are sentences, never climbs.
   assert.match(b.slice(clean, fold), /addRefusal\(clean\.why, k\)/, "a refused answer is not told to the customer");
   assert.match(b.slice(clean, fold), /if \(!aAnswers\.length\) \{/, "every kind declining is not a named answer");
