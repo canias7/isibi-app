@@ -3211,3 +3211,15 @@ reel). To do near the end: check what's in it, its license and reputation, and
 whether any of it safely improves our security scan or tests OUR OWN platform
 and test sites. Attack tools only ever against what we own or may test, never
 customers' live sites without permission. Not looked at yet.
+
+## Per-site handoff note for the builder (owner, 2026-10-24: "note that for later")
+
+From a video on handoff.md (Goal, Current state, Active files, Changes made,
+Failed attempts, Next steps). For the builder, not for Claude: a short note per
+site, updated after each request, sent to the model in place of the older chat
+once a chat gets long (e.g. past 20 messages), with the recent messages kept.
+Facts from the system (pages, tables, draft/live, changes from job records,
+failures and pending parts from request records); the model writes only the
+goal and the customer's preferences. Cheaper, faster, no forgotten or stale
+wishes; feeds #23 (long-chat summary) and next-step hints. ~3–5 days offline.
+To discuss with the owner first.
