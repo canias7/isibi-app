@@ -241,7 +241,7 @@ test("R6 the sections are said by the plan's own lines: all of them as they star
   const lines = ["Welcome banner with the bakery name", "The menu with prices", "Opening hours"];
   const start = texts(sectionStartFacts(lines));
   assert.match(start, /Now writing the page's 3 sections, all at the same time: 1\) Welcome banner with the bakery name; 2\) The menu with prices; 3\) Opening hours\. None is finished yet\./);
-  assert.match(texts(sectionDoneFacts(["The menu with prices"], 2, 3)), /Finished writing the section: The menu with prices \(2 of 3 done\)\. Not published yet\./);
+  assert.match(texts(sectionDoneFacts(["The menu with prices"], 2, 3)), /Finished writing the section: The menu with prices \(2 of 3 done\)\./);
   assert.deepEqual(sectionDoneFacts(["The menu with prices"], 2, 3).map((f) => f.state), ["prepared"]);
   assert.deepEqual(sectionStartFacts([]), []);
   assert.deepEqual(sectionDoneFacts([], 1, 3), []);
@@ -317,7 +317,9 @@ test("R8 each container build step has its own line, and an unknown step says no
     assert.equal(f.length, 1, st);
     assert.equal(f[0].state, "doing");
     assert.match(f[0].text, re);
-    assert.match(f[0].text, /Not published yet\./);
+    // THE VOICE (2026-10-23): no tail repeated on every line; the publish
+    // status is said once, by the step that publishes or saves the draft.
+    assert.doesNotMatch(f[0].text, /published/i);
   }
   for (const quiet of ["unknown", "", null, "preMs"]) assert.deepEqual(compileStageFacts(quiet), [], String(quiet));
 });

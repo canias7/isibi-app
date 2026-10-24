@@ -103,7 +103,7 @@ import { checklistFromDesign } from "./builder/build-checklist.mjs";
 import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { quickChecks } from "./site-security.mjs";
 import { deepScan, planScan } from "./builder/security-scan.mjs";
-import { securityOfferFacts, securityWorkingFacts, securityReportFacts, securityProgressFacts } from "./builder/security-say.mjs";
+import { securityOfferFacts, securityWorkingFacts, securityReportFacts, securityProgressFacts, SCAN_LINE_RULE, scanLineRule } from "./builder/security-say.mjs";
 import { OFFLINE_COLUMN, siteOffline, offlineStamp } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, STOPPED_FREE_MSG, STOPPED_SHORT_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE, carryPanelFields, keepPanelDescription } from "./site-meta.mjs";
@@ -48609,8 +48609,10 @@ async function handleRequest(request, env, ctx) {
               let wrote = false;
               for (const ev of evs) {
                 if (typeof ev.line === "string") continue;
+                // THE LINES ALREADY SHOWN go with each new one (2026-10-23,
+                // the owner's voice), so no line repeats an earlier one.
                 const facts = securityProgressFacts(ev.kind, ev.data);
-                ev.line = facts ? (await scanSay(facts, "", url.searchParams.get("picker"), "WRITE ONE SHORT LINE, UNDER 120 CHARACTERS, SHOWN WHILE THE CHECK RUNS.", 160)) || "" : "";
+                ev.line = facts ? (await scanSay(facts, "", url.searchParams.get("picker"), scanLineRule(evs.map((e) => e.line)), 160)) || "" : "";
                 wrote = true;
               }
               if (wrote) { try { await env.SITES_BUCKET.put(progKey(k), JSON.stringify(rec)); } catch { /* worded again next read */ } }
@@ -48632,7 +48634,7 @@ async function handleRequest(request, env, ctx) {
                 const words = url.searchParams.get("message") || "";
                 [said, working] = await Promise.all([
                   scanSay(securityOfferFacts({ plan: std, credits: stdCredits }), words, url.searchParams.get("picker"), "THIS IS AN OFFER: NOTHING HAS RUN YET. SAY WHAT THE CHECK WILL LOOK AT AND ITS PRICE, AND THAT THEY CONFIRM WITH THE BUTTON BELOW."),
-                  scanSay(securityWorkingFacts({ plan: std }), words, url.searchParams.get("picker"), "WRITE ONE SHORT LINE, UNDER 120 CHARACTERS, SHOWN WHILE THE CHECK RUNS.", 160),
+                  scanSay(securityWorkingFacts({ plan: std }), words, url.searchParams.get("picker"), SCAN_LINE_RULE, 160),
                 ]);
               }
               return Response.json({ ok: true, report: rep, estimate: {

@@ -1,5 +1,13 @@
 # Owner Notes
 
+## 2026-10-23 — Progress lines in your voice for clients (branch `progress-voice`, not merged, not deployed)
+
+- Every live progress writer now carries one shared voice block with your approved Saltmarsh lines: first person but not "I" at the start of every line, openings varied, real names, no repeated tails, a problem said once, the draft/Publish status said once at the end. It covers builds, edits, add-ons, request parts (and the parallel card's opening line and titles), Publish/Restore/Discard, and the /sentinel scan's lines.
+- The repeated tail was partly in our code: about a dozen step facts ended in "Not published yet." and were fed to the writer on every line. Those tails are gone (the "prepared" state already tells the writer it is unpublished).
+- The repeated photo note came from the "not done" list being handed to every later line with "each stays exactly as said here in every update". It is still handed over (so no line can claim the photo), but now as "already told to them once: do not say it again".
+- The scan's lines are now each given the lines already shown, so they stop repeating each other.
+- Tests: a new file of 6 cases (red on the old code), 7 of 7 mutants killed, the comment-only control survived; the progress, security and parallel test files green (337). Older tests that pinned "Not published yet." or the old wording were updated on purpose. Nothing spent, no model called. Record: `docs/history/2026-10-23-progress-voice.md`.
+
 ## 2026-10-23, late night — the quick page writer now sends only the lines it changes (idea #18; branch `tweak-exact-edits`, not merged, not deployed)
 
 - **What changed.** The cheap page step ("make that heading bigger", "move the hours above the map") used to send back the whole page, and we checked it was the same except for the change. Now it sends only exact replacements: "this exact text → that text". Each piece of old text must appear exactly once on the page; if it doesn't (missing, or appears twice), nothing is changed and the writer is told which piece and why, and gets one more try. A second miss goes to the full rewrite, exactly as a refused quick change always has.

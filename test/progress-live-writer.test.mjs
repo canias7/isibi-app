@@ -233,7 +233,7 @@ test("PLW 4 — CONTROL, SUCCESSFUL PLACEMENT: the photographs line is handed it
     const { P, lines, job } = x;
     const f2 = facts(lines.atPhotos[0] || "");
     assert.deepEqual(f2.map((f) => f.state), ["prepared"], JSON.stringify(f2));
-    assert.match(f2[0].text, /was made and put on the page\. Not published yet\./);
+    assert.match(f2[0].text, /was made and put on the page\./);
     for (const t of [...lines.atPhotos, ...lines.atPublish]) assert.doesNotMatch(ctxOf(t), /NOT DONE IN THIS WORK/);
     assert.equal(x.rec.parts[0].status, "done", JSON.stringify(x.rec.parts));
     assert.match(P.page("bakers.tsx") || "", /src="\/u\/[^"]+\.jpg"/);
@@ -249,7 +249,7 @@ test("PLW 5 — THE PAGES MILESTONE LANDS AFTER THE PHOTO CALL (as under load): 
     const at1 = lines.atPhoto.flatMap(facts);
     assert.ok(!at1.some((f) => /New page written/.test(f.text)), "the held pages milestone was told early — this case cannot see the late landing");
     const f2 = facts(lines.atPhotos[0] || "");
-    assert.deepEqual(f2.map((f) => [f.state, /New page written, not published yet: \/bakers\./.test(f.text) || /was made and put on the page\. Not published yet\./.test(f.text)]), [["prepared", true], ["prepared", true]], JSON.stringify(f2));
+    assert.deepEqual(f2.map((f) => [f.state, /New page written: \/bakers\./.test(f.text) || /was made and put on the page\./.test(f.text)]), [["prepared", true], ["prepared", true]], JSON.stringify(f2));
     const all = [...lines.atPhoto, ...lines.atPhotos, ...lines.atPublish].flatMap(facts);
     assert.equal(all.filter((f) => /New page written/.test(f.text)).length, 1, "the page was told twice");
     assert.ok(!all.some((f) => f.text.includes(BENCH) && f.state === "notdone"), "a made photograph was told as not made");
