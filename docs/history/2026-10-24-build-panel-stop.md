@@ -58,4 +58,4 @@ From `origin/main` `692087cde`. Not merged, not deployed. Nothing spent, no mode
 - **Full unit suite** (run from this worktree, a world-readable path, with `node_modules` linked and the link removed before the commit): `12471 / 12464 / 4 / 3`.
   - **1 failure was ours.** `site-chat`'s count of places that read the chat id went from 5 to 6, because the stop route reads it through `cleanChatId`. The guard was updated to name the new reader, and the file now passes 21 of 21.
   - **3 failures come from this environment**, not the change: `canary-reopen-browser` REOPEN 1 (it fails the same way on `origin/main`, re-run alone), media-verify's browser mode, and the no-generated-deps symlink case.
-- **Image prediction:** see the commit note in `docs/owner-notes.md`.
+- **Image prediction** (`containerInputs`/`imageId`, over both ends): the site image `0bae00a7003bcc23` (main) → `e9c36f5bd0aa464d` (head), 231 inputs, because `worker.js` moved; the app image `65022ce71e3d7274` is unchanged.
