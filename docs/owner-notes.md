@@ -102,6 +102,14 @@
 - **Not covered yet:** a full rewrite of an existing site ("revise") still has no panel row and no server-side Stop.
 - Tests: 13 new cases. All 13 fail on the old code. Sweep: 20 of 20 changes caught, and the comment-only controls survived. Nothing spent, no model called. Record: `docs/history/2026-10-24-build-panel-stop.md`.
 
+## 2026-10-24 — the file picker now covers edits too (branch `edit-file-picker`, not merged, not deployed)
+
+- **The page edit**: when the writer is shown other pages, it now sees only the picked ones. The rest are named and protected. In practice this is rare: a page edit normally shows only the page being changed.
+- **The add-on**: when a writer limited to some pages tries to change a page outside them, it is asked again with the whole site. That second ask was never narrowed. Now it is, on big sites.
+- **Two mistakes in yesterday's add-on wiring are fixed.** First, the pages the addition touches were not actually guaranteed to be shown. Second, the small call's cost was missing from the bill when an addition ran without a background job.
+- **Not changed, because they already send one file or one setting**: the look door's settings, the quick tweak, compile repair, and header/footer edits.
+- Tests: 7 new cases through the real routes, nothing paid. 3 fail on the old code. Sweep: 8 of 8 changes caught, and the comment-only control survived. Record: `docs/history/2026-10-24-edit-file-picker.md`.
+
 ## 2026-10-24 — combine C: six finished branches in one candidate (branch `combine-c`, not merged, not deployed)
 
 - Brings together compile repair everywhere, the exact-edits tweak, the progress voice, the next-step hint, background work and the file picker (plus the 503 notes).
