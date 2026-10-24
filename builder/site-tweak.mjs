@@ -46,6 +46,7 @@ import { lintPages } from "./page-gen.mjs";
 import { modelsFor } from "./build-models.mjs";
 // THE QUESTION BACK (2026-10-02), shared with every step (`builder/clarify.mjs`).
 import { QUESTION_FIELD, askOf } from "./clarify.mjs";
+import { applyExactEdits } from "./exact-edits.mjs";
 
 /** A small call: editing a className is not a design task, and the saving IS the point. */
 /**
@@ -66,12 +67,14 @@ import { QUESTION_FIELD, askOf } from "./clarify.mjs";
 export const TWEAK_MODEL = modelsFor().quick;
 
 /**
- * Room for the page to come back whole, plus a little.
+ * Room for the edits, not the page (2026-10-23, idea #18).
  *
- * The output IS the file, so this is not a cap on the answer's length — it is a
- * cap on the page, and `MAX_TWEAK_CHARS` is the one that really binds.
+ * Until then the output WAS the file and this was 16,000 — a cap on the page.
+ * The answer is now only the changed spans; a moved block is the largest
+ * honest answer (the block twice: out, then in), and half the old ceiling
+ * still holds a block of a 48,000-character page with room to spare.
  */
-export const TWEAK_MAX_TOKENS = 16000;
+export const TWEAK_MAX_TOKENS = 8000;
 
 /**
  * The largest page this rung will attempt.
@@ -109,17 +112,28 @@ export const TWEAK_TOOL = {
   input_schema: {
     type: "object",
     properties: {
-      source: {
-        type: "string",
+      // EXACT EDITS, NOT THE WHOLE FILE (2026-10-23, idea #18). The model
+      // returns only the spans it changes; `applyExactEdits` puts them in, so
+      // every character outside them is the original by construction and the
+      // output is a few lines rather than the page.
+      edits: {
+        type: "array",
         description:
-          "The WHOLE file, byte-for-byte as it was given to you except for the change that was asked for. " +
-          "Do not reformat, do not tidy, do not re-order imports, and do not improve anything you were not " +
-          "asked about — every unrelated character must come back exactly as it went in.",
+          "The change, as the smallest exact replacements in the file. Each `old` is copied character for " +
+          "character from the file and must occur in it EXACTLY ONCE (include a little surrounding text if a " +
+          "short piece repeats); `new` replaces it. They are applied in order, each on the result of the one " +
+          "before. To move a block, one edit removes it (its `new` empty) and another puts it back where it goes. " +
+          "Do not send the whole file, do not reformat, and do not touch anything you were not asked about.",
+        items: {
+          type: "object",
+          properties: { old: { type: "string" }, new: { type: "string" } },
+          required: ["old", "new"],
+        },
       },
       cannot: {
         type: "string",
         description:
-          "Instead of `source`, when this change is not a visual tweak to what is already on the page: it needs " +
+          "Instead of `edits`, when this change is not a visual tweak to what is already on the page: it needs " +
           "NEW words, a new section written from scratch, a form, a database table, or a different page. Say so " +
           "in one short sentence. This is a perfectly good answer and costs nothing — a page that needs writing " +
           "is handed to the model that writes pages, so guessing here helps nobody.",
@@ -150,8 +164,9 @@ export const TWEAK_TOOL = {
  */
 export const TWEAK_RULES =
   "You are editing ONE file of a small business's website. The customer has asked for one visual change.\n\n" +
-  "CHANGE ONLY WHAT THEY ASKED FOR. Everything else in the file comes back exactly as it went in — the same " +
-  "words, the same order, the same imports, the same formatting. You are not reviewing this file.\n\n" +
+  "CHANGE ONLY WHAT THEY ASKED FOR, as exact edits: each `old` copied exactly from the file and appearing in it " +
+  "once, with its `new`. Do not send the whole file. Everything outside your edits stays exactly as it is — the " +
+  "same words, the same order, the same imports, the same formatting. You are not reviewing this file.\n\n" +
   "DO NOT CHANGE ANY OF THE WORDS A VISITOR READS. Not a heading, not a sentence, not a button label, not a " +
   "price. This is checked, and a file that comes back with different wording is thrown away — so if the change " +
   "they asked for cannot be made without rewriting the copy, answer `cannot` instead.\n\n" +
@@ -360,8 +375,14 @@ export function readTweak(reply, { source, inPart, parse } = {}) {
   // the useful part — it is the model naming what this rung cannot do, which is
   // exactly what the rung above is for.
   const cannot = typeof i.cannot === "string" ? i.cannot.trim() : "";
-  const after = typeof i.source === "string" ? i.source : "";
-  if (!after) return { ok: false, reason: "cannot", why: cannot.slice(0, 300) || "" };
+  // THE EDITS, APPLIED (2026-10-23, idea #18). No edits is the model saying
+  // it cannot; edits whose `old` is absent or not unique are refused whole,
+  // with the edit named, so `runTweak` can say so back once. The guards below
+  // then read the applied file exactly as they read a returned one.
+  if (!Array.isArray(i.edits) || !i.edits.length) return { ok: false, reason: "cannot", why: cannot.slice(0, 300) || "" };
+  const applied = applyExactEdits(before, i.edits);
+  if (!applied.ok) return { ok: false, reason: "edits", edit: applied.reason, index: applied.index };
+  const after = applied.source;
 
   // NOTHING MOVED. Ambiguous between "it already looks like that" and "I could
   // not do it", and this rung cannot tell them apart — so it goes up, where the
@@ -787,7 +808,47 @@ export async function runTweak({ instruction, path, source, send, rules, heading
   const ask = askOf(reply);
   if (ask) return { ok: false, reason: "ask", ask, usage: tweakUsage(reply, model) };
   const parse = await tweakParser();
-  return { ...readTweak(reply, { source, inPart, parse }), usage: tweakUsage(reply, model) };
+  const first = readTweak(reply, { source, inPart, parse });
+  if (first.reason !== "edits") return { ...first, usage: tweakUsage(reply, model) };
+  // ONE RETRY TURN FOR EDITS THAT DID NOT LAND (2026-10-23, idea #18): an
+  // `old` absent from the file or found more than once is told back, by edit
+  // and reason, as the tool's error, and the model answers once more. A second
+  // miss is a refusal like any other — the caller's fallback is unchanged.
+  const req = tweakRequest({ instruction, path, source, rules, heading, model });
+  const use = (reply && Array.isArray(reply.content) ? reply.content : []).find((b) => b && b.type === "tool_use");
+  const retry = {
+    ...req,
+    messages: [
+      ...req.messages,
+      { role: "assistant", content: reply.content },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: (use && use.id) || "write_tweak", is_error: true, content: editsFeedback(first) }] },
+    ],
+  };
+  let again = null;
+  try { again = await send(retry); } catch (e) {
+    return { ...first, usage: tweakUsage(reply, model), retryError: e };
+  }
+  const usage = sumUsage(tweakUsage(reply, model), tweakUsage(again, model));
+  const ask2 = askOf(again);
+  if (ask2) return { ok: false, reason: "ask", ask: ask2, usage, retried: true };
+  return { ...readTweak(again, { source, inPart, parse }), usage, retried: true };
+}
+
+/** The sentence fed back when an answer's edits did not apply. */
+export function editsFeedback(r) {
+  const n = (Number.isInteger(r && r.index) ? r.index : 0) + 1;
+  const why = r && r.edit === "old-not-unique"
+    ? "its `old` text occurs more than once in the file; include enough surrounding text that it occurs exactly once"
+    : r && r.edit === "old-missing"
+      ? "its `old` text does not occur in the file; copy it character for character from the file as given"
+      : "it is not an `{old, new}` pair of strings with a non-empty `old`";
+  return "Nothing was changed: edit " + n + " could not be applied because " + why + ". Answer again with corrected edits, applied in order to the original file.";
+}
+
+function sumUsage(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  return { model: a.model, in: a.in + b.in, out: a.out + b.out, cacheRead: a.cacheRead + b.cacheRead, cacheWrite: a.cacheWrite + b.cacheWrite };
 }
 
 /**

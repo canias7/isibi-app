@@ -47,6 +47,7 @@
 // in one call is a separate question and is not asked here.
 
 import test from "node:test";
+import { tweakInput, asEdits } from "./fixtures/tweak-edits.mjs";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
@@ -193,7 +194,7 @@ async function drive({ mode = "sync", fields, apply = BOTH, ask = ASK, home = HO
       if (tool === T.tweak) {
         const f = shownFile(args);
         seen.shown.push(f && f.source);
-        return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: { source: apply(f.source, slug) } }], usage });
+        return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: asEdits({ source: apply(f.source, slug) }, f.source) }], usage });
       }
       // THE PICTURE STEP ANSWERS ONLY WHEN A CASE SUPPLIES ITS ANSWER, and with
       // its own smaller usage, so its charge can be told apart from a page's.

@@ -22,6 +22,7 @@
 // ⚠ SUPPLIED-MODEL PROOF ONLY. Every model answer is supplied by the test
 // (`answers`, as `test/fixtures/live-ask.mjs` keys them): this shows what the
 // code does with an answer, never what a real model answers.
+import { tweakInput } from "./tweak-edits.mjs";
 import { blockedFetch, noteUnexpected } from "./no-network.mjs";
 import assert from "node:assert/strict";
 import { randomBytes, createHash } from "node:crypto";
@@ -546,6 +547,8 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       return say(tool, typeof a === "function" ? await a(args, nextN("add:" + kind)) : a, priced());
     }
     if (!Object.hasOwn(answers, tool)) return new Response("no stub for tool " + tool, { status: 503 });
+    // THE TWEAK ANSWERS WITH EXACT EDITS (idea #18): a whole-file answer is turned into them.
+    if (tool === "write_tweak") return say(tool, tweakInput(await answerFor(tool, args), args), priced());
     return say(tool, await answerFor(tool, args), priced());
   }
   // NEON, FOR A SITE THAT PROVISIONS (`provisions`): every control-plane call,

@@ -15,6 +15,7 @@
 // Supplied answers only — no model is called.
 
 import test from "node:test";
+import { tweakInput, asEdits } from "./fixtures/tweak-edits.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
@@ -79,7 +80,7 @@ async function drive({ answers, compiler }) {
       const q = queue[tool];
       const a = Array.isArray(q) ? (q.length > 1 ? q.shift() : q[0]) : q;
       if (a === undefined) return new Response("no stub for tool " + tool, { status: 503 });
-      return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: a }], usage: { input_tokens: 1000, output_tokens: 500 } });
+      return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: tool === "write_tweak" ? tweakInput(a, args) : a }], usage: { input_tokens: 1000, output_tokens: 500 } });
     }
     if (isDispatchUpload(u)) return dispatchOk();
     return new Response("unavailable", { status: 503 });
@@ -174,15 +175,15 @@ test("EDIT: a killed container is ours — no repair round", async () => {
 
 test("compileRepairRounds: asks the clock before every round, and stops at two", async () => {
   const pages = [{ path: "a.tsx", source: "x" }];
-  const ans = (s) => ({ content: [{ type: "tool_use", name: "write_tweak", input: { source: s } }], usage: { input_tokens: 1, output_tokens: 1 } });
+  const ans = (s, req) => ({ content: [{ type: "tool_use", name: "write_tweak", input: tweakInput({ source: s }, req) }], usage: { input_tokens: 1, output_tokens: 1 } });
   let asked = 0, compiled = 0, sent = 0;
   const reqs = [];
-  const r = await compileRepairRounds({ error: "a.tsx broke", pages, send: async (req) => { sent++; reqs.push(JSON.stringify(req.messages)); return ans("y" + sent); }, compile: async () => { compiled++; return { ok: false, error: "a.tsx still broke " + compiled }; }, room: () => { asked++; return true; } });
+  const r = await compileRepairRounds({ error: "a.tsx broke", pages, send: async (req) => { sent++; reqs.push(JSON.stringify(req.messages)); return ans("y" + sent, req); }, compile: async () => { compiled++; return { ok: false, error: "a.tsx still broke " + compiled }; }, room: () => { asked++; return true; } });
   assert.equal(r.rounds, 2); assert.equal(compiled, 2); assert.equal(asked, 2); assert.equal(r.built, null); assert.equal(r.usage.length, 2);
   assert.ok(reqs[1].includes("a.tsx still broke 1") && !reqs[0].includes("still broke"), "round two was not fed the latest compiler error");
   assert.ok(reqs[1].includes("y1"), "round two did not work on round one's page");
   let n = 0;
-  const t = await compileRepairRounds({ error: "a.tsx broke", pages, send: async () => ans("z"), compile: async () => ({ ok: false, error: "again" }), room: () => ++n < 2 });
+  const t = await compileRepairRounds({ error: "a.tsx broke", pages, send: async (req) => ans("z", req), compile: async () => ({ ok: false, error: "again" }), room: () => ++n < 2 });
   assert.equal(t.rounds, 1, "the second round ran with no time left");
   assert.equal(t.stopped, "time");
   assert.deepEqual(writtenPaths([{ path: "a.tsx", source: "1" }, { path: "b.tsx", source: "2" }], [{ path: "a.tsx", source: "1" }, { path: "b.tsx", source: "3" }, { path: "c.tsx", source: "" }]), ["b.tsx", "c.tsx"]);

@@ -19,6 +19,7 @@
 // `REQUEST_FLOW` is (`request.mjs`), so a deploy with it off changes nothing.
 
 import { tweakUsage } from "./site-tweak.mjs";
+import { applyExactEdits } from "./exact-edits.mjs";
 import { routeOf } from "./site-addon.mjs";
 import { SHOT_ROUTES, MAX_SHOT_HEIGHT, shotRoutes } from "./site-render.mjs";
 
@@ -131,14 +132,6 @@ export function reviewRequest({ shots, pages, model } = {}) {
   };
 }
 
-/** How many times `needle` occurs in `hay` (non-overlapping is enough to tell 0, 1 or more). */
-function occurrences(hay, needle) {
-  if (!needle) return 0;
-  let n = 0, i = 0;
-  while ((i = hay.indexOf(needle, i)) !== -1) { n++; if (n > 1) return n; i += needle.length; }
-  return n;
-}
-
 /**
  * Read the answer and apply it. Each problem's edits apply all or none, in
  * order, on that page's current source; an `old` that is absent or not unique
@@ -167,16 +160,9 @@ export function readReview(reply, { pages, reviewed } = {}) {
     if (!es.length) { refuse("no-edits"); continue; }
     if (edits + es.length > MAX_EDITS) { refuse("too-many-edits"); continue; }
     let s = src.has(page.path) ? src.get(page.path) : page.source;
-    let bad = "";
-    for (const e of es) {
-      if (!e || typeof e.old !== "string" || typeof e.new !== "string" || !e.old) { bad = "malformed"; break; }
-      const n = occurrences(s, e.old);
-      if (n === 0) { bad = "old-missing"; break; }
-      if (n > 1) { bad = "old-not-unique"; break; }
-      const at = s.indexOf(e.old);
-      s = s.slice(0, at) + e.new + s.slice(at + e.old.length);
-    }
-    if (bad) { refuse(bad); continue; }
+    const applied = applyExactEdits(s, es);
+    if (!applied.ok) { refuse(applied.reason); continue; }
+    s = applied.source;
     if (s === (src.has(page.path) ? src.get(page.path) : page.source)) { refuse("no-change"); continue; }
     edits += es.length;
     src.set(page.path, s);

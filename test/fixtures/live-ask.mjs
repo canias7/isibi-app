@@ -12,6 +12,7 @@
 // ⚠ SUPPLIED-MODEL PROOF ONLY. Every model answer is supplied: whether a real
 // model asks a good question, or acts when it can, is a live measurement this
 // harness cannot make.
+import { tweakInput } from "./tweak-edits.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
@@ -189,7 +190,9 @@ export function withWire(answers, run, { owner = USER.id, slug = "" } = {}) {
       const usage = { input_tokens: 10, output_tokens: 5 };
       // AN ANSWER CUT OFF AT ITS CEILING (2026-10-03): a supplied answer carrying
       // `__stop_reason` arrives with that stop reason and without the key.
-      const say = (input) => {
+      const say = (given) => {
+        // THE TWEAK ANSWERS WITH EXACT EDITS (idea #18): a whole-file answer is turned into them.
+        const input = tool === "write_tweak" ? tweakInput(given, args) : given;
         if (input && typeof input === "object" && typeof input.__stop_reason === "string") {
           const { __stop_reason, ...rest } = input;
           return json({ stop_reason: __stop_reason, content: [{ type: "tool_use", name: tool, input: rest }], usage });
