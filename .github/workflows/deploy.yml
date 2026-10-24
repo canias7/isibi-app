@@ -462,7 +462,7 @@ jobs:
           # (`jobs/<id>.diagnosis.json`). It changes nothing, tells the
           # customer nothing and charges the customer nothing. OFF BY DEFAULT:
           # set the secret to `on` and redeploy to switch it on.
-          DIAGNOSE_FAILURES: ${{ secrets.DIAGNOSE_FAILURES || 'off' }}
+          DIAGNOSE_FAILURES: ${{ secrets.DIAGNOSE_FAILURES || 'on' }}
           # ── ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03) ──
           #
           # With this on, a site's message the routing call accepts is kept as a

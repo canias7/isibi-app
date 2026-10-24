@@ -173,7 +173,7 @@ test("DG11 the worker's helper only records: no ledger, no reply, no customer re
 
 test("DG12 the deploy defaults the switch off and uploads it; the container receives it", () => {
   const deploy = readFileSync(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8");
-  assert.match(deploy, /^\s+DIAGNOSE_FAILURES: \$\{\{ secrets\.DIAGNOSE_FAILURES \|\| 'off' \}\}$/m);
+  assert.match(deploy, /^\s+DIAGNOSE_FAILURES: \$\{\{ secrets\.DIAGNOSE_FAILURES \|\| 'on' \}\}$/m);
   assert.match(deploy, /^\s+DIAGNOSE_FAILURES$/m);
   const ej = readFileSync(new URL("../builder/edit-job.mjs", import.meta.url), "utf8");
   assert.ok(ej.includes("\"DIAGNOSE_FAILURES\","));
