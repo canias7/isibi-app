@@ -2573,7 +2573,8 @@ const server = http.createServer((req, res) => {
       let render;
       // THE VISUAL REVIEW'S SCREENSHOTS (2026-10-22): filled by the render
       // check only when the payload asks (`shots: true`, the Worker's
-      // `VISUAL_REVIEW` switch on a first build), and answered beside `render`.
+      // `VISUAL_REVIEW` switch on a first build, or a list of the routes a
+      // seam publish changed, taken first, 2026-10-24), and answered beside `render`.
       const shots = [];
       // THE LAYOUT AT EACH DEVICE (2026-10-24): asked by the Worker on a publish, for the per-device guard.
       const layout = [];
@@ -2603,7 +2604,7 @@ const server = http.createServer((req, res) => {
         const langPrefixes = (Array.isArray(payload.langs && payload.langs.extra) ? payload.langs.extra : [])
           .map((t) => { try { return langPrefix(String(t || "")); } catch { return ""; } })
           .filter(Boolean);
-        render = await timed("renderMs", null, null, () => checkRender(CLIENT_DIST, checkOrder(routePaths(), langPrefixes), ssr.fetch, ssr.down, { selectors: cssSelectors, ...(payload.shots === true ? { shots } : {}), ...(payload.layout === true ? { layout } : {}) }));
+        render = await timed("renderMs", null, null, () => checkRender(CLIENT_DIST, checkOrder(routePaths(), langPrefixes), ssr.fetch, ssr.down, { selectors: cssSelectors, ...(payload.shots === true || Array.isArray(payload.shots) ? { shots, ...(Array.isArray(payload.shots) ? { shotPrefer: payload.shots } : {}) } : {}), ...(payload.layout === true ? { layout } : {}) }));
       } finally { ssr.stop(); }
 
       // ── THE SHARE CARD, COMPOSED FREE (2026-08-28, owner's call) ────────────

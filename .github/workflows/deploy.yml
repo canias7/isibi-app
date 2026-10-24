@@ -224,6 +224,7 @@ jobs:
             PROGRESS_REPLIES
             PROGRESS_TALK
             REQUEST_FLOW
+            VISUAL_REVIEW
             IMAGE_PURCHASES
             PARALLEL_WRITES
             DRAFT_FIRST
@@ -461,6 +462,14 @@ jobs:
           # page then drives its steps exactly as before, which is what the UI
           # canary checks. Set the secret to `on` and redeploy to switch it on.
           REQUEST_FLOW: ${{ secrets.REQUEST_FLOW || 'on' }}
+          # ── THE VISUAL REVIEW, FRONT-END CHANGES ONLY (2026-10-24, owner) ──
+          #
+          # A model looks at the render check's screenshots and fixes what looks
+          # wrong, once (builder/visual-review.mjs): on first builds and revises,
+          # and on any publish whose files change what a visitor sees, never on
+          # a data row, a rule, a table, a setting or a restore. ON BY DEFAULT;
+          # set the secret to `off` and redeploy to switch it off everywhere.
+          VISUAL_REVIEW: ${{ secrets.VISUAL_REVIEW || 'on' }}
           # ── WHETHER A PHOTOGRAPH IS BOUGHT AT ALL (2026-10-11) ─────────────
           #
           # `off` refuses every photograph purchase before it leaves for the

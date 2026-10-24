@@ -1214,6 +1214,7 @@ export function editReplyFacts(e, { routedCost = null, inRequest = false, partWo
   }
   if (e.ok === true) compileRepairFact(F, e.compileRepaired);
   if (e.ok === true) salvageFact(F, e.salvaged, e.salvageRefund);
+  if (e.ok === true) visualReviewFact(F, e.visualReview);
   if (e.ok === true) heldDraftFact(F, e);
   heldFacts(F, e, e.ok === true, inRequest === true, { partWords, carved });
   questionFact(F, e.clarify);
@@ -1254,6 +1255,14 @@ export function salvageRefundFact(F, r) {
   const n = r && typeof r === "object" ? num(r.credits) : null;
   if (n === null || !(n > 0)) return;
   F.add("money", "They were not charged for the part that did not land: " + count(n, "credit") + " of the writing for it " + (n === 1 ? "was" : "were") + " taken off the bill, and the cost stated is what they paid.");
+}
+
+/** WHAT THE VISUAL REVIEW FIXED (2026-10-24), one fact and only when it
+ *  fixed something that then built and was saved. */
+export function visualReviewFact(F, vr) {
+  const n = vr && typeof vr === "object" && Number.isInteger(vr.fixed) && vr.fixed > 0 ? vr.fixed : 0;
+  if (!n) return;
+  F.add("note", "After the change, the pages were looked at in a browser and " + (n === 1 ? "one thing that did not look right was" : n + " things that did not look right were") + " fixed before saving.");
 }
 
 /** An interval in minutes as a customer reads it: "every 15 minutes", "every day". */
@@ -1491,6 +1500,7 @@ export function addonReplyFacts(a, { routedCost = null, inRequest = false, partW
   }
   if (a.ok === true) compileRepairFact(F, a.compileRepaired);
   if (a.ok === true) salvageFact(F, a.salvaged, a.salvageRefund);
+  if (a.ok === true) visualReviewFact(F, a.visualReview);
   if (a.ok === true) heldDraftFact(F, a);
   heldFacts(F, a, a.ok === true, inRequest === true, { partWords, carved });
   questionFact(F, a.clarify);

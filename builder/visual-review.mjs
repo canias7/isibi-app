@@ -15,18 +15,82 @@
 //
 // ONE PASS. There is no loop: the second look at a fix is the customer's.
 //
-// BEHIND A SWITCH, OFF BY DEFAULT: `VISUAL_REVIEW` read the way
-// `REQUEST_FLOW` is (`request.mjs`), so a deploy with it off changes nothing.
+// BEHIND A SWITCH, ON BY DEFAULT SINCE 2026-10-24 (owner: "only when you're
+// changing the front end … if you're changing … the back end, like the
+// database … you don't need it"): `VISUAL_REVIEW` set to 0/false/off/no turns
+// it off everywhere. It runs on first builds and revises (`publishPages`) and
+// on every seam publish whose files change what a visitor sees
+// (`visibleChanges` below, read from the files, never from the request).
 
 import { tweakUsage } from "./site-tweak.mjs";
 import { applyExactEdits } from "./exact-edits.mjs";
 import { routeOf } from "./site-addon.mjs";
 import { SHOT_ROUTES, MAX_SHOT_HEIGHT, shotRoutes } from "./site-render.mjs";
 
-/** The switch: an affirmative word turns it on; anything else is off. */
+/**
+ * The switch: ON unless `VISUAL_REVIEW` is one of 0/false/off/no (2026-10-24).
+ * A non-string is not read as a word: absent or unreadable is the default, on.
+ */
 export function visualReviewOn(env) {
   const v = env && env.VISUAL_REVIEW;
-  return typeof v === "string" && ["1", "true", "on", "yes"].includes(v.trim().toLowerCase());
+  return !(typeof v === "string" && ["0", "false", "off", "no"].includes(v.trim().toLowerCase()));
+}
+
+/** The baked look fields a visitor sees. Description, SEO, languages and the
+ *  favicon are settings, not front end. */
+export const VISIBLE_LOOK_FIELDS = ["theme", "gif", "qr", "brand", "wordmark"];
+
+function byKey(list, key) {
+  const m = new Map();
+  for (const x of Array.isArray(list) ? list : []) if (x && typeof x[key] === "string" && typeof x.source === "string") m.set(x[key], x.source);
+  return m;
+}
+function diffKeys(before, after) {
+  const out = [];
+  for (const [k, v] of after) if (before.get(k) !== v) out.push(k);
+  for (const k of before.keys()) if (!after.has(k)) out.push(k);
+  return out;
+}
+const same = (a, b) => JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b);
+
+/**
+ * WHAT A PUBLISH CHANGES THAT A VISITOR SEES (2026-10-24), from the files:
+ * `before` is the site as last staged (`pages`/`parts` lists, `config` with
+ * `look`/`css`/`logo`, any of them `null` when it could not be read), `after`
+ * what this publish compiles. Pages (`src/routes/*.tsx`), parts
+ * (`src/routes/-parts/*`), the stylesheet, the theme and the logo count; a
+ * data row, a rule, a table, a function, a schedule, a description or a
+ * restore of the same files change none of them. Pages that cannot be read
+ * before are `known: false` — and unknown is never read as visible.
+ */
+export function visibleChanges({ before = null, after = null } = {}) {
+  const b = before && typeof before === "object" ? before : {};
+  const a = after && typeof after === "object" ? after : {};
+  if (!Array.isArray(b.pages)) return { known: false, visible: false, pages: [], parts: [], styles: [] };
+  const pages = diffKeys(byKey(b.pages, "path"), byKey(a.pages, "path"));
+  const parts = Array.isArray(b.parts) ? diffKeys(byKey(b.parts, "name"), byKey(a.parts, "name")) : [];
+  const styles = [];
+  const bc = b.config && typeof b.config === "object" ? b.config : null;
+  const ac = a.config && typeof a.config === "object" ? a.config : null;
+  if (bc && ac) {
+    if (!same(bc.css || "", ac.css || "")) styles.push("css");
+    if (!same(bc.logo, ac.logo)) styles.push("logo");
+    const bl = bc.look && typeof bc.look === "object" ? bc.look : {};
+    const al = ac.look && typeof ac.look === "object" ? ac.look : {};
+    for (const f of VISIBLE_LOOK_FIELDS) if (!same(bl[f], al[f])) styles.push(f);
+  }
+  return { known: true, visible: pages.length + parts.length + styles.length > 0, pages, parts, styles };
+}
+
+/** The routes to screenshot first: the changed pages' routes (home is always
+ *  taken by `shotRoutes`). */
+export function shotPreference(changes) {
+  const out = [];
+  for (const p of (changes && Array.isArray(changes.pages)) ? changes.pages : []) {
+    const r = routeOf(p);
+    if (typeof r === "string" && r && !out.includes(r)) out.push(r);
+  }
+  return out;
 }
 
 /**
@@ -178,8 +242,12 @@ export function readReview(reply, { pages, reviewed } = {}) {
  * The usage rides back on every path where a call was made, so the build's
  * one `pageCredits` rounding prices it.
  */
-export async function runVisualReview({ shots, pages, send, model } = {}) {
+export async function runVisualReview({ shots, pages, send, model, viewport = null } = {}) {
   const list = Array.isArray(pages) ? pages : [];
+  // THE DEVICE SCOPE'S HOOK (2026-10-24): a change scoped to one device is
+  // looked at, and fixed, at that width only. Nothing on `main` sets it yet
+  // (the device-scope work is a branch); a caller that knows passes it.
+  if (viewport === "phone" || viewport === "desktop") shots = (Array.isArray(shots) ? shots : []).filter((s) => s && s.viewport === viewport);
   const base = { pages: list, changed: [], fixed: [], refused: [], usage: null, none: false };
   if (typeof send !== "function") return { ...base, reason: "off" };
   let built;

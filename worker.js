@@ -281,7 +281,7 @@ import {
   takeOverRecord, buildStepFacts, buildPhotoOutcome,
   PROGRESS_CALL_MS, PROGRESS_TRIES, PROGRESS_RETRY_MS, PROGRESS_LINES_PER_TASK, PROGRESS_DISCOVERY_MS, PROGRESS_SEND_WAITS_MS,
   // THE BUILDER TALKS WHILE IT WORKS (2026-10-13), behind `PROGRESS_TALK`.
-  talkOn, startFacts, spineCheckFacts, publishedFacts, talkBuildStepFacts, waitedFor, PROGRESS_SETTLE_S,
+  talkOn, startFacts, spineCheckFacts, visualReviewFacts, publishedFacts, talkBuildStepFacts, waitedFor, PROGRESS_SETTLE_S,
   addressFacts, actionFacts, actionContext, ACTION_KINDS, designPartFacts, designStartFacts, stillFacts, sectionStartFacts, sectionDoneFacts, writingNowFacts, compileStageFacts, salvageFacts,
 } from "./builder/site-progress.mjs";
 // ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03): the record,
@@ -326,7 +326,7 @@ import { wantsFirstBuildBackend, featuresNeedingData, firstBuildBackendTool, fir
 import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig, writesSchema as partWritesSchema } from "./builder/request-plan.mjs";
 import { turnKey, turnRecord, readTurn, turnFree, nextGen, rebaseFiles, TURN_POLL_MS, TURN_WAIT_MS, TURN_UNREAD_MAX, TURN_TTL_MS, turnLooksDead } from "./builder/publish-turn.mjs";
 import { PART_TERMINAL as REQ_PART_TERMINAL, heldFromOf, rewriteWire, othersOpenIn } from "./builder/request.mjs";
-import { visualReviewOn, buildRepairOn } from "./builder/visual-review.mjs";
+import { visualReviewOn, buildRepairOn, visibleChanges, shotPreference, runVisualReview } from "./builder/visual-review.mjs";
 import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, carrySuperseded, supersededNote, holdRequirements, heldCheckpoint, heldDelta, applyHeldDelta, readHeld, sameCheckpoint, heldNote, ownerOf, handoffsByStep, applyVerdicts, COVERAGE_STEPS, linkEvidence } from "./builder/site-requirements.mjs";
 import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.mjs";
 import { WRITE_APP_TOOL, appWriterSystem, appFilesFrom, appThemeFrom } from "./builder/app-gen.mjs";
@@ -18017,6 +18017,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   };
   { const u = unbilled(); if (u) return u; }
   let look = null;
+  let cfgNow = null;
   let verify = null, langStrings = null, langOverrides = null;
   // THE TWO MARKS AS THE CONTAINER WANTS THEM. Filled beside the read below;
   // the floor is what a site with nothing stored publishes anyway, so a path
@@ -18107,6 +18108,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // so the refusal is explicit here.
     if (!cfg.ok) throw new Error(cfg.why + ": " + cfg.error);
     ({ look, css, verify, langStrings } = cfg.config);
+    cfgNow = cfg.config;
     langOverrides = cfg.config.langOverrides; // the owner's own translated wording (#196)
     // ONE MARK, SEVERAL FORMS (2026-09-07) — the four wire fields off the one
     // stored form per mark, through the fold, so a site still carrying the old
@@ -18553,6 +18555,8 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
           // publish: stored after the write as the next per-device edit's
           // "before", and compared below when this one is scoped.
           layout: true,
+          // THE VISUAL REVIEW'S SCREENSHOTS, the changed routes first (2026-10-24).
+          shots: vrShots || undefined,
           // THE SCRIPT IS REPACKAGED ON EVERY CHEAP EDIT, and it has to be.
           // The script bakes in the shell — which names this build's
           // content-hashed assets — so a text fix that republished the files
@@ -18642,6 +18646,33 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       };
     }
   };
+  // ── THE VISUAL REVIEW, FOR A FRONT-END CHANGE ONLY (2026-10-24, owner) ──
+  // "only when you're changing the front end … if you're changing … the back
+  // end, like the database … you don't need it". Decided from THE FILES, never
+  // the request: this publish's pages and parts against the editable copies
+  // (written after a publish, so still the site as it was), and its baked
+  // stylesheet, theme and logo against the live version's own state. A data
+  // row, a rule, a table, a schedule, a description, a restore of the same
+  // files: nothing visible changed, no screenshots, no call. Unknown is never
+  // visible. Once per job (a stylesheet correction republishes); only when
+  // something can bill it (`chargeRepair` or `charge`, the existing rules).
+  const vrCharge = typeof chargeRepair === "function" ? chargeRepair : (typeof charge === "function" ? charge : null);
+  let vrChanges = null;
+  if (visualReviewOn(env) && vrCharge && !(job && job.visualReviewed)) {
+    try {
+      const [srcBefore, partsBefore] = await Promise.all([readSiteSource(env, slug), readSiteParts(env, slug)]);
+      let cfgBefore = null;
+      if (parentVersion) {
+        try { const o = await buildDeps(env).get(buildPrefix(slug, parentVersion) + STATE_DIR + "config.json"); cfgBefore = o ? JSON.parse(await o.text()) : null; } catch { cfgBefore = null; }
+      }
+      vrChanges = visibleChanges({
+        before: { pages: srcBefore.ok ? srcBefore.pages : null, parts: partsBefore.ok ? partsBefore.parts : null, config: cfgBefore },
+        after: { pages, parts: siteParts || [], config: cfgNow },
+      });
+    } catch { vrChanges = null; }
+    tm("visual-review", vrChanges && vrChanges.visible ? "start" : "skip", vrChanges ? { known: vrChanges.known, pages: vrChanges.pages.length, parts: vrChanges.parts.length, styles: vrChanges.styles } : { known: false });
+  }
+  const vrShots = vrChanges && vrChanges.visible ? shotPreference(vrChanges) : null;
   let built = await compile();
   let killed = false;
   if ((!built || built.ok !== true) && wasKilled(built && built.error)) {
@@ -18884,6 +18915,45 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     const replaced = !!(seamOut && seamOut.built && seamOut.built.ok === true && seamOut.built.files && Array.isArray(seamOut.pages));
     if (replaced) { built = seamOut.built; pages = seamOut.pages; }
     tm("seam", "ok", { replaced });
+  }
+
+  // THE VISUAL REVIEW ITSELF (2026-10-24): the render check's screenshots and
+  // the pages this publish changed (every page when only a part or the
+  // stylesheet did) go to the builder's model once; its fixes recompile
+  // through this same compile, with the seam's compile repair if they do not
+  // build, and a fix that still does not build keeps the publish as it was —
+  // never worse. Billed only through the caller's own funnel, in this job.
+  let vrOut = null;
+  if (vrChanges && vrChanges.visible && Array.isArray(built.shots) && built.shots.length) {
+    if (job) { try { job.visualReviewed = true; } catch { /* never */ } }
+    const vrPages = vrChanges.pages.length ? (pages || []).filter((p) => p && vrChanges.pages.includes(p.path)) : (pages || []);
+    const vrModel = (models && (models.pages || models.quick)) || modelsFor().pages;
+    const clock = job && job.budget && typeof job.budget.canRepair === "function" ? job.budget : null;
+    const vr = await runVisualReview({ shots: built.shots, pages: vrPages, send: quickSend(env, "visual", repairClock(clock)), model: vrModel, viewport: (job && job.deviceScope) || null });
+    let vrCharged = 0;
+    if (vr.usage) {
+      try { vrCharged = Number(await vrCharge([vr.usage])) || 0; }
+      catch (e) { console.error("visual review charge failed:", slug, e && e.message); }
+    }
+    vrOut = { reviewed: vr.reviewed || [], fixed: 0, charged: vrCharged, ...(vr.none ? { none: true } : {}), ...(vr.reason ? { reason: vr.reason } : {}) };
+    if (vr.changed.length) {
+      const next = (pages || []).map((p) => { const f = vr.pages.find((x) => x && p && x.path === p.path); return f || p; });
+      files = filesFor(next);
+      let again = await compile();
+      let repaired = null;
+      if ((!again || again.ok !== true || !again.files) && !(again && (again.timedOut || again.room))) {
+        const fix = await seamCompileRepair(env, { slug, touched: vr.changed, models, charge: vrCharge, tm })({ error: String((again && again.error) || ""), stage: String((again && again.stage) || ""), pages: next, job, recompile: async (list) => { files = filesFor(list); return compile(); } }).catch(() => null);
+        if (fix && fix.built && fix.built.ok === true && fix.built.files) { again = fix.built; repaired = fix.pages; }
+      }
+      if (again && again.ok === true && again.files) {
+        built = again; pages = repaired || next;
+        vrOut.fixed = vr.fixed.length; vrOut.changed = vr.changed.slice();
+      } else {
+        files = filesFor(pages); vrOut.failed = String((again && again.stage) || "build");
+      }
+    }
+    tm("visual-review", vrOut.fixed ? "ok" : "none", { fixed: vrOut.fixed, charged: vrCharged, reason: vrOut.reason || vrOut.failed || "" });
+    try { if (vrOut.fixed && job && job.progress && job.progress.talk) job.progress.mark("looked", visualReviewFacts(vrOut)); } catch { /* the record never costs the publish */ }
   }
 
   // ── THE CHECKS THIS PUBLISH RAN, AS FACTS (talk, 2026-10-13) ─────────────
@@ -19281,6 +19351,8 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // new files standing in, facts for the reply; absent otherwise.
     ...(salvaged ? { salvaged: { kept: salvaged.kept.slice(), standIn: salvaged.standIn.slice() } } : {}),
     ...(seamRepair && seamRepair.built ? { compileRepaired: { pages: seamRepair.repaired.slice(), rounds: seamRepair.rounds, charged: Number(seamRepair.charged) || 0 } } : {}),
+    // WHAT THE VISUAL REVIEW DID (2026-10-24), only when it ran.
+    ...(vrOut ? { visualReview: vrOut } : {}),
     // WHICH VERSION WENT LIVE (stage 7): the prefix the site now serves, and
     // what a reconcile compares against the pointer and `x-site-version`.
     version,
@@ -19720,7 +19792,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   // THE VISUAL REVIEW (2026-10-22, owner-approved idea #10): a first build
   // only, and only with `VISUAL_REVIEW` on. Off, the container is not asked for
   // screenshots and `publishPages` gets no `visualReview`, so nothing changes.
-  const visualOn = visualReviewOn(env) && !revise;
+  const visualOn = visualReviewOn(env);
   // ── THE FILE PICKER FOR A BIG SITE'S REWRITE (2026-10-24, the parity audit) ──
   // The add-on's (idea #21): on a site over the picker's threshold one quick
   // call picks the pages the rewrite's writer is shown; a page not picked is
@@ -42409,6 +42481,8 @@ async function handleRequest(request, env, ctx) {
               salvaged: finalPub && finalPub.salvaged ? finalPub.salvaged : undefined,
               // WHAT THOSE FILES WERE GIVEN BACK (2026-10-24), already off `cost`.
               salvageRefund: eSalvageRefund || undefined,
+              // AND WHAT THE VISUAL REVIEW DID (2026-10-24), a fact for the reply.
+              visualReview: finalPub && finalPub.visualReview ? finalPub.visualReview : undefined,
               render: finalPub ? finalPub.render : (last && last.body.render),
               // A TRANSLATED WORDING STORED AS THE OWNER'S OWN (#196) is said beside it.
               renderNote: [...ranOk.map((d) => d.body.langNote), finalPub ? finalPub.renderNote : (last && last.body.renderNote)].filter((x) => typeof x === "string" && x).join(" ") || undefined,
@@ -42431,7 +42505,9 @@ async function handleRequest(request, env, ctx) {
               // step's `cost` can carry it and the sum alone under-reports.
               cost: done.reduce((n, d) => n + (Number(d.body && d.body.cost) || 0), 0) + (finalPub ? Number(finalPub.langCharged) || 0 : 0)
                 // AND WHAT THE SEAM'S COMPILE REPAIR CHARGED (2026-10-23), only when it fixed the build.
-                + (finalPub && finalPub.compileRepaired ? Number(finalPub.compileRepaired.charged) || 0 : 0),
+                + (finalPub && finalPub.compileRepaired ? Number(finalPub.compileRepaired.charged) || 0 : 0)
+                // AND WHAT THE VISUAL REVIEW CHARGED (2026-10-24), through the same funnel.
+                + (finalPub && finalPub.visualReview ? Number(finalPub.visualReview.charged) || 0 : 0),
               // WHAT WAS BILLED, from the one list `eCharge` appends to — so the
               // receipt is assembled from what was charged rather than rebuilt
               // beside it. Two lists of the same thing drift, and the drift here
@@ -48401,6 +48477,8 @@ async function handleRequest(request, env, ctx) {
               salvaged: aPub.salvaged || undefined,
               // WHAT THOSE FILES WERE NOT CHARGED (2026-10-24), already off `cost`.
               salvageRefund: aSalvageRefund || undefined,
+              // WHAT THE VISUAL REVIEW DID (2026-10-24); its cost rode `aChargeLangs` into `aCost`.
+              visualReview: aPub.visualReview || undefined,
               renderNote: [aPub.renderNote, addRepairNote(aRepairRound)].filter(Boolean).join(" ") || undefined,
               checks: aPub.checks, draft: aPub.draft,
               // THE SCREEN SIZES IT WAS FOR AND WHICH MOVED (2026-10-24), for the reply.

@@ -96,7 +96,7 @@ export function dispatchOk() {
 // payloads carry `worker: true` and the container packages a script for every
 // one of them. A case that wants a build with no script says `worker: false`
 // and is then testing the shape the pipeline produces when packaging fails.
-export function installCompiler({ ok = true, error = "", render = null, layout = null, worker = true, frames = null, before = null, model = null, failFirst = 0, judge = null } = {}) {
+export function installCompiler({ ok = true, error = "", render = null, layout = null, worker = true, frames = null, before = null, model = null, failFirst = 0, judge = null, shots = null, failWhen = null } = {}) {
   const calls = [];
   let builds = 0;
   COMPILER = {
@@ -135,7 +135,8 @@ export function installCompiler({ ok = true, error = "", render = null, layout =
       // `judge` (2026-10-24): the case reads what was sent and names the error, or null to compile.
       const judged = typeof judge === "function" ? judge(body) : null;
       if (typeof judged === "string" && judged) return new Response(JSON.stringify({ ok: false, stage: "build", error: judged }), { status: 200 });
-      if (!ok || builds <= failFirst) return new Response(JSON.stringify({ ok: false, error: error || "compile failed" }), { status: 200 });
+      // `failWhen(body)` (2026-10-24): a compile of a chosen payload fails on the code.
+      if (!ok || builds <= failFirst || (typeof failWhen === "function" && failWhen(body))) return new Response(JSON.stringify({ ok: false, error: error || "compile failed" }), { status: 200 });
       // THE FILES BACK, WHICH IS WHAT AN UNCHANGED SOURCE REALLY COMPILES TO.
       // Inventing a dist here would be a fixture in a shape the pipeline never
       // produces, and this repo has paid for that one more than once.
@@ -175,7 +176,10 @@ export function installCompiler({ ok = true, error = "", render = null, layout =
       // THE LAYOUT AT EACH DEVICE (2026-10-24), when the case answers one and
       // the payload asked for it, as the build service answers it beside `render`.
       const lay = typeof layout === "function" && body.layout === true ? layout(calls.length, body) : null;
-      return new Response(JSON.stringify({ ok: true, files, ...(rep ? { render: rep } : {}), ...(Array.isArray(lay) && lay.length ? { layout: lay } : {}), ...(wk ? { worker: wk } : {}) }),
+      // THE SCREENSHOTS (2026-10-24), only when the payload asked (`shots`), as
+      // the real render check answers them: `{route, viewport, height, png}`.
+      const sh = body.shots && shots ? (typeof shots === "function" ? shots(body) : shots) : null;
+      return new Response(JSON.stringify({ ok: true, files, ...(rep ? { render: rep } : {}), ...(Array.isArray(lay) && lay.length ? { layout: lay } : {}), ...(wk ? { worker: wk } : {}), ...(Array.isArray(sh) && sh.length ? { shots: sh } : {}) }),
         { status: 200, headers: { "content-type": "application/json" } });
     },
   };
