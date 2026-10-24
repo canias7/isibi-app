@@ -124,15 +124,13 @@ test("the wrapper FORWARDS opts, and hands over the job's transport — DRIVEN",
   // THE CONTAINER'S TIME RULES AND ITS RETRY ARE NAMES THE READERS USE
   // (2026-10-18): handed in, the retry as a pass-through that runs the call once.
   // THE CUSTOMER'S EFFORT (2026-10-19) is a name the wrapper uses: handed in as a pass-through.
-  // THE PROVIDER WAIT AND THE JOB'S JOURNAL (2026-10-24) are names the wrapper
-  // uses too: handed in as pass-throughs that run the call once, synchronously.
-  const scope = new Function("callModel", "keysFrom", "STREAM_IDLE_MS", "CONTAINER_CALL_CAP_MS", "patientCall", "withCustomerEffort", "providerWaitOpts", "journaled", "withProviderRetry", `
+  const scope = new Function("callModel", "keysFrom", "STREAM_IDLE_MS", "CONTAINER_CALL_CAP_MS", "patientCall", "withCustomerEffort", `
     ${pick("modelSend")}
     ${pick("modelOpts")}
     ${pick("callBuilderModel")}
     return callBuilderModel;
   `)((keys, req, budget, send, opts) => { seen.push({ keys, req, budget, send, opts }); return "called"; },
-     (env) => ({ from: env }), 300000, 2400000, (fn) => fn(1), (env, req) => req, () => ({}), (env, req, run) => run(), (fn) => fn());
+     (env) => ({ from: env }), 300000, 2400000, (fn) => fn(1), (env, req) => req);
 
   // THE WORKER: no transport on the env, so both readers are transparent and
   // the call is byte-for-byte the one that shipped before this change.

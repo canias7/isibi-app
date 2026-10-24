@@ -125,17 +125,14 @@ test("build-call.mjs is still a leaf the container can package", () => {
   // `COPY ../` is not legal. A new import here is a container that will not
   // start, reported by Cloudflare as "the container is not running".
   const src = fs.readFileSync(new URL("../builder/build-call.mjs", import.meta.url), "utf8");
-  // THE PROVIDER WAIT (2026-10-24) is a second leaf: no imports of its own, COPYd beside it.
-  assert.deepEqual((src.match(/from "[^"]+"/g) || []).sort(), [`from "./model-xai.mjs"`, `from "./provider-retry.mjs"`],
+  assert.deepEqual((src.match(/from "[^"]+"/g) || []).sort(), [`from "./model-xai.mjs"`],
     "build-call.mjs grew an import — it must stay a leaf the container can package");
-  const pr = fs.readFileSync(new URL("../builder/provider-retry.mjs", import.meta.url), "utf8");
-  assert.deepEqual(pr.match(/^import .*from "[^"]+"/gm) || [], [], "provider-retry.mjs grew an import");
   assert.ok(BUILDER_CALL_MS > 0, "the call ceiling must be a real number on both sides of the wire");
 });
 
 test("the Dockerfile ships what the /model route imports", () => {
   const df = fs.readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
-  for (const f of ["build-call.mjs", "model-xai.mjs", "build-keys.mjs", "provider-retry.mjs"]) {
+  for (const f of ["build-call.mjs", "model-xai.mjs", "build-keys.mjs"]) {
     assert.match(df, new RegExp(`\\b${f.replace(".", "\\.")}\\b`), `${f} is not COPYd into the build image`);
   }
 });

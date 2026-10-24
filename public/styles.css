@@ -1548,14 +1548,6 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    element was split out of `.st-msg` to fix: it was fixed one level up and left
    in place one level down. `pre-line` and not `pre-wrap`, so the newlines
    survive while incidental indentation does not. */
-/* A MODEL PROVIDER THAT IS DOWN (owner, 2026-10-24): the server's fixed notice, a grey box. */
-.st-wait { font-size: .8rem; color: var(--muted); line-height: 1.45; margin: .4rem 0; padding: .55rem .7rem; background: var(--sunk, rgba(0,0,0,.04)); border: 1px solid var(--line); border-radius: 8px; }
-.st-wait-t { font-weight: 600; color: var(--ink, inherit); }
-.st-wait-s, .st-wait-k { margin-top: .2rem; }
-.st-wait a { color: inherit; text-decoration: underline; }
-.st-wait-k span, .st-wait-row span { font-variant-numeric: tabular-nums; }
-.st-wait-ok .st-wait-t { font-weight: 500; }
-.st-wait-row { color: var(--muted); }
 .st-note { font-size: .8rem; color: var(--muted); line-height: 1.45; margin: 0 0 .45rem; padding-left: .6rem; border-left: 2px solid var(--line); white-space: pre-line; }
 /* WHY A BUILD FAILED, in the compiler's own words.
    Monospace and `pre-wrap`: this carries file:line references and real source

@@ -104,13 +104,12 @@ test("EVERY long call reads the job's transport — including the PAGE call, whi
   const seen = [];
   // THE CONTAINER'S TIME RULES ARE NAMES THE READER USES (2026-10-18): handed in.
   // THE CUSTOMER'S EFFORT (2026-10-20) is a name the reader uses: handed in as a pass-through.
-  // THE PROVIDER WAIT AND THE JOB'S JOURNAL (2026-10-24): pass-throughs that run the call once.
-  const make = new Function("callModel", "STREAM_IDLE_MS", "CONTAINER_CALL_CAP_MS", "withCustomerEffort", "journaled", "withProviderRetry", "providerWaitOpts", `
+  const make = new Function("callModel", "STREAM_IDLE_MS", "CONTAINER_CALL_CAP_MS", "withCustomerEffort", `
     ${pick("modelSend")}
     ${pick("modelOpts")}
     ${src.slice(at, src.indexOf("\n}", at) + 2)}
     return pagesCall;
-  `)((keys, req, budget, send, opts) => { seen.push({ send, opts }); }, 300000, 2400000, (env, req) => req, (env, req, run) => run(), (fn) => fn(), () => ({}));
+  `)((keys, req, budget, send, opts) => { seen.push({ send, opts }); }, 300000, 2400000, (env, req) => req);
 
   const send = () => {};
   make({ MODEL_SEND: send, MODEL_STREAM: true })("k", "r", 1);

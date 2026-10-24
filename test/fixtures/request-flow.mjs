@@ -459,9 +459,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   // A PROVIDER REPLY AS GIVEN (`{ __raw }`, 2026-10-11, the unusable-answer
   // round): a case may answer with the provider's own shape — a reply cut off
   // at `max_tokens`, say — instead of a tool call made for it.
-  // A PROVIDER'S OWN FAILURE AS GIVEN (a `Response`, 2026-10-24, the provider
-  // retry): a case may answer a call with the provider's 503 or 429 itself.
-  const say = (tool, input, usage = null) => (input instanceof Response ? input : input && typeof input === "object" && Object.hasOwn(input, "__raw")
+  const say = (tool, input, usage = null) => (input && typeof input === "object" && Object.hasOwn(input, "__raw")
     ? resp({ usage: usage || { input_tokens: 10, output_tokens: 5 }, ...input.__raw })
     : resp({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input }], usage: usage || { input_tokens: 10, output_tokens: 5 } }));
   async function model(args, signal = null) {

@@ -3337,10 +3337,6 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
     intent: !!hasSite ? FALLBACK_WITH_SITE : FALLBACK_NO_SITE, answer: "", usage: null, failed: true,
     failure: routeFailure(stage, e, { model, classify: deps && deps.classify }),
     decision: routeDecision([...shown, stage === "request" ? "request-failed" : "send-failed"]),
-    // A PROVIDER THAT IS DOWN (owner, 2026-10-24): the fixed notice the call's
-    // wait made (`builder/provider-retry.mjs`), so the route waits and asks
-    // again instead of acting on the fallback. Only the notice's own fields.
-    ...(stage !== "request" && e && e.parked === true && e.providerWait && e.providerWait.notice ? { wait: e.providerWait.notice } : {}),
   });
   // THE MESSAGE'S ITEMS (2026-10-23): on a site that exists, for a message of
   // its own (not an answer to a waiting question), numbered for the router so
