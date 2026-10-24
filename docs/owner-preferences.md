@@ -1422,3 +1422,7 @@ Where a bound must remain for safety it carries the excess into further
 batches or parts in the same job, never drops it, and keeps a page together
 with the tables and functions it uses. Record: `docs/history/2026-10-24-addon-uncapped.md`.
 - **The visual review runs only for front-end changes** (owner, 2026-10-24): *"only when you're changing the front end … if you're changing … the back end, like the database … you don't need it"*. Decided from the files a change really alters (pages, parts, stylesheet, theme, logo), never from the request's words; data rows, rules, tables, functions, schedules, settings and restores are never reviewed.
+
+## Retries stay on the same model (owner, 2026-10-24)
+
+When a model's answer fails a check, retry once with the reason, on the **same model and the same effort**. Do **not** switch to the other model (Grok ↔ Claude) or raise the effort as an escalation step. Asked directly ("after a failed retry, try once more on the other model?"), the owner answered "No".
