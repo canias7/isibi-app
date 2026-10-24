@@ -1455,3 +1455,7 @@ default from the site and the message, and the reply says what was assumed
 never charged for it. Questions must never ask for what the site or the
 message already answers or implies. Record:
 `docs/history/2026-10-24-no-ask-after-charge.md`.
+
+## Retries stay on the same model (owner, 2026-10-24)
+
+When a model's answer fails a check, retry once with the reason, on the **same model and the same effort**. Do **not** switch to the other model (Grok ↔ Claude) or raise the effort as an escalation step. Asked directly ("after a failed retry, try once more on the other model?"), the owner answered "No".
