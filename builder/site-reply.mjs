@@ -59,6 +59,7 @@ import { pieceSaid } from "./site-requirements.mjs";
 import { seedRowsOf, rowPlaces } from "./seed-rows.mjs";
 import { checkFacts, browserOnlyFacts, savedDraftOf, savedDraftFacts, readChecks } from "./check-evidence.mjs";
 import { REWRITE_MAX_CHARS } from "./input-budget.mjs";
+import { deviceWishesFact } from "./device-scope.mjs";
 
 /** The switch: `MODEL_REPLIES` = "on" in the Worker's vars. Anything else keeps every reply as it was. */
 /** Why a waiting photograph was not placed, from the placement's own reason (round 6). */
@@ -1048,6 +1049,22 @@ function recoveredFacts(x) {
  * queued job's stored one. `skip` says why no reply is written: an answer that
  * is not an ending, or a failure of ours that keeps its fixed sentence.
  */
+/**
+ * WHICH SCREEN SIZES A SCOPED CHANGE WAS FOR (2026-10-24, per-device edits),
+ * as the publish measured them: `{ asked, changed }`. Nothing for a change
+ * made for every screen, which is the default and says nothing new.
+ */
+export function deviceFacts(F, d) {
+  const known = ["phone", "tablet", "desktop"];
+  const asked = d && Array.isArray(d.asked) ? known.filter((x) => d.asked.includes(x)) : [];
+  if (!asked.length || asked.length === known.length) return;
+  const changed = Array.isArray(d.changed) ? known.filter((x) => d.changed.includes(x)) : [];
+  const others = known.filter((x) => !asked.includes(x));
+  F.add("note", "This change was for the " + listOf(asked) + " view only. The " + listOf(others) + (others.length > 1 ? " views were" : " view was") + " measured before and after and " + (others.length > 1 ? "are" : "is") + " unchanged.", "devices");
+  const still = asked.filter((x) => !changed.includes(x));
+  if (still.length) F.add("note", "Measured at the " + listOf(still) + " width, the page looks the same as before.", "devices-same");
+}
+
 export function editReplyFacts(e, { routedCost = null, inRequest = false } = {}) {
   if (!e || typeof e !== "object" || Array.isArray(e)) return { skip: "unreadable", facts: [] };
   if (e.escalate === true) return { skip: "escalate", facts: [] };
@@ -1150,6 +1167,7 @@ export function editReplyFacts(e, { routedCost = null, inRequest = false } = {})
     }
     outcomeFacts(F, e);
     langFacts(F, e);
+    deviceFacts(F, e.devices);
   } else if (refusalFacts(F, e.refusal)) {
     refusalMoney(F, e, routedCost);
   } else {
@@ -1275,6 +1293,8 @@ export function addonReplyFacts(a, { routedCost = null, inRequest = false } = {}
   if (a.ok === false && a.refusal) { const R = factList(); if (refusalFacts(R, a.refusal)) return { skip: null, facts: R.out }; }
   const F = factList();
   if (a.ok === true) {
+    // WHICH SCREEN SIZES THE ADDITION WAS FOR (2026-10-24), as an edit's.
+    deviceFacts(F, a.devices);
     const added = paths(a.added);
     const removed = paths(a.removed);
     // A PAGE WHOSE ONE CHANGE IS A NEW PAGE'S LINK (`restored`, settled once
@@ -1676,6 +1696,9 @@ export function buildReplyFacts(bf) {
   for (const x of Array.isArray(bf.notBuilt) ? bf.notBuilt : []) {
     if (typeof x === "string" && x.trim()) F.add("not-done", "Asked for and not built in this first build (it can be asked for next, as an addition): " + quote(x));
   }
+  // THE SCREEN-SIZE WISHES (2026-10-24): which ones the page writers were
+  // told to build with responsive rules. Told, not measured per screen.
+  { const dwf = deviceWishesFact(bf.devices); if (dwf) F.add("changed", dwf + " Each was built into the same pages with responsive rules for those screen sizes only.", "devices"); }
   if (bf.noDatabase === true) F.add("note", "This build made no database for the site: nothing a visitor types into it is stored yet. Storing things (sign-ups, bookings, orders, accounts) can be added next.");
   for (const u of Array.isArray(bf.unwritten) ? bf.unwritten : []) {
     if (u && typeof u.section === "string" && u.section.trim()) F.add("not-done", "This part of the page could not be written and is left out for now (it can be asked for again): " + quote(u.section));

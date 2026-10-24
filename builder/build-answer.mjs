@@ -2,6 +2,7 @@ import { renderNote } from "./site-render.mjs";
 import { readChecks } from "./check-evidence.mjs";
 import { imageNote } from "./site-images.mjs";
 import { verifyChecklist, checklistLine } from "./build-checklist.mjs";
+import { readDeviceWishes } from "./device-scope.mjs";
 
 // WHICH SITE THIS BUILD MADE — the half of a build's answer that says so.
 //
@@ -215,8 +216,11 @@ export const BUILD_FAILURE_KINDS = ["design-unusable", "design-truncated", "desi
 export const DESIGN_ATTEMPT_READINGS = ["malformed:repair", "truncated:repair", "transient:again"];
 const DESIGN_OUTCOMES = ["repaired", "question", "exhausted"];
 
-export function buildFacts({ images = null, context = null, unwritten = null, salvaged = null, settlement = null, failure = null, design = null, checks = null, refusal = null, ownLogo = null, notBuilt = null, noDatabase = null, compileRepaired = null } = {}) {
+export function buildFacts({ images = null, context = null, unwritten = null, salvaged = null, settlement = null, failure = null, design = null, checks = null, refusal = null, ownLogo = null, notBuilt = null, noDatabase = null, compileRepaired = null, devices = null } = {}) {
   const out = {};
+  // THE SCREEN-SIZE WISHES the writers were told (2026-10-24), read again.
+  const dw = readDeviceWishes(devices);
+  if (dw) out.devices = dw;
   // WHAT WAS ASKED FOR AND NOT BUILT, AND WHETHER THE BUILD MADE NO DATABASE
   // (2026-10-23, owner: the first build's reply names what was left out, so
   // the customer can ask for it next as an addition). The design's own

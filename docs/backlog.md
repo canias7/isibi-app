@@ -21,6 +21,7 @@ The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
 - **Huge build test (2026-10-23, `saltmarsh-and-sparrow`, 31 credits) findings, not fixed**: (1) a failed photo leaves a blank hero gap and empty "Today's bakes" boxes; (2) "One photograph could not be made" repeated on every progress line; (3) "Maya and Ruth, since 2015" heading white on white; (4) "Book a table" is only a phone link; (5) the final reply doesn't say what was left out or that no database was created (owner: model-written, see preferences); (6) event dates in April (past); (7) footer lacks the asked-for newsletter and social links — being investigated.
+- **A build's landmark map is never stored (found 2026-10-24, device-scope-build, not fixed)**: the build path gates `saveLandmarks` on `out.ok && out.render`, but `publishPages` answers no `ok` on success (measured: keys `page,files,…,layout,version`, `ok` absent), so a freshly built site's first edit aims without a map. The layout save beside it gates on `out.page === "app"` instead. Kept separate.
 - **The audit's 113 low findings, never checked** (2026-10-23): raised but not verified (owner's lighter-check choice); none fixed. Waiting on the owner's go-ahead to check and fix them in batches. `docs/audits/2026-10-17-builder-audit.md`.
 - **#141 outgoing-link DNS rebinding (needs a proxy)**: deferred by owner 2026-10-23.
 - **#203 a custom domain as the site's primary address**: deferred by owner 2026-10-23.
@@ -3161,6 +3162,11 @@ the root config files, a guard test, clean what existing sites show; step 2
 (later) rename builder/lovable/template (115 files, 249 mentions). ~1.5–2 days.
 
 ## Different edits per device (owner, 2026-10-22: "note that for later")
+
+**BUILT 2026-10-24 on branch `device-scope` (not merged, not deployed; NOT
+proven live)** to the owner's design of that day: `docs/history/2026-10-24-device-scope.md`.
+Open: the paid tests in its §7; a site's first scoped change is refused until
+one ordinary edit has stored its layout; builds store none; no redo round.
 
 "Smaller on phones only". Missing: device never sent with edits; router has
 no device field; lanes not told to scope by @media/md:/lg:; no check the other

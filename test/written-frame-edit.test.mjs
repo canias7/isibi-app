@@ -379,7 +379,7 @@ test("a first build's one call is the own-parts call with the frame directive; a
   assert.ok(end > at);
   const win = W.slice(at, end);
   assert.ok(win.includes("ownFallbackDirective({"), "the frame directive is not composed");
-  assert.ok(win.includes("media }) + ownTail, spec,"), "the directive does not reach the one call's brief");
+  assert.ok(win.includes("media, devices: deviceWishes }) + ownTail, spec,"), "the directive does not reach the one call's brief");
   assert.ok(win.includes("plan && plan.kind, [], { ownParts: ownFirst });"), "the one call is not told own parts on a first build");
   assert.ok(win.includes('ownFirst ? "\\n\\n" + ownFallbackDirective'), "a revise would get the directive");
 });

@@ -79,6 +79,8 @@ export async function readSchemaTool() {
     BEHAVIOR_FIELD: plan.BEHAVIOR_FIELD,
     // The components the kit has not got (2026-08-29). Same rule, same reason.
     TSX_FIELD: plan.TSX_FIELD,
+    // The screen-size wishes (2026-10-24, device-scope-build). The real field.
+    DEVICE_WISHES_FIELD: (await import(path.join(ROOT, "builder", "device-scope.mjs"))).DEVICE_WISHES_FIELD,
     // The designer-drawn tab icon (2026-08-28) — the real field, never a stub,
     // for the reason this function's own header gives.
     FAVICON_FIELD: favicon.FAVICON_FIELD,

@@ -401,7 +401,11 @@ test("each probe is posted as the browser posts it, with the site's real page li
   // AND LESS THE FILES' NAMES (2026-10-14): sent only beside files the page
   // holds, which a probe never has.
   assert.match(line, /files: typeof ChatTalk !== 'undefined' && \(\(imgs && imgs\.length\) \|\| keptImgs\.length\)/, "the browser sends file names with no file — the observer is stale");
-  const fields = [...code.replace(/ask: !isBuild && answer[^}]*\} : undefined/, "").matchAll(/([a-zA-Z]+):/g)].map((m) => m[1]).filter((k) => k !== "picker" && k !== "files" && k !== "chat" && !REQUEST_FLOW.includes(k));
+  const fields = [...code.replace(/ask: !isBuild && answer[^}]*\} : undefined/, "").matchAll(/([a-zA-Z]+):/g)].map((m) => m[1]).filter((k) => k !== "picker" && k !== "files" && k !== "chat" && k !== "device" && !REQUEST_FLOW.includes(k));
+  // AND LESS THE PREVIEW'S DEVICE (2026-10-24, per-device edits): a hint from
+  // the preview the browser shows, which a probe has none of; without it the
+  // router is told nothing, exactly as before the field existed.
+  assert.match(line, /device: typeof siteDevice === 'string' \? siteDevice : undefined/, "the browser no longer sends its preview's device — the observer is stale");
   // AND LESS THE CHAT'S ID (2026-10-20): it makes the reply read the account's
   // kept conversation, and a probe has none of its own; it sends `history: []`.
   assert.match(line, /chat: \(typeof chatKeyOf === 'function' && chatKeyOf\(/, "the browser no longer sends its chat's id — the observer is stale");

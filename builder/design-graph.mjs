@@ -118,7 +118,7 @@ export const DESIGN_GRAPH = [
     // three calls and save no time at all, because a "nothing" answer is instant.
     // `tsx` LEFT WITH THE KIT (2026-10-23): a first build declares no custom
     // parts; every writer writes the components its band needs.
-    fields: ["qr", "three"],
+    fields: ["qr", "three", "devices"],
   },
   { name: "lang", fields: ["lang", "langs"] },
   {

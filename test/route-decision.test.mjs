@@ -119,6 +119,7 @@ const CASES = [
   ["also-ignored", () => routed({ intent: "build", alsoAsked: "and a map" }), "model"],
   // A 3D MODEL ANSWER THAT CANNOT BE READ (2026-10-22): the addition runs as before.
   ["model3d-unread", () => routed({ intent: "addon", model3d: { from: "magic", subject: "x" } }), "model"],
+  ["devices-unread", () => routed({ intent: "edit", layer: "look", devices: ["phone", "watch"] }), "model"],
   // WHICH HELD PART NEEDS WHICH (2026-10-03, the combined request flow): named
   // when the relations read whole, and unread — no order taken at all — when
   // one of them names a change that is not there.

@@ -80,7 +80,7 @@ export const DESIGN_WAVES = [
       // The rest are here because nothing in the plan or the look is an input
       // to them: a language, the one action, a QR destination, a 3D scene and
       // the search gate all read the brief and stop.
-      fields: ["brand", "slug", "description", "kind", "lang", "langs", "action", "qr", "three", "needsWeb", "webQueries"],
+      fields: ["brand", "slug", "description", "kind", "lang", "langs", "action", "qr", "three", "needsWeb", "webQueries", "devices"],
     },
   ],
   [
