@@ -148,7 +148,11 @@ test("splitPlan reads the stored design args and nothing else, so a resume re-de
     shape: [{ path: "/", sections: ["one", "two", "tri", "four", "five", "six", "sevn", "ate"] }],
     route: "/", mode: "build",
     tsx: [{ name: "A", does: "a" }, { name: "B", does: "b" }, { name: "C", does: "c" }],
-  }).length, MAX_BANDS, "the widest plan there is was refused the split, or lost a band on the way in");
+  }).length, 8, "the widest plan there is was refused the split, or lost a band on the way in");
+  // AND NO BAND CAP AT ALL SINCE 2026-10-24 (owner): thirty bands are thirty.
+  assert.equal(MAX_BANDS, Infinity);
+  assert.equal(splitPlan({ shape: [{ path: "/", sections: Array.from({ length: 30 }, (_, i) => "band number " + i) }], route: "/", mode: "build" }).length, 30,
+    "a band past an old cap was dropped");
   assert.equal(splitPlan({ ...args, mode: "revise" }).length, 0, "a revise must not split");
   assert.equal(splitPlan({ ...args, priorPages: [{ path: "index.tsx" }] }).length, 0, "a page rewrite must not split");
   assert.equal(splitPlan({ shape: [{ path: "/", sections: ["only one"] }], route: "/", mode: "build" }).length, 0,
@@ -210,8 +214,9 @@ test("a fire asks the flag; a resume asks the store, and never the flag", () => 
   // reported the LINES as env-dependent when they are not. The recorded
   // overlapping-window trap: a window that runs to a named neighbour swallows
   // whatever is inserted between them. The property below is unchanged.
-  const lines = between(WCODE, "const bandLines = planned.length === 1", "const bandDoor", "the band lines");
-  assert.ok(/splitPlan\(\{ shape: plan && plan\.shape, route: planned\[0\], tsx, priorPages, mode: revise \? "revise" : "build" \}\)/.test(lines),
+  // RE-ANCHORED 2026-10-24: every page is split (`pagesPlan`), not one.
+  const lines = between(WCODE, "const split = pagesPlan(", "const bandDoor", "the band lines");
+  assert.ok(/pagesPlan\(\{ shape: plan && plan\.shape, pages: plan && Array\.isArray\(plan\.pages\) \? plan\.pages : \[\], priorPages, mode: revise \? "revise" : "build" \}\)/.test(lines),
     "the lines are no longer derived from the stored design args");
   assert.ok(!/\benv\b/.test(lines), "the lines now depend on env, so a resume can derive different ones");
 });

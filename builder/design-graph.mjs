@@ -27,7 +27,9 @@
 //   * `components` ← `pages` — DROPPED. `pages` is "This site is ONE page (at
 //     most 1)… One entry: what the site is called, route /". A near-constant,
 //     left over from when `MAX_PAGES` was 5 — and it was sitting at the head of
-//     the longest chain in the graph doing nothing.
+//     the longest chain in the graph doing nothing. (2026-10-24: the page cap
+//     is gone, so `pages` is no longer a constant — `shape` and `images` now
+//     wait for it; `components` is gone from the first build altogether.)
 //   * `tsx` ← `components` — DROPPED. It needs the kit's MENU, not which
 //     fifteen were picked, and its own field says "OMIT THIS FIELD ENTIRELY…
 //     that is the right answer for nearly every site". Worst case: one
@@ -101,7 +103,15 @@ export const DESIGN_GRAPH = [
   { name: "kind", fields: ["kind"] },
   { name: "purpose", fields: ["purpose"] },
   { name: "action", fields: ["action"] },
-  { name: "images", fields: ["images"] },
+  {
+    name: "images",
+    // WAITS FOR `pages` SINCE 2026-10-24: a picture names the page it is for,
+    // and a picture for a page the site does not have is dropped
+    // (`pageImages`). While a first build was one page that page was always
+    // "/"; with no page cap the paths are the design's own, so it must see them.
+    fields: ["images"],
+    needs: ["pages"],
+  },
   {
     name: "favicon",
     // ONE OF THE TWO DRAWINGS, AND IT WAITS FOR NOTHING. An earlier draft had it
@@ -161,6 +171,13 @@ export const DESIGN_GRAPH = [
     // `notBuilt` BESIDE `shape` (2026-10-23): the agent that chooses the six
     // bands is the one that knows what did not fit.
     fields: ["shape", "notBuilt"],
+    // WAITS FOR `pages` SINCE 2026-10-24 (owner: no page cap on the first
+    // build). Each `shape` entry names a page path and one naming a page the
+    // site does not have is dropped (`pageShapes`) — so an agent arranging
+    // pages it cannot see would leave every page but a guessed "/" to be
+    // improvised. With one page that was always "/" and the edge bought
+    // nothing; with many pages it is the whole arrangement.
+    needs: ["pages"],
   },
   {
     name: "behavior",

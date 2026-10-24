@@ -182,7 +182,14 @@ export function photoWait(clock, reserve = PUBLISH_RESERVE_MS, floor = PHOTO_FLO
  * a promise: a page set that writes twelve tokens gets six pictures and the
  * placeholder for the rest, which is a site that still works.
  */
-export const IMAGE_CAP = 6;
+// NO CEILING NOW (owner, 2026-10-24, first-build-db-limits): "remove the
+// remaining caps". It was six; a page set that asks for twenty photographs gets
+// twenty when purchases are on and the balance and the clock carry them. What
+// still bounds a purchase is real: `IMAGE_PURCHASES` (off buys nothing),
+// `imagesAffordable` (the balance), `photoWait` (the clock), the library's room
+// (`MAX_FILES_PER_SITE`), and at most `MAX_MODEL_FANOUT` purchases at once.
+// Kept as a name, not deleted, so every `Math.min(IMAGE_CAP, n)` reads `n`.
+export const IMAGE_CAP = Infinity;
 
 /**
  * Components a family reaches for when pictures are the CONTENT — a gallery, a

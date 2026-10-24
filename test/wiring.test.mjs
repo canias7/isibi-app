@@ -686,7 +686,7 @@ test("THE DESIGNER'S OWN PICTURES REACH THE PAGE WRITER", () => {
 const photoChain = () => {
   const at = worker.indexOf("async function askSitePhoto");
   assert.ok(at > 0 && worker.indexOf("async function makeSitePhoto") > at, "the photo stages moved — rescope these guards");
-  const fn = worker.slice(at, worker.indexOf("\nasync function buySitePhotos", at));
+  const fn = worker.slice(at, worker.indexOf("async function buySitePhotos", at));
   assert.ok(fn.length > 400, "makeSitePhoto moved — rescope these guards");
   return fn;
 };

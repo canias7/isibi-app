@@ -45,7 +45,7 @@ const words = (n, tail = ".") => ("Harbour Loaf bakes overnight sourdough by the
 
 // ── plan fields ────────────────────────────────────────────────────────────
 
-test("plan fields past every old cut — purpose 400, describe 240, and sections and actions past the 16,000 input budget (Codex's finding) — are kept whole; 1 page and 15 components stand", () => {
+test("plan fields past every old cut — purpose 400, describe 240, and sections and actions past the 16,000 input budget (Codex's finding) — are kept whole; every page and component is kept (no cap since 2026-10-24)", () => {
   const purpose = words(1200, " — and the last clause matters.");
   const section = words(MAX_INPUT_CHARS + 900, " — the band's own ending.");
   const action = words(MAX_INPUT_CHARS + 400, " — paid at the door.");
@@ -62,10 +62,10 @@ test("plan fields past every old cut — purpose 400, describe 240, and sections
   assert.equal(p.shape[0].sections[0], section, "a section past 16,000 lost its tail");
   assert.equal(p.action[0], action, "an action past 16,000 lost its tail");
   assert.equal(p.images[0].describe, describe, "a picture description was cut");
-  assert.equal(p.pages.length, MAX_PAGES);
-  assert.equal(p.components.length, MAX_COMPONENTS);
-  assert.equal(MAX_PAGES, 1);
-  assert.equal(MAX_COMPONENTS, 15);
+  assert.deepEqual(p.pages.map((x) => x.path), ["/", "/more"], "a page was dropped");
+  assert.equal(p.components.length, 30, "a component was dropped");
+  assert.equal(MAX_PAGES, Infinity);
+  assert.equal(MAX_COMPONENTS, Infinity);
 });
 
 test("a long picture description reaches the stored plan through the real build route, and stays whole in the token, the alt, the key and the prompt", async () => {
@@ -150,23 +150,26 @@ test("pictures past what one build buys are named with their rule — the cap, a
   const own = { page: "/", describe: "their shop", src: "/u/harbour-loaf/a.jpg", attached: "attachment-1" };
   const plan = normalizePlan({ ...GOOD_DESIGN, images: [own, ...nine] });
   const budget = budgetFor({ revise: false, priorPages: null, slug: "harbour-loaf", plan });
-  assert.equal(budget, IMAGE_CAP);
-  const left = imagesNotOffered(plan, budget, notOfferedWhy({ revise: false, priorPages: null, slug: "harbour-loaf", plan }));
+  // NO CAP (2026-10-24): nine declared is a budget of nine, none left out.
+  assert.equal(budget, 9);
+  assert.deepEqual(imagesNotOffered(plan, budget, notOfferedWhy({ revise: false, priorPages: null, slug: "harbour-loaf", plan })), []);
+  // A budget below the list (the balance or the clock) still names the rest.
+  const left = imagesNotOffered(plan, 6, "cap");
   assert.deepEqual(left.map((x) => x.describe), ["picture 7", "picture 8", "picture 9"]);
   assert.ok(left.every((x) => x.why === "cap"));
   // TOLD FROM FACTS (the sixth batch): the fixed sentence keeps its old
   // wording and adds nothing; the not-offered pictures reach the reply writer
   // as facts, each named with its reason.
   assert.equal(imageNote({ made: 6, planned: 6, budget: 6, overflow: 0, notOffered: left }), "Made 6 photographs for the site.");
-  const told = buildReplyFacts({ pictures: pictureOutcomes({ plan, budget, notOffered: left, buy: { bought: [], attempted: [], notTried: [] } }) }).facts.map((f) => f.text).join("\n");
-  assert.match(told, /never offered to the page writer, because one build makes at most 6 photographs[^\n]*“picture 7”; “picture 8”; “picture 9”/);
+  const told = buildReplyFacts({ pictures: pictureOutcomes({ plan, budget: 6, notOffered: left, buy: { bought: [], attempted: [], notTried: [] } }) }).facts.map((f) => f.text).join("\n");
+  assert.match(told, /never offered to the page writer, because it was past what this build could buy[^\n]*“picture 7”; “picture 8”; “picture 9”/);
   assert.equal(notOfferedWhy({ plan: { kind: "tool" } }), "tool");
   // CONTROL: within the budget, nothing is named and the sentence is unchanged.
   assert.deepEqual(imagesNotOffered(normalizePlan({ ...GOOD_DESIGN, images: nine.slice(0, 3) }), 3), []);
   assert.equal(imageNote({ made: 3, planned: 3, budget: 3, overflow: 0 }), "Made 3 photographs for the site.");
 });
 
-test("THROUGH THE WORKER: a real queued build that asked for nine pictures, published by the real resume, answers with the three past the cap named", async () => {
+test("THROUGH THE WORKER: a real queued build that asked for nine pictures, published by the real resume, offers all nine (no cap, 2026-10-24)", async () => {
   const b = buildBucket();
   const id = "c0ab2c3d4e5f60718293a4b5c6d7e8f9";
   const design = { ...GOOD_DESIGN, images: Array.from({ length: 9 }, (_, i) => ({ page: "/", describe: "picture " + (i + 1) })) };
@@ -178,11 +181,11 @@ test("THROUGH THE WORKER: a real queued build that asked for nine pictures, publ
   const r = readResult(JSON.parse(b.store.get(resultKey(id))));
   const body = JSON.parse(r.body);
   assert.equal(body.page, "app", "the resumed build did not publish: " + r.body.slice(0, 300));
-  assert.deepEqual(body.images.notOffered.map((x) => x.describe), ["picture 7", "picture 8", "picture 9"]);
-  // EVERY PICTURE ACCOUNTED FOR, AS FACTS: the six offered were not placed by
-  // the writer (the page has no picture), the three past the cap never offered.
+  assert.deepEqual((body.images.notOffered || []).map((x) => x.describe), []);
+  // EVERY PICTURE ACCOUNTED FOR, AS FACTS: all nine offered, none placed by
+  // the writer (the page has no picture), none cut by a cap.
   const st = body.buildFacts.pictures.map((x) => x.describe + ":" + x.status + (x.why ? "/" + x.why : ""));
-  assert.deepEqual(st, [1, 2, 3, 4, 5, 6].map((n) => "picture " + n + ":not-placed").concat([7, 8, 9].map((n) => "picture " + n + ":not-offered/cap")));
+  assert.deepEqual(st, [1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => "picture " + n + ":not-placed"));
   assert.doesNotMatch(String(body.imagesNote || ""), /picture 7/, "the fixed sentence still tells what the facts carry");
 });
 

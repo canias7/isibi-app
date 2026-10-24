@@ -131,7 +131,7 @@ test("splitPlan is DERIVED from planRefusal and cannot disagree with it", () => 
 test("bandRefusal answers the whole ladder, and the ORDER is the code's order", () => {
   assert.equal(bandRefusal(OK), "", "everything open must split");
   assert.equal(bandRefusal({ ...OK, canFire: false }), "sync");
-  assert.equal(bandRefusal({ ...OK, pages: 2 }), "pages");
+  assert.equal(bandRefusal({ ...OK, pages: 2 }), "", "several pages split since 2026-10-24 (no page cap)");
   assert.equal(bandRefusal({ ...OK, pages: 0 }), "pages");
   assert.equal(bandRefusal({ ...OK, door: false }), "door");
   assert.equal(bandRefusal({}), "sync", "an argument-less call must refuse, never split");
@@ -147,7 +147,7 @@ test("bandRefusal answers the whole ladder, and the ORDER is the code's order", 
   // substitute and it is the same shape: a refusal `planRefusal` owns.
   const bad = { shape: [{ path: "/", sections: ["only one band"] }] };
   assert.equal(bandRefusal({ ...OK, ...bad, canFire: false, pages: 3, door: false }), "sync");
-  assert.equal(bandRefusal({ ...OK, ...bad, pages: 3, door: false }), "pages");
+  assert.equal(bandRefusal({ ...OK, ...bad, pages: 0, door: false }), "pages"); // a plan with no page (several pages split since 2026-10-24)
   assert.equal(bandRefusal({ ...OK, ...bad, door: false }), "thin",
     "the plan's own wall is met before the door, which is where `planRefusal` sits in the chain");
   assert.equal(bandRefusal({ ...OK, door: false }), "door", "…and the door is the last wall standing");

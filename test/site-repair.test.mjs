@@ -92,12 +92,13 @@ test("A CHECK THAT COULD NOT RUN BUYS NOTHING", () => {
   assert.equal(repairBrief(undefined, pages).work.length, 0);
 });
 
-test("the cap is real AND what it dropped is reported", () => {
+test("no cap (2026-10-24): every broken page is in the work and nothing is dropped", () => {
   const pages = ["a", "b", "c", "d", "e"].map((n) => page(`${n}.tsx`));
   const findings = pages.flatMap((p) => readPage(crashObs("desktop", "/" + p.path.replace(/\.tsx$/, ""))));
   const b = repairBrief({ ok: true, findings }, pages);
-  assert.equal(b.work.length, MAX_REPAIRS);
-  assert.equal(b.dropped, 5 - MAX_REPAIRS, "a silent cap reads as 'covered everything'");
+  assert.equal(MAX_REPAIRS, Infinity);
+  assert.equal(b.work.length, 5);
+  assert.equal(b.dropped, 0);
 });
 
 /* ──────────────────────────────── the run ────────────────────────────────── */

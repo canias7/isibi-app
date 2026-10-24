@@ -159,7 +159,7 @@ test("AT 4 — THE SOURCE CHANGED AFTER COMPLETION: the press judges the job's o
   assert.ok(io.calls.includes(`source-job:${JOB}`), "the job's own version was not asked for");
   assert.ok(!io.calls.includes("source-now"), "the site as it stands was read for the verdict");
   assert.equal(by(rec, /source judged is this build's own stored version/).ok, true);
-  assert.equal(by(rec, /exactly 1 page/).ok, true, "the later edit's second page was judged");
+  assert.equal(by(rec, /front page among them/).ok, true, "the job version was not judged");
   assert.deepEqual([rec.sourceAttribution.version, rec.sourceAttribution.live], [VER, false]);
   // NOT THAT VERSION: an old route that ignores ?job= (no job, no version), a
   // pruned version (404), another job's version, an unreadable answer.
@@ -176,7 +176,7 @@ test("AT 4 — THE SOURCE CHANGED AFTER COMPLETION: the press judges the job's o
     assert.match(sa.why, re);
     const r = await runBuildCheck(net({ sourceJob: async () => answer }), { spec: NI, spend: true, named: 783 });
     assert.equal(by(r, /source judged is this build's own stored version/).ok, false);
-    assert.equal(by(r, /exactly 1 page/).ok, false, "a source that is not this job's version was judged");
+    assert.equal(by(r, /front page among them/).ok, false, "a source that is not this job's version was judged");
     assert.ok(r.unverified.some((x) => /attribution unverified/.test(x)));
   }
   // CONTROL: the version is the live one too.

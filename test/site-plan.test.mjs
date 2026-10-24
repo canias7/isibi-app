@@ -210,91 +210,63 @@ test("every axis is required, and the edit list is the same six", () => {
 
 /* ── normalizePlan: the caps are in code, not only in the descriptions ──── */
 
-test("A CAP A MODEL IS MERELY TOLD ABOUT IS NOT A CAP — and what the customer asked for is not capped at all (2026-10-08)", () => {
-  // This repo's standing distinction, and the reason `MAX_CLARIFY` is arithmetic
-  // rather than a sentence. Every one of these is stated in a description AND
-  // enforced here; a model that ignores the sentence still cannot exceed it.
+test("NO CAP ON THE FIRST BUILD'S PAGES, SECTIONS OR COMPONENTS — everything the design plans is kept whole (owner, 2026-10-24)", () => {
+  // The owner's word: "eliminate the sections, the cap on the sections, the
+  // cap on the pages, the cap on the components on the first build". From
+  // 2026-08-28 the plan kept ONE page and 15 components; from 2026-10-23 at
+  // most six bands, the rest cut into `notBuilt`. Now nothing is cut.
   const big = normalizePlan({
     ...GOOD,
-    // BANDS ARE CAPPED PER PAGE, so the fixture has to declare a page that will
-    // survive `pageList`'s own cap — since 2026-08-28 that is ONE page, and the
-    // survivor is coerced to "/", so the shape entry keys on "/" so the band cap
-    // is what this assertion measures rather than the page cap twice.
     shape: [{ path: "/", sections: Array.from({ length: 30 }, (_, i) => "band " + i) }],
     action: Array.from({ length: 20 }, (_, i) => "Verb " + i),
     components: Array.from({ length: 200 }, (_, i) => "comp-" + i),
     pages: [{ path: "/", role: "home" }, ...Array.from({ length: 39 }, (_, i) => ({ path: "/p" + i, role: "role " + i }))],
   });
-  // THE BANDS ARE CAPPED HERE, AND WHAT DID NOT FIT IS NAMED (2026-10-23,
-  // owner: "the AI should write everything, that's the point"): at most
-  // `MAX_SECTIONS` bands reach the page writers, and the design's own lines
-  // past them go to `notBuilt`, for the reply to name — never dropped
-  // silently and never folded into one band.
-  assert.equal(big.shape[0].sections.length, MAX_SECTIONS, "the band cap is only asked, not enforced");
-  assert.deepEqual(big.shape[0].sections, Array.from({ length: MAX_SECTIONS }, (_, i) => "band " + i), "the bands kept are not the first, in order");
-  assert.deepEqual(big.notBuilt, Array.from({ length: 30 - MAX_SECTIONS }, (_, i) => "band " + (i + MAX_SECTIONS)),
-    "the bands past the cap are not named as not built");
-  assert.ok(30 > MAX_SECTIONS && 20 > MAX_ACTION, "the fixture no longer exceeds the old bounds");
+  assert.equal(big.shape[0].sections.length, 30, "bands the design planned were cut");
+  assert.deepEqual(big.shape[0].sections, Array.from({ length: 30 }, (_, i) => "band " + i), "the bands are not whole, in order");
+  assert.equal(big.notBuilt, undefined, "bands were moved to notBuilt — a cut by another name");
   assert.equal(big.action.length, 20, "actions the customer named were dropped");
-  // THE OWNER'S TWO MAXIMUMS STAND: 15 components, 1 page.
-  assert.equal(big.components.length, MAX_COMPONENTS);
-  assert.equal(big.pages.length, MAX_PAGES);
+  assert.equal(big.components.length, 200, "components the design named were dropped");
+  assert.equal(big.pages.length, 40, "pages the design planned were dropped");
+  assert.deepEqual(big.pages.map((p) => p.path), ["/", ...Array.from({ length: 39 }, (_, i) => "/p" + i)], "pages lost their order or their paths");
 });
 
-test("ONE PAGE, AT MOST 15 COMPONENTS AND NO FLOOR (owner's call, 2026-08-28)", () => {
-  // PINNED OUTRIGHT, NOT IN TERMS OF THE CONSTANTS — the `RESUME_MAX_REFIRES`
-  // lesson: every derived assertion above moves WITH the constant, so a mutant
-  // restoring MAX_PAGES = 5 or MAX_COMPONENTS = 50 passes all of them. These two
-  // numbers are the owner's own ("for the pages, max 1 instead of 5", "instead
-  // of 8-15, just do max 15") and changing either is a product decision, not a
-  // tuning one.
-  assert.equal(MAX_PAGES, 1, "the front page stopped being the whole site");
-  assert.equal(MAX_COMPONENTS, 15, "the manifest ceiling moved off the owner's 15");
+test("THE CONSTANTS SAY THERE IS NO CAP, AND THE TOOL ASKS FOR NONE (owner, 2026-10-24)", () => {
+  // PINNED OUTRIGHT, NOT IN TERMS OF THE CONSTANTS — a mutant restoring
+  // MAX_PAGES = 1 or MAX_COMPONENTS = 15 must fail here.
+  assert.equal(MAX_PAGES, Infinity, "the first build's page cap is back");
+  assert.equal(MAX_COMPONENTS, Infinity, "the first build's component cap is back");
+  assert.equal(MAX_SECTIONS, Infinity, "the first build's section cap is back");
+  const shapeField = planFieldFor("shape");
+  assert.equal(shapeField.items.properties.sections.maxItems, undefined, "the shape field still caps the bands");
   const d = PLAN_FIELDS.components.description;
-  // A CEILING AND NO FLOOR. The 8-15 range lived for one afternoon and the
-  // owner took the floor off the same day: "it can do less than 8." Asserted as
-  // an ABSENCE as well as a presence, because a floor is the tempting thing to
-  // add back to a field that sometimes answers thin — and a quota is what makes
-  // a model reach for parts the page does not need.
-  assert.match(d, /At most 15 components/, "the ceiling stopped being stated");
+  assert.ok(!/At most \d+ components|is dropped/.test(d), "the manifest field still states a ceiling");
   assert.ok(!/\bat least\b|\bBetween \d|\bminimum\b|\bFewer than \d/i.test(d),
-    "a floor is back in the manifest field — a quota, and a model fills a quota");
+    "a floor is in the manifest field — a quota, and a model fills a quota");
+  const p = PLAN_FIELDS.pages.description;
+  assert.ok(!/ONE page|at most/i.test(p), "the pages field still states a page cap");
+  assert.match(p, /no limit/, "the pages field does not say there is no limit");
   // A small honest answer is sliced by nothing and refused by nothing.
   const thin = normalizePlan({ ...GOOD, components: ["price-list", "hero"] });
   assert.deepEqual(thin.components, ["price-list", "hero"]);
 });
 
-test("ONE PAGE IS ONE JOB, NOT FIVE PAGES STACKED (owner's call, 2026-08-28)", () => {
-  // THE RUN-53 CORRECTION, and my own wording caused it: the `pages` field read
-  // "Everything the brief needs lands on that page as bands", which is an
-  // instruction to CRAM. northgroup-17 obeyed it — a pipeline, a deal record
-  // and a contact book stacked down one scroll, three working screens wearing
-  // the costume of one page. Owner: "it just turned what it used to be 5 pages
-  // into one page, thats not my purpose... my purpose is to make one page."
-  //
-  // EVERY EXISTING LAW WAS SATISFIED BY THAT SITE, which is why a new one was
-  // needed rather than a stronger old one: each band proved something, none
-  // repeated another, and the page still came out as a stacked site.
+test("EACH PAGE IS ONE JOB, AND A SECOND SCREEN IS ITS OWN PAGE (2026-08-28, answered with a page since 2026-10-24)", () => {
+  // THE RUN-53 CORRECTION: northgroup-17 stacked a pipeline, a deal record and
+  // a contact book down one scroll — "one full page full of themes". With one
+  // page the answer was to LEAVE the second screen OUT; with no page cap the
+  // answer is a page of its own. The cram sentence must not come back.
   const p = PLAN_FIELDS.pages.description;
-  assert.match(p, /one page means ONE PAGE/, "the one-page law stopped being stated");
-  assert.match(p, /LEFT OUT/, "the field no longer says what happens to what does not fit");
+  assert.match(p, /own page/, "the pages field no longer says each subject gets its own page");
+  assert.match(p, /rather than stacking/, "the pages field no longer refuses the stacked front page");
   assert.ok(!/Everything the brief needs lands/.test(p),
     "the cram sentence is back — it is what produced the stacked site");
-
   const s = planFieldFor("shape").description;
   assert.match(s, /it does ONE job/, "the one-job law is gone from the shape field");
-  assert.match(s, /second screen/,
-    "the shape field no longer names the failure — a second screen is not a band");
-  // THE OPERATIVE HALF, and the sweep is what proved the headline alone was not
-  // enough: gutting this clause left "a band that is really a second screen"
-  // standing with nothing saying how to RECOGNISE one, and every assertion
-  // above stayed green. Naming the three shapes is what makes the law
-  // applicable — northgroup-17 stacked exactly these (a workspace, a record,
-  // a list with its own controls).
   assert.match(s, /another workspace, another record, another list with its own controls/,
-    "the law no longer says how to recognise a second screen — the headline alone is unusable");
-  assert.match(s, /Cutting is the work here/,
-    "the field stopped saying that leaving things out IS the job");
+    "the law no longer says how to recognise a second screen");
+  assert.match(s, /OWN PAGE/, "the shape field no longer says a second screen is its own page");
+  assert.match(s, /one entry for every page/i, "the shape field no longer asks for every page's arrangement");
 });
 
 test("a value that merely STRINGIFIES is refused, not coerced", () => {
@@ -351,10 +323,9 @@ test("a page with NO arrangement keeps its role line and gains nothing", () => {
   // Not compelling an arrangement is deliberate: a model made to fill every slot
   // pads a thin page rather than admitting it is thin. An absent entry is a page
   // the page writer lays out itself, exactly as every page did before this field
-  // existed — and with the plan one page long since 2026-08-28, that one page is
-  // the case.
+  // existed.
   const bare = directiveFromPlan({ ...GOOD, shape: undefined });
-  assert.match(bare, /- \/ — book a chair\n?$/,
+  assert.match(bare, /- \/ — book a chair\n- \/prices — what each cut costs\n?$/,
     "a page with no arrangement did not come out as a bare role line");
   const d = directiveFromPlan({ ...GOOD, shape: [{ path: "/", sections: ["hero — the shop"] }] });
   assert.match(d, /- \/ — book a chair\n {4}1\. hero — the shop/,
@@ -384,8 +355,8 @@ test("A STORED FLAT SHAPE IS STILL LEGAL INPUT AND BUYS NOTHING", () => {
   assert.ok(legacy, "a stored flat shape stopped the whole plan normalising");
   assert.equal(legacy.shape, undefined, "a flat shape was kept, so two shapes are live downstream");
   assert.equal(legacy.purpose, GOOD.purpose);
-  // ONE page since 2026-08-28 — the stored two-page list folds to its front page.
-  assert.equal(legacy.pages.length, 1);
+  // EVERY stored page is kept (2026-10-24: no page cap) — the two-page list stays two.
+  assert.deepEqual(legacy.pages.map((p) => p.path), GOOD.pages.map((p) => p.path));
 });
 
 test("a page the pipeline could not address is DROPPED, never repaired", () => {
@@ -466,15 +437,13 @@ test("a plan STORED BEFORE `pages` became {name, path} keeps every page", () => 
     { path: "/book", role: "take the booking" },
   ] });
   assert.ok(stored, "a stored plan stopped normalising, which voids the whole plan");
-  // SINCE 2026-08-28 THE CAP IS ONE, so a stored multi-page plan folds to its
-  // front page — the owner's accepted cost, weighed against every legacy site
-  // being the owner's own test sites. What must still hold is the half that
-  // mattered: the legacy `role` is accepted as the name, so the surviving line
-  // says something and the plan never voids.
-  assert.equal(stored.pages.length, 1);
-  assert.deepEqual(stored.pages.map((p) => p.path), ["/"]);
+  // EVERY PAGE (2026-10-24: no page cap; 2026-08-28 to 2026-10-24 this folded
+  // to the front page). The legacy `role` is accepted as the name.
+  assert.deepEqual(stored.pages.map((p) => p.path), ["/", "/book"]);
   assert.equal(stored.pages[0].name, "the shop in one scroll");
+  assert.equal(stored.pages[1].name, "take the booking");
   assert.match(directiveFromPlan(stored), /- \/ — the shop in one scroll/);
+  assert.match(directiveFromPlan(stored), /- \/book — take the booking/);
 
   // A FRESH `name` WINS over a stored `role` on the same entry, or an edit that
   // renames a page would be silently overruled by the value it is replacing.
@@ -529,8 +498,10 @@ test("the `pages` field names no example page, so the model cannot copy a menu",
   // own description must carry the one-page law, because `pageList` cutting at
   // one with the model never told is a plan that silently loses what it wrote.
   assert.match(it.path.description, /"\/"/, "the home page's route stopped being stated");
-  assert.match(PLAN_FIELDS.pages.description, /ONE page/,
-    "the one-page law stopped being stated where the model reads it");
+  // Since 2026-10-24 there is no page cap; the fact the model must read is
+  // that "/" is required, since a site with no "/" ends at stage "home".
+  assert.match(PLAN_FIELDS.pages.description, /"\/" and must be in the list/,
+    "the front-door fact stopped being stated where the model reads it");
 });
 
 test("a plan STORED BEFORE `structure` went still normalises, and the skeleton never reaches the directive", () => {
@@ -606,12 +577,12 @@ test("the directive names every page and the verb", () => {
   assert.match(d, /^LAYOUT — the slot picker is the hero/);
   assert.match(d, /Primary action: "Book now" —/);
   assert.match(d, /Reach first for: availability-grid, week-strip, price-list\./);
-  // ONE page since 2026-08-28 — GOOD declares two and the cap folds it to the
-  // front page, so the directive says so in the singular. "1 pages" is the sort
-  // of thing a model copies, so the singular is asserted rather than assumed.
-  assert.match(d, /This site has 1 page:/);
+  // EVERY PAGE since 2026-10-24 (no page cap) — GOOD declares two.
+  assert.match(d, /This site has 2 pages:/);
   assert.match(d, /- \/ — book a chair/);
-  assert.ok(!d.includes("/prices"), "a page past the cap still reached the directive");
+  assert.match(d, /- \/prices — what each cut costs\n {4}1\. price-list — every cut, sectioned/, "the second page or its arrangement did not reach the directive");
+  // "1 pages" is the sort of thing a model copies, so the singular is asserted.
+  assert.match(directiveFromPlan({ ...GOOD, pages: [GOOD.pages[0]], shape: [GOOD.shape[0]] }), /This site has 1 page:/);
   // The arrangement is UNDER its own page — an instruction printed against the
   // wrong address is worse than none.
   assert.match(d, /- \/ — book a chair\n {4}1\. hero — the shop and the Book now button/);
@@ -777,7 +748,7 @@ test("THE SHAPE FIELD CARRIES NO WORKED EXAMPLE (owner's call, 2026-08-27)", () 
   // function-first and names no kit component, which is what keeps these
   // absences true beside it.
   const d = planFieldFor("shape").description;
-  assert.match(d, /WHERE EVERYTHING GOES ON THE ONE PAGE/,
+  assert.match(d, /WHERE EVERYTHING GOES ON EACH PAGE/,
     "the field no longer says what it is for");
   assert.ok(!/Examples:/i.test(d), "a worked example is back — every site will copy it");
   assert.ok(!d.includes('{"path"'), "an example entry skeleton is back — every site will copy it");
@@ -792,7 +763,7 @@ test("THE SHAPE FIELD CARRIES NO WORKED EXAMPLE (owner's call, 2026-08-27)", () 
   // an omitted entry is a layout the page writer improvises — and with one
   // page that is the whole site going unarranged, so the field now says to
   // always arrange it rather than blessing the omission.
-  assert.match(d, /ALWAYS ARRANGE THE PAGE/,
+  assert.match(d, /ALWAYS ARRANGE EVERY PAGE/,
     "the always-arrange law is gone — the model is back to skipping the only page");
   assert.match(d, /leave out is a layout the page writer improvises/,
     "the omission semantics are gone — the model cannot know them");

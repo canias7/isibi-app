@@ -66,9 +66,9 @@ test("DRIVEN: bandsOf reads the page's own row out of shape, in order", () => {
   assert.deepEqual(bandsOf(shape, null), [], "a non-string path names no page");
 });
 
-test("DRIVEN: bandsOf caps at MAX_BANDS and drops a line that says nothing", () => {
-  const many = Array.from({ length: MAX_BANDS + 4 }, (_, i) => "Band number " + i);
-  assert.equal(bandsOf([{ path: "index.tsx", sections: many }], "index.tsx").length, MAX_BANDS);
+test("DRIVEN: bandsOf keeps every band (no cap since 2026-10-24) and drops a line that says nothing", () => {
+  const many = Array.from({ length: 40 }, (_, i) => "Band number " + i);
+  assert.deepEqual(bandsOf([{ path: "index.tsx", sections: many }], "index.tsx"), many, "a band past an old cap was dropped");
   const thin = ["ok this one is real", "  ", "x".repeat(MIN_BAND_CHARS - 1), "also real", 7, null];
   assert.deepEqual(bandsOf([{ path: "index.tsx", sections: thin }], "index.tsx"), ["ok this one is real", "also real"]);
 });

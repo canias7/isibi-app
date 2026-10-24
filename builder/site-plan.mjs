@@ -258,7 +258,17 @@ export const COMPONENT_MENU = (() => {
 // BEFORE this hands every stored page back through validation — capping there
 // would silently delete pages off a live multi-page site on its owner's next
 // unrelated edit. New builds are one page because the PLAN is one page.
-export const MAX_PAGES = 1;
+//
+// NO CAP SINCE 2026-10-24 (owner: "eliminate the sections, the cap on the
+// sections, the cap on the pages, the cap on the components on the first
+// build"). The one-page cap was there because builds were making "one full
+// page full of themes" — a whole site stacked into one long scroll. The owner
+// now wants real multi-page first builds with no artificial limit: the design
+// plans as many pages as the brief asks for, every one is kept here, and each
+// page is written by its own band writers in the same fan-out
+// (`pagesPlan`/`generateSiteBands`). The constant stays, as infinity, so the
+// records and the tool text can say there is none; `pageList` no longer cuts.
+export const MAX_PAGES = Number.POSITIVE_INFINITY;
 // NOT A CAP ON WHAT IS KEPT ANY MORE (2026-10-08, the content-preservation
 // batch): every action the customer named is kept, whole. Exported for the
 // tool text and the records, which say what the old bound was.
@@ -280,7 +290,14 @@ export const MAX_ACTION = 3;
 // 3,872 characters (~1,076 tokens) and 50 is 9,494 (~2,637) — so 15 bounds the
 // block near the old 24-name measurement, and the narrowing is a cost CUT on
 // every build that used to name more.
-export const MAX_COMPONENTS = 15;
+//
+// NO CAP SINCE 2026-10-24 (the owner's word with MAX_PAGES above). The
+// manifest is what the design names; what bounds it now is the model's own
+// judgement and the kit (a name not in it is refused). The cost line above
+// still holds per name — ~53 tokens of fresh input each — so a long manifest
+// costs what it costs; nothing is cut. The add-on step keeps its own bound
+// (`MAX_ADD_MANIFEST` in site-add.mjs), which this decision does not touch.
+export const MAX_COMPONENTS = Number.POSITIVE_INFINITY;
 
 /**
  * How many bands one page may declare, MEASURED rather than chosen.
@@ -304,14 +321,25 @@ export const MAX_COMPONENTS = 15;
 // as the backstop, so nothing planned is ever dropped.
 // THE MERGE IS GONE (2026-10-23): the cap is enforced in `normalizePlan`, and
 // what it cuts is named in `notBuilt` rather than folded into the last band.
-export const MAX_SECTIONS = 6;
+// NO CAP SINCE 2026-10-24 (owner: "eliminate the sections, the cap on the
+// sections"). Every band the design plans is kept and written by its own
+// writer; nothing is cut into `notBuilt`. The fan-out queues past its socket
+// bound (`MAX_MODEL_FANOUT`), so more bands cost more calls and more wall
+// time, never a refusal. The output-bill note above is now unbounded by this
+// constant: what bounds it is the design's own output ceiling.
+export const MAX_SECTIONS = Number.POSITIVE_INFINITY;
 /**
  * How many things the design is ASKED to name as not built. Asked, not cut:
  * the list is the design's own output and what the customer will be told, so
- * `normalizePlan` keeps every entry whole, and the bands it cuts past the cap
- * join it unshortened — the content-preservation rule below.
+ * `normalizePlan` keeps every entry whole — the content-preservation rule below.
+ *
+ * NO LONGER ASKED AT TWELVE (2026-10-24): with no page, section or component
+ * cap a first build leaves nothing out for size, so the list is only what is
+ * genuinely not buildable on a first build (a working back end). It is not
+ * bounded either way — the tool carries no `maxItems` — so nothing that was
+ * left out can go unreported.
  */
-export const MAX_NOT_BUILT = 12;
+export const MAX_NOT_BUILT = Number.POSITIVE_INFINITY;
 // WHAT THE CUSTOMER ASKED FOR IS KEPT WHOLE (2026-10-08, the content-
 // preservation batch; owner: keep the requirements within the real
 // constraints, never truncate and warn afterwards). `MAX_SECTIONS` is now the
@@ -424,7 +452,7 @@ function pageList(v) {
     if (seen.has(path)) continue;
     seen.add(path);
     out.push({ path, name });
-    if (out.length >= MAX_PAGES) break;
+    // NO CUT (2026-10-24): every page the design planned is kept — see MAX_PAGES.
   }
   // A ONE-PAGE SITE'S PAGE IS THE FRONT PAGE, and renaming it there is the
   // lowercase class of repair rather than a guess (see PATH_OK's comment): with
@@ -465,7 +493,7 @@ function pageList(v) {
  * a slot spent saying nothing — and never ACROSS pages, because two pages
  * legitimately share one (a closing "book a chair" band belongs on all of them).
  */
-function pageShapes(v, pages, over = null) {
+function pageShapes(v, pages) {
   if (!Array.isArray(v)) return [];
   const known = new Set(pages.map((p) => p.path));
   const out = [];
@@ -480,15 +508,11 @@ function pageShapes(v, pages, over = null) {
     // line already did and reads as an arrangement we lost.
     if (!sections.length) continue;
     seen.add(path);
-    // THE CAP IS ENFORCED HERE, NOT ONLY ASKED (2026-10-23, owner: "the AI
-    // should write everything, that's the point"). The page writer runs one
-    // writer per band and at most `MAX_SECTIONS`; a design that planned more
-    // used to have the rest folded into the last band (" — then — "), one
-    // writer squeezing several sections into one. Now the design's own lines
-    // past the cap are NOT BUILT: they leave the page and are named in
-    // `notBuilt`, so the customer is told and can ask for them next.
-    if (Array.isArray(over)) over.push(...sections.slice(MAX_SECTIONS));
-    out.push({ path, sections: sections.slice(0, MAX_SECTIONS) });
+    // EVERY BAND IS KEPT (2026-10-24, owner: "eliminate … the cap on the
+    // sections"). From 2026-10-23 to 2026-10-24 the lines past a six-band cap
+    // left the page and were named in `notBuilt`; before that they were folded
+    // into the last band. Now each line is its own band and its own writer.
+    out.push({ path, sections });
   }
   return out;
 }
@@ -587,12 +611,11 @@ export function normalizePlan(input) {
   // which is the rule the deleted `structure` field already established: a value
   // WE changed the meaning of must never cost a customer their purpose and their
   // page set on a revise.
-  const over = [];
-  const shape = pageShapes(p.shape, pages, over);
+  const shape = pageShapes(p.shape, pages);
   if (shape.length) out.shape = shape;
   const action = lines(p.action, { cap: Number.POSITIVE_INFINITY, max: Number.POSITIVE_INFINITY });
   if (action.length) out.action = action;
-  const components = lines(p.components, { cap: 60, max: MAX_COMPONENTS });
+  const components = lines(p.components, { cap: 60, max: Number.POSITIVE_INFINITY });
   if (components.length) out.components = components;
   // AFTER `pages` for the reason `shape` is: each entry names one, and a picture
   // for a page the site does not have is a photograph nobody can ever see.
@@ -611,17 +634,18 @@ export function normalizePlan(input) {
   // exactly as it did.
   const images = pageImages(p.images, pages);
   if (Array.isArray(p.images)) out.images = images;
-  // WHAT WAS ASKED FOR AND IS NOT BUILT (2026-10-23): the design's own list,
-  // then the bands past the cap. Optional and not a plan key: absent on every
-  // stored plan from before it, and on a revise, which designs with no list.
-  const notBuilt = lines([...(Array.isArray(p.notBuilt) ? p.notBuilt : []), ...over], { cap: Number.POSITIVE_INFINITY, max: Number.POSITIVE_INFINITY });
+  // WHAT WAS ASKED FOR AND IS NOT BUILT (2026-10-23): the design's own list.
+  // Since 2026-10-24 no band is cut into it (there is no band cap). Optional
+  // and not a plan key: absent on every stored plan from before it, and on a
+  // revise, which designs with no list.
+  const notBuilt = lines(Array.isArray(p.notBuilt) ? p.notBuilt : [], { cap: Number.POSITIVE_INFINITY, max: Number.POSITIVE_INFINITY });
   if (notBuilt.length) out.notBuilt = notBuilt;
   return out;
 }
 
 /**
  * A normalised plan with the design's own `notBuilt` put in front of what
- * `normalizePlan` already named (the bands past the cap) — 2026-10-23. The
+ * `normalizePlan` already named — 2026-10-23. The
  * design's list is not a look field, so the build hands it over beside the
  * look; null, a non-list or a null plan change nothing.
  */
@@ -785,9 +809,9 @@ export const PLAN_FIELDS = {
       "a choice that does not serve it is wrong.",
   },
 
-  // SINCE 2026-08-28 THE LIST IS ONE ENTRY LONG (owner's call — see MAX_PAGES);
-  // the shape below documents the field as it was born, and the layer facts in
-  // it still hold at a cap of one.
+  // FROM 2026-08-28 TO 2026-10-24 THE LIST WAS ONE ENTRY LONG; since
+  // 2026-10-24 it has no cap at all (owner — see MAX_PAGES). The shape below
+  // documents the field as it was born; "at most 6" below is history.
   //
   // WHAT THIS STEP IS FOR, AND ALL IT IS FOR (owner's call, 2026-08-24): the
   // page list and the routes. Which pages exist, what each is called, where it
@@ -834,20 +858,22 @@ export const PLAN_FIELDS = {
         // anywhere else, and a site with no "/" has no front door.
         path: {
           type: "string",
-          description: 'Its route: "/". The front page is the whole site.',
+          description: 'Its route: "/" for the front page; every other page a lowercase path of letters, digits and hyphens after the leading slash, with no trailing slash.',
         },
       },
       required: ["name", "path"],
     },
-    // ONE PAGE (owner's call, 2026-08-28): "for the pages, max 1 instead of 5."
-    // The description states the law and `pageList` enforces it — the cap cuts
-    // there, and a lone page not at "/" is renamed to the front door there, so
-    // the field cannot produce a site that dies at stage "home".
+    // AS MANY PAGES AS THE BRIEF NEEDS (owner, 2026-10-24: "eliminate … the
+    // cap on the pages"). From 2026-08-28 this said ONE page, and before that
+    // at most five; the one-page rule existed because builds made "one full
+    // page full of themes". The answer to that is now real pages, not a cap:
+    // each subject gets its own page instead of being stacked on the front
+    // page. A lone page not at "/" is still renamed to the front door in
+    // `pageList`, so a one-page answer cannot die at stage "home".
     description:
-      `This site is ONE page (at most ${MAX_PAGES}), and one page means ONE PAGE — not a whole ` +
-      "site stacked into a long scroll. Decide the ONE job that page does. A brief that asks for " +
-      "three screens gets the one that matters; what does not serve that job is LEFT OUT and said " +
-      'so, never squeezed in below. One entry: what the site is called, route "/".',
+      "Every page this site needs, as real separate pages — as many as the brief asks for, with no limit. " +
+      "Give each distinct subject its own page rather than stacking the whole site into one long front page. " +
+      'The front page is "/" and must be in the list. Do not invent pages the brief gives no reason for.',
   },
 
 
@@ -858,7 +884,7 @@ export const PLAN_FIELDS = {
     type: "array",
     items: { type: "string" },
     description:
-      `At most ${MAX_COMPONENTS} components from the kit — what this one page needs, and no more. ` +
+      "The components from the kit these pages need — as many as they really use, with no limit. " +
       "THIS IS A MANIFEST, NOT A SHORTLIST, AND IT IS THE WHOLE SET (2026-08-29): the page writer is shown " +
       "the props of what you name here AND NOTHING ELSE, so one you leave out is one it cannot use at all. " +
       "NAME THE FRAME — `site-chrome` is the header and the footer, and each page renders its own; leave it " +
@@ -872,7 +898,7 @@ export const PLAN_FIELDS = {
       "wants menu-section and price-list, a live board wants countdown and live-badge. " +
       "A records screen wants data-table with row-actions, pagination and stat-card, not a stack of cards. " +
       "Naming a component that does not exist is refused and costs nothing; leaving one out is what hurts. " +
-      `Name only what this page really uses — a short list is a right answer; everything past ${MAX_COMPONENTS} is dropped.\n\n` +
+      "Name only what these pages really use — a short list is a right answer when the pages are simple.\n\n" +
       // THE WHOLE KIT, MOST-USED FIRST — and the order is information rather than
       // formatting: the head is what a small business site nearly always needs
       // and the tail is what one site in fifty does. Named here because a
@@ -978,9 +1004,10 @@ export const SHAPE_FIELD = {
       sections: {
         type: "array",
         items: { type: "string" },
-        maxItems: MAX_SECTIONS,
+        // NO maxItems (2026-10-24, owner: "eliminate the sections, the cap on
+        // the sections"): every line is a band with its own writer.
         description:
-          `The page TOP TO BOTTOM, one short line a band, in order. FOUR TO ${MAX_SECTIONS} BANDS, AND ${MAX_SECTIONS} IS A HARD LIMIT: each band is written by its own writer, and a line past the ${MAX_SECTIONS}th is not built. Choose the ${MAX_SECTIONS} that matter most to this page's one job. Put related things in ONE band (opening hours beside the address, not two bands; a few dishes in the menu band, not a band each) rather than adding bands; never squeeze two unrelated sections into one line. Anything the brief asks for that does not fit goes in \`notBuilt\` instead. ` +
+          "The page TOP TO BOTTOM, one short line a band, in order — as many bands as this page needs, with no limit: each band is written by its own writer. Put related things in ONE band (opening hours beside the address, not two bands) and never squeeze two unrelated sections into one line. Give EVERY page in `pages` its own entry here. " +
           "The first is what LEADS. Say what carries the band, what goes in " +
           "it, and HOW IT SITS — width, columns, place — in the layout words.",
       },
@@ -1009,8 +1036,8 @@ export const SHAPE_FIELD = {
   // absence guards on literal examples (`Examples:`, the entry skeleton,
   // `hero — `) therefore stay in force beside the library's own floors.
   description:
-    "WHERE EVERYTHING GOES ON THE ONE PAGE.\n" +
-    "The page is already decided above, so arrange it rather than describing a mood. Every " +
+    "WHERE EVERYTHING GOES ON EACH PAGE — one entry for every page in `pages`.\n" +
+    "The pages are already decided above, so arrange each one rather than describing a mood. Every " +
     "band is written from scratch by its own writer, so say what the band IS rather than naming " +
     "a ready-made part. Each section line reads: what carries " +
     "the band — what goes in it — HOW IT SITS, in the layout words below (its width, its " +
@@ -1085,16 +1112,19 @@ export const SHAPE_FIELD = {
     // law above was satisfied: each band proved something, none repeated
     // another. What was missing is the one that says a SECOND SCREEN is not a
     // band at all.
-    "AND THE LAW OF THIS ONE PAGE: it does ONE job. A band that is really a second screen — " +
-    "another workspace, another record, another list with its own controls — is not a band, " +
-    "and it is LEFT OUT rather than stacked below. Cutting is the work here: a short page that " +
-    "does its one job beats a long one carrying somebody else's.\n" +
+    // 2026-10-24 (owner: no page cap on the first build): the second screen
+    // that used to be LEFT OUT is now its OWN PAGE — the same law, answered
+    // with a page instead of a cut.
+    "AND THE LAW OF EACH PAGE: it does ONE job. A band that is really a second screen — " +
+    "another workspace, another record, another list with its own controls — is not a band: " +
+    "it is its OWN PAGE in `pages`, never stacked below. A page that does its one job beats a " +
+    "long one carrying somebody else's.\n" +
     // THE CLOSING LINE FLIPPED WITH THE ONE-PAGE CALL (2026-08-28). It used to
     // bless leaving thin pages out — right with five pages, and with one it
     // invited skipping the only arrangement there is. The pipeline fact it
     // carried (an absent entry is a page the writer improvises) survives inside
     // the new sentence, because a model not told that cannot know it.
-    "ALWAYS ARRANGE THE PAGE: an entry you leave out is a layout the page writer improvises.",
+    "ALWAYS ARRANGE EVERY PAGE: an entry you leave out is a layout the page writer improvises.",
 };
 
 /**
@@ -1143,24 +1173,22 @@ export const SHAPE_FIELD = {
  * owner: "the AI should write everything, that's the point").
  *
  * The design's own judgement of the request, in short phrases — never a
- * keyword list of ours. A first build is ONE page of at most `MAX_SECTIONS`
- * bands with no database, so anything past that is named here instead of
- * being squeezed into a band; the reply writer tells the customer, who can
- * ask for each one next as an addition. Only on the first build's tool: a
- * revise designs with no list.
+ * keyword list of ours. Since 2026-10-24 a first build has no page, band or
+ * component cap, so nothing is left out for size; what is named here is what
+ * a first build genuinely cannot make (it has no database). The reply writer
+ * tells the customer, who can ask for each one next as an addition. Only on
+ * the first build's tool: a revise designs with no list.
  */
 export const NOT_BUILT_FIELD = {
   type: "array",
   items: { type: "string" },
-  maxItems: MAX_NOT_BUILT,
   description:
-    "What the brief asks for that this first build will NOT make, one short phrase each, in the customer's own terms. " +
-    `This build is ONE page of at most ${MAX_SECTIONS} bands, a header and a footer, and it has NO database: nothing a visitor ` +
-    "sends can be stored, so there are no accounts, no saved bookings or orders and no sign-up list. " +
-    "List here every further page the brief asks for, every section that did not make the page's best " +
-    `${MAX_SECTIONS}, and every feature that would need stored data or a working back end (a form that must save what is sent, ` +
-    "a newsletter sign-up, booking, ordering, accounts). Each is something the customer can ask for next as an addition. " +
-    "Never fake one on the page instead. An empty list when everything asked for is built.",
+    "Every feature the brief asks for that needs stored data or a working back end, one short phrase each, in the customer's own terms " +
+    "(a form that must save what is sent, a newsletter sign-up, booking, ordering, accounts, a list the owner edits). " +
+    "This build makes every page and every section the brief asks for, with a header and a footer; the step after you designs the " +
+    "database for exactly the features listed here (2026-10-24), and whatever it still cannot make is told to the customer. " +
+    "Never list a page or a section here — plan it instead, including the form or list itself. " +
+    "Never fake one on the page instead. An empty list when nothing asked for needs stored data, and then the site gets no database.",
 };
 
 export const IMAGES_FIELD = {

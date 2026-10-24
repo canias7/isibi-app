@@ -131,31 +131,31 @@ test("the plan keeps every picture the designer asked for, past the old two", ()
 
 // ── sections and actions ───────────────────────────────────────────────────
 
-test("every action and every kept section is whole — past the old 120, 3 and 80 — the bands are capped with the rest named not built, and the owner's maximums stand", () => {
+test("every action and every kept section is whole — past the old 120, 3 and 80 — and every band, page and component is kept (no cap since 2026-10-24)", () => {
   const sec = Array.from({ length: 12 }, (_, i) => "band " + i + ": " + "a hero with the counter photograph, two columns, the order button on the right ".repeat(3).trim());
   const act = Array.from({ length: 5 }, (_, i) => "Order a sourdough loaf for collection on day " + i + " from the counter on the harbour road, paid at the door");
   const p = normalizePlan({ ...GOOD_DESIGN, shape: [{ path: "/", sections: sec }], action: act, components: Array.from({ length: 40 }, (_, i) => "comp-" + i), pages: [{ path: "/", name: "Home" }, { path: "/more", name: "More" }] });
-  assert.ok(sec.length > MAX_SECTIONS && sec[0].length > 120 && act.length > MAX_ACTION && act[0].length > 80, "the fixture no longer exceeds the old bounds");
-  // THE BANDS ARE CAPPED AT THE PAGE WRITER'S LIMIT (2026-10-23, owner: "the
-  // AI should write everything, that's the point"): the first six are kept
-  // whole, and the rest are named in `notBuilt` — never folded, never cut
-  // silently.
-  assert.deepEqual(p.shape[0].sections, sec.slice(0, MAX_SECTIONS), "a kept section was dropped or cut");
-  assert.deepEqual(p.notBuilt, sec.slice(MAX_SECTIONS), "a section past the cap was lost instead of named");
+  assert.ok(sec.length > 6 && sec[0].length > 120 && act.length > MAX_ACTION && act[0].length > 80, "the fixture no longer exceeds the old bounds");
+  // NO BAND CAP (2026-10-24, owner): every section is kept whole and none is
+  // moved to `notBuilt` (2026-10-23 → 2026-10-24 the first six were kept and
+  // the rest named not built).
+  assert.equal(MAX_SECTIONS, Infinity);
+  assert.deepEqual(p.shape[0].sections, sec, "a section was dropped or cut");
+  assert.equal(p.notBuilt, undefined, "a section was named not built — a cut by another name");
   assert.deepEqual(p.action, act, "an action was dropped or cut");
-  assert.equal(p.components.length, 15);
-  assert.equal(MAX_COMPONENTS, 15);
-  assert.equal(p.pages.length, 1);
-  assert.equal(MAX_PAGES, 1);
+  assert.equal(p.components.length, 40);
+  assert.equal(MAX_COMPONENTS, Infinity);
+  assert.equal(p.pages.length, 2);
+  assert.equal(MAX_PAGES, Infinity);
 });
 
 test("sections past the band count are never folded into the last band — one writer per band, the overflow named by the plan", () => {
   const sec = Array.from({ length: 12 }, (_, i) => "section number " + i + " with its own words");
   const bands = bandsOf([{ path: "/", sections: sec }], "/");
-  assert.equal(bands.length, MAX_BANDS, "more writers were run than the band count");
-  // NO " — then — " FOLD (2026-10-23): each band is one section, written by
-  // its own writer; `normalizePlan` names what did not fit.
-  assert.deepEqual(bands, sec.slice(0, MAX_BANDS), "a band carries more than its own section");
+  assert.equal(MAX_BANDS, Infinity);
+  // NO " — then — " FOLD (2026-10-23) AND NO CAP (2026-10-24): each band is
+  // one section, written by its own writer, every section.
+  assert.deepEqual(bands, sec, "a band carries more than its own section, or a section was cut");
   assert.ok(!bands.some((b) => b.includes(" — then — ")), "sections were folded into one band again");
   // CONTROL: at or under the band count, unchanged.
   assert.deepEqual(bandsOf([{ path: "/", sections: sec.slice(0, 5) }], "/"), sec.slice(0, 5));

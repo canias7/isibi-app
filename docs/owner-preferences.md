@@ -1155,7 +1155,8 @@
 ## What you've asked for since (2026-10-08)
 
 - **Build keeps one page and fifteen components; every other limit is
-  reviewed on its own** (2026-10-08): *"preserve Build's existing maximum
+  reviewed on its own** (2026-10-08; **the page and component half is
+  superseded on 2026-10-24**, see the end of this file): *"preserve Build's existing maximum
   page count and maximum selected-component count, currently 1 and 15.
   Review the other limits individually; this is not permission to remove
   every timeout, provider constraint, security control or spending
@@ -1382,3 +1383,31 @@ like we measure all the model calls"*). Everyone gets it (*"everyone is fine rn"
 - **Per-device edits** (owner, 2026-10-24, summarised): one site, never a separate phone copy; pages adapt by screen size. Three sizes like the preview's buttons (phone, tablet, desktop); a change may target any subset, and **the default is all three together**. The router/model decides which devices from the customer's words (no keyword or fixture rules); the preview's device is a hint and the words win; when unclear it may ask a normal question with options. A scoped change may really differ (sizes, spacing, order, hide/show, layout), inside the same page with responsive rules. **Code enforces, model decides**: the page is rendered at the three widths before and after, devices not asked for must be unchanged, or the change is refused through the existing refusal path with no charge beyond the existing rules. The preview switches to the changed device, and the reply's facts say which devices changed. (This is about the customer's sites; "Desktop-first, no mobile" above is about our own app.)
 - **The stand-in on every path** (owner, 2026-10-24: *"use it everywhere … I don't think it should fail, but use it everywhere"*): when compile repair cannot fix a change, on any path (first build, revise, edit, add-on), salvage file by file instead of refusing: a file the site already had goes back to its last good version, a new file stands in (a new page with the site's header and footer and an empty main), the rest is published. Never publish code that does not compile; the reply says what was kept and what stands in.
 - **Pay only for what landed** (owner, 2026-10-24): *if 20 things are asked and 1 ends up a stand-in or kept as it was, charge only for what worked.* A file that salvage keeps as it was or stands in is not charged its share of the writer's spend: by its own usage when known, otherwise by count of the files the writer produced. Only the writer's share moves, the refund is never above what that charge took, and a founder is never credited back (`docs/history/2026-10-24-standin-refund.md`).
+
+## The first build has no page, section or component cap (2026-10-24)
+
+Owner: *"eliminate the sections, the cap on the sections, the cap on the
+pages, the cap on the components on the first build"*. The section cap was
+there because builds made *"one full page full of themes"* (one long page);
+the owner now wants real multi-page first builds with no artificial limits.
+This supersedes the 2026-10-08 "1 page and 15 components" and the
+2026-10-23 six-band cap. **So: a first build plans and writes as many pages,
+bands and components as the brief needs; a second screen becomes its own
+page, never a band and never a cut; nothing planned is dropped or moved to
+"not built".** Pure safety, size and concurrency bounds stay (character
+limits, file sizes, 8 model calls at once), each named in
+`docs/history/2026-10-24-first-build-uncapped.md`. The add-on step's own caps
+are not part of this decision.
+
+## The first build makes the database its pages need; no build caps (2026-10-24)
+
+Owner's word (2026-10-24): the first build creates the site's database when
+the site needs one, and the remaining caps go (six photographs, three repaired
+pages, 900 translated strings, three files per compile-repair round). **So: a
+first build whose pages have forms that save what visitors send, or lists the
+owner edits, declares and provisions those tables (RLS on every table, access
+by `resolveAccess`, starter rows) in the same build; a site that needs nothing
+stored still gets no database (the Neon project cap and cost are why); and a
+build buys, repairs and translates everything it needs, in batches or eight at
+a time, never dropping any.** This supersedes the 2026-08-24 "frontend-only
+first build". `IMAGE_PURCHASES` off still buys no photograph.

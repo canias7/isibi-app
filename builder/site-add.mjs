@@ -63,7 +63,14 @@
 // value here; nothing else in this repo reads them.
 
 import { MAX_INPUT_CHARS } from "./input-budget.mjs";
-import { TSX_ITEM, MAX_TSX, COMPONENT_MENU, MAX_COMPONENTS, TOOL_DIRECTIVE } from "./site-plan.mjs";
+import { TSX_ITEM, MAX_TSX, COMPONENT_MENU, TOOL_DIRECTIVE } from "./site-plan.mjs";
+/**
+ * The add-on's component manifest bound: 15, the number site-plan's
+ * `MAX_COMPONENTS` held until 2026-10-24. The owner lifted the FIRST BUILD's
+ * caps that day; the add-on step is not the first build, so it keeps the
+ * bound it had, now as its own constant rather than a borrowed one.
+ */
+export const MAX_ADD_MANIFEST = 15;
 // THE KIT, AS A SET, off the same list the tool hands the model — never a
 // second copy. `COMPONENT_MENU` is itself derived from the kit's palette and
 // its component directory, so a part added to the kit is offered and accepted
@@ -276,13 +283,14 @@ export const ADD_DESIGN_RULE =
  * So a message may name EVERY kind it asks for, and the kinds that can come
  * in numbers — pages, components, tables — answer LISTS. The caps below are
  * ceilings a site can actually hold, not quotas: the page cap is the page
- * writer's own (`MAX_PAGES` in page-gen.mjs keeps the first six), the rest
+ * writer's old one (`MAX_PAGES` in page-gen.mjs kept the first six until
+ * 2026-10-24 and keeps every page since; this add-on bound is unchanged), the rest
  * are generous. The rule per kind says "as many as they asked for, and not
  * one they did not", which is the ceiling that matters.
  */
 export const MAX_ADDS = 12;
 
-/** Pages one message may add — the page writer keeps six, so a seventh would be dropped there. */
+/** Pages one message may add. The page writer kept six until 2026-10-24 and keeps every page now; this add-on bound is unchanged (the owner's 2026-10-24 word was the first build's caps). */
 export const MAX_ADD_PAGES = 6;
 
 /** Components one message may add, across its pages. */
@@ -839,9 +847,9 @@ const ADDS = {
         components: {
           type: "array",
           items: { type: "string" },
-          maxItems: MAX_COMPONENTS,
+          maxItems: MAX_ADD_MANIFEST,
           description:
-            `At most ${MAX_COMPONENTS} components from the kit — what this page needs, and no more. THIS IS THE ` +
+            `At most ${MAX_ADD_MANIFEST} components from the kit — what this page needs, and no more. THIS IS THE ` +
             "WHOLE SET: the step that writes the page is shown the props of what you name here and nothing " +
             "else, so a part you leave out is one it cannot use. Name `site-chrome` — the header and footer " +
             "every page renders itself. Naming a component that does not exist is refused and costs nothing.\n" +
@@ -960,7 +968,7 @@ const ADDS = {
         components: {
           type: "array",
           items: { type: "string" },
-          maxItems: MAX_COMPONENTS,
+          maxItems: MAX_ADD_MANIFEST,
           description:
             "THE KIT COMPONENT THIS IS, by name — usually exactly one, plus a part it needs around it at most. " +
             "The step that writes the page is shown the props of what you name here and nothing else, so the " +
@@ -3675,7 +3683,7 @@ export function cleanAdd(kind, value, site) {
         const purpose = str(v.purpose, 300);
         if (!name || !purpose) return { ok: false, why: "no-plan" };
         const sections = lines(v.sections, MAX_SECTIONS, 200);
-        const components = kitNames(v.components, MAX_COMPONENTS, ctx);
+        const components = kitNames(v.components, MAX_ADD_MANIFEST, ctx);
         if (!sections.length && !components.length) return { ok: false, why: "no-plan" };
         ctx.paths.push(path);
         return { ok: true, value: { path, file: fileOfRoute(path), name, purpose, sections, components, tsx: parts(v.tsx, ctx), link: pageLink(v.link, { path, going, siblings: ctx.paths }) } };
@@ -3691,7 +3699,7 @@ export function cleanAdd(kind, value, site) {
         const page = at.page;
         const does = str(v.does, 300);
         if (!does) return { ok: false, why: "no-plan" };
-        const components = kitNames(v.components, MAX_COMPONENTS, ctx);
+        const components = kitNames(v.components, MAX_ADD_MANIFEST, ctx);
         const tsx = parts(v.tsx, ctx);
         // THE COMPONENT IS THE ADDITION: an answer that names none — no kit
         // part and nothing written for this site — is a band the page writer

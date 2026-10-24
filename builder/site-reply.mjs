@@ -1691,7 +1691,7 @@ export function buildReplyFacts(bf) {
     if (xs.length) F.add("not-done", "Photographs the page asked for but never tried, because " + why[w] + ", so their frames are empty placeholders: " + named(xs));
   }
   if (of("not-placed").length) F.add("not-done", "Pictures offered to the page writer that it did not put on the page, so none was bought: " + named(of("not-placed")));
-  const offWhy = { cap: "one build makes at most 6 photographs", tool: "a working tool gets no photographs", kept: "the site already has its photographs, so they were kept rather than replaced" };
+  const offWhy = { cap: "it was past what this build could buy", tool: "a working tool gets no photographs", kept: "the site already has its photographs, so they were kept rather than replaced" };
   for (const w of Object.keys(offWhy)) {
     const xs = of("not-offered").filter((x) => x.why === w);
     if (xs.length) F.add("not-done", "Pictures they asked for that were never offered to the page writer, because " + offWhy[w] + "; they are not on the site and can be asked for next: " + named(xs));
@@ -1726,6 +1726,7 @@ export function buildReplyFacts(bf) {
   // THE SCREEN-SIZE WISHES (2026-10-24): which ones the page writers were
   // told to build with responsive rules. Told, not measured per screen.
   { const dwf = deviceWishesFact(bf.devices); if (dwf) F.add("changed", dwf + " Each was built into the same pages with responsive rules for those screen sizes only.", "devices"); }
+  if (bf.noDatabase === false && Array.isArray(bf.madeTables) && bf.madeTables.length) F.add("note", "This build made the site's database, so what visitors send is stored and the owner's lists are editable: " + bf.madeTables.filter((n) => typeof n === "string").join(", ") + ".");
   if (bf.noDatabase === true) F.add("note", "This build made no database for the site: nothing a visitor types into it is stored yet. Storing things (sign-ups, bookings, orders, accounts) can be added next.");
   for (const u of Array.isArray(bf.unwritten) ? bf.unwritten : []) {
     if (u && typeof u.section === "string" && u.section.trim()) F.add("not-done", "This part of the page could not be written and is left out for now (it can be asked for again): " + quote(u.section));

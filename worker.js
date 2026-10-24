@@ -151,8 +151,8 @@ import { applySiteSchema, loadSiteSchema, readSiteSchema, parseSchemaSpec, norma
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { usageOf as pageUsageOf, PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, partsSent, priorPagesSent, pageId, sceneOn, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
 import { pickFiles } from "./builder/file-picker.mjs";
-import { splitPlan, bandRefusal, BAND_MARK, bandMarks, generateSiteBands, ownFallbackDirective, enforceFallbackFrame } from "./builder/page-bands.mjs";
-import { MAX_MODEL_FANOUT } from "./builder/model-fanout.mjs";
+import { pagesPlan, bandRefusal, BAND_MARK, bandMarks, generateSiteBands, ownFallbackDirective, enforceFallbackFrame } from "./builder/page-bands.mjs";
+import { MAX_MODEL_FANOUT, permits } from "./builder/model-fanout.mjs";
 // THE DESIGN STEP CUT INTO WAVES OF AGENTS (2026-09-10). Plain module, testable
 // outside the Worker: it takes the design tool and the CALLER as arguments
 // rather than importing either, so a guard can run the whole orchestration
@@ -320,6 +320,7 @@ import { addedByRoute, publishedTexts, componentEvidence } from "./builder/conte
 import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, frameToMissing, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, qrShownSources, qrDestinationCheck, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 import { compileRepairRound, compileRepairRounds, writtenPaths, withParts, splitParts } from "./builder/compile-repair.mjs";
 import { salvageRound, anythingLanded, MAX_SALVAGE_ROUNDS, landedBill, partKey, writtenPartKeys } from "./builder/change-salvage.mjs";
+import { wantsFirstBuildBackend, featuresNeedingData, firstBuildBackendTool, firstBuildBackendBrief, mergeFirstBuildBackend, FIRST_BUILD_BACKEND_RULES } from "./builder/first-build-db.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig, writesSchema as partWritesSchema } from "./builder/request-plan.mjs";
@@ -3669,7 +3670,7 @@ async function framesFor(env, slug) {
 // for the browser to fetch — `builder/site-images.mjs`'s `imageSources` has the
 // full account. It is the FILES the model wrote that this step operates on, and
 // pages and parts are both of those.
-async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve, clock, buy = null, pend = false, frames = null, own = null }) {
+export async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve, clock, buy = null, pend = false, frames = null, own = null }) {
   let affordable = imagesAffordable(budget, { balance, reserve, usd: SITE_PHOTO_USD });
   // THE OWNER'S OWN IMAGE ALLOWANCE, respected rather than bypassed. Generated
   // photographs land in `uploads/<slug>/`, which is the same 200-file / 100 MB
@@ -3843,7 +3844,16 @@ async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve
   const settledTokens = new Set();
   const unconfirmedTokens = new Set();
   let failed = "";
+  // AT MOST `MAX_MODEL_FANOUT` PURCHASES AT ONCE (2026-10-24, first-build-db-limits):
+  // with `IMAGE_CAP` gone a build may buy twenty photographs, and they queue
+  // through the same eight permits as the model fan-out, never all at once. A
+  // shot still queued when the wait has ended is not started (`stopShots`): it
+  // stays unresolved, swept to the placeholder, and is never bought unplaced.
+  const shotGate = permits(MAX_MODEL_FANOUT);
+  let stopShots = false;
   const shots = Promise.all(plan.shots.map(async ({ token, prompt }) => {
+    const freeShot = await shotGate.take();
+    if (stopShots) { freeShot(); return; }
     // THROUGH THE SHARED READER, which is what makes `makeSitePhoto`'s own
     // "EXTRACTED SO THERE IS ONE COPY" comment true. It was written the day that
     // function shipped and was false from the first line: the generate → sniff →
@@ -3880,7 +3890,7 @@ async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve
       // screenshot. This function's own header promises every failure is
       // per-picture; deleting this would make that promise false.
       failed = String((e && e.message) || e).slice(0, 120);
-    }
+    } finally { freeShot(); }
   }));
   // WHAT WAS STORED, never what was planned. `made` is what the customer is
   // billed for, so it comes from the map that only a successful put writes into
@@ -3941,6 +3951,7 @@ async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve
   } else {
     failed = failed || "ran out of time before the pictures could be made";
   }
+  stopShots = true;
   // A SNAPSHOT AT THE WAIT'S END: what the provider refused, and what had not
   // answered yet — the second is reported as unresolved, never as refused.
   // A SHOT STILL OUT WHEN THE WAIT ENDED (round 6, the recorded timing gap):
@@ -5001,15 +5012,15 @@ const FRONTEND_SCHEMA_SYSTEM =
   "a website about the tool: no hero, no marketing bands, no team section, no photographs — its front page " +
   "opens straight into the work, and every page is a working screen. Design the kind the brief asks for, " +
   "not the kind websites usually are.\n\n" +
-  "THIS SITE HAS NO DATABASE and does not need one: " +
-  "everything on it — the services, the prices, the opening hours, the words — is written into the page source " +
-  "by the step after you. That is not a limitation to design around, it is what a first build is. If the owner " +
-  "later wants bookings, an editable menu or customer accounts, that is a separate step which builds the " +
-  "database for them, and you do not plan for it here.\n\n" +
+  "YOU DESIGN NO DATABASE: everything that is simply shown — the services, the prices, the opening hours, " +
+  "the words — is written into the page source by the step after you. When the brief asks for something a " +
+  "visitor sends or the owner keeps changing (bookings, orders, an enquiry form, a sign-up, an editable menu, " +
+  "accounts), plan its page and band as usual and name that feature in `notBuilt`: the step after you designs " +
+  "the storage for exactly those features, and only for them, and the page writer connects the form or list to " +
+  "it (2026-10-24). A site whose brief asks for none of them gets none.\n\n" +
   "So what you are deciding is the SITE: what it is called, what it is for, what it looks like, which pages it " +
   "has and what goes on each of them. Design as if the content is already written and your job is to arrange it. " +
-  "Do not describe tables, columns, forms that submit somewhere, sign-in, accounts or payments — none of them " +
-  "exists on this site and asking for one produces a control that silently does nothing.";
+  "Do not describe tables or columns yourself — name the feature in `notBuilt` instead.";
 
 /**
  * The schema call's budget.
@@ -5542,6 +5553,33 @@ function designRequest(brief, model, current = null, files = [], frontendOnly = 
   // lines each rebuilding from `SITE_SCHEMA_TOOL` would mean the second silently
   // undoing the first, which on a revise is the whole edit contract lost.
   return req;
+}
+
+/**
+ * THE FIRST BUILD'S BACKEND CALL (2026-10-24, builder/first-build-db.mjs): one
+ * design call carrying only the site tool's own `backend` (and `notBuilt`),
+ * made only when the frontend design named features that need stored data.
+ * `send` is the model call (the builder transport by default), so the route's
+ * whole chain is driven with supplied answers. Answers `{ input, usage }`;
+ * throws as `designSiteSchema` does, and the caller falls back.
+ */
+export async function designFirstBuildBackend(env, { brief, designed, model, budget = null, send = null } = {}) {
+  const features = featuresNeedingData(designed);
+  const tool = firstBuildBackendTool(SITE_SCHEMA_TOOL);
+  const req = {
+    model,
+    max_tokens: SITE_SCHEMA_MAX_TOKENS,
+    tools: [{ ...tool, cache_control: { type: "ephemeral" } }],
+    tool_choice: { type: "tool", name: tool.name },
+    system: [{ type: "text", cache_control: { type: "ephemeral" }, text: SITE_SCHEMA_SYSTEM + FIRST_BUILD_BACKEND_RULES }],
+    messages: [{ role: "user", content: firstBuildBackendBrief(brief, designed, features) }],
+  };
+  const j = typeof send === "function" ? await send(req) : await callBuilderModel(env, req, budget);
+  const u = (j && j.usage) || {};
+  const usage = { in: u.input_tokens || 0, out: u.output_tokens || 0, cacheRead: u.cache_read_input_tokens || 0, cacheWrite: u.cache_creation_input_tokens || 0, model: req.model };
+  if (j && j.stop_reason === "max_tokens") { const e = new Error("backend design truncated at max_tokens"); e.truncated = true; e.usage = usage; throw e; }
+  const use = (Array.isArray(j && j.content) ? j.content : []).find((b) => b && b.type === "tool_use");
+  return { input: (use && use.input) || null, usage };
 }
 
 async function designSiteSchema(env, brief, model = modelsFor().design, current = null, files = [], budget = null, frontendOnly = false, repair = null) {
@@ -6507,8 +6545,9 @@ export const pagesHopApi = { containerPagesCall, containerPagesFanLocal };
 /**
  * WHICH PAGE A SPLIT BUILD SPLITS, as a route.
  *
- * THE FIRST PAGE THE PLAN NAMES, and on a first build that is the only one —
- * `MAX_PAGES` in the plan is 1, so "the front page is the site". Taking the
+ * THE FIRST PAGE THE PLAN NAMES. Until 2026-10-24 that was the only one on a
+ * first build (`MAX_PAGES` in the plan was 1); now every page is split by
+ * `pagesPlan`, and this list is what the frame links. Taking the
  * first rather than searching for `"/"` is deliberate: a plan that named one
  * page and did not call it `/` would otherwise fall back to the single call for
  * a reason nobody could see, where this splits the page it planned.
@@ -6549,6 +6588,9 @@ function chromeFor(plan, brand, tagline) {
     ...(action ? { action } : {}),
   };
 }
+
+/** The frame's facts off the design, for the tests that drive a multi-page first build (2026-10-24). */
+export const frameFactsApi = { chromeFor, planRoutes };
 
 /**
  * A NAME BOTH SIDES CAN USE FOR ONE GENERATION'S ANSWER, and the credential for
@@ -19559,15 +19601,18 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       // design args and NOTHING else, so it is deterministic: the fire and every
       // later resume derive the same lines from the same record.
       //
-      // ONE PAGE ONLY, and it is a refusal rather than a loop. A plan naming two
-      // pages is two generations, two assemblies and two ways for a fan-out to
-      // half-succeed; `MAX_PAGES` in the plan is 1, so this is not a limitation
-      // anybody meets on a first build, and doing it for several pages is a
-      // change to make on purpose rather than a `for` loop nobody measured.
+      // EVERY PAGE, ON PURPOSE (2026-10-24, owner: "eliminate … the cap on the
+      // pages … on the first build"). This was ONE PAGE ONLY while the plan's
+      // `MAX_PAGES` was 1, and a plan of several pages went to the one call.
+      // Now `pagesPlan` splits every page: each page's bands and the shared
+      // header and footer ride ONE fan-out (one job, one resume, one
+      // assembly per page), so a ten-page site is written in parallel batches
+      // rather than by one model in one answer. Deterministic off the stored
+      // plan, so the fire and every resume derive the same list.
       const planned = planRoutes(plan);
-      const bandLines = planned.length === 1
-        ? splitPlan({ shape: plan && plan.shape, route: planned[0], tsx, priorPages, mode: revise ? "revise" : "build" })
-        : [];
+      const split = pagesPlan({ shape: plan && plan.shape, pages: plan && Array.isArray(plan.pages) ? plan.pages : [], priorPages, mode: revise ? "revise" : "build" });
+      const splitPages = split.why ? [] : split.pages;
+      const bandLines = splitPages.flatMap((p) => p.lines);
       // ── WHO DECIDES, AND IT IS NOT THE SAME ANSWERER ON BOTH INVOCATIONS ──
       //
       // A FIRE asks the FLAG. The fan-out is a list of requests and `/model` —
@@ -19622,7 +19667,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       const bandWhy = resumeCall ? "" : bandRefusal({
         pages: planned.length, canFire: canSplit, door: bandDoor,
         shape: plan && plan.shape, route: planned[0], tsx, priorPages,
-        mode: revise ? "revise" : "build",
+        mode: revise ? "revise" : "build", pageList: plan && Array.isArray(plan.pages) ? plan.pages : [],
       });
       const useBands = resumeCall ? resumeFanout : !bandWhy;
       // THE REASON RIDES IN THE STEP'S NAME, and it has to: `tr.at` keeps FINITE
@@ -19665,7 +19710,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
               // told the name, the pages and the primary action off the design
               // (`chromeFor`), and what was asked for and is not built — the
               // fixed `SiteChrome` template is no longer drawn on a first build.
-              route: planned[0], chrome: chromeFor(plan, brand, siteDescription), lines: bandLines,
+              route: planned[0], chrome: chromeFor(plan, brand, siteDescription), lines: bandLines, pages: splitPages,
               actions: plan && Array.isArray(plan.action) ? plan.action : [],
               notBuilt: plan && Array.isArray(plan.notBuilt) ? plan.notBuilt : [],
               // AND THE DECLARATIONS THEMSELVES, not only the brief's copy of
@@ -27001,7 +27046,7 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
           design: design && design.designRecovery,
           // WHAT A FIRST BUILD LEFT OUT, AND WHETHER IT MADE NO DATABASE
           // (2026-10-23), off the record's own plan and the backend row.
-          ...(!design.priorPages ? { notBuilt: design.plan && design.plan.notBuilt, noDatabase: !rBackend } : {}),
+          ...(!design.priorPages ? { notBuilt: design.plan && design.plan.notBuilt, noDatabase: !rBackend, ...(rBackend ? { madeTables: rTables.map((t) => t && t.name).filter((n) => typeof n === "string") } : {}) } : {}),
           // THE SCREEN-SIZE WISHES the writers were told (2026-10-24), only for a build that went live.
           devices: pages && pages.page === "app" ? design.deviceWishes : null }) || undefined,
     };
@@ -27670,7 +27715,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       const designBrief = (surface === "app" ? APP_DESIGN_NOTE : "") + briefWithLinks + attachedFilesNote(attached.named) + mediaDesignNote(bDrafts.files);
 
       // A brief means "design the schema"; an explicit schema skips the model.
-      let designed = null, seedUsage = null, seedTopUp = null;
+      let designed = null, seedUsage = null, seedTopUp = null, backendUsage = null, firstBuildBackend = null;
       // THE FREE-CSS ARM'S SWITCH. Experimental, off unless the caller asks for
       // it by name — and STRICTLY `=== true`, so nothing merely truthy arriving
       // in a body can hand a site a stylesheet with no validator in front of it.
@@ -28183,6 +28228,27 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           // build, or an `editState` read that failed — so it fails toward
           // buying, which is the safe direction: a wasted Haiku call against an
           // empty price list that nobody can order from.
+          // ── THE FIRST BUILD'S DATABASE (2026-10-24, builder/first-build-db.mjs) ──
+          // When the frontend design named features that need stored data, one
+          // backend call designs their tables, rows and functions; its answer
+          // is lifted in as a revise's is, so the seed top-up below, `needsDb`,
+          // provisioning, the schema, the grants, the seed and the page writer
+          // all run on it unchanged. A brochure site names none and makes no
+          // call and no database. A failed call keeps the frontend-only site
+          // and the design's own `notBuilt`: never a failed build.
+          if (firstBuild && !body.schema && wantsFirstBuildBackend(designed)) {
+            try {
+              const bk = await designFirstBuildBackend(env, { brief: briefWithLinks, designed, model: models.design, budget });
+              backendUsage = bk.usage;
+              const merged = mergeFirstBuildBackend(designed, bk.input, liftBackend);
+              designed = merged.designed;
+              firstBuildBackend = { ran: true, made: merged.made };
+            } catch (e) {
+              if (e && e.usage) backendUsage = e.usage;
+              firstBuildBackend = { ran: true, made: false, failed: String((e && e.message) || e).slice(0, 120) };
+            }
+            try { tr.at("backend-design", firstBuildBackend); } catch { /* a trace never costs a build */ }
+          }
           const knownTables = new Set(((editState && editState.tables) || []).map((n) => String(n).toLowerCase()));
           if (designed) {
             const top = await topUpSeed(
@@ -28249,7 +28315,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           // to fail the build: the schema is in hand and the database is about to
           // be built on it, and losing that over a ledger round trip would be a
           // far more expensive failure than a credit in either direction.
-          const settle = schemaSettlement([schemaUsage, seedUsage], SITE_BUILD_FEE);
+          const settle = schemaSettlement([schemaUsage, backendUsage, seedUsage], SITE_BUILD_FEE);
           if (settle > 0 && !exempt) {
             // COLLECT, not just ask: `partial` takes what is there when the
             // balance cannot cover the difference, and the ledger says what it
@@ -30238,11 +30304,13 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           design: designRecovery,
           // WHAT A FIRST BUILD LEFT OUT, AND WHETHER IT MADE NO DATABASE
           // (2026-10-23), for the reply writer to tell.
-          ...(firstBuild ? { notBuilt: buildArgs && buildArgs.plan && buildArgs.plan.notBuilt, noDatabase: !db } : {}),
+          // AND, SINCE 2026-10-24, THE TABLES IT MADE (builder/first-build-db.mjs).
+          ...(firstBuild ? { notBuilt: buildArgs && buildArgs.plan && buildArgs.plan.notBuilt, noDatabase: !db, ...(db ? { madeTables: spec.tables.map((t) => t && t.name).filter((n) => typeof n === "string") } : {}) } : {}),
           // THE SCREEN-SIZE WISHES the writers were told (2026-10-24), only for a build that went live.
           devices: pages && pages.page === "app" && buildArgs ? buildArgs.deviceWishes : null,
         }) || undefined,
         designRecovery: designRecovery || undefined,
+        backendDesign: firstBuildBackend || undefined,
       }, { picker: models.picker, request: brief, name: brand, slug }));
       })(), bHeld.parts);
 }

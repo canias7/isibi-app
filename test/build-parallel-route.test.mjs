@@ -391,8 +391,7 @@ test("PR 12 — THE FREE JUDGE ON RUN 117'S OWN ROWS: its job is a finished buil
   assert.equal(r.traceAttribution.unverified, true);
   assert.match(by(/trace judged is this build's own/).why, /attribution unverified: the trace carries no job tag/);
   assert.ok(by(/source judged is this build's own stored version/).ok, r.sourceAttribution.why);
-  assert.ok(by(/exactly 1 page/).ok);
-  assert.ok(by(/at most 15 components/).ok);
+  assert.ok(by(/front page among them/).ok);
   assert.ok(by(/own charges/).ok);
   assert.equal(r.charges.net, 10);
   assert.equal(by(/independent build work ran at once/).ok, false);
@@ -415,7 +414,8 @@ test("PR 13 — THE JUDGE NEVER TAKES ANOTHER BUILD'S RESULT OR CHARGES: no job 
   assert.match(others.checks.find((c) => /own charges/.test(c.name)).why, /no ledger row carries this job's ref/);
   const twoPages = { ...SRC, pages: [...SRC.pages, { path: "src/routes/menu.tsx", source: "export const Route = 1;" }] };
   const big = await judgeBuild(judgeNet({ source: async () => ({ status: 200, json: twoPages }) }), { spec: BUILD_CHECK_NO_IMAGES, job: RUN117 });
-  assert.equal(big.checks.find((c) => /exactly 1 page/.test(c.name)).ok, false);
+  // NO PAGE LIMIT SINCE 2026-10-24: two pages, the front page among them, pass.
+  assert.equal(big.checks.find((c) => /front page among them/.test(c.name)).ok, true);
 });
 
 test("PR 14 — THE PRESS READS THE BUILD'S OWN VIEW OF THE DOORS: with the runner taking builds, run 117's runtime answer (Worker design and graph on, the job's view all off) is no mode at all and names both views; with the job's view on it is a mode; an older route with no job view keeps the Worker's answer", async () => {
