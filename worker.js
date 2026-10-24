@@ -150,6 +150,7 @@ import { applySiteSchema, loadSiteSchema, readSiteSchema, parseSchemaSpec, norma
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { usageOf as pageUsageOf, PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, partsSent, priorPagesSent, pageId, sceneOn, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
+import { pickFiles } from "./builder/file-picker.mjs";
 import { splitPlan, bandRefusal, BAND_MARK, bandMarks, generateSiteBands, ownFallbackDirective, enforceFallbackFrame } from "./builder/page-bands.mjs";
 import { MAX_MODEL_FANOUT } from "./builder/model-fanout.mjs";
 // THE DESIGN STEP CUT INTO WAVES OF AGENTS (2026-09-10). Plain module, testable
@@ -40331,7 +40332,19 @@ async function handleRequest(request, env, ctx) {
               // other pages' parts stored earlier fill the budget and the one
               // the customer is asking about is withheld as "too long".
               const pOwnParts = [...String((target && target.source) || "").matchAll(/["'](?:@\/routes\/|\.\/)-parts\/([^"'/]+?)(?:\.tsx)?["']/g)].map((m) => m[1]);
-              const pSentParts = partsSent(pStoredParts, { unreadable: !pPartsRead.ok, first: pOwnParts });
+              // THE FILE PICKER (2026-10-23, idea #21): on a big site one quick
+              // call picks which components the writer is shown; the page and
+              // every part it imports always are. `null` below the threshold,
+              // `only: null` when it failed — both send what was sent before.
+              // Its usage rides this rung's one bill. The wall below reads the same
+              // `only`; measured equivalent today (a returned part the page does
+              // not import is already held, `partsHeld`), kept so the prompt and
+              // the wall cannot disagree.
+              const ePick = pPartsRead.ok ? await pickFiles({ send: jobSend(eJob, quickSend(env, "file-pick")) },
+                { request: eInstruction, pages: eSrc, parts: pStoredParts, targets: [target.path], model: eModels.quick }) : null;
+              const pPartsOnly = ePick && ePick.only ? ePick.only.parts : undefined;
+              if (ePick) { try { if (editTrace) editTrace.mark("file_pick", ePick.mark.status, ePick.mark); } catch { /* never */ } }
+              const pSentParts = partsSent(pStoredParts, { unreadable: !pPartsRead.ok, first: pOwnParts, only: pPartsOnly });
               // AND THE KIT SIGNATURES FOR THE PAGE BEING EDITED. `plan` is
               // how `siteComponentApi` is reached, and without it the writer
               // was rewriting a page built from `<Accordion>` with no idea of
@@ -40418,7 +40431,7 @@ async function handleRequest(request, env, ctx) {
                   // replaced the real file by name. `partsSent` splits the two
                   // lists from one input, so no component can be in both and
                   // none can be missing from both.
-                  tsx: eLook2.tsx, parts: pStoredParts, partsUnreadable: !pPartsRead.ok, partsFirst: pOwnParts,
+                  tsx: eLook2.tsx, parts: pStoredParts, partsUnreadable: !pPartsRead.ok, partsFirst: pOwnParts, partsOnly: pPartsOnly,
                   gif: eLook2.gif, qr: eLook2.qr, three: eLook2.three,
                   // AND THE LOOK IT IS WEARING, sent as ALREADY APPLIED. The
                   // stylesheet is appended last at build time so it wins on
@@ -40951,7 +40964,7 @@ async function handleRequest(request, env, ctx) {
                 // lesson `pageCredits` already carries. `twSpent` is null when
                 // the cheap rung never reached the provider.
                 files: pPub.files, render: pPub.render, renderNote: pPub.renderNote, checks: pPub.checks, draft: pPub.draft,
-                cost: await eCharge(eGen && eGen.usage, twSpent, twJudged, pKeep.usage, ...pPartUsage), usage: eGen && eGen.usage, tweakUsage: twSpent || undefined,
+                cost: await eCharge(eGen && eGen.usage, twSpent, twJudged, pKeep.usage, ...pPartUsage, ePick && ePick.usage), usage: eGen && eGen.usage, tweakUsage: twSpent || undefined,
                 // THE CHEAP WRITER'S FILE DID NOT PARSE, SO THIS ONE RAN
                 // (A03-5). Omitted otherwise, so an ordinary reply is unchanged.
                 tweakFallback: twFallback || undefined,
@@ -45238,7 +45251,19 @@ async function handleRequest(request, env, ctx) {
             // on a change that worked it is alarming about nothing; what they
             // CAN act on — a page that did not survive, a component that was
             // not replaced — already has its own sentence.
-            let aPagesSent = priorPagesSent(aWriterSrc || [], { keep: aKeepPages });
+            // THE FILE PICKER (2026-10-23, idea #21): on a big site, and only
+            // for the whole-site writer (a scoped writer is narrowed already),
+            // one quick call picks the pages and components the writer is
+            // shown; the pages this addition touches and what they import
+            // always are. A file not picked is withheld — named, never
+            // returnable — and a failed pick sends everything. Billed on this
+            // addition's page bill.
+            const aPick = !aWriterScoped && aPartsRead.ok ? await pickFiles({ send: aQuick("add:file-pick") },
+              { request: aInstruction, pages: aWriterSrc, parts: aWriterParts, targets: aKeepPages, model: aModels.quick }) : null;
+            if (aPick) aMark("file_pick", aPick.mark.status, aPick.mark);
+            const aPickOnly = () => (!aWriterScoped && aPick && aPick.only ? aPick.only : null);
+            if (aPickOnly()) aSentParts = partsSent(aWriterParts, { unreadable: !aPartsRead.ok, only: aPickOnly().parts });
+            let aPagesSent = priorPagesSent(aWriterSrc || [], { keep: aKeepPages, only: aPickOnly() ? aPickOnly().pages : null });
             if (aPagesSent.withheld.length) {
               // EVERY ONE (2026-10-07): twelve were kept for the record.
               aUnseenPages = aPagesSent.withheld.slice();
@@ -45443,7 +45468,7 @@ async function handleRequest(request, env, ctx) {
                 // ONCE and read twice: here, and by the wall below that
                 // decides whether a returned part may replace a stored one.
                 tsx: aWriterScoped ? aViewTsx(aMerged.tsx, (t) => !(Array.isArray(aLook.tsx) ? aLook.tsx : []).some((o) => o && aNameKey(o.name) === aNameKey(t.name))) : aMerged.tsx,
-                parts: aWriterParts, partsUnreadable: !aPartsRead.ok,
+                parts: aWriterParts, partsUnreadable: !aPartsRead.ok, partsOnly: aPickOnly() ? aPickOnly().parts : undefined,
                 gif: aMerged.gif, qr: aMerged.qr, three: aMerged.three,
                 // AND THE LOOK IT IS WEARING. The stylesheet is sent as
                 // ALREADY APPLIED, never as something to reproduce: it is
@@ -45458,7 +45483,7 @@ async function handleRequest(request, env, ctx) {
               // THE ANSWERS, through the transport every other call here uses.
               clarifyCall(jobCall(aJob, pagesCall(env)), { shown: () => aCtxShown, all: () => aCtxAll || [], part: aPartShown }), "", aKeepPages,
               // AN OWN-PARTS SITE'S ADDITION writes its own parts too (2026-10-23).
-              { ownParts: ownPartsSite(aSrc, aStoredParts) });
+              { ownParts: ownPartsSite(aSrc, aStoredParts), only: aPickOnly() ? aPickOnly().pages : null });
               aPagesMs = Date.now() - aPagesT0;
               aPagesWrote = aGen && aGen.input && Array.isArray(aGen.input.pages) ? aGen.input.pages.length : 0;
               aMark("pages", "ok", { files: aPagesWrote, ms: aPagesMs });
@@ -46034,7 +46059,7 @@ async function handleRequest(request, env, ctx) {
             // own reserve, #4 — a second floor of 1, the translation charge's
             // own trade — and the reply carries the sum. A refusal here stops
             // BEFORE the look is stored.
-            const aBill = aFirstPlaced ? pageCredits(aGen && aGen.usage) : pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage);
+            const aBill = aFirstPlaced ? pageCredits(aGen && aGen.usage, aPick && aPick.usage) : pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage, aPick && aPick.usage);
             // PREPARED: the pages are written and recorded; nothing is charged,
             // stored, bought or compiled here.
             if (aPrep) return aPrepStop();

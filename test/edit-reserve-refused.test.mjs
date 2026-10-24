@@ -494,7 +494,7 @@ test("the addon reserves the designers' spend before the schema apply, the page 
   const guard = addon.slice(addon.lastIndexOf("if (aJob) {", first), first);
   assert.ok(guard.length > 0 && guard.length < 80, "sequence #1 is not gated on the job alone: " + JSON.stringify(guard));
   assert.match(addon, /const aCostNow = aFirstPlaced \? aFirst : await aCharge\(/, "the pageless answer reserves a second time after #1");
-  const bill = at(addon, "const aBill = aFirstPlaced ? pageCredits(aGen && aGen.usage) : pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage);", "the page path's bill");
+  const bill = at(addon, "const aBill = aFirstPlaced ? pageCredits(aGen && aGen.usage, aPick && aPick.usage) : pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage, aPick && aPick.usage);", "the page path's bill");
   assert.match(addon.slice(bill, bill + 700), /aCharge\(aBill, 4\)/, "the page call is not reserved as sequence 4 after #1");
   const stop = at(addon, "if (aJob && aCharges.refused() > 0) { const u = unbilledBody(aCharges); return aFail(u.body, u.status); }", "the page path's stop");
   const store = at(addon, "const w = await patchSiteConfig(env, ownerSlug, adb, aLookPatch, jobFence(env, aJob));", "the look store");

@@ -1,5 +1,18 @@
 # Owner Notes
 
+## 2026-10-23, late night — on big sites, a cheap step now picks which files the AI sees (idea #21, branch `file-picker`, not merged, not deployed)
+
+- **The ideas doc had #21 as discarded by you (2026-10-22).** It was built here because this session relayed a later request from you for it. Please confirm you want it before it is merged.
+- On a big site, one small quick-model call reads your request and a short list of the site's files: each file's name, size, exported names and headings, with no code. It names the files the change needs, at most 12.
+- **The page and the add-on writers then see only those files.** The page the router named is always shown, along with everything it imports and the site's own header and footer.
+- A file that is not picked is never lost. The writer is told it exists and may not return it.
+- If the small call fails or names nothing usable, the writer sees exactly what it sees today.
+- **When it applies:** only above 8 pages, or 60,000 characters of pages and components together. All 100 stored test sites are at most 6 pages and 50,780 characters, so ordinary sites are unchanged and make no extra call.
+- The small call goes on the same bill as the change. The work record notes how many files were chosen out of how many.
+- Tests: 7 new cases through the real page-edit route, with nothing paid. 3 of them fail on the old code; the below-threshold case passes on both, as it should.
+- Sweep: 8 of 9 changes killed, and the comment-only control survived. The one survivor is a second safety check that an earlier check already covers.
+- Record: `docs/history/2026-10-23-file-picker.md`.
+
 ## 2026-10-23, later still — Background work: your three fixes (branch `background-work`, not merged, not deployed)
 
 - **A change sent while a request runs now joins it.** It becomes new rows of that same request, not a separate one. So if it needs something the running work creates (a menu link to the page being added), it waits for it, and its row says "Next — after Bookshop page". Sending the same message twice adds it once. If the request finished just before, the change starts as its own request, as before.
