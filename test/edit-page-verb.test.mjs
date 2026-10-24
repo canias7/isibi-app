@@ -79,6 +79,7 @@
 //   address, which the request never spelled.
 
 import test from "node:test";
+import { tweakInput, asEdits } from "./fixtures/tweak-edits.mjs";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
@@ -233,7 +234,7 @@ async function drive({ mode = "sync", body: routed, ask, pick = null, apply = (s
       if (tool === T.tweak) {
         const f = shownFile(args);
         seen.shown.push(f);
-        return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: { source: apply(f.source) } }], usage });
+        return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: asEdits({ source: apply(f.source) }, f.source) }], usage });
       }
       if (tool === T.picture && picture) {
         return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: picture }], usage: { input_tokens: 400, output_tokens: 100 } });

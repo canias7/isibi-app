@@ -62,6 +62,7 @@
 // Nothing here reaches a model and nothing is spent.
 
 import test from "node:test";
+import { tweakInput, asEdits } from "./fixtures/tweak-edits.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -69,7 +70,10 @@ import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "./fixtures/cf-containers.mjs";
 import { renderPart } from "./fixtures/render-part.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
-import { TWEAK_TOOL, sameProse, partEligible, computeShape, tweakParser, readTweak, runTweak } from "../builder/site-tweak.mjs";
+import { TWEAK_TOOL, sameProse, partEligible, computeShape, tweakParser, readTweak as readTweakRaw, runTweak } from "../builder/site-tweak.mjs";
+import { asEditsReply } from "./fixtures/tweak-edits.mjs";
+// The tool answers with exact edits (idea #18): a whole-file answer here is turned into them.
+const readTweak = (r, o) => readTweakRaw(asEditsReply(r, o && o.source), o);
 
 // ⚠ THE PARSER IS LOADED ONCE AND PROVED ALIVE, because every eligibility case
 // below is VACUOUS without it: with no parser `partEligible` refuses a
@@ -452,7 +456,7 @@ function withWire(answers, run) {
       const nth = calls.filter((c) => c.tool === tool).length - 1;
       return new Response(JSON.stringify({
         stop_reason: "tool_use",
-        content: [{ type: "tool_use", name: tool, input: typeof a === "function" ? a(nth) : a }],
+        content: [{ type: "tool_use", name: tool, input: tool === "write_tweak" ? tweakInput(typeof a === "function" ? a(nth) : a, body) : (typeof a === "function" ? a(nth) : a) }],
         usage: { input_tokens: 10, output_tokens: 5 },
       }), { status: 200, headers: { "content-type": "application/json" } });
     }
@@ -905,7 +909,7 @@ test("`parse` really travels from runTweak into readTweak", async () => {
   // position is invisible to anything but a real tree, so this case cannot
   // pass by accident on a comparison that never ran.
   const after = before.replace("count={n}", "count={0 ?? n}");
-  const reply = async () => ({ content: [{ type: "tool_use", input: { source: after } }], usage: {} });
+  const reply = async (req) => ({ content: [{ type: "tool_use", input: tweakInput({ source: after }, req) }], usage: {} });
   const r = await runTweak({ instruction: "x", path: "index.tsx", source: before, send: reply, inPart: false });
   assert.equal(r.ok, false, "parse never reached readTweak: an order-only change was accepted");
   assert.equal(r.reason, "needs-parts");
@@ -914,7 +918,7 @@ test("`parse` really travels from runTweak into readTweak", async () => {
   const visual = before.replace("<Band count={n} />", "<section><Band count={n} /></section>");
   const ok = await runTweak({
     instruction: "x", path: "index.tsx", source: before, inPart: false,
-    send: async () => ({ content: [{ type: "tool_use", input: { source: visual } }], usage: {} }),
+    send: async (req) => ({ content: [{ type: "tool_use", input: tweakInput({ source: visual }, req) }], usage: {} }),
   });
   assert.equal(ok.ok, true, "an ordinary visual tweak was refused through the same hop: " + ok.reason);
 });
@@ -940,7 +944,7 @@ test("`inPart` really travels from runTweak into readTweak", async () => {
   const before = "import S from \"./spacer\"\nexport default function P(){const n=1; return <S count={n} />}";
   const after = "import S from \"./spacer\"\nexport default function P(){const n=1; return <S count={6 - n} />}";
   const send = async () => ({ content: [{ type: "tool_use", input: { source: after } }] }, { usage: {} });
-  const reply = async () => ({ content: [{ type: "tool_use", input: { source: after } }], usage: { input_tokens: 1, output_tokens: 1 } });
+  const reply = async (req) => ({ content: [{ type: "tool_use", input: tweakInput({ source: after }, req) }], usage: { input_tokens: 1, output_tokens: 1 } });
   const inside = await runTweak({ instruction: "x", path: PART_DIR + "card.tsx", source: before, send: reply, inPart: true });
   assert.equal(inside.ok, false, "inPart never reached readTweak: a sibling contract change was accepted");
   assert.equal(inside.reason, "needs-parts");

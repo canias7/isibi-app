@@ -9,6 +9,7 @@
 // worse retry over a good first attempt, charging for a call that was never made,
 // or writing a broken dist to R2 after a failed compile.
 import { test } from "node:test";
+import { tweakInput, asEdits } from "./fixtures/tweak-edits.mjs";
 import assert from "node:assert/strict";
 import { buildSource } from "./fixtures/build-source.mjs";
 import { buildPathFn } from "./fixtures/build-path.mjs";
@@ -147,7 +148,7 @@ const crashed = (route = "/book") => ({
   }),
 });
 const FIXED = "// repaired\n" + good().source;
-const repairReply = (source) => ({ content: [{ type: "tool_use", input: { source } }], usage: { input_tokens: 10, output_tokens: 20 } });
+const repairReply = (req, source) => ({ content: [{ type: "tool_use", input: tweakInput({ source }, req) }], usage: { input_tokens: 10, output_tokens: 20 } });
 
 test("with no repair dep NOTHING extra happens — one compile, no repair", async () => {
   const { deps, calls } = harness({
@@ -164,7 +165,7 @@ test("A CRASHED ROUTE IS REPAIRED, RECOMPILED, AND THE FIXED SOURCE IS WHAT PUBL
   let n = 0;
   const { deps, calls } = harness({
     compile: async () => ({ ok: true, files: { "index.html": { t: "<build-" + n++ + ">" } }, render: n === 1 ? crashed("/") : { ok: true, findings: [] } }),
-    repair: async () => repairReply(FIXED),
+    repair: async (req) => repairReply(req, FIXED),
   });
   const out = await publishPages(deps, { spec: SPEC, slug: "s" });
   assert.equal(calls.repair.length, 1, "the model was asked to fix the page");
@@ -183,7 +184,7 @@ test("A FAILED RECOMPILE KEEPS THE ORIGINAL BUILD — never worse than not tryin
     compile: async () => (n++ === 0
       ? { ok: true, files: { "index.html": { t: "<original>" } }, render: crashed("/") }
       : { ok: false, stage: "typecheck", error: "the repair broke it" }),
-    repair: async () => repairReply(FIXED),
+    repair: async (req) => repairReply(req, FIXED),
   });
   const out = await publishPages(deps, { spec: SPEC, slug: "s" });
   assert.equal(out.page, "app", "the site still publishes");
@@ -196,7 +197,7 @@ test("A FAILED RECOMPILE KEEPS THE ORIGINAL BUILD — never worse than not tryin
 test("a clean render report buys no model call at all", async () => {
   const { deps, calls } = harness({
     compile: async () => ({ ok: true, files: { "index.html": { t: "<x>" } }, render: { ok: true, findings: [] } }),
-    repair: async () => repairReply(FIXED),
+    repair: async (req) => repairReply(req, FIXED),
   });
   await publishPages(deps, { spec: SPEC, slug: "s" });
   assert.equal(calls.repair.length, 0, "nothing to fix, nothing spent");
@@ -209,7 +210,7 @@ test("THE REPAIR'S TOKENS REACH THE BILL", async () => {
   const mk = (repair) => harness({
     generate: async () => gen([good()], { usage: { in: 10000, out: 10000, cacheRead: 0, cacheWrite: 0 } }),
     compile: async () => ({ ok: true, files: { "index.html": { t: "<x>" } }, render: n++ === 0 ? crashed("/") : { ok: true, findings: [] } }),
-    ...(repair ? { repair: async () => big } : {}),
+    ...(repair ? { repair: async (req) => ({ ...big, content: [{ type: "tool_use", input: tweakInput({ source: FIXED }, req) }] }) } : {}),
   });
   n = 0; const a = await publishPages(mk(false).deps, { spec: SPEC, slug: "s" });
   n = 0; const b = await publishPages(mk(true).deps, { spec: SPEC, slug: "s" });
@@ -2970,7 +2971,7 @@ test("TALK: the browser check, the fix and the rebuilt site are each told, with 
   let n = 0;
   const { deps } = harness({
     compile: async () => ({ ok: true, files: { "index.html": { t: "<build-" + n++ + ">" } }, render: n === 1 ? crashed("/") : { ok: true, findings: [] } }),
-    repair: async () => repairReply(FIXED),
+    repair: async (req) => repairReply(req, FIXED),
   });
   const said = noted(deps);
   await publishPages(deps, { spec: SPEC, slug: "s" });
@@ -2984,12 +2985,12 @@ test("TALK: a fix that does not build is told as such; a clean check is told wit
   let n = 0;
   const bad = harness({
     compile: async () => (n++ === 0 ? { ok: true, files: { "index.html": { t: "<o>" } }, render: crashed("/") } : { ok: false, stage: "typecheck", error: "x" }),
-    repair: async () => repairReply(FIXED),
+    repair: async (req) => repairReply(req, FIXED),
   });
   const s1 = noted(bad.deps);
   await publishPages(bad.deps, { spec: SPEC, slug: "s" });
   assert.deepEqual(s1.find((x) => x[0] === "repaired")[1], { failed: 1 });
-  const clean = harness({ compile: async () => ({ ok: true, files: { "index.html": { t: "<x>" } }, render: { ok: true, findings: [] } }), repair: async () => repairReply(FIXED) });
+  const clean = harness({ compile: async () => ({ ok: true, files: { "index.html": { t: "<x>" } }, render: { ok: true, findings: [] } }), repair: async (req) => repairReply(req, FIXED) });
   const s2 = noted(clean.deps);
   await publishPages(clean.deps, { spec: SPEC, slug: "s" });
   assert.deepEqual(s2, [["render-checked", { pages: 1, problems: 0 }]]);

@@ -5,6 +5,7 @@
 //       tried twice in one build.
 // Driven with supplied answers only — no model is called here.
 import { test } from "node:test";
+import { tweakInput, asEdits } from "./fixtures/tweak-edits.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { renderReport, runtimeErrorsOf, MAX_RUNTIME_ERRORS, MAX_RUNTIME_PER_ROUTE } from "../builder/site-render.mjs";
@@ -35,7 +36,7 @@ const FIXED = BROKEN.replace('import { Nope } from "@/components/ui/nope";\n', "
 const MENU = { path: "menu.tsx", source: BROKEN };
 const VITE_ERR = '[vite]: Rollup failed to resolve import "@/components/ui/nope" from "/app/src/routes/menu.tsx".';
 const TSC_ERR = "src/routes/menu.tsx(2,22): error TS2307: Cannot find module '@/components/ui/nope' or its corresponding type declarations.";
-const tweakAnswer = (source, usage = { input_tokens: 4000, output_tokens: 900 }) => ({ content: [{ type: "tool_use", name: "write_tweak", input: { source } }], usage });
+const tweakAnswer = (req, source, usage = { input_tokens: 4000, output_tokens: 900 }) => ({ content: [{ type: "tool_use", name: "write_tweak", input: tweakInput({ source }, req) }], usage });
 
 /* ------------------------------------------------------------- #12 */
 
@@ -144,7 +145,7 @@ test("#13: a page whose failure was already tried is not tried again, and says s
   const cites = errorCitations(VITE_ERR);
   const sig = compileInstruction({ path: "menu.tsx", error: VITE_ERR }).signature;
   let calls = 0;
-  const r = await compileRepairPages({ error: VITE_ERR, pages: [HOME, MENU], citations: cites, send: async () => { calls++; return tweakAnswer(FIXED); }, tried: new Set([sig]) });
+  const r = await compileRepairPages({ error: VITE_ERR, pages: [HOME, MENU], citations: cites, send: async (req) => { calls++; return tweakAnswer(req, FIXED); }, tried: new Set([sig]) });
   assert.equal(calls, 0, "the same failure is never paid for twice");
   assert.deepEqual(r.skipped, [{ path: "menu.tsx", reason: "same-error" }]);
   // and the render repair skips a route whose failure signature is recorded
@@ -162,7 +163,7 @@ test("#11: the repair request — the failing page, its exact errors, the cause,
   const r = await compileRepairPages({
     error: VITE_ERR, typeErrors: TSC_ERR + "\nsrc/routes/index.tsx(1,1): error TS1: other file", pages: [HOME, MENU],
     citations: errorCitations(VITE_ERR), cited: ["menu.tsx:2: import { Nope } from \"@/components/ui/nope\";"],
-    send: async (req) => { sent.push(req); return tweakAnswer(FIXED); }, model: "grok-4.6", tried: new Set(),
+    send: async (req) => { sent.push(req); return tweakAnswer(req, FIXED); }, model: "grok-4.6", tried: new Set(),
   });
   assert.equal(sent.length, 1, "one call for the one failing page");
   const req = sent[0];
@@ -226,7 +227,7 @@ test("FLAG OFF (no dep): no call, and salvage stubs the page exactly as before",
 });
 
 test("a fixed page is recompiled once, and the fixed build and source publish — no salvage", async () => {
-  const { deps, calls } = harness({ compile: byContent("<fixed>"), fix: async () => tweakAnswer(FIXED) });
+  const { deps, calls } = harness({ compile: byContent("<fixed>"), fix: async (req) => tweakAnswer(req, FIXED) });
   const out = await publishPages(deps, { spec: SPEC, slug: "s", livePages: [] });
   assert.equal(calls.fix.length, 1, "one try");
   assert.equal(calls.compile.length, 2, "the first compile and the one recompile");
@@ -250,7 +251,7 @@ test("NEVER WORSE: fixes that do not compile leave salvage to stub the ORIGINAL 
       if (m === WORSE2) return { ok: false, stage: "build", error: "/app/src/routes/menu.tsx:4:1: ERROR: worse again" };
       return okBuild("<salvaged>");
     },
-    fix: async () => tweakAnswer(answers.shift() || WORSE2, { input_tokens: 200000, output_tokens: 50000 }),
+    fix: async (req) => tweakAnswer(req, answers.shift() || WORSE2, { input_tokens: 200000, output_tokens: 50000 }),
   });
   const out = await publishPages(deps, { spec: SPEC, slug: "s", livePages: [] });
   assert.equal(calls.fix.length, 2, "two rounds, no more");
@@ -281,7 +282,7 @@ test("ROUND TWO: fed the second compile's error, its fix publishes, and both rou
       if (m === WORSE) return { ok: false, stage: "build", error: "/app/src/routes/menu.tsx:3:1: ERROR: worse" };
       return okBuild("<fixed2>");
     },
-    fix: async () => tweakAnswer(answers.shift()),
+    fix: async (req) => tweakAnswer(req, answers.shift()),
   });
   const out = await publishPages(deps, { spec: SPEC, slug: "s", livePages: [] });
   assert.equal(calls.fix.length, 2);
@@ -297,7 +298,7 @@ test("ROUND TWO: fed the second compile's error, its fix publishes, and both rou
 });
 
 test("THE CLOCK: no room left, no repair call, salvage as today", async () => {
-  const { deps, calls } = harness({ compile: byContent("<s>"), fix: async () => tweakAnswer(FIXED) });
+  const { deps, calls } = harness({ compile: byContent("<s>"), fix: async (req) => tweakAnswer(req, FIXED) });
   deps.compileRepairRoom = () => false;
   const out = await publishPages(deps, { spec: SPEC, slug: "s", livePages: [] });
   assert.equal(calls.fix.length, 0);
@@ -318,7 +319,7 @@ test("BILLING: the repair's tokens land on the build's one bill, priced together
   const usage = { input_tokens: 200000, output_tokens: 50000 };
   const a = harness({ compile: byContent("<s>") });
   const outA = await publishPages(a.deps, { spec: SPEC, slug: "s", livePages: [] });
-  const b = harness({ compile: byContent("<f>"), fix: async () => tweakAnswer(FIXED, usage) });
+  const b = harness({ compile: byContent("<f>"), fix: async (req) => tweakAnswer(req, FIXED, usage) });
   const outB = await publishPages(b.deps, { spec: SPEC, slug: "s", livePages: [] });
   const gen = { in: 1000, out: 1000, cacheRead: 0, cacheWrite: 0 };
   assert.equal(outB.billed, pageCredits(gen, null, null, { model: "grok-4.6", in: 200000, out: 50000, cacheRead: 0, cacheWrite: 0 }));
@@ -327,7 +328,7 @@ test("BILLING: the repair's tokens land on the build's one bill, priced together
 });
 
 test("a failure that is ours (unreachable service) never reaches the repair", async () => {
-  const { deps, calls } = harness({ compile: () => ({ ok: false, stage: "build", error: "the build service is unreachable: x" }), fix: async () => tweakAnswer(FIXED) });
+  const { deps, calls } = harness({ compile: () => ({ ok: false, stage: "build", error: "the build service is unreachable: x" }), fix: async (req) => tweakAnswer(req, FIXED) });
   await publishPages(deps, { spec: SPEC, slug: "s", livePages: [] });
   assert.equal(calls.fix.length, 0);
 });
@@ -337,13 +338,13 @@ test("the runtime half: under the switch the render repair carries the route's b
   const report = { ok: true, findings: [{ route: "/menu", kind: "threw", detail: "Cannot read properties of undefined (reading 'EUR')" }],
     runtimeErrors: [{ route: "/menu", kind: "exception", message: "Cannot read properties of undefined (reading 'EUR')", source: "/assets/menu-1.js:3:9" }] };
   const page = { path: "menu.tsx", source: FIXED };
-  await repairPages({ report, pages: [HOME, page], send: async (r) => { sent.push(r); return tweakAnswer(FIXED.replace("data?.length", "data?.length ?? 0")); }, runtime: true, tried: new Set() });
+  await repairPages({ report, pages: [HOME, page], send: async (r) => { sent.push(r); return tweakAnswer(r, FIXED.replace("data?.length", "data?.length ?? 0")); }, runtime: true, tried: new Set() });
   const msg = sent[0].messages[0].content;
   assert.match(msg, /THE CAUSE: The page reads `\.EUR` off a value that is undefined/);
   assert.match(msg, /- exception: Cannot read .* \(at \/assets\/menu-1\.js:3:9\)/);
   // off: the instruction is byte-identical to before
   const offSent = [];
-  await repairPages({ report, pages: [HOME, page], send: async (r) => { offSent.push(r); return tweakAnswer(FIXED); } });
+  await repairPages({ report, pages: [HOME, page], send: async (r) => { offSent.push(r); return tweakAnswer(r, FIXED); } });
   assert.ok(!offSent[0].messages[0].content.includes("THE BROWSER'S ERRORS"));
   assert.equal(runtimeLines(report, "/elsewhere"), "");
 });
@@ -352,7 +353,7 @@ test("inside publishPages, the switch on: the render repair is handed the route'
   const sent = [];
   const report = { ok: true, findings: [{ route: "/", kind: "threw", detail: "Badge is not defined" }],
     runtimeErrors: [{ route: "/", kind: "exception", message: "ReferenceError: Badge is not defined", source: "/assets/i.js:1:2" }] };
-  const { deps } = harness({ compile: () => ({ ok: true, files: { "index.html": { t: "x" } }, render: report }), fix: async () => tweakAnswer(FIXED) });
+  const { deps } = harness({ compile: () => ({ ok: true, files: { "index.html": { t: "x" } }, render: report }), fix: async (req) => tweakAnswer(req, FIXED) });
   deps.repair = async (r) => { sent.push(r); return { content: [{ type: "tool_use", name: "write_tweak", input: { cannot: "no" } }] }; };
   await publishPages(deps, { spec: SPEC, slug: "s", livePages: [] });
   assert.equal(sent.length, 1);

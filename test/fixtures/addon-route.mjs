@@ -23,6 +23,7 @@
 // the REQUEST — `add_to_site`'s one property is named by the kind — rather than
 // guessed from call order, which is what changed underneath an earlier fixture
 // of this shape once already.
+import { tweakInput } from "./tweak-edits.mjs";
 import { loadWorker, makeCtx } from "./worker-harness.mjs";
 import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "./cf-containers.mjs";
 import { CONFIG_KEY } from "../../site-config.mjs";
@@ -746,7 +747,8 @@ function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null,
           : { choices: [{ message: { content: "", tool_calls: [{ id: "c1", function: { name: asked, arguments: JSON.stringify(input) } }] }, finish_reason: cut ? "length" : "stop" }], usage: { prompt_tokens: ju.input_tokens, completion_tokens: ju.output_tokens } };
         return new Response(JSON.stringify(jbody), { status: 200, headers: { "content-type": "application/json" } });
       }
-      const supplied = answers[kind] || {};
+      // THE TWEAK ANSWERS WITH EXACT EDITS (idea #18): a whole-file answer (keyed `source`, its old property) is turned into them.
+      const supplied = asked === "write_tweak" ? (tweakInput(answers.edits || answers.source || {}, b) || {}) : (answers[kind] || {});
       const designed = !ungrounded && asked === "add_to_site" && Array.isArray(supplied.requirements)
         ? { ...supplied, requirements: supplied.requirements.map((e) => (e && typeof e === "object" && !Object.hasOwn(e, "basis") && !Object.hasOwn(e, "words") ? { ...e, basis: "asked", words: shownAsk } : e)) }
         : supplied;

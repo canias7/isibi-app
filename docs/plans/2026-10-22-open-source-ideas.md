@@ -53,3 +53,10 @@ tweak rung (builder/site-tweak.mjs) from whole-file rewrites to exact old→new
 edits refused when missing or not unique (the visual review's apply loop,
 shared). The text lane and visual review already work this way. ~1 day + a
 small paid test.
+
+**18 done (2026-10-23, branch `tweak-exact-edits`, not merged, not deployed):**
+the tweak rung's tool answers with exact `{old, new}` edits, applied through
+the one helper the visual review now shares (`builder/exact-edits.mjs`); a
+missing or repeated `old` is refused and told back for one retry turn; the
+existing guards read the applied file. The small paid test is still owed.
+Record: `docs/history/2026-10-23-tweak-exact-edits.md`.

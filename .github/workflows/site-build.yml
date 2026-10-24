@@ -107,6 +107,7 @@ on:
       - 'test/fixtures/themes.mjs'
       - 'test/fixtures/build-path.mjs'
       - 'test/fixtures/build-source.mjs'
+      - 'test/fixtures/tweak-edits.mjs'
       - 'test/fixtures/corpus.mjs'
       - 'test/fixtures/corpus/**'
       - 'test/fixtures/generated.mjs'
