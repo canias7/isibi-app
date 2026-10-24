@@ -89,4 +89,23 @@ wall cannot disagree, and the code says so.
 
 ## Suite and image
 
-See the commit's records in `docs/owner-notes.md` (totals) and below.
+- **Full suite**, run locally on the code before the last guard fixes: 12,421
+  tests, 12,403 pass, 15 fail, 3 skipped. Six failures were this change:
+  - three source guards that anchor the add-on bill's exact text, re-anchored
+    to the bill with the picker's usage;
+  - the add-on's direct-`quickSend` count, fixed by sending the picker through
+    `aQuick`, which rides the job's clock;
+  - the container's worker tree, fixed by adding `builder/file-picker.mjs` to
+    the Dockerfile's COPY line.
+
+  After those fixes, those files and this one pass, 101 of 101. The other nine
+  are environment-only:
+  - `no-generated-deps`'s node_modules case fails while the `node_modules` link
+    is in place;
+  - `media-verify`'s real-Chromium case fails here on its own as well;
+  - the progress, preview-keep, parallel and reply-placement browser cases fail
+    under the full run's load, but their five files pass alone (50 of 51, the
+    one failure being `media-verify`).
+- **Image**: the Site container **rolls** `665ab9d93b9dce93` (origin/main, 229
+  inputs) → `04947bd52d4b7630` (`file-picker`, 230 inputs: the new module).
+  The App container is unchanged at `65022ce71e3d7274` (9 inputs).
