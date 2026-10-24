@@ -458,8 +458,8 @@ test("PAGE 8 — the request's own reply still being written when the page finds
   await withPage({
     slug: slugOf("p8"), replies: true, replyWith: async ({ facts }) => { if (ofRequest(facts)) await gate; },
     answers: {
-      route: [{ intent: "edit", layer: "look", alsoAsked: [LINK, ADD], dependsOn: [{ change: 1, after: [2] }] }, { intent: "addon" }],
-      // THE ADDITION FAILS, so the part that needed it never starts, and the request's own reply says so.
+      route: [{ intent: "edit", layer: "look", alsoAsked: [LINK, ADD], dependsOn: [{ change: 1, after: [2] }], targets: [{ change: 1, reads: ["page:/gallery"] }, { change: 2, writes: ["new-page:/gallery"] }] }, { intent: "addon" }],
+      // THE ADDITION FAILS, so the part that needed its page never starts, and the request's own reply says so.
       ...DESCRIBE, [T.adds]: { kinds: [] },
     },
   }, async (P) => {

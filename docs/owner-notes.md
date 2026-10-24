@@ -148,6 +148,15 @@
 - **One limit to know:** while a job is parked, the site stays reserved for it (up to 10 minutes at a time, renewed by the tick), so no other change slips in between its finished steps and the rest. Truly freeing the site would need a database change, which has not been written.
 - Tests: 17 new cases, including your Saltmarsh case run through the real request flow. On the old code, 7 of the 16 that could run there fail; the 9 that pass test the new module itself. No model was called and nothing was spent. Record: `docs/history/2026-10-24-provider-retry.md`.
 
+## 2026-10-24 — a request part now waits only for what it really needs (branch `request-needs`, not merged, not deployed)
+
+- **Driftwood's fix**: the home edits waited on the Lessons page, and the part making it ended "partly done" (FAQ and Contact capped), so every home edit was skipped although /lessons existed. Now a part waits on the actual thing it uses (the page, the table): if it was made, the part runs, however the other part ended.
+- **Saltmarsh's fix**: when Events failed, the footer, spam protection and home edits were skipped only because the router had said "after Events" without naming anything they used. Such a part now runs, and its own step judges what it can do. Only a part that really uses something missing is held, and the reply names it ("because it uses the page /lessons, which ... was to make, and it was not made").
+- A small piece of work split off from a part failing no longer cancels what needs the part.
+- The router is told to mark a dependency only when a change truly uses something another change creates.
+- A part still running or retrying is waited for, never treated as broken.
+- Tests: 8 new cases (7 fail on the old code); sweep 15 of 15 caught, the comment-only control survived. Nothing spent. Record: `docs/history/2026-10-24-request-needs.md`.
+
 ## 2026-10-24 — combine C: six finished branches in one candidate (branch `combine-c`, not merged, not deployed)
 
 - Brings together compile repair everywhere, the exact-edits tweak, the progress voice, the next-step hint, background work and the file picker (plus the 503 notes).

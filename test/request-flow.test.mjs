@@ -172,12 +172,12 @@ test("B1 — a change that needs something the message asks for later waits for 
   });
 });
 
-test("B2 — a prerequisite that fails: the part that needed it is not run and says which, an independent part still goes ahead, and nothing is charged for the part not run", async () => {
+test("B2 — a prerequisite that fails to make the page another part links to: the part that needed that page is not run and says which page, an independent part still goes ahead, and nothing is charged for the part not run", async () => {
   const LINK = "put a link to the new gallery on the Visit page";
   await withPlatform({
     slug: slugOf("b2"), replies: true,
     answers: {
-      route: [{ intent: "edit", layer: "look", alsoAsked: [LINK, ADD], dependsOn: [{ change: 1, after: [2] }] }, { intent: "addon" }],
+      route: [{ intent: "edit", layer: "look", alsoAsked: [LINK, ADD], dependsOn: [{ change: 1, after: [2] }], targets: [{ change: 1, reads: ["page:/gallery"] }, { change: 2, writes: ["new-page:/gallery"] }] }, { intent: "addon" }],
       ...DESCRIBE,
       // THE ADDITION FAILS: the add-on step finds nothing it can add.
       [T.adds]: { kinds: [] },
@@ -189,6 +189,7 @@ test("B2 — a prerequisite that fails: the part that needed it is not run and s
     assert.equal(rec.parts[2].status, "failed", JSON.stringify(rec.parts[2]));
     assert.equal(rec.parts[1].status, "not-run");
     assert.equal(rec.parts[1].why, "needs:2");
+    assert.deepEqual(rec.parts[1].missing, ["page:/gallery"]);
     assert.equal(rec.state, "partial");
     // PART 1 NEVER RAN: no job of its own, nothing charged for it.
     assert.equal(rec.parts[1].jobs.length, 0);
@@ -198,7 +199,7 @@ test("B2 — a prerequisite that fails: the part that needed it is not run and s
     const v = await readWritten(P, REQ(P, r.key));
     assert.equal(v.status, 200);
     const facts = toldIn(P, v);
-    assert.match(facts, /Not started: “put a link to the new gallery on the Visit page”, because it needed “add a gallery page” done first/);
+    assert.match(facts, /Not started: “put a link to the new gallery on the Visit page”, because it uses the page “\/gallery”, which “add a gallery page” was to make, and it was not made\./);
     assert.ok(typeof v.body.reply === "string" && v.body.replySource === "model", "the request's reply was not handed back");
   });
 });
@@ -1148,7 +1149,7 @@ test("N2 — pressed twice, or from another device, or delivered again: one rewr
   });
 });
 
-test("N3 — a rewrite that fails is said so on its part: what needed it is not run, the site stays as it was, and its cost is the build's own; a press whose job cannot be stored is answered 503 and the part still waits for a press that can", async () => {
+test("N3 — a rewrite that fails is said so on its part: what named nothing it needed still runs, the site stays as it was, and its cost is the build's own; a press whose job cannot be stored is answered 503 and the part still waits for a press that can", async () => {
   const slug = slugOf("n3");
   await withPlatform({ slug, pages: BIG, replies: true, answers: rewriteAnswers(slug, { route: WAITING_ROUTE, gallery: true, extra: DESCRIBE }) }, async (P) => {
     // NO COMPILE CONTAINER: the existing build designs, cannot write the pages,
@@ -1170,18 +1171,19 @@ test("N3 — a rewrite that fails is said so on its part: what needed it is not 
     assert.equal(builds(P).length, 1);
     const { rec } = await settle(P, r.key);
     assert.equal(designs(P), 1);
-    assert.deepEqual(statuses(rec), ["failed", "not-run", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    // A NEED THE ROUTER SAID WITH NOTHING NAMED (2026-10-24, request-needs):
+    // the failed rewrite no longer holds the description; its own step judges.
+    assert.deepEqual(statuses(rec), ["failed", "done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
     assert.equal(rec.parts[0].why, "rewrite-not-written");
-    assert.equal(rec.parts[1].why, "needs:0");
     assert.equal(P.page("index.tsx"), BIG[0].source, "a failed rewrite changed the site");
-    assert.notEqual(P.look().description, NEW_DESC, "the part that needed the rewrite ran");
+    assert.equal(P.look().description, NEW_DESC, "the part held on an unnamed need did not run");
     const cost = rec.parts[0].jobs.find((j) => j.kind === "rewrite").end.cost;
     assert.equal(-buildRows(P).reduce((n, d) => n + d, 0), cost);
     const facts = toldIn(P, await readWritten(P, REQ(P, r.key)));
     assert.match(facts, /ran, but its pages could not be written, so their site stayed exactly as it was/);
     // THE PART'S OWN RE-ROUTING (one credit) beside what the rewrite charged.
     assert.match(facts, new RegExp("charged " + (cost + 1) + " credit"));
-    assert.match(facts, /because it needed .* done first/);
+    assert.doesNotMatch(facts, /Not started/);
   });
 });
 
@@ -1518,8 +1520,11 @@ test("N9 — a Stop after the go-ahead was written ends its rewrite before it de
 test("G1 — a part whose routing fails on our side is asked once more, then ends failed with that reason; nothing is charged for a routing call that failed, and the finished part stays finished", async () => {
   await withPlatform({
     slug: slugOf("g1"), replies: true,
-    // THE ROUTER IS DOWN for part 1's routing, twice: no answer to give.
-    answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, null, null], ...DESCRIBE, ...GALLERY },
+    // THE ROUTING CALL FAILS ON OUR SIDE for part 1, twice: no answer to give.
+    // RE-ANCHORED 2026-10-24 (combine-d): a bare 503 (`null`, the stub's "no
+    // stub") is now a PROVIDER being down, which provider-retry makes a wait,
+    // never `routing-failed`; the failure this case is about is a refused call.
+    answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, new Response("bad request", { status: 400 }), new Response("bad request", { status: 400 })], ...DESCRIBE, ...GALLERY },
   }, async (P) => {
     const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
     const { rec } = await settle(P, r.key);
@@ -1666,7 +1671,7 @@ test("H6 — the request's own reply says what each part that did not finish was
   // what reading the message cost, so the request's reply does.
   await withPlatform({
     slug: slugOf("h6b"), replies: true,
-    answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD], dependsOn: [{ change: 0, after: [1] }] }, { intent: "addon" }], ...DESCRIBE, [T.adds]: { kinds: [] } },
+    answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD], dependsOn: [{ change: 0, after: [1] }], targets: [{ change: 0, reads: ["page:/gallery"] }, { change: 1, writes: ["new-page:/gallery"] }] }, { intent: "addon" }], ...DESCRIBE, [T.adds]: { kinds: [] } },
   }, async (P) => {
     const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
     const { rec } = await settle(P, r.key);
@@ -1674,7 +1679,7 @@ test("H6 — the request's own reply says what each part that did not finish was
     assert.equal(rec.parts[0].jobs.length, 0);
     const facts = toldIn(P, await readWritten(P, REQ(P, r.key)));
     assert.deepEqual(rows(P, "route"), [-1]);
-    assert.match(facts, /Not started: “Change the site description[^”]*”, because it needed “add a gallery page” done first, and that did not finish\. Nothing was charged for it\./, facts);
+    assert.match(facts, /Not started: “Change the site description[^”]*”, because it uses the page “\/gallery”, which “add a gallery page” was to make, and it was not made\. Nothing was charged for it\./, facts);
     assert.match(facts, /Reading their message cost one credit\./, facts);
   });
   // C. STOPPED BEFORE ANYTHING RAN: part 0's step ended at its gate, and its own
@@ -2268,41 +2273,37 @@ test("M3 — work that needs the set-aside link waits for it: the link's own par
   });
 });
 
-test("M4 — with no words for the set-aside link, the addition is done only in part: what needs it is not run, the request says so, and nothing is charged for what never ran", async () => {
+test("M4 — with no words for the set-aside link, the addition hands the link on as its own part (addon-uncapped's `frameFollowOn`), and what the router said needs the addition (naming nothing) waits for that carved part to end, then runs: its own step judges", async () => {
+  // RE-ANCHORED 2026-10-24 (combine-d): two branches met here. addon-uncapped
+  // hands the set-aside frame on as a carved part (`frame-hop`); request-needs
+  // waits on a need until the part AND its carved parts have ended, and a
+  // carved child's failure no longer breaks its parent. The menu editor's
+  // first call here is refused (400, ours, not a provider wait), so the carved
+  // link part fails; the rename still runs and lands.
   const RENAME = "make the menu's Gallery link say Our photos";
   await withPlatform({
     slug: slugOf("m4"), pages: NAV_PAGES, replies: true,
     answers: {
-      route: [{ intent: "addon", alsoAsked: [RENAME], dependsOn: [{ change: 1, after: [0] }] }],
+      route: [{ intent: "addon", alsoAsked: [RENAME], dependsOn: [{ change: 1, after: [0] }] }, { intent: "edit", layer: "nav" }, { intent: "edit", layer: "nav" }],
       // THE PICKER NAMED THE KINDS AND NO WORDS: the link cannot be carried.
       [T.adds]: { kinds: ["page", "frame"] },
       "add:page": { page: [PAGE("/gallery", "Gallery")] }, [T.pages]: { pages: [writtenPage("/gallery")] },
+      write_nav: (args, n) => [new Response("bad request", { status: 400 }), NAV_WITH([["Our photos", "/gallery"]])][n],
     },
   }, async (P) => {
     const r = await sendMessage(P, { message: GALLERY_WITH_LINK.replace(/\.$/, "") + ", then " + RENAME + "." });
     const { rec } = await settle(P, r.key);
-    // RE-ANCHORED 2026-10-24 (driftwood-and-daughters: the frame set aside twice
-    // and lost). The set-aside link is no longer only "not done": with no words
-    // of its own it is HANDED ON to the menu editor, as an addition, with the
-    // part's words, in the same request (`frameFollowOn`). Here the menu editor
-    // has no answer on the wire, so that part fails, and the rename that needed
-    // the link is still not run and not charged.
-    assert.deepEqual(statuses(rec), ["done", "not-run", "failed"], JSON.stringify(rec.parts.map((p) => [p.words, p.status, p.why])));
-    assert.equal(rec.parts[1].why, "needs:0");
-    assert.equal(rec.parts[2].source, "frame-hop");
-    assert.equal(rec.parts[2].parent, 0);
-    assert.equal(rec.parts[2].route.layer, "nav");
-    assert.equal(rec.parts[2].route.fromAddon, true, "the frame is not handed on as an addition");
-    assert.notEqual(rec.state, "done");
-    // THE PAGE STANDS, IN EVERY MENU BY ITS OWN DESIGN (its placement is the
-    // menu, the default, and the builder puts it there: 2026-10-04); THE
-    // RENAME THAT NEEDED THE SET-ASIDE PART NEVER RAN.
+    const st = JSON.stringify(rec.parts.map((p) => [p.words, p.status, p.why, p.source]));
+    const hop = rec.parts.find((p) => p.source === "frame-hop");
+    assert.ok(hop, st);
+    assert.equal(hop.parent, 0, st);
+    assert.equal(rec.parts[1].words, RENAME, st);
+    assert.notEqual(rec.parts[1].status, "not-run", st);
+    assert.ok(rec.parts[1].jobs.length > 0, "the part was held on a need that names nothing");
     assert.ok(P.pages().includes("gallery.tsx"));
-    for (const m of menus(P)) { assert.match(m, /Gallery \/gallery/, m); assert.doesNotMatch(m, /Our photos/, m); }
     assert.ok(jobLine(P, r.key).includes("addon:done"), JSON.stringify(jobLine(P, r.key)));
     const facts = toldIn(P, await readWritten(P, REQ(P, r.key)));
-    assert.match(facts, /Not started: “make the menu's Gallery link say Our photos”/, facts);
-    assert.match(facts, /Nothing was charged for it\./, facts);
+    assert.doesNotMatch(facts, /Not started: “make the menu's Gallery link/, facts);
   });
 });
 
@@ -2368,7 +2369,7 @@ const socialOf = (P, file) => (chromeListSlots([{ path: file, source: P.page(fil
 const INSTA_WORDS = "add our Instagram to the footer of the home page and the";
 
 for (const [named, met] of [["/visit", true], ["/starter", false]]) {
-  test(`M6 (${named}) — a footer addition naming its pages: ${met ? "the named page whose footer had no social links is given them, the part is done, and the part that needed it runs" : "the named page with no footer is told by name, the part is not done though the home page had it, and the part that needed it never runs"}`, async () => {
+  test(`M6 (${named}) — a footer addition naming its pages: ${met ? "the named page whose footer had no social links is given them, the part is done, and the part that needed it runs" : "the named page with no footer is told by name, the part is not done though the home page had it, and the part the router said needed it (naming nothing) still runs"}`, async () => {
     assert.deepEqual((chromeListSlots([{ path: "index.tsx", source: BAKERY_INSTA_HOME[0].source }], "social")[0] || {}).items, [{ network: "instagram", href: INSTA.href }], "the fixture's home page has no Instagram");
     const words = INSTA_WORDS + " " + named.slice(1) + " page";
     await withPlatform({
@@ -2391,13 +2392,13 @@ for (const [named, met] of [["/visit", true], ["/starter", false]]) {
         assert.equal(nav.ok, false, JSON.stringify(nav));
         assert.match(nav.msg, /\/starter has no footer to put “instagram” in/);
         assert.equal(rec.parts[0].status, "failed", JSON.stringify(rec.parts[0]));
-        assert.deepEqual([rec.parts[1].status, rec.parts[1].why], ["not-run", "needs:0"]);
-        // NO PART DONE: the request failed, as any whose every part did.
-        assert.equal(rec.state, "failed");
-        assert.equal(P.look().description, OLD_DESC, "the part that needed the unmet addition ran");
+        // A NEED THAT NAMES NOTHING (2026-10-24, request-needs): the description runs.
+        assert.equal(rec.parts[1].status, "done", JSON.stringify(rec.parts[1]));
+        assert.equal(rec.state, "partial");
+        assert.equal(P.look().description, NEW_DESC, "the part held on an unnamed need did not run");
         assert.equal(P.page("starter.tsx"), BAKERY.find((x) => x.path === "starter.tsx").source, "the page with no footer was given one");
         const told = toldIn(P, await readWritten(P, REQ(P, r.key)));
-        assert.match(told, /Not started: “Change the site description[^”]*”, because it needed “[^”]*” done first/, told);
+        assert.doesNotMatch(told, /Not started/, told);
       }
     });
   });

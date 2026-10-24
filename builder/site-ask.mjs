@@ -1081,8 +1081,10 @@ const DEPENDS_ON = {
     "ONLY WHEN ONE CHANGE THEY ASK FOR NEEDS ANOTHER ONE MADE FIRST, wherever each comes in their message. Number " +
     "the changes like this: 0 is the change your answer makes; 1 is the first entry of alsoAsked, 2 the second, " +
     "and so on. For each change that has to wait, give one entry: `change` is its number, `after` the numbers of " +
-    "the changes it needs done first. A change needs another when it uses something that other change makes or " +
-    "changes and the site does not have yet. When the change your answer makes is the one that needs another, " +
+    "the changes it needs done first. A change needs another ONLY when it truly uses something that other change " +
+    "creates and the site does not have yet — a link to the page it makes, a row in the table it makes. Being in the " +
+    "same message, being on the same page, coming later in their words, or touching the same part of the site is not " +
+    "needing: changes that would each work on their own need nothing. When the change your answer makes is the one that needs another, " +
     "say so with change 0: it then waits until that one is done. Leave this out when no change needs another.",
   items: {
     type: "object",

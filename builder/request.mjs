@@ -54,7 +54,7 @@ import { REQUEST_KEY_RE } from "./clarify.mjs";
 import { readMarks } from "./prepared.mjs";
 import { outcomeOf } from "./site-reply.mjs";
 import { savedDraftOf } from "./check-evidence.mjs";
-import { readTargets, inferNeeds, applyOrder, clearToPrepare, clearToWrite, prepScope, addonScope, routeScope } from "./request-plan.mjs";
+import { readTargets, inferNeeds, neededFrom, applyOrder, clearToPrepare, clearToWrite, prepScope, addonScope, routeScope } from "./request-plan.mjs";
 
 export const REQUEST_V = 1;
 
@@ -230,7 +230,6 @@ export const HOPS_MAX = 3;
 //   expired        its question went unanswered for a day
 //   refused        it could not be placed in an order that makes sense (the relations formed a cycle)
 export const PART_TERMINAL = Object.freeze(["done", "partial", "failed", "not-run", "cancelled", "needs-rewrite", "expired", "refused"]);
-const BAD = Object.freeze(["partial", "failed", "not-run", "cancelled", "needs-rewrite", "expired", "refused"]);
 /**
  * MAY ANOTHER PART OF THIS REQUEST WRITE BESIDE PART `n`? (2026-10-23, audit
  * S2-3) Any other part not ended, except one that cannot start before `n`
@@ -923,11 +922,60 @@ function complete(rec, n, seen = new Set()) {
   seen.add(n);
   return p.status === "done" && childrenOf(rec, n).every((c) => complete(rec, c.n, seen));
 }
-function broken(rec, n, seen = new Set()) {
+// A CARVED CHILD'S FAILURE NO LONGER BREAKS ITS PARENT (2026-10-24,
+// request-needs): what the parent made stands, and a part that needs something
+// of the parent asks whether that thing exists (`needMet`), the child's
+// creations included.
+/** Has the part and every part carved from it ended (or is it waiting on a question)? */
+function ended(rec, n, seen = new Set()) {
   const p = rec.parts[n];
   if (!p || seen.has(n)) return false;
   seen.add(n);
-  return BAD.includes(p.status) || childrenOf(rec, n).some((c) => broken(rec, c.n, seen));
+  return PART_TERMINAL.includes(p.status) && childrenOf(rec, n).every((c) => ended(rec, c.n, seen));
+}
+/** The things (`page:/x`, `data:t`) a part and the parts carved from it really created. */
+function createdBy(rec, n, seen = new Set()) {
+  const p = rec.parts[n];
+  if (!p || seen.has(n)) return [];
+  seen.add(n);
+  const own = Array.isArray(p.created) ? p.created.filter((t) => typeof t === "string") : [];
+  return [...own, ...childrenOf(rec, n).flatMap((c) => createdBy(rec, c.n, seen))];
+}
+/** Record on a part what its step's answer says it created: pages added, tables added. */
+function recordCreated(p, body) {
+  const b = plain(body) ? body : {};
+  const things = [
+    ...createdPages(b).map((pg) => "page:" + pg),
+    ...(Array.isArray(b.tables) ? b.tables : []).filter((t) => typeof t === "string" && /^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(t)).map((t) => "data:" + t.toLowerCase()),
+  ];
+  if (!things.length) return;
+  const cur = Array.isArray(p.created) ? p.created.slice() : [];
+  for (const t of things) if (!cur.includes(t)) cur.push(t);
+  p.created = cur;
+}
+/** Statuses a prerequisite may end in and still let a part that needs it run when what it needs exists. */
+const MADE_SOME = Object.freeze(["done", "partial", "failed"]);
+/**
+ * IS PART `p`'S NEED OF PART `m` MET? `"yes"`, `"wait"`, or the list of the
+ * concrete things it needs that `m` did not create (2026-10-24, request-needs).
+ * - `m` done with all its carved parts: yes, as before.
+ * - `m` not yet ended (running, retrying a provider error, waiting): wait.
+ * - `m` ended partial or failed: a need that names things (`needOn`) is met
+ *   when each exists in what `m` and its carved parts created; a need the
+ *   router said with nothing named is met — the part's own step judges what it
+ *   can do, and refuses honestly what it cannot.
+ * - `m` stopped, expired, refused or never run: a named need is met only by
+ *   what was created; an unnamed one is not met.
+ */
+function needMet(rec, p, m) {
+  if (complete(rec, m)) return "yes";
+  if (!ended(rec, m)) return "wait";
+  const want = neededFrom(p, m);
+  const q = rec.parts[m];
+  if (!want.length) return MADE_SOME.includes(q.status) ? "yes" : [];
+  const have = createdBy(rec, m);
+  const missing = want.filter((t) => !have.includes(t));
+  return missing.length ? missing : "yes";
 }
 
 /**
@@ -1304,6 +1352,10 @@ function settle(rec, p, job, row, now) {
   }
   const read = readRun(ans);
   job.end.act = read.act;
+  // WHAT IT REALLY CREATED, whatever it ended as (2026-10-24, request-needs):
+  // the pages and tables its step's own answer names, so a part that needs one
+  // of them runs when it exists, even if this part was partial or failed.
+  recordCreated(p, ans && ans.body);
   if (read.deferred && read.deferred.length) {
     // WHAT THIS PART CREATED, recorded on it before its words are carved
     // (2026-10-23, fix-edit-flow): a carved part that then names that page
@@ -1669,10 +1721,19 @@ export function nextStep(record, rows = {}, now = Date.now(), { writeMax = 1 } =
     for (const p of rec.parts) {
       if (p.status !== "blocked" && p.status !== "ready") continue;
       const parent = p.parent === null ? null : rec.parts[p.parent];
-      const bad = p.needs.find((m) => broken(rec, m));
-      if (bad !== undefined) { p.status = "not-run"; p.why = "needs:" + bad; moved = true; continue; }
+      // GATED ON WHAT IT NEEDS, NOT ON HOW THE OTHER PART ENDED (2026-10-24,
+      // request-needs): a part runs when the things it needs exist, even if
+      // the part making them was partial or failed; only a need whose thing is
+      // genuinely missing holds it, and it says which (`missing`).
+      const met = p.needs.map((m) => [m, needMet(rec, p, m)]);
+      const bad = met.find(([, v]) => Array.isArray(v));
+      if (bad) {
+        p.status = "not-run"; p.why = "needs:" + bad[0];
+        if (bad[1].length) p.missing = bad[1].slice(); else delete p.missing;
+        moved = true; continue;
+      }
       const settled = !parent || PART_TERMINAL.includes(parent.status) || parent.status === "waiting";
-      const ok = settled && p.needs.every((m) => complete(rec, m));
+      const ok = settled && met.every(([, v]) => v === "yes");
       const want = ok ? "ready" : "blocked";
       if (p.status !== want) { p.status = want; moved = true; }
     }
@@ -2522,6 +2583,8 @@ export function requestView(rec, { progress = null, said = null, runs = null, pr
       // needs, by number, while it is held for them or was not run because
       // one of them broke — so the card names the part, not "another part".
       ...((p.status === "blocked" || p.status === "not-run") && Array.isArray(p.needs) && p.needs.length ? { needs: p.needs.filter((m) => Number.isInteger(m)) } : {}),
+      // WHICH THING IT NEEDED WAS NOT MADE (2026-10-24, request-needs).
+      ...(p.status === "not-run" && Array.isArray(p.missing) && p.missing.length ? { missing: p.missing.filter((t) => typeof t === "string").slice(0, 8) } : {}),
       // SAVED AS A DRAFT, NOT PUBLISHED (2026-10-16, the frontend batch): the
       // revision its job saved, from the job's own answer or the recovery's
       // reading of the draft — the card says "saved", never "published".

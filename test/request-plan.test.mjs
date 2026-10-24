@@ -199,7 +199,8 @@ test("A37-3 — a part longer than the rewrite reads is never offered the go-ahe
 });
 
 test("next step: a part's routing that fails is asked once more, then fails; one with no answer at all likewise — and a prerequisite that fails leaves what needed it not run", () => {
-  let rec = rec0({ intent: "edit", alsoAsked: [ADD], dependsOn: [{ change: 0, after: [1] }] });
+  // THE NEED NAMES WHAT IT USES (2026-10-24, request-needs): the page the addition makes.
+  let rec = rec0({ intent: "edit", alsoAsked: [ADD], dependsOn: [{ change: 0, after: [1] }], targets: [{ change: 1, writes: ["new-page:/gallery"] }, { change: 0, reads: ["page:/gallery"] }] });
   let r = step(rec);
   assert.equal(r.file.n, 1);
   rec = filed(r, "j1");
@@ -210,6 +211,7 @@ test("next step: a part's routing that fails is asked once more, then fails; one
   r = step(rec, { [KEY + "-p1-2"]: row("done", { ok: true, failed: true, intent: "addon" }) });
   assert.deepEqual([r.record.parts[1].status, r.record.parts[1].why], ["failed", "routing-failed"]);
   assert.deepEqual([r.record.parts[0].status, r.record.parts[0].why], ["not-run", "needs:1"]);
+  assert.deepEqual(r.record.parts[0].missing, ["page:/gallery"]);
   assert.equal(r.record.state, "failed");
   assert.equal(r.record.ended, true);
 });
@@ -556,7 +558,7 @@ test("money: a part's charge is its jobs' rows' — finalized reserves only — 
   assert.match(only.facts.map((x) => x.text).join(" | "), /Reading their message cost 2 credits\./);
 });
 
-test("partial outcomes: an ok answer that names what it did not do is partial, never done — and nothing that needs it runs", () => {
+test("partial outcomes: an ok answer that names what it did not do is partial, never done — and what needs it runs when what it needs exists", () => {
   // THE READER, PER KIND OF ANSWER.
   assert.deepEqual(notDoneOf({ ok: true, partial: [{ layer: "nav", page: "/visit", error: "no-menu" }, { layer: "look", ask: { text: "?" } }] }), [{ what: "/visit", why: "no-menu" }]);
   assert.deepEqual(notDoneOf({ ok: true, dropped: [{ label: "Old", why: "no-such-page" }, { label: "Twice", why: "duplicate" }] }), [{ what: "Old", why: "no-such-page" }]);
@@ -566,7 +568,9 @@ test("partial outcomes: an ok answer that names what it did not do is partial, n
   assert.deepEqual(notDoneOf({ ok: true, kinds: ["page"], skipped: [] }, "addon"), []);
   // AN EDIT'S `skipped` IS NOT AN ADDITION'S: read only where it means a kind set aside.
   assert.deepEqual(notDoneOf({ ok: true, skipped: ["frame"] }, "edit"), []);
-  // THROUGH THE STEP: a partial part 0 leaves the part that needs it not run.
+  // THROUGH THE STEP (2026-10-24, request-needs): a partial part 0 that made
+  // what the next part needs lets it run — gated on what was needed, never on
+  // how the part ended overall.
   const MSG2 = "Add a gallery page with a link in the menu, then make the link say Photos.";
   const rec = rec0({ intent: "addon", alsoAsked: ["make the link say Photos"], dependsOn: [{ change: 1, after: [0] }] }, MSG2);
   let r = step(rec);
@@ -574,10 +578,9 @@ test("partial outcomes: an ok answer that names what it did not do is partial, n
   const job = r.record.parts[0].jobs[0];
   r = step(r.record, { [job.key]: row("done", { ok: true, kinds: ["page"], skipped: ["frame"], added: ["src/routes/gallery.tsx"] }) });
   assert.equal(r.record.parts[0].status, "partial");
-  assert.equal(r.record.parts[1].status, "not-run");
-  assert.equal(r.record.parts[1].why, "needs:0");
-  assert.equal(r.file, null, "a job was filed for a part whose prerequisite was only partly done");
-  assert.equal(r.record.state, "partial");
+  assert.deepEqual(r.record.parts[0].created, ["page:/gallery"]);
+  assert.equal(r.record.parts[1].status, "queued");
+  assert.equal(r.file && r.file.n, 1, "the part was held although the page it needs was made");
   // AND WORDS LEFT FOR LATER THAT NO PART HOLDS ARE NOT DONE EITHER.
   const rec2 = rec0({ intent: "addon" }, "Add a gallery page.");
   let s2 = step(rec2);

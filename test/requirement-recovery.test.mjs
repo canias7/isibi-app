@@ -372,7 +372,7 @@ test("RC 6 — AN INDEPENDENT SIBLING FINISHES WHILE THE ADDITION RECOVERS: the 
   });
 });
 
-test("RC 7 — A PART THAT NEEDS THE RECOVERING ONE WAITS: it is not run, not failed, while the addition recovers; once the addition resumes and finishes in part, it is not run, saying which part it needed — never applied on top of an addition that never happened", { timeout: 120000 }, async () => {
+test("RC 7 — A PART THAT NEEDS THE RECOVERING ONE WAITS: it is not run, not failed, while the addition recovers; once the addition resumes and finishes in part, a need that names nothing lets it run", { timeout: 120000 }, async () => {
   await twoParts("7", {
     needs: true,
     check: async ({ P, key, down }) => {
@@ -390,8 +390,10 @@ test("RC 7 — A PART THAT NEEDS THE RECOVERING ONE WAITS: it is not run, not fa
       await settle(P, key);
       rec = P.record(key);
       assert.equal(rec.parts[0].status, "partial", why(rec));
-      assert.equal(rec.parts[1].status, "not-run", why(rec));
-      assert.equal(rec.parts[1].why, "needs:0");
+      // A NEED THE ROUTER SAID WITH NOTHING NAMED (2026-10-24, request-needs):
+      // once the addition has ended, the dependent runs and its own step judges.
+      assert.notEqual(rec.parts[1].status, "not-run", why(rec));
+      assert.notEqual(rec.parts[1].status, "blocked", why(rec));
       once(P);
     },
   });
