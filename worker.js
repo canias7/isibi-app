@@ -282,7 +282,7 @@ import {
   PROGRESS_CALL_MS, PROGRESS_TRIES, PROGRESS_RETRY_MS, PROGRESS_LINES_PER_TASK, PROGRESS_DISCOVERY_MS, PROGRESS_SEND_WAITS_MS,
   // THE BUILDER TALKS WHILE IT WORKS (2026-10-13), behind `PROGRESS_TALK`.
   talkOn, startFacts, spineCheckFacts, publishedFacts, talkBuildStepFacts, waitedFor, PROGRESS_SETTLE_S,
-  addressFacts, actionFacts, actionContext, ACTION_KINDS, designPartFacts, designStartFacts, stillFacts, sectionStartFacts, sectionDoneFacts, writingNowFacts, compileStageFacts,
+  addressFacts, actionFacts, actionContext, ACTION_KINDS, designPartFacts, designStartFacts, stillFacts, sectionStartFacts, sectionDoneFacts, writingNowFacts, compileStageFacts, salvageFacts,
 } from "./builder/site-progress.mjs";
 // ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03): the record,
 // the plan, what a job's answer means for its part, and the next job.
@@ -318,7 +318,8 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // against, in place of "nobody can see one".
 import { addedByRoute, publishedTexts, componentEvidence } from "./builder/content-evidence.mjs";
 import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, frameToMissing, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, qrShownSources, qrDestinationCheck, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
-import { compileRepairRound, compileRepairRounds, writtenPaths } from "./builder/compile-repair.mjs";
+import { compileRepairRound, compileRepairRounds, writtenPaths, withParts, splitParts } from "./builder/compile-repair.mjs";
+import { salvageRound, anythingLanded, MAX_SALVAGE_ROUNDS, landedBill, partKey, writtenPartKeys } from "./builder/change-salvage.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig, writesSchema as partWritesSchema } from "./builder/request-plan.mjs";
@@ -17920,7 +17921,28 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // merged list in, and it is sent now and stored below beside the source once
   // the publish has landed. Without this the page imports a component the
   // container never receives — the lane sweep's `tsx` failure, 2026-09-01.
-  const siteParts = Array.isArray(parts) ? parts : await loadSiteParts(env, slug);
+  let siteParts = Array.isArray(parts) ? parts : await loadSiteParts(env, slug);
+  // A PART THE COMPILE REPAIR FIXED (2026-10-24) is stored beside the pages
+  // even when the caller handed none: the band the error cited is the file
+  // that changed. See `partsRepaired` at the compile below.
+  let partsRepaired = false;
+  // THE CHEAP DETERMINISTIC PRE-FIX ON EVERY PUBLISH (2026-10-24): the build
+  // path ran `repairImports` and this spine — every edit, add-on, frame and
+  // tweak lane — never did, so a default import of a kit module (or a named
+  // import of a default-only part) reached the compiler on an edit. Pages and
+  // parts, against the parts as they stand; a file it did not touch is the
+  // same object, and a part it fixed is stored beside the pages.
+  if (Array.isArray(pages)) {
+    try {
+      const preParts = Array.isArray(siteParts) ? siteParts : [];
+      const prePages = repairImports(pages, { parts: preParts });
+      if (prePages.fixed.length) { pages = prePages.pages; tm("pre-fix", "ok", { pages: prePages.fixed.length }); }
+      if (preParts.length) {
+        const pp = repairImports(preParts, { parts: preParts });
+        if (pp.fixed.length) { siteParts = pp.pages; partsRepaired = true; tm("pre-fix", "ok", { parts: pp.fixed.length }); }
+      }
+    } catch (e) { console.error("pre-fix failed:", slug, e && e.message); }
+  }
 
   // ── THE SITE'S OTHER LANGUAGES ──────────────────────────────────────────────
   //
@@ -18400,27 +18422,93 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   let seamRepair = null;
   const compileHook = typeof onCompileFail === "function" ? onCompileFail
     : seamCompileRepair(env, { slug, touched, models, charge: typeof chargeRepair === "function" ? chargeRepair : charge, tm, keep: (r) => { seamRepair = r; } });
-  if ((!built || built.ok !== true || !built.files) && typeof compileHook === "function"
-      && !killed && !(built && built.timedOut) && !(built && built.room)) {
+  // EVERY FILE THE SITE OWNS IS OFFERED (2026-10-24, owner: "the repair has
+  // to be everywhere"): the pages AND the site's own parts (bands, the frame,
+  // components an edit wrote), as `-parts/<name>.tsx` files the hook may
+  // correct; `splitParts` hands a corrected part back to `siteParts`, which
+  // the payload, the staged state and the editable copy all read. NEVER
+  // SILENT: a failure the hook is not offered says why (`skip`).
+  const compileFailed = !built || built.ok !== true || !built.files;
+  const skipWhy = !compileFailed ? "" : typeof compileHook !== "function" ? "no-hook"
+    : killed ? "killed" : built && built.timedOut ? "timeout" : built && built.room ? "room" : "";
+  if (compileFailed && skipWhy) tm("compile-repair", "skip", { why: skipWhy });
+  if (compileFailed && !skipWhy) {
     tm("compile-repair", "start");
+    const partsBefore = siteParts;
+    const hasParts = Array.isArray(siteParts);
     let fix = null;
     try {
       fix = await compileHook({
-        error: String((built && built.error) || ""), stage: String((built && built.stage) || ""), pages, job,
-        recompile: async (list) => { files = filesFor(list); return compile(); },
+        error: String((built && built.error) || ""), stage: String((built && built.stage) || ""), pages: hasParts ? withParts(pages, siteParts) : pages, job,
+        recompile: async (list) => {
+          const s = splitParts(list, partsBefore);
+          if (hasParts) siteParts = s.parts;
+          files = filesFor(s.pages);
+          return compile();
+        },
       });
     } catch (e) {
       console.error("onCompileFail failed:", slug, e && e.message);
       fix = null;
     }
     if (fix && fix.built && fix.built.ok === true && fix.built.files && Array.isArray(fix.pages)) {
-      built = fix.built; pages = fix.pages;
-      tm("compile-repair", "ok");
+      const s = splitParts(fix.pages, partsBefore);
+      built = fix.built; pages = s.pages;
+      if (hasParts) { siteParts = s.parts; partsRepaired = partsRepaired || s.parts.some((p, i) => p !== partsBefore[i]); }
+      tm("compile-repair", "ok", { parts: partsRepaired });
     } else {
       // THE FILES GO BACK TO THE PAGES THAT STAND, so nothing below reads a
-      // corrected list that never compiled.
+      // corrected list that never compiled — the parts too.
+      siteParts = partsBefore;
       files = filesFor(pages);
       tm("compile-repair", "fail");
+    }
+  }
+  // ── THE STAND-IN ON EVERY PATH (owner, 2026-10-24: "use it everywhere") ──
+  //
+  // A change that still fails on its CODE after repair is salvaged file by
+  // file (builder/change-salvage.mjs): a file the site already had and the
+  // change broke goes back to its stored version (`kept`), a file the change
+  // added stands in (`standIn`), and the rest is published. Only a failure of
+  // the code: a killed container, a timeout or no room never judged it. No
+  // model call, so nothing is charged; a change with nothing left that landed
+  // is refused as before, and so is one that still does not compile.
+  let salvaged = null;
+  if ((!built || built.ok !== true || !built.files) && !killed && !(built && built.timedOut) && !(built && built.room)
+      && !renamed && Array.isArray(pages)) {
+    let stored = null;
+    try {
+      const [sp, sq] = await Promise.all([readSiteSource(env, slug), readSiteParts(env, slug)]);
+      if (sp && sp.ok && sq && sq.ok) stored = { pages: sp.pages, parts: sq.parts };
+    } catch (e) { console.error("salvage read failed:", slug, e && e.message); }
+    if (!stored) tm("salvage", "skip", { why: "no-stored" });
+    else {
+      const sPagesBefore = pages, sPartsBefore = siteParts;
+      let sPages = pages, sParts = Array.isArray(siteParts) ? siteParts : [];
+      const kept = [], standIn = [], done = new Set();
+      let sBuilt = built;
+      for (let round = 0; round < MAX_SALVAGE_ROUNDS; round++) {
+        const r = salvageRound({ error: String((sBuilt && sBuilt.error) || ""), pages: sPages, parts: sParts, storedPages: stored.pages, storedParts: stored.parts, done });
+        if (!r.moved) break;
+        sPages = r.pages; sParts = r.parts; kept.push(...r.kept); standIn.push(...r.standIn);
+        if (!anythingLanded({ pages: sPages, parts: sParts, storedPages: stored.pages, storedParts: stored.parts, kept, standIn })) { sBuilt = null; break; }
+        tm("salvage", "round", { kept: r.kept.length, standIn: r.standIn.length });
+        siteParts = Array.isArray(siteParts) || sParts.length ? sParts : siteParts;
+        files = filesFor(sPages);
+        sBuilt = await compile();
+        if (sBuilt && sBuilt.ok === true && sBuilt.files) break;
+        if (!sBuilt || sBuilt.timedOut || sBuilt.room || wasKilled(sBuilt.error)) break;
+      }
+      if (sBuilt && sBuilt.ok === true && sBuilt.files && (kept.length || standIn.length)) {
+        built = sBuilt; pages = sPages;
+        partsRepaired = partsRepaired || (Array.isArray(sPartsBefore) && sParts.some((p, i) => p !== sPartsBefore[i])) || (!Array.isArray(sPartsBefore) && sParts.length > 0);
+        salvaged = { kept, standIn };
+        tm("salvaged", "ok", { kept, standIn });
+        try { if (job && job.progress && job.progress.talk) job.progress.mark("salvaged", salvageFacts(salvaged)); } catch { /* the record never costs the build */ }
+      } else {
+        pages = sPagesBefore; siteParts = sPartsBefore; files = filesFor(pages);
+        tm("salvage", "fail", { kept: kept.length, standIn: standIn.length });
+      }
     }
   }
   if (!built || built.ok !== true || !built.files) {
@@ -18853,7 +18941,10 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       // marker behind, and the next job repairs from this version's own state.
       const saved = { source: await saveSiteSource(env, slug, pages, fence) };
       // AND THE PARTS BESIDE THEM, on the same terms.
-      if (Array.isArray(parts)) saved.parts = await saveSiteParts(env, slug, parts, fence);
+      // A PART THE COMPILE REPAIR FIXED IS SAVED TOO (2026-10-24), from the
+      // list that compiled.
+      const partsToSave = partsRepaired && Array.isArray(siteParts) ? siteParts : parts;
+      if (Array.isArray(partsToSave)) saved.parts = await saveSiteParts(env, slug, partsToSave, fence);
       // AND THE KIT CLOSURE THE CONTAINER JUST RESOLVED. Every cheap edit
       // republishes through here, so a site whose edit added a component that
       // pulls in a new kit file gets that file stored with the same publish —
@@ -18939,6 +19030,9 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   return { ok: true, files: wrote, look, render, renderNote: [renderNote(built.render), langNote(langOutcomes, langsRefused), staleNote(langStale)].filter(Boolean).join(" ") || undefined,
     // A COMPILE THE SEAM'S REPAIR FIXED (2026-10-23), a fact for the reply;
     // absent otherwise, so an ordinary publish's answer is unchanged.
+    // WHAT THE STAND-IN SALVAGE DID (2026-10-24): files kept as they were and
+    // new files standing in, facts for the reply; absent otherwise.
+    ...(salvaged ? { salvaged: { kept: salvaged.kept.slice(), standIn: salvaged.standIn.slice() } } : {}),
     ...(seamRepair && seamRepair.built ? { compileRepaired: { pages: seamRepair.repaired.slice(), rounds: seamRepair.rounds, charged: Number(seamRepair.charged) || 0 } } : {}),
     // WHICH VERSION WENT LIVE (stage 7): the prefix the site now serves, and
     // what a reconcile compares against the pointer and `x-site-version`.
@@ -26899,7 +26993,7 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
         ...resumeHeld(claimed),
         ...resumeMedia(claimed),
         ...(rContext ? { context: rContext } : {}),
-        buildFacts: buildFacts({ images: pages && pages.images, context: rContext, unwritten: pages && pages.unwritten, salvaged: pages && pages.salvaged, compileRepaired: pages && pages.compileRepair,
+        buildFacts: buildFacts({ images: pages && pages.images, context: rContext, unwritten: pages && pages.unwritten, salvaged: pages && pages.salvaged, salvagedParts: pages && pages.salvagedParts, salvageRefund: pages && pages.salvageRefund, compileRepaired: pages && pages.compileRepair,
           // WHAT ITS PUBLISH CHECKED (2026-10-14), only for a site that went live.
           checks: buildChecks(pages),
           // The same ordinary stop the inline answer names (the eighth batch).
@@ -30135,7 +30229,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // SAVED AS THE SITE'S DRAFT, NOT PUBLISHED (2026-10-16).
         ...(pages.draft && typeof pages.draft === "object" ? { draft: pages.draft } : {}),
         buildFacts: buildFacts({
-          images: pages.images, context: contextOut, unwritten: pages.unwritten, salvaged: pages.salvaged, compileRepaired: pages.compileRepair,
+          images: pages.images, context: contextOut, unwritten: pages.unwritten, salvaged: pages.salvaged, salvagedParts: pages.salvagedParts, salvageRefund: pages.salvageRefund, compileRepaired: pages.compileRepair,
           checks: buildChecks(pages),
           // THE CUSTOMER'S ATTACHED LOGO (#168), told by the reply writer.
           ownLogo,
@@ -36360,6 +36454,19 @@ async function handleRequest(request, env, ctx) {
             // collects refused, and what they took, so a refused publish can
             // give the earlier ones back. Under a job the row is the record.
             const syncLedger = { refusals: [], taken: 0 };
+            // THE LAST CHARGE, AND EVERY WRITER'S (2026-10-24, pay only for
+            // what landed): which parts it priced, what it took and, under a
+            // job, the ledger ref it took it under — so a file a writer wrote
+            // that the publish kept as it was or stood in is given back.
+            let eLast = null;
+            const eWriterBills = [];
+            // A WRITER'S BILL AND ITS FILES (the page rung's), only when it took something.
+            const eNoteWriter = (took, writer, written) => {
+              const w = writer.filter(Boolean);
+              if (eLast && took > 0) eWriterBills.push({ took, ref: eLast.ref, writer: w, others: eLast.parts.filter((x) => !w.includes(x)), written });
+              return took;
+            };
+            const eTook = (r, seq) => { const n = Number(r.charged) || 0; if (eLast) { eLast.took = n; eLast.ref = eJob.id + "#" + seq; } return n; };
             const eCharge = async (usage, ...more) => {
               // NOTHING IS CHARGED FOR A PREPARATION: its job bills what it uses.
               if (eJob && eJob.prepare === true) return 0;
@@ -36374,8 +36481,9 @@ async function handleRequest(request, env, ctx) {
                 pickBilled = true;
                 return true;
               });
-              if (!parts.length) return 0;
+              if (!parts.length) { eLast = null; return 0; }
               billedAll.push(...parts);
+              eLast = { parts, took: 0, ref: null };
               // ── ON THE ASYNC PATH THE MONEY GOES THROUGH POSTGRES ────────
               //
               // Same amount, same `pageCredits` arithmetic, one transaction
@@ -36397,7 +36505,7 @@ async function handleRequest(request, env, ctx) {
                 // gate can tell a free rung from one whose reserve never ran.
                 // Counted only on `ok`: a refused or unanswered reserve leaves
                 // the row at `none`, and the gate must go on reading it that way.
-                if (r && r.ok === true) { if (typeof eJob.noteReserve === "function") eJob.noteReserve(); return Number(r.charged) || 0; }
+                if (r && r.ok === true) { if (typeof eJob.noteReserve === "function") eJob.noteReserve(); return eTook(r, eSeq); }
                 // RECORDED, NEVER SWALLOWED (2026-09-05). A refused reserve
                 // answers 0 here exactly as a free rung does, and the spine's
                 // gate — the one place every charge passes before the commit
@@ -36414,6 +36522,7 @@ async function handleRequest(request, env, ctx) {
               try {
                 const took = await collectCredits(eAuth, bill);
                 if (took > 0) syncLedger.taken += took; else if (bill > 0) syncLedger.refusals.push("insufficient");
+                eLast.took = took;
                 return took;
               } catch { syncLedger.refusals.push("rpc"); return 0; }
             };
@@ -41052,7 +41161,8 @@ async function handleRequest(request, env, ctx) {
                 // lesson `pageCredits` already carries. `twSpent` is null when
                 // the cheap rung never reached the provider.
                 files: pPub.files, render: pPub.render, renderNote: pPub.renderNote, checks: pPub.checks, draft: pPub.draft,
-                cost: await eCharge(eGen && eGen.usage, twSpent, twJudged, pKeep.usage, ...pPartUsage, ePick && ePick.usage), usage: eGen && eGen.usage, tweakUsage: twSpent || undefined,
+                cost: await eCharge(eGen && eGen.usage, twSpent, twJudged, pKeep.usage, ...pPartUsage, ePick && ePick.usage)
+                  .then((t) => eNoteWriter(t, [eGen && eGen.usage], [target.path, ...writtenPartKeys(pParts, ePartsAt0)])), usage: eGen && eGen.usage, tweakUsage: twSpent || undefined,
                 // THE CHEAP WRITER'S FILE DID NOT PARSE, SO THIS ONE RAN
                 // (A03-5). Omitted otherwise, so an ordinary reply is unchanged.
                 tweakFallback: twFallback || undefined,
@@ -41673,6 +41783,38 @@ async function handleRequest(request, env, ctx) {
             // never read them at all leaves both sides empty, which says the
             // same thing. Reading the store here would be a THIRD read of it
             // in one message, against the rule the snapshot exists for.
+            // ── PAY ONLY FOR WHAT LANDED (owner, 2026-10-24) ────────────────
+            // A file a writer produced that the one publish kept as it was or
+            // stood in (`finalPub.salvaged`) is given back its share of that
+            // writer's charge (`landedBill`: by count of the files it wrote).
+            // ONLY AFTER THE PUBLISH WENT OUT, so a refusal's own refund never
+            // meets this one. Under a job by the reserve's own ref
+            // (`credit_reverse`, bounded by what that row took; a founder's
+            // reserve wrote no row, took nothing, and is never recorded here);
+            // synchronously through `credit_back`, which never credits a founder.
+            let eSalvageRefund = null;
+            if (finalPub && finalPub.ok && finalPub.salvaged && eWriterBills.length) {
+              let back = 0;
+              const files = [];
+              for (const wb of eWriterBills) {
+                const bill = landedBill({ writer: wb.writer, others: wb.others, written: wb.written, salvaged: finalPub.salvaged });
+                const give = Math.min(bill.refund, wb.took);
+                if (!(give > 0)) continue;
+                if (eJob) {
+                  if (!wb.ref) continue;
+                  const r = await reverseCredits(env, ou.id, wb.ref, "salvage", give);
+                  if (r.ok && r.refunded > 0) { back += r.refunded; files.push(...bill.hit); }
+                  else if (!r.ok) console.error("edit salvage refund could not be made:", ownerSlug, wb.ref);
+                } else {
+                  // IN THE RPC'S OWN CHUNKS OF 10, every chunk counted (`refundCredits`
+                  // stops at 50); bounded by `give`, itself never above what was taken.
+                  let left = give, gave = 0;
+                  for (let i = 0; i < 1000 && left > 0; i++) { const ch = Math.min(10, left); if (await creditBack(env, ou.id, ch)) gave += ch; left -= ch; }
+                  if (gave > 0) { back += gave; syncLedger.taken = Math.max(0, syncLedger.taken - gave); files.push(...bill.hit); }
+                }
+              }
+              if (back > 0) eSalvageRefund = { credits: back, files: [...new Set(files)] };
+            }
             let picsRemoved, picsFrames, picsKept, picsTakenOff;
             if (finalPub && finalPub.ok && pendingPublish) {
               // WHAT THE PICTURE STEPS SAID THEY TOOK OFF, WITH THEIR SPACE —
@@ -41731,6 +41873,10 @@ async function handleRequest(request, env, ctx) {
               files: finalPub ? finalPub.files : (last && last.body.files),
               // A PAGE THE SEAM'S COMPILE REPAIR FIXED (2026-10-23), a fact for the reply.
               compileRepaired: finalPub && finalPub.compileRepaired ? finalPub.compileRepaired : undefined,
+              // FILES KEPT AS THEY WERE AND NEW ONES STANDING IN (2026-10-24).
+              salvaged: finalPub && finalPub.salvaged ? finalPub.salvaged : undefined,
+              // WHAT THOSE FILES WERE GIVEN BACK (2026-10-24), already off `cost`.
+              salvageRefund: eSalvageRefund || undefined,
               render: finalPub ? finalPub.render : (last && last.body.render),
               // A TRANSLATED WORDING STORED AS THE OWNER'S OWN (#196) is said beside it.
               renderNote: [...ranOk.map((d) => d.body.langNote), finalPub ? finalPub.renderNote : (last && last.body.renderNote)].filter((x) => typeof x === "string" && x).join(" ") || undefined,
@@ -41860,6 +42006,8 @@ async function handleRequest(request, env, ctx) {
               photos: picsFrames,
               photosTakenOff: picsTakenOff,
             };
+            // WHAT THE SALVAGED FILES WERE GIVEN BACK IS OFF THE STATED COST (2026-10-24).
+            if (eSalvageRefund) merged.cost = Math.max(0, merged.cost - eSalvageRefund.credits);
             // ── AND ANYTHING A RUNG REPORTS THAT THIS MERGE DOES NOT MODEL ──
             //
             // Eight rungs answer here and each has diagnostics of its own — a
@@ -46162,6 +46310,9 @@ async function handleRequest(request, env, ctx) {
             if (aPrep) return aPrepStop();
             let aCost = 0;
             if (aJob) aCost = aFirstPlaced ? aFirst + await aCharge(aBill, 4) : await aCharge(aBill);
+            // THE WRITER'S OWN RESERVE, by sequence (2026-10-24): a file it
+            // wrote that ends kept or standing in is given back by that ref.
+            const aWriterTook = aJob ? (aFirstPlaced ? aCost - aFirst : aCost) : 0;
             if (aJob && aCharges.refused() > 0) { const u = unbilledBody(aCharges); return aFail(u.body, u.status); }
 
             // THE COMPONENTS THE ADDON WROTE GO WITH THE PAGES, merged over the
@@ -47359,6 +47510,32 @@ async function handleRequest(request, env, ctx) {
             // ends up billing for a picture nobody got.
             if (!aJob) aCost = await aCharge(pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage, ...aRepairUsage, ...aLangUsage, aPhotoBill));
             else aCost += (Number(aRepairRound && aRepairRound.charged) || 0) + aLangCharged + aPhotoCharged;
+            // ── PAY ONLY FOR WHAT LANDED (owner, 2026-10-24) ────────────────
+            // A page or part the writer wrote that ended kept as it was or
+            // standing in (`aPub.salvaged`) is given back its share of the
+            // writer's spend (`landedBill`, by count), bounded by what that
+            // charge took. Under a job by the writer's own reserve ref
+            // (`credit_reverse`, bounded by that row; a founder's reserve wrote
+            // no row and took nothing); synchronously through `credit_back`,
+            // which never credits a founder, in its chunks of 10.
+            const aWritten = [...(aValid.pages || []).map((p) => p && p.path), ...aFreshParts.map((p) => p && partKey(p.name))];
+            const aSalvageBill = aPub.salvaged ? landedBill({
+              writer: [aGen && aGen.usage],
+              others: aJob ? (aFirstPlaced ? [aPick && aPick.usage] : [...aDesignUsage, aSeedUsage, aPick && aPick.usage])
+                : [...aDesignUsage, aSeedUsage, ...aRepairUsage, ...aLangUsage, aPhotoBill],
+              written: aWritten, salvaged: aPub.salvaged,
+            }) : null;
+            let aSalvageRefund = null;
+            const aGive = aSalvageBill ? Math.min(aSalvageBill.refund, aJob ? aWriterTook : aCost) : 0;
+            if (aGive > 0 && aJob) {
+              const back = await reverseCredits(env, ou.id, aJob.id + "#" + (aFirstPlaced ? 4 : 1), "salvage", aGive);
+              if (back.ok && back.refunded > 0) { aCost = Math.max(0, aCost - back.refunded); aSalvageRefund = { credits: back.refunded, files: aSalvageBill.hit }; }
+              else if (!back.ok) console.error("addon salvage refund could not be made:", ownerSlug, aJob.id);
+            } else if (aGive > 0) {
+              let left = aGive, gave = 0;
+              for (let i = 0; i < 1000 && left > 0; i++) { const ch = Math.min(10, left); if (await creditBack(env, ou.id, ch)) gave += ch; left -= ch; }
+              if (gave > 0) { aCost = Math.max(0, aCost - gave); aSalvageRefund = { credits: gave, files: aSalvageBill.hit }; }
+            }
             // THE PARSER THE MENU READER READS THE PUBLISHED PAGES WITH (2026-10-08,
             // Codex's review of 7fc7056d): null in a runtime with none, where every
             // link put in is told as not known.
@@ -47643,6 +47820,10 @@ async function handleRequest(request, env, ctx) {
               files: aPub.files, render: aPub.render,
               // A PAGE THE COMPILE REPAIR FIXED (2026-10-23), a fact for the reply.
               compileRepaired: aCompileRepair && aCompileRepair.built ? { pages: aCompileRepair.repaired.slice(), rounds: aCompileRepair.rounds } : undefined,
+              // FILES KEPT AS THEY WERE AND NEW ONES STANDING IN (2026-10-24).
+              salvaged: aPub.salvaged || undefined,
+              // WHAT THOSE FILES WERE NOT CHARGED (2026-10-24), already off `cost`.
+              salvageRefund: aSalvageRefund || undefined,
               renderNote: [aPub.renderNote, addRepairNote(aRepairRound)].filter(Boolean).join(" ") || undefined,
               checks: aPub.checks, draft: aPub.draft,
               // THE SCREEN SIZES IT WAS FOR AND WHICH MOVED (2026-10-24), for the reply.

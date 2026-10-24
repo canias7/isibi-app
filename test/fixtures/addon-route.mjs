@@ -290,7 +290,7 @@ function bucket(slug, stored, look, parts, css, partsFail, configFail, uploads, 
  * to and IS honestly empty. Those two look identical from the old code and need
  * opposite answers.
  */
-function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null, ungrounded = false, fnFail = false, tableFail = null, sqlFail = null, jobsFail = false, sql, prompts, meta, registered, patched, traces, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false, legacyRows = [], legacyFail = false, notes = "", db = null, rowFail = null, removes = null, neonFail = null, neonFailStatus = 500 }) {
+function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null, ungrounded = false, fnFail = false, tableFail = null, sqlFail = null, jobsFail = false, sql, prompts, meta, registered, patched, traces, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false, legacyRows = [], legacyFail = false, notes = "", db = null, rowFail = null, removes = null, neonFail = null, neonFailStatus = 500, writeUsage = null, backs = null }) {
   let provisioned = false;
   const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -479,6 +479,12 @@ function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null,
     }
     // A HEALTHY LEDGER, answering what it was asked for: a dead one stops the
     // route a gate short of everything under test.
+    // WHAT WAS GIVEN BACK (2026-10-24), in order: `credit_back` answers 204 as the RPC does.
+    if (url.includes("/rpc/credit_back")) {
+      let amount = 0; try { amount = Number(JSON.parse(String(init && init.body) || "{}").amount) || 0; } catch { amount = 0; }
+      if (backs) backs.push(amount);
+      return new Response(null, { status: 204 });
+    }
     if (url.includes("/rpc/use_credits")) {
       let want = 0; try { want = Number(JSON.parse(String(init && init.body) || "{}").cost) || 0; } catch { want = 0; }
       // EVERY CHARGE ASKED FOR, IN ORDER (2026-10-06): a case about money is
@@ -756,9 +762,11 @@ function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null,
         // …AND THE PAGES IT TAKES AWAY (`removes`, 2026-10-07), for a case about a removal.
         : asked === "write_pages" ? { pages: written || WRITTEN_PAGES, notes, ...(writtenParts ? { parts: writtenParts } : {}), ...(removes ? { remove: removes } : {}) }
         : designed;
+      // `writeUsage` IS WHAT THE PAGE WRITER COST (2026-10-24), when a case is about its share of the bill.
+      const wu = asked === "write_pages" && writeUsage && typeof writeUsage === "object" ? writeUsage : { input_tokens: 10, output_tokens: 5 };
       const body = anthropic
-        ? { stop_reason: "tool_use", content: [{ type: "tool_use", name: asked, input: inputObj }], usage: { input_tokens: 10, output_tokens: 5 } }
-        : { choices: [{ message: { content: "", tool_calls: [{ id: "c1", function: { name: asked, arguments: JSON.stringify(inputObj) } }] }, finish_reason: "stop" }], usage: { prompt_tokens: 10, completion_tokens: 5 } };
+        ? { stop_reason: "tool_use", content: [{ type: "tool_use", name: asked, input: inputObj }], usage: wu }
+        : { choices: [{ message: { content: "", tool_calls: [{ id: "c1", function: { name: asked, arguments: JSON.stringify(inputObj) } }] }, finish_reason: "stop" }], usage: { prompt_tokens: wu.input_tokens, completion_tokens: wu.output_tokens } };
       return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
     }
     // EVERYTHING ELSE REFUSED. A stub that answered every call would let the
@@ -780,7 +788,7 @@ function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null,
  * serve every later one.
  */
 export async function addon(slug, instruction, opts) {
-  const sql = [], prompts = [], registered = [], patched = [], neonCalls = [], traces = [], charges = [];
+  const sql = [], prompts = [], registered = [], patched = [], neonCalls = [], traces = [], charges = [], backs = [];
   // EVERY PROMPT THE IMAGE PROVIDER WAS REALLY PAID FOR. Collected here rather
   // than inside the stub so it comes back on the result — a case about buying
   // photographs is about WHICH pictures were bought, and the reply's count
@@ -795,7 +803,7 @@ export async function addon(slug, instruction, opts) {
   // apart needs a site that already has something. `stored` replaces the whole
   // schema rather than merging, so a case says exactly what the site is.
   const meta = { value: JSON.stringify((opts && opts.stored) || STORED_SCHEMA) };
-  const restore = stub({ ...opts, sql, prompts, meta, registered, patched, neonCalls, shots, traces, charges });
+  const restore = stub({ ...opts, sql, prompts, meta, registered, patched, neonCalls, shots, traces, charges, backs });
   // ── A COMPILER ONLY WHEN THE CASE NEEDS ONE ──────────────────────────────
   //
   // `getContainer` throws by default and that default is what keeps a pageless
@@ -816,7 +824,7 @@ export async function addon(slug, instruction, opts) {
   // with, its first-load `texts` included, so a case can say what the
   // published page showed.
   const c = (opts && opts.publishes)
-    ? installCompiler(opts.compileFail ? { ok: false, error: opts.compileError || "compile failed" } : opts.compileFailFirst ? { failFirst: opts.compileFailFirst, error: opts.compileError || "compile failed" } : opts.notServed ? { worker: false } : opts.render !== undefined ? { render: opts.render } : {})
+    ? installCompiler(opts.compileJudge ? { judge: opts.compileJudge } : opts.compileFail ? { ok: false, error: opts.compileError || "compile failed" } : opts.compileFailFirst ? { failFirst: opts.compileFailFirst, error: opts.compileError || "compile failed" } : opts.notServed ? { worker: false } : opts.render !== undefined ? { render: opts.render } : {})
     : null;
   try {
     const worker = await loadWorker();
@@ -861,7 +869,7 @@ export async function addon(slug, instruction, opts) {
     const res = await worker.fetch(req, env, ctx);
     await Promise.allSettled(ctx.pending);
     const body = await res.json().catch(() => null);
-    return { status: res.status, body, sql, prompts, store, registered, patched, neonCalls, traces, shots, charges, compiles: c ? c.calls : [], meta: () => { try { return JSON.parse(meta.value); } catch { return null; } } };
+    return { status: res.status, body, sql, prompts, store, registered, patched, neonCalls, traces, shots, charges, backs, compiles: c ? c.calls : [], meta: () => { try { return JSON.parse(meta.value); } catch { return null; } } };
   } finally { restore(); if (c) c.uninstall(); }
 }
 

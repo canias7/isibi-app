@@ -187,7 +187,8 @@ test("the spine prefers the parts it was handed and stores them only after the s
   assert.ok(prefer > 0, "the spine does not prefer the parts it was handed");
   // EACH ANSWER KEPT (2026-10-08, H5): the marker waits on all of them.
   const source = spine.indexOf("source: await saveSiteSource(env, slug, pages, fence)");
-  const save = spine.indexOf("if (Array.isArray(parts)) saved.parts = await saveSiteParts(env, slug, parts, fence)");
+  // RE-ANCHORED 2026-10-24: a part the compile repair fixed is saved too (`partsToSave`).
+  const save = spine.indexOf("if (Array.isArray(partsToSave)) saved.parts = await saveSiteParts(env, slug, partsToSave, fence)");
   assert.ok(source > 0 && save > source, "the parts are stored before the source, or not at all");
   // AFTER THE GATE, like every other write: a stolen lease must not store a
   // component list for a publish that never happened.

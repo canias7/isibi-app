@@ -51,8 +51,10 @@ test("the repair round picks the pages the error names, among those this change 
   const pages = [{ path: "a.tsx", source: "a" }, { path: "b.tsx", source: "b" }, { path: "index.tsx", source: "i" }];
   assert.deepEqual(pagesForError("error in src/routes/b.tsx: cannot resolve", pages, ["a.tsx", "b.tsx"]).map((p) => p.path), ["b.tsx"]);
   assert.deepEqual(pagesForError("unknown", pages, ["a.tsx", "b.tsx"]).map((p) => p.path), ["a.tsx", "b.tsx"]);
-  // A page this change did not write is never offered, even when named.
-  assert.deepEqual(pagesForError("index.tsx broke", pages, ["a.tsx"]).map((p) => p.path), ["a.tsx"]);
+  // EVERY FILE THE BUILD OWNS (2026-10-24, owner: "the repair has to be everywhere"):
+  // a page this change did not write is offered when the error names it.
+  assert.deepEqual(pagesForError("index.tsx broke", pages, ["a.tsx"]).map((p) => p.path), ["index.tsx"]);
+
   const many = Array.from({ length: 9 }, (_, i) => ({ path: "p" + i + ".tsx", source: "x" }));
   assert.equal(pagesForError("", many, many.map((p) => p.path)).length, MAX_FILES);
 });
@@ -110,7 +112,8 @@ test("a repair that still does not compile is reported as before, after at most 
   assert.equal(r.body && r.body.ok, false, JSON.stringify(r.body));
   assert.equal(r.body.error, "compile");
   // ROUND TWO IS ASKED (2026-10-23, up to two rounds) and answers the same page, which is refused as no change, so nothing more compiles.
-  assert.equal(r.compiles.length, 2, "the rounds are bounded");
+  // AND ONE SALVAGE COMPILE (2026-10-24, standin-everywhere): the new page stands in, still fails, refused.
+  assert.equal(r.compiles.length, 3, "the rounds are bounded");
   // A FAILED ADDITION COSTS NOTHING: the round that did not fix it is not charged.
   assert.deepEqual(r.charges, []);
 });

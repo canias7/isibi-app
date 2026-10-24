@@ -34,6 +34,35 @@
 - **Limits**: a site's first per-size change is refused until one ordinary edit has stored its measurement (builds don't store one yet); no automatic second try after a refusal; a page whose content changes on its own (a clock) would read as changed.
 - Tests: 20 new cases (through the real routing and edit routes with supplied answers, plus the measurement in a real Chromium), 11 of them red on main; sweep 33 of 33 killed, the comment-only control survived; full suite 12,478 with one environment-only failure. Merging rolls the site build container (`0bae00a7003bcc23` → `c296cdfafd62d5d3`), so it needs your specific go-ahead and a ~20-minute wait for builds. Paid tests proposed in the record (about 3–4 credits each). Nothing spent. Record: `docs/history/2026-10-24-device-scope.md`.
 
+## 2026-10-24 — customers pay only for what landed when a file is left out (branch `standin-refund`, not merged, not deployed)
+
+- **Why**: you said that if 20 things are asked and 1 ends up a stand-in or kept as it was, the customer should be charged only for what worked.
+- **Now**: when a change publishes with a file kept as it was or a new page or section standing in, that file's share of the writing is not charged. The share is worked out from that file's own cost when we know it (first-build sections, one writer each). Otherwise it is split evenly over the files the writer produced: 1 of 4 files gives back about a quarter of the writing.
+- **Only the writing moves.** Reading the message, the design, the repairs, the translations and the photographs are still charged as before.
+- **How the money moves**: a first build simply takes less in its one charge. An edit or add-on gives the share back after the publish has gone out, through the existing refund by reference (or `credit_back` when there is no job), never more than that charge took. A founder is never credited back.
+- The amount given back is taken off the cost the customer is told, and the reply is told it ("N credits of the writing … were taken off the bill").
+- **Left open**: on a queued edit, the job's stored cost column still shows the full reserve (the ledger itself is right). Fixing that needs a database change, which is your call.
+- Tests: 6 new cases through the real edit and add-on routes and the build's billing step. 5 of them fail on `standin-everywhere`. Sweep: 22 of 23 changes caught (the one left changes nothing that can be measured), and the comment-only control survived. Full suite `12484 / 12479 / 2 / 3`; both failures are from this environment. Nothing spent. Record: `docs/history/2026-10-24-standin-refund.md`.
+
+## 2026-10-24 — when an edit or add-on still won't compile, only the broken file is left out (branch `standin-everywhere`, not merged, not deployed)
+
+- **Why**: you asked for the stand-in "everywhere". First builds already left a broken band out and built the rest. Edits and add-ons still refused the whole change when the automatic repair failed.
+- **Now, file by file**: a file your site already had that the change broke goes back to its last good version (that one file's change is not made). A new file the change added (a new page, band or component) becomes an empty stand-in. A new page keeps your header and footer around an empty middle, so its address and links still work. Everything else in the change is published.
+- **Never broken code**: if it still won't compile after that, the change is refused as before. If nothing of the change is left, it is refused too.
+- The reply and the progress lines are told which file was kept as it was and which new part is a stand-in, so the customer knows to ask again (written by the model from those facts).
+- **Money**: leaving files out calls no model and costs nothing, and a repair that didn't fix is still free. **Open for you**: the writing itself is still charged as before, even for a file that ended up kept or standing in (no per-file refund yet).
+- Tests: 8 new cases through the real edit and add-on routes with a stub compiler; 4 fail on `repair-everywhere`. Sweep 18 of 19 caught (the one left changes nothing observable), comment-only control survived. Record: `docs/history/2026-10-24-standin-everywhere.md`.
+
+## 2026-10-24 — compile repair now reaches every file and every compile path (branch `repair-everywhere`, not merged, not deployed)
+
+- **Why**: `driftwood-and-daughters-2` fell to the placeholder at 03:19. One band (`band-1-bleed`) imported the kit's picture component the wrong way. The repair only looked at pages, so it never ran on the band, and salvage refused because the home page uses that band.
+- **Now the repair takes any file the error names that the site owns**: pages, bands, the header and footer, and components an edit wrote. It never touches kit files. A repaired band is kept where bands are stored, on first builds and on every edit, add-on, frame change and tweak.
+- **A cheap fix runs before every compile, on every path.** An import written the wrong way for what the module really exports (default or named) is corrected from the module's own export list. The live failure is fixed this way with no model call.
+- **If a band still won't compile, only that band is left out.** It becomes an empty stand-in and the rest of the site builds, even when the home page uses it. The reply says which section was left out. A broken home page still stops the build, and a band a live page already uses still leaves the live site as it is.
+- **The repair never skips silently.** Each time it doesn't run, the step says why (off, kit file only, no file of ours, out of time). Each run says whether it fixed the build or failed.
+- Charges are unchanged: the repair is charged only when it fixes the build, with up to two rounds.
+- Tests: 12 new cases, including the exact stored error through the real build. 11 of them fail on `main`; the twelfth checks a fact about the kit. Sweep: 20 of 20 changes caught, and the comment-only control survived. The audit table of every compile path is in `docs/history/2026-10-24-repair-everywhere.md`.
+
 ## 2026-10-24 — combine C: six finished branches in one candidate (branch `combine-c`, not merged, not deployed)
 
 - Brings together compile repair everywhere, the exact-edits tweak, the progress voice, the next-step hint, background work and the file picker (plus the 503 notes).

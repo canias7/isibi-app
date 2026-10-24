@@ -3007,7 +3007,7 @@ test("TALK: a note that throws never costs the build", async () => {
 // Review of r1-combine (2026-10-23): a part's users are found by either import
 // form (`@/routes/-parts/x` or `./-parts/x`) and either quote; a part the home
 // page uses refuses salvage like a failed home page; a live user keeps it.
-test("salvagePlan finds a part's users by both import forms and quotes, and refuses a part the home page uses", () => {
+test("salvagePlan finds a part's users by both import forms and quotes, and stubs a part the home page uses (2026-10-24)", () => {
   const parts = [{ name: "band-prices", source: "x" }];
   const err = "/app/src/routes/-parts/band-prices.tsx:14:7: ERROR: Expected \">\" but found \"<\"";
   const other = { path: "about.tsx", source: "export default function A() { return null; }" };
@@ -3017,8 +3017,11 @@ test("salvagePlan finds a part's users by both import forms and quotes, and refu
     assert.deepEqual(live.kept, ["menu.tsx"], imp);
     const home = { path: "index.tsx", source: imp };
     const h = salvagePlan(err, [home, other], [], parts);
-    assert.match(h.reason, /home page/, imp);
-    assert.equal(h.parts, undefined, imp);
+    // A BAD BAND NEVER TURNS THE WHOLE SITE INTO THE PLACEHOLDER (2026-10-24):
+    // the home page keeps its import and the part becomes a stand-in.
+    assert.equal(h.reason, "", imp);
+    assert.deepEqual(h.parts, ["band-prices"], imp);
+    assert.equal(h.homeParts, true, imp);
   }
   // A part only a new, non-home page uses is still stubbed.
   const fresh = salvagePlan(err, [other, { path: "menu.tsx", source: "import B from './-parts/band-prices';" }], [], parts);

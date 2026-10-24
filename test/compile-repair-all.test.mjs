@@ -199,7 +199,11 @@ test("GUARD: every publish entry point reaches a compile repair", () => {
   assert.ok(seamAt > 0 && seamEnd > seamAt, "landmarks");
   const seam = w.slice(seamAt, seamEnd);
   assert.match(seam, /const compileHook = typeof onCompileFail === "function" \? onCompileFail\s*: seamCompileRepair\(env,/);
-  assert.match(seam, /typeof compileHook === "function"/);
+  // NEVER SILENT (2026-10-24): a failure the hook is not offered says why.
+  assert.match(seam, /typeof compileHook !== "function" \? "no-hook"/);
+  assert.match(seam, /tm\("compile-repair", "skip", \{ why: skipWhy \}\)/);
+  // EVERY FILE: the parts ride with the pages and come back to `siteParts`.
+  assert.match(seam, /pages: hasParts \? withParts\(pages, siteParts\) : pages/);
   assert.match(seam, /fix = await compileHook\(\{/);
   // publishBeside hands everything back to the seam.
   assert.match(w, /return await recompileAndPublish\(env, \{ \.\.\.opts, pages: r\.files, parts \}\)/);

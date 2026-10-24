@@ -726,7 +726,8 @@ test("the editable copy: four editing readers read through the repairing reader,
   { const w0 = W.indexOf("async function loadSiteSourceForEdit(");
     const arm = W.indexOf("if (checked && prepare === true) return { ...await readSiteSource(env, slug, { strict: true })", w0);
     assert.ok(w0 > 0 && arm > w0 && arm < W.indexOf("ensureEditableState(env, slug, checked ?", w0), "the preparation's read is not the wrapper's own non-repairing arm"); }
-  assert.equal(bare.length, 13, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
+  // 14 SINCE 2026-10-24 (standin-everywhere): the seam's salvage reads the stored source to put a broken file back.
+  assert.equal(bare.length, 14, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
   assert.ok(W.includes("const pages = url.searchParams.get(\"force\") === \"1\" ? null : await loadSiteSource(env, uslug).catch(() => null);"), "the media delete's read is gone, or does more than read which pages name a file");
   assert.ok(W.includes("withinMs(loadSiteSource(env, slug), CONVERSE_READ_MS, \"converse pages:\", slug)"), "the conversation's read is gone, or does more than read the pages for a reply");
   assert.ok(W.includes("loadSiteSource(env, slug).then((pp) => pageLabels("), "the request's label read is gone, or does more than read labels");
@@ -747,7 +748,8 @@ test("the editable copy: four editing readers read through the repairing reader,
   // failed read from no pages, as the Code tab's does.
   // 5 → 6 (2026-10-23, audit A24-1): the checked wrapper's preparation arm,
   // a strict read that repairs nothing (argued for above).
-  assert.equal(bare.filter((b) => b.startsWith("readSiteSource")).length, 6,
+  // 6 → 7 (2026-10-24, standin-everywhere): the seam's salvage read.
+  assert.equal(bare.filter((b) => b.startsWith("readSiteSource")).length, 7,
     "the six reads are not the plain wrapper's, the checked wrapper's two, the Code tab's and the security scan's two: " + bare.join(" | "));
   assert.match(fnW("loadSiteSource"), /const r = await readSiteSource\(env, slug\);/,
     "the wrapper no longer delegates — there are two readers of the store, which drift");
