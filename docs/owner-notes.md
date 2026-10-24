@@ -1,5 +1,11 @@
 # Owner Notes
 
+## 2026-10-24 — read a site's failure diagnoses (branch `diagnosis-view`, not merged, not deployed)
+
+- New owner-only read: `GET /api/site/diagnoses?slug=<site>` lists that site's last 20 failed (or lost) jobs, newest first, each with its stored diagnosis from `jobs/<job id>.diagnosis.json`, or `null` when none was written.
+- Only the signed-in owner of the site can read it; anyone else gets "not found" (404), signed out gets 401. It reads only your own jobs for that site, and returns just id, kind, time, state and the diagnosis.
+- Read-only: no AI call, no charge, nothing written. 4 tests; a sweep killed 10 of 10 mutants and the comment-only control survived. Full suite 12,739: 12,734 pass, 2 fail on this machine only (they fail on main too), 3 skipped. Nothing spent. Record: `docs/history/2026-10-24-diagnosis-view.md`.
+
 ## 2026-10-24 — the builder diagnoses its own failures, record only (branch `diagnose-step`, not merged, not deployed)
 
 - When a build, edit or add-on part fails, the builder now asks the AI to diagnose it the "systematic debugging" way: read the real error, find where it broke, one cause, one fix. It must quote the evidence it used; a made-up quote is thrown out.
