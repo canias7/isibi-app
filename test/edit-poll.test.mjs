@@ -970,10 +970,11 @@ test("the resume is wired: on site selection, once per job, with the ask and the
   // THE OPEN SITE: busy again only once a watch really started, the revise as
   // the fallback on the ask the record kept, nothing while the site is busy.
   assert.match(ro, /if \(!site \|\| !site\.slug \|\| siteBusy\) return false;/, "a busy site is resumed over the edit it is running");
-  // RE-ANCHORED 2026-10-02: the revise takes a climb's hand-over (`ho`), the
-  // parts put off and why, as the live page's `go` does.
-  assert.match(ro, /const go = \(ho\) => reactSend\(site, rec \? rec\.ask : '', origin, 'revise', \[\], finish, \[\], ho\);/, "the resumed fallback is not the revise on the stored ask");
-  const started = ro.indexOf("if (!resumeEditJob(site, origin, finish, go)) return false;");
+  // ⚠ REVERSED 2026-10-24 (the owner's decision: the rewrite is never a
+  // fallback): a resumed job's climb is said, as a fresh one is — never the
+  // revise on the stored ask.
+  assert.doesNotMatch(ro, /reactSend\(/, "the resumed fallback still starts the revise");
+  const started = ro.indexOf("if (!resumeEditJob(site, origin, finish, (ho) => finish(EditPoll.climbSaid(ho)))) return false;");
   // RE-ANCHORED 2026-10-23 (#138): the busy state is the project's own (`siteBusyBegin`).
   const busy = ro.indexOf("siteBusyBegin(origin);");
   const rows = ro.indexOf("siteBuildStart(true, origin);");

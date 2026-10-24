@@ -911,7 +911,7 @@ test("F2 — an edit step that names the add-on hands the part there, with why: 
   });
 });
 
-test("F3 — a step that can only be done by the full rewrite is not started: the part waits for a go-ahead, the rest still runs, and the customer is told the measured cost", async () => {
+test("F3 — a step too big for the smaller steps is never handed to the full rewrite (owner, 2026-10-24): the part ends, said, with nothing to press; the rest still runs; nothing is rewritten or charged for it", async () => {
   // A SITE WITH MORE WORDING THAN THE TEXT STEP REWRITES ONE AT A TIME: that
   // step climbs (`too-much-text`) with no model call — the designed climb.
   const many = Array.from({ length: 610 }, (_, i) => "<p>Line " + (i + 1) + " of our story.</p>").join("");
@@ -919,25 +919,24 @@ test("F3 — a step that can only be done by the full rewrite is not started: th
   await withPlatform({ slug: slugOf("f3"), pages: BIG, replies: true, answers: { route: [{ intent: "edit", layer: "text", alsoAsked: [ADD] }, { intent: "addon" }], ...GALLERY } }, async (P) => {
     const r = await sendMessage(P, { message: "Reword every line to sound warmer, and " + ADD + "." });
     const { rec } = await settle(P, r.key);
-    // WAITING FOR THE GO-AHEAD (the owner's review, 2026-10-03): the part is
-    // not ended, so the request is not over and keeps what it holds.
-    assert.deepEqual(statuses(rec), ["approval", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-    assert.equal(rec.parts[0].why, "climb");
-    assert.equal(rec.state, "waiting");
-    assert.equal(rec.ended, false);
-    // NOTHING STARTED THE REWRITE: no build job, nothing charged for part 0.
+    // ENDED, NOT WAITING: too big for the smaller steps, and no go-ahead for
+    // the full rewrite is offered (the owner's decision, 2026-10-24).
+    assert.deepEqual(statuses(rec), ["failed", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.deepEqual([rec.parts[0].why, rec.parts[0].split, rec.parts[0].splitReason], ["too-big", "climb", "too-much-text"]);
+    assert.equal(rec.parts[0].approvalAt, undefined, "the full rewrite was offered");
+    assert.equal(rec.ended, true);
+    // NOTHING STARTED A REWRITE: no build job, nothing charged for part 0.
     assert.equal([...P.jobs.values()].some((j) => j.op === "build"), false);
     assert.deepEqual(reserveOf(P, P.jobsOf(r.key)[0].id), []);
     assert.equal(P.page("index.tsx"), BIG[0].source);
-    // THE CUSTOMER'S FACTS NAME THE GO-AHEAD AND ITS MEASURED COST, in a reply
-    // of its own, named for this go-ahead so a page shows it once.
+    // THE CUSTOMER'S FACTS: sent as smaller changes, never the rewrite, nothing to press.
     const g = await readWritten(P, REQ(P, r.key));
-    assert.equal(g.body.replyFor, "approval:0:" + (rec.parts[0].seq + 1));
-    assert.equal(g.body.request.parts[0].ask, rec.parts[0].words);
+    assert.equal(g.body.replyFor, "end");
+    assert.equal(g.body.request.parts[0].ask, undefined);
     const facts = toldIn(P, g);
-    assert.match(facts, /Waiting for their go-ahead/);
-    assert.match(facts, /only the full rewrite of every page can \(a full rewrite of the same site was measured at 17 credits\)/);
-    assert.match(facts, /go-ahead button shown under this part/);
+    assert.match(facts, /more than the quicker steps can make in one go/);
+    assert.match(facts, /send it as smaller changes, one at a time/);
+    assert.doesNotMatch(facts, /full rewrite of every page can|17 credits|go-ahead button/);
     // ASKED AGAIN, THE SAME REPLY: no second reply call, and nothing asked of the queue.
     const calls = P.replyLog.length;
     const g2 = await call(P, "GET", REQ(P, r.key));
@@ -947,14 +946,15 @@ test("F3 — a step that can only be done by the full rewrite is not started: th
   });
 });
 
-test("F4 — the hand-overs are bounded as the page bounded them: a second edit hand-over, a loop back to the add-on, or a long chain goes to the go-ahead, never round again", () => {
+test("F4 — the hand-overs are bounded as the page bounded them: a second edit hand-over, a loop back to the add-on, or a long chain ends too big for the smaller steps — never round again, and never the full rewrite (2026-10-24)", () => {
   const edit = { op: "edit", layer: "look", handedOff: false, fromAddon: false, hops: 0 };
   assert.deepEqual(handOff({ act: "hop", layer: "text" }, edit).act, "hop");
-  assert.deepEqual(handOff({ act: "hop", layer: "text" }, { ...edit, handedOff: true }), { act: "rewrite", why: "handed-off" });
-  assert.deepEqual(handOff({ act: "hop", layer: "look" }, edit), { act: "rewrite", why: "same-layer" });
+  assert.deepEqual(handOff({ act: "hop", layer: "text" }, { ...edit, handedOff: true }), { act: "split", why: "handed-off" });
+  assert.deepEqual(handOff({ act: "hop", layer: "look" }, edit), { act: "split", why: "same-layer" });
   assert.deepEqual(handOff({ act: "hop", layer: "addon" }, { ...edit, fromAddon: true }), { act: "stop" });
-  assert.deepEqual(handOff({ act: "hop", layer: "text" }, { ...edit, hops: HOPS_MAX }), { act: "rewrite", why: "hops" });
-  assert.deepEqual(handOff({ act: "climb" }, edit), { act: "rewrite", why: "climb" });
+  assert.deepEqual(handOff({ act: "hop", layer: "text" }, { ...edit, hops: HOPS_MAX }), { act: "split", why: "hops" });
+  assert.deepEqual(handOff({ act: "climb" }, edit), { act: "split", why: "climb" });
+  assert.deepEqual(handOff({ act: "climb", reason: "no-source" }, edit), { act: "retry-build" });
   const addon = { op: "addon", layer: "", hops: 0 };
   assert.deepEqual(handOff({ act: "hop", layer: "nav", page: "" }, addon), { act: "hop", op: "edit", layer: "nav", page: "", fromAddon: true, handedOff: true });
   assert.deepEqual(handOff({ act: "hop", layer: "made-up" }, addon), { act: "unknown" });
@@ -1035,11 +1035,14 @@ function oneRewrite(P, rec, id) {
   const rw = rec.parts[0].jobs.filter((j) => j.kind === "rewrite");
   assert.deepEqual(rw.map((j) => [j.id, j.end && j.end.cost]), [[id, cost]]);
 }
-// PART 0 CLIMBS TO THE REWRITE (too much wording for the text step, no model
-// call); PART 1 NEEDS IT; PART 2 IS INDEPENDENT AND RUNS WHILE PART 0 WAITS.
+// PART 0 IS ROUTED AGAIN ONCE PART 2 HAS RUN, AND ITS ROUTING ANSWERS "build"
+// — the full rewrite the router chose, the one way a part reaches the go-ahead
+// since 2026-10-24 (a climb no longer does: the owner's decision). PART 1
+// NEEDS PART 0; PART 2 IS INDEPENDENT AND RUNS FIRST.
 const WAITING_ROUTE = [
-  { intent: "edit", layer: "text", alsoAsked: [DESC, ADD], dependsOn: [{ change: 1, after: [0] }] },
+  { intent: "edit", layer: "text", alsoAsked: [DESC, ADD], dependsOn: [{ change: 1, after: [0] }, { change: 0, after: [2] }] },
   { intent: "addon" },
+  { intent: "build" },
   { intent: "edit", layer: "look" },
 ];
 const WAITING_MSG = REWORD + ", then " + DESC + ", and " + ADD + ".";
@@ -1095,7 +1098,8 @@ test("N1 — the go-ahead is kept on the request: the part waits with its files,
     assert.equal(v.body.replyFor, "end");
     const facts = toldIn(P, v);
     assert.match(facts, /by the full rewrite of every page, on their go-ahead/);
-    assert.match(facts, new RegExp("Everything done for it was charged " + cost + " credit"));
+    // THE PART'S OWN RE-ROUTING (one credit, as every routing call here) and the rewrite.
+    assert.match(facts, new RegExp("Everything done for it was charged " + (cost + 1) + " credit"));
   });
 });
 
@@ -1175,7 +1179,8 @@ test("N3 — a rewrite that fails is said so on its part: what needed it is not 
     assert.equal(-buildRows(P).reduce((n, d) => n + d, 0), cost);
     const facts = toldIn(P, await readWritten(P, REQ(P, r.key)));
     assert.match(facts, /ran, but its pages could not be written, so their site stayed exactly as it was/);
-    assert.match(facts, new RegExp("charged " + cost + " credit"));
+    // THE PART'S OWN RE-ROUTING (one credit) beside what the rewrite charged.
+    assert.match(facts, new RegExp("charged " + (cost + 1) + " credit"));
     assert.match(facts, /because it needed .* done first/);
   });
 });
@@ -2469,7 +2474,7 @@ test("L2 — a first build, and a question about the site, are never taken on as
 // does; otherwise the part is written twice and charged twice.
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("A37-1 — an approved rewrite is given the parts put off and the hand-over: the rewrite never writes the carved part, which runs once, after it, as its own part", async () => {
+test("A37-1, 2026-10-24 — a change of what kind of site it is, beside a carved part, is never handed to the full rewrite: it ends, said as needing a confirmed start-over; the carved part still runs as its own part, once", async () => {
   const slug = slugOf("a371");
   const KIND = "Turn this into a booking tool instead of a shop";
   const MSG = KIND + ", and " + ADD + ".";
@@ -2477,33 +2482,28 @@ test("A37-1 — an approved rewrite is given the parts put off and the hand-over
     route: [{ intent: "edit", layer: "look" }, { intent: "addon" }],
     [T.pick]: { fields: ["kind"], elsewhere: [ADD] },
     [T.adds]: { kinds: ["page"] }, "add:page": { page: [PAGE("/gallery", "Gallery")] },
-    design_schema: { brand: "Harbour Loaf", slug, description: "a bakery", kind: "shopfront", purpose: "visit", pages: [{ path: "/", name: "Home" }, { path: "/visit", name: "Visit" }], components: [], css: "" },
-    // THE REWRITE'S PAGE WRITER FIRST (on the press), THEN THE ADD-ON'S.
-    [T.pages]: (args, n) => (n === 0 ? { pages: [{ path: "src/routes/index.tsx", source: WARM }], notes: "Rewrote the home page." } : { pages: [writtenPage("/gallery")] }),
+    [T.pages]: { pages: [writtenPage("/gallery")] },
   };
-  await withPlatform({ slug, pages: BIG, answers }, async (P) => {
+  await withPlatform({ slug, pages: BIG, replies: true, answers }, async (P) => {
     buildable(P);
     const r = await sendMessage(P, { message: MSG });
-    let { rec } = await settle(P, r.key);
-    assert.deepEqual(statuses(rec), ["approval", "blocked"], JSON.stringify(rec.parts.map((p) => [p.status, p.why, p.words])));
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual([rec.parts[0].status, rec.parts[0].why, rec.parts[0].splitReason], ["failed", "too-big", "build"], JSON.stringify(rec.parts.map((p) => [p.status, p.why, p.words])));
+    assert.equal(rec.parts[0].approvalAt, undefined, "the full rewrite was offered");
     assert.equal(rec.parts[1].words, ADD);
     assert.equal(rec.parts[1].parent, 0);
-    // THE PRESS: the stored rewrite names the part put off and why it came.
-    assert.equal((await approve(P, r.key)).status, 200);
-    const jb = JSON.parse(JSON.parse(P.objects.get("jobs/" + builds(P)[0].id + ".json").body).body);
-    assert.deepEqual([].concat(jb.alsoAsked), [ADD], "the rewrite's job does not name the part put off");
-    assert.equal(jb.handOver && jb.handOver.reason, "build", "the rewrite's job dropped the hand-over: " + JSON.stringify(jb.handOver));
-    assert.equal(jb.handOver.from, "look");
-    ({ rec } = await settle(P, r.key));
-    // THE REWRITE'S WRITERS NEVER SAW THE PART PUT OFF.
-    const designed = P.modelLog.filter((m) => m.tool === "design_schema");
-    assert.equal(designed.length, 1);
-    assert.ok(designed[0].text.includes("booking tool"), "the rewrite's designer was not given the part it makes");
-    assert.ok(!designed[0].text.includes(ADD), "the rewrite's designer was handed the part put off");
-    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-    // ONE REWRITE, CHARGED ONCE; THE CARVED PART RAN ONCE, AS ITS OWN ADD-ON.
-    oneRewrite(P, rec, builds(P)[0].id);
+    // NO REWRITE: no build job, no design call, the home page untouched.
+    assert.deepEqual(builds(P), []);
+    assert.equal(designs(P), 0);
+    assert.equal(P.page("index.tsx"), BIG[0].source);
+    // THE CARVED PART RAN ONCE, AS ITS OWN ADD-ON.
+    assert.equal(rec.parts[1].status, "done", JSON.stringify(rec.parts[1]));
     assert.equal(rec.parts[1].jobs.filter((j) => j.kind === "run").length, 1);
+    assert.ok(P.pages().includes("gallery.tsx"));
+    // TOLD: the kind of site changes only on a confirmed start-over.
+    const v = await readWritten(P, REQ(P, r.key));
+    const facts = toldIn(P, v);
+    assert.match(facts, /only when they ask to start over and confirm it/);
   });
 });
 

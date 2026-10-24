@@ -2232,7 +2232,8 @@ test("the wire is not cut, at either end", () => {
   // AND THE MESSAGE'S FILES SINCE 2026-10-02 (`imgs`), kept beside a question the add-on asks.
   assert.match(c, /function siteAddon\(site, instruction, origin, finish, fallback, d, imgs\)/);
   // RE-ANCHORED 2026-10-02: an answered question runs its request (`run`), with its files.
-  assert.match(c, /siteAddon\(site, run, origin, finish, go, d, sendImgs\)/);
+  // RE-ANCHORED 2026-10-24: its fallback is the said climb, never the rewrite (`go`).
+  assert.match(c, /siteAddon\(site, run, origin, finish, \(ho\) => finish\(EditPoll\.climbSaid\(ho\)\), d, sendImgs\)/);
 });
 
 // ── WHICH LANES THE LIVE CHECK ACTUALLY DRIVES ──────────────────────────────

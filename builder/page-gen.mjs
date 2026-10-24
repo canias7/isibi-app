@@ -4787,7 +4787,7 @@ TOUCH AND FEEL
 - Never mention a website, "visit our site", search engines or a sitemap.
 `;
 
-export function pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode = "revise", target = "", kind = "", keep = [], ownParts = false, only = null } = {}) {
+export function pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode = "revise", target = "", kind = "", keep = [], ownParts = false, only = null, ask = false } = {}) {
   // THE ATTACHED FILES \u2014 images and PDFs \u2014 and where they sit is load-bearing
   // twice over.
   //
@@ -4820,7 +4820,10 @@ export function pagesRequest({ brief, spec, brand, attachments, model, priorPage
     max_tokens: SITE_PAGES_MAX_TOKENS,
     // THE QUESTION BACK, where the step can carry it (2026-10-02; the
     // addition's writer since 2026-10-11, the generality round).
-    tools: [mode === "page" || mode === "addon" ? SITE_PAGES_TOOL_ASK : SITE_PAGES_TOOL],
+    // AND THE BUILD'S AND THE REWRITE'S OWN WRITER WHEN ITS CALLER CAN CARRY
+    // ONE (`ask`, 2026-10-24, the parity audit): a question it asks refunds
+    // the deposit, as the designer's does.
+    tools: [mode === "page" || mode === "addon" || ask === true ? SITE_PAGES_TOOL_ASK : SITE_PAGES_TOOL],
     tool_choice: { type: "tool", name: "write_pages" },
     // WHICH RULES, DECIDED BY THE SPEC RATHER THAN BY A FLAG. `siteHasTables` is
     // the one reading of the question and every lane reaches this through it —
@@ -4869,12 +4872,12 @@ export function pagesRequest({ brief, spec, brand, attachments, model, priorPage
  * (the container has its own) is still a drop-in and nothing here has to know
  * which one it got.
  */
-export async function generateSitePages(keys, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null, call = callBuilderModel, kind = "", keep = [], { ownParts = false, only = null } = {}) {
+export async function generateSitePages(keys, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null, call = callBuilderModel, kind = "", keep = [], { ownParts = false, only = null, ask: canAsk = false } = {}) {
   // One definition, shared with the eval harness — see pagesRequest. Restating
   // it here would mean the harness tunes against a different request from the
   // one production runs. Held in a const so the usage below can be stamped with
   // the model that was actually sent.
-  const req = pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode, target, kind, keep, ownParts, only });
+  const req = pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode, target, kind, keep, ownParts, only, ask: canAsk });
   // Provider decided in ONE place — see callBuilderModel. It answers in
   // Anthropic's shape whichever one served it, so every line below this is
   // unchanged and cannot tell the difference.

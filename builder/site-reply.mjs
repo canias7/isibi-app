@@ -1869,6 +1869,12 @@ export function requestReplyFacts(v) {
         // step's reply says it, so this one does, with what it cost.
         : p.approved ? " It was made by the full rewrite of every page, on their go-ahead. Every page was written again, so parts of the site this did not mention may read differently now." + paidAll(p)
         : typeof p.answer === "string" ? " They asked a question, answered above." : ""), item);
+    } else if (p.status === "approval" && (p.retry === true || p.why === "retry-build")) {
+      // THE SITE'S FIRST BUILD NEVER FINISHED (owner, 2026-10-24): it has no
+      // pages for this to go on, so what is offered is the build tried again —
+      // never a rewrite, which has nothing to rewrite.
+      F.add("pending", "Waiting for their go-ahead: " + w + ". Their site's first build did not finish, so it has no pages yet for this to go on. " +
+        "What is offered is the build tried again, on this site, with what they asked for; it starts only if they press the button shown under this part, and lapses if it is left for a day." + paid(p), item);
     } else if (p.status === "approval") {
       // WAITING FOR THEIR GO-AHEAD (2026-10-03): nothing starts until they press
       // it, and what needs this part waits with it rather than being given up.
@@ -1895,7 +1901,9 @@ export function requestReplyFacts(v) {
         "(a full rewrite of the same site was measured at 17 credits), which changes far more than this part asked for, " +
         "so it was not started. They can start it from the button shown under this part, or leave it." + paid(p), item);
     } else if (p.status === "expired") {
-      F.add("not-done", "Not done: " + w + (p.why === "unapproved"
+      F.add("not-done", "Not done: " + w + (p.why === "unapproved" && p.retry === true
+        ? ", because the build tried again, which it needed, was not given the go-ahead within a day, so it was never started. They can ask for it again."
+        : p.why === "unapproved"
         ? ", because the full rewrite it needed was not given the go-ahead within a day, so it was never started. They can ask for it again."
         : ", because the question it asked went unanswered for a day. They can ask for it again.") + paid(p), item);
     } else if (p.status === "refused") {
@@ -1904,13 +1912,20 @@ export function requestReplyFacts(v) {
       // FAILED AFTER SOMETHING OF IT WAS SAVED, OR PART-WAY THROUGH AN APPLY (2026-10-07, `leftOf`).
       F.add("not-done", "Not done, " + LEFT_SAID[p.left] + ": " + w + (own(p) ? " — its own reply above says why and what stands." : ".") + paid(p), item);
     } else if (p.status === "failed") {
-      F.add("not-done", "Not done: " + w + (own(p) ? " — its own reply above says why."
+      // TOO BIG FOR THE SMALLER STEPS (owner, 2026-10-24): never handed to a
+      // rewrite of the whole site. Said before its step's own reply, which
+      // names only the step's hand-over, with how to get it made.
+      F.add("not-done", "Not done: " + w + (p.why === "too-big" && p.splitReason === "build" ? " — it would change what kind of site this is, which means replacing the whole site; that is done only when they ask to start over and confirm it, so nothing was changed for it." + paid(p)
+        : p.why === "too-big" && (p.splitReason === "no-look" || p.splitReason === "no-meta" || p.splitReason === "needs-pages") ? " — the quicker steps need their site's saved design, which this site does not have in full, and the whole site is never rewritten for one change, so nothing was changed for it. Rebuilding the whole site happens only when they ask to start over and confirm it." + paid(p)
+        : p.why === "too-big" ? " — it needs more than the quicker steps can make in one go, and the whole site is never rewritten for one change, so nothing was changed for it. They can send it as smaller changes, one at a time (each page or section on its own), and each is made." + paid(p)
+        : own(p) ? " — its own reply above says why."
         : p.why === "routing-failed" ? " — working out what it needed failed on our side." + paid(p)
         // ITS SAVED REQUIREMENTS COULD NOT BE READ BACK (round 14): nothing was changed for it.
         // REFUSED, NOT UNREAD (audit S1-7, 2026-10-23): the service running it was not allowed to read it.
         : p.why === "checkpoint-refused" ? " — what they asked for before its question was kept, but the service running this part was not allowed to read it back, on our side, so nothing was changed for it, and it was not run on a shorter list. They can send it again." + paid(p)
         : p.why === "checkpoint-unread" || p.why === "checkpoint-unsaved" ? " — what they asked for before its question could not be read back on our side, so nothing was changed for it, and it was not run on a shorter list. They can send it again." + paid(p)
         : p.why === "rewrite-too-long" ? " — it needed the full rewrite, which reads at most " + REWRITE_MAX_CHARS.toLocaleString("en-GB") + " characters of a request, and it is longer, so it was not offered or run. They can send it shorter, or in smaller changes." + paid(p)
+        : p.why === "rewrite-asked" ? " — the rewrite stopped before writing anything, to ask them" + (typeof p.asked === "string" && p.asked ? " " + quote(p.asked) : " something only they can decide") + ". Nothing was built, and its deposit came back. They can send the request again with their answer in it." + paid(p)
         : p.why === "rewrite-not-written" ? " — the full rewrite they gave the go-ahead for ran, but its pages could not be written, so their site stayed exactly as it was." + paid(p)
         : p.approved ? " — the full rewrite they gave the go-ahead for did not finish, on our side." + paid(p)
         : " — it stopped before it finished, on our side." + paid(p)), item);

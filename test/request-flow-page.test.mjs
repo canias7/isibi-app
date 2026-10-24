@@ -208,7 +208,10 @@ test("PAGE 5 — a part only the full rewrite can make shows its go-ahead; nothi
   await withPage({
     slug, pages: BIG, replies: true,
     answers: {
-      route: [{ intent: "edit", layer: "text", alsoAsked: [ADD] }, { intent: "addon" }], ...GALLERY,
+      // PART 0 IS ROUTED AGAIN AFTER PART 1 AND ANSWERS "build" — the full
+      // rewrite the router chose, the one way a part reaches the go-ahead since
+      // 2026-10-24 (a climb no longer does: the owner's decision).
+      route: [{ intent: "edit", layer: "text", alsoAsked: [ADD], dependsOn: [{ change: 0, after: [1] }] }, { intent: "addon" }, { intent: "build" }], ...GALLERY,
       // THE EXISTING REWRITE'S OWN TWO CALLS: its designer, then its page writer.
       design_schema: { brand: "Harbour Loaf", slug, description: "a bakery", kind: "shopfront", purpose: "visit", pages: [{ path: "/", name: "Home" }, { path: "/visit", name: "Visit" }], components: [], css: "" },
       [T.pages]: (args, n) => (n === 0 ? { pages: [writtenPage("/gallery")] } : { pages: [{ path: "src/routes/index.tsx", source: WARM }], notes: "Rewrote the home page." }),

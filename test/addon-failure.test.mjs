@@ -599,17 +599,23 @@ test("CONTROL: the valid edit → add-on handoff still posts the add-on once, in
   assert.equal(o.busy, false);
 });
 
-// Explicit reconstruction remains a browser contract. Real producer coverage below.
-test("CONTROL: an explicit reconstruction still starts the rewrite, straight back and queued", async () => {
-  const climb = { ok: false, escalate: true, reason: "no-source", cost: 0 };
-  for (const [answers, before] of [
-    [{ addon: [ok(climb)] }, ["POST " + ADD]],
-    [{ addon: [RECEIPT], poll: [stored(climb)] }, ["POST " + ADD, "GET /api/site/edit/job-a"]],
-  ]) {
-    const o = await drive({ answers: { route: [ROUTE_ADDON], ...answers } });
-    assert.deepEqual(o.trail, [...before, "POST " + REWRITE]);
-    assert.equal(o.after[o.after.length - 1].body.instruction, ASK);
-    assert.deepEqual(o.said, []);
+// ⚠ REVERSED 2026-10-24 (the owner's decision: the rewrite is never a
+// fallback). A reconstruction climb used to start the rewrite here; now it is
+// said, at no cost, and nothing is posted after it. A site with no pages is
+// told its build can be tried again; one without its saved design, that a
+// rebuild is a start-over they confirm. Real producer coverage below.
+const NO_PAGES_SAID = "Your site’s first build didn’t finish, so it has no pages yet for this to go on, and nothing was changed. Send your site’s description again and I’ll try the build once more.";
+const NO_DESIGN_SAID = "The quick steps need your site’s saved design, which this site doesn’t have in full, so I haven’t changed anything, and I won’t rewrite your whole site for one change. If you want it rebuilt, ask me to start over and I’ll check with you first.";
+test("a reconstruction climb is never the rewrite now: said, straight back and queued, and nothing posted after it", async () => {
+  for (const [reason, sentence] of [["no-source", NO_PAGES_SAID], ["no-meta", NO_DESIGN_SAID]]) {
+    const climb = { ok: false, escalate: true, reason, cost: 0 };
+    for (const [answers, before] of [
+      [{ addon: [ok(climb)] }, ["POST " + ADD]],
+      [{ addon: [RECEIPT], poll: [stored(climb)] }, ["POST " + ADD, "GET /api/site/edit/job-a"]],
+    ]) {
+      const o = await drive({ answers: { route: [ROUTE_ADDON], ...answers } });
+      assertStopped(o, before, sentence);
+    }
   }
 });
 
@@ -643,6 +649,10 @@ async function browserReply(r, expected = "stop") {
       const note = r.body.outcome && typeof r.body.coverNote === "string" && r.body.coverNote.trim() ? " " + r.body.coverNote.trim() : "";
       assertStopped(o, before, r.body.msg + note);
       assert.ok(!o.trail.some(t => t === "POST " + EDIT), "no paid handoff");
+    } else if (expected === "no-pages" || expected === "no-design") {
+      // NEVER THE REWRITE (2026-10-24): said, and nothing posted after it.
+      assert.equal(r.body.escalate, true);
+      assertStopped(o, before, expected === "no-pages" ? NO_PAGES_SAID : NO_DESIGN_SAID);
     } else if (expected === "success") {
       assert.equal(r.body.ok, true, json(r.body));
       assert.deepEqual(o.trail, before);
@@ -728,7 +738,7 @@ for (const missing of ["source", "design"]) test(`REAL reconstruction: readable 
   }});
   assert.equal(r.body.escalate, true, json(r.body));
   assert.equal(r.body.reason, missing === "source" ? "no-source" : "no-meta");
-  await browserReply(r, "rewrite");
+  await browserReply(r, missing === "source" ? "no-pages" : "no-design");
 });
 // RE-ANCHORED 2026-10-02: the photograph is designed here now and is never
 // handed off; the one hand-off left is the frame's, to the menu editor.

@@ -779,29 +779,38 @@ export function readRoute(ans) {
  *
  *   an edit naming the add-on goes there, unless the add-on handed it this
  *   part (then it stops: it would ask the add-on the question it just answered);
- *   an edit that is itself a hand-over, or that names its own layer, has only
- *   the full rewrite left; an edit naming another layer hops to it; the add-on
- *   naming an edit layer hands it there as an addition (`fromAddon`); a reply
- *   naming no layer is the full rewrite.
+ *   an edit naming another layer hops to it; the add-on naming an edit layer
+ *   hands it there as an addition (`fromAddon`).
  *
- * The full rewrite is never started here: it rewrites every page and costs far
- * more than the step asked for, so the part waits for a go-ahead.
+ * ── THE FULL REWRITE IS NEVER A FALLBACK (owner, 2026-10-24) ──────────────
+ * *"Keep [the rewrite] only for a full new site description on a site that
+ * exists, and for the customer clearly asking to start over … remove it as an
+ * automatic fallback."* A step that climbs (names no layer), a second hand-over,
+ * a hand-over to its own layer and a chain past `HOPS_MAX` used to end in the
+ * full rewrite's go-ahead (measured at 17 credits, every page written again).
+ * Now:
+ *   `split`        the change needs more than the smaller steps can make in one
+ *                  go: the part ends, said, and the customer is asked to send it
+ *                  as smaller changes. Nothing is rewritten and nothing charged.
+ *   `retry-build`  the step found the site has NO PAGES (`no-source`): its first
+ *                  build never finished (a placeholder). The offer is the build
+ *                  tried again, never a rewrite of pages that do not exist.
  */
 export function handOff(read, route) {
   const from = plain(route) ? route : {};
-  if (read.act === "climb") return { act: "rewrite", why: "climb" };
+  if (read.act === "climb") return read.reason === "no-source" ? { act: "retry-build" } : { act: "split", why: "climb" };
   if (read.act !== "hop") return { act: "unknown" };
   const named = read.layer;
-  if ((from.hops || 0) >= HOPS_MAX) return { act: "rewrite", why: "hops" };
+  if ((from.hops || 0) >= HOPS_MAX) return { act: "split", why: "hops" };
   if (from.op === "addon") {
     if (!EDIT_LAYERS.includes(named)) return { act: "unknown" };
     return { act: "hop", op: "edit", layer: named, page: read.page, fromAddon: true, handedOff: true };
   }
   if (named === "addon") return from.fromAddon === true ? { act: "stop" } : { act: "hop", op: "addon", layer: "", page: read.page, fromAddon: false, handedOff: false };
   if (!EDIT_LAYERS.includes(named)) return { act: "unknown" };
-  if (from.handedOff === true) return { act: "rewrite", why: "handed-off" };
+  if (from.handedOff === true) return { act: "split", why: "handed-off" };
   if (named !== from.layer) return { act: "hop", op: "edit", layer: named, page: read.page, fromAddon: from.fromAddon === true, handedOff: true };
-  return { act: "rewrite", why: "same-layer" };
+  return { act: "split", why: "same-layer" };
 }
 
 /** Why work moved (`EditPoll.handOver`'s `handOver`): the step it left, its reason and field, and the page; null when none is known. */
@@ -1030,6 +1039,14 @@ function settleRewrite(rec, p, job, row, now) {
     p.notDone = [{ what: "a page of the rewrite", why: String(b.error).slice(0, 60) }]; return;
   }
   if (b.cancelled === true) { p.status = "cancelled"; p.why = rec.stop || stoppedPart(rec, p.n) ? "stopped" : "cancelled"; return; }
+  // IT ASKED INSTEAD (2026-10-24, the parity audit): the rewrite's designer or
+  // page writer needed a decision only the customer can make. Nothing was
+  // built and its deposit came back; the question is kept on the part and
+  // said, so they can send the request again with the answer in it.
+  if (b.intent === "clarify" && plain(b.question) && typeof b.question.text === "string" && b.question.text.trim()) {
+    p.status = "failed"; p.why = "rewrite-asked"; p.asked = b.question.text.trim().slice(0, 300);
+    p.outcome = { job: job.id, kind: "rewrite" }; return;
+  }
   // ANSWERED, BUT NO SITE WRITTEN (the pages could not be made; a revise leaves
   // the live site as it was), or failed outright.
   p.status = "failed";
@@ -1299,7 +1316,12 @@ function settle(rec, p, job, row, now) {
     // THE HAND-OVER IS KEPT FOR THE REWRITE (2026-10-22, audit A37-1): the
     // go-ahead clears the route, so why the step climbed is kept on the part
     // and posted with the rewrite (`rewriteWire`), as the page's climb posts it.
-    if (to.act === "rewrite") { const ho = handOverOf(p.route || {}, read, (p.route && p.route.page) || ""); askApproval(p, to.why, now); p.handOver = ho; p.outcome = { job: job.id, kind: "escalate" }; return; }
+    // A SITE WITH NO PAGES (its first build never finished): the build tried
+    // again waits for their go-ahead (owner, 2026-10-24) — never a rewrite.
+    if (to.act === "retry-build") { askApproval(p, "retry-build", now); if (p.status === "approval") p.retry = true; p.outcome = { job: job.id, kind: "escalate" }; return; }
+    // TOO BIG FOR THE SMALLER STEPS: said, and left to the customer to send
+    // in smaller changes. The whole site is never rewritten for a change.
+    if (to.act === "split") { endUnfinished(p, "", "too-big", { job: job.id, kind: "escalate" }); p.split = to.why; if (typeof read.reason === "string" && read.reason) p.splitReason = read.reason.slice(0, 40); return; }
     if (to.act === "stop") { endUnfinished(p, "", "handed-back", { job: job.id, kind: "escalate" }); return; }
     endUnfinished(p, "", "unreadable"); return;
   }
@@ -2053,6 +2075,13 @@ export function answerPart(record, n, { routed, resume, context, round, now = Da
     }
   } else if (routed && routed.intent === "ask") {
     p.status = "done"; p.answer = typeof routed.answer === "string" ? routed.answer : ""; p.done = "answered a question about the site"; p.outcome = { kind: "answer" };
+  } else if (routed && routed.intent === "build" && routed.confirmed === true) {
+    // "START OVER", CONFIRMED (owner, 2026-10-24): the router asked first
+    // ("this replaces your whole site, OK?") and this answer said yes. The
+    // answer IS the go-ahead: the route records it at once
+    // (`approveRequestPart`), with no second button.
+    askApproval(p, "start-over", now);
+    if (p.status === "approval") p.confirmed = true;
   } else if (routed && routed.intent === "build") {
     askApproval(p, "rebuild", now);
   } else return null;
@@ -2471,6 +2500,13 @@ export function requestView(rec, { progress = null, said = null, runs = null, pr
       ...(p.status === "needs-rewrite" || p.status === "approval" ? { ask: p.resume || p.words } : {}),
       // THE APPROVED REWRITE'S BUILD, which no job poll reads (`/api/site/build/<id>` does).
       ...(p.approval ? { approved: { at: p.approval.at } } : {}),
+      // ITS GO-AHEAD IS THE BUILD TRIED AGAIN, not a rewrite (2026-10-24): the
+      // site's first build never finished, so it has no pages to change.
+      ...(p.retry === true ? { retry: true } : {}),
+      // WHY ITS STEP COULD NOT MAKE IT, when it ended too big (2026-10-24).
+      ...(p.why === "too-big" && typeof p.splitReason === "string" ? { splitReason: p.splitReason } : {}),
+      // WHAT ITS REWRITE ASKED, when it stopped to ask (2026-10-24).
+      ...(typeof p.asked === "string" && p.asked ? { asked: p.asked } : {}),
       // EVERY JOB IT FILED, in order — its routing, its runs, its rewrite —
       // for a reader that checks each one's row and ledger (the UI canary).
       ids: p.jobs.filter((j) => j.id).map((j) => j.id),

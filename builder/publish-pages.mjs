@@ -851,7 +851,7 @@ export function salvageNote(stubbed) {
  * mean a build that searched the web and then failed to publish took credits for
  * nothing, which is precisely the outcome this function was rewritten to stop.
  */
-export async function publishPages(deps, { spec, slug, priorUsage, livePages, priorPages, priorParts } = {}) {
+export async function publishPages(deps, { spec, slug, priorUsage, livePages, priorPages, priorParts, reviseOnly = null, pickUsage = null } = {}) {
   const out = { page: "placeholder", files: [], notes: "", problems: [], cost: 0, buildMs: 0 };
   // THE COMPONENTS THE KIT DOES NOT HAVE, filled in when the tool answer is
   // validated below and read by `compile` above it. Declared HERE, at the top of
@@ -1177,6 +1177,18 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
 
   out.genMs = Date.now() - tGen;
 
+  // ── THE WRITER ASKED INSTEAD OF WRITING (2026-10-24, the parity audit) ──
+  // Only where its caller offered the question (`ask`): nothing it proposed
+  // is read, nothing is published and nothing is charged for the pages; the
+  // route gives the deposit back and puts the question to the customer, as
+  // it does the designer's.
+  if (gen && gen.ask && !gen.ask.unusable) {
+    out.stage = "pages";
+    out.charged = false;
+    out.ask = gen.ask;
+    return out;
+  }
+
   // ── THE MODEL'S ANSWER IS KEPT BEFORE ANYTHING IS ALLOWED TO REFUSE IT ─────
   //
   // WHAT ITS ABSENCE COSTS, measured on run 90 (`coalhole-1`, 2026-08-30). The
@@ -1270,7 +1282,7 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
     // Bounded rather than ignored: the images land in `uploads/<slug>/`, which is
     // the owner's own image library and is deliberately NOT wiped by a publish,
     // so they still have every picture they paid for and a revise can use them.
-    const c = pageCredits(gen.usage, priorUsage, out.images ? { images: out.images.made } : null, ...repairUsage, ...langUsage);
+    const c = pageCredits(gen.usage, priorUsage, out.images ? { images: out.images.made } : null, ...repairUsage, ...langUsage, ...(pickUsage ? [pickUsage] : []));
     // PAY ONLY FOR WHAT LANDED (owner, 2026-10-24): a page or a band that
     // published as a stand-in is not charged its share of the writer's spend —
     // by the band's own usage when the fan-out knows it, otherwise by count.
@@ -1281,7 +1293,7 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
       if (sv.standIn.length) {
         const gi = (gen && gen.input) || {};
         const bill = landedBill({
-          writer: [gen.usage], others: [priorUsage, out.images ? { images: out.images.made } : null, ...repairUsage, ...langUsage],
+          writer: [gen.usage], others: [priorUsage, out.images ? { images: out.images.made } : null, ...repairUsage, ...langUsage, ...(pickUsage ? [pickUsage] : [])],
           written: [...(Array.isArray(gi.pages) ? gi.pages.map((p) => p && p.path) : []), ...(Array.isArray(gi.parts) ? gi.parts.map((p) => p && partKey(p.name)) : [])],
           salvaged: sv, perFile: gen && gen.fileUsage,
         });
@@ -1372,7 +1384,7 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
     // window the prompt (`priorPagesBlock`) shows `reviseSent`'s selection
     // and names the rest; one of those returned anyway was written blind, so
     // the stored page stands. Under the window nothing is withheld.
-    const unseen = new Set(reviseSent(priorPages).withheld);
+    const unseen = new Set(reviseSent(priorPages, { only: Array.isArray(reviseOnly) ? reviseOnly : null }).withheld);
     if (unseen.size) {
       const blind = v.pages.filter((p) => p && unseen.has(p.path)).map((p) => p.path);
       if (blind.length) { v.pages = v.pages.filter((p) => !(p && unseen.has(p.path))); out.unseenDropped = blind; }
@@ -1506,7 +1518,7 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
     // this build really cost rather than a guess at what a build costs. A guess
     // low here spends the pages' own budget on pictures and cannot pay for the
     // pages; a guess high refuses photographs somebody could afford.
-    const reserve = pageCredits(gen.usage, priorUsage);
+    const reserve = pageCredits(gen.usage, priorUsage, ...(pickUsage ? [pickUsage] : []));
     try {
       // THE PARTS GO TOO, AND COME BACK SWEPT. A band-split build writes each
       // section as a PART, so a photograph planned into a band lives in one of

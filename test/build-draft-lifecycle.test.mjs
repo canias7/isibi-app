@@ -65,10 +65,14 @@ function rewriteAnswers(slug, { route, gallery = false, extra = {} } = {}) {
     [T.pages]: (args, n) => (gallery && n === 0 ? { pages: [writtenPage("/gallery")] } : { pages: [{ path: "src/routes/index.tsx", source: WARM }], notes: "Rewrote the home page." }),
   };
 }
-// PART 0 CLIMBS TO THE REWRITE; PART 1 NEEDS IT; PART 2 IS INDEPENDENT.
+// PART 0 IS ROUTED AGAIN ONCE PART 2 HAS RUN AND ANSWERS "build" — the full
+// rewrite the router chose, the one way a part reaches the go-ahead since
+// 2026-10-24 (a climb no longer does: the owner's decision). PART 1 NEEDS
+// PART 0; PART 2 IS INDEPENDENT.
 const WAITING_ROUTE = [
-  { intent: "edit", layer: "text", alsoAsked: [DESC, ADD], dependsOn: [{ change: 1, after: [0] }] },
+  { intent: "edit", layer: "text", alsoAsked: [DESC, ADD], dependsOn: [{ change: 1, after: [0] }, { change: 0, after: [2] }] },
   { intent: "addon" },
+  { intent: "build" },
   { intent: "edit", layer: "look" },
 ];
 const WAITING_MSG = REWORD + ", then " + DESC + ", and " + ADD + ".";

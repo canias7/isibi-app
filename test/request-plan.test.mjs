@@ -255,7 +255,7 @@ test("next step: a job under review holds the request — nothing else is filed 
   assert.deepEqual([r.record.parts[0].status, r.record.parts[0].why], ["done", "unrecorded"]);
 });
 
-test("next step: a hand-over files the next step with the same words, marked; a climb, a second hand-over or a loop waits for the go-ahead", () => {
+test("next step: a hand-over files the next step with the same words, marked; a second hand-over is too big for the smaller steps and ends, never offered the full rewrite (owner, 2026-10-24)", () => {
   let rec = rec0({ intent: "edit", layer: "data", alsoAsked: [ADD] });
   rec = filed(step(rec), "j1");
   let r = step(rec, { [KEY + "-p0-1"]: row("done", { ok: false, escalate: true, layer: "text", reason: "no-backend" }) });
@@ -264,8 +264,10 @@ test("next step: a hand-over files the next step with the same words, marked; a 
   assert.equal(r.record.parts[0].route.handedOff, true);
   rec = filed(r, "j2");
   r = step(rec, { [KEY + "-p0-2"]: row("done", { ok: false, escalate: true, layer: "look", reason: "x" }) });
-  // WAITING FOR THE GO-AHEAD, NOT ENDED: the request is not over for it.
-  assert.deepEqual([r.record.parts[0].status, r.record.parts[0].why], ["approval", "handed-off"]);
+  // NO GO-AHEAD FOR THE FULL REWRITE (owner, 2026-10-24): too big for the
+  // smaller steps, said and ended; the request goes on for the other part.
+  assert.deepEqual([r.record.parts[0].status, r.record.parts[0].why, r.record.parts[0].split], ["failed", "too-big", "handed-off"]);
+  assert.equal(r.record.parts[0].approvalAt, undefined, "the full rewrite was offered");
   assert.equal(r.record.ended, false);
   // RE-ANCHORED 2026-10-08 (the parallel-tasks batch): the independent part's
   // routing is prepared beside the first part's job, and the part is filed
@@ -281,8 +283,35 @@ test("next step: a hand-over files the next step with the same words, marked; a 
   assert.equal(go.file && go.file.n, 1, "the independent part did not go ahead");
   // THE PAGE IS SHOWN NO HAND-OVER JOB AS A PART'S REPLY.
   assert.deepEqual(requestView(r.record).parts[0].jobs, []);
-  // THE GO-AHEAD SENDS THE PART'S OWN WORDS: the other parts run on their own.
-  assert.equal(requestView(r.record).parts[0].ask, "Change the description to say we bake overnight, and .");
+  // NOTHING TO PRESS: no go-ahead is offered for it.
+  assert.equal(requestView(r.record).parts[0].ask, undefined);
+});
+
+test("next step (owner, 2026-10-24): a climb is never the full rewrite — a site with no pages is offered its build tried again; any other climb ends too big", () => {
+  // A SITE WHOSE FIRST BUILD NEVER FINISHED: the add-on's `no-source` climb.
+  let rec = rec0({ intent: "addon" });
+  rec = filed(step(rec), "j1");
+  let r = step(rec, { [KEY + "-p0-1"]: row("done", { ok: false, escalate: true, reason: "no-source", cost: 0 }) });
+  assert.deepEqual([r.record.parts[0].status, r.record.parts[0].why, r.record.parts[0].retry], ["approval", "retry-build", true]);
+  assert.equal(requestView(r.record).parts[0].retry, true, "the page cannot tell the retry from a rewrite");
+  // AND A DAY WITHOUT A PRESS LAPSES, SAID AS THE RETRY.
+  const lapsed = step({ ...r.record }, {}, Date.now() + WAIT_MS + 1).record;
+  assert.deepEqual([lapsed.parts[0].status, lapsed.parts[0].why], ["expired", "unapproved"]);
+  const lapsedSaid = requestReplyFacts(requestView(lapsed)).facts.map((x) => x.text).join(" | ");
+  assert.match(lapsedSaid, /the build tried again, which it needed, was not given the go-ahead/);
+  // ANY OTHER CLIMB: too big for the smaller steps, ended, no go-ahead.
+  rec = rec0({ intent: "edit", layer: "text" });
+  rec = filed(step(rec), "j1");
+  r = step(rec, { [KEY + "-p0-1"]: row("done", { ok: false, escalate: true, reason: "too-much-text", cost: 0 }) });
+  assert.deepEqual([r.record.parts[0].status, r.record.parts[0].why, r.record.parts[0].split], ["failed", "too-big", "climb"]);
+  assert.equal(r.record.parts[0].approvalAt, undefined);
+  const said = requestReplyFacts(requestView(r.record)).facts.map((x) => x.text).join(" | ");
+  assert.match(said, /never rewritten for one change/);
+  assert.doesNotMatch(said, /full rewrite/);
+  // A CHAIN PAST THE BOUND AND A HAND-OVER TO ITS OWN LAYER: the same.
+  assert.deepEqual(handOff({ act: "hop", layer: "text" }, { op: "edit", layer: "look", hops: 99 }), { act: "split", why: "hops" });
+  assert.deepEqual(handOff({ act: "hop", layer: "look" }, { op: "edit", layer: "look" }), { act: "split", why: "same-layer" });
+  assert.deepEqual(handOff({ act: "climb", reason: "no-source" }, { op: "edit", layer: "look" }), { act: "retry-build" });
 });
 
 // ── AN ANSWER, A QUESTION ASKED AGAIN, A QUESTION CANCELLED ──────────────────
@@ -306,6 +335,10 @@ test("answer: the waiting part runs with the decision read with the answer, its 
   assert.equal(answerPart(rec, 1, { routed: { intent: "edit" } }), null, "a part not waiting took an answer");
   assert.equal(answerPart(rec, 0, { routed: { intent: "ask", answer: "Yes" } }).parts[0].status, "done");
   assert.equal(answerPart(rec, 0, { routed: { intent: "build" } }).parts[0].status, "approval");
+  // A YES TO THE START-OVER QUESTION (2026-10-24): the go-ahead, marked for the route to record at once.
+  const yes = answerPart(rec, 0, { routed: { intent: "build", startOver: true, confirmed: true } }).parts[0];
+  assert.deepEqual([yes.status, yes.why, yes.confirmed], ["approval", "start-over", true]);
+  assert.equal(answerPart(rec, 0, { routed: { intent: "build" } }).parts[0].confirmed, undefined, "a plain rebuild was read as confirmed");
   assert.equal(answerPart(rec, 0, { routed: { intent: "clarify" } }), null);
   // ASKED AGAIN: the part keeps waiting, on the new question.
   const q2 = { id: "e".repeat(32), text: "Which one, exactly?", options: ["A"], request: "r", stage: "route", round: 2 };

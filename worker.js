@@ -264,7 +264,7 @@ import { sweepAfterPublish, P_ORPHANS } from "./site-sweep.mjs";
 import { loadConfig, saveConfig, withConfig, readConfig, writeConfig, LEGACY_KEYS, CONFIG_KEY } from "./site-config.mjs";
 import { takeOffline, putBackOnline } from "./site-live.mjs";
 import { readLinkedPages, contextFacts, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES, MAX_ATTACHMENTS } from "./builder/site-context.mjs";
-import { routeMessage, routeDecision, routeFailure, clarifiedBrief, siteDigest, DOOR_LAYERS, heldParts, heldList, wordsLess, wordsIn, ROUTE_ERROR_CLASSES } from "./builder/site-ask.mjs";
+import { routeMessage, routeDecision, routeFailure, clarifiedBrief, START_OVER_BY, siteDigest, DOOR_LAYERS, heldParts, heldList, wordsLess, wordsIn, ROUTE_ERROR_CLASSES } from "./builder/site-ask.mjs";
 // THE HAND-OVER (2026-10-02, the whole-router audit's batch 2): what travels when
 // work moves from one step to another — the parts put off, the scope, and why.
 import { readHandOver, handOverLine, heldReport, deferredOf } from "./builder/hand-over.mjs";
@@ -5715,7 +5715,12 @@ const designAttemptsKey = (id) => "jobs/" + id + ".design.json";
  * `{ ok: false, failure, why, err }` — and always `attempts` and `usage`, the
  * usage of every call made (the first included), summed for the ledger.
  */
-export async function recoverDesign(env, { dz = null, err = null, jobId = null, budget = null, brief = "", model, files = [], frontendOnly = false } = {}) {
+export async function recoverDesign(env, { dz = null, err = null, jobId = null, budget = null, brief = "", model, files = [], frontendOnly = false, editState = null, revise = false } = {}) {
+  // A REVISE (2026-10-24, the parity audit) answers only what changes: every
+  // field it leaves out keeps the site's stored value, so a design with no
+  // name or page is a whole answer there. Only a call that failed, or one that
+  // gave no design at all, is corrected — and the corrective call is shown the
+  // same site (`editState`) the first one was.
   let list = [];
   let recorded = true;
   if (jobId && env.SITES_BUCKET) {
@@ -5736,6 +5741,7 @@ export async function recoverDesign(env, { dz = null, err = null, jobId = null, 
   let fix = null;
   for (let step = 0; step < DESIGN_REPAIR_MAX + DESIGN_RETRY_MAX + 1; step++) {
     const e = cur.err;
+    if (revise && !e && cur.dz && cur.dz.input && typeof cur.dz.input === "object" && !Array.isArray(cur.dz.input)) return { ok: true, dz: cur.dz, attempts: list, usage };
     const f = designFailure({
       answer: cur.dz, error: e,
       upstream: e ? upstreamKind(e && e.detail, e && e.status) : null,
@@ -5760,7 +5766,7 @@ export async function recoverDesign(env, { dz = null, err = null, jobId = null, 
       // ONE CALL SITE: the same designer, told what to correct when there is
       // something of its own to correct, and still told it on a retry.
       if (f.retry === "repair") fix = { note: repairNote(f, partial), ask: true };
-      const next = await designSiteSchema(env, brief, model, null, files, budget, frontendOnly, fix);
+      const next = await designSiteSchema(env, brief, model, editState, files, budget, frontendOnly, fix);
       usage = addUsage(usage, next && next.usage);
       if (fix) {
         const o = repairOutcome(next);
@@ -19516,6 +19522,28 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   // only, and only with `VISUAL_REVIEW` on. Off, the container is not asked for
   // screenshots and `publishPages` gets no `visualReview`, so nothing changes.
   const visualOn = visualReviewOn(env) && !revise;
+  // ── THE FILE PICKER FOR A BIG SITE'S REWRITE (2026-10-24, the parity audit) ──
+  // The add-on's (idea #21): on a site over the picker's threshold one quick
+  // call picks the pages the rewrite's writer is shown; a page not picked is
+  // named, never returnable, and kept as it is. A failed pick shows what fits,
+  // as before. Billed on this build's page bill (`pickUsage`). Not on a resume:
+  // the pages were already written from the first invocation's choice.
+  let reviseOnly = null;
+  let pickUsage = null;
+  if (revise && !resumeCall && Array.isArray(priorPages) && priorPages.length) {
+    try {
+      const qModel = (models && models.quick) || modelsFor(picker || undefined).quick;
+      const pick = await pickFiles({ send: quickSend(env, "file-pick", budget) },
+        { request: String(changeNote || brief || ""), pages: priorPages, parts: priorParts && Array.isArray(priorParts.parts) ? priorParts.parts : [], targets: [], model: qModel });
+      if (pick) {
+        try { mark?.("file_pick", { status: pick.mark.status, chosen: pick.mark.chosen, total: pick.mark.total }); } catch { /* a trace must never break a build */ }
+        pickUsage = pick.usage || null;
+        reviseOnly = pick.only ? pick.only.pages : null;
+      }
+    } catch (e) { console.error("revise file pick:", slug, errorClassForLog(e)); }
+  }
+  // THE WRITER MAY ASK only where its answer comes back to this invocation.
+  const canAskPages = !resumeCall && !canFire;
   const out = await publishPages({
     prefetch: ({ balance }) => {
       if (photoTask || !Array.isArray(imgBrief)) return;
@@ -19800,7 +19828,11 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
           actions: plan && Array.isArray(plan.action) ? plan.action : [],
           notBuilt: plan && Array.isArray(plan.notBuilt) ? plan.notBuilt : [],
         }) : "";
-        const singleAnswer = await generateSitePages(env, briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief, media, devices: deviceWishes }) + ownTail, spec, brand, attachments, model, priorPages, undefined, undefined, budget, call, plan && plan.kind, [], { ownParts: ownFirst });
+        // THE REWRITE'S FILE PICK (`reviseOnly`) AND ITS QUESTION BACK (2026-10-24,
+        // the parity audit). The question only where this invocation can carry
+        // it to the customer: a generation answered here, never one fired to the
+        // container or replayed by a resume (`canAskPages`).
+        const singleAnswer = await generateSitePages(env, briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief, media, devices: deviceWishes }) + ownTail, spec, brand, attachments, model, priorPages, undefined, undefined, budget, call, plan && plan.kind, [], { ownParts: ownFirst, only: reviseOnly, ask: canAskPages });
         // ── TOLD, AND NOW CHECKED (2026-10-23) ─────────────────────────────
         //
         // The directive above is an instruction; `enforceFallbackFrame` reads
@@ -20384,7 +20416,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   // THE SITE AS IT STANDS, AND ITS COMPONENTS (2026-10-02, W3): a rewrite
   // keeps every page it did not return and the components those pages import,
   // and takes a page off only when it names it in `remove`.
-  }, { spec, slug, priorUsage, livePages, priorPages, priorParts });
+  }, { spec, slug, priorUsage, livePages, priorPages, priorParts, reviseOnly, pickUsage });
   // EVERY PURCHASE THE PHOTOGRAPH TASK BEGAN HAS ENDED before the build is
   // handed on — to its resume, its reply or its refund — and each is recorded
   // as the build's logical purchase, which the resume reads.
@@ -25074,9 +25106,9 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
  * true }` when our store failed around a usable answer: the message is held
  * for sending again, under the same key, which nothing charges twice.
  */
-async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, instruction, join = false }) {
+async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, instruction, join = false, auth = "" }) {
   if (waiting && waiting.requestKey && ask && ask.answered === true) {
-    return resumeRequestPart(env, ctx, { uid, slug, key, out, waiting, ask, images: rb.images });
+    return resumeRequestPart(env, ctx, { uid, slug, key, out, waiting, ask, images: rb.images, auth });
   }
   if (out.intent !== "edit" && out.intent !== "addon") return null;
   const answered = !!(ask && ask.answered === true);
@@ -25312,7 +25344,7 @@ async function addonAsRequest(env, ctx, { uid, slug, ab }) {
  * so of two answers only one gets here; when the record cannot be moved, the
  * part still waits on its question, which is offered again (`offerRequestQuestions`).
  */
-async function resumeRequestPart(env, ctx, { uid, slug, key, out, waiting, ask, images }) {
+async function resumeRequestPart(env, ctx, { uid, slug, key, out, waiting, ask, images, auth = "" }) {
   const rkey = waiting.requestKey;
   const n = waiting.part;
   let rec = null;
@@ -25349,7 +25381,16 @@ async function resumeRequestPart(env, ctx, { uid, slug, key, out, waiting, ask, 
     await env.SITES_BUCKET.put(requestRecordKey(slug, key), JSON.stringify({ v: 1, kind: "answer", key, uid, slug, resumes: { key: rkey, part: n }, accepted, at: Date.now() }),
       { httpMetadata: { contentType: "application/json" }, onlyIf: { etagDoesNotMatch: "*" } });
   } catch (e) { console.error("request answer pointer:", slug, errorClassForLog(e)); }
-  const moved = rec ? await advanceRequest(env, ctx, slug, rkey, "answered") : gone;
+  // A YES TO THE START-OVER QUESTION IS THE GO-AHEAD (owner, 2026-10-24):
+  // recorded now, under the session that answered, through the same press a
+  // button would make (`approveRequestPart`) — the rewrite, filed once. A press
+  // that could not be recorded leaves the part waiting on its button.
+  let moved = null;
+  if (rec && rec.parts[n] && rec.parts[n].status === "approval" && rec.parts[n].confirmed === true && auth) {
+    const ap = await approveRequestPart(env, ctx, { slug, key: rkey, uid, n, auth });
+    moved = ap && ap.rec ? ap.rec : null;
+  }
+  if (!moved) moved = rec ? await advanceRequest(env, ctx, slug, rkey, "answered") : gone;
   return { ...accepted, request: requestView(moved || rec || gone) };
 }
 
@@ -25559,7 +25600,11 @@ async function rewriteJob(env, rec, n, auth) {
     // WHICH REQUEST AND PART, for the consumer's stop check and its next step.
     request: { key: rec.key, part: n },
   });
-  return JSON.stringify(packJob({ url: "https://" + APP_ZONE + "/api/site/react-revise", auth, body, uid: rec.uid, at: Date.now() }));
+  // THE BUILD TRIED AGAIN (owner, 2026-10-24): a site whose first build never
+  // finished has no pages to rewrite, so its go-ahead posts the build route —
+  // the same pipeline, told it is a retry — never the revise.
+  const url = "https://" + APP_ZONE + (p.retry === true ? "/api/site/react-build" : "/api/site/react-revise");
+  return JSON.stringify(packJob({ url, auth, body: p.retry === true ? JSON.stringify({ ...JSON.parse(body), retry: true }) : body, uid: rec.uid, at: Date.now() }));
 }
 
 /**
@@ -28116,7 +28161,10 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           // `recoverDesign`: the model corrects its own malformed or cut-off
           // answer once, a busy provider is asked once more, a decision only
           // the customer can make is asked of them, and the same build goes on
-          // when the design is repaired. A revise keeps its single path.
+          // when the design is repaired. SINCE 2026-10-24 A REVISE TOO (the
+          // parity audit): the rewrite is kept only for a full new description
+          // and a confirmed start-over, and those deserve the same correction
+          // round, the same question back and the same deposit returned.
           let dz = null;
           let dzErr = null;
           try {
@@ -28125,9 +28173,9 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
               : useWaves
               ? await designSiteWaves(env, designBrief, models.design, attached.blocks, budget, designWaves, firstBuild, designTalk)
               : await designSiteSchema(env, designBrief, models.design, editState, attached.blocks, budget, firstBuild);
-          } catch (e) { if (!firstBuild) throw e; dzErr = e; }
-          if (firstBuild) {
-            const rec = await recoverDesign(env, { dz, err: dzErr, jobId, budget, brief: designBrief, model: models.design, files: attached.blocks, frontendOnly: firstBuild });
+          } catch (e) { dzErr = e; }
+          {
+            const rec = await recoverDesign(env, { dz, err: dzErr, jobId, budget, brief: designBrief, model: models.design, files: attached.blocks, frontendOnly: firstBuild, editState: firstBuild ? null : editState, revise: !firstBuild });
             designRecovery = rec.attempts.length ? { attempts: rec.attempts.map((a) => a.kind + ":" + a.retry), outcome: rec.ok ? "repaired" : rec.question ? "question" : "exhausted", ...(rec.why ? { why: rec.why } : {}) } : null;
             designRepairUsage = rec.usage;
             try { tr.at("design-recovery", designRecovery || { attempts: 0 }); } catch { /* a trace never costs a build */ }
@@ -28160,7 +28208,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           // EVERY DESIGN CALL MADE IS THE ONE THE LEDGER SETTLES: the first
           // answer and any repair, summed — never the repaired one alone, and
           // never a completed call charged twice.
-          schemaUsage = (firstBuild && designRepairUsage) ? designRepairUsage : ((dz && dz.usage) || null);
+          schemaUsage = designRepairUsage ? designRepairUsage : ((dz && dz.usage) || null);
           // A FIRST BUILD WITH NO USABLE DESIGN STOPS HERE (2026-10-08, the
           // first-Build audit's H4), before the seed top-up, the settlement,
           // provisioning and the page writer. No tool call, unparseable
@@ -29669,6 +29717,19 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // STOPPED RIGHT BEFORE THE ACTIVATION (S3-4): nothing went live or into
       // the draft, and every debit this build made is reversed.
       if (stopSeen.stage === "publish") return stoppedAnswer("publish");
+
+      // ── THE PAGE WRITER ASKED (2026-10-24, the parity audit) ──────────────
+      // A decision that is theirs, asked in the writer's own words, through
+      // the same question round the designer's uses (`designQuestion` on the
+      // page): nothing was written or published, the pages were not charged,
+      // and the deposit goes back in full, as for the designer's question.
+      if (pages && pages.ask && typeof pages.ask.text === "string") {
+        await giveBack(debitRef("deposit"), "pages", SITE_BUILD_FEE);
+        return Response.json({
+          ok: false, stage: "pages", intent: "clarify", question: pages.ask,
+          cost: owed(), refundShort: refundShort || undefined,
+        }, { status: 200 });
+      }
 
       // ── FIRED, NOT FINISHED: STORE AND GO ──────────────────────────────
       //
@@ -34094,7 +34155,7 @@ async function handleRequest(request, env, ctx) {
           // A PART OF A LONGER REQUEST (2026-10-03) is shown that request's
           // answers, the message it came from and what the parts before it did.
           context: rWaiting ? rWaiting.context : rPart ? rPart.context : [],
-          pending: rWaiting ? { request: rWaiting.request, question: rWaiting.question, chosen: rWaiting.chosen } : null,
+          pending: rWaiting ? { request: rWaiting.request, question: rWaiting.question, chosen: rWaiting.chosen, by: rWaiting.by } : null,
           part: rPart ? { original: rPart.original, done: rPart.done, others: rPart.others } : null,
         },
       );
@@ -34285,6 +34346,9 @@ async function handleRequest(request, env, ctx) {
             attached: rb.attached === true || !!(resumed && rWaiting.attached === true),
             context: resumed ? rContext : rPart ? rPart.context : [],
             note: rNote,
+            // THE START-OVER QUESTION (owner, 2026-10-24): kept as asked by it,
+            // so only a yes to this question is read as the rewrite's go-ahead.
+            ...(routed.confirm === "rewrite" ? { by: START_OVER_BY } : {}),
             ...rFor,
           });
           let owner;
@@ -34316,7 +34380,7 @@ async function handleRequest(request, env, ctx) {
             catch (e) { console.error("question store:", rSlug, errorClassForLog(e)); }
             if (!kept) return rStoreFailed(routed.decision);
           }
-          rQuestion = { id: rec.id, text: rec.question.text, options: rec.question.options, ...(rec.note ? { note: rec.note } : {}) };
+          rQuestion = { id: rec.id, text: rec.question.text, options: rec.question.options, ...(rec.note ? { note: rec.note } : {}), ...(rec.by ? { by: rec.by } : {}) };
           rInstruction = undefined;
         }
       }
@@ -34409,6 +34473,10 @@ async function handleRequest(request, env, ctx) {
         intent: routed.intent,
         answer: rAnswer,
         importFrom: rImport,
+        // "START OVER", ASKED AND ANSWERED YES (2026-10-24): the only way that
+        // request reaches the rewrite. A full new description carries neither.
+        startOver: routed.intent === "build" && routed.startOver === true ? true : undefined,
+        confirmed: routed.intent === "build" && routed.confirmed === true ? true : undefined,
         // WHICH CALL WROTE THE REPLY (2026-10-14): the conversation's own, or —
         // when it could not answer — the router's gist, said so.
         replyFrom: routed.intent === "ask" && rConverse ? (rConverse.ok ? "conversation" : "router") : undefined,
@@ -34583,7 +34651,7 @@ async function handleRequest(request, env, ctx) {
         }
         let accepted = null;
         try {
-          accepted = await acceptRequest(env, ctx, { uid: ru.id, rb, slug: rKeySlug, key: rKey, out: rOut, ask: rAsk, waiting: rWaiting, instruction: rInstruction !== undefined ? rInstruction : rOut.resolved, join: true });
+          accepted = await acceptRequest(env, ctx, { uid: ru.id, rb, slug: rKeySlug, key: rKey, out: rOut, ask: rAsk, waiting: rWaiting, instruction: rInstruction !== undefined ? rInstruction : rOut.resolved, join: true, auth: request.headers.get("Authorization") || "" });
         } catch (e) { console.error("request accept:", rKeySlug, errorClassForLog(e)); accepted = { failed: true }; }
         // OUR STORE FAILED AROUND A USABLE ANSWER: the routing call's own
         // failure shape, so the page holds the message, key and all, for
