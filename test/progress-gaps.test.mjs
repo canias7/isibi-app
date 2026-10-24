@@ -316,8 +316,9 @@ test("OUTCOME 4 — THE CONTROLS: a job that did everything is Finished with the
   });
   await withPlatform({
     slug: slugOf("oc4f"), replies: true, progress: true,
-    // NO PAGE WRITER'S ANSWER: the add-on fails.
-    answers: { [T.adds]: { kinds: ["page"] }, "add:page": { page: [PAGE("/gallery", "Gallery")] } },
+    // NO PAGE WRITER'S ANSWER: the add-on fails. RE-ANCHORED 2026-10-24 (combine-d):
+    // a refused call (400), since a missing stub's 503 is now a provider wait (provider-retry).
+    answers: { [T.adds]: { kinds: ["page"] }, "add:page": { page: [PAGE("/gallery", "Gallery")] }, [T.pages]: new Response("bad request", { status: 400 }) },
   }, async (P) => {
     const failed = await filePage(P, { intent: "addon" }, "add a gallery page", "8".repeat(32));
     await pump(P);

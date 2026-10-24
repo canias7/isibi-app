@@ -335,7 +335,14 @@ export function mergeAddonPages(prior, returned, remove, asked) {
   // revise the lane exists to undercut. Found by a mutant, not by reading.
   const wants = (Array.isArray(remove) ? remove : []).some((r) => typeof r === "string" && r);
   if (!got.length && !wants) return { ok: false, reason: "nothing-returned" };
-  if (got.length > MAX_RETURNED) return { ok: false, reason: "too-many", count: got.length };
+  // NO ADD-ON LIMITS (owner, 2026-10-24; combined in combine-d): the pages the
+  // designers were ASKED to add do not count against the rewrite guard, so an
+  // addition of nine asked pages (addon-uncapped, with page-gen's `MAX_PAGES`
+  // lifted by first-build-uncapped) is not refused as `too-many`. What the
+  // guard still refuses is a set larger than the asked pages plus the few a
+  // new page touches (`MAX_RETURNED`): a rewrite wearing an addition.
+  const askedCount = Array.isArray(asked) ? asked.filter((a) => typeof a === "string" && a).length : 0;
+  if (got.length > MAX_RETURNED + askedCount) return { ok: false, reason: "too-many", count: got.length };
 
   const had = new Set(base.map((p) => p.path));
   const byPath = new Map(base.map((p) => [p.path, { path: p.path, source: p.source }]));

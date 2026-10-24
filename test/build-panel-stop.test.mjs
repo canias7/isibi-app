@@ -91,7 +91,8 @@ test("PANEL — a running first build is a row: its title is the model's first l
   p.ctx.siteBuildJobBegin(CHAT_ID, JOB, BRIEF);
   assert.equal(site.buildJob.job, JOB);
   assert.equal(site.buildJob.state, "run");
-  assert.match(text(p.html()), /1 thing in progress/, "the pill does not count the build");
+  // RE-ANCHORED 2026-10-24 (combine-d): task-label renamed the pill's "things" to "tasks".
+  assert.match(text(p.html()), /1 task in progress/, "the pill does not count the build");
   p.press({ "data-bg": "open" });
   // ITS TITLE IS A FIXED LABEL UNTIL THE MODEL WRITES, then the model's own first line.
   assert.match(text(p.html()), /Building your site/);

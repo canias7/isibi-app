@@ -578,7 +578,8 @@ test("the build consumer waits or gives the deposit back; the collector goes on 
   const reverse = build.indexOf('await reverseCredits(env, job.uid, "build:" + id + ":deposit", row.gated ? "gated" : "busy", SITE_BUILD_FEE);');
   const back = build.indexOf("await env.SITES_BUCKET.put(jobKey(id), raw);");
   const resend = build.indexOf("await env.BUILD_QUEUE.send({ kind: JOB_KIND, id }, { delaySeconds: queueDelay(SITE_BUSY_DEFER_S) });");
-  const run = build.indexOf("const res = await runSiteBuild(replayRequest(job), env,");
+  // RE-ANCHORED 2026-10-24 (combine-d): the run takes `bEnv` (provider-retry's env for the build), not `env`.
+  const run = build.indexOf("const res = await runSiteBuild(replayRequest(job), bEnv,");
   assert.ok(read > 0 && del > read && rowAt > del && busy > rowAt && reverse > busy && back > reverse && resend > back && run > resend,
     "the build consumer's order is not: read and keep the raw object, delete, claim, on busy give back or put back and re-send, then run");
   assert.match(build, /if \(row\.gaveUp\) \{/);

@@ -81,7 +81,8 @@ async function driveBuild({ design = GOOD_DESIGN, layout = LAYOUT } = {}) {
         seen.writers.push(JSON.stringify(b.messages || []));
         return json({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "w1", name: "write_pages", input: { pages: [{ path: "index.tsx", source: FIRST_PAGE }], notes: "" } }], usage: { input_tokens: 10, output_tokens: 10 } });
       }
-      return new Response("stop here", { status: 503 });
+      // RE-ANCHORED 2026-10-24 (combine-d): 400, not 503 — a 503 is a provider wait since provider-retry, which parks the build.
+      return new Response("stop here", { status: 400 });
     }
     if (isDispatchUpload(url)) return dispatchOk();
     if (url.includes("/rest/v1/")) return json([]);
@@ -221,7 +222,8 @@ test("an addition the router scoped keeps its devices end to end: router, reques
   assert.match(CHAT.slice(i, i + 4000), /devices: d && Array\.isArray\(d\.devices\) && d\.devices\.length \? d\.devices : undefined,/);
   // The route reads it, tells the writer, and guards the publish.
   assert.match(W, /const aDevices = readDevices\(ab && ab\.devices\);\n\s*const aDeviceNote = deviceNote\(aDevices\);/);
-  assert.match(W, /brief: aInstruction \+ \(aFold\.directive \? "\\n\\n" \+ aFold\.directive : ""\) \+ \(aDeviceNote \? "\\n\\n" \+ aDeviceNote : ""\),/);
+  // RE-ANCHORED 2026-10-24 (combine-d): each parallel page writer's own directive (`aDirective`, addon-uncapped).
+  assert.match(W, /brief: aInstruction \+ \(aDirective \? "\\n\\n" \+ aDirective : ""\) \+ \(aDeviceNote \? "\\n\\n" \+ aDeviceNote : ""\),/);
   const p = W.indexOf("const aPub = await recompileAndPublish(env, {");
   assert.ok(p > 0);
   assert.match(W.slice(p, p + 1800), /devices: aDevices,/, "the addition's publish is not guarded");

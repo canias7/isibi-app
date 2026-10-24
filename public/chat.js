@@ -16208,10 +16208,11 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
     if (r.status === 202 && d && (d.stage === 'resuming' || d.stage === 'accepted') && d.job) {
       if (Object.prototype.hasOwnProperty.call(d, 'deferred')) firedHeld = d.deferred;
       // A FIRST BUILD IS A ROW IN THE PANEL WHILE IT RUNS (2026-10-24).
-      if (mode === 'build' && typeof siteBuildJobBegin === 'function') siteBuildJobBegin(origin, d.job, t);
+      // AND A REWRITE (`revise`, rebuild-scope's start-over), combined 2026-10-24 (combine-d): the same row and Stop.
+      if ((mode === 'build' || mode === 'revise') && typeof siteBuildJobBegin === 'function') siteBuildJobBegin(origin, d.job, t);
       const done = await followBuildJob(d.job, siteAbort ? siteAbort.signal : undefined, origin);
       if (done) { r = done.r; d = done.d; }
-      if (done && mode === 'build' && typeof siteBuildJobEnd === 'function') siteBuildJobEnd(origin, r.ok && d && d.error !== true && !!d.slug, d);
+      if (done && (mode === 'build' || mode === 'revise') && typeof siteBuildJobEnd === 'function') siteBuildJobEnd(origin, r.ok && d && d.error !== true && !!d.slug, d);
       // STILL RUNNING WHEN WE STOPPED WATCHING. Not a failure and not a build:
       // the site has a real page at its real address and the pages are still
       // being written. The recording below still runs — the slug is CLAIMED, so

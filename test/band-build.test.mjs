@@ -260,7 +260,8 @@ test("the fan-out and the single call share one caller, one budget and one senti
   // THE SAME COMPOSED BRIEF. A band that got a different brief would be written
   // for a different site's layout, images and bindings.
   // (2026-10-14: and the owner's video and audio, `media`.)
-  const composed = (blk.match(/briefWithLayout\(\{ brief, plan, tsx, gif, qr, three, images: imgBrief, media \}\)/g) || []).length;
+  // (2026-10-24, combine-d: and the screen-size wishes, `devices`, from device-scope-build.)
+  const composed = (blk.match(/briefWithLayout\(\{ brief, plan, tsx, gif, qr, three, images: imgBrief, media, devices: deviceWishes \}\)/g) || []).length;
   assert.equal(composed, 1, "the fan-out no longer gets the one composer's brief");
   assert.ok(/brief: briefWithLayout\(/.test(blk), "the fan-out's brief is not the composed one");
 });

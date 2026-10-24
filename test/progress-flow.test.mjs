@@ -233,7 +233,9 @@ test("RACE 4 — A JOB WHOSE LEASE RAN OUT (its runner gone) is narrated no more
   const g2 = gate();
   const w = gate();
   const failing = { ...heldAddon(g2) };
-  delete failing[T.pages];
+  // RE-ANCHORED 2026-10-24 (combine-d): a missing stub answers 503, which provider-retry
+  // parks as a provider wait; the failure this case is about is a refused call (400).
+  failing[T.pages] = new Response("bad request", { status: 400 });
   await withPlatform({ slug: slugOf("race4b"), replies: true, progress: true, answers: failing, progressWith: async () => { w.reach(); await w.opened; } }, async (P) => {
     const { job, running } = await startHeld(P, g2);
     const writer = deliver(P, takeTask(P));
