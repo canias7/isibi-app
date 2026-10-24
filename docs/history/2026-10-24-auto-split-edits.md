@@ -144,3 +144,6 @@ part of a request could still ask the customer after an earlier part's job was c
     cases are left unreachable after an early `return`, kept for the record.
 - **Full suite on the final tree** (this branch with `no-ask-after-charge` merged and the carry):
   `12651 / 12647 / 1 / 3`; the one failure is the environment's `no-generated-deps` symlink case.
+- **Image prediction** (`containerInputs` / `imageId`, both ends): site build container
+  `2d440bd194450245` (origin/main) → `8b14c6d3e9626679` (this branch), 235 inputs, 202 paths — it
+  rebuilds (builder modules changed). App build container unchanged, `65022ce71e3d7274`.
