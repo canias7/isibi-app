@@ -3273,3 +3273,7 @@ lacked fonts, decor and backdrops. Any change needs the owner's decision.
 ## Failure diagnosis step for the builder (owner, 2026-10-24: "give it a try … for the next round")
 
 When a model-driven step fails, a diagnose step gathers the evidence (request, step, model answer, failed check, error, job record), a model writes a short cause plus the best recovery, and the diagnosis is saved for every failure. Phase 1: diagnose and record only (shadow mode), compare with real outcomes for 1–2 weeks. Phase 2: act on it, but only from a fixed menu of safe moves (retry with a better instruction, re-route, split, ask before charging, stand-in), with the usual code checks and pay-only-for-what-worked charging. Cost: one extra call on failure only, not charged to the customer when the task still fails.
+
+## "XHigh" effort option in the picker (owner, 2026-10-24: "yes put it on … that will go in the next update with the skill")
+
+Grok 4.7 accepts reasoning_effort low/medium/high/xhigh (docs.x.ai). Add "XHigh" to the Effort picker (public/chat.js) and pass it through to the xAI request (builder/model-xai.mjs); decide the Claude equivalent. Ships with the failure-diagnosis step in the next round.
