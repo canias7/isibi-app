@@ -111,4 +111,4 @@ cited page is now offered), `build-repair` (repair off now records
 
 **Full suite** (`node --test "test/*.test.mjs"`, world-readable worktree, `node_modules` linked then removed): `12470 / 12462 / 5 / 3` (tests / pass / fail / skipped). Two of the five were placement guards anchored to the old spelling (`test/edit-parts.test.mjs` hop on `saveSiteParts(…, parts, …)`, `test/site-tsx.test.mjs` hop 9 on `const siteParts`), re-anchored to the same property and green (42 / 42 with the build-budget files). The other three are the known environment-only cases: `no-generated-deps` (the linked `node_modules` symlink), `media-verify` (browser mode) and `canary-reopen-browser` (a real browser under load).
 
-IMAGE_LINE
+**Image prediction** (`.github/scripts/container-images.mjs`, `containerInputs` + `imageId` over git objects): site image `0bae00a7003bcc23` (main `692087cde`) → `d4825d2bd61fa606` (head, code commit `aaff77a0e`), 231 inputs on both ends, so it is rebuilt and rolled on merge (wait 15–20 minutes before container work). App image `65022ce71e3d7274` on both, reused. No new builder module, so no Dockerfile change.
