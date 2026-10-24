@@ -63,7 +63,9 @@
 export const BUILD_MODELS = {
   sonnet: { design: "claude-sonnet-5", pages: "claude-sonnet-5", quick: "claude-sonnet-5" },
   opus: { design: "claude-opus-5", pages: "claude-opus-5", quick: "claude-opus-5" },
-  grok: { design: "grok-4.6", pages: "grok-4.6", quick: "grok-4.6" },
+  // 2026-10-24 (owner): grok-4.6 -> grok-4.7. docs.x.ai lists grok-4.7 with the same
+  // prices, 500,000-token prompt, function calling, structured outputs and efforts.
+  grok: { design: "grok-4.7", pages: "grok-4.7", quick: "grok-4.7" },
 };
 
 // What a request that says nothing gets — and what the composer defaults to, so
@@ -175,7 +177,9 @@ export function modelsFor(picker) {
 // something ever does, note that JSON turns Infinity into null and that is
 // precisely the collapse this avoids.
 export const MODEL_LIMITS = {
-  "grok-4.6": { context: 500_000, maxOutput: Infinity },
+  // 2026-10-24 (owner): grok-4.6 -> grok-4.7 (docs.x.ai: 500,000, no stated output
+  // limit). No 4.6 row: a row no picker reaches is refused (model-limits test).
+  "grok-4.7": { context: 500_000, maxOutput: Infinity },
   "claude-sonnet-5": { context: 1_000_000, maxOutput: 128_000 },
   "claude-opus-5": { context: 1_000_000, maxOutput: 128_000 },
 };

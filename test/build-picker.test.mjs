@@ -129,7 +129,8 @@ test("DRIVEN: the same function opens the menu upward or downward, and defaults 
     assert.match(f(junk), /drop-up/, "a value that is not exactly 'down' opened the menu downward");
   }
   // The label really is the current pick, on both screens.
-  assert.match(make("grok")("down"), /Builder: <b id="stBuildLabel">Grok 4\.6<\/b>/);
+  // 2026-10-24: the grok picker is grok-4.7 (owner), was 4.6.
+  assert.match(make("grok")("down"), /Builder: <b id="stBuildLabel">Grok 4\.7<\/b>/);
   assert.match(make("opus")(), /Builder: <b id="stBuildLabel">Opus 5<\/b>/);
 });
 

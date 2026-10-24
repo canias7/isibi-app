@@ -54,15 +54,15 @@ test("after a compaction the call carries the summary and only the messages afte
   const msgs = many(100, 300);
   const plan = planWindow({ msgs, window: 10_000, fixedChars: 0 });
   let sent = null;
-  const c = await compact({ send: async (req) => { sent = req; return { content: [{ type: "text", text: "SUMMARY" }], usage: { input_tokens: 9, output_tokens: 3 } }; } }, { plan, model: "grok-4.6" });
+  const c = await compact({ send: async (req) => { sent = req; return { content: [{ type: "text", text: "SUMMARY" }], usage: { input_tokens: 9, output_tokens: 3 } }; } }, { plan, model: "grok-4.7" });
   assert.equal(c.ok, true);
   assert.ok(sent.messages[0].content.includes(msgs[0].t), "the oldest message is summarized");
   const after = planWindow({ msgs, summary: c.summary, window: 10_000 });
   assert.equal(after.summary.text, "SUMMARY");
   assert.equal(after.turns[0].index, c.summary.upTo);
   assert.ok(after.used < plan.used);
-  assert.deepEqual(c.usage, { in: 9, out: 3, cacheRead: 0, cacheWrite: 0, model: "grok-4.6" }, "every token of it is billed");
-  const req = converseRequest({ message: "next", history: { turns: after.turns, left: 0 }, summary: after.summary, model: "grok-4.6" });
+  assert.deepEqual(c.usage, { in: 9, out: 3, cacheRead: 0, cacheWrite: 0, model: "grok-4.7" }, "every token of it is billed");
+  const req = converseRequest({ message: "next", history: { turns: after.turns, left: 0 }, summary: after.summary, model: "grok-4.7" });
   assert.match(req.messages[0].content.map((b) => b.text).join("\n"), /EARLIER IN THIS CONVERSATION[\s\S]*SUMMARY[\s\S]*THE CONVERSATION SO FAR/);
 });
 
@@ -98,28 +98,29 @@ function bucket() {
   };
 }
 
+// 2026-10-24: grok-4.7 in this file (the picker's model; the limits table has no 4.6 row now).
 test("SERVER: the window is read from the kept chat, compacted past 75%, and the summary is kept", async () => {
   const env = { SITES_BUCKET: bucket() };
   const msgs = many(4000, 300); // ~1.2M characters: over 75% of Grok's 500K tokens
   env.SITES_BUCKET.m.set("chat/u1/site_abcd.json", { body: JSON.stringify({ v: 1, rev: 3, msgs }), etag: "e0" });
   let calls = 0;
   const send = async () => { calls++; return { content: [{ type: "text", text: "THE SUMMARY" }], usage: { input_tokens: 100, output_tokens: 10 } }; };
-  const w = await api.chatWindowFor(env, "u1", "site_abcd", { model: "grok-4.6", fixedChars: 20000, send });
+  const w = await api.chatWindowFor(env, "u1", "site_abcd", { model: "grok-4.7", fixedChars: 20000, send });
   assert.equal(calls, 1); assert.equal(w.compacted, true);
   assert.equal(w.summary.text, "THE SUMMARY");
   assert.ok(w.plan.used < COMPACT_AT);
   const kept = JSON.parse(env.SITES_BUCKET.m.get("chat/u1/site_abcd.json").body);
   assert.equal(kept.summary.text, "THE SUMMARY"); assert.equal(kept.rev, 3, "the page's revision is untouched");
-  const again = await api.chatWindowFor(env, "u1", "site_abcd", { model: "grok-4.6", fixedChars: 20000, send });
+  const again = await api.chatWindowFor(env, "u1", "site_abcd", { model: "grok-4.7", fixedChars: 20000, send });
   assert.equal(calls, 1, "the next message reads the kept summary and does not compact again");
   assert.equal(again.summary.text, "THE SUMMARY");
-  assert.equal(await api.chatWindowFor(env, "u2", "site_abcd", { model: "grok-4.6", send }), null, "another account's chat is never read");
+  assert.equal(await api.chatWindowFor(env, "u2", "site_abcd", { model: "grok-4.7", send }), null, "another account's chat is never read");
 });
 
 test("SERVER: under the line nothing is compacted and nothing is charged", async () => {
   const env = { SITES_BUCKET: bucket() };
   env.SITES_BUCKET.m.set("chat/u1/site_abcd.json", { body: JSON.stringify({ v: 1, rev: 1, msgs: many(50, 100) }), etag: "e0" });
-  const w = await api.chatWindowFor(env, "u1", "site_abcd", { model: "grok-4.6", send: async () => { throw new Error("must not be called"); } });
+  const w = await api.chatWindowFor(env, "u1", "site_abcd", { model: "grok-4.7", send: async () => { throw new Error("must not be called"); } });
   assert.equal(w.compacted, false); assert.equal(w.usage, null); assert.equal(w.history.turns.length, 50);
 });
 
@@ -185,7 +186,7 @@ test("CACHE: without a conversation the message stays one string, as before", ()
 
 test("CACHE: Grok gets the chat's own cache key; Anthropic never sees our field", () => {
   const h = { turns: [{ role: "user", text: "one" }], left: 0 };
-  const req = converseRequest({ message: "now", history: h, model: "grok-4.6", cacheKey: "chat-site_abcd" });
+  const req = converseRequest({ message: "now", history: h, model: "grok-4.7", cacheKey: "chat-site_abcd" });
   assert.equal(toXaiRequest(req).body.prompt_cache_key, "gofarther-chat-site_abcd");
   assert.equal(Object.hasOwn(anthropicWire(req), "cacheKey"), false);
   assert.ok(anthropicWire(req).messages[0].content.some((b) => b.cache_control), "the cache marks still go to Anthropic");
@@ -220,13 +221,13 @@ test("EVERY ANTHROPIC CALL: unmarked instructions are marked, a call's own marks
 });
 
 test("EVERY GROK CALL: one without a tool or a key is keyed on its own instructions", () => {
-  const a = toXaiRequest({ model: "grok-4.6", system: [{ type: "text", text: "TALK RULES" }], messages: [{ role: "user", content: "x" }] }).body;
-  const b = toXaiRequest({ model: "grok-4.6", system: [{ type: "text", text: "TALK RULES" }], messages: [{ role: "user", content: "y" }] }).body;
-  const c = toXaiRequest({ model: "grok-4.6", system: [{ type: "text", text: "OTHER RULES" }], messages: [{ role: "user", content: "x" }] }).body;
+  const a = toXaiRequest({ model: "grok-4.7", system: [{ type: "text", text: "TALK RULES" }], messages: [{ role: "user", content: "x" }] }).body;
+  const b = toXaiRequest({ model: "grok-4.7", system: [{ type: "text", text: "TALK RULES" }], messages: [{ role: "user", content: "y" }] }).body;
+  const c = toXaiRequest({ model: "grok-4.7", system: [{ type: "text", text: "OTHER RULES" }], messages: [{ role: "user", content: "x" }] }).body;
   assert.equal(a.prompt_cache_key, "gofarther-p" + promptKey("TALK RULES"));
   assert.equal(a.prompt_cache_key, b.prompt_cache_key, "the same call site keeps one key");
   assert.notEqual(a.prompt_cache_key, c.prompt_cache_key);
-  assert.equal(toXaiRequest({ model: "grok-4.6", messages: [{ role: "user", content: "x" }] }).body.prompt_cache_key, undefined);
+  assert.equal(toXaiRequest({ model: "grok-4.7", messages: [{ role: "user", content: "x" }] }).body.prompt_cache_key, undefined);
 });
 
 test("WIRING: the web research call goes through the same door", () => {
@@ -281,7 +282,7 @@ test("SERVER: a test window makes a short chat compact", async () => {
   const env = { SITES_BUCKET: bucket() };
   env.SITES_BUCKET.m.set("chat/u1/site_abcd.json", { body: JSON.stringify({ v: 1, rev: 1, msgs: many(80, 600) }), etag: "e0" });
   let calls = 0;
-  const w = await api.chatWindowFor(env, "u1", "site_abcd", { model: "grok-4.6", fixedChars: 22000, window: 15000, send: async () => { calls++; return { content: [{ type: "text", text: "SUM" }], usage: {} }; } });
+  const w = await api.chatWindowFor(env, "u1", "site_abcd", { model: "grok-4.7", fixedChars: 22000, window: 15000, send: async () => { calls++; return { content: [{ type: "text", text: "SUM" }], usage: {} }; } });
   assert.equal(calls, 1); assert.equal(w.compacted, true); assert.ok(w.plan.used < COMPACT_AT);
 });
 
@@ -316,10 +317,10 @@ test("GROK'S CACHE KEY GOES AS THE x-grok-conv-id HEADER, the documented route o
 
 test("GROK GETS THE REPLY AS ONE STRING: the blocks joined, the words unchanged; pictures still go as parts", () => {
   const h = { turns: [{ role: "user", text: "one" }, { role: "assistant", text: "two" }], left: 0 };
-  const req = converseRequest({ message: "now", history: h, model: "grok-4.6" });
+  const req = converseRequest({ message: "now", history: h, model: "grok-4.7" });
   const x = toXaiRequest(req).body.messages.find((m) => m.role === "user");
   assert.equal(typeof x.content, "string");
   assert.equal(x.content, req.messages[0].content.map((b) => b.text).join("\n"));
-  const pic = toXaiRequest({ model: "grok-4.6", messages: [{ role: "user", content: [{ type: "text", text: "a" }, { type: "image", source: { type: "base64", media_type: "image/png", data: "AA" } }] }] }).body.messages[0];
+  const pic = toXaiRequest({ model: "grok-4.7", messages: [{ role: "user", content: [{ type: "text", text: "a" }, { type: "image", source: { type: "base64", media_type: "image/png", data: "AA" } }] }] }).body.messages[0];
   assert.ok(Array.isArray(pic.content), "a message with a picture keeps its parts");
 });

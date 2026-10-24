@@ -132,7 +132,7 @@ const MODELS_TAB = {
 const BUILD_PICKERS = {
   sonnet: { label: 'Sonnet 5', desc: 'Fast, and what most sites want' },
   opus:   { label: 'Opus 5',   desc: 'Most capable — slower, and costs about 1.7×' },
-  grok:   { label: 'Grok 4.6', desc: 'About half the price — newest here, less proven' },
+  grok:   { label: 'Grok 4.7', desc: 'About half the price — newest here, less proven' },
 };
 const BUILD_PICKER_KEY = 'zephyr_build_picker_v1';
 // `auto` is still in some browsers' localStorage from the hours it existed, so
@@ -3826,7 +3826,7 @@ function initPipeModels() {
       if (!m || !m.label) continue;
       rows.push({ label: m.label, note: m.note || '', brand: providerOf(m.id || m.label) });
     }
-    if (key === 'llm') rows.push({ label: 'Grok 4.6', note: 'xAI · builds your site', brand: providerOf('grok') });
+    if (key === 'llm') rows.push({ label: 'Grok 4.7', note: 'xAI · builds your site', brand: providerOf('grok') });
   }
   host.innerHTML = rows.map((r) =>
     '<li class="gf-pipe-step">' +
@@ -7956,7 +7956,7 @@ function ctxBar(parts, used) {
 // what the next call really carries, estimated at three characters a token.
 let ctxOpen = false;
 // The model the next message runs on, by the picker — `BUILD_MODELS`' design column.
-const CTX_MODEL_OF = { grok: 'grok-4.6', sonnet: 'claude-sonnet-5', opus: 'claude-opus-5' };
+const CTX_MODEL_OF = { grok: 'grok-4.7', sonnet: 'claude-sonnet-5', opus: 'claude-opus-5' };
 function ctxNow(site) {
   const d = site && site.slug ? siteCtx[site.slug] : null;
   if (!d || !Array.isArray(d.shapes)) return null;

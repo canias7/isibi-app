@@ -84,6 +84,9 @@ export const MODEL_RATES = {
   // $4/$12, and the biggest call here carries ~52K. Adding a second row for a
   // ceiling nothing approaches would be a rate that can only ever be wrong.
   "grok-4.6": { in: 2e-6, out: 6e-6, cacheRead: 0.50e-6, cacheWrite: 2e-6 },
+  // 2026-10-24: grok-4.7, the same rates on docs.x.ai (in $2, cached $0.50, out $6 per
+  // million). 4.6 stays so old ledger rows and usage objects still price.
+  "grok-4.7": { in: 2e-6, out: 6e-6, cacheRead: 0.50e-6, cacheWrite: 2e-6 },
 };
 
 // What a usage object that names no model is priced at. NOT a fallback: it is a

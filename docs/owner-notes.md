@@ -52,6 +52,13 @@
 - **One open edge**: a request split into separate jobs (parts) does not carry the "already charged" mark from one part's job to the next.
 - **Tests**: 17 new cases through the real edit and add-on routes with supplied answers. 8 of them fail on main, and the other 8 are controls that pass there. 12 older cases written to the old rule were updated. Sweep: 21 of 21 caught, and the comment-only control survived. Full suite: 12,641 run, 2 environment-only failures, and 3 old-rule cases fixed afterwards. The site image will be rebuilt. Nothing was spent. Record: `docs/history/2026-10-24-no-ask-after-charge.md`.
 
+## 2026-10-24 — the builder now uses Grok 4.7 (branch `grok-4-7`, not merged, not deployed)
+
+- The Grok choice now calls `grok-4.7` instead of `grok-4.6` for design, pages and every small call (router, lanes, replies). The picker's menu says "Grok 4.7".
+- Checked on xAI's own docs (docs.x.ai, 2026-10-24): same prices as 4.6 ($2 in, $0.50 cached, $6 out per million), the same 500,000-token limit, and the same thinking settings (low / medium / high / xhigh, default high).
+- Grok 4.6 stays in the price and size tables, so old ledger rows and stored jobs still price correctly. A saved "Grok" choice moves to 4.7 by itself (it is stored as "grok", not the version).
+- Nothing spent. Record: `docs/history/2026-10-24-grok-4-7.md`.
+
 ## 2026-10-24 — combine-d: thirteen finished branches in one candidate (not merged, not deployed)
 
 - Combined from `main` (692087cde): reply bubble, progress voice, per-device builds, stand-ins and refunds, first-build database and limits, no add-on caps, "tasks" label, build panel Stop, edit file picker, rebuild scope, build questions, request needs, visual review, and two docs branches.

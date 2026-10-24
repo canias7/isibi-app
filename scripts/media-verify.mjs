@@ -131,7 +131,7 @@ export const UNAVAILABLE = Object.freeze(["Safari on macOS", "Safari on iOS", "C
 
 /** Credits, estimated from the measured history in CLAUDE.md and the price table — not limits. */
 export const ESTIMATES = Object.freeze({
-  message: { low: 2, high: 6, why: "routing (measured 1–2) plus the reply's own call on grok-4.6 (about 2 typical, 5 at the full window and the 2,400-token ceiling), under one charge" },
+  message: { low: 2, high: 6, why: "routing (measured 1–2) plus the reply's own call on grok-4.7 (about 2 typical, 5 at the full window and the 2,400-token ceiling), under one charge" },
   build: { low: 13, high: 47, why: "a first build (measured 11–45) plus its routing (1–2); with IMAGE_PURCHASES off no photograph can be bought" },
   // A FOLLOW-UP EXPECTED TO ROUTE AS WORK (2026-10-15): routing only — the
   // harness never sends the work itself — unless the router answers it as talk,
