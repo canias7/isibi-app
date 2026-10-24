@@ -1,5 +1,12 @@
 # Owner Notes
 
+## 2026-10-24 — the live progress lines now follow your voice (branch `progress-voice-2`, not merged, not deployed)
+
+- On the driftwood-and-daughters build the lines kept ending "nothing is on the pages yet" / "visitors cannot see it". The cause: the facts the AI is given ended that way, and your voice instructions came after the state descriptions.
+- Now your voice comes first and decides the wording; the facts no longer carry those endings; that the site is a draft is said once, when it is saved.
+- If a line ends exactly like an earlier one, the AI is asked once more; the second answer is shown either way. Nothing can still say published or live before it is.
+- Tests: 5 new, all red on main; sweep 13 of 13 caught, control survived. The site image will be rebuilt. Nothing spent. Record: `docs/history/2026-10-24-progress-voice-2.md`.
+
 ## 2026-10-24 — combine C: six finished branches in one candidate (branch `combine-c`, not merged, not deployed)
 
 - Brings together compile repair everywhere, the exact-edits tweak, the progress voice, the next-step hint, background work and the file picker (plus the 503 notes).

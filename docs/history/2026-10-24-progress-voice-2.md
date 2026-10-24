@@ -63,7 +63,30 @@ wrong too.
 
 ## 4. Numbers
 
-FILLED BELOW AFTER THE RUNS.
+- Focused: `progress-voice-2`, `progress`, `progress-voice`, `progress-more`
+  together 85 / 85 green (measured).
+- Sweep (from that green baseline, restored from saved copies, nothing
+  committed during it): 13 of 13 mutants killed (a tail put back on the
+  design fact, on the draft save, on the held step and on the sections; the
+  voice-first line emptied; the talk prompt's states put ahead of the voice;
+  `repeatsTail` always false; no retry on a tail; a one-word clause counted
+  as a tail; the tail note dropped from the request; the state check turned
+  off; the scan rule's order put back; one worker call without `earlier`).
+  The comment-only control survived. (A first pass let the held-step tail
+  survive: the test fed a `text` step, which is not a database layer; it now
+  feeds a `data` step and asserts the held fact was observed.)
+- Full suite (world-readable worktree, `node_modules` linked, then removed):
+  12,463 tests, 12,456 pass, 4 fail, 3 skipped. The 4: `audit-r2-g1` A14-6
+  (it pinned "press Publish" in the draft start plan; widened to "saved to /
+  as their draft", the plan still ends at the draft, now 8 / 8), and three
+  environment-only cases: the node_modules symlink case, `media-verify`'s
+  browser mode, and `canary-reopen-browser` REOPEN 1, which is flaky under
+  load here (1 of 3 reruns failed on the branch; green on a rerun of main's
+  source, so it is noted as flaky, not proven unrelated).
+- Image prediction: `SiteBuildContainer` `0bae00a7003bcc23` (origin/main,
+  231 inputs, 199 distinct) -> `3e0c9cad27528970` (head); `site-progress.mjs`,
+  `security-say.mjs` and `worker.js` are all inputs. `AppBuildContainer`
+  stays `65022ce71e3d7274`.
 
 ## 5. Image
 
