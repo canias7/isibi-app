@@ -1,5 +1,14 @@
 # Owner Notes
 
+## 2026-10-24 — The first build now shows in the background panel, and Stop really stops it (branch `build-panel-stop`, not merged, not deployed)
+
+- **What happened before:** pressing Stop on a first build only stopped this browser watching it. The build carried on on our side, published, and was charged. Checked offline: nothing in the page told the server to stop. Builds that run straight in the Worker (when the queue can't take them) never even checked for a stop.
+- **Now:** a running first build is a row in the panel. Its name is the AI's own first line, and its view shows every progress line and a Stop button. Stop asks the server to cancel. The build stops at its next step and gives back everything it took, and nothing is published. The chat then shows the AI's own sentence about what happened; a fixed sentence is used only if the writer can't be reached. The row then says "Stopped".
+- The message box keeps Send. A message typed while the site is still being built stays in the box, with a note to send it once the build is done.
+- After a reload, or on another device, the running build is found from the server and shown again.
+- **Not covered yet:** a full rewrite of an existing site ("revise") still has no panel row and no server-side Stop.
+- Tests: 13 new cases. All 13 fail on the old code. Sweep: 20 of 20 changes caught, and the comment-only controls survived. Nothing spent, no model called. Record: `docs/history/2026-10-24-build-panel-stop.md`.
+
 ## 2026-10-24 — combine C: six finished branches in one candidate (branch `combine-c`, not merged, not deployed)
 
 - Brings together compile repair everywhere, the exact-edits tweak, the progress voice, the next-step hint, background work and the file picker (plus the 503 notes).

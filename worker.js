@@ -21076,6 +21076,15 @@ async function enqueueSiteBuild(request, env, { auth }) {
     return {
       replay: replayRequest({ url, auth, body }),
       billId: id,
+      // THE STOP, FOR AN INLINE BUILD TOO (2026-10-24, build-panel-stop): the
+      // row this request holds answers a Stop (`edit_cancel`, through
+      // `/api/site/build-stop`) on its own `edit_beat`, read at the same
+      // stage boundaries the queued build reads. No held row, no check: the
+      // build runs as it always did. A beat that cannot be read is not a stop.
+      stopCheck: rowHold && rowHold.held && rowHold.owner ? async () => {
+        const g = await editRpc(env, "edit_beat", { p_id: id, p_owner: rowHold.owner, p_ttl: LEASE_TTL_S, p_phase: null });
+        return !!(g && g.ok === true && g.cancel === true);
+      } : null,
       after: async (res) => {
         if (rowHold && rowHold.beat) clearInterval(rowHold.beat);
         if (hasRow) {
@@ -34402,6 +34411,39 @@ async function handleRequest(request, env, ctx) {
     // BOTH VERBS CHECK THE SITE AS WELL AS THE JOB. A site can change hands or
     // be deleted between the enqueue and the poll, and ownership of a job is
     // not ownership of what it edits.
+    // ── STOP A BUILD, ON THE SERVER (2026-10-24, build-panel-stop) ─────────
+    //
+    // A first build's Stop used to abort only this browser's own follow: the
+    // build ran on, published and was charged. This marks its row cancelled
+    // (`edit_cancel`, the job's own door, owner-scoped by the caller's id),
+    // and the build reads that at its next stage boundary (`stopCheck`,
+    // queued and inline alike), reverses every debit by ref and answers 410
+    // with a reply written from the facts. Named by its job, or — for a build
+    // this page never got a job id for (an inline fallback holds its answer)
+    // — by its chat, through the account's own chat claim. A build already
+    // published is too late, and says so.
+    if (url.pathname === "/api/site/build-stop" && request.method === "POST") {
+      const su = await authUser(request);
+      if (!su) return Response.json({ error: "sign in first" }, { status: 401 });
+      const rb = await readJsonBody(request, { max: 4_000 });
+      const sb = rb.ok && rb.body && typeof rb.body === "object" && !Array.isArray(rb.body) ? rb.body : {};
+      let sjob = typeof sb.job === "string" && isJobId(sb.job) ? sb.job : "";
+      if (!sjob && typeof sb.chat === "string" && env.SITES_BUCKET && isLiveUid(su.id)) {
+        const chat = cleanChatId(sb.chat);
+        if (isLiveChat(chat)) {
+          try {
+            const cur = await env.SITES_BUCKET.get(buildChatKey(su.id, chat));
+            const held = cur ? readBuildChat(JSON.parse(await cur.text())) : null;
+            if (held && !held.ended && isJobId(held.job)) sjob = held.job;
+          } catch { /* not found below */ }
+        }
+      }
+      if (!sjob) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+      const c = await editRpc(env, "edit_cancel", { p_id: sjob, p_uid: su.id });
+      if (c && c.error === "too-late") return Response.json({ ok: false, job: sjob, status: c.state, error: "too-late" }, { status: 409 });
+      if (!c || c.ok !== true) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+      return Response.json({ ok: true, job: sjob, status: c.state, cancel: !!c.cancel });
+    }
     if (url.pathname.startsWith("/api/site/edit/")) {
       const eu = await authUser(request);
       if (!eu) return Response.json({ error: "sign in first" }, { status: 401 });
@@ -35029,14 +35071,15 @@ async function handleRequest(request, env, ctx) {
       let buildReq = request;
       let inlineEnded = null;
       let inlineBill = null;
+      let inlineStop = null;
       if (env.BUILD_QUEUE && env.SITES_BUCKET) {
         const handed = await enqueueSiteBuild(request, env, { auth });
         if (handed.res) buildDone = Promise.resolve(handed.res);
-        else if (handed.replay) { buildReq = handed.replay; inlineEnded = handed.after || null; inlineBill = handed.billId || null; }
+        else if (handed.replay) { buildReq = handed.replay; inlineEnded = handed.after || null; inlineBill = handed.billId || null; inlineStop = typeof handed.stopCheck === "function" ? handed.stopCheck : null; }
       }
       // ONE DEFINITION OF THE BUILD, called by this and by the queue consumer,
       // so the two paths cannot drift.
-      if (!buildDone) buildDone = runSiteBuild(buildReq, env, { rec, tr, budget, auth, billId: inlineBill });
+      if (!buildDone) buildDone = runSiteBuild(buildReq, env, { rec, tr, budget, auth, billId: inlineBill, stopCheck: inlineStop });
       // AN INLINE FALLBACK GIVES ITS CHAT BACK WHEN IT ENDS (round 3), however
       // it ends; the build's own answer is unchanged.
       if (inlineEnded) {
