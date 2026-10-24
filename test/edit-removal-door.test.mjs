@@ -629,9 +629,9 @@ for (const mode of ["sync", "job"]) {
       const label = "photo refused + layout " + mode + " " + JSON.stringify(answer);
       assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
       assert.equal(r.reply && r.reply.ok, true, label + ": " + JSON.stringify(r.reply));
-      assert.deepEqual(r.models, [PICK, "write_tweak", PICTURE_TOOL.name], label + ": the rungs called");
+      assert.deepEqual(r.models, [PICK, "write_tweak", PICTURE_TOOL.name, PICTURE_TOOL.name /* its one retry with the no-match reason (2026-10-24) */], label + ": the rungs called");
       assert.deepEqual(r.reply.layers, ["page"], label + ": layers");
-      assert.deepEqual((r.reply.partial || []).map((p) => [p.layer, p.error, p.cost]), [["picture", "no-match", 2]], label + ": partial");
+      assert.deepEqual((r.reply.partial || []).map((p) => [p.layer, p.error, p.cost]), [["picture", "no-match", 3]] /* both calls, its retry included (2026-10-24) */, label + ": partial");
       assert.equal(r.builds.length, 1);
       assert.equal(page(r, "index.tsx"), MOVED, label + ": the home page is not exactly the layout");
       assertOthersKept(r, label);
@@ -639,9 +639,9 @@ for (const mode of ["sync", "job"]) {
       assertDoorAsked(r, "picture", ask, label);
       // THE PART THAT DID NOT GO THROUGH IS NAMED BY WHAT IT WAS ABOUT (2026-10-03):
       // the router's own step carries no words of its own, so its part of the site.
-      assert.equal(r.said.text, "Updated /. A photograph: I couldn't match that to any of the pictures on your site. That part still cost 2 credits.", label + ": the screen");
+      assert.equal(r.said.text, "Updated /. A photograph: I couldn't match that to any of the pictures on your site. That part still cost 3 credits.", label + ": the screen");
       assert.deepEqual(r.said.actions, ["refresh the credit balance"], label + ": the browser started something paid");
-      assertCharged(r, mode, [3, 2], label);
+      assertCharged(r, mode, [3, 3], label);
     });
   }
 
@@ -793,7 +793,7 @@ test("CONTROL: the same door with no scope sends the layout where it always went
   const r = await drive({ routed: { layer: "picture", remove: true }, ask: PHOTO_VISIT_ASK,
     answers: { [PICK]: { additional: ["shape"] }, write_tweak: visitWriter, [PICTURE_TOOL.name]: REMOVE_BOULE } });
   const writes = r.sent.filter((q) => q.tool === "write_tweak").map((q) => writerAsked(q.args));
-  assert.deepEqual(writes, [{ path: "index.tsx", instruction: PHOTO_VISIT_ASK }], "unscoped: what the writer was handed");
+  assert.deepEqual(writes, [{ path: "index.tsx", instruction: PHOTO_VISIT_ASK }, { path: "index.tsx", instruction: PHOTO_VISIT_ASK } /* the same request once more with its check's reason (2026-10-24) */], "unscoped: what the writer was handed");
   assert.equal(page(r, "visit.tsx"), VISIT_SRC, "unscoped: the Visit page moved");
 });
 
@@ -1210,8 +1210,8 @@ for (const mode of ["sync", "job"]) {
 for (const mode of ["sync", "job"]) {
   for (const [name, navAnswer, partial, cost, charged, said] of [
     ["the menu editor answers nothing it can apply", {},
-      [["nav", "no-menu", [MENU_LANE], 2]], 5, [3, 2],
-      "Updated /. “" + MENU_WORDS + "”: I couldn't work out what the menu should be. Tell me what to add, take out or move. That part still cost 2 credits."],
+      [["nav", "no-menu", [MENU_LANE], 3]], 6, [3, 3], // its retry with the no-menu reason is on the step's charge (2026-10-24)
+      "Updated /. “" + MENU_WORDS + "”: I couldn't work out what the menu should be. Tell me what to add, take out or move. That part still cost 3 credits."],
     ["the menu editor cannot be reached", undefined,
       [["nav", "send", [MENU_LANE], undefined]], 3, [3],
       "Updated /. “" + MENU_WORDS + "”: I couldn't reach the model that sets the menu — try again in a moment."],
@@ -1223,7 +1223,7 @@ for (const mode of ["sync", "job"]) {
       const label = "menu half fails " + mode + ": " + name;
       assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
       assert.equal(r.reply.ok, true, label);
-      assert.deepEqual(r.models, [PICK, "write_tweak", "write_nav"], label + ": the executors called");
+      assert.deepEqual(r.models, [PICK, "write_tweak", "write_nav", ...(navAnswer !== undefined ? ["write_nav"] /* its one retry with the no-menu reason (2026-10-24) */ : [])], label + ": the executors called");
       assert.deepEqual(r.reply.layers, ["page"], label + ": what shipped");
       assert.deepEqual(r.reply.partial.map((p) => [p.layer, p.error, p.lanes, p.cost]), partial, label + ": partial");
       assert.equal(r.builds.length, 1, label);

@@ -372,6 +372,7 @@ import { laneName, healthImage, HEALTH_LANE } from "./builder/build-lane.mjs";
 // run 101). Diagnostic only: nothing in this import can change what an edit
 // does, and `recompileAndPublish` treats a null trace as a no-op.
 import { newTrace, traceRow } from "./builder/edit-trace.mjs";
+import { traceRetryMark, logRetryMark } from "./builder/retry-reason.mjs";
 // THE TWO LONG MODEL CALLS, IN A MODULE THE CONTAINER CAN IMPORT TOO. Aliased
 // on the way in because `worker.js` keeps thin `env`-shaped wrappers of the same
 // names — eleven call sites read them, and renaming those would make a move that
@@ -34233,7 +34234,9 @@ async function handleRequest(request, env, ctx) {
         // (`upstreamKind`), so a failed route names the provider's token and
         // whether our account was refused the same way a failed build does —
         // one reader of provider errors, not two (Lane 1b).
-        { send: jobSend(rJob, quickSend(env)), classify: (e) => upstreamKind(e && e.detail, e && e.status) },
+        { send: jobSend(rJob, quickSend(env)), classify: (e) => upstreamKind(e && e.detail, e && e.status),
+          // RETRY_REASON {step, reason, ok} (2026-10-24): the routing route keeps no trace row, so it is logged.
+          mark: logRetryMark },
         {
           message: rb.message,
           // DRAFT-FIRST, FROM THE WORKER'S OWN SWITCH (audit #216): the router
@@ -37082,7 +37085,7 @@ async function handleRequest(request, env, ctx) {
               }
               editTrace.mark("pick_lanes", "start");
               const picked = await pickLanes(
-                { send: eQuick("pick_lanes") },
+                { send: eQuick("pick_lanes"), mark: traceRetryMark(editTrace) },
                 {
                   message: eInstruction,
                   // WHAT THE SITE IS, IN ONE LINE. Deliberately thin — this is
@@ -38006,6 +38009,7 @@ async function handleRequest(request, env, ctx) {
               const dHeldNow = new Set();
               const dOut = await runDataEdit({
                 send: eQuick(),
+                mark: traceRetryMark(editTrace),
                 // WHAT THE STEP WAS SHOWN (2026-10-11): counted on the job.
                 seen: (x) => noteSeen(eJob, x),
                 // PREPARED: the change is chosen; no row is touched here.
@@ -38370,6 +38374,7 @@ async function handleRequest(request, env, ctx) {
               let rCost = 0, rBilled = false, rStop = null;
               const rOut = await runRulesEdit({
                 send: eQuick(),
+                mark: traceRetryMark(editTrace),
                 seen: (x) => noteSeen(eJob, x),
                 // PREPARED: the rules are chosen; nothing is granted here.
                 before: async (usage) => { if (isPrep) { eJob.reached = (Number(eJob.reached) || 0) + 1; return false; } rCost = await eCharge(usage); rBilled = true; if (eCharges.refused() > 0) return false; rStop = await applyStop(eJob); return !rStop; },
@@ -38761,6 +38766,7 @@ async function handleRequest(request, env, ctx) {
               }
               const nOut = await runNavEdit({
                 send: eQuick(),
+                mark: traceRetryMark(editTrace),
               }, { instruction: eInstruction, pages: eSrc, routes: navRoutes, model: eQuickModel, addition: eb.addition === true });
               // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
               if (nOut.ask) return stepAsk("nav", nOut.ask);
@@ -39017,6 +39023,7 @@ async function handleRequest(request, env, ctx) {
                 : { files: [], missing: [] };
               const pOut = await runPictureEdit({
                 send: eQuick(),
+                mark: traceRetryMark(editTrace),
                 // The owner's upload library, named the way they see it.
                 library: async () => {
                   // A PICTURE BOUGHT FOR THIS VERY PART (2026-10-09, round 3), by
@@ -40494,6 +40501,8 @@ async function handleRequest(request, env, ctx) {
                 model: eQuickModel,
                 inPart: !!partNameOf(target.path),
                 send: eQuick(),
+                // RETRY_REASON {step, reason, ok} on the edit's trace (2026-10-24).
+                mark: traceRetryMark(editTrace),
               });
               // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
               if (tw.ask) return stepAsk("page", tw.ask);
@@ -44674,18 +44683,20 @@ async function handleRequest(request, env, ctx) {
               let clean = aPrior ? null : aCleanOf(ran);
               let aSupersededReq = null;
               if (aPrior || (clean && !clean.ok && clean.why !== "nothing")) {
-                let aFeedback;
+                let aFeedback, aRetryWhy = "";
                 if (aPrior) {
                   // THE RECORDED REFUSAL, TAKEN: no answer to bill or keep (the
                   // preparation paid for it, and its content never left that
                   // record); the same correction, from its own facts.
                   const why = aPrior.why.slice(4);
+                  aRetryWhy = why;
                   aMark("add:" + k, "correct", { why, skipped: 1 });
                   aKept.push({ kind: k, answered: true, superseded: why, skipped: true, stop_reason: null, content: null });
                   aSupersededReq = aPrior.superseded;
                   aFeedback = aPrior.feedback;
                 } else {
                   aSupersededReq = ran.requirements;
+                  aRetryWhy = clean.why;
                   // THE REASON, AND WHAT IT SAID THEY ASKED FOR, BY ID (round 11):
                   // so the correction can say which requirement it restates.
                   aFeedback = addRefusal(clean.why, k) + " (" + clean.why + ")" + supersededNote(aSupersededReq);
@@ -44702,6 +44713,10 @@ async function handleRequest(request, env, ctx) {
                 const fixFirst = await runAdd({ send: aQuick("add:" + k) }, { kind: k, message: aInstruction, site: aSiteFor(k), model: aModels.quick, brief: aBrief, feedback: aFeedback });
                 ran = await aNeedsAgain(k, fixFirst, aBrief, aFeedback);
                 clean = aCleanOf(ran);
+                // RETRY_REASON {step, reason, ok} (2026-10-24): this step already
+                // retried once with the cleaner's reason (`no-job-fn` among them),
+                // same model and effort; the mark makes it read like every other.
+                { const rWhy = aRetryWhy || "refused"; const rOk = !!(clean && clean.ok); aMark("retry_reason", rOk ? "ok" : "fail", { step: "add:" + k, reason: rWhy, ok: rOk }); }
                 if (clean && !clean.ok && clean.why !== "nothing") rejectReply(ran.raw, "add:" + clean.why);
               }
               // HOP 3 OF EIGHT, AND IT IS ABOVE EVERY `continue` AND `return`

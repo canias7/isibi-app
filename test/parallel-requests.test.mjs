@@ -288,7 +288,8 @@ test("P1c A PREPARED STEP THAT REFUSES — the photograph's picture step finds n
     const { rec } = await settle(P, r.key);
     assert.equal(rec.parts[0].status, "done");
     assert.notEqual(rec.parts[1].status, "done", "a refused picture was called done");
-    assert.equal(calls(P, "choose_pictures").length, 1, "the refused step's call was made again");
+    // ASKED ONCE AND ONCE MORE WITH THE no-match REASON (2026-10-24); the job replays, never asks again.
+    assert.equal(calls(P, "choose_pictures").length, 2, "the refused step's call was made again");
     assert.equal(P.imageLog.length, 0);
     const pic = P.jobsOf(r.key).filter((j) => j.op === "edit").pop();
     assert.equal(reserveOf(P, pic.id).length, 1, "the refusal was not charged to the part's own job, once");

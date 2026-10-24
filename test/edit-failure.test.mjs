@@ -445,7 +445,8 @@ test("a lane picker that places the message nowhere asks which part, instead of 
   const store = bucket(slug, { pages: TWO_PAGES(slug) });
   const before = snapshot(store);
   const r = await edit(slug, store, { answers: { [T.pick]: { fields: [] } } }, { layer: "look", instruction: "Make it pop more." });
-  assertExplained(r, before, store, { key: "picker/no-lane", facts: {}, calls: [T.pick] });
+  // ASKED ONCE MORE WITH THE no-lane REASON (2026-10-24) before it is said.
+  assertExplained(r, before, store, { key: "picker/no-lane", facts: {}, calls: [T.pick, T.pick] });
 });
 
 test("a look lane that could not express the change is said, not climbed", async () => {

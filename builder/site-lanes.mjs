@@ -1,3 +1,4 @@
+import { withReasonRetry } from "./retry-reason.mjs";
 // THE EDIT PATH. ITS OWN PATH, NOT THE BUILD PATH WITH A FLAG ON IT.
 //
 // Owner, 2026-08-29: "it should be 2 separated path tho, idk why you are mixing
@@ -2048,7 +2049,22 @@ export function laneUsage(reply, model) {
  * falling back to the whole list would answer "we could not tell" by buying
  * seventeen edits, which is the most expensive possible reading of it.
  */
-export async function pickLanes(deps, { message, fields = LANE_FIELDS, current = "", model = LANE_MODEL, routed = null, answers = 0 } = {}) {
+export async function pickLanes(deps, args = {}) {
+  // ONE RETRY WITH THE CHECK'S OWN REASON (owner, 2026-10-24): an ordinary
+  // pick that named no lane, asked nothing and put nothing elsewhere is sent
+  // once more, same model and effort, told so. The door is not retried: an
+  // empty list of extra work there is a legitimate answer.
+  if (routedDoor(args && args.routed)) return pickLanesOnce(deps, args);
+  return withReasonRetry({
+    step: "pick_lanes", deps, mark: deps && deps.mark,
+    run: (d) => pickLanesOnce(d, args),
+    reasonOf: (r) => (r && !r.failed && !r.ask && Array.isArray(r.fields) && !r.fields.length && !(r.elsewhere && r.elsewhere.length) && !r.elsewhereUnread
+      ? { code: "no-lane", text: "Your answer named no lane, so nothing would change. Read the request again and name every lane that makes a change it asks for (use the lane names offered exactly). If one detail really is missing, ask your one question instead." }
+      : null),
+  });
+}
+
+async function pickLanesOnce(deps, { message, fields = LANE_FIELDS, current = "", model = LANE_MODEL, routed = null, answers = 0 } = {}) {
   // THE ROUTER'S REMOVAL DOOR, when the caller says what was routed there.
   // Everything else is the ordinary question, byte for byte.
   const door = routedDoor(routed);
@@ -2384,7 +2400,20 @@ export function readLaneAnswer(reply, field) {
  * missing its last rules — which stores and publishes and looks like the model
  * doing a bad job. Same check the design and pages calls make.
  */
-export async function runLane(deps, { field, message, value, model, note = "", ask = true }) {
+export async function runLane(deps, args) {
+  // ONE RETRY WITH THE CHECK'S OWN REASON (owner, 2026-10-24): a lane answer
+  // that could not be read as a value for its field (and asked nothing) is
+  // sent once more, same model and effort, told so.
+  return withReasonRetry({
+    step: "lane:" + String(args && args.field), deps, mark: deps && deps.mark,
+    run: (d) => runLaneOnce(d, args),
+    reasonOf: (r) => (r && !r.failed && !r.ask && r.unread === true && r.value === undefined
+      ? { code: "unreadable", text: "Your answer could not be used: it did not carry a valid value for this field in the tool's shape. Answer again with the whole value for the field, in exactly the shape the tool asks for." }
+      : null),
+  });
+}
+
+async function runLaneOnce(deps, { field, message, value, model, note = "", ask = true }) {
   let reply;
   try {
     reply = await deps.send(editRequest({ field, message, value, model, note, ask }));
@@ -2400,5 +2429,8 @@ export async function runLane(deps, { field, message, value, model, note = "", a
   // read beside it — only where a question was offered.
   const q = ask ? askOf(reply) : null;
   if (q) return { field, value: undefined, usage: laneUsage(reply, model), failed: false, ask: q };
-  return { field, value: readLaneAnswer(reply, field), usage: laneUsage(reply, model), failed: false };
+  // NO TOOL ANSWER AT ALL (2026-10-24) is told apart from a lane that declined
+  // (`null`, the ordinary shape): only the first is retried with its reason.
+  const used = (reply && Array.isArray(reply.content) ? reply.content : []).some((b) => b && b.type === "tool_use");
+  return { field, value: readLaneAnswer(reply, field), usage: laneUsage(reply, model), failed: false, ...(used ? {} : { unread: true }) };
 }

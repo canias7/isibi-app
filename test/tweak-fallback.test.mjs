@@ -144,7 +144,8 @@ test("a tweak whose page does not parse runs the rewrite, once, and the edit shi
   const r = await drive({ answers: { [TWEAK_TOOL.name]: { source: TWEAK_BROKEN }, [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: REWRITE_OK }], parts: [] } } });
   assert.equal(r.status, 200, "the edit failed: " + JSON.stringify(r.body));
   assert.equal(r.body.ok, true);
-  assert.deepEqual(writers(r), [TWEAK_TOOL.name, SITE_PAGES_TOOL.name], "not one tweak then one rewrite: " + JSON.stringify(r.tools));
+  // THE TWEAK IS ASKED ONCE MORE WITH THE CHECK'S REASON (2026-10-24), then the rewrite.
+  assert.deepEqual(writers(r), [TWEAK_TOOL.name, TWEAK_TOOL.name, SITE_PAGES_TOOL.name], "not one tweak, its one retry, then one rewrite: " + JSON.stringify(r.tools));
   assert.equal(r.body.tweak, undefined, "the reply claims the tweak made the change");
   assert.equal(r.body.tweakFallback, "syntax", "the fallback is not recorded on the reply");
   assert.equal(r.compiles, 1, "compiles");
@@ -175,8 +176,9 @@ test("a rewrite that also fails ends as today's compile failure, refunded the sa
   const control = await drive({ compileOk: false, answers: { [TWEAK_TOOL.name]: { cannot: "too large" }, [SITE_PAGES_TOOL.name]: pagesBroken } });
   const r = await drive({ compileOk: false, answers: { [TWEAK_TOOL.name]: { source: TWEAK_BROKEN }, [SITE_PAGES_TOOL.name]: pagesBroken } });
   // AFTER THEM, THE SEAM'S COMPILE REPAIR (2026-10-23) asks the tweak tool once more; its broken answer is refused before any compile.
-  assert.deepEqual(writers(r).slice(0, 2), [TWEAK_TOOL.name, SITE_PAGES_TOOL.name], "not one tweak then one rewrite (never a loop): " + JSON.stringify(r.tools));
-  assert.ok(writers(r).slice(2).every((t) => t === TWEAK_TOOL.name) && writers(r).length <= 4, "the repair is bounded: " + JSON.stringify(r.tools));
+  // EACH TWEAK IS RETRIED ONCE WITH ITS CHECK'S REASON (2026-10-24), never more.
+  assert.deepEqual(writers(r).slice(0, 3), [TWEAK_TOOL.name, TWEAK_TOOL.name, SITE_PAGES_TOOL.name], "not one tweak, its retry, then one rewrite (never a loop): " + JSON.stringify(r.tools));
+  assert.ok(writers(r).slice(3).every((t) => t === TWEAK_TOOL.name) && writers(r).length <= 5, "the repair is bounded: " + JSON.stringify(r.tools));
   assert.equal(r.status, control.status, "a different status from today's failure: " + JSON.stringify(r.body));
   assert.ok(r.status >= 400, "a broken rewrite was reported as a success");
   assert.equal(r.body.ok, false);

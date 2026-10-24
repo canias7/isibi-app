@@ -493,7 +493,8 @@ test("a put-off part the route cannot find in the message is not guessed at: not
     routed: { intent: "edit", layer: "look", alsoAsked: "move the ordering band to the top of the Visit page" },
     answers: {},
   });
-  assert.deepEqual(r.seen.calls, [T.route], "something ran on a message the route could not split" + why(r));
+  // THE ROUTER IS ASKED ONCE MORE WITH THE held-unread REASON (2026-10-24); nothing else runs.
+  assert.deepEqual(r.seen.calls, [T.route, T.route], "something ran on a message the route could not split" + why(r));
   assert.equal(r.body.ok, false, why(r));
   assert.equal(r.body.error, "held-unread", why(r));
   assert.equal(r.body.cost, 0, why(r));

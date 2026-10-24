@@ -219,7 +219,8 @@ test("SP 4 — A PREPARED ANSWER ITS STEP REFUSES: the third step's tweak drops 
     const r = await sendMessage(P, { message: MSG6 });
     const { rec } = await settle(P, r.key);
     assert.equal(rec.parts[0].status, "partial", why(rec));
-    assert.equal(tally.visit, 1, "the refused answer was asked again");
+    // ASKED ONCE MORE WITH THE CHECK'S REASON (2026-10-24), refused again, never a third time.
+    assert.equal(tally.visit, 2, "the refused answer was not asked exactly once more");
     assert.ok(!P.page("visit.tsx").includes("text-6xl\"></h1>"), "the refused answer was written");
     for (const n of NAMES.filter((x) => x !== "visit")) assert.ok(P.page(fileOf(n)).includes(BIG(n)), n + " did not land");
     for (const n of NAMES.filter((x) => x !== "visit")) assert.equal(tally[n], 1, n);

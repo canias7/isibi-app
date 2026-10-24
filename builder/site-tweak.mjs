@@ -1,3 +1,4 @@
+import { markRetry } from "./retry-reason.mjs";
 // The cheap rung of the `page` layer: change how ONE page looks, without
 // rewriting it.
 //
@@ -776,7 +777,7 @@ export function tweakable(source) {
  * exception escaping would turn "the cheap rung was unavailable" into "the edit
  * failed", which is strictly worse than not having built it.
  */
-export async function runTweak({ instruction, path, source, send, rules, heading, model = TWEAK_MODEL, inPart }) {
+export async function runTweak({ instruction, path, source, send, rules, heading, model = TWEAK_MODEL, inPart, mark }) {
   const can = tweakable(source);
   if (!can.ok) return { ok: false, reason: can.reason, usage: null };
   let reply = null;
@@ -809,11 +810,18 @@ export async function runTweak({ instruction, path, source, send, rules, heading
   if (ask) return { ok: false, reason: "ask", ask, usage: tweakUsage(reply, model) };
   const parse = await tweakParser();
   const first = readTweak(reply, { source, inPart, parse });
-  if (first.reason !== "edits") return { ...first, usage: tweakUsage(reply, model) };
-  // ONE RETRY TURN FOR EDITS THAT DID NOT LAND (2026-10-23, idea #18): an
-  // `old` absent from the file or found more than once is told back, by edit
-  // and reason, as the tool's error, and the model answers once more. A second
-  // miss is a refusal like any other — the caller's fallback is unchanged.
+  // A REFUSAL NO ANSWER CAN CHANGE IS NOT RETRIED: `needs-parts` because no
+  // parser could read the page (`no-parser`, `unparsed`) is this runtime's
+  // fact, not the model's slip.
+  const unfixable = first.reason === "needs-parts" && first.why !== "compute";
+  if (!TWEAK_RETRY_REASONS.includes(first.reason) || unfixable) return { ...first, usage: tweakUsage(reply, model) };
+  // ONE RETRY TURN FOR AN ANSWER THAT FAILED AN EXACT CHECK (2026-10-23, idea
+  // #18, for edits that did not land; widened 2026-10-24, owner: "retry once
+  // with the check's own reason" — every check below `readTweak`'s edits that
+  // names a reason). The reason is told back, in plain words, as the tool's
+  // error, and the model answers once more: the SAME request (same model,
+  // same effort) with its own answer and that error appended. A second
+  // failure is a refusal like any other — the caller's fallback is unchanged.
   const req = tweakRequest({ instruction, path, source, rules, heading, model });
   const use = (reply && Array.isArray(reply.content) ? reply.content : []).find((b) => b && b.type === "tool_use");
   const retry = {
@@ -821,17 +829,44 @@ export async function runTweak({ instruction, path, source, send, rules, heading
     messages: [
       ...req.messages,
       { role: "assistant", content: reply.content },
-      { role: "user", content: [{ type: "tool_result", tool_use_id: (use && use.id) || "write_tweak", is_error: true, content: editsFeedback(first) }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: (use && use.id) || "write_tweak", is_error: true, content: checkFeedback(first) }] },
     ],
   };
   let again = null;
   try { again = await send(retry); } catch (e) {
-    return { ...first, usage: tweakUsage(reply, model), retryError: e };
+    markRetry(mark, "tweak", first.reason, false);
+    return { ...first, usage: tweakUsage(reply, model), retryError: e, retryReason: { step: "tweak", reason: first.reason, ok: false } };
   }
   const usage = sumUsage(tweakUsage(reply, model), tweakUsage(again, model));
   const ask2 = askOf(again);
-  if (ask2) return { ok: false, reason: "ask", ask: ask2, usage, retried: true };
-  return { ...readTweak(again, { source, inPart, parse }), usage, retried: true };
+  if (ask2) { markRetry(mark, "tweak", first.reason, false); return { ok: false, reason: "ask", ask: ask2, usage, retried: true, retryReason: { step: "tweak", reason: first.reason, ok: false } }; }
+  const second = readTweak(again, { source, inPart, parse });
+  markRetry(mark, "tweak", first.reason, second.ok === true);
+  return { ...second, usage, retried: true, retryReason: { step: "tweak", reason: first.reason, ok: second.ok === true } };
+}
+
+/**
+ * THE CHECKS A TWEAK IS RETRIED ON, ONCE (2026-10-24): each is exact and
+ * machine-made, so its reason can be told back. `cannot` (the model's own
+ * "this rung cannot") and `unreadable` are not checks and are not retried.
+ */
+export const TWEAK_RETRY_REASONS = Object.freeze(["edits", "no-change", "truncated", "syntax", "moved-route", "reworded", "needs-parts", "lint"]);
+
+/** The plain-words reason fed back for a tweak that failed a check. */
+export function checkFeedback(r) {
+  const tail = " Nothing was changed. Answer again with corrected edits, applied in order to the original file.";
+  const list = (xs) => (Array.isArray(xs) ? xs : []).map((x) => String(x)).filter(Boolean).slice(0, 5).join("; ").slice(0, 600);
+  switch (r && r.reason) {
+    case "edits": return editsFeedback(r);
+    case "no-change": return "Your edits left the file exactly as it was, so the change they asked for was not made." + tail;
+    case "truncated": return "After your edits the file was less than half its original length: an edit's `new` text must keep everything around the change, never summarise or drop the rest of the file." + tail;
+    case "syntax": return "After your edits the file no longer parses: " + (list(r.problems) || "a syntax error") + ". Close every tag, brace and string you open." + tail;
+    case "moved-route": return "Your edits changed the page's route (the createFileRoute path). Leave the route exactly as it was." + tail;
+    case "reworded": return "Your edits changed the page's visible wording. Change only what was asked and keep every sentence, heading and label character for character." + tail;
+    case "needs-parts": return "Your edits changed what the page computes or passes to the site's own components" + (list(r.parts) ? " (" + list(r.parts) + ")" : "") + ", whose effect lives in files you were not shown. Make the change in this file's own markup and classes only, without changing the values handed to those components." + tail;
+    case "lint": return "Your edits broke a rule of the site's code: " + (list(r.problems) || "a lint rule") + "." + tail;
+    default: return "Your answer failed a check (" + String(r && r.reason) + ")." + tail;
+  }
 }
 
 /** The sentence fed back when an answer's edits did not apply. */

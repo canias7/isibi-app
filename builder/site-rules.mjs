@@ -1,3 +1,4 @@
+import { withReasonRetry, addUsages } from "./retry-reason.mjs";
 // The `rules` layer: what a table DOES, without touching a single page.
 //
 // WHY THIS EXISTS. Everything the designer can declare at build time was frozen
@@ -681,7 +682,21 @@ export function withoutRefused(applied, dbRefused, refused) {
 }
 const RULE_FEATURES = ["unique", "oncePerUser", "noOverlap"];
 
-export async function runRulesEdit(deps, { instruction, tables, scope = null, model = RULES_MODEL, answers = [] } = {}) {
+export async function runRulesEdit(deps, args = {}) {
+  // ONE RETRY WITH THE CHECK'S OWN REASON (owner, 2026-10-24): an answer that
+  // changed no rule and refused nothing is sent once more, same model and
+  // effort, told so. A refused rule is the answer, not a miss: kept.
+  return withReasonRetry({
+    step: "rules", deps, mark: deps && deps.mark,
+    run: (d) => runRulesOnce(d, args),
+    reasonOf: (r) => (r && !r.ok && r.reason === "no-match" && !r.ask && !(Array.isArray(r.refused) && r.refused.length)
+      ? { code: "no-match", text: "Nothing was changed: your answer named no rule change for any table you were shown. Read the request again and answer with the table and the change it asks for; if a detail is really missing, ask your one question instead." }
+      : null),
+    wrapDeps: (d, firstUsage) => ({ ...d, seen: undefined, before: typeof d.before === "function" ? (u) => d.before(addUsages(firstUsage, u)) : d.before }),
+  });
+}
+
+async function runRulesOnce(deps, { instruction, tables, scope = null, model = RULES_MODEL, answers = [] } = {}) {
   const usable = (Array.isArray(tables) ? tables : []).filter((t) => t && t.name);
   if (!usable.length) return { ok: false, escalate: true, reason: "no-tables", usage: null };
 
