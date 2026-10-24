@@ -2054,3 +2054,7 @@ predicted in advance. Served `public/chat.js` is byte-identical to the merged
 file (sha256 starts `ff0eb507d9b92a98`). **Deployed, not runtime-confirmed**:
 the authenticated build-health read (the owner's free canary press) is owed.
 Required CI green on `fdf73825a`: unit tests 39721233513, site build 39721233572.
+
+## Deploy 2266 (2026-10-24 01:37–01:41 UTC)
+
+`main` fast-forwarded `c89732649` → `692087cde` (combine-c: compile repair everywhere, progress voice, next-step hint, background work + follow-ups, tweak exact edits, file picker; `docs/history/2026-10-24-combine-c.md`), on the owner's "merge and deploy". Run 40050651998, green. SiteBuildContainer rolled `665ab9d93b9dce93` → `0bae00a7003bcc23` (built, as predicted); AppBuildContainer `65022ce71e3d7274` no change (as predicted). Assets uploaded: `chat.js`, `styles.css`, `edit-poll.js`. Unit CI on the head: run 40049772755, 12458 total / 0 fail / 58 skipped. Deployed, not runtime-confirmed (canary press owed).
