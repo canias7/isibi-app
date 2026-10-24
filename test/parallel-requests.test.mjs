@@ -572,9 +572,13 @@ test("XR TWO REQUESTS, ONE PAGE — a second message's step prepared while the f
     // THE SECOND MESSAGE, sent while the first is still to run: a price, and
     // a home heading change, whose page nothing earlier in ITS OWN request
     // writes — so its step is prepared at once.
-    const b = await sendMessage(P, { message: RYE + ", and " + HEADING + "." });
+    // IT CARRIES A FILE (2026-10-23, background work): a change sent while a
+    // request runs now joins it, and one carrying files stays a request of its
+    // own — the two-request case this guard is about.
+    const b = await sendMessage(P, { message: RYE + ", and " + HEADING + ".", images: [{ name: "note.png", data: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" }] });
     assert.equal(b.status, 200, JSON.stringify(b.body));
     assert.notEqual(b.key, a.key);
+    assert.ok(P.record(b.key), "the second message did not become a request of its own");
     const prep = P.queue.filter((m) => m.body.kind === "request-prep");
     assert.equal(prep.length, 1, "the second request's other part was not claimed for preparation");
     P.queue.splice(P.queue.indexOf(prep[0]), 1);

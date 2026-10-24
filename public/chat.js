@@ -9252,6 +9252,7 @@ function renderSiteWorkspace(view, site) {
             : '<div class="st-date">' + esc(stStamp(site.updatedAt || site.createdAt)) + '</div>' +
               '<div class="st-thread" id="stThread"></div>' +
               ctxLineHTML(site) +
+              '<div class="st-bg" id="stBg"></div>' +
               '<div class="st-comp">' +
                 '<div class="st-slash" id="stSlash" role="listbox" aria-label="Commands" hidden></div>' +
                 '<textarea id="stRevise" class="st-comp-in" rows="2" placeholder="Ask Go Farther…"></textarea>' +
@@ -9269,7 +9270,11 @@ function renderSiteWorkspace(view, site) {
                   // the chat"); a five-level dial with no effect names none.
                   // `buildEffortHTML` and its table are parked, not deleted — see
                   // them for the three lines that put it back.
-                  (siteBusyHere(site) || siteRunningWork(site)
+                  // SEND WHILE THE BUILDER WORKS (2026-10-23, background work):
+                  // a request's parts are stopped from the panel above the box
+                  // (`siteBgHTML`); Stop stays only for this project's own send
+                  // in flight with nothing in the panel, and a standalone job.
+                  (siteComposerStops(site)
                     ? '<button type="button" class="st-sendc st-stopc" id="stStop" title="Stop" aria-label="Stop">■</button>'
                     : '<button type="button" class="st-sendc" id="stSend" title="Send" aria-label="Send">↑</button>') +
                 '</div>' +
@@ -9395,7 +9400,7 @@ function renderSiteWorkspace(view, site) {
     const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
     thread.innerHTML = (site.msgs || []).filter((m) => !siteParHidden(m, site)).map((m) => m.r === 'u'
       ? '<div class="st-msg u">' + esc(m.t) + '</div>'
-      : '<div class="st-msg a">' + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + (m.talkLive === true ? (Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, true) : '<div class="st-think"><i></i>Working on it</div>') : Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, false, true) : '') + siteMsgText(m, linkify) + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + '' + siteAskHTML(m, site) + siteModel3dHTML(m, site) + siteSentinelHTML(m) + (m.request ? siteReqCardHTML(m, site) : '') + (m.jobCard ? siteJobCardHTML(m, site) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
+      : ('<div class="st-msg a"' + (m.request && !m.t && !m.jobCard && !siteReqCardShows(m, site) ? ' hidden' : '') + '>') + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + (m.talkLive === true ? (Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, true) : '<div class="st-think"><i></i>Working on it</div>') : Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, false, true) : '') + siteMsgText(m, linkify) + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + '' + siteAskHTML(m, site) + siteModel3dHTML(m, site) + siteSentinelHTML(m) + (m.request ? siteReqCardHTML(m, site) : '') + (m.jobCard ? siteJobCardHTML(m, site) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
     ).join('') + (siteBusyHere(site)
       ? (siteBuild
           ? '<div class="st-msg a st-busy st-busy-react">' + reactLiveStepsHTML() + '</div>'
@@ -9831,6 +9836,7 @@ function renderSiteWorkspace(view, site) {
   // panels are still reached from their own Cloud cards, which is the door
   // that describes what it opens.
   wireSiteComposer(site);
+  siteBgPaint(site);
   wireBuildPicker();
   wireBuildEffort();
   if (typeof wireCtxLine === 'function') wireCtxLine();
@@ -11988,7 +11994,7 @@ function siteParSnap(s, key) {
   const st = s && s.requests ? s.requests[key] : null;
   const v = st && st.view;
   const m = s && Array.isArray(s.msgs) ? s.msgs.find((x) => x && x.request === key) : null;
-  if (!m || !v || !Array.isArray(v.parts) || v.parts.length < 2) return;
+  if (!m || !v || !Array.isArray(v.parts) || !v.parts.length) return;
   m.rq = {
     ended: v.ended === true, ...(typeof v.opening === 'string' && v.opening ? { opening: v.opening } : {}),
     parts: v.parts.map((p) => ({
@@ -12011,10 +12017,34 @@ function siteParHidden(m, site) {
   if (m.ask) return !!(site.ask && site.ask.id === m.ask);
   return !!m.job && v.parts.some((p) => Array.isArray(p.jobs) && p.jobs.includes(m.job));
 }
-/** The request's card: the parallel card for several parts, today's for one. */
+/**
+ * WHETHER THE BACKGROUND PANEL HOLDS THIS REQUEST (2026-10-23, background
+ * work: no duplicate display): while the panel lists any of its parts, or once
+ * it has ended, its parts are not drawn again on the thread. The thread keeps
+ * the model's opening line, a waiting question and the request's own summary.
+ */
+function siteBgHolds(site, key) {
+  const st = site && site.requests && typeof site.requests === 'object' ? site.requests[key] : null;
+  const card = site && Array.isArray(site.msgs) ? site.msgs.find((x) => x && x.request === key) : null;
+  const v = st && st.view && Array.isArray(st.view.parts) ? st.view : card && card.rq && Array.isArray(card.rq.parts) ? card.rq : null;
+  if (!v) return false;
+  if (v.ended === true) return true;
+  return siteBgItems(site).some((it) => it.key === key);
+}
+/** Whether a request's card message shows anything once the panel holds it: its opening line, or its soft box. A message that shows nothing is drawn hidden. */
+function siteReqCardShows(m, site) {
+  return !siteBgHolds(site, m.request) || /class="st-par-(opening|box)"/.test(siteReqCardHTML(m, site));
+}
+/** The request's card: the parallel card for several parts, today's for one — or, while the panel holds it, only its opening line and soft box. */
 function siteReqCardHTML(m, site) {
   const v = siteParView(m, site);
-  if (!v) return siteRequestHTML(m, site);
+  // HELD BY THE PANEL, the card's part list is kept in the page but not shown
+  // (`hidden`): nothing of it is drawn, and the UI canary's reader
+  // (scripts/canary-ui.mjs), which reads the cards' parts from the page, still
+  // finds them.
+  const held = siteBgHolds(site, m.request);
+  const hide = (h) => (held && h ? '<div class="st-bg-held" hidden>' + h + '</div>' : h);
+  if (!v) return hide(siteRequestHTML(m, site));
   const key = m.request;
   const st = site.requests && site.requests[key];
   const link = (t) => esc(t).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
@@ -12053,7 +12083,7 @@ function siteReqCardHTML(m, site) {
   const box = q ? '<div class="st-par-box">' + siteMsgText(q, link) + siteAskHTML(q, site) + '</div>'
     : end ? '<div class="st-par-box">' + siteMsgText(end, link) + '</div>' : '';
   return (typeof v.opening === 'string' && v.opening ? '<div class="st-par-opening">' + link(v.opening) + '</div>' : '') +
-    '<div class="st-par" data-par="' + esc(key) + '">' + head + rows + '</div>' + box;
+    hide('<div class="st-par" data-par="' + esc(key) + '">' + head + rows + '</div>') + box;
 }
 /** A press inside a parallel card: a row opened or closed, or a part tried again. True when it was one. */
 function siteParClick(e, thread) {
@@ -12085,6 +12115,244 @@ function siteParRetry(origin, key, n) {
   if (!p || siteParState(p) !== 'bad') return;
   const words = String(p.words || '').trim();
   if (words) siteSend(words, true);
+}
+
+// ── WORK IN THE BACKGROUND (2026-10-23, the owner's approved mock, option A) ──
+//
+// The message box keeps Send while the builder works; what is running sits in
+// a pill above the box ("N things in progress ▾") that opens a panel: a header
+// with the counts, Stop all, and one row per part of every live request on
+// this site — its state dot (the parallel card's mapping, `siteParState`), its
+// name (the model's title), one live line, and ›. A row opens that part's own
+// view in the same panel: a fixed bar (‹ Back · name · Stop, or Remove for a
+// part still waiting its turn), what was asked, every progress line, then its
+// reply with Show me, or what went wrong with Try again. The panel has a
+// fixed maximum height; the list and a part's view scroll in their own box, a
+// working part follows its newest line unless the customer scrolled up, and
+// "↓ new" jumps back down. Every sentence is the model's or the customer's;
+// only the labels are fixed. Finished rows stay for a while, then drop off.
+// What runs is the server's: each message is its own request, a question is
+// answered by the route at once, and a change runs as a new request beside the
+// others (the site's lock keeps writes in turn).
+const SITE_BG_KEEP_MS = 5 * 60 * 1000;
+// Per project, in memory: open or closed, the part shown, whether its box follows its newest line.
+const siteBgUi = new Map();
+const SITE_BG_KEEP_KEY = 'gf.bgPanel.';
+function siteBgState(id) {
+  let u = siteBgUi.get(id);
+  if (!u) {
+    u = { open: false, job: '', follow: true, seen: 0, newBelow: false, top: 0 };
+    // OPEN OR CLOSED, AND THE JOB SHOWN, KEPT ACROSS A RELOAD for this project
+    // (this tab's session only; nothing when storage is unavailable).
+    try {
+      const kept = JSON.parse(sessionStorage.getItem(SITE_BG_KEEP_KEY + id) || 'null');
+      if (kept && typeof kept === 'object') { u.open = kept.open === true; u.job = typeof kept.job === 'string' ? kept.job.slice(0, 200) : ''; }
+    } catch (e) { /* closed, as before */ }
+    siteBgUi.set(id, u);
+  }
+  return u;
+}
+/** The panel's open state and job view, written for a reload; a write that fails keeps nothing. */
+function siteBgKeep(id) {
+  const u = siteBgUi.get(id);
+  if (!u) return;
+  try { sessionStorage.setItem(SITE_BG_KEEP_KEY + id, JSON.stringify({ open: u.open === true, job: u.job || '' })); } catch (e) { /* not kept */ }
+}
+/** Every part the panel lists: each request's parts on this site, unfinished, or finished within the keep window. */
+function siteBgItems(site, now) {
+  const at = Number.isFinite(now) ? now : Date.now();
+  const out = [];
+  if (!site || !Array.isArray(site.msgs)) return out;
+  const seen = new Set();
+  for (const m of site.msgs) {
+    if (!m || typeof m.request !== 'string' || !m.request || seen.has(m.request)) continue;
+    seen.add(m.request);
+    const st = site.requests && typeof site.requests === 'object' ? site.requests[m.request] : null;
+    const v = st && st.view && Array.isArray(st.view.parts) ? st.view : m.rq && Array.isArray(m.rq.parts) ? m.rq : null;
+    if (!v || !v.parts.length) continue;
+    for (const p of v.parts) {
+      if (!p || !Number.isInteger(p.n)) continue;
+      const state = siteParState(p);
+      if (state === 'done' || state === 'bad') {
+        // WHEN IT WAS FIRST SEEN FINISHED, kept with the request on this browser.
+        let doneAt = st && st.doneAt && Number.isFinite(st.doneAt[p.n]) ? st.doneAt[p.n] : null;
+        if (doneAt == null) {
+          // A request first read already ended, from its snapshot alone, is not shown as just finished.
+          if (!st && v.ended) continue;
+          if (st) { st.doneAt = st.doneAt && typeof st.doneAt === 'object' ? st.doneAt : {}; st.doneAt[p.n] = at; }
+          doneAt = at;
+        }
+        if (at - doneAt >= SITE_BG_KEEP_MS) continue;
+        out.push({ key: m.request, n: p.n, p, parts: v.parts, state, doneAt });
+      } else if (!v.ended && !v.stop) out.push({ key: m.request, n: p.n, p, parts: v.parts, state, doneAt: null });
+    }
+  }
+  return out;
+}
+/** "just now", "3 min ago", from when a finished row was first seen. */
+function siteBgWhen(ms, now) {
+  const d = Math.max(0, (Number.isFinite(now) ? now : Date.now()) - ms);
+  return d < 60000 ? 'just now' : Math.round(d / 60000) + ' min ago';
+}
+/** A row's one line: its newest progress line while it works, its model line otherwise; labels where nothing is written. */
+function siteBgLine(it, now) {
+  const p = it.p;
+  if (it.state === 'run') {
+    const prog = Array.isArray(p.progress) ? p.progress.filter((l) => l && typeof l.text === 'string' && l.text) : [];
+    return prog.length ? prog[prog.length - 1].text : siteSaidFor(p.said, 'doing') || 'Working…';
+  }
+  if (it.state === 'wait') {
+    const tag = siteParTag(p, it.parts, 'wait');
+    return /^waiting for /.test(tag) ? 'Next — after ' + tag.slice('waiting for '.length) : 'Next';
+  }
+  if (it.state === 'ask') return siteSaidFor(p.said, 'waiting') || 'Needs you';
+  if (it.state === 'done') return (siteParTag(p, it.parts, 'done') === 'saved as draft' ? 'Saved as draft' : 'Done') + ' · ' + siteBgWhen(it.doneAt, now);
+  return siteSaidFor(p.said, 'notdone') || 'Didn’t work';
+}
+/** The pill and, when open, the panel: the list, or one part's own view. */
+function siteBgHTML(site, now) {
+  const items = siteBgItems(site, now);
+  if (!items.length) return '';
+  const ui = siteBgState(site.id);
+  const active = items.filter((it) => it.state === 'run' || it.state === 'wait' || it.state === 'ask').length;
+  const working = items.filter((it) => it.state === 'run').length;
+  const things = (n) => n + (n === 1 ? ' thing' : ' things');
+  if (!ui.open) {
+    return '<button type="button" class="st-bg-pill" data-bg="open" aria-expanded="false">' + (working ? '<span class="st-par-dot st-bg-spin"></span>' : '') +
+      esc(active ? things(active) + ' in progress' : things(items.length) + ' finished') + ' ▾</button>';
+  }
+  const it = ui.job ? items.find((x) => x.key + '|' + x.n === ui.job) : null;
+  // A JOB NOT LISTED (yet, after a reload, or no more) shows the list; the choice is kept.
+  if (it) return '<div class="st-bg-pane st-bg-jobview">' + siteBgJobHTML(site, it) + '</div>';
+  const rows = items.map((x) => '<div class="st-bg-row st-par-' + x.state + '" data-bg-row="' + esc(x.key + '|' + x.n) + '" role="button" tabindex="0">' +
+    '<span class="st-par-dot"></span><span class="st-bg-txt"><span class="st-bg-name">' + esc(siteParTitle(x.p)) + '</span>' +
+    '<span class="st-bg-sub">' + esc(siteBgLine(x, now)) + '</span></span><span class="st-bg-go">›</span></div>').join('');
+  return '<div class="st-bg-pane">' +
+    '<div class="st-bg-top"><span>' + esc(things(items.length)) + ' · ' + working + ' in progress</span><span class="st-bg-acts">' +
+    (active ? '<button type="button" class="st-bg-btn" data-bg="stopall">Stop all</button>' : '') +
+    '<button type="button" class="st-bg-btn" data-bg="close" aria-label="Close">▴</button></span></div>' +
+    '<div class="st-bg-scroll st-bg-list" data-bg-box="list">' + rows + '</div></div>';
+}
+/** One part's own view: its bar, what was asked, every line, then its reply. */
+function siteBgJobHTML(site, it) {
+  const p = it.p;
+  const link = (t) => esc(t).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  const id = esc(it.key + '|' + it.n);
+  const act = it.state === 'run' || it.state === 'ask' ? '<span class="st-par-dot"></span><button type="button" class="st-bg-btn" data-bg="stop" data-bg-id="' + id + '">Stop</button>'
+    : it.state === 'wait' ? '<button type="button" class="st-bg-btn" data-bg="stop" data-bg-id="' + id + '">Remove</button>' : '';
+  const top = '<div class="st-bg-top st-par-' + it.state + '"><span class="st-bg-crumb"><button type="button" class="st-bg-btn" data-bg="back">‹ Back</button> · <b>' + esc(siteParTitle(p)) + '</b></span><span class="st-bg-acts">' + act + '</span></div>';
+  const words = String(p.words || '').trim();
+  let body = words ? '<div class="st-bg-asked">You asked: “' + esc(words) + '”</div>' : '';
+  if (it.state === 'wait') {
+    const tag = siteParTag(p, it.parts, 'wait');
+    if (/^waiting for /.test(tag)) body += '<div class="st-bg-asked">Starts when ' + esc(tag.slice('waiting for '.length)) + ' is done</div>';
+  }
+  body += '<div class="st-bg-lines">' + progressListHTML(p.progress, it.state === 'run', it.state === 'done' || it.state === 'bad') + '</div>';
+  const own = (site.msgs || []).filter((x) => x && x.r === 'a' && x.req === it.key && !x.request && x.job && Array.isArray(p.jobs) && p.jobs.includes(x.job));
+  const said = own.map((x) => '<div class="st-par-said">' + siteMsgText(x, link) + '</div>').join('');
+  const line = (which) => { const t = siteSaidFor(p.said, which); return t ? '<div class="st-par-said">' + link(t) + '</div>' : ''; };
+  if (it.state === 'done') {
+    body += (said || line(SITE_SAID_FOR[p.status])) +
+      '<button type="button" class="st-par-retry" data-bg="show" data-bg-page="' + esc(typeof p.page === 'string' ? p.page : '') + '">Show me</button>';
+  } else if (it.state === 'bad') {
+    body += said || line('notdone');
+    if (words) body += '<button type="button" class="st-par-retry" data-bg="retry" data-bg-id="' + id + '">Try again</button>';
+  } else if (it.state === 'ask') body += said;
+  return top + '<div class="st-bg-wrap"><div class="st-bg-scroll" data-bg-box="' + id + '">' + body + '</div>' +
+    '<button type="button" class="st-bg-new" data-bg="new" hidden>↓ new</button></div>';
+}
+/** Paint the pill or panel into its place above the box, keeping the box's scroll, or following the newest line. */
+function siteBgPaint(site) {
+  const host = typeof document !== 'undefined' ? document.getElementById('stBg') : null;
+  if (!host || !site) return;
+  const ui = siteBgState(site.id);
+  host.innerHTML = siteBgHTML(site);
+  host.onclick = (e) => siteBgClick(e, site.id);
+  // A FINISHED ROW DROPS OFF when its time is up, with nothing else to repaint it.
+  const ends = siteBgItems(site).filter((x) => x.doneAt != null).map((x) => x.doneAt + SITE_BG_KEEP_MS);
+  clearTimeout(ui.timer);
+  if (ends.length) ui.timer = setTimeout(() => { if (siteOpenId === site.id) siteBgPaint(siteById(site.id) || site); }, Math.max(1000, Math.min(...ends) - Date.now() + 50));
+  const box = host.querySelector('.st-bg-scroll');
+  if (!box) return;
+  const lines = box.querySelectorAll('.st-req-prog li').length;
+  const isJob = box.getAttribute('data-bg-box') !== 'list';
+  if (isJob && ui.follow) { box.scrollTop = box.scrollHeight; ui.seen = lines; ui.newBelow = false; }
+  else { box.scrollTop = ui.top || 0; if (isJob && lines > ui.seen) ui.newBelow = true; }
+  const nb = host.querySelector('.st-bg-new');
+  if (nb) nb.hidden = !(isJob && ui.newBelow);
+  box.onscroll = () => siteBgScrolled(site.id, box);
+}
+/** The customer scrolled a box: it follows the newest line only while at the bottom. */
+function siteBgScrolled(id, box) {
+  const ui = siteBgState(id);
+  ui.top = box.scrollTop;
+  if (box.getAttribute('data-bg-box') === 'list') return;
+  const atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 8;
+  const lines = box.querySelectorAll('.st-req-prog li').length;
+  if (atEnd) { ui.follow = true; ui.newBelow = false; ui.seen = lines; }
+  else { if (ui.follow) ui.seen = lines; ui.follow = false; }
+  const nb = box.parentNode && box.parentNode.querySelector ? box.parentNode.querySelector('.st-bg-new') : null;
+  if (nb) nb.hidden = !ui.newBelow;
+}
+/** A press inside the pill or panel. */
+function siteBgClick(e, id) {
+  const el = e.target && e.target.closest ? e.target.closest('[data-bg], [data-bg-row]') : null;
+  if (!el) return;
+  const s = siteById(id);
+  if (!s) return;
+  const ui = siteBgState(id);
+  const what = el.getAttribute('data-bg');
+  const row = el.getAttribute('data-bg-row');
+  const ref = (v) => { const i = String(v || '').lastIndexOf('|'); return i > 0 ? { key: v.slice(0, i), n: Number(v.slice(i + 1)) } : null; };
+  if (row) { ui.job = row; ui.follow = true; ui.newBelow = false; ui.top = 0; }
+  else if (what === 'open') { ui.open = true; ui.top = 0; }
+  else if (what === 'close') { ui.open = false; ui.job = ''; }
+  else if (what === 'back') { ui.job = ''; ui.top = 0; ui.follow = true; }
+  else if (what === 'new') { ui.follow = true; ui.newBelow = false; }
+  else if (what === 'stopall') { siteBgStopAll(s); return; }
+  else if (what === 'stop') { const r = ref(el.getAttribute('data-bg-id')); if (r) siteBgStopPart(id, r.key, r.n); return; }
+  else if (what === 'retry') { const r = ref(el.getAttribute('data-bg-id')); if (r) siteBgRetry(id, r.key, r.n); return; }
+  else if (what === 'show') { siteBgShowMe(el.getAttribute('data-bg-page') || ''); return; }
+  else return;
+  siteBgKeep(id);
+  siteBgPaint(s);
+}
+/** STOP ALL: every request on this site with a part still to finish, through the request's own stop. */
+function siteBgStopAll(site) {
+  const keys = [...new Set(siteBgItems(site).filter((it) => it.state === 'run' || it.state === 'wait' || it.state === 'ask').map((it) => it.key))];
+  for (const k of keys) siteRequestStop(site.id, k);
+}
+/** STOP (or REMOVE) ONE PART: the server stops that part and its job; the rest of its request goes on. */
+function siteBgStopPart(origin, key, n) {
+  const s = siteById(origin);
+  if (!s || !s.slug) return;
+  const failed = () => { if (typeof sbToast === 'function') sbToast('Couldn’t stop that just now — it’s still going. Try again in a moment.'); };
+  apiFetch('/api/site/request/' + encodeURIComponent(s.slug) + '/' + encodeURIComponent(key) + '/stop', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ part: n }),
+  }).then(async (r) => {
+    const b = await r.json().catch(() => null);
+    if (!b || !b.request || !Array.isArray(b.request.parts) || (!r.ok && b.error !== 'not-running')) { failed(); return; }
+    siteReqState(origin, key, b.request);
+    sitesSave();
+    if (siteOpenId === origin) renderSites();
+    if (!b.request.ended) siteRequestFollow(origin, key);
+  }).catch(failed);
+}
+/** TRY AGAIN for a part that did not work: its own words, sent as a new message. */
+function siteBgRetry(origin, key, n) {
+  const s = siteById(origin);
+  const it = s ? siteBgItems(s).find((x) => x.key === key && x.n === n) : null;
+  if (!it || it.state !== 'bad') return;
+  const words = String(it.p.words || '').trim();
+  if (words) siteSend(words, true);
+}
+/** SHOW ME: the preview, on the page the part changed (the page shown when it named none). */
+function siteBgShowMe(page) {
+  const s = siteById(siteOpenId);
+  if (!s) return;
+  const known = !!page && sitePages(s).some((p) => p.path === page);
+  if (siteView !== 'preview') { siteView = 'preview'; if (known) s.active = page; sitesSave(); renderSites(); return; }
+  if (known && s.active !== page) switchSitePage(page);
 }
 
 // ── EACH TASK NAMED BY THE MODEL'S OWN LINE (2026-10-06) ────────────────────
@@ -16820,6 +17088,13 @@ function siteStop(site) {
   if (typeof siteAborts === 'undefined') { if (siteAbort) { try { siteAbort.abort(); } catch (e) {} } return; }
   const a = siteAborts.get(site ? site.id : siteOpenId);
   if (a) { try { a.abort(); } catch (e) {} }
+}
+/** Whether the box shows Stop: this project's own send in flight with nothing in the panel, or a standalone job (no request) running. */
+function siteComposerStops(site) {
+  const w = siteRunningWork(site);
+  if (w && w.kind === 'request') return false;
+  if (w && w.kind === 'job') return true;
+  return siteBusyHere(site) && !siteBgItems(site).some((it) => it.state === 'run' || it.state === 'wait' || it.state === 'ask');
 }
 /** The busy state is this project's own (or set before its origin was kept). */
 function siteBusyHere(site) {

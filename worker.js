@@ -287,7 +287,7 @@ import {
 import {
   isRequestKey, requestFlowOn, recordKey as requestRecordKey, liveKey as requestLiveKey, fileKey as requestFileKey, requestReplyKey,
   parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ORPHAN_MARKER_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts, requestMaking,
-  nextStep, readLabels, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, heldPurchaseState, heldReasons, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, requestView, liveJobIds, questionsToOffer, noteOffered,
+  nextStep, readLabels, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, heldPurchaseState, heldReasons, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, requestView, liveJobIds, stopPart, partJobId, appendParts, questionsToOffer, noteOffered,
   approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt, editJobOutcome, answerless, wantsEvidence,
 } from "./builder/request.mjs";
 // ONE SIZE POLICY FOR WHAT A CUSTOMER SAYS ON A SITE THAT EXISTS (2026-10-03).
@@ -24859,7 +24859,7 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
  * true }` when our store failed around a usable answer: the message is held
  * for sending again, under the same key, which nothing charges twice.
  */
-async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, instruction }) {
+async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, instruction, join = false }) {
   if (waiting && waiting.requestKey && ask && ask.answered === true) {
     return resumeRequestPart(env, ctx, { uid, slug, key, out, waiting, ask, images: rb.images });
   }
@@ -24869,6 +24869,15 @@ async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, 
   // question — the request that was waiting, word for word, its answers kept
   // beside it, never folded into it.
   const message = typeof instruction === "string" && instruction.trim() ? instruction : String(rb.message || "");
+  // A CHANGE SENT WHILE ANOTHER REQUEST OF THIS OWNER RUNS ON THE SITE JOINS IT
+  // (2026-10-23, background work): its parts wait for what they need there
+  // and run in its order. Not an answer, and not a message carrying files (a
+  // request's files are kept under its own key); a request that ended first
+  // leaves this one to be taken on by itself, below.
+  if (join && !answered && !(Array.isArray(rb.images) && rb.images.length)) {
+    const joined = await joinLiveRequest(env, ctx, { uid, slug, key, message, out });
+    if (joined) return joined;
+  }
   const planned = planParts(message, out, { putOff: answered && ask.putOff ? ask.putOff : [] });
   if (!planned.ok) return null;
   // EVERY FILE THE MESSAGE CARRIES MUST READ (round 9), or it is not taken on
@@ -24961,6 +24970,59 @@ async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, 
   }
   const moved = await advanceRequest(env, ctx, slug, key, "accepted");
   return { ...out, request: requestView(moved || draft) };
+}
+
+/**
+ * JOIN THE LIVE REQUEST (2026-10-23, background work). The owner's newest
+ * unended request on the site takes the message as new parts (`appendParts`),
+ * written back on the etag it was read under. Idempotent on the message key: a
+ * key that already joined any live request answers that request again, never
+ * a second set of parts; a key that is a request of its own is left to the
+ * acceptance. Null when there is nothing to join, the request ended or
+ * stopped between the read and the write, or anything cannot be read: the
+ * message is then taken on as a request of its own.
+ */
+async function joinLiveRequest(env, ctx, { uid, slug, key, message, out }) {
+  if (!env.SITES_BUCKET || !isRequestKey(key)) return null;
+  try { const own = await loadRequest(env, slug, key); if (!own || own.rec || own.answer || own.etag) return null; } catch { return null; }
+  let listed = null;
+  try { listed = await env.SITES_BUCKET.list({ prefix: REQUEST_LIVE_ROOT + slug + "/", limit: 50 }); } catch { return null; }
+  const live = [];
+  for (const o of (listed && listed.objects) || []) {
+    const at = parseLiveKey(o && o.key);
+    if (!at || at.slug !== slug || at.key === key) continue;
+    let mark = null;
+    try { const got = await env.SITES_BUCKET.get(o.key); mark = got ? JSON.parse(await got.text()) : null; } catch { mark = null; }
+    if (!mark || mark.endedAt != null || !Number.isFinite(mark.at)) continue;
+    let found = null;
+    try { found = await loadRequest(env, slug, at.key); } catch { found = null; }
+    if (!found || !found.rec || found.rec.uid !== uid) continue;
+    // THIS MESSAGE ALREADY JOINED ONE: that request is the answer.
+    if (Array.isArray(found.rec.joined) && found.rec.joined.some((j) => j && j.key === key)) {
+      return { ...out, request: requestView(found.rec), joined: found.rec.key, duplicate: true };
+    }
+    if (!found.rec.ended && !found.rec.stop) live.push({ key: at.key, at: mark.at });
+  }
+  live.sort((a, b) => b.at - a.at);
+  const into = live[0];
+  if (!into) return null;
+  for (let round = 0; round < 4; round++) {
+    let found = null;
+    try { found = await loadRequest(env, slug, into.key); } catch { return null; }
+    if (!found || !found.rec || found.rec.uid !== uid) return null;
+    const made = appendParts(found.rec, { key, message, routed: out });
+    if (!made.ok) return null;
+    if (made.duplicate) return { ...out, request: requestView(found.rec), joined: found.rec.key, duplicate: true };
+    let tag = null;
+    try { tag = await saveRequestRecord(env, made.rec, found.etag); } catch (e) { console.error("request join: record", slug, errorClassForLog(e)); }
+    if (!tag) continue;
+    if (progressOn(env) && ctx && typeof ctx.waitUntil === "function") {
+      try { ctx.waitUntil(syncRequestTasks(env, { slug, key: made.rec.key, uid, message: made.rec.message, parts: made.rec.parts, picker: made.rec.picker }).catch((e) => console.error("progress: request tasks", slug, errorClassForLog(e)))); } catch { /* the sweep asks again */ }
+    }
+    const moved = await advanceRequest(env, ctx, slug, made.rec.key, "joined");
+    return { ...out, request: requestView(moved || made.rec), joined: made.rec.key };
+  }
+  return null;
 }
 
 /**
@@ -25205,6 +25267,33 @@ async function stopRequest(env, ctx, slug, key, uid) {
     }
   }
   return advanceRequest(env, ctx, slug, key, "stop");
+}
+
+/**
+ * STOP ONE PART OF A REQUEST (2026-10-23, background work): Stop on a job's own
+ * view, Remove on a part still waiting its turn. The part is named in the
+ * record's `stopParts` (nothing new starts for it), its live job is asked to
+ * cancel through the job's own door (`edit_cancel`: stopped before it
+ * publishes, `too-late` after), and the request moves on — the other parts go
+ * ahead. `{ status, rec }`: 404 for no such request or part, 409 when the part
+ * has nothing left to stop, 200 once recorded.
+ */
+async function stopRequestPart(env, ctx, slug, key, uid, n) {
+  let job = "";
+  let kept = null;
+  for (let k = 0; k < 4 && !kept; k++) {
+    const { rec, etag } = await loadRequest(env, slug, key);
+    if (!rec || rec.uid !== uid || !rec.parts.some((p) => p && p.n === n)) return { status: 404 };
+    const next = stopPart(rec, n);
+    if (!next) return { status: 409, rec };
+    job = partJobId(rec, n);
+    if (next === rec) { kept = rec; break; }
+    if (await saveRequestRecord(env, { ...next, updatedAt: Date.now() }, etag)) kept = next;
+  }
+  if (!kept) return { status: 503 };
+  if (job) { try { await editRpc(env, "edit_cancel", { p_id: job, p_uid: uid }); } catch { /* the job's own end settles it */ } }
+  const moved = await advanceRequest(env, ctx, slug, key, "stop");
+  return { status: 200, rec: moved || kept };
 }
 
 // ── A PART'S FULL REWRITE, ON THE CUSTOMER'S GO-AHEAD (2026-10-03) ──────────
@@ -34241,7 +34330,7 @@ async function handleRequest(request, env, ctx) {
         }
         let accepted = null;
         try {
-          accepted = await acceptRequest(env, ctx, { uid: ru.id, rb, slug: rKeySlug, key: rKey, out: rOut, ask: rAsk, waiting: rWaiting, instruction: rInstruction !== undefined ? rInstruction : rOut.resolved });
+          accepted = await acceptRequest(env, ctx, { uid: ru.id, rb, slug: rKeySlug, key: rKey, out: rOut, ask: rAsk, waiting: rWaiting, instruction: rInstruction !== undefined ? rInstruction : rOut.resolved, join: true });
         } catch (e) { console.error("request accept:", rKeySlug, errorClassForLog(e)); accepted = { failed: true }; }
         // OUR STORE FAILED AROUND A USABLE ANSWER: the routing call's own
         // failure shape, so the page holds the message, key and all, for
@@ -34439,11 +34528,14 @@ async function handleRequest(request, env, ctx) {
       const rqm = url.pathname.match(/^\/api\/site\/request\/([a-z0-9][a-z0-9-]{0,80})\/([A-Za-z0-9_-]{16,64})$/);
       const rqa = rqm ? null : url.pathname.match(/^\/api\/site\/request\/([a-z0-9][a-z0-9-]{0,80})\/([A-Za-z0-9_-]{16,64})\/approve$/);
       const rqb = rqm || rqa ? null : url.pathname.match(/^\/api\/site\/request\/([a-z0-9][a-z0-9-]{0,80})\/([A-Za-z0-9_-]{16,64})\/buy-again$/);
-      const rlm = rqm || rqa || rqb ? null : url.pathname.match(/^\/api\/site\/requests\/([a-z0-9][a-z0-9-]{0,80})$/);
-      if (!rqm && !rqa && !rqb && !rlm) return Response.json({ error: "not found" }, { status: 404 });
+      // `POST /api/site/request/<slug>/<key>/stop` `{ part }` — ONE PART STOPPED
+      // OR REMOVED (2026-10-23, background work); the rest goes on.
+      const rqp = rqm || rqa || rqb ? null : url.pathname.match(/^\/api\/site\/request\/([a-z0-9][a-z0-9-]{0,80})\/([A-Za-z0-9_-]{16,64})\/stop$/);
+      const rlm = rqm || rqa || rqb || rqp ? null : url.pathname.match(/^\/api\/site\/requests\/([a-z0-9][a-z0-9-]{0,80})$/);
+      if (!rqm && !rqa && !rqb && !rqp && !rlm) return Response.json({ error: "not found" }, { status: 404 });
       {
         if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "requests are not available" }, { status: 503 });
-        const qSlug = (rqm || rqa || rqb || rlm)[1];
+        const qSlug = (rqm || rqa || rqb || rqp || rlm)[1];
         const qOwner = await siteOwnerBySlug(qSlug, env).catch(() => null);
         if (qOwner && qOwner !== qu.id) return Response.json({ error: "not found" }, { status: 404 });
         // `POST /api/site/request/<slug>/<key>/approve` `{ part }` — THE GO-AHEAD
@@ -34483,6 +34575,20 @@ async function handleRequest(request, env, ctx) {
           if (bOut.status === 409) return Response.json({ ok: false, error: "not-held", request: bView }, { status: 409 });
           if (bOut.status === 503) return Response.json({ ok: false, error: "could not release the purchase", request: bView }, { status: 503 });
           return Response.json({ ok: true, released: bOut.released, kept: bOut.kept, request: bView });
+        }
+        if (rqp) {
+          if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
+          const pb = await readJsonBody(request, { max: 4096 });
+          const pPart = pb.ok && pb.body && Number.isInteger(pb.body.part) ? pb.body.part : -1;
+          if (pPart < 0) return Response.json({ ok: false, error: "which part?" }, { status: 400 });
+          let pOut;
+          try { pOut = await stopRequestPart(env, ctx, qSlug, rqp[2], qu.id, pPart); }
+          catch (e) { console.error("request part stop:", qSlug, errorClassForLog(e)); return Response.json({ ok: false, error: "could not stop that part" }, { status: 503 }); }
+          if (pOut.status === 404) return Response.json({ error: "not found" }, { status: 404 });
+          const pView = pOut.rec ? requestView(pOut.rec, { progress: await progressForRequest(env, pOut.rec), said: await saidForRequest(env, pOut.rec) }) : undefined;
+          if (pOut.status === 409) return Response.json({ ok: false, error: "not-running", request: pView }, { status: 409 });
+          if (pOut.status === 503) return Response.json({ ok: false, error: "could not stop that part" }, { status: 503 });
+          return Response.json({ ok: true, request: pView });
         }
         if (rlm) {
           if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });

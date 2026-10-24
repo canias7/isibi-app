@@ -1674,6 +1674,38 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-par-retry:hover { background: var(--panel-2); }
 .st-par-box { background: var(--panel-2); border-radius: 10px; padding: .6rem .7rem; margin-top: .45rem; font-size: .84rem; line-height: 1.45; white-space: pre-wrap; }
 .st-par-box .st-pick, .st-par-box > div { white-space: normal; }
+/* WORK IN THE BACKGROUND (2026-10-23, the owner's approved mock, option A):
+   the pill above the box and its panel. Greys only, as the parallel card; the
+   dots are the card's own (.st-par-dot under .st-par-<state>). The panel has a
+   fixed maximum height (about half the chat); the list and a part's view
+   scroll in their own box under a bar that stays put. */
+.st-bg { margin: 0 .7rem; }
+.st-bg:empty { display: none; }
+.st-bg-pill { display: inline-flex; align-items: center; gap: .45rem; font: inherit; font-size: .78rem; color: var(--text); background: #ffffff; border: 1px solid var(--line); border-radius: 999px; padding: .22rem .7rem; margin: .3rem 0 0; cursor: pointer; }
+.st-bg-pill:hover { background: #f6f6f5; }
+.st-bg-pill .st-bg-spin { border-color: var(--text); border-top-color: transparent; animation: stparspin .9s linear infinite; }
+.st-bg-pane { display: flex; flex-direction: column; max-height: 45vh; margin: .3rem 0 0; border: 1px solid var(--line); border-radius: 12px; background: #ffffff; box-shadow: 0 2px 10px rgba(0, 0, 0, .05); overflow: hidden; }
+.st-bg-top { flex: none; display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .4rem .7rem; font-size: .78rem; color: var(--muted); border-bottom: 1px solid var(--line); background: #fafaf9; }
+.st-bg-top b { font-weight: 500; color: var(--text); }
+.st-bg-crumb { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-bg-acts { flex: none; display: flex; align-items: center; gap: .5rem; }
+.st-bg-btn { font: inherit; font-size: .78rem; color: var(--text); background: none; border: 0; padding: 0; cursor: pointer; }
+.st-bg-btn:hover { text-decoration: underline; }
+.st-bg-wrap { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.st-bg-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.st-bg-jobview .st-bg-scroll { padding: .55rem .7rem .7rem; font-size: .82rem; }
+.st-bg-row { display: flex; align-items: center; gap: .55rem; padding: .45rem .7rem; border-bottom: 1px solid var(--line); font-size: .82rem; cursor: pointer; }
+.st-bg-row:last-child { border-bottom: 0; }
+.st-bg-row:hover { background: #f6f6f5; }
+.st-bg-txt { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.st-bg-name { font-weight: 500; color: var(--text); overflow-wrap: anywhere; }
+.st-bg-sub { font-size: .76rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-bg-go { flex: none; color: var(--muted); font-size: .8rem; }
+.st-bg-asked { color: var(--muted); font-size: .76rem; margin: 0 0 .45rem; overflow-wrap: anywhere; }
+.st-bg-lines .st-req-prog { margin: 0 0 .4rem; border-left: 2px solid var(--line); padding-left: .6rem; }
+.st-bg-new { position: absolute; left: 50%; bottom: .5rem; transform: translateX(-50%); font: inherit; font-size: .72rem; color: var(--bg, #fff); background: var(--text); border: 0; border-radius: 999px; padding: .15rem .65rem; cursor: pointer; }
+.st-bg-new[hidden] { display: none; }
+.st-msg[hidden], .st-bg-held[hidden] { display: none !important; }
 .st-prog-done { margin: 0 0 .5rem; }
 /* Every progress line so far where "Thinking" was, for a job this page watches. */
 .st-steps-live .st-req-prog { margin: 0; }

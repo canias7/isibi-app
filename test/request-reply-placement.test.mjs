@@ -400,7 +400,11 @@ test("PLACE 5 — reloads: the thread comes back as it was, with nothing said or
     const K5 = KEYOF("paged", 1);
     await pump(P);
     await looks(d, 4);
-    assert.deepEqual(shape(d), [...before, "u:" + K4, "card:" + K4, "a:" + K4 + "#", "u:" + K5, "card:" + K5, "a:" + K5 + "#"]);
+    // THE SECOND MESSAGE, SENT WHILE THE FIRST'S PART HAD NOT RUN, JOINS ITS
+    // REQUEST (2026-10-23, background work): no request of its own; it, the two
+    // parts' replies and the request's own reply all go with the first.
+    assert.equal(P.record(K5), null, "a change sent while a request ran started a separate request");
+    assert.deepEqual(shape(d), [...before, "u:" + K4, "card:" + K4, "u:" + K4, "a:" + K4 + "#", "a:" + K4 + "#", "a:" + K4 + "="]);
     // SENT FROM THIS BROWSER, so applied here — and, both finishing together
     // and read together, with one preview move for the two (2026-10-07,
     // `sitePreviewHold`: a move asked for while the site's preview is held is
@@ -688,9 +692,14 @@ test("PLACE 11 — a part's question replaced by a message typed beside it is ma
     await looks(b);
     assert.equal(b.ask() && b.ask().id, qb.id);
     // TYPED BESIDE THE CARD: not an answer, so the question is replaced and the card comes off.
+    // THE CHANGE JOINS THE WAITING REQUEST (2026-10-23, background work), whose
+    // step offers the part's question again in the same call: the replaced
+    // question is back as the same one, pending, while the page took it down.
     b.ctx.siteSend(MSGS[4]);
     await idle();
-    assert.equal(P.question().status, "superseded");
+    assert.equal(P.question().id, qb.id);
+    assert.equal(P.question().status, "pending");
+    assert.equal(P.record(K2).parts.length, 2, "the change typed beside the question did not join its request");
     assert.equal(b.ask(), null);
     // THE SERVER OFFERS IT AGAIN (its part still waits), and this page makes it live again.
     await pump(P);

@@ -1185,7 +1185,8 @@ test("the platform's own words never take the composer's draft: every call that 
     else if (args === "words, true") continue;
     else assert.doesNotMatch(args, /,/, "a send from the composer passes something besides its words: " + args);
   }
-  assert.equal(calls.filter((a) => a === "words, true").length, 1, "the parallel card's Try again no longer leaves the composer's draft alone");
+  // TWO SINCE 2026-10-23 (background work): the panel's Try again too.
+  assert.equal(calls.filter((a) => a === "words, true").length, 2, "a Try again no longer leaves the composer's draft alone");
   // The third (2026-10-23, #115): the composer's own words sent again once the
   // draft video/audio has moved into the site's library.
   assert.deepEqual(calls.filter((a) => !/^['"`]/.test(a) && a !== "words, true").sort(), ["prompt", "t", "t"], "the composer's sends are not the three expected");

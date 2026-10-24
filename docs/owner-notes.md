@@ -1,5 +1,23 @@
 # Owner Notes
 
+## 2026-10-23, later still — Background work: your three fixes (branch `background-work`, not merged, not deployed)
+
+- **A change sent while a request runs now joins it.** It becomes new rows of that same request, not a separate one. So if it needs something the running work creates (a menu link to the page being added), it waits for it, and its row says "Next — after Bookshop page". Sending the same message twice adds it once. If the request finished just before, the change starts as its own request, as before.
+- **No more double display.** While the panel lists a request's jobs, the request card is not drawn in the chat as well. The chat keeps the model's opening line, any question waiting for you, and the model's summary at the end. Once the request has finished and left the panel, the chat still shows the summary, and a reload shows the same thing. (The card is still in the page, hidden, because the UI canary reads it from there; moving the canary to the panel is a separate job.)
+- **The panel remembers itself on reload**: open or closed, and which job you were looking at, per project (this browser tab only).
+- Tests: each fix has tests that fail on the previous code (the server route is driven for real; the page is checked in a real browser). Sweep: 15 of 15 changes caught, the comment-only control survived. Five screenshots, including the joined change.
+- Nothing spent, no model called. Record: `docs/history/2026-10-23-background-work.md` §5.
+
+## 2026-10-23, late night — Background work: keep chatting while the builder works (branch `background-work`, not merged, not deployed)
+
+- Built your approved mock (option A, the pill). The message box keeps **Send** while changes run; Enter works. Stop moved into the panel.
+- Above the box, a pill: "N things in progress ▾". It opens a panel with "N things · K in progress", **Stop all** and ▴. Each row has a grey dot (spinning while it works, an empty ring when it's next, filled when it's done), the part's model-written name, and one live line. Finished rows say "Saved as draft · just now" and drop off after 5 minutes.
+- Tapping a row shows that job in the panel: "‹ Back · name · Stop" fixed at the top (Remove for a job that hasn't started), "You asked: …", every progress line, then its reply with **Show me** (opens the changed page in the preview), or what went wrong with **Try again**. The panel is at most about half the screen tall. The list and the job view scroll inside it, a working job follows its newest line, and if you scroll up a "↓ new" button takes you back down.
+- A question you send while work runs is answered right away and touches nothing. A change you send then runs as its own request beside the others (the site still saves one change at a time). It does not join the running request: adding to a live request doesn't exist yet.
+- New on the server: stopping one part (`POST /api/site/request/<slug>/<key>/stop`). That part is cancelled (its job through the usual cancel) and the rest carries on.
+- Not done: standalone jobs (the older path, with the request flow off) still show Stop in the box and aren't listed in the panel. "Next" only names what a job waits for inside its own request.
+- Nothing spent, no model called. Record: `docs/history/2026-10-23-background-work.md`.
+
 ## 2026-10-24 — Replies may sometimes suggest one next step (branch `next-step-hint`, not merged, not deployed)
 
 - Your idea #24, adapted: the final reply (builds, edits, add-ons, request summaries) may now and then end with one soft suggestion, written as an ordinary sentence in the reply. No buttons, no list, never required. The model decides whether to add one; there are no fixed sentences and no keyword rules.

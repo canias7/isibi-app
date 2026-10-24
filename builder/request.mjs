@@ -564,6 +564,62 @@ export function carveParts(rec, parentN, words, { dependsOn = [], sibling = [], 
   return made;
 }
 
+// ── A CHANGE SENT WHILE THE REQUEST RUNS (2026-10-23, background work) ──────
+
+/**
+ * A NEW MESSAGE JOINS THE LIVE REQUEST as parts of its own: planned as any
+ * message is (`planParts`, with its routing answer), numbered after the parts
+ * already there, its words added to the request's message (so a later carve
+ * finds them), and then the waiting the model did not say is read over all
+ * the parts (`inferNeeds`), so a new part that refers to something an earlier
+ * part creates waits for it. The parts already there are never changed: they
+ * do not start waiting on the new ones, and what they carved or held stays.
+ *
+ * `{ ok: true, rec, parts }` (a new record; `parts` the new numbers), the
+ * same parts with `duplicate` when this message key already joined, or
+ * `{ ok: false, why }`: `ended` (the request ended or was stopped: the message
+ * becomes a request of its own), or the plan's own refusal.
+ */
+export function appendParts(rec, { key, message, routed, at = Date.now() } = {}) {
+  if (!rec || !Array.isArray(rec.parts)) return { ok: false, why: "no-request" };
+  if (!isRequestKey(key)) return { ok: false, why: "key" };
+  const joined = Array.isArray(rec.joined) ? rec.joined : [];
+  const had = joined.find((j) => j && j.key === key);
+  if (had) return { ok: true, rec, parts: had.parts.slice(), duplicate: true };
+  if (rec.ended || rec.stop) return { ok: false, why: "ended" };
+  const text = typeof message === "string" ? message.trim() : "";
+  if (!text || text.length > MAX_INPUT_CHARS) return { ok: false, why: "message" };
+  const planned = planParts(text, routed);
+  if (!planned.ok) return planned;
+  const next = clone(rec);
+  const base = next.parts.length;
+  const offset = next.message.length + 2;
+  next.message = next.message + "\n\n" + text;
+  const kept = next.parts.map((p) => p.needs.slice());
+  const made = [];
+  for (const p of planned.parts) {
+    p.n += base;
+    p.needs = p.needs.map((m) => m + base);
+    if (Number.isInteger(p.parent)) p.parent += base;
+    p.at = offset + Math.max(0, p.at);
+    p.joined = key;
+    next.parts.push(p);
+    made.push(p.n);
+  }
+  inferNeeds(next.parts);
+  // THE PARTS ALREADY THERE KEEP THEIR OWN WAITING: only a new part waits.
+  kept.forEach((needs, i) => { next.parts[i].needs = needs; });
+  refuseCycles(next.parts);
+  // A NEW ANSWERED PART THAT NOW WAITS is routed again when its turn comes,
+  // as `planParts` does for part 0 (its answer was made before what it needs).
+  const first = next.parts[base];
+  if (first && first.needs.length && first.phase === "run") { first.phase = "route"; first.route = null; first.runs = null; first.held = []; first.putOff = []; }
+  for (const n of made) { const p = next.parts[n]; if (p.status !== "refused") p.status = p.needs.length ? "blocked" : "ready"; }
+  next.joined = [...joined, { key, at, parts: made }];
+  next.updatedAt = at;
+  return { ok: true, rec: settleState(next, at), parts: made };
+}
+
 // ── READING A JOB'S STORED ANSWER ────────────────────────────────────────────
 
 /** The stored answer of a job row (`edit_get`): `{ status, body }`, or `null` when it has none that reads. */
@@ -918,7 +974,7 @@ function settleRewrite(rec, p, job, row, now) {
     if (row.state === "lost") { p.status = "unverified"; p.why = "rewrite-recovering"; return; }
     // NO ANSWER, SO NO WORD ON MONEY: what it cost cannot be told.
     job.end = { state: row.state, at: now, cost: null, act: "no-answer" };
-    if (row.state === "cancelled") { p.status = "cancelled"; p.why = rec.stop ? "stopped" : "cancelled"; return; }
+    if (row.state === "cancelled") { p.status = "cancelled"; p.why = rec.stop || stoppedPart(rec, p.n) ? "stopped" : "cancelled"; return; }
     if (row.state === "done") {
       p.status = "done"; p.why = "unrecorded"; p.outcome = { job: job.id, kind: "rewrite" };
       p.done = "rewrote the site for this (what it changed was not recorded)"; return;
@@ -946,7 +1002,7 @@ function settleRewrite(rec, p, job, row, now) {
     p.status = "partial"; p.why = "partly-done";
     p.notDone = [{ what: "a page of the rewrite", why: String(b.error).slice(0, 60) }]; return;
   }
-  if (b.cancelled === true) { p.status = "cancelled"; p.why = rec.stop ? "stopped" : "cancelled"; return; }
+  if (b.cancelled === true) { p.status = "cancelled"; p.why = rec.stop || stoppedPart(rec, p.n) ? "stopped" : "cancelled"; return; }
   // ANSWERED, BUT NO SITE WRITTEN (the pages could not be made; a revise leaves
   // the live site as it was), or failed outright.
   p.status = "failed";
@@ -1120,7 +1176,7 @@ function settle(rec, p, job, row, now) {
   const stopped = row.state === "cancelled" || (!!ans && ans.body.ok === false && (ans.body.error === "cancelled" || ans.body.detail === "cancelled"));
   if (stopped && !(ans && ans.body.ok === true)) {
     job.end.act = "cancelled";
-    p.status = "cancelled"; p.why = rec.stop ? "stopped" : "cancelled";
+    p.status = "cancelled"; p.why = rec.stop || stoppedPart(rec, p.n) ? "stopped" : "cancelled";
     // A STOP AFTER SOMETHING WENT IN (2026-10-07): the part is still stopped,
     // and what its tries left standing is kept on it — from its answer, from
     // its database record where the answer records nothing (Codex: the branch
@@ -1510,6 +1566,13 @@ export function nextStep(record, rows = {}, now = Date.now(), { writeMax = 1 } =
       p.status = "cancelled"; p.why = "stopped";
     }
   }
+  // ONE PART STOPPED OR REMOVED (2026-10-23, background work): the same, for
+  // the parts named in `stopParts` only — the rest of the request goes on; a
+  // part that needed one of them is not run (`broken`), as for any stop.
+  for (const p of rec.parts) {
+    if (!stoppedPart(rec, p.n) || PART_TERMINAL.includes(p.status) || currentJob(p)) continue;
+    p.status = "cancelled"; p.why = "stopped";
+  }
   // A QUESTION NOBODY ANSWERED IN A DAY EXPIRES, as the question record does.
   for (const p of rec.parts) {
     if (p.status === "waiting" && p.question && Number.isFinite(p.question.at) && now - p.question.at >= WAIT_MS) { p.status = "expired"; p.why = "unanswered"; }
@@ -1840,6 +1903,33 @@ export function settleState(rec, now = Date.now()) {
 }
 
 /** The ids of every job of the request that has not ended: the rows a step reads. */
+/** Whether one part of a request was stopped on its own (`stopParts`, background work). */
+export function stoppedPart(rec, n) {
+  return !!rec && Array.isArray(rec.stopParts) && rec.stopParts.includes(n);
+}
+
+/**
+ * STOP ONE PART (2026-10-23, background work: Stop on a job's own view, Remove
+ * on a part still waiting its turn). The record with `n` added to `stopParts`,
+ * or null when there is nothing to stop: no such part, the request ended or
+ * stopped whole, or the part already ended. Nothing new starts for it; a job
+ * it is running is cancelled by the caller through the job's own door.
+ */
+export function stopPart(record, n) {
+  if (!record || record.ended || record.stop || !Number.isInteger(n)) return null;
+  const p = Array.isArray(record.parts) ? record.parts.find((x) => x && x.n === n) : null;
+  if (!p || PART_TERMINAL.includes(p.status)) return null;
+  if (stoppedPart(record, n)) return record;
+  return { ...record, stopParts: [...(Array.isArray(record.stopParts) ? record.stopParts : []), n] };
+}
+
+/** The live job of one part, by id, when it has one. */
+export function partJobId(rec, n) {
+  const p = rec && Array.isArray(rec.parts) ? rec.parts.find((x) => x && x.n === n) : null;
+  const j = p ? currentJob(p) : null;
+  return j && j.id ? j.id : (j && j.kind === "rewrite" && !j.end ? j.key : "");
+}
+
 export function liveJobIds(rec) {
   const out = [];
   for (const p of rec.parts) { const j = currentJob(p); if (j && j.id) out.push(j.id); }
@@ -2393,6 +2483,9 @@ export function requestView(rec, { progress = null, said = null, runs = null, pr
       // makes the part's money cannot-tell (null), never a smaller number.
       charged: p.jobs.some((j) => j.end && j.end.cost === null) ? null : p.jobs.reduce((s, j) => s + (j.end && Number.isInteger(j.end.cost) ? j.end.cost : 0), 0),
       ...(p.route ? { route: p.route.op === "addon" ? "addon" : (p.route.layer || "edit") } : {}),
+      // THE PAGE ITS ROUTE NAMED (2026-10-23, background work): "Show me" opens
+      // it in the preview once the part is done. Only a path, never words.
+      ...((p.status === "done" || p.status === "partial") && p.route && typeof p.route.page === "string" && /^\/[^\s]{0,200}$/.test(p.route.page) ? { page: p.route.page } : {}),
       // AN EDIT THE ADD-ON STEP HANDED THIS PART TO, as its job's body marks it
       // (`addition`): read by the UI canary's wall for an additions scenario.
       ...(p.route && p.route.op !== "addon" && p.route.fromAddon === true ? { addition: true } : {}),

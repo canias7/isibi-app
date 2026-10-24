@@ -58,7 +58,10 @@ test("every place that takes the busy state names its project, and the workspace
   assert.ok(sets.length >= 8, "the busy setters moved: " + sets.length);
   for (const s of sets) assert.match(s, /^siteBusyBegin\((origin|s\.id|site\.id)\);$/, s);
   const ws = fnSource("function renderSiteWorkspace(");
-  assert.match(ws, /\(siteBusyHere\(site\) \|\| siteRunningWork\(site\)\s*\?\s*'<button type="button" class="st-sendc st-stopc" id="stStop"/, "Stop is drawn from the page-wide flag");
+  // RE-ANCHORED 2026-10-23 (background work): the box keeps Send while a
+  // request's parts run; `siteComposerStops` asks this project's own flag.
+  assert.match(ws, /\(siteComposerStops\(site\)\s*\?\s*'<button type="button" class="st-sendc st-stopc" id="stStop"/, "Stop is drawn from the page-wide flag");
+  assert.match(fnSource("function siteComposerStops("), /return siteBusyHere\(site\) && /, "Stop is drawn from the page-wide flag");
   assert.match(ws, /\)\.join\(''\) \+ \(siteBusyHere\(site\)\s*\?\s*\(siteBuild/, "the live steps are drawn from the page-wide flag");
   assert.match(fnSource("function siteStopWork("), /siteStop\(site\);/);
 });
