@@ -455,7 +455,10 @@ test("the consumer claims after the object, beats while it works, hands its name
   assert.ok(del > 0 && claim > del && rec > claim, "the claim is not between the object's delete and the recorder");
   assert.match(fn, /const lease = row\.held \? rowOwner : null;/);
   assert.match(fn, /const rowBeat = lease \? buildRowBeat\(env, id, lease\) : null;/, "the beat is not gated on holding the lease");
-  assert.match(fn, /runSiteBuild\(replayRequest\(job\), env, \{ rec, tr, budget, auth: job\.auth, jobId: id, lease, jobOwner: \(\) => buildJobOwner\(env, id, job\.uid\), stopCheck \}\)/, "the consumer's lease name does not reach the build");
+  // RE-ANCHORED 2026-10-24 (provider-retry re-landed): the build runs on `bEnv`,
+  // the job's env plus its provider-wait sink and journal (plain `env` with no lease).
+  assert.match(fn, /const bEnv = lease \? \{ \.\.\.env, PROVIDER_WAIT: /, "the build's env is not the job's own");
+  assert.match(fn, /runSiteBuild\(replayRequest\(job\), bEnv, \{ rec, tr, budget, auth: job\.auth, jobId: id, lease, jobOwner: \(\) => buildJobOwner\(env, id, job\.uid\), stopCheck \}\)/, "the consumer's lease name does not reach the build");
   assert.match(fn, /\} finally \{\s+if \(rowBeat\) clearInterval\(rowBeat\);\s+\}/, "the beat is not cleared in a finally");
   // THE CLOSE COMES AFTER THE RESULT IS WRITTEN, and reads the outcome off it.
   // THROUGH THE ONE DELIVERY RULE SINCE 2026-10-08 (`storeBuildResult`).

@@ -134,7 +134,7 @@ export async function driveBuild({ design, pages = null, body, ledger = {}, usag
         if (a instanceof Response) return a;
         return json({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "p1", name: tool, input: a.input }], usage: a.usage || usage });
       }
-      return new Response("stop here", { status: 503 });
+      return new Response("no stub (test fixture): stop here", { status: 400 });
     }
     if (isDispatchUpload(url)) return dispatchOk();
     if (url.includes("/rest/v1/")) return json([]);

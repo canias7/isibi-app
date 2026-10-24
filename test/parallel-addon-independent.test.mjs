@@ -28,6 +28,10 @@ import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { page as pageSrc, SOURCE_KEY, PARTS_KEY } from "./fixtures/live-ask.mjs";
 import { blockNetwork } from "./fixtures/no-network.mjs";
 import { addonScope, stepInputs, clearToPrepare } from "../builder/request-plan.mjs";
+// RE-ANCHORED 2026-10-24 (provider-retry re-landed): a provider 529 is now waited for
+// and the job parked (the owner's design, docs/plans/2026-10-24-model-failures.md),
+// so a call that must FAIL here fails on a refused request (400), which keeps its
+// failure handling exactly as these cases test it.
 
 blockNetwork();
 
@@ -540,7 +544,7 @@ test("PI 15 — THE PAGE WRITER FAILS WHILE THE PHOTOGRAPH IS STILL BEING MADE: 
   await oneAddition({
     slug: slugOf("p15"),
     imageWith: async () => { await held; return null; },
-    pagesWith: async () => { setTimeout(() => release(), 200); throw Object.assign(new Error("upstream 529"), { status: 529 }); },
+    pagesWith: async () => { setTimeout(() => release(), 200); throw Object.assign(new Error("upstream 400"), { status: 400 }); },
     check: async (P, r) => {
       const { rec } = await settle(P, r.key);
       for (let i = 0; i < 3; i++) await settle(P, r.key);
@@ -573,7 +577,7 @@ test("PI 16 — THE PAGE WRITER FAILS AND THE PHOTOGRAPH OUTLASTS THE IMAGE STEP
       imageWith: async () => { await held; return null; },
       pagesWith: async () => {
         writes++;
-        if (writes === 1) throw Object.assign(new Error("upstream 529"), { status: 529 });
+        if (writes === 1) throw Object.assign(new Error("upstream 400"), { status: 400 });
         return { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_PHOTO }, { path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] };
       },
       check: async (P, r) => {
@@ -664,7 +668,7 @@ test("PI 19 — THE IMAGE CALL'S ANSWER IS LOST AND THE PAGE WRITER FAILS: the p
     imageWith: async (entry, n) => (n === 0 ? lostCall() : null),
     pagesWith: async () => {
       writes++;
-      if (writes === 1) throw Object.assign(new Error("upstream 529"), { status: 529 });
+      if (writes === 1) throw Object.assign(new Error("upstream 400"), { status: 400 });
       return { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_PHOTO }, { path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] };
     },
     check: async (P, r) => {
@@ -705,7 +709,7 @@ test("PI 20 — THE PICTURE IS MADE, ITS STORE FAILS, AND THE PAGE WRITER FAILS:
     setup: (P) => failUploads(P, 3),
     pagesWith: async () => {
       writes++;
-      if (writes === 1) throw Object.assign(new Error("upstream 529"), { status: 529 });
+      if (writes === 1) throw Object.assign(new Error("upstream 400"), { status: 400 });
       return { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_PHOTO }, { path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] };
     },
     check: async (P, r) => {
@@ -740,7 +744,7 @@ test("PI 21 — THE RUN AFTER THE HELD PURCHASE IS KNOWN REUSES WHAT WAS FINISHE
     setup: (P) => failUploads(P, 3),
     pagesWith: async () => {
       writes++;
-      if (writes === 1) throw Object.assign(new Error("upstream 529"), { status: 529 });
+      if (writes === 1) throw Object.assign(new Error("upstream 400"), { status: 400 });
       return { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_PHOTO }, { path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] };
     },
     check: async (P, r) => {
@@ -1667,7 +1671,7 @@ async function oneFails({ failing, check }) {
       "add:component": ABOUT_FAQ_ANSWER,
       // THE ADD-ON FAILS ON OUR SIDE: its page writer's provider is overloaded.
       [T.pages]: async () => {
-        if (failing === "addon") throw Object.assign(new Error("upstream 529"), { status: 529 });
+        if (failing === "addon") throw Object.assign(new Error("upstream 400"), { status: 400 });
         return { pages: [{ path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] };
       },
     },

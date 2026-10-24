@@ -198,7 +198,11 @@ test("the same tick takes out the litter under `jobs/` — driven, not read", as
   // call cannot tell a call from a call nobody makes: `if (false)` leaves it
   // exactly where a regex looks for it (this is what the sweep's W9 showed).
   const { listed } = await tick({ rows: [] });
-  const jobs = listed.filter((p) => typeof p === "string" && p.startsWith("jobs/"));
+  // RE-ANCHORED 2026-10-24 (provider-retry re-landed): `jobs/waiting/` is the
+  // parked jobs' records, listed whole by `runProviderWaits` on the same tick —
+  // not litter, and not part of the bucket rotation counted here.
+  const jobs = listed.filter((p) => typeof p === "string" && p.startsWith("jobs/") && p !== "jobs/waiting/");
+  assert.ok(listed.includes("jobs/waiting/"), "OBSERVER: the tick no longer lists the parked jobs");
   // RE-ANCHORED 2026-10-23 (r1-combine): audit A24-4 added a third prefix,
   // `jobs/prepared/` (request jobs' staged answers), to the same rotation.
   assert.equal(jobs.length, 3, "the cron listed " + JSON.stringify(listed) + " — it must sweep one bucket of all three job prefixes");
@@ -384,7 +388,7 @@ test("a filed rebuild job replays into the route, compiles once, spends nothing,
     // THE SCRIPT UPLOAD (2026-09-06): a publish whose script does not land is a
     // failed activation now, so a rebuild that really publishes has to reach it.
     if (isDispatchUpload(u)) return dispatchOk();
-    return new Response("unavailable", { status: 503 });
+    return new Response("no stub (test fixture)", { status: 400 });
   };
   const c = installCompiler();
   try {

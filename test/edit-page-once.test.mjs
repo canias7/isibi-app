@@ -201,10 +201,10 @@ async function drive({ mode = "sync", fields, apply = BOTH, ask = ASK, home = HO
       if (tool === T.picture && picture) {
         return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: picture }], usage: { input_tokens: 400, output_tokens: 100 } });
       }
-      return new Response("no stub for tool " + tool, { status: 503 });
+      return new Response("no stub for tool " + tool, { status: 400 });
     }
     if (isDispatchUpload(u)) return dispatchOk();
-    return new Response("unavailable", { status: 503 });
+    return new Response("no stub (test fixture)", { status: 400 });
   };
   const c = installCompiler();
   try {

@@ -772,7 +772,7 @@ function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null,
     }
     // EVERYTHING ELSE REFUSED. A stub that answered every call would let the
     // route wander past the thing under test.
-    return new Response("unavailable", { status: 503 });
+    return new Response("no stub (test fixture)", { status: 400 });
   };
   return () => { globalThis.fetch = real; };
 }

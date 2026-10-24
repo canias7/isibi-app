@@ -51,6 +51,15 @@ const ALLOWED = [
   'class="cp-close up-close">✕</button>',
   'aria-label="Remove" title="Remove">✕</button>', // removing an automation step
   "'Code re-sent ✓'",               // the sign-in form's own note
+  // THE PROVIDER NOTICE (2026-10-24, provider-retry re-landed): fixed server
+  // text, never model-written, whose exact symbols the owner wrote and approved
+  // ("⚠ <Model> error 503 · Service Unavailable", "✓ <Model> is answering again
+  // · picking up where it stopped": docs/plans/2026-10-24-model-failures.md,
+  // "The exact fixed messages"). The owner's word wins over this guard for
+  // these strings only; every model-written line is still held to it.
+  '"⚠ " + f.model + " error " + f.code',             // builder/provider-retry.mjs noticeTitle
+  'return "⚠ " + (label ? label + " · " : "") + what', // the panel row (module and page)
+  "title: '\\u2713 ' + (wm.wait.model || 'The model') + ' is answering again", // the chat's recovery line
   "'Password updated ✓'",           // the settings form's own note
   '"up-credroll">✓ Unused credits roll over', // a pricing card's feature line
   "'Link preview \\u2713'",          // the file list's toggle, on
