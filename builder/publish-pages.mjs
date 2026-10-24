@@ -1177,15 +1177,20 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
 
   out.genMs = Date.now() - tGen;
 
-  // ── THE WRITER ASKED INSTEAD OF WRITING (2026-10-24, the parity audit) ──
-  // Only where its caller offered the question (`ask`): nothing it proposed
-  // is read, nothing is published and nothing is charged for the pages; the
-  // route gives the deposit back and puts the question to the customer, as
-  // it does the designer's.
-  if (gen && gen.ask && !gen.ask.unusable) {
+  // ── THE WRITER ASKED INSTEAD OF WRITING (2026-10-24) ──────────────────────
+  //
+  // Combined in combine-d from two branches: build-questions (a first build's
+  // writer) and rebuild-scope (a rewrite's). Only where its caller offered the
+  // question (`ask`). Nothing it wrote beside the question is read, nothing is
+  // kept, compiled or published, and nothing is charged here: the route gives
+  // back what the build took and asks. `ask` is the usable question;
+  // `question` is the raw one, which the route refuses as ours when unusable.
+  if (gen && gen.ask && typeof gen.ask === "object") {
     out.stage = "pages";
     out.charged = false;
-    out.ask = gen.ask;
+    out.question = gen.ask;
+    if (!gen.ask.unusable) out.ask = gen.ask;
+    out.usage = gen.usage || null;
     return out;
   }
 

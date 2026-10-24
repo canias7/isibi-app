@@ -380,7 +380,7 @@ test("a first build's one call is the own-parts call with the frame directive; a
   const win = W.slice(at, end);
   assert.ok(win.includes("ownFallbackDirective({"), "the frame directive is not composed");
   assert.ok(win.includes("media, devices: deviceWishes }) + ownTail, spec,"), "the directive does not reach the one call's brief");
-  // RE-ANCHORED 2026-10-24: a rewrite's file pick and question ride the same options.
-  assert.ok(win.includes("plan && plan.kind, [], { ownParts: ownFirst, only: reviseOnly, ask: canAskPages });"), "the one call is not told own parts on a first build");
+  // RE-ANCHORED 2026-10-24 (combine-d): the rewrite's file pick and question (rebuild-scope) and a first build's (`pageAsk`, build-questions) ride the same options.
+  assert.ok(win.includes("plan && plan.kind, [], { ownParts: ownFirst, only: reviseOnly, ...((revise || priorPages) ? { ask: canAskPages } : pageAsk) });"), "the one call is not told own parts on a first build");
   assert.ok(win.includes('ownFirst ? "\\n\\n" + ownFallbackDirective'), "a revise would get the directive");
 });

@@ -4893,8 +4893,8 @@ export async function generateSitePages(keys, brief, spec, brand, attachments, m
   if (j.stop_reason === "max_tokens") return { input: null, truncated: true, ...used };
   // A QUESTION BACK (2026-10-02), only where the tool offered one: nothing it
   // wrote beside the question is read.
-  const ask = req.tools[0] === SITE_PAGES_TOOL_ASK ? askOf(j) : null;
-  if (ask) return { input: null, ask, ...used };
+  const asked = req.tools[0] === SITE_PAGES_TOOL_ASK ? askOf(j) : null;
+  if (asked) return { input: null, ask: asked, ...used };
   const use = (Array.isArray(j.content) ? j.content : []).find((b) => b && b.type === "tool_use");
   // WHY THERE ARE NO PAGES, when there are none. Measured live 2026-08-04: a
   // build spent 9,810 output tokens and 22 credits, `validatePages` got null, and

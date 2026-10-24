@@ -1289,7 +1289,7 @@ test("a new project's round, skipped, still goes straight to the build with no r
     const h = workspace({ sites: [NEW_ROUND], route: [BUILD] });
     act(h);
     await settle();
-    assert.deepEqual(h.calls, [{ method: "POST", url: "/api/site/react-build", body: { brief: "A school in Leeds", images: [IMG], picker: "grok", qa: [], chat: "origin-1", accept: "early" } }]);
+    assert.deepEqual(h.calls, [{ method: "POST", url: "/api/site/react-build", body: { brief: "A school in Leeds", images: [IMG], picker: "grok", qa: [], chat: "origin-1", accept: "early", noAsk: true } }]);
     assert.equal(h.clarify(), null);
   }
 });
