@@ -45,7 +45,7 @@ test("A14-6 an add-on's held schema is said as held, and its publish as a draft 
   assert.match(said(addonSchemaFacts({ tables: ["bookings"] }, { publishing: true })), /Created in the site's database: the table .bookings.[\s\S]*Publishing the site/, "control");
   for (const op of ["edit", "addon", "build"]) {
     assert.doesNotMatch(said(startFacts({ op, draft: true })), /and it is published|built and published/, op);
-    assert.match(said(startFacts({ op, draft: true })), /press Publish/, op);
+    assert.match(said(startFacts({ op, draft: true })), /saved (to|as) their draft/, op); // the plan ends at the draft; the Publish clause is said once, by the save (progress-voice-2)
     assert.match(said(startFacts({ op })), /published/, op + " control");
   }
   // WIRED: every start and the add-on's schema milestone are handed the switch.

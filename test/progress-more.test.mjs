@@ -123,7 +123,7 @@ import { editStepStartFacts, editStepFacts, editBuildingFacts, draftSavedFacts, 
 
 test("R3 each part of an edit is said as it starts and as it ends, in its own state", () => {
   const step = { layer: "look", page: "/visit", fields: ["the band order"] };
-  assert.match(texts(editStepStartFacts(step, 0, 3)), /Working on: the band order on \/visit \(part 1 of 3\)\. Nothing is changed yet\./);
+  assert.match(texts(editStepStartFacts(step, 0, 3)), /Working on: the band order on \/visit \(part 1 of 3\)\./);
   assert.ok(!/part/.test(texts(editStepStartFacts(step, 0, 1))), "a one-part edit is numbered");
   assert.deepEqual(editStepFacts({ step, failed: false }, 1, 3).map((f) => f.state), ["prepared"]);
   assert.deepEqual(editStepFacts({ step: { layer: "data", fields: ["price"] }, failed: false }, 0, 2).map((f) => f.state), ["applied"]);
@@ -204,7 +204,7 @@ const TOOL = { name: "design_schema", input_schema: { type: "object", properties
 const answer = (input) => ({ content: [{ type: "tool_use", name: "design_schema", input }], usage: { input_tokens: 1, output_tokens: 1 } });
 
 test("R5 a design part is said as it starts, by what it works on, and as it ends, by what it decided", () => {
-  assert.match(texts(designStartFacts("shape")), /Now designing the layout of each page[\s\S]*Nothing is decided yet/);
+  assert.match(texts(designStartFacts("shape")), /Now designing the layout of each page/);
   assert.match(texts(designStartFacts("theme")), /choosing the site's look/);
   for (const quiet of ["kind", "web", "lang", "extras", "", null]) assert.deepEqual(designStartFacts(quiet), [], String(quiet));
   const got = texts(designPartFacts({ brand: "Harbour Loaf", pages: [{ name: "Home", path: "/" }, { name: "Menu", path: "/menu" }], shape: [{ path: "/", sections: ["a", "b"] }], theme: "bakery", wordmark: { x: 1 } }));
@@ -240,7 +240,7 @@ import { sectionStartFacts, sectionDoneFacts } from "../builder/site-progress.mj
 test("R6 the sections are said by the plan's own lines: all of them as they start, each as it finishes", () => {
   const lines = ["Welcome banner with the bakery name", "The menu with prices", "Opening hours"];
   const start = texts(sectionStartFacts(lines));
-  assert.match(start, /Now writing the page's 3 sections, all at the same time: 1\) Welcome banner with the bakery name; 2\) The menu with prices; 3\) Opening hours\. None is finished yet\./);
+  assert.match(start, /Now writing the page's 3 sections, all at the same time: 1\) Welcome banner with the bakery name; 2\) The menu with prices; 3\) Opening hours\./);
   assert.match(texts(sectionDoneFacts(["The menu with prices"], 2, 3)), /Finished writing the section: The menu with prices \(2 of 3 done\)\./);
   assert.deepEqual(sectionDoneFacts(["The menu with prices"], 2, 3).map((f) => f.state), ["prepared"]);
   assert.deepEqual(sectionStartFacts([]), []);
@@ -647,7 +647,7 @@ test("R18 stillFacts restates the build's own last 'doing' step with how long it
   assert.deepEqual(stillFacts(null, 50_000), []);
   const [f] = stillFacts("Designing the layout of each page from top to bottom.", 50_000);
   assert.equal(f.state, "doing");
-  assert.match(f.text, /^Still on the same step, 50 seconds so far: Designing the layout of each page from top to bottom\. Nothing new is finished yet\.$/);
+  assert.match(f.text, /^Still on the same step, 50 seconds so far: Designing the layout of each page from top to bottom\.$/);
   assert.match(stillFacts("Checking the pages", 150_000)[0].text, /about 3 minutes so far/);
 });
 

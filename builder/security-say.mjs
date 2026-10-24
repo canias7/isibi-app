@@ -105,9 +105,9 @@ export function securityReportFacts(report) {
  * something new each time, nothing repeated from the lines before.
  */
 export const SCAN_LINE_RULE =
+  PROGRESS_VOICE + "\n" +
   "WRITE ONE SHORT LINE, UNDER 120 CHARACTERS, SHOWN WHILE THE CHECK RUNS.\n" +
-  "Each line is one of a series the customer reads as the check goes on: say only this step's news, and never repeat a tail such as how long it takes or that nothing on the site changes.\n\n" +
-  PROGRESS_VOICE;
+  "Each line is one of a series the customer reads as the check goes on: say only this step's news, and never repeat a tail such as how long it takes or that nothing on the site changes.\n";
 
 /** The rule for one scan line, with the lines already shown so the next says only what is new. */
 export function scanLineRule(earlier = []) {

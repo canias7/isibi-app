@@ -449,7 +449,7 @@ export function buildStepFacts(step) {
     // use"): the design decides the pages and the look; photographs are
     // chosen by the page writers and bought later, and their own steps
     // (`photos-*`) say so when — and only when — that happens.
-    case "design": return [fact("designed", "Designed the site: its pages and its look. Nothing is built yet.")];
+    case "design": return [fact("designed", "Designed the site: its pages and its look.")];
     case "provision": return s.db === 0 ? [] : [fact("prepared", "Set up the site's database.")];
     case "schema": return n("tables") ? [fact("prepared", "Made " + pl(n("tables"), "the table", "tables") + " the site stores its information in.")] : [];
     case "seed": return [fact("prepared", "Filled in the starting entries.")];
@@ -477,12 +477,12 @@ export function buildStepFacts(step) {
     // numbers show; the model words it.
     case "links": {
       const out = [];
-      if (n("ok")) out.push(fact("decided", "Read " + pl(n("ok"), "the page", "pages") + " they linked to, to use for their site. Nothing is built yet."));
+      if (n("ok")) out.push(fact("decided", "Read " + pl(n("ok"), "the page", "pages") + " they linked to, to use for their site."));
       if (n("n") > n("ok")) out.push(fact("notdone", "Could not read " + pl(n("n") - n("ok"), "one page", "pages") + " they linked to."));
       return out;
     }
-    case "research": return n("searches") ? [fact("decided", "Looked up " + pl(n("searches"), "one thing", "things") + " about their business on the web, to write the pages with. Nothing is built yet.")] : [];
-    case "attachments": return n("sent") ? [fact("decided", "Read " + pl(n("sent"), "the file", "files") + " they attached. Nothing is built yet.")] : [];
+    case "research": return n("searches") ? [fact("decided", "Looked up " + pl(n("searches"), "one thing", "things") + " about their business on the web, to write the pages with.")] : [];
+    case "attachments": return n("sent") ? [fact("decided", "Read " + pl(n("sent"), "the file", "files") + " they attached.")] : [];
     case "ownphotos":
     case "media": {
       const own = name === "ownphotos";
@@ -509,7 +509,7 @@ export function buildStepFacts(step) {
     // theirs it really copied onto the pages.
     case "importing": return [fact("doing", "Reading their current site…")];
     case "import":
-      if (s.ok === true && n("pages")) return [fact("decided", "Read " + pl(n("pages"), "one page", "pages") + " from their current site, to rebuild it from. Nothing is built yet.")];
+      if (s.ok === true && n("pages")) return [fact("decided", "Read " + pl(n("pages"), "one page", "pages") + " from their current site, to rebuild it from.")];
       return [fact("notdone", "Couldn't read their current site, so the site is being built from their message alone.")];
     case "importphotos": {
       const out = [];
@@ -964,7 +964,7 @@ export function editPlanFacts(steps) {
   const run = (Array.isArray(steps) ? steps : []).filter((s) => s && typeof s === "object" && !s.withheld);
   if (!run.length) return [];
   return [
-    fact("decided", "Worked out what to change, in the builder's terms: " + listOf(run.map(stepSaid)) + ". Nothing is changed yet."),
+    fact("decided", "Worked out what to change, in the builder's terms: " + listOf(run.map(stepSaid)) + "."),
     fact("next", run.length === 1 ? "Make that change next." : "Make those changes next."),
   ];
 }
@@ -982,7 +982,7 @@ function heldStep(d) {
 function stepDoneFact(d, what) {
   if (!DB_LAYERS.includes(d.step.layer)) return fact("prepared", "Made: " + what + ".");
   return heldStep(d)
-    ? fact("prepared", "Held in their draft, not in effect yet: " + what + ". It takes effect when they press Publish.")
+    ? fact("prepared", "Held in their draft: " + what + ".")
     : fact("applied", "Changed in the site's database: " + what + ".");
 }
 /**
@@ -1000,7 +1000,7 @@ export function editPublishFacts(done, { draft = false } = {}) {
   }
   // A DRAFT IS NOT A PUBLISH (2026-10-19): with draft-first on, the changes go
   // to their draft and nothing live moves until they press Publish.
-  out.push(fact("doing", draft ? "Saving the changes to their draft now. Visitors keep seeing the published site until they press Publish." : "Publishing the site with the changes now."));
+  out.push(fact("doing", draft ? "Saving the changes to their draft now." : "Publishing the site with the changes now."));
   return out;
 }
 
@@ -1011,7 +1011,7 @@ export function editPublishFacts(done, { draft = false } = {}) {
  */
 export function editStepStartFacts(step, i, n) {
   const k = Number.isInteger(n) && n > 1 && Number.isInteger(i) ? " (part " + (i + 1) + " of " + n + ")" : "";
-  return step && typeof step === "object" ? [fact("doing", "Working on: " + stepSaid(step) + k + ". Nothing is changed yet.")] : [];
+  return step && typeof step === "object" ? [fact("doing", "Working on: " + stepSaid(step) + k + ".")] : [];
 }
 export function editStepFacts(d, i, n) {
   const k = Number.isInteger(n) && n > 1 && Number.isInteger(i) ? " (part " + (i + 1) + " of " + n + ")" : "";
@@ -1079,7 +1079,7 @@ export function addonPickedFacts(kinds) {
   const ks = [...new Set((Array.isArray(kinds) ? kinds : []).filter((k) => typeof k === "string" && k))];
   if (!ks.length) return [];
   return [
-    fact("decided", "Worked out what to add: " + listOf(ks.map(kindSaid)) + ". Nothing is built yet."),
+    fact("decided", "Worked out what to add: " + listOf(ks.map(kindSaid)) + "."),
     fact("next", ks.length === 1 ? "Design it next." : "Design each of them next."),
   ];
 }
@@ -1090,7 +1090,7 @@ export function addonDesignedFacts(kind, value, rest = []) {
   const said = items.map((v) => designSaid(kind, v));
   const left = [...new Set((Array.isArray(rest) ? rest : []).filter((k) => typeof k === "string" && k))];
   return [
-    fact("designed", "Designed, not built yet: " + listOf(said.length ? said : [kindSaid(kind)]) + "."),
+    fact("designed", "Designed: " + listOf(said.length ? said : [kindSaid(kind)]) + "."),
     fact("next", left.length ? "Design " + listOf(left.map(kindSaid)) + " next." : "Build the additions next."),
   ];
 }
@@ -1116,7 +1116,7 @@ export function addonSchemaFacts({ tables = [], altered = [], functions = [], jo
   if (f.length) out.push(fact(st, pre + (held ? "to be set up in the site's database: " : "Set up in the site's database: ") + listOf(f.map(quote)) + "."));
   if (j.length) out.push(heldJobs ? fact("prepared", "Held in their draft until they press Publish, to be set to run on a timer: " + listOf(j.map(quote)) + ".") : fact("applied", "Set to run on a timer: " + listOf(j.map(quote)) + "."));
   if (!out.length) return [];
-  if (publishing) out.push(fact("doing", draft ? "Saving the additions to their draft now. Visitors keep seeing the published site until they press Publish." : "Publishing the site with the additions now."));
+  if (publishing) out.push(fact("doing", draft ? "Saving the additions to their draft now." : "Publishing the site with the additions now."));
   return out;
 }
 
@@ -1211,7 +1211,7 @@ export function missingFacts(rec) {
 
 /** The add-on's publish starting. */
 export function addonPublishFacts(pending = [], { draft = false } = {}) {
-  const out = [fact("doing", draft ? "Saving the additions to their draft now. Visitors keep seeing the published site until they press Publish." : "Publishing the site with the additions now.")];
+  const out = [fact("doing", draft ? "Saving the additions to their draft now." : "Publishing the site with the additions now.")];
   // A PHOTOGRAPH STILL WAITING (round 6) is said apart from the addition being
   // published: the page goes live without it, and it is not on the page yet.
   for (const p of (Array.isArray(pending) ? pending : []).slice(0, 6)) {
@@ -1256,30 +1256,30 @@ export function stillFacts(doing, ms) {
   if (typeof doing !== "string" || !doing.trim() || !Number.isFinite(ms) || ms <= 0) return [];
   const secs = Math.round(ms / 1000);
   const took = secs < 90 ? secs + " seconds" : "about " + Math.round(secs / 60) + " minutes";
-  return [fact("doing", "Still on the same step, " + took + " so far: " + flat(doing).replace(/[.\s]+$/, "") + ". Nothing new is finished yet.")];
+  return [fact("doing", "Still on the same step, " + took + " so far: " + flat(doing).replace(/[.\s]+$/, "") + ".")];
 }
 
 export function startFacts({ op, layer = "", page = "", slug = "", draft = false } = {}) {
   // UNDER DRAFT-FIRST THE END IS A DRAFT, NOT A PUBLISH (2026-10-23, audit A14-6).
-  const ends = draft ? "and it is saved to their draft, which goes live when they press Publish." : "and it is published.";
+  const ends = draft ? "and it is saved to their draft." : "and it is published.";
   if (op === "edit") {
     const what = Object.hasOwn(LAYER_SAID, layer) ? LAYER_SAID[layer] : "";
     const where = typeof page === "string" && page.charAt(0) === "/" ? " on " + page : "";
     return [
-      fact("decided", "Read the request as a change to what the site already has" + (what ? ": " + what : "") + where + ". Nothing is changed yet."),
+      fact("decided", "Read the request as a change to what the site already has" + (what ? ": " + what : "") + where + "."),
       fact("next", "Work out exactly where on the site it goes and make the change; then the site is built, an automated check opens its pages in a browser, " + ends),
     ];
   }
   if (op === "addon") {
     return [
-      fact("decided", "Read the request as an addition to the site. Nothing is built yet."),
+      fact("decided", "Read the request as an addition to the site."),
       fact("next", "Work out exactly what to add and design it, then build it; then the site is built, an automated check opens its pages in a browser, " + ends),
     ];
   }
   if (op === "build") {
     return [
-      fact("decided", "Building a new site from their description" + (SLUG_RE.test(slug) ? ", at the address " + slug : "") + ". Nothing is built yet."),
-      fact("next", "Design the page, its look and anything it needs to store; write it; then the site is built and " + (draft ? "saved as their draft, which goes live when they press Publish." : "published.")),
+      fact("decided", "Building a new site from their description" + (SLUG_RE.test(slug) ? ", at the address " + slug : "") + "."),
+      fact("next", "Design the page, its look and anything it needs to store; write it; then the site is built and " + (draft ? "saved as their draft." : "published.")),
     ];
   }
   return [];
@@ -1307,7 +1307,7 @@ const DESIGN_PART_SAID = Object.freeze({
   plan: "planning the pages and how each is laid out", look: "choosing the site's look: its colours, fonts and logo", detail: "planning how the forms and buttons behave",
 });
 export function designStartFacts(agent) {
-  return typeof agent === "string" && Object.hasOwn(DESIGN_PART_SAID, agent) ? [fact("doing", "Now " + DESIGN_PART_SAID[agent] + ". Nothing is decided yet.")] : [];
+  return typeof agent === "string" && Object.hasOwn(DESIGN_PART_SAID, agent) ? [fact("doing", "Now " + DESIGN_PART_SAID[agent] + ".")] : [];
 }
 /**
  * A PAGE'S SECTIONS AS THEY ARE WRITTEN (2026-10-19, owner: "the container
@@ -1318,7 +1318,7 @@ const sectionSaid = (line) => flat(String(line || "")).replace(/\s+/g, " ").slic
 export function sectionStartFacts(lines) {
   const list = (Array.isArray(lines) ? lines : []).map(sectionSaid).filter(Boolean).slice(0, 12);
   if (!list.length) return [];
-  return [fact("doing", "Now writing the page's " + (list.length === 1 ? "one section" : list.length + " sections, all at the same time") + ": " + list.map((t, i) => (i + 1) + ") " + t).join("; ") + ". None is finished yet.")];
+  return [fact("doing", "Now writing the page's " + (list.length === 1 ? "one section" : list.length + " sections, all at the same time") + ": " + list.map((t, i) => (i + 1) + ") " + t).join("; ") + ".")];
 }
 export function sectionDoneFacts(lines, done, of) {
   const list = (Array.isArray(lines) ? lines : []).map(sectionSaid).filter(Boolean);
@@ -1359,16 +1359,16 @@ export function designPartFacts(got) {
   const g = got && typeof got === "object" ? got : {};
   const out = [];
   const brand = typeof g.brand === "string" ? flat(g.brand).slice(0, 80) : "";
-  if (brand) out.push(fact("decided", "Named the site \"" + brand + "\". Nothing is built yet."));
+  if (brand) out.push(fact("decided", "Named the site \"" + brand + "\"."));
   const pages = Array.isArray(g.pages) ? g.pages.filter((p) => p && typeof p === "object") : [];
   const names = pages.map((p) => flat(typeof p.name === "string" ? p.name : typeof p.path === "string" ? p.path : "")).filter(Boolean).slice(0, 12);
-  if (names.length) out.push(fact("designed", "Planned " + (names.length === 1 ? "one page" : names.length + " pages") + ": " + names.join(", ") + ". Nothing is built yet."));
+  if (names.length) out.push(fact("designed", "Planned " + (names.length === 1 ? "one page" : names.length + " pages") + ": " + names.join(", ") + "."));
   const shape = Array.isArray(g.shape) ? g.shape.filter((x) => x && Array.isArray(x.sections)) : [];
   const bands = shape.reduce((k, x) => k + x.sections.filter((t) => typeof t === "string" && t.trim()).length, 0);
-  if (bands) out.push(fact("designed", "Laid out the pages top to bottom: " + bands + " sections in all. Nothing is built yet."));
+  if (bands) out.push(fact("designed", "Laid out the pages top to bottom: " + bands + " sections in all."));
   const theme = typeof g.theme === "string" ? flat(g.theme).slice(0, 40) : "";
-  if (theme) out.push(fact("designed", "Chose the site's look: the \"" + theme + "\" style, its colours and fonts. Nothing is built yet."));
-  if (g.wordmark && typeof g.wordmark === "object") out.push(fact("designed", "Drew the site's name as a logo. Nothing is built yet."));
+  if (theme) out.push(fact("designed", "Chose the site's look: the \"" + theme + "\" style, its colours and fonts."));
+  if (g.wordmark && typeof g.wordmark === "object") out.push(fact("designed", "Drew the site's name as a logo."));
   return out;
 }
 
@@ -1422,7 +1422,7 @@ export function publishedFacts() {
  */
 export function talkBuildStepFacts(step) {
   const name = step && typeof step === "object" && typeof step.s === "string" ? step.s : "";
-  if (name === "container") return [fact("checked", "The site built without errors."), fact("doing", step.draft ? "Saving the site as their draft now. It goes live when they press Publish." : "Publishing the site now.")];
+  if (name === "container") return [fact("checked", "The site built without errors."), fact("doing", step.draft ? "Saving the site as their draft now." : "Publishing the site now.")];
   // THE BROWSER CHECK'S OWN RESULT (2026-10-19), as narrow as the check reaches.
   if (name === "render-checked") {
     const k = Number.isFinite(step.pages) && step.pages > 0 ? Math.floor(step.pages) : 0;
@@ -1484,20 +1484,29 @@ export const PROGRESS_VOICE =
   "  Everything checks out in a real browser on phone and desktop.\n" +
   "  Your site is saved as a draft \u2014 have a look, and press Publish whenever you're happy.\n";
 
+// THE VOICE BEFORE THE STATES (2026-10-24, progress-voice-2): the live build
+// of driftwood-and-daughters echoed the states' glosses and the facts' tails
+// ("nothing is on the pages yet", "visitors cannot see it") instead of the
+// voice, which came last. The voice now comes first and governs the wording;
+// the states still decide what may be said.
+const VOICE_FIRST = "THE VOICE COMES FIRST: it decides the wording; the states decide only what may be said.\n\n";
+
 export const PROGRESS_SYSTEM =
   "You are an AI website builder, writing one short progress update in the chat while you are still working on a customer's request. " +
-  "Your code records each step as it really happens and gives you the facts since your last update, each with an id and a state. " +
+  "Your code gives you the facts since your last update, each with an id and a state. " +
   "Tell the customer yourself what has happened and what comes next.\n\n" +
+  VOICE_FIRST +
+  PROGRESS_VOICE + "\n" +
   "THE STATES\n" +
   "decided: worked out what to do; nothing has changed yet.\n" +
-  "designed: designed; nothing has been built yet.\n" +
-  "prepared: made in the builder but not published; visitors cannot see it.\n" +
+  "designed: planned or designed, not built yet.\n" +
+  "prepared: made in the builder, not published.\n" +
   "applied: in effect in the site's database.\n" +
   "doing: happening now; not finished.\n" +
   "next: planned; not started.\n" +
   "notdone: could not be made; the final message will say why.\n\n" +
   "RULES\n" +
-  "- Speak in the first person, as THE VOICE below says: next facts as what you will do, doing facts as what you are doing now, the rest as what you have done or could not do.\n" +
+  "- Speak in the first person, as THE VOICE above says: next facts as what you will do, doing facts as what you are doing now, the rest as what you have done or could not do.\n" +
   "- Describe each fact as its state says, and say nothing the facts do not: no other steps, results, times or problems.\n" +
   "- What they asked for is not what was made: describe a page or anything else only with what the facts say it has, never with details from their request that no fact states, such as a photograph.\n" +
   "- Anything listed as not done stays not done: never say or suggest that it is on the site or was done otherwise. Say it once, where it is news; never repeat it on later updates.\n" +
@@ -1506,8 +1515,7 @@ export const PROGRESS_SYSTEM =
   "- The request's other parts are separate work: never describe them as this update's, or as done unless their state says finished.\n" +
   "- Describe their site in their own words; never mention steps, tools, files, code, models, ids or states.\n" +
   "- Write in the language of their request. Keep it short, usually a sentence or two, with no greeting, sign-off, emoji or symbols unless asked.\n" +
-  "- In says, list every fact's id with the state you described it as.\n\n" +
-  PROGRESS_VOICE;
+  "- In says, list every fact's id with the state you described it as.\n";
 
 // ── THE CONVERSATIONAL UPDATE (talk, 2026-10-13) ────────────────────────────
 //
@@ -1548,10 +1556,12 @@ export const TALK_SYSTEM =
   "You are an AI website builder talking with a customer in the chat while you work on their request. " +
   "Your code records what really happens and gives you the facts since your last update, each with an id and a state; some carry the reason recorded for a decision. " +
   "Write the next update yourself.\n\n" +
+  VOICE_FIRST +
+  PROGRESS_VOICE + "\n" +
   "THE STATES\n" +
   "decided: worked out what to do; nothing has changed yet.\n" +
-  "designed: designed; nothing has been built yet.\n" +
-  "prepared: made in the builder but not published; visitors cannot see it.\n" +
+  "designed: planned or designed, not built yet.\n" +
+  "prepared: made in the builder, not published.\n" +
   "applied: in effect in the site's database.\n" +
   "checked: a check ran and this is its result; it covers only what its text says.\n" +
   "published: the new version was put live at the site's address.\n" +
@@ -1559,7 +1569,7 @@ export const TALK_SYSTEM =
   "next: planned; not started.\n" +
   "notdone: could not be done; the final message will say why.\n\n" +
   "RULES\n" +
-  "- Speak in the first person, as THE VOICE below says. If you have not written an update yet, begin with how you will go about it, from the decided and next facts; later, when the facts change the plan, say how it changed.\n" +
+  "- Speak in the first person, as THE VOICE above says. If you have not written an update yet, begin with how you will go about it, from the decided and next facts; later, when the facts change the plan, say how it changed.\n" +
   "- Say only what the facts say, each as its state says: next facts as what you will do, doing facts as what you are doing now, the rest as what you have done, found or could not do.\n" +
   "- Say you checked something only for a checked fact, and only what that check covers: a site that builds has not been looked at, an automated check is not a visual review, and something existing does not mean what they asked for is met.\n" +
   "- Say something is live only for a published fact, and never that their whole request is finished: the final message says that.\n" +
@@ -1569,8 +1579,7 @@ export const TALK_SYSTEM =
   "- Say what matters to them, in their words; never mention files, tools, models, ids or states, and never repeat an earlier update.\n" +
   "- Be as long as the news needs and no longer. Write in the language of their request, with no greeting, sign-off, emoji or symbols unless asked.\n" +
   "- explain is optional: a short account of your approach and the decisions so far, with reasons only from recorded reasons. Leave it empty when there is nothing new; it is never a stream of thoughts.\n" +
-  "- In says, list every fact's id with the state you described it as.\n\n" +
-  PROGRESS_VOICE;
+  "- In says, list every fact's id with the state you described it as.\n";
 
 /** The request one conversational call sends: every fact of the batch, whole, each recorded reason beside its fact. */
 export function talkRequest({ facts, context = "", model, fix = null }) {
@@ -1578,6 +1587,7 @@ export function talkRequest({ facts, context = "", model, fix = null }) {
   if (fix && fix.missing && fix.missing.length) told.push("YOUR LAST UPDATE LEFT OUT " + fix.missing.join(", ") + ".");
   if (fix && fix.wrong && fix.wrong.length) told.push("YOUR LAST UPDATE DESCRIBED " + fix.wrong.map((w) => w.id + " as " + (w.as || "nothing") + ", but its state is " + w.state).join("; ") + ".");
   if (fix && fix.ids) told.push("YOUR LAST UPDATE PUT A FACT'S ID IN ITS TEXT OR EXPLANATION.");
+  if (fix && fix.tail) told.push(TAIL_TOLD);
   const body = (context ? context + "\n\n" : "") +
     "WHAT HAS HAPPENED SINCE (describe each fact in its state; list each id with that state in says):\n" +
     facts.map((f) => "[" + f.id + "] (" + f.state + ") " + f.text + (f.why ? " — recorded reason: " + f.why : "")).join("\n") +
@@ -1625,6 +1635,8 @@ export const TASK_TOOL = {
 export const TASK_SYSTEM =
   "You are an AI website builder. For each task in a customer's request, write the short line you would show them about it, once for each state it can be in; " +
   "your code shows the line for the state the task is really in.\n\n" +
+  VOICE_FIRST +
+  PROGRESS_VOICE + "\n" +
   "THE STATES\n" +
   "planned: still to be done; say you will do it.\n" +
   "doing: happening now; say you are doing it.\n" +
@@ -1635,11 +1647,10 @@ export const TASK_SYSTEM =
   "notdone: it was not done; say so.\n" +
   "Give no reasons: the final message gives them.\n\n" +
   "RULES\n" +
-  "- Speak in the first person, as THE VOICE below says; the lines of different tasks, the titles and the opening never all begin the same way.\n" +
+  "- Speak in the first person, as THE VOICE above says; the lines of different tasks, the titles and the opening never all begin the same way.\n" +
   "- Say what the task is in your own words; never hand their words back as an instruction.\n" +
   "- Never say a change is published or live, and never mention steps, tools, files, code, models or ids.\n" +
-  "- Write in the language of their request. Keep each line short, usually one sentence, with no greeting, emoji or symbols unless asked.\n\n" +
-  PROGRESS_VOICE;
+  "- Write in the language of their request. Keep each line short, usually one sentence, with no greeting, emoji or symbols unless asked.\n";
 
 /** The request one task-lines call sends: every task, each with its id and the customer's words for it. `fix` names what a first answer got wrong. */
 export function taskRequest({ tasks, context = "", model, fix = null, split = 0 }) {
@@ -1914,12 +1925,40 @@ export function waitedFor(rec, request) {
   return own ? needsWords(request, own).map((x) => x.words) : [];
 }
 
+// ── NO REPEATED TAILS (2026-10-24, progress-voice-2) ───────────────────────
+//
+// THE VOICE says "no repeated tails"; the live build of 2026-10-24 ended line
+// after line with the same status clause. This is a check on the SHAPE of the
+// lines, not on any phrase: a line whose last clause (three words or more,
+// read without case or punctuation) is the last clause of an earlier line
+// repeats a tail. `writeProgress` asks once more when it does; the second
+// answer is kept even if it repeats, so a line that passed every truth check
+// is never lost to wording.
+const TAIL_TOLD = "YOUR LAST UPDATE ENDED WITH THE SAME CLAUSE AS AN EARLIER UPDATE: end on what is new in this one.";
+export function lastClause(line) {
+  if (typeof line !== "string") return "";
+  const parts = line.toLowerCase().split(/[.;:,!?\u2014\u2013]+|\s-\s/).map((x) => x.replace(/[^\p{L}\p{N}\s']+/gu, " ").replace(/\s+/g, " ").trim()).filter(Boolean);
+  const last = parts.length ? parts[parts.length - 1] : "";
+  return last.split(" ").length >= 3 ? last : "";
+}
+/** Whether `text` ends on the same clause as any of the `earlier` lines. */
+export function repeatsTail(text, earlier = []) {
+  const t = lastClause(text);
+  return !!t && (Array.isArray(earlier) ? earlier : []).some((l) => lastClause(l) === t);
+}
+/** For a sequence of lines, the index of every line whose tail repeats an earlier line's. */
+export function repeatedTails(lines) {
+  const list = Array.isArray(lines) ? lines : [];
+  return list.map((l, i) => (repeatsTail(l, list.slice(0, i)) ? i : -1)).filter((i) => i >= 0);
+}
+
 /** The request one progress call sends: every fact of the batch, whole. `fix` names what a first answer got wrong. */
 export function progressRequest({ facts, context = "", model, fix = null }) {
   const told = [];
   if (fix && fix.missing && fix.missing.length) told.push("YOUR LAST UPDATE LEFT OUT " + fix.missing.join(", ") + ".");
   if (fix && fix.wrong && fix.wrong.length) told.push("YOUR LAST UPDATE DESCRIBED " + fix.wrong.map((w) => w.id + " as " + (w.as || "nothing") + ", but its state is " + w.state).join("; ") + ".");
   if (fix && fix.ids) told.push("YOUR LAST UPDATE PUT A FACT'S ID IN ITS TEXT.");
+  if (fix && fix.tail) told.push(TAIL_TOLD);
   const body = (context ? context + "\n\n" : "") +
     "WHAT HAS HAPPENED SINCE (describe each fact in its state; list each id with that state in says):\n" +
     facts.map((f) => "[" + f.id + "] (" + f.state + ") " + f.text).join("\n") +
@@ -2007,7 +2046,7 @@ export function usageLogLine({ kind, id, ok, why = "", model, milestones = 0, fa
  * two calls: a first answer that left a fact out, misstated one, or put an id
  * in its words is asked once more, told which.
  */
-export async function writeProgress(deps, { facts, context = "", model, deadlineMs = PROGRESS_DEADLINE_MS, now = () => Date.now(), talk = false } = {}) {
+export async function writeProgress(deps, { facts, context = "", model, deadlineMs = PROGRESS_DEADLINE_MS, now = () => Date.now(), talk = false, earlier = [] } = {}) {
   const usage = [];
   if (!Array.isArray(facts) || !facts.length) return { ok: false, why: "no-facts", usage, attempts: 0 };
   if (!deps || typeof deps.send !== "function") return { ok: false, why: "send", usage, attempts: 0 };
@@ -2033,6 +2072,7 @@ export async function writeProgress(deps, { facts, context = "", model, deadline
     }
     usage.push(progressUsage(reply, model));
     const read = readProgress(reply, facts, { talk });
+    if (read.ok && attempts < 2 && repeatsTail(read.text, earlier)) { why = "tail"; fix = { missing: [], wrong: [], ids: false, tail: true }; continue; }
     if (read.ok) return { ok: true, text: read.text, ...(read.explain ? { explain: read.explain } : {}), usage, attempts };
     why = read.why;
     if (why === "unreadable" || why === "cut") break;
