@@ -546,7 +546,10 @@ test("the step imports nothing from worker.js and carries none of the build's to
     // of the engine's row-by-row record of each table's starter rows, shared
     // with the reply's facts so the note and the reply cannot tell two
     // stories. Numbers and row places; no path's wording.
-    assert.ok(["./site-plan.mjs", "./clarify.mjs", "./input-budget.mjs", "./site-reply.mjs", "./seed-rows.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs", "./site-requirements.mjs", "./site-files.mjs", "./site-images.mjs", "./site-rows.mjs", "./site-text.mjs", "../site-access.mjs", "../site-schema.mjs", "../site-apis.mjs", "../site-api-shape.mjs", "../site-rls.mjs"].includes(from),
+    // `./retry-reason.mjs` (2026-10-24, round 2 of the retry rule) is a LEAF
+    // with no imports: the one way any step asks a model once more with the
+    // reason its answer failed. No path's tool or wording.
+    assert.ok(["./retry-reason.mjs", "./site-plan.mjs", "./clarify.mjs", "./input-budget.mjs", "./site-reply.mjs", "./seed-rows.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs", "./site-requirements.mjs", "./site-files.mjs", "./site-images.mjs", "./site-rows.mjs", "./site-text.mjs", "../site-access.mjs", "../site-schema.mjs", "../site-apis.mjs", "../site-api-shape.mjs", "../site-rls.mjs"].includes(from),
       "the add step reaches into a module the two paths do not share: " + from);
     assert.notEqual(from, "./site-repair.mjs", "the add step imports the BUILD's repair — the addon path triggering the build path");
   }

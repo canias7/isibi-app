@@ -993,7 +993,11 @@ test("the route reads `remove` and hands it to the merge", () => {
     }
     calls.push(w.slice(i + 1, end).split(",").map((s) => s.trim()));
   }
-  assert.equal(calls.length, 2, "the route's merge call sites moved: " + calls.length);
+  // THREE SINCE 2026-10-24 (round 2 of the retry rule): the writer's answer is
+  // merged once ahead (`aWriterCheck`) to judge whether it would end `rewrote`
+  // or `not-landed` and must be asked again — with the same removals and the
+  // same named destinations as the merge that ships.
+  assert.equal(calls.length, 3, "the route's merge call sites moved: " + calls.length);
   for (const args of calls) {
     assert.equal(args.length, 4, "a merge call carries " + args.length + " arguments: " + JSON.stringify(args));
     assert.equal(args[2], "aRemove", "the merge is called without the removals: " + JSON.stringify(args));

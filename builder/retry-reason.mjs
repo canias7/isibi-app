@@ -98,7 +98,7 @@ export async function withReasonRetry({ step, deps, run, reasonOf, usageKey = "u
   const calls = [];
   const send = deps && deps.send;
   const first = await run({ ...deps, send: async (req) => { const r = await send(req); calls.push({ req, reply: r }); return r; } });
-  const why = calls.length === 1 && first ? reasonOf(first) : null;
+  const why = calls.length === 1 && first ? await reasonOf(first) : null;
   if (!why) return first;
   const { req, reply } = calls[0];
   let sent = false;
@@ -116,8 +116,39 @@ export async function withReasonRetry({ step, deps, run, reasonOf, usageKey = "u
     markRetry(mark, step, why.code, false);
     return { ...first, retryReason: { step, reason: why.code, ok: false } };
   }
-  const ok = !reasonOf(second);
+  const ok = !(await reasonOf(second));
   markRetry(mark, step, why.code, ok);
-  const usage = addUsages(first[usageKey] || null, (second && second[usageKey]) || null);
+  // PAY ONLY FOR WHAT WORKED (owner, 2026-10-24, round 2): a step that still
+  // ends refused after its retry carries the FIRST call's usage only — exactly
+  // what it charged before retries existed — and the retry's own tokens ride
+  // apart (`retryUsage`, for the record, ours). Only a retry that passed its
+  // check AND ended in a step that succeeded is billed as both calls.
+  const second_ = (second && second[usageKey]) || null;
+  if (!ok || second.ok === false) return { ...second, [usageKey]: first[usageKey] || null, retryUsage: second_, retryReason: { step, reason: why.code, ok } };
+  const usage = addUsages(first[usageKey] || null, second_);
   return { ...second, [usageKey]: usage, retryReason: { step, reason: why.code, ok } };
+}
+
+/**
+ * A model call shaped `(keys, request, budget)` that remembers its last
+ * request and answer (`rec.last`), and `rec.again(reason)`: a call of the same
+ * shape that sends, in place of whatever request it is handed, the remembered
+ * request extended by `retryRequest` — the SAME model and effort by
+ * construction. For writers whose call is injected deep inside a pipeline
+ * (the page writer, the add-on writer, the build's pages call).
+ */
+export function recordCall(call) {
+  const rec = { last: null };
+  rec.call = async (keys, req, budget) => {
+    const reply = await call(keys, req, budget);
+    rec.last = { req, reply };
+    return reply;
+  };
+  rec.again = (reason, via = call) => async (keys, req, budget) => {
+    const sent = rec.last ? retryRequest(rec.last.req, rec.last.reply, reason) : req;
+    const reply = await via(keys, sent, budget);
+    rec.last = { req: sent, reply };
+    return reply;
+  };
+  return rec;
 }

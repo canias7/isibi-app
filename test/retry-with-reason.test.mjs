@@ -67,7 +67,9 @@ test("withReasonRetry runs a step at most twice, marks retry_reason {step, reaso
   assert.equal(n, 2, "not exactly one retry");
   assert.deepEqual(marks, [{ step: "s", reason: "c", ok: false }]);
   assert.deepEqual(out.retryReason, { step: "s", reason: "c", ok: false });
-  assert.deepEqual(out.usage, { in: 2 });
+  // A STEP STILL REFUSED AFTER ITS RETRY CHARGES ITS FIRST CALL ONLY (round 2): the retry rides apart.
+  assert.deepEqual(out.usage, { in: 1 });
+  assert.deepEqual(out.retryUsage, { in: 1 });
   let m = 0;
   const two = async (d) => { await d.send({}); await d.send({}); return { ok: false }; };
   await withReasonRetry({ step: "s", deps: { send: async () => { m++; return {}; } }, run: two, reasonOf: () => ({ code: "c", text: "t" }) });
@@ -300,6 +302,7 @@ test("ROUTER: a retry that still misquotes is answered as it came (the routes re
   assert.equal(bad.sent.length, 2);
   assert.equal(heldUnread(MSG, bad.r.alsoAsked), true);
   assert.deepEqual(bad.r.retryReason, { step: "route", reason: "held-unread", ok: false });
+  assert.equal(bad.r.usage.in, 900, "a routing retry that still misquotes was billed (round 2: first call only)");
   const good = await route([{ ...LOOK, alsoAsked: "Also add a gallery page." }]);
   assert.equal(good.sent.length, 1);
   assert.equal(good.r.retryReason, undefined);

@@ -50,6 +50,7 @@ import { qrList } from "./site-qr-list.mjs";
 import { CHART_USAGE } from "./chart-usage.mjs";
 import { normalizePayment } from "../site-payments.mjs";
 import { withQuestion, askOf } from "./clarify.mjs";
+import { retryRequest } from "./retry-reason.mjs";
 import { deviceWishesNote } from "./device-scope.mjs";
 
 /**
@@ -4872,6 +4873,23 @@ export function pagesRequest({ brief, spec, brand, attachments, model, priorPage
  * (the container has its own) is still a drop-in and nothing here has to know
  * which one it got.
  */
+const PAGES_SENT = new WeakMap();
+
+/**
+ * THE SAME PAGE WRITER ASKED ONCE MORE WITH A REASON (round 2, 2026-10-24):
+ * the last request sent through `call` (same model, same effort, same tools)
+ * with the writer's own reply and the reason appended (`retryRequest`), sent
+ * through `via`, and read exactly as the first (it IS `generateSitePages`,
+ * with the same arguments). `null` when nothing was sent through `call`.
+ */
+export async function pagesAgain(call, reason, via) {
+  const sent = typeof call === "function" ? PAGES_SENT.get(call) : null;
+  if (!sent || typeof via !== "function") return null;
+  const args = sent.args.slice();
+  args[10] = (k, _req, b) => via(k, retryRequest(sent.req, sent.reply, reason), b);
+  return generateSitePages(...args);
+}
+
 export async function generateSitePages(keys, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null, call = callBuilderModel, kind = "", keep = [], { ownParts = false, only = null, ask: canAsk = false } = {}) {
   // One definition, shared with the eval harness — see pagesRequest. Restating
   // it here would mean the harness tunes against a different request from the
@@ -4886,6 +4904,10 @@ export async function generateSitePages(keys, brief, spec, brand, attachments, m
   // argument rather than set on `req`, which is shared with the eval AND is what
   // gets stringified onto the wire.
   const j = await call(keys, req, budget);
+  // WHAT WAS SENT AND WHAT CAME BACK, kept by the caller it went through (round
+  // 2 of the retry rule, 2026-10-24) so the build can ask this writer once more
+  // with the reason its answer failed (`pagesAgain`).
+  if (typeof call === "function") PAGES_SENT.set(call, { req, reply: j, args: [keys, brief, spec, brand, attachments, model, priorPages, mode, target, budget, call, kind, keep, { ownParts, only, ask: canAsk }] });
   const used = { usage: usageOf(j, req.model) };
   // A tool_use block cut off at max_tokens carries half-written JSON, which parses
   // into a page whose last file is truncated. Treat it as a failed generation

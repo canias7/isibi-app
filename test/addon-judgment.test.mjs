@@ -272,10 +272,11 @@ test("JUDGE 6 — the judgment's runner: a throw fails at once and a cut-off ans
   // A THROW FAILS AT ONCE, as a designer's call does…
   const down = await run([new Error("down")]);
   assert.deepEqual([down.sent.length, down.j.failed, !!down.j.incomplete], [1, true, false]);
-  // …AND A CUT-OFF ANSWER IS AN UNFINISHED ONE, on either call, never asked
-  // again: the same budget would cut it the same way.
-  const cut = await run([reply({ verdicts: [] }, { stop_reason: "max_tokens" })]);
-  assert.deepEqual([cut.sent.length, cut.j.failed, cut.j.incomplete, cut.j.error.truncated, cut.j.error.incomplete, cut.j.usage.out], [1, true, true, true, true, 3]);
+  // …AND A CUT-OFF FIRST ANSWER IS ASKED ONCE MORE WITH THAT FACT (round 2 of
+  // the retry rule, 2026-10-24); cut again, it is the unfinished one it was,
+  // billed as its first call alone. A cut-off SECOND call is not asked again.
+  const cut = await run([reply({ verdicts: [] }, { stop_reason: "max_tokens" }), reply({ verdicts: [] }, { stop_reason: "max_tokens" })]);
+  assert.deepEqual([cut.sent.length, cut.j.failed, cut.j.incomplete, cut.j.error.truncated, cut.j.error.incomplete, cut.j.usage.out], [2, true, true, true, true, 3]);
   const cutLate = await run([reply({ verdicts: [A] }), reply({ verdicts: [A, B] }, { stop_reason: "max_tokens" }), reply({ verdicts: [A, B] })]);
   assert.deepEqual([cutLate.sent.length, cutLate.j.failed, cutLate.j.incomplete], [2, true, true]);
   // AN ENTRY IT CANNOT NAME CANNOT GET A VERDICT: unfinished, and no call.
@@ -559,7 +560,8 @@ test("JUDGE 13 — a judgment that fails stops the addition before anything is a
   const cut = await signupAsk("fw-judge-cut", SIGNUP, [STORE, EMAIL], { judge: "cut" });
   assert.deepEqual([cut.status, cut.body.error, cut.body.cost, cut.body.incomplete, cut.charges.length], [503, "send", 0, true, 0]);
   assert.equal(cut.body.msg, "I couldn't finish checking that addition against what you asked, so I stopped before changing anything — this is on us, and nothing was charged.");
-  assert.equal(judged(cut).length, 1, "a cut-off answer was asked again");
+  // CUT OFF TWICE (round 2 of the retry rule): asked once more with that fact, then the same stop, free.
+  assert.equal(judged(cut).length, 2, "a cut-off answer was not asked exactly once more");
   assert.ok(!cut.sql.some((q) => /CREATE TABLE/i.test(JSON.stringify(q))), "a table was applied after the judgment was cut off");
   assert.ok(!down.sql.some((q) => /CREATE TABLE/i.test(JSON.stringify(q))), "a table was applied after the judgment failed");
   assert.equal(down.compiles.length, 0, "a page was compiled after the judgment failed");

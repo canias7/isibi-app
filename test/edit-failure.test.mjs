@@ -396,7 +396,8 @@ test("when every step is refused, each says why — the steps' own sentences, on
   for (const p of r.body.partial) assert.equal(p.unchanged, true, "a refused step is not recorded as having written nothing");
   // THE PAGE RUNG REALLY RAN TWICE — the premise of this case — with the
   // picture rung between; without it the dedupe below would be vacuous.
-  assert.deepEqual(r.seen.calls.filter((t) => t === T.tweak || t === T.pages), [T.tweak, T.pages, T.tweak, T.pages],
+  // EACH PAGE WRITER ASKED ONCE MORE WITH THE no-change REASON (round 2 of the retry rule).
+  assert.deepEqual(r.seen.calls.filter((t) => t === T.tweak || t === T.pages), [T.tweak, T.pages, T.pages, T.tweak, T.pages, T.pages],
     "this case's premise is two page operations, and they did not both run: " + JSON.stringify(r.seen.calls));
   assert.equal(snapshot(store), before, "the store moved on a message whose every step was refused");
   assert.equal(r.compiles, 0);
@@ -458,7 +459,8 @@ test("a look lane that could not express the change is said, not climbed", async
   const r = await edit(slug, store, {
     answers: { [T.pick]: { fields: ["css"] }, [T.lane]: {} },
   }, { layer: "look", instruction: "Make the site feel more premium." });
-  assertExplained(r, before, store, { key: "look/no-change", facts: {}, calls: [T.pick, T.lane] });
+  // EVERY LANE DECLINED: ASKED ONCE MORE WITH THAT FACT (round 2) before it is said.
+  assertExplained(r, before, store, { key: "look/no-change", facts: {}, calls: [T.pick, T.lane, T.lane] });
 });
 
 test("a page writer that saw the page and changed nothing is said — the reversed 2026-09-20 control", async () => {
@@ -476,7 +478,8 @@ test("a page writer that saw the page and changed nothing is said — the revers
       [T.pages]: () => ({ pages: [{ path: "src/routes/index.tsx", source: home }] }),
     },
   }, { layer: "page", page: "/", instruction: "Make the opening hours block feel friendlier." });
-  assertExplained(r, before, store, { key: "page/no-change", facts: { page: "/" }, calls: [T.tweak, T.pages] });
+  // THE WRITER ASKED ONCE MORE WITH THE no-change REASON (round 2) before it is said.
+  assertExplained(r, before, store, { key: "page/no-change", facts: { page: "/" }, calls: [T.tweak, T.pages, T.pages] });
 });
 
 test("a failure of ours is said as ours, never climbed: a missing model key and an unreadable store", async () => {

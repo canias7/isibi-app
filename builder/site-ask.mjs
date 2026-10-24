@@ -3494,7 +3494,12 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
       decision: routeDecision(trace.reasons, trace.input),
     };
   }
-  return { ...routed, usage: firstUsage ? addUsages(firstUsage, askUsage(reply, model)) : askUsage(reply, model), ...(retryReason ? { retryReason } : {}), decision: routeDecision(trace.reasons, trace.input) };
+  // PAY ONLY FOR WHAT WORKED (round 2): a retry that still misquotes is
+  // refused by the routes as before, at the first call's routing cost.
+  const usage = !firstUsage ? askUsage(reply, model)
+    : retryReason && retryReason.ok ? addUsages(firstUsage, askUsage(reply, model))
+    : firstUsage;
+  return { ...routed, usage, ...(retryReason ? { retryReason } : {}), decision: routeDecision(trace.reasons, trace.input) };
 }
 
 /** The reason told back when a held-back part is not in the message (2026-10-24). */

@@ -1,4 +1,4 @@
-import { withReasonRetry } from "./retry-reason.mjs";
+import { withReasonRetry, retryRequest } from "./retry-reason.mjs";
 // THE EDIT PATH. ITS OWN PATH, NOT THE BUILD PATH WITH A FLAG ON IT.
 //
 // Owner, 2026-08-29: "it should be 2 separated path tho, idk why you are mixing
@@ -2052,16 +2052,68 @@ export function laneUsage(reply, model) {
 export async function pickLanes(deps, args = {}) {
   // ONE RETRY WITH THE CHECK'S OWN REASON (owner, 2026-10-24): an ordinary
   // pick that named no lane, asked nothing and put nothing elsewhere is sent
-  // once more, same model and effort, told so. The door is not retried: an
-  // empty list of extra work there is a legitimate answer.
-  if (routedDoor(args && args.routed)) return pickLanesOnce(deps, args);
+  // once more, same model and effort, told so. The door is not retried for
+  // that: an empty list of extra work there is a legitimate answer.
+  //
+  // ROUND 2 (2026-10-24): AND ON EITHER, AN ANSWER THE ROUTE'S SCOPE READER
+  // WOULD REFUSE (`pickScopeReason`) — a scoped change whose page is not a
+  // path or whose words are not the customer's (`picker/scope-unread`), a
+  // picked lane a scoped answer never placed, or an addition beside other
+  // work with no scopes to separate it (`picker/addition-mixed`).
+  const door = routedDoor(args && args.routed);
   return withReasonRetry({
     step: "pick_lanes", deps, mark: deps && deps.mark,
     run: (d) => pickLanesOnce(d, args),
-    reasonOf: (r) => (r && !r.failed && !r.ask && Array.isArray(r.fields) && !r.fields.length && !(r.elsewhere && r.elsewhere.length) && !r.elsewhereUnread
-      ? { code: "no-lane", text: "Your answer named no lane, so nothing would change. Read the request again and name every lane that makes a change it asks for (use the lane names offered exactly). If one detail really is missing, ask your one question instead." }
-      : null),
+    reasonOf: async (r) => {
+      if (!door && r && !r.failed && !r.ask && Array.isArray(r.fields) && !r.fields.length && !(r.elsewhere && r.elsewhere.length) && !r.elsewhereUnread) {
+        return { code: "no-lane", text: "Your answer named no lane, so nothing would change. Read the request again and name every lane that makes a change it asks for (use the lane names offered exactly). If one detail really is missing, ask your one question instead." };
+      }
+      return pickScopeReason(r, { door, isAddition: deps && deps.isAddition });
+    },
   });
+}
+
+/**
+ * THE ROUTE'S OWN SCOPE CHECKS, ASKED OF A PICK BEFORE ANYTHING RUNS (round 2,
+ * 2026-10-24) — `null`, or `{ code, text }` naming the check in plain words.
+ *
+ *   `scope-unread`   — a scoped answer with a change whose page is not a path
+ *                      or whose words are not found word for word in the
+ *                      message (`readScopes`' `invalid`), or a picked lane it
+ *                      never placed (the route withholds both).
+ *   `addition-mixed` — an answer with no scopes at all that names an addition
+ *                      (`isAddition(field)`, the caller's knowledge of the
+ *                      site, or a new page) beside other work, or alone on the
+ *                      removal door: the route cannot separate its words.
+ *
+ * A removal lane is never counted unplaced: the route reads removals by name.
+ * Async because `isAddition` may read the site's stored look.
+ */
+export async function pickScopeReason(r, { door = null, isAddition = null } = {}) {
+  if (!r || r.failed || r.ask || !Array.isArray(r.fields) || !r.fields.length) return null;
+  const removing = (r.removes && Array.isArray(r.removes.remove)) ? r.removes.remove : [];
+  if (r.scoped) {
+    const ops = Array.isArray(r.scopes) ? r.scopes : [];
+    const bad = ops.filter((op) => op && op.invalid);
+    const unplaced = r.fields.filter((f) => !removing.includes(f) && !ops.some((op) => op && op.part === f));
+    if (!bad.length && !unplaced.length) return null;
+    const said = [
+      ...bad.map((op) => op.invalid === "page"
+        ? "the change for " + op.part + " names a page that is not a path (write it like \"/visit\", or leave it out for a site-wide change)"
+        : "the words for " + op.part + " are not found word for word in the customer's message"),
+      ...unplaced.map((f) => "the lane " + f + " was picked but no scope places it"),
+    ];
+    return { code: "scope-unread", text: "Your answer could not be used as it stands, so nothing ran: " + said.join("; ") + ". Answer again with the same lanes, giving every picked lane a scope whose words are copied exactly from the message and whose page, if any, is a path." };
+  }
+  const adds = [];
+  for (const f of r.fields) {
+    if (removing.includes(f)) continue;
+    let add = f === "pages" && !!(r.page && r.page.layer === "addon");
+    if (!add && typeof isAddition === "function") { try { add = (await isAddition(f)) === true; } catch { add = false; } }
+    if (add) adds.push(f);
+  }
+  if (!adds.length || (adds.length === r.fields.length && !door)) return null;
+  return { code: "addition-mixed", text: "Your answer could not be used as it stands, so nothing ran: it names something new to add (" + adds.join(", ") + ") beside other work, with no scopes to say which of the customer's words ask for each. Answer again with the same lanes and a scope for every one, each with the customer's own words for that change copied exactly from the message." };
 }
 
 async function pickLanesOnce(deps, { message, fields = LANE_FIELDS, current = "", model = LANE_MODEL, routed = null, answers = 0 } = {}) {
@@ -2414,12 +2466,23 @@ export async function runLane(deps, args) {
 }
 
 async function runLaneOnce(deps, { field, message, value, model, note = "", ask = true }) {
+  const req = editRequest({ field, message, value, model, note, ask });
   let reply;
   try {
-    reply = await deps.send(editRequest({ field, message, value, model, note, ask }));
+    reply = await deps.send(req);
   } catch (e) {
     return { field, value: undefined, usage: null, failed: true, error: e };
   }
+  const out = readLaneReply(reply, { field, model, ask });
+  // WHAT WAS SENT AND WHAT CAME BACK, kept beside the answer (round 2,
+  // 2026-10-24) so a look step whose every lane declined can ask each again
+  // with that fact (`reaskLane`) — never on the answer itself, which is stored.
+  LANE_SENT.set(out, { req, reply });
+  return out;
+}
+
+/** One lane answer read: the value, a question, a cut-off, or no tool answer at all. */
+function readLaneReply(reply, { field, model, ask = true }) {
   if (reply && reply.stop_reason === "max_tokens") {
     const e = new Error("edit truncated at max_tokens");
     e.truncated = true;
@@ -2433,4 +2496,28 @@ async function runLaneOnce(deps, { field, message, value, model, note = "", ask 
   // (`null`, the ordinary shape): only the first is retried with its reason.
   const used = (reply && Array.isArray(reply.content) ? reply.content : []).some((b) => b && b.type === "tool_use");
   return { field, value: readLaneAnswer(reply, field), usage: laneUsage(reply, model), failed: false, ...(used ? {} : { unread: true }) };
+}
+
+const LANE_SENT = new WeakMap();
+
+/** The fact told back when every lane of a look step declined (round 2, 2026-10-24). */
+export const LOOK_DECLINED_REASON = "Nothing was changed: every part picked for this request answered no change, including this one, so the customer's request would do nothing at all. Read the request again: if it asks for a change to this field, answer with the whole new value; if it really asks nothing of this field, answer no change again.";
+
+/**
+ * ONE LANE ASKED ONCE MORE WITH A REASON (round 2, 2026-10-24): the SAME
+ * request it was sent (same model, same effort) with its own answer and the
+ * reason appended (`retryRequest`). A lane answer this module did not make
+ * (replayed from a job's record) is asked afresh with the reason as its note —
+ * the same model and effort, since the lane's arguments are the caller's.
+ */
+export async function reaskLane(deps, args, ran, reason) {
+  const sent = ran && typeof ran === "object" ? LANE_SENT.get(ran) : null;
+  if (!sent) return runLaneOnce(deps, { ...args, note: [args && args.note, reason].filter(Boolean).join("\n\n") });
+  let reply;
+  try {
+    reply = await deps.send(retryRequest(sent.req, sent.reply, reason));
+  } catch (e) {
+    return { field: args.field, value: undefined, usage: null, failed: true, error: e };
+  }
+  return readLaneReply(reply, { field: args.field, model: args.model, ask: args.ask !== false });
 }

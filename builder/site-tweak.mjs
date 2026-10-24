@@ -842,7 +842,10 @@ export async function runTweak({ instruction, path, source, send, rules, heading
   if (ask2) { markRetry(mark, "tweak", first.reason, false); return { ok: false, reason: "ask", ask: ask2, usage, retried: true, retryReason: { step: "tweak", reason: first.reason, ok: false } }; }
   const second = readTweak(again, { source, inPart, parse });
   markRetry(mark, "tweak", first.reason, second.ok === true);
-  return { ...second, usage, retried: true, retryReason: { step: "tweak", reason: first.reason, ok: second.ok === true } };
+  // PAY ONLY FOR WHAT WORKED (round 2): a tweak still refused after its retry
+  // carries the first call's usage only, as before retries; the retry's rides apart.
+  if (second.ok !== true) return { ...second, usage: tweakUsage(reply, model), retryUsage: tweakUsage(again, model), retried: true, retryReason: { step: "tweak", reason: first.reason, ok: false } };
+  return { ...second, usage, retried: true, retryReason: { step: "tweak", reason: first.reason, ok: true } };
 }
 
 /**
