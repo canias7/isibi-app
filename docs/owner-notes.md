@@ -7,6 +7,7 @@
 - Guard: a part that comes back too big again may split once more; after that it stops and says why. Changes that smaller parts cannot fix (a change of what kind of site it is, a site without its saved design) stop as before. The full rewrite is never offered.
 - Money: nothing done is redone; the re-planning call on a request is free, as is the routing of the parts it makes; each part's own work is charged as usual. One gap for your decision: on a single change sent on its own, the page's second routing call is charged as an ordinary message (1–2 credits).
 - Tests: 8 new with supplied answers; 7 fail on main (the 8th is a control). Record: `docs/history/2026-10-24-auto-split-edits.md`.
+- Also closed the gap left by "no questions after a charge": once any earlier part of a request has been charged, every later part (split parts included) asks you nothing and goes ahead with a stated default. This branch now includes `no-ask-after-charge`, so the two must be combined together.
 
 ## 2026-10-24 — no questions after a charge (branch `no-ask-after-charge`, not merged, not deployed)
 

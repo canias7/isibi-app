@@ -2314,6 +2314,11 @@ export function partOf(rec, n) {
     // ROUTED AGAIN TO SPLIT ITSELF (2026-10-24): the step's reason, so the
     // router is asked for parts it can do — and, the words already routed and
     // paid for, not charged again.
+    // ALREADY CHARGED (2026-10-24, the owner: no question after a charge): an
+    // earlier job of this request — any part's, routing or run — ended with a
+    // charge on its row (`chargedOf`), so this part's steps offer the customer
+    // no question and state their default (`clarifyTransport`'s `charged`).
+    ...(rec.parts.some((q) => Array.isArray(q.jobs) && q.jobs.some((j) => j && j.end && Number(j.end.cost) > 0)) ? { charged: true } : {}),
     ...(me && plain(me.splitAsk) ? { split: { why: String(me.splitAsk.why || "").slice(0, 20), ...(me.splitAsk.reason ? { reason: me.splitAsk.reason } : {}) } } : {}),
     done: rec.parts.filter((q) => q.n !== n && need.has(q.n) && q.status === "done" && q.done).map((q) => ({ words: q.words, said: q.done })),
     ...(others.length ? { others } : {}),
@@ -2498,7 +2503,7 @@ export function readRequestOf(v) {
   // many requirements it held — read strictly; anything else is none.
   const hf = plain(v.heldFrom) && typeof v.heldFrom.job === "string" && /^[0-9a-f]{8,64}$/.test(v.heldFrom.job) && Number.isInteger(v.heldFrom.count) && v.heldFrom.count >= 0
     ? { job: v.heldFrom.job, count: v.heldFrom.count } : null;
-  return { key: v.key, part: v.part, original, done, ...(others.length ? { others } : {}), context, ...(hf ? { heldFrom: hf } : {}), ...(v.paused === true ? { paused: true } : {}), ...(v.carved === true ? { carved: true } : {}), ...(readSplit(v.split) ? { split: readSplit(v.split) } : {}) };
+  return { key: v.key, part: v.part, original, done, ...(others.length ? { others } : {}), context, ...(hf ? { heldFrom: hf } : {}), ...(v.paused === true ? { paused: true } : {}), ...(v.carved === true ? { carved: true } : {}), ...(readSplit(v.split) ? { split: readSplit(v.split) } : {}), ...(v.charged === true ? { charged: true } : {}) };
 }
 
 /** A routing job's split ask (`partOf`'s `split`), read strictly: `{ why, reason? }`, or null. */

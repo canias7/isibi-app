@@ -495,11 +495,15 @@ export function replayer(prepared) {
      * replayed as prepared rather than sent again without it — the same exact
      * match `wrap` uses, nothing spent and nothing reused loosely.
      */
+    // …AND A PRIOR REFUSAL RECORDED FOR IT (2026-10-24, auto-split's
+    // charged-across-parts): sent as prepared, a caller that handles one skips
+    // to the recorded correction as before (`wrap`'s `refusals`); sent without
+    // its question field it matched nothing, and the job asked again.
     async has(req) {
-      if (!calls.length) return false;
+      if (!calls.length && !refusals.length) return false;
       let h = "";
       try { h = await requestHash(req); } catch { return false; }
-      return calls.some((c, i) => !spent.has(i) && c.h === h);
+      return calls.some((c, i) => !spent.has(i) && c.h === h) || refusals.some((r, i) => !spentRef.has(i) && r.h === h);
     },
     // EVERY CALL IS COUNTED (2026-10-11, after Codex's review): with no
     // recorded call to match — a preparation that kept only pictures, or none —

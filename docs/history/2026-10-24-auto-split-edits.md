@@ -103,3 +103,44 @@ reason in the page's `SPLIT_NOT` (the request's list plus `no-source`).
 - **Full suite** (this worktree, world-readable): `12632 / 12628 / 1 / 3`. The one failure is this
   machine's: `no-generated-deps`' symlink case (the worktree's `node_modules` is a symlink). The first
   run (`12631 / 12613 / 15 / 3`) found the re-anchors above and the `runs` bug; all fixed.
+
+## 7. Already charged, across parts (the owner's extra item, 2026-10-24)
+
+The gap `no-ask-after-charge` (3fffd0083) left: each job read only its own reserves, so a later
+part of a request could still ask the customer after an earlier part's job was charged.
+
+- **Base**: `origin/no-ask-after-charge` is merged into this branch (merge commit `07e669cbd`; two
+  doc conflicts, both sides kept). The combine must take that branch with this one, or this piece's
+  `charged` reads have nothing to gate.
+- **`builder/request.mjs`**: `partOf` adds `charged: true` once any job of the request (any part,
+  routing or run, auto-split parts included) ended with a charge on its row (`job.end.cost > 0`,
+  from `chargedOf`); `readRequestOf` keeps it only when it is exactly `true`. Set by the request,
+  never by a caller.
+- **`worker.js`**: the edit route's `eChargedYet` and the add-on route's `aChargedYet` (from that
+  branch) are true when the job's request part says `charged`, so every step's call goes out with
+  no question field and states its default (`clarifyTransport`), and a question asked anyway follows
+  that branch's defence in depth (default + fact; a step that still ends in a question is not charged).
+- **Tests**: C1 through the real request flow (part 0's look edit charged → part 1's add-on picker
+  asked with no `question` field and with `defaulted`; its supplied question becomes
+  `defaulted: [{ assumed: "A gallery page", instead: "A band on the home page" }]` on the answer,
+  the part done, no question waiting); C2 the record-level carry. **Red** on `07e669cbd` (that branch
+  merged, this wiring absent): both fail. **Sweep**: 4 of 4 killed (partOf never says charged, zero
+  cost counted, the reader drops it, the add-on route ignores it), control survived. **Not covered by
+  a test**: the edit route's half (`ePart.charged`), the same one-line read as the add-on route's.
+- **What the full suite found** (`12651 / 12639 / 9 / 3` on the first run with the carry):
+  - Six reuse cases (correction-reuse CR 1, CR 3, CR 9c; parallel-reuse-run141 R141 3; parallel-batch
+    BATCH and BATCH 2) made extra model calls: a prepared designer request that the preparation had
+    seen REFUSED was, after the charge, sent without its question field, so it no longer matched the
+    recorded refusal and the job asked the designer again. **Fixed in `builder/prepared.mjs`**:
+    `replayer().has(req)` (that branch's) also answers yes for an unspent recorded refusal of the same
+    request, so the gate sends it as prepared and the caller skips to the recorded correction as
+    before. Mutant (drop the refusal check) killed by correction-reuse and parallel-batch.
+  - Four cases expected a later part to ASK after an earlier part's job was charged — exactly what the
+    owner's rule now forbids — and are **re-anchored**: parallel-addon-independent CC 3b,
+    parallel-requests P4, parallel-batch BATCH and BATCH 2. Each now finishes every part, keeps no
+    pending question, and the part's own answer carries `defaulted` with its first option (`Before`/
+    `After`, `Whole`/`Sliced`, `By day`/`At night`); call and purchase counts stay "once" (the routing
+    count in BATCH drops from 8 to 7: no answer to route). The old answer-and-resume tails of those
+    cases are left unreachable after an early `return`, kept for the record.
+- **Full suite on the final tree** (this branch with `no-ask-after-charge` merged and the carry):
+  `12651 / 12647 / 1 / 3`; the one failure is the environment's `no-generated-deps` symlink case.

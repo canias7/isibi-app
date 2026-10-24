@@ -234,3 +234,44 @@ test("S8 — a part that already held another part back splits itself and still 
     assert.deepEqual(builds(P), []);
   });
 });
+
+// ── ALREADY CHARGED, ACROSS PARTS (2026-10-24, the gap `no-ask-after-charge` left) ──
+test("C1 — a part after an earlier part's job was charged offers no question: its model request has no question field, and a question asked anyway becomes its stated default", async () => {
+  await withPlatform({
+    slug: slugOf("c1"),
+    answers: {
+      route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }],
+      ...DESCRIBE, ...GALLERY,
+      [T.adds]: (args, n) => (n === 0 ? { question: { text: "A whole page, or a band on the home page?", options: ["A gallery page", "A band on the home page"] } } : { kinds: ["page"] }),
+    },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    const { rec } = await settle(P, r.key, { rounds: 20 });
+    assert.deepEqual(statuses(rec), ["done", "done"], shape(rec));
+    // PART 0'S JOB WAS CHARGED…
+    const jobs = P.jobsOf(r.key);
+    assert.equal(reserveOf(P, jobs[0].id).length, 1, "part 0 was not charged");
+    // …SO PART 1'S PICKER WAS ASKED WITH NO QUESTION FIELD.
+    const picks = P.modelLog.filter((m) => m.tool === T.adds);
+    assert.ok(picks.length >= 1);
+    assert.ok(picks.every((m) => !m.props.includes("question") && m.props.includes("defaulted")), JSON.stringify(picks.map((m) => m.props)));
+    // AND THE QUESTION IT ASKED ANYWAY IS ITS STATED DEFAULT, never the customer's to answer.
+    assert.ok(P.pages().includes("gallery.tsx"));
+    const add = [...P.jobs.values()].find((j) => j.op === "addon");
+    const body = JSON.parse(add.result.body);
+    assert.deepEqual(body.defaulted, [{ assumed: "A gallery page", instead: "A band on the home page" }]);
+    assert.equal(rec.parts[1].question, null);
+  });
+});
+
+test("C2 — the request carries the charge: `partOf` says `charged` once any job of it ended charged, and the job's reader keeps it", () => {
+  const rec = { key: "rq" + "b".repeat(20), message: "A, and B.", context: [], parts: [
+    { n: 0, words: "A", needs: [], parent: null, status: "done", source: "message", jobs: [{ kind: "run", end: { cost: 1 } }] },
+    { n: 1, words: "B", needs: [], parent: null, status: "ready", source: "router", jobs: [] },
+  ] };
+  assert.equal(request.partOf(rec, 1).charged, true);
+  assert.equal(request.readRequestOf(request.partOf(rec, 1)).charged, true);
+  rec.parts[0].jobs[0].end.cost = 0;
+  assert.equal(request.partOf(rec, 1).charged, undefined);
+  assert.equal(request.readRequestOf({ ...request.partOf(rec, 1), charged: "yes" }).charged, undefined);
+});

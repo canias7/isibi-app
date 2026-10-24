@@ -1635,9 +1635,19 @@ test("CC 3b — THE SECOND ADD-ON PART'S PREPARATION FINDS A QUESTION: the prepa
   }, async (P) => {
     const r = await sendMessage(P, { message: "Please " + W_VISIT_HOURS + ", and " + W_ABOUT_FAQ + "." });
     const s1 = await settle(P, r.key);
-    assert.deepEqual(statuses(s1.rec), ["done", "waiting"], JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why, p.prep && p.prep.outcome])));
-    // THE QUESTION WAS FOUND BY THE PART'S PREPARATION (the observer is alive).
-    assert.equal(s1.rec.parts[1].prep && s1.rec.parts[1].prep.outcome, "ask", JSON.stringify(s1.rec.parts[1].prep));
+    // ⚠ RE-ANCHORED (the preparation, made after part 0's charge, offers no
+    // question either, so it no longer ends "ask"): 2026-10-24 (no question after a charge, carried across
+    // parts): part 0's job was charged, so part 1's question is never put to
+    // the customer — its job goes ahead with the first option, stated.
+    assert.deepEqual(statuses(s1.rec), ["done", "done"], JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why, p.prep && p.prep.outcome])));
+    const q0 = P.question();
+    assert.ok(!q0 || q0.status !== "pending", "a question was put to the customer after a charge");
+    const ids = new Set(s1.rec.parts[1].jobs.map((j) => j.id));
+    const run = [...P.jobs.values()].filter((j) => ids.has(j.id) && j.op === "addon" && j.result && typeof j.result.body === "string").pop();
+    assert.deepEqual(JSON.parse(run.result.body).defaulted, [{ assumed: "Before", instead: "After" }]);
+    assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
+    uniqueRefs(P);
+    if (s1) return;
     const own = s1.rec.parts[1].question;
     assert.ok(own && typeof own.id === "string", "the part names no question");
     assert.equal(own.queued, false, "the part's own question was queued behind another");

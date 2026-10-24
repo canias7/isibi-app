@@ -36177,7 +36177,10 @@ async function handleRequest(request, env, ctx) {
             // collect that took credits. Once it has, every call below is sent with
             // no question offered and states what it assumed (`clarifyTransport`).
             // Read late (the ledger is declared below), and false when it cannot say.
-            const eChargedYet = () => { try { return eJob ? (typeof eJob.reserves === "function" && eJob.reserves() > 0) : syncLedger.taken > 0; } catch { return false; } };
+            // …OR AN EARLIER JOB OF THE SAME REQUEST WAS (2026-10-24, auto-split:
+            // the request carries it, `partOf`'s `charged`, set by the request,
+            // never by a caller): a later part asks nothing either.
+            const eChargedYet = () => { try { if (ePart && ePart.charged === true) return true; return eJob ? (typeof eJob.reserves === "function" && eJob.reserves() > 0) : syncLedger.taken > 0; } catch { return false; } };
             const eReplayHas = (r) => (eJob && eJob.prepare !== true && eJob.replay && typeof eJob.replay.has === "function" ? eJob.replay.has(r) : false);
             const eQuick = (what = "", ctx) => clarifyTransport(jobSend(eJob, quickSend(env, what, eJob && eJob.budget)), {
               shown: () => (ctx !== undefined ? ctx : eCtx),
@@ -42595,7 +42598,8 @@ async function handleRequest(request, env, ctx) {
             // HAS THIS ADDITION BEEN CHARGED YET (2026-10-24): a reserve that landed
             // on the job (the row step, or the first reserve before the page
             // writer). Synchronously the collect comes after the work, so never.
-            const aChargedYet = () => { try { return !!aJob && typeof aJob.reserves === "function" && aJob.reserves() > 0; } catch { return false; } };
+            // …OR AN EARLIER JOB OF THE SAME REQUEST WAS (2026-10-24, `partOf`'s `charged`).
+            const aChargedYet = () => { try { if (aPart && aPart.charged === true) return true; return !!aJob && typeof aJob.reserves === "function" && aJob.reserves() > 0; } catch { return false; } };
             const aReplayHas = (r) => (aJob && aJob.prepare !== true && aJob.replay && typeof aJob.replay.has === "function" ? aJob.replay.has(r) : false);
             const aQuick = (what = "", opts) => clarifyTransport(aCounted(jobSend(aJob, quickSend(env, what, aJob && aJob.budget), opts)), {
               shown: () => aShownTo(what),
