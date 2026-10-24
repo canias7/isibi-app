@@ -108,5 +108,5 @@ calls, no live writes, not merged.
 - **Sweep**: 15 of 15 mutants killed (appendParts ×6, worker ×3, chat ×6), restored from saved copies each time. The comment-only control survived.
 - **Full suite**: `12421 / 12414 / 4 / 3` on the full run. Two of the four failures were source guards anchored on the assistant message's opening tag (`build-live-lines`, `reply-held-page`); both are re-anchored and pass. `canary-reopen-browser` REOPEN 1 passes alone (it timed out under the full run's load). The fourth is the environment's node_modules symlink case. So after the fixes: `12421 / 12417 / 1 / 3`, with only the environment failure (the two re-anchored files and the reopen file re-run, 29 / 29).
 - Screenshots (real `chat.js` + `styles.css`), in `shots-bg/` in the session scratchpad: 1–4 re-rendered, plus `5-joined-change-next-after.png`.
-- Image prediction: IMAGE_LINE
+- Image prediction: over the commit `01ce2a5ca` (this record's commit touches docs only, not an input). SiteBuildContainer `abfd59c3f677391d` (`aa5edf8e5`) → **`0a03e9c6dc2ceae8`**, 229 inputs (`builder/request.mjs` is one, so the image moves). AppBuildContainer stays `65022ce71e3d7274` (9 inputs). `origin/main` reads `665ab9d93b9dce93` / `65022ce71e3d7274`. A merge commit must be predicted again over both ends.
 
