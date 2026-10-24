@@ -124,7 +124,7 @@ test("RUN 1 — while the job runs, its first milestone becomes a line: the job 
     assert.equal(before.words, ADD, "the record does not carry the words this job runs on");
     assert.equal(before.run, job.lease_owner, "the record is not this run's");
     await deliver(P, takeTask(P));
-    assert.deepEqual(P.progressLog, [[{ id: "f1", state: "decided", text: "Worked out what to add: a new page. Nothing is built yet." }, { id: "f2", state: "next", text: "Design it next." }]], "the writer was not shown the job's own facts");
+    assert.deepEqual(P.progressLog, [[{ id: "f1", state: "decided", text: "Worked out what to add: a new page." }, { id: "f2", state: "next", text: "Design it next." }]], "the writer was not shown the job's own facts");
     const rec = P.progressOf(job.id);
     assert.equal(rec.lines.length, 1);
     assert.deepEqual(rec.marks.map((m) => m.state), ["said"]);
@@ -864,7 +864,7 @@ test("ADD-ON — AN ADD-ON'S MILESTONES, IN ORDER: what it chose (decided), each
       ["pages", ["prepared", "next"]],
       ["publish", ["doing"]],
     ], "the add-on's milestones are not each recorded, in order, in their states");
-    assert.match(rec.marks[1].facts[0].text, /^Designed, not built yet: a new page \(“Gallery”, \/gallery\)/);
+    assert.match(rec.marks[1].facts[0].text, /^Designed: a new page \(“Gallery”, \/gallery\)/);
     assert.equal(rec.closed.why, "ended");
     await settle(P, r.key);
   });

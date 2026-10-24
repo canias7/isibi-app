@@ -15,8 +15,8 @@ test("importing: said as it starts", () => {
 });
 
 test("import: the pages really read, or that it could not be read and the build goes on from the message", () => {
-  assert.deepEqual(texts(buildStepFacts({ s: "import", ok: true, pages: 4, photos: 9 })), ["decided: Read 4 pages from their current site, to rebuild it from. Nothing is built yet."]);
-  assert.deepEqual(texts(buildStepFacts({ s: "import", ok: true, pages: 1 })), ["decided: Read one page from their current site, to rebuild it from. Nothing is built yet."]);
+  assert.deepEqual(texts(buildStepFacts({ s: "import", ok: true, pages: 4, photos: 9 })), ["decided: Read 4 pages from their current site, to rebuild it from."]);
+  assert.deepEqual(texts(buildStepFacts({ s: "import", ok: true, pages: 1 })), ["decided: Read one page from their current site, to rebuild it from."]);
   const failed = ["notdone: Couldn't read their current site, so the site is being built from their message alone."];
   assert.deepEqual(texts(buildStepFacts({ s: "import", ok: false, pages: 0, photos: 0 })), failed);
   assert.deepEqual(texts(buildStepFacts({ s: "import", ok: "true", pages: 3 })), failed, "a non-boolean is never read as read");

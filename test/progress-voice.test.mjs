@@ -63,7 +63,7 @@ test("PV 3 — every live writer carries the voice: the update, the conversation
   assert.ok(taskRequest({ tasks: [{ n: 1, words: "a" }], model: "m", split: 2 }).system[0].text.includes(PROGRESS_VOICE));
   // The old default opener is gone from each writer's first-person rule.
   for (const sys of [PROGRESS_SYSTEM, TALK_SYSTEM, TASK_SYSTEM]) {
-    assert.match(sys, /Speak in the first person, as THE VOICE below says/);
+    assert.match(sys, /Speak in the first person, as THE VOICE above says/);
     assert.doesNotMatch(sys, /naturally and conversationally, the way you would tell them yourself/);
   }
   // The task writer's titles and opening vary too.

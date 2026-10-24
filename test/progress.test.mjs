@@ -218,7 +218,7 @@ test("FACTS 2 — an add-on's: picked is decided, each design designed and not b
   assert.deepEqual(addonPickedFacts([]), []);
   const d = addonDesignedFacts("table", { name: "tasting_list", columns: [{ name: "name" }, { name: "email" }] }, ["page"]);
   assert.deepEqual(states(d), ["designed", "next"]);
-  assert.match(d[0].text, /not built yet/);
+  assert.match(d[0].text, /^Designed: /);
   assert.match(d[0].text, /tasting_list/);
   assert.match(d[0].text, /“name” and “email”/);
   assert.match(d[1].text, /a new page/);
@@ -329,7 +329,7 @@ test("PROSE 2 — the instructions, concise, are what stand against that limit: 
   assert.deepEqual(PROGRESS_TOOL.input_schema.properties.says.items.properties.as.enum, [...PROGRESS_STATES]);
   // CONVERSATIONAL AND FIRST-PERSON, each fact in its state's tense (the
   // owner's clarification): described, never given as a line to copy.
-  assert.match(PROGRESS_SYSTEM, /Speak in the first person, as THE VOICE below says/);
+  assert.match(PROGRESS_SYSTEM, /Speak in the first person, as THE VOICE above says/);
   assert.match(PROGRESS_SYSTEM, /next facts as what you will do, doing facts as what you are doing now, the rest as what you have done or could not do/);
 });
 
@@ -513,7 +513,7 @@ test("PROSE 3 — the task lines' instructions, concise: every state defined (se
   for (const k of TASK_STATES) assert.match(TASK_SYSTEM, new RegExp("\\n" + k + ": "), "the state " + k + " is not defined for the model");
   assert.deepEqual(TASK_STATES, ["planned", "doing", "waiting", "unconfirmed", "done", "partial", "notdone"]);
   assert.match(TASK_SYSTEM, /\nunconfirmed: [^\n]*without saying it is happening now or that it is done/, "the unconfirmed state may be said as happening now");
-  assert.match(TASK_SYSTEM, /Speak in the first person, as THE VOICE below says/);
+  assert.match(TASK_SYSTEM, /Speak in the first person, as THE VOICE above says/);
   assert.match(TASK_SYSTEM, /never hand their words back as an instruction/);
   assert.match(TASK_SYSTEM, /Never say a change is published or live/);
   assert.doesNotMatch(TASK_SYSTEM.replace(PROGRESS_VOICE, ""), /for example|e\.g\.|such as "|like this:|"I'll|"I'm|Okay, I/i, "the instructions carry a line to copy");

@@ -8835,7 +8835,7 @@ function actionTalk(env, ctx, { id, uid, slug, kind }) {
       let out;
       // THE SENTENCE AS IT IS WRITTEN goes to the room (never to storage).
       const live = roomLiveWriter(env, actionRoom(id), rec.lines.length + 1);
-      try { out = await writeProgress({ send: quickSendLive(env, "progress", progressBudget, live) }, { facts, context: actionContext({ kind, slug: rec.slug, lines: rec.lines }), model, talk: true }); }
+      try { out = await writeProgress({ send: quickSendLive(env, "progress", progressBudget, live) }, { facts, context: actionContext({ kind, slug: rec.slug, lines: rec.lines }), model, talk: true, earlier: rec.lines.map((l) => l.text) }); }
       catch { out = { ok: false }; }
       if (out && out.ok && typeof out.text === "string" && out.text) { rec.lines.push({ n: rec.lines.length + 1, text: out.text, ...(out.explain ? { explain: out.explain } : {}) }); await put(); }
     }).catch(() => {});
@@ -9397,7 +9397,7 @@ async function writeProgressLine(env0, task, owner) {
     // nine states, recorded reasons, and an optional explanation.
     // STREAMED (2026-10-19): the sentence so far goes up as it is written.
     const live = rec.talk === true ? liveLineWriter(env, job, rec.lines.length + 1) : null;
-    out = await writeProgress({ send: live ? quickSendLive(env, "progress", progressBudget, live) : quickSend(env, "progress", progressBudget) }, { facts: batch.facts, context: progressContext(rec, { others, waited }), model, talk: rec.talk === true });
+    out = await writeProgress({ send: live ? quickSendLive(env, "progress", progressBudget, live) : quickSend(env, "progress", progressBudget) }, { facts: batch.facts, context: progressContext(rec, { others, waited }), model, talk: rec.talk === true, earlier: rec.lines.map((l) => l && l.text) });
   } catch { out = { ok: false, why: "send", usage: [], attempts: 0 }; }
   // AND CLEARED ONCE IT IS DONE, either way — a committed line replaces it.
   if (rec.talk === true) await clearLiveLine(env, job);
@@ -9475,7 +9475,7 @@ async function writeLateLine(env, task, owner, rec) {
   const t0 = Date.now();
   let out;
   try {
-    out = await writeProgress({ send: quickSend(env, "progress", progressBudget) }, { facts: batch.facts, context: progressContext(rec, { others, waited }), model, talk: rec.talk === true });
+    out = await writeProgress({ send: quickSend(env, "progress", progressBudget) }, { facts: batch.facts, context: progressContext(rec, { others, waited }), model, talk: rec.talk === true, earlier: rec.lines.map((l) => l && l.text) });
   } catch { out = { ok: false, why: "send", usage: [], attempts: 0 }; }
   try {
     console.log(usageLogLine({ kind: "line", id: job, ok: out.ok, why: out.why, model, milestones: batch.marks.length, facts: batch.facts.length, attempts: out.attempts, usage: out.usage, ms: Date.now() - t0 }) + " late");
