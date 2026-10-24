@@ -172,8 +172,8 @@ export function toXaiRequest(req) {
 
   const body = { model: r.model, messages, max_tokens: r.max_tokens };
   if (tools.length) body.tools = tools;
-  // HOW HARD IT THINKS (2026-10-19, owner: "set the talking to low"): grok-4.6
-  // takes low / medium / high (its default) / xhigh. Only a call that names one
+  // HOW HARD IT THINKS (2026-10-19, owner: "set the talking to low"): grok-4.7
+  // (like 4.6, docs.x.ai 2026-10-24) takes low / medium / high (its default) / xhigh. Only a call that names one
   // carries it; every other call keeps the model's default.
   if (XAI_EFFORTS.includes(r.effort)) body.reasoning_effort = r.effort;
   // A FORCED TOOL STAYS FORCED. Every builder call uses `tool_choice` to compel
