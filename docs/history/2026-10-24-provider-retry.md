@@ -145,3 +145,78 @@ was spent, no model was called, and nothing was written live.
     pass on their own (13 of 13 and 16 of 16).
 - Screenshots: chat, panel row, job view, and the recovery and Stop lines, in
   the session scratchpad `shots-retry/`.
+
+## 5. Re-landed (2026-10-24, branch `provider-retry-2`, not merged, not deployed)
+
+combine-d merged this branch and reverted it (`016aa3d93`) because about 45
+existing tests failed with it. `provider-retry-2` is `main` (`1b16aaba0`,
+deploy 2267) plus `git revert 016aa3d93` (it applied with no conflicts) and
+the fixes below. Nothing was spent, no model was called, nothing written live.
+
+**1. Hanging and failing tests.** The cause was test stubs answering an
+unmatched model call with 503, which now waits or parks. The fixtures' "no
+stub" answers for model calls are now 400 with a "no stub (test fixture)"
+marker (`live-ask`, `request-flow`, `addon-route`, `build-route`,
+`build-lifecycle`; the container stand-in's own "no stub" is 404), and so are
+the failing files' own stubs. Cases whose model call must fail (the
+purchase-recovery cards, parallel-addon/independent) now fail on a 400 with a
+dated note: those cases test failure handling, and outages are covered by the
+provider-retry tests. Behaviour was not changed to suit a test. No test
+hangs.
+
+**2. The inline build.** An inline build has no job to park. A parked call with
+no deadline and no job sink is now marked `providerWait.inline`, and
+`designFailure` keeps the one in-request retry it always had for it. A single
+529 no longer fails an inline build (`build-batch-9` is green again). A
+queued or container build still parks.
+
+**3. Changed expectations, case by case.**
+- Routing (`route-failure-reason`): this is the owner's design. A routing call
+  that hits 503/502/504/500/429 (not billing), a 529 or a dropped connection
+  now answers `waiting`. The reason is still carried and logged once. Re-anchored
+  with a dated helper.
+- The notice quoted provider words verbatim, including a key, bearer token or
+  connection string a provider echoed back. This was a regression and is fixed
+  in the code: credential shapes become `[hidden]`, and every other word stays.
+  A body cut at its 300-character cap now yields its message and type, not the
+  raw envelope.
+- Purchase recovery: these cases test failure handling, so they are re-anchored
+  to a non-retryable failure (above). Park-and-resume next to a held photo
+  purchase is not tested (see limits).
+- Translation: no expectation changed. Only the "not under test" stub moved to
+  400.
+- Source guards: re-anchored to `bEnv` (the build's env with its sink) and to
+  `build-call.mjs`'s new leaf import. `jobs/waiting/` is excluded from the litter
+  rotation count. The edit consumer's park read (`readParkFor`) moved to after
+  the heartbeat starts, so the carried budget block stays synchronous.
+
+**4. The ⚠/✓ notice.** `no-emoji-replies` covers every string our code says,
+with an allow-list for interface strings. The owner wrote and approved the
+exact notice texts, so the three notice strings are allowed with a dated
+comment citing the plan. Model-written lines are still held to the guard.
+
+**Limits kept.**
+- A parked job holds the site's lease (600 s, renewed by the tick), so the
+  site stays reserved while it waits. Freeing it needs a `waiting` row state in
+  SQL, which was not written.
+- Any call that parks marks the whole job parked, even a reply writer whose
+  failure would otherwise fall back. Not changed.
+- Park-and-resume next to a held photo purchase is untested.
+
+**Tests and checks.**
+- New tests: PR15 (inline marking and the design retry), PR16 (credential
+  shapes, cut envelope), PRQ4 (a resumed job's finished calls come from its
+  journal), and a credential case in `route-failure-reason`. Provider-retry's
+  own tests are now 16 + 4 = 20, all passing.
+- Red check against `origin/main` (the module copied in): 10 of 20 fail (PR7,
+  PR8, PR10, PR13, PR14, PR15, PRQ1–4). The 10 that pass test only the module.
+- Sweep: 11 of 11 mutants killed, and the comment-only control survived. M10
+  ("the resume journal is never read") survived the first pass, and PRQ4 was
+  added to kill it.
+- Full suite (local): 12,644 tests, 12,639 pass, 2 fail, 3 skipped. Both
+  failures are environment-only: `no-generated-deps` (the node_modules
+  symlink) and `media-verify`'s browser mode.
+
+**Image.** `SiteBuildContainer` moves from `2d440bd194450245` (235 inputs) to
+`14932f9d406bfdd5` (237 inputs, 203 distinct), predicted on both ends.
+`AppBuildContainer` stays at `65022ce71e3d7274`.

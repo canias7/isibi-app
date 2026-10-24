@@ -1,5 +1,16 @@
 # Owner Notes
 
+## 2026-10-24 — waiting for a model that is down, re-landed on today's main (branch `provider-retry-2`, not merged, not deployed)
+
+- This is the provider-retry work that combine-d had to take out, put back on top of main and repaired.
+- About 45 tests broke because their stand-ins said "provider down" (503) for anything they had no answer for. They now say "no answer here" (400). Nothing in the product was changed just to make a test pass.
+- A first build made while you wait (not as a job) still gets its one quick retry when Claude is busy, as before. It never fails faster than it used to.
+- Routing while the model is down now answers "waiting", as you designed. The reason is still recorded.
+- The notice quotes the provider's own words, but a key, password or connection string in them is now replaced by "[hidden]".
+- Your "⚠" and "✓" notice texts are kept exactly as you wrote them. The no-emoji check still applies to everything the AI writes.
+- Still true: the site stays reserved while a job waits (that needs a database change, not written).
+- Full suite 12,644: 12,639 pass, 2 environment-only failures, 3 skipped. The site image will be rebuilt. Nothing spent. Record: `docs/history/2026-10-24-provider-retry.md` §5.
+
 ## 2026-10-24 — combine-d: thirteen finished branches in one candidate (not merged, not deployed)
 
 - Combined from `main` (692087cde): reply bubble, progress voice, per-device builds, stand-ins and refunds, first-build database and limits, no add-on caps, "tasks" label, build panel Stop, edit file picker, rebuild scope, build questions, request needs, visual review, and two docs branches.
