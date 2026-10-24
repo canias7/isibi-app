@@ -1,5 +1,11 @@
 # Owner Notes
 
+## 2026-10-24 — combine C: six finished branches in one candidate (branch `combine-c`, not merged, not deployed)
+
+- Brings together compile repair everywhere, the exact-edits tweak, the progress voice, the next-step hint, background work and the file picker (plus the 503 notes).
+- Only the notes and the Dockerfile file list clashed; three tests that pinned the old add-on bill wording were widened for the file picker's extra line.
+- The site image will be rebuilt (`665ab9d93b9dce93` → `0bae00a7003bcc23`); the app image stays. Nothing spent. Record: `docs/history/2026-10-24-combine-c.md`.
+
 ## 2026-10-23, late night — on big sites, a cheap step now picks which files the AI sees (idea #21, branch `file-picker`, not merged, not deployed)
 
 - **The ideas doc had #21 as discarded by you (2026-10-22).** It was built here because this session relayed a later request from you for it. Please confirm you want it before it is merged.
