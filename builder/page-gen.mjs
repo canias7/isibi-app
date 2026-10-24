@@ -2257,7 +2257,7 @@ export function briefForPages({ brief, priorBrief } = {}) {
  * eval and every other caller that has no budget to state then sends exactly the
  * request it sent before this existed.
  */
-export function briefWithLayout({ brief, plan, images, tsx, parts, partsUnreadable, partsFirst, theme, css, gif, qr, three, media } = {}) {
+export function briefWithLayout({ brief, plan, images, tsx, parts, partsUnreadable, partsFirst, partsOnly, theme, css, gif, qr, three, media } = {}) {
   // THE AUTHORED PLAN IS THE ONLY SOURCE NOW. It briefly fell back to
   // `layoutDirective(family)` for sites built before 2026-08-20; the family
   // table went the same day, so there is nothing to fall back TO.
@@ -2316,7 +2316,7 @@ export function briefWithLayout({ brief, plan, images, tsx, parts, partsUnreadab
   // against the store might name a component that already exists, and asking
   // for it is asking for the rewrite the wall then has to refuse. A dead
   // control that ANSWERS, which this repository has paid for before.
-  const sent = partsSent(parts, { unreadable: partsUnreadable, first: partsFirst });  // `partsFirst`: the edited page's own go in first (audit A21-4)
+  const sent = partsSent(parts, { unreadable: partsUnreadable, first: partsFirst, only: partsOnly });  // `partsFirst`: the edited page's own go in first (audit A21-4)
   const already = partsDirective(sent);
   if (already) out.push(already);
   const built = sent.unreadable ? "" : tsxDirective(tsx, sent.names);
@@ -2582,12 +2582,16 @@ export function partsSent(parts, opts) {
   // `shown` goes out in stored order whatever the selection did.
   const first = new Set((opts && Array.isArray(opts.first) ? opts.first : []).filter((n) => typeof n === "string").map((n) => n.trim()));
   const order = [...list.filter((p) => first.has(p.name.trim())), ...list.filter((p) => !first.has(p.name.trim()))];
+  const only = opts && Array.isArray(opts.only) ? new Set(opts.only.filter((n) => typeof n === "string").map((n) => n.trim())) : null;
   const picked = new Set();
   let total = 0;
   for (const p of order) {
     const name = p.name.trim();
     if (names.includes(name)) continue;
     names.push(name);
+    // THE FILE PICKER'S `only` (2026-10-23): a part it did not pick is
+    // withheld — named and protected exactly as one over the window is.
+    if (only && !only.has(name)) { withheld.push(name); continue; }
     if (p.source.length > MAX_PART_CHARS || total + p.source.length > MAX_PARTS_CHARS) { withheld.push(name); continue; }
     total += p.source.length;
     picked.add(p);
@@ -2840,7 +2844,10 @@ export function pageId(v) {
   return cut.startsWith("/") ? cut : "/" + cut;
 }
 
-export function priorPagesSent(pages, { max = MAX_PRIOR_CHARS, keep = [] } = {}) {
+export function priorPagesSent(pages, { max = MAX_PRIOR_CHARS, keep = [], only = null } = {}) {
+  // THE FILE PICKER'S `only` (2026-10-23): a page it did not pick is withheld
+  // (named, not shown), the way a page over the window is.
+  const onlySet = Array.isArray(only) ? new Set(only) : null;
   const list = (Array.isArray(pages) ? pages : [])
     .filter((p) => p && typeof p.path === "string" && typeof p.source === "string" && p.source.trim());
   const first = (Array.isArray(keep) ? keep : []).map(pageId).filter(Boolean);
@@ -2854,6 +2861,7 @@ export function priorPagesSent(pages, { max = MAX_PRIOR_CHARS, keep = [] } = {})
   const shown = [], withheld = [];
   let total = 0;
   for (const p of order) {
+    if (onlySet && !onlySet.has(p.path)) { withheld.push(p.path); continue; }
     if (total + p.source.length > max) { withheld.push(p.path); continue; }
     total += p.source.length;
     shown.push(p);
@@ -2893,7 +2901,7 @@ export function reviseSent(pages) {
   return { ...sel, shown: [], withheld: sel.names, chars: 0 };
 }
 
-export function priorPagesBlock(pages, mode = "revise", target = "", { keep = [] } = {}) {
+export function priorPagesBlock(pages, mode = "revise", target = "", { keep = [], only = null } = {}) {
   const list = (Array.isArray(pages) ? pages : [])
     .filter((p) => p && typeof p.path === "string" && typeof p.source === "string" && p.source.trim());
   if (!list.length) return "";
@@ -2954,7 +2962,7 @@ export function priorPagesBlock(pages, mode = "revise", target = "", { keep = []
     // ONE SELECTION, AND THE ROUTE READS THE SAME FUNCTION. The at-least-one
     // fallback lives inside `priorPagesSent` rather than here, so what the
     // prompt shows and what the reply reports as unseen cannot disagree.
-    const { shown: seen, withheld: unseen } = priorPagesSent(list, { keep });
+    const { shown: seen, withheld: unseen } = priorPagesSent(list, { keep, only });
     return "\n\nTHE SITE AS IT STANDS — YOU ARE ADDING TO IT\n" +
       (unseen.length
         ? "Below is the current source of " + seen.length + " of this site's " + list.length + " pages, exactly as they " +
@@ -3042,7 +3050,7 @@ export function priorPagesBlock(pages, mode = "revise", target = "", { keep = []
     list.map((p) => "--- " + p.path + " ---\n" + p.source).join("\n\n");
 }
 
-export function pagesPrompt(brief, spec, brand, attachCount = 0, priorPages = null, mode = "revise", target = "", keep = []) {
+export function pagesPrompt(brief, spec, brand, attachCount = 0, priorPages = null, mode = "revise", target = "", keep = [], only = null) {
   const name = String(brand || "").trim();
   const n = Math.max(0, Math.floor(Number(attachCount) || 0));
   return "Build the pages for this site.\n\nBRIEF\n" + String(brief || "").trim() +
@@ -3079,7 +3087,7 @@ export function pagesPrompt(brief, spec, brand, attachCount = 0, priorPages = nu
     // LAST, so the model reads the brief and the schema first and the
     // site-to-edit second. Empty on a first build, so nothing about that path
     // changes.
-    priorPagesBlock(priorPages, mode, target, { keep });
+    priorPagesBlock(priorPages, mode, target, { keep, only });
 }
 
 // A route path the container will accept: under src/routes, .tsx, no traversal,
@@ -4689,7 +4697,7 @@ TOUCH AND FEEL
 - Never mention a website, "visit our site", search engines or a sitemap.
 `;
 
-export function pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode = "revise", target = "", kind = "", keep = [], ownParts = false } = {}) {
+export function pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode = "revise", target = "", kind = "", keep = [], ownParts = false, only = null } = {}) {
   // THE ATTACHED FILES \u2014 images and PDFs \u2014 and where they sit is load-bearing
   // twice over.
   //
@@ -4708,7 +4716,7 @@ export function pagesRequest({ brief, spec, brand, attachments, model, priorPage
   // caller and test already sees, so adding this feature changes no request that
   // does not use it.
   const blocks = Array.isArray(attachments) ? attachments.filter(Boolean) : [];
-  const text0 = pagesPrompt(brief, spec, brand, blocks.length, priorPages, mode, target, keep);
+  const text0 = pagesPrompt(brief, spec, brand, blocks.length, priorPages, mode, target, keep, only);
   // AN OWN-PARTS SITE'S WRITER (2026-10-23) is told the rule in its message
   // too, after everything else, the way the band writers are.
   const own = ownParts === true && !(spec && spec.surface === "app");
@@ -4771,12 +4779,12 @@ export function pagesRequest({ brief, spec, brand, attachments, model, priorPage
  * (the container has its own) is still a drop-in and nothing here has to know
  * which one it got.
  */
-export async function generateSitePages(keys, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null, call = callBuilderModel, kind = "", keep = [], { ownParts = false } = {}) {
+export async function generateSitePages(keys, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null, call = callBuilderModel, kind = "", keep = [], { ownParts = false, only = null } = {}) {
   // One definition, shared with the eval harness — see pagesRequest. Restating
   // it here would mean the harness tunes against a different request from the
   // one production runs. Held in a const so the usage below can be stamped with
   // the model that was actually sent.
-  const req = pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode, target, kind, keep, ownParts });
+  const req = pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode, target, kind, keep, ownParts, only });
   // Provider decided in ONE place — see callBuilderModel. It answers in
   // Anthropic's shape whichever one served it, so every line below this is
   // unchanged and cannot tell the difference.

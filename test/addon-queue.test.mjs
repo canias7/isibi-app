@@ -262,7 +262,7 @@ test("cancel and budget are re-asked before the page call and before the publish
 
 test("one bill; reserved before the publish under a job, collected after it synchronously", () => {
   const b = addonBlock();
-  const bills = [...b.matchAll(/pageCredits\(\.\.\.aDesignUsage, aGen && aGen\.usage, aSeedUsage\)/g)].length;
+  const bills = [...b.matchAll(/pageCredits\(\.\.\.aDesignUsage, aGen && aGen\.usage, aSeedUsage, aPick && aPick\.usage\)/g)].length;
   assert.equal(bills, 1, `the bill is computed ${bills} times — one number, two paths`);
   // RE-ANCHORED 2026-09-03: the reserve and the collect live in ONE closure
   // now (`aCharge`), because a second answer takes money — the pageless one,
