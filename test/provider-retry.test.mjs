@@ -235,3 +235,38 @@ test("PR14 the page's notice: the server's fixed text, a live countdown on the p
   assert.ok(EditPoll.noticeHTML(ok).includes("✓ Grok is answering again · picking up where it stopped"));
   assert.equal(EditPoll.providerWait({ wait: { kind: "other", title: "x" } }), null);
 });
+
+// ── THE RE-LAND (2026-10-24, branch provider-retry-2) ──────────────────────
+
+test("PR15 AN INLINE CALL (no deadline, no job sink) is parked `inline` and keeps its one in-request retry; a job's park is never retried here", async () => {
+  const c = fakeClock();
+  const busy = () => Object.assign(new Error("anthropic 529"), { status: 529, detail: JSON.stringify({ type: "error", error: { type: "overloaded_error", message: "busy" } }) });
+  const inl = await withProviderRetry(async () => { throw busy(); }, { model: "claude-sonnet-5", ...c }).catch((x) => x);
+  assert.equal(inl.parked, true);
+  assert.equal(inl.providerWait.inline, true, "an inline call was not marked inline");
+  assert.deepEqual(designFailure({ error: inl, status: 529, upstream: { type: "overloaded_error" } }), { kind: "transient", retry: "again", why: "provider-529" }, "an inline build lost its one retry on a 529");
+  // WITH A SINK (a queued job, no deadline): parked for the tick, not inline.
+  const job = await withProviderRetry(async () => { throw busy(); }, { model: "claude-sonnet-5", ...c, onPark: () => {} }).catch((x) => x);
+  assert.equal(job.providerWait.inline, false);
+  assert.deepEqual(designFailure({ error: job, status: 529 }), { kind: "waiting", retry: null, why: "parked" });
+  // WITH A DEADLINE past reach: parked for the tick, not inline.
+  const late = await withProviderRetry(async () => { throw busy(); }, { model: "claude-sonnet-5", ...c, deadlineAt: c.now() + 1000 }).catch((x) => x);
+  assert.equal(late.providerWait.inline, false);
+  assert.equal(c.slept.length, 0, "a park slept");
+});
+
+test("PR16 the provider's words keep every word but never a credential; a body cut at its cap still yields its message and type, not the raw envelope", () => {
+  const KEY = "sk-ant-api03-" + "Q".repeat(40), XKEY = "xai-" + "Z".repeat(40);
+  const words = "Overloaded; key " + KEY + " auth Bearer abc.def.ghi db postgres://u:npg_S3cretPw@host/db xai " + XKEY + " done";
+  const f = providerFailure(Object.assign(new Error("x"), { status: 529, detail: JSON.stringify({ type: "error", error: { type: "overloaded_error", message: words } }) }), "claude-sonnet-5");
+  assert.ok(f, "an overloaded provider was not waited for");
+  for (const s of [KEY, XKEY, "abc.def.ghi", "npg_S3cretPw", "postgres://"]) assert.ok(!f.words.includes(s), "a credential reached the notice: " + s.slice(0, 12));
+  assert.match(f.words, /^Overloaded; key \[hidden\] auth \[hidden\] db \[hidden\] xai \[hidden\] done$/);
+  // THE CUT: 300 characters of a long envelope no longer parse as JSON.
+  const cut = JSON.stringify({ type: "error", error: { type: "overloaded_error", message: "The model is overloaded right now. " + "x".repeat(400) } }).slice(0, 300);
+  const facts = errorFacts({ detail: cut });
+  assert.equal(facts.type, "overloaded_error");
+  assert.match(facts.message, /^The model is overloaded right now\. x+$/, "the raw envelope was shown");
+  // Plain text stays plain.
+  assert.equal(errorFacts({ detail: "upstream connect error" }).message, "upstream connect error");
+});

@@ -119,13 +119,13 @@ export function installCompiler({ ok = true, error = "", render = null, layout =
       }
       if (new URL(url).pathname === "/frames") {
         if (typeof frames === "function") return frames(body);
-        return new Response(JSON.stringify({ ok: false, error: "no stub for " + url }), { status: 503 });
+        return new Response(JSON.stringify({ ok: false, error: "no stub for " + url }), { status: 404 });
       }
       if (!url.includes("/build")) {
         // NOT THE HOP THIS STANDS IN FOR. Answered as a failure rather than a
         // plausible success: a stub that answers everything lets a test wander
         // past the thing it is checking.
-        return new Response(JSON.stringify({ ok: false, error: "no stub for " + url }), { status: 503 });
+        return new Response(JSON.stringify({ ok: false, error: "no stub for " + url }), { status: 404 });
       }
       // A CASE'S OWN HOLD ON THE BUILD (2026-10-10): awaited before the answer,
       // so a case can hold a job at its compile while something else runs.

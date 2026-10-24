@@ -103,6 +103,30 @@ test("PRQ3 the request's own routing call hits the outage: nothing is routed, ru
   } finally { P.close(); compiler.uninstall(); }
 });
 
+test("PRQ4 (2026-10-24, the re-land) A PARKED JOB RESUMES FROM ITS SAVED STEPS: the judge answered before the designer's outage is replayed from the job's journal, never asked again; only the designer is", async () => {
+  const compiler = installCompiler();
+  let addsAsked = 0, designAsked = 0;
+  const P = platform({
+    slug: "prq4-" + Math.random().toString(16).slice(2, 8),
+    answers: {
+      route: [{ intent: "addon" }],
+      [T.adds]: () => { addsAsked++; return { kinds: ["page"] }; },
+      "add:page": () => (designAsked++ === 0 ? down() : { page: [PAGE("/events", "Events")] }),
+      [T.pages]: { pages: [writtenPage("/events")] },
+    },
+  });
+  try {
+    const r = await sendMessage(P, { message: "Please " + ADD + "." });
+    await settle(P, r.key, { rounds: 3 });
+    assert.ok(!(P.record(r.key) || {}).ended, "the request ended while its designer was down");
+    for (let i = 0; i < 4 && !(P.record(r.key) || {}).ended; i++) { P.advance(PROVIDER_RETRY_MS + 1000); await settle(P, r.key, { rounds: 4 }); }
+    const rec = P.record(r.key);
+    assert.equal(rec.state, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.equal(designAsked, 2, "the designer was not asked exactly twice (one outage, one answer)");
+    assert.equal(addsAsked, 1, "the judge, finished before the outage, was asked again on resume");
+  } finally { P.close(); compiler.uninstall(); }
+});
+
 test("PRQ2 Stop pressed while a part waits for its model: nothing more is asked, the part is stopped, and its reserve comes back", async () => {
   const compiler = installCompiler();
   let addsAsked = 0;

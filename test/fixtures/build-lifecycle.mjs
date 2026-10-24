@@ -72,7 +72,7 @@ export function replyAnswer(reply, seen, init) {
   if (!(bd.tool_choice && bd.tool_choice.name === "write_reply")) return null;
   const text = JSON.stringify(bd.messages || "");
   seen.push(text);
-  if (typeof reply !== "string") return new Response("provider down", { status: 503 });
+  if (typeof reply !== "string") return new Response("no stub (test fixture): no reply", { status: 400 });
   const ids = [...text.matchAll(/\[([a-z0-9-]+)\]/g)].map((m) => m[1]);
   return json({ stop_reason: "tool_use", usage: { input_tokens: 10, output_tokens: 10 }, content: [{ type: "tool_use", id: "r1", name: "write_reply", input: { reply, covers: [...new Set(ids)] } }] });
 }
@@ -113,7 +113,7 @@ export async function fireInterim(b, id, led, { design = GOOD_DESIGN, brief = BR
         if (design === null) return json({ stop_reason: "end_turn", content: [{ type: "text", text: "Here is a design." }], usage: { input_tokens: 100, output_tokens: 50 } });
         return json({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "t1", name: "design_schema", input: design }], usage: { input_tokens: 100, output_tokens: 50 } });
       }
-      return new Response("stop", { status: 503 });
+      return new Response("no stub (test fixture): stop", { status: 400 });
     }
     { const l = linkAnswer(links, u); if (l) return l; }
     if (u.includes("/rest/v1/")) return json([]);

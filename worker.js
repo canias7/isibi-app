@@ -26300,13 +26300,6 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     const budgetMs = inlineBudgetMs(startedAt, capMs);
     if (budgetMs < wantMs) console.log("edit queue:", id, "inline budget cut to", Math.round(budgetMs / 1000) + "s — this delivery has already spent", Math.round((Date.now() - startedAt) / 1000) + "s");
     const jctx = makeJobCtx(env, { id, owner, budget: makeEditBudget(budgetMs), uid: job.uid, slug: job.slug, progress });
-    // A PROVIDER THAT IS DOWN (owner, 2026-10-24): this job's notice sink, its
-    // Stop, and its journal — read back only when it resumes from a park, so
-    // every call it already finished is answered from it and only the call
-    // that failed is asked again.
-    const pState = {};
-    const parkedBefore = await readParkFor(env, id);
-    const pEnv = { ...env, PROVIDER_WAIT: providerSink(env, id, pState, { stopped: () => jctx.cancelled() }), CALL_JOURNAL: callJournal(env, id, { resume: !!parkedBefore }) };
     beat = setInterval(() => {
       jctx.beat(null).catch(() => {});
       // A RENEWAL THAT ANSWERS NO IS A LOST TURN (2026-10-15), never ignored.
@@ -26316,6 +26309,14 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
         renewTurn(env, job.slug, held).then((ok) => { if (ok === false && jctx.beside.turn === held) loseTurn(jctx, job.slug, "its renewal was refused"); }).catch(() => {});
       }
     }, HEARTBEAT_S * 1000);
+    // A PROVIDER THAT IS DOWN (owner, 2026-10-24): this job's notice sink, its
+    // Stop, and its journal — read back only when it resumes from a park, so
+    // every call it already finished is answered from it and only the call
+    // that failed is asked again. (After the beat starts, 2026-10-24 re-land:
+    // the read is awaited, and the budget block above stays synchronous.)
+    const pState = {};
+    const parkedBefore = await readParkFor(env, id);
+    const pEnv = { ...env, PROVIDER_WAIT: providerSink(env, id, pState, { stopped: () => jctx.cancelled() }), CALL_JOURNAL: callJournal(env, id, { resume: !!parkedBefore }) };
     // A REQUEST'S JOB MAY RUN BESIDE OTHERS OF ITS REQUEST (2026-10-15,
     // `PARALLEL_WRITES`): it publishes under the site's turn, rebased onto the
     // site as it is then (`recompileAndPublish`). A step that rewrites the

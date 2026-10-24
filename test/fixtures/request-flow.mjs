@@ -532,23 +532,23 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     // cost what it likes — the money is priced from it — to show the ledger,
     // not an estimate, is what bounds a charge.
     const priced = () => (typeof usageFor === "function" ? usageFor(tool, args) : null);
-    if (tool === T.route) { const a = await answerFor("route", args); return a ? say(tool, a, priced()) : new Response("no stub for this routing call", { status: 503 }); }
+    if (tool === T.route) { const a = await answerFor("route", args); return a ? say(tool, a, priced()) : new Response("no stub for this routing call", { status: 400 }); }
     if (tool === T.lane) {
       const field = Object.keys(props)[0] || "";
-      if (!Object.hasOwn(answers, "lane:" + field)) return new Response("no stub for lane " + field, { status: 503 });
+      if (!Object.hasOwn(answers, "lane:" + field)) return new Response("no stub for lane " + field, { status: 400 });
       const a = answers["lane:" + field];
       const v = typeof a === "function" ? await a(args, nextN("lane:" + field)) : a;
       return say(tool, v && typeof v === "object" && ((Object.hasOwn(v, "question") && Object.keys(v).length === 1) || Object.hasOwn(v, "__raw")) ? v : { [field]: v });
     }
     if (tool === T.design) {
       const kind = Object.keys(props).find((k) => k !== "requirements" && k !== "question") || "";
-      if (!Object.hasOwn(answers, "add:" + kind)) return new Response("no stub for the " + kind + " designer", { status: 503 });
+      if (!Object.hasOwn(answers, "add:" + kind)) return new Response("no stub for the " + kind + " designer", { status: 400 });
       const a = answers["add:" + kind];
       // PRICED TOO (2026-10-13, correction reuse): a designer's call costs what
       // `usageFor` says, as every other call does; nothing changes without it.
       return say(tool, typeof a === "function" ? await a(args, nextN("add:" + kind)) : a, priced());
     }
-    if (!Object.hasOwn(answers, tool)) return new Response("no stub for tool " + tool, { status: 503 });
+    if (!Object.hasOwn(answers, tool)) return new Response("no stub for tool " + tool, { status: 400 });
     // THE TWEAK ANSWERS WITH EXACT EDITS (idea #18): a whole-file answer is turned into them.
     if (tool === "write_tweak") return say(tool, tweakInput(await answerFor(tool, args), args), priced());
     return say(tool, await answerFor(tool, args), priced());
@@ -573,7 +573,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     try { args = JSON.parse(String((init && init.body) || "{}")); } catch { args = {}; }
     // A TABLE READ THAT FAILS (`failRest`, 2026-10-18): Supabase answering 503
     // to every request `match(url, method)` accepts, for as long as it does.
-    if (url.includes("/rest/v1/") && restFaults.some((m) => m(url, method))) return new Response("unavailable", { status: 503 });
+    if (url.includes("/rest/v1/") && restFaults.some((m) => m(url, method))) return new Response("no stub (test fixture)", { status: 400 });
     if (images && url.startsWith("https://fal.run/")) {
       const entry = { prompt: String(args.prompt || ""), at: now() };
       imageLog.push(entry);

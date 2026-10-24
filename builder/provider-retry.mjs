@@ -86,9 +86,20 @@ export function statusLink(model) {
 }
 
 /** The provider's words, cleaned: control characters out, whitespace folded, capped. Never anything but a string. */
+// CREDENTIAL SHAPES, never shown (2026-10-24, the re-land): the owner's notice
+// quotes the provider word for word, but a provider that echoes a key, a
+// bearer token or a connection string back must not put it on a page. Each is
+// replaced by "[hidden]"; every other word stays as sent.
+const CREDENTIAL_SHAPES = [
+  /\bsk-ant-[A-Za-z0-9_-]{8,}/g, /\bsk-[A-Za-z0-9_-]{16,}/g, /\bxai-[A-Za-z0-9_-]{16,}/g,
+  /\bBearer\s+[^\s"',;]+/gi, /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g,
+  /\b[a-z][a-z0-9+.-]*:\/\/[^\s/@"']+@[^\s"']+/gi, /\bnpg_[A-Za-z0-9]{6,}/g,
+];
 export function cleanWords(w) {
   if (typeof w !== "string") return null;
-  const s = w.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, PROVIDER_WORDS_MAX);
+  let t = w;
+  for (const re of CREDENTIAL_SHAPES) t = t.replace(re, "[hidden]");
+  const s = t.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, PROVIDER_WORDS_MAX);
   return s || null;
 }
 
@@ -105,7 +116,15 @@ export function errorFacts(e) {
       type = typeof t === "string" && /^[A-Za-z_]{1,40}$/.test(t) ? t.toLowerCase() : null;
       message = cleanWords((err && err.message) || (typeof body.error === "string" ? body.error : null) || body.message || null);
     } else {
-      message = cleanWords(d);
+      // A BODY CUT AT ITS CAP (the detail is kept to 300 characters) no longer
+      // parses: its message is read up to the cut rather than the raw envelope
+      // shown (2026-10-24, the re-land).
+      const m = d.trimStart().startsWith("{") ? d.match(/"message"\s*:\s*"((?:[^"\\]|\\.)*)/) : null;
+      message = cleanWords(m ? m[1].replace(/\\(.)/g, "$1") : d);
+      if (m) {
+        const types = [...d.matchAll(/"(?:type|code)"\s*:\s*"([A-Za-z_]{1,40})"/g)].map((x) => x[1]).filter((x) => x !== "error");
+        type = types.length ? types[types.length - 1].toLowerCase() : null;
+      }
     }
   }
   return { type, message };
@@ -259,7 +278,12 @@ export async function withProviderRetry(fn, {
       const wait = waitMsFor(f);
       const notice = waitNotice(f, { now: t, waitMs: wait });
       if (!Number.isFinite(deadlineAt) || t + wait + marginMs > deadlineAt) {
-        try { e.parked = true; e.providerWait = { facts: f, notice, resumeAt: t + wait }; } catch { /* a frozen error still throws */ }
+        // `inline` (2026-10-24, the re-land): no deadline AND no job sink to
+        // park into — a request answered in place (the inline build). Nothing
+        // can resume it, so its caller keeps its own older in-request retry
+        // (`designFailure` reads it); it must never fail faster than before.
+        const inline = !Number.isFinite(deadlineAt) && typeof onPark !== "function";
+        try { e.parked = true; e.providerWait = { facts: f, notice, resumeAt: t + wait, inline }; } catch { /* a frozen error still throws */ }
         safe(onPark, notice);
         log("model call parked — " + notice.title);
         throw e;

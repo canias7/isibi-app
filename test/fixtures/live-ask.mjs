@@ -205,7 +205,7 @@ export function withWire(answers, run, { owner = USER.id, slug = "" } = {}) {
       // request; with no stub it fails, and the router's gist is shown.
       if (!tool && !(args.tools && args.tools.length)) {
         seen.converse.push(args);
-        if (!Object.hasOwn(answers, "converse")) return new Response("no stub for the conversation", { status: 503 });
+        if (!Object.hasOwn(answers, "converse")) return new Response("no stub for the conversation", { status: 400 });
         const a = answerFor("converse", args);
         const text = typeof a === "string" ? a : a && typeof a.text === "string" ? a.text : "";
         return json({ stop_reason: a && a.cut ? "max_tokens" : "end_turn", content: [{ type: "text", text }], usage: { input_tokens: 2000, output_tokens: 600 } });
@@ -213,7 +213,7 @@ export function withWire(answers, run, { owner = USER.id, slug = "" } = {}) {
       if (tool === T.route) {
         seen.routerAsked.push(args);
         const a = answerFor("route", args);
-        if (!a) return new Response("no stub for this routing call", { status: 503 });
+        if (!a) return new Response("no stub for this routing call", { status: 400 });
         return say(a);
       }
       if (tool === T.pick) seen.picks.push(after(args, "Their message:\n"));
@@ -221,33 +221,33 @@ export function withWire(answers, run, { owner = USER.id, slug = "" } = {}) {
       if (tool === T.lane) {
         const field = Object.keys(props)[0] || "";
         seen.lanes.push({ field, asked: after(args, "What they asked for:\n"), offered: Object.hasOwn(props, "question") });
-        if (!Object.hasOwn(answers, "lane:" + field)) return new Response("no stub for lane " + field, { status: 503 });
+        if (!Object.hasOwn(answers, "lane:" + field)) return new Response("no stub for lane " + field, { status: 400 });
         const a = answers["lane:" + field];
         const v = typeof a === "function" ? a(args, next("lane:" + field)) : a;
         return say(v && typeof v === "object" && Object.hasOwn(v, "question") && Object.keys(v).length === 1 ? v : { [field]: v });
       }
       if (tool === T.tweak) {
         seen.writers.push({ instruction: after(args, "THE CHANGE THEY ASKED FOR\n", "\n\nTHE FILE (") });
-        if (!Object.hasOwn(answers, T.tweak)) return new Response("no stub for the page writer", { status: 503 });
+        if (!Object.hasOwn(answers, T.tweak)) return new Response("no stub for the page writer", { status: 400 });
         return say(answerFor(T.tweak, args));
       }
       if (tool === T.pages) {
         seen.pageWriters.push({ text: userText(args), offered: Object.hasOwn(props, "question") });
-        if (!Object.hasOwn(answers, T.pages)) return new Response("no stub for the full page writer", { status: 503 });
+        if (!Object.hasOwn(answers, T.pages)) return new Response("no stub for the full page writer", { status: 400 });
         return say(answerFor(T.pages, args));
       }
       if (tool === T.design) {
         const kind = Object.keys(props).find((k) => k !== "requirements" && k !== "question") || "";
         seen.designers.push({ kind, text: userText(args), offered: Object.hasOwn(props, "question") });
-        if (!Object.hasOwn(answers, "add:" + kind)) return new Response("no stub for the " + kind + " designer", { status: 503 });
+        if (!Object.hasOwn(answers, "add:" + kind)) return new Response("no stub for the " + kind + " designer", { status: 400 });
         const a = answers["add:" + kind];
         return say(typeof a === "function" ? a(args, next("add:" + kind)) : a);
       }
-      if (!Object.hasOwn(answers, tool)) return new Response("no stub for tool " + tool, { status: 503 });
+      if (!Object.hasOwn(answers, tool)) return new Response("no stub for tool " + tool, { status: 400 });
       return say(answerFor(tool, args));
     }
     if (isDispatchUpload(url)) return dispatchOk();
-    return new Response("unavailable", { status: 503 });
+    return new Response("no stub (test fixture)", { status: 400 });
   };
   return (async () => { try { return await run(seen); } finally { globalThis.fetch = real; } })();
 }
