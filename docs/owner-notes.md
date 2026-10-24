@@ -130,6 +130,24 @@
 - Limits: a build that asks has already designed (and, with tables, made its database); the answered build designs again. When several section writers run together and one asks, the others' work is thrown away (not charged).
 - Nothing spent, no model called; all tests use supplied answers. Record: `docs/history/2026-10-24-build-questions.md`.
 
+## 2026-10-24 — when the AI provider is down, we wait and try again every 5 minutes (branch `provider-retry`, not merged, not deployed)
+
+- **Built to your design.** When Grok or Claude answers 503, 502, 504, 500 or 429, drops the connection, or sends "unavailable" inside its answer, we no longer give up.
+  - Only the one call that failed is asked again, every 5 minutes, with no limit on tries, until the model answers.
+  - A 429 waits at least as long as the provider asks.
+  - Steps already finished are kept and never charged twice.
+- **We still never retry** an empty account, a bad key, a bad request, a missing model, a cut-off answer or a refusal.
+- **The customer sees your fixed grey notice**, not a model-written one:
+  - "⚠ Grok error 503 · Service Unavailable";
+  - the provider's own words, and a link to its status page;
+  - "Your work so far is kept. Retrying in 4:59 · no charge while waiting", counting down live.
+  - The notice shows in the chat, on the job, and on the request panel row ("⚠ Events page · Grok 503 · retrying in 4:59"). When the model answers: "✓ Grok is answering again · picking up where it stopped". If they press Stop: "Stopped. Nothing was built or charged for this part."
+- **Inside a job** it waits in the job while the 50-minute limit leaves room.
+  - After that the job is parked. The container is freed and the two-minute background tick sends it again every 5 minutes. When it resumes, it reuses the answers it already had.
+  - Parts that depend on a waiting part keep waiting. A waiting part is never marked failed, and neither is a part's routing.
+- **One limit to know:** while a job is parked, the site stays reserved for it (up to 10 minutes at a time, renewed by the tick), so no other change slips in between its finished steps and the rest. Truly freeing the site would need a database change, which has not been written.
+- Tests: 17 new cases, including your Saltmarsh case run through the real request flow. On the old code, 7 of the 16 that could run there fail; the 9 that pass test the new module itself. No model was called and nothing was spent. Record: `docs/history/2026-10-24-provider-retry.md`.
+
 ## 2026-10-24 — combine C: six finished branches in one candidate (branch `combine-c`, not merged, not deployed)
 
 - Brings together compile repair everywhere, the exact-edits tweak, the progress voice, the next-step hint, background work and the file picker (plus the 503 notes).

@@ -150,6 +150,17 @@ const REACH_TIMEOUT_MS = 10000;
 /** Which step each named build is on (`/build/stage`), dropped when it ends (2026-10-19). */
 const BUILD_STAGES = new Map();
 const MODEL_JOBS = new Map();
+
+/**
+ * A PROVIDER THAT IS DOWN IS WAITED FOR HERE TOO (owner, 2026-10-24): the
+ * call is asked again every 5 minutes inside this service until `deadlineAt`
+ * (the call's own ceiling), and the fixed notice rides the job's
+ * `/model/result` while it waits, so the job waiting on it can show it.
+ */
+function serverWait(model, deadlineAt, id) {
+  const keep = (n) => { const j = id ? MODEL_JOBS.get(id) : null; if (j && j.state === "pending") j.wait = n; };
+  return { model: String(model || ""), deadlineAt, onWait: keep, onRecover: keep, onPark: keep };
+}
 // A lane is one slug, so one live job is the normal state and two means a
 // resume overlapped a start. More than that is something upstream retrying, and
 // refusing is better than holding whole model answers — megabytes each — for a
@@ -2152,7 +2163,7 @@ const server = http.createServer((req, res) => {
           const liveWords = (i, partial) => { const j = MODEL_JOBS.get(id); if (j && j.state === "pending" && j.live && Number.isInteger(i)) { const w = wordsSoFar(partial); if (w.length) j.live[i] = w; } };
           const tick = (i) => { const j = MODEL_JOBS.get(id); if (j && j.state === "pending") { j.done = (j.done || 0) + 1; if (Array.isArray(j.doneIdx) && Number.isInteger(i)) j.doneIdx.push(i); } };
           const results = await runFanout(mReqs, (r, i) =>
-            patientCall(() => callBuilderModel(keysFrom(BUILD_KEYS), r, budget, longPost, { stream: true, idleMs: STREAM_IDLE_MS, onPartial: (partial) => liveWords(i, partial) }), { log: (m) => console.error(m) })
+            patientCall(() => callBuilderModel(keysFrom(BUILD_KEYS), r, budget, longPost, { stream: true, idleMs: STREAM_IDLE_MS, onPartial: (partial) => liveWords(i, partial) }), { log: (m) => console.error(m), wait: serverWait(r && r.model, at + CONTAINER_CALL_CAP_MS, id) })
               .finally(() => tick(i)));
           const tally = fanoutTally(results);
           console.log("fan-out", tally.done + "/" + tally.of, "answered in", Date.now() - at, "ms");
@@ -2182,7 +2193,7 @@ const server = http.createServer((req, res) => {
             if (code) code(partial);
           };
           const answer = await patientCall(() => callBuilderModel(keysFrom(BUILD_KEYS), mReq, budget, longPost,
-            { stream: true, idleMs: STREAM_IDLE_MS, onPartial: counted }), { log: (m) => console.error(m) });
+            { stream: true, idleMs: STREAM_IDLE_MS, onPartial: counted }), { log: (m) => console.error(m), wait: serverWait(mReq && mReq.model, at + CONTAINER_CALL_CAP_MS, id) });
           MODEL_JOBS.set(id, { state: "done", answer, ms: Date.now() - at, touchedAt: Date.now() });
           await sendModelReport(report, { state: "done", answer, ...genTag(report, id) });
         } catch (e) {
@@ -2266,7 +2277,7 @@ const server = http.createServer((req, res) => {
     // there polls until its own deadline for an answer that is never coming.
     if (!job) return send(res, 200, { ok: true, state: "unknown" });
     job.touchedAt = Date.now();
-    if (job.state === "pending") return send(res, 200, { ok: true, state: "pending", waitingMs: Date.now() - job.startedAt, ...(Number.isInteger(job.of) ? { of: job.of, done: job.done || 0, doneIdx: Array.isArray(job.doneIdx) ? job.doneIdx.slice(0, 64) : [] } : {}), ...(Number.isInteger(job.files) ? { files: job.files } : {}), ...(job.live && typeof job.live === "object" ? { live: Object.entries(job.live).slice(0, 16).map(([i, words]) => ({ i: Number(i), words })) } : {}), ...(Array.isArray(job.words) && job.words.length ? { words: job.words } : {}) });
+    if (job.state === "pending") return send(res, 200, { ok: true, state: "pending", waitingMs: Date.now() - job.startedAt, ...(Number.isInteger(job.of) ? { of: job.of, done: job.done || 0, doneIdx: Array.isArray(job.doneIdx) ? job.doneIdx.slice(0, 64) : [] } : {}), ...(Number.isInteger(job.files) ? { files: job.files } : {}), ...(job.live && typeof job.live === "object" ? { live: Object.entries(job.live).slice(0, 16).map(([i, words]) => ({ i: Number(i), words })) } : {}), ...(Array.isArray(job.words) && job.words.length ? { words: job.words } : {}), ...(job.wait && typeof job.wait === "object" ? { wait: job.wait } : {}) });
     // A FAN-OUT ANSWERS `answers` AND A SINGLE CALL ANSWERS `answer`, and the
     // two are never both present. Reading the list into `answer` would hand
     // every existing caller an array where it expects a message, and the parse
@@ -2337,7 +2348,7 @@ const server = http.createServer((req, res) => {
       return oneAtATime(async () => {
         const at = Date.now();
         try {
-          const answer = await patientCall(() => callBuilderModel(keysFrom(BUILD_KEYS), mReq, budget, longPost, { stream: true, idleMs: STREAM_IDLE_MS }), { log: (m) => console.error(m) });
+          const answer = await patientCall(() => callBuilderModel(keysFrom(BUILD_KEYS), mReq, budget, longPost, { stream: true, idleMs: STREAM_IDLE_MS }), { log: (m) => console.error(m), wait: serverWait(mReq && mReq.model, at + callMs, null) });
           send(res, 200, { ok: true, answer, ms: Date.now() - at });
         } catch (e) {
           // THE SHAPE IS PRESERVED, not flattened to a message. `upstreamKind`

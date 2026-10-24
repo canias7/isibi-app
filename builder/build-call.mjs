@@ -25,6 +25,7 @@
 // than a request with an empty Authorization header, which some providers
 // answer 200 to with degraded data.
 import { XAI_ENDPOINT, isXaiModel, toXaiRequest, fromXaiResponse, xaiErrorDetail } from "./model-xai.mjs";
+import { withProviderRetry } from "./provider-retry.mjs";
 
 // HOW LONG ONE MODEL CALL MAY RUN. Ten minutes, and it composes with the build
 // clock through `capMs` rather than adding to it — a pages call started at
@@ -58,19 +59,34 @@ export const MODEL_CALL_TRIES = 3;
  * billing refusal, a 5xx it chose to send) is its answer and is thrown at once;
  * everything else is tried up to `MODEL_CALL_TRIES` times.
  */
-export async function patientCall(fn, { tries = MODEL_CALL_TRIES, log = () => {} } = {}) {
+export async function patientCall(fn, { tries = MODEL_CALL_TRIES, log = () => {}, wait = null } = {}) {
+  // A PROVIDER THAT IS DOWN IS WAITED FOR (owner, 2026-10-24): with `wait`
+  // (the job's deadline, its Stop and its notice sink), a 503/502/504/500/429,
+  // an in-stream `unavailable` or a connection still dropped after the quick
+  // tries below is asked again every 5 minutes, only this call, until the
+  // model answers or the job's deadline parks it (`builder/provider-retry.mjs`).
+  // This reverses A23-3 for those kinds only; every other status and stream
+  // error is still thrown at once, as below.
+  if (wait && typeof wait === "object") return withProviderRetry(() => patientCall(fn, { tries, log }), { log, ...wait });
   let last;
   for (let i = 1; i <= tries; i++) {
     try { return await fn(i); }
     catch (e) {
       last = e;
       if (e && e.status) throw e;
-      // ITS ERROR SENT DOWN AN OPEN STREAM is the provider's answer too (A23-3).
+      // ITS ERROR SENT DOWN AN OPEN STREAM is the provider's answer too (A23-3):
+      // not asked again HERE, at once. A retryable one (`unavailable`) is waited
+      // for by `withProviderRetry` above, every 5 minutes (owner, 2026-10-24).
       if (e && e.name === STREAM_ERROR) throw e;
       if (i < tries) log("model call attempt " + i + " of " + tries + " failed (" + String((e && e.name) || "Error") + ": " + String((e && e.message) || e).slice(0, 120) + ") — asking again");
     }
   }
   throw last;
+}
+
+/** A 429's `retry-after`, as sent (seconds or a date), or null: read by `providerFailure` for the wait (owner: "at least what the provider asks"). */
+function retryAfterOf(r) {
+  try { const v = r && r.headers && typeof r.headers.get === "function" ? r.headers.get("retry-after") : null; return typeof v === "string" && v ? v.slice(0, 64) : null; } catch { return null; }
 }
 
 /** HOW OFTEN THE ANSWER-SO-FAR IS READ while a stream runs (`opts.onPartial`).
@@ -218,6 +234,7 @@ export async function callBuilderModel(keys, req, budget = null, send = null, op
     if (!r.ok) {
       const e = new Error("xai " + r.status);
       e.status = r.status;
+      e.retryAfter = retryAfterOf(r);
       // TRANSLATED LIKE EVERYTHING ELSE AT THIS BOUNDARY. The raw body went
       // straight into `e.detail`, and `upstreamKind` downstream parses
       // Anthropic's envelope — so `upstreamType` was always null and `billing`
@@ -258,6 +275,7 @@ export async function callBuilderModel(keys, req, budget = null, send = null, op
   if (!r.ok) {
     const e = new Error("anthropic " + r.status);
     e.status = r.status;
+    e.retryAfter = retryAfterOf(r);
     e.detail = (await r.text().catch(() => "")).slice(0, 300);
     throw e;
   }
@@ -615,6 +633,10 @@ export function retryHere(fail) {
   // so it may not depend on which runtime happened to raise it.
   if (f.kind === "TimeoutError" || f.kind === "AbortError") return false;
   // A PROVIDER'S ERROR ON AN OPEN STREAM is its answer, as a status is.
+  // STILL REFUSED HERE AFTER 2026-10-24: the owner's retry for the retryable
+  // kinds (503 … `unavailable`) is made where the call failed, every 5
+  // minutes (`patientCall`'s `wait`, `builder/provider-retry.mjs`), never as an
+  // immediate second purchase from the Worker.
   if (f.kind === STREAM_ERROR) return false;
   return true;
 }
