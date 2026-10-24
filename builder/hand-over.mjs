@@ -68,6 +68,9 @@ export const HAND_REASONS = Object.freeze({
   "needs-pages": "the change needs pages written again",
   // The add-on step's own hand-over to the menu editor.
   layer: "a new item in the frame every page shares is the menu editor's",
+  // 2026-10-24, addon-existing (`builder/addon-existing.mjs`).
+  "page-asked": "the router read the change as writing a page, so it is not one more entry in a list",
+  existing: "the add-on step found nothing new to add: what was asked is on a page the site already has",
 });
 
 /** The parts of the site a step may say it could not do: its lanes and the add-on's kinds. */

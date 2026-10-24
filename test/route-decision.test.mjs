@@ -192,7 +192,10 @@ test("every reason code is reached by the branch that names it, and gives the so
 // `clarify-no-room` — are gone since the owner's second review, 2026-10-02: a
 // question already answered is the router's own `clarify-reused` and
 // `clarify-again`, in the table above, and no request runs out of room.)
-const ROUTE_ONLY = ["no-credits"];
+// 2026-10-24, addon-existing: `addon-existing` and `clarify-part` are also the
+// route's (`builder/addon-existing.mjs`, applied in worker.js), and their cases
+// are in test/addon-existing.test.mjs.
+const ROUTE_ONLY = ["no-credits", "addon-existing", "clarify-part"];
 
 test("every declared code has a case, and no case names a code that is not declared", () => {
   const covered = new Set([...CASES.map(([code]) => code), ...ROUTE_ONLY]);

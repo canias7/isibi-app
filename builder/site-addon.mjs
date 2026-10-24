@@ -43,8 +43,14 @@ export const ADD_HOPS = Object.freeze({ frame: "nav" });
  * describe this step, not the whole request's bill or side effects
  * (routing/recovery may precede it).
  */
-export function addonFailure(reason, { reconstruct = false, layer, kind, problems, recovery, chars, max, carried } = {}) {
+export function addonFailure(reason, { reconstruct = false, layer, kind, problems, recovery, chars, max, carried, page } = {}) {
   const base = { ok: false, reason, cost: 0 };
+  // NOTHING NEW TO ADD, ON A PAGE THE SITE HAS (2026-10-24, addon-existing):
+  // handed to the page step on that page with the same words, never ended.
+  // Only the page step, and only with a page.
+  if (reason === "existing" && layer === "page" && typeof page === "string" && /^\/[a-z0-9/_-]*$/.test(page)) {
+    return { ...base, escalate: true, layer, page };
+  }
   if (reconstruct === true && (reason === "no-source" || reason === "no-meta")) {
     return { ...base, escalate: true };
   }

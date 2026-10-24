@@ -3192,17 +3192,45 @@ export function rowTables(spec) {
 }
 
 /**
+ * THE COLUMNS A NEW ENTRY MUST FILL, per display list (2026-10-24,
+ * addon-existing): declared NOT NULL (`notnull` / `required`) with no default,
+ * never `id` or `created_at`, which the database gives. Live, an add-on wrote
+ * a `lessons` row without one and Postgres refused it (23502) after the
+ * request was charged; `cleanAdd`'s `row` case now refuses such an entry
+ * before anything is written. Only the lists `rowTables` names.
+ */
+export function rowRequired(spec) {
+  const out = new Map();
+  const lists = rowTables(spec);
+  for (const t of (spec && Array.isArray(spec.tables) ? spec.tables : [])) {
+    if (!t || typeof t !== "object" || typeof t.name !== "string" || !lists.has(t.name)) continue;
+    const need = (Array.isArray(t.columns) ? t.columns : [])
+      .filter((c) => c && typeof c === "object" && typeof c.name === "string" && c.name !== "id" && c.name !== "created_at")
+      .filter((c) => (c.notnull === true || c.required === true || c.notNull === true) && !(c.pk || c.primary))
+      .filter((c) => c.default == null && c.defaultValue == null)
+      .map((c) => c.name);
+    if (need.length) out.set(t.name, need);
+  }
+  return out;
+}
+
+/**
  * WHAT THE `row` DESIGNER IS TOLD BESIDE THE SITE: the lists an entry may go in,
  * each with the columns it may fill. The site note already lists every table
  * with its columns and access; this names the subset this step may write, so a
  * list visitors send in is never offered as one to add to. `""` when there is
  * none, which leaves the request as it was.
  */
-export function rowBrief(lists) {
+export function rowBrief(lists, required) {
   const m = lists instanceof Map ? lists : new Map();
   if (!m.size) return "";
+  // THE COLUMNS AN ENTRY MUST FILL (2026-10-24, addon-existing): a NOT NULL
+  // column with no default refuses an entry that leaves it out (Postgres
+  // 23502, measured live on `lessons`), so the designer is told which.
+  const req = required instanceof Map ? required : new Map();
+  const need = (t) => (Array.isArray(req.get(t)) && req.get(t).length ? "; must fill: " + req.get(t).join(", ") : "");
   const lines = [...m.entries()].slice(0, 24)
-    .map(([t, cols]) => "- " + t + " (" + (Array.isArray(cols) ? cols : []).filter((c) => c !== "id" && c !== "created_at").join(", ") + ")");
+    .map(([t, cols]) => "- " + t + " (" + (Array.isArray(cols) ? cols : []).filter((c) => c !== "id" && c !== "created_at").join(", ") + need(t) + ")");
   return "THE LISTS A NEW ENTRY CAN GO IN — these, and no other table:\n" + lines.join("\n") +
     "\nEvery other table is one visitors send in, or one that belongs to members, and takes no entry from you.";
 }
@@ -3886,6 +3914,11 @@ export function cleanAdd(kind, value, site) {
         // model wrote down.
         const values = rowValues(v.values, lists.get(table).filter((c) => c !== "id" && c !== "created_at"));
         if (!values || !Object.keys(values).length) return { ok: false, why: "row-no-values" };
+        // A COLUMN THE LIST REQUIRES, LEFT EMPTY (2026-10-24, addon-existing):
+        // refused here, before anything is charged or written, by name.
+        const need = s.rowRequired instanceof Map && Array.isArray(s.rowRequired.get(table)) ? s.rowRequired.get(table) : [];
+        const missing = need.filter((c) => !Object.hasOwn(values, c) || values[c] === null || (typeof values[c] === "string" && !values[c].trim()));
+        if (missing.length) return { ok: false, why: "row-missing-required", missing };
         return { ok: true, value: { table, values } };
       }
       // ── THE OTHER THREE TIERS (2026-09-03) ───────────────────────────────
@@ -4323,6 +4356,7 @@ export function addRefusal(why, kind) {
     case "no-row-table": return "I couldn't tell which list that goes in — name the list, like the menu or the price list, and I'll add it.";
     case "row-no-table": return "This site doesn't store a list by that name, so that entry had nowhere to go.";
     case "row-not-list": return "That list holds what visitors send in or what belongs to members, so I don't add entries to it myself — the Data panel is where those rows are changed.";
+    case "row-missing-required": return "That entry leaves out details the list needs before it can be saved, so I haven't added it — give them and I'll add it.";
     case "row-no-values": return "I couldn't tell what that entry should say — give its details, like a name and a price, and I'll add it.";
     case "row-alone": return "A new entry for one of the site's lists is a step of its own — ask for it in a message of its own and I'll add it.";
     case "no-function": return "I couldn't turn that into a database function — say what it should look up, change or receive, and I'll write it.";

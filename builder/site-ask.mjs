@@ -1589,6 +1589,9 @@ export const ROUTE_REASONS = Object.freeze({
   "intent-unknown": Object.freeze({ kind: "fallback", what: "the answer named no intent, or one that is not among the five" }),
   "clarify-closed": Object.freeze({ kind: "fallback", what: "a question back, when no question may be asked" }),
   "clarify-unreadable": Object.freeze({ kind: "fallback", what: "a question back with no usable question" }),
+  // 2026-10-24, addon-existing (`builder/addon-existing.mjs`).
+  "addon-existing": Object.freeze({ kind: "changed", what: "an add-on whose every target the site already has, so the page step edits that page" }),
+  "clarify-part": Object.freeze({ kind: "changed", what: "a question for a part of a request already charged, so the obvious choice ran instead of asking" }),
   // A SITE THAT EXISTS (2026-10-02): a question asked where none can be kept
   // fails the call — never shown with nothing waiting for an answer; a reply
   // to a waiting question that did not say whether it answers it is a failure

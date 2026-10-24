@@ -318,13 +318,14 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // (2026-10-13, after run 144): the evidence a component's requirement is read
 // against, in place of "nobody can see one".
 import { addedByRoute, publishedTexts, componentEvidence } from "./builder/content-evidence.mjs";
-import { noteFor, pickAdds, designWaits, ADD_KINDS, mergePageBatches, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, frameToMissing, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, qrShownSources, qrDestinationCheck, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
+import { noteFor, pickAdds, designWaits, ADD_KINDS, mergePageBatches, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, frameToMissing, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, qrShownSources, qrDestinationCheck, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowRequired, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 import { compileRepairRound, compileRepairRounds, writtenPaths, withParts, splitParts } from "./builder/compile-repair.mjs";
 import { salvageRound, anythingLanded, MAX_SALVAGE_ROUNDS, landedBill, partKey, writtenPartKeys } from "./builder/change-salvage.mjs";
 import { wantsFirstBuildBackend, featuresNeedingData, firstBuildBackendTool, firstBuildBackendBrief, mergeFirstBuildBackend, FIRST_BUILD_BACKEND_RULES } from "./builder/first-build-db.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig, writesSchema as partWritesSchema } from "./builder/request-plan.mjs";
+import { routeOnExisting } from "./builder/addon-existing.mjs";
 import { turnKey, turnRecord, readTurn, turnFree, nextGen, rebaseFiles, TURN_POLL_MS, TURN_WAIT_MS, TURN_UNREAD_MAX, TURN_TTL_MS, turnLooksDead } from "./builder/publish-turn.mjs";
 import { PART_TERMINAL as REQ_PART_TERMINAL, heldFromOf, rewriteWire, othersOpenIn } from "./builder/request.mjs";
 import { visualReviewOn, buildRepairOn, visibleChanges, shotPreference, runVisualReview } from "./builder/visual-review.mjs";
@@ -34620,6 +34621,21 @@ async function handleRequest(request, env, ctx) {
       // THE REASON IS LOGGED AS WELL AS ANSWERED, and it is the same allow-listed
       // object: our log is where an outage is diagnosed after the fact.
       if (routed.failed === true) console.error("route failed:", JSON.stringify(routed.failure || null));
+      // ── ADD-ONS ABOUT WHAT EXISTS, AND NO QUESTION AFTER CHARGING (2026-10-24,
+      //    addon-existing, `builder/addon-existing.mjs`) ─────────────────────
+      // A part of a request already charged — or an answer resuming one — is
+      // never answered with a question: the obvious choice runs (a page the
+      // change names and the site has is edited by the page step; otherwise the
+      // add-on step decides). And an add-on whose every target the site
+      // already has is the page step's on that page, in the same words; one
+      // that writes a page says so to the add-on step (`page-asked`).
+      // ⚠ THE QUESTION HALF IS NOT WIRED YET: `partClarifyChoice` is written
+      // and tested, but twelve request-flow scenarios (C1, C3, C5, CR 1, CR 2,
+      // D2, E2, I4, F3, SV, PAGE 3, DFU4, RC 6) are built on a part's routing
+      // asking, so wiring it is the owner's call (docs/history/2026-10-24-addon-existing.md).
+      if (routed.failed !== true) {
+        routed = routeOnExisting(routed, rDigest.site, { reason: "addon-existing" });
+      }
       // ── THE ROUTER'S PROVIDER IS DOWN (owner, 2026-10-24) ──────────────────
       // A 503/502/504/500/429, an in-stream `unavailable` or a dropped
       // connection: nothing is routed, run or charged on the fallback. The
@@ -34683,6 +34699,9 @@ async function handleRequest(request, env, ctx) {
       }
       // WHAT IT TAKES TO OFFER A PART'S QUESTION AGAIN, for its request's step.
       let rQuestionFor;
+      // AN ANSWER RESUMING A PART OF A PAID REQUEST (2026-10-24, addon-existing):
+      // its routing was paid when the request was accepted; never charged again.
+      let rPaidResume = false;
       if (routed.failed !== true) {
         // A FIRST BUILD'S ROUTER IS NOT SENT THE LIVE TOOL, so it never says
         // `answered`: it reads the message as the round's answer (`answering`)
@@ -34732,6 +34751,7 @@ async function handleRequest(request, env, ctx) {
             }, { status: 422 });
           }
           rInstruction = rWaiting.request;
+          if (rWaiting.requestKey) rPaidResume = true;
         }
         // THE ANSWER CLOSES ITS QUESTION — unless the router asks the next
         // one, which is written over it in one write below (`replaceAsk`).
@@ -34902,7 +34922,8 @@ async function handleRequest(request, env, ctx) {
         // set by the request, never by a caller). Live: 3 credits, nothing done.
         // …NOR A PART ROUTED AGAIN TO SPLIT ITSELF (2026-10-24): its words were
         // routed and paid for once; the split is ours, never charged twice.
-        if (rJob && rPart && (rPart.carved === true || !!rPart.split)) rCost = 0;
+        if (rPaidResume) rCost = 0;
+        else if (rJob && rPart && (rPart.carved === true || !!rPart.split)) rCost = 0;
         else if (rJob) {
           try {
             const rr = rCost > 0 ? await editRpc(env, "edit_reserve", { p_id: rJob.id, p_seq: 1, p_cost: rCost }) : null;
@@ -43572,6 +43593,8 @@ async function handleRequest(request, env, ctx) {
             // ONLY ON A SITE WITH A LIST AN ENTRY CAN GO IN, so every other
             // addition reads nothing it did not read before.
             const aRowLists = adb ? rowTables(aSpec) : new Map();
+            // AND THE COLUMNS AN ENTRY MUST FILL (2026-10-24, addon-existing).
+            const aRowRequired = adb ? rowRequired(aSpec) : new Map();
             const aRowKey = aRowLists.size ? rowMarkerKey({ job: aJob && aJob.id, idem: ab && ab.idem }) : "";
             // WHAT THE CUSTOMER IS TOLD, FROM WHAT THE DATABASE SAVED — every
             // entry's table, its own id and the row as stored, never the
@@ -43769,8 +43792,33 @@ async function handleRequest(request, env, ctx) {
               aHold([], "pick");
               return Response.json({ ok: false, error: "clarify", layer: "addon", cost: 0, unchanged: true, ask: aPicked.ask, msg: aPicked.ask.text });
             }
+            // ── NOTHING NEW, ON A PAGE THE SITE HAS (2026-10-24, addon-existing) ──
+            //
+            // Live at 7956740c4: parts about `/shop` and `/cafe` reached here,
+            // the picker named nothing new, and the part ended with its routing
+            // charged and nothing done. When the page this addition is about is
+            // known — the hand-over's page (checked against the site's pages by
+            // `readHandOver`) or the part's one scoped page — and the site has
+            // it, the same words go to the page step on that page, at no cost
+            // here (`addonFailure("existing")`). Without such a page the ending
+            // is as it was.
+            const aSitePaths = aSrc.map((p) => routeOf(p && p.path)).filter(Boolean);
+            const aOnPage = (aHand && aHand.page && aSitePaths.includes(aHand.page)) ? aHand.page
+              : (aScopeIn && aScopeIn.pages && aScopeIn.pages.length === 1 && aSitePaths.includes(aScopeIn.pages[0])) ? aScopeIn.pages[0] : "";
+            const aToPage = (why) => { aMark("handover:page", "ok", { why, page: aOnPage }); return aFailure("existing", { layer: "page", page: aOnPage }); };
             // An empty or invalid picker answer establishes no broader request.
-            if (!aPicked.kinds.length) return aFailure("no-add");
+            if (!aPicked.kinds.length) return aOnPage ? aToPage("no-add") : aFailure("no-add");
+            // A CHANGE THE ROUTER READ AS WRITING A PAGE IS NOT ONE MORE ENTRY
+            // (2026-10-24, addon-existing): live, "Add a bookable Lessons page…"
+            // was picked as a lone `row` and wrote a partial entry. On a page the
+            // site has, it goes to the page step; otherwise it is the page the
+            // router named, made by this step's page designer.
+            const aPageAsked = !!(aHand && aHand.reason === "page-asked" && aHand.field === "page");
+            if (aPageAsked && aPicked.kinds.length === 1 && aPicked.kinds[0] === "row") {
+              if (aOnPage) return aToPage("page-asked");
+              aMark("add:row", "as-page", { pageAsked: 1 });
+              aPicked.kinds = ["page"];
+            }
             // ── ONE MORE ENTRY IN A LIST THE SITE ALREADY STORES (2026-10-01) ──
             //
             // A `row` asked for ALONE is written here and nothing else runs: no
@@ -43789,14 +43837,14 @@ async function handleRequest(request, env, ctx) {
             // was never sent; once the job is protected, the key decides (below).
             if (aPicked.kinds.length === 1 && aPicked.kinds[0] === "row") {
               aMark("add:row", "start");
-              const rowRan = await runAdd({ send: aQuick("add:row") }, { kind: "row", message: aInstruction, site: aSite, model: aModels.quick, brief: rowBrief(aRowLists) });
+              const rowRan = await runAdd({ send: aQuick("add:row") }, { kind: "row", message: aInstruction, site: aSite, model: aModels.quick, brief: rowBrief(aRowLists, aRowRequired) });
               aMark("add:row", rowRan.failed ? "fail" : "ok", { answered: rowRan.value !== undefined });
               if (rowRan.usage) aDesignUsage.push(rowRan.usage);
               if (rowRan.failed) return aDown(rowRan.error, "The builder is busy — try again in a moment.");
               if (rowRan.value === undefined) {
                 return aNone({ ok: false, error: "declined", kinds: ["row"], cost: 0, msg: addRefusal("nothing") }, 422);
               }
-              const rowClean = cleanAdd("row", rowRan.value, { ...aSite, today: aToday, rowTables: aRowLists });
+              const rowClean = cleanAdd("row", rowRan.value, { ...aSite, today: aToday, rowTables: aRowLists, rowRequired: aRowRequired });
               const rowSkipped = (Array.isArray(rowClean.skipped) ? rowClean.skipped : []).map((sk) => ({ kind: "row", ...sk, msg: addRefusal(sk.why, "row") }));
               if (!rowClean.ok) {
                 return aNone({

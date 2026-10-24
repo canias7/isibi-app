@@ -1,5 +1,14 @@
 # Owner Notes
 
+## 2026-10-24 — add-ons about pages and lists you already have (branch `fix-addon-existing`, not merged, not deployed)
+
+- When the router calls something an "addition" but everything it touches already exists (like /shop or /cafe), it now goes to the page editor on that page, with the same words, instead of ending with nothing done.
+- If the addition step finds nothing new to add but knows the page, it hands the job to the page editor too, at no extra cost.
+- "Add a bookable Lessons page" no longer writes a half-filled entry into a list. A list's required fields are now shown to the AI, and an entry missing one is refused before anything is saved or charged.
+- Answering a question for a request you already paid for no longer charges routing a second time.
+- Not done, your call: turning a question into "the obvious choice" for a paid request is written and tested but not switched on, because 12 existing tests are built on that question being asked.
+- Full suite 12,718: 12,713 pass, 2 machine-only failures, 3 skipped. Nothing spent. Record: `docs/history/2026-10-24-addon-existing.md`.
+
 ## 2026-10-24 — combine-e: today's five branches on one candidate (branch `combine-e`, not merged, not deployed)
 
 - Together on one branch: waiting out a model outage, one retry with the reason, a too-big change splitting itself, no questions after a charge, and Grok 4.7.

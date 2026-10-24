@@ -241,8 +241,9 @@ test("C1 — a part's routing asks: the part waits on the site's question, the a
     assert.deepEqual(statuses(s2.rec), ["done", "done"]);
     assert.ok(P.pages().includes("gallery.tsx"));
     assert.deepEqual(s2.rec.context, [{ q: Q.text, a: "Loaves" }]);
-    // THE ANSWER'S ROUTING WAS CHARGED ONCE, UNDER ITS OWN KEY.
-    assert.deepEqual(P.ledger.filter((e) => e.ref === "route:" + P.slug + ":" + a.key).map((e) => e.delta), [-1]);
+    // THE ANSWER'S ROUTING IS NOT CHARGED (2026-10-24, addon-existing): it
+    // resumes a request whose routing was already paid for.
+    assert.deepEqual(P.ledger.filter((e) => e.ref === "route:" + P.slug + ":" + a.key).map((e) => e.delta), []);
     // THE SAME ANSWER AGAIN (a lost response): no model asked, nothing charged.
     const calls = P.modelLog.length;
     const spent = P.spent();
@@ -384,11 +385,13 @@ async function clarifyResume(P, { asking, independent, dependent, landedBefore, 
   assert.ok(after[dependent] && after[dependent].every((x) => x.endsWith(":done")), JSON.stringify(after));
   const depOps = after[dependent].map((x) => x.split(":")[1]);
   assert.equal(new Set(depOps).size, depOps.length, "the dependent part ran a step twice: " + JSON.stringify(depOps));
-  // 4. THE MONEY: one routing row for the message and one for the answer (each routed once,
-  //    by its own key), one reserve for every job, no refund, and the balance moved by exactly those.
+  // 4. THE MONEY: one routing row, the message's (2026-10-24, addon-existing: an
+  //    answer resuming the paid request is routed but never charged again), one
+  //    reserve for every job, no refund, and the balance moved by exactly those.
   const routeRefs = P.ledger.filter((e) => e.reason === "route").map((e) => e.ref).sort();
-  assert.deepEqual(routeRefs, ["route:" + P.slug + ":" + ans.key, "route:" + P.slug + ":" + r.key].sort());
-  assert.deepEqual(rows(P, "route"), [-1, -1]);
+  assert.deepEqual(routeRefs, ["route:" + P.slug + ":" + r.key]);
+  assert.ok(ans.key);
+  assert.deepEqual(rows(P, "route"), [-1]);
   // A job whose step only asked may have taken nothing (an edit step asks before it charges);
   // none is ever reserved twice, and every job that did work after the answer, and the
   // independent part's, is reserved exactly once.
@@ -399,7 +402,7 @@ async function clarifyResume(P, { asking, independent, dependent, landedBefore, 
     if (!beforeIds.has(j.id) || partOf(r.key, j) === independent) assert.equal(n, 1, j.op + " (part " + partOf(r.key, j) + ") did its work without its one reserve");
   }
   assert.deepEqual(rows(P, "refund"), []);
-  assert.equal(P.spent(), 2 + P.jobsOf(r.key).reduce((n, j) => n + (reserveOf(P, j.id)[0] || 0), 0));
+  assert.equal(P.spent(), 1 + P.jobsOf(r.key).reduce((n, j) => n + (reserveOf(P, j.id)[0] || 0), 0));
   // 5. THE SAME ANSWER AGAIN (a lost response, a second tab): refused, nothing run or charged.
   const spent = P.spent();
   const again = await sendMessage(P, { message: answer, ask: { id: q.id, chosen: true } });
