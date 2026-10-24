@@ -9,6 +9,7 @@
 //
 // The exceptions are an explicit allow-list. Adding a route to it should feel
 // deliberate, because it means putting something on the public internet.
+import { DEVICE_WISHES_FIELD } from "../builder/device-scope.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { AGENT_ROUTES } from "../agent-store.mjs";
@@ -597,6 +598,8 @@ test("every tool the model is given is a schema the API will accept", () => {
     // step: each IS a schema, so against the stub `backend.jobs.items` came
     // back with no `type` and this check said so — the ninth time, loudly.
     FUNCTION_ITEM, API_ITEM, JOB_ITEM,
+    // AND THE DESIGNER'S SCREEN-SIZE WISHES (2026-10-24, device-scope-build; added in combine-d).
+    DEVICE_WISHES_FIELD,
     SITE_STYLE_AXES: STYLE_AXES, SITE_AUTHORED_AXES: AUTHORED_AXES,
     siteAuthoredSchema: authoredFieldSchema,
     SITE_AUTHORED_IMAGE: Object.entries(AXIS_DECLS).filter(([, v]) => v.image).map(([k]) => k),

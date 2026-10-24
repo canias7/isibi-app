@@ -685,8 +685,7 @@ test("R19 a site request's effort rides its env; a Grok call takes it unless it 
 
 test("R19 A REPLAYED BUILD CARRIES ITS EFFORT TOO: runSiteBuild reads it off the stored request, since a queued or container build never passes handleRequest", () => {
   assert.match(W, /async function runSiteBuild\(request, env, \{[^}]*\}\) \{\n(?:\s*\/\/[^\n]*\n)*\s*env = await withBuildEffort\(request, env\);/, "a replayed build ignores its effort");
-  // RE-ANCHORED 2026-10-24 (combine-d): provider-retry passes `bEnv` (the build's env with its provider-wait sink).
-  assert.match(W, /const res = await runSiteBuild\(replayRequest\(job\), b?[eE]nv,/, "the container build no longer replays through runSiteBuild");
+  assert.match(W, /const res = await runSiteBuild\(replayRequest\(job\), env,/, "the container build no longer replays through runSiteBuild");
 });
 
 test("R19 EFFORT TO EVERYTHING: page writing's calls to the container's model service carry the customer's effort, one request or a list", async () => {

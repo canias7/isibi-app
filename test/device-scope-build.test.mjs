@@ -81,8 +81,7 @@ async function driveBuild({ design = GOOD_DESIGN, layout = LAYOUT } = {}) {
         seen.writers.push(JSON.stringify(b.messages || []));
         return json({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "w1", name: "write_pages", input: { pages: [{ path: "index.tsx", source: FIRST_PAGE }], notes: "" } }], usage: { input_tokens: 10, output_tokens: 10 } });
       }
-      // RE-ANCHORED 2026-10-24 (combine-d): 400, not 503 — a 503 is a provider wait since provider-retry, which parks the build.
-      return new Response("stop here", { status: 400 });
+      return new Response("stop here", { status: 503 });
     }
     if (isDispatchUpload(url)) return dispatchOk();
     if (url.includes("/rest/v1/")) return json([]);

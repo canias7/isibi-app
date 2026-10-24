@@ -1520,11 +1520,8 @@ test("N9 — a Stop after the go-ahead was written ends its rewrite before it de
 test("G1 — a part whose routing fails on our side is asked once more, then ends failed with that reason; nothing is charged for a routing call that failed, and the finished part stays finished", async () => {
   await withPlatform({
     slug: slugOf("g1"), replies: true,
-    // THE ROUTING CALL FAILS ON OUR SIDE for part 1, twice: no answer to give.
-    // RE-ANCHORED 2026-10-24 (combine-d): a bare 503 (`null`, the stub's "no
-    // stub") is now a PROVIDER being down, which provider-retry makes a wait,
-    // never `routing-failed`; the failure this case is about is a refused call.
-    answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, new Response("bad request", { status: 400 }), new Response("bad request", { status: 400 })], ...DESCRIBE, ...GALLERY },
+    // THE ROUTER IS DOWN for part 1's routing, twice: no answer to give.
+    answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, null, null], ...DESCRIBE, ...GALLERY },
   }, async (P) => {
     const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
     const { rec } = await settle(P, r.key);
@@ -2278,8 +2275,8 @@ test("M4 — with no words for the set-aside link, the addition hands the link o
   // hands the set-aside frame on as a carved part (`frame-hop`); request-needs
   // waits on a need until the part AND its carved parts have ended, and a
   // carved child's failure no longer breaks its parent. The menu editor's
-  // first call here is refused (400, ours, not a provider wait), so the carved
-  // link part fails; the rename still runs and lands.
+  // first call here is refused (400), so the carved link part fails; the
+  // rename still runs and lands.
   const RENAME = "make the menu's Gallery link say Our photos";
   await withPlatform({
     slug: slugOf("m4"), pages: NAV_PAGES, replies: true,

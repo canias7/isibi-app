@@ -71,8 +71,8 @@ test("Driftwood replay — the part making /lessons ends partial (something capp
       "add:page": { page: [PAGE("/lessons", "Lessons")] }, [T.pages]: { pages: [writtenPage("/lessons")] },
       // RE-ANCHORED 2026-10-24 (combine-d): addon-uncapped hands the set-aside
       // frame on as a carved part (`frame-hop`) instead of ending the addition
-      // `partial`; its menu editor is refused here (400, ours, not a provider
-      // wait, which provider-retry would park), so the carved part ends failed.
+      // `partial`; its menu editor is refused here (400), so the carved part
+      // ends failed and the edit that reads /lessons is not held on it.
       write_nav: () => new Response("bad request", { status: 400 }),
       ...DESCRIBE,
     },
