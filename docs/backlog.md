@@ -3249,3 +3249,16 @@ descriptions secondhand, check each repo before use):
   sites, better Lighthouse scores.
 - **Security Audit Skill**: compare with our own scan (/sentinel) for ideas.
 (Ponytail, #1 on that list, has its own entry above.)
+
+## Replace the 500 themes with skill-guided design + the engine's checks (owner, 2026-10-24: "note it for later")
+
+Idea: the model designs each site's theme itself (main colours, fonts, corner
+style, plus the decor/backdrop/display axes the 500 carry), guided by a design
+skill (Anthropic's theme-factory / frontend-design, Impeccable; generators like
+tweakcn, Radix Colors). `site-theme.mjs`'s engine builds the full colour set
+and refuses unreadable contrast. Keep ~20–30 tested themes as examples and
+fallbacks. HISTORY, do not repeat: 2026-08-20 the 500 were removed for
+model-authored three anchor colours; 2026-08-27 the owner brought them back
+("we are gonna have the 500 themes, and with the option if user wants a
+specific thing then the free css comes in"), because three colours alone
+lacked fonts, decor and backdrops. Any change needs the owner's decision.
