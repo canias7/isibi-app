@@ -121,4 +121,7 @@ line is unchanged and the debit takes `owed`.
   guards re-anchored (above).
 - **Image prediction**: `origin/main` (`692087cde`) site `0bae00a7003bcc23`
   (231 inputs, 199 paths), app `65022ce71e3d7274`; `origin/standin-everywhere`
-  site `978436c8eafa4b7b` (232 inputs); this head: see below.
+  site `978436c8eafa4b7b` (232 inputs); this branch's code commit `33ac62ef0`:
+  site **`ef7fefd8199c45ad`** (232 inputs, 200 paths; the builder modules on
+  the worker COPY line moved, so a merge rebuilds the site image), app
+  `65022ce71e3d7274` unchanged. No Dockerfile change (no new module).
