@@ -748,7 +748,8 @@ test("the editable copy: four editing readers read through the repairing reader,
   // failed read from no pages, as the Code tab's does.
   // 5 → 6 (2026-10-23, audit A24-1): the checked wrapper's preparation arm,
   // a strict read that repairs nothing (argued for above).
-  assert.equal(bare.filter((b) => b.startsWith("readSiteSource")).length, 6,
+  // 6 → 7 (2026-10-24, standin-everywhere): the seam's salvage read.
+  assert.equal(bare.filter((b) => b.startsWith("readSiteSource")).length, 7,
     "the six reads are not the plain wrapper's, the checked wrapper's two, the Code tab's and the security scan's two: " + bare.join(" | "));
   assert.match(fnW("loadSiteSource"), /const r = await readSiteSource\(env, slug\);/,
     "the wrapper no longer delegates — there are two readers of the store, which drift");
