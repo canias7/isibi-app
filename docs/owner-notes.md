@@ -1,5 +1,15 @@
 # Owner Notes
 
+## 2026-10-24 — The first build has no page, section or component limit (branch `first-build-uncapped`, not merged, not deployed)
+
+- On your word ("eliminate the sections, the cap on the sections, the cap on the pages, the cap on the components on the first build"), the designer now plans as many pages, sections and components as the brief needs. Nothing it plans is cut or moved to "not built".
+- A second screen becomes its own page, never one long page.
+- Every page is written at the same time, eight writers at once, with one shared header and footer that link every page. A ten-page site should take about 4 to 8 extra minutes and cost roughly 40 to 150 credits (estimates, not measured).
+- An old multi-page site can no longer lose a page on a full revise (the writer kept only six before).
+- Still limited, on purpose: six bought photographs, three model repairs, 900 translated strings, 8 calls at once, and the 50-minute job limit.
+- The add-on step's own limits are unchanged.
+- The site image will be rebuilt (`0bae00a7003bcc23` → `546840dd0f2d1562`). Nothing spent. Record: `docs/history/2026-10-24-first-build-uncapped.md`.
+
 ## 2026-10-24 — combine C: six finished branches in one candidate (branch `combine-c`, not merged, not deployed)
 
 - Brings together compile repair everywhere, the exact-edits tweak, the progress voice, the next-step hint, background work and the file picker (plus the 503 notes).
