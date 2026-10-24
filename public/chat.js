@@ -10583,7 +10583,7 @@ function siteFinishBuild(origin, reply, build, note, why) {
   // ("couldn't read your link"). Caught by looking at a render; every test
   // passed. Stored on the message so it survives a reload, since the thread is
   // rebuilt from localStorage.
-  s.msgs.push({ r: 'a', t: reply, note: note || undefined, why: why || undefined, build: build, prog: prog.length ? prog : undefined });
+  s.msgs.push({ r: 'a', t: reply, note: note || undefined, why: why || undefined, build: build, prog: prog.length ? prog : undefined, ...(typeof EditPoll !== 'undefined' && EditPoll.suggestedFor && EditPoll.suggestedFor(reply) ? { suggested: EditPoll.suggestedFor(reply) } : {}) });
   s.updatedAt = Date.now(); sitesSave();
   if (siteOpenId === origin) renderSites();
 }
@@ -12562,6 +12562,9 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
       // can send a wide wordmark to a 16-pixel tab and leave the header bare.
       tab: d.tab === true,
       instruction: instruction,
+      // THE CHAT IT CAME FROM (2026-10-24): the reply reads the next-step
+      // suggestions already made there, so it does not repeat one.
+      chat: (site && typeof chatKeyOf === 'function' && chatKeyOf(site)) || undefined,
       // WHAT THE ROUTER HELD BACK FOR A LATER TURN (2026-09-29). The route takes
       // it out of `instruction` before anything runs, so it is never both done
       // now and promised for later — run 52 did both. Absent when nothing was.
@@ -13663,6 +13666,8 @@ function siteAddon(site, instruction, origin, finish, fallback, d, imgs) {
     // WHAT THE ROUTER HELD BACK rides with the message, as on the edit route
     // (2026-09-29): the add-on route takes it out before anything runs.
     body: JSON.stringify({ instruction: instruction, picker: buildPicker, ...(typeof sendEffort === 'function' ? sendEffort() : null), idem: idem, tz: browserTimeZone(),
+      // THE CHAT IT CAME FROM (2026-10-24), as on the edit route.
+      chat: (site && typeof chatKeyOf === 'function' && chatKeyOf(site)) || undefined,
       alsoAsked: EditPoll.heldWire(d && d.alsoAsked),
       handOver: d && d.handOver && typeof d.handOver === 'object' && !Array.isArray(d.handOver) ? d.handOver : undefined,
       // A REQUEST RESUMED FROM A QUESTION (2026-10-02) — `siteEdit`'s three.
@@ -16327,15 +16332,21 @@ function askFilesDrop(id) {
 // it — `{ t, q, opts, ask }` from `askReplyMsg`. Every `finish` that writes the
 // thread writes through this, so a reader can end its chain with a question.
 function siteReplyMsg(reply) {
+  // A MODEL REPLY'S NEXT-STEP TOPIC ON ITS STORED MESSAGE (2026-10-24, idea
+  // #24): `suggested` when the reply that wrote these words named one, so the
+  // server shows the next reply what was already suggested. Never drawn.
+  const said = reply && typeof reply === 'object' ? reply.t : reply;
+  const topic = typeof EditPoll !== 'undefined' && EditPoll.suggestedFor ? EditPoll.suggestedFor(said) : '';
+  const mark = topic ? { suggested: topic } : {};
   if (reply && typeof reply === 'object' && typeof reply.t === 'string') {
     // A REPLY STILL BEING WRITTEN (2026-10-04): the line that holds its place,
     // with what replaces it — `EditPoll.holdReply`, settled by `editReplyFollow`.
     const held = EditPoll.heldOf(reply);
     // A SITE'S QUESTION KEEPS EVERY ANSWER (2026-10-03); a first build's card
     // draws its own four (`siteAskHTML`), as it always has.
-    return { r: 'a', t: reply.t, q: reply.q || undefined, opts: Array.isArray(reply.opts) ? (reply.ask ? reply.opts.slice() : reply.opts.slice(0, 4)) : undefined, ask: reply.ask || undefined, ...(held ? { held } : {}) };
+    return { r: 'a', t: reply.t, q: reply.q || undefined, opts: Array.isArray(reply.opts) ? (reply.ask ? reply.opts.slice() : reply.opts.slice(0, 4)) : undefined, ask: reply.ask || undefined, ...(held ? { held } : {}), ...mark };
   }
-  return { r: 'a', t: reply };
+  return { r: 'a', t: reply, ...mark };
 }
 // AN ASSISTANT MESSAGE'S WORDS ON THE THREAD — or, for a reply still being
 // written (2026-10-04), the line holding its place, drawn as the live steps'

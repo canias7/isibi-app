@@ -160,6 +160,8 @@ export function readReplyRecord(raw) {
     ...(typeof raw.why === "string" && raw.why ? { why: raw.why.slice(0, 40) } : {}),
     // WHICH STORED ANSWER IT WAS WRITTEN FROM (2026-10-07, `replyTag` in worker.js).
     ...(typeof raw.tag === "string" && /^[0-9a-f]{16}$/.test(raw.tag) ? { tag: raw.tag } : {}),
+    // THE TOPIC OF ITS ONE SUGGESTION, when it made one (2026-10-24).
+    ...(suggestedOf(raw.suggested) ? { suggested: suggestedOf(raw.suggested) } : {}),
   };
 }
 
@@ -226,10 +228,41 @@ export const REPLY_TOOL = {
         items: { type: "string" },
         description: "The id of every fact your reply explains, exactly as written in brackets (for example \"c1\"). Every fact must be here.",
       },
+      // ONE OCCASIONAL NEXT STEP, NAMED (2026-10-24, idea #24): the topic of
+      // the suggestion the reply carries, kept on the chat's message so a later
+      // reply is shown what was already suggested and does not repeat it.
+      suggested: {
+        type: "string",
+        description:
+          "Leave empty unless your reply includes a next-step suggestion. When it does, the topic of that suggestion in a " +
+          "few words (at most 80 characters), so it is not suggested again soon. Never the sentence itself.",
+      },
     },
     required: ["reply", "covers"],
   },
 };
+
+/**
+ * ONE OCCASIONAL NEXT STEP (2026-10-24, the owner's idea #24, adapted): the
+ * writer may sometimes add one soft suggestion as an ordinary sentence of its
+ * reply — never a button, never a list, never required. Whether to add one is
+ * the model's own decision, from the facts and the open items it is shown; no
+ * sentence is written here and no word in a request decides it. It names what
+ * it suggested in `suggested`, which the page keeps on the message, and the
+ * last few are shown back (`replyContext`'s `recent`) so none is repeated.
+ */
+export const REPLY_NEXT_STEP_RULES =
+  "\n\nOCCASIONALLY, ONE NEXT STEP\n" +
+  "- You may add one soft suggestion of a next step, as an ordinary sentence inside your reply. It is optional, never " +
+  "required, and most replies have none: leave it out more often than not.\n" +
+  "- Only when a genuinely useful, specific next step follows from what you were given: a part they asked for that was " +
+  "not built or not done, a new page that is not known to be in the menu, a related problem a fact mentions, or a part " +
+  "of their message still unanswered. Never a generic idea, an upsell or anything no fact or open item supports.\n" +
+  "- At most one. Never as a list, a menu of options or a button, and never phrased as a question you need answered.\n" +
+  "- None after a simple change that is complete in itself.\n" +
+  "- Never suggest again a topic named under ALREADY SUGGESTED RECENTLY, in any words.\n" +
+  "- Same voice as the rest of the reply: professional, first person, plain.\n" +
+  "- When you add one, put its topic in a few words in suggested; otherwise leave suggested empty.";
 
 export const REPLY_SYSTEM =
   "You write the chat message a customer reads after asking an AI website builder to change their website (live, or saved to the draft when a fact says so). " +
@@ -247,7 +280,7 @@ export const REPLY_SYSTEM =
   "- A v fact is unknown either way: never say it was done and never say it was not done. When a c or n fact says part of " +
   "the same thing was done, say what was done and what could not be checked, without contradicting either.\n" +
   "- Say only what the facts say. Never claim a change, a failure, a charge, a refund, a question or a next step that no " +
-  "fact states. If a fact says nothing on the site changed, say so plainly.\n" +
+  "fact states, except the one occasional suggestion the section below allows. If a fact says nothing on the site changed, say so plainly.\n" +
   "- Explain every fact, and list its id in covers. You may group related facts and summarize a long list in your own " +
   "words, but every change, failure, waiting part and question must still be recognisable in what you write: name each " +
   "one, even briefly. Never drop or blur one to keep the message short.\n" +
@@ -264,7 +297,8 @@ export const REPLY_SYSTEM =
   "- Write in the language they wrote their message in. Warm and direct; no apologies beyond one short one when something " +
   "did not work; no marketing.\n" +
   "- No emoji and no checkmark or warning symbols, unless they asked for them.\n" +
-  "- Never put a fact's id in the reply itself.";
+  "- Never put a fact's id in the reply itself." +
+  REPLY_NEXT_STEP_RULES;
 
 // ── FACTS ────────────────────────────────────────────────────────────────
 
@@ -1875,7 +1909,7 @@ export function wideningFacts(list, options = []) {
 // ── THE CALL ──────────────────────────────────────────────────────────────
 
 /** What the model is shown besides the facts: their words, their answers, the site. */
-export function replyContext({ request = "", answers = [], site = null } = {}) {
+export function replyContext({ request = "", answers = [], site = null, recent = [], offMenu = [] } = {}) {
   const lines = [];
   const name = site && typeof site.name === "string" ? flat(site.name) : "";
   const slug = site && typeof site.slug === "string" ? flat(site.slug) : "";
@@ -1886,6 +1920,11 @@ export function replyContext({ request = "", answers = [], site = null } = {}) {
   if (words) lines.push("WHAT THEY ASKED FOR:\n" + flat(words));
   const told = readContext(answers) || [];
   if (told.length) lines.push("WHAT THEY TOLD US IN ANSWER TO EARLIER QUESTIONS:\n" + told.map((p) => "- " + quote(p.q) + " → " + quote(p.a)).join("\n"));
+  // WHAT A NEXT STEP MAY BE GROUNDED IN, BESIDE THE f AND p FACTS (2026-10-24).
+  const off = Array.isArray(offMenu) ? [...new Set(offMenu.map(pathOf).filter(Boolean))] : [];
+  if (off.length) lines.push("NEW PAGES NOT KNOWN TO BE LINKED FROM ANY MENU: " + off.join(", "));
+  const said = Array.isArray(recent) ? recent.map(suggestedOf).filter(Boolean) : [];
+  if (said.length) lines.push("ALREADY SUGGESTED RECENTLY (never suggest these again):\n" + said.map((t) => "- " + quote(t)).join("\n"));
   return lines.join("\n\n");
 }
 
@@ -1936,7 +1975,8 @@ export function readReply(reply, facts, maxChars = REPLY_MAX_CHARS) {
   if ([...ids].some((id) => new RegExp("\\[" + id + "\\]").test(text))) return { ok: false, text: "", missing: [] };
   const covered = new Set(input.covers.filter((c) => typeof c === "string").map((c) => c.trim()));
   const missing = facts.map((f) => f.id).filter((id) => !covered.has(id));
-  return { ok: missing.length === 0, text, missing };
+  const suggested = suggestedOf(input.suggested);
+  return { ok: missing.length === 0, text, missing, ...(suggested ? { suggested } : {}) };
 }
 
 /** The four token kinds, in the shape `pageCredits` prices (the router's `askUsage`). */
@@ -1983,7 +2023,7 @@ export async function writeReply(deps, { facts, context = "", model, deadlineMs 
     }
     usage.push(replyUsage(reply, model));
     const read = readReply(reply, facts, maxChars);
-    if (read.ok) return { ok: true, text: read.text, usage, attempts };
+    if (read.ok) return { ok: true, text: read.text, usage, attempts, ...(read.suggested ? { suggested: read.suggested } : {}) };
     if (!read.missing.length) { why = "unreadable"; break; }
     missed = read.missing;
     why = "uncovered";
@@ -2017,7 +2057,51 @@ export function replyOutcomeOf(read) {
   return "";
 }
 
-/** The answer with the reply on it, as one new object: every field kept, `reply` and `replySource` added. */
-export function withReplyText(body, text) {
-  return { ...body, reply: text, replySource: REPLY_SOURCE };
+/**
+ * The answer with the reply on it, as one new object: every field kept,
+ * `reply` and `replySource` added, and `suggested` when the reply carried a
+ * next-step suggestion (2026-10-24) — a topic for the chat's own record, never
+ * drawn as anything but the reply's text.
+ */
+export function withReplyText(body, text, suggested = "") {
+  const topic = suggestedOf(suggested);
+  return { ...body, reply: text, replySource: REPLY_SOURCE, ...(topic ? { suggested: topic } : {}) };
+}
+
+/** A suggestion's topic read strictly: a non-blank string, at most 80 characters, on one line; "" otherwise (never coerced). */
+export const SUGGESTED_MAX = 80;
+export function suggestedOf(v) {
+  if (typeof v !== "string") return "";
+  const t = v.replace(/\s+/g, " ").trim();
+  return t && t.length <= SUGGESTED_MAX ? t : "";
+}
+
+/**
+ * THE LAST FEW SUGGESTIONS IN A STORED CHAT (2026-10-24): the `suggested`
+ * marker on the builder's own messages among the last `within`, oldest first,
+ * at most `n`. A message without one, or one that does not read, adds nothing.
+ */
+export function recentSuggestions(msgs, { n = 3, within = 20 } = {}) {
+  if (!Array.isArray(msgs)) return [];
+  const out = [];
+  for (const m of msgs.slice(-within)) {
+    if (!m || typeof m !== "object" || m.r !== "a") continue;
+    const t = suggestedOf(m.suggested);
+    if (t) out.push(t);
+  }
+  return out.slice(-n);
+}
+
+/**
+ * NEW PAGES AN ADDITION'S ANSWER DOES NOT REPORT LINKING FROM ANY MENU
+ * (2026-10-24): `added` less every address a menu was reported to link to
+ * (`linked`, `restored`). Not proof of a missing link, only that this answer
+ * names none, and told to the writer as "not known to be linked".
+ */
+export function offMenuPages(a) {
+  if (!a || typeof a !== "object" || a.ok !== true) return [];
+  const added = paths(a.added);
+  const linked = new Set();
+  for (const l of [...(Array.isArray(a.linked) ? a.linked : []), ...(Array.isArray(a.restored) ? a.restored : [])]) for (const t of paths(l && l.to)) linked.add(t);
+  return added.filter((p) => !linked.has(p));
 }

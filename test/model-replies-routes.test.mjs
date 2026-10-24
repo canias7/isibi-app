@@ -268,7 +268,8 @@ test("COMPLETE SUCCESS, QUEUED: the job makes, publishes and charges the change 
       assert.equal(seen.rpc.filter((x) => x.fn === "edit_reserve").length, 1, "the edit was not reserved once");
       assert.equal(replyCalls(seen), 0, "the job wrote its own reply, before its money was settled");
       assert.equal(r.body.reply, undefined);
-      assert.deepEqual(r.body.replyFor, { kind: "edit", request: DESC_WORDS, answers: [], picker: "sonnet", routedCost: 2, slug, pages: ["/", "/visit"] });
+      assert.deepEqual(r.body.replyFor, { kind: "edit", request: DESC_WORDS, answers: [], picker: "sonnet", routedCost: 2, slug, pages: ["/", "/visit"], uid: r.body.replyFor.uid });
+      assert.equal(typeof r.body.replyFor.uid, "string", "the later reply knows whose chat to read its recent suggestions from (2026-10-24)");
       const id = r.finalized.p_id;
       // THE JOB'S END ASKED FOR ITS REPLY: the record pending, one message for the writer.
       assert.equal(recordOf(store, id).state, "pending", "the job's end did not ask for its reply");
