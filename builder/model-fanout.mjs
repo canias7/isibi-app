@@ -79,7 +79,18 @@ export const MAX_MODEL_FANOUT = 8;
  * call that an older image mid-rollout already produces — so the page is still
  * written, and the trace says `bands:nofanout`.
  */
-export const MAX_FANOUT_REQS = 16;
+//
+// 512 SINCE 2026-10-24 (owner: no page, section or component cap on the first
+// build). Every page of a first build now rides ONE fan-out — its bands, then
+// the header and the footer — so the list is the site's whole band count: ten
+// pages of five bands is 52 requests, past 16, and a list over this bound
+// leaves the build to the single call (not a loss of pages, but one model
+// writing the whole site in one answer, which is what the split exists to
+// avoid). 512 is a MEMORY bound on the container's answer store (one model
+// answer per entry, spent as they arrive), not a product cap: it clears 50
+// pages of ten bands. Concurrency is unchanged: `MAX_MODEL_FANOUT` (8) at once,
+// the rest queue.
+export const MAX_FANOUT_REQS = 512;
 
 /**
  * A permit pool. `n` calls may be in the air at once; the rest queue and take a

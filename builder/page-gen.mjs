@@ -845,7 +845,15 @@ import { apiDetailLines } from "../site-api-shape.mjs";
 // multi-page site on its owner's next unrelated edit. New builds are one page
 // because the PLAN is one page; this stays the tolerance for what already
 // exists.
-export const MAX_PAGES = 6;
+//
+// NO CAP SINCE 2026-10-24 (owner: "eliminate … the cap on the pages … on the
+// first build"). The plan has no page cap now, so a first build may hand back
+// ten pages; six here would have DROPPED four of them after they were written
+// and paid for. And it still protects a full revise of an old multi-page site
+// — better than before: it can no longer drop any page at all. `validatePages`
+// keeps every page; the dangling-link rewrite below stays for links to pages
+// nobody wrote. Kept as an exported constant (infinity) for the records.
+export const MAX_PAGES = Number.POSITIVE_INFINITY;
 // 24000 UNTIL 2026-08-28, WITH NO RECORDED REASON — a bare constant from the
 // five-page world, where a page over it was a bloated page and "split it" was
 // real advice. RUN 52 IS WHY IT DOUBLED: the first one-page build folded the
@@ -3339,7 +3347,6 @@ export function validatePages(input, { partial = false, knownRoutes = null } = {
   const pages = [];
   const seen = new Set();
   const raw = (input && Array.isArray(input.pages)) ? input.pages : [];
-  if (raw.length > MAX_PAGES) problems.push("More than " + MAX_PAGES + " pages were written; only the first " + MAX_PAGES + " were kept.");
   // ONE PLACE, TWO LISTS. Pages and the hand-written components are validated
   // in two loops below and compile as one program, so a duplicate import kills
   // the build from either of them. Written here rather than twice.
@@ -3352,7 +3359,8 @@ export function validatePages(input, { partial = false, knownRoutes = null } = {
     }
     return dd.source;
   };
-  for (const p of raw.slice(0, MAX_PAGES)) {
+  // EVERY PAGE (2026-10-24): no cut — see MAX_PAGES.
+  for (const p of raw) {
     const source = p && typeof p.source === "string" ? p.source : "";
     // AN EMPTY PAGE IS A PROBLEM, NOT A SILENT SKIP. Dropped quietly, a call that
     // named five routes and gave every one an empty `source` came out the far end

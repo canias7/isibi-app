@@ -4,8 +4,9 @@
 // time" → the band split, "A").
 //
 // The page call is THE long one — its own header in `page-gen.mjs` says "seven
-// to twelve minutes on a real brief" — and on a first build it writes ONE file,
-// `index.tsx`, because `MAX_PAGES` in the plan is 1. One file cannot be written
+// to twelve minutes on a real brief" — and on a first build it wrote ONE file,
+// `index.tsx`, while `MAX_PAGES` in the plan was 1 (until 2026-10-24; since
+// then every page of a first build is split, `pagesPlan`). One file cannot be written
 // faster by one model. It CAN be written by several, because the design step
 // already planned it as an ordered list of bands: `shape` answers
 // `{ path, sections[] }`, each section one line naming the component that
@@ -103,12 +104,10 @@ export function bandsOf(shape, path) {
   const all = row.sections
     .filter((l) => typeof l === "string" && l.trim().length >= MIN_BAND_CHARS)
     .map((l) => l.trim());
-  // NO FOLD (2026-10-23, owner: "the AI should write everything, that's the
-  // point"). Sections past `MAX_BANDS` used to be joined into the last band
-  // (2026-10-08), one writer squeezing several sections into one. The cap is
-  // now enforced where the plan is read (`normalizePlan`), which names the
-  // overflow in `notBuilt` for the customer; a hand-made shape that still
-  // carries more is cut here to the same number, never folded.
+  // NO FOLD (2026-10-23) AND NO CAP (2026-10-24, owner: "eliminate the
+  // sections, the cap on the sections"). Sections past a cap were folded into
+  // the last band (2026-10-08), then cut into `notBuilt` (2026-10-23); now
+  // `MAX_BANDS` is infinity and every line is its own band.
   return all.slice(0, MAX_BANDS);
 }
 
@@ -423,14 +422,19 @@ export const OWN_PARTS_RULE =
   "Allowed imports: \"react\", \"@tanstack/react-router\" (Link), \"lucide-react\" icons, \"@/lib/…\" helpers, " +
   "and a module under \"@/components/ui/\" ONLY where the brief above names that exact path for a picture, a 3D scene or a code.";
 
-export function bandPrompt({ brief, spec, brand, lines, index, name } = {}) {
+export function bandPrompt({ brief, spec, brand, lines, index, name, page = "" } = {}) {
   const label = String(brand || "").trim();
   const plan = bandPlan(lines, index);
+  // WHICH PAGE (2026-10-24): a first build may now have many pages, each
+  // written by its own bands in one fan-out, so a band is told the page it is
+  // on. A one-page build sends none and reads exactly as before.
+  const where = typeof page === "string" && page.trim() ? "\n\nTHIS PAGE\n" + page.trim() : "";
   return "Write ONE band of this page.\n\nKEEP IT TIGHT: the page is a few bands, so this band says its one thing and stops. Write the <section> yourself: no vertical padding above py-16, its content in mx-auto max-w-6xl px-6; no min-h-screen or min-h-svh except on the opening hero, one short heading, no intro paragraph repeating what the band above said. No entrance animation unless this is the opening band; no hover lift unless the card is a link. Unless this is the opening band, stay quiet and plain: the page is bold in one place, and it is not here.\n\nBRIEF\n" + String(brief || "").trim() +
     (label ? "\n\nTHE SITE IS CALLED\n" + label + " — it is already the page title." : "") +
     (siteHasTables(spec)
       ? "\n\nTHE SCHEMA THAT EXISTS\n" + schemaDigest(spec)
       : "\n\nTHIS SITE'S DATA\nThere is none, and that is the design. Write the content into the band.") +
+    where +
     (plan ? "\n\nTHE PAGE, TOP TO BOTTOM\n" + plan : "") +
     "\n\nYOURS IS " + name + "\nWrite that band and no other. The bands above and below yours are being " +
     "written at the same time by someone else — do not write them, do not repeat them, and do not " +
@@ -578,10 +582,10 @@ export function frameRequest({ brief, spec, brand, lines, chrome, actions, notBu
  * both cached blocks, for `pagesRequest`'s own reason.
  */
 export function bandRequest({
-  brief, spec, brand, lines, index, name, model, kind = "", attachments,
+  brief, spec, brand, lines, index, name, model, kind = "", attachments, page = "",
 } = {}) {
   const blocks = Array.isArray(attachments) ? attachments.filter(Boolean) : [];
-  const text = bandPrompt({ brief, spec, brand, lines, index, name });
+  const text = bandPrompt({ brief, spec, brand, lines, index, name, page });
   return {
     model: model || modelsFor().pages,
     max_tokens: SITE_PAGES_MAX_TOKENS,
@@ -813,6 +817,49 @@ export function planRefusal({ shape, route, tsx, priorPages, mode } = {}) {
 }
 
 /**
+ * EVERY PAGE OF A FIRST BUILD, SPLIT INTO ITS BANDS (2026-10-24, owner:
+ * "eliminate the sections, the cap on the sections, the cap on the pages, the
+ * cap on the components on the first build").
+ *
+ * Until today a plan of several pages was refused the split (`pages`) and the
+ * whole site went to ONE `write_pages` call — one model writing every page in
+ * one answer, under one output ceiling, which is exactly the shape that cannot
+ * hold a ten-page site. Now every page is split: each page's bands, then the
+ * header and the footer once for the whole site, ride ONE fan-out, so many
+ * pages are written in parallel batches of `MAX_MODEL_FANOUT`.
+ *
+ * Answers `{ why, pages: [{ route, name, lines }] }`; `why` is "" when the
+ * split goes ahead. One page keeps the one-page rules exactly (`planRefusal`:
+ * a page of fewer than `MIN_BANDS` bands is `thin`). With several pages a page
+ * the design gave no arrangement is still WRITTEN, never dropped: it gets one
+ * band, the page itself, so its writer lays it out — the documented meaning
+ * of an absent `shape` entry. A route no file can be named for refuses the
+ * whole split (`route`), and the one call writes the site as before.
+ */
+export function pagesPlan({ shape, pages, priorPages, mode } = {}) {
+  if (priorPages || (mode && mode !== "build")) return { why: "revise", pages: [] };
+  const list = (Array.isArray(pages) ? pages : [])
+    .filter((p) => p && typeof p === "object" && typeof p.path === "string" && p.path);
+  if (!list.length) return { why: "pages", pages: [] };
+  if (list.length === 1) {
+    const route = list[0].path;
+    const why = planRefusal({ shape, route, priorPages, mode });
+    return why ? { why, pages: [] } : { why: "", pages: [{ route, name: String(list[0].name || ""), lines: bandsOf(shape, route) }] };
+  }
+  const out = [];
+  for (const p of list) {
+    if (!bandFile(p.path)) return { why: "route", pages: [] };
+    const name = typeof p.name === "string" && p.name.trim() ? p.name.trim() : p.path;
+    const lines = bandsOf(shape, p.path);
+    out.push({ route: p.path, name, lines: lines.length ? lines : [WHOLE_PAGE_BAND + name] });
+  }
+  return { why: "", pages: out };
+}
+
+/** The one band a page the design did not arrange is written as (2026-10-24). */
+export const WHOLE_PAGE_BAND = "The whole page, laid out by you: ";
+
+/**
  * WHETHER TO SPLIT THIS GENERATION AT ALL.
  *
  * Answers the band lines, or `[]` meaning "use the one call". The caller reads
@@ -848,10 +895,15 @@ export function splitPlan(args = {}) {
  * that could not be made before — "the plan refused" told apart from "the flag
  * is off for this account".
  */
-export function bandRefusal({ pages, canFire, door, shape, route, tsx, priorPages, mode } = {}) {
+export function bandRefusal({ pages, canFire, door, shape, route, tsx, priorPages, mode, pageList = null } = {}) {
   if (!canFire) return "sync";
-  if (pages !== 1) return "pages";
-  const why = planRefusal({ shape, route, tsx, priorPages, mode });
+  // SEVERAL PAGES SPLIT TOO SINCE 2026-10-24 (owner: no page cap on the first
+  // build). `pages` refuses only a plan with no page at all; a plan of several
+  // is judged page by page by `pagesPlan` when the caller hands the list.
+  if (!Number.isInteger(pages) || pages < 1) return "pages";
+  const why = Array.isArray(pageList)
+    ? pagesPlan({ shape, pages: pageList, priorPages, mode }).why
+    : planRefusal({ shape, route, tsx, priorPages, mode });
   if (why) return why;
   if (!door) return "door";
   return "";
@@ -961,10 +1013,23 @@ export function bandsFromAnswers(answers, lines) {
  * would charge a floor per band.
  */
 export async function generateSiteBands({
-  brief, spec, brand, attachments, model, kind = "", route, chrome, lines, tsx, actions, notBuilt,
+  brief, spec, brand, attachments, model, kind = "", route, chrome, lines, tsx, actions, notBuilt, pages = null,
 } = {}, keys, call, budget = null) {
-  const file = bandFile(route);
-  const bandLines = Array.isArray(lines) ? lines : [];
+  // ── EVERY PAGE IN ONE FAN-OUT (2026-10-24) ─────────────────────────────────
+  //
+  // `pages` is `pagesPlan`'s list: `[{ route, name, lines }]`. Absent, this is
+  // the one page it always was (`route` + `lines`). The bands of every page
+  // occupy the first slots, page after page, so a band's slot is its position
+  // in the flat list and `bandName` numbers them across the whole site — which
+  // makes every band FILE unique across pages by construction. The header and
+  // the footer follow once, shared by every page.
+  const plan = Array.isArray(pages) && pages.length
+    ? pages.map((p) => ({ route: p.route, name: typeof p.name === "string" ? p.name : "", lines: Array.isArray(p.lines) ? p.lines : [] }))
+    : [{ route, name: "", lines: Array.isArray(lines) ? lines : [] }];
+  const multi = plan.length > 1;
+  const bandLines = plan.flatMap((p) => p.lines);
+  const offsets = [];
+  { let at = 0; for (const p of plan) { offsets.push(at); at += p.lines.length; } }
   // ── ONE AGENT PER THING, AND A PART IS A THING (2026-09-11) ────────────────
   //
   // The fan-out carries BOTH kinds: a band writes one section of the page, a
@@ -986,11 +1051,12 @@ export async function generateSiteBands({
   // the first build's design no longer declares `tsx`.
   const partList = app ? partsOf(tsx) : [];
   const reqs = [
-    ...bandLines.map((line, i) => bandRequest({
-      brief, spec, brand, lines: bandLines, index: i, name: bandName(line, i), model, kind, attachments,
-    })),
+    ...plan.flatMap((p, k) => p.lines.map((line, j) => bandRequest({
+      brief, spec, brand, lines: p.lines, index: j, name: bandName(line, offsets[k] + j), model, kind, attachments,
+      ...(multi ? { page: p.route + (p.name ? " — " + p.name : "") } : {}),
+    }))),
     ...frame.map((f) => frameRequest({
-      brief, spec, brand, lines: bandLines, chrome, actions, notBuilt, role: f.role, model, kind, attachments,
+      brief, spec, brand, lines: plan[0].lines, chrome, actions, notBuilt, role: f.role, model, kind, attachments,
     })),
     ...partList.map((part) => partRequest({
       brief, spec, brand, lines: bandLines, part, model, kind, attachments,
@@ -1091,8 +1157,24 @@ export async function generateSiteBands({
   // written into the page by `tsxDirective`.
   const parts = partsFromAnswers(list, partList, bandLines.length + frame.length);
   const framed = frameFromAnswers(list, frame, bandLines.length);
-  const { source, parts: bandFiles, refused } = assembleBands({
-    route, chrome, bands, taken: parts.map((p) => p.name), app, ...(frame.length ? { frame: framed } : {}),
+  // ONE ASSEMBLY PER PAGE. The first page writes the frame's two files; every
+  // later page imports those same files (`frameFiles`) and writes none, so
+  // the site has one header and one footer, never `site-header-2`.
+  const outPages = [];
+  const bandFiles = [];
+  const refused = [];
+  let frameFiles = null;
+  const taken = parts.map((p) => p.name);
+  plan.forEach((p, k) => {
+    const mine = bands.slice(offsets[k], offsets[k] + p.lines.length);
+    const done = assembleBands({
+      route: p.route, chrome, bands: mine, taken: [...taken, ...bandFiles.map((b) => b.name)], app,
+      ...(frame.length ? { frame: framed } : {}), ...(frameFiles ? { frameFiles } : {}),
+    });
+    if (!frameFiles && done.frameFiles) frameFiles = done.frameFiles;
+    outPages.push({ path: bandFile(p.route), source: done.source });
+    bandFiles.push(...done.parts);
+    refused.push(...done.refused);
   });
   // THE PARTS RIDE OUT IN `parts`, NEVER IN `pages` — the same division
   // `write_pages` has always made, and for the same reason: a component in the
@@ -1107,7 +1189,7 @@ export async function generateSiteBands({
   // reading what it has always read.
   const allParts = [...bandFiles, ...parts];
   return {
-    input: { pages: [{ path: file, source }], ...(allParts.length ? { parts: allParts } : {}) },
+    input: { pages: outPages, ...(allParts.length ? { parts: allParts } : {}) },
     usage,
     bands: bands.length,
     wrote: bands.filter((b) => b.source).length,
@@ -1462,7 +1544,7 @@ export function bandModule(name, imports, body) {
  * there, which is `vite` refusing the build rather than a page missing a
  * section — a strictly worse failure than the local stub it replaces.
  */
-export function assembleBands({ route, chrome, bands, taken, app = false, frame = null }) {
+export function assembleBands({ route, chrome, bands, taken, app = false, frame = null, frameFiles = null }) {
   const list = (Array.isArray(bands) ? bands : []).filter((b) => b && typeof b === "object" && typeof b.name === "string" && b.name);
   const refused = [];
   const parts = [];
@@ -1491,8 +1573,17 @@ export function assembleBands({ route, chrome, bands, taken, app = false, frame 
   // THE HEADER AND THE FOOTER ARE FILES LIKE A BAND (2026-10-23), checked by
   // the same rule and stubbed the same way: a frame that could not be written
   // leaves the page whole without it, rather than no page at all.
+  // A LATER PAGE OF A MULTI-PAGE BUILD (2026-10-24) imports the frame files
+  // the first page wrote and writes none of its own.
+  const shared = frameFiles && typeof frameFiles === "object" ? frameFiles : null;
+  const wroteFrame = {};
   for (const f of framed || []) {
+    if (shared && typeof shared[f.name] === "string") {
+      imports.push('import ' + f.name + ' from "' + PART_IMPORT + shared[f.name] + '";');
+      continue;
+    }
     const file = freeBandFile(f.file || bandFileName(f.name), used);
+    wroteFrame[f.name] = file;
     used.add(file);
     imports.push('import ' + f.name + ' from "' + PART_IMPORT + file + '";');
     const why = bandProblems(f.name, f.source);
@@ -1505,7 +1596,7 @@ export function assembleBands({ route, chrome, bands, taken, app = false, frame 
     parts.push({ name: file, source: bandModule(f.name, got, body) });
   }
   const source = imports.join("\n") + "\n\n" + pageShell({ route, chrome, names, app, ...(framed ? { frame: framed } : {}) }) + "\n";
-  return { source: dedupeImports(source).source, parts, refused };
+  return { source: dedupeImports(source).source, parts, refused, ...(framed && !shared ? { frameFiles: wroteFrame } : {}) };
 }
 
 // ── THE SINGLE-CALL FALLBACK, CHECKED (2026-10-23) ──────────────────────────

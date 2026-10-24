@@ -34,21 +34,18 @@ const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8")
 const PAGE = { purpose: "Sell sourdough", pages: [{ path: "/", name: "Home" }] };
 const lines9 = Array.from({ length: 9 }, (_, i) => "section " + i + " in the design's own words");
 
-// ── 1. THE CAP, ENFORCED ──────────────────────────────────────────────────
+// ── 1. NO SECTION CAP (2026-10-24; a six-band cap 2026-10-23 → 2026-10-24) ──
 
-test("the section cap is enforced at normalize, and the overflow is named not built", () => {
+test("every section the design plans is kept at normalize, and none is moved to notBuilt", () => {
+  assert.equal(MAX_SECTIONS, Infinity);
   const p = normalizePlan({ ...PAGE, shape: [{ path: "/", sections: lines9 }] });
-  assert.equal(p.shape[0].sections.length, MAX_SECTIONS, "more bands than the page writer runs reached the plan");
-  assert.deepEqual(p.shape[0].sections, lines9.slice(0, MAX_SECTIONS), "the kept bands are not the first, in order, whole");
-  assert.deepEqual(p.notBuilt, lines9.slice(MAX_SECTIONS), "the bands past the cap were lost rather than named");
-  // CONTROL: at the cap, nothing is named.
-  const ok = normalizePlan({ ...PAGE, shape: [{ path: "/", sections: lines9.slice(0, MAX_SECTIONS) }] });
-  assert.equal(ok.notBuilt, undefined, "a plan within the cap named something as not built");
+  assert.deepEqual(p.shape[0].sections, lines9, "a band the design planned was cut");
+  assert.equal(p.notBuilt, undefined, "a planned band was named not built — a cut by another name");
 });
 
 test("the design's own notBuilt survives normalize, goes first, and a non-string is refused", () => {
   const p = normalizePlan({ ...PAGE, shape: [{ path: "/", sections: lines9 }], notBuilt: ["a newsletter sign-up", ["coerced"], 7, "  "] });
-  assert.deepEqual(p.notBuilt, ["a newsletter sign-up", ...lines9.slice(MAX_SECTIONS)]);
+  assert.deepEqual(p.notBuilt, ["a newsletter sign-up"]);
   const q = withNotBuilt(normalizePlan(PAGE), ["online ordering"]);
   assert.deepEqual(q.notBuilt, ["online ordering"]);
   assert.equal(withNotBuilt(null, ["x"]), null);
@@ -57,7 +54,7 @@ test("the design's own notBuilt survives normalize, goes first, and a non-string
 
 test("bandsOf never folds sections into the last band", () => {
   const bands = bandsOf([{ path: "/", sections: lines9 }], "/");
-  assert.equal(bands.length, MAX_SECTIONS);
+  assert.deepEqual(bands, lines9, "one band per section, every section");
   assert.ok(!bands.some((b) => b.includes(" — then — ")), "sections were folded into one band");
 });
 

@@ -354,15 +354,18 @@ test("WHATEVER THE DESIGNER PLANS, THE GENERATE STEP TAKES — nothing is refuse
   const decls = (n) => Array.from({ length: n }, (_, i) => ({ name: "C" + i, does: "d" }));
   const args = (b, p) => ({ shape: [{ path: "/", sections: sections(b) }], route: "/", mode: "build", tsx: decls(p) });
   const at = (b, p) => planRefusal(args(b, p));
-  assert.equal(at(MAX_BANDS, 0), "", "a full page of bands must split");
-  assert.equal(at(MAX_BANDS, MAX_TSX), "", "the widest plan there is must split — this is the case the owner asked for");
+  // NO BAND CAP SINCE 2026-10-24 (MAX_BANDS is infinity): "wide" is any width.
+  const WIDE = 30;
+  assert.equal(MAX_BANDS, Infinity);
+  assert.equal(at(WIDE, 0), "", "a full page of bands must split");
+  assert.equal(at(WIDE, MAX_TSX), "", "the widest plan there is must split — this is the case the owner asked for");
   assert.equal(at(MAX_MODEL_FANOUT + 1, 0), "", "a plan one over the SOCKET bound must split — the extra band queues");
   assert.equal(at(2, MAX_TSX), "", "a small page with every declaration must still split");
   // AND THE PIECES REALLY ARE ALL THERE — the count, not just the verdict, since
   // a splitter that silently dropped the ninth piece would answer "" too.
   assert.equal(
-    splitPlan(args(MAX_BANDS, MAX_TSX)).length + partsOf(decls(MAX_TSX)).length,
-    MAX_BANDS + MAX_TSX,
+    splitPlan(args(WIDE, MAX_TSX)).length + partsOf(decls(MAX_TSX)).length,
+    WIDE + MAX_TSX,
     "the widest plan lost a piece on its way into the fan-out",
   );
 
@@ -372,9 +375,13 @@ test("WHATEVER THE DESIGNER PLANS, THE GENERATE STEP TAKES — nothing is refuse
   // than claimed in a comment, so the day a product cap outgrows it a test goes
   // red and somebody decides on purpose — instead of every such build quietly
   // falling back to one call.
+  // With no page or band cap (2026-10-24) no finite bound clears every plan;
+  // what it must clear is a large real one: ten pages of thirty bands each,
+  // the header and the footer, and every declared part.
+  const big = 10 * WIDE + 2 + MAX_TSX;
   assert.ok(
-    MAX_BANDS + MAX_TSX <= MAX_FANOUT_REQS,
-    `a plan can compose ${MAX_BANDS + MAX_TSX} requests and the container takes ${MAX_FANOUT_REQS} — `
+    big <= MAX_FANOUT_REQS,
+    `a ten-page plan can compose ${big} requests and the container takes ${MAX_FANOUT_REQS} — `
     + "raise MAX_FANOUT_REQS, or the widest plans go back to being written in one call",
   );
   // A NEGATIVE ASSERTION MUST PROVE ITS OBSERVER IS ALIVE: no width refusal may

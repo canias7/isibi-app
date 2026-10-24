@@ -251,11 +251,16 @@ test("THE PAGE BUDGET FITS THE ONE-PAGE WORLD (run 52, 2026-08-28)", () => {
     "the source field no longer states the budget the validator enforces");
 });
 
-test("more pages than the cap are trimmed, and said to be", () => {
-  const many = Array.from({ length: MAX_PAGES + 2 }, (_, i) => ({ path: `p${i}.tsx`, source: 'createFileRoute("/p")' }));
+test("NO PAGE CAP (2026-10-24): every page written is kept, and nothing says otherwise", () => {
+  // It trimmed to MAX_PAGES (6) and said so; the owner lifted the first
+  // build's page cap, and a cut here would drop pages already written and paid
+  // for — and pages off an old multi-page site on a full revise.
+  assert.equal(MAX_PAGES, Infinity);
+  const many = Array.from({ length: 50 }, (_, i) => ({ path: `p${i}.tsx`, source: 'createFileRoute("/p")' }));
   const v = validatePages({ pages: many });
-  assert.equal(v.pages.length, MAX_PAGES);
-  assert.match(v.problems.join(" "), new RegExp("More than " + MAX_PAGES + " pages"));
+  assert.equal(v.pages.length, 50, "a page past an old cap was dropped");
+  assert.deepEqual(v.pages.map((p) => p.path), many.map((p) => p.path));
+  assert.ok(!/More than|were kept/.test(v.problems.join(" ")), "a trimming problem is still reported");
 });
 
 test("junk in, no crash out", () => {
@@ -1712,10 +1717,9 @@ test("a link to a page that was never written is pointed at home, not left dead"
   assert.ok(v.problems.some((x) => /\/account/.test(x)), "the rewrite happened silently: " + JSON.stringify(v.problems));
 });
 
-test("and the same fix covers the page CAP, which is how it was found", () => {
+test("and the page CAP that found the link fix is gone: a seventh page and the links to it are kept (2026-10-24)", () => {
   // The model wrote SEVEN pages, the cap kept six, and the one dropped was the
-  // one two others linked to. A cap that removes a page while leaving links to
-  // it is a guaranteed failure, not a risk.
+  // one two others linked to (2026-08-04). Since 2026-10-24 no cap drops it.
   const mk = (path, body = "") => ({ path, source:
     'import { createFileRoute, Link } from "@tanstack/react-router";\n' +
     'export const Route = createFileRoute("/")({ component: P });\n' +
@@ -1726,9 +1730,9 @@ test("and the same fix covers the page CAP, which is how it was found", () => {
     mk("account.tsx"),   // the 7th — dropped by the cap
   ];
   const v = validatePages({ pages: many });
-  assert.equal(v.pages.length, MAX_PAGES);
-  assert.ok(!v.pages.some((p) => p.path === "account.tsx"), "the cap did not drop anything");
-  assert.ok(!/\/account/.test(v.pages[0].source), "the link to the dropped page survived and will not compile");
+  assert.equal(v.pages.length, 7, "a page was dropped");
+  assert.ok(v.pages.some((p) => p.path === "account.tsx"), "the seventh page was dropped");
+  assert.ok(/\/account/.test(v.pages[0].source), "the link to a page that exists was rewritten away");
 });
 
 test("a navigate({to}) target is covered too, not just <Link>", () => {
@@ -2219,9 +2223,8 @@ test("the tool cannot be called with an empty page list", () => {
   // And the description has to say when an empty list is legitimate, or the
   // model has a field it is allowed to use and no idea when.
   assert.match(pages.description, /EMPTY list only when/i, "nothing tells the model when none is right");
-  // NO ceiling, deliberately. The cap lives in validatePages, which keeps the
-  // first MAX_PAGES and rewrites any link to one it dropped — a working site
-  // minus a page. A schema ceiling would make a model that wanted more produce
+  // NO ceiling, deliberately — and since 2026-10-24 validatePages keeps every
+  // page too; it rewrites only a link to a page nobody wrote. A schema ceiling would make a model that wanted more produce
   // an INVALID call, which is the empty-array failure this guards against.
   assert.equal(pages.maxItems, undefined,
     "a maxItems here turns 'too many pages' into 'no pages', which is the worse failure");

@@ -45,7 +45,7 @@ const words = (n, tail = ".") => ("Harbour Loaf bakes overnight sourdough by the
 
 // ── plan fields ────────────────────────────────────────────────────────────
 
-test("plan fields past every old cut — purpose 400, describe 240, and sections and actions past the 16,000 input budget (Codex's finding) — are kept whole; 1 page and 15 components stand", () => {
+test("plan fields past every old cut — purpose 400, describe 240, and sections and actions past the 16,000 input budget (Codex's finding) — are kept whole; every page and component is kept (no cap since 2026-10-24)", () => {
   const purpose = words(1200, " — and the last clause matters.");
   const section = words(MAX_INPUT_CHARS + 900, " — the band's own ending.");
   const action = words(MAX_INPUT_CHARS + 400, " — paid at the door.");
@@ -62,10 +62,10 @@ test("plan fields past every old cut — purpose 400, describe 240, and sections
   assert.equal(p.shape[0].sections[0], section, "a section past 16,000 lost its tail");
   assert.equal(p.action[0], action, "an action past 16,000 lost its tail");
   assert.equal(p.images[0].describe, describe, "a picture description was cut");
-  assert.equal(p.pages.length, MAX_PAGES);
-  assert.equal(p.components.length, MAX_COMPONENTS);
-  assert.equal(MAX_PAGES, 1);
-  assert.equal(MAX_COMPONENTS, 15);
+  assert.deepEqual(p.pages.map((x) => x.path), ["/", "/more"], "a page was dropped");
+  assert.equal(p.components.length, 30, "a component was dropped");
+  assert.equal(MAX_PAGES, Infinity);
+  assert.equal(MAX_COMPONENTS, Infinity);
 });
 
 test("a long picture description reaches the stored plan through the real build route, and stays whole in the token, the alt, the key and the prompt", async () => {

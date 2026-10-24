@@ -52,7 +52,6 @@
 //   other row attributed apart; every ref of the build debited once. An
 //   unexplained difference, an unstable reading or a window that cannot be
 //   shown whole fails.
-import { MAX_PAGES, MAX_COMPONENTS } from "../builder/site-plan.mjs";
 import { buildStepFacts } from "../builder/site-progress.mjs";
 import { photosOf } from "./canary-additions.mjs";
 import { jobTagOf } from "../builder/build-live.mjs";
@@ -183,11 +182,12 @@ export function kitModulesOf(src) {
 }
 
 /**
- * ONE PAGE, AT MOST FIFTEEN COMPONENTS (`MAX_PAGES`, `MAX_COMPONENTS`), off
- * the stored source. The count is every component the page draws: each kit
- * module it imports apart from the chrome, and each component written for
- * the site — stricter than the plan's own cap, which bounds the names the
- * designer may choose.
+ * THE PAGES AND WHAT THEY DRAW, off the stored source. Until 2026-10-24 this
+ * required exactly one page and at most fifteen components (the plan's
+ * `MAX_PAGES` and `MAX_COMPONENTS`); the owner lifted both caps on the first
+ * build that day, so the check is now that the build made at least one page
+ * with the front page among them. The kit modules and the written parts are
+ * still counted and reported, never judged against a cap.
  */
 export function buildShapeVerdict(source) {
   const out = [];
@@ -197,11 +197,8 @@ export function buildShapeVerdict(source) {
   add("the stored source was read whole", complete, s ? `reads ${JSON.stringify(s.reads || null)}` : "not read");
   const pages = arr(s && s.pages).filter((p) => p && typeof p.path === "string");
   const parts = arr(s && s.parts).filter((p) => p && typeof (p.path || p.name) === "string");
-  add(`the build made exactly ${MAX_PAGES} page`, complete && pages.length === MAX_PAGES, `pages: ${JSON.stringify(pages.map((p) => p.path))}`);
+  add("the build made its pages, the front page among them", complete && pages.length > 0 && pages.some((p) => /(^|\/)index\.tsx$/.test(p.path)), `pages: ${JSON.stringify(pages.map((p) => p.path))}`);
   const kit = [...new Set(pages.flatMap((p) => kitModulesOf(p.source)))].sort();
-  const drawn = kit.length + parts.length;
-  add(`the page draws at most ${MAX_COMPONENTS} components`, complete && pages.length > 0 && drawn <= MAX_COMPONENTS,
-    `${drawn}: kit ${JSON.stringify(kit)}, written for the site ${JSON.stringify(parts.map((p) => p.path || p.name))}`);
   return { checks: out, pages: pages.map((p) => p.path), kit, parts: parts.map((p) => p.path || p.name) };
 }
 

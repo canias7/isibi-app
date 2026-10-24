@@ -377,9 +377,9 @@ test("an agent is told exactly what it declared it needs, and nothing else", asy
   await d.settleAll();
   const body = (n) => d.parked.get(n).req.messages[0].content;
   // WHAT IT NEEDS.
-  // `shape` WAITS FOR NOTHING since the kit menu left (2026-10-23): every band
-  // is written from scratch, so there is no manifest for it to arrange.
-  assert.doesNotMatch(body("shape"), /WHAT IS ALREADY DECIDED/, "`shape` was handed a note it no longer needs");
+  // `shape` WAITS FOR `pages` since 2026-10-24 (no page cap): it arranges the
+  // pages the design chose, so it is told them — and only them.
+  assert.match(body("shape"), /WHAT IS ALREADY DECIDED/, "`shape` was not told the pages it arranges");
   assert.match(body("behavior"), /hero \| prices \| contact/, "`behavior` was not told the page it describes");
   assert.match(body("wordmark"), /Millbrook Pottery/, "`wordmark` was not told the name it sets");
   assert.match(body("css"), /bakery/, "`css` was not told the theme it is a delta on");
@@ -396,7 +396,7 @@ test("needKnown reads only the needs' fields, whatever else has landed", () => {
   const byName = new Map(DESIGN_GRAPH.map((a) => [a.name, a]));
   const everything = { ...VAL };
   const shape = DESIGN_GRAPH.find((a) => a.name === "shape");
-  assert.deepEqual(needKnown(shape, byName, everything), {}, "`shape` is told something it never declared");
+  assert.deepEqual(needKnown(shape, byName, everything), { pages: VAL.pages }, "`shape` is told something other than the pages");
   const wordmark = DESIGN_GRAPH.find((a) => a.name === "wordmark");
   assert.deepEqual(needKnown(wordmark, byName, everything),
     { brand: VAL.brand, slug: VAL.slug, description: VAL.description });
@@ -500,10 +500,11 @@ test("the dropped edges stay dropped, and the four slowest starts stay early", (
   // Each of these was in an earlier draft and was read again against the field's
   // own words. Putting one back is a decision, not a tidy-up.
   // THE KIT MENU AND THE CUSTOM PARTS LEFT THE FIRST BUILD (2026-10-23): no
-  // agent claims them, and `shape` waits for nothing.
+  // agent claims them. SINCE 2026-10-24 (no page cap) `shape` and `images`
+  // wait for `pages` and for nothing else: each names a page path.
   assert.ok(!DESIGN_GRAPH.some((a) => a.fields.includes("components") || a.fields.includes("tsx")), "an agent asks for the kit menu or custom parts again");
-  assert.deepEqual(needs("shape"), [], "`shape` waits again — there is no manifest to arrange");
-  assert.deepEqual(needs("images"), [], "`images` waits for `shape` again — the brief's own words are law");
+  assert.deepEqual(needs("shape"), ["pages"], "`shape` no longer waits for the pages it arranges");
+  assert.deepEqual(needs("images"), ["pages"], "`images` waits for something other than the pages its pictures name");
   assert.deepEqual(needs("favicon"), [], "`favicon` waits again — one of the two SLOW fields, for an unstated reason");
   assert.deepEqual(needs("pages"), []);
   assert.deepEqual(needs("slug"), [], "`slug` waits again — the tool states nothing at all about it");

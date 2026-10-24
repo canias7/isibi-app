@@ -9,7 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { BUILD_CHECK, BUILD_CHECK_NO_IMAGES, buildFlagsVerdict, buildNoImageVerdict, imageRefusalOf, kitModulesOf, buildShapeVerdict, buildOverlapVerdict, buildOrderVerdict, buildProgressVerdict, buildSendVerdict, buildFactTexts, buildClosureVerdict, buildPhotoVerdict, buildMoneyVerdict, buildPreflight, slugFreeVerdict, windowComplete, stableReading, PURCHASE_UNVERIFIED, runBuildCheck } from "../scripts/canary-build.mjs";
-import { MAX_PAGES, MAX_COMPONENTS } from "../builder/site-plan.mjs";
+import { MAX_PAGES, MAX_COMPONENTS } from "../builder/site-plan.mjs"; // no cap since 2026-10-24
 import { jobTagOf } from "../builder/build-live.mjs";
 
 const ROOT = new URL("../", import.meta.url).pathname;
@@ -43,8 +43,8 @@ test("THE PRESS'S SPEC: a fresh slug, the brief asking for photographs, the budg
   assert.match(BUILD_CHECK.brief, /photographs/);
   assert.equal(BUILD_CHECK.budget, 70);
   assert.equal(BUILD_CHECK.cap, 1018);
-  assert.equal(MAX_PAGES, 1);
-  assert.equal(MAX_COMPONENTS, 15);
+  assert.equal(MAX_PAGES, Infinity);
+  assert.equal(MAX_COMPONENTS, Infinity);
   // NEVER A LIVE SITE OF THE ACCOUNT: reusing one revises it (CLAUDE.md's list).
   for (const live of ["fold-lane-bakery", "fretwork-1", "ashgrove-1", "the-hot-plate", "repairbench-1"]) assert.notEqual(SLUG, live);
 });
@@ -54,18 +54,17 @@ test("THE PRESS'S SPEC: a fresh slug, the brief asking for photographs, the budg
 const pageSrc = (mods) => `import { createFileRoute } from "@tanstack/react-router";\nimport { SiteChrome } from "@/components/ui/site-chrome";\n${mods.map((m, i) => `import { C${i} } from "@/components/ui/${m}";`).join("\n")}\nexport const Route = createFileRoute("/")({ component: P });\n`;
 const src = (pages, parts = [], reads = { pages: true, parts: true, assets: true }) => ({ reads, pages, parts });
 
-test("ONE PAGE, AT MOST FIFTEEN COMPONENTS: the kit modules a page imports (the chrome left out) and the components written for the site, off a whole source read", () => {
+test("THE PAGES, NO CAP (2026-10-24): the front page among them, any number of pages and components, off a whole source read", () => {
   assert.deepEqual(kitModulesOf(pageSrc(["button", "card", "button"])), ["button", "card"]);
   const ok = buildShapeVerdict(src([{ path: "src/routes/index.tsx", source: pageSrc(["hero-split", "card", "button"]) }], [{ path: "src/routes/-parts/tea-list.tsx", source: "x" }]));
   assert.deepEqual(failed(ok.checks), []);
   assert.deepEqual(ok.kit, ["button", "card", "hero-split"]);
-  const fifteen = Array.from({ length: 14 }, (_, i) => `k${i}`);
-  assert.deepEqual(failed(buildShapeVerdict(src([{ path: "src/routes/index.tsx", source: pageSrc(fifteen) }], [{ path: "p" }])).checks), [], "fifteen exactly was refused");
-  const sixteen = buildShapeVerdict(src([{ path: "src/routes/index.tsx", source: pageSrc(fifteen) }], [{ path: "p" }, { path: "q" }]));
-  assert.ok(failed(sixteen.checks).some((f) => /at most 15 components/.test(f)), "sixteen passed");
-  assert.ok(failed(buildShapeVerdict(src([{ path: "a.tsx", source: pageSrc([]) }, { path: "b.tsx", source: pageSrc([]) }])).checks).some((f) => /exactly 1 page/.test(f)), "two pages passed");
-  assert.ok(failed(buildShapeVerdict(src([])).checks).some((f) => /exactly 1 page/.test(f)), "no page passed");
-  assert.ok(failed(buildShapeVerdict(src([{ path: "a.tsx", source: pageSrc([]) }], [], { pages: true, parts: false })).checks).some((f) => /read whole/.test(f)), "a partial read passed");
+  const many = Array.from({ length: 40 }, (_, i) => `k${i}`);
+  const tenPages = [{ path: "src/routes/index.tsx", source: pageSrc(many) }, ...Array.from({ length: 9 }, (_, i) => ({ path: `src/routes/p${i}.tsx`, source: pageSrc([]) }))];
+  assert.deepEqual(failed(buildShapeVerdict(src(tenPages, Array.from({ length: 30 }, (_, i) => ({ path: "p" + i })))).checks), [], "ten pages and seventy components were refused — a cap is back");
+  assert.ok(failed(buildShapeVerdict(src([{ path: "a.tsx", source: pageSrc([]) }, { path: "b.tsx", source: pageSrc([]) }])).checks).some((f) => /front page/.test(f)), "pages with no front page passed");
+  assert.ok(failed(buildShapeVerdict(src([])).checks).some((f) => /front page/.test(f)), "no page passed");
+  assert.ok(failed(buildShapeVerdict(src([{ path: "index.tsx", source: pageSrc([]) }], [], { pages: true, parts: false })).checks).some((f) => /read whole/.test(f)), "a partial read passed");
   assert.ok(failed(buildShapeVerdict(null).checks).length >= 2, "an unread source passed");
 });
 
@@ -360,7 +359,7 @@ test("END TO END, OFFLINE: the build is sent once by the first session, which th
   assert.ok(io.calls.filter((c) => c.startsWith("poll:")).every((c) => c === "poll:tok-2"), "a poll was made by the sender");
   assert.equal(rec.overlap.by, "bands");
   assert.equal(rec.money.net, 50);
-  assert.equal(rec.checks.length, 23); // the trace's own-build check joined on 2026-10-14, the source's own-version check after it; the send's own wait and the reconnected read on 2026-10-15
+  assert.equal(rec.checks.length, 22); // 23 until 2026-10-24, when the component-cap check left with the cap; the trace's own-build check joined on 2026-10-14, the source's own-version check after it; the send's own wait and the reconnected read on 2026-10-15
   assert.ok(rec.checks.some((c) => /independent build work ran at once/.test(c.name)));
 });
 

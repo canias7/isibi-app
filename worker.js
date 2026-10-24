@@ -151,7 +151,7 @@ import { applySiteSchema, loadSiteSchema, readSiteSchema, parseSchemaSpec, norma
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { usageOf as pageUsageOf, PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, partsSent, priorPagesSent, pageId, sceneOn, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
 import { pickFiles } from "./builder/file-picker.mjs";
-import { splitPlan, bandRefusal, BAND_MARK, bandMarks, generateSiteBands, ownFallbackDirective, enforceFallbackFrame } from "./builder/page-bands.mjs";
+import { pagesPlan, bandRefusal, BAND_MARK, bandMarks, generateSiteBands, ownFallbackDirective, enforceFallbackFrame } from "./builder/page-bands.mjs";
 import { MAX_MODEL_FANOUT } from "./builder/model-fanout.mjs";
 // THE DESIGN STEP CUT INTO WAVES OF AGENTS (2026-09-10). Plain module, testable
 // outside the Worker: it takes the design tool and the CALLER as arguments
@@ -6502,8 +6502,9 @@ export const pagesHopApi = { containerPagesCall, containerPagesFanLocal };
 /**
  * WHICH PAGE A SPLIT BUILD SPLITS, as a route.
  *
- * THE FIRST PAGE THE PLAN NAMES, and on a first build that is the only one —
- * `MAX_PAGES` in the plan is 1, so "the front page is the site". Taking the
+ * THE FIRST PAGE THE PLAN NAMES. Until 2026-10-24 that was the only one on a
+ * first build (`MAX_PAGES` in the plan was 1); now every page is split by
+ * `pagesPlan`, and this list is what the frame links. Taking the
  * first rather than searching for `"/"` is deliberate: a plan that named one
  * page and did not call it `/` would otherwise fall back to the single call for
  * a reason nobody could see, where this splits the page it planned.
@@ -6544,6 +6545,9 @@ function chromeFor(plan, brand, tagline) {
     ...(action ? { action } : {}),
   };
 }
+
+/** The frame's facts off the design, for the tests that drive a multi-page first build (2026-10-24). */
+export const frameFactsApi = { chromeFor, planRoutes };
 
 /**
  * A NAME BOTH SIDES CAN USE FOR ONE GENERATION'S ANSWER, and the credential for
@@ -19408,15 +19412,18 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       // design args and NOTHING else, so it is deterministic: the fire and every
       // later resume derive the same lines from the same record.
       //
-      // ONE PAGE ONLY, and it is a refusal rather than a loop. A plan naming two
-      // pages is two generations, two assemblies and two ways for a fan-out to
-      // half-succeed; `MAX_PAGES` in the plan is 1, so this is not a limitation
-      // anybody meets on a first build, and doing it for several pages is a
-      // change to make on purpose rather than a `for` loop nobody measured.
+      // EVERY PAGE, ON PURPOSE (2026-10-24, owner: "eliminate … the cap on the
+      // pages … on the first build"). This was ONE PAGE ONLY while the plan's
+      // `MAX_PAGES` was 1, and a plan of several pages went to the one call.
+      // Now `pagesPlan` splits every page: each page's bands and the shared
+      // header and footer ride ONE fan-out (one job, one resume, one
+      // assembly per page), so a ten-page site is written in parallel batches
+      // rather than by one model in one answer. Deterministic off the stored
+      // plan, so the fire and every resume derive the same list.
       const planned = planRoutes(plan);
-      const bandLines = planned.length === 1
-        ? splitPlan({ shape: plan && plan.shape, route: planned[0], tsx, priorPages, mode: revise ? "revise" : "build" })
-        : [];
+      const split = pagesPlan({ shape: plan && plan.shape, pages: plan && Array.isArray(plan.pages) ? plan.pages : [], priorPages, mode: revise ? "revise" : "build" });
+      const splitPages = split.why ? [] : split.pages;
+      const bandLines = splitPages.flatMap((p) => p.lines);
       // ── WHO DECIDES, AND IT IS NOT THE SAME ANSWERER ON BOTH INVOCATIONS ──
       //
       // A FIRE asks the FLAG. The fan-out is a list of requests and `/model` —
@@ -19471,7 +19478,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       const bandWhy = resumeCall ? "" : bandRefusal({
         pages: planned.length, canFire: canSplit, door: bandDoor,
         shape: plan && plan.shape, route: planned[0], tsx, priorPages,
-        mode: revise ? "revise" : "build",
+        mode: revise ? "revise" : "build", pageList: plan && Array.isArray(plan.pages) ? plan.pages : [],
       });
       const useBands = resumeCall ? resumeFanout : !bandWhy;
       // THE REASON RIDES IN THE STEP'S NAME, and it has to: `tr.at` keeps FINITE
@@ -19514,7 +19521,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
               // told the name, the pages and the primary action off the design
               // (`chromeFor`), and what was asked for and is not built — the
               // fixed `SiteChrome` template is no longer drawn on a first build.
-              route: planned[0], chrome: chromeFor(plan, brand, siteDescription), lines: bandLines,
+              route: planned[0], chrome: chromeFor(plan, brand, siteDescription), lines: bandLines, pages: splitPages,
               actions: plan && Array.isArray(plan.action) ? plan.action : [],
               notBuilt: plan && Array.isArray(plan.notBuilt) ? plan.notBuilt : [],
               // AND THE DECLARATIONS THEMSELVES, not only the brief's copy of
