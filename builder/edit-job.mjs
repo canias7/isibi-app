@@ -1050,6 +1050,10 @@ export const JOB_ENV_NAMES = [
   // publish, only with it on — so without it here the switch would stop at
   // the Worker for every job the container runs.
   "PROGRESS_TALK",
+  // THE FAILURE DIAGNOSIS SWITCH (2026-10-24, shadow mode): a job the
+  // container runs records its failure's diagnosis only with it on — so
+  // without it here the switch would stop at the Worker.
+  "DIAGNOSE_FAILURES",
   // THE IMAGE-PURCHASE SWITCH (2026-10-11): a job in the container buys its
   // photographs there, so without it here the switch would stop at the Worker.
   "IMAGE_PURCHASES",

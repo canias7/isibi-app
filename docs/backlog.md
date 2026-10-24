@@ -20,6 +20,7 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
+- **Failure diagnosis step: phase 1 (shadow) on `diagnose-step`, not merged (2026-10-24)**: turn on `DIAGNOSE_FAILURES`, rerun Driftwood, compare; phase 2 next. `docs/history/2026-10-24-diagnose-step.md`.
 - **Fixed on `addon-uncapped` (2026-10-24, not merged or deployed)**: the add-on caps (driftwood-and-daughters lost the tables behind its Hire and Events forms) and the header/footer item set aside twice and lost. Left open: the photographs bought per change (`IMAGE_CAP` 6, named), a designer's requirements tracked (`MAX_REQUIREMENTS` 12), starter rows per new table (the engine's `MAX_SEED_ROWS`) the hand-written parts per page (site-plan's `MAX_TSX`) and page-gen's `MAX_PAGES` 6 per reply (branch `first-build-uncapped`). `docs/history/2026-10-24-addon-uncapped.md`.
 - **Huge build test (2026-10-23, `saltmarsh-and-sparrow`, 31 credits) findings, not fixed**: (1) a failed photo leaves a blank hero gap and empty "Today's bakes" boxes; (2) "One photograph could not be made" repeated on every progress line; (3) "Maya and Ruth, since 2015" heading white on white; (4) "Book a table" is only a phone link; (5) the final reply doesn't say what was left out or that no database was created (owner: model-written, see preferences); (6) event dates in April (past); (7) footer lacks the asked-for newsletter and social links — being investigated.
 - **A build's landmark map is never stored (found 2026-10-24, device-scope-build, not fixed)**: the build path gates `saveLandmarks` on `out.ok && out.render`, but `publishPages` answers no `ok` on success (measured: keys `page,files,…,layout,version`, `ok` absent), so a freshly built site's first edit aims without a map. The layout save beside it gates on `out.page === "app"` instead. Kept separate.
@@ -3269,3 +3270,7 @@ model-authored three anchor colours; 2026-08-27 the owner brought them back
 ("we are gonna have the 500 themes, and with the option if user wants a
 specific thing then the free css comes in"), because three colours alone
 lacked fonts, decor and backdrops. Any change needs the owner's decision.
+
+## Failure diagnosis step for the builder (owner, 2026-10-24: "give it a try … for the next round")
+
+**Phase 1 (shadow mode) built on `diagnose-step`, not merged** (`docs/history/2026-10-24-diagnose-step.md`): `builder/diagnose.mjs`, switch `DIAGNOSE_FAILURES` (off), records at `jobs/<id>.diagnosis.json`. Still open: turn it on, rerun the Driftwood prompts and compare records with real outcomes; then phase 2 (act on `fix_move` from the fixed menu of safe moves and retry once, pay-only-for-what-worked). The "XHigh" effort option was already shipped as "Extra high" (2026-10-19); renaming the label is the owner's call.

@@ -302,6 +302,9 @@ import { pickLanes, runLane, reaskLane, LOOK_DECLINED_REASON, laneLayer, laneUnb
 // EVERY WAY THE EDIT ROUTE DECLINES, CLASSIFIED (2026-09-23): rewrite, add-on,
 // hop or explain, one table, and `test/edit-failure.test.mjs` holds the route to it.
 import { editFailure, failureMsg, stepMsg } from "./builder/edit-failure.mjs";
+// THE FAILURE DIAGNOSIS STEP, PHASE 1 (2026-10-24): shadow mode, behind
+// `DIAGNOSE_FAILURES` (off by default). Records only; changes nothing.
+import { diagnoseJobEnded } from "./builder/diagnose.mjs";
 // ONE MARK, SEVERAL FORMS (2026-09-07, owner: *"instead of it being 3 things or
 // 4 or 5, its gotta be one, wordmark, but it can be made in svg"*). The header
 // mark and the tab icon are one stored field each, carrying a form — a drawing,
@@ -8708,6 +8711,32 @@ async function requeueReply(env, key, at, task, now) {
  * inside the container, which has no queue, through the gateway's `/reply`,
  * bound to the job's own token. Lost either way, the sweep asks.
  */
+/**
+ * A FAILED JOB'S DIAGNOSIS, SHADOW MODE (2026-10-24, `builder/diagnose.mjs`).
+ * Off unless `DIAGNOSE_FAILURES` is "on". It writes `jobs/<id>.diagnosis.json`
+ * and nothing else: no reply, no record the customer reads, no ledger call.
+ * Its model call is the picker's quick model through `quickSend`, whose usage
+ * no route bills. Never throws; run after the job's outcome is final.
+ */
+async function diagnoseEnded(env, ctx, { id, op, slug = "", body = null, status = 200, payload = null, shipped = null }) {
+  try {
+    let b = null;
+    if (typeof body === "string") { try { b = JSON.parse(body); } catch { b = null; } } else if (body && typeof body === "object") b = body;
+    const words = b && typeof b.instruction === "string" ? b.instruction : b && typeof b.message === "string" ? b.message : b && typeof b.brief === "string" ? b.brief : "";
+    const picker = b && typeof b.picker === "string" ? b.picker : undefined;
+    const run = diagnoseJobEnded({
+      env,
+      send: quickSend(env, "diagnose"),
+      model: modelsFor(picker).quick,
+      put: (key, text) => env.SITES_BUCKET.put(key, text, { httpMetadata: { contentType: "application/json" } }),
+    }, { id, op, slug, words, status, payload, shipped }).then((rec) => {
+      // ONE LOG LINE, so `wrangler tail` shows it beside the R2 record.
+      if (rec) console.log("diagnosis:", id, op, rec.diagnosis ? rec.diagnosis.kind + " / " + rec.diagnosis.fix_move + " / retry " + rec.diagnosis.retry_would_succeed : "unread " + rec.unread);
+    });
+    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(run); else await run;
+  } catch { /* an instrument may not break the thing it measures */ }
+}
+
 async function replyJobEnded(env, job, payload) {
   if (!repliesOn(env) || !job || !payload || typeof payload !== "object" || !payload.replyFor) return;
   try {
@@ -22272,6 +22301,8 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
     if (payload && payload.cancelled === true && out.status === 410) await editRpc(env, "edit_refund", { p_id: id, p_state: "cancelled", p_note: "stopped while the build ran" });
     else await closeBuildRow(env, id, buildOutcome(out.status, payload), "the build failed");
   }
+  // A FAILED BUILD'S DIAGNOSIS (shadow mode, off by default): a final answer only.
+  if (resultKind(out) !== "interim") await diagnoseEnded(env, ctx, { id, op: "build", slug: payload && typeof payload.slug === "string" ? payload.slug : "", body: job && job.body, status: out.status, payload });
   // A REQUEST'S REWRITE ENDED (2026-10-03): the request moves on now — the
   // dependents its part held run — not at the next sweep. Not on a build that
   // fired its generation, whose answer is interim: the sweep reads the
@@ -26590,6 +26621,8 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     // AND ITS REPLY IS ASKED FOR (2026-10-04): the outcome and the money are
     // final now, and the request has moved on, so nothing waits on it.
     await replyJobEnded(env, { id, uid: job.uid }, payload);
+    // AND, WHEN IT FAILED, ITS DIAGNOSIS IS RECORDED (shadow mode, off by default).
+    await diagnoseEnded(env, ctx, { id, op: /addon/.test(job.url) ? "addon" : "edit", slug: job.slug, body: job.body, status: resStatus, payload, shipped });
     if (parkedBefore) { try { await env.SITES_BUCKET.delete(waitingKey(id)); } catch { /* the tick drops a finished row's record */ } }
     // The measured durations are written by the HANDLER, beside its trace flush
     // — that is where the trace lives, and copying it out here would be a second

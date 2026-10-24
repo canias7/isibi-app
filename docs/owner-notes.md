@@ -1,5 +1,12 @@
 # Owner Notes
 
+## 2026-10-24 — the builder diagnoses its own failures, record only (branch `diagnose-step`, not merged, not deployed)
+
+- When a build, edit or add-on part fails, the builder now asks the AI to diagnose it the "systematic debugging" way: read the real error, find where it broke, one cause, one fix. It must quote the evidence it used; a made-up quote is thrown out.
+- Phase 1 only writes the diagnosis down. Nothing changes for the customer, nothing is said to them, nothing is charged.
+- Off until you set the `DIAGNOSE_FAILURES` secret to `on` and redeploy. Each diagnosis is in R2 at `jobs/<job id>.diagnosis.json` (bucket `isibi-sites`), and a one-line summary is in the Worker log.
+- The three Driftwood add-on failures are the test examples. XHigh was already in the picker (as "Extra high") and is now held by a test. Nothing spent. Record: `docs/history/2026-10-24-diagnose-step.md`.
+
 ## 2026-10-24 — combine-e: today's five branches on one candidate (branch `combine-e`, not merged, not deployed)
 
 - Together on one branch: waiting out a model outage, one retry with the reason, a too-big change splitting itself, no questions after a charge, and Grok 4.7.
