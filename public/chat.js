@@ -12128,7 +12128,7 @@ function siteParRetry(origin, key, n) {
 // ── WORK IN THE BACKGROUND (2026-10-23, the owner's approved mock, option A) ──
 //
 // The message box keeps Send while the builder works; what is running sits in
-// a pill above the box ("N things in progress ▾") that opens a panel: a header
+// a pill above the box ("N tasks in progress ▾") that opens a panel: a header
 // with the counts, Stop all, and one row per part of every live request on
 // this site — its state dot (the parallel card's mapping, `siteParState`), its
 // name (the model's title), one live line, and ›. A row opens that part's own
@@ -12224,7 +12224,7 @@ function siteBgHTML(site, now) {
   const ui = siteBgState(site.id);
   const active = items.filter((it) => it.state === 'run' || it.state === 'wait' || it.state === 'ask').length;
   const working = items.filter((it) => it.state === 'run').length;
-  const things = (n) => n + (n === 1 ? ' thing' : ' things');
+  const things = (n) => n + (n === 1 ? ' task' : ' tasks');
   if (!ui.open) {
     return '<button type="button" class="st-bg-pill" data-bg="open" aria-expanded="false">' + (working ? '<span class="st-par-dot st-bg-spin"></span>' : '') +
       esc(active ? things(active) + ' in progress' : things(items.length) + ' finished') + ' ▾</button>';

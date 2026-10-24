@@ -142,7 +142,7 @@ test("BACKGROUND WORK — Send while parts run; the pill, the panel, a part's ow
   try {
     // THE PILL, once the requests list has brought both requests back.
     await page.waitForSelector(".st-bg-pill", { timeout: 20000 });
-    assert.equal((await page.textContent(".st-bg-pill")).trim(), "3 things in progress ▾");
+    assert.equal((await page.textContent(".st-bg-pill")).trim(), "3 tasks in progress ▾");
     // SEND, NEVER STOP, while they run.
     assert.ok(await page.$("#stSend"), "the box has no Send while parts run");
     assert.equal(await page.$("#stStop"), null, "the box shows Stop while parts run");
@@ -153,7 +153,7 @@ test("BACKGROUND WORK — Send while parts run; the pill, the panel, a part's ow
     // THE PANEL.
     await page.click(".st-bg-pill");
     await page.waitForSelector(".st-bg-pane .st-bg-row");
-    assert.equal((await page.textContent(".st-bg-top > span")).trim(), "4 things · 2 in progress");
+    assert.equal((await page.textContent(".st-bg-top > span")).trim(), "4 tasks · 2 in progress");
     const rows = await page.$$eval(".st-bg-row", (els) => els.map((e) => ({ cls: e.className, name: e.querySelector(".st-bg-name").textContent, sub: e.querySelector(".st-bg-sub").textContent })));
     assert.deepEqual(rows.map((r) => r.name), ["Bookshop page", "Saturday hours", "Search description", "Rounder buttons"]);
     assert.deepEqual(rows.map((r) => r.cls.match(/st-par-(\w+)/)[1]), ["run", "wait", "done", "run"]);
@@ -237,7 +237,7 @@ test("BACKGROUND WORK — Send while parts run; the pill, the panel, a part's ow
     await page.click('.st-bg-top [data-bg="close"]');
     await page.reload({ waitUntil: "load" });
     await page.waitForSelector(".st-bg-pill", { timeout: 20000 });
-    assert.match(await page.textContent(".st-bg-pill"), /things in progress/);
+    assert.match(await page.textContent(".st-bg-pill"), /tasks in progress/);
     assert.equal(await page.$(".st-bg-pane"), null, "a reload reopened a closed panel");
     assert.deepEqual(app.errors, []);
   } finally { await app.ctx.close(); await app.browser.close(); }
@@ -251,7 +251,7 @@ test("BACKGROUND WORK — a change sent while a request runs joins it: one more 
     await page.waitForSelector(".st-bg-pill", { timeout: 20000 });
     await page.fill("#stRevise", "Put the Bookshop page in the menu");
     await page.press("#stRevise", "Enter");
-    await page.waitForFunction(() => /4 things in progress/.test((document.querySelector(".st-bg-pill") || {}).textContent || ""), null, { timeout: 20000 });
+    await page.waitForFunction(() => /4 tasks in progress/.test((document.querySelector(".st-bg-pill") || {}).textContent || ""), null, { timeout: 20000 });
     await page.click(".st-bg-pill");
     await page.waitForSelector('.st-bg-row[data-bg-row="' + KA + '|3"]');
     const sub = await page.textContent('.st-bg-row[data-bg-row="' + KA + '|3"] .st-bg-sub');
