@@ -1120,7 +1120,8 @@ for (const mode of ["sync", "job"]) {
     const r = await drive({ mode, routed: { layer: "nav" }, ask: MENU_ASK, nav: {} });
     assert.equal(r.status, 422, JSON.stringify(r.reply));
     assert.equal(r.reply.error, "no-menu", "not the menu rung's refusal: " + JSON.stringify(r.reply));
-    assert.deepEqual(r.models, [T.nav], "the menu rung's model call did not run");
+    // ASKED ONCE MORE WITH THE no-menu REASON (2026-10-24) before the refusal.
+    assert.deepEqual(r.models, [T.nav, T.nav], "the menu rung's model call and its one retry did not run");
     assert.equal(r.builds.length, 0, "a refusal built something");
     if (mode === "job") {
       // RESERVED, THEN GIVEN BACK BY THE CONSUMER — and the reply the browser

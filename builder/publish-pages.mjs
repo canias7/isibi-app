@@ -15,6 +15,7 @@
 // model call, no container and no R2.
 
 import { validatePages, lintPages, repairImports, mergeParts, reviseSent } from "./page-gen.mjs";
+import { addUsages } from "./retry-reason.mjs";
 import { withParts, splitParts, isKitFile } from "./compile-repair.mjs";
 import { partStub, PART_IMPORT } from "./page-bands.mjs";
 // THE REWRITE'S PAGE MERGE AND ITS SENTENCE (2026-10-02, the whole-router
@@ -1143,7 +1144,7 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
   // puts, so "the build took four minutes" could not be attributed to any of
   // them. `buildMs` already splits out the compile; these split out the rest.
   const tGen = Date.now();
-  const gen = await deps.generate();
+  let gen = await deps.generate();
 
   // ── FIRED, NOT FINISHED ─────────────────────────────────────────────────────
   //
@@ -1366,10 +1367,43 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
   // returned page to a kept one is not rewritten away as dangling, and a home
   // page the writer left out is kept rather than reported missing.
   const revising = Array.isArray(priorPages) && priorPages.some((p) => p && typeof p.path === "string" && typeof p.source === "string");
-  const v = validatePages(gen.input, revising
+  const readGen = (g) => validatePages(g.input, revising
     // `routeOf`, the reading `validatePages` judges every link with.
     ? { partial: true, knownRoutes: priorPages.map((p) => p && typeof p.path === "string" ? routeOf(p.path) : "").filter(Boolean) }
     : {});
+  let v = readGen(gen);
+  // ── NO USABLE PAGE, OR NO HOME PAGE: THE WRITER ASKED ONCE MORE ──────────
+  //
+  // (Round 2 of the retry rule, owner 2026-10-24: "a task must never fail
+  // completely without at least one retry".) The `validate` and `home` exits
+  // below end the build on the writer's own answer. When the caller can ask the
+  // same writer again (`deps.regenerate(reason)`: the SAME request, same model
+  // and effort, with its answer and the reason appended), it is asked once,
+  // and the retry's answer is read exactly as the first. A retry that passes is
+  // the build's answer, and both calls are its page usage; one that fails, asks
+  // or throws leaves the first answer and its exit exactly as before — the
+  // charge is the first call's alone (`retryUsage` rides apart, ours).
+  const genWhy = (g, vv) => !vv.pages.length
+    ? { code: "validate", text: "Nothing could be built: " + (vv.problems.length ? "every page you wrote was refused (" + vv.problems.slice(0, 3).join("; ").slice(0, 400) + ")" : g && g.truncated ? "your answer was cut off before it finished" : "your answer carried no pages through the tool") + ". Answer again through the tool with every page of the site, each whole, each with a usable path and its own code." }
+    : !revising && !vv.pages.some((p) => p.path === "index.tsx")
+      ? { code: "home", text: "The site cannot be published: your answer has no home page (index.tsx). Answer again with every page, the home page index.tsx among them." }
+      : null;
+  const firstWhy = typeof deps.regenerate === "function" && gen && !gen.pending ? genWhy(gen, v) : null;
+  if (firstWhy) {
+    let g2 = null;
+    try { g2 = await deps.regenerate(firstWhy.text); } catch { g2 = null; }
+    const usable = g2 && typeof g2 === "object" && g2.pending !== true && !g2.ask && g2.input;
+    const v2 = usable ? readGen(g2) : null;
+    const ok = !!v2 && !genWhy(g2, v2);
+    out.retryReason = { step: "pages", reason: firstWhy.code, ok };
+    if (ok) {
+      gen = { ...g2, usage: addUsages(gen.usage || null, g2.usage || null) };
+      out.usage = gen.usage || null;
+      v = v2;
+    } else if (g2 && g2.usage) {
+      out.retryUsage = g2.usage;
+    }
+  }
   // BEFORE THE `!v.pages.length` REFUSAL BELOW, so a build that is about to fail
   // still carries what it wrote — the refusal returns, but `out.problems` is the
   // only record of a badly-named component and this keeps the two in one place.

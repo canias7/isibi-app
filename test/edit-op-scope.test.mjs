@@ -493,7 +493,8 @@ test("a put-off part the route cannot find in the message is not guessed at: not
     routed: { intent: "edit", layer: "look", alsoAsked: "move the ordering band to the top of the Visit page" },
     answers: {},
   });
-  assert.deepEqual(r.seen.calls, [T.route], "something ran on a message the route could not split" + why(r));
+  // THE ROUTER IS ASKED ONCE MORE WITH THE held-unread REASON (2026-10-24); nothing else runs.
+  assert.deepEqual(r.seen.calls, [T.route, T.route], "something ran on a message the route could not split" + why(r));
   assert.equal(r.body.ok, false, why(r));
   assert.equal(r.body.error, "held-unread", why(r));
   assert.equal(r.body.cost, 0, why(r));
@@ -654,7 +655,7 @@ test("a scope naming a page the site does not have withholds that change alone, 
 // still names — the page, when it was a page the site has — and what the
 // screen leads it with. Words that failed their check are never carried.
 function assertShapeWithheld(r, msg, label, target = { lead: "A page’s layout: " }) {
-  assert.deepEqual(r.seen.calls, [T.route, T.pick, T.lane], label + ": the calls" + why(r));
+  assert.deepEqual(r.seen.calls, [T.route, T.pick, T.pick /* asked once more with the scope reason (round 2) */, T.lane], label + ": the calls" + why(r));
   assert.deepEqual(r.seen.writers, [], label + ": a page writer was called" + why(r));
   assert.deepEqual(r.seen.lanes, [{ field: "description", asked: DESC_WORDS }], label + ": the description lane was handed more than its own words" + why(r));
   assert.equal(r.status, 200, label + why(r));
@@ -716,7 +717,7 @@ test("a description scope whose words are not in the request is withheld: its la
     ] } },
   });
   const msg = failureMsg("picker/scope-unread", { why: "words" });
-  assert.deepEqual(r.seen.calls, [T.route, T.pick, T.tweak], "the calls" + why(r));
+  assert.deepEqual(r.seen.calls, [T.route, T.pick, T.pick /* asked once more with the scope reason (round 2) */, T.tweak], "the calls" + why(r));
   assert.deepEqual(r.seen.lanes, [], "the description lane was called" + why(r));
   assert.deepEqual(r.seen.writers.map((w) => [w.path, w.instruction]), [["visit.tsx", VISIT_WORDS]], "the Visit writer" + why(r));
   assert.equal(r.body.ok, true, why(r));
@@ -736,7 +737,7 @@ test("an own lane a scoped answer left without a scope is withheld too: the desc
     answers: { [T.pick]: { fields: ["description", "shape"], scopes: [{ part: "shape", page: "/visit", words: VISIT_WORDS }] } },
   });
   const msg = failureMsg("picker/scope-unread", { why: "unscoped" });
-  assert.deepEqual(r.seen.calls, [T.route, T.pick, T.tweak], "the calls" + why(r));
+  assert.deepEqual(r.seen.calls, [T.route, T.pick, T.pick /* asked once more with the scope reason (round 2) */, T.tweak], "the calls" + why(r));
   assert.deepEqual(r.seen.lanes, [], "the description lane was called" + why(r));
   assert.deepEqual(r.seen.writers.map((w) => [w.path, w.instruction]), [["visit.tsx", VISIT_WORDS]], why(r));
   assert.deepEqual(r.body.partial, [{ layer: "look", lanes: ["description"], error: "scope-unread", msg, unchanged: true }], why(r));
@@ -753,7 +754,7 @@ test("a message whose only change is withheld changes nothing, costs nothing for
     answers: { [T.pick]: { fields: ["shape"], scopes: [{ part: "shape", page: ["/visit"], words: VISIT_WORDS }] } },
   });
   const msg = failureMsg("picker/scope-unread", { why: "page" });
-  assert.deepEqual(r.seen.calls, [T.route, T.pick], "something ran" + why(r));
+  assert.deepEqual(r.seen.calls, [T.route, T.pick, T.pick /* asked once more with the scope reason (round 2) */], "something ran" + why(r));
   assert.equal(r.body.ok, false, why(r));
   assert.equal(r.body.error, "scope-unread", why(r));
   assert.equal(r.body.cost, 0, why(r));
@@ -1056,7 +1057,7 @@ test("W15 — a QR code alone is the whole ask: handed to the add-on step with i
 test("W15 — a QR code beside other work, on an answer with no words for each change: nothing runs, nothing is charged, and it asks for the code alone", async () => {
   const r = await throughTheChain({ message: QR_MIXED, routed: { intent: "edit", layer: "look" },
     answers: { [T.pick]: { fields: ["description", "qr"] }, "lane:description": NEW_DESC } });
-  assert.deepEqual(r.seen.calls, [T.route, T.pick], "a lane ran on a message whose addition could not be separated" + why(r));
+  assert.deepEqual(r.seen.calls, [T.route, T.pick, T.pick /* asked once more with the scope reason (round 2) */], "a lane ran on a message whose addition could not be separated" + why(r));
   assert.equal(r.status, 422, why(r));
   assert.equal(r.body.ok, false, why(r));
   assert.equal(r.body.error, "addition-mixed", why(r));
@@ -1255,7 +1256,7 @@ test("REVIEW — REFUSED: an addition whose words are the whole message beside a
   // the code's words are out nothing of the message is left to run.
   const r = await throughTheChain({ message: ask, routed: { intent: "edit", layer: "look" },
     answers: { [T.pick]: { fields: ["css", "qr"], scopes: [{ part: "qr", page: "/visit", words: whole }] } } });
-  assert.deepEqual(r.seen.calls, [T.route, T.pick], "a step ran" + why(r));
+  assert.deepEqual(r.seen.calls, [T.route, T.pick, T.pick /* asked once more with the scope reason (round 2) */], "a step ran" + why(r));
   assert.equal(r.status, 422, why(r));
   // A REFUSAL OF THE WHOLE MESSAGE PUTS NOTHING OFF: no `deferred` beside its
   // own sentence, which asks for the code on its own.

@@ -233,7 +233,10 @@ test("IT IS REACHED, AND IT IS TRIED BEFORE THE REWRITE", () => {
   const at = worker.indexOf("const tw = await runTweak(");
   assert.ok(at > 0, "nothing in the page layer calls the cheap rung");
   // BEFORE the expensive one, or it is a second bill rather than a saving.
-  const gen = worker.indexOf("eGen = await generateSitePages(");
+  // THE WRITER IS A FUNCTION SINCE 2026-10-24 (round 2 of the retry rule:
+  // `pWrite`, so its answer can be asked again with a reason); its first call
+  // is the line below, and it must still come after the cheap rung.
+  const gen = worker.indexOf("eGen = await pWrite(pRec.call);");
   assert.ok(gen > at, "the cheap rung runs after the rewrite it exists to avoid");
 });
 

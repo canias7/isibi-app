@@ -56,6 +56,7 @@ import { summaryBlock } from "./chat-context.mjs";// Telling a question from an 
  * uses, not quietly back on the provider this change exists to leave.
  */
 import { DEVICES_FIELD, readDevices, deviceHintLine } from "./device-scope.mjs";
+import { retryRequest, markRetry, addUsages } from "./retry-reason.mjs";
 
 export const ASK_MODEL = modelsFor().quick;
 
@@ -3459,6 +3460,33 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
       }
     }
   }
+  // ── A HELD-BACK PART NOT FOUND IN THE MESSAGE, RETRIED ONCE WITH THAT REASON
+  //    (owner, 2026-10-24: "retry once with the check's own reason") ──────────
+  //
+  // Every route that runs the message refuses `held-unread` when a part the
+  // router held back (`alsoAsked`) is not the customer's own words. That check
+  // is exact (`heldParts`), so it is asked here first: the same request (same
+  // model, same effort) goes once more with the router's own answer and the
+  // check's reason. A second miss is answered as it came, and the route's
+  // existing refusal stands. Both calls are on the message's routing bill.
+  let firstUsage = null, retryReason = null;
+  if (live && !waiting && routed.unusable !== true && heldUnread(text, routed.alsoAsked)) {
+    firstUsage = askUsage(reply, model);
+    let again2;
+    try { again2 = await deps.send(retryRequest(request, reply, HELD_UNREAD_REASON)); } catch { again2 = null; }
+    const c = again2 ? cutOff(again2, shown) : null;
+    if (again2 && !c) {
+      const t2 = { reasons: shown.slice(), input: undefined };
+      const r2 = readAs(again2, canAsk, t2);
+      const ok = r2.unusable !== true && !heldUnread(text, r2.alsoAsked);
+      markRetry(deps && deps.mark, "route", "held-unread", ok);
+      retryReason = { step: "route", reason: "held-unread", ok };
+      reply = again2; routed = r2; trace = t2;
+    } else {
+      markRetry(deps && deps.mark, "route", "held-unread", false);
+      retryReason = { step: "route", reason: "held-unread", ok: false };
+    }
+  }
   // AN ANSWER THAT CANNOT BE USED, ON A SITE THAT EXISTS, IS A FAILURE OF THE
   // CALL (2026-10-02): a question that cannot be shown, or a reply to a waiting
   // question that does not say whether it answers it. Never work in its place,
@@ -3470,5 +3498,21 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
       decision: routeDecision(trace.reasons, trace.input),
     };
   }
-  return { ...routed, usage: askUsage(reply, model), decision: routeDecision(trace.reasons, trace.input) };
+  // PAY ONLY FOR WHAT WORKED (round 2): a retry that still misquotes is
+  // refused by the routes as before, at the first call's routing cost.
+  const usage = !firstUsage ? askUsage(reply, model)
+    : retryReason && retryReason.ok ? addUsages(firstUsage, askUsage(reply, model))
+    : firstUsage;
+  return { ...routed, usage, ...(retryReason ? { retryReason } : {}), decision: routeDecision(trace.reasons, trace.input) };
+}
+
+/** The reason told back when a held-back part is not in the message (2026-10-24). */
+export const HELD_UNREAD_REASON = "Your answer could not be used: a part you held back in alsoAsked is not found word for word in the customer's message, or is not a list of their own words. Every held-back part must be copied exactly from the message (or named by its number in brackets when the message is numbered). Answer again with the same decision, copying each held-back part exactly; hold nothing back if every change can be made now.";
+
+/** Whether the router's held-back parts cannot be found in the message — the routes' own `held-unread` check. */
+export function heldUnread(message, alsoAsked) {
+  const listed = heldList(alsoAsked);
+  if (listed === null) return true;
+  if (!listed.length) return false;
+  return !heldParts(message, listed).ok;
 }

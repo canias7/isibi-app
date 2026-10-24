@@ -11,6 +11,29 @@
 - Still true: the site stays reserved while a job waits (that needs a database change, not written).
 - Full suite 12,644: 12,639 pass, 2 environment-only failures, 3 skipped. The site image will be rebuilt. Nothing spent. Record: `docs/history/2026-10-24-provider-retry.md` §5.
 
+## 2026-10-24 — no whole task ends without one retry; a refused step costs no more than before (branch `retry-with-reason-2`, not merged, not deployed)
+
+- Now asked once more, same model and effort, with the reason: a look change where every part answered "no change"; the page writer sending the page back unchanged or not at all; the look picker's answer that could not be placed (words not yours, a page that is not a page, a new thing mixed with other work); the add-on writer losing words, leaving out what was promised, or returning nothing; an add-on designer that designed nothing; the requirements check cut off; a build with no usable page or no home page.
+- Cost: a step still refused after its retry is charged as before, its first call only (the menu and picture refusals are back to 2, not 3). A retry that works is billed for both calls.
+- Found on the way: on Grok (the default) the retry never carried the answer or the reason; it does now.
+- Still without a retry: provider outages and account errors (provider-retry), honest declines, impossible requests, one small part of a bigger change left out, and the QR part of a look change. The list is in the record.
+- Tests: 33 new; every fix case red on the first branch. Sweep 24 of 24 caught, control survived. Full suite 12,672: 12,667 pass, 2 environment failures, 3 skipped. Site image rebuilt (2d440bd194450245 → 63ac477324969a39). Nothing spent. Record: `docs/history/2026-10-24-retry-with-reason.md`, "Round 2".
+
+## 2026-10-24 — a failed AI answer is retried once with the reason, same model and effort (branch `retry-with-reason`, not merged, not deployed)
+
+- When an AI answer fails one of our exact checks, the same request now goes once more. The retry carries the AI's own answer and the reason in plain words. It runs on the same model at the same effort, as you chose.
+- Covered:
+  - the quick page change: it did not apply, changed nothing, cut the file, broke the code, moved the page, reworded the text, or touched a component;
+  - the router quoting a "later" part that is not in the message;
+  - the look picker naming no part;
+  - the menu step naming nothing usable, or nothing new;
+  - a data, rules or picture answer that matched nothing;
+  - a look part that answered nothing readable.
+- A second miss ends as it does today. Your rule is recorded: a task never fails completely without at least one retry (outages, account errors and impossible requests excluded).
+- Cost: the retry goes on the same bill. A refused picture or menu step beside work that shipped now costs 3 instead of 2.
+- Still without a retry (listed in the record): the look "no change", page-writer "no change", add-on "not landed" and "rewrote", the add-on judge and "declined", and the build's design and pages.
+- Tests: 16 new, 10 of 13 original cases red on main. Sweep 15 of 15 caught, control survived. Full suite 12,640: 12,634 pass, 3 fail (environment, a timing flake that passes alone, and the new file that was not yet committed during the run), 3 skipped. Site image rebuilt (2d440bd194450245 → fa5a328a6849668f, 235 → 236 inputs). Nothing spent. Record: `docs/history/2026-10-24-retry-with-reason.md`.
+
 ## 2026-10-24 — combine-d: thirteen finished branches in one candidate (not merged, not deployed)
 
 - Combined from `main` (692087cde): reply bubble, progress voice, per-device builds, stand-ins and refunds, first-build database and limits, no add-on caps, "tasks" label, build panel Stop, edit file picker, rebuild scope, build questions, request needs, visual review, and two docs branches.

@@ -754,13 +754,13 @@ function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null,
         return new Response(JSON.stringify(jbody), { status: 200, headers: { "content-type": "application/json" } });
       }
       // THE TWEAK ANSWERS WITH EXACT EDITS (idea #18): a whole-file answer (keyed `source`, its old property) is turned into them.
-      const supplied = asked === "write_tweak" ? (tweakInput(answers.edits || answers.source || {}, b) || {}) : (answers[kind] || {});
+      const supplied = asked === "write_tweak" ? (tweakInput(answers.edits || answers.source || {}, b) || {}) : ((typeof answers[kind] === "function" ? answers[kind](b) : answers[kind]) || {});
       const designed = !ungrounded && asked === "add_to_site" && Array.isArray(supplied.requirements)
         ? { ...supplied, requirements: supplied.requirements.map((e) => (e && typeof e === "object" && !Object.hasOwn(e, "basis") && !Object.hasOwn(e, "words") ? { ...e, basis: "asked", words: shownAsk } : e)) }
         : supplied;
       const inputObj = asked === "pick_adds" ? { kinds }
         // …AND THE PAGES IT TAKES AWAY (`removes`, 2026-10-07), for a case about a removal.
-        : asked === "write_pages" ? { pages: written || WRITTEN_PAGES, notes, ...(writtenParts ? { parts: writtenParts } : {}), ...(removes ? { remove: removes } : {}) }
+        : asked === "write_pages" ? { pages: (typeof written === "function" ? written(b) : written) || WRITTEN_PAGES, notes, ...(writtenParts ? { parts: writtenParts } : {}), ...(removes ? { remove: removes } : {}) }
         : designed;
       // `writeUsage` IS WHAT THE PAGE WRITER COST (2026-10-24), when a case is about its share of the bill.
       const wu = asked === "write_pages" && writeUsage && typeof writeUsage === "object" ? writeUsage : { input_tokens: 10, output_tokens: 5 };

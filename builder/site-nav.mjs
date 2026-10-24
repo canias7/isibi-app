@@ -1,3 +1,4 @@
+import { withReasonRetry } from "./retry-reason.mjs";
 // The eighth edit layer: the navigation, across every page at once.
 //
 // WHAT COULD NOT BE DONE BEFORE. The nav is a `links` array passed to
@@ -2334,7 +2335,23 @@ function runAddition({ reply, pages, routes, actions, seconds, contacts, hasButt
  * lane already uses. (An ADDITION already true is different, and done: see
  * `runAddition`.)
  */
-export async function runNavEdit(deps, { instruction, pages, routes, model = NAV_MODEL, addition = false } = {}) {
+export async function runNavEdit(deps, args = {}) {
+  // ONE RETRY WITH THE CHECK'S OWN REASON (owner, 2026-10-24): an answer that
+  // named nothing usable (`no-menu` with no decided refusal) or that would
+  // change nothing (`no-change`) is sent once more, same model and effort,
+  // with what the check found. A decided refusal (a page the site lacks, a
+  // page with no menu) is the customer's fact, not the model's slip: kept.
+  return withReasonRetry({
+    step: "nav", deps, mark: deps && deps.mark,
+    run: (d) => runNavOnce(d, args),
+    reasonOf: (r) => (!r || r.ok || r.refusal || r.ask) ? null
+      : r.reason === "no-menu" ? { code: "no-menu", text: "Nothing was changed: your answer named no menu link, button, footer item or link that could be applied to this site." + (r.msg ? " What the check found: " + String(r.msg).slice(0, 300) : "") + " Answer again with the change the request asks for, using the hrefs and items you were shown exactly, or ask your one question if a detail is really missing." }
+      : r.reason === "no-change" ? { code: "no-change", text: "Nothing was changed: what your answer asked for is already what the site has." + (r.msg ? " (" + String(r.msg).slice(0, 200) + ")" : "") + " Read the request again: if it asks for a change, answer with that change; if the site really already matches it, give the same answer again." }
+      : null,
+  });
+}
+
+async function runNavOnce(deps, { instruction, pages, routes, model = NAV_MODEL, addition = false } = {}) {
   const slots = navSlots(pages);
   const actions = actionSlots(pages);
   const seconds = actionSlots(pages, "secondAction");

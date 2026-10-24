@@ -149,6 +149,7 @@ import { rehearseHeldSchema, heldFromRehearsal } from "./builder/addon-rehearse.
 import { applySiteSchema, loadSiteSchema, readSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields, auditTier, withJobDeps, storedJobFns } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
+import { pagesAgain as pagesAgainOf } from "./builder/page-gen.mjs";
 import { usageOf as pageUsageOf, PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, partsSent, priorPagesSent, pageId, sceneOn, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
 import { pickFiles } from "./builder/file-picker.mjs";
 import { pagesPlan, bandRefusal, BAND_MARK, bandMarks, generateSiteBands, ownFallbackDirective, enforceFallbackFrame } from "./builder/page-bands.mjs";
@@ -297,7 +298,7 @@ import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS, REWRITE_MAX_CHARS, carriedChars } f
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
-import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage, themeNote, landmarkNote, verbLayer, REMOVABLE_LANES, takeOffLane, runTakeOff, takeOffRefusal, takeOffNote, mergePageSteps, pageStepDone, samePageOperation, doorLane, doorDispatch } from "./builder/site-lanes.mjs";
+import { pickLanes, runLane, reaskLane, LOOK_DECLINED_REASON, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage, themeNote, landmarkNote, verbLayer, REMOVABLE_LANES, takeOffLane, runTakeOff, takeOffRefusal, takeOffNote, mergePageSteps, pageStepDone, samePageOperation, doorLane, doorDispatch } from "./builder/site-lanes.mjs";
 // EVERY WAY THE EDIT ROUTE DECLINES, CLASSIFIED (2026-09-23): rewrite, add-on,
 // hop or explain, one table, and `test/edit-failure.test.mjs` holds the route to it.
 import { editFailure, failureMsg, stepMsg } from "./builder/edit-failure.mjs";
@@ -372,6 +373,7 @@ import { laneName, healthImage, HEALTH_LANE } from "./builder/build-lane.mjs";
 // run 101). Diagnostic only: nothing in this import can change what an edit
 // does, and `recompileAndPublish` treats a null trace as a no-op.
 import { newTrace, traceRow } from "./builder/edit-trace.mjs";
+import { traceRetryMark, logRetryMark, recordCall, addUsages, retryRequest } from "./builder/retry-reason.mjs";
 // THE TWO LONG MODEL CALLS, IN A MODULE THE CONTAINER CAN IMPORT TOO. Aliased
 // on the way in because `worker.js` keeps thin `env`-shaped wrappers of the same
 // names — eleven call sites read them, and renaming those would make a move that
@@ -19815,7 +19817,13 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   }
   // THE WRITER MAY ASK only where its answer comes back to this invocation.
   const canAskPages = !resumeCall && !canFire;
+  // THE ONE-CALL WRITER, ASKABLE AGAIN (round 2 of the retry rule, 2026-10-24):
+  // set by `generate` when a single page call answered in this invocation (or
+  // through its resume), so `publishPages` can ask it once more with the reason
+  // an answer failed (`regenerate`). A band fan-out leaves it null.
+  let pagesAgain = null;
   const out = await publishPages({
+    regenerate: (reason) => (pagesAgain ? pagesAgain(reason) : null),
     prefetch: ({ balance }) => {
       if (photoTask || !Array.isArray(imgBrief)) return;
       photoTask = startBuildPhotos(env, { slug, brief: imgBrief, balance, key: photoKey, owner: photoOwner });
@@ -20109,6 +20117,22 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         // a FIRST BUILD's where the route offered it (`pageAsk`, build-questions:
         // no answer yet, not `noAsk`, carried through a resume).
         const singleAnswer = await generateSitePages(env, briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief, media, devices: deviceWishes }) + ownTail, spec, brand, attachments, model, priorPages, undefined, undefined, budget, call, plan && plan.kind, [], { ownParts: ownFirst, only: reviseOnly, ...((revise || priorPages) ? { ask: canAskPages } : pageAsk) });
+        // ASKED AGAIN SYNCHRONOUSLY (round 2 of the retry rule): a fired call's
+        // sentinel or a resume's stored answer cannot carry a second request, so
+        // the retry goes to the container's ordinary page call — the same
+        // request with the writer's answer and the reason (`pagesAgainOf`).
+        if (singleAnswer && !singleAnswer.ask) {
+          const via = (resumeCall || canFire) ? containerPagesCall(env, slug, genPath) : call;
+          pagesAgain = async (reason) => {
+            const g = await pagesAgainOf(call, reason, via);
+            if (!g || g.ask || !ownFirst) return g;
+            const fix = await enforceFallbackFrame(g, {
+              send: (req) => pagesCall(env)(keysFrom(env), req, budget),
+              directive: ownTail.trim(), spec, kind: plan && plan.kind, model: g && g.usage && g.usage.model,
+            });
+            return fix.gen;
+          };
+        }
         // A QUESTION BACK (2026-10-24) is the answer as it stands: no frame
         // repair is asked of a writer that wrote nothing.
         if (singleAnswer && singleAnswer.ask) return singleAnswer;
@@ -34482,7 +34506,9 @@ async function handleRequest(request, env, ctx) {
         // (`upstreamKind`), so a failed route names the provider's token and
         // whether our account was refused the same way a failed build does —
         // one reader of provider errors, not two (Lane 1b).
-        { send: jobSend(rJob, quickSend(env)), classify: (e) => upstreamKind(e && e.detail, e && e.status) },
+        { send: jobSend(rJob, quickSend(env)), classify: (e) => upstreamKind(e && e.detail, e && e.status),
+          // RETRY_REASON {step, reason, ok} (2026-10-24): the routing route keeps no trace row, so it is logged.
+          mark: logRetryMark },
         {
           message: rb.message,
           // DRAFT-FIRST, FROM THE WORKER'S OWN SWITCH (audit #216): the router
@@ -37346,8 +37372,25 @@ async function handleRequest(request, env, ctx) {
                 return explain("page/no-page", { page: ePage.trim().toLowerCase(), verb: "", routes: eRoutes() });
               }
               editTrace.mark("pick_lanes", "start");
+              // ROUND 2 OF THE RETRY RULE (2026-10-24): the picker's scope is
+              // checked the way the door below checks it, before anything runs,
+              // and an answer the door would refuse is asked once more with the
+              // reason (`pickScopeReason`). Whether a field is an ADDITION is a
+              // fact about this site — the wall below's own reading: the stored
+              // look, or the thing's own mark in the page source. A look that
+              // cannot be read answers "not an addition" (no retry), never a guess.
+              let ePickLook;
+              const ePickAddition = async (f) => {
+                if (!ADD_ONLY_FIELDS.includes(f)) return false;
+                if (ePickLook === undefined) {
+                  try { const c = await readSiteConfig(env, ownerSlug, null); ePickLook = c.ok ? c.config.look : null; } catch { ePickLook = null; }
+                }
+                if (!ePickLook) return false;
+                const onPage = ADD_EVIDENCE[f] && eSrc.some((p) => ADD_EVIDENCE[f].test(String((p && p.source) || "")));
+                return !hasLookField(ePickLook, f) && !onPage;
+              };
               const picked = await pickLanes(
-                { send: eQuick("pick_lanes") },
+                { send: eQuick("pick_lanes"), mark: traceRetryMark(editTrace), isAddition: ePickAddition },
                 {
                   message: eInstruction,
                   // WHAT THE SITE IS, IN ONE LINE. Deliberately thin — this is
@@ -38271,6 +38314,7 @@ async function handleRequest(request, env, ctx) {
               const dHeldNow = new Set();
               const dOut = await runDataEdit({
                 send: eQuick(),
+                mark: traceRetryMark(editTrace),
                 // WHAT THE STEP WAS SHOWN (2026-10-11): counted on the job.
                 seen: (x) => noteSeen(eJob, x),
                 // PREPARED: the change is chosen; no row is touched here.
@@ -38635,6 +38679,7 @@ async function handleRequest(request, env, ctx) {
               let rCost = 0, rBilled = false, rStop = null;
               const rOut = await runRulesEdit({
                 send: eQuick(),
+                mark: traceRetryMark(editTrace),
                 seen: (x) => noteSeen(eJob, x),
                 // PREPARED: the rules are chosen; nothing is granted here.
                 before: async (usage) => { if (isPrep) { eJob.reached = (Number(eJob.reached) || 0) + 1; return false; } rCost = await eCharge(usage); rBilled = true; if (eCharges.refused() > 0) return false; rStop = await applyStop(eJob); return !rStop; },
@@ -39026,6 +39071,7 @@ async function handleRequest(request, env, ctx) {
               }
               const nOut = await runNavEdit({
                 send: eQuick(),
+                mark: traceRetryMark(editTrace),
               }, { instruction: eInstruction, pages: eSrc, routes: navRoutes, model: eQuickModel, addition: eb.addition === true });
               // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
               if (nOut.ask) return stepAsk("nav", nOut.ask);
@@ -39282,6 +39328,7 @@ async function handleRequest(request, env, ctx) {
                 : { files: [], missing: [] };
               const pOut = await runPictureEdit({
                 send: eQuick(),
+                mark: traceRetryMark(editTrace),
                 // The owner's upload library, named the way they see it.
                 library: async () => {
                   // A PICTURE BOUGHT FOR THIS VERY PART (2026-10-09, round 3), by
@@ -39967,6 +40014,8 @@ async function handleRequest(request, env, ctx) {
               // the `usage` and the `cost` beside it cannot disagree.
               const laneUsages = [];
               const dUsage = { langUsage: laneUsages };
+              // THE RE-ASKED LANES' USAGE (round 2): billed only when the step then changes something.
+              const eReaskUsages = [];
               // WHICH PARTS OF THE SITE THIS TOUCHED, carried out to the reply.
               // A lane that cannot say what it did is this file's single
               // most-repeated failure — `moved` names look FIELDS and a css edit
@@ -40181,6 +40230,38 @@ async function handleRequest(request, env, ctx) {
                   }
                   answers[field] = ran.value;
                 }
+                // ── EVERY PART DECLINED: EACH ASKED ONCE MORE WITH THAT FACT ──
+                //
+                // (Round 2 of the retry rule, owner 2026-10-24: "a task must
+                // never fail completely without at least one retry".) Each lane
+                // may decline on its own, legitimately; ALL of them declining,
+                // with nothing taken off, is `look/no-change` — the whole step
+                // doing nothing. So each lane that ran is asked once more, the
+                // SAME request (same model, same effort) with its own answer and
+                // the fact (`reaskLane`, `LOOK_DECLINED_REASON`), and its answer
+                // is read exactly as the first was. A second decline everywhere
+                // is today's sentence. The QR lane is left out: its answer is a
+                // patch read against the stored list above, not a value.
+                // Their usage is billed only if the step then changes something
+                // (taken back out in the no-change branch below).
+                const eReaskable = pickedFields.filter((f) => !eRemoves.remove.includes(f) && f !== "qr" && eLaneCalls.has(f));
+                if (!Object.keys(answers).length && !takeOffAll.size && !pickedFields.some((f) => eRemoves.remove.includes(f)) && eReaskable.length) {
+                  editTrace.mark("look:reask", "start", { lanes: eReaskable.length });
+                  let eReaskOk = false;
+                  for (const field of eReaskable) {
+                    const first = await eLaneCalls.get(field);
+                    if (!first || first.failed || first.ask) continue;
+                    const ctx = eToldBy && Object.hasOwn(eToldBy, field) ? eCtxOf(eToldBy[field]) : eLookCtx;
+                    const again = await reaskLane({ send: eQuick("lane", ctx) }, eLaneArgs(field), first, LOOK_DECLINED_REASON);
+                    if (again.usage) { laneUsages.push(again.usage); eReaskUsages.push(again.usage); }
+                    if (again.failed) continue;
+                    if (again.ask) { await eSettleLanes(); return stepAsk("look", again.ask); }
+                    if (again.value === undefined) continue;
+                    answers[field] = again.value;
+                    eReaskOk = true;
+                  }
+                  editTrace.mark("retry_reason", eReaskOk ? "ok" : "fail", { step: "look", reason: "no-change", ok: eReaskOk });
+                }
                 eCtx = eLookCtx;
                 // NULL WHEN NOTHING ANSWERED, not `{}` — `hasValue` below reads
                 // an empty object as "the model named nothing", which is the
@@ -40369,6 +40450,8 @@ async function handleRequest(request, env, ctx) {
                 // argument says recompiles from the same stored look and so
                 // cannot express it either. Asked which part and how, for nothing.
                 if (!named) return explain("look/no-change");
+                // PAY ONLY FOR WHAT WORKED (round 2): a re-ask that changed nothing is not billed.
+                for (const u of eReaskUsages) { const i = laneUsages.indexOf(u); if (i >= 0) laneUsages.splice(i, 1); }
                 return Response.json({
                   ok: true, layer: "look", moved: [], renamed: 0,
                   // Its own field, not `moved`: the client's sentence is built
@@ -40759,6 +40842,8 @@ async function handleRequest(request, env, ctx) {
                 model: eQuickModel,
                 inPart: !!partNameOf(target.path),
                 send: eQuick(),
+                // RETRY_REASON {step, reason, ok} on the edit's trace (2026-10-24).
+                mark: traceRetryMark(editTrace),
               });
               // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
               if (tw.ask) return stepAsk("page", tw.ask);
@@ -41171,6 +41256,12 @@ async function handleRequest(request, env, ctx) {
               const pPlanComponents = (pPageApi && Array.isArray(pPageApi.modules)) ? pPageApi.modules : [];
 
               let eGen = null;
+              // THE PAGE WRITER, KEPT CALLABLE (round 2 of the retry rule): its last
+              // request and answer are recorded (`pRec`) so an answer that failed the
+              // checks below can be asked once more with the reason (`pWrite`).
+              const pInner = clarifyCall(jobCall(eJob, pagesCall(env)), { shown: () => eCtx, all: () => eCtxAll || [], part: ePartShown });
+              const pRec = recordCall(pInner);
+              let pWrite = null;
               try {
                 // Same as the addon lane: a stated zero, because the absence of
                 // one is not an instruction and the model writes tokens anyway.
@@ -41183,7 +41274,7 @@ async function handleRequest(request, env, ctx) {
                 // THE OWNER'S VIDEO AND AUDIO (2026-10-14), by address — read
                 // for this site, and none when the library cannot be read.
                 const eMedia = (await withinMs(siteMediaFiles(env, ownerSlug), CONVERSE_READ_MS, "edit media:", ownerSlug)) || [];
-                eGen = await generateSitePages(env, briefWithLayout({
+                pWrite = (pCall) => generateSitePages(env, briefWithLayout({
                   brief: eAskOf(eInstruction),
                   media: eMedia,
                   // ── THE BUDGET IS STILL ZERO; THE SENTENCE IS NO LONGER A
@@ -41243,12 +41334,13 @@ async function handleRequest(request, env, ctx) {
                 // NO CLOCK OF ITS OWN, exactly as before; AND THE ANSWERS this
                 // step was given (2026-10-02), through the same transport every
                 // other call on this route goes through (`clarifyTransport`).
-                null, clarifyCall(jobCall(eJob, pagesCall(env)), { shown: () => eCtx, all: () => eCtxAll || [], part: ePartShown }),
+                null, pCall,
                 // A SITE THAT WRITES ITS OWN PARTS (2026-10-23) is edited by a
                 // writer told the same: the own-parts block, never the kit's.
                 // AND THE PICKED PAGES (2026-10-24): the rewrite fallback (a
                 // target too large to show alone) shows only the picked pages.
                 "", [], { ownParts: ownPartsSite(eSrc, pStoredParts), only: ePick && ePick.only ? ePick.only.pages : null });
+                eGen = await pWrite(pRec.call);
               } catch (e) {
                 console.error("page edit generate failed:", ownerSlug, e && e.message);
                 const pKind = upstreamKind(e && e.detail, e && e.status);
@@ -41271,46 +41363,54 @@ async function handleRequest(request, env, ctx) {
               // one-page edit used to have its correct <Link to="/book"> pointed
               // at "/" and the customer told their live page did not exist
               // (2026-08-13 audit, reproduced with the real module).
-              const pValid = validatePages(eGen && eGen.input, {
-                partial: true,
-                knownRoutes: (eSrc || []).map((p) => routeOf(p && p.path)).filter(Boolean),
-              });
-              // THE PARTS ARE COUNTED AND SWEPT BESIDE THE PAGES. This rung buys
-              // nothing (`images: 0`) and the sweep is the whole of what it does
-              // with a token — so a model that answered a photograph inside a
-              // COMPONENT had that token stored and published as a literal
-              // `src="@@IMG:…@@"`, which the browser cannot fetch. The build path
-              // shipped exactly that live on `hebden-bike-repair` (2026-09-12);
-              // `builder/site-images.mjs`'s `imageSources` has the account.
-              // ⚠ AND IT PRODUCES NO NUMBER ANY MORE. `countImageSlots` counts
-              // `@@IMG:` TOKENS, and this rung's directive forbids them, so on
-              // every obedient answer it was zero — and where a token WAS
-              // written the sweep one line down turns it into `src=""`, which
-              // is an empty frame the message-wide reader below the loop sees
-              // on the after side. Two readers of one fact, one of which is
-              // silent in the ordinary case; the sweep is the part that was
-              // ever load-bearing and it is what stays.
-              pValid.pages = applyImages(pValid.pages, {});
-              pValid.parts = applyImages(pValid.parts, {});
-              // AND THE INVENTED EXPORT NAME IS REPAIRED, on this lane too. It
-              // was wired into the build path alone, and these two lanes
-              // generate whole pages exactly as that path does — so a model
-              // reaching for `FaqAccordion` on a module that exports `Faq` cost
-              // the customer their whole change here while the build path
-              // silently fixed it. Deterministic and single-answer-only: no
-              // model call, and a module with more than one candidate is left
-              // for tsc rather than guessed at.
-              //
-              // BEFORE THE LINT, or the lint reports an import the repair has
-              // already fixed and the customer is told about a problem that no
-              // longer exists.
-              const pRepair = repairImports(pValid.pages, { parts: pValid.parts });
-              pValid.pages = pRepair.pages;
-              // AND THE PARTS, which compile in the same program — a bad import
-              // in a hand-written component takes the build down exactly as one
-              // in a page does.
-              pValid.parts = repairImports(pValid.parts, { parts: pValid.parts }).pages;
-              const pProblems = pValid.problems.concat(lintPages(pValid.pages, eSpec));
+              // THE WRITER'S ANSWER, READ (round 2: a function, so a retried answer is
+              // read exactly as the first).
+              const pRead = (gen) => {
+                const pValid = validatePages(gen && gen.input, {
+                  partial: true,
+                  knownRoutes: (eSrc || []).map((p) => routeOf(p && p.path)).filter(Boolean),
+                });
+                // THE PARTS ARE COUNTED AND SWEPT BESIDE THE PAGES. This rung buys
+                // nothing (`images: 0`) and the sweep is the whole of what it does
+                // with a token — so a model that answered a photograph inside a
+                // COMPONENT had that token stored and published as a literal
+                // `src="@@IMG:…@@"`, which the browser cannot fetch. The build path
+                // shipped exactly that live on `hebden-bike-repair` (2026-09-12);
+                // `builder/site-images.mjs`'s `imageSources` has the account.
+                // ⚠ AND IT PRODUCES NO NUMBER ANY MORE. `countImageSlots` counts
+                // `@@IMG:` TOKENS, and this rung's directive forbids them, so on
+                // every obedient answer it was zero — and where a token WAS
+                // written the sweep one line down turns it into `src=""`, which
+                // is an empty frame the message-wide reader below the loop sees
+                // on the after side. Two readers of one fact, one of which is
+                // silent in the ordinary case; the sweep is the part that was
+                // ever load-bearing and it is what stays.
+                pValid.pages = applyImages(pValid.pages, {});
+                pValid.parts = applyImages(pValid.parts, {});
+                // AND THE INVENTED EXPORT NAME IS REPAIRED, on this lane too. It
+                // was wired into the build path alone, and these two lanes
+                // generate whole pages exactly as that path does — so a model
+                // reaching for `FaqAccordion` on a module that exports `Faq` cost
+                // the customer their whole change here while the build path
+                // silently fixed it. Deterministic and single-answer-only: no
+                // model call, and a module with more than one candidate is left
+                // for tsc rather than guessed at.
+                //
+                // BEFORE THE LINT, or the lint reports an import the repair has
+                // already fixed and the customer is told about a problem that no
+                // longer exists.
+                const pRepair = repairImports(pValid.pages, { parts: pValid.parts });
+                pValid.pages = pRepair.pages;
+                // AND THE PARTS, which compile in the same program — a bad import
+                // in a hand-written component takes the build down exactly as one
+                // in a page does.
+                pValid.parts = repairImports(pValid.parts, { parts: pValid.parts }).pages;
+                const pProblems = pValid.problems.concat(lintPages(pValid.pages, eSpec));
+                return { pValid, pProblems };
+              };
+              const pFirstRead = pRead(eGen);
+              let pValid = pFirstRead.pValid;
+              let pProblems = pFirstRead.pProblems;
               // ONLY THE PAGE THAT WAS ASKED FOR. A page edit that returns a
               // different file is not a page edit, and taking it would let one
               // instruction rewrite a page the customer never named. The prompt
@@ -41321,6 +41421,41 @@ async function handleRequest(request, env, ctx) {
               // `orderingMoved`, the publication — must see that one and not the
               // answer it replaced.
               let wrote = (pValid.pages || []).find((p) => p.path === target.path);
+              // ── NO PAGE BACK, OR THE PAGE BACK UNCHANGED: ASKED ONCE MORE ─────
+              //
+              // (Round 2 of the retry rule, owner 2026-10-24: "a task must never
+              // fail completely without at least one retry".) The two endings
+              // below — `page/no-page-back` (the writer sent no file for the page
+              // asked about) and `page/no-change` (it sent the page back exactly
+              // as it was, and no component either) — are checks on the writer's
+              // own answer, so the SAME request (same model, same effort) is sent
+              // once more with that answer and the reason (`pRec.again`), and the
+              // retry's answer is read exactly as the first (`pRead`). A second
+              // miss is today's sentence, at no cost for the edit; a retry that
+              // asks is the step's question. Both calls ride the step's usage only
+              // when the retry wrote the change.
+              {
+                const pStoredByName = new Map((Array.isArray(pStoredParts) ? pStoredParts : []).filter((x) => x && typeof x.name === "string").map((x) => [x.name, x.source]));
+                const pPartChanged = (v) => (v.parts || []).some((pt) => pt && (!pStoredByName.has(pt.name) || pStoredByName.get(pt.name) !== pt.source));
+                const pMissWhy = (v, w) => !w ? "no-page-back" : (w.source === target.source && !pPartChanged(v)) ? "no-change" : null;
+                const pWhy = eGen && !eGen.ask && !eGen.truncated && pRec.last && typeof pWrite === "function" ? pMissWhy(pValid, wrote) : null;
+                if (pWhy) {
+                  const pReason = pWhy === "no-page-back"
+                    ? "Nothing was changed: your answer did not include the page " + target.path + " (the one file this change is about), so it could not be applied. Answer again with that page, whole, with the change the request asks for made in it."
+                    : "Nothing was changed: the page " + target.path + " came back exactly as it was, and no component changed either, so the request was not carried out. Read the request again and answer with the page, whole, with that change made" + (pProblems.length ? " (problems found: " + pProblems.join("; ").slice(0, 300) + ")" : "") + ". If the page really already does what is asked, send it back unchanged again.";
+                  let pGen2 = null;
+                  try { pGen2 = await pWrite(pRec.again(pReason, pInner)); } catch { pGen2 = null; }
+                  if (pGen2 && pGen2.ask) { editTrace.mark("retry_reason", "fail", { step: "page", reason: pWhy, ok: false }); return stepAsk("page", pGen2.ask); }
+                  const pRead2 = pGen2 && pGen2.input ? pRead(pGen2) : null;
+                  const wrote2 = pRead2 ? (pRead2.pValid.pages || []).find((p) => p.path === target.path) : null;
+                  const pOk2 = !!pRead2 && !pMissWhy(pRead2.pValid, wrote2);
+                  editTrace.mark("retry_reason", pOk2 ? "ok" : "fail", { step: "page", reason: pWhy, ok: pOk2 });
+                  if (pOk2) {
+                    eGen = { ...pGen2, usage: addUsages(eGen.usage || null, pGen2.usage || null) };
+                    pValid = pRead2.pValid; pProblems = pRead2.pProblems; wrote = wrote2;
+                  }
+                }
+              }
               // A CHANGED COMPONENT IS A CHANGE. Run 12's tsx lane (2026-09-02)
               // asked for a word inside the chord-diagram component; the model
               // rewrote the PART and handed the page back as it was, and this
@@ -44917,6 +45052,32 @@ async function handleRequest(request, env, ctx) {
               }
               // IT NEEDS A RESULT IT WAS NOT SHOWN: asked again with it (`aNeedsAgain`).
               let ran = aPrior ? ranFirst : await aNeedsAgain(k, ranFirst, aBrief);
+              // ── A DESIGNER THAT RETURNED NOTHING, ASKED ONCE MORE WITH THAT FACT ──
+              //
+              // (Round 2 of the retry rule, owner 2026-10-24.) It was picked for
+              // this kind because the request asks for one, and it answered no
+              // design and no question — the addition's `declined` ending when
+              // every designer does it. Asked again the way the cleaner's
+              // correction is asked (`feedback`, the same model and effort), and
+              // through `aNeedsAgain` like any answer. A second empty answer is
+              // the decline it was; a failed retry call keeps the first. Its
+              // usage is on the bill only when the retry designed something.
+              if (!aPrior && ran && !ran.failed && !ran.ask && ran.value === undefined) {
+                const aDeclineFeedback = "Your answer designed nothing and asked nothing, so this part of the request would be dropped. The customer's request asks for a " + k + ": read it again and answer with the design for it in the tool's shape. If one detail only they can decide is missing, ask your one question instead; if the request really asks for no " + k + ", answer with nothing again.";
+                let again = null;
+                try {
+                  aMark("add:" + k, "start", { again: true, prior: "empty" });
+                  again = await aNeedsAgain(k, await runAdd({ send: aQuick("add:" + k) }, { kind: k, message: aInstruction, site: aSiteFor(k), model: aModels.quick, brief: aBrief, feedback: aDeclineFeedback }), aBrief, aDeclineFeedback);
+                } catch { again = null; }
+                const aAgainOk = !!again && !again.failed && (again.ask || again.value !== undefined);
+                aMark("retry_reason", aAgainOk ? "ok" : "fail", { step: "add:" + k, reason: "declined", ok: aAgainOk });
+                if (aAgainOk) {
+                  // THE FIRST CALL'S USAGE JOINS THE DESIGN BILL with the answer
+                  // that worked (the retry's own is pushed below, as any answer's).
+                  if (ran.usage) aDesignUsage.push(ran.usage);
+                  ran = again;
+                }
+              }
               // DECIDED: what waits on it starts at the next kind's turn, once
               // its result below is folded in.
               aDecided.add(k);
@@ -44944,18 +45105,20 @@ async function handleRequest(request, env, ctx) {
               let clean = aPrior ? null : aCleanOf(ran);
               let aSupersededReq = null;
               if (aPrior || (clean && !clean.ok && clean.why !== "nothing")) {
-                let aFeedback;
+                let aFeedback, aRetryWhy = "";
                 if (aPrior) {
                   // THE RECORDED REFUSAL, TAKEN: no answer to bill or keep (the
                   // preparation paid for it, and its content never left that
                   // record); the same correction, from its own facts.
                   const why = aPrior.why.slice(4);
+                  aRetryWhy = why;
                   aMark("add:" + k, "correct", { why, skipped: 1 });
                   aKept.push({ kind: k, answered: true, superseded: why, skipped: true, stop_reason: null, content: null });
                   aSupersededReq = aPrior.superseded;
                   aFeedback = aPrior.feedback;
                 } else {
                   aSupersededReq = ran.requirements;
+                  aRetryWhy = clean.why;
                   // THE REASON, AND WHAT IT SAID THEY ASKED FOR, BY ID (round 11):
                   // so the correction can say which requirement it restates.
                   aFeedback = addRefusal(clean.why, k) + " (" + clean.why + ")" + supersededNote(aSupersededReq);
@@ -44972,6 +45135,10 @@ async function handleRequest(request, env, ctx) {
                 const fixFirst = await runAdd({ send: aQuick("add:" + k) }, { kind: k, message: aInstruction, site: aSiteFor(k), model: aModels.quick, brief: aBrief, feedback: aFeedback });
                 ran = await aNeedsAgain(k, fixFirst, aBrief, aFeedback);
                 clean = aCleanOf(ran);
+                // RETRY_REASON {step, reason, ok} (2026-10-24): this step already
+                // retried once with the cleaner's reason (`no-job-fn` among them),
+                // same model and effort; the mark makes it read like every other.
+                { const rWhy = aRetryWhy || "refused"; const rOk = !!(clean && clean.ok); aMark("retry_reason", rOk ? "ok" : "fail", { step: "add:" + k, reason: rWhy, ok: rOk }); }
                 if (clean && !clean.ok && clean.why !== "nothing") rejectReply(ran.raw, "add:" + clean.why);
               }
               // HOP 3 OF EIGHT, AND IT IS ABOVE EVERY `continue` AND `return`
@@ -46230,6 +46397,69 @@ async function handleRequest(request, env, ctx) {
               }
               return out;
             };
+            // ── THE WRITER ASKED ONCE MORE WITH THE REASON (round 2 of the retry
+            //    rule, owner 2026-10-24) ─────────────────────────────────────
+            //
+            // Two endings below refuse the WHOLE addition on the writer's own
+            // answer: `rewrote` (a page it changed lost words it said before) and
+            // `not-landed` (an addition of nothing but lines and photographs, one
+            // of which never arrived). Both are checked here first, on the answer
+            // as the merge would take it (`aWriterCheck`), and a failing answer
+            // is asked once more: each batch's SAME request (same model, same
+            // effort) with its own answer and the reason naming what was lost or
+            // what did not land (`aRecs[i].again`). Then everything below runs on
+            // the retry's answer as it would on the first — the database made
+            // beside the first call, the tables and their charges are NOT made
+            // again (provisioning settles once, below this loop). A second miss
+            // is the existing refusal; both calls are on the page bill only when
+            // the retry passed.
+            const aRecs = [];
+            let aWriterRetry = null, aWriterFirstUsage = null, aWriterRetried = false;
+            const aCallFor = (i) => {
+              const inner = clarifyCall(jobCall(aJob, pagesCall(env)), { shown: () => aCtxShown, all: () => aCtxAll || [], part: aPartShown });
+              if (aWriterRetry && aRecs[i] && aRecs[i].last) return aRecs[i].again(aWriterRetry.text, inner);
+              aRecs[i] = recordCall(inner);
+              return aRecs[i].call;
+            };
+            const aWriterCheck = async (gen) => {
+              if (!gen || !gen.input || gen.ask) return null;
+              const v = validatePages(gen.input, { partial: true, knownRoutes: (aSrc || []).map((p) => routeOf(p && p.path)).filter(Boolean) });
+              const unseen = new Set(aPagesSent.withheld.map(pageId).filter(Boolean));
+              const pages = (v.pages || []).filter((p) => p && !unseen.has(pageId(p.path)));
+              const aRemove = Array.isArray(gen.input.remove) ? gen.input.remove : [];
+              const m = mergeAddonPages(aSrc, pages, aRemove, aAskedPages);
+              // NOTHING USABLE CAME BACK (and no note of its own saying why): the whole
+              // addition would end `nothing-returned`/`no-change` — asked again too.
+              if (m && !m.ok && (m.reason === "no-change" || (m.reason === "nothing-returned" && !(typeof gen.input.notes === "string" && gen.input.notes.trim())))) {
+                return { code: m.reason, text: "Nothing was added: your answer returned no page change for this addition. Answer again with every page the addition changes or adds, each whole, with the addition in it." };
+              }
+              if (!m || !m.ok) return null;
+              const was = new Map((aSrc || []).filter((p) => p && typeof p.path === "string").map((p) => [p.path, String(p.source || "")]));
+              const lost = [];
+              for (const p of m.pages || []) {
+                if (!p || !m.changed.includes(p.path) || !was.has(p.path)) continue;
+                const kept = keptProse(was.get(p.path), p.source);
+                if (!kept.ok) lost.push({ path: p.path, lost: kept.lost.slice(0, 3) });
+              }
+              if (lost.length) {
+                return { code: "rewrote", text: "Nothing was added: your answer changed words the site already says, and an addition may only add. " +
+                  lost.map((l) => l.path + " lost: " + l.lost.map((x) => "\u201c" + String(x).slice(0, 120) + "\u201d").join(", ")).join("; ").slice(0, 900) +
+                  ". Answer again with every existing sentence, heading and label kept character for character, and the addition placed beside them." };
+              }
+              if (!aAnswers.every((a) => a && (a.kind === "words" || a.kind === "photo"))) return null;
+              const kit = aFold.words.length ? await loadSiteKit(env, ownerSlug) : [];
+              const partFiles = (list) => (Array.isArray(list) ? list : []).filter((x) => x && typeof x.name === "string" && typeof x.source === "string").map((x) => ({ path: partPath(x.name), source: x.source }));
+              const after = new Map(partFiles(aStoredParts).map((f) => [f.path, f]));
+              for (const f of partFiles(v.parts)) after.set(f.path, f);
+              const w = wordsLanded(aSrc, m.pages, aFold.words, { filesBefore: [...partFiles(aStoredParts), ...kit], files: [...after.values(), ...kit] });
+              const ph = photosLanded(aSrc, m.pages, aFold.reuse, ownerSlug);
+              if (w.ok && ph.ok) return null;
+              const said = [
+                ...w.missing.map((x) => "the line \u201c" + String((x && x.words) || "").slice(0, 160) + "\u201d on " + ((x && x.page) || "its page")),
+                ...ph.missing.map((x) => "the photograph " + String((x && x.src) || "").slice(0, 160) + " on " + ((x && x.page) || "its page")),
+              ];
+              return { code: "not-landed", text: "Nothing was added: " + said.join("; ").slice(0, 900) + " " + (said.length === 1 ? "is" : "are") + " not on the page you sent back. Answer again with " + (said.length === 1 ? "it" : "each of them") + " placed, word for word, on the page named." };
+            };
             for (let aPass = 0; ; aPass++) {
             const aPagesT0 = Date.now();
             aMark("pages", "start", { kinds: aAnswers.map((a) => a.kind) });
@@ -46273,7 +46503,7 @@ async function handleRequest(request, env, ctx) {
               // per `aFold.batchDirectives` entry at the same time, and
               // `mergePageBatches` makes the one answer read below.
               const aBatchDirs = Array.isArray(aFold.batchDirectives) && aFold.batchDirectives.length > 1 ? aFold.batchDirectives : [aFold.directive];
-              const aBatchGot = await Promise.all(aBatchDirs.map(async (aDirective) => { let aGen = null;
+              const aBatchGot = await Promise.all(aBatchDirs.map(async (aDirective, aBi) => { let aGen = null;
               aGen = await generateSitePages(env, briefWithLayout({
                 brief: aInstruction + (aDirective ? "\n\n" + aDirective : "") + (aDeviceNote ? "\n\n" + aDeviceNote : ""),
                 media: aMedia,
@@ -46365,7 +46595,7 @@ async function handleRequest(request, env, ctx) {
               // route that does not go through `aQuick`, and the longest.
               }), aSpec, aMerged.brand || aLook.brand || ownerSlug, [], aModels.pages, aWriterSrc, "addon", undefined, aJob && aJob.budget,
               // THE ANSWERS, through the transport every other call here uses.
-              clarifyCall(jobCall(aJob, pagesCall(env)), { shown: () => aCtxShown, all: () => aCtxAll || [], part: aPartShown }), "", aKeepPages,
+              aCallFor(aBi), "", aKeepPages,
               // AN OWN-PARTS SITE'S ADDITION writes its own parts too (2026-10-23).
               { ownParts: ownPartsSite(aSrc, aStoredParts), only: aPickOnly() ? aPickOnly().pages : null });
               return aGen; }));
@@ -46420,7 +46650,22 @@ async function handleRequest(request, env, ctx) {
               return Response.json({ ok: false, error: "clarify", layer: "addon", kind: "pages", by: "add:pages", cost: 0, unchanged: true, ask: aGen.ask, msg: aGen.ask.text });
             }
             const aOver = aPass === 0 ? aBreach(aGen && aGen.input) : [];
-            if (!aOver.length) break;
+            if (!aOver.length) {
+              if (aWriterRetried) {
+                const still = await aWriterCheck(aGen);
+                aMark("retry_reason", still ? "fail" : "ok", { step: "add:pages", reason: aWriterRetry.code, ok: !still });
+                // PAY ONLY FOR WHAT WORKED: both calls only when the retry passed
+                // (a refusal below takes nothing off the ledger either way).
+                if (!still && aGen) aGen = { ...aGen, usage: addUsages(aWriterFirstUsage, aGen.usage || null) };
+                break;
+              }
+              const why = await aWriterCheck(aGen);
+              if (!why) break;
+              aWriterRetry = why; aWriterRetried = true; aWriterFirstUsage = (aGen && aGen.usage) || null;
+              aMark("retry_reason", "start", { step: "add:pages", reason: why.code });
+              aPass--;
+              continue;
+            }
             aMark("scope", "breach", { reached: aOver.length });
             aWriterFor(false);
             // THE WIDENED WRITER IS PICKED FOR TOO (2026-10-24): it now sees the

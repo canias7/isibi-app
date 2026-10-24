@@ -4413,6 +4413,75 @@ test("a photograph alone whose page comes back without it is refused before the 
   assert.equal(r.compiles.length, 0, "a page without the photograph it promised was compiled");
 });
 
+// ── ROUND 2 OF THE RETRY RULE (owner, 2026-10-24): "a task must never fail
+//    completely without at least one retry" ─────────────────────────────────
+//
+// The page writer's answer that would end the addition `not-landed` or
+// `rewrote` is asked ONCE more — the SAME request (same model, same effort)
+// with its own answer and the reason naming what did not land or what was lost
+// — and everything after runs on the retry's answer. Driven through the real
+// add-on route; the writer's answer is a function of the request it was sent.
+const writerCalls = (r) => r.prompts.filter((p) => p.tool === "write_pages");
+const isRetry = (b) => /"role":"assistant"/.test(JSON.stringify(b));
+
+test("RETRY (not-landed): a writer whose page came back without the photograph is asked once more with what did not land, and the retry's page ships", async () => {
+  const r = await addon("fw-photo", "put a photo of the workshop bench on the home page", {
+    kinds: ["photo"], credits: 400, publishes: true, storedPages: PHOTO_SITE, answers: benchAnswer,
+    written: (b) => (isRetry(b) ? [withOwnOn(PHOTO_SITE[0], OWN_A)] : [{ ...PHOTO_SITE[0], source: PHOTO_SITE[0].source.replace("<h1>Fretwork</h1>", "<h1>Fretwork</h1><p>Bench time.</p>") }]),
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const w = writerCalls(r);
+  assert.equal(w.length, 2, "not exactly one retry of the writer");
+  assert.match(w[1].text, /is not on the page you sent back/, "the retry was not told what did not land");
+  assert.ok(w[1].text.includes(OWN_A), "the reason does not name the photograph that did not land");
+  assert.ok(!w[0].text.includes("is not on the page you sent back"), "the first request carried the reason");
+  const home = compiledPages(r).find((p) => /index\.tsx$/.test(p.path));
+  assert.equal(home.source.split('"' + OWN_A + '"').length - 1, 2, "the retry's page is not what shipped");
+});
+
+test("RETRY (not-landed): a retry that still leaves the photograph out ends as today's refusal — free, nothing compiled, two writer calls", async () => {
+  const r = await addon("fw-photo", "put a photo of the workshop bench on the home page", {
+    kinds: ["photo"], credits: 400, publishes: true, storedPages: PHOTO_SITE, answers: benchAnswer,
+    written: [{ ...PHOTO_SITE[0], source: PHOTO_SITE[0].source.replace("<h1>Fretwork</h1>", "<h1>Fretwork</h1><p>Bench time.</p>") }],
+  });
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  assert.equal(r.body.error, "not-landed");
+  assert.equal(r.body.cost, 0, "a refused addition charged for its retry");
+  assert.equal(r.charges.length, 0, "a refused addition charged");
+  assert.equal(writerCalls(r).length, 2);
+  assert.equal(r.compiles.length, 0);
+});
+
+test("RETRY (not-landed): a writer whose first page lands is never asked again", async () => {
+  const r = await addon("fw-photo", "put a photo of the workshop bench on the home page", {
+    kinds: ["photo"], credits: 400, publishes: true, storedPages: PHOTO_SITE, answers: benchAnswer,
+    written: [withOwnOn(PHOTO_SITE[0], OWN_A)],
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal(writerCalls(r).length, 1, "a passing writer was asked again");
+});
+
+test("RETRY (rewrote): a writer that lost words the page said is asked once more naming them; the retry ships; a second loss is today's `rewrote`, free", async () => {
+  const lost = { ...PHOTO_SITE[0], source: withOwnOn(PHOTO_SITE[0], OWN_A).source.replace("<h1>Fretwork</h1>", "<h1>Guitars</h1>") };
+  const fixed = await addon("fw-photo", "put a photo of the workshop bench on the home page", {
+    kinds: ["photo"], credits: 400, publishes: true, storedPages: PHOTO_SITE, answers: benchAnswer,
+    written: (b) => (isRetry(b) ? [withOwnOn(PHOTO_SITE[0], OWN_A)] : [lost]),
+  });
+  assert.equal(fixed.body.ok, true, JSON.stringify(fixed.body));
+  const w = writerCalls(fixed);
+  assert.equal(w.length, 2);
+  assert.match(w[1].text, /an addition may only add/);
+  assert.ok(w[1].text.includes("Fretwork"), "the reason does not name the words that were lost");
+  const twice = await addon("fw-photo", "put a photo of the workshop bench on the home page", {
+    kinds: ["photo"], credits: 400, publishes: true, storedPages: PHOTO_SITE, answers: benchAnswer, written: [lost],
+  });
+  assert.equal(twice.status, 422, JSON.stringify(twice.body));
+  assert.equal(twice.body.error, "rewrote");
+  assert.equal(twice.body.cost, 0);
+  assert.equal(twice.charges.length, 0);
+  assert.equal(writerCalls(twice).length, 2);
+});
+
 test("a photograph alone with nothing real to place is refused before the page call, at no cost", async () => {
   const r = await addon("fw-photo", "put a photo of the workshop at dusk on the home page", {
     kinds: ["photo"], credits: 0, storedPages: PHOTO_SITE,
@@ -9890,4 +9959,48 @@ test("PARTIAL 3 — a line of words whose page comes back without it is left out
   assert.equal(left.name, LINE);
   assert.match(left.msg, /left out/, left.msg);
   assert.ok(compiledPages(r).some((p) => /gallery/.test(p.path)), "the gallery page did not land");
+});
+
+// ── ROUND 2 OF THE RETRY RULE: A DESIGNER THAT RETURNED NOTHING ──────────────
+//
+// A designer picked for its kind that answers no design and no question is
+// asked once more with that fact (the cleaner's own correction shape, the same
+// model and effort); a second empty answer is the decline it was.
+const designerCalls = (r, kind) => r.prompts.filter((p) => p.tool === "add_to_site" && p.kind === kind);
+test("RETRY (declined): a designer that designed nothing is asked once more with that fact; its retry's design ships", async () => {
+  const r = await addon("fw-photo", "put a photo of the workshop bench on the home page", {
+    kinds: ["photo"], credits: 400, publishes: true, storedPages: PHOTO_SITE,
+    answers: { photo: (b) => (/designed nothing and asked nothing/.test(JSON.stringify(b)) ? benchAnswer.photo : {}) },
+    written: [withOwnOn(PHOTO_SITE[0], OWN_A)],
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const d = designerCalls(r, "photo");
+  assert.equal(d.length, 2, "not exactly one retry of the designer");
+  assert.match(d[1].text, /designed nothing and asked nothing/);
+  assert.doesNotMatch(d[0].text, /designed nothing and asked nothing/);
+});
+
+test("RETRY (declined): a designer empty twice is today's `declined`, free; one that designs first is never asked again", async () => {
+  const twice = await addon("fw-photo", "put a photo of the workshop bench on the home page", {
+    kinds: ["photo"], credits: 400, publishes: true, storedPages: PHOTO_SITE, answers: { photo: {} },
+  });
+  assert.equal(twice.body.error, "declined", JSON.stringify(twice.body));
+  assert.equal(twice.body.cost, 0);
+  assert.equal(twice.charges.length, 0);
+  assert.equal(designerCalls(twice, "photo").length, 2);
+  const once = await addon("fw-photo", "put a photo of the workshop bench on the home page", {
+    kinds: ["photo"], credits: 400, publishes: true, storedPages: PHOTO_SITE, answers: benchAnswer, written: [withOwnOn(PHOTO_SITE[0], OWN_A)],
+  });
+  assert.equal(designerCalls(once, "photo").length, 1);
+});
+
+test("RETRY (nothing-returned): a writer that returned no page change is asked once more; its retry's page ships", async () => {
+  const r = await addon("fw-photo", "put a photo of the workshop bench on the home page", {
+    kinds: ["photo"], credits: 400, publishes: true, storedPages: PHOTO_SITE, answers: benchAnswer,
+    written: (b) => (isRetry(b) ? [withOwnOn(PHOTO_SITE[0], OWN_A)] : []),
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const w = writerCalls(r);
+  assert.equal(w.length, 2);
+  assert.match(w[1].text, /returned no page change for this addition/);
 });

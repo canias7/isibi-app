@@ -1,3 +1,4 @@
+import { withReasonRetry, addUsages } from "./retry-reason.mjs";
 // The edit lane: change what the site already has, and nothing else.
 //
 // WHAT THIS IS FOR. Until it existed there was one work lane, and every change
@@ -1093,7 +1094,24 @@ export function dataUsage(reply, model = DATA_MODEL) {
  * and matched none of them does NOT escalate: the rungs above cannot change a
  * row either, so sending them up spends ~25 credits to fail differently.
  */
-export async function runDataEdit(deps, { instruction, tables, recent, pages, scope = null, model = DATA_MODEL } = {}) {
+export async function runDataEdit(deps, args = {}) {
+  // ONE RETRY WITH THE CHECK'S OWN REASON (owner, 2026-10-24): an answer whose
+  // changes matched no row is sent once more, same model and effort, told so.
+  // Nothing was reserved or written for the first answer (`before` runs only
+  // when a change is in hand); the retry's reserve, if it finds the row, sees
+  // BOTH calls' usage, so the job's bill carries the retry under the existing
+  // rule, and a second no-match is refunded exactly as one is today.
+  return withReasonRetry({
+    step: "data", deps, mark: deps && deps.mark,
+    run: (d) => runDataOnce(d, args),
+    reasonOf: (r) => (r && !r.ok && r.reason === "no-match" && !r.ask
+      ? { code: "no-match", text: "Nothing was changed: your answer named no change that matches a row in the tables you were shown. If the entry the request means is among those rows (look for it by its name or another value, not only an exact spelling), answer again naming its table, its id and the change. If it really is not there, answer with no changes again." }
+      : null),
+    wrapDeps: (d, firstUsage) => ({ ...d, seen: undefined, before: typeof d.before === "function" ? (u) => d.before(addUsages(firstUsage, u)) : d.before }),
+  });
+}
+
+async function runDataOnce(deps, { instruction, tables, recent, pages, scope = null, model = DATA_MODEL } = {}) {
   const usable = (Array.isArray(tables) ? tables : []).filter((t) => t && t.name && Array.isArray(t.rows));
   if (!usable.length) return { ok: false, escalate: true, reason: "no-data", usage: null };
   // WHAT ORDER EACH LIST COMES OUT IN, which is a fact about the PAGES and not
