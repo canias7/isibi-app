@@ -316,7 +316,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // against, in place of "nobody can see one".
 import { addedByRoute, publishedTexts, componentEvidence } from "./builder/content-evidence.mjs";
 import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, frameToMissing, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, qrShownSources, qrDestinationCheck, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
-import { compileRepairRound } from "./builder/compile-repair.mjs";
+import { compileRepairRound, compileRepairRounds, writtenPaths } from "./builder/compile-repair.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig, writesSchema as partWritesSchema } from "./builder/request-plan.mjs";
@@ -5316,6 +5316,9 @@ const quickBudget = { capMs: () => QUICK_CALL_MS };
 // from running away when there is not much left to stop it. When a wordmark
 // has been measured end to end, that measurement replaces this.
 const QUICK_STREAM_MS = 480000;
+// WHAT ONE BUILD COMPILE REPAIR ROUND NEEDS LEFT ON THE CLOCK (2026-10-23): a
+// model call and a compile. Under a container build the clock is infinite.
+const BUILD_REPAIR_NEED_MS = 120000;
 const QUICK_STREAM = { stream: true };
 /** `quickSend` with the answer-so-far handed on as it streams (the live talk line). */
 /**
@@ -17639,12 +17642,40 @@ async function publishBeside(env, opts) {
   }
 }
 
-async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = null, trace = null, job = null, parts = null, afterCompile = null, onCompileFail = null, models = null, charge = null, held = null, charges = null, liveWhenClean = false }) {
+/**
+ * THE SEAM'S OWN COMPILE REPAIR (2026-10-23, owner: every path that writes
+ * code and publishes gets it). Up to `MAX_ROUNDS` rounds through
+ * `compileRepairRounds`, the job's clock (`canRepair`) asked before each, on
+ * the quick model the change was picked with. Charged through `charge` only
+ * when it fixed the build; a caller with no funnel gets it free. `keep` hands
+ * the outcome back for the publish's answer.
+ */
+function seamCompileRepair(env, { slug, touched = null, models = null, charge = null, tm = () => {}, keep = () => {} } = {}) {
+  return async ({ error, pages, recompile, job }) => {
+    const clock = job && job.budget && typeof job.budget.canRepair === "function" ? job.budget : null;
+    tm("compile-repair:seam", "start", { touched: Array.isArray(touched) ? touched.length : -1 });
+    const r = await compileRepairRounds({
+      error, pages, touched: Array.isArray(touched) ? touched : null,
+      room: () => !clock || clock.canRepair(0),
+      send: quickSend(env, "repair", repairClock(clock)), model: models && models.quick, compile: recompile,
+    });
+    if (r.built && r.usage.length && typeof charge === "function") {
+      try { r.charged = Number(await charge(r.usage)) || 0; }
+      catch (e) { r.charged = 0; console.error("compile repair charge failed:", slug, e && e.message); }
+    }
+    tm("compile-repair:seam", r.ran ? (r.built ? "ok" : "fail") : "skip",
+      { rounds: r.rounds, repaired: r.repaired.length, why: String(r.why || r.failed || ""), charged: r.charged || 0 });
+    try { keep(r); } catch { /* never */ }
+    return r.built ? { built: r.built, pages: r.pages } : null;
+  };
+}
+
+async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = null, trace = null, job = null, parts = null, afterCompile = null, onCompileFail = null, models = null, charge = null, held = null, charges = null, liveWhenClean = false, touched = null, chargeRepair = null }) {
   // A JOB RUNNING BESIDE OTHERS OF ITS REQUEST publishes through the site's
   // turn and the rebase (`publishBeside`), which calls back in here with the
   // rebased pages; every other caller goes straight on, as before.
   if (job && job.beside && !job.beside.inTurn && writesBeside(env) && env.SITES_BUCKET) {
-    return publishBeside(env, { slug, pages, label, renamed, verifyCss, trace, job, parts, afterCompile, onCompileFail, models, charge, charges, held });
+    return publishBeside(env, { slug, pages, label, renamed, verifyCss, trace, job, parts, afterCompile, onCompileFail, models, charge, charges, held, touched, chargeRepair });
   }
   // ONE LOCAL, so the five call sites below read the same way whether or not
   // a trace was passed. Never throws — see `edit-trace.mjs`.
@@ -18297,12 +18328,23 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // failure of the CODE is offered: a killed container, a timeout or no room
   // never judged the code. A hook that throws is ignored and the failure
   // stands as before.
-  if ((!built || built.ok !== true || !built.files) && typeof onCompileFail === "function"
+  //
+  // EVERY CALLER GETS IT (owner, 2026-10-23: "every path that writes code and
+  // compiles/publishes … once at the shared publish seam so no path can miss
+  // it"). A caller with its own hook (the add-on) keeps it; every other caller
+  // gets `seamCompileRepair`: up to two rounds on the pages this change wrote
+  // (`touched`, else the pages the error names), the job's clock asked before
+  // each, charged through `chargeRepair` (else `charge`) only when it fixed
+  // the build.
+  let seamRepair = null;
+  const compileHook = typeof onCompileFail === "function" ? onCompileFail
+    : seamCompileRepair(env, { slug, touched, models, charge: typeof chargeRepair === "function" ? chargeRepair : charge, tm, keep: (r) => { seamRepair = r; } });
+  if ((!built || built.ok !== true || !built.files) && typeof compileHook === "function"
       && !killed && !(built && built.timedOut) && !(built && built.room)) {
     tm("compile-repair", "start");
     let fix = null;
     try {
-      fix = await onCompileFail({
+      fix = await compileHook({
         error: String((built && built.error) || ""), stage: String((built && built.stage) || ""), pages, job,
         recompile: async (list) => { files = filesFor(list); return compile(); },
       });
@@ -18815,6 +18857,9 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     lookSoft.push({ what, notes: (Array.isArray(r.notes) ? r.notes : []).slice(0, 2).map((x) => String(x).slice(0, 160)) });
   }
   return { ok: true, files: wrote, look, render, renderNote: [renderNote(built.render), langNote(langOutcomes, langsRefused), staleNote(langStale)].filter(Boolean).join(" ") || undefined,
+    // A COMPILE THE SEAM'S REPAIR FIXED (2026-10-23), a fact for the reply;
+    // absent otherwise, so an ordinary publish's answer is unchanged.
+    ...(seamRepair && seamRepair.built ? { compileRepaired: { pages: seamRepair.repaired.slice(), rounds: seamRepair.rounds, charged: Number(seamRepair.charged) || 0 } } : {}),
     // WHICH VERSION WENT LIVE (stage 7): the prefix the site now serves, and
     // what a reconcile compares against the pointer and `x-site-version`.
     version,
@@ -19931,6 +19976,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
     // THE STEPS INSIDE THE PUBLISH THAT USED TO RUN IN SILENCE (2026-10-19):
     // their numbers go on the trace, which the build's progress already hears.
     note: (stage, nums) => { try { mark?.(stage, nums); } catch { /* a trace must never break a build */ } },
+    // AND THE BUILD'S CLOCK for the compile repair, asked before each round
+    // (2026-10-23): a round needs one model call and one compile.
+    compileRepairRoom: () => !budget || (!budget.expired() && budget.remainingMs() >= BUILD_REPAIR_NEED_MS),
     publish: async (dist, pages, worker) => {
       bRoutes = landmarkRoutes(pages);
       // THE SITE'S EXTRA LANGUAGE PREFIXES, for the sitemap and the route
@@ -26670,7 +26718,7 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
         ...resumeHeld(claimed),
         ...resumeMedia(claimed),
         ...(rContext ? { context: rContext } : {}),
-        buildFacts: buildFacts({ images: pages && pages.images, context: rContext, unwritten: pages && pages.unwritten, salvaged: pages && pages.salvaged,
+        buildFacts: buildFacts({ images: pages && pages.images, context: rContext, unwritten: pages && pages.unwritten, salvaged: pages && pages.salvaged, compileRepaired: pages && pages.compileRepair,
           // WHAT ITS PUBLISH CHECKED (2026-10-14), only for a site that went live.
           checks: buildChecks(pages),
           // The same ordinary stop the inline answer names (the eighth batch).
@@ -29901,7 +29949,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // SAVED AS THE SITE'S DRAFT, NOT PUBLISHED (2026-10-16).
         ...(pages.draft && typeof pages.draft === "object" ? { draft: pages.draft } : {}),
         buildFacts: buildFacts({
-          images: pages.images, context: contextOut, unwritten: pages.unwritten, salvaged: pages.salvaged,
+          images: pages.images, context: contextOut, unwritten: pages.unwritten, salvaged: pages.salvaged, compileRepaired: pages.compileRepair,
           checks: buildChecks(pages),
           // THE CUSTOMER'S ATTACHED LOGO (#168), told by the reply writer.
           ownLogo,
@@ -35989,6 +36037,9 @@ async function handleRequest(request, env, ctx) {
               // gate. A rung that stored nothing new to translate costs nothing
               // more.
               pendingPublish = { ...args, pages: eSrc, renamed: Object.keys(renamed).length ? renamed : null, parts, models: modelsFor(eb && eb.picker), charge: (usage) => eCharge({ langUsage: usage }), charges: eCharges };
+              // THE PAGES THIS MESSAGE WROTE, for the seam's compile repair (2026-10-23):
+              // only these may be repaired; its spend goes on the edit's own bill.
+              pendingPublish.touched = writtenPaths(eSrcAt0, eSrc); pendingPublish.chargeRepair = (usage) => eCharge(...usage);
               // A DEFERRED PUBLISH REPORTS SUCCESS, because from the branch's
               // point of view its work IS done — it has stored what it changed
               // and handed over the pages. `files` and `render` are absent until
@@ -41445,6 +41496,8 @@ async function handleRequest(request, env, ctx) {
               // body would report `undefined` on every multi-rung message —
               // the works-but-cannot-say-so shape, arriving through the fix.
               files: finalPub ? finalPub.files : (last && last.body.files),
+              // A PAGE THE SEAM'S COMPILE REPAIR FIXED (2026-10-23), a fact for the reply.
+              compileRepaired: finalPub && finalPub.compileRepaired ? finalPub.compileRepaired : undefined,
               render: finalPub ? finalPub.render : (last && last.body.render),
               // A TRANSLATED WORDING STORED AS THE OWNER'S OWN (#196) is said beside it.
               renderNote: [...ranOk.map((d) => d.body.langNote), finalPub ? finalPub.renderNote : (last && last.body.renderNote)].filter((x) => typeof x === "string" && x).join(" ") || undefined,
@@ -41462,7 +41515,9 @@ async function handleRequest(request, env, ctx) {
               // …PLUS WHAT THE ONE PUBLISH CHARGED FOR ITS TRANSLATIONS (run 39):
               // placed inside the spine after every step had billed, so no
               // step's `cost` can carry it and the sum alone under-reports.
-              cost: done.reduce((n, d) => n + (Number(d.body && d.body.cost) || 0), 0) + (finalPub ? Number(finalPub.langCharged) || 0 : 0),
+              cost: done.reduce((n, d) => n + (Number(d.body && d.body.cost) || 0), 0) + (finalPub ? Number(finalPub.langCharged) || 0 : 0)
+                // AND WHAT THE SEAM'S COMPILE REPAIR CHARGED (2026-10-23), only when it fixed the build.
+                + (finalPub && finalPub.compileRepaired ? Number(finalPub.compileRepaired.charged) || 0 : 0),
               // WHAT WAS BILLED, from the one list `eCharge` appends to — so the
               // receipt is assembled from what was charged rather than rebuilt
               // beside it. Two lists of the same thing drift, and the drift here
@@ -46478,8 +46533,8 @@ async function handleRequest(request, env, ctx) {
               const aClock = job && job.budget && typeof job.budget.canRepair === "function" ? job.budget : null;
               const room = !aClock || aClock.canRepair(aRepairNeedMs);
               aMark("compile-repair", "start", { room, touched: aTouched.length });
-              aCompileRepair = await compileRepairRound({
-                error, pages, touched: aTouched, room,
+              aCompileRepair = await compileRepairRounds({
+                error, pages, touched: aTouched, room: () => !aClock || aClock.canRepair(aRepairNeedMs),
                 send: quickSend(env, "repair", repairClock(aClock)), model: aModels.quick, compile: recompile,
               });
               aMark("compile-repair", aCompileRepair.ran ? (aCompileRepair.built ? "ok" : "fail") : "skip",
@@ -47330,6 +47385,8 @@ async function handleRequest(request, env, ctx) {
               // hold, each ending "published as it is". A fix that held says
               // nothing, the add step's own rule.
               files: aPub.files, render: aPub.render,
+              // A PAGE THE COMPILE REPAIR FIXED (2026-10-23), a fact for the reply.
+              compileRepaired: aCompileRepair && aCompileRepair.built ? { pages: aCompileRepair.repaired.slice(), rounds: aCompileRepair.rounds } : undefined,
               renderNote: [aPub.renderNote, addRepairNote(aRepairRound)].filter(Boolean).join(" ") || undefined,
               checks: aPub.checks, draft: aPub.draft,
               // WHAT THE ROUND DID, for a reader that judges rather than reads:

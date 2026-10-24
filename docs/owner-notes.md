@@ -1,5 +1,15 @@
 # Owner Notes
 
+## 2026-10-23, late night — every path that writes code now repairs a page that didn't compile (branch `compile-repair-all`, not merged, not deployed)
+
+- **What changed.** Before, only add-ons got a model repair when a page didn't compile. Now every path does: first builds (and revises), the edit page rung, the quick writers, the frame edit, logo, menu, "Back online" and anything else that publishes. The repair sits in the one place everything publishes through, so a new path can't miss it; a test lists every publish call and fails if one is left out.
+- **How it works.** When the compiler fails on the code itself (not a killed container, a timeout or no room), the writer is shown the compiler's message and only the pages this change wrote, and the page is compiled again. **Up to two tries**, each with the newest error, each only if the job still has time. If it still fails, what happened before happens: a build shows the stand-in page, an edit is refused with nothing changed.
+- **Money.** Charged only when it fixed the build. On a build it goes into the pages charge (the same single bill, one rounding); on an edit, on the edit's own bill; on an add-on, as before. A repair that didn't work costs nothing.
+- **First builds.** The build's repair (from 2026-10-22) was switched off; it is now on by default. `BUILD_REPAIR=off` turns it off.
+- **What the customer hears.** Only as a fact: "the first version of … didn't compile; it was corrected automatically."
+- **Limits.** A component (`-parts/`) that fails is not rewritten by the repair: on a build it still becomes a blank section as before; on an edit only the pages the change wrote are offered.
+- Nothing spent, no model called. Record: `docs/history/2026-10-23-compile-repair-all.md`.
+
 ## 2026-10-23, late — deploy 2265: the evening batch is live (confirmed by your canary press, run 40039829521)
 
 - New builds: the AI writes every component plus the header and footer; at most 6 sections per page; the reply says what wasn't built and that no database was made.
