@@ -2040,3 +2040,18 @@ export async function writeProgress(deps, { facts, context = "", model, deadline
   }
   return { ok: false, why, usage, attempts };
 }
+
+/**
+ * A CHANGE SALVAGED FILE BY FILE (2026-10-24, "use it everywhere"): which
+ * file was kept as it was and which new part stands in, so the narration says
+ * it the way the reply will. Facts, never a sentence for the customer.
+ */
+export function salvageFacts(s) {
+  const v = s && typeof s === "object" ? s : {};
+  const nm = (x) => (Array.isArray(x) ? x : []).filter((f) => typeof f === "string" && f).map((f) => flat(f.replace(/^-parts\//, "").replace(/\.tsx?$/i, "")));
+  const kept = nm(v.kept), stand = nm(v.standIn);
+  const out = [];
+  if (kept.length) out.push(fact("decided", "Part of the change to " + kept.join(", ") + " would not compile, so that file was kept as it was."));
+  if (stand.length) out.push(fact("decided", "The new " + stand.join(", ") + " would not compile, so an empty stand-in holds its place."));
+  return out;
+}

@@ -281,7 +281,7 @@ import {
   PROGRESS_CALL_MS, PROGRESS_TRIES, PROGRESS_RETRY_MS, PROGRESS_LINES_PER_TASK, PROGRESS_DISCOVERY_MS, PROGRESS_SEND_WAITS_MS,
   // THE BUILDER TALKS WHILE IT WORKS (2026-10-13), behind `PROGRESS_TALK`.
   talkOn, startFacts, spineCheckFacts, publishedFacts, talkBuildStepFacts, waitedFor, PROGRESS_SETTLE_S,
-  addressFacts, actionFacts, actionContext, ACTION_KINDS, designPartFacts, designStartFacts, stillFacts, sectionStartFacts, sectionDoneFacts, writingNowFacts, compileStageFacts,
+  addressFacts, actionFacts, actionContext, ACTION_KINDS, designPartFacts, designStartFacts, stillFacts, sectionStartFacts, sectionDoneFacts, writingNowFacts, compileStageFacts, salvageFacts,
 } from "./builder/site-progress.mjs";
 // ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03): the record,
 // the plan, what a job's answer means for its part, and the next job.
@@ -318,6 +318,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 import { addedByRoute, publishedTexts, componentEvidence } from "./builder/content-evidence.mjs";
 import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, frameToMissing, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, qrShownSources, qrDestinationCheck, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 import { compileRepairRound, compileRepairRounds, writtenPaths, withParts, splitParts } from "./builder/compile-repair.mjs";
+import { salvageRound, anythingLanded, MAX_SALVAGE_ROUNDS } from "./builder/change-salvage.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig, writesSchema as partWritesSchema } from "./builder/request-plan.mjs";
@@ -18428,6 +18429,53 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       tm("compile-repair", "fail");
     }
   }
+  // ── THE STAND-IN ON EVERY PATH (owner, 2026-10-24: "use it everywhere") ──
+  //
+  // A change that still fails on its CODE after repair is salvaged file by
+  // file (builder/change-salvage.mjs): a file the site already had and the
+  // change broke goes back to its stored version (`kept`), a file the change
+  // added stands in (`standIn`), and the rest is published. Only a failure of
+  // the code: a killed container, a timeout or no room never judged it. No
+  // model call, so nothing is charged; a change with nothing left that landed
+  // is refused as before, and so is one that still does not compile.
+  let salvaged = null;
+  if ((!built || built.ok !== true || !built.files) && !killed && !(built && built.timedOut) && !(built && built.room)
+      && !renamed && Array.isArray(pages)) {
+    let stored = null;
+    try {
+      const [sp, sq] = await Promise.all([readSiteSource(env, slug), readSiteParts(env, slug)]);
+      if (sp && sp.ok && sq && sq.ok) stored = { pages: sp.pages, parts: sq.parts };
+    } catch (e) { console.error("salvage read failed:", slug, e && e.message); }
+    if (!stored) tm("salvage", "skip", { why: "no-stored" });
+    else {
+      const sPagesBefore = pages, sPartsBefore = siteParts;
+      let sPages = pages, sParts = Array.isArray(siteParts) ? siteParts : [];
+      const kept = [], standIn = [], done = new Set();
+      let sBuilt = built;
+      for (let round = 0; round < MAX_SALVAGE_ROUNDS; round++) {
+        const r = salvageRound({ error: String((sBuilt && sBuilt.error) || ""), pages: sPages, parts: sParts, storedPages: stored.pages, storedParts: stored.parts, done });
+        if (!r.moved) break;
+        sPages = r.pages; sParts = r.parts; kept.push(...r.kept); standIn.push(...r.standIn);
+        if (!anythingLanded({ pages: sPages, parts: sParts, storedPages: stored.pages, storedParts: stored.parts, kept, standIn })) { sBuilt = null; break; }
+        tm("salvage", "round", { kept: r.kept.length, standIn: r.standIn.length });
+        siteParts = Array.isArray(siteParts) || sParts.length ? sParts : siteParts;
+        files = filesFor(sPages);
+        sBuilt = await compile();
+        if (sBuilt && sBuilt.ok === true && sBuilt.files) break;
+        if (!sBuilt || sBuilt.timedOut || sBuilt.room || wasKilled(sBuilt.error)) break;
+      }
+      if (sBuilt && sBuilt.ok === true && sBuilt.files && (kept.length || standIn.length)) {
+        built = sBuilt; pages = sPages;
+        partsRepaired = partsRepaired || (Array.isArray(sPartsBefore) && sParts.some((p, i) => p !== sPartsBefore[i])) || (!Array.isArray(sPartsBefore) && sParts.length > 0);
+        salvaged = { kept, standIn };
+        tm("salvaged", "ok", { kept, standIn });
+        try { if (job && job.progress && job.progress.talk) job.progress.mark("salvaged", salvageFacts(salvaged)); } catch { /* the record never costs the build */ }
+      } else {
+        pages = sPagesBefore; siteParts = sPartsBefore; files = filesFor(pages);
+        tm("salvage", "fail", { kept: kept.length, standIn: standIn.length });
+      }
+    }
+  }
   if (!built || built.ok !== true || !built.files) {
     // AND IT SAYS WHOSE FAULT IT WAS. `killed` is the difference between "your
     // change has an error in it" and "our container went away twice" — and the
@@ -18928,6 +18976,9 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   return { ok: true, files: wrote, look, render, renderNote: [renderNote(built.render), langNote(langOutcomes, langsRefused), staleNote(langStale)].filter(Boolean).join(" ") || undefined,
     // A COMPILE THE SEAM'S REPAIR FIXED (2026-10-23), a fact for the reply;
     // absent otherwise, so an ordinary publish's answer is unchanged.
+    // WHAT THE STAND-IN SALVAGE DID (2026-10-24): files kept as they were and
+    // new files standing in, facts for the reply; absent otherwise.
+    ...(salvaged ? { salvaged: { kept: salvaged.kept.slice(), standIn: salvaged.standIn.slice() } } : {}),
     ...(seamRepair && seamRepair.built ? { compileRepaired: { pages: seamRepair.repaired.slice(), rounds: seamRepair.rounds, charged: Number(seamRepair.charged) || 0 } } : {}),
     // WHICH VERSION WENT LIVE (stage 7): the prefix the site now serves, and
     // what a reconcile compares against the pointer and `x-site-version`.
@@ -41685,6 +41736,8 @@ async function handleRequest(request, env, ctx) {
               files: finalPub ? finalPub.files : (last && last.body.files),
               // A PAGE THE SEAM'S COMPILE REPAIR FIXED (2026-10-23), a fact for the reply.
               compileRepaired: finalPub && finalPub.compileRepaired ? finalPub.compileRepaired : undefined,
+              // FILES KEPT AS THEY WERE AND NEW ONES STANDING IN (2026-10-24).
+              salvaged: finalPub && finalPub.salvaged ? finalPub.salvaged : undefined,
               render: finalPub ? finalPub.render : (last && last.body.render),
               // A TRANSLATED WORDING STORED AS THE OWNER'S OWN (#196) is said beside it.
               renderNote: [...ranOk.map((d) => d.body.langNote), finalPub ? finalPub.renderNote : (last && last.body.renderNote)].filter((x) => typeof x === "string" && x).join(" ") || undefined,
@@ -47586,6 +47639,8 @@ async function handleRequest(request, env, ctx) {
               files: aPub.files, render: aPub.render,
               // A PAGE THE COMPILE REPAIR FIXED (2026-10-23), a fact for the reply.
               compileRepaired: aCompileRepair && aCompileRepair.built ? { pages: aCompileRepair.repaired.slice(), rounds: aCompileRepair.rounds } : undefined,
+              // FILES KEPT AS THEY WERE AND NEW ONES STANDING IN (2026-10-24).
+              salvaged: aPub.salvaged || undefined,
               renderNote: [aPub.renderNote, addRepairNote(aRepairRound)].filter(Boolean).join(" ") || undefined,
               checks: aPub.checks, draft: aPub.draft,
               // WHAT THE ROUND DID, for a reader that judges rather than reads:

@@ -1,5 +1,14 @@
 # Owner Notes
 
+## 2026-10-24 — when an edit or add-on still won't compile, only the broken file is left out (branch `standin-everywhere`, not merged, not deployed)
+
+- **Why**: you asked for the stand-in "everywhere". First builds already left a broken band out and built the rest. Edits and add-ons still refused the whole change when the automatic repair failed.
+- **Now, file by file**: a file your site already had that the change broke goes back to its last good version (that one file's change is not made). A new file the change added (a new page, band or component) becomes an empty stand-in. A new page keeps your header and footer around an empty middle, so its address and links still work. Everything else in the change is published.
+- **Never broken code**: if it still won't compile after that, the change is refused as before. If nothing of the change is left, it is refused too.
+- The reply and the progress lines are told which file was kept as it was and which new part is a stand-in, so the customer knows to ask again (written by the model from those facts).
+- **Money**: leaving files out calls no model and costs nothing, and a repair that didn't fix is still free. **Open for you**: the writing itself is still charged as before, even for a file that ended up kept or standing in (no per-file refund yet).
+- Tests: 8 new cases through the real edit and add-on routes with a stub compiler; 4 fail on `repair-everywhere`. Sweep 18 of 19 caught (the one left changes nothing observable), comment-only control survived. Record: `docs/history/2026-10-24-standin-everywhere.md`.
+
 ## 2026-10-24 — compile repair now reaches every file and every compile path (branch `repair-everywhere`, not merged, not deployed)
 
 - **Why**: `driftwood-and-daughters-2` fell to the placeholder at 03:19. One band (`band-1-bleed`) imported the kit's picture component the wrong way. The repair only looked at pages, so it never ran on the band, and salvage refused because the home page uses that band.

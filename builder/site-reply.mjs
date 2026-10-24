@@ -1172,6 +1172,7 @@ export function editReplyFacts(e, { routedCost = null, inRequest = false } = {})
     }
   }
   if (e.ok === true) compileRepairFact(F, e.compileRepaired);
+  if (e.ok === true) salvageFact(F, e.salvaged);
   if (e.ok === true) heldDraftFact(F, e);
   heldFacts(F, e, e.ok === true, inRequest === true);
   questionFact(F, e.clarify);
@@ -1187,6 +1188,19 @@ export function compileRepairFact(F, cr) {
   const pg = (Array.isArray(cr.pages) ? cr.pages : []).filter((x) => typeof x === "string" && x).map((x) => quote(x.replace(/\.tsx$/i, "")));
   if (!pg.length) return;
   F.add("note", "The first version of " + listOf(pg) + " did not compile; it was corrected automatically" + (cr.rounds === 2 ? " on a second try" : "") + ", and the corrected version is what was saved.");
+}
+
+/**
+ * A CHANGE SALVAGED FILE BY FILE (2026-10-24): a file the site had, kept as
+ * it was because the change to it would not compile, and a new part standing
+ * in, empty. Facts for the reply writer, so the customer knows to ask again.
+ */
+export function salvageFact(F, s) {
+  if (!s || typeof s !== "object") return;
+  const nm = (x) => (Array.isArray(x) ? x : []).filter((f) => typeof f === "string" && f).map((f) => quote(f.replace(/^-parts\//, "").replace(/\.tsx?$/i, "")));
+  const kept = nm(s.kept), stand = nm(s.standIn);
+  if (kept.length) F.add("not-done", "The change to " + listOf(kept) + " would not compile even after an automatic correction, so " + (kept.length > 1 ? "those files were" : "that file was") + " kept exactly as it was; the rest of the change was saved. They can ask for that part again.");
+  if (stand.length) F.add("not-done", "The new " + listOf(stand) + " would not compile even after an automatic correction, so an empty stand-in holds " + (stand.length > 1 ? "their places" : "its place") + " (the page still opens, with nothing in it yet); the rest of the change was saved. They can ask for it again.");
 }
 
 /** An interval in minutes as a customer reads it: "every 15 minutes", "every day". */
@@ -1421,6 +1435,7 @@ export function addonReplyFacts(a, { routedCost = null, inRequest = false } = {}
     if (routedCost !== null && num(routedCost) > 0) F.add("money", "Reading their message cost " + count(num(routedCost), "credit") + ".");
   }
   if (a.ok === true) compileRepairFact(F, a.compileRepaired);
+  if (a.ok === true) salvageFact(F, a.salvaged);
   if (a.ok === true) heldDraftFact(F, a);
   heldFacts(F, a, a.ok === true, inRequest === true);
   questionFact(F, a.clarify);
