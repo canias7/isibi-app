@@ -519,15 +519,43 @@ export function inferNeeds(parts) {
     const { reads } = effectiveTargets(me);
     if (!reads.length) continue;
     for (const it of parts) {
-      if (!it || it.n === me.n || it.status === "refused" || me.needs.includes(it.n)) continue;
+      if (!it || it.n === me.n || it.status === "refused") continue;
       const made = effectiveTargets(it).writes.filter((w) => Object.hasOwn(MADE_AS, w.slice(0, w.indexOf(":"))));
-      if (!made.some((w) => reads.some((r) => r !== SITE && thingOf(r) === thingOf(w)))) continue;
+      const used = made.filter((w) => reads.some((r) => r !== SITE && thingOf(r) === thingOf(w)));
+      if (!used.length) continue;
+      // A NEED THE MODEL ALREADY SAID gets its things named too, never a second entry.
+      if (me.needs.includes(it.n)) { needOn(me, it.n, used.map(thingOf)); continue; }
       if (reaches(it.n, me.n)) continue;
       me.needs.push(it.n);
+      // WHAT IT NEEDS FROM IT, by name (2026-10-24, request-needs): the things
+      // it reads that the other part creates, so the gate asks whether those
+      // exist, never how the other part ended overall.
+      needOn(me, it.n, used.map(thingOf));
       added.push([me.n, it.n]);
     }
   }
   return added;
+}
+
+/**
+ * WHAT A PART NEEDS FROM ANOTHER, BY NAME (2026-10-24, request-needs):
+ * `part.needOn[m]` lists the things (`page:/lessons`, `data:lessons`) it reads
+ * that part `m` creates. A need with no entry was said by the router only
+ * (`dependsOn`) and names nothing concrete.
+ */
+export function needOn(part, m, things) {
+  if (!part || !Number.isInteger(m)) return;
+  const cur = part.needOn && typeof part.needOn === "object" && !Array.isArray(part.needOn) ? part.needOn : {};
+  const list = Array.isArray(cur[m]) ? cur[m].slice() : [];
+  for (const t of things || []) if (typeof t === "string" && t && !list.includes(t)) list.push(t);
+  cur[m] = list;
+  part.needOn = cur;
+}
+
+/** The concrete things part `me` needs from part `m`: `[]` when the need names none. */
+export function neededFrom(me, m) {
+  const v = me && me.needOn && typeof me.needOn === "object" && !Array.isArray(me.needOn) ? me.needOn[m] : null;
+  return Array.isArray(v) ? v.filter((t) => typeof t === "string" && t) : [];
 }
 
 /**

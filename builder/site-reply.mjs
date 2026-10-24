@@ -1803,7 +1803,12 @@ export function requestReplyFacts(v) {
         (own(p) ? " Its own reply above says what was made and what was not." : ""), item);
     } else if (p.status === "not-run") {
       const before = parts.find((x) => x.n === neededOf(p));
-      F.add("not-done", "Not started: " + w + ", because it needed " + named(neededOf(p)) + " done first, and " +
+      // THE THING IT NEEDED THAT WAS NOT MADE, BY NAME (2026-10-24, request-needs).
+      const miss = Array.isArray(p.missing) ? p.missing.filter((t) => typeof t === "string" && /^(page|data):/.test(t)) : [];
+      const thing = (t) => (t.startsWith("page:") ? "the page " + quote(t.slice(5)) : "the table " + quote(t.slice(5)));
+      F.add("not-done", miss.length
+        ? "Not started: " + w + ", because it uses " + listOf(miss.map(thing)) + ", which " + named(neededOf(p)) + " was to make, and " + (miss.length === 1 ? "it was" : "they were") + " not made." + paid(p)
+        : "Not started: " + w + ", because it needed " + named(neededOf(p)) + " done first, and " +
         (before && before.status === "partial" ? "that was only partly done." : "that did not finish.") + paid(p), item);
     } else if (p.status === "cancelled" && Object.hasOwn(LEFT_SAID, p.left)) {
       // STOPPED AFTER SOMETHING OF IT WENT IN (2026-10-07, `leftOf`): never "before it changed anything".
