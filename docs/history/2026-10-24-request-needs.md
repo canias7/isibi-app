@@ -89,4 +89,16 @@ add-on steps already refuse honestly what they cannot do).
 
 ## 5. Suite and image
 
-Recorded in the commit that follows the run (numbers stamped only after it).
+- Full unit suite on `b2b53dcea` from a clean world-readable worktree
+  (`node_modules` linked): `12487 / 12478 / 6 / 3`. One failure was this
+  change's: `requirement-recovery` RC 7 pinned the old rule (a router-only need
+  on a part that ended partial held the dependent); updated in the next commit
+  (the "waits while recovering" half unchanged), and it passes. The other five
+  are environment-only and pass alone or are the known ones: the
+  no-generated-deps symlink case, the media browser mode, `canary-reopen`'s
+  browser case, `purchase-recovery-card` RC 15 and `written-frame-edit`'s
+  first-build case under load (the last two pass on their own).
+- Image prediction, main `692087cde` → head: SiteBuildContainer
+  `0bae00a7003bcc23` → `8213cd521ea8e999` (231 inputs; `request.mjs`,
+  `request-plan.mjs`, `site-ask.mjs`, `site-reply.mjs` are inputs) — a
+  rebuild; AppBuildContainer `65022ce71e3d7274` unchanged (9 inputs).
