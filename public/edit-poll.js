@@ -935,6 +935,9 @@
     if (held !== undefined) out.alsoAsked = held;
     if (typeof from.cost === "number" && isFinite(from.cost)) out.cost = from.cost;
     if (t.fromAddon === true || from.fromAddon === true) out.fromAddon = true;
+    // WHICH SCREEN SIZES (2026-10-24): the customer's words did not change on
+    // the hop, so neither does the scope the router read from them.
+    if (Array.isArray(from.devices) && from.devices.length) out.devices = from.devices.slice(0, 3);
     // A REQUEST RESUMED FROM A QUESTION (2026-10-02) keeps its two facts on
     // every hop: the parts it put off BEFORE the question (`putOff`, not in its
     // message, so never taken out or run — the reply's own list when it names

@@ -10972,6 +10972,9 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // provider in the seat, and a dead one sends every customer to the fallback
     // intent: a build on an empty project, an add-on on a live site.
     body: JSON.stringify({ message: t, site: digest, picker: buildPicker, ...(typeof sendEffort === 'function' ? sendEffort() : null), firstBuild: !!isBuild, brief: brief, qa: qa, answering: !!answering, picked: !!picked, attached: !!((imgs && imgs.length) || keptImgs.length), slug: site.slug || '', hasSite: !!(site.slug && sitePages(site).length),
+      // THE PREVIEW'S DEVICE (2026-10-24, per-device edits): a hint for the
+      // router; the customer's words decide which screens a change is for.
+      device: typeof siteDevice === 'string' ? siteDevice : undefined,
       // ── THE CONVERSATION SO FAR, AND THE FILES BY NAME (2026-10-14) ───────
       // This project's own thread, never another's, without the message being
       // sent; the server windows it and says what it left out. The files go by
@@ -12829,6 +12832,9 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
       // tab. A real boolean like `remove`, so nothing merely truthy on the wire
       // can send a wide wordmark to a 16-pixel tab and leave the header bare.
       tab: d.tab === true,
+      // WHICH SCREEN SIZES THE CHANGE IS FOR (2026-10-24): the router's answer,
+      // posted on as it came; absent means every screen.
+      devices: Array.isArray(d.devices) && d.devices.length ? d.devices : undefined,
       instruction: instruction,
       // THE CHAT IT CAME FROM (2026-10-24): the reply reads the next-step
       // suggestions already made there, so it does not repeat one.
@@ -13171,6 +13177,20 @@ function siteUndoKeep(s, e) {
   if (gone.length) { s.undoRows = gone.slice(0, 3); s.undoAt = Date.now(); }
   else if (rows.some((r) => r && r.id === undefined)) { s.undoRows = null; s.undoAt = Date.now(); }
 }
+// THE PREVIEW SWITCHES TO A DEVICE A SCOPED CHANGE WAS FOR (2026-10-24,
+// per-device edits): one it changed, else the first it was for, from the
+// publish's own facts. A change for every screen leaves the preview alone.
+function siteDeviceShow(d) {
+  const asked = d && Array.isArray(d.asked) ? d.asked.filter((x) => x === 'phone' || x === 'tablet' || x === 'desktop') : [];
+  if (!asked.length || asked.length === 3) return;
+  const changed = Array.isArray(d.changed) ? d.changed.filter((x) => asked.indexOf(x) >= 0) : [];
+  const want = (changed.indexOf(siteDevice) >= 0 || (!changed.length && asked.indexOf(siteDevice) >= 0)) ? siteDevice : (changed[0] || asked[0]);
+  siteDevice = want;
+  const st = document.getElementById('stStage');
+  if (st) st.setAttribute('data-dev', siteDevice);
+  document.querySelectorAll('.st-dev').forEach((x) => x.classList.toggle('on', x.dataset.dev === siteDevice));
+}
+
 function applyEditResult(e, o) {
   // ⚠ A SUCCESS THIS PAGE THEN FAILS TO SHOW IS STILL A SUCCESS (2026-09-24) —
   // `applyAddonResult`'s rule, for the edit. Owner, injecting a throw into the
@@ -13199,6 +13219,8 @@ function applyEditResult(e, o) {
     if (s) {
       // ONE MOVE FOR WORK THAT FINISHES TOGETHER (2026-10-07, `sitePreviewMove`).
       sitePreviewMove(s);
+      // A CHANGE FOR SOME SCREENS IS SHOWN ON ONE OF THEM (2026-10-24).
+      if (typeof siteDeviceShow === 'function') siteDeviceShow(e.devices);
       // REMEMBER WHAT WENT, so the next message can undo it (`siteUndoKeep`).
       // A DELETED PAGE LEAVES THE PICKER, exactly as it does on the addon lane.
       // Told it is gone and still offered it is the same lie either way.

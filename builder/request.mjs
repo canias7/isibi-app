@@ -378,6 +378,8 @@ function routeOf(r) {
     layer: intent === "edit" && typeof r.layer === "string" ? r.layer : "",
     page: typeof r.page === "string" ? r.page : "",
     remove: r.remove === true, rename: typeof r.rename === "string" ? r.rename : "", tab: r.tab === true,
+    // WHICH SCREEN SIZES (2026-10-24): the router's proper subset, or none (all three).
+    ...(Array.isArray(r.devices) && r.devices.length ? { devices: r.devices.slice(0, 3) } : {}),
     handOver: plain(r.handOver) ? r.handOver : null,
     cost: Number.isInteger(r.cost) && r.cost >= 0 ? r.cost : null,
     handedOff: false, fromAddon: false,
@@ -819,6 +821,8 @@ function handedRoute(from, to, read) {
   return {
     op: to.op, intent: to.op, layer: to.op === "edit" ? to.layer : "",
     page, remove: false, rename: "", tab: false,
+    // WHICH SCREEN SIZES (2026-10-24): the words did not change on the hop.
+    ...(to.op === "edit" && Array.isArray(from.devices) && from.devices.length ? { devices: from.devices } : {}),
     handOver: handOverOf(from, read, page),
     cost: from.cost, handedOff: to.handedOff === true, fromAddon: to.fromAddon === true,
     hops: (from.hops || 0) + 1,
@@ -2286,6 +2290,7 @@ export function jobBody(rec, n, kind, key, { files = [] } = {}) {
       remove: d.remove === true,
       rename: typeof d.rename === "string" ? d.rename : "",
       tab: d.tab === true,
+      devices: Array.isArray(d.devices) && d.devices.length ? d.devices : undefined,
       instruction: runs,
       alsoAsked: heldWire(held),
       addition: d.fromAddon === true ? true : undefined,

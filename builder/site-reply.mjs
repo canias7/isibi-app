@@ -1048,6 +1048,22 @@ function recoveredFacts(x) {
  * queued job's stored one. `skip` says why no reply is written: an answer that
  * is not an ending, or a failure of ours that keeps its fixed sentence.
  */
+/**
+ * WHICH SCREEN SIZES A SCOPED CHANGE WAS FOR (2026-10-24, per-device edits),
+ * as the publish measured them: `{ asked, changed }`. Nothing for a change
+ * made for every screen, which is the default and says nothing new.
+ */
+export function deviceFacts(F, d) {
+  const known = ["phone", "tablet", "desktop"];
+  const asked = d && Array.isArray(d.asked) ? known.filter((x) => d.asked.includes(x)) : [];
+  if (!asked.length || asked.length === known.length) return;
+  const changed = Array.isArray(d.changed) ? known.filter((x) => d.changed.includes(x)) : [];
+  const others = known.filter((x) => !asked.includes(x));
+  F.add("note", "This change was for the " + listOf(asked) + " view only. The " + listOf(others) + (others.length > 1 ? " views were" : " view was") + " measured before and after and " + (others.length > 1 ? "are" : "is") + " unchanged.", "devices");
+  const still = asked.filter((x) => !changed.includes(x));
+  if (still.length) F.add("note", "Measured at the " + listOf(still) + " width, the page looks the same as before.", "devices-same");
+}
+
 export function editReplyFacts(e, { routedCost = null, inRequest = false } = {}) {
   if (!e || typeof e !== "object" || Array.isArray(e)) return { skip: "unreadable", facts: [] };
   if (e.escalate === true) return { skip: "escalate", facts: [] };
@@ -1150,6 +1166,7 @@ export function editReplyFacts(e, { routedCost = null, inRequest = false } = {})
     }
     outcomeFacts(F, e);
     langFacts(F, e);
+    deviceFacts(F, e.devices);
   } else if (refusalFacts(F, e.refusal)) {
     refusalMoney(F, e, routedCost);
   } else {

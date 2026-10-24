@@ -55,6 +55,8 @@ import { summaryBlock } from "./chat-context.mjs";// Telling a question from an 
  * and never Haiku: a forgotten hop should land on the model everything else
  * uses, not quietly back on the provider this change exists to leave.
  */
+import { DEVICES_FIELD, readDevices, deviceHintLine } from "./device-scope.mjs";
+
 export const ASK_MODEL = modelsFor().quick;
 
 /**
@@ -1216,6 +1218,8 @@ export const LIVE_ASK_TOOL = {
       dependsOn: DEPENDS_ON,
       targets: TARGETS,
       model3d: MODEL3D_FIELD,
+      // WHICH SCREEN SIZES A CHANGE IS FOR (2026-10-24, per-device edits).
+      devices: DEVICES_FIELD,
       question: {
         type: "object",
         description: "Only when intent is \"clarify\". ONE short question, written to them, naming the one detail you need.",
@@ -1436,7 +1440,7 @@ function liveBlock({ canAsk = false, pending = null, context = [], part = null }
   return waiting + (told ? "\n" + told : "") + asking;
 }
 
-export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false, model = ASK_MODEL, live = false, canAsk = false, pending = null, context = [], part = null, tablesNone = false, history = null, summary = null, answering = false, items = null } = {}) {
+export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false, model = ASK_MODEL, live = false, canAsk = false, pending = null, context = [], part = null, tablesNone = false, history = null, summary = null, answering = false, items = null, device = "" } = {}) {
   // A FIRST BUILD'S MESSAGE IS CUT TO ITS OWN BOUND, AS IT ALWAYS WAS; a site
   // that exists sends it whole (2026-10-03, the size policy): the route has
   // already refused one past `MAX_INPUT_CHARS`, so nothing here shortens what
@@ -1521,7 +1525,7 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
     // THE CONVERSATION SO FAR (2026-10-14), its small window only — enough to
     // tell "do that" from a question and to write `resolved` — before their
     // message. Absent when the page sent none.
-    messages: [{ role: "user", content: "THEIR SITE\n" + siteDigest(site, { tablesNone }) + state + round + (summaryBlock(summary) ? "\n\n" + summaryBlock(summary) : "") + (historyBlock(history) ? "\n\n" + historyBlock(history) : "") + "\n\nTHEIR MESSAGE\n" + text + (live && itemsBlock(items) ? "\n\n" + itemsBlock(items) : "") + (live && partBlock(part) ? "\n\n" + partBlock(part) : "") }],
+    messages: [{ role: "user", content: "THEIR SITE\n" + siteDigest(site, { tablesNone }) + state + round + (summaryBlock(summary) ? "\n\n" + summaryBlock(summary) : "") + (historyBlock(history) ? "\n\n" + historyBlock(history) : "") + (live && hasSite && deviceHintLine(device) ? "\n\n" + deviceHintLine(device) : "") + "\n\nTHEIR MESSAGE\n" + text + (live && itemsBlock(items) ? "\n\n" + itemsBlock(items) : "") + (live && partBlock(part) ? "\n\n" + partBlock(part) : "") }],
   };
 }
 
@@ -1560,6 +1564,7 @@ export const ROUTE_REASONS = Object.freeze({
   "send-failed": Object.freeze({ kind: "fallback", what: "the routing call failed" }),
   "no-tool-call": Object.freeze({ kind: "fallback", what: "the model's reply held no routing answer" }),
   "model3d-unread": Object.freeze({ kind: "changed", what: "a 3D model answer that could not be read was left out; the add-on step runs as before" }),
+  "devices-unread": Object.freeze({ kind: "changed", what: "a screen-size answer that could not be read was left out; the change is for every screen" }),
   "intent-unknown": Object.freeze({ kind: "fallback", what: "the answer named no intent, or one that is not among the five" }),
   "clarify-closed": Object.freeze({ kind: "fallback", what: "a question back, when no question may be asked" }),
   "clarify-unreadable": Object.freeze({ kind: "fallback", what: "a question back with no usable question" }),
@@ -1713,7 +1718,7 @@ function readResolved(input, history, mark) {
 }
 
 /** The edit's own fields, which an answer that is not an edit carries none of. */
-const EDIT_FIELDS = ["layer", "page", "remove", "rename", "tab"];
+const EDIT_FIELDS = ["layer", "page", "remove", "rename", "tab", "devices"];
 
 /**
  * The parts of the model's answer that the kept answer does not carry, each
@@ -1925,7 +1930,10 @@ function readDecision(reply, { canClarify = false, picked = false, hasSite = fal
       markLeftOut(input, ["also", "edit", "resolved"], mark);
       return out;
     }
-    const out = { ...edit, ...readAlso(input, trace), ...res() };
+    // THE DEVICES A CHANGE IS FOR (2026-10-24): a proper subset or nothing
+    // (all three, the default); a scope that cannot be read never narrows.
+    const devices = readDevices(input.devices, mark);
+    const out = { ...edit, ...(devices ? { devices } : {}), ...readAlso(input, trace), ...res() };
     markLeftOut(input, ["also", "edit", "resolved"], mark);
     return out;
   }
@@ -3212,7 +3220,7 @@ export const KEPT_TURN_CHARS = 2000;
 export const KEPT_STEP = 20;
 export const KEPT_CHARS = 40000;
 const ROUTER_LAST_REPLY = 3200;
-export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, picked = false, hasSite = false, model = ASK_MODEL, tablesFilled = false, tablesNone = false, pagesFilled = false, pagesComplete = true, canAsk: askable = false, context = [], pending = null, part = null, history = null, kept = null } = {}) {
+export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, picked = false, hasSite = false, model = ASK_MODEL, tablesFilled = false, tablesNone = false, pagesFilled = false, pagesComplete = true, canAsk: askable = false, context = [], pending = null, part = null, history = null, kept = null, device = "" } = {}) {
   const text = String(message || "").trim();
   // AN EMPTY MESSAGE NEVER REACHES THE MODEL. The composer will not send one, but
   // this is a paid call behind a public route and "the client wouldn't do that"
@@ -3306,7 +3314,7 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
     // reply's call uses, and said in the decision when shown or cut.
     if (shownHistory.turns.length) shown.push("history-shown");
     if (shownHistory.turns.length && (shownHistory.left > 0 || shownHistory.turns.some((t) => t.cut))) shown.push("history-cut");
-    request = askRequest({ items, message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, context: waiting ? told : (partOf ? (readContext(context) || []) : told), part: partOf, tablesNone: tablesNone === true, history: shownHistory.turns.length ? shownHistory : null, summary: keptSummary, answering: canClarify && answering === true && picked !== true });
+    request = askRequest({ items, message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, context: waiting ? told : (partOf ? (readContext(context) || []) : told), part: partOf, tablesNone: tablesNone === true, history: shownHistory.turns.length ? shownHistory : null, summary: keptSummary, answering: canClarify && answering === true && picked !== true, device });
   } catch (e) {
     return fail("request", e);
   }

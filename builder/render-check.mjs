@@ -56,6 +56,7 @@ const SETTLE_MS = 250;
 // real container to say so: every unit test passed and the build service died at
 // the first prerender.
 import { fileForRoute } from "./site-addon.mjs";
+import { DEVICE_BANDS, MAX_LAYOUT_ITEMS, layoutProbe, deviceOfWidth } from "./device-scope.mjs";
 export { fileForRoute };
 
 /**
@@ -409,6 +410,18 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
   // never the check.
   const shotsOut = Array.isArray(opts && opts.shots) ? opts.shots : null;
   const shotSet = new Set(shotsOut ? shotRoutes(list) : []);
+  // ── THE LAYOUT AT EACH DEVICE (2026-10-24, per-device edits) ──────────────
+  // Asked for, never defaulted, like the shots: `opts.layout` is an array the
+  // caller owns. Phone and desktop are read on the pages this check already
+  // opened, before anything is clicked; the tablet width is one more visit
+  // per route after them, inside the same budget (`device-scope.mjs`).
+  const layoutOut = Array.isArray(opts && opts.layout) ? opts.layout : null;
+  const takeLayout = async (page, route, device) => {
+    try {
+      const l = await page.evaluate(layoutProbe, MAX_LAYOUT_ITEMS);
+      if (l && typeof l.digest === "string") layoutOut.push({ route, device, n: Number(l.n) || 0, digest: l.digest });
+    } catch { /* a fingerprint not taken is unknown to the guard, never equal */ }
+  };
   const sandboxed = chromiumSandboxed();
   if (!list.length) return renderReport([], { ok: false, error: "no routes to look at", sandboxed });
 
@@ -539,6 +552,7 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
                 if (png.length <= MAX_SHOT_BYTES) shotsOut.push({ route, viewport: vp.name, height: Number(h) || 0, png: png.toString("base64") });
               } catch { /* a screenshot is for the review; never let it cost a render report */ }
             }
+            if (layoutOut && deviceOfWidth(vp.width)) await takeLayout(page, route, deviceOfWidth(vp.width));
             if (vp.name === "phone") obs.overlays = await openOverlays(page);
             // ── THE LANDMARK MAP, DESKTOP ONLY ────────────────────────────
             //
@@ -578,6 +592,26 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
           obs.consoleErrors = consoleErrors;
           obs.runtime = runtime;
           seen.push(obs);
+          await page.close().catch(() => {});
+        }
+      } finally { await ctx.close().catch(() => {}); }
+    }
+    if (layoutOut && !cut) {
+      const t = DEVICE_BANDS.tablet;
+      const ctx = await browser.newContext({ viewport: { width: t.width, height: t.height }, deviceScaleFactor: 1 });
+      try {
+        for (const route of list) {
+          if (Date.now() > until) break;
+          const page = await ctx.newPage();
+          try {
+            const r = await page.goto(`http://127.0.0.1:${port}${route}`, { waitUntil: "load", timeout: NAV_MS });
+            if (r && r.ok()) {
+              await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+              await page.waitForTimeout(SETTLE_MS);
+              await page.evaluate(() => window.scrollTo(0, 0));
+              await takeLayout(page, route, "tablet");
+            }
+          } catch { /* unknown to the guard */ }
           await page.close().catch(() => {});
         }
       } finally { await ctx.close().catch(() => {}); }

@@ -96,7 +96,7 @@ export function dispatchOk() {
 // payloads carry `worker: true` and the container packages a script for every
 // one of them. A case that wants a build with no script says `worker: false`
 // and is then testing the shape the pipeline produces when packaging fails.
-export function installCompiler({ ok = true, error = "", render = null, worker = true, frames = null, before = null, model = null, failFirst = 0 } = {}) {
+export function installCompiler({ ok = true, error = "", render = null, layout = null, worker = true, frames = null, before = null, model = null, failFirst = 0 } = {}) {
   const calls = [];
   let builds = 0;
   COMPILER = {
@@ -169,7 +169,10 @@ export function installCompiler({ ok = true, error = "", render = null, worker =
             version: body.version || "",
           }
         : null;
-      return new Response(JSON.stringify({ ok: true, files, ...(rep ? { render: rep } : {}), ...(wk ? { worker: wk } : {}) }),
+      // THE LAYOUT AT EACH DEVICE (2026-10-24), when the case answers one and
+      // the payload asked for it, as the build service answers it beside `render`.
+      const lay = typeof layout === "function" && body.layout === true ? layout(calls.length, body) : null;
+      return new Response(JSON.stringify({ ok: true, files, ...(rep ? { render: rep } : {}), ...(Array.isArray(lay) && lay.length ? { layout: lay } : {}), ...(wk ? { worker: wk } : {}) }),
         { status: 200, headers: { "content-type": "application/json" } });
     },
   };
