@@ -355,7 +355,7 @@ test("an edit of an own-parts site writes its own parts: the request carries the
   // AND THE ROUTE HANDS IT OVER, on the page rung and the addition's writer.
   const W = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.ok(W.includes("{ ownParts: ownPartsSite(eSrc, pStoredParts) });"), "the page rung does not hand the own-parts fact over");
-  assert.ok(W.includes("{ ownParts: ownPartsSite(aSrc, aStoredParts) });"), "the addition's writer does not hand the own-parts fact over");
+  assert.ok(/\{ ownParts: ownPartsSite\(aSrc, aStoredParts\)(?:, only: [^}]+)? \}\);/.test(W), "the addition's writer does not hand the own-parts fact over");
 });
 
 // ── 3. THE SINGLE-CALL FALLBACK ───────────────────────────────────────────────

@@ -846,7 +846,7 @@ test("EDIT — AN EDIT'S MILESTONES: its plan becomes a line while its step runs
     const pub = rec.marks.find((m) => m.stage === "publish");
     assert.ok(pub, "the edit's publish was not recorded: " + JSON.stringify(rec.marks.map((m) => m.stage)));
     assert.deepEqual(pub.facts.map((f) => f.state), ["prepared", "doing"]);
-    assert.match(pub.facts[0].text, /^Made, not published yet: description/);
+    assert.match(pub.facts[0].text, /^Made: description/);
     assert.equal(rec.closed.why, "ended");
     await settle(P, r.key);
   });

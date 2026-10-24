@@ -40,6 +40,7 @@
 // customer reads — and, from the request the stub receives, exactly what the
 // picker was ASKED. It never proves which lists a real picker fills.
 import test from "node:test";
+import { tweakInput, asEdits } from "./fixtures/tweak-edits.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
@@ -167,7 +168,8 @@ async function drive({ routed, ask, answers = {}, site = null, mode = "sync" }) 
       // AN ANSWER MAY BE A FUNCTION OF THE REQUEST, for a writer that must act
       // only on the file and the words it was really handed.
       if (Object.hasOwn(answers, tool)) {
-        const input = typeof answers[tool] === "function" ? answers[tool](args) : answers[tool];
+        const raw = typeof answers[tool] === "function" ? answers[tool](args) : answers[tool];
+        const input = tool === "write_tweak" ? tweakInput(raw, args) : raw;
         return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input }], usage: { input_tokens: 2000, output_tokens: 400 } });
       }
       return new Response("no stub for tool " + tool, { status: 503 });

@@ -29,6 +29,7 @@
 // read off the page source the platform stored, its not-found an HTML document
 // with a 404 status, a missing file a plain 404, every answer stamped.
 import test from "node:test";
+import { tweakInput, asEdits } from "./fixtures/tweak-edits.mjs";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
@@ -193,7 +194,7 @@ function platform(slug, seen) {
         const at = content.indexOf("\n\nTHE FILE (");
         const rest = content.slice(at + "\n\nTHE FILE (".length);
         const src = rest.slice(rest.indexOf(")\n") + 2);
-        return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: { source: swapHome(src) } }], usage: { input_tokens: 1000, output_tokens: 500 } });
+        return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: asEdits({ source: swapHome(src) }, src) }], usage: { input_tokens: 1000, output_tokens: 500 } });
       }
       return new Response("no stub for tool " + tool, { status: 503 });
     }

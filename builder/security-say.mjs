@@ -13,6 +13,8 @@
  * explain every one and list the ids it explained.
  */
 
+import { PROGRESS_VOICE } from "./site-progress.mjs";
+
 function list() {
   const out = [];
   const n = {};
@@ -94,4 +96,21 @@ export function securityReportFacts(report) {
   const cost = Number(report.cost);
   if (Number.isFinite(cost) && cost > 0) F.add("money", "The check used " + plural(cost, "credit", "credits") + ".");
   return F.out;
+}
+
+/**
+ * THE RULE EVERY LINE SHOWN WHILE THE SCAN RUNS IS WRITTEN UNDER (2026-10-23,
+ * the owner's voice for progress talk, `PROGRESS_VOICE`): one short line, a
+ * professional speaking to a client, first person without "I" as the opener,
+ * something new each time, nothing repeated from the lines before.
+ */
+export const SCAN_LINE_RULE =
+  "WRITE ONE SHORT LINE, UNDER 120 CHARACTERS, SHOWN WHILE THE CHECK RUNS.\n" +
+  "Each line is one of a series the customer reads as the check goes on: say only this step's news, and never repeat a tail such as how long it takes or that nothing on the site changes.\n\n" +
+  PROGRESS_VOICE;
+
+/** The rule for one scan line, with the lines already shown so the next says only what is new. */
+export function scanLineRule(earlier = []) {
+  const said = (Array.isArray(earlier) ? earlier : []).filter((l) => typeof l === "string" && l.trim()).map((l) => "- " + l.replace(/\s+/g, " ").trim());
+  return SCAN_LINE_RULE + (said.length ? "\nTHE LINES ALREADY SHOWN, IN ORDER (never repeat them):\n" + said.join("\n") : "");
 }

@@ -12,6 +12,7 @@
 // nothing of it was written before its job (rows, pages, the stored look);
 // each job charged once, one publish per task that publishes.
 import test from "node:test";
+import { tweakInput, asEdits } from "./fixtures/tweak-edits.mjs";
 import assert from "node:assert/strict";
 import { platform, sendMessage, deliver, settle, T } from "./fixtures/request-flow.mjs";
 import { blockNetwork, unexpected } from "./fixtures/no-network.mjs";
@@ -359,7 +360,7 @@ test("PATH page tweak — the Visit page's heading made bigger by the TWEAK (the
     slug: slugOf("tweak"), db, first: { kind: "data" },
     other: {
       words: WORDS, writes: ["page:/visit"], route: { intent: "edit", layer: "page", page: "/visit" }, marker: T.tweak,
-      answers: { [T.tweak]: (args) => { const f = shownFile(args); shown.push(f && f.path); return { source: String(f && f.source).replace("<h1>Come to the bakery</h1>", BIG) }; } },
+      answers: { [T.tweak]: (args) => { const f = shownFile(args); shown.push(f && f.path); return asEdits({ source: String(f && f.source).replace("<h1>Come to the bakery</h1>", BIG) }, f && f.source); } },
     },
     check: {
       before: (P) => {
@@ -388,7 +389,7 @@ test("A24-3 PATH page tweak, NO PARSER IN THE PREPARATION (the Worker's own answ
     slug: slugOf("tweak-np"), db, first: { kind: "data" },
     other: {
       words: WORDS, writes: ["page:/visit"], route: { intent: "edit", layer: "page", page: "/visit" }, marker: T.tweak,
-      answers: { [T.tweak]: (args) => { const f = shownFile(args); return { source: String(f && f.source).replace("<h1>Come to the bakery</h1>", BIG) }; } },
+      answers: { [T.tweak]: (args) => { const f = shownFile(args); return asEdits({ source: String(f && f.source).replace("<h1>Come to the bakery</h1>", BIG) }, f && f.source); } },
     },
     check: {
       setup: (P) => {
@@ -514,7 +515,7 @@ test("GN 4 — A NAMED PAGE CHANGE on Visit prepared while a photograph is place
     slug: slugOf("gn4"), first: { kind: "photo", page: "/" },
     other: {
       words: WORDS, writes: ["page:/visit"], route: { intent: "edit", layer: "page", page: "/visit" }, marker: T.tweak,
-      answers: { [T.tweak]: (args) => { const f = shownFile(args); shown.push(f && f.path); return { source: String(f && f.source).replace("<h1>Come to the bakery</h1>", BIG) }; } },
+      answers: { [T.tweak]: (args) => { const f = shownFile(args); shown.push(f && f.path); return asEdits({ source: String(f && f.source).replace("<h1>Come to the bakery</h1>", BIG) }, f && f.source); } },
     },
     check: {
       before: (P) => assert.ok(!P.page("visit.tsx").includes(BIG), "the preparation wrote the page"),

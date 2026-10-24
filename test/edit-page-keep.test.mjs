@@ -49,6 +49,7 @@
 // check, including acceptance, ambiguity, rendered output and queued billing.
 
 import test from "node:test";
+import { tweakInput, asEdits } from "./fixtures/tweak-edits.mjs";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
@@ -297,7 +298,7 @@ async function drive({ mode = "sync", route, ask, pick = null, tweak = null, ans
       seen.calls.push(tool);
       const said = (input, usage = CALL) => json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input }], usage });
       if (tool === T.pick && pick) return said(pick);
-      if (tool === T.tweak) return tweak ? said({ source: tweak(shownFile(args)) }) : said({ cannot: "that needs the page rewritten" });
+      if (tool === T.tweak) return tweak ? said(tweakInput({ source: tweak(shownFile(args)) }, args)) : said({ cannot: "that needs the page rewritten" });
       if (tool === T.pages && answer) return said({ pages: [{ path: "src/routes/" + target, source: answer }] });
       if (tool === T.lane && lane) return said(lane, LANE);
       if (tool === T.keep) {

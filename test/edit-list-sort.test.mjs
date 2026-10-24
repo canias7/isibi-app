@@ -41,6 +41,7 @@
 // page changed rather than being papered over.
 
 import test from "node:test";
+import { tweakInput, asEdits } from "./fixtures/tweak-edits.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
@@ -230,7 +231,7 @@ function withWire(answers, slug, run, { cancel = false } = {}) {
       (seen.requests[tool] = seen.requests[tool] || []).push(args);
       if (!Object.hasOwn(answers, tool)) return new Response("no stub for tool " + tool, { status: 503 });
       const a = answers[tool];
-      const input2 = typeof a === "function" ? a(args) : a;
+      const input2 = tool === "write_tweak" ? tweakInput(typeof a === "function" ? a(args) : a, args) : (typeof a === "function" ? a(args) : a);
       return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: input2 }], usage: { input_tokens: 10, output_tokens: 5 } });
     }
     if (isDispatchUpload(url)) { seen.uploads++; return dispatchOk(); }

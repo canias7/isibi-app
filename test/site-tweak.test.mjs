@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import {
-  readTweak, runTweak, tweakable, sameProse, proseOf, routeIdOf, tweakUsage,
+  readTweak as readTweakRaw, runTweak, tweakable, sameProse, proseOf, routeIdOf, tweakUsage,
   tweakRequest, tweakReply, tweakLint, lintOne, TWEAK_MODEL, TWEAK_TOOL, TWEAK_RULES, MAX_TWEAK_CHARS,
 } from "../builder/site-tweak.mjs";
 // The extractor the guarantee is built on — used here to splice at its OWN
@@ -20,6 +20,9 @@ import {
 import { extractText } from "../builder/site-text.mjs";
 import { CORPUS_DIR } from "./fixtures/corpus.mjs";
 import { modelsFor } from "../builder/build-models.mjs";
+import { asEditsReply } from "./fixtures/tweak-edits.mjs";
+// The tool answers with exact edits (idea #18): a whole-file answer here is turned into them.
+const readTweak = (r, o) => readTweakRaw(asEditsReply(r, o && o.source), o);
 
 const read = (p) => fs.readFileSync(new URL(p, import.meta.url), "utf8");
 const PAGE = read("../builder/lovable/template/src/routes/index.tsx");

@@ -51,6 +51,7 @@
 // selection, including whether another paid action would start.
 
 import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
+import { tweakInput, asEdits } from "./fixtures/tweak-edits.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
@@ -193,7 +194,7 @@ function withWire(answers, run) {
       const nth = calls.filter((c) => c.tool === tool).length - 1;
       return new Response(JSON.stringify({
         stop_reason: "tool_use",
-        content: [{ type: "tool_use", name: tool, input: typeof a === "function" ? a(nth) : a }],
+        content: [{ type: "tool_use", name: tool, input: tool === "write_tweak" ? tweakInput(typeof a === "function" ? a(nth) : a, body) : (typeof a === "function" ? a(nth) : a) }],
         usage: { input_tokens: 10, output_tokens: 5 },
       }), { status: 200, headers: { "content-type": "application/json" } });
     }

@@ -43,7 +43,8 @@ test("a new project is named neutrally, never from the brief's first words", () 
 // completely" — the "wrote the code · compiled react · published" rows under
 // the reply). The reply and the progress talk are what a finished build shows.
 test("a finished reply no longer draws the build's step summary", () => {
-  const at = CHAT.indexOf("'<div class=\"st-msg a\">' + (m.note");
+  // (2026-10-23, background work: a card message that shows nothing is drawn `hidden`.)
+  const at = CHAT.indexOf("('<div class=\"st-msg a\"' + (m.request && !m.t && !m.jobCard && !siteReqCardShows(m, site) ? ' hidden' : '') + '>') + (m.note");
   assert.ok(at > 0, "the assistant message markup could not be found");
   const line = CHAT.slice(at, CHAT.indexOf("\n", at));
   assert.ok(line.includes("siteMsgText(m, linkify)"), "the landmark is not the message markup");

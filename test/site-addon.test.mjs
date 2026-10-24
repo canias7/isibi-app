@@ -1568,7 +1568,7 @@ test("THE ADDON LANE HAS THE SEED NET, keeps the report, and bills the top-up on
   // call and one per kind — and it is SPREAD onto the same variadic call, so
   // the property this holds is unchanged: every model call of the addon on
   // one bill, one rounding, one floor.
-  assert.match(w, /pageCredits\(\.\.\.aDesignUsage, aGen && aGen\.usage, aSeedUsage\)/,
+  assert.match(w, /pageCredits\(\.\.\.aDesignUsage, aGen && aGen\.usage, aSeedUsage(?:, aPick && aPick\.usage)?\)/,
     "the top-up's usage is not billed, or is billed on its own rounding");
 
   // And the response says what happened — the build response's own three

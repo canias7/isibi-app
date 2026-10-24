@@ -27,12 +27,12 @@ Research only; nothing built. Sources and licenses: Anthropic skills (Apache 2.0
 18. Exact search-and-replace that refuses when not unique (Onlook).
 19. Search plan before an edit: AI names exact words, code finds the line (open-lovable).
 20. Fast-apply merge model, cheaper than a page rewrite (Morph/Relace, via open-lovable and Onlook).
-21. Cheap step picking which files the AI sees on big sites (bolt.diy).
+21. Cheap step picking which files the AI sees on big sites (bolt.diy). **Built 2026-10-23 on branch `file-picker`** (on the owner's later request; not merged): `docs/history/2026-10-23-file-picker.md`.
 22. Protect changes the customer made by hand (bolt.diy).
 
 ## Chat
 23. Summary of long chats (bolt.diy, dyad).
-24. Suggested next requests after each reply (dyad).
+24. Suggested next requests after each reply (dyad). **Built, adapted (2026-10-24, branch `next-step-hint`, not merged):** no buttons; the reply writer may sometimes add one soft next step as a sentence of its reply, model-decided, with a repeat guard. `docs/history/2026-10-24-next-step-hint.md`.
 
 ## New features
 25. "Make my site like my old one" from a link (open-lovable).
@@ -45,7 +45,7 @@ Not worth it: whole-file rewrites, live in-browser preview, many AI providers.
 ## Owner's decision on the rest (2026-10-22)
 
 Do: 11, 12, 13 (being built, behind a switch). Explain: 15. Check: 18.
-Discarded by the owner: 7, 9, 16, 17, 19, 20, 21, 22, 24, 27.
+Discarded by the owner: 7, 9, 16, 17, 19, 20, 21, 22, 24, 27 (21 later asked for and built on a branch, 2026-10-23).
 Done earlier: 1–6, 8, 10, 14, 25, 26 (23 already existed).
 
 Later (owner, 2026-10-22): 15 discarded. 18 noted "for one day": switch the
@@ -53,3 +53,10 @@ tweak rung (builder/site-tweak.mjs) from whole-file rewrites to exact old→new
 edits refused when missing or not unique (the visual review's apply loop,
 shared). The text lane and visual review already work this way. ~1 day + a
 small paid test.
+
+**18 done (2026-10-23, branch `tweak-exact-edits`, not merged, not deployed):**
+the tweak rung's tool answers with exact `{old, new}` edits, applied through
+the one helper the visual review now shares (`builder/exact-edits.mjs`); a
+missing or repeated `old` is refused and told back for one retry turn; the
+existing guards read the applied file. The small paid test is still owed.
+Record: `docs/history/2026-10-23-tweak-exact-edits.md`.

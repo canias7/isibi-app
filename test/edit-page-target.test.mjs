@@ -32,6 +32,7 @@
 // changes the home page, exactly as a real model would.
 
 import test from "node:test";
+import { tweakInput, asEdits } from "./fixtures/tweak-edits.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -142,10 +143,10 @@ function withWire(answers, run) {
       if (tool === T.tweak) {
         const f = shownFile(body);
         seen.shown.push(f);
-        return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: { source: bandsSwapped(f.source) } }], usage: { input_tokens: 10, output_tokens: 5 } });
+        return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: asEdits({ source: bandsSwapped(f.source) }, f.source) }], usage: { input_tokens: 10, output_tokens: 5 } });
       }
       if (!Object.hasOwn(answers, tool)) return new Response("no stub for tool " + tool, { status: 503 });
-      return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: answers[tool] }], usage: { input_tokens: 10, output_tokens: 5 } });
+      return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: tool === "write_tweak" ? tweakInput(answers[tool], body) : answers[tool] }], usage: { input_tokens: 10, output_tokens: 5 } });
     }
     if (isDispatchUpload(url)) return dispatchOk();
     return new Response("unavailable", { status: 503 });

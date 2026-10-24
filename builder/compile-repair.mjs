@@ -75,5 +75,48 @@ export async function compileRepairRound({ error, pages, touched, send, model, c
   let second = null;
   try { second = await compile(corrected); } catch (e) { second = { ok: false, error: String((e && e.message) || e) }; }
   if (second && second.ok === true && second.files) return { ...base, built: second, pages: corrected };
-  return { ...base, built: null, pages: null, failed: "compile" };
+  return { ...base, built: null, pages: null, failed: "compile", error: String((second && second.error) || ""), corrected };
+}
+
+/** How many rounds a code failure gets before the caller's old behaviour (owner, 2026-10-23). */
+export const MAX_ROUNDS = 2;
+
+/** The paths in `after` that are new or whose source differs from `before` — what a change wrote. */
+export function writtenPaths(before, after) {
+  const was = new Map((Array.isArray(before) ? before : []).filter((p) => p && typeof p.path === "string").map((p) => [p.path, String(p.source == null ? "" : p.source)]));
+  return (Array.isArray(after) ? after : []).filter((p) => p && typeof p.path === "string" && was.get(p.path) !== String(p.source == null ? "" : p.source)).map((p) => p.path);
+}
+
+/**
+ * UP TO `rounds` REPAIR ROUNDS (owner, 2026-10-23: "allow up to 2 repair
+ * rounds, each fed the latest compiler error, each bounded by the job clock").
+ * Round two works on round one's corrected pages and the second compile's own
+ * error. `room` is asked before EVERY round (a function, or a fixed answer).
+ * `touched` absent means every page in the list may be repaired (the error
+ * still picks which). The usage of every round rides back; the caller charges
+ * it only when `built` is set.
+ */
+export async function compileRepairRounds({ error, pages, touched = null, send, model, compile, room = true, rounds = MAX_ROUNDS } = {}) {
+  const list = Array.isArray(pages) ? pages : [];
+  const mine = Array.isArray(touched) ? touched : list.filter((p) => p && typeof p.path === "string").map((p) => p.path);
+  const ask = () => { try { return typeof room === "function" ? !!room() : !!room; } catch { return false; } };
+  const n = Math.max(1, Math.min(MAX_ROUNDS, Number(rounds) || MAX_ROUNDS));
+  const all = { ran: false, rounds: 0, repaired: [], refused: [], usage: [], built: null, pages: null };
+  let err = error;
+  let cur = list;
+  for (let i = 0; i < n; i++) {
+    const r = await compileRepairRound({ error: err, pages: cur, touched: mine, send, model, compile, room: ask() });
+    if (!r.ran) { if (!all.ran) all.why = r.why; else all.stopped = r.why; break; }
+    all.ran = true;
+    all.rounds = i + 1;
+    for (const x of r.repaired) if (!all.repaired.includes(x)) all.repaired.push(x);
+    all.refused.push(...r.refused);
+    all.usage.push(...r.usage);
+    if (r.built) { delete all.failed; return { ...all, built: r.built, pages: r.pages }; }
+    all.failed = r.failed;
+    if (r.failed !== "compile" || !r.error) break;
+    err = r.error;
+    cur = r.corrected;
+  }
+  return all;
 }

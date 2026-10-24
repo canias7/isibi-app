@@ -243,7 +243,7 @@ test("the context bar says it is estimated, reads the picked model, sits above t
   assert.match(fn, /Context · this chat/, "the bar does not say whose context it is");
   assert.match(fn, /if \(!site \|\| !site\.slug\) return '';/, "a chat with no site yet draws a bar with nothing to read");
   assert.match(BARE_CHAT, /const model = CTX_MODEL_OF\[buildPicker\]/, "the bar does not follow the picked model");
-  assert.match(BARE_CHAT, /'<div class="st-thread" id="stThread"><\/div>' \+\s*\n\s*ctxLineHTML\(site\) \+\s*\n\s*'<div class="st-comp">'/, "the bar is not above the message box");
+  assert.match(BARE_CHAT, /'<div class="st-thread" id="stThread"><\/div>' \+\s*\n\s*ctxLineHTML\(site\) \+\s*\n\s*(?:'<div class="st-bg" id="stBg"><\/div>' \+\s*\n\s*)?'<div class="st-comp">'/, "the bar is not above the message box");
   assert.ok(!/\['context', 'gauge', 'Model context'\]/.test(BARE_CHAT), "the old More page is back");
   assert.ok(!/function moreContext\(/.test(BARE_CHAT), "the old More page's renderer is back");
 });

@@ -385,7 +385,11 @@ test("the chat is read from the request ONCE, on a first build, through the refu
   // off the site's own row to remove that chat, never `body.chat`.
   const reads = [...w.matchAll(/cleanChatId\(/g)];
   assert.ok(/cleanChatId\(srow && srow\[CHAT_COLUMN\]\)/.test(w), "the third reader is no longer the delete's stored id");
-  assert.equal(reads.length, 3, "the chat id is read in an unexpected number of places: " + reads.length);
+  // AND A FOURTH (2026-10-24, next-step hint): `replyAsked` reads the chat
+  // through the refusal only to show the reply writer the suggestions already
+  // made there; it decides no site.
+  assert.match(w, /\.\.\.\(cleanChatId\(body\.chat\) \? \{ chat: cleanChatId\(body\.chat\) \} : \{\}\)/, "the reply's chat reader is gone or changed");
+  assert.equal(reads.length, 5, "the chat id is read in an unexpected number of places: " + reads.length);
   assert.match(w, /const chatId = firstBuild \? cleanChatId\(body\.chat\) : "";/,
     "the chat is no longer read only on a first build, through the refusal");
   const at = w.indexOf("async function liveBuildStart(");

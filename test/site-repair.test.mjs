@@ -5,6 +5,7 @@
 // no longer being. Everything else guards the spending.
 
 import test from "node:test";
+import { tweakInput, asEdits } from "./fixtures/tweak-edits.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
@@ -101,7 +102,7 @@ test("the cap is real AND what it dropped is reported", () => {
 
 /* ──────────────────────────────── the run ────────────────────────────────── */
 
-const reply = (source) => ({ content: [{ type: "tool_use", input: { source } }], usage: { input_tokens: 10, output_tokens: 20 } });
+const reply = (source) => async (req) => ({ content: [{ type: "tool_use", input: tweakInput({ source }, req) }], usage: { input_tokens: 10, output_tokens: 20 } });
 const fixed = (p) => p.source.replace("<p>Coffee by the pool.</p>", "<div><p>Coffee by the pool.</p></div>");
 
 test("a repair replaces ONLY the broken page's source", async () => {
@@ -110,7 +111,7 @@ test("a repair replaces ONLY the broken page's source", async () => {
   const out = await repairPages({
     report: { ok: true, findings: readPage(crashObs()) },
     pages,
-    send: async () => reply(want),
+    send: reply(want),
   });
   assert.deepEqual(out.repaired, [{ path: "book.tsx", route: "/book" }]);
   assert.equal(out.pages[1].source, want, "the fixed page carries the new source");
@@ -126,9 +127,9 @@ test("A REFUSAL LEAVES THE PAGE BYTE-IDENTICAL, and still reports what it cost",
     ["moved-route", reply(pages[1].source.replace('createFileRoute("/book")', 'createFileRoute("/booking")'))],
     ["no-change", reply(pages[1].source)],
     ["truncated", reply("tiny")],
-    ["unreadable", { content: [], usage: { input_tokens: 5, output_tokens: 1 } }],
+    ["unreadable", async () => ({ content: [], usage: { input_tokens: 5, output_tokens: 1 } })],
   ]) {
-    const out = await repairPages({ report: { ok: true, findings: readPage(crashObs()) }, pages, send: async () => r });
+    const out = await repairPages({ report: { ok: true, findings: readPage(crashObs()) }, pages, send: r });
     assert.equal(out.repaired.length, 0, `${what} must not be published`);
     assert.equal(out.pages[1].source, before, `${what} must leave the page exactly as it was`);
     assert.equal(out.usage.length, 1, `${what}: the call happened and is charged for`);
@@ -163,7 +164,7 @@ test("a page too large to send cheaply is refused BY NAME rather than silently",
   let called = 0;
   const out = await repairPages({
     report: { ok: true, findings: readPage(crashObs()) }, pages: [big],
-    send: async () => { called++; return reply("x"); },
+    send: async (req) => { called++; return reply("x")(req); },
   });
   assert.equal(called, 0, "nothing is paid for a page that cannot be sent");
   assert.equal(out.refused[0].reason, "too-big");

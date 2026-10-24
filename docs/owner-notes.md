@@ -1,5 +1,76 @@
 # Owner Notes
 
+## 2026-10-24 — combine C: six finished branches in one candidate (branch `combine-c`, not merged, not deployed)
+
+- Brings together compile repair everywhere, the exact-edits tweak, the progress voice, the next-step hint, background work and the file picker (plus the 503 notes).
+- Only the notes and the Dockerfile file list clashed; three tests that pinned the old add-on bill wording were widened for the file picker's extra line.
+- The site image will be rebuilt (`665ab9d93b9dce93` → `0bae00a7003bcc23`); the app image stays. Nothing spent. Record: `docs/history/2026-10-24-combine-c.md`.
+
+## 2026-10-23, late night — on big sites, a cheap step now picks which files the AI sees (idea #21, branch `file-picker`, not merged, not deployed)
+
+- **The ideas doc had #21 as discarded by you (2026-10-22).** It was built here because this session relayed a later request from you for it. Please confirm you want it before it is merged.
+- On a big site, one small quick-model call reads your request and a short list of the site's files: each file's name, size, exported names and headings, with no code. It names the files the change needs, at most 12.
+- **The page and the add-on writers then see only those files.** The page the router named is always shown, along with everything it imports and the site's own header and footer.
+- A file that is not picked is never lost. The writer is told it exists and may not return it.
+- If the small call fails or names nothing usable, the writer sees exactly what it sees today.
+- **When it applies:** only above 8 pages, or 60,000 characters of pages and components together. All 100 stored test sites are at most 6 pages and 50,780 characters, so ordinary sites are unchanged and make no extra call.
+- The small call goes on the same bill as the change. The work record notes how many files were chosen out of how many.
+- Tests: 7 new cases through the real page-edit route, with nothing paid. 3 of them fail on the old code; the below-threshold case passes on both, as it should.
+- Sweep: 8 of 9 changes killed, and the comment-only control survived. The one survivor is a second safety check that an earlier check already covers.
+- Record: `docs/history/2026-10-23-file-picker.md`.
+
+## 2026-10-23, later still — Background work: your three fixes (branch `background-work`, not merged, not deployed)
+
+- **A change sent while a request runs now joins it.** It becomes new rows of that same request, not a separate one. So if it needs something the running work creates (a menu link to the page being added), it waits for it, and its row says "Next — after Bookshop page". Sending the same message twice adds it once. If the request finished just before, the change starts as its own request, as before.
+- **No more double display.** While the panel lists a request's jobs, the request card is not drawn in the chat as well. The chat keeps the model's opening line, any question waiting for you, and the model's summary at the end. Once the request has finished and left the panel, the chat still shows the summary, and a reload shows the same thing. (The card is still in the page, hidden, because the UI canary reads it from there; moving the canary to the panel is a separate job.)
+- **The panel remembers itself on reload**: open or closed, and which job you were looking at, per project (this browser tab only).
+- Tests: each fix has tests that fail on the previous code (the server route is driven for real; the page is checked in a real browser). Sweep: 15 of 15 changes caught, the comment-only control survived. Five screenshots, including the joined change.
+- Nothing spent, no model called. Record: `docs/history/2026-10-23-background-work.md` §5.
+
+## 2026-10-23, late night — Background work: keep chatting while the builder works (branch `background-work`, not merged, not deployed)
+
+- Built your approved mock (option A, the pill). The message box keeps **Send** while changes run; Enter works. Stop moved into the panel.
+- Above the box, a pill: "N things in progress ▾". It opens a panel with "N things · K in progress", **Stop all** and ▴. Each row has a grey dot (spinning while it works, an empty ring when it's next, filled when it's done), the part's model-written name, and one live line. Finished rows say "Saved as draft · just now" and drop off after 5 minutes.
+- Tapping a row shows that job in the panel: "‹ Back · name · Stop" fixed at the top (Remove for a job that hasn't started), "You asked: …", every progress line, then its reply with **Show me** (opens the changed page in the preview), or what went wrong with **Try again**. The panel is at most about half the screen tall. The list and the job view scroll inside it, a working job follows its newest line, and if you scroll up a "↓ new" button takes you back down.
+- A question you send while work runs is answered right away and touches nothing. A change you send then runs as its own request beside the others (the site still saves one change at a time). It does not join the running request: adding to a live request doesn't exist yet.
+- New on the server: stopping one part (`POST /api/site/request/<slug>/<key>/stop`). That part is cancelled (its job through the usual cancel) and the rest carries on.
+- Not done: standalone jobs (the older path, with the request flow off) still show Stop in the box and aren't listed in the panel. "Next" only names what a job waits for inside its own request.
+- Nothing spent, no model called. Record: `docs/history/2026-10-23-background-work.md`.
+
+## 2026-10-24 — Replies may sometimes suggest one next step (branch `next-step-hint`, not merged, not deployed)
+
+- Your idea #24, adapted: the final reply (builds, edits, add-ons, request summaries) may now and then end with one soft suggestion, written as an ordinary sentence in the reply. No buttons, no list, never required. The model decides whether to add one; there are no fixed sentences and no keyword rules.
+- It is told to suggest only when something real points to it: a part you asked for that was not built or not done, a new page not known to be in the menu, a related problem it was told about, or part of your message still unanswered. At most one, none after a simple finished change, and to leave it out more often than not.
+- So it does not nag: when it suggests something it also names the topic in a few words; the page keeps that on the chat message (`suggested`), and the next reply is shown the last three topics from the chat and told never to suggest them again. Edits and add-ons now send the chat with them so this works there too. First builds have no earlier suggestions, so they get no repeat list.
+- Tests: a new file of 8 cases (it cannot even load on the old code); a small sweep with the comment-only control surviving; the reply, edit-poll and chat test files green. Nothing paid, no model calls. Record: `docs/history/2026-10-24-next-step-hint.md`.
+
+## 2026-10-23 — Progress lines in your voice for clients (branch `progress-voice`, not merged, not deployed)
+
+- Every live progress writer now carries one shared voice block with your approved Saltmarsh lines: first person but not "I" at the start of every line, openings varied, real names, no repeated tails, a problem said once, the draft/Publish status said once at the end. It covers builds, edits, add-ons, request parts (and the parallel card's opening line and titles), Publish/Restore/Discard, and the /sentinel scan's lines.
+- The repeated tail was partly in our code: about a dozen step facts ended in "Not published yet." and were fed to the writer on every line. Those tails are gone (the "prepared" state already tells the writer it is unpublished).
+- The repeated photo note came from the "not done" list being handed to every later line with "each stays exactly as said here in every update". It is still handed over (so no line can claim the photo), but now as "already told to them once: do not say it again".
+- The scan's lines are now each given the lines already shown, so they stop repeating each other.
+- Tests: a new file of 6 cases (red on the old code), 7 of 7 mutants killed, the comment-only control survived; the progress, security and parallel test files green (337). Older tests that pinned "Not published yet." or the old wording were updated on purpose. Nothing spent, no model called. Record: `docs/history/2026-10-23-progress-voice.md`.
+
+## 2026-10-23, late night — the quick page writer now sends only the lines it changes (idea #18; branch `tweak-exact-edits`, not merged, not deployed)
+
+- **What changed.** The cheap page step ("make that heading bigger", "move the hours above the map") used to send back the whole page, and we checked it was the same except for the change. Now it sends only exact replacements: "this exact text → that text". Each piece of old text must appear exactly once on the page; if it doesn't (missing, or appears twice), nothing is changed and the writer is told which piece and why, and gets one more try. A second miss goes to the full rewrite, exactly as a refused quick change always has.
+- **The old checks still run** on the result: same words on the page, same address, the code still parses, the site's own components, and the lint. Then the compile and its repair, as before.
+- **One shared piece of code.** The visual review already worked this way; both now use the same helper, so they can't disagree about "exactly once".
+- **Cheaper answers.** The output ceiling for this step halved (16,000 → 8,000 tokens) because the answer is only the changed lines.
+- **Same for the repairs.** The compile repair and the page repair use the same quick writer, so they also answer with exact edits now.
+- Nothing spent, no model called. The small paid test you mentioned for #18 is still owed (asks first). Container image predicted `87696d43a1f54ac4`. Record: `docs/history/2026-10-23-tweak-exact-edits.md`.
+
+## 2026-10-23, late night — every path that writes code now repairs a page that didn't compile (branch `compile-repair-all`, not merged, not deployed)
+
+- **What changed.** Before, only add-ons got a model repair when a page didn't compile. Now every path does: first builds (and revises), the edit page rung, the quick writers, the frame edit, logo, menu, "Back online" and anything else that publishes. The repair sits in the one place everything publishes through, so a new path can't miss it; a test lists every publish call and fails if one is left out.
+- **How it works.** When the compiler fails on the code itself (not a killed container, a timeout or no room), the writer is shown the compiler's message and only the pages this change wrote, and the page is compiled again. **Up to two tries**, each with the newest error, each only if the job still has time. If it still fails, what happened before happens: a build shows the stand-in page, an edit is refused with nothing changed.
+- **Money.** Charged only when it fixed the build. On a build it goes into the pages charge (the same single bill, one rounding); on an edit, on the edit's own bill; on an add-on, as before. A repair that didn't work costs nothing.
+- **First builds.** The build's repair (from 2026-10-22) was switched off; it is now on by default. `BUILD_REPAIR=off` turns it off.
+- **What the customer hears.** Only as a fact: "the first version of … didn't compile; it was corrected automatically."
+- **Limits.** A component (`-parts/`) that fails is not rewritten by the repair: on a build it still becomes a blank section as before; on an edit only the pages the change wrote are offered.
+- Nothing spent, no model called. Record: `docs/history/2026-10-23-compile-repair-all.md`.
+
 ## 2026-10-23, late — deploy 2265: the evening batch is live (confirmed by your canary press, run 40039829521)
 
 - New builds: the AI writes every component plus the header and footer; at most 6 sections per page; the reply says what wasn't built and that no database was made.

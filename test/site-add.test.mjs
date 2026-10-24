@@ -19,6 +19,7 @@
 // DRIVEN, NOT READ, wherever the module can be called: the picker and the
 // add runner take a fake `send`, the cleaner and the fold take real answers.
 import test from "node:test";
+import { tweakInput, asEdits } from "./fixtures/tweak-edits.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { readSchemaTool } from "./integration/schema-tool.mjs";
@@ -1625,7 +1626,7 @@ test("THE ROUTE RUNS THE ADD STEP WHERE IT RAN THE BUILD'S DESIGNER, and folds w
   assert.match(b.slice(pick, hop), /model: aModels\.quick/, "the picker is not on the picked model");
   assert.match(b.slice(run, clean), /model: aModels\.quick/, "an add is not on the picked model");
   assert.match(b.slice(run, clean), /if \(ran\.usage\) aDesignUsage\.push\(ran\.usage\);/, "an add's usage is not billed");
-  assert.match(b, /pageCredits\(\.\.\.aDesignUsage, aGen && aGen\.usage, aSeedUsage\)/, "the picker's and the adds' usages are not on the one bill");
+  assert.match(b, /pageCredits\(\.\.\.aDesignUsage, aGen && aGen\.usage, aSeedUsage(?:, aPick && aPick\.usage)?\)/, "the picker's and the adds' usages are not on the one bill");
   // A cleaner's refusal and a declined step are sentences, never climbs.
   assert.match(b.slice(clean, fold), /addRefusal\(clean\.why, k\)/, "a refused answer is not told to the customer");
   assert.match(b.slice(clean, fold), /if \(!aAnswers\.length\) \{/, "every kind declining is not a named answer");
@@ -1734,7 +1735,7 @@ const rCrash = (route = "/gear", viewport = "desktop") => readPage({
   route, viewport, text: 109, images: 0, crashed: true,
   consoleErrors: ["Error: useFormField should be used within <FormItem>"],
 });
-const rReply = (source) => ({ content: [{ type: "tool_use", input: { source } }], usage: { input_tokens: 10, output_tokens: 20 } });
+const rReply = (req, source) => ({ content: [{ type: "tool_use", input: tweakInput({ source }, req) }], usage: { input_tokens: 10, output_tokens: 20 } });
 const rFixed = (p) => p.source.replace("<p>Second-hand guitars.</p>", "<div><p>Second-hand guitars.</p></div>");
 const LANGS = [{ tag: "en", prefix: "", primary: true }, { tag: "es", prefix: "es" }, { tag: "fr", prefix: "fr" }];
 
@@ -1784,7 +1785,7 @@ test("addRepairBrief: only the pages this addition wrote, only serious findings,
 test("addRepairRound: no report, clean, no room and no deps each answer by name and spend NOTHING", async () => {
   const pages = [rPage("gear.tsx")];
   let sent = 0, compiled = 0;
-  const send = async () => { sent++; return rReply(rFixed(pages[0])); };
+  const send = async (req) => { sent++; return rReply(req, rFixed(pages[0])); };
   const compile = async () => { compiled++; return { ok: true, files: {} }; };
   const t = ["gear.tsx"];
   assert.equal((await REPAIR.addRepairRound({ report: null, pages, touched: t, send, compile })).why, "no-report");
@@ -1805,7 +1806,7 @@ test("addRepairRound: a fix that compiles is what ships, on the add step's own r
   const compiled = [];
   const out = await REPAIR.addRepairRound({
     report: { ok: true, findings: rCrash("/es/gear", "phone") }, pages, touched: ["gear.tsx"], langs: LANGS,
-    send: async (req) => { seen.push(req); return rReply(want); }, model: "sentinel-quick",
+    send: async (req) => { seen.push(req); return rReply(req, want); }, model: "sentinel-quick",
     compile: async (list) => { compiled.push(list); return { ok: true, files: { "index.html": { t: "<build-2>" } }, render: { ok: true, findings: [] } }; },
   });
   assert.equal(out.ran, true);
@@ -1827,7 +1828,7 @@ test("addRepairRound: a fix that does not compile ships the ORIGINAL and says so
   const t = ["gear.tsx"];
   const held = await REPAIR.addRepairRound({
     report: { ok: true, findings: rCrash() }, pages, touched: t,
-    send: async () => rReply(rFixed(pages[0])), compile: async () => ({ ok: false, stage: "typecheck", error: "the repair broke it" }),
+    send: async (req) => rReply(req, rFixed(pages[0])), compile: async () => ({ ok: false, stage: "typecheck", error: "the repair broke it" }),
   });
   assert.equal(held.ran, true);
   assert.equal(held.built, null, "a broken repair must never replace a build that worked");
@@ -1838,7 +1839,7 @@ test("addRepairRound: a fix that does not compile ships the ORIGINAL and says so
   let compiled = 0;
   const refused = await REPAIR.addRepairRound({
     report: { ok: true, findings: rCrash() }, pages, touched: t,
-    send: async () => rReply(pages[0].source.replace("Second-hand guitars.", "Used guitars.")),
+    send: async (req) => rReply(req, pages[0].source.replace("Second-hand guitars.", "Used guitars.")),
     compile: async () => { compiled++; return { ok: true, files: {} }; },
   });
   assert.equal(refused.built, null);
@@ -1848,12 +1849,12 @@ test("addRepairRound: a fix that does not compile ships the ORIGINAL and says so
   assert.equal(refused.usage.length, 1, "the refused call still cost");
   const big = rPage("gear.tsx"); big.source += "x".repeat(MAX_TWEAK_CHARS);
   let calls = 0;
-  const tooBig = await REPAIR.addRepairRound({ report: { ok: true, findings: rCrash() }, pages: [big], touched: t, send: async () => { calls++; return rReply("x"); }, compile: async () => ({ ok: true, files: {} }) });
+  const tooBig = await REPAIR.addRepairRound({ report: { ok: true, findings: rCrash() }, pages: [big], touched: t, send: async (req) => { calls++; return rReply(req, "x"); }, compile: async () => ({ ok: true, files: {} }) });
   assert.equal(calls, 0, "a page too large to send cheaply was paid for");
   assert.equal(tooBig.refused[0].reason, "too-big");
   for (const bad of [
     { send: async () => { throw new Error("provider down"); }, compile: async () => ({ ok: true, files: {} }) },
-    { send: async () => rReply(rFixed(pages[0])), compile: async () => { throw new Error("container gone"); } },
+    { send: async (req) => rReply(req, rFixed(pages[0])), compile: async () => { throw new Error("container gone"); } },
   ]) {
     const out = await REPAIR.addRepairRound({ report: { ok: true, findings: rCrash() }, pages, touched: t, ...bad });
     assert.equal(out.ran, true);

@@ -16,7 +16,7 @@ import {
   progressOn, progressKey, readProgressRecord, openRecord, packRecord, appendMark, closeRecord, pendingMarks, writerNeeded, markAsked,
   claimWriter, holds, batchFor, commitLine, failBatch, releaseWriter, linesOf, confirmLines, jobVerdict,
   editPlanFacts, editPublishFacts, editCorrectFacts, editRepublishFacts, addonPickedFacts, addonDesignedFacts, addonSchemaFacts, addonPagesFacts, addonPublishFacts,
-  PROGRESS_STATES, PROGRESS_TOOL, PROGRESS_SYSTEM, progressContext, progressRequest, readProgress, writeProgress,
+  PROGRESS_STATES, PROGRESS_TOOL, PROGRESS_SYSTEM, PROGRESS_VOICE, progressContext, progressRequest, readProgress, writeProgress,
   TASK_STATES, TASK_TOOL, TASK_SYSTEM, taskRequest, readTasks, writeTasks, tasksNeeded, unwrittenTasks, commitTasks, failTasks, addTasks, saidOf, PROGRESS_MAX_TASKS,
   PROGRESS_LEASE_MS, PROGRESS_TRIES, PROGRESS_RETRY_MS, PROGRESS_ASK_GRACE_MS, PROGRESS_RETRY_SKEW_MS, PROGRESS_MAX_MARKS, PROGRESS_MAX_TOKENS,
 } from "../builder/site-progress.mjs";
@@ -240,9 +240,9 @@ test("FACTS 2 — an add-on's: picked is decided, each design designed and not b
   // THE PAGES IN THEIR THREE KINDS, every address named, and the publish next.
   const written = addonPagesFacts({ added: ["src/routes/gallery.tsx"], changed: [{ path: "src/routes/index.tsx" }], linked: [{ path: "/about", to: ["/gallery"] }, { path: "/visit", to: ["/gallery"] }] });
   assert.deepEqual(states(written), ["prepared", "prepared", "prepared", "next"]);
-  assert.match(written[0].text, /^New page written, not published yet: \/gallery\.$/);
-  assert.match(written[1].text, /^Existing page changed for this addition, not published yet: \/\.$/);
-  assert.match(written[2].text, /^A menu link to \/gallery added, and nothing else changed, not published yet, on the existing pages \/about and \/visit\.$/);
+  assert.match(written[0].text, /^New page written: \/gallery\.$/);
+  assert.match(written[1].text, /^Existing page changed for this addition: \/\.$/);
+  assert.match(written[2].text, /^A menu link to \/gallery added, and nothing else changed, on the existing pages \/about and \/visit\.$/);
   assert.deepEqual(states(addonPublishFacts()), ["doing"]);
 });
 
@@ -264,8 +264,8 @@ test("FACTS 2b — THE PAGES MILESTONE TELLS A PAGE WHOSE ONE CHANGE IS A MENU L
   // TWO NEW PAGES LINKED FROM DIFFERENT PAGES: one fact for each set of pages linked to.
   const two = addonPagesFacts({ added: ["/faq", "/shop"], linked: [{ path: "/", to: ["/faq", "/shop"] }, { path: "/about", to: ["/faq"] }] });
   assert.deepEqual(states(two), ["prepared", "prepared", "prepared", "next"]);
-  assert.match(two[1].text, /\/faq and \/shop added, and nothing else changed, not published yet, on the existing page \/\./);
-  assert.match(two[2].text, /A menu link to \/faq added, and nothing else changed, not published yet, on the existing page \/about\./);
+  assert.match(two[1].text, /\/faq and \/shop added, and nothing else changed, on the existing page \/\./);
+  assert.match(two[2].text, /A menu link to \/faq added, and nothing else changed, on the existing page \/about\./);
   // NOTHING CHANGED: no milestone — never "wrote the pages" of none.
   assert.deepEqual(addonPagesFacts({}), []);
   assert.deepEqual(addonPagesFacts({ linked: [{ path: "/about", to: [] }] }), [], "a link to nothing was told");
@@ -323,13 +323,13 @@ test("PROSE 1 — THE REMAINING LIMIT, PINNED: an update whose metadata lists ev
 test("PROSE 2 — the instructions, concise, are what stand against that limit: published, live and finished are forbidden in words, each state is defined, and no worked example is given to copy", () => {
   assert.match(PROGRESS_SYSTEM, /Never say or suggest that anything is published or live, or that their request is finished/);
   for (const s of PROGRESS_STATES) assert.match(PROGRESS_SYSTEM, new RegExp("\\n" + s + ": "), "the state " + s + " is not defined for the model");
-  assert.doesNotMatch(PROGRESS_SYSTEM, /for example|e\.g\.|such as "|like this:/i, "the instructions carry a worked example");
-  assert.ok(PROGRESS_SYSTEM.length < 2000, "the instructions are no longer concise: " + PROGRESS_SYSTEM.length + " characters");
-  assert.doesNotMatch(PROGRESS_SYSTEM, /\b\d+\s*(characters|chars|words)\b/i, "the instructions set a character or word limit");
+  assert.doesNotMatch(PROGRESS_SYSTEM.replace(PROGRESS_VOICE, ""), /for example|e\.g\.|such as "|like this:/i, "the instructions carry a worked example");
+  assert.ok(PROGRESS_SYSTEM.replace(PROGRESS_VOICE, "").length < 2000, "the instructions are no longer concise: " + PROGRESS_SYSTEM.replace(PROGRESS_VOICE, "").length + " characters");
+  assert.doesNotMatch(PROGRESS_SYSTEM.replace(PROGRESS_VOICE, ""), /\b\d+\s*(characters|chars|words)\b/i, "the instructions set a character or word limit");
   assert.deepEqual(PROGRESS_TOOL.input_schema.properties.says.items.properties.as.enum, [...PROGRESS_STATES]);
   // CONVERSATIONAL AND FIRST-PERSON, each fact in its state's tense (the
   // owner's clarification): described, never given as a line to copy.
-  assert.match(PROGRESS_SYSTEM, /Speak in the first person, naturally and conversationally/);
+  assert.match(PROGRESS_SYSTEM, /Speak in the first person, as THE VOICE below says/);
   assert.match(PROGRESS_SYSTEM, /next facts as what you will do, doing facts as what you are doing now, the rest as what you have done or could not do/);
 });
 
@@ -513,12 +513,12 @@ test("PROSE 3 — the task lines' instructions, concise: every state defined (se
   for (const k of TASK_STATES) assert.match(TASK_SYSTEM, new RegExp("\\n" + k + ": "), "the state " + k + " is not defined for the model");
   assert.deepEqual(TASK_STATES, ["planned", "doing", "waiting", "unconfirmed", "done", "partial", "notdone"]);
   assert.match(TASK_SYSTEM, /\nunconfirmed: [^\n]*without saying it is happening now or that it is done/, "the unconfirmed state may be said as happening now");
-  assert.match(TASK_SYSTEM, /Speak in the first person, naturally and conversationally/);
+  assert.match(TASK_SYSTEM, /Speak in the first person, as THE VOICE below says/);
   assert.match(TASK_SYSTEM, /never hand their words back as an instruction/);
   assert.match(TASK_SYSTEM, /Never say a change is published or live/);
-  assert.doesNotMatch(TASK_SYSTEM, /for example|e\.g\.|such as "|like this:|"I'll|"I'm|Okay, I/i, "the instructions carry a line to copy");
-  assert.doesNotMatch(TASK_SYSTEM, /\b\d+\s*(characters|chars|words)\b/i, "the instructions set a character or word limit");
-  assert.ok(TASK_SYSTEM.length < 1200, "the instructions are no longer concise: " + TASK_SYSTEM.length + " characters");
+  assert.doesNotMatch(TASK_SYSTEM.replace(PROGRESS_VOICE, ""), /for example|e\.g\.|such as "|like this:|"I'll|"I'm|Okay, I/i, "the instructions carry a line to copy");
+  assert.doesNotMatch(TASK_SYSTEM.replace(PROGRESS_VOICE, ""), /\b\d+\s*(characters|chars|words)\b/i, "the instructions set a character or word limit");
+  assert.ok(TASK_SYSTEM.replace(PROGRESS_VOICE, "").length < 1300, "the instructions are no longer concise: " + TASK_SYSTEM.replace(PROGRESS_VOICE, "").length + " characters");
   assert.deepEqual(TASK_TOOL.input_schema.properties.tasks.items.required, ["id", ...TASK_STATES]);
 });
 

@@ -103,7 +103,7 @@ import { checklistFromDesign } from "./builder/build-checklist.mjs";
 import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { quickChecks } from "./site-security.mjs";
 import { deepScan, planScan } from "./builder/security-scan.mjs";
-import { securityOfferFacts, securityWorkingFacts, securityReportFacts, securityProgressFacts } from "./builder/security-say.mjs";
+import { securityOfferFacts, securityWorkingFacts, securityReportFacts, securityProgressFacts, SCAN_LINE_RULE, scanLineRule } from "./builder/security-say.mjs";
 import { OFFLINE_COLUMN, siteOffline, offlineStamp } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, STOPPED_FREE_MSG, STOPPED_SHORT_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE, carryPanelFields, keepPanelDescription } from "./site-meta.mjs";
@@ -150,6 +150,7 @@ import { applySiteSchema, loadSiteSchema, readSiteSchema, parseSchemaSpec, norma
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { usageOf as pageUsageOf, PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, partsSent, priorPagesSent, pageId, sceneOn, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
+import { pickFiles } from "./builder/file-picker.mjs";
 import { splitPlan, bandRefusal, BAND_MARK, bandMarks, generateSiteBands, ownFallbackDirective, enforceFallbackFrame } from "./builder/page-bands.mjs";
 import { MAX_MODEL_FANOUT } from "./builder/model-fanout.mjs";
 // THE DESIGN STEP CUT INTO WAVES OF AGENTS (2026-09-10). Plain module, testable
@@ -267,7 +268,7 @@ import { routeMessage, routeDecision, routeFailure, clarifiedBrief, siteDigest, 
 // work moves from one step to another — the parts put off, the scope, and why.
 import { readHandOver, handOverLine, heldReport, deferredOf } from "./builder/hand-over.mjs";
 import { loadAsk, storeAsk, storeAskIfFree, closeAsk, replaceAsk, askLive, packAsk, ASKER_RE, newAskId, askOf, readAsk, withQuestion, readContext, shownContext, repeatOf, appendAnswer, againNote, clarifyTransport, clarifyCall, MAX_NOTE_CHARS, MAX_SAME_ASK, MAX_ASKED } from "./builder/clarify.mjs";
-import { repliesOn, buildReplyFacts, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelReplyFacts, repeatNoteFacts, wideningFacts, requestReplyFacts, replyContext, writeReply, withReplyText, REPLY_CALL_MS, REPLY_BG_CALL_MS, REPLY_BG_DEADLINE_MS, REPLY_BG_ATTEMPTS, REPLY_BG_RETRY_S, REPLY_LEASE_MS, REPLY_HORIZON_MS, REPLY_RETRY_GRACE_MS, readReplyRecord, replyNext, replyClaim, replyOutcomeOf, outcomeOf, outcomeReads } from "./builder/site-reply.mjs";
+import { repliesOn, buildReplyFacts, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelReplyFacts, repeatNoteFacts, wideningFacts, requestReplyFacts, replyContext, writeReply, withReplyText, recentSuggestions, offMenuPages, REPLY_CALL_MS, REPLY_BG_CALL_MS, REPLY_BG_DEADLINE_MS, REPLY_BG_ATTEMPTS, REPLY_BG_RETRY_S, REPLY_LEASE_MS, REPLY_HORIZON_MS, REPLY_RETRY_GRACE_MS, readReplyRecord, replyNext, replyClaim, replyOutcomeOf, outcomeOf, outcomeReads } from "./builder/site-reply.mjs";
 // PROGRESS WHILE AN EDIT OR AN ADD-ON RUNS (2026-10-06): the milestones' facts,
 // the per-job record and its one writer's rules, the call and its check.
 import {
@@ -287,7 +288,7 @@ import {
 import {
   isRequestKey, requestFlowOn, recordKey as requestRecordKey, liveKey as requestLiveKey, fileKey as requestFileKey, requestReplyKey,
   parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ORPHAN_MARKER_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts, requestMaking,
-  nextStep, readLabels, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, heldPurchaseState, heldReasons, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, requestView, liveJobIds, questionsToOffer, noteOffered,
+  nextStep, readLabels, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, heldPurchaseState, heldReasons, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, requestView, liveJobIds, stopPart, partJobId, appendParts, questionsToOffer, noteOffered,
   approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt, editJobOutcome, answerless, wantsEvidence,
 } from "./builder/request.mjs";
 // ONE SIZE POLICY FOR WHAT A CUSTOMER SAYS ON A SITE THAT EXISTS (2026-10-03).
@@ -316,7 +317,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // against, in place of "nobody can see one".
 import { addedByRoute, publishedTexts, componentEvidence } from "./builder/content-evidence.mjs";
 import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, frameToMissing, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, qrShownSources, qrDestinationCheck, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
-import { compileRepairRound } from "./builder/compile-repair.mjs";
+import { compileRepairRound, compileRepairRounds, writtenPaths } from "./builder/compile-repair.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig, writesSchema as partWritesSchema } from "./builder/request-plan.mjs";
@@ -5316,6 +5317,9 @@ const quickBudget = { capMs: () => QUICK_CALL_MS };
 // from running away when there is not much left to stop it. When a wordmark
 // has been measured end to end, that measurement replaces this.
 const QUICK_STREAM_MS = 480000;
+// WHAT ONE BUILD COMPILE REPAIR ROUND NEEDS LEFT ON THE CLOCK (2026-10-23): a
+// model call and a compile. Under a container build the clock is infinite.
+const BUILD_REPAIR_NEED_MS = 120000;
 const QUICK_STREAM = { stream: true };
 /** `quickSend` with the answer-so-far handed on as it streams (the live talk line). */
 /**
@@ -8081,8 +8085,25 @@ function replyAsked(b, extra = {}) {
     picker: typeof body.picker === "string" ? body.picker : undefined,
     routedCost: Number.isInteger(cost) && cost >= 0 && cost <= 1000 ? cost : null,
     pages: () => [],
+    // THE CHAT IT WAS SENT FROM (2026-10-24): where the reply reads the
+    // suggestions already made (`recentSuggestedFor`), with the caller's `uid`.
+    ...(cleanChatId(body.chat) ? { chat: cleanChatId(body.chat) } : {}),
     ...extra,
   };
+}
+
+/**
+ * THE LAST FEW NEXT-STEP SUGGESTIONS ALREADY MADE IN THIS CHAT (2026-10-24,
+ * idea #24): the `suggested` markers on its stored messages. [] when the chat
+ * or the account is not known or the store cannot say: the writer is then
+ * shown none, and nothing else changes.
+ */
+async function recentSuggestedFor(env, uid, chat) {
+  try {
+    if (typeof uid !== "string" || !uid || typeof chat !== "string" || !/^[A-Za-z0-9_-]{4,80}$/.test(chat) || !env || !env.SITES_BUCKET) return [];
+    const cur = await chatStoreRead(env, chatStoreKey(uid, chat));
+    return cur.read && cur.chat ? recentSuggestions(cur.chat.msgs) : [];
+  } catch { return []; }
 }
 
 /** The facts of an answer of one kind: `{ skip, facts }`. */
@@ -8122,6 +8143,9 @@ async function composeModelReply(env0, kind, body, ask, { background = false, on
   let pages = [];
   try { pages = typeof ask.pages === "function" ? ask.pages() : Array.isArray(ask.pages) ? ask.pages : []; } catch { pages = []; }
   const model = modelsFor(ask.picker).quick;
+  // WHAT AN OCCASIONAL NEXT STEP MAY STAND ON, AND WHAT IT MUST NOT REPEAT (2026-10-24).
+  const recent = Array.isArray(ask.recent) ? ask.recent : await recentSuggestedFor(env, ask.uid, ask.chat);
+  const offMenu = kind === "addon" ? offMenuPages(body) : [];
   const t0 = Date.now();
   let out;
   try {
@@ -8129,7 +8153,7 @@ async function composeModelReply(env0, kind, body, ask, { background = false, on
     const budget = background ? replyBgBudget : replyBudget;
     out = await writeReply({ send: typeof onPartial === "function" ? quickSendLive(env, "reply", budget, onPartial) : quickSend(env, "reply", budget) }, {
       facts: read.facts,
-      context: replyContext({ request: ask.request, answers: ask.answers, site: { name: ask.name, slug: ask.slug, pages } }),
+      context: replyContext({ request: ask.request, answers: ask.answers, site: { name: ask.name, slug: ask.slug, pages }, recent, offMenu }),
       model,
       ...(background ? { deadlineMs: REPLY_BG_DEADLINE_MS } : {}),
       talk,
@@ -8143,7 +8167,7 @@ async function composeModelReply(env0, kind, body, ask, { background = false, on
     const tokens = (out.usage || []).reduce((n, u) => ({ in: n.in + (u.in || 0), out: n.out + (u.out || 0) }), { in: 0, out: 0 });
     console.log("reply:", kind, out.ok ? "written" : "fell back (" + out.why + ")", "facts", read.facts.length, "attempts", out.attempts, "tokens", tokens.in + "/" + tokens.out, "ms", Date.now() - t0, background ? "background" : "inline");
   } catch { /* a log line never costs the reply */ }
-  return out.ok ? { ok: true, text: out.text } : { ok: false, why: out.why || "send" };
+  return out.ok ? { ok: true, text: out.text, ...(out.suggested ? { suggested: out.suggested } : {}) } : { ok: false, why: out.why || "send" };
 }
 
 /**
@@ -8173,7 +8197,7 @@ async function narrateBuild(env, body, { picker = "", request = "", name = "", s
       talk: talkOn(env),
     });
     console.log("reply: build", out.ok ? "written" : "fell back (" + out.why + ")", "facts", read.facts.length);
-    return out.ok ? withReplyText(body, out.text) : { ...body, replyState: "unavailable", replyWhy: String(out.why || "send") };
+    return out.ok ? withReplyText(body, out.text, out.suggested) : { ...body, replyState: "unavailable", replyWhy: String(out.why || "send") };
   } catch (e) {
     console.error("reply: build narration threw —", String((e && e.message) || e));
     return { ...body, replyState: "unavailable", replyWhy: "send" };
@@ -8257,11 +8281,11 @@ async function withModelReply(env, res, kind, ask) {
   let body;
   try { body = await res.clone().json(); } catch { return res; }
   if (!body || typeof body !== "object" || Array.isArray(body)) return res;
-  const text = await writeModelReply(env, kind, body, ask);
-  if (!text) return res;
+  const out = await composeModelReply(env, kind, body, ask);
+  if (!out.ok) return res;
   const headers = new Headers(res.headers);
   headers.delete("content-length");
-  return new Response(JSON.stringify(withReplyText(body, text)), { status: res.status, headers });
+  return new Response(JSON.stringify(withReplyText(body, out.text, out.suggested)), { status: res.status, headers });
 }
 
 /**
@@ -8297,6 +8321,9 @@ async function keepReplyFor(env, res, kind, ask) {
     // A PART OF A LONGER REQUEST (2026-10-03): its held parts are the request's
     // own, run after it on the server.
     ...(ask.inRequest === true ? { inRequest: true } : {}),
+    // WHERE THE LATER REPLY READS THE SUGGESTIONS ALREADY MADE (2026-10-24).
+    ...(typeof ask.uid === "string" && ask.uid ? { uid: ask.uid } : {}),
+    ...(typeof ask.chat === "string" && ask.chat ? { chat: ask.chat } : {}),
   };
   const headers = new Headers(res.headers);
   headers.delete("content-length");
@@ -8476,7 +8503,7 @@ async function settleReply(env, key, claim, task, out, { tag = "" } = {}) {
   const now = Date.now();
   // WHICH STORED ANSWER THIS REPLY WAS WRITTEN FROM (`replyTag`, 2026-10-07).
   const base = { ...claim.rec, attempts: claim.attempt, lease: undefined, retryAt: undefined, why: undefined, at: now, ...(tag ? { tag } : {}) };
-  if (out.ok) return putReplyRecord(env, key, { ...base, state: "written", text: out.text }, claim.etag);
+  if (out.ok) return putReplyRecord(env, key, { ...base, state: "written", text: out.text, ...(out.suggested ? { suggested: out.suggested } : {}) }, claim.etag);
   if (out.skip) return putReplyRecord(env, key, { ...base, state: "none", why: String(out.skip).slice(0, 40) }, claim.etag);
   const why = String(out.why || "send").slice(0, 40);
   if (out.final !== true && claim.attempt < REPLY_BG_ATTEMPTS) {
@@ -8505,6 +8532,8 @@ function askOfReplyFor(replyFor) {
     routedCost: Number.isInteger(replyFor.routedCost) ? replyFor.routedCost : null,
     slug: replyFor.slug, pages: Array.isArray(replyFor.pages) ? replyFor.pages : [],
     inRequest: replyFor.inRequest === true,
+    uid: typeof replyFor.uid === "string" ? replyFor.uid : undefined,
+    chat: typeof replyFor.chat === "string" ? replyFor.chat : undefined,
   };
 }
 
@@ -8601,7 +8630,7 @@ async function servedModelReply(env, job, text, { uid = "", raw = "" } = {}) {
     return pending;
   }
   const next = replyNext(at.rec, now);
-  if (next === "serve") return JSON.stringify(withReplyText(rest, at.rec.text));
+  if (next === "serve") return JSON.stringify(withReplyText(rest, at.rec.text, at.rec.suggested));
   if (next === "failed") return failed;
   if (next === "none") return plain;
   if (next === "wait") return pending;
@@ -17639,12 +17668,40 @@ async function publishBeside(env, opts) {
   }
 }
 
-async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = null, trace = null, job = null, parts = null, afterCompile = null, onCompileFail = null, models = null, charge = null, held = null, charges = null, liveWhenClean = false }) {
+/**
+ * THE SEAM'S OWN COMPILE REPAIR (2026-10-23, owner: every path that writes
+ * code and publishes gets it). Up to `MAX_ROUNDS` rounds through
+ * `compileRepairRounds`, the job's clock (`canRepair`) asked before each, on
+ * the quick model the change was picked with. Charged through `charge` only
+ * when it fixed the build; a caller with no funnel gets it free. `keep` hands
+ * the outcome back for the publish's answer.
+ */
+function seamCompileRepair(env, { slug, touched = null, models = null, charge = null, tm = () => {}, keep = () => {} } = {}) {
+  return async ({ error, pages, recompile, job }) => {
+    const clock = job && job.budget && typeof job.budget.canRepair === "function" ? job.budget : null;
+    tm("compile-repair:seam", "start", { touched: Array.isArray(touched) ? touched.length : -1 });
+    const r = await compileRepairRounds({
+      error, pages, touched: Array.isArray(touched) ? touched : null,
+      room: () => !clock || clock.canRepair(0),
+      send: quickSend(env, "repair", repairClock(clock)), model: models && models.quick, compile: recompile,
+    });
+    if (r.built && r.usage.length && typeof charge === "function") {
+      try { r.charged = Number(await charge(r.usage)) || 0; }
+      catch (e) { r.charged = 0; console.error("compile repair charge failed:", slug, e && e.message); }
+    }
+    tm("compile-repair:seam", r.ran ? (r.built ? "ok" : "fail") : "skip",
+      { rounds: r.rounds, repaired: r.repaired.length, why: String(r.why || r.failed || ""), charged: r.charged || 0 });
+    try { keep(r); } catch { /* never */ }
+    return r.built ? { built: r.built, pages: r.pages } : null;
+  };
+}
+
+async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = null, trace = null, job = null, parts = null, afterCompile = null, onCompileFail = null, models = null, charge = null, held = null, charges = null, liveWhenClean = false, touched = null, chargeRepair = null }) {
   // A JOB RUNNING BESIDE OTHERS OF ITS REQUEST publishes through the site's
   // turn and the rebase (`publishBeside`), which calls back in here with the
   // rebased pages; every other caller goes straight on, as before.
   if (job && job.beside && !job.beside.inTurn && writesBeside(env) && env.SITES_BUCKET) {
-    return publishBeside(env, { slug, pages, label, renamed, verifyCss, trace, job, parts, afterCompile, onCompileFail, models, charge, charges, held });
+    return publishBeside(env, { slug, pages, label, renamed, verifyCss, trace, job, parts, afterCompile, onCompileFail, models, charge, charges, held, touched, chargeRepair });
   }
   // ONE LOCAL, so the five call sites below read the same way whether or not
   // a trace was passed. Never throws — see `edit-trace.mjs`.
@@ -18297,12 +18354,23 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // failure of the CODE is offered: a killed container, a timeout or no room
   // never judged the code. A hook that throws is ignored and the failure
   // stands as before.
-  if ((!built || built.ok !== true || !built.files) && typeof onCompileFail === "function"
+  //
+  // EVERY CALLER GETS IT (owner, 2026-10-23: "every path that writes code and
+  // compiles/publishes … once at the shared publish seam so no path can miss
+  // it"). A caller with its own hook (the add-on) keeps it; every other caller
+  // gets `seamCompileRepair`: up to two rounds on the pages this change wrote
+  // (`touched`, else the pages the error names), the job's clock asked before
+  // each, charged through `chargeRepair` (else `charge`) only when it fixed
+  // the build.
+  let seamRepair = null;
+  const compileHook = typeof onCompileFail === "function" ? onCompileFail
+    : seamCompileRepair(env, { slug, touched, models, charge: typeof chargeRepair === "function" ? chargeRepair : charge, tm, keep: (r) => { seamRepair = r; } });
+  if ((!built || built.ok !== true || !built.files) && typeof compileHook === "function"
       && !killed && !(built && built.timedOut) && !(built && built.room)) {
     tm("compile-repair", "start");
     let fix = null;
     try {
-      fix = await onCompileFail({
+      fix = await compileHook({
         error: String((built && built.error) || ""), stage: String((built && built.stage) || ""), pages, job,
         recompile: async (list) => { files = filesFor(list); return compile(); },
       });
@@ -18815,6 +18883,9 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     lookSoft.push({ what, notes: (Array.isArray(r.notes) ? r.notes : []).slice(0, 2).map((x) => String(x).slice(0, 160)) });
   }
   return { ok: true, files: wrote, look, render, renderNote: [renderNote(built.render), langNote(langOutcomes, langsRefused), staleNote(langStale)].filter(Boolean).join(" ") || undefined,
+    // A COMPILE THE SEAM'S REPAIR FIXED (2026-10-23), a fact for the reply;
+    // absent otherwise, so an ordinary publish's answer is unchanged.
+    ...(seamRepair && seamRepair.built ? { compileRepaired: { pages: seamRepair.repaired.slice(), rounds: seamRepair.rounds, charged: Number(seamRepair.charged) || 0 } } : {}),
     // WHICH VERSION WENT LIVE (stage 7): the prefix the site now serves, and
     // what a reconcile compares against the pointer and `x-site-version`.
     version,
@@ -19931,6 +20002,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
     // THE STEPS INSIDE THE PUBLISH THAT USED TO RUN IN SILENCE (2026-10-19):
     // their numbers go on the trace, which the build's progress already hears.
     note: (stage, nums) => { try { mark?.(stage, nums); } catch { /* a trace must never break a build */ } },
+    // AND THE BUILD'S CLOCK for the compile repair, asked before each round
+    // (2026-10-23): a round needs one model call and one compile.
+    compileRepairRoom: () => !budget || (!budget.expired() && budget.remainingMs() >= BUILD_REPAIR_NEED_MS),
     publish: async (dist, pages, worker) => {
       bRoutes = landmarkRoutes(pages);
       // THE SITE'S EXTRA LANGUAGE PREFIXES, for the sitemap and the route
@@ -22664,7 +22738,7 @@ async function deliverLostAnswer(env, { id, uid, mark, now }) {
       try { const o = await env.SITES_BUCKET.get(resumeKey(id)); const r = o ? readResume(JSON.parse(await o.text())) : null; design = r && r.design ? r.design : null; } catch { design = null; }
       told = await narrateBuild(env, body, { picker: design && design.picker, request: ownWords(design && design.brief), name: design && design.brand, slug, background: true });
       const result = told.replySource === "model" && typeof told.reply === "string"
-        ? { state: "written", text: told.reply }
+        ? { state: "written", text: told.reply, ...(told.suggested ? { suggested: told.suggested } : {}) }
         : { state: told.replyState || "unavailable", ...(told.replyWhy ? { why: told.replyWhy } : {}) };
       narration = { ...result, key, settlementKey, at };
       if (!(await saveNarration(env, id, narration))) console.error("lost builds: could not keep the narration for", id, "— it is still delivered with this answer, and its claim stands so no later pass pays again");
@@ -22673,7 +22747,7 @@ async function deliverLostAnswer(env, { id, uid, mark, now }) {
   }
   if (plan.act === "reuse") {
     const n = plan.narration;
-    told = n.state === "written" && typeof n.text === "string" ? withReplyText(body, n.text) : { ...body, replyState: n.state, ...(n.why ? { replyWhy: n.why } : {}) };
+    told = n.state === "written" && typeof n.text === "string" ? withReplyText(body, n.text, n.suggested) : { ...body, replyState: n.state, ...(n.why ? { replyWhy: n.why } : {}) };
   } else if (plan.act === "hold") {
     // AN EXPLANATION ALREADY DELIVERED FOR THESE SAME FACTS is kept: the pass
     // whose save failed still stored its answer with the text, and a hold must
@@ -24786,7 +24860,7 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
  * true }` when our store failed around a usable answer: the message is held
  * for sending again, under the same key, which nothing charges twice.
  */
-async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, instruction }) {
+async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, instruction, join = false }) {
   if (waiting && waiting.requestKey && ask && ask.answered === true) {
     return resumeRequestPart(env, ctx, { uid, slug, key, out, waiting, ask, images: rb.images });
   }
@@ -24796,6 +24870,15 @@ async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, 
   // question — the request that was waiting, word for word, its answers kept
   // beside it, never folded into it.
   const message = typeof instruction === "string" && instruction.trim() ? instruction : String(rb.message || "");
+  // A CHANGE SENT WHILE ANOTHER REQUEST OF THIS OWNER RUNS ON THE SITE JOINS IT
+  // (2026-10-23, background work): its parts wait for what they need there
+  // and run in its order. Not an answer, and not a message carrying files (a
+  // request's files are kept under its own key); a request that ended first
+  // leaves this one to be taken on by itself, below.
+  if (join && !answered && !(Array.isArray(rb.images) && rb.images.length)) {
+    const joined = await joinLiveRequest(env, ctx, { uid, slug, key, message, out });
+    if (joined) return joined;
+  }
   const planned = planParts(message, out, { putOff: answered && ask.putOff ? ask.putOff : [] });
   if (!planned.ok) return null;
   // EVERY FILE THE MESSAGE CARRIES MUST READ (round 9), or it is not taken on
@@ -24888,6 +24971,59 @@ async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, 
   }
   const moved = await advanceRequest(env, ctx, slug, key, "accepted");
   return { ...out, request: requestView(moved || draft) };
+}
+
+/**
+ * JOIN THE LIVE REQUEST (2026-10-23, background work). The owner's newest
+ * unended request on the site takes the message as new parts (`appendParts`),
+ * written back on the etag it was read under. Idempotent on the message key: a
+ * key that already joined any live request answers that request again, never
+ * a second set of parts; a key that is a request of its own is left to the
+ * acceptance. Null when there is nothing to join, the request ended or
+ * stopped between the read and the write, or anything cannot be read: the
+ * message is then taken on as a request of its own.
+ */
+async function joinLiveRequest(env, ctx, { uid, slug, key, message, out }) {
+  if (!env.SITES_BUCKET || !isRequestKey(key)) return null;
+  try { const own = await loadRequest(env, slug, key); if (!own || own.rec || own.answer || own.etag) return null; } catch { return null; }
+  let listed = null;
+  try { listed = await env.SITES_BUCKET.list({ prefix: REQUEST_LIVE_ROOT + slug + "/", limit: 50 }); } catch { return null; }
+  const live = [];
+  for (const o of (listed && listed.objects) || []) {
+    const at = parseLiveKey(o && o.key);
+    if (!at || at.slug !== slug || at.key === key) continue;
+    let mark = null;
+    try { const got = await env.SITES_BUCKET.get(o.key); mark = got ? JSON.parse(await got.text()) : null; } catch { mark = null; }
+    if (!mark || mark.endedAt != null || !Number.isFinite(mark.at)) continue;
+    let found = null;
+    try { found = await loadRequest(env, slug, at.key); } catch { found = null; }
+    if (!found || !found.rec || found.rec.uid !== uid) continue;
+    // THIS MESSAGE ALREADY JOINED ONE: that request is the answer.
+    if (Array.isArray(found.rec.joined) && found.rec.joined.some((j) => j && j.key === key)) {
+      return { ...out, request: requestView(found.rec), joined: found.rec.key, duplicate: true };
+    }
+    if (!found.rec.ended && !found.rec.stop) live.push({ key: at.key, at: mark.at });
+  }
+  live.sort((a, b) => b.at - a.at);
+  const into = live[0];
+  if (!into) return null;
+  for (let round = 0; round < 4; round++) {
+    let found = null;
+    try { found = await loadRequest(env, slug, into.key); } catch { return null; }
+    if (!found || !found.rec || found.rec.uid !== uid) return null;
+    const made = appendParts(found.rec, { key, message, routed: out });
+    if (!made.ok) return null;
+    if (made.duplicate) return { ...out, request: requestView(found.rec), joined: found.rec.key, duplicate: true };
+    let tag = null;
+    try { tag = await saveRequestRecord(env, made.rec, found.etag); } catch (e) { console.error("request join: record", slug, errorClassForLog(e)); }
+    if (!tag) continue;
+    if (progressOn(env) && ctx && typeof ctx.waitUntil === "function") {
+      try { ctx.waitUntil(syncRequestTasks(env, { slug, key: made.rec.key, uid, message: made.rec.message, parts: made.rec.parts, picker: made.rec.picker }).catch((e) => console.error("progress: request tasks", slug, errorClassForLog(e)))); } catch { /* the sweep asks again */ }
+    }
+    const moved = await advanceRequest(env, ctx, slug, made.rec.key, "joined");
+    return { ...out, request: requestView(moved || made.rec), joined: made.rec.key };
+  }
+  return null;
 }
 
 /**
@@ -25134,6 +25270,33 @@ async function stopRequest(env, ctx, slug, key, uid) {
   return advanceRequest(env, ctx, slug, key, "stop");
 }
 
+/**
+ * STOP ONE PART OF A REQUEST (2026-10-23, background work): Stop on a job's own
+ * view, Remove on a part still waiting its turn. The part is named in the
+ * record's `stopParts` (nothing new starts for it), its live job is asked to
+ * cancel through the job's own door (`edit_cancel`: stopped before it
+ * publishes, `too-late` after), and the request moves on — the other parts go
+ * ahead. `{ status, rec }`: 404 for no such request or part, 409 when the part
+ * has nothing left to stop, 200 once recorded.
+ */
+async function stopRequestPart(env, ctx, slug, key, uid, n) {
+  let job = "";
+  let kept = null;
+  for (let k = 0; k < 4 && !kept; k++) {
+    const { rec, etag } = await loadRequest(env, slug, key);
+    if (!rec || rec.uid !== uid || !rec.parts.some((p) => p && p.n === n)) return { status: 404 };
+    const next = stopPart(rec, n);
+    if (!next) return { status: 409, rec };
+    job = partJobId(rec, n);
+    if (next === rec) { kept = rec; break; }
+    if (await saveRequestRecord(env, { ...next, updatedAt: Date.now() }, etag)) kept = next;
+  }
+  if (!kept) return { status: 503 };
+  if (job) { try { await editRpc(env, "edit_cancel", { p_id: job, p_uid: uid }); } catch { /* the job's own end settles it */ } }
+  const moved = await advanceRequest(env, ctx, slug, key, "stop");
+  return { status: 200, rec: moved || kept };
+}
+
 // ── A PART'S FULL REWRITE, ON THE CUSTOMER'S GO-AHEAD (2026-10-03) ──────────
 //
 // Owner: *"keep the full-rewrite approval attached to the original request …
@@ -25362,7 +25525,7 @@ async function requestReply(env, rec) {
   const at = await replyRecordAt(env, place.k);
   if (!at.read) return { state: "pending", for: place.forKey };
   const next = replyNext(at.rec, now);
-  if (next === "serve") return { text: at.rec.text, for: place.forKey };
+  if (next === "serve") return { text: at.rec.text, for: place.forKey, ...(at.rec.suggested ? { suggested: at.rec.suggested } : {}) };
   if (next === "failed") return { state: "failed", for: place.forKey };
   if (next === "none") return null;
   if (next === "wait") return { state: "pending", for: place.forKey };
@@ -26670,7 +26833,7 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
         ...resumeHeld(claimed),
         ...resumeMedia(claimed),
         ...(rContext ? { context: rContext } : {}),
-        buildFacts: buildFacts({ images: pages && pages.images, context: rContext, unwritten: pages && pages.unwritten, salvaged: pages && pages.salvaged,
+        buildFacts: buildFacts({ images: pages && pages.images, context: rContext, unwritten: pages && pages.unwritten, salvaged: pages && pages.salvaged, compileRepaired: pages && pages.compileRepair,
           // WHAT ITS PUBLISH CHECKED (2026-10-14), only for a site that went live.
           checks: buildChecks(pages),
           // The same ordinary stop the inline answer names (the eighth batch).
@@ -29901,7 +30064,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // SAVED AS THE SITE'S DRAFT, NOT PUBLISHED (2026-10-16).
         ...(pages.draft && typeof pages.draft === "object" ? { draft: pages.draft } : {}),
         buildFacts: buildFacts({
-          images: pages.images, context: contextOut, unwritten: pages.unwritten, salvaged: pages.salvaged,
+          images: pages.images, context: contextOut, unwritten: pages.unwritten, salvaged: pages.salvaged, compileRepaired: pages.compileRepair,
           checks: buildChecks(pages),
           // THE CUSTOMER'S ATTACHED LOGO (#168), told by the reply writer.
           ownLogo,
@@ -33386,7 +33549,7 @@ async function handleRequest(request, env, ctx) {
       // A PART'S ROUTING JOB WRITES NO REPLY: its answer is read by the
       // request's own step, never shown as it is.
       const rReplyAsk = !rJob && rb && rb.hasSite === true && rb.firstBuild !== true
-        ? replyAsked(rb, { slug: typeof rb.slug === "string" ? rb.slug : undefined, name: rb.site && typeof rb.site.name === "string" ? rb.site.name : undefined, pages: rb.site && Array.isArray(rb.site.pages) ? rb.site.pages.map((p) => (typeof p === "string" ? p : p && typeof p.path === "string" ? p.path : "")).filter(Boolean) : [] })
+        ? replyAsked(rb, { slug: typeof rb.slug === "string" ? rb.slug : undefined, name: rb.site && typeof rb.site.name === "string" ? rb.site.name : undefined, pages: rb.site && Array.isArray(rb.site.pages) ? rb.site.pages.map((p) => (typeof p === "string" ? p : p && typeof p.path === "string" ? p.path : "")).filter(Boolean) : [], uid: ru && typeof ru.id === "string" ? ru.id : undefined })
         : null;
       // THE SAME MESSAGE UNDER ITS KEY, ANSWERED FROM THE KEPT ANSWER (audit
       // A13-1): before the balance read, any model and the reply writer.
@@ -34168,7 +34331,7 @@ async function handleRequest(request, env, ctx) {
         }
         let accepted = null;
         try {
-          accepted = await acceptRequest(env, ctx, { uid: ru.id, rb, slug: rKeySlug, key: rKey, out: rOut, ask: rAsk, waiting: rWaiting, instruction: rInstruction !== undefined ? rInstruction : rOut.resolved });
+          accepted = await acceptRequest(env, ctx, { uid: ru.id, rb, slug: rKeySlug, key: rKey, out: rOut, ask: rAsk, waiting: rWaiting, instruction: rInstruction !== undefined ? rInstruction : rOut.resolved, join: true });
         } catch (e) { console.error("request accept:", rKeySlug, errorClassForLog(e)); accepted = { failed: true }; }
         // OUR STORE FAILED AROUND A USABLE ANSWER: the routing call's own
         // failure shape, so the page holds the message, key and all, for
@@ -34366,11 +34529,14 @@ async function handleRequest(request, env, ctx) {
       const rqm = url.pathname.match(/^\/api\/site\/request\/([a-z0-9][a-z0-9-]{0,80})\/([A-Za-z0-9_-]{16,64})$/);
       const rqa = rqm ? null : url.pathname.match(/^\/api\/site\/request\/([a-z0-9][a-z0-9-]{0,80})\/([A-Za-z0-9_-]{16,64})\/approve$/);
       const rqb = rqm || rqa ? null : url.pathname.match(/^\/api\/site\/request\/([a-z0-9][a-z0-9-]{0,80})\/([A-Za-z0-9_-]{16,64})\/buy-again$/);
-      const rlm = rqm || rqa || rqb ? null : url.pathname.match(/^\/api\/site\/requests\/([a-z0-9][a-z0-9-]{0,80})$/);
-      if (!rqm && !rqa && !rqb && !rlm) return Response.json({ error: "not found" }, { status: 404 });
+      // `POST /api/site/request/<slug>/<key>/stop` `{ part }` — ONE PART STOPPED
+      // OR REMOVED (2026-10-23, background work); the rest goes on.
+      const rqp = rqm || rqa || rqb ? null : url.pathname.match(/^\/api\/site\/request\/([a-z0-9][a-z0-9-]{0,80})\/([A-Za-z0-9_-]{16,64})\/stop$/);
+      const rlm = rqm || rqa || rqb || rqp ? null : url.pathname.match(/^\/api\/site\/requests\/([a-z0-9][a-z0-9-]{0,80})$/);
+      if (!rqm && !rqa && !rqb && !rqp && !rlm) return Response.json({ error: "not found" }, { status: 404 });
       {
         if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "requests are not available" }, { status: 503 });
-        const qSlug = (rqm || rqa || rqb || rlm)[1];
+        const qSlug = (rqm || rqa || rqb || rqp || rlm)[1];
         const qOwner = await siteOwnerBySlug(qSlug, env).catch(() => null);
         if (qOwner && qOwner !== qu.id) return Response.json({ error: "not found" }, { status: 404 });
         // `POST /api/site/request/<slug>/<key>/approve` `{ part }` — THE GO-AHEAD
@@ -34410,6 +34576,20 @@ async function handleRequest(request, env, ctx) {
           if (bOut.status === 409) return Response.json({ ok: false, error: "not-held", request: bView }, { status: 409 });
           if (bOut.status === 503) return Response.json({ ok: false, error: "could not release the purchase", request: bView }, { status: 503 });
           return Response.json({ ok: true, released: bOut.released, kept: bOut.kept, request: bView });
+        }
+        if (rqp) {
+          if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
+          const pb = await readJsonBody(request, { max: 4096 });
+          const pPart = pb.ok && pb.body && Number.isInteger(pb.body.part) ? pb.body.part : -1;
+          if (pPart < 0) return Response.json({ ok: false, error: "which part?" }, { status: 400 });
+          let pOut;
+          try { pOut = await stopRequestPart(env, ctx, qSlug, rqp[2], qu.id, pPart); }
+          catch (e) { console.error("request part stop:", qSlug, errorClassForLog(e)); return Response.json({ ok: false, error: "could not stop that part" }, { status: 503 }); }
+          if (pOut.status === 404) return Response.json({ error: "not found" }, { status: 404 });
+          const pView = pOut.rec ? requestView(pOut.rec, { progress: await progressForRequest(env, pOut.rec), said: await saidForRequest(env, pOut.rec) }) : undefined;
+          if (pOut.status === 409) return Response.json({ ok: false, error: "not-running", request: pView }, { status: 409 });
+          if (pOut.status === 503) return Response.json({ ok: false, error: "could not stop that part" }, { status: 503 });
+          return Response.json({ ok: true, request: pView });
         }
         if (rlm) {
           if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
@@ -34455,7 +34635,7 @@ async function handleRequest(request, env, ctx) {
         const qOut = { ok: true, request: requestView(qRec, { progress: await progressForRequest(env, qRec), said: await saidForRequest(env, qRec), runs: await runsForRequest(env, qRec), prepUse: await prepUseForRequest(env, qRec) }) };
         // WRITTEN, OR STILL BEING WRITTEN (2026-10-04): the page waits for it
         // while it is `pending`, and says the statuses as they are once failed.
-        if (reply && typeof reply.text === "string") return Response.json({ ...withReplyText(qOut, reply.text), replyFor: reply.for });
+        if (reply && typeof reply.text === "string") return Response.json({ ...withReplyText(qOut, reply.text, reply.suggested), replyFor: reply.for });
         return Response.json(reply ? { ...qOut, replyState: reply.state, replyFor: reply.for } : qOut);
       }
     }
@@ -35360,7 +35540,7 @@ async function handleRequest(request, env, ctx) {
             const ebRaw = await request.text().catch(() => "");
             let eb = {};
             try { const p = JSON.parse(ebRaw); if (p && typeof p === "object" && !Array.isArray(p)) eb = p; } catch { eb = {}; }
-            Object.assign(eReplyOut, replyAsked(eb, { slug: ownerSlug, job: false }));
+            Object.assign(eReplyOut, replyAsked(eb, { slug: ownerSlug, job: false, uid: ou && typeof ou.id === "string" ? ou.id : undefined }));
 
             // ── ONE FORK, AND NOTHING BELOW IT CAN TELL ───────────────────
             //
@@ -35989,6 +36169,9 @@ async function handleRequest(request, env, ctx) {
               // gate. A rung that stored nothing new to translate costs nothing
               // more.
               pendingPublish = { ...args, pages: eSrc, renamed: Object.keys(renamed).length ? renamed : null, parts, models: modelsFor(eb && eb.picker), charge: (usage) => eCharge({ langUsage: usage }), charges: eCharges };
+              // THE PAGES THIS MESSAGE WROTE, for the seam's compile repair (2026-10-23):
+              // only these may be repaired; its spend goes on the edit's own bill.
+              pendingPublish.touched = writtenPaths(eSrcAt0, eSrc); pendingPublish.chargeRepair = (usage) => eCharge(...usage);
               // A DEFERRED PUBLISH REPORTS SUCCESS, because from the branch's
               // point of view its work IS done — it has stored what it changed
               // and handed over the pages. `files` and `render` are absent until
@@ -40149,7 +40332,19 @@ async function handleRequest(request, env, ctx) {
               // other pages' parts stored earlier fill the budget and the one
               // the customer is asking about is withheld as "too long".
               const pOwnParts = [...String((target && target.source) || "").matchAll(/["'](?:@\/routes\/|\.\/)-parts\/([^"'/]+?)(?:\.tsx)?["']/g)].map((m) => m[1]);
-              const pSentParts = partsSent(pStoredParts, { unreadable: !pPartsRead.ok, first: pOwnParts });
+              // THE FILE PICKER (2026-10-23, idea #21): on a big site one quick
+              // call picks which components the writer is shown; the page and
+              // every part it imports always are. `null` below the threshold,
+              // `only: null` when it failed — both send what was sent before.
+              // Its usage rides this rung's one bill. The wall below reads the same
+              // `only`; measured equivalent today (a returned part the page does
+              // not import is already held, `partsHeld`), kept so the prompt and
+              // the wall cannot disagree.
+              const ePick = pPartsRead.ok ? await pickFiles({ send: jobSend(eJob, quickSend(env, "file-pick")) },
+                { request: eInstruction, pages: eSrc, parts: pStoredParts, targets: [target.path], model: eModels.quick }) : null;
+              const pPartsOnly = ePick && ePick.only ? ePick.only.parts : undefined;
+              if (ePick) { try { if (editTrace) editTrace.mark("file_pick", ePick.mark.status, ePick.mark); } catch { /* never */ } }
+              const pSentParts = partsSent(pStoredParts, { unreadable: !pPartsRead.ok, first: pOwnParts, only: pPartsOnly });
               // AND THE KIT SIGNATURES FOR THE PAGE BEING EDITED. `plan` is
               // how `siteComponentApi` is reached, and without it the writer
               // was rewriting a page built from `<Accordion>` with no idea of
@@ -40236,7 +40431,7 @@ async function handleRequest(request, env, ctx) {
                   // replaced the real file by name. `partsSent` splits the two
                   // lists from one input, so no component can be in both and
                   // none can be missing from both.
-                  tsx: eLook2.tsx, parts: pStoredParts, partsUnreadable: !pPartsRead.ok, partsFirst: pOwnParts,
+                  tsx: eLook2.tsx, parts: pStoredParts, partsUnreadable: !pPartsRead.ok, partsFirst: pOwnParts, partsOnly: pPartsOnly,
                   gif: eLook2.gif, qr: eLook2.qr, three: eLook2.three,
                   // AND THE LOOK IT IS WEARING, sent as ALREADY APPLIED. The
                   // stylesheet is appended last at build time so it wins on
@@ -40769,7 +40964,7 @@ async function handleRequest(request, env, ctx) {
                 // lesson `pageCredits` already carries. `twSpent` is null when
                 // the cheap rung never reached the provider.
                 files: pPub.files, render: pPub.render, renderNote: pPub.renderNote, checks: pPub.checks, draft: pPub.draft,
-                cost: await eCharge(eGen && eGen.usage, twSpent, twJudged, pKeep.usage, ...pPartUsage), usage: eGen && eGen.usage, tweakUsage: twSpent || undefined,
+                cost: await eCharge(eGen && eGen.usage, twSpent, twJudged, pKeep.usage, ...pPartUsage, ePick && ePick.usage), usage: eGen && eGen.usage, tweakUsage: twSpent || undefined,
                 // THE CHEAP WRITER'S FILE DID NOT PARSE, SO THIS ONE RAN
                 // (A03-5). Omitted otherwise, so an ordinary reply is unchanged.
                 tweakFallback: twFallback || undefined,
@@ -41445,6 +41640,8 @@ async function handleRequest(request, env, ctx) {
               // body would report `undefined` on every multi-rung message —
               // the works-but-cannot-say-so shape, arriving through the fix.
               files: finalPub ? finalPub.files : (last && last.body.files),
+              // A PAGE THE SEAM'S COMPILE REPAIR FIXED (2026-10-23), a fact for the reply.
+              compileRepaired: finalPub && finalPub.compileRepaired ? finalPub.compileRepaired : undefined,
               render: finalPub ? finalPub.render : (last && last.body.render),
               // A TRANSLATED WORDING STORED AS THE OWNER'S OWN (#196) is said beside it.
               renderNote: [...ranOk.map((d) => d.body.langNote), finalPub ? finalPub.renderNote : (last && last.body.renderNote)].filter((x) => typeof x === "string" && x).join(" ") || undefined,
@@ -41462,7 +41659,9 @@ async function handleRequest(request, env, ctx) {
               // …PLUS WHAT THE ONE PUBLISH CHARGED FOR ITS TRANSLATIONS (run 39):
               // placed inside the spine after every step had billed, so no
               // step's `cost` can carry it and the sum alone under-reports.
-              cost: done.reduce((n, d) => n + (Number(d.body && d.body.cost) || 0), 0) + (finalPub ? Number(finalPub.langCharged) || 0 : 0),
+              cost: done.reduce((n, d) => n + (Number(d.body && d.body.cost) || 0), 0) + (finalPub ? Number(finalPub.langCharged) || 0 : 0)
+                // AND WHAT THE SEAM'S COMPILE REPAIR CHARGED (2026-10-23), only when it fixed the build.
+                + (finalPub && finalPub.compileRepaired ? Number(finalPub.compileRepaired.charged) || 0 : 0),
               // WHAT WAS BILLED, from the one list `eCharge` appends to — so the
               // receipt is assembled from what was charged rather than rebuilt
               // beside it. Two lists of the same thing drift, and the drift here
@@ -41652,7 +41851,7 @@ async function handleRequest(request, env, ctx) {
             const abRaw = await request.text().catch(() => "");
             let ab = {};
             try { const p = JSON.parse(abRaw); if (p && typeof p === "object" && !Array.isArray(p)) ab = p; } catch { ab = {}; }
-            Object.assign(aReplyOut, replyAsked(ab, { slug: ownerSlug, job: false }));
+            Object.assign(aReplyOut, replyAsked(ab, { slug: ownerSlug, job: false, uid: ou && typeof ou.id === "string" ? ou.id : undefined }));
 
             // ── THE SAME FORK THE EDIT ROUTE HAS (2026-09-03, run 21) ─────
             //
@@ -45052,7 +45251,19 @@ async function handleRequest(request, env, ctx) {
             // on a change that worked it is alarming about nothing; what they
             // CAN act on — a page that did not survive, a component that was
             // not replaced — already has its own sentence.
-            let aPagesSent = priorPagesSent(aWriterSrc || [], { keep: aKeepPages });
+            // THE FILE PICKER (2026-10-23, idea #21): on a big site, and only
+            // for the whole-site writer (a scoped writer is narrowed already),
+            // one quick call picks the pages and components the writer is
+            // shown; the pages this addition touches and what they import
+            // always are. A file not picked is withheld — named, never
+            // returnable — and a failed pick sends everything. Billed on this
+            // addition's page bill.
+            const aPick = !aWriterScoped && aPartsRead.ok ? await pickFiles({ send: aQuick("add:file-pick") },
+              { request: aInstruction, pages: aWriterSrc, parts: aWriterParts, targets: aKeepPages, model: aModels.quick }) : null;
+            if (aPick) aMark("file_pick", aPick.mark.status, aPick.mark);
+            const aPickOnly = () => (!aWriterScoped && aPick && aPick.only ? aPick.only : null);
+            if (aPickOnly()) aSentParts = partsSent(aWriterParts, { unreadable: !aPartsRead.ok, only: aPickOnly().parts });
+            let aPagesSent = priorPagesSent(aWriterSrc || [], { keep: aKeepPages, only: aPickOnly() ? aPickOnly().pages : null });
             if (aPagesSent.withheld.length) {
               // EVERY ONE (2026-10-07): twelve were kept for the record.
               aUnseenPages = aPagesSent.withheld.slice();
@@ -45257,7 +45468,7 @@ async function handleRequest(request, env, ctx) {
                 // ONCE and read twice: here, and by the wall below that
                 // decides whether a returned part may replace a stored one.
                 tsx: aWriterScoped ? aViewTsx(aMerged.tsx, (t) => !(Array.isArray(aLook.tsx) ? aLook.tsx : []).some((o) => o && aNameKey(o.name) === aNameKey(t.name))) : aMerged.tsx,
-                parts: aWriterParts, partsUnreadable: !aPartsRead.ok,
+                parts: aWriterParts, partsUnreadable: !aPartsRead.ok, partsOnly: aPickOnly() ? aPickOnly().parts : undefined,
                 gif: aMerged.gif, qr: aMerged.qr, three: aMerged.three,
                 // AND THE LOOK IT IS WEARING. The stylesheet is sent as
                 // ALREADY APPLIED, never as something to reproduce: it is
@@ -45272,7 +45483,7 @@ async function handleRequest(request, env, ctx) {
               // THE ANSWERS, through the transport every other call here uses.
               clarifyCall(jobCall(aJob, pagesCall(env)), { shown: () => aCtxShown, all: () => aCtxAll || [], part: aPartShown }), "", aKeepPages,
               // AN OWN-PARTS SITE'S ADDITION writes its own parts too (2026-10-23).
-              { ownParts: ownPartsSite(aSrc, aStoredParts) });
+              { ownParts: ownPartsSite(aSrc, aStoredParts), only: aPickOnly() ? aPickOnly().pages : null });
               aPagesMs = Date.now() - aPagesT0;
               aPagesWrote = aGen && aGen.input && Array.isArray(aGen.input.pages) ? aGen.input.pages.length : 0;
               aMark("pages", "ok", { files: aPagesWrote, ms: aPagesMs });
@@ -45848,7 +46059,7 @@ async function handleRequest(request, env, ctx) {
             // own reserve, #4 — a second floor of 1, the translation charge's
             // own trade — and the reply carries the sum. A refusal here stops
             // BEFORE the look is stored.
-            const aBill = aFirstPlaced ? pageCredits(aGen && aGen.usage) : pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage);
+            const aBill = aFirstPlaced ? pageCredits(aGen && aGen.usage, aPick && aPick.usage) : pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage, aPick && aPick.usage);
             // PREPARED: the pages are written and recorded; nothing is charged,
             // stored, bought or compiled here.
             if (aPrep) return aPrepStop();
@@ -46478,8 +46689,8 @@ async function handleRequest(request, env, ctx) {
               const aClock = job && job.budget && typeof job.budget.canRepair === "function" ? job.budget : null;
               const room = !aClock || aClock.canRepair(aRepairNeedMs);
               aMark("compile-repair", "start", { room, touched: aTouched.length });
-              aCompileRepair = await compileRepairRound({
-                error, pages, touched: aTouched, room,
+              aCompileRepair = await compileRepairRounds({
+                error, pages, touched: aTouched, room: () => !aClock || aClock.canRepair(aRepairNeedMs),
                 send: quickSend(env, "repair", repairClock(aClock)), model: aModels.quick, compile: recompile,
               });
               aMark("compile-repair", aCompileRepair.ran ? (aCompileRepair.built ? "ok" : "fail") : "skip",
@@ -47330,6 +47541,8 @@ async function handleRequest(request, env, ctx) {
               // hold, each ending "published as it is". A fix that held says
               // nothing, the add step's own rule.
               files: aPub.files, render: aPub.render,
+              // A PAGE THE COMPILE REPAIR FIXED (2026-10-23), a fact for the reply.
+              compileRepaired: aCompileRepair && aCompileRepair.built ? { pages: aCompileRepair.repaired.slice(), rounds: aCompileRepair.rounds } : undefined,
               renderNote: [aPub.renderNote, addRepairNote(aRepairRound)].filter(Boolean).join(" ") || undefined,
               checks: aPub.checks, draft: aPub.draft,
               // WHAT THE ROUND DID, for a reader that judges rather than reads:
@@ -48552,8 +48765,10 @@ async function handleRequest(request, env, ctx) {
               let wrote = false;
               for (const ev of evs) {
                 if (typeof ev.line === "string") continue;
+                // THE LINES ALREADY SHOWN go with each new one (2026-10-23,
+                // the owner's voice), so no line repeats an earlier one.
                 const facts = securityProgressFacts(ev.kind, ev.data);
-                ev.line = facts ? (await scanSay(facts, "", url.searchParams.get("picker"), "WRITE ONE SHORT LINE, UNDER 120 CHARACTERS, SHOWN WHILE THE CHECK RUNS.", 160)) || "" : "";
+                ev.line = facts ? (await scanSay(facts, "", url.searchParams.get("picker"), scanLineRule(evs.map((e) => e.line)), 160)) || "" : "";
                 wrote = true;
               }
               if (wrote) { try { await env.SITES_BUCKET.put(progKey(k), JSON.stringify(rec)); } catch { /* worded again next read */ } }
@@ -48575,7 +48790,7 @@ async function handleRequest(request, env, ctx) {
                 const words = url.searchParams.get("message") || "";
                 [said, working] = await Promise.all([
                   scanSay(securityOfferFacts({ plan: std, credits: stdCredits }), words, url.searchParams.get("picker"), "THIS IS AN OFFER: NOTHING HAS RUN YET. SAY WHAT THE CHECK WILL LOOK AT AND ITS PRICE, AND THAT THEY CONFIRM WITH THE BUTTON BELOW."),
-                  scanSay(securityWorkingFacts({ plan: std }), words, url.searchParams.get("picker"), "WRITE ONE SHORT LINE, UNDER 120 CHARACTERS, SHOWN WHILE THE CHECK RUNS.", 160),
+                  scanSay(securityWorkingFacts({ plan: std }), words, url.searchParams.get("picker"), SCAN_LINE_RULE, 160),
                 ]);
               }
               return Response.json({ ok: true, report: rep, estimate: {

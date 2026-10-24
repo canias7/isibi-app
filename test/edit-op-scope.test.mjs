@@ -45,6 +45,7 @@
 // being papered over by a stub that edits whatever it sees.
 
 import { PICTOGRAPH } from "./fixtures/pictograph.mjs";
+import { tweakInput, asEdits } from "./fixtures/tweak-edits.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -209,7 +210,7 @@ function withWire(answers, run, slug = "") {
         const source = after(args, ")\n") === null ? "" : String(args.messages[0].content).slice(String(args.messages[0].content).indexOf(")\n", String(args.messages[0].content).indexOf("\n\nTHE FILE (")) + 2);
         seen.writers.push({ path, instruction, source });
         const named = headingsOf(source).some((h) => String(instruction).includes(h));
-        return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: { source: named ? bandsSwapped(source) : source } }], usage });
+        return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: asEdits({ source: named ? bandsSwapped(source) : source }, source) }], usage });
       }
       if (!Object.hasOwn(answers, tool)) return new Response("no stub for tool " + tool, { status: 503 });
       return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: answers[tool] }], usage });

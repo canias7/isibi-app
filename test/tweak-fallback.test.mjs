@@ -14,11 +14,15 @@
 // suite; a Worker isolate without it is covered at the module (`tweakSyntax`).
 
 import test from "node:test";
+import { tweakInput, asEdits } from "./fixtures/tweak-edits.mjs";
 import assert from "node:assert/strict";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "./fixtures/cf-containers.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
-import { TWEAK_TOOL, readTweak, tweakSyntax, tweakParser } from "../builder/site-tweak.mjs";
+import { TWEAK_TOOL, readTweak as readTweakRaw, tweakSyntax, tweakParser } from "../builder/site-tweak.mjs";
+import { asEditsReply } from "./fixtures/tweak-edits.mjs";
+// The tool answers with exact edits (idea #18): a whole-file answer here is turned into them.
+const readTweak = (r, o) => readTweakRaw(asEditsReply(r, o && o.source), o);
 import { SITE_PAGES_TOOL } from "../builder/page-gen.mjs";
 
 const USER = { id: "u-twfb-1", email: "owner@example.com" };
@@ -78,7 +82,7 @@ async function drive({ answers, compileOk = true }) {
       const tool = (args.tool_choice && args.tool_choice.name) || "";
       seen.tools.push(tool);
       if (!Object.hasOwn(answers, tool)) return new Response("no stub for tool " + tool, { status: 503 });
-      return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: answers[tool] }], usage: { input_tokens: 1000, output_tokens: 500 } });
+      return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: tool === "write_tweak" ? tweakInput(answers[tool], args) : answers[tool] }], usage: { input_tokens: 1000, output_tokens: 500 } });
     }
     if (isDispatchUpload(u)) return dispatchOk();
     return new Response("unavailable", { status: 503 });
@@ -170,7 +174,9 @@ test("a rewrite that also fails ends as today's compile failure, refunded the sa
   // TODAY'S FAILURE: the tweak declines, the rewrite's page fails the compile.
   const control = await drive({ compileOk: false, answers: { [TWEAK_TOOL.name]: { cannot: "too large" }, [SITE_PAGES_TOOL.name]: pagesBroken } });
   const r = await drive({ compileOk: false, answers: { [TWEAK_TOOL.name]: { source: TWEAK_BROKEN }, [SITE_PAGES_TOOL.name]: pagesBroken } });
-  assert.deepEqual(writers(r), [TWEAK_TOOL.name, SITE_PAGES_TOOL.name], "not one tweak then one rewrite (never a loop): " + JSON.stringify(r.tools));
+  // AFTER THEM, THE SEAM'S COMPILE REPAIR (2026-10-23) asks the tweak tool once more; its broken answer is refused before any compile.
+  assert.deepEqual(writers(r).slice(0, 2), [TWEAK_TOOL.name, SITE_PAGES_TOOL.name], "not one tweak then one rewrite (never a loop): " + JSON.stringify(r.tools));
+  assert.ok(writers(r).slice(2).every((t) => t === TWEAK_TOOL.name) && writers(r).length <= 4, "the repair is bounded: " + JSON.stringify(r.tools));
   assert.equal(r.status, control.status, "a different status from today's failure: " + JSON.stringify(r.body));
   assert.ok(r.status >= 400, "a broken rewrite was reported as a success");
   assert.equal(r.body.ok, false);
