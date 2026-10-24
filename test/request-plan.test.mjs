@@ -12,7 +12,7 @@ import {
   planParts, carveParts, newRequest, readRequest, nextStep, settleState, answerless, readRun, readRoute, handOff,
   jobKey, readJobKey, parseLiveKey, liveKey, recordKey, isRequestKey, answerPart, askedAgain, cancelPart, noteJobId,
   noteFilingRefused, noteOffered, questionsToOffer, jobBody, readRequestOf, requestView, liveJobIds, doneSummary, RETRIES, WAIT_MS,
-  LIVE_ROOT, SWEEP_CURSOR_KEY, chargedOf, notDoneOf, notePrepared, takePrep, partOf,
+  LIVE_ROOT, SWEEP_CURSOR_KEY, chargedOf, notDoneOf, notePrepared, takePrep, partOf, SPLIT_MAX,
 } from "../builder/request.mjs";
 import { readDepends, readPartOf, partBlock, withPart, PART_HEADING } from "../builder/site-ask.mjs";
 import { requestReplyFacts } from "../builder/site-reply.mjs";
@@ -265,6 +265,11 @@ test("next step: a hand-over files the next step with the same words, marked; a 
   assert.equal(r.record.parts[0].route.layer, "text");
   assert.equal(r.record.parts[0].route.handedOff, true);
   rec = filed(r, "j2");
+  // ⚠ RE-ANCHORED 2026-10-24 (auto-split): below the bound the part splits
+  // itself (routed again, `splitAsk`); at the bound it ends as before.
+  const below = step(rec, { [KEY + "-p0-2"]: row("done", { ok: false, escalate: true, layer: "look", reason: "x" }) });
+  assert.deepEqual([below.record.parts[0].status, below.record.parts[0].phase, below.record.parts[0].splitAsk], ["queued", "route", { why: "handed-off", reason: "x" }]);
+  rec.parts[0].splitDepth = SPLIT_MAX;
   r = step(rec, { [KEY + "-p0-2"]: row("done", { ok: false, escalate: true, layer: "look", reason: "x" }) });
   // NO GO-AHEAD FOR THE FULL REWRITE (owner, 2026-10-24): too big for the
   // smaller steps, said and ended; the request goes on for the other part.
@@ -304,6 +309,8 @@ test("next step (owner, 2026-10-24): a climb is never the full rewrite — a sit
   // ANY OTHER CLIMB: too big for the smaller steps, ended, no go-ahead.
   rec = rec0({ intent: "edit", layer: "text" });
   rec = filed(step(rec), "j1");
+  // ⚠ RE-ANCHORED 2026-10-24 (auto-split): at the split bound.
+  rec.parts[0].splitDepth = SPLIT_MAX;
   r = step(rec, { [KEY + "-p0-1"]: row("done", { ok: false, escalate: true, reason: "too-much-text", cost: 0 }) });
   assert.deepEqual([r.record.parts[0].status, r.record.parts[0].why, r.record.parts[0].split], ["failed", "too-big", "climb"]);
   assert.equal(r.record.parts[0].approvalAt, undefined);

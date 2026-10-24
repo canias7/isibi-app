@@ -421,25 +421,30 @@ test("CONTROL: a hop to a cheaper rung posts one edit there with the same ask, s
 // fallback). A classified climb used to start the rewrite; now it is said, at
 // no cost, and nothing is posted after it.
 const CLIMB_SAID = "That needs more than the quicker steps can make in one go, so I haven’t changed anything, and I won’t rewrite your whole site for it. Send it as smaller changes, one at a time (each page or section on its own), and I’ll make each.";
-test("a classified climb is said, never the rewrite, straight back and queued (2026-10-24)", async () => {
+// ⚠ RE-ANCHORED 2026-10-24 (auto-split): the climb first routes the same words
+// again, once, carrying the step's reason (`split`); only a second climb is said.
+const splits = (o) => o.reqs.filter((r) => r.kind === "route").map((r) => r.body && r.body.split);
+test("a classified climb splits itself once (routed again with its reason), then is said, never the rewrite, straight back and queued (2026-10-24)", async () => {
   for (const [edit, poll, trail] of [
-    [[ok(CLIMB)], [], ["POST " + EDIT]],
-    [[RECEIPT], [stored(CLIMB)], ["POST " + EDIT, "GET " + POLLED]],
+    [[ok(CLIMB), ok(CLIMB)], [], ["POST " + EDIT, "POST " + EDIT]],
+    [[RECEIPT, RECEIPT], [stored(CLIMB), stored(CLIMB)], ["POST " + EDIT, "GET " + POLLED, "POST " + EDIT, "GET " + POLLED]],
   ]) {
-    const o = await drive({ answers: { route: [routeTo("text")], edit, poll } });
-    assert.deepEqual(o.trail, trail, "something was posted after the climb");
+    const o = await drive({ answers: { route: [routeTo("text"), routeTo("text")], edit, poll } });
+    assert.deepEqual(o.trail, trail, "something else was posted after the climb");
+    assert.deepEqual(splits(o), [undefined, { why: "climb", reason: "too-much-text" }]);
     assert.ok(!o.reqs.some((r) => r.kind === "rewrite"), "the rewrite was started");
     assert.deepEqual(o.said, [CLIMB_SAID]);
   }
 });
 
-test("DUPLICATE EXECUTION — one hop, then up is said; and an escalate naming the layer it came from is said, never the rewrite (2026-10-24)", async () => {
+test("DUPLICATE EXECUTION — one hop, then up splits once, then is said; and an escalate naming the layer it came from likewise, never the rewrite (2026-10-24)", async () => {
   // The hop's own escalate does not hop again: `escalateAction` allows one.
-  const twice = await drive({ answers: { route: [routeTo("data")], edit: [ok(HOP), ok(PAGE_HOP)] } });
-  assert.deepEqual(twice.trail, ["POST " + EDIT, "POST " + EDIT]);
+  const twice = await drive({ answers: { route: [routeTo("data"), routeTo("data")], edit: [ok(HOP), ok(PAGE_HOP), ok(HOP), ok(PAGE_HOP)] } });
+  assert.deepEqual(twice.trail, ["POST " + EDIT, "POST " + EDIT, "POST " + EDIT, "POST " + EDIT]);
+  assert.deepEqual(splits(twice), [undefined, { why: "climb", reason: "needs-place" }]);
   assert.deepEqual(twice.said, [CLIMB_SAID]);
-  const same = await drive({ answers: { route: [routeTo("text")], edit: [ok({ ...HOP, layer: "text" })] } });
-  assert.deepEqual(same.trail, ["POST " + EDIT]);
+  const same = await drive({ answers: { route: [routeTo("text"), routeTo("text")], edit: [ok({ ...HOP, layer: "text" }), ok({ ...HOP, layer: "text" })] } });
+  assert.deepEqual(same.trail, ["POST " + EDIT, "POST " + EDIT]);
   assert.deepEqual(same.said, [CLIMB_SAID]);
 });
 

@@ -1,5 +1,13 @@
 # Owner Notes
 
+## 2026-10-24 — a change too big for the quick steps now splits itself and carries on (branch `auto-split-edits`, not merged, not deployed)
+
+- Before: a change too big for the quicker steps stopped and asked you to "send it as smaller changes". Now it re-plans itself: the router is told why the step could not do it and splits it into parts, and those parts run in the panel like any others. You never resend.
+- A single change sent on its own (not part of a longer request) is sent again by the page with the same reason and becomes a request with parts.
+- Guard: a part that comes back too big again may split once more; after that it stops and says why. Changes that smaller parts cannot fix (a change of what kind of site it is, a site without its saved design) stop as before. The full rewrite is never offered.
+- Money: nothing done is redone; the re-planning call on a request is free, as is the routing of the parts it makes; each part's own work is charged as usual. One gap for your decision: on a single change sent on its own, the page's second routing call is charged as an ordinary message (1–2 credits).
+- Tests: 8 new with supplied answers; 7 fail on main (the 8th is a control). Record: `docs/history/2026-10-24-auto-split-edits.md`.
+
 ## 2026-10-24 — combine-d: thirteen finished branches in one candidate (not merged, not deployed)
 
 - Combined from `main` (692087cde): reply bubble, progress voice, per-device builds, stand-ins and refunds, first-build database and limits, no add-on caps, "tasks" label, build panel Stop, edit file picker, rebuild scope, build questions, request needs, visual review, and two docs branches.

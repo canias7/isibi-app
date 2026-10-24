@@ -1460,7 +1460,7 @@ function liveBlock({ canAsk = false, pending = null, context = [], part = null }
   return waiting + (told ? "\n" + told : "") + asking;
 }
 
-export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false, model = ASK_MODEL, live = false, canAsk = false, pending = null, context = [], part = null, tablesNone = false, history = null, summary = null, answering = false, items = null, device = "" } = {}) {
+export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false, model = ASK_MODEL, live = false, canAsk = false, pending = null, context = [], part = null, tablesNone = false, history = null, summary = null, answering = false, items = null, device = "", split = null } = {}) {
   // A FIRST BUILD'S MESSAGE IS CUT TO ITS OWN BOUND, AS IT ALWAYS WAS; a site
   // that exists sends it whole (2026-10-03, the size policy): the route has
   // already refused one past `MAX_INPUT_CHARS`, so nothing here shortens what
@@ -1545,7 +1545,7 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
     // THE CONVERSATION SO FAR (2026-10-14), its small window only — enough to
     // tell "do that" from a question and to write `resolved` — before their
     // message. Absent when the page sent none.
-    messages: [{ role: "user", content: "THEIR SITE\n" + siteDigest(site, { tablesNone }) + state + round + (summaryBlock(summary) ? "\n\n" + summaryBlock(summary) : "") + (historyBlock(history) ? "\n\n" + historyBlock(history) : "") + (live && hasSite && deviceHintLine(device) ? "\n\n" + deviceHintLine(device) : "") + "\n\nTHEIR MESSAGE\n" + text + (live && itemsBlock(items) ? "\n\n" + itemsBlock(items) : "") + (live && partBlock(part) ? "\n\n" + partBlock(part) : "") }],
+    messages: [{ role: "user", content: "THEIR SITE\n" + siteDigest(site, { tablesNone }) + state + round + (summaryBlock(summary) ? "\n\n" + summaryBlock(summary) : "") + (historyBlock(history) ? "\n\n" + historyBlock(history) : "") + (live && hasSite && deviceHintLine(device) ? "\n\n" + deviceHintLine(device) : "") + "\n\nTHEIR MESSAGE\n" + text + (live && itemsBlock(items) ? "\n\n" + itemsBlock(items) : "") + (live && partBlock(part) ? "\n\n" + partBlock(part) : "") + (live && splitBlock(split) ? "\n\n" + splitBlock(split) : "") }],
   };
 }
 
@@ -3062,6 +3062,24 @@ export function partBlock(part) {
       : "");
 }
 
+/**
+ * THE CHANGE WAS TOO BIG FOR ONE STEP (owner, 2026-10-24): what the router is
+ * told when a part, or a standalone edit, is routed again to split itself.
+ * `split` is `{ why, reason? }` (the request's `readSplit`, or the page's
+ * own); anything else is no section. The router is asked to answer the first
+ * piece it can do and hold every other piece back in `alsoAsked`, in the
+ * customer's own words, so each runs as a part of its own; never `build`.
+ */
+export function splitBlock(split) {
+  if (!split || typeof split !== "object" || Array.isArray(split) || typeof split.why !== "string" || !/^[a-z-]{1,20}$/.test(split.why)) return "";
+  const reason = typeof split.reason === "string" && /^[a-z0-9_-]{1,40}$/i.test(split.reason) ? split.reason : "";
+  return "THIS WAS TOO BIG FOR ONE STEP\nThe step this was sent to said it needs more than it can make in one go" +
+    (reason ? " (its reason: " + reason + ")" : "") + ". Split it into smaller changes the steps can each make: answer the " +
+    "first of them, and hold every other one back in alsoAsked, copied word for word from their message, so each runs on " +
+    "its own, in order, with dependsOn where one needs another. Every part of what they asked must be in one of them. " +
+    "Never answer \"build\": the whole site is never rewritten for this.";
+}
+
 /** A model request with the part's section after everything else; the request itself when there is none. */
 export function withPart(request, part) {
   return afterLastUser(request, partBlock(part));
@@ -3270,7 +3288,7 @@ export const KEPT_TURN_CHARS = 2000;
 export const KEPT_STEP = 20;
 export const KEPT_CHARS = 40000;
 const ROUTER_LAST_REPLY = 3200;
-export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, picked = false, hasSite = false, model = ASK_MODEL, tablesFilled = false, tablesNone = false, pagesFilled = false, pagesComplete = true, canAsk: askable = false, context = [], pending = null, part = null, history = null, kept = null, device = "" } = {}) {
+export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, picked = false, hasSite = false, model = ASK_MODEL, tablesFilled = false, tablesNone = false, pagesFilled = false, pagesComplete = true, canAsk: askable = false, context = [], pending = null, part = null, history = null, kept = null, device = "", split = null } = {}) {
   const text = String(message || "").trim();
   // AN EMPTY MESSAGE NEVER REACHES THE MODEL. The composer will not send one, but
   // this is a paid call behind a public route and "the client wouldn't do that"
@@ -3364,7 +3382,7 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
     // reply's call uses, and said in the decision when shown or cut.
     if (shownHistory.turns.length) shown.push("history-shown");
     if (shownHistory.turns.length && (shownHistory.left > 0 || shownHistory.turns.some((t) => t.cut))) shown.push("history-cut");
-    request = askRequest({ items, message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, context: waiting ? told : (partOf ? (readContext(context) || []) : told), part: partOf, tablesNone: tablesNone === true, history: shownHistory.turns.length ? shownHistory : null, summary: keptSummary, answering: canClarify && answering === true && picked !== true, device });
+    request = askRequest({ items, message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, context: waiting ? told : (partOf ? (readContext(context) || []) : told), part: partOf, tablesNone: tablesNone === true, history: shownHistory.turns.length ? shownHistory : null, summary: keptSummary, answering: canClarify && answering === true && picked !== true, device, split: live && hasSite ? split : null });
   } catch (e) {
     return fail("request", e);
   }

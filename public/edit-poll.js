@@ -1061,7 +1061,22 @@
     return "That needs more than the quicker steps can make in one go, so I haven\u2019t changed anything, and I won\u2019t rewrite your whole site for it. Send it as smaller changes, one at a time (each page or section on its own), and I\u2019ll make each.";
   }
 
+  /**
+   * A CLIMB THAT SPLITS ITSELF (owner, 2026-10-24): the split ask a page sends
+   * with the same words routed again (`{ why: "climb", reason? }`), or null
+   * for a reason smaller parts cannot fix — a site with no pages, a change of
+   * what kind of site it is, a site without its saved design — which is said
+   * (`climbSaid`) as before. The request's `SPLIT_NOT`, and `no-source`.
+   */
+  var SPLIT_NOT = ["no-source", "build", "no-look", "no-meta", "needs-pages"];
+  function splitOf(ho) {
+    var why = ho && ho.handOver && typeof ho.handOver.reason === "string" ? ho.handOver.reason : "";
+    if (SPLIT_NOT.indexOf(why) >= 0) return null;
+    return /^[a-z0-9_-]{1,40}$/i.test(why) ? { why: "climb", reason: why } : { why: "climb" };
+  }
+
   var api = {
+    splitOf: splitOf,
     climbSaid: climbSaid,
     FINAL_HEADER: FINAL_HEADER,
     FINAL_VALUE: FINAL_VALUE,

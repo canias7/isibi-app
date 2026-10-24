@@ -289,7 +289,7 @@ import {
 import {
   isRequestKey, requestFlowOn, recordKey as requestRecordKey, liveKey as requestLiveKey, fileKey as requestFileKey, requestReplyKey,
   parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ORPHAN_MARKER_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts, requestMaking,
-  nextStep, readLabels, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, heldPurchaseState, heldReasons, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, requestView, liveJobIds, stopPart, partJobId, appendParts, questionsToOffer, noteOffered,
+  nextStep, readLabels, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, heldPurchaseState, heldReasons, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, readSplit, requestView, liveJobIds, stopPart, partJobId, appendParts, questionsToOffer, noteOffered,
   approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt, editJobOutcome, answerless, wantsEvidence,
 } from "./builder/request.mjs";
 // ONE SIZE POLICY FOR WHAT A CUSTOMER SAYS ON A SITE THAT EXISTS (2026-10-03).
@@ -25211,6 +25211,10 @@ async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, 
   }
   const planned = planParts(message, out, { putOff: answered && ask.putOff ? ask.putOff : [] });
   if (!planned.ok) return null;
+  // A STANDALONE EDIT THAT WAS TOO BIG, SENT AGAIN BY ITS PAGE TO SPLIT ITSELF
+  // (owner, 2026-10-24): its parts have split once already, so each may split
+  // once more and no further (`SPLIT_MAX`).
+  if (readSplit(rb && rb.split)) for (const p of planned.parts) p.splitDepth = 1;
   // EVERY FILE THE MESSAGE CARRIES MUST READ (round 9), or it is not taken on
   // as a request that would hold fewer than it was sent: answered as before,
   // with the page still holding its files.
@@ -34270,6 +34274,11 @@ async function handleRequest(request, env, ctx) {
           // THE PREVIEW'S DEVICE (2026-10-24, per-device edits): a hint the
           // router is told; the customer's words decide. One of three names or none.
           device: readDeviceHint(rb && rb.device),
+          // TOO BIG FOR ONE STEP, ROUTED AGAIN TO SPLIT ITSELF (owner,
+          // 2026-10-24): a part's own ask (`partOf`'s `split`, set by the
+          // request), or a standalone edit's from its page after its step
+          // climbed — read strictly either way (`readSplit`).
+          split: rPart ? (rPart.split || null) : readSplit(rb && rb.split),
           // THE CONVERSATION SO FAR (2026-10-14): the page's own copy of this
           // project's thread, read and windowed by `readHistory` there.
           history: rb.history,
@@ -34607,7 +34616,9 @@ async function handleRequest(request, env, ctx) {
         // A CARVED PART'S ROUTING IS NOT CHARGED (2026-10-23, fix-edit-flow):
         // the message's routing already described it (`partOf`'s `carved`,
         // set by the request, never by a caller). Live: 3 credits, nothing done.
-        if (rJob && rPart && rPart.carved === true) rCost = 0;
+        // …NOR A PART ROUTED AGAIN TO SPLIT ITSELF (2026-10-24): its words were
+        // routed and paid for once; the split is ours, never charged twice.
+        if (rJob && rPart && (rPart.carved === true || !!rPart.split)) rCost = 0;
         else if (rJob) {
           try {
             const rr = rCost > 0 ? await editRpc(env, "edit_reserve", { p_id: rJob.id, p_seq: 1, p_cost: rCost }) : null;

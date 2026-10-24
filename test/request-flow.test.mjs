@@ -917,7 +917,13 @@ test("F3 — a step too big for the smaller steps is never handed to the full re
   // step climbs (`too-much-text`) with no model call — the designed climb.
   const many = Array.from({ length: 610 }, (_, i) => "<p>Line " + (i + 1) + " of our story.</p>").join("");
   const BIG = [{ path: "index.tsx", source: pageSrc("/", "<section>" + many + "</section>") }, { path: "visit.tsx", source: VISIT }];
-  await withPlatform({ slug: slugOf("f3"), pages: BIG, replies: true, answers: { route: [{ intent: "edit", layer: "text", alsoAsked: [ADD] }, { intent: "addon" }], ...GALLERY } }, async (P) => {
+  await withPlatform({ slug: slugOf("f3"), pages: BIG, replies: true, answers: {
+    // ⚠ RE-ANCHORED 2026-10-24 (auto-split): part 0 splits itself up to
+    // SPLIT_MAX times — each routing asked to split answers the text step
+    // again, which climbs again — then ends too big; part 1 is the addition.
+    route: (args, n) => (n === 0 ? { intent: "edit", layer: "text", alsoAsked: [ADD] } : JSON.stringify(args).includes("THIS WAS TOO BIG FOR ONE STEP") ? { intent: "edit", layer: "text" } : { intent: "addon" }),
+    ...GALLERY,
+  } }, async (P) => {
     const r = await sendMessage(P, { message: "Reword every line to sound warmer, and " + ADD + "." });
     const { rec } = await settle(P, r.key);
     // ENDED, NOT WAITING: too big for the smaller steps, and no go-ahead for

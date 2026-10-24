@@ -1003,7 +1003,7 @@ export function heldFor(ms, signal) {
 }
 
 /** The routing call as the browser makes it, with the message's key (`idem`). */
-export async function sendMessage(P, { message, key = newKey(), images, ask, attached, tz = "Europe/London", recent, picker = "sonnet", site } = {}) {
+export async function sendMessage(P, { message, key = newKey(), images, ask, attached, tz = "Europe/London", recent, picker = "sonnet", site, split } = {}) {
   const worker = await loadWorker();
   return P.run(async () => {
     const ctx = makeCtx();
@@ -1011,6 +1011,8 @@ export async function sendMessage(P, { message, key = newKey(), images, ask, att
       message, site: site || { name: "Harbour Loaf", url: "https://" + P.slug + ".gofarther.app", pages: ROUTES, tables: [] },
       picker, firstBuild: false, brief: message, qa: [], answering: !!ask, attached: attached === undefined ? !!(images && images.length) : attached,
       slug: P.slug, hasSite: true, idem: key, tz, ...(recent ? { recent } : {}), ...(images ? { images } : {}), ...(ask ? { ask } : {}),
+      // A STANDALONE EDIT SENT AGAIN TO SPLIT ITSELF (2026-10-24), as the page sends it.
+      ...(split ? { split } : {}),
     };
     const go = (async () => {
       const res = await worker.fetch(new Request("https://gofarther.dev/api/site/route", {
