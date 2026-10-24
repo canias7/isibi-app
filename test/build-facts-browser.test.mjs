@@ -97,7 +97,9 @@ test("the reply writer's account is shown, and the old fixed sentences are not s
   const { page, browser, errors } = await openApp(newSite(), { ...BUILT, reply: told, replySource: "model" });
   try {
     await send(page, "Harbour Loaf. Like https://a.example https://b.example https://c.example");
-    await page.waitForTimeout(800);
+    // THE REPLY IS NOW THE BUBBLE (2026-10-24), which reveals its words over
+    // time, so this waits for the whole account rather than a fixed 800 ms.
+    await page.waitForFunction((x) => document.getElementById("stThread").innerText.includes(x), told, { timeout: 15000 }).catch(() => {});
     const t = await threadText(page);
     assert.ok(t.includes(told), "the model's account is not on the page: " + t.slice(-600));
     assert.doesNotMatch(t, /OLD CONTEXT SENTENCE|OLD IMAGES SENTENCE/);

@@ -1,5 +1,13 @@
 # Owner Notes
 
+## 2026-10-24 — a finished build now shows the AI's own reply in the message (branch `build-reply-bubble`, not merged, not deployed)
+
+- On driftwood-and-daughters the AI's write-up of the build sat in the small grey note above the steps, and the message itself said the fixed "Built … Tell me what to change." Now the message is the AI's reply, and the note no longer repeats it (the money line and the other notes stay).
+- A build that ended on a placeholder never shows a success reply; a build still being written keeps the server's own sentence.
+- When the reply writer could not be reached, the recorded facts now also say what was asked for and not built, and that the site has no database yet.
+- "This build made no database" was true: the build declared no tables, so none was made (the provision step runs every time and recorded `db: 0`).
+- Tests: 5 browser cases with supplied answers; 3 fail on the old page. Sweep 6 of 6, control survived. Image unchanged. Nothing spent. Record: `docs/history/2026-10-24-build-reply-bubble.md`.
+
 ## 2026-10-24 — combine C: six finished branches in one candidate (branch `combine-c`, not merged, not deployed)
 
 - Brings together compile repair everywhere, the exact-edits tweak, the progress voice, the next-step hint, background work and the file picker (plus the 503 notes).

@@ -10538,6 +10538,11 @@ function buildFactLines(f) {
     else if (x.status === 'unopened') out.push('Link not opened: ' + host(x.url) + (x.reason ? ' (' + x.reason + ')' : ''));
   }
   if (f.research) out.push('Web lookup: ' + (f.research.found ? 'used' : 'found nothing usable'));
+  // WHAT A FIRST BUILD LEFT OUT, AND NO DATABASE (2026-10-24): the same two
+  // facts the reply writer is told (builder/site-reply.mjs), worded here only
+  // because the writer could not be reached.
+  for (const x of Array.isArray(f.notBuilt) ? f.notBuilt : []) if (typeof x === 'string' && x.trim()) out.push('Asked for, not built yet (ask for it next): “' + x.trim() + '”');
+  if (f.noDatabase === true) out.push('No database yet: nothing a visitor types in is stored (sign-ups, bookings or orders can be added next)');
   for (const u of Array.isArray(f.unwritten) ? f.unwritten : []) if (u && u.section) out.push('Section left out: “' + u.section + '”');
   for (const p of Array.isArray(f.salvaged) ? f.salvaged : []) out.push('Page showing a stand-in: ' + String(p).replace(/\.tsx$/i, ''));
   // WHY AN INLINE BUILD STOPPED, AND WHAT IT COST (2026-10-08): terse labels
@@ -16184,7 +16189,15 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
       // model (`reply`), or, when that could not be done, a fixed outage line
       // and the recorded facts as they are. In place of the old sentences for
       // those four, never beside them; the other notes stay as they are.
-      const told = buildToldLines(d);
+      // THE MODEL'S REPLY IS THE MESSAGE (2026-10-24, driftwood-and-daughters):
+      // it was drawn only in the note above the steps while the bubble said the
+      // fixed line. Now the bubble carries it and the note does not repeat it.
+      // Only over a site that was built (a placeholder keeps its own line) and
+      // never over a build still being written (`firedJob`).
+      const builtNow = !d || d.page !== 'placeholder';
+      const modelSaid = (!firedJob && builtNow && typeof EditPoll !== 'undefined' && EditPoll.modelReply) ? (EditPoll.modelReply(d) || '') : '';
+      const told0 = buildToldLines(d);
+      const told = told0 && modelSaid ? told0.filter((l) => l !== modelSaid) : told0;
       const noteShown = told
         ? [...told, ...['tokensNote', 'styleNote', 'cssNote', 'keptNote', 'renderNote', 'builtNote'].map((k) => (d && typeof d[k] === 'string') ? d[k].trim() : '')].filter(Boolean).join('\n')
         : note;
@@ -16214,7 +16227,7 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
       // writing a second version that can disagree with it.
       const reply = firedJob
         ? ((d && d.msg) || 'Your site is being written now — there’s a page at your address already; refresh it in a few minutes.')
-        : (said || canned);
+        : (modelSaid || said || canned);
       const fv = !firedJob && !built ? buildFailureView(d) : null;
       if (fv) siteFinishBuild(origin, fv.lead + alsoTail(heldSaid, false), build, fv.note || noteShown, buildWhy(d));
       else siteFinishBuild(origin, reply + alsoTail(heldSaid, !firedJob && built), build, noteShown, buildWhy(d));
