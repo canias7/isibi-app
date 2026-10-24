@@ -227,7 +227,31 @@
     var t = body.reply;
     if (typeof t !== "string") return null;
     t = t.trim();
-    return t && t.length <= MODEL_REPLY_MAX ? t : null;
+    if (!t || t.length > MODEL_REPLY_MAX) return null;
+    // ITS ONE NEXT-STEP SUGGESTION'S TOPIC (2026-10-24), remembered by the
+    // reply's own words so the message that shows them keeps it (`suggestedFor`).
+    var topic = suggestedTopic(body.suggested);
+    if (topic) { SUGGESTED.set(t, topic); if (SUGGESTED.size > 50) SUGGESTED.delete(SUGGESTED.keys().next().value); }
+    return t;
+  }
+
+  /**
+   * THE TOPIC OF A MODEL REPLY'S ONE SUGGESTION (2026-10-24, idea #24): the
+   * server's `suggested`, read strictly (a non-blank string of at most 80
+   * characters, `SUGGESTED_MAX` in builder/site-reply.mjs). It is kept on
+   * the stored chat message as `suggested`, so a later reply is told what was
+   * already suggested; it is never drawn: the suggestion is a sentence of the
+   * reply's own text, never a button.
+   */
+  var SUGGESTED_MAX = 80;
+  var SUGGESTED = new Map();
+  function suggestedTopic(v) {
+    if (typeof v !== "string") return "";
+    var t = v.replace(/\s+/g, " ").trim();
+    return t && t.length <= SUGGESTED_MAX ? t : "";
+  }
+  function suggestedFor(text) {
+    return typeof text === "string" ? SUGGESTED.get(text.trim()) || "" : "";
   }
 
   /**
@@ -1023,6 +1047,8 @@
     isRecovered: isRecovered,
     recoveredMessage: recoveredMessage,
     modelReply: modelReply,
+    suggestedFor: suggestedFor,
+    suggestedTopic: suggestedTopic,
     MODEL_REPLY_MAX: MODEL_REPLY_MAX,
     progressLines: progressLines,
     taskSaid: taskSaid,

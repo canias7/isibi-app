@@ -1,5 +1,12 @@
 # Owner Notes
 
+## 2026-10-24 — Replies may sometimes suggest one next step (branch `next-step-hint`, not merged, not deployed)
+
+- Your idea #24, adapted: the final reply (builds, edits, add-ons, request summaries) may now and then end with one soft suggestion, written as an ordinary sentence in the reply. No buttons, no list, never required. The model decides whether to add one; there are no fixed sentences and no keyword rules.
+- It is told to suggest only when something real points to it: a part you asked for that was not built or not done, a new page not known to be in the menu, a related problem it was told about, or part of your message still unanswered. At most one, none after a simple finished change, and to leave it out more often than not.
+- So it does not nag: when it suggests something it also names the topic in a few words; the page keeps that on the chat message (`suggested`), and the next reply is shown the last three topics from the chat and told never to suggest them again. Edits and add-ons now send the chat with them so this works there too. First builds have no earlier suggestions, so they get no repeat list.
+- Tests: a new file of 8 cases (it cannot even load on the old code); a small sweep with the comment-only control surviving; the reply, edit-poll and chat test files green. Nothing paid, no model calls. Record: `docs/history/2026-10-24-next-step-hint.md`.
+
 ## 2026-10-23 — Progress lines in your voice for clients (branch `progress-voice`, not merged, not deployed)
 
 - Every live progress writer now carries one shared voice block with your approved Saltmarsh lines: first person but not "I" at the start of every line, openings varied, real names, no repeated tails, a problem said once, the draft/Publish status said once at the end. It covers builds, edits, add-ons, request parts (and the parallel card's opening line and titles), Publish/Restore/Discard, and the /sentinel scan's lines.

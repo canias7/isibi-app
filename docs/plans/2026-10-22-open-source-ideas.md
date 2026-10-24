@@ -32,7 +32,7 @@ Research only; nothing built. Sources and licenses: Anthropic skills (Apache 2.0
 
 ## Chat
 23. Summary of long chats (bolt.diy, dyad).
-24. Suggested next requests after each reply (dyad).
+24. Suggested next requests after each reply (dyad). **Built, adapted (2026-10-24, branch `next-step-hint`, not merged):** no buttons; the reply writer may sometimes add one soft next step as a sentence of its reply, model-decided, with a repeat guard. `docs/history/2026-10-24-next-step-hint.md`.
 
 ## New features
 25. "Make my site like my old one" from a link (open-lovable).

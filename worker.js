@@ -267,7 +267,7 @@ import { routeMessage, routeDecision, routeFailure, clarifiedBrief, siteDigest, 
 // work moves from one step to another — the parts put off, the scope, and why.
 import { readHandOver, handOverLine, heldReport, deferredOf } from "./builder/hand-over.mjs";
 import { loadAsk, storeAsk, storeAskIfFree, closeAsk, replaceAsk, askLive, packAsk, ASKER_RE, newAskId, askOf, readAsk, withQuestion, readContext, shownContext, repeatOf, appendAnswer, againNote, clarifyTransport, clarifyCall, MAX_NOTE_CHARS, MAX_SAME_ASK, MAX_ASKED } from "./builder/clarify.mjs";
-import { repliesOn, buildReplyFacts, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelReplyFacts, repeatNoteFacts, wideningFacts, requestReplyFacts, replyContext, writeReply, withReplyText, REPLY_CALL_MS, REPLY_BG_CALL_MS, REPLY_BG_DEADLINE_MS, REPLY_BG_ATTEMPTS, REPLY_BG_RETRY_S, REPLY_LEASE_MS, REPLY_HORIZON_MS, REPLY_RETRY_GRACE_MS, readReplyRecord, replyNext, replyClaim, replyOutcomeOf, outcomeOf, outcomeReads } from "./builder/site-reply.mjs";
+import { repliesOn, buildReplyFacts, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelReplyFacts, repeatNoteFacts, wideningFacts, requestReplyFacts, replyContext, writeReply, withReplyText, recentSuggestions, offMenuPages, REPLY_CALL_MS, REPLY_BG_CALL_MS, REPLY_BG_DEADLINE_MS, REPLY_BG_ATTEMPTS, REPLY_BG_RETRY_S, REPLY_LEASE_MS, REPLY_HORIZON_MS, REPLY_RETRY_GRACE_MS, readReplyRecord, replyNext, replyClaim, replyOutcomeOf, outcomeOf, outcomeReads } from "./builder/site-reply.mjs";
 // PROGRESS WHILE AN EDIT OR AN ADD-ON RUNS (2026-10-06): the milestones' facts,
 // the per-job record and its one writer's rules, the call and its check.
 import {
@@ -8081,8 +8081,25 @@ function replyAsked(b, extra = {}) {
     picker: typeof body.picker === "string" ? body.picker : undefined,
     routedCost: Number.isInteger(cost) && cost >= 0 && cost <= 1000 ? cost : null,
     pages: () => [],
+    // THE CHAT IT WAS SENT FROM (2026-10-24): where the reply reads the
+    // suggestions already made (`recentSuggestedFor`), with the caller's `uid`.
+    ...(cleanChatId(body.chat) ? { chat: cleanChatId(body.chat) } : {}),
     ...extra,
   };
+}
+
+/**
+ * THE LAST FEW NEXT-STEP SUGGESTIONS ALREADY MADE IN THIS CHAT (2026-10-24,
+ * idea #24): the `suggested` markers on its stored messages. [] when the chat
+ * or the account is not known or the store cannot say: the writer is then
+ * shown none, and nothing else changes.
+ */
+async function recentSuggestedFor(env, uid, chat) {
+  try {
+    if (typeof uid !== "string" || !uid || typeof chat !== "string" || !/^[A-Za-z0-9_-]{4,80}$/.test(chat) || !env || !env.SITES_BUCKET) return [];
+    const cur = await chatStoreRead(env, chatStoreKey(uid, chat));
+    return cur.read && cur.chat ? recentSuggestions(cur.chat.msgs) : [];
+  } catch { return []; }
 }
 
 /** The facts of an answer of one kind: `{ skip, facts }`. */
@@ -8122,6 +8139,9 @@ async function composeModelReply(env0, kind, body, ask, { background = false, on
   let pages = [];
   try { pages = typeof ask.pages === "function" ? ask.pages() : Array.isArray(ask.pages) ? ask.pages : []; } catch { pages = []; }
   const model = modelsFor(ask.picker).quick;
+  // WHAT AN OCCASIONAL NEXT STEP MAY STAND ON, AND WHAT IT MUST NOT REPEAT (2026-10-24).
+  const recent = Array.isArray(ask.recent) ? ask.recent : await recentSuggestedFor(env, ask.uid, ask.chat);
+  const offMenu = kind === "addon" ? offMenuPages(body) : [];
   const t0 = Date.now();
   let out;
   try {
@@ -8129,7 +8149,7 @@ async function composeModelReply(env0, kind, body, ask, { background = false, on
     const budget = background ? replyBgBudget : replyBudget;
     out = await writeReply({ send: typeof onPartial === "function" ? quickSendLive(env, "reply", budget, onPartial) : quickSend(env, "reply", budget) }, {
       facts: read.facts,
-      context: replyContext({ request: ask.request, answers: ask.answers, site: { name: ask.name, slug: ask.slug, pages } }),
+      context: replyContext({ request: ask.request, answers: ask.answers, site: { name: ask.name, slug: ask.slug, pages }, recent, offMenu }),
       model,
       ...(background ? { deadlineMs: REPLY_BG_DEADLINE_MS } : {}),
       talk,
@@ -8143,7 +8163,7 @@ async function composeModelReply(env0, kind, body, ask, { background = false, on
     const tokens = (out.usage || []).reduce((n, u) => ({ in: n.in + (u.in || 0), out: n.out + (u.out || 0) }), { in: 0, out: 0 });
     console.log("reply:", kind, out.ok ? "written" : "fell back (" + out.why + ")", "facts", read.facts.length, "attempts", out.attempts, "tokens", tokens.in + "/" + tokens.out, "ms", Date.now() - t0, background ? "background" : "inline");
   } catch { /* a log line never costs the reply */ }
-  return out.ok ? { ok: true, text: out.text } : { ok: false, why: out.why || "send" };
+  return out.ok ? { ok: true, text: out.text, ...(out.suggested ? { suggested: out.suggested } : {}) } : { ok: false, why: out.why || "send" };
 }
 
 /**
@@ -8173,7 +8193,7 @@ async function narrateBuild(env, body, { picker = "", request = "", name = "", s
       talk: talkOn(env),
     });
     console.log("reply: build", out.ok ? "written" : "fell back (" + out.why + ")", "facts", read.facts.length);
-    return out.ok ? withReplyText(body, out.text) : { ...body, replyState: "unavailable", replyWhy: String(out.why || "send") };
+    return out.ok ? withReplyText(body, out.text, out.suggested) : { ...body, replyState: "unavailable", replyWhy: String(out.why || "send") };
   } catch (e) {
     console.error("reply: build narration threw —", String((e && e.message) || e));
     return { ...body, replyState: "unavailable", replyWhy: "send" };
@@ -8257,11 +8277,11 @@ async function withModelReply(env, res, kind, ask) {
   let body;
   try { body = await res.clone().json(); } catch { return res; }
   if (!body || typeof body !== "object" || Array.isArray(body)) return res;
-  const text = await writeModelReply(env, kind, body, ask);
-  if (!text) return res;
+  const out = await composeModelReply(env, kind, body, ask);
+  if (!out.ok) return res;
   const headers = new Headers(res.headers);
   headers.delete("content-length");
-  return new Response(JSON.stringify(withReplyText(body, text)), { status: res.status, headers });
+  return new Response(JSON.stringify(withReplyText(body, out.text, out.suggested)), { status: res.status, headers });
 }
 
 /**
@@ -8297,6 +8317,9 @@ async function keepReplyFor(env, res, kind, ask) {
     // A PART OF A LONGER REQUEST (2026-10-03): its held parts are the request's
     // own, run after it on the server.
     ...(ask.inRequest === true ? { inRequest: true } : {}),
+    // WHERE THE LATER REPLY READS THE SUGGESTIONS ALREADY MADE (2026-10-24).
+    ...(typeof ask.uid === "string" && ask.uid ? { uid: ask.uid } : {}),
+    ...(typeof ask.chat === "string" && ask.chat ? { chat: ask.chat } : {}),
   };
   const headers = new Headers(res.headers);
   headers.delete("content-length");
@@ -8476,7 +8499,7 @@ async function settleReply(env, key, claim, task, out, { tag = "" } = {}) {
   const now = Date.now();
   // WHICH STORED ANSWER THIS REPLY WAS WRITTEN FROM (`replyTag`, 2026-10-07).
   const base = { ...claim.rec, attempts: claim.attempt, lease: undefined, retryAt: undefined, why: undefined, at: now, ...(tag ? { tag } : {}) };
-  if (out.ok) return putReplyRecord(env, key, { ...base, state: "written", text: out.text }, claim.etag);
+  if (out.ok) return putReplyRecord(env, key, { ...base, state: "written", text: out.text, ...(out.suggested ? { suggested: out.suggested } : {}) }, claim.etag);
   if (out.skip) return putReplyRecord(env, key, { ...base, state: "none", why: String(out.skip).slice(0, 40) }, claim.etag);
   const why = String(out.why || "send").slice(0, 40);
   if (out.final !== true && claim.attempt < REPLY_BG_ATTEMPTS) {
@@ -8505,6 +8528,8 @@ function askOfReplyFor(replyFor) {
     routedCost: Number.isInteger(replyFor.routedCost) ? replyFor.routedCost : null,
     slug: replyFor.slug, pages: Array.isArray(replyFor.pages) ? replyFor.pages : [],
     inRequest: replyFor.inRequest === true,
+    uid: typeof replyFor.uid === "string" ? replyFor.uid : undefined,
+    chat: typeof replyFor.chat === "string" ? replyFor.chat : undefined,
   };
 }
 
@@ -8601,7 +8626,7 @@ async function servedModelReply(env, job, text, { uid = "", raw = "" } = {}) {
     return pending;
   }
   const next = replyNext(at.rec, now);
-  if (next === "serve") return JSON.stringify(withReplyText(rest, at.rec.text));
+  if (next === "serve") return JSON.stringify(withReplyText(rest, at.rec.text, at.rec.suggested));
   if (next === "failed") return failed;
   if (next === "none") return plain;
   if (next === "wait") return pending;
@@ -22664,7 +22689,7 @@ async function deliverLostAnswer(env, { id, uid, mark, now }) {
       try { const o = await env.SITES_BUCKET.get(resumeKey(id)); const r = o ? readResume(JSON.parse(await o.text())) : null; design = r && r.design ? r.design : null; } catch { design = null; }
       told = await narrateBuild(env, body, { picker: design && design.picker, request: ownWords(design && design.brief), name: design && design.brand, slug, background: true });
       const result = told.replySource === "model" && typeof told.reply === "string"
-        ? { state: "written", text: told.reply }
+        ? { state: "written", text: told.reply, ...(told.suggested ? { suggested: told.suggested } : {}) }
         : { state: told.replyState || "unavailable", ...(told.replyWhy ? { why: told.replyWhy } : {}) };
       narration = { ...result, key, settlementKey, at };
       if (!(await saveNarration(env, id, narration))) console.error("lost builds: could not keep the narration for", id, "— it is still delivered with this answer, and its claim stands so no later pass pays again");
@@ -22673,7 +22698,7 @@ async function deliverLostAnswer(env, { id, uid, mark, now }) {
   }
   if (plan.act === "reuse") {
     const n = plan.narration;
-    told = n.state === "written" && typeof n.text === "string" ? withReplyText(body, n.text) : { ...body, replyState: n.state, ...(n.why ? { replyWhy: n.why } : {}) };
+    told = n.state === "written" && typeof n.text === "string" ? withReplyText(body, n.text, n.suggested) : { ...body, replyState: n.state, ...(n.why ? { replyWhy: n.why } : {}) };
   } else if (plan.act === "hold") {
     // AN EXPLANATION ALREADY DELIVERED FOR THESE SAME FACTS is kept: the pass
     // whose save failed still stored its answer with the text, and a hold must
@@ -25362,7 +25387,7 @@ async function requestReply(env, rec) {
   const at = await replyRecordAt(env, place.k);
   if (!at.read) return { state: "pending", for: place.forKey };
   const next = replyNext(at.rec, now);
-  if (next === "serve") return { text: at.rec.text, for: place.forKey };
+  if (next === "serve") return { text: at.rec.text, for: place.forKey, ...(at.rec.suggested ? { suggested: at.rec.suggested } : {}) };
   if (next === "failed") return { state: "failed", for: place.forKey };
   if (next === "none") return null;
   if (next === "wait") return { state: "pending", for: place.forKey };
@@ -33386,7 +33411,7 @@ async function handleRequest(request, env, ctx) {
       // A PART'S ROUTING JOB WRITES NO REPLY: its answer is read by the
       // request's own step, never shown as it is.
       const rReplyAsk = !rJob && rb && rb.hasSite === true && rb.firstBuild !== true
-        ? replyAsked(rb, { slug: typeof rb.slug === "string" ? rb.slug : undefined, name: rb.site && typeof rb.site.name === "string" ? rb.site.name : undefined, pages: rb.site && Array.isArray(rb.site.pages) ? rb.site.pages.map((p) => (typeof p === "string" ? p : p && typeof p.path === "string" ? p.path : "")).filter(Boolean) : [] })
+        ? replyAsked(rb, { slug: typeof rb.slug === "string" ? rb.slug : undefined, name: rb.site && typeof rb.site.name === "string" ? rb.site.name : undefined, pages: rb.site && Array.isArray(rb.site.pages) ? rb.site.pages.map((p) => (typeof p === "string" ? p : p && typeof p.path === "string" ? p.path : "")).filter(Boolean) : [], uid: ru && typeof ru.id === "string" ? ru.id : undefined })
         : null;
       // THE SAME MESSAGE UNDER ITS KEY, ANSWERED FROM THE KEPT ANSWER (audit
       // A13-1): before the balance read, any model and the reply writer.
@@ -34455,7 +34480,7 @@ async function handleRequest(request, env, ctx) {
         const qOut = { ok: true, request: requestView(qRec, { progress: await progressForRequest(env, qRec), said: await saidForRequest(env, qRec), runs: await runsForRequest(env, qRec), prepUse: await prepUseForRequest(env, qRec) }) };
         // WRITTEN, OR STILL BEING WRITTEN (2026-10-04): the page waits for it
         // while it is `pending`, and says the statuses as they are once failed.
-        if (reply && typeof reply.text === "string") return Response.json({ ...withReplyText(qOut, reply.text), replyFor: reply.for });
+        if (reply && typeof reply.text === "string") return Response.json({ ...withReplyText(qOut, reply.text, reply.suggested), replyFor: reply.for });
         return Response.json(reply ? { ...qOut, replyState: reply.state, replyFor: reply.for } : qOut);
       }
     }
@@ -35360,7 +35385,7 @@ async function handleRequest(request, env, ctx) {
             const ebRaw = await request.text().catch(() => "");
             let eb = {};
             try { const p = JSON.parse(ebRaw); if (p && typeof p === "object" && !Array.isArray(p)) eb = p; } catch { eb = {}; }
-            Object.assign(eReplyOut, replyAsked(eb, { slug: ownerSlug, job: false }));
+            Object.assign(eReplyOut, replyAsked(eb, { slug: ownerSlug, job: false, uid: ou && typeof ou.id === "string" ? ou.id : undefined }));
 
             // ── ONE FORK, AND NOTHING BELOW IT CAN TELL ───────────────────
             //
@@ -41652,7 +41677,7 @@ async function handleRequest(request, env, ctx) {
             const abRaw = await request.text().catch(() => "");
             let ab = {};
             try { const p = JSON.parse(abRaw); if (p && typeof p === "object" && !Array.isArray(p)) ab = p; } catch { ab = {}; }
-            Object.assign(aReplyOut, replyAsked(ab, { slug: ownerSlug, job: false }));
+            Object.assign(aReplyOut, replyAsked(ab, { slug: ownerSlug, job: false, uid: ou && typeof ou.id === "string" ? ou.id : undefined }));
 
             // ── THE SAME FORK THE EDIT ROUTE HAS (2026-09-03, run 21) ─────
             //
