@@ -56,6 +56,10 @@ const WEB = ["needsWeb", "webQueries"];
 // from it, and a later change to the logo is the logo rung's, with the file
 // attached. It has no lane on purpose, so it is excluded by name here.
 const ATTACHMENT_ONLY = ["logo"];
+// `devices` (2026-10-24, device-scope-build) is a FIRST BUILD's screen-size
+// wishes, told to that build's writers and never stored on the look: a later
+// per-size change is an edit with the router's own `devices`, so no lane.
+const BUILD_ONLY = ["devices"];
 
 // THE NAME HAS DRIFTED TWICE AND IS NOW DERIVED FROM NOTHING, so it says the
 // number out loud and the assertions below say it again. It read "EIGHTEEN"
@@ -65,7 +69,8 @@ const ATTACHMENT_ONLY = ["logo"];
 test("the two paths cover the same TWENTY-ONE fields — asserted both ways", async () => {
   const { tool } = await readSchemaTool();
   const all = Object.keys(tool.input_schema.properties);
-  const designed = all.filter((k) => !WEB.includes(k) && !ATTACHMENT_ONLY.includes(k));
+  const designed = all.filter((k) => !WEB.includes(k) && !ATTACHMENT_ONLY.includes(k) && !BUILD_ONLY.includes(k));
+  for (const k of BUILD_ONLY) assert.ok(all.includes(k), "`" + k + "` is gone from the design tool, so excluding it here excludes nothing");
   for (const k of ATTACHMENT_ONLY) {
     assert.ok(all.includes(k), "`" + k + "` is gone from the design tool, so excluding it here excludes nothing");
   }

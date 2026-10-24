@@ -230,9 +230,12 @@ test("the router's devices reach the page: a subset kept, all three and garbage 
   const bad = await route({ intent: "edit", layer: "look", devices: "phone" });
   assert.equal(bad.body.devices, undefined);
   assert.ok(JSON.stringify(bad.body.decision || {}).includes("devices-unread"), "an unreadable scope left no reason");
-  // Never on an addition, a question or a build.
+  // On an addition too since device-scope-build (2026-10-24): its writer is
+  // told and its publish guarded. Never on a question.
   const add = await route({ intent: "addon", devices: ["phone"] });
-  assert.equal(add.body.devices, undefined);
+  assert.deepEqual(add.body.devices, ["phone"]);
+  const q = await route({ intent: "clarify", question: "Which page?", devices: ["phone"] });
+  assert.equal(q.body.devices, undefined);
   // And the reader agrees with the route.
   assert.deepEqual(readRouting({ content: [{ type: "tool_use", input: { intent: "edit", layer: "look", devices: ["tablet", "phone"] } }] }, { live: true, hasSite: true, pages: ["/"] }).devices, ["phone", "tablet"]);
 });

@@ -56,7 +56,7 @@ export const DEVICES_FIELD = {
   type: "array",
   items: { type: "string", enum: [...DEVICES] },
   description:
-    "Only for intent \"edit\": the screen sizes the change is for, when their words limit it to some of " +
+    "Only for intent \"edit\" or \"addon\": the screen sizes the change is for, when their words limit it to some of " +
     "them — phone, tablet, desktop. Leave it out when the change is for every screen, which is the usual case. The " +
     "screen they are previewing on is a hint only; what they wrote decides. When it matters and their words do not " +
     "say, ask (intent \"clarify\").",
@@ -197,4 +197,67 @@ export function deviceRefusal(verdict, devices) {
       ? "the change also altered the " + changed.join(" and ") + " view, which was not asked for"
       : "the " + unknown.join(" and ") + " view could not be compared with how it was",
   };
+}
+
+// ── PER-DEVICE WISHES IN A FIRST BUILD (2026-10-24, device-scope-build) ─────
+//
+// A description may scope part of the site to some screen sizes ("on phones
+// show a short menu"). The DESIGNER reads that, never a keyword rule: its tool
+// has an optional `devices` list of `{ devices, wish }`, left out when nothing
+// was scoped (the usual case). The writers are then told each wish with the
+// devices' widths; an unscoped build appends nothing, so every writer request
+// is byte-for-byte what it was.
+
+export const MAX_DEVICE_WISHES = 6;
+
+/** The design tool's field. */
+export const DEVICE_WISHES_FIELD = {
+  type: "array",
+  maxItems: MAX_DEVICE_WISHES,
+  description:
+    "Only when the customer's description limits part of the site to some screen sizes (phone, tablet, desktop): one " +
+    "entry per such wish, with the screen sizes it is for and the wish in a short sentence of your own. Leave it out " +
+    "when nothing is limited to a screen size, which is the usual case; a wish for every screen is not one of these.",
+  items: {
+    type: "object",
+    properties: {
+      devices: { type: "array", items: { type: "string", enum: [...DEVICES] } },
+      wish: { type: "string" },
+    },
+    required: ["devices", "wish"],
+  },
+};
+
+/**
+ * The wishes, read off the designer's answer: `[{ devices, wish }]`, each a
+ * proper subset in canonical order with a non-empty wish, or null when none
+ * is readable. An entry for all three devices is not scoped and is dropped.
+ */
+export function readDeviceWishes(raw) {
+  if (!Array.isArray(raw)) return null;
+  const out = [];
+  for (const x of raw.slice(0, MAX_DEVICE_WISHES)) {
+    if (!x || typeof x !== "object" || typeof x.wish !== "string" || !x.wish.trim()) continue;
+    const devices = readDevices(x.devices);
+    if (!devices) continue;
+    out.push({ devices, wish: x.wish.trim().slice(0, 300) });
+  }
+  return out.length ? out : null;
+}
+
+/** What the writers are told: "" for none, so an unscoped build is unchanged. */
+export function deviceWishesNote(wishes) {
+  const list = readDeviceWishes(wishes);
+  if (!list) return "";
+  return "SCREEN-SIZE WISHES. One site for every screen: make each of these inside the same page with responsive " +
+    "rules, and give every other screen size the page as the rest of the brief describes.\n" +
+    list.map((w) => "- FOR " + w.devices.join(" and ").toUpperCase() + " ONLY (" +
+      w.devices.map((d) => d + " is " + RANGE[d]).join("; ") + "): " + w.wish).join("\n");
+}
+
+/** The reply's fact: which device-specific wishes the build applied. "" for none. */
+export function deviceWishesFact(wishes) {
+  const list = readDeviceWishes(wishes);
+  if (!list) return "";
+  return "Screen-size wishes applied: " + list.map((w) => w.wish + " (" + w.devices.join(" and ") + " only)").join("; ") + ".";
 }

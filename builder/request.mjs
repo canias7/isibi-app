@@ -2263,6 +2263,8 @@ export function jobBody(rec, n, kind, key, { files = [] } = {}) {
         ...(readLabels(rec.labels) ? { labels: readLabels(rec.labels) } : {}),
         alsoAsked: heldWire(held),
         handOver: plain(d.handOver) ? d.handOver : undefined,
+        // WHICH SCREEN SIZES THE ADDITION IS FOR (2026-10-24), as an edit's.
+        devices: Array.isArray(d.devices) && d.devices.length ? d.devices : undefined,
         askRound, putOff, context,
         routedCost: Number.isInteger(d.cost) && d.cost >= 0 ? d.cost : undefined,
         attached: rec.files.length || rec.attached ? true : undefined,

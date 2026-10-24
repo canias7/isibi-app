@@ -50,6 +50,7 @@ import { qrList } from "./site-qr-list.mjs";
 import { CHART_USAGE } from "./chart-usage.mjs";
 import { normalizePayment } from "../site-payments.mjs";
 import { withQuestion, askOf } from "./clarify.mjs";
+import { deviceWishesNote } from "./device-scope.mjs";
 
 /**
  * The house motion set. Spec and reasoning: builder/MOTION.md.
@@ -2257,7 +2258,7 @@ export function briefForPages({ brief, priorBrief } = {}) {
  * eval and every other caller that has no budget to state then sends exactly the
  * request it sent before this existed.
  */
-export function briefWithLayout({ brief, plan, images, tsx, parts, partsUnreadable, partsFirst, partsOnly, theme, css, gif, qr, three, media } = {}) {
+export function briefWithLayout({ brief, plan, images, tsx, parts, partsUnreadable, partsFirst, partsOnly, theme, css, gif, qr, three, media, devices } = {}) {
   // THE AUTHORED PLAN IS THE ONLY SOURCE NOW. It briefly fell back to
   // `layoutDirective(family)` for sites built before 2026-08-20; the family
   // table went the same day, so there is nothing to fall back TO.
@@ -2281,6 +2282,10 @@ export function briefWithLayout({ brief, plan, images, tsx, parts, partsUnreadab
   // reads as a live argument.
   const out = [String(brief ?? "")];
   if (directive) out.push(directive);
+  // THE SCREEN-SIZE WISHES the designer read off the description (2026-10-24),
+  // beside the layout they qualify. "" when none, so nothing is added.
+  const wishes = deviceWishesNote(devices);
+  if (wishes) out.push(wishes);
   // THIS SITE'S OWN COMPONENT SIGNATURES, for the reason the layout directive
   // and the photograph allowance are here: it varies per site, and the ~45,000
   // token system block is cached on its exact bytes. A component list that

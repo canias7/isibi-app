@@ -1908,8 +1908,11 @@ function readDecision(reply, { canClarify = false, picked = false, hasSite = fal
   if (hasSite && input.intent === "addon") {
     const m3 = given(input.model3d) ? readModel3d(input.model3d, { pages }) : null;
     if (given(input.model3d) && !m3) mark("model3d-unread");
-    const out = { ...work("addon"), ...readAlso(input, trace), ...res(), ...(m3 ? { model3d: m3 } : {}) };
-    markLeftOut(input, ["also", "resolved"], mark);
+    // WHICH SCREEN SIZES AN ADDITION IS FOR (2026-10-24, device-scope-build),
+    // read as an edit's are; the add-on writer is told.
+    const devices = readDevices(input.devices, mark);
+    const out = { ...work("addon"), ...(devices ? { devices } : {}), ...readAlso(input, trace), ...res(), ...(m3 ? { model3d: m3 } : {}) };
+    markLeftOut({ ...input, devices: undefined }, ["also", "resolved"], mark);
     return out;
   }
   if (hasSite && input.intent === "edit") {

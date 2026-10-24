@@ -969,6 +969,10 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
     // the two would report findings about a file the customer never receives.
     // A failed compile never reaches the render step at all, so it carries none.
     if (bd && bd.render && typeof bd.render === "object") out.render = bd.render;
+    // THE LAYOUT AT THE THREE DEVICE WIDTHS (2026-10-24), from the same render
+    // check, assigned for the same reason: the kept compile's own, and a
+    // compile that kept none leaves none from an earlier one.
+    if (bd && bd.ok === true) { if (Array.isArray(bd.layout)) out.layout = bd.layout; else delete out.layout; }
     // THERE IS NO `prerenderSkipped` READER ANY MORE, and its absence is
     // deliberate rather than an oversight. A reader stood here for the container
     // field of that name, carrying per-route snapshot failures onto the response

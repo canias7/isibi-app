@@ -183,7 +183,7 @@ import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, our
 // still name it because they explain that move; neither is a consumer.
 import { budgetFor, imageBrief, imagesNotOffered, notOfferedWhy, pictureOutcomes, withPictureFacts, imagesAffordable, planImages, applyImages, imageSources, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, keepPhotos, photoUrls, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, shotKey, ownShot, photosNotMade, markPending, fillPending, hasPendingMark, frameParser, IMAGE_ASPECT, imagePurchasesOn, IMAGE_PURCHASES_OFF } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
-import { readDevices, readDeviceHint, readLayout, compareLayouts, deviceRefusal, deviceNote } from "./builder/device-scope.mjs";
+import { readDevices, readDeviceHint, readLayout, compareLayouts, deviceRefusal, deviceNote, DEVICE_WISHES_FIELD, readDeviceWishes } from "./builder/device-scope.mjs";
 // WHAT A PUBLISH REALLY CHECKED, kept on its answer for every final reply (2026-10-14).
 import { checksOf, readChecks, DRAFT_SAID } from "./builder/check-evidence.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
@@ -4806,6 +4806,9 @@ const SITE_SCHEMA_TOOL = {
           "sentence — 'Six Nations 2026 fixtures dates' rather than 'please find the fixtures'.",
         items: { type: "string" },
       },
+      // SCREEN-SIZE WISHES (2026-10-24, device-scope-build): optional, read by
+      // the designer from the description, told to the writers.
+      devices: DEVICE_WISHES_FIELD,
     },
     // `fonts` IS REQUIRED, and the comment that stood here said the opposite.
     //
@@ -19114,7 +19117,7 @@ async function siteOgImage(env, slug, dist) {
 // on. `packResume` has stored the two side by side since the day it was written,
 // which is the tell: a bearer token has no `.id`, so anything that asks `auth`
 // for one gets `undefined` and never says so. See the band door below.
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid = "", siteDescription, theme, css, plan, tsx, lang, langs, langStrings, langOverrides = null, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, priorParts = null, mark, say = null, budget = null, genPathOut = null, canFire = false, resumeCall = null, resumeFanout = false, picker = null, models = null, billRef = null, jobId = null, assertLease = null, attachmentIds = null, media = null, held = null, stopCheck = null }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid = "", siteDescription, theme, css, plan, tsx, deviceWishes = null, lang, langs, langStrings, langOverrides = null, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, priorParts = null, mark, say = null, budget = null, genPathOut = null, canFire = false, resumeCall = null, resumeFanout = false, picker = null, models = null, billRef = null, jobId = null, assertLease = null, attachmentIds = null, media = null, held = null, stopCheck = null }) {
   // `media` (2026-10-14): the owner's video and audio, by address, for the
   // page writers (`briefWithLayout`) — and on the build's args, so a resumed
   // build is shown the same files.
@@ -19561,7 +19564,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
               // THE SAME COMPOSED BRIEF THE ONE CALL GETS, off the one composer,
               // so the layout, the images, the QR bindings and the 3D scene
               // reach a band through the hop the single path already uses.
-              brief: briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief, media }),
+              brief: briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief, media, devices: deviceWishes }),
               spec, brand, attachments, model, kind: plan && plan.kind,
               // THE FRAME'S FACTS (2026-10-23): on a website the header and
               // the footer are written by two more writers beside the bands,
@@ -19658,7 +19661,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
           actions: plan && Array.isArray(plan.action) ? plan.action : [],
           notBuilt: plan && Array.isArray(plan.notBuilt) ? plan.notBuilt : [],
         }) : "";
-        const singleAnswer = await generateSitePages(env, briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief, media }) + ownTail, spec, brand, attachments, model, priorPages, undefined, undefined, budget, call, plan && plan.kind, [], { ownParts: ownFirst });
+        const singleAnswer = await generateSitePages(env, briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief, media, devices: deviceWishes }) + ownTail, spec, brand, attachments, model, priorPages, undefined, undefined, budget, call, plan && plan.kind, [], { ownParts: ownFirst });
         // ── TOLD, AND NOW CHECKED (2026-10-23) ─────────────────────────────
         //
         // The directive above is an instruction; `enforceFallbackFrame` reads
@@ -19890,6 +19893,10 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       const bPayload = JSON.stringify({ stageId: bStageId, files, slug, title: brand,
           // SCREENSHOTS FOR THE VISUAL REVIEW, asked only when it will run.
           shots: visualOn || undefined,
+          // THE LAYOUT AT THE THREE DEVICE WIDTHS (2026-10-24, device-scope-build),
+          // stored after a successful build or revise so a site's FIRST per-size
+          // edit has its "before" and is compared, not refused.
+          layout: true,
           // THE PREFIX THIS SCRIPT WILL SERVE (stage 7) and its fallback hop.
           version: bVersion, parent: bParent || undefined,
           // THE COMPONENTS THE MODEL JUST WROTE, straight off the `write_pages`
@@ -20314,6 +20321,11 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   // describing one that was never served would aim the next edit at elements
   // nobody can see.
   if (out && out.ok && out.render) await saveLandmarks(env, slug, out.render.landmarks, { partial: out.render.partial === true, routes: bRoutes });
+  // AND THE LAYOUT AT EACH DEVICE (2026-10-24), the first per-device edit's
+  // "before", from the same render check. Gated on what the route itself
+  // reads as a published build (`page: "app"`, a salvaged one included: its
+  // layout is the kept compile's); `publishPages` answers no `ok` on success.
+  if (out && out.page === "app" && Array.isArray(out.layout)) await saveLayout(env, slug, out.layout);
   if (out && bDraftSaved) out.draft = bDraftSaved;
   // THE BUILD CHECKLIST'S PLAN (2026-10-22, idea #14): derived in code from the
   // design this build was handed, checked by `pageNotes` against what landed.
@@ -26895,7 +26907,9 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
           design: design && design.designRecovery,
           // WHAT A FIRST BUILD LEFT OUT, AND WHETHER IT MADE NO DATABASE
           // (2026-10-23), off the record's own plan and the backend row.
-          ...(!design.priorPages ? { notBuilt: design.plan && design.plan.notBuilt, noDatabase: !rBackend } : {}) }) || undefined,
+          ...(!design.priorPages ? { notBuilt: design.plan && design.plan.notBuilt, noDatabase: !rBackend } : {}),
+          // THE SCREEN-SIZE WISHES the writers were told (2026-10-24), only for a build that went live.
+          devices: pages && pages.page === "app" ? design.deviceWishes : null }) || undefined,
     };
     out = packResult({
       status: 200,
@@ -29355,6 +29369,9 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             // this payload → the page directive → `write_pages`. `three` is what
             // this looks like when nobody writes that test.
             tsx: Array.isArray(look.tsx) ? look.tsx : undefined,
+            // THE SCREEN-SIZE WISHES off this design answer (2026-10-24): per
+            // build, never stored on the look. Absent when none.
+            deviceWishes: readDeviceWishes(designed && designed.devices) || undefined,
             // Out of the same merged look as the other five, so a revise that
             // does not mention the language keeps it — the field is on
             // `EDIT_FIELDS`, which is what makes "absent means unchanged" true
@@ -30128,6 +30145,8 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           // WHAT A FIRST BUILD LEFT OUT, AND WHETHER IT MADE NO DATABASE
           // (2026-10-23), for the reply writer to tell.
           ...(firstBuild ? { notBuilt: buildArgs && buildArgs.plan && buildArgs.plan.notBuilt, noDatabase: !db } : {}),
+          // THE SCREEN-SIZE WISHES the writers were told (2026-10-24), only for a build that went live.
+          devices: pages && pages.page === "app" && buildArgs ? buildArgs.deviceWishes : null,
         }) || undefined,
         designRecovery: designRecovery || undefined,
       }, { picker: models.picker, request: brief, name: brand, slug }));
@@ -33946,7 +33965,7 @@ async function handleRequest(request, env, ctx) {
           remove: routed.intent === "edit" && routed.remove === true ? true : undefined,
           rename: routed.intent === "edit" && typeof routed.rename === "string" ? routed.rename : undefined,
           tab: routed.intent === "edit" && routed.tab === true ? true : undefined,
-          devices: routed.intent === "edit" && Array.isArray(routed.devices) && routed.devices.length ? routed.devices : undefined,
+          devices: (routed.intent === "edit" || routed.intent === "addon") && Array.isArray(routed.devices) && routed.devices.length ? routed.devices : undefined,
           alsoAsked: (typeof routed.alsoAsked === "string" && routed.alsoAsked) ||
             (Array.isArray(routed.alsoAsked) && routed.alsoAsked.length && routed.alsoAsked.every((x) => typeof x === "string" && x) ? routed.alsoAsked : undefined) || undefined,
           dependsOn: Array.isArray(routed.dependsOn) && routed.dependsOn.length ? routed.dependsOn : undefined,
@@ -34283,7 +34302,7 @@ async function handleRequest(request, env, ctx) {
         // WHICH SCREEN SIZES THE CHANGE IS FOR (2026-10-24): `readRouting`
         // decides it, and this object is the only way it reaches the page,
         // which posts it on with the edit. Added WITH its wire. Absent: all three.
-        devices: routed.intent === "edit" && Array.isArray(routed.devices) && routed.devices.length ? routed.devices : undefined,
+        devices: (routed.intent === "edit" || routed.intent === "addon") && Array.isArray(routed.devices) && routed.devices.length ? routed.devices : undefined,
         // AND THE SECOND THING THEY ASKED FOR, WHICH THIS TURN IS NOT DOING.
         // `layer` is one value, so a message naming two different parts of the
         // site has half of it dropped — and the reply then reports the half that
@@ -42083,6 +42102,11 @@ async function handleRequest(request, env, ctx) {
             // router's part and any a step put off beside it.
             const aLater = heldParts(aAsked, ab && ab.alsoAsked);
             const aInstruction = aLater.ok ? aLater.run : aAsked;
+            // WHICH SCREEN SIZES THE ADDITION IS FOR (2026-10-24,
+            // device-scope-build): the writer's brief is told, and the publish
+            // point's guard checks the others. "" when unscoped: unchanged.
+            const aDevices = readDevices(ab && ab.devices);
+            const aDeviceNote = deviceNote(aDevices);
             // A REQUEST RESUMED FROM A QUESTION (2026-10-02) — the edit route's
             // two facts: how many questions it has asked, and the parts it put
             // off before the question, named on every ending and never run.
@@ -45464,7 +45488,7 @@ async function handleRequest(request, env, ctx) {
               // THE OWNER'S VIDEO AND AUDIO (2026-10-14), by address.
               const aMedia = (await withinMs(siteMediaFiles(env, ownerSlug), CONVERSE_READ_MS, "addon media:", ownerSlug)) || [];
               aGen = await generateSitePages(env, briefWithLayout({
-                brief: aInstruction + (aFold.directive ? "\n\n" + aFold.directive : ""),
+                brief: aInstruction + (aFold.directive ? "\n\n" + aFold.directive : "") + (aDeviceNote ? "\n\n" + aDeviceNote : ""),
                 media: aMedia,
                 plan: aPlanComponents.length ? { components: aPlanComponents } : null,
                 // ── THE BUDGET IS STILL ZERO; THE SENTENCE IS NO LONGER A
@@ -46806,6 +46830,9 @@ async function handleRequest(request, env, ctx) {
               // AND THE ROUTE'S READER OF ITS REFUSALS, so the spine's three
               // asks read the same count the route does.
               charges: aCharges,
+              // WHICH SCREEN SIZES THE ADDITION IS FOR (2026-10-24): the
+              // spine's layout guard, as an edit's publish has it.
+              devices: aDevices,
               // THE ADD STEP'S REPAIR ROUND, at the spine's seam — see above.
               afterCompile: aAfterCompile,
               // AND ITS ONE ROUND FOR A PAGE THAT DID NOT COMPILE, above.
@@ -47618,6 +47645,8 @@ async function handleRequest(request, env, ctx) {
               compileRepaired: aCompileRepair && aCompileRepair.built ? { pages: aCompileRepair.repaired.slice(), rounds: aCompileRepair.rounds } : undefined,
               renderNote: [aPub.renderNote, addRepairNote(aRepairRound)].filter(Boolean).join(" ") || undefined,
               checks: aPub.checks, draft: aPub.draft,
+              // THE SCREEN SIZES IT WAS FOR AND WHICH MOVED (2026-10-24), for the reply.
+              devices: aPub.devices || undefined,
               // WHAT THE ROUND DID, for a reader that judges rather than reads:
               // the harness, and the owner-build log. Absent when no round ran.
               repair: aRepairRound ? {

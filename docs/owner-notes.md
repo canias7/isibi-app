@@ -1,5 +1,14 @@
 # Owner Notes
 
+## 2026-10-24 — Per-device behaviour reaches the first build (branch `device-scope-build`, on `device-scope`; not merged, not deployed; NOT proven live)
+
+- **The first per-size edit is no longer refused.** Every successful build and revise now stores its measurement at phone, tablet and desktop width (from the render check it already runs), so the first "phones only" change is compared straight away.
+- **A description can scope parts to screen sizes** ("on phones show a short menu", "on tablets two columns"). The designer reads that itself (an optional list it may fill; no keyword rules), and the page writers are told each wish with its widths. A build with no such wish sends the writers exactly what it sent before. The designer's own request gains the optional field.
+- **Additions too**: the router may scope an addition to sizes; its writer is told and its publish is checked like an edit's.
+- **The reply** names the wishes the writers were told, and for an addition which sizes it was for.
+- Found on the way, not fixed (backlog): a build's map of the page (landmarks) is never stored, because of a check that never passes.
+- Tests: 9 new cases (a whole queued build through the real route with supplied answers), 7 red on the old wiring; sweep 21 of 21 killed, comment-only control survived; full suite 12,487 run. Rolls the site container again (see record). Nothing spent. Record: `docs/history/2026-10-24-device-scope-build.md`.
+
 ## 2026-10-24 — Per-device edits, your design (branch `device-scope`, not merged, not deployed; NOT proven live)
 
 - **One site, three sizes.** A change can now be for the phone, the tablet, the desktop, or any mix; with no size named it is for all three, as before. Phone is below 768px, tablet 768–1023px, desktop 1024px and up: the kit's own Tailwind breakpoints, and the preview's buttons fall inside them.

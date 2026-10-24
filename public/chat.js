@@ -13960,6 +13960,8 @@ function siteAddon(site, instruction, origin, finish, fallback, d, imgs) {
       chat: (site && typeof chatKeyOf === 'function' && chatKeyOf(site)) || undefined,
       alsoAsked: EditPoll.heldWire(d && d.alsoAsked),
       handOver: d && d.handOver && typeof d.handOver === 'object' && !Array.isArray(d.handOver) ? d.handOver : undefined,
+      // WHICH SCREEN SIZES THE ADDITION IS FOR (2026-10-24), as on the edit route.
+      devices: d && Array.isArray(d.devices) && d.devices.length ? d.devices : undefined,
       // A REQUEST RESUMED FROM A QUESTION (2026-10-02) — `siteEdit`'s three.
       askRound: d && Number.isInteger(d.askRound) && d.askRound > 0 ? d.askRound : undefined,
       putOff: EditPoll.heldWire(d && d.putOff),
