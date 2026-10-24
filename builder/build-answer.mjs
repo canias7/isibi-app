@@ -215,7 +215,7 @@ export const BUILD_FAILURE_KINDS = ["design-unusable", "design-truncated", "desi
 export const DESIGN_ATTEMPT_READINGS = ["malformed:repair", "truncated:repair", "transient:again"];
 const DESIGN_OUTCOMES = ["repaired", "question", "exhausted"];
 
-export function buildFacts({ images = null, context = null, unwritten = null, salvaged = null, settlement = null, failure = null, design = null, checks = null, refusal = null, ownLogo = null, notBuilt = null, noDatabase = null, compileRepaired = null } = {}) {
+export function buildFacts({ images = null, context = null, unwritten = null, salvaged = null, settlement = null, failure = null, design = null, checks = null, refusal = null, ownLogo = null, notBuilt = null, noDatabase = null, compileRepaired = null, salvagedParts = null } = {}) {
   const out = {};
   // WHAT WAS ASKED FOR AND NOT BUILT, AND WHETHER THE BUILD MADE NO DATABASE
   // (2026-10-23, owner: the first build's reply names what was left out, so
@@ -252,6 +252,10 @@ export function buildFacts({ images = null, context = null, unwritten = null, sa
   if (u.length) out.unwritten = u;
   const sv = (Array.isArray(salvaged) ? salvaged : []).map((x) => String(x)).filter(Boolean);
   if (sv.length) out.salvaged = sv;
+  // A SECTION STOOD IN FOR (2026-10-24): a part (band) that would not compile
+  // even after repair, replaced by a stand-in so the rest of the site builds.
+  const sp = (Array.isArray(salvagedParts) ? salvagedParts : []).filter((x) => typeof x === "string" && x);
+  if (sp.length) out.standIn = sp;
   // A PAGE THE COMPILE REPAIR FIXED (2026-10-23): only the pages it really
   // fixed (`fixed`, set on a compile that came back ok), as a fact.
   const cf = compileRepaired && typeof compileRepaired === "object" && Array.isArray(compileRepaired.fixed)

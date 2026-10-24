@@ -725,9 +725,11 @@ export function repairImports(pages, { parts = null } = {}) {
   // THE SITE'S OWN COMPONENTS BY NAME, so a misspelt alias to one of them is
   // rewritten only when that component really exists (2026-10-23).
   const partNames = new Set();
+  const partSources = new Map();
   for (const q of Array.isArray(parts) ? parts : []) {
     const n = q && typeof q.name === "string" ? q.name.trim() : "";
     if (n) partNames.add(n);
+    if (n && typeof q.source === "string") partSources.set(n, q.source);
   }
   // NAMED `repaired`, NOT `out`. `test/declarable-enforced.test.mjs` cuts
   // `out.push({` and `norm.push({` out of a bundle that INCLUDES this file, to
@@ -816,9 +818,79 @@ export function repairImports(pages, { parts = null } = {}) {
       }
       return whole;
     });
+    // ── THE BINDING STYLE, MATCHED TO THE MODULE'S REAL EXPORTS (2026-10-24) ──
+    //
+    // `driftwood-and-daughters-2`: a band wrote `import SafeImage from
+    // "@/components/ui/safe-image"`, vite refused it ("default" is not
+    // exported), and the site fell to the placeholder. The kit's modules
+    // export by name only, so a default import of one is rewritten to the
+    // named import its export list says (the same name, else the module's
+    // PascalCase name, else its one export), aliased to the local name so
+    // nothing below changes. A site part is read from its own source: a named
+    // import of a part that exports only a default becomes a default import,
+    // and a default import of a part with no default becomes the named one.
+    // Anything the export list cannot settle stays for the compile to report.
+    src = src.replace(BINDING_IMPORT, (whole, kw, def, rest, q, spec) => {
+      const to = bindingFix(def, rest, spec, partSources);
+      if (!to || to === whole.slice(kw.length)) return whole;
+      fixed.push({ path: where, module: spec.slice(spec.lastIndexOf("/") + 1), from: whole.trim(), to: to.trim(), binding: true });
+      return kw + to;
+    });
     repaired.push({ ...p, source: src });
   }
   return { pages: repaired, fixed };
+}
+
+// `import X from "…"`, `import X, { A } from "…"` or `import { A } from "…"`
+// of a kit module or a site part. Groups: lead, default name, braces, quote, spec.
+const BINDING_IMPORT = /(^|\n)[ \t]*import\s+(?!type\b)(?:([A-Za-z_$][\w$]*)\s*,?\s*)?(\{[^}]*\})?\s*from\s*(["'])(@\/components\/ui\/[a-z0-9-]+|(?:@\/routes\/|\.\/)-parts\/[A-Za-z0-9_-]+(?:\.tsx)?)\4/g;
+
+/** What a site part's source exports: whether a default, and its named exports. */
+export function exportsOfSource(source) {
+  const s = String(source == null ? "" : source);
+  const names = new Set();
+  let hasDefault = /\bexport\s+default\b/.test(s);
+  for (const m of s.matchAll(/\bexport\s+(?:async\s+)?(?:function\*?|const|let|var|class|type|interface|enum)\s+([A-Za-z_$][\w$]*)/g)) names.add(m[1]);
+  for (const m of s.matchAll(/\bexport\s*\{([^}]*)\}/g)) {
+    for (const raw of m[1].split(",")) {
+      const bits = raw.trim().replace(/^type\s+/, "").split(/\s+as\s+/);
+      const n = (bits[1] || bits[0] || "").trim();
+      if (n === "default") hasDefault = true;
+      else if (n) names.add(n);
+    }
+  }
+  return { hasDefault, names };
+}
+
+function bindingFix(def, braces, spec, partSources) {
+  const members = braces ? braces.slice(1, -1).split(",").map((x) => x.trim()).filter(Boolean) : [];
+  const lead = "import ";
+  const tail = " from \"" + spec + "\"";
+  if (spec.startsWith("@/components/ui/")) {
+    if (!def) return null;                       // named imports: the member pass's business
+    const mod = spec.slice("@/components/ui/".length);
+    const known = UI_EXPORTS[mod];
+    if (!known) return null;                     // unknown module: the compile's to report
+    const pascal = pascalOf(mod);
+    const pick = known.has(def) ? def : known.has(pascal) ? pascal : known.size === 1 ? [...known][0] : null;
+    if (!pick) return null;
+    const one = pick === def ? def : pick + " as " + def;
+    return lead + "{ " + [one, ...members].join(", ") + " }" + tail;
+  }
+  const name = spec.replace(/^(?:@\/routes\/|\.\/)-parts\//, "").replace(/\.tsx$/, "");
+  if (!partSources.has(name)) return null;
+  const ex = exportsOfSource(partSources.get(name));
+  if (def && !braces && !ex.hasDefault) {
+    const pick = ex.names.has(def) ? def : ex.names.size === 1 ? [...ex.names][0] : null;
+    if (!pick) return null;
+    return lead + "{ " + (pick === def ? def : pick + " as " + def) + " }" + tail;
+  }
+  if (!def && members.length === 1 && ex.hasDefault) {
+    const bits = members[0].replace(/^type\s+/, "").split(/\s+as\s+/).map((x) => x.trim());
+    if (ex.names.has(bits[0])) return null;      // it really exports that name
+    return lead + (bits[1] || bits[0]) + tail;
+  }
+  return null;
 }
 
 

@@ -223,7 +223,8 @@ test("FLAG OFF (no dep): no call, and salvage stubs the page exactly as before",
   assert.equal(calls.compile.length, 2, "the first compile (citing a page, so not retried) and salvage's");
   assert.deepEqual(out.salvaged, ["menu.tsx"]);
   assert.equal(out.compileRepair, undefined);
-  assert.ok(!calls.notes.some(([s]) => s.startsWith("compile-fix")));
+  // NEVER SILENT (2026-10-24): the round that did not run says why.
+  assert.deepEqual(calls.notes.filter(([s]) => s.startsWith("compile-fix")).map(([s, n]) => [s, n && n.why]), [["compile-fix-skip", "off"]]);
 });
 
 test("a fixed page is recompiled once, and the fixed build and source publish — no salvage", async () => {

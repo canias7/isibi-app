@@ -145,7 +145,7 @@ test("THE CHAIN, END TO END — every hop between declaring a component and writ
   // list back only when handed none (2026-09-02, the tsx lane's fix - see
   // edit-parts.test.mjs for that half), so this is pinned to the read-back
   // and not to it being the whole expression.
-  assert.match(w, /const siteParts = [^;\n]*await loadSiteParts\(env, slug\)/,
+  assert.match(w, /(?:const|let) siteParts = [^;\n]*await loadSiteParts\(env, slug\)/,
     "hop 9: the publish spine never reads them back");
   assert.match(w, /parts: siteParts \|\| undefined/,
     "hop 9: the spine reads the components and does not send them — the first typo fix breaks the site");

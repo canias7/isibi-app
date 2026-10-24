@@ -27,16 +27,65 @@ export const COMPILE_REPAIR_RULES =
   "Kit components import from \"@/components/ui/<module>\" and the site's own components from \"@/routes/-parts/<name>\". " +
   "Return the whole corrected file.";
 
-/** The pages a compile error names, among those this change wrote; else those pages. */
+/**
+ * EVERY FILE THE BUILD OWNS, NOT ONLY ITS PAGES (2026-10-24, owner: "the
+ * repair has to be everywhere … like literally everywhere").
+ *
+ * Live on `driftwood-and-daughters-2`: vite refused
+ * `src/routes/-parts/band-1-bleed.tsx`, a band, and repair never ran because
+ * the list it searched held only pages. A site's own components (bands, the
+ * frame, parts a page edit wrote) compile in the same program and are the
+ * build's to fix, so they ride the repair as files at `-parts/<name>.tsx`
+ * marked with `part`, and `splitParts` hands them back to where they live.
+ * Kit files (`src/components/ui/*`) are never in the list: the importer is
+ * what gets fixed.
+ */
+export const PART_DIR = "-parts/";
+
+/** A site's parts as repairable files, `{ path: "-parts/<name>.tsx", source, part }`. */
+export function partFiles(parts) {
+  return (Array.isArray(parts) ? parts : [])
+    .filter((p) => p && typeof p.name === "string" && p.name)
+    .map((p) => ({ path: PART_DIR + p.name + ".tsx", source: String(p.source == null ? "" : p.source), part: p.name }));
+}
+
+/** Pages then the parts as files: the whole list a compile error may cite. */
+export function withParts(pages, parts) {
+  return (Array.isArray(pages) ? pages : []).filter((p) => p && typeof p.part !== "string").concat(partFiles(parts));
+}
+
+/**
+ * The list split back: pages without the part files, and `parts` with each
+ * repaired part's new source (a part whose source did not move is returned as
+ * the same object). A part absent from `parts` is never invented.
+ */
+export function splitParts(list, parts) {
+  const by = new Map();
+  for (const f of Array.isArray(list) ? list : []) if (f && typeof f.part === "string") by.set(f.part, String(f.source == null ? "" : f.source));
+  const nextParts = (Array.isArray(parts) ? parts : []).map((p) => (p && by.has(p.name) && by.get(p.name) !== p.source ? { ...p, source: by.get(p.name) } : p));
+  return { pages: (Array.isArray(list) ? list : []).filter((f) => f && typeof f.part !== "string"), parts: nextParts };
+}
+
+/** A kit file: read-only, never handed to the writer (the importer is fixed instead). */
+export function isKitFile(file) {
+  return /(?:^|\/)components\/ui\//.test(String(file == null ? "" : file));
+}
+
+/**
+ * The files a compile error names, among EVERY file the build owns (pages and
+ * parts, whether or not this change wrote them); else the files this change
+ * wrote (`touched`). A cited band is never crowded out by a page that merely
+ * changed.
+ */
 export function pagesForError(error, pages, touched) {
   const text = String(error == null ? "" : error);
   const mine = new Set((Array.isArray(touched) ? touched : []).map(String));
-  const list = (Array.isArray(pages) ? pages : []).filter((p) => p && typeof p.path === "string" && mine.has(p.path));
-  const named = list.filter((p) => {
+  const all = (Array.isArray(pages) ? pages : []).filter((p) => p && typeof p.path === "string" && !isKitFile(p.path));
+  const named = all.filter((p) => {
     const base = p.path.split("/").pop();
     return text.includes(p.path) || (base && text.includes(base));
   });
-  return (named.length ? named : list).slice(0, MAX_FILES);
+  return (named.length ? named : all.filter((p) => mine.has(p.path))).slice(0, MAX_FILES);
 }
 
 export async function compileRepairRound({ error, pages, touched, send, model, compile, room = true } = {}) {
@@ -52,8 +101,9 @@ export async function compileRepairRound({ error, pages, touched, send, model, c
   const results = await Promise.all(work.map(async (p) => {
     try {
       const res = await runTweak({
-        instruction: "This page did not compile. The compiler said:\n" + said,
-        path: p.path, source: String(p.source || ""), send,
+        instruction: (p.part ? "This component did not compile. The compiler said:\n" : "This page did not compile. The compiler said:\n") + said,
+        path: p.part ? "src/routes/" + p.path : p.path, source: String(p.source || ""), send,
+        ...(p.part ? { inPart: true } : {}),
         rules: COMPILE_REPAIR_RULES, heading: "WHY THE PAGE DID NOT COMPILE",
         ...(model ? { model } : {}),
       });

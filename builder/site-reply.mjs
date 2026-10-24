@@ -1683,6 +1683,11 @@ export function buildReplyFacts(bf) {
   for (const pg of Array.isArray(bf.salvaged) ? bf.salvaged : []) {
     F.add("not-done", "The page " + quote(String(pg).replace(/\.tsx$/i, "")) + " did not compile, so it shows a short stand-in for now; " + (draft ? "the rest of the site is saved in the draft, and the live site is unchanged until the owner presses Publish." : "the rest of the site is live."));
   }
+  // A SECTION STOOD IN FOR (2026-10-24): one band that would not compile even
+  // after repair is replaced by an empty stand-in, so the site still builds.
+  for (const sec of Array.isArray(bf.standIn) ? bf.standIn : []) {
+    F.add("not-done", "One section of the page (" + quote(String(sec)) + ") did not compile, so it is left out for now (a stand-in draws nothing in its place); the rest of the page is built" + (draft ? " and saved in the draft." : " and live.") + " It can be asked for again.");
+  }
   // WHAT WAS DONE ABOUT A DESIGN THAT CAME BACK WRONG (2026-10-08, the ninth
   // batch), from the attempts actually made — never a promise of one.
   const dg = bf.design;

@@ -437,7 +437,9 @@ export function compileBrief({ error, typeErrors, pages, cited, tried, citations
     seen.add(bare);
     const ins = compileInstruction({ path: bare, error, typeErrors, cited: (Array.isArray(cited) ? cited : []).filter((l) => String(l).startsWith(bare + ":")) });
     if (tried instanceof Set && tried.has(ins.signature)) { skipped.push({ path: bare, reason: "same-error" }); continue; }
-    work.push({ path: bare, route: routeOf(bare), source: page.source, instruction: ins.text, signature: ins.signature, cause: ins.cause });
+    // A PART (2026-10-24) has no address: it is a component the pages import.
+    const isPart = typeof page.part === "string";
+    work.push({ path: bare, route: isPart ? null : routeOf(bare), source: page.source, instruction: isPart ? ins.text.replace(/^This page did not build\./, "This component (a section of the site, imported by its pages) did not build.") : ins.text, signature: ins.signature, cause: ins.cause, ...(isPart ? { part: page.part } : {}) });
   }
   return { work: work.slice(0, MAX_REPAIRS), dropped: Math.max(0, work.length - MAX_REPAIRS), skipped };
 }
@@ -462,7 +464,7 @@ export async function compileRepairPages({ error, typeErrors, pages, cited, cita
     if (typeof w.source !== "string" || w.source.length > MAX_TWEAK_CHARS) return { w, res: { ok: false, reason: "too-big", usage: null } };
     let res;
     try {
-      res = await runTweak({ instruction: w.instruction, path: w.route || w.path, source: w.source, send, rules: COMPILE_REPAIR_RULES, heading: "WHY IT DID NOT BUILD", ...(model ? { model } : {}) });
+      res = await runTweak({ instruction: w.instruction, path: w.part ? "src/routes/" + w.path : (w.route || w.path), source: w.source, send, rules: COMPILE_REPAIR_RULES, heading: "WHY IT DID NOT BUILD", ...(w.part ? { inPart: true } : {}), ...(model ? { model } : {}) });
     } catch (e) { res = { ok: false, reason: "send", usage: null, error: e }; }
     return { w, res };
   }));

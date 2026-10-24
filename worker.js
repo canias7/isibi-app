@@ -317,7 +317,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // against, in place of "nobody can see one".
 import { addedByRoute, publishedTexts, componentEvidence } from "./builder/content-evidence.mjs";
 import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, frameToMissing, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, qrShownSources, qrDestinationCheck, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
-import { compileRepairRound, compileRepairRounds, writtenPaths } from "./builder/compile-repair.mjs";
+import { compileRepairRound, compileRepairRounds, writtenPaths, withParts, splitParts } from "./builder/compile-repair.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig, writesSchema as partWritesSchema } from "./builder/request-plan.mjs";
@@ -17889,7 +17889,28 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // merged list in, and it is sent now and stored below beside the source once
   // the publish has landed. Without this the page imports a component the
   // container never receives — the lane sweep's `tsx` failure, 2026-09-01.
-  const siteParts = Array.isArray(parts) ? parts : await loadSiteParts(env, slug);
+  let siteParts = Array.isArray(parts) ? parts : await loadSiteParts(env, slug);
+  // A PART THE COMPILE REPAIR FIXED (2026-10-24) is stored beside the pages
+  // even when the caller handed none: the band the error cited is the file
+  // that changed. See `partsRepaired` at the compile below.
+  let partsRepaired = false;
+  // THE CHEAP DETERMINISTIC PRE-FIX ON EVERY PUBLISH (2026-10-24): the build
+  // path ran `repairImports` and this spine — every edit, add-on, frame and
+  // tweak lane — never did, so a default import of a kit module (or a named
+  // import of a default-only part) reached the compiler on an edit. Pages and
+  // parts, against the parts as they stand; a file it did not touch is the
+  // same object, and a part it fixed is stored beside the pages.
+  if (Array.isArray(pages)) {
+    try {
+      const preParts = Array.isArray(siteParts) ? siteParts : [];
+      const prePages = repairImports(pages, { parts: preParts });
+      if (prePages.fixed.length) { pages = prePages.pages; tm("pre-fix", "ok", { pages: prePages.fixed.length }); }
+      if (preParts.length) {
+        const pp = repairImports(preParts, { parts: preParts });
+        if (pp.fixed.length) { siteParts = pp.pages; partsRepaired = true; tm("pre-fix", "ok", { parts: pp.fixed.length }); }
+      }
+    } catch (e) { console.error("pre-fix failed:", slug, e && e.message); }
+  }
 
   // ── THE SITE'S OTHER LANGUAGES ──────────────────────────────────────────────
   //
@@ -18365,25 +18386,44 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   let seamRepair = null;
   const compileHook = typeof onCompileFail === "function" ? onCompileFail
     : seamCompileRepair(env, { slug, touched, models, charge: typeof chargeRepair === "function" ? chargeRepair : charge, tm, keep: (r) => { seamRepair = r; } });
-  if ((!built || built.ok !== true || !built.files) && typeof compileHook === "function"
-      && !killed && !(built && built.timedOut) && !(built && built.room)) {
+  // EVERY FILE THE SITE OWNS IS OFFERED (2026-10-24, owner: "the repair has
+  // to be everywhere"): the pages AND the site's own parts (bands, the frame,
+  // components an edit wrote), as `-parts/<name>.tsx` files the hook may
+  // correct; `splitParts` hands a corrected part back to `siteParts`, which
+  // the payload, the staged state and the editable copy all read. NEVER
+  // SILENT: a failure the hook is not offered says why (`skip`).
+  const compileFailed = !built || built.ok !== true || !built.files;
+  const skipWhy = !compileFailed ? "" : typeof compileHook !== "function" ? "no-hook"
+    : killed ? "killed" : built && built.timedOut ? "timeout" : built && built.room ? "room" : "";
+  if (compileFailed && skipWhy) tm("compile-repair", "skip", { why: skipWhy });
+  if (compileFailed && !skipWhy) {
     tm("compile-repair", "start");
+    const partsBefore = siteParts;
+    const hasParts = Array.isArray(siteParts);
     let fix = null;
     try {
       fix = await compileHook({
-        error: String((built && built.error) || ""), stage: String((built && built.stage) || ""), pages, job,
-        recompile: async (list) => { files = filesFor(list); return compile(); },
+        error: String((built && built.error) || ""), stage: String((built && built.stage) || ""), pages: hasParts ? withParts(pages, siteParts) : pages, job,
+        recompile: async (list) => {
+          const s = splitParts(list, partsBefore);
+          if (hasParts) siteParts = s.parts;
+          files = filesFor(s.pages);
+          return compile();
+        },
       });
     } catch (e) {
       console.error("onCompileFail failed:", slug, e && e.message);
       fix = null;
     }
     if (fix && fix.built && fix.built.ok === true && fix.built.files && Array.isArray(fix.pages)) {
-      built = fix.built; pages = fix.pages;
-      tm("compile-repair", "ok");
+      const s = splitParts(fix.pages, partsBefore);
+      built = fix.built; pages = s.pages;
+      if (hasParts) { siteParts = s.parts; partsRepaired = partsRepaired || s.parts.some((p, i) => p !== partsBefore[i]); }
+      tm("compile-repair", "ok", { parts: partsRepaired });
     } else {
       // THE FILES GO BACK TO THE PAGES THAT STAND, so nothing below reads a
-      // corrected list that never compiled.
+      // corrected list that never compiled — the parts too.
+      siteParts = partsBefore;
       files = filesFor(pages);
       tm("compile-repair", "fail");
     }
@@ -18801,7 +18841,10 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       // marker behind, and the next job repairs from this version's own state.
       const saved = { source: await saveSiteSource(env, slug, pages, fence) };
       // AND THE PARTS BESIDE THEM, on the same terms.
-      if (Array.isArray(parts)) saved.parts = await saveSiteParts(env, slug, parts, fence);
+      // A PART THE COMPILE REPAIR FIXED IS SAVED TOO (2026-10-24), from the
+      // list that compiled.
+      const partsToSave = partsRepaired && Array.isArray(siteParts) ? siteParts : parts;
+      if (Array.isArray(partsToSave)) saved.parts = await saveSiteParts(env, slug, partsToSave, fence);
       // AND THE KIT CLOSURE THE CONTAINER JUST RESOLVED. Every cheap edit
       // republishes through here, so a site whose edit added a component that
       // pulls in a new kit file gets that file stored with the same publish —
@@ -26833,7 +26876,7 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
         ...resumeHeld(claimed),
         ...resumeMedia(claimed),
         ...(rContext ? { context: rContext } : {}),
-        buildFacts: buildFacts({ images: pages && pages.images, context: rContext, unwritten: pages && pages.unwritten, salvaged: pages && pages.salvaged, compileRepaired: pages && pages.compileRepair,
+        buildFacts: buildFacts({ images: pages && pages.images, context: rContext, unwritten: pages && pages.unwritten, salvaged: pages && pages.salvaged, salvagedParts: pages && pages.salvagedParts, compileRepaired: pages && pages.compileRepair,
           // WHAT ITS PUBLISH CHECKED (2026-10-14), only for a site that went live.
           checks: buildChecks(pages),
           // The same ordinary stop the inline answer names (the eighth batch).
@@ -30064,7 +30107,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // SAVED AS THE SITE'S DRAFT, NOT PUBLISHED (2026-10-16).
         ...(pages.draft && typeof pages.draft === "object" ? { draft: pages.draft } : {}),
         buildFacts: buildFacts({
-          images: pages.images, context: contextOut, unwritten: pages.unwritten, salvaged: pages.salvaged, compileRepaired: pages.compileRepair,
+          images: pages.images, context: contextOut, unwritten: pages.unwritten, salvaged: pages.salvaged, salvagedParts: pages.salvagedParts, compileRepaired: pages.compileRepair,
           checks: buildChecks(pages),
           // THE CUSTOMER'S ATTACHED LOGO (#168), told by the reply writer.
           ownLogo,

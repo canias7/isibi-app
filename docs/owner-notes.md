@@ -1,5 +1,15 @@
 # Owner Notes
 
+## 2026-10-24 — compile repair now reaches every file and every compile path (branch `repair-everywhere`, not merged, not deployed)
+
+- **Why**: `driftwood-and-daughters-2` fell to the placeholder at 03:19. One band (`band-1-bleed`) imported the kit's picture component the wrong way. The repair only looked at pages, so it never ran on the band, and salvage refused because the home page uses that band.
+- **Now the repair takes any file the error names that the site owns**: pages, bands, the header and footer, and components an edit wrote. It never touches kit files. A repaired band is kept where bands are stored, on first builds and on every edit, add-on, frame change and tweak.
+- **A cheap fix runs before every compile, on every path.** An import written the wrong way for what the module really exports (default or named) is corrected from the module's own export list. The live failure is fixed this way with no model call.
+- **If a band still won't compile, only that band is left out.** It becomes an empty stand-in and the rest of the site builds, even when the home page uses it. The reply says which section was left out. A broken home page still stops the build, and a band a live page already uses still leaves the live site as it is.
+- **The repair never skips silently.** Each time it doesn't run, the step says why (off, kit file only, no file of ours, out of time). Each run says whether it fixed the build or failed.
+- Charges are unchanged: the repair is charged only when it fixes the build, with up to two rounds.
+- Tests: 12 new cases, including the exact stored error through the real build. 11 of them fail on `main`; the twelfth checks a fact about the kit. Sweep: 20 of 20 changes caught, and the comment-only control survived. The audit table of every compile path is in `docs/history/2026-10-24-repair-everywhere.md`.
+
 ## 2026-10-24 — combine C: six finished branches in one candidate (branch `combine-c`, not merged, not deployed)
 
 - Brings together compile repair everywhere, the exact-edits tweak, the progress voice, the next-step hint, background work and the file picker (plus the 503 notes).

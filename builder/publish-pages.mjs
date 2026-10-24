@@ -15,6 +15,7 @@
 // model call, no container and no R2.
 
 import { validatePages, lintPages, repairImports, mergeParts, reviseSent } from "./page-gen.mjs";
+import { withParts, splitParts, isKitFile } from "./compile-repair.mjs";
 import { partStub, PART_IMPORT } from "./page-bands.mjs";
 // THE REWRITE'S PAGE MERGE AND ITS SENTENCE (2026-10-02, the whole-router
 // audit's W3). `site-addon.mjs` imports nothing, so this adds no cycle.
@@ -647,6 +648,31 @@ function Unfinished() {
  * re-running a build. It is carried out on the response for that reason; the
  * comment here used to claim the eval read it, and nothing did.
  */
+/**
+ * A STAND-IN FOR A PART THAT WOULD NOT COMPILE (2026-10-24): the default
+ * export `partStub` writes, plus one null-drawing export for every name the
+ * part exported, so a page importing `{ Named }` from it still compiles. It
+ * draws nothing; the reply says which section stands in (`standIn`).
+ */
+export function partStandIn(source) {
+  const s = String(source == null ? "" : source);
+  const names = new Set();
+  for (const m of s.matchAll(/\bexport\s+(?:async\s+)?(?:function\*?|const|let|var|class)\s+([A-Za-z_$][\w$]*)/g)) names.add(m[1]);
+  for (const m of s.matchAll(/\bexport\s*\{([^}]*)\}/g)) {
+    for (const raw of m[1].split(",")) {
+      const bits = raw.trim().replace(/^type\s+/, "").split(/\s+as\s+/);
+      const n = (bits[1] || bits[0] || "").trim();
+      if (n && n !== "default" && /^[A-Za-z_$][\w$]*$/.test(n)) names.add(n);
+    }
+  }
+  let out = partStub("Part");
+  for (const n of [...names].sort()) {
+    if (n === "Part") continue;
+    out += "export const " + n + ": any = (..._a: any[]) => null;\n";
+  }
+  return out;
+}
+
 function partImportRe(name) {
   const n = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`(["'])(?:@/routes/-parts/|\\./-parts/)${n}(?:\\.tsx)?\\1`);
@@ -680,6 +706,9 @@ export function salvagePlan(error, pages, live, parts = []) {
       const users = (pages || []).filter((p) => partImportRe(part[1]).test(String((p && p.source) || "")));
       for (const u of users) {
         if (published.has(u.path)) kept.add(u.path);
+        // A HOME PAGE THAT IMPORTS THE PART NO LONGER REFUSES (2026-10-24): the
+        // stub keeps the import valid and draws nothing, so one bad band never
+        // turns the whole site into the placeholder. Said as `homeParts`.
         else if (u.path === "index.tsx") homeUsesPart = true;
       }
       stubParts.add(part[1]);
@@ -701,7 +730,7 @@ export function salvagePlan(error, pages, live, parts = []) {
     return { stub: [], foreign: [], kept: [...kept].sort(), reason: "the page that failed is one the site is already serving" };
   }
   if (!stub.size && !stubParts.size) return { stub: [], foreign: [], kept: [], reason: "the error names no page" };
-  if (stub.has("index.tsx") || homeUsesPart) return { stub: [], foreign: [], kept: [], reason: "the home page is the one that failed" };
+  if (stub.has("index.tsx")) return { stub: [], foreign: [], kept: [], reason: "the home page is the one that failed" };
   if (!toldWhatIsLive) {
     // UNKNOWN, NOT EMPTY. Stubbing from here is a coin flip on whether the page
     // about to be replaced with an apology is one a visitor can load right now,
@@ -716,7 +745,7 @@ export function salvagePlan(error, pages, live, parts = []) {
     // cannot be reached past this one either way.
     return { stub: [], foreign: [], kept: [], reason: "we couldn't tell which pages the site is already serving" };
   }
-  return { stub: [...stub].sort(), foreign: [], kept: [], reason: "", ...(stubParts.size ? { parts: [...stubParts].sort() } : {}) };
+  return { stub: [...stub].sort(), foreign: [], kept: [], reason: "", ...(stubParts.size ? { parts: [...stubParts].sort() } : {}), ...(homeUsesPart ? { homeParts: true } : {}) };
 }
 
 /**
@@ -1617,16 +1646,41 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
    * BUILD: the usage joins `repairUsage` (the ONE `pageCredits` call, so the
    * pages charge) only on a compile that came back ok.
    */
+  /*
+   * EVERY FILE THE BUILD OWNS (2026-10-24, owner: "the repair has to be
+   * everywhere … like literally everywhere"). `driftwood-and-daughters-2`:
+   * vite refused `src/routes/-parts/band-1-bleed.tsx`, a band, and this loop
+   * looked for the cited file among the PAGES only, found none and broke with
+   * no step said. The site's own parts (bands, the frame) ride the list as
+   * `-parts/<name>.tsx` files (`withParts`), a corrected part goes back to
+   * `sitePartsForBuild` for the second compile and to `v.parts` once it
+   * compiled — the way salvage writes a stub back. Kit files are never in the
+   * list. And NEVER SILENT: a round that does not run says why
+   * (`compile-fix-skip`).
+   */
   let compileFix = null;
+  if (!salvageable(built)) {
+    if (built && built.ok !== true) note("compile-fix-skip", { round: 1, why: "not-the-code" });
+  } else if (!buildRepair) {
+    out.compileRepairSkipped = out.compileRepairSkipped || "off";
+    note("compile-fix-skip", { round: 1, why: "off" });
+  }
   if (buildRepair && salvageable(built)) {
     const spent = [];
-    let cur = pages;
+    const partsAtStart = sitePartsForBuild;
+    let cur = withParts(pages, sitePartsForBuild);
     let failing = built;
     for (let round = 1; round <= MAX_COMPILE_ROUNDS && salvageable(failing); round++) {
       const cites = errorCitations(failing.error);
       const known = new Set(cur.map((p) => p.path));
-      const n = new Set(cites.map((c) => c.file.replace(/^(?:src\/)?routes\//, "")).filter((f) => known.has(f))).size;
-      if (!n) break;
+      const ownCited = new Set(cites.map((c) => c.file.replace(/^(?:src\/)?routes\//, "")).filter((f) => known.has(f)));
+      const n = ownCited.size;
+      if (!n) {
+        const why = cites.length && cites.every((c) => isKitFile(c.file)) ? "kit-only" : "no-owned-file";
+        if (compileFix) compileFix.stopped = why; else out.compileRepairSkipped = why;
+        note("compile-fix-skip", { round, why });
+        break;
+      }
       let room = true;
       try { room = typeof deps.compileRepairRoom === "function" ? !!deps.compileRepairRoom() : true; } catch { room = false; }
       if (!room) { if (compileFix) compileFix.stopped = "time"; else out.compileRepairSkipped = "time"; note("compile-fix-skip", { round, why: "time" }); break; }
@@ -1638,13 +1692,18 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
       spent.push(...cr.usage);
       const prev = compileFix || { tried: 0, refused: [] };
       compileFix = { ...prev, rounds: round, tried: prev.tried + cr.repaired.length + cr.refused.length, refused: prev.refused.concat(cr.refused), ...(cr.skipped.length ? { skipped: cr.skipped } : {}), ...(cr.causes.length ? { causes: cr.causes } : {}) };
-      if (!cr.repaired.length) break;
-      const second = await compileWithRetry(cr.pages);
+      if (!cr.repaired.length) { note("compile-fix-failed", { round, why: cr.skipped.length && !cr.refused.length ? "same-error" : "refused" }); break; }
+      const split = splitParts(cr.pages, partsAtStart);
+      sitePartsForBuild = split.parts;
+      const second = await compileWithRetry(split.pages);
       const fixedNow = [...new Set([...(prev.touched || []), ...cr.repaired.map((x) => x.path)])];
       compileFix.touched = fixedNow;
       if (second.ok) {
         built = second;
-        pages = cr.pages;
+        pages = split.pages;
+        // THE REPAIRED PARTS LIVE WHERE PARTS LIVE, as salvage's stubs do.
+        const partsFixed = split.parts.filter((q, i) => q !== partsAtStart[i]).map((q) => q.name);
+        if (partsFixed.length) { v.parts = sitePartsForBuild; compileFix.parts = partsFixed; }
         compileFix.fixed = fixedNow;
         delete compileFix.failedStage; delete compileFix.failedError;
         // CHARGED ONLY NOW: the build compiled because of it.
@@ -1654,6 +1713,8 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
       }
       compileFix.failedStage = String(second.stage || "build");
       compileFix.failedError = String(second.error || "").slice(0, 200);
+      note("compile-fix-failed", { round, why: "compile" });
+      sitePartsForBuild = partsAtStart;
       failing = second;
       cur = cr.pages;
     }
@@ -1676,7 +1737,7 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
       const patched = pages.map((p) => (bad.has(p.path) ? { ...p, source: stubPage(p.path) } : p));
       // A PART STUBBED IS A SECTION THAT DRAWS NOTHING, its import still valid.
       const partsBefore = sitePartsForBuild;
-      if (badParts.size) sitePartsForBuild = sitePartsForBuild.map((p) => (badParts.has(p.name) ? { ...p, source: partStub("Part"), stub: true } : p));
+      if (badParts.size) sitePartsForBuild = sitePartsForBuild.map((p) => (badParts.has(p.name) ? { ...p, source: partStandIn(p.source), stub: true } : p));
       // THE RETRY WRAPPER, not the bare compile. A container drained mid-build
       // is the exact race `compileWithRetry` exists for — measured live twice —
       // and this call had no second attempt, so unlucky rollout timing turned a
