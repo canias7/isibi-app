@@ -10622,7 +10622,8 @@ const ROUTE_EDIT_LAYERS = ['data', 'text', 'look', 'page', 'rules', 'picture', '
 function designQuestion(d) {
   const q = d && d.question;
   const words = (v) => typeof v === 'string' && v.trim() !== '';
-  if (!d || d.intent !== 'clarify' || d.stage !== 'design' || !q || !words(q.text)) return null;
+  // THE PAGE WRITER'S TOO (2026-10-24, the parity audit): the same round.
+  if (!d || d.intent !== 'clarify' || (d.stage !== 'design' && d.stage !== 'pages') || !q || !words(q.text)) return null;
   const opts = Array.isArray(q.options) ? q.options : [];
   if (!opts.every(words)) return null;
   return { text: q.text, options: opts.slice(0, 4) };
@@ -11142,6 +11143,9 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // — words, colours, the theme, the fonts, the name — and none of it runs the
     // page generator, so it costs a fraction of a revise and takes seconds.
     //
+    // ⚠ SINCE 2026-10-24 AN ESCALATION NEVER REACHES `go()` (the owner's
+    // decision: the rewrite is never a fallback). What the steps could not make
+    // is said (`EditPoll.climbSaid`), at no cost. The history below stands.
     // AN ESCALATION FALLS THROUGH TO `go()`, the revise that used to be the only
     // answer — but only one the server CLASSIFIED as a job for it
     // (`builder/edit-failure.mjs`, 2026-09-23). Every failure used to fall
@@ -11150,7 +11154,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // page that is not there, an ask nobody could place, a failure of ours)
     // bought ~25 credits of rewritten pages and the same unanswered request.
     // Those are said now, for nothing, and the rewrite runs where it can help.
-    if (d.intent === 'edit' && site.slug) return siteEdit(site, d, run, origin, finish, go, sendImgs);
+    if (d.intent === 'edit' && site.slug) return siteEdit(site, d, run, origin, finish, (ho) => finish(EditPoll.climbSaid(ho)), sendImgs);
     // THE MIDDLE RUNG. Adds a page or a table and keeps everything else; costs a
     // few credits where the revise below costs ~25 and rewrites pages that were
     // fine. Falls through to that revise only on the add-on route's own escalate
@@ -11159,7 +11163,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // A 3D MODEL THEY ASKED FOR (2026-10-22): its price first, and a button;
     // nothing is spent until it is pressed (`siteModel3dOffer`).
     if (d.intent === 'addon' && site.slug && d.model3d && typeof d.model3d.subject === 'string') return siteModel3dOffer(site, d.model3d, origin, finish, sendImgs);
-    if (d.intent === 'addon' && site.slug) return siteAddon(site, run, origin, finish, go, d, sendImgs);
+    if (d.intent === 'addon' && site.slug) return siteAddon(site, run, origin, finish, (ho) => finish(EditPoll.climbSaid(ho)), d, sendImgs);
     // A PHONE APP OF THE SITE (2026-10-20, owner: "it has to be through model
     // calls"): the router read the message as asking for one; the app builder makes it.
     if (d.intent === 'app' && site.slug) return siteMakeApp(site, d.platform, finish);
@@ -11903,7 +11907,7 @@ function siteRequestHTML(m, site) {
     const pressing = (st.approving || []).includes(p.n);
     const rewrite = status === 'approval'
       ? (pressing ? '<span class="st-req-status">Starting…</span>'
-        : '<button type="button" class="st-opt st-req-go" data-req-approve="' + esc(m.request) + '" data-req-part="' + esc(String(p.n)) + '"><span>Rewrite the whole site for this</span></button>') : '';
+        : '<button type="button" class="st-opt st-req-go" data-req-approve="' + esc(m.request) + '" data-req-part="' + esc(String(p.n)) + '"><span>' + esc(p.retry === true || p.why === 'retry-build' ? 'Try building the site again' : 'Rewrite the whole site for this') + '</span></button>') : '';
     // WHAT ITS JOBS SAID WHILE THEY RAN (2026-10-06), under its label — the
     // label stays the fixed status; the lines are the model's words.
     // AND IT IS NAMED BY THE MODEL'S OWN LINE FOR ITS STATE, once written; by
@@ -12067,7 +12071,7 @@ function siteReqCardHTML(m, site) {
       const line = siteSaidFor(p.said, SITE_SAID_FOR[p.status]);
       if (line) body += '<div class="st-par-said">' + link(line) + '</div>';
     }
-    if (p.status === 'approval' && st) body += (st.approving || []).includes(p.n) ? '<span class="st-req-status">Starting…</span>' : '<button type="button" class="st-opt st-req-go" data-req-approve="' + esc(key) + '" data-req-part="' + esc(String(p.n)) + '"><span>Rewrite the whole site for this</span></button>';
+    if (p.status === 'approval' && st) body += (st.approving || []).includes(p.n) ? '<span class="st-req-status">Starting…</span>' : '<button type="button" class="st-opt st-req-go" data-req-approve="' + esc(key) + '" data-req-part="' + esc(String(p.n)) + '"><span>' + esc(p.retry === true || p.why === 'retry-build' ? 'Try building the site again' : 'Rewrite the whole site for this') + '</span></button>';
     if (p.status === 'uncertain' && st && (p.purchaseState || 'unknown') === 'unknown' && p.buyAgain !== false) body += (st.rebuying || []).includes(p.n) ? '<span class="st-req-status">Starting…</span>' : '<button type="button" class="st-opt st-req-go" data-req-buy="' + esc(key) + '" data-req-part="' + esc(String(p.n)) + '"><span>Buy the picture again (may cost again)</span></button>';
     if (state === 'bad' && String(p.words || '').trim()) body += '<button type="button" class="st-par-retry" data-par-retry="' + esc(key) + '" data-par-n="' + esc(String(p.n)) + '">Try again</button>';
     // ONE PART: its row, and its dropdown, drawn closed as well (`hidden`), so
@@ -13732,8 +13736,8 @@ function resumeOpenSite(site) {
     if (siteOpenId === origin) renderSites();
   };
   const rec = EditPoll.resumableRecord(String(site.slug));
-  const go = (ho) => reactSend(site, rec ? rec.ask : '', origin, 'revise', [], finish, [], ho);
-  if (!resumeEditJob(site, origin, finish, go)) return false;
+  // NEVER THE REWRITE (2026-10-24): a resumed job that climbs is said, as a fresh one is.
+  if (!resumeEditJob(site, origin, finish, (ho) => finish(EditPoll.climbSaid(ho)))) return false;
   siteBusyBegin(origin);
   siteBuildStart(true, origin);
   return true;
@@ -14022,7 +14026,7 @@ function addonAnswer(httpOk, a, o) {
   // the reply's own `deferred`, or what the post carried when it cannot be read.
   if (said.act === 'unknown' || said.act === 'receipt') { o.finish(addonOutcomeMsg('unknown') + alsoTail({ deferred: o.d && o.d.alsoAsked, putOff: o.d && o.d.putOff }, false)); return; }
   if (said.act === 'hop' || said.act === 'climb') {
-    if (!canFall) { o.finish('I couldn’t add that the cheap way, and I’ve lost the original message. Say it again and I’ll do the full rewrite.' + alsoTail(said, false)); return; }
+    if (!canFall) { o.finish('I couldn’t add that the quick way, and I’ve lost the original message. Say it again, in smaller parts if it’s a big change, and I’ll make each.' + alsoTail(said, false)); return; }
     // ONE HOP SIDEWAYS, when the addon names a cheaper rung that does this:
     // a new menu link, button or footer item is the menu editor's, which
     // writes every page at once (2026-10-02; until then it was a photograph,
@@ -15950,6 +15954,8 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
       media: Array.isArray(site.pendingMedia) && site.pendingMedia.length ? site.pendingMedia.slice(0, 20) : undefined }
     : {
       slug: site.slug, instruction: t, images: imgs, picker: buildPicker, ...(typeof sendEffort === 'function' ? sendEffort() : null),
+      // A REWRITE'S OWN QUESTION, ANSWERED (2026-10-24): the server folds them in as a build's.
+      qa: Array.isArray(qa) && qa.length ? qa : undefined,
       alsoAsked: EditPoll.heldWire(h.alsoAsked),
       handOver: h.handOver && typeof h.handOver === 'object' && !Array.isArray(h.handOver) ? h.handOver : undefined,
     };
@@ -16036,13 +16042,15 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
     // answers so far and the files kept on the site, the question on the
     // thread, and their answer runs this build again with it. Nothing was
     // built, and the deposit went back.
-    const dq = !firedJob && mode === 'build' ? designQuestion(d) : null;
+    // A REWRITE ASKS TOO (2026-10-24): its answer runs the same rewrite again
+    // with it (`revise` on the round), never a first build.
+    const dq = !firedJob && (mode === 'build' || mode === 'revise') ? designQuestion(d) : null;
     if (dq) {
       siteBusyEnd(origin);
       siteBuildStop(origin);
       const s0 = siteById(origin);
       if (!s0) return;
-      s0.clarify = { brief: t, qa: Array.isArray(qa) ? qa.slice() : [], imgs: imgs || [] };
+      s0.clarify = { brief: t, qa: Array.isArray(qa) ? qa.slice() : [], imgs: imgs || [], ...(mode === 'revise' ? { revise: true } : {}) };
       s0.msgs.push({ r: 'a', t: dq.text, q: dq.text, opts: dq.options });
       s0.updatedAt = Date.now();
       sitesSave();
@@ -16457,7 +16465,7 @@ function siteAnswer(label, skip, picked) {
   // The question this answers — the last one actually asked, read off the
   // thread rather than held in a second place that could disagree with it.
   const asked = [...(site.msgs || [])].reverse().find((m) => m && m.r === 'a' && m.q);
-  if (!skip && asked && !live) site.clarify.qa.push({ q: String(asked.q), a: said });
+  if (!skip && asked && (!live || round.revise === true)) site.clarify.qa.push({ q: String(asked.q), a: said });
   site.msgs.push({ r: 'u', t: skip ? 'Skip the questions — just build it' : said });
   const origin = siteOpenId;
   const imgs = site.clarify.imgs || [];
@@ -16475,6 +16483,14 @@ function siteAnswer(label, skip, picked) {
     sitesSave();
     if (siteOpenId === origin) renderSites();
   };
+  // A REWRITE'S OWN QUESTION (2026-10-24): its answer runs the same rewrite
+  // again with every answer, never a router call and never a new site.
+  if (live && round.revise === true) {
+    site.clarify = null;
+    sitesSave();
+    reactSend(site, round.brief, origin, 'revise', imgs, finish, round.qa);
+    return;
+  }
   if (live) {
     siteWithPages(origin, site.slug, (s) => {
       // The round is over, so its buttons come off the screen now rather than

@@ -290,6 +290,10 @@ export function budgetStage(steps) {
     // `ownlogo` (audit A26-4, 2026-10-23): the customer's attached logo stored
     // for the header, in the same place as `ownphotos`.
     ownlogo: "generate",
+    // `file_pick` (2026-10-24, the parity audit): a big site's rewrite picks
+    // which pages its writer is shown, after the database and before a page
+    // is written.
+    file_pick: "generate",
     // `bands` is a SUB-STEP of `gen` — the page's fan-out has come back and the
     // band sources are in hand. It stays "generate" rather than moving to
     // "publish" the way `img` does, and the case that settles it is the fan-out

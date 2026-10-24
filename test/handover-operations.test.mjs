@@ -364,51 +364,30 @@ for (const queued of [false, true]) {
   });
 }
 
-test("W8/W24 — a climb hands the rewrite the parts put off and why; a refusal there still names them", async () => {
+// ⚠ REVERSED 2026-10-24 (the owner's decision: the full rewrite is never a
+// fallback). A climb used to hand the rewrite the parts put off and why; now
+// nothing is posted after it, and its sentence still names every part put off
+// (W7), from the step's own reply.
+const KIND_SAID = "That would change what kind of site this is, which means replacing the whole site, so I haven’t changed anything. If that’s what you want, ask me to start over and I’ll check with you first.";
+const NO_PAGES_SAID = "Your site’s first build didn’t finish, so it has no pages yet for this to go on, and nothing was changed. Send your site’s description again and I’ll try the build once more.";
+test("W8/W24, 2026-10-24 — a climb starts no rewrite: it is said, and the part put off is still named", async () => {
   const M = "Make the whole site a shop instead, and " + LATER + ".";
   const climb = { ok: false, escalate: true, reason: "build", field: "kind", cost: 0, deferred: LATER };
-  const p = page({
-    route: [route({ intent: "edit", layer: "look", alsoAsked: LATER })],
-    edit: [ok(climb)],
-    rewrite: [ok({ ok: false, need: "credits", msg: "You don’t have enough credits for that.", deferred: LATER }, 402)],
-  });
+  const p = page({ route: [route({ intent: "edit", layer: "look", alsoAsked: LATER })], edit: [ok(climb)] });
   await p.send(M);
-  const rw = posts(p, "rewrite");
-  assert.equal(rw.length, 1, "the rewrite was not started: " + JSON.stringify(p.kinds()));
-  assert.equal(rw[0].instruction, M);
-  assert.equal(rw[0].alsoAsked, LATER, "the rewrite was not told what to take out — it would rewrite every page with it in");
-  assert.deepEqual(rw[0].handOver, { from: "look", reason: "build", field: "kind" }, "the rewrite was not told why it was handed this");
-  assert.deepEqual(p.said(), ["You don’t have enough credits for that." + LEFT(LATER)]);
+  assert.deepEqual(posts(p, "rewrite"), [], "the rewrite was started: " + JSON.stringify(p.kinds()));
+  assert.deepEqual(p.kinds(), ["route", "edit"]);
+  assert.deepEqual(p.said(), [KIND_SAID + LEFT(LATER)]);
 });
 
-test("W8 — the add-on step's own climb hands the rewrite the same contract", async () => {
+test("W8, 2026-10-24 — the add-on step's own climb on a site with no pages offers the build again, never the rewrite, and names the part put off", async () => {
   const M = "Add a members area, and " + LATER + ".";
-  // THE REAL PRODUCER'S CLIMB: a verified reconstruction (`addonFailure`), with
-  // the `deferred` every ending of the route now carries.
-  const p = page({
-    route: [route({ intent: "addon", alsoAsked: LATER })],
-    addon: [ok({ ...addonFailure("no-source", { reconstruct: true }), deferred: LATER })],
-    rewrite: [ok({ ok: false, error: "x", msg: "That didn’t come together.", deferred: LATER }, 422)],
-  });
+  // THE REAL PRODUCER'S CLIMB: a verified reconstruction (`addonFailure`).
+  const p = page({ route: [route({ intent: "addon", alsoAsked: LATER })], addon: [ok({ ...addonFailure("no-source", { reconstruct: true }), deferred: LATER })] });
   await p.send(M);
   assert.equal(posts(p, "addon")[0].alsoAsked, LATER);
-  const rw = posts(p, "rewrite");
-  assert.equal(rw.length, 1, JSON.stringify(p.kinds()));
-  assert.equal(rw[0].alsoAsked, LATER);
-  assert.deepEqual(rw[0].handOver, { from: "addon", reason: "no-source" });
-  assert.deepEqual(p.said(), ["That didn’t come together." + LEFT(LATER)]);
-});
-
-test("W7 — a dropped connection to the rewrite still names the part put off, from what was posted", async () => {
-  const M = "Make the whole site a shop instead, and " + LATER + ".";
-  const p = page({
-    route: [route({ intent: "edit", layer: "look", alsoAsked: LATER })],
-    edit: [ok({ ok: false, escalate: true, reason: "build", field: "kind", cost: 0, deferred: LATER })],
-    rewrite: [{ reject: new TypeError("Failed to fetch") }],
-  });
-  await p.send(M);
-  assert.equal(posts(p, "rewrite").length, 1);
-  assert.deepEqual(p.said(), ["Lost the connection while building — check your internet and try again in a moment." + LEFT(LATER)]);
+  assert.deepEqual(posts(p, "rewrite"), [], JSON.stringify(p.kinds()));
+  assert.deepEqual(p.said(), [NO_PAGES_SAID + LEFT(LATER)]);
 });
 
 test("W7 — an edit refusal names the part put off, beside what it cost", async () => {
@@ -483,21 +462,16 @@ test("W24 — a sideways hop between edit steps posts the hand-over too: the ste
   assert.deepEqual(edits[1].handOver, { from: "picture", reason: "needs-place", page: "/gear" }, "the page step was not told why it was handed this");
 });
 
-test("W8 — what a step put off as the router's net rides the climb with the router's own part, both taken out by the rewrite", async () => {
-  // THE LOOK STEP PUT A QR CODE OFF beside the router's part, then climbed: its
-  // reply names both, and the rewrite must be told both — what was posted to the
-  // step is the router's part alone.
+test("W8, 2026-10-24 — what a step put off beside the router's own part is named with it when the climb is said; nothing is rewritten", async () => {
   const QR = "add a QR code for our menu";
   const M = "Make the whole site a shop instead, " + QR + ", and " + LATER + ".";
   const p = page({
     route: [route({ intent: "edit", layer: "look", alsoAsked: LATER })],
     edit: [ok({ ok: false, escalate: true, reason: "build", field: "kind", cost: 0, deferred: [LATER, QR] })],
-    rewrite: [ok({ ok: false, error: "x", msg: "That didn’t come together.", deferred: [LATER, QR] }, 422)],
   });
   await p.send(M);
-  const rw = posts(p, "rewrite");
-  assert.equal(rw.length, 1, JSON.stringify(p.kinds()));
-  assert.deepEqual(rw[0].alsoAsked, [LATER, QR], "the rewrite was told only what was posted to the step, not what the step put off");
+  assert.deepEqual(posts(p, "rewrite"), [], JSON.stringify(p.kinds()));
+  assert.deepEqual(p.said(), [KIND_SAID + "\nI left “" + LATER + "” and “" + QR + "” for later, so they weren’t tried. Send each on its own when you’re ready."]);
 });
 
 test("W24 — an escalate whose reason or field is not text is not trusted: nothing is handed on", async () => {

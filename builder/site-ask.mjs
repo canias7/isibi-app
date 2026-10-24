@@ -1193,6 +1193,23 @@ export function readModel3d(raw, { pages = [] } = {}) {
   if (known.length && !known.includes(page)) page = "/";
   return { from: raw.from, subject, page };
 }
+// ── "START OVER" (owner, 2026-10-24) ──────────────────────────────────────
+// Read only with intent "build" on a site that exists. The question that goes
+// with it is the model's own, in `question`, with its answers as options.
+/** Who asked the start-over question, as the stored question records it (`packAsk`'s `by`). */
+export const START_OVER_BY = "route:startover";
+const START_OVER_FIELD = {
+  type: "boolean",
+  description:
+    "Only with intent \"build\" on a site that already exists. true when they ask to START OVER or REDESIGN EVERYTHING " +
+    "(\"scrap it and start again\", \"redo the whole site\") without describing the new site in full; then also write " +
+    "`question`: one plain question, in their language, saying this replaces their whole site (every page is written " +
+    "again; the site as it is now is kept as a saved version they can restore) and asking whether to go ahead, with " +
+    "two short options — one to go ahead, one to keep the site as it is. Nothing is rewritten until they answer yes. " +
+    "When their message ANSWERS that question with yes, answer \"build\" with `startOver` true again. Leave it out " +
+    "(or false) when the message is itself a full description of the site to make: that is rebuilt as described.",
+};
+
 export const LIVE_ASK_TOOL = {
   name: ASK_TOOL.name,
   description: "Say whether this message is asking for a change to the site or asking a question, answer it if it is a question, and ask for the one detail you need when what they want cannot be decided without it.",
@@ -1216,9 +1233,10 @@ export const LIVE_ASK_TOOL = {
       dependsOn: DEPENDS_ON,
       targets: TARGETS,
       model3d: MODEL3D_FIELD,
+      startOver: START_OVER_FIELD,
       question: {
         type: "object",
-        description: "Only when intent is \"clarify\". ONE short question, written to them, naming the one detail you need.",
+        description: "Only when intent is \"clarify\", or \"build\" with `startOver` true. ONE short question, written to them, naming the one detail you need — or, for `startOver`, asking whether to replace their whole site.",
         properties: {
           text: { type: "string", description: "The question, in one or two short, plain sentences." },
           options: {
@@ -1574,6 +1592,13 @@ export const ROUTE_REASONS = Object.freeze({
   // (`clarify-again`) — the owner's second review, replacing the two endings
   // that stopped the request there.
   "clarify-unkeepable": Object.freeze({ kind: "fallback", what: "a question back where no question can be kept, a failure of the answer" }),
+  // "START OVER" ON A SITE THAT EXISTS (owner, 2026-10-24): never the rewrite
+  // on the first message. The router's own question is asked first; only an
+  // answer to that question that says yes is the rewrite; a start-over with no
+  // question it can show fails the call, never runs.
+  "startover-asked": Object.freeze({ kind: "changed", what: "a request to start over: its confirmation question is asked before anything is rewritten" }),
+  "startover-confirmed": Object.freeze({ kind: "context", what: "the answer to the start-over question said yes, so the rewrite may run" }),
+  "startover-unasked": Object.freeze({ kind: "fallback", what: "a request to start over with no confirmation question that can be shown, a failure of the answer" }),
   "clarify-reused": Object.freeze({ kind: "context", what: "a question back the request had already asked, so the model was asked again with that answer in front of it" }),
   "clarify-again": Object.freeze({ kind: "changed", what: "the model asked again what it had been answered, shown the answer: kept with a note naming the answer that did not settle it, and never sent again on our own at the repeated-question threshold or past the total-answer limit" }),
   "answered-unread": Object.freeze({ kind: "fallback", what: "a reply to a waiting question that did not say whether it answers it" }),
@@ -1820,8 +1845,28 @@ export function readRouting(reply, opts = {}) {
     }
     return withAnswered({ intent: "clarify", answer: "", question: q });
   }
-  return withAnswered(readDecision(reply, { ...o, canClarify: false }));
+  const decided = readDecision(reply, { ...o, canClarify: false });
+  // ── "START OVER" ASKS FIRST (owner, 2026-10-24) ──────────────────────────
+  // A full new description of a site (`startOver` absent) is still the
+  // rewrite, as before. "Start over" / "redesign everything" is the rewrite
+  // only after the router's own question — "this replaces your whole site,
+  // OK?" — was answered yes (`confirming`, the waiting question is that one).
+  // Until then the answer is that question, kept like any other; one that
+  // cannot be shown or kept fails the call. Never the rewrite on a guess.
+  if (decided.intent === "build" && input.startOver === true) {
+    if (o.confirming === true && answered === true) {
+      mark("startover-confirmed");
+      return withAnswered({ ...decided, startOver: true, confirmed: true });
+    }
+    const q = usableAsk(input.question);
+    if (!q) { mark("startover-unasked"); return { intent: fallback, answer: "", unusable: true }; }
+    if (o.canAsk !== true) { mark("clarify-unkeepable"); return { intent: fallback, answer: "", unusable: true }; }
+    mark("startover-asked");
+    return withAnswered({ intent: "clarify", answer: "", question: q, confirm: "rewrite" });
+  }
+  return withAnswered(decided);
 }
+
 
 function readDecision(reply, { canClarify = false, picked = false, hasSite = false, pages = [], pagesComplete = true, trace = null, history = false } = {}) {
   const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
@@ -3329,6 +3374,8 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
   const readAs = (r, open, tr) => readRouting(r, {
     canClarify, picked: picked === true, hasSite: !!hasSite, pages, pagesComplete: pagesComplete !== false, trace: tr, history: shownHistory.turns.length > 0,
     live, canAsk: open, pending: !!waiting, chosen: !!(waiting && waiting.chosen === true), items,
+    // THE WAITING QUESTION IS THE START-OVER ONE (2026-10-24): only its yes is the rewrite.
+    confirming: !!(waiting && waiting.by === START_OVER_BY),
   });
   let trace = { reasons: shown.slice(), input: undefined };
   let routed = readAs(reply, canAsk, trace);

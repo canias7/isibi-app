@@ -66,6 +66,14 @@ const CASES = [
   // into work; a reply to a waiting question that does not say whether it
   // answers it fails the call; and the flag with no question waiting is left out.
   ["clarify-unkeepable", () => routed({ intent: "clarify", question: QUESTION }, { canAsk: false }), "fallback"],
+  // "START OVER" ASKS FIRST (owner, 2026-10-24): its question is the answer,
+  // only a yes to that question is the rewrite, and a start-over with no
+  // question it can show fails the call.
+  ["startover-asked", () => routed({ intent: "build", startOver: true, question: QUESTION }, { canAsk: true }), "model"],
+  ["startover-unasked", () => routed({ intent: "build", startOver: true }, { canAsk: true }), "fallback"],
+  ["startover-confirmed", () => routed({ intent: "build", startOver: true, answered: true }, {
+    canAsk: true, pending: { request: "Start over.", question: { text: "This replaces your whole site. Go ahead?", options: ["Yes", "No"] }, by: "route:startover" },
+  }), "model"],
   ["answered-unread", () => routed({ intent: "edit", layer: "look" }, {
     pending: { request: "Change the photo.", question: { text: "Which photo?", options: [] } },
   }), "fallback"],

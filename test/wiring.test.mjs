@@ -1300,7 +1300,8 @@ test("the Worker tells publishPages which pages the site is already serving", ()
     "livePages is no longer derived from the site's stored source");
   // BESIDE IT, SINCE 2026-10-02, THE REVISE'S STORED PAGES AND COMPONENTS
   // (the whole-router audit's W3) — the same options object, one call.
-  assert.match(src, /\{ spec, slug, priorUsage, livePages, priorPages, priorParts \}/,
+  // RE-ANCHORED 2026-10-24 (the parity audit): the rewrite's file pick rides the same options.
+  assert.match(src, /\{ spec, slug, priorUsage, livePages, priorPages, priorParts, reviseOnly, pickUsage \}/,
     "livePages is computed and never handed to publishPages");
   // AND "WE COULD NOT TELL" IS NOT FLATTENED INTO "NOTHING IS LIVE".
   //
@@ -2059,6 +2060,6 @@ test("the translation calls are CHARGED — by the spine, before the commit poin
   assert.match(pp, /const langUsage = \[\];/, "publishPages keeps no translation usage");
   assert.match(pp, /if \(bd && Array\.isArray\(bd\.langUsage\)\) for \(const u of bd\.langUsage\) if \(u\) langUsage\.push\(u\);/,
     "publishPages does not read the compile result's translation usage");
-  assert.match(pp, /const c = pageCredits\(gen\.usage, priorUsage, out\.images \? \{ images: out\.images\.made \} : null, \.\.\.repairUsage, \.\.\.langUsage\);/,
+  assert.match(pp, /const c = pageCredits\(gen\.usage, priorUsage, out\.images \? \{ images: out\.images\.made \} : null, \.\.\.repairUsage, \.\.\.langUsage, \.\.\.\(pickUsage \? \[pickUsage\] : \[\]\)\);/,
     "the build's one bill does not price the translations");
 });

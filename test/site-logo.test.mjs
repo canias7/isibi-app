@@ -500,7 +500,8 @@ test("THE ROUTE IS REACHABLE AND THE CLIENT SENDS THE PICTURE", () => {
   // RE-ANCHORED 2026-10-02: the files that go with the work start as this
   // message's own (`sendImgs`), and an answered question adds its request's.
   assert.match(chat, /let sendImgs = Array\.isArray\(imgs\) \? imgs\.slice\(0, 3\) : \[\];/, "the work's files are not the message's own");
-  assert.match(chat, /siteEdit\(site, d, run, origin, finish, go, sendImgs\)/, "siteEdit is not given the attachments");
+  // RE-ANCHORED 2026-10-24: its fallback is the said climb, never the rewrite (`go`).
+  assert.match(chat, /siteEdit\(site, d, run, origin, finish, \(ho\) => finish\(EditPoll\.climbSaid\(ho\)\), sendImgs\)/, "siteEdit is not given the attachments");
 });
 
 test("…and the router can name the layer", () => {

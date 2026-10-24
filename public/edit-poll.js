@@ -1023,7 +1023,43 @@
     };
   }
 
+  /**
+   * WHAT A CLIMB IS TOLD, NOW THAT IT NEVER BUYS THE FULL REWRITE (owner,
+   * 2026-10-24: *"Keep [the rewrite] only for a full new site description on a
+   * site that exists, and for the customer clearly asking to start over …
+   * remove it as an automatic fallback."*). `ho` is the hand-over the step
+   * gave (`handOver`), its `reason` the escalate's own. A site with no pages
+   * (`no-source`: its first build never finished) is told the build can be
+   * tried again; a change of what kind of site it is, and a site without its
+   * saved design, are told a rebuild is a start-over they confirm; anything
+   * else is asked for in smaller changes. Nothing is rewritten or charged.
+   */
+  function climbSaid(ho) {
+    return climbSentence(ho) + leftTail(ho);
+  }
+  // EVERY ENDING NAMES WHAT WAS PUT OFF (the audit's W7): the hand-over's own
+  // parts (`alsoAsked`, then `putOff`), in the words `alsoTail` in chat.js
+  // gives a refusal (done === false), so the two read the same.
+  function leftTail(ho) {
+    var now = (ho && heldList(ho.alsoAsked)) || [];
+    var earlier = (ho && heldList(ho.putOff)) || [];
+    var parts = now.concat(earlier.filter(function (p) { return now.indexOf(p) < 0; }));
+    if (!parts.length) return "";
+    var q = parts.map(function (p) { return "\u201c" + p.slice(0, 200) + "\u201d"; });
+    var one = q.length === 1;
+    var list = one ? q[0] : q.slice(0, -1).join(", ") + " and " + q[q.length - 1];
+    return "\nI left " + list + " for later, so " + (one ? "it wasn\u2019t" : "they weren\u2019t") + " tried. Send " + (one ? "that" : "each") + " on its own when you\u2019re ready.";
+  }
+  function climbSentence(ho) {
+    var why = ho && ho.handOver && typeof ho.handOver.reason === "string" ? ho.handOver.reason : "";
+    if (why === "no-source") return "Your site\u2019s first build didn\u2019t finish, so it has no pages yet for this to go on, and nothing was changed. Send your site\u2019s description again and I\u2019ll try the build once more.";
+    if (why === "build") return "That would change what kind of site this is, which means replacing the whole site, so I haven\u2019t changed anything. If that\u2019s what you want, ask me to start over and I\u2019ll check with you first.";
+    if (why === "no-look" || why === "no-meta" || why === "needs-pages") return "The quick steps need your site\u2019s saved design, which this site doesn\u2019t have in full, so I haven\u2019t changed anything, and I won\u2019t rewrite your whole site for one change. If you want it rebuilt, ask me to start over and I\u2019ll check with you first.";
+    return "That needs more than the quicker steps can make in one go, so I haven\u2019t changed anything, and I won\u2019t rewrite your whole site for it. Send it as smaller changes, one at a time (each page or section on its own), and I\u2019ll make each.";
+  }
+
   var api = {
+    climbSaid: climbSaid,
     FINAL_HEADER: FINAL_HEADER,
     FINAL_VALUE: FINAL_VALUE,
     readPoll: readPoll,

@@ -417,25 +417,30 @@ test("CONTROL: a hop to a cheaper rung posts one edit there with the same ask, s
   assert.equal(second.body.page, "/prices", "the hop did not carry the page the route named");
 });
 
-test("CONTROL: a classified climb still starts the rewrite, straight back and queued", async () => {
-  // The edit route's no-layer escalates are classified (`builder/edit-failure.mjs`
-  // — `text/too-much-text` is `up`), and the rewrite is what they ask for.
+// ⚠ REVERSED 2026-10-24 (the owner's decision: the full rewrite is never a
+// fallback). A classified climb used to start the rewrite; now it is said, at
+// no cost, and nothing is posted after it.
+const CLIMB_SAID = "That needs more than the quicker steps can make in one go, so I haven’t changed anything, and I won’t rewrite your whole site for it. Send it as smaller changes, one at a time (each page or section on its own), and I’ll make each.";
+test("a classified climb is said, never the rewrite, straight back and queued (2026-10-24)", async () => {
   for (const [edit, poll, trail] of [
-    [[ok(CLIMB)], [], ["POST " + EDIT, "POST " + REWRITE]],
-    [[RECEIPT], [stored(CLIMB)], ["POST " + EDIT, "GET " + POLLED, "POST " + REWRITE]],
+    [[ok(CLIMB)], [], ["POST " + EDIT]],
+    [[RECEIPT], [stored(CLIMB)], ["POST " + EDIT, "GET " + POLLED]],
   ]) {
     const o = await drive({ answers: { route: [routeTo("text")], edit, poll } });
-    assert.deepEqual(o.trail, trail);
-    assert.equal(o.reqs.find((r) => r.kind === "rewrite").body.instruction, ASK, "the rewrite is not of the customer's own ask");
+    assert.deepEqual(o.trail, trail, "something was posted after the climb");
+    assert.ok(!o.reqs.some((r) => r.kind === "rewrite"), "the rewrite was started");
+    assert.deepEqual(o.said, [CLIMB_SAID]);
   }
 });
 
-test("CONTROL: DUPLICATE EXECUTION — one hop, then up; and an escalate naming the layer it came from goes up", async () => {
+test("DUPLICATE EXECUTION — one hop, then up is said; and an escalate naming the layer it came from is said, never the rewrite (2026-10-24)", async () => {
   // The hop's own escalate does not hop again: `escalateAction` allows one.
   const twice = await drive({ answers: { route: [routeTo("data")], edit: [ok(HOP), ok(PAGE_HOP)] } });
-  assert.deepEqual(twice.trail, ["POST " + EDIT, "POST " + EDIT, "POST " + REWRITE]);
+  assert.deepEqual(twice.trail, ["POST " + EDIT, "POST " + EDIT]);
+  assert.deepEqual(twice.said, [CLIMB_SAID]);
   const same = await drive({ answers: { route: [routeTo("text")], edit: [ok({ ...HOP, layer: "text" })] } });
-  assert.deepEqual(same.trail, ["POST " + EDIT, "POST " + REWRITE]);
+  assert.deepEqual(same.trail, ["POST " + EDIT]);
+  assert.deepEqual(same.said, [CLIMB_SAID]);
 });
 
 test("CONTROL: refusals are shown in their own words, with the whole-request note, straight back and queued", async () => {

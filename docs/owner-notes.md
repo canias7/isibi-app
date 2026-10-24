@@ -1,5 +1,15 @@
 # Owner Notes
 
+## 2026-10-24 — the full-site rewrite only where you kept it (branch `rebuild-scope`, not merged, not deployed)
+
+- **A full new description on a site that exists** still rewrites the site, as before.
+- **"Start over"** now asks first: "this replaces your whole site, OK?". Only a yes rewrites it, and the version before stays in your saved versions, restorable. A no rewrites nothing.
+- **An edit or addition too big for the quicker steps** is never rewritten automatically any more. The customer is told so, nothing changes, nothing is charged, and they are asked to send it in smaller pieces. A change of what kind of site it is is told it needs a confirmed start-over.
+- **A site whose first build never finished** is offered "Try building the site again" (the build, not a rewrite).
+- The rewrite now also gets the newer tools: the design correction round, the page writer's question to the customer, and the file picker on big sites.
+- Not done: the build panel row and real Stop (branch `build-panel-stop`) for the rewrite; left for when the branches are combined.
+- Tests: 16 new cases, 14 fail on the old code. Sweep 11 of 11 caught, control survived. Full suite `12474 / 12469 / 2 / 3` (the two failures are this machine's). Nothing spent. Record: `docs/history/2026-10-24-rebuild-scope.md`.
+
 ## 2026-10-24 — combine C: six finished branches in one candidate (branch `combine-c`, not merged, not deployed)
 
 - Brings together compile repair everywhere, the exact-edits tweak, the progress voice, the next-step hint, background work and the file picker (plus the 503 notes).

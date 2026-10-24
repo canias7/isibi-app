@@ -278,6 +278,8 @@ const SRC = [
   cutLine("const BUILD_POLL_MS ="), cutLine("const BUILD_FOLLOW_MS ="),
   cut("async function followBuildJob("),
   cut("function reactSend("),
+  // A REWRITE READS ITS OWN QUESTION TOO SINCE 2026-10-24 (`designQuestion`).
+  cut("function designQuestion("),
   // A BUILD'S OUTCOME FACTS AND ITS TOLD ACCOUNT (2026-10-08, the sixth batch).
   cut("function buildToldLines("),
   cut("function settlementLine("),

@@ -2151,7 +2151,8 @@ test("the router RETURNS the layer it picked", () => {
   // 2,000 SINCE 2026-10-03: two fields joined it (`dependsOn`, `questionFor`);
   // the whole route is many times that, which is what the bound catches.
   // 2,600 SINCE 2026-10-14: three more (`replyFrom`, `replyCut`, `resolved`).
-  assert.ok(code.length > 60 && code.length < 2600,
+  // 2,900 SINCE 2026-10-24: two more (`startOver`, `confirmed`, the start-over question's).
+  assert.ok(code.length > 60 && code.length < 2900,
     "the response literal window looks wrong: " + code.length + " of code in " + obj.length + " bytes");
   // The PROPERTY: every field the client reads off this answer is on it, as a
   // real property with a value rather than as a word in a sentence.

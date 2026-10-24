@@ -492,48 +492,28 @@ test("a hop handed to the add-on releases the site when the add-on ends", async 
   });
 });
 
-test("a hop that climbs releases the site at the handoff to the rewrite, and the page stays busy until the rewrite ends", async () => {
-  // ONE HOP, THEN UP: the hop's own escalate names a layer and still goes to
-  // the rewrite — the bound is untouched.
+// ⚠ REVERSED 2026-10-24 (the owner's decision: the full rewrite is never a
+// fallback). One hop, then up used to hand the ask to the rewrite; now the
+// climb is said at once, at no cost, and the site is free for the next message.
+const CLIMB_SAID = "That needs more than the quicker steps can make in one go, so I haven’t changed anything, and I won’t rewrite your whole site for it. Send it as smaller changes, one at a time (each page or section on its own), and I’ll make each.";
+test("a hop that climbs is said, never handed to the rewrite: nothing more is posted and the site is free at once", async () => {
   const p = page({ answers: merge({ route: [routeTo("data")], edit: [ok(HOP), ok(HOP_PAGE)] }, MESSAGE_2) });
   await p.send(M1);
-  const lines = ["route: " + M1, "edit data: " + M1, "edit text: " + M1, "rewrite: " + M1];
-  assert.deepEqual(p.lines(), lines);
-  assert.deepEqual(p.waiting(), ["rewrite"]);
-  // THE EDIT CHAIN HAS ENDED AND THE WORK HAS NOT. The latch is the edit's and
-  // came off at the handoff — a rewrite that succeeds ends through
-  // `siteFinishBuild` and never calls the finish it was handed — and the page's
-  // busy flag is what holds while the rewrite runs.
-  assert.deepEqual(p.lock(), [], "the edit latch is still held by an ask that has left the edit route");
-  assert.equal(p.busy(), true, "the send box is free while the rewrite runs");
-  await p.send(M3);
-  assert.deepEqual(p.lines(), lines, "a message sent while the rewrite ran reached the server");
-  await p.answer("rewrite", ok({ need: "credits", msg: "Not enough credits." }, 402));
-  assert.deepEqual(p.said(), ["Not enough credits."]);
-  assertIdle(p, "after the rewrite answered");
-  await thenMessage2(p, { lines, said: ["Not enough credits."] });
+  const lines = ["route: " + M1, "edit data: " + M1, "edit text: " + M1];
+  assert.deepEqual(p.lines(), lines, "the climb reached another route");
+  assert.deepEqual(p.said(), [CLIMB_SAID]);
+  assertIdle(p, "after the climb was said");
+  await thenMessage2(p, { lines, said: [CLIMB_SAID] });
 });
 
-test("a QUEUED hop that climbs releases the site at the handoff to the rewrite, and the page stays busy until the rewrite ends", async () => {
-  // ONE HOP, THEN UP: the hop's own escalate names a layer and still goes to
-  // the rewrite — the bound is untouched.
+test("a QUEUED hop that climbs is said, never handed to the rewrite: nothing more is posted and the site is free at once", async () => {
   const p = page({ answers: merge({ route: [routeTo("data")], edit: [ok(HOP), receipt("job-hop")], poll: [stored(HOP_PAGE)] }, MESSAGE_2) });
   await p.send(M1);
-  const lines = ["route: " + M1, "edit data: " + M1, "edit text: " + M1, "poll job-hop", "rewrite: " + M1];
-  assert.deepEqual(p.lines(), lines);
-  assert.deepEqual(p.waiting(), ["rewrite"]);
-  // THE EDIT CHAIN HAS ENDED AND THE WORK HAS NOT. The latch is the edit's and
-  // came off at the handoff — a rewrite that succeeds ends through
-  // `siteFinishBuild` and never calls the finish it was handed — and the page's
-  // busy flag is what holds while the rewrite runs.
-  assert.deepEqual(p.lock(), [], "the edit latch is still held by an ask that has left the edit route");
-  assert.equal(p.busy(), true, "the send box is free while the rewrite runs");
-  await p.send(M3);
-  assert.deepEqual(p.lines(), lines, "a message sent while the rewrite ran reached the server");
-  await p.answer("rewrite", ok({ need: "credits", msg: "Not enough credits." }, 402));
-  assert.deepEqual(p.said(), ["Not enough credits."]);
-  assertIdle(p, "after the rewrite answered");
-  await thenMessage2(p, { lines, said: ["Not enough credits."] });
+  const lines = ["route: " + M1, "edit data: " + M1, "edit text: " + M1, "poll job-hop"];
+  assert.deepEqual(p.lines(), lines, "the climb reached another route");
+  assert.deepEqual(p.said(), [CLIMB_SAID]);
+  assertIdle(p, "after the climb was said");
+  await thenMessage2(p, { lines, said: [CLIMB_SAID] });
 });
 
 // ── A DUPLICATE IS STILL REFUSED WHILE THE WORK RUNS ───────────────────────
@@ -689,9 +669,10 @@ test('a resumed queued hop keeps its hop limit instead of starting a third edit'
   assert.equal(p.ctx.EditPoll.resumableRecord('fretwork-1').handedOff, true);
   assert.equal(p.ctx.resumeOpenSite(p.s), true);
   await settle();
-  const lines = ['poll job-resumed-hop', 'rewrite: ' + M1];
+  // NEVER THE REWRITE (2026-10-24): the resumed hop's climb is said, as a fresh one is.
+  const lines = ['poll job-resumed-hop'];
   assert.deepEqual(p.lines(), lines);
-  await p.answer('rewrite', ok({ need: 'credits', msg: 'Not enough credits.' }, 402));
+  assert.deepEqual(p.said(), [CLIMB_SAID]);
   assertIdle(p, 'after resumed hop');
-  await thenMessage2(p, { lines, said: ['Not enough credits.'] });
+  await thenMessage2(p, { lines, said: [CLIMB_SAID] });
 });

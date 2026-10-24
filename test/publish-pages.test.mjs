@@ -2927,7 +2927,8 @@ test("THE WIRING — the Worker really passes `keep`, and it does not write the 
   const from = w.indexOf("const out = await publishPages({");
   // THE REVISE'S STORED PAGES AND COMPONENTS RIDE IN THE SAME OPTIONS (2026-10-02,
   // the whole-router audit's W3): a rewrite folds what it returns over them.
-  const to = w.indexOf("}, { spec, slug, priorUsage, livePages, priorPages, priorParts });", from);
+  // RE-ANCHORED 2026-10-24 (the parity audit): the rewrite's file pick rides the same options.
+  const to = w.indexOf("}, { spec, slug, priorUsage, livePages, priorPages, priorParts, reviseOnly, pickUsage });", from);
   assert.ok(from > 0 && to > from, "the build's publishPages call site moved — this scan proves nothing");
   const site = w.slice(from, to);
   assert.match(site, /keep:\s*\(answer\)\s*=>\s*saveGenAnswer\(env, slug, answer\)/,
