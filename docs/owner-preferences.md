@@ -1438,3 +1438,17 @@ honestly with the step's reason. Reasons smaller parts cannot fix (a change of
 what kind of site it is, a site without its saved design, a site with no
 pages) end as before, and the full rewrite is never offered for any of it.
 Record: `docs/history/2026-10-24-auto-split-edits.md`.
+
+## No question after a charge (2026-10-24)
+
+Owner: *"the model may ask the customer a question only BEFORE anything is
+charged; once work has been charged, it must not stop to ask — it goes ahead
+with a sensible stated default and says so in the reply facts."* So the router,
+the build's design and page questions, and an edit or add-on step that runs
+before any reserve or collect keep their question; every model call made after
+the request's first charge is sent with no question field, chooses a sensible
+default from the site and the message, and the reply says what was assumed
+("I used X; tell me if you'd prefer Y"). A step that still asks after that is
+never charged for it. Questions must never ask for what the site or the
+message already answers or implies. Record:
+`docs/history/2026-10-24-no-ask-after-charge.md`.

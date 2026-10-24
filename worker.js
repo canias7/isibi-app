@@ -268,7 +268,7 @@ import { routeMessage, routeDecision, routeFailure, clarifiedBrief, START_OVER_B
 // THE HAND-OVER (2026-10-02, the whole-router audit's batch 2): what travels when
 // work moves from one step to another — the parts put off, the scope, and why.
 import { readHandOver, handOverLine, heldReport, deferredOf } from "./builder/hand-over.mjs";
-import { loadAsk, storeAsk, storeAskIfFree, closeAsk, replaceAsk, askLive, packAsk, ASKER_RE, newAskId, askOf, readAsk, withQuestion, readContext, shownContext, repeatOf, appendAnswer, againNote, clarifyTransport, clarifyCall, MAX_NOTE_CHARS, MAX_SAME_ASK, MAX_ASKED } from "./builder/clarify.mjs";
+import { loadAsk, storeAsk, storeAskIfFree, closeAsk, replaceAsk, askLive, packAsk, ASKER_RE, newAskId, askOf, readAsk, withQuestion, readContext, shownContext, repeatOf, appendAnswer, againNote, clarifyTransport, clarifyCall, defaultedReport, MAX_NOTE_CHARS, MAX_SAME_ASK, MAX_ASKED } from "./builder/clarify.mjs";
 import { repliesOn, buildReplyFacts, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelReplyFacts, repeatNoteFacts, wideningFacts, requestReplyFacts, replyContext, writeReply, withReplyText, recentSuggestions, offMenuPages, REPLY_CALL_MS, REPLY_BG_CALL_MS, REPLY_BG_DEADLINE_MS, REPLY_BG_ATTEMPTS, REPLY_BG_RETRY_S, REPLY_LEASE_MS, REPLY_HORIZON_MS, REPLY_RETRY_GRACE_MS, readReplyRecord, replyNext, replyClaim, replyOutcomeOf, outcomeOf, outcomeReads } from "./builder/site-reply.mjs";
 // PROGRESS WHILE AN EDIT OR AN ADD-ON RUNS (2026-10-06): the milestones' facts,
 // the per-job record and its one writer's rules, the call and its check.
@@ -36011,6 +36011,8 @@ async function handleRequest(request, env, ctx) {
             // every exit is a `return` inside it, and its last statement is an
             // unconditional reply, so the wrapper always has one to report on.
             const eHeldOut = { parts: [], earlier: [] };
+            // WHAT A STEP ASSUMED INSTEAD OF ASKING AFTER A CHARGE (2026-10-24, `defaultedReport`).
+            const eDefaulted = [];
             // ── AND A STEP'S QUESTION IS KEPT THERE TOO (2026-10-02) ───────
             //
             // A step that asked instead of acting (`stepAsk`) writes nothing;
@@ -36026,7 +36028,7 @@ async function handleRequest(request, env, ctx) {
             // other part of the ending has run; a queued job keeps what the
             // reply needs instead, and the poll writes it.
             const eReplyOut = replyAsked({}, { slug: ownerSlug, job: false });
-            return replyEnding(env, await askReport(env, await heldReport(await (async () => {
+            return replyEnding(env, await askReport(env, await heldReport(await defaultedReport(await (async () => {
             // ── THE EDIT LANE ─────────────────────────────────────────────
             //
             // Two layers live here and neither runs the page generator, which
@@ -36170,10 +36172,17 @@ async function handleRequest(request, env, ctx) {
             // `ctx` FIXES WHAT ONE CALL IS SHOWN (2026-10-11): a call started
             // beside others (the look door's lanes) is shown its own answers,
             // never whichever `eCtx` the loop has moved on to.
+            // HAS THIS REQUEST BEEN CHARGED YET (2026-10-24, the owner: no question
+            // after a charge)? A reserve that landed on the job, or a synchronous
+            // collect that took credits. Once it has, every call below is sent with
+            // no question offered and states what it assumed (`clarifyTransport`).
+            // Read late (the ledger is declared below), and false when it cannot say.
+            const eChargedYet = () => { try { return eJob ? (typeof eJob.reserves === "function" && eJob.reserves() > 0) : syncLedger.taken > 0; } catch { return false; } };
+            const eReplayHas = (r) => (eJob && eJob.prepare !== true && eJob.replay && typeof eJob.replay.has === "function" ? eJob.replay.has(r) : false);
             const eQuick = (what = "", ctx) => clarifyTransport(jobSend(eJob, quickSend(env, what, eJob && eJob.budget)), {
               shown: () => (ctx !== undefined ? ctx : eCtx),
               all: () => eCtxAll || [],
-              part: ePartShown,
+              part: ePartShown, charged: eChargedYet, replayHas: eReplayHas, onDefault: (d) => { eDefaulted.push(...d); },
               onReuse: (hit) => { try { if (editTrace) editTrace.mark("clarify:reuse", "ok", { what, answers: hit.length }); } catch { /* the record never costs the job */ } },
             });
             // THE BLACK BOX STARTS HERE — see `editTrace` where it is declared.
@@ -40989,7 +40998,7 @@ async function handleRequest(request, env, ctx) {
                 // NO CLOCK OF ITS OWN, exactly as before; AND THE ANSWERS this
                 // step was given (2026-10-02), through the same transport every
                 // other call on this route goes through (`clarifyTransport`).
-                null, clarifyCall(jobCall(eJob, pagesCall(env)), { shown: () => eCtx, all: () => eCtxAll || [], part: ePartShown }),
+                null, clarifyCall(jobCall(eJob, pagesCall(env)), { shown: () => eCtx, all: () => eCtxAll || [], part: ePartShown, charged: eChargedYet, replayHas: eReplayHas, onDefault: (d) => { eDefaulted.push(...d); } }),
                 // A SITE THAT WRITES ITS OWN PARTS (2026-10-23) is edited by a
                 // writer told the same: the own-parts block, never the kit's.
                 // AND THE PICKED PAGES (2026-10-24): the rewrite fallback (a
@@ -42401,7 +42410,7 @@ async function handleRequest(request, env, ctx) {
               return Response.json(merged, { status: 422 });
             }
             return Response.json(merged);
-            })(), eHeldOut.parts, eHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: eAskOut.round, held: [...new Set([...eHeldOut.earlier, ...eHeldOut.parts])], request: eAskOut.request, attached: eAskOut.attached, context: eAskOut.context, picker: eReplyOut.picker, requestKey: eAskOut.requestKey, part: eAskOut.part, prep: eAskOut.prep === true }), "edit", eReplyOut);
+            })(), eDefaulted), eHeldOut.parts, eHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: eAskOut.round, held: [...new Set([...eHeldOut.earlier, ...eHeldOut.parts])], request: eAskOut.request, attached: eAskOut.attached, context: eAskOut.context, picker: eReplyOut.picker, requestKey: eAskOut.requestKey, part: eAskOut.part, prep: eAskOut.prep === true }), "edit", eReplyOut);
           }
 
           if (ad) {
@@ -42410,6 +42419,8 @@ async function handleRequest(request, env, ctx) {
             // the held-back part on its successes only. The body is not
             // re-indented; every exit is a `return` inside it.
             const aHeldOut = { parts: [], earlier: [] };
+            // WHAT A STEP ASSUMED INSTEAD OF ASKING AFTER A CHARGE (2026-10-24, `defaultedReport`).
+            const aDefaulted = [];
             // AND A QUESTION THE PICKER ASKED IS KEPT THERE TOO (2026-10-02,
             // `askReport`, the edit route's own ending), with every answer the
             // request carries: nothing of an addition is applied before a
@@ -42420,7 +42431,7 @@ async function handleRequest(request, env, ctx) {
             // THE PHOTOGRAPHS BEGUN BESIDE THE PAGE WRITER (2026-10-11): every
             // way out of this route ends with them accounted for (`earlyPhotosEnd`).
             const aEarlyPhotos = { task: null, prep: false, clock: null };
-            return replyEnding(env, await askReport(env, await heldReport(await earlyPhotosEnd(aEarlyPhotos, await (async () => {
+            return replyEnding(env, await askReport(env, await heldReport(await defaultedReport(await earlyPhotosEnd(aEarlyPhotos, await (async () => {
             // ── THE ADDON LANE ────────────────────────────────────────────
             //
             // The rung between edit and build: add a page the site does not
@@ -42581,10 +42592,15 @@ async function handleRequest(request, env, ctx) {
             };
             // `opts.refusals`: this call handles a prior refusal — only the
             // add-on designer's first request does (`aPriorOf`).
+            // HAS THIS ADDITION BEEN CHARGED YET (2026-10-24): a reserve that landed
+            // on the job (the row step, or the first reserve before the page
+            // writer). Synchronously the collect comes after the work, so never.
+            const aChargedYet = () => { try { return !!aJob && typeof aJob.reserves === "function" && aJob.reserves() > 0; } catch { return false; } };
+            const aReplayHas = (r) => (aJob && aJob.prepare !== true && aJob.replay && typeof aJob.replay.has === "function" ? aJob.replay.has(r) : false);
             const aQuick = (what = "", opts) => clarifyTransport(aCounted(jobSend(aJob, quickSend(env, what, aJob && aJob.budget), opts)), {
               shown: () => aShownTo(what),
               all: () => aCtxAll || [],
-              part: aPartShown,
+              part: aPartShown, charged: aChargedYet, replayHas: aReplayHas, onDefault: (d) => { aDefaulted.push(...d); },
               onReuse: (hit) => { try { if (editTrace) editTrace.mark("clarify:reuse", "ok", { what, answers: hit.length }); } catch { /* the record never costs the job */ } },
             });
             // THE BLACK BOX, the edit route's own: every phase marks itself,
@@ -46106,7 +46122,7 @@ async function handleRequest(request, env, ctx) {
               // route that does not go through `aQuick`, and the longest.
               }), aSpec, aMerged.brand || aLook.brand || ownerSlug, [], aModels.pages, aWriterSrc, "addon", undefined, aJob && aJob.budget,
               // THE ANSWERS, through the transport every other call here uses.
-              clarifyCall(jobCall(aJob, pagesCall(env)), { shown: () => aCtxShown, all: () => aCtxAll || [], part: aPartShown }), "", aKeepPages,
+              clarifyCall(jobCall(aJob, pagesCall(env)), { shown: () => aCtxShown, all: () => aCtxAll || [], part: aPartShown, charged: aChargedYet, replayHas: aReplayHas, onDefault: (d) => { aDefaulted.push(...d); } }), "", aKeepPages,
               // AN OWN-PARTS SITE'S ADDITION writes its own parts too (2026-10-23).
               { ownParts: ownPartsSite(aSrc, aStoredParts), only: aPickOnly() ? aPickOnly().pages : null });
               return aGen; }));
@@ -48233,7 +48249,7 @@ async function handleRequest(request, env, ctx) {
               } : undefined,
               cost: aCost,
             });
-            })()), aHeldOut.parts, aHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: aAskOut.round, held: [...new Set([...aHeldOut.earlier, ...aHeldOut.parts])], request: aAskOut.request, attached: aAskOut.attached, context: aAskOut.context, picker: aReplyOut.picker, requestKey: aAskOut.requestKey, part: aAskOut.part, prep: aAskOut.prep === true }), "addon", aReplyOut);
+            })()), aDefaulted), aHeldOut.parts, aHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: aAskOut.round, held: [...new Set([...aHeldOut.earlier, ...aHeldOut.parts])], request: aAskOut.request, attached: aAskOut.attached, context: aAskOut.context, picker: aReplyOut.picker, requestKey: aAskOut.requestKey, part: aAskOut.part, prep: aAskOut.prep === true }), "addon", aReplyOut);
           }
           if (tx) {
             // ── CHANGING THE WORDS, WITH NO MODEL CALL ────────────────────
