@@ -3236,3 +3236,16 @@ code. Non-negotiable: validation, spam protection, owner-only data,
 accessibility, everything asked. First builds: code only, not design (keep
 sections, photos, copy rich). Measure on the stored corpus (lines, compile
 errors, cost) plus a few paid comparison runs. ~2–3 days offline.
+
+## Four Claude-skill repos worth a look for the builder (owner, 2026-10-24: "note it")
+
+From a "10 fastest-growing Claude skill repos" post (stars unverified;
+descriptions secondhand, check each repo before use):
+- **Humanizer** (blader/humanizer): removes AI-sounding tells from text while
+  keeping meaning; for model-written replies and site copy.
+- **Impeccable**: a final design polish pass for a front end; a last step after
+  a build, like the screenshot look-and-fix pass.
+- **Addy Osmani Skills**: web performance and best practices; faster customer
+  sites, better Lighthouse scores.
+- **Security Audit Skill**: compare with our own scan (/sentinel) for ideas.
+(Ponytail, #1 on that list, has its own entry above.)
