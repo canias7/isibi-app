@@ -316,7 +316,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // (2026-10-13, after run 144): the evidence a component's requirement is read
 // against, in place of "nobody can see one".
 import { addedByRoute, publishedTexts, componentEvidence } from "./builder/content-evidence.mjs";
-import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, frameToMissing, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, qrShownSources, qrDestinationCheck, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
+import { noteFor, pickAdds, designWaits, ADD_KINDS, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, frameToMissing, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, qrShownSources, qrDestinationCheck, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds, mergePageBatches } from "./builder/site-add.mjs";
 import { compileRepairRound, compileRepairRounds, writtenPaths } from "./builder/compile-repair.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
@@ -8108,10 +8108,10 @@ async function recentSuggestedFor(env, uid, chat) {
 
 /** The facts of an answer of one kind: `{ skip, facts }`. */
 function replyFactsOf(kind, body, ask) {
-  if (kind === "edit") return editReplyFacts(body, { routedCost: ask.routedCost, inRequest: ask.inRequest === true });
+  if (kind === "edit") return editReplyFacts(body, { routedCost: ask.routedCost, inRequest: ask.inRequest === true, partWords: typeof ask.request === "string" ? ask.request : "" });
   // A REQUEST OF SEVERAL PARTS (2026-10-03): what no part's own reply explains.
   if (kind === "request") return requestReplyFacts(body);
-  if (kind === "addon") return addonReplyFacts(body, { routedCost: ask.routedCost, inRequest: ask.inRequest === true });
+  if (kind === "addon") return addonReplyFacts(body, { routedCost: ask.routedCost, inRequest: ask.inRequest === true, partWords: typeof ask.request === "string" ? ask.request : "" });
   if (kind === "route") return routeReplyFacts(body);
   if (kind === "cancel") return cancelReplyFacts(body);
   return { skip: "kind", facts: [] };
@@ -42010,6 +42010,9 @@ async function handleRequest(request, env, ctx) {
             // router's part and any a step put off beside it.
             const aLater = heldParts(aAsked, ab && ab.alsoAsked);
             const aInstruction = aLater.ok ? aLater.run : aAsked;
+            // THE PART'S OWN WORDS FOR THE REPLY (2026-10-24): `heldFacts` promises
+            // only an entry the request can carve from them.
+            if (aReplyOut.inRequest === true) aReplyOut.request = aInstruction;
             // A REQUEST RESUMED FROM A QUESTION (2026-10-02) — the edit route's
             // two facts: how many questions it has asked, and the parts it put
             // off before the question, named on every ending and never run.
@@ -42958,6 +42961,16 @@ async function handleRequest(request, env, ctx) {
             // WHAT IS SET ASIDE AND STILL SAID AS SET ASIDE: a kind carried on
             // in its own words is left for later instead (`deferred`, above).
             const aFrameCarried = aSkipped.includes("frame") && aCarry("frame");
+            // THE FRAME IS HANDED ON, NEVER DROPPED (2026-10-24, live on
+            // driftwood-and-daughters): set aside beside other kinds, its words
+            // were carried as a later part, and where they were the whole
+            // part's words no part could be carved, so it was set aside twice
+            // and lost. The other kinds run here; the request then hands the
+            // frame to the menu/frame editor as an addition (`frameFollowOn`),
+            // with its own words or, when they cannot be told apart, the part's.
+            const aFrameHop = aSkipped.includes("frame")
+              ? { layer: addLayerIn("frame", aKinds), words: (aCarried.find((c) => c.kind === "frame") || {}).words || aInstruction }
+              : null;
             const aSkippedSaid = aSkipped.filter((k) => !(k === "frame" && aFrameCarried));
             // THE SITE ALREADY HAS IT — the edit route's wall, mirrored, so the
             // two doors never bounce a customer between them: that door
@@ -44988,6 +45001,7 @@ async function handleRequest(request, env, ctx) {
               return Response.json({
                 ok: true,
                 kinds: aAnswers.map((a) => a.kind), skipped: aSkippedSaid,
+                frameHop: aFrameHop || undefined,
                 notAdded: aNotAdded.length ? aNotAdded : undefined,
                 // EACH KIND SET ASIDE AND CARRIED ON IN ITS OWN WORDS (on `deferred`).
                 setAside: aCarried.length ? aCarried.slice() : undefined,
@@ -45390,8 +45404,14 @@ async function handleRequest(request, env, ctx) {
               if (aWriterScoped) noteSeen(aJob, "scope");
               // THE OWNER'S VIDEO AND AUDIO (2026-10-14), by address.
               const aMedia = (await withinMs(siteMediaFiles(env, ownerSlug), CONVERSE_READ_MS, "addon media:", ownerSlug)) || [];
+              // MANY PAGES ARE WRITTEN IN PARALLEL BATCHES (owner, 2026-10-24:
+              // "No addon limits"): the page writer runs once, or once
+              // per `aFold.batchDirectives` entry at the same time, and
+              // `mergePageBatches` makes the one answer read below.
+              const aBatchDirs = Array.isArray(aFold.batchDirectives) && aFold.batchDirectives.length > 1 ? aFold.batchDirectives : [aFold.directive];
+              const aBatchGot = await Promise.all(aBatchDirs.map(async (aDirective) => { let aGen = null;
               aGen = await generateSitePages(env, briefWithLayout({
-                brief: aInstruction + (aFold.directive ? "\n\n" + aFold.directive : ""),
+                brief: aInstruction + (aDirective ? "\n\n" + aDirective : ""),
                 media: aMedia,
                 plan: aPlanComponents.length ? { components: aPlanComponents } : null,
                 // ── THE BUDGET IS STILL ZERO; THE SENTENCE IS NO LONGER A
@@ -45484,9 +45504,11 @@ async function handleRequest(request, env, ctx) {
               clarifyCall(jobCall(aJob, pagesCall(env)), { shown: () => aCtxShown, all: () => aCtxAll || [], part: aPartShown }), "", aKeepPages,
               // AN OWN-PARTS SITE'S ADDITION writes its own parts too (2026-10-23).
               { ownParts: ownPartsSite(aSrc, aStoredParts), only: aPickOnly() ? aPickOnly().pages : null });
+              return aGen; }));
+              aGen = mergePageBatches(aBatchGot);
               aPagesMs = Date.now() - aPagesT0;
               aPagesWrote = aGen && aGen.input && Array.isArray(aGen.input.pages) ? aGen.input.pages.length : 0;
-              aMark("pages", "ok", { files: aPagesWrote, ms: aPagesMs });
+              aMark("pages", "ok", { files: aPagesWrote, ms: aPagesMs, ...(aGen && aGen.batches ? { batches: aGen.batches } : {}) });
               // THE PAGES WRITTEN, NOT PUBLISHED, AS A MILESTONE.
             } catch (e) {
               // WHAT THE WIRE DID, NOT JUST THAT IT FAILED (2026-09-14). Run 45
@@ -47271,6 +47293,7 @@ async function handleRequest(request, env, ctx) {
               // What was added, by kind, and what was set aside for another
               // rung — so the reply can say "the photograph needs its own ask".
               kinds: aAnswers.map((a) => a.kind), skipped: aSkippedSaid,
+                frameHop: aFrameHop || undefined,
               notAdded: aNotAdded.length ? aNotAdded : undefined,
               // FRAMES PUBLISHED MARKED, EACH WAITING ON A PURCHASE NOBODY CAN
               // TELL YET (2026-10-09, round 5): the request holds the part on

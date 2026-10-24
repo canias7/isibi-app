@@ -925,22 +925,22 @@ test("WORKS (ONE REFUSED, THE REST LAND) — ONE ADDITION REFUSED BY THE CHECKS 
   assert.match(addSaid(r).reply, /already gone/, addSaid(r).reply);
 });
 
-test("WORKS — MORE ADDITIONS OF ONE KIND THAN ONE MESSAGE TAKES ARE NAMED: a seventh table and a fifth API are left out by name, and the rest are added", async () => {
-  assert.deepEqual([MAX_ADD_TABLES, MAX_ADD_APIS], [6, 4]);
+test("WORKS — NO ADD-ON LIMITS (owner, 2026-10-24): a seventh table and a fifth API are added with the rest, none left out", async () => {
+  assert.deepEqual([MAX_ADD_TABLES, MAX_ADD_APIS], [Infinity, Infinity]);
   const t = await addon("mixed-tables-" + rnd(), "add seven lists", {
     kinds: ["table"], publishes: true,
     answers: { table: { table: ["a", "b", "c", "d", "e", "f", "g"].map((n) => TABLE("list_" + n, [["name", "text"]])) } },
   });
   assert.equal(t.body.ok, true);
-  assert.equal(t.body.tables.length, 6);
-  assert.deepEqual(t.body.notAdded.map((n) => n.name + ":" + n.why), ["list_g:over-cap"]);
-  assert.match(addSaid(t).reply, /I left out “list_g”/);
+  assert.equal(t.body.tables.length, 7);
+  assert.equal(t.body.notAdded, undefined, JSON.stringify(t.body.notAdded));
+  assert.doesNotMatch(addSaid(t).reply, /left out/);
   const a = await addon("mixed-apis-" + rnd(), "fetch five feeds", {
     kinds: ["api"], publishes: true,
     answers: { api: { api: [1, 2, 3, 4, 5].map((n) => ({ name: "feed_" + n, url: "https://example.com/feed" + n + ".json", method: "GET" })) } },
   });
-  assert.deepEqual(a.body.apis, ["feed_1", "feed_2", "feed_3", "feed_4"]);
-  assert.match(addSaid(a).reply, /I left out “feed_5”/);
+  assert.deepEqual(a.body.apis, ["feed_1", "feed_2", "feed_3", "feed_4", "feed_5"]);
+  assert.doesNotMatch(addSaid(a).reply, /left out/);
 });
 
 test("FIXED MW7 — A SCHEDULE FASTER THAN THE PLATFORM RUNS: “every minute” runs every fifteen minutes, and the reply says what was asked, what runs, and why", async () => {

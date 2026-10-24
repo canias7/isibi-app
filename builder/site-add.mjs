@@ -63,7 +63,7 @@
 // value here; nothing else in this repo reads them.
 
 import { MAX_INPUT_CHARS } from "./input-budget.mjs";
-import { TSX_ITEM, MAX_TSX, COMPONENT_MENU, MAX_COMPONENTS, TOOL_DIRECTIVE } from "./site-plan.mjs";
+import { TSX_ITEM, MAX_TSX, COMPONENT_MENU, TOOL_DIRECTIVE } from "./site-plan.mjs";
 // THE KIT, AS A SET, off the same list the tool hands the model — never a
 // second copy. `COMPONENT_MENU` is itself derived from the kit's palette and
 // its component directory, so a part added to the kit is offered and accepted
@@ -279,17 +279,40 @@ export const ADD_DESIGN_RULE =
  * writer's own (`MAX_PAGES` in page-gen.mjs keeps the first six), the rest
  * are generous. The rule per kind says "as many as they asked for, and not
  * one they did not", which is the ceiling that matters.
+ *
+ * ── NO ADD-ON LIMITS (owner, 2026-10-24) ─────────────────────────────────────
+ *
+ * "No addon limits." The per-kind ceilings that stood here (12 kinds, 6 pages,
+ * 12 components, 6 tables, 12 rows, 6 functions, 4 connections, 4 jobs, 12
+ * bands a page, 12 own photographs shown, 6 lines of words) are gone: every
+ * one is `UNCAPPED` (Infinity), so nothing a customer asks for is cut, named
+ * `over-cap` or told to "send it again". Found live on driftwood-and-daughters
+ * (2026-10-24): caps applied per kind, independently, kept the Hire and Events
+ * pages and dropped the tables behind their forms. With no cap there is no
+ * such split. Many pages are written by parallel page writers, `ADD_PAGE_BATCH`
+ * new pages each (`foldAdds`' `batchDirectives`), so the job's 50-minute
+ * deadline is spent in parallel, not in one ever-longer call. The one count
+ * that remains is the PHOTOGRAPHS BOUGHT (`IMAGE_CAP`, site-images.mjs, the
+ * platform's purchase ceiling shared with the build); it is still named.
  */
-export const MAX_ADDS = 12;
+export const UNCAPPED = Infinity;
+export const MAX_ADDS = UNCAPPED;
 
-/** Pages one message may add — the page writer keeps six, so a seventh would be dropped there. */
-export const MAX_ADD_PAGES = 6;
+/** Pages one message may add: no limit (owner, 2026-10-24). Written ADD_PAGE_BATCH to a writer, in parallel. */
+export const MAX_ADD_PAGES = UNCAPPED;
+
+/**
+ * Kit components one added page or section may name (its manifest): no limit
+ * (owner, 2026-10-24). Was site-plan's `MAX_COMPONENTS` (15), the first
+ * build's per-page bound, borrowed here.
+ */
+export const MAX_ADD_MANIFEST = UNCAPPED;
 
 /** Components one message may add, across its pages. */
-export const MAX_ADD_COMPONENTS = 12;
+export const MAX_ADD_COMPONENTS = UNCAPPED;
 
 /** Tables one message may add. */
-export const MAX_ADD_TABLES = 6;
+export const MAX_ADD_TABLES = UNCAPPED;
 
 /**
  * Entries one message may add to lists the site already stores (the `row`
@@ -297,7 +320,7 @@ export const MAX_ADD_TABLES = 6;
  * reason: a dozen is a real "add these to the menu", a hundred is an import,
  * and the Data panel's import is the door for that.
  */
-export const MAX_ADD_ROWS = 12;
+export const MAX_ADD_ROWS = UNCAPPED;
 
 /**
  * ── THE BACKEND IS THE ADDON'S (owner, 2026-09-03) ──────────────────────────
@@ -313,14 +336,14 @@ export const MAX_ADD_ROWS = 12;
  * applies). The three shapes below are the build's own items, lifted into
  * `site-table.mjs` beside the table's for the same reason.
  */
-/** Functions one message may add — a lookup, its cancel and its amend are three. */
-export const MAX_ADD_FUNCTIONS = 6;
+/** Functions one message may add: no limit (owner, 2026-10-24). */
+export const MAX_ADD_FUNCTIONS = UNCAPPED;
 
 /** Outside connections one message may add. */
-export const MAX_ADD_APIS = 4;
+export const MAX_ADD_APIS = UNCAPPED;
 
-/** Scheduled jobs one message may add — the engine keeps eight per site. */
-export const MAX_ADD_JOBS = 4;
+/** Scheduled jobs one message may add: no limit (owner, 2026-10-24). */
+export const MAX_ADD_JOBS = UNCAPPED;
 
 /**
  * The shortest interval a job may run at. `site-jobs.mjs` (`MIN_EVERY_MINUTES`)
@@ -375,8 +398,8 @@ export function onceDay(s) {
   return d <= len ? y * 10000 + mo * 100 + d : null;
 }
 
-/** A page is at most this many bands, top to bottom. */
-export const MAX_SECTIONS = 12;
+/** Bands a page may have: no limit (owner, 2026-10-24). */
+export const MAX_SECTIONS = UNCAPPED;
 
 /** Seed rows an add may plant in a new table — the engine's own ceiling, read from the engine so the two cannot drift. */
 export const MAX_ADD_SEED_ROWS = MAX_SEED_ROWS;
@@ -391,13 +414,13 @@ const seedTried = (rows) => (Array.isArray(rows) ? rows.slice(0, MAX_ADD_SEED_RO
 export const LIST_ADDS = ["table", "row", "function", "api", "job", "page", "component", "words", "photo"];
 
 /** Lines of words one message may add, across its pages. */
-export const MAX_ADD_WORDS = 6;
+export const MAX_ADD_WORDS = UNCAPPED;
 
 /** The longest line of words one entry may add — a short paragraph, not a page. */
 export const MAX_WORDS_CHARS = 600;
 
 /** How many of the site's own photographs the designers are shown. */
-export const MAX_OWN_PHOTOS = 12;
+export const MAX_OWN_PHOTOS = UNCAPPED;
 
 /** The kinds that live in the site's DATABASE — the ones whose first addition makes one. */
 export const BACKEND_ADDS = ["table", "function", "api", "job"];
@@ -831,7 +854,6 @@ const ADDS = {
         sections: {
           type: "array",
           items: { type: "string" },
-          maxItems: MAX_SECTIONS,
           description:
             "The page top to bottom, one line per band: what each band shows, in order. Numbered by position " +
             "when it is written, so the order here IS the layout. A page is a few bands, not a dozen.",
@@ -839,9 +861,8 @@ const ADDS = {
         components: {
           type: "array",
           items: { type: "string" },
-          maxItems: MAX_COMPONENTS,
           description:
-            `At most ${MAX_COMPONENTS} components from the kit — what this page needs, and no more. THIS IS THE ` +
+            "The components from the kit — what this page needs, and no more. THIS IS THE " +
             "WHOLE SET: the step that writes the page is shown the props of what you name here and nothing " +
             "else, so a part you leave out is one it cannot use. Name `site-chrome` — the header and footer " +
             "every page renders itself. Naming a component that does not exist is refused and costs nothing.\n" +
@@ -960,7 +981,6 @@ const ADDS = {
         components: {
           type: "array",
           items: { type: "string" },
-          maxItems: MAX_COMPONENTS,
           description:
             "THE KIT COMPONENT THIS IS, by name — usually exactly one, plus a part it needs around it at most. " +
             "The step that writes the page is shown the props of what you name here and nothing else, so the " +
@@ -1483,7 +1503,6 @@ export function pickTool(kinds = ADD_KINDS) {
         // question; an empty answer with none is refused at no cost, as before.
         kinds: {
           type: "array",
-          maxItems: MAX_ADDS,
           items: { type: "string", enum: list },
           description:
             "The kind or kinds of thing this message asks to add — EVERY kind it asks for, and no kind it does " +
@@ -1506,7 +1525,6 @@ export function pickTool(kinds = ADD_KINDS) {
         // where the words are really in the message (`readAddScopes`).
         scopes: {
           type: "array",
-          maxItems: MAX_ADDS,
           items: {
             type: "object",
             properties: {
@@ -1531,8 +1549,7 @@ export function pickTool(kinds = ADD_KINDS) {
               },
               uses: {
                 type: "array",
-                maxItems: MAX_ADDS,
-                items: { type: "string", enum: list },
+                      items: { type: "string", enum: list },
                 description: "The OTHER kinds you name here whose result this one is built on — `table` for a form or a page " +
                   "that saves into or shows a table this same message adds; `page` for a section, a code or a link on a " +
                   "page this same message adds; `function` for a job that runs a function it adds. Empty when this kind " +
@@ -1865,7 +1882,6 @@ export function addTool(kind) {
   // route sets it aside and asks for it on its own), so nothing is unshown.
   if (kind !== "row") properties.needs = {
     type: "array",
-    maxItems: MAX_ADDS,
     items: { type: "string", enum: ADD_KINDS },
     description:
       "ONLY when the note says this same change is ALSO designing something NOT SHOWN to you: if what you are " +
@@ -2618,7 +2634,9 @@ export async function runAdd(deps, { kind, message, site, model, brief = "", fee
  * function's own settings — and the meaning is the model's to weigh.
  */
 export const JUDGE_MAX_TOKENS = 8000;
-const MAX_JUDGE_ITEMS = 80;
+// 80 until 2026-10-24; with no add-on limits an addition can carry many more
+// things to judge, so the bound on the judge's input is wide (still counted past it).
+const MAX_JUDGE_ITEMS = 400;
 const MAX_ITEM_TEXT = 240;
 
 /** What each part of a table does, as the platform does it. One line per `TABLE_PARTS` entry. */
@@ -3675,7 +3693,7 @@ export function cleanAdd(kind, value, site) {
         const purpose = str(v.purpose, 300);
         if (!name || !purpose) return { ok: false, why: "no-plan" };
         const sections = lines(v.sections, MAX_SECTIONS, 200);
-        const components = kitNames(v.components, MAX_COMPONENTS, ctx);
+        const components = kitNames(v.components, MAX_ADD_MANIFEST, ctx);
         if (!sections.length && !components.length) return { ok: false, why: "no-plan" };
         ctx.paths.push(path);
         return { ok: true, value: { path, file: fileOfRoute(path), name, purpose, sections, components, tsx: parts(v.tsx, ctx), link: pageLink(v.link, { path, going, siblings: ctx.paths }) } };
@@ -3691,7 +3709,7 @@ export function cleanAdd(kind, value, site) {
         const page = at.page;
         const does = str(v.does, 300);
         if (!does) return { ok: false, why: "no-plan" };
-        const components = kitNames(v.components, MAX_COMPONENTS, ctx);
+        const components = kitNames(v.components, MAX_ADD_MANIFEST, ctx);
         const tsx = parts(v.tsx, ctx);
         // THE COMPONENT IS THE ADDITION: an answer that names none — no kit
         // part and nothing written for this site — is a band the page writer
@@ -4166,16 +4184,12 @@ export function cleanAdd(kind, value, site) {
     // reached this list and `over-cap` below never named it. The tools now ask
     // for everything asked for; this keeps what a site can hold and names
     // every entry past it.
-    const cap = kind === "page" ? MAX_ADD_PAGES : kind === "table" ? MAX_ADD_TABLES : kind === "row" ? MAX_ADD_ROWS
-      : kind === "function" ? MAX_ADD_FUNCTIONS : kind === "api" ? MAX_ADD_APIS : kind === "job" ? MAX_ADD_JOBS
-      // THE PLATFORM'S OWN PHOTOGRAPH CEILING, not a constant of this file's:
-      // `planImages` and the design step both slice at `IMAGE_CAP`, so a wider
-      // cap here would clean an entry nothing downstream will ever buy.
-      : kind === "photo" ? IMAGE_CAP
-      // WORDS KEEP THEIR OWN SIX, which only their tool said until the tool
-      // stopped saying it.
-      : kind === "words" ? MAX_ADD_WORDS
-      : MAX_ADD_COMPONENTS;
+    // NO ADD-ON LIMITS (owner, 2026-10-24): every list kind keeps every
+    // usable entry. THE ONE CEILING LEFT IS THE PHOTOGRAPHS BOUGHT, the
+    // platform's own (`planImages` and the design step slice at `IMAGE_CAP`),
+    // so a wider cap here would clean an entry nothing downstream will buy;
+    // it is still named, never silent.
+    const cap = kind === "photo" ? IMAGE_CAP : UNCAPPED;
     const raw = Array.isArray(value) ? value : (isObj(value) ? [value] : []);
     const usable = raw.filter(isObj);
     const items = usable.slice(0, cap);
@@ -4336,7 +4350,7 @@ export function addRefusal(why, kind) {
     // both used to ship as a success; they are sentences the customer can act
     // on, which is the whole point of refusing rather than slicing.
     case "body-too-long": return "That one needs more code than I can put in a single step — ask for it in smaller pieces and I'll add them one at a time. Nothing was changed.";
-    case "over-cap": return "That's more of those than I can add in one go — ask for the rest in another message and I'll add them too.";
+    case "over-cap": return "That's more photographs than I can buy in one change, so the ones past it were not bought.";
     // ── THE TWO PERMISSION REFUSALS (2026-09-14) ────────────────────────────
     //
     // Both say what was NOT built rather than describing the setting, because
@@ -4585,9 +4599,12 @@ export function foldAdds(answers, priorLook, site) {
     if (LIST_ADDS.includes(a.kind)) { for (const v of Array.isArray(a.value) ? a.value : [a.value]) if (v && typeof v === "object") items.push({ kind: a.kind, value: v }); }
     else items.push(a);
   }
+  // WHERE EACH BLOCK GOES WHEN THE PAGES ARE WRITTEN IN BATCHES (2026-10-24).
+  const placed = [];
   for (const a of items) {
     const v = a.value;
     blocks.push(addDirective(a.kind, v, site));
+    placed.push({ at: blocks.length - 1, kind: a.kind, path: a.kind === "page" ? String(v.path || "") : "", file: a.kind === "page" ? String(v.file || "") : "", page: typeof v.page === "string" ? v.page : "" });
     for (const c of Array.isArray(v.components) ? v.components : []) if (!components.includes(c)) components.push(c);
     for (const p of Array.isArray(v.tsx) ? v.tsx : []) {
       const i = tsx.findIndex((t) => t.name === p.name);
@@ -4692,7 +4709,87 @@ export function foldAdds(answers, priorLook, site) {
   // what it is building before it reads what the change still owes.
   const pageBrief = requirementBrief(requirements, "page");
   if (pageBrief) blocks.push(pageBrief);
-  return { designed, components, directive: blocks.filter(Boolean).join("\n\n"), files, requirements, photos, words, reuse };
+  const batchDirectives = pageBatchDirectives(blocks, placed);
+  return { designed, components, directive: blocks.filter(Boolean).join("\n\n"), files, requirements, photos, words, reuse, ...(batchDirectives.length ? { batchDirectives } : {}) };
+}
+
+/**
+ * NEW PAGES ONE PAGE WRITER WRITES (owner, 2026-10-24: "No addon limits").
+ *
+ * One page call answers in one bounded reply (`SITE_PAGES_MAX_TOKENS`), so an
+ * addition of nine pages written by one writer runs out of room or time. Past
+ * this many new pages the fold returns `batchDirectives`: one directive per
+ * batch, run by the route as parallel page writers inside the same job, the
+ * replies merged. Nothing is dropped and nothing is "sent again".
+ */
+export const ADD_PAGE_BATCH = 3;
+
+/**
+ * The page writer's replies, one per batch run in parallel, merged into the
+ * one shape the route reads (`input`, `ask`, `usage`). One reply is returned
+ * as it is. A batch that asks makes the whole call ask; one that wrote
+ * nothing (cut off, empty) makes the whole call write nothing, exactly as one
+ * writer would, so no half of an addition publishes. Usage is summed: one
+ * model, one bill.
+ */
+export function mergePageBatches(got) {
+  if (!Array.isArray(got) || got.length === 0) return null;
+  if (got.length === 1) return got[0];
+  const usage = { in: 0, out: 0, cacheRead: 0, cacheWrite: 0, model: "" };
+  for (const g of got) {
+    const u = g && g.usage;
+    if (!u) continue;
+    for (const k of ["in", "out", "cacheRead", "cacheWrite"]) usage[k] += Number(u[k]) || 0;
+    usage.model = usage.model || u.model || "";
+  }
+  const asked = got.find((g) => g && g.ask);
+  if (asked) return { input: null, ask: asked.ask, usage, batches: got.length };
+  const blank = got.find((g) => !g || !g.input);
+  if (blank) return { input: null, ...(blank && blank.truncated ? { truncated: true } : {}), ...(blank && blank.shape ? { shape: blank.shape } : {}), usage, batches: got.length };
+  const pages = [], parts = [], remove = [], notes = [];
+  for (const g of got) {
+    for (const p of Array.isArray(g.input.pages) ? g.input.pages : []) if (!pages.some((q) => q && p && q.path === p.path)) pages.push(p);
+    for (const c of Array.isArray(g.input.parts) ? g.input.parts : []) if (!parts.some((q) => q && c && q.name === c.name)) parts.push(c);
+    for (const r of Array.isArray(g.input.remove) ? g.input.remove : []) if (!remove.includes(r)) remove.push(r);
+    if (typeof g.input.notes === "string" && g.input.notes.trim()) notes.push(g.input.notes.trim());
+  }
+  return { input: { pages, parts, remove, notes: notes.join("\n") }, usage, batches: got.length };
+}
+
+/** Kinds every batch is shown (what the pages use), never written by a batch itself. */
+const SHARED_BLOCK_KINDS = new Set(["table", "function", "api", "job"]);
+
+/**
+ * The directive of each batch, or [] when one writer writes them all. Each
+ * batch keeps the shared blocks (the rule, the tables, functions, connections,
+ * jobs and the requirement brief), its own new pages, and every block placed
+ * ON one of its pages; a block placed on an existing page goes to the first
+ * batch only, so no existing page is written twice. Each batch is told the
+ * other new pages exist, so it links to them and writes none of them.
+ */
+export function pageBatchDirectives(blocks, placed, size = ADD_PAGE_BATCH) {
+  const pages = (Array.isArray(placed) ? placed : []).filter((p) => p.kind === "page" && p.path);
+  if (pages.length <= size) return [];
+  const groups = [];
+  for (let i = 0; i < pages.length; i += size) groups.push(pages.slice(i, i + size));
+  const byAt = new Map(placed.map((p) => [p.at, p]));
+  const batchOf = (path) => groups.findIndex((g) => g.some((p) => p.path === path));
+  return groups.map((g, n) => {
+    const out = [];
+    blocks.forEach((b, i) => {
+      if (!b) return;
+      const p = byAt.get(i);
+      if (!p || SHARED_BLOCK_KINDS.has(p.kind)) { out.push(b); return; }
+      const home = p.kind === "page" ? batchOf(p.path) : batchOf(p.page);
+      if (home === n || (home < 0 && n === 0)) out.push(b);
+    });
+    const others = pages.filter((p) => !g.includes(p));
+    out.push("## Written beside you\nThis change adds " + pages.length + " new pages, written by " + groups.length +
+      " page writers at the same time. YOU write only: " + g.map((p) => p.path).join(", ") + ". The others (" +
+      others.map((p) => p.path + (p.file ? " (" + p.file + ")" : "")).join(", ") + ") are written by another writer: " +
+      "link to them where a link belongs, and never return them." + (n > 0 ? " Return no page this site already has." : ""));
+    return out.join("\n\n");
+  });
 }
 
 // ── WHAT AN ADDITION SAID IT WOULD ADD, FOUND WHERE IT SAID (2026-10-02) ──
@@ -7239,8 +7336,9 @@ export function existingFacts({ spec = null, pages = null, look = null, sources 
 }
 
 /** How many tables' columns a stored input digest keeps, and how many each. */
-export const MAX_SHOWN_TABLES = 12;
-export const MAX_SHOWN_COLUMNS = 24;
+// NO ADD-ON LIMITS (owner, 2026-10-24): the record keeps every table and column shown.
+export const MAX_SHOWN_TABLES = UNCAPPED;
+export const MAX_SHOWN_COLUMNS = UNCAPPED;
 
 /**
  * WHAT A DESIGNER WAS REALLY SHOWN ABOUT THE SITE'S DATABASE (2026-09-15).

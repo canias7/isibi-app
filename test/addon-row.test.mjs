@@ -630,7 +630,7 @@ test("the row designer is told the lists it may add to — the display list, nev
   // NO `maxItems` SINCE 2026-10-03 (the mixed-work fixes): the tool asks for
   // every entry asked for, and the cleaner keeps `MAX_ADD_ROWS` and names the rest.
   assert.equal(props.row.maxItems, undefined);
-  assert.ok(MAX_ADD_ROWS >= 12);
+  assert.equal(MAX_ADD_ROWS, Infinity);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1158,13 +1158,14 @@ test("the customer's reply names every entry it added", () => {
   assert.equal(said.text, "Done — " + rows.map((r) => "added “" + r.label + "” to loaves (entry " + r.id + ")").join(", ") + ".");
 });
 
-test("the cleaner: a display list's declared columns only, capped, each refusal named", async () => {
+test("the cleaner: a display list's declared columns only, uncapped (owner, 2026-10-24), each refusal named", async () => {
   const { rowTables, cleanAdd, MAX_ADD_ROWS } = await add();
   const site = { tables: ["loaves", "orders"], rowTables: rowTables(SPEC) };
-  const many = Array.from({ length: MAX_ADD_ROWS + 2 }, (_, i) => ({ table: "loaves", values: { name: "L" + i } }));
+  assert.equal(MAX_ADD_ROWS, Infinity);
+  const many = Array.from({ length: 14 }, (_, i) => ({ table: "loaves", values: { name: "L" + i } }));
   const c = cleanAdd("row", many, site);
-  assert.equal(c.value.length, MAX_ADD_ROWS);
-  assert.deepEqual(c.skipped.map((s) => s.why), ["over-cap", "over-cap"]);
+  assert.equal(c.value.length, 14, "an entry past the old twelve was cut");
+  assert.deepEqual(c.skipped, []);
   assert.deepEqual(cleanAdd("row", [{ table: "toString", values: { name: "x" } }], site).why, "row-no-table",
     "a prototype key read as a list");
   assert.equal(cleanAdd("row", [ENTRY], { tables: ["loaves"] }).why, "row-not-list", "a list was offered with no list map");

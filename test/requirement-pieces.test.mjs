@@ -132,11 +132,12 @@ test("PIECE 4 — THE JUDGMENT IS SHOWN EACH SETTING AND COLUMN THIS REQUEST DES
   const wide = { name: "wide", access: "display", columns: Array.from({ length: 15 }, (_, i) => ({ name: "c" + i })) };
   const w = judgeItems({ answers: [], existing: { items: [{ kind: "table", name: "wide", parts: [] }] }, spec: { tables: [wide] } });
   assert.match(w[0].text, /c11 and 3 more/);
-  // THE LIST'S LIMIT: eighty shown, the rest counted.
-  const huge = { name: "huge", access: "display", columns: Array.from({ length: 90 }, (_, i) => ({ name: "k" + i })) };
+  // THE LIST'S LIMIT: four hundred shown (eighty until 2026-10-24, when the
+  // add-on caps went), the rest counted.
+  const huge = { name: "huge", access: "display", columns: Array.from({ length: 410 }, (_, i) => ({ name: "k" + i })) };
   const report = {};
   const all = judgeItems({ answers: [{ kind: "table", value: [{ table: huge }] }], report });
-  assert.equal(all.length, 80);
+  assert.equal(all.length, 400);
   assert.equal(report.over, 11, "what did not fit was not counted");
   const none = {};
   judgeItems({ answers: [{ kind: "table", value: [{ table: designed }] }], report: none });

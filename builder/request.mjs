@@ -867,6 +867,29 @@ export function doneSummary(body) {
  * WORDS A STEP LEFT FOR LATER ARE A PART OF THE REQUEST: a part of their own,
  * or inside a part other than the one that left them.
  */
+/**
+ * THE FRAME AN ADDITION HANDED ON (`frameHop`, 2026-10-24): a part of its own
+ * that runs the menu/frame editor (an edit layer, as an addition from the
+ * add-on step) with the frame's words, or the whole part's when they cannot be
+ * told apart. Not made when another part already carries those words, nor
+ * twice. Returns the new part, or null.
+ */
+export function frameFollowOn(rec, p, body) {
+  const b = plain(body) ? body : {};
+  const h = plain(b.frameHop) ? b.frameHop : null;
+  if (!h || typeof h.layer !== "string" || !EDIT_LAYERS.includes(h.layer)) return null;
+  const w = (typeof h.words === "string" && wordsIn(rec.message, h.words)) || p.words;
+  if (!w) return null;
+  const had = rec.parts.find((q) => q.source === "frame-hop" && q.parent === p.n);
+  if (had) return had;
+  if (w !== p.words && carried(rec, p.n, w)) return null;
+  const route = handedRoute(p.route || {}, { op: "edit", layer: h.layer, page: "", fromAddon: true, handedOff: true }, {});
+  const part = newPart(rec.parts.length, w, { at: Math.max(0, rec.message.indexOf(w)), source: "frame-hop", parent: p.n, route, phase: "run" });
+  part.hops = route.hops;
+  rec.parts.push(part);
+  return part;
+}
+
 function carried(rec, n, w0) {
   const w = wordsIn(rec.message, w0);
   if (!w) return false;
@@ -1298,8 +1321,13 @@ function settle(rec, p, job, row, now) {
     if (read.ask) { p.status = "waiting"; p.question = { round: (p.askRound || 0) + 1, ...read.ask, at: now }; p.phase = "answer"; return; }
     // DONE ONLY WHEN NOTHING ASKED FOR WAS LEFT UNDONE: what it named as not
     // done makes it partial, which nothing that needs it treats as finished.
-    const notDone = notDoneOf(ans.body, (p.route && p.route.op) === "addon" ? "addon" : "edit");
-    for (const w of lost) notDone.push({ what: w, why: "left-over" });
+    let notDone = notDoneOf(ans.body, (p.route && p.route.op) === "addon" ? "addon" : "edit");
+    // THE FRAME SET ASIDE BESIDE OTHER KINDS RUNS RIGHT AFTER (2026-10-24,
+    // driftwood-and-daughters): handed to the menu/frame editor as an addition,
+    // in this same request, even when its words are the whole part's.
+    const fh = frameFollowOn(rec, p, ans && ans.body);
+    if (fh) notDone = notDone.filter((d) => d.what !== "frame");
+    for (const w of lost) if (!(fh && wordsIn(rec.message, w) === fh.words)) notDone.push({ what: w, why: "left-over" });
     // AN ADDITION PUBLISHED WITH FRAMES WAITING ON A PURCHASE NOBODY CAN TELL
     // YET (2026-10-09, round 5): what it added is live and stays; the part is
     // held on those purchases, and once they are known a placement step fills

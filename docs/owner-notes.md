@@ -1,5 +1,15 @@
 # Owner Notes
 
+## 2026-10-24 — No add-on limits, and the lost header/footer item fixed (branch `addon-uncapped`, not merged, not deployed)
+
+- You said "No addon limits". The add-on step used to keep at most 6 pages, 6 tables, 12 entries, 6 functions, 4 outside connections, 4 scheduled jobs, 12 sections, 12 bands a page and 6 lines of words. All of those limits are gone. Everything you ask for is kept, and nobody is told to send the rest again.
+- This is why driftwood-and-daughters went wrong: each limit cut its own kind separately, so the Hire and Events pages were kept and the tables behind their forms were dropped. With nothing cut, that can't happen.
+- **Many pages are now written by several page writers at once**, three new pages each, inside the same job. The results are joined into one change. Each writer is shown the tables its pages use. Additions of up to three pages work exactly as before.
+- **The header/footer item no longer gets lost.** When it is asked for beside other things, those things are done first, and then the menu editor adds the header/footer item as a step of the same request. You don't send it again. The reply now promises "done separately" only for parts the request can really split off.
+- **Still limited**: photographs bought per change (6, as in a first build), how many requirements a designer tracks (12), starter rows per new table (the database engine's limit), and hand-written parts per page (the site plan's). The 15-components-per-page bound the add-on borrowed from the first build is gone too.
+- One thing depends on another branch: the page writer keeps 6 pages per reply (page-gen's `MAX_PAGES`). Branch `first-build-uncapped` removes that limit. Until it lands, pages after the sixth in one addition are reported by name as not added, never dropped quietly.
+- Nothing spent, no model called. Record: `docs/history/2026-10-24-addon-uncapped.md`.
+
 ## 2026-10-24 — combine C: six finished branches in one candidate (branch `combine-c`, not merged, not deployed)
 
 - Brings together compile repair everywhere, the exact-edits tweak, the progress voice, the next-step hint, background work and the file picker (plus the 503 notes).
