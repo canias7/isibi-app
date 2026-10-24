@@ -726,7 +726,8 @@ test("the editable copy: four editing readers read through the repairing reader,
   { const w0 = W.indexOf("async function loadSiteSourceForEdit(");
     const arm = W.indexOf("if (checked && prepare === true) return { ...await readSiteSource(env, slug, { strict: true })", w0);
     assert.ok(w0 > 0 && arm > w0 && arm < W.indexOf("ensureEditableState(env, slug, checked ?", w0), "the preparation's read is not the wrapper's own non-repairing arm"); }
-  assert.equal(bare.length, 13, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
+  // 14 SINCE 2026-10-24 (standin-everywhere): the seam's salvage reads the stored source to put a broken file back.
+  assert.equal(bare.length, 14, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
   assert.ok(W.includes("const pages = url.searchParams.get(\"force\") === \"1\" ? null : await loadSiteSource(env, uslug).catch(() => null);"), "the media delete's read is gone, or does more than read which pages name a file");
   assert.ok(W.includes("withinMs(loadSiteSource(env, slug), CONVERSE_READ_MS, \"converse pages:\", slug)"), "the conversation's read is gone, or does more than read the pages for a reply");
   assert.ok(W.includes("loadSiteSource(env, slug).then((pp) => pageLabels("), "the request's label read is gone, or does more than read labels");

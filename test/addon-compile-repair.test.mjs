@@ -112,7 +112,8 @@ test("a repair that still does not compile is reported as before, after at most 
   assert.equal(r.body && r.body.ok, false, JSON.stringify(r.body));
   assert.equal(r.body.error, "compile");
   // ROUND TWO IS ASKED (2026-10-23, up to two rounds) and answers the same page, which is refused as no change, so nothing more compiles.
-  assert.equal(r.compiles.length, 2, "the rounds are bounded");
+  // AND ONE SALVAGE COMPILE (2026-10-24, standin-everywhere): the new page stands in, still fails, refused.
+  assert.equal(r.compiles.length, 3, "the rounds are bounded");
   // A FAILED ADDITION COSTS NOTHING: the round that did not fix it is not charged.
   assert.deepEqual(r.charges, []);
 });
