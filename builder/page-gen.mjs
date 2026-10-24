@@ -2895,8 +2895,10 @@ export function priorPagesSent(pages, { max = MAX_PRIOR_CHARS, keep = [], only =
  * fallback: the add-on shows one page whatever its size, while a rewrite's one
  * page over the window would inline it whole. Empty under the window.
  */
-export function reviseSent(pages) {
-  const sel = priorPagesSent(pages);
+export function reviseSent(pages, { only = null } = {}) {
+  // THE FILE PICKER'S `only` (2026-10-24, edits): the page rung's rewrite
+  // fallback is narrowed to the picked pages, the rest named and withheld.
+  const sel = priorPagesSent(pages, { only });
   if (sel.chars <= MAX_PRIOR_CHARS) return sel;
   return { ...sel, shown: [], withheld: sel.names, chars: 0 };
 }
@@ -3014,8 +3016,11 @@ export function priorPagesBlock(pages, mode = "revise", target = "", { keep = []
   // as fit, the rest named as unseen and not to be returned, and the publish
   // (`publishPages`) drops any it returns anyway. ONE SELECTION, `priorPagesSent`
   // with no `keep`, read the same way there (`reviseSent`).
-  if (total > MAX_PRIOR_CHARS) {
-    const { shown: seen, withheld: unseen } = reviseSent(list);
+  // A PICKED SELECTION (`only`, the file picker on a big site) takes the same
+  // branch whenever it withholds a page, so an unpicked page is named, not shown.
+  const picked = Array.isArray(only) ? reviseSent(list, { only }) : null;
+  if (total > MAX_PRIOR_CHARS || (picked && picked.withheld.length)) {
+    const { shown: seen, withheld: unseen } = picked || reviseSent(list);
     if (!seen.length) {
       return "\n\nTHE SITE AS IT STANDS\nIt has these pages: " + unseen.join(", ") + ". They are too large to " +
         "show here. Do NOT return a file for any of them; one returned anyway is thrown away. A page you do not " +

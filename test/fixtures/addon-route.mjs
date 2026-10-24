@@ -757,8 +757,9 @@ function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null,
         : asked === "write_pages" ? { pages: written || WRITTEN_PAGES, notes, ...(writtenParts ? { parts: writtenParts } : {}), ...(removes ? { remove: removes } : {}) }
         : designed;
       const body = anthropic
-        ? { stop_reason: "tool_use", content: [{ type: "tool_use", name: asked, input: inputObj }], usage: { input_tokens: 10, output_tokens: 5 } }
-        : { choices: [{ message: { content: "", tool_calls: [{ id: "c1", function: { name: asked, arguments: JSON.stringify(inputObj) } }] }, finish_reason: "stop" }], usage: { prompt_tokens: 10, completion_tokens: 5 } };
+        // `stubUsage` (2026-10-24): a case about a bill says what this one call cost.
+        ? { stop_reason: "tool_use", content: [{ type: "tool_use", name: asked, input: inputObj }], usage: (supplied && supplied.stubUsage) || { input_tokens: 10, output_tokens: 5 } }
+        : { choices: [{ message: { content: "", tool_calls: [{ id: "c1", function: { name: asked, arguments: JSON.stringify(inputObj) } }] }, finish_reason: "stop" }], usage: supplied && supplied.stubUsage ? { prompt_tokens: supplied.stubUsage.input_tokens, completion_tokens: supplied.stubUsage.output_tokens } : { prompt_tokens: 10, completion_tokens: 5 } };
       return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
     }
     // EVERYTHING ELSE REFUSED. A stub that answered every call would let the
@@ -843,7 +844,7 @@ export async function addon(slug, instruction, opts) {
       // browser posts when the router or an edit step hands the request on.
       // …AND WHAT THEY ALREADY TOLD US (2026-10-02): a request resumed from a
       // question carries its answers beside it, as the browser posts them.
-      body: JSON.stringify({ instruction, ...(opts && opts.tz ? { tz: opts.tz } : {}), ...(opts && Object.hasOwn(opts, "alsoAsked") ? { alsoAsked: opts.alsoAsked } : {}), ...(opts && Object.hasOwn(opts, "handOver") ? { handOver: opts.handOver } : {}), ...(opts && Object.hasOwn(opts, "context") ? { context: opts.context } : {}) }),
+      body: JSON.stringify({ instruction, ...(opts && opts.tz ? { tz: opts.tz } : {}), ...(opts && Object.hasOwn(opts, "alsoAsked") ? { alsoAsked: opts.alsoAsked } : {}), ...(opts && Object.hasOwn(opts, "handOver") ? { handOver: opts.handOver } : {}), ...(opts && Object.hasOwn(opts, "context") ? { context: opts.context } : {}), ...(opts && Object.hasOwn(opts, "scope") ? { scope: opts.scope } : {}) }),
     });
     // THE SERVICE KEY IS PART OF THE ENVIRONMENT UNDER TEST: `persistSiteJobs`
     // returns at its first line without one, so a fixture that leaves it out

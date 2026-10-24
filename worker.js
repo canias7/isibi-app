@@ -40446,7 +40446,9 @@ async function handleRequest(request, env, ctx) {
                 null, clarifyCall(jobCall(eJob, pagesCall(env)), { shown: () => eCtx, all: () => eCtxAll || [], part: ePartShown }),
                 // A SITE THAT WRITES ITS OWN PARTS (2026-10-23) is edited by a
                 // writer told the same: the own-parts block, never the kit's.
-                "", [], { ownParts: ownPartsSite(eSrc, pStoredParts) });
+                // AND THE PICKED PAGES (2026-10-24): the rewrite fallback (a
+                // target too large to show alone) shows only the picked pages.
+                "", [], { ownParts: ownPartsSite(eSrc, pStoredParts), only: ePick && ePick.only ? ePick.only.pages : null });
               } catch (e) {
                 console.error("page edit generate failed:", ownerSlug, e && e.message);
                 const pKind = upstreamKind(e && e.detail, e && e.status);
@@ -45258,8 +45260,13 @@ async function handleRequest(request, env, ctx) {
             // always are. A file not picked is withheld — named, never
             // returnable — and a failed pick sends everything. Billed on this
             // addition's page bill.
-            const aPick = !aWriterScoped && aPartsRead.ok ? await pickFiles({ send: aQuick("add:file-pick") },
-              { request: aInstruction, pages: aWriterSrc, parts: aWriterParts, targets: aKeepPages, model: aModels.quick }) : null;
+            // THE REQUIRED PAGES BY THEIR STORED PATHS (2026-10-24): `aKeepPages`
+            // holds route ids ("/about") and `requiredFiles` matches a page's
+            // path ("about.tsx"), so handed the ids it kept none of them and the
+            // pages this addition touches could be withheld.
+            const aPickTargets = () => (aWriterSrc || []).filter((p) => p && typeof p.path === "string" && aKeepPages.includes(pageId(p.path))).map((p) => p.path);
+            let aPick =!aWriterScoped && aPartsRead.ok ? await pickFiles({ send: aQuick("add:file-pick") },
+              { request: aInstruction, pages: aWriterSrc, parts: aWriterParts, targets: aPickTargets(), model: aModels.quick }) : null;
             if (aPick) aMark("file_pick", aPick.mark.status, aPick.mark);
             const aPickOnly = () => (!aWriterScoped && aPick && aPick.only ? aPick.only : null);
             if (aPickOnly()) aSentParts = partsSent(aWriterParts, { unreadable: !aPartsRead.ok, only: aPickOnly().parts });
@@ -45537,7 +45544,16 @@ async function handleRequest(request, env, ctx) {
             if (!aOver.length) break;
             aMark("scope", "breach", { reached: aOver.length });
             aWriterFor(false);
-            aPagesSent = priorPagesSent(aWriterSrc || [], { keep: aKeepPages });
+            // THE WIDENED WRITER IS PICKED FOR TOO (2026-10-24): it now sees the
+            // whole site, so on a big one the picker runs here (once; a scoped
+            // first pass never called it), billed on the same page bill.
+            if (!aPick && aPartsRead.ok) {
+              aPick = await pickFiles({ send: aQuick("add:file-pick") },
+                { request: aInstruction, pages: aWriterSrc, parts: aWriterParts, targets: aPickTargets(), model: aModels.quick });
+              if (aPick) aMark("file_pick", aPick.mark.status, aPick.mark);
+            }
+            if (aPickOnly()) aSentParts = partsSent(aWriterParts, { unreadable: !aPartsRead.ok, only: aPickOnly().parts });
+            aPagesSent = priorPagesSent(aWriterSrc || [], { keep: aKeepPages, only: aPickOnly() ? aPickOnly().pages : null });
             if (aPagesSent.withheld.length) aUnseenPages = aPagesSent.withheld.slice();
             }
 
@@ -47257,7 +47273,10 @@ async function handleRequest(request, env, ctx) {
             // expression the job's reserve used, computed once beside the
             // purchase: two copies of "what the pictures cost" is how one road
             // ends up billing for a picture nobody got.
-            if (!aJob) aCost = await aCharge(pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage, ...aRepairUsage, ...aLangUsage, aPhotoBill));
+            // AND THE FILE PICKER'S CALL (2026-10-24): the job's `aBill` carried
+            // it since 2266; this synchronous bill left it out.
+            const aPickUsage = aPick ? aPick.usage : null;
+            if (!aJob) aCost = await aCharge(pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage, ...aRepairUsage, ...aLangUsage, aPhotoBill, aPickUsage));
             else aCost += (Number(aRepairRound && aRepairRound.charged) || 0) + aLangCharged + aPhotoCharged;
             // THE PARSER THE MENU READER READS THE PUBLISHED PAGES WITH (2026-10-08,
             // Codex's review of 7fc7056d): null in a runtime with none, where every
