@@ -2965,6 +2965,11 @@ function afterLastUser(request, text) {
   return request;
 }
 
+/** A model request with `text` after everything else it holds, for a caller's own note (`clarifyTransport`'s default note). */
+export function withNote(request, text) {
+  return afterLastUser(request, typeof text === "string" ? text : "");
+}
+
 /** A model request with the answers in their own section; the request itself when there are none to show. */
 export function withContext(request, context) {
   return afterLastUser(request, contextBlock(context));

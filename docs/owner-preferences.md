@@ -1422,3 +1422,17 @@ Where a bound must remain for safety it carries the excess into further
 batches or parts in the same job, never drops it, and keeps a page together
 with the tables and functions it uses. Record: `docs/history/2026-10-24-addon-uncapped.md`.
 - **The visual review runs only for front-end changes** (owner, 2026-10-24): *"only when you're changing the front end … if you're changing … the back end, like the database … you don't need it"*. Decided from the files a change really alters (pages, parts, stylesheet, theme, logo), never from the request's words; data rows, rules, tables, functions, schedules, settings and restores are never reviewed.
+
+## No question after a charge (2026-10-24)
+
+Owner: *"the model may ask the customer a question only BEFORE anything is
+charged; once work has been charged, it must not stop to ask — it goes ahead
+with a sensible stated default and says so in the reply facts."* So the router,
+the build's design and page questions, and an edit or add-on step that runs
+before any reserve or collect keep their question; every model call made after
+the request's first charge is sent with no question field, chooses a sensible
+default from the site and the message, and the reply says what was assumed
+("I used X; tell me if you'd prefer Y"). A step that still asks after that is
+never charged for it. Questions must never ask for what the site or the
+message already answers or implies. Record:
+`docs/history/2026-10-24-no-ask-after-charge.md`.

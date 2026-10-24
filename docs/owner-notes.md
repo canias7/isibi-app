@@ -1,5 +1,14 @@
 # Owner Notes
 
+## 2026-10-24 — no questions after a charge (branch `no-ask-after-charge`, not merged, not deployed)
+
+- **Questions are asked only before anything is charged.** The router, the build's design and page questions, and the first step of an edit or add-on still ask as before. Once credits have been reserved or taken for a request, every AI step after that is not offered a question. It picks a sensible default from the site and your message, and the reply says what it used and that you can ask for the other choice.
+- **The case from the data is fixed.** An addition with a database (a table shown on a page) reserves its credits before the page writer runs. That writer can no longer stop to ask about layout: it goes ahead, and the reply says "it used …".
+- **If an AI asks anyway**, it is told once that it can't and which of its own choices to use. If it still asks, the step ends in the question and is not charged (the job is refunded, as before).
+- **Questions may no longer ask for what the site or your words already say or imply**: where a link or button should go, how something should be worded, how it should look.
+- **One open edge**: a request split into separate jobs (parts) does not carry the "already charged" mark from one part's job to the next.
+- **Tests**: 17 new cases through the real edit and add-on routes with supplied answers. 8 of them fail on main, and the other 8 are controls that pass there. 12 older cases written to the old rule were updated. Sweep: 21 of 21 caught, and the comment-only control survived. Full suite: 12,641 run, 2 environment-only failures, and 3 old-rule cases fixed afterwards. The site image will be rebuilt. Nothing was spent. Record: `docs/history/2026-10-24-no-ask-after-charge.md`.
+
 ## 2026-10-24 — combine-d: thirteen finished branches in one candidate (not merged, not deployed)
 
 - Combined from `main` (692087cde): reply bubble, progress voice, per-device builds, stand-ins and refunds, first-build database and limits, no add-on caps, "tasks" label, build panel Stop, edit file picker, rebuild scope, build questions, request needs, visual review, and two docs branches.

@@ -488,6 +488,19 @@ export function replayer(prepared) {
      * and the list is part of the request the preparation's answer was made for.
      */
     hides: (url) => typeof url === "string" && images.some((i) => i.url === url),
+    /**
+     * WOULD THIS REQUEST BE ANSWERED FROM THE RECORD (2026-10-24)? Asked by
+     * the question gate after a charge (`clarifyTransport`'s `replayHas`): a
+     * call prepared before the charge, with its question field offered, is
+     * replayed as prepared rather than sent again without it — the same exact
+     * match `wrap` uses, nothing spent and nothing reused loosely.
+     */
+    async has(req) {
+      if (!calls.length) return false;
+      let h = "";
+      try { h = await requestHash(req); } catch { return false; }
+      return calls.some((c, i) => !spent.has(i) && c.h === h);
+    },
     // EVERY CALL IS COUNTED (2026-10-11, after Codex's review): with no
     // recorded call to match — a preparation that kept only pictures, or none —
     // each call is still made through here, so `missed` counts it. Returning
