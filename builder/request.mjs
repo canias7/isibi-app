@@ -761,7 +761,10 @@ export function notDoneOf(body, op = "edit") {
 export function readRoute(ans) {
   if (!ans || !plain(ans.body)) return { act: "unknown" };
   const b = ans.body;
+  // THE ROUTER'S PROVIDER IS DOWN (owner, 2026-10-24): waiting, never failed.
+  if (b.waiting === true && plain(b.wait) && b.wait.kind === "provider-wait") return { act: "waiting", wait: b.wait };
   if (b.ok !== true) return { act: "refusal", error: typeof b.error === "string" ? b.error : "" };
+  if (b.failed === true && plain(b.wait) && b.wait.kind === "provider-wait") return { act: "waiting", wait: b.wait };
   if (b.failed === true) return { act: "failed" };
   if (b.intent === "clarify") { const ask = askOf({ ...(plain(b.question) ? b.question : {}), ...(plain(b.questionFor) ? b.questionFor : {}) }); return ask ? { act: "clarify", ask } : { act: "unknown" }; }
   if (b.intent === "ask") return { act: "answer", answer: typeof b.answer === "string" ? b.answer : "" };
@@ -1204,7 +1207,7 @@ function settle(rec, p, job, row, now) {
   }
   if (job.kind === "route") {
     const read = readRoute(ans);
-    if (read.act !== "failed") p.retries = 0;
+    if (read.act !== "failed" && read.act !== "waiting") p.retries = 0;
     job.end.act = read.act;
     if (read.act === "route") {
       p.route = { ...read.route, hops: 0 };
@@ -1233,6 +1236,10 @@ function settle(rec, p, job, row, now) {
     if (read.act === "rewrite") { askApproval(p, read.why, now); return; }
     // THE ROUTING CALL ITSELF FAILED (the provider, our ceiling): ours, so it
     // is asked once more, as a job with no answer is; then the part fails.
+    // ITS PROVIDER IS DOWN (owner, 2026-10-24): routed again, with no count —
+    // never `routing-failed` — while the notice says when; the parts that
+    // need it stay held for it.
+    if (read.act === "waiting") { p.status = "ready"; p.wait = { title: String(read.wait.title || ""), until: Number(read.wait.until) || 0 }; return; }
     if (read.act === "failed") {
       if (p.retries < RETRIES) { p.retries++; p.status = "ready"; return; }
       p.status = "failed"; p.why = "routing-failed"; return;

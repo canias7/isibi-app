@@ -329,7 +329,7 @@ import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.m
 import { WRITE_APP_TOOL, appWriterSystem, appFilesFrom, appThemeFrom } from "./builder/app-gen.mjs";
 import { readExpoRequest } from "./app-builder/expo-preview.mjs";
 import { contextReport } from "./builder/context-report.mjs";
-import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT, XAI_EFFORTS } from "./builder/model-xai.mjs";
+import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT, XAI_EFFORTS, promptKey } from "./builder/model-xai.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
 import { selectPurchase, checkoutForm, LIVE_SUBSCRIPTION_STATUSES, falRequestId, refundVerdict, refundOnResultStatus } from "./billing.mjs";
 import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS, hasValue, keepStoredAccess, mergeLook, movedFields } from "./builder/site-edit.mjs";
@@ -374,6 +374,7 @@ import { newTrace, traceRow } from "./builder/edit-trace.mjs";
 // names — eleven call sites read them, and renaming those would make a move that
 // changes no behaviour look like a change that does.
 import { callBuilderModel as callModel, keysFrom, keyEnv, retryHere, callFailure, BUILDER_CALL_MS, CONTAINER_CALL_CAP_MS, STREAM_IDLE_MS, patientCall, anthropicWire } from "./builder/build-call.mjs";
+import { withProviderRetry, waitingKey, noticeKey, WAITING_PREFIX, parkRecord, readPark, wakeDecision, STOPPED_LINE, stoppedNotice, errorFacts } from "./builder/provider-retry.mjs";
 import { holdDecision, BUSY_PROBE_MS } from "./builder/container-hold.mjs";
 // HOW LONG A CONTAINER JOB MAY RUN — the one setting, read here so the deploy
 // can shorten it without a code change. `fireContainerJob` is its one consumer.
@@ -2256,6 +2257,9 @@ export default {
     // approved while it was on is finished even if it was turned off since;
     // with no journal the sweep lists one empty prefix and does nothing.
     ctx.waitUntil(runPublishRecovery(env).catch((e) => console.error("publish recovery failed", errorClassForLog(e))));
+    // A JOB PARKED WAITING FOR ITS MODEL IS SENT AGAIN EVERY 5 MINUTES
+    // (owner, 2026-10-24), resuming from its saved steps, until it answers.
+    ctx.waitUntil(runProviderWaits(env).catch((e) => console.error("provider waits failed", errorClassForLog(e))));
   },
   // ── THE BUILD QUEUE CONSUMER (see wrangler.jsonc for why this exists) ──────
   //
@@ -5222,7 +5226,190 @@ async function withBuildEffort(request, env) {
  * `callBuilderModel`, so each request carries the effort here.
  */
 const withEffortAll = (env, req) => (Array.isArray(req) ? req.map((r) => withCustomerEffort(env, r)) : withCustomerEffort(env, req));
-const callBuilderModel = (env, req0, budget = null, opts = null) => { const req = withCustomerEffort(env, req0); return modelSend(env) ? patientCall(() => callModel(keysFrom(env), req, budget, modelSend(env), modelOpts(env, opts)), { log: (m) => console.error(m) }) : callModel(keysFrom(env), req, budget, modelSend(env), modelOpts(env, opts)); };
+// ── A PROVIDER THAT IS DOWN IS WAITED FOR (owner, 2026-10-24) ──────────────
+// Every call made through `callBuilderModel` — routing, the rungs, the
+// add-on's judge and designers, compile repair, the security scan, the talk —
+// is asked again every 5 minutes on a 503/502/504/500/429, an in-stream
+// `unavailable` or a dropped connection, only that call, until the model
+// answers (`builder/provider-retry.mjs`). The job's deadline bounds the
+// waiting: inside a container job (`JOB_DEADLINE_AT`) it waits in the job;
+// with no deadline (a request-response route, the Worker's own consumer) the
+// call parks at once and its error carries the notice (`providerWait`), so
+// nothing ever sleeps where no deadline was named. The job's sink
+// (`PROVIDER_WAIT`) shows the notice and hears a park or a Stop.
+// `PROVIDER_CLOCK` is the tests' fake clock, never set in production.
+function providerWaitOpts(env, model) {
+  const sink = env && env.PROVIDER_WAIT && typeof env.PROVIDER_WAIT === "object" ? env.PROVIDER_WAIT : null;
+  const sig = env && env.JOB_STOP && env.JOB_STOP.signal ? env.JOB_STOP.signal : null;
+  const clock = env && env.PROVIDER_CLOCK && typeof env.PROVIDER_CLOCK === "object" ? env.PROVIDER_CLOCK : {};
+  return {
+    model: String(model || ""),
+    deadlineAt: env && Number.isFinite(env.JOB_DEADLINE_AT) ? env.JOB_DEADLINE_AT : null,
+    stopped: async () => !!(sig && sig.aborted) || !!(sink && typeof sink.stopped === "function" && (await sink.stopped())),
+    onWait: sink && sink.onWait, onRecover: sink && sink.onRecover, onPark: sink && sink.onPark, onStop: sink && sink.onStop,
+    ...(typeof clock.now === "function" ? { now: clock.now } : {}),
+    ...(typeof clock.sleep === "function" ? { sleep: clock.sleep } : {}),
+  };
+}
+/**
+ * THE JOB'S SAVED STEPS (owner, 2026-10-24: "never redo finished steps"): a
+ * job that parked comes back and is answered, for every call it already
+ * finished, from its own journal (`CALL_JOURNAL`, under the job's id); only
+ * the call that failed is asked again. Absent everywhere but a queued job.
+ * A journal that cannot be read or written never costs the call.
+ */
+async function journaled(env, req, run) {
+  const j = env && env.CALL_JOURNAL && typeof env.CALL_JOURNAL === "object" ? env.CALL_JOURNAL : null;
+  if (!j) return run();
+  let got = null;
+  try { got = await j.get(req); } catch { got = null; }
+  if (got) return got;
+  const out = await run();
+  try { await j.put(req, out); } catch { /* the journal is a saving, never the answer */ }
+  return out;
+}
+const callBuilderModel = (env, req0, budget = null, opts = null) => { const req = withCustomerEffort(env, req0); const wait = providerWaitOpts(env, req && req.model); return journaled(env, req, () => (modelSend(env) ? patientCall(() => callModel(keysFrom(env), req, budget, modelSend(env), modelOpts(env, opts)), { log: (m) => console.error(m), wait }) : withProviderRetry(() => callModel(keysFrom(env), req, budget, modelSend(env), modelOpts(env, opts)), { log: (m) => console.error(m), ...wait }))); };
+
+/** A job's call journal (`journaled`), under its own id: read only when the job resumes from a park. */
+function callJournal(env, id, { resume = false } = {}) {
+  if (!env || !env.SITES_BUCKET || !isJobId(id)) return null;
+  const key = (req) => "jobs/" + id + ".calls/" + promptKey(JSON.stringify(req)) + ".json";
+  return {
+    async get(req) {
+      if (!resume) return null;
+      const o = await env.SITES_BUCKET.get(key(req));
+      return o ? JSON.parse(await o.text()) : null;
+    },
+    async put(req, out) { await env.SITES_BUCKET.put(key(req), JSON.stringify(out), { httpMetadata: { contentType: "application/json" } }); },
+  };
+}
+
+/**
+ * THE JOB'S NOTICE SINK (owner, 2026-10-24): the fixed notice written where
+ * the job's poll reads it (`noticeKey`), the park and the Stop remembered on
+ * `state` for the job's end. `stopped` reads the job's own Stop.
+ */
+function providerSink(env, id, state, { stopped = null } = {}) {
+  const put = (n) => {
+    state.notice = n;
+    if (!env || !env.SITES_BUCKET || !isJobId(id)) return;
+    const p = env.SITES_BUCKET.put(noticeKey(id), JSON.stringify(n), { httpMetadata: { contentType: "application/json" } }).catch((e) => console.error("provider wait: notice not kept for", id, errorClassForLog(e)));
+    state.writes = (state.writes || Promise.resolve()).then(() => p);
+  };
+  return {
+    onWait: (n) => { state.waited = true; put(n); },
+    onRecover: (n) => { state.parked = null; put(n); },
+    onPark: (n) => { state.parked = n; put(n); },
+    onStop: (n) => { state.stopped = true; put(n); },
+    stopped: typeof stopped === "function" ? stopped : () => false,
+  };
+}
+
+/** A job's current provider notice (`noticeKey`), or null: only a notice's own kinds pass. */
+async function readNotice(env, id) {
+  if (!env || !env.SITES_BUCKET || !isJobId(id)) return null;
+  try {
+    const o = await env.SITES_BUCKET.get(noticeKey(id));
+    const n = o ? JSON.parse(await o.text()) : null;
+    return n && typeof n === "object" && ["provider-wait", "provider-recovered", "provider-stopped"].includes(n.kind) ? n : null;
+  } catch { return null; }
+}
+
+/**
+ * A REQUEST'S PARTS WAITING FOR THEIR MODEL (owner, 2026-10-24): each open
+ * part's latest job's notice, on the part (`wait`), so its panel row reads
+ * "⚠ Events page · Grok 503 · retrying in 4:59" and the summary never calls a
+ * waiting part failed. At most eight reads; a part that ended shows none.
+ */
+async function withPartWaits(env, view) {
+  if (!view || !Array.isArray(view.parts)) return view;
+  let reads = 0, any = false;
+  const ended = ["done", "partial", "failed", "not-run", "cancelled", "needs-rewrite", "expired", "refused"];
+  const parts = [];
+  for (const p of view.parts) {
+    if (p && !ended.includes(p.status) && Array.isArray(p.ids) && p.ids.length && reads < 8) {
+      reads++;
+      const n = await readNotice(env, p.ids[p.ids.length - 1]);
+      if (n && n.kind !== "provider-stopped") { parts.push({ ...p, wait: n }); any = true; continue; }
+    }
+    parts.push(p);
+  }
+  return any ? { ...view, parts, now: Date.now() } : view;
+}
+
+/** A job's park record, or null (none, or unreadable). */
+async function readParkFor(env, id) {
+  if (!env || !env.SITES_BUCKET || !isJobId(id)) return null;
+  try { const o = await env.SITES_BUCKET.get(waitingKey(id)); return o ? readPark(JSON.parse(await o.text())) : null; } catch { return null; }
+}
+
+/** How long a parked job's turn is held under its name: past the 5-minute wait and one tick (the claim RPCs' own ceiling is 600). */
+const PARK_HOLD_S = 600;
+
+/**
+ * PARK A JOB (owner, 2026-10-24): the record the tick reads, and the job's
+ * lease handed to no one, held under its own name past the wait (the same
+ * hold `deferClaimed` uses), so nothing else edits the site between the
+ * finished steps and the one still to come. The container is freed: nothing
+ * runs while it waits.
+ */
+async function parkJob(env, { id, kind, holder, slug, uid, notice }) {
+  const rec = parkRecord({ id, kind, holder, slug, uid, notice, now: Date.now() });
+  try { await env.SITES_BUCKET.put(waitingKey(id), JSON.stringify(rec), { httpMetadata: { contentType: "application/json" } }); }
+  catch (e) { console.error("provider wait: could not park", id, errorClassForLog(e)); }
+  try { await editRpc(env, "edit_handoff", { p_id: id, p_owner: holder, p_next: null, p_ttl: PARK_HOLD_S, p_state: null, p_slug: null }); }
+  catch (e) { console.error("provider wait: could not hold the turn of", id, errorClassForLog(e)); }
+  console.log("provider wait:", id, "parked —", String(notice && notice.title || ""), "— the tick asks again at", new Date(rec.resumeAt).toISOString());
+  return rec;
+}
+
+/** A job's answer, told it was stopped while waiting: the owner's sentence and the fixed notice. */
+function withStoppedLine(bodyText, notice) {
+  let pb = null;
+  try { pb = JSON.parse(bodyText); } catch { pb = null; }
+  if (!pb || typeof pb !== "object" || Array.isArray(pb)) pb = { ok: false };
+  return JSON.stringify({ ...pb, ok: false, msg: STOPPED_LINE, wait: notice && notice.kind === "provider-stopped" ? notice : stoppedNotice(null, Date.now()) });
+}
+
+/**
+ * THE TICK FOR PARKED JOBS (owner, 2026-10-24: "the existing background tick
+ * retries every 5 minutes and resumes from the saved step"): each record due
+ * is sent again under its holder's name (its journal answers what it
+ * finished); a row that is over — stopped, finished, lost — drops its record,
+ * and a stopped one says so. Bounded per tick; silent when there is nothing.
+ */
+export async function runProviderWaits(env, { now = Date.now(), limit = 20 } = {}) {
+  if (!env || !env.SITES_BUCKET || typeof env.SITES_BUCKET.list !== "function") return { resumed: 0, dropped: 0 };
+  let listed;
+  try { listed = await env.SITES_BUCKET.list({ prefix: WAITING_PREFIX, limit }); } catch (e) { console.error("provider wait: list failed", errorClassForLog(e)); return { resumed: 0, dropped: 0 }; }
+  let resumed = 0, dropped = 0;
+  for (const o of (listed && listed.objects) || []) {
+    let rec = null;
+    try { const g = await env.SITES_BUCKET.get(o.key); rec = g ? readPark(JSON.parse(await g.text())) : null; } catch { rec = null; }
+    if (rec && now < rec.resumeAt) continue;
+    let state = null;
+    if (rec) { try { const g = await editRpc(env, "edit_get", { p_id: rec.id, p_uid: rec.uid }); state = g && typeof g.state === "string" ? g.state : (g && g.job && typeof g.job.state === "string" ? g.job.state : null); } catch { state = null; } }
+    const d = wakeDecision(rec, { now, state });
+    if (d.act === "wait") continue;
+    if (d.act === "drop") {
+      try { await env.SITES_BUCKET.delete(o.key); } catch { /* the next tick */ }
+      if (rec && state === "cancelled") { try { await env.SITES_BUCKET.put(noticeKey(rec.id), JSON.stringify(stoppedNotice(rec.notice, now))); } catch { /* the row says it */ } }
+      dropped++;
+      continue;
+    }
+    // THE TURN RENEWED UNDER ITS NAME, then the job sent again; a lapsed turn is a fresh claim.
+    let holder = rec.holder;
+    try { const h = await editRpc(env, "edit_handoff", { p_id: rec.id, p_owner: rec.holder, p_next: rec.holder, p_ttl: PARK_HOLD_S, p_state: null, p_slug: null }); if (!h || h.ok !== true) holder = ""; } catch { holder = ""; }
+    try {
+      await env.SITES_BUCKET.put(o.key, JSON.stringify(d.next));
+      if (!env.BUILD_QUEUE) throw new Error("no queue");
+      await env.BUILD_QUEUE.send({ kind: rec.kind === "build" ? JOB_KIND : EDIT_JOB_KIND, id: rec.id, ...(holder ? { holder } : {}) });
+      resumed++;
+    } catch (e) { console.error("provider wait: could not send", rec.id, "again", errorClassForLog(e)); }
+  }
+  if (resumed || dropped) console.log("provider wait:", JSON.stringify({ resumed, dropped }));
+  return { resumed, dropped };
+}
 
 // ── THE SMALL CALLS GO TO WHICHEVER PROVIDER THE MODEL BELONGS TO ───────────
 //
@@ -6110,7 +6297,9 @@ export async function siteWebResearch(env, brief, queries) {
 function pagesCall(env) {
   // THE CUSTOMER'S EFFORT (2026-10-20, the audit of every model call): an edit's
   // page rung and an addition's pages come through here, not `callBuilderModel`.
-  return (keys, req, budget) => callModel(keys, withCustomerEffort(env, req), budget, modelSend(env), modelOpts(env, null));
+  // AND A PROVIDER THAT IS DOWN IS WAITED FOR (owner, 2026-10-24), as every
+  // `callBuilderModel` is, from the job's journal when it resumes.
+  return (keys, req, budget) => journaled(env, withCustomerEffort(env, req), () => withProviderRetry(() => callModel(keys, withCustomerEffort(env, req), budget, modelSend(env), modelOpts(env, null)), { log: (m) => console.error(m), ...providerWaitOpts(env, req && req.model) }));
 }
 // `kind` AND `keep` RIDE THE TAIL, in the module's own order. The wrapper had
 // stopped one argument short of the module's signature twice before — the
@@ -6281,7 +6470,7 @@ function containerPagesCall(env, slug, out) {
     // WITH THIS PROCESS'S OWN TRANSPORT (2026-10-18, the Harbour Loaf build):
     // inside the container a bare call is Node's fetch — not streamed, cut by
     // its 300-second headers wall — the very death this fallback follows.
-    return callModel(keys, withCustomerEffort(env, req), budget, modelSend(env), modelOpts(env, null));
+    return withProviderRetry(() => callModel(keys, withCustomerEffort(env, req), budget, modelSend(env), modelOpts(env, null)), { log: (m) => console.error(m), ...providerWaitOpts(env, req && req.model) });
   };
 }
 
@@ -6464,6 +6653,12 @@ function containerPagesFanLocal(env, slug, out) {
         ans = JSON.parse(await r.text());
       } catch { ans = null; }
       if (!ans || ans.ok !== true) continue;
+      // THE CONTAINER'S CALL IS WAITING FOR ITS PROVIDER (owner, 2026-10-24):
+      // its fixed notice, handed to this job's sink each time it changes.
+      if (ans.state === "pending" && ans.wait && typeof ans.wait === "object" && env && env.PROVIDER_WAIT) {
+        const wk = JSON.stringify(ans.wait);
+        if (wk !== out.lastWait) { out.lastWait = wk; const sk = env.PROVIDER_WAIT; try { (ans.wait.kind === "provider-recovered" ? sk.onRecover : sk.onWait)(ans.wait); } catch { /* the notice never costs the call */ } }
+      }
       // HOW FAR IT HAS GOT, while it runs (2026-10-19, owner: "it needs to talk
       // more"): a fan-out's calls ended, or a single call's files finished,
       // handed to the caller each time the count moves (`out.onTick`).
@@ -21614,6 +21809,17 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
   // the launch's deadline rather than an invocation.
   const budget = makeBudget(inlineBudgetMs(startedAt, budgetMs || BUILD_BUDGET_MS), undefined, env && env.JOB_STOP && env.JOB_STOP.signal ? env.JOB_STOP.signal : null);
   let out;
+  // A PROVIDER THAT IS DOWN (owner, 2026-10-24): the build's notice sink, its
+  // Stop (the row's cancel, read by the beat below) and its journal, so a
+  // build that parked comes back with its design and every finished call kept.
+  const bState = {};
+  const bParkedBefore = lease ? await readParkFor(env, id) : null;
+  let bCancel = false;
+  const bEnv = lease ? { ...env, PROVIDER_WAIT: providerSink(env, id, bState, { stopped: async () => {
+    if (bCancel) return true;
+    try { const g = await editRpc(env, "edit_beat", { p_id: id, p_owner: lease, p_ttl: LEASE_TTL_S, p_phase: null }); bCancel = !!(g && g.ok === true && g.cancel === true); } catch { /* a blink is not a stop */ }
+    return bCancel;
+  } }), CALL_JOURNAL: callJournal(env, id, { resume: !!bParkedBefore }) } : env;
   try {
     // THE JOB ID TRAVELS, because it is what the resume record is keyed by. A
     // build that fires its generation stores the record under this id and
@@ -21631,7 +21837,7 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
       const g = await editRpc(env, "edit_beat", { p_id: id, p_owner: lease, p_ttl: LEASE_TTL_S, p_phase: null });
       return !!(g && g.ok === true && g.cancel === true);
     } : null;
-    const res = await runSiteBuild(replayRequest(job), env, { rec, tr, budget, auth: job.auth, jobId: id, lease, jobOwner: () => buildJobOwner(env, id, job.uid), stopCheck });
+    const res = await runSiteBuild(replayRequest(job), bEnv, { rec, tr, budget, auth: job.auth, jobId: id, lease, jobOwner: () => buildJobOwner(env, id, job.uid), stopCheck });
     out = packResult({
       status: res.status,
       type: res.headers.get("content-type") || "application/json",
@@ -21661,6 +21867,18 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
     // answer there is nothing left to hold.
     if (rowBeat) clearInterval(rowBeat);
   }
+  // ── PARKED: WAITING FOR THE MODEL (owner, 2026-10-24) ──────────────────────
+  // No answer is written and the row is not closed: the job (its own request
+  // kept again for the run that resumes it), its record for the tick, and its
+  // turn held under its name. Nothing is charged for the part still to come.
+  if (lease && bState.parked && !bState.stopped) {
+    try { await env.SITES_BUCKET.put(jobKey(id), JSON.stringify(packJob({ url: job.url, auth: job.auth, body: job.body, uid: job.uid, at: job.at }))); } catch (e) { console.error("provider wait: could not keep build", id, errorClassForLog(e)); }
+    await parkJob(env, { id, kind: "build", holder: lease, slug: "", uid: job.uid, notice: bState.parked });
+    if (bProgress) { try { await bProgress.close("waiting"); } catch { /* lines never cost the build */ } }
+    return;
+  }
+  if (lease && bState.stopped) out = { ...out, body: withStoppedLine(out.body, bState.notice) };
+  if (bParkedBefore) { try { await env.SITES_BUCKET.delete(waitingKey(id)); } catch { /* the tick drops it */ } }
   // THE RESULT IS THE LAST THING WRITTEN AND THE ONLY THING THE WAIT READS. A
   // failure to write it is not a failure of the build — the site may well be
   // published — so it is logged and the waiting request answers honestly on its
@@ -25645,12 +25863,15 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
       return;
     }
     let job = null;
+    // KEPT AS READ, for a job that parks waiting for its model (2026-10-24):
+    // its request is put back for the run that resumes it.
+    let jobRaw = null;
     try {
       const obj = await env.SITES_BUCKET.get(editJobKey(id));
       // READ ONCE. A body is a stream and cannot be consumed twice; the first
       // draft parsed it, tested a field, and parsed it again — which answers
       // null on the second read and turns every job into "request missing".
-      if (obj) job = readEditJob(JSON.parse(await obj.text()));
+      if (obj) { jobRaw = await obj.text(); job = readEditJob(JSON.parse(jobRaw)); }
     } catch { job = null; }
     if (!job) {
       console.error("edit queue: no stored request for", id);
@@ -25736,6 +25957,13 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     const budgetMs = inlineBudgetMs(startedAt, capMs);
     if (budgetMs < wantMs) console.log("edit queue:", id, "inline budget cut to", Math.round(budgetMs / 1000) + "s — this delivery has already spent", Math.round((Date.now() - startedAt) / 1000) + "s");
     const jctx = makeJobCtx(env, { id, owner, budget: makeEditBudget(budgetMs), uid: job.uid, slug: job.slug, progress });
+    // A PROVIDER THAT IS DOWN (owner, 2026-10-24): this job's notice sink, its
+    // Stop, and its journal — read back only when it resumes from a park, so
+    // every call it already finished is answered from it and only the call
+    // that failed is asked again.
+    const pState = {};
+    const parkedBefore = await readParkFor(env, id);
+    const pEnv = { ...env, PROVIDER_WAIT: providerSink(env, id, pState, { stopped: () => jctx.cancelled() }), CALL_JOURNAL: callJournal(env, id, { resume: !!parkedBefore }) };
     beat = setInterval(() => {
       jctx.beat(null).catch(() => {});
       // A RENEWAL THAT ANSWERS NO IS A LOST TURN (2026-10-15), never ignored.
@@ -25838,7 +26066,13 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
       } else if (jctx.beside && jctx.beside.holds && (!jctx.beside.turn || !heldSt || heldSt.ok !== true)) {
         res = Response.json({ ok: false, error: "turn", ours: true, cost: 0, unchanged: true, msg: heldSt && !jctx.beside.lost ? "Couldn't check the site's saved state before this change. Nothing was changed." : "Another change in this request is still being published, and this one ran out of time waiting. Nothing was changed." }, { status: 503 });
       } else {
-        res = await handleRequest(req, env, ctx);
+        // STOPPED WHILE IT WAS PARKED (owner, 2026-10-24): the customer's Stop
+        // is read before anything resumes; nothing more is asked or charged.
+        if (parkedBefore) { try { await jctx.beat(null); } catch { /* a blink is not a stop */ } }
+        if (parkedBefore && jctx.cancelled()) {
+          pEnv.PROVIDER_WAIT.onStop(stoppedNotice(parkedBefore.notice, Date.now()));
+          res = Response.json({ ok: false, error: "stopped", cancelled: true, cost: 0, unchanged: true, msg: STOPPED_LINE }, { status: 410 });
+        } else res = await handleRequest(req, pEnv, ctx);
       }
     } finally {
       // DROPPED BEFORE IT IS GIVEN BACK (2026-10-22, audit A05-3): a heartbeat
@@ -25872,6 +26106,19 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
       if (jctx.held) heldSaved = await saveHeldCheckpoint(env, id, jctx.held);
     }
     let bodyText = await res.text().catch(() => "");
+    // ── PARKED: WAITING FOR THE MODEL (owner, 2026-10-24) ────────────────────
+    // A call could not wait any longer inside this run: nothing is finalized,
+    // refunded or moved on. The job's turn is held under its own name, its
+    // record is left for the tick, which sends it again in 5 minutes; the
+    // request's other parts that depend on it stay waiting, never "not run".
+    if (pState.parked && !pState.stopped) {
+      if (jobRaw) { try { await env.SITES_BUCKET.put(editJobKey(id), jobRaw); } catch (e) { console.error("provider wait: could not keep the request of", id, errorClassForLog(e)); } }
+      await parkJob(env, { id, kind: "edit", holder: owner, slug: job.slug, uid: job.uid, notice: pState.parked });
+      if (progress) { try { await progress.close("waiting"); } catch { /* the record never costs the job */ } }
+      return;
+    }
+    // STOPPED WHILE WAITING: the owner's sentence, and the fixed notice.
+    if (pState.stopped) bodyText = withStoppedLine(bodyText, pState.notice);
     let resStatus = res.status;
     // THE CHECKPOINT DECIDES WHETHER THE QUESTION STANDS (round 13).
     if (heldSaved) {
@@ -25971,6 +26218,7 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     // AND ITS REPLY IS ASKED FOR (2026-10-04): the outcome and the money are
     // final now, and the request has moved on, so nothing waits on it.
     await replyJobEnded(env, { id, uid: job.uid }, payload);
+    if (parkedBefore) { try { await env.SITES_BUCKET.delete(waitingKey(id)); } catch { /* the tick drops a finished row's record */ } }
     // The measured durations are written by the HANDLER, beside its trace flush
     // — that is where the trace lives, and copying it out here would be a second
     // opinion about what happened built from a value the handler owns.
@@ -33873,6 +34121,15 @@ async function handleRequest(request, env, ctx) {
       // THE REASON IS LOGGED AS WELL AS ANSWERED, and it is the same allow-listed
       // object: our log is where an outage is diagnosed after the fact.
       if (routed.failed === true) console.error("route failed:", JSON.stringify(routed.failure || null));
+      // ── THE ROUTER'S PROVIDER IS DOWN (owner, 2026-10-24) ──────────────────
+      // A 503/502/504/500/429, an in-stream `unavailable` or a dropped
+      // connection: nothing is routed, run or charged on the fallback. The
+      // browser shows the fixed notice and asks again when its countdown ends
+      // — only this call, every 5 minutes, until the model answers. A part's
+      // routing job (`rJob`) waits inside its job instead, and parks there.
+      if (routed.failed === true && routed.wait && !rJob) {
+        return Response.json({ ok: false, waiting: true, wait: routed.wait, now: Date.now(), cost: 0, failed: true, failure: routed.failure || undefined });
+      }
       // ── A PREPARATION ENDS HERE (2026-10-08, the parallel-tasks batch) ────
       // A part's routing made beside another part's job: the model's answer is
       // recorded by the transport, and nothing else happens — no question is
@@ -34475,7 +34732,11 @@ async function handleRequest(request, env, ctx) {
       // the page prints after its own sentence.
       // A STOPPED JOB TOO (2026-10-07): one whose answer records nothing of what stands is read from its database record, as the driver reads it.
       const eLeft = ((row.state === "failed" || row.state === "lost") && !row.needs_review) || wantsEvidence(row) ? await endedEvidence(env, row.slug, ejid) : null;
+      // WAITING FOR ITS MODEL (owner, 2026-10-24): the fixed notice, while the job is open.
+      const eWait = ["done", "failed", "lost"].includes(row.state) ? null : await readNotice(env, ejid);
       return Response.json({
+        wait: eWait || undefined,
+        now: eWait ? Date.now() : undefined,
         ok: row.state !== "failed" && row.state !== "lost",
         job: ejid,
         status: row.state,
@@ -34632,7 +34893,7 @@ async function handleRequest(request, env, ctx) {
         // ONCE IT HAS ENDED, OR WHILE IT WAITS ONLY ON A GO-AHEAD: the reply
         // for what no part's own reply explains, and which one it is (`replyFor`).
         const reply = await requestReply(env, qRec);
-        const qOut = { ok: true, request: requestView(qRec, { progress: await progressForRequest(env, qRec), said: await saidForRequest(env, qRec), runs: await runsForRequest(env, qRec), prepUse: await prepUseForRequest(env, qRec) }) };
+        const qOut = { ok: true, request: await withPartWaits(env, requestView(qRec, { progress: await progressForRequest(env, qRec), said: await saidForRequest(env, qRec), runs: await runsForRequest(env, qRec), prepUse: await prepUseForRequest(env, qRec) })) };
         // WRITTEN, OR STILL BEING WRITTEN (2026-10-04): the page waits for it
         // while it is `pending`, and says the statuses as they are once failed.
         if (reply && typeof reply.text === "string") return Response.json({ ...withReplyText(qOut, reply.text, reply.suggested), replyFor: reply.for });
@@ -34887,6 +35148,9 @@ async function handleRequest(request, env, ctx) {
         // THE BUILD'S LIVE LINES (round 5), the model's own, from its real steps.
         const pv = await progressViewFor(env, jid, bu.id);
         if (pv.lines.length) pend.progress = pv.lines;
+        // WAITING FOR ITS MODEL (owner, 2026-10-24): the fixed notice.
+        const bWait = await readNotice(env, jid);
+        if (bWait) { pend.wait = bWait; pend.now = Date.now(); }
         return Response.json(pend, { status: 202 });
       }
       let out = null;
@@ -42490,6 +42754,11 @@ async function handleRequest(request, env, ctx) {
                     : (what || "The builder is busy — try again in a moment."),
                 upstream: (e && e.status) || null, upstreamType: k.type, billing: k.billing || undefined,
                 timeout: timedOut || undefined,
+                // THE PROVIDER'S OWN ERROR, KEPT (owner, 2026-10-24): its parsed
+                // type and capped words, not only the log line; and the notice
+                // when the call parked waiting for it.
+                providerError: ((pe) => (pe.type || pe.message ? pe : undefined))(errorFacts(e)),
+                wait: e && e.parked === true && e.providerWait ? e.providerWait.notice : undefined,
                 // A JUDGMENT THAT DID NOT FINISH (2026-10-06): named for whoever
                 // reads the answer back; the customer's sentence is the caller's.
                 incomplete: (e && e.incomplete === true) || undefined,

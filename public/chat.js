@@ -9400,7 +9400,7 @@ function renderSiteWorkspace(view, site) {
     const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
     thread.innerHTML = (site.msgs || []).filter((m) => !siteParHidden(m, site)).map((m) => m.r === 'u'
       ? '<div class="st-msg u">' + esc(m.t) + '</div>'
-      : ('<div class="st-msg a"' + (m.request && !m.t && !m.jobCard && !siteReqCardShows(m, site) ? ' hidden' : '') + '>') + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + (m.talkLive === true ? (Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, true) : '<div class="st-think"><i></i>Working on it</div>') : Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, false, true) : '') + siteMsgText(m, linkify) + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + '' + siteAskHTML(m, site) + siteModel3dHTML(m, site) + siteSentinelHTML(m) + (m.request ? siteReqCardHTML(m, site) : '') + (m.jobCard ? siteJobCardHTML(m, site) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
+      : ('<div class="st-msg a"' + (m.request && !m.t && !m.jobCard && !siteReqCardShows(m, site) ? ' hidden' : '') + '>') + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + (m.talkLive === true ? (Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, true) : '<div class="st-think"><i></i>Working on it</div>') : Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, false, true) : '') + siteMsgText(m, linkify) + (m.wait && typeof EditPoll.noticeHTML === 'function' ? EditPoll.noticeHTML(m.wait) : '') + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + '' + siteAskHTML(m, site) + siteModel3dHTML(m, site) + siteSentinelHTML(m) + (m.request ? siteReqCardHTML(m, site) : '') + (m.jobCard ? siteJobCardHTML(m, site) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
     ).join('') + (siteBusyHere(site)
       ? (siteBuild
           ? '<div class="st-msg a st-busy st-busy-react">' + reactLiveStepsHTML() + '</div>'
@@ -10993,6 +10993,27 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
       recent: !isBuild && Array.isArray(site.undoRows) && site.undoRows.length ? site.undoRows.slice(0, 3) : undefined }),
   })).then(async (r) => {
     const d = await r.json().catch(() => null);
+    // ── THE ROUTER'S MODEL IS DOWN (owner, 2026-10-24) ────────────────────
+    // Nothing was routed, run or charged. The server's fixed notice goes on
+    // the thread with its countdown, and this same call is made again when it
+    // ends — only this call, every 5 minutes, until the model answers; then the
+    // box says so ("✓ … is answering again") and the work goes on.
+    const waitTag = (typeof key === 'string' && key) ? key : t;
+    const ws = siteById(origin);
+    const wm = ws && Array.isArray(ws.msgs) ? ws.msgs.find((x) => x && x.waitFor === waitTag) : null;
+    if (d && d.waiting === true && d.wait && typeof EditPoll.providerWait === 'function') {
+      const pw = EditPoll.providerWait(d);
+      if (pw && ws) {
+        const m = wm || { r: 'a', t: '', waitFor: waitTag };
+        if (!wm) ws.msgs.push(m);
+        m.wait = pw;
+        if (typeof siteWaitTick === 'function') siteWaitTick();
+        if (siteOpenId === origin) renderSites();
+        setTimeout(() => { const s5 = siteById(origin); if (s5) siteRoute(s5, t, origin, isBuild, imgs, finish, answering, answer, key, picked); }, Math.max(1000, EditPoll.waitLeftMs(pw)));
+        return;
+      }
+    }
+    if (wm && wm.wait && wm.wait.kind === 'provider-wait') wm.wait = { kind: 'provider-recovered', title: '\u2713 ' + (wm.wait.model || 'The model') + ' is answering again \u00b7 picking up where it stopped' };
     // THE CONVERSATION WAS COMPACTED FOR THIS REPLY (2026-10-20): said on the thread, above the reply.
     if (d && d.compacted === true) {
       const cs = siteById(origin);
@@ -11263,8 +11284,40 @@ function siteReqState(origin, key, view) {
   // NOT THIS PAGE'S OWN (2026-10-05) until it sends a message for it
   // (`siteRequestStart`): a request picked up from the server is only said.
   if (!r) r = s.requests[key] = { at: now, view: null, shown: [], replied: false, replies: [], closed: false, approving: [], own: false };
-  if (view && typeof view === 'object' && Array.isArray(view.parts)) r.view = view;
+  if (view && typeof view === 'object' && Array.isArray(view.parts)) { r.view = view; r.viewAt = now; }
   return r;
+}
+
+// ── A MODEL PROVIDER THAT IS DOWN (owner, 2026-10-24) ─────────────────────
+// The server's fixed notice, shown where the work is shown: on the thread
+// (`m.wait`), on a job's card, on a request part's panel row. One timer moves
+// every countdown on the page; the boxes themselves come from `EditPoll`.
+let siteWaitTimer = null;
+function siteWaitTick() {
+  if (siteWaitTimer || typeof document === 'undefined') return;
+  siteWaitTimer = setInterval(() => {
+    const els = document.querySelectorAll('[data-wait-until]');
+    if (!els.length) return;
+    const now = Date.now();
+    els.forEach((el) => { el.textContent = EditPoll.waitClock(Math.max(0, Number(el.getAttribute('data-wait-until')) - now)); });
+  }, 1000);
+}
+/** A job's notice, mirrored on the thread: one box per job, made when the first notice arrives. */
+function siteJobWait(origin, job, w) {
+  const s = siteById(origin);
+  if (!s || !job || !Array.isArray(s.msgs)) return;
+  let m = s.msgs.find((x) => x && x.waitJob === job);
+  if (!w) return;
+  if (!m) { m = { r: 'a', t: '', waitJob: job }; s.msgs.push(m); }
+  if (JSON.stringify(m.wait || null) === JSON.stringify(w)) return;
+  m.wait = w;
+  siteWaitTick();
+  if (siteOpenId === origin) renderSites();
+}
+/** A request part's notice, on this page's clock from when its view arrived. */
+function siteParWait(p, st) {
+  if (!p || !p.wait) return null;
+  return EditPoll.providerWait({ wait: p.wait, now: st && st.view && typeof st.view.now === 'number' ? st.view.now : undefined }, st && st.viewAt);
 }
 // ── EACH REQUEST'S MESSAGES, WITH THAT REQUEST (2026-10-05) ─────────────────
 //
@@ -12059,10 +12112,12 @@ function siteReqCardHTML(m, site) {
     // A PART PREPARED BESIDE THE JOB OF ANOTHER PART: the chip of the single-part card is its label.
     const prep = (p.status === 'blocked' || p.status === 'ready' || p.status === 'queued') && Object.hasOwn(SITE_REQ_PREP, p.prep) ? p.prep : '';
     const title = siteParTitle(p);
+    // WAITING FOR ITS MODEL (owner, 2026-10-24): never "didn't work".
+    const pw = typeof siteParWait === 'function' ? siteParWait(p, st) : null;
     const o = siteParOpen.get(site.id + '|' + key + '|' + p.n);
     const open = o && o.state === state ? o.open : state === 'run';
     const replies = own.filter((x) => x.job && Array.isArray(p.jobs) && p.jobs.includes(x.job));
-    let body = progressListHTML(p.progress, state === 'run') + replies.map((x) => '<div class="st-par-said">' + siteMsgText(x, link) + '</div>').join('');
+    let body = (pw && typeof EditPoll.noticeHTML === 'function' ? EditPoll.noticeHTML(pw) : '') + progressListHTML(p.progress, state === 'run') + replies.map((x) => '<div class="st-par-said">' + siteMsgText(x, link) + '</div>').join('');
     if (!replies.length && !(Array.isArray(p.progress) && p.progress.length) && state !== 'run') {
       const line = siteSaidFor(p.said, SITE_SAID_FOR[p.status]);
       if (line) body += '<div class="st-par-said">' + link(line) + '</div>';
@@ -12074,7 +12129,7 @@ function siteReqCardHTML(m, site) {
     // what the part said stays on the page for whoever reads it.
     return '<div class="st-par-part st-par-' + state + (open ? ' open' : '') + '">' +
       '<div class="st-par-row" data-par-row="' + esc(key) + '" data-par-n="' + esc(String(p.n)) + '" role="button" tabindex="0" aria-expanded="' + (open ? 'true' : 'false') + '">' +
-      '<span class="st-par-dot"></span><span class="st-par-title">' + esc(title) + '</span><span class="st-par-tag">' + esc(prep ? SITE_REQ_PREP[prep] : siteParTag(p, v.parts, state)) + '</span><span class="st-par-car">' + (open ? '▾' : '▸') + '</span></div>' +
+      '<span class="st-par-dot"></span><span class="st-par-title">' + esc(title) + '</span><span class="st-par-tag">' + (pw && pw.kind === 'provider-wait' && typeof siteParWaitTag === 'function' ? siteParWaitTag(title, pw) : esc(prep ? SITE_REQ_PREP[prep] : siteParTag(p, v.parts, state))) + '</span><span class="st-par-car">' + (open ? '▾' : '▸') + '</span></div>' +
       '<div class="st-par-body"' + (open ? '' : ' hidden') + '>' + (body || '<div class="st-par-said st-par-none">…</div>') + '</div></div>';
   }).join('');
   // THE SOFT BOX: the live question, else the request's own reply once ended.
@@ -12084,6 +12139,13 @@ function siteReqCardHTML(m, site) {
     : end ? '<div class="st-par-box">' + siteMsgText(end, link) + '</div>' : '';
   return (typeof v.opening === 'string' && v.opening ? '<div class="st-par-opening">' + link(v.opening) + '</div>' : '') +
     hide('<div class="st-par" data-par="' + esc(key) + '">' + head + rows + '</div>') + box;
+}
+/** The waiting part's row tag: "⚠ Events page · Grok 503 · retrying in 4:59", the clock live. */
+function siteParWaitTag(title, w) {
+  siteWaitTick();
+  const text = EditPoll.waitRowText(title, w);
+  const at = text.lastIndexOf(' ');
+  return '<span class="st-wait-row">' + esc(text.slice(0, at + 1)) + '<span data-wait-until="' + esc(String(w.localUntil || 0)) + '">' + esc(text.slice(at + 1)) + '</span></span>';
 }
 /** A press inside a parallel card: a row opened or closed, or a part tried again. True when it was one. */
 function siteParClick(e, thread) {
@@ -12529,7 +12591,7 @@ function siteJobCardHTML(m, site) {
   const st = SITE_JOB_STATUS[oc];
   const which = Object.hasOwn(SITE_JOB_SAID, oc) ? SITE_JOB_SAID[oc] : '';
   return '<div class="st-req"><ol class="st-req-parts"><li class="st-req-part st-req-' + esc(st.cls) + '"><span class="st-req-words">' + esc(siteSaidFor(v.said, which) || String(v.words || '')) + '</span>' +
-    '<span class="st-req-status">' + esc(st.label) + '</span>' + progressListHTML(v.progress, st === SITE_JOB_RUNNING) + '</li></ol></div>';
+    '<span class="st-req-status">' + esc(st.label) + '</span>' + (v.wait && typeof EditPoll.noticeHTML === 'function' ? EditPoll.noticeHTML(v.wait) : '') + progressListHTML(v.progress, st === SITE_JOB_RUNNING) + '</li></ol></div>';
 }
 /** A standalone job the server listed: drawn once, where this page does not already show it. */
 function siteJobDiscovered(origin, v) {
@@ -12607,6 +12669,8 @@ function siteJobFollow(origin, job) {
     const read = r ? EditPoll.readPoll(r.status, r.headers && r.headers.get(EditPoll.FINAL_HEADER), e) : { act: 'retry' };
     const got = r ? EditPoll.progressLines(e) : [];
     if (got.length) c.view.progress = got;
+    // ITS PROVIDER'S NOTICE (owner, 2026-10-24), while it carries one.
+    if (r && typeof EditPoll.providerWait === 'function') { c.view.wait = EditPoll.providerWait(e); if (c.view.wait && typeof siteWaitTick === 'function') siteWaitTick(); }
     const taskLines = r ? EditPoll.taskSaid(e && e.said) : null;
     if (taskLines) c.view.said = taskLines;
     // ITS OWN OUTCOME AS THE SERVER READ IT (2026-10-06), on every answer that carries one.
@@ -13451,6 +13515,8 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
     // lines, the running ones and the finished one alike.
     const got = r ? EditPoll.progressLines(e) : [];
     if (got.length) lines = got;
+    // WAITING FOR ITS MODEL (owner, 2026-10-24): the fixed notice on the thread.
+    if (r && typeof siteJobWait === 'function') siteJobWait(origin, w.job, EditPoll.providerWait(e));
     if (read.act === 'retry') {
       w.attempt++;
       // BOUNDED. Past this the job has certainly ended one way or another and
@@ -15852,6 +15918,8 @@ async function followBuildJob(job, signal, origin) {
       const p = await r.json().catch(() => null);
       if (p) {
         setBuildPhase(origin, EditPoll.buildPhase(p));
+        // WAITING FOR ITS MODEL (owner, 2026-10-24): the fixed notice on the thread.
+        if (typeof siteJobWait === 'function') siteJobWait(origin, job, EditPoll.providerWait(p));
         // AND THE CODE, from the same envelope. Read through the poll module
         // like the phase is — it is the half a test can drive, and "is this a
         // string somebody may put on a screen" is exactly the question that
