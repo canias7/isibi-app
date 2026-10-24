@@ -1,5 +1,13 @@
 # Owner Notes
 
+## 2026-10-24 — no whole task ends without one retry; a refused step costs no more than before (branch `retry-with-reason-2`, not merged, not deployed)
+
+- Now asked once more, same model and effort, with the reason: a look change where every part answered "no change"; the page writer sending the page back unchanged or not at all; the look picker's answer that could not be placed (words not yours, a page that is not a page, a new thing mixed with other work); the add-on writer losing words, leaving out what was promised, or returning nothing; an add-on designer that designed nothing; the requirements check cut off; a build with no usable page or no home page.
+- Cost: a step still refused after its retry is charged as before, its first call only (the menu and picture refusals are back to 2, not 3). A retry that works is billed for both calls.
+- Found on the way: on Grok (the default) the retry never carried the answer or the reason; it does now.
+- Still without a retry: provider outages and account errors (provider-retry), honest declines, impossible requests, one small part of a bigger change left out, and the QR part of a look change. The list is in the record.
+- Tests: 33 new; every fix case red on the first branch. Sweep 24 of 24 caught, control survived. Full suite 12,672: 12,667 pass, 2 environment failures, 3 skipped. Site image rebuilt (2d440bd194450245 → 63ac477324969a39). Nothing spent. Record: `docs/history/2026-10-24-retry-with-reason.md`, "Round 2".
+
 ## 2026-10-24 — a failed AI answer is retried once with the reason, same model and effort (branch `retry-with-reason`, not merged, not deployed)
 
 - When an AI answer fails one of our exact checks, the same request now goes once more. The retry carries the AI's own answer and the reason in plain words. It runs on the same model at the same effort, as you chose.

@@ -113,3 +113,109 @@ The container image's worker tree now carries `builder/retry-reason.mjs`
 - Image: SiteBuildContainer `2d440bd194450245` (235 inputs, main `1b16aaba0`)
   → `fa5a328a6849668f` (236 inputs, branch). AppBuildContainer is unchanged at
   `65022ce71e3d7274`.
+
+## Round 2 (branch `retry-with-reason-2`, from `retry-with-reason` e858c7f6e; not merged, not deployed)
+
+Owner, 2026-10-24: **"a task must never fail completely without at least one
+retry"** (small AI imperfections are fine; a whole failed task is not). Every
+retry below is the SAME request (same model, same effort, same tools) with the
+model's own answer and the failed check's reason appended (`retryRequest`), or
+for the add-on designer the cleaner's own correction shape (`feedback`, same
+model and effort). One retry; a second miss is the existing refusal.
+
+### Newly covered
+
+| Ending | Where | Retry | Charge when still refused |
+|---|---|---|---|
+| `look/no-change` (every part declined) | `worker.js`, the look step after its lanes (`eReaskable`, "EVERY PART DECLINED") with `builder/site-lanes.mjs` `reaskLane`, `LOOK_DECLINED_REASON` | each lane that ran is asked once more with the fact that every part answered no change; the QR lane is left out (its answer is a patch, not a value) | `look/no-change` is explained at cost 0, as before; a re-ask whose step then changes nothing ("already looks like that") is not billed (`eReaskUsages` taken back out) |
+| `page/no-change`, `page/no-page-back` | `worker.js`, the page rung after `pRead` ("NO PAGE BACK, OR THE PAGE BACK UNCHANGED") with `builder/retry-reason.mjs` `recordCall` | the page writer asked once more naming the page and the reason; its answer read by the same `pRead` | explained at cost 0, as before (the edit is refunded on the job path) |
+| `picker/scope-unread`, `picker/addition-mixed` | `builder/site-lanes.mjs` `pickLanes` → `pickScopeReason`; `worker.js` hands `isAddition` (the wall's own reading: stored look, page evidence) | a scoped change whose page is not a path or whose words are not the customer's, a picked lane no scope places, or an addition beside other work with no scopes — on the look door and the removal door | the pick carries its first call's usage only |
+| Add-on `not-landed`, `rewrote`, `nothing-returned` (no note) and `no-change` (and every batch of a parallel write) | `worker.js`, the writer loop (`aWriterCheck`, `aCallFor`, `aRecs`) | the writer's answer is merged once ahead with the same removals and named destinations; one that would lose words, or (an addition of only lines and photographs) leave one out, is asked once more naming the words lost or what did not land. Provisioning settles once, after the loop (`aProvCheck`): no table is made or charged twice | the refusal takes nothing off the ledger, as before; both writer calls are on the page bill only when the retry passed |
+| Add-on `declined` (a designer that designed nothing) | `worker.js`, after `aNeedsAgain` | the designer asked once more with that fact, through `aNeedsAgain` | the empty retry's usage is not billed |
+| Requirements judge: a cut-off first answer | `builder/site-add.mjs` `runJudge` | asked once more with that fact; never a third call | ours (`extraUsage`), as the judge's second call always was |
+| Build: no usable page (`validate`), no home page (`home`) | `builder/publish-pages.mjs` (`deps.regenerate`, `genWhy`) with `builder/page-gen.mjs` `pagesAgain` and `worker.js` `pagesAgain` (the one-call writer; a fired or resumed build's retry goes to the container's ordinary page call) | the writer asked once more with the reason | the first call's charge only (`retryUsage` rides apart) |
+
+### Charging fix
+
+Round 1 made a refused step's charge cover both calls (menu 2 → 3, picture
+2 → 3). Now, in `withReasonRetry`, a step that still ends refused (the retry
+failed its check, or ended in another refusal) carries the FIRST call's usage
+only, and the retry's rides apart as `retryUsage`. The same in the router
+(`routeMessage`: a retry that still misquotes is billed one routing call), the
+tweak (`runTweak`) and the build's pages. The removal-door cases are back to
+2 credits (menu and picture). Where a refused step is refunded today, it still
+is.
+
+### Found on the way: the retry never reached Grok
+
+`builder/model-xai.mjs` `toXaiRequest` dropped `tool_use` and `tool_result`
+blocks, so on Grok (the default picker) every round-1 retry went out as the
+first request again, with neither the answer nor the reason. Now an assistant
+`tool_use` is a `tool_calls` entry and each `tool_result` a `tool` message
+answering it (ids paired in order; `fromXaiResponse` keeps none). Overlaps
+`grok-4-7`, which touches the same file (the model name, not this function).
+
+### Still ending without a retry, and why
+
+- Provider outages and account errors (`send`, `generate` 503, `modelDown`):
+  `provider-retry-2`'s scope.
+- Honest declines: one lane of several answering no change; the tweak's own
+  `cannot`; a menu or picture step's decided refusal (a page the site lacks, a
+  page with no menu); a take-off that names nothing on the list; a writer's
+  `nothing-returned` with a note of its own; `too-many` and an unseen-page
+  rewrite (refused, the rest kept).
+- Genuinely impossible: `page/no-page`, `not-removable`, `nothing-to-remove`,
+  `pages/page-verb`, a QR destination refused.
+- Small imperfections: one line or photograph of a larger addition left out
+  by name; one band of a fan-out stubbed (the fan-out is one container job;
+  a second would be a second job and resume); a page the writer was not shown
+  refused while the rest ships.
+- The QR lane in an all-declined look step (its answer is a patch read
+  against the stored list).
+- `picker/addition-mixed` when the addition's own words are the whole
+  message: the answer is consistent (it is the addition alone), and asks for
+  it alone.
+- Add-on `clarify` after charge: `no-ask-after-charge`'s scope.
+- `text/no-match`: climbs, not a final failure.
+- Design, frame, compile: already asked again (`recoverDesign`,
+  `enforceFallbackFrame`, compile repair and salvage).
+
+### Overlaps
+
+- `provider-retry-2`: a provider wait sits inside `send` under these retries.
+- `no-ask-after-charge`, `auto-split-edits`: same routes; this round adds code
+  beside the pick, the look lanes, the page rung and the add-on writer, and
+  changes no route signature.
+- `grok-4-7`: `builder/model-xai.mjs` (different function).
+
+### Evidence
+
+- Tests (code at `76691fa01`): `test/retry-with-reason-2.test.mjs` (16 cases:
+  the charging rule, the picker's scope, the look re-ask, the judge, the
+  build's pages, `recordCall`, `pagesAgain`, Grok's shape); route cases in
+  `test/edit-removal-door.test.mjs` ("ROUND 2", 10, sync and job),
+  `test/addon-route.test.mjs` ("RETRY", 7) and the judge cases in
+  `test/addon-judgment.test.mjs`. Each newly covered path: fail → retry fixes
+  (the retry request equal to the first apart from the two turns, the reason's
+  words present), fail twice → the existing refusal at the old charge, pass →
+  no retry. Existing call-count expectations updated where a path now retries
+  (`edit-op-scope`, `edit-removal-door`, `edit-failure`, `addon-judgment`), and
+  the removal-door charges back to 2 credits; source guards re-anchored
+  (`page-gen` census 3 → 4, `site-addon` merge sites 2 → 3, `site-add` leaf
+  list, `site-tweak` landmark).
+- Red check against `origin/retry-with-reason` (e858c7f6e): 29 of the 50
+  selected cases fail there (every fix case, the charges and the unit file,
+  which cannot load); the 21 that pass are the pass → no-retry controls and
+  cases whose old behaviour already matched.
+- Sweep: 24 mutants across `retry-reason`, `site-lanes`, `site-add`,
+  `publish-pages`, `page-gen`, `model-xai`, `site-ask`, `site-tweak` and
+  every new hop in `worker.js`, all killed (the router and tweak charge mutants
+  first survived; a test was added for each, then killed). The comment-only
+  control survived.
+- Full suite (world-readable path) at the final code: 12,672 tests, 12,667
+  pass, 2 fail, 3 skipped. Both failures are the environment: `no-generated-deps`
+  (the node_modules symlink) and `canary-reopen-browser` REOPEN 1.
+- Image: SiteBuildContainer `2d440bd194450245` (main `1b16aaba0`, 235 inputs)
+  → `63ac477324969a39` (236 inputs; round 1 was `fa5a328a6849668f`).
+  AppBuildContainer unchanged at `65022ce71e3d7274`.
+- Nothing spent: no model call, no paid run, no live write.
