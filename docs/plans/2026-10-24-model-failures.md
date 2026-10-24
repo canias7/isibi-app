@@ -36,3 +36,15 @@ Saved on the owner's word: **a list only, nothing built yet.**
 3. **Park the part and come back later**: mark it "waiting for the model", free the site, and have the regular tick retry it in a few minutes. Nothing holds the container while waiting.
 4. **Keep the real error**: save the provider's type and message on the job and its trace, so we know which kind it was.
 5. **Check before retrying**: never retry kinds 6–9, 12 and 13. Never charge twice: retry only the call that failed.
+
+## The owner's design for the waiting notice (2026-10-24)
+
+- **A fixed server notice, not a model line** (the model may be the thing that is down). Shown in the chat as a grey box:
+  - the code and its name, e.g. **"Grok error 503 · Service Unavailable"**; when the provider sends a word with no number, it is mapped to the standard code (unavailable → 503, overloaded → 529, rate limited → 429), and a real number is shown as sent;
+  - the provider's own words, word for word;
+  - a link to the provider's status page: **status.x.ai** for Grok (official, named in docs.x.ai's Debugging page), status.claude.com for Claude;
+  - "Retrying in 0:24 · attempt 2 of 6 · no charge while waiting", counting down live.
+- On recovery: "✓ Grok is answering again", then the model's own progress lines resume.
+- If every retry fails (about 20 minutes): the code, the attempts, the link, "Nothing was built or charged for this part", and a Try again button.
+- **A retry picks up where it stopped**: only the call that failed is sent again, inside the same job; steps already finished (e.g. the tables designed) are kept, nothing finished is redone or charged again.
+- Mockup: `scratchpad/retry-mock/m3.html` (this session).
