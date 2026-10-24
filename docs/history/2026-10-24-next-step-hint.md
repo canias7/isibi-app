@@ -45,5 +45,10 @@ Idea #24 ("suggested next requests", from dyad), adapted: the final-reply writer
   - plain text only, using supplied answers;
   - the Worker and page wiring, read between landmarks.
 - **Red on the old code**: the file fails at import, because the old module has none of the new exports.
-- Sweep: see the owner-notes entry and the commit for the measured result.
+- Sweep: 13 of 13 mutants killed (rules, context, reader, served body, record, page memory, page message, Worker wiring); the comment-only control survived.
+- Two older guards were updated for intended wiring: `test/site-chat.test.mjs` (a fourth `cleanChatId(body.chat)` reader, in `replyAsked`) and `test/model-replies-routes.test.mjs` (`replyFor` now carries `uid`).
+
+## Image prediction
+
+The site image copies `builder/site-reply.mjs`, so a merge **rolls the image**: SiteBuildContainer `665ab9d93b9dce93` (origin/main) → `d6408655dec3f62b` (progress-voice) → `4182f2d851bd551e` (code commit `54126f6fb`), 229 inputs on each. AppBuildContainer is unchanged (`65022ce71e3d7274`). Builds should wait 15–20 minutes after such a deploy, and the deploy needs the owner's allowance.
 - The affected test files (every test naming site-reply, edit-poll, `withReplyText` or `REPLY_SYSTEM`, 89 files plus the new one) are green after the change. The full suite was not run (optional for this task).
