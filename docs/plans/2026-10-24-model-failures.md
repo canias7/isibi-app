@@ -48,3 +48,4 @@ Saved on the owner's word: **a list only, nothing built yet.**
 - There is no "every retry failed" end state; the customer can press Stop, or switch to Claude. (Open for the owner: a long cap such as 24 hours, and whether to switch to Claude automatically.)
 - **A retry picks up where it stopped**: only the call that failed is sent again, inside the same job; steps already finished (e.g. the tables designed) are kept, nothing finished is redone or charged again.
 - Mockup: `scratchpad/retry-mock/m3.html` (this session).
+- **Which failures get this notice and the endless 5-minute retry** (owner, 2026-10-24): every provider-side kind in the table above, not only 503: **#1 503 unavailable, #2 502, #3 504, #4 500, #5 429 (waiting at least as long as the provider asks), #10 connection dropped.** Not the kinds that come from our side (#6 out of credit, #7 key, #8 bad request, #9 model not found) or from the answer itself (#12–#15); those keep their own handling.
