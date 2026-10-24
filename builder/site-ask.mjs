@@ -56,6 +56,7 @@ import { summaryBlock } from "./chat-context.mjs";// Telling a question from an 
  * uses, not quietly back on the provider this change exists to leave.
  */
 import { DEVICES_FIELD, readDevices, deviceHintLine } from "./device-scope.mjs";
+import { retryRequest, markRetry, addUsages } from "./retry-reason.mjs";
 
 export const ASK_MODEL = modelsFor().quick;
 
@@ -1460,7 +1461,7 @@ function liveBlock({ canAsk = false, pending = null, context = [], part = null }
   return waiting + (told ? "\n" + told : "") + asking;
 }
 
-export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false, model = ASK_MODEL, live = false, canAsk = false, pending = null, context = [], part = null, tablesNone = false, history = null, summary = null, answering = false, items = null, device = "" } = {}) {
+export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false, model = ASK_MODEL, live = false, canAsk = false, pending = null, context = [], part = null, tablesNone = false, history = null, summary = null, answering = false, items = null, device = "", split = null } = {}) {
   // A FIRST BUILD'S MESSAGE IS CUT TO ITS OWN BOUND, AS IT ALWAYS WAS; a site
   // that exists sends it whole (2026-10-03, the size policy): the route has
   // already refused one past `MAX_INPUT_CHARS`, so nothing here shortens what
@@ -1545,7 +1546,7 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
     // THE CONVERSATION SO FAR (2026-10-14), its small window only — enough to
     // tell "do that" from a question and to write `resolved` — before their
     // message. Absent when the page sent none.
-    messages: [{ role: "user", content: "THEIR SITE\n" + siteDigest(site, { tablesNone }) + state + round + (summaryBlock(summary) ? "\n\n" + summaryBlock(summary) : "") + (historyBlock(history) ? "\n\n" + historyBlock(history) : "") + (live && hasSite && deviceHintLine(device) ? "\n\n" + deviceHintLine(device) : "") + "\n\nTHEIR MESSAGE\n" + text + (live && itemsBlock(items) ? "\n\n" + itemsBlock(items) : "") + (live && partBlock(part) ? "\n\n" + partBlock(part) : "") }],
+    messages: [{ role: "user", content: "THEIR SITE\n" + siteDigest(site, { tablesNone }) + state + round + (summaryBlock(summary) ? "\n\n" + summaryBlock(summary) : "") + (historyBlock(history) ? "\n\n" + historyBlock(history) : "") + (live && hasSite && deviceHintLine(device) ? "\n\n" + deviceHintLine(device) : "") + "\n\nTHEIR MESSAGE\n" + text + (live && itemsBlock(items) ? "\n\n" + itemsBlock(items) : "") + (live && partBlock(part) ? "\n\n" + partBlock(part) : "") + (live && splitBlock(split) ? "\n\n" + splitBlock(split) : "") }],
   };
 }
 
@@ -2965,6 +2966,11 @@ function afterLastUser(request, text) {
   return request;
 }
 
+/** A model request with `text` after everything else it holds, for a caller's own note (`clarifyTransport`'s default note). */
+export function withNote(request, text) {
+  return afterLastUser(request, typeof text === "string" ? text : "");
+}
+
 /** A model request with the answers in their own section; the request itself when there are none to show. */
 export function withContext(request, context) {
   return afterLastUser(request, contextBlock(context));
@@ -3060,6 +3066,24 @@ export function partBlock(part) {
     (p.done.length
       ? "\nWHAT THE PARTS BEFORE THIS ONE DID, in order:\n" + p.done.map((d, i) => (i + 1) + ". “" + d.words + "” — " + d.said).join("\n")
       : "");
+}
+
+/**
+ * THE CHANGE WAS TOO BIG FOR ONE STEP (owner, 2026-10-24): what the router is
+ * told when a part, or a standalone edit, is routed again to split itself.
+ * `split` is `{ why, reason? }` (the request's `readSplit`, or the page's
+ * own); anything else is no section. The router is asked to answer the first
+ * piece it can do and hold every other piece back in `alsoAsked`, in the
+ * customer's own words, so each runs as a part of its own; never `build`.
+ */
+export function splitBlock(split) {
+  if (!split || typeof split !== "object" || Array.isArray(split) || typeof split.why !== "string" || !/^[a-z-]{1,20}$/.test(split.why)) return "";
+  const reason = typeof split.reason === "string" && /^[a-z0-9_-]{1,40}$/i.test(split.reason) ? split.reason : "";
+  return "THIS WAS TOO BIG FOR ONE STEP\nThe step this was sent to said it needs more than it can make in one go" +
+    (reason ? " (its reason: " + reason + ")" : "") + ". Split it into smaller changes the steps can each make: answer the " +
+    "first of them, and hold every other one back in alsoAsked, copied word for word from their message, so each runs on " +
+    "its own, in order, with dependsOn where one needs another. Every part of what they asked must be in one of them. " +
+    "Never answer \"build\": the whole site is never rewritten for this.";
 }
 
 /** A model request with the part's section after everything else; the request itself when there is none. */
@@ -3270,7 +3294,7 @@ export const KEPT_TURN_CHARS = 2000;
 export const KEPT_STEP = 20;
 export const KEPT_CHARS = 40000;
 const ROUTER_LAST_REPLY = 3200;
-export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, picked = false, hasSite = false, model = ASK_MODEL, tablesFilled = false, tablesNone = false, pagesFilled = false, pagesComplete = true, canAsk: askable = false, context = [], pending = null, part = null, history = null, kept = null, device = "" } = {}) {
+export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, picked = false, hasSite = false, model = ASK_MODEL, tablesFilled = false, tablesNone = false, pagesFilled = false, pagesComplete = true, canAsk: askable = false, context = [], pending = null, part = null, history = null, kept = null, device = "", split = null } = {}) {
   const text = String(message || "").trim();
   // AN EMPTY MESSAGE NEVER REACHES THE MODEL. The composer will not send one, but
   // this is a paid call behind a public route and "the client wouldn't do that"
@@ -3337,6 +3361,10 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
     intent: !!hasSite ? FALLBACK_WITH_SITE : FALLBACK_NO_SITE, answer: "", usage: null, failed: true,
     failure: routeFailure(stage, e, { model, classify: deps && deps.classify }),
     decision: routeDecision([...shown, stage === "request" ? "request-failed" : "send-failed"]),
+    // A PROVIDER THAT IS DOWN (owner, 2026-10-24): the fixed notice the call's
+    // wait made (`builder/provider-retry.mjs`), so the route waits and asks
+    // again instead of acting on the fallback. Only the notice's own fields.
+    ...(stage !== "request" && e && e.parked === true && e.providerWait && e.providerWait.notice ? { wait: e.providerWait.notice } : {}),
   });
   // THE MESSAGE'S ITEMS (2026-10-23): on a site that exists, for a message of
   // its own (not an answer to a waiting question), numbered for the router so
@@ -3364,7 +3392,7 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
     // reply's call uses, and said in the decision when shown or cut.
     if (shownHistory.turns.length) shown.push("history-shown");
     if (shownHistory.turns.length && (shownHistory.left > 0 || shownHistory.turns.some((t) => t.cut))) shown.push("history-cut");
-    request = askRequest({ items, message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, context: waiting ? told : (partOf ? (readContext(context) || []) : told), part: partOf, tablesNone: tablesNone === true, history: shownHistory.turns.length ? shownHistory : null, summary: keptSummary, answering: canClarify && answering === true && picked !== true, device });
+    request = askRequest({ items, message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, context: waiting ? told : (partOf ? (readContext(context) || []) : told), part: partOf, tablesNone: tablesNone === true, history: shownHistory.turns.length ? shownHistory : null, summary: keptSummary, answering: canClarify && answering === true && picked !== true, device, split: live && hasSite ? split : null });
   } catch (e) {
     return fail("request", e);
   }
@@ -3455,6 +3483,33 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
       }
     }
   }
+  // ── A HELD-BACK PART NOT FOUND IN THE MESSAGE, RETRIED ONCE WITH THAT REASON
+  //    (owner, 2026-10-24: "retry once with the check's own reason") ──────────
+  //
+  // Every route that runs the message refuses `held-unread` when a part the
+  // router held back (`alsoAsked`) is not the customer's own words. That check
+  // is exact (`heldParts`), so it is asked here first: the same request (same
+  // model, same effort) goes once more with the router's own answer and the
+  // check's reason. A second miss is answered as it came, and the route's
+  // existing refusal stands. Both calls are on the message's routing bill.
+  let firstUsage = null, retryReason = null;
+  if (live && !waiting && routed.unusable !== true && heldUnread(text, routed.alsoAsked)) {
+    firstUsage = askUsage(reply, model);
+    let again2;
+    try { again2 = await deps.send(retryRequest(request, reply, HELD_UNREAD_REASON)); } catch { again2 = null; }
+    const c = again2 ? cutOff(again2, shown) : null;
+    if (again2 && !c) {
+      const t2 = { reasons: shown.slice(), input: undefined };
+      const r2 = readAs(again2, canAsk, t2);
+      const ok = r2.unusable !== true && !heldUnread(text, r2.alsoAsked);
+      markRetry(deps && deps.mark, "route", "held-unread", ok);
+      retryReason = { step: "route", reason: "held-unread", ok };
+      reply = again2; routed = r2; trace = t2;
+    } else {
+      markRetry(deps && deps.mark, "route", "held-unread", false);
+      retryReason = { step: "route", reason: "held-unread", ok: false };
+    }
+  }
   // AN ANSWER THAT CANNOT BE USED, ON A SITE THAT EXISTS, IS A FAILURE OF THE
   // CALL (2026-10-02): a question that cannot be shown, or a reply to a waiting
   // question that does not say whether it answers it. Never work in its place,
@@ -3466,5 +3521,21 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
       decision: routeDecision(trace.reasons, trace.input),
     };
   }
-  return { ...routed, usage: askUsage(reply, model), decision: routeDecision(trace.reasons, trace.input) };
+  // PAY ONLY FOR WHAT WORKED (round 2): a retry that still misquotes is
+  // refused by the routes as before, at the first call's routing cost.
+  const usage = !firstUsage ? askUsage(reply, model)
+    : retryReason && retryReason.ok ? addUsages(firstUsage, askUsage(reply, model))
+    : firstUsage;
+  return { ...routed, usage, ...(retryReason ? { retryReason } : {}), decision: routeDecision(trace.reasons, trace.input) };
+}
+
+/** The reason told back when a held-back part is not in the message (2026-10-24). */
+export const HELD_UNREAD_REASON = "Your answer could not be used: a part you held back in alsoAsked is not found word for word in the customer's message, or is not a list of their own words. Every held-back part must be copied exactly from the message (or named by its number in brackets when the message is numbered). Answer again with the same decision, copying each held-back part exactly; hold nothing back if every change can be made now.";
+
+/** Whether the router's held-back parts cannot be found in the message — the routes' own `held-unread` check. */
+export function heldUnread(message, alsoAsked) {
+  const listed = heldList(alsoAsked);
+  if (listed === null) return true;
+  if (!listed.length) return false;
+  return !heldParts(message, listed).ok;
 }

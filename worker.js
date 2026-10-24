@@ -149,6 +149,7 @@ import { rehearseHeldSchema, heldFromRehearsal } from "./builder/addon-rehearse.
 import { applySiteSchema, loadSiteSchema, readSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields, auditTier, withJobDeps, storedJobFns } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
+import { pagesAgain as pagesAgainOf } from "./builder/page-gen.mjs";
 import { usageOf as pageUsageOf, PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, partsSent, priorPagesSent, pageId, sceneOn, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
 import { pickFiles } from "./builder/file-picker.mjs";
 import { pagesPlan, bandRefusal, BAND_MARK, bandMarks, generateSiteBands, ownFallbackDirective, enforceFallbackFrame } from "./builder/page-bands.mjs";
@@ -268,7 +269,7 @@ import { routeMessage, routeDecision, routeFailure, clarifiedBrief, START_OVER_B
 // THE HAND-OVER (2026-10-02, the whole-router audit's batch 2): what travels when
 // work moves from one step to another — the parts put off, the scope, and why.
 import { readHandOver, handOverLine, heldReport, deferredOf } from "./builder/hand-over.mjs";
-import { loadAsk, storeAsk, storeAskIfFree, closeAsk, replaceAsk, askLive, packAsk, ASKER_RE, newAskId, askOf, readAsk, withQuestion, readContext, shownContext, repeatOf, appendAnswer, againNote, clarifyTransport, clarifyCall, MAX_NOTE_CHARS, MAX_SAME_ASK, MAX_ASKED } from "./builder/clarify.mjs";
+import { loadAsk, storeAsk, storeAskIfFree, closeAsk, replaceAsk, askLive, packAsk, ASKER_RE, newAskId, askOf, readAsk, withQuestion, readContext, shownContext, repeatOf, appendAnswer, againNote, clarifyTransport, clarifyCall, defaultedReport, MAX_NOTE_CHARS, MAX_SAME_ASK, MAX_ASKED } from "./builder/clarify.mjs";
 import { repliesOn, buildReplyFacts, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelReplyFacts, repeatNoteFacts, wideningFacts, requestReplyFacts, replyContext, writeReply, withReplyText, recentSuggestions, offMenuPages, REPLY_CALL_MS, REPLY_BG_CALL_MS, REPLY_BG_DEADLINE_MS, REPLY_BG_ATTEMPTS, REPLY_BG_RETRY_S, REPLY_LEASE_MS, REPLY_HORIZON_MS, REPLY_RETRY_GRACE_MS, readReplyRecord, replyNext, replyClaim, replyOutcomeOf, outcomeOf, outcomeReads } from "./builder/site-reply.mjs";
 // PROGRESS WHILE AN EDIT OR AN ADD-ON RUNS (2026-10-06): the milestones' facts,
 // the per-job record and its one writer's rules, the call and its check.
@@ -289,7 +290,7 @@ import {
 import {
   isRequestKey, requestFlowOn, recordKey as requestRecordKey, liveKey as requestLiveKey, fileKey as requestFileKey, requestReplyKey,
   parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ORPHAN_MARKER_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts, requestMaking,
-  nextStep, readLabels, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, heldPurchaseState, heldReasons, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, requestView, liveJobIds, stopPart, partJobId, appendParts, questionsToOffer, noteOffered,
+  nextStep, readLabels, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, heldPurchaseState, heldReasons, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, readSplit, requestView, liveJobIds, stopPart, partJobId, appendParts, questionsToOffer, noteOffered,
   approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt, editJobOutcome, answerless, wantsEvidence,
 } from "./builder/request.mjs";
 // ONE SIZE POLICY FOR WHAT A CUSTOMER SAYS ON A SITE THAT EXISTS (2026-10-03).
@@ -297,7 +298,7 @@ import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS, REWRITE_MAX_CHARS, carriedChars } f
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
-import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage, themeNote, landmarkNote, verbLayer, REMOVABLE_LANES, takeOffLane, runTakeOff, takeOffRefusal, takeOffNote, mergePageSteps, pageStepDone, samePageOperation, doorLane, doorDispatch } from "./builder/site-lanes.mjs";
+import { pickLanes, runLane, reaskLane, LOOK_DECLINED_REASON, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage, themeNote, landmarkNote, verbLayer, REMOVABLE_LANES, takeOffLane, runTakeOff, takeOffRefusal, takeOffNote, mergePageSteps, pageStepDone, samePageOperation, doorLane, doorDispatch } from "./builder/site-lanes.mjs";
 // EVERY WAY THE EDIT ROUTE DECLINES, CLASSIFIED (2026-09-23): rewrite, add-on,
 // hop or explain, one table, and `test/edit-failure.test.mjs` holds the route to it.
 import { editFailure, failureMsg, stepMsg } from "./builder/edit-failure.mjs";
@@ -332,7 +333,7 @@ import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.m
 import { WRITE_APP_TOOL, appWriterSystem, appFilesFrom, appThemeFrom } from "./builder/app-gen.mjs";
 import { readExpoRequest } from "./app-builder/expo-preview.mjs";
 import { contextReport } from "./builder/context-report.mjs";
-import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT, XAI_EFFORTS } from "./builder/model-xai.mjs";
+import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT, XAI_EFFORTS, promptKey } from "./builder/model-xai.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
 import { selectPurchase, checkoutForm, LIVE_SUBSCRIPTION_STATUSES, falRequestId, refundVerdict, refundOnResultStatus } from "./billing.mjs";
 import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS, hasValue, keepStoredAccess, mergeLook, movedFields } from "./builder/site-edit.mjs";
@@ -372,11 +373,13 @@ import { laneName, healthImage, HEALTH_LANE } from "./builder/build-lane.mjs";
 // run 101). Diagnostic only: nothing in this import can change what an edit
 // does, and `recompileAndPublish` treats a null trace as a no-op.
 import { newTrace, traceRow } from "./builder/edit-trace.mjs";
+import { traceRetryMark, logRetryMark, recordCall, addUsages, retryRequest } from "./builder/retry-reason.mjs";
 // THE TWO LONG MODEL CALLS, IN A MODULE THE CONTAINER CAN IMPORT TOO. Aliased
 // on the way in because `worker.js` keeps thin `env`-shaped wrappers of the same
 // names — eleven call sites read them, and renaming those would make a move that
 // changes no behaviour look like a change that does.
 import { callBuilderModel as callModel, keysFrom, keyEnv, retryHere, callFailure, BUILDER_CALL_MS, CONTAINER_CALL_CAP_MS, STREAM_IDLE_MS, patientCall, anthropicWire } from "./builder/build-call.mjs";
+import { withProviderRetry, waitingKey, noticeKey, WAITING_PREFIX, parkRecord, readPark, wakeDecision, STOPPED_LINE, stoppedNotice, errorFacts } from "./builder/provider-retry.mjs";
 import { holdDecision, BUSY_PROBE_MS } from "./builder/container-hold.mjs";
 // HOW LONG A CONTAINER JOB MAY RUN — the one setting, read here so the deploy
 // can shorten it without a code change. `fireContainerJob` is its one consumer.
@@ -2259,6 +2262,9 @@ export default {
     // approved while it was on is finished even if it was turned off since;
     // with no journal the sweep lists one empty prefix and does nothing.
     ctx.waitUntil(runPublishRecovery(env).catch((e) => console.error("publish recovery failed", errorClassForLog(e))));
+    // A JOB PARKED WAITING FOR ITS MODEL IS SENT AGAIN EVERY 5 MINUTES
+    // (owner, 2026-10-24), resuming from its saved steps, until it answers.
+    ctx.waitUntil(runProviderWaits(env).catch((e) => console.error("provider waits failed", errorClassForLog(e))));
   },
   // ── THE BUILD QUEUE CONSUMER (see wrangler.jsonc for why this exists) ──────
   //
@@ -5238,7 +5244,190 @@ async function withBuildEffort(request, env) {
  * `callBuilderModel`, so each request carries the effort here.
  */
 const withEffortAll = (env, req) => (Array.isArray(req) ? req.map((r) => withCustomerEffort(env, r)) : withCustomerEffort(env, req));
-const callBuilderModel = (env, req0, budget = null, opts = null) => { const req = withCustomerEffort(env, req0); return modelSend(env) ? patientCall(() => callModel(keysFrom(env), req, budget, modelSend(env), modelOpts(env, opts)), { log: (m) => console.error(m) }) : callModel(keysFrom(env), req, budget, modelSend(env), modelOpts(env, opts)); };
+// ── A PROVIDER THAT IS DOWN IS WAITED FOR (owner, 2026-10-24) ──────────────
+// Every call made through `callBuilderModel` — routing, the rungs, the
+// add-on's judge and designers, compile repair, the security scan, the talk —
+// is asked again every 5 minutes on a 503/502/504/500/429, an in-stream
+// `unavailable` or a dropped connection, only that call, until the model
+// answers (`builder/provider-retry.mjs`). The job's deadline bounds the
+// waiting: inside a container job (`JOB_DEADLINE_AT`) it waits in the job;
+// with no deadline (a request-response route, the Worker's own consumer) the
+// call parks at once and its error carries the notice (`providerWait`), so
+// nothing ever sleeps where no deadline was named. The job's sink
+// (`PROVIDER_WAIT`) shows the notice and hears a park or a Stop.
+// `PROVIDER_CLOCK` is the tests' fake clock, never set in production.
+function providerWaitOpts(env, model) {
+  const sink = env && env.PROVIDER_WAIT && typeof env.PROVIDER_WAIT === "object" ? env.PROVIDER_WAIT : null;
+  const sig = env && env.JOB_STOP && env.JOB_STOP.signal ? env.JOB_STOP.signal : null;
+  const clock = env && env.PROVIDER_CLOCK && typeof env.PROVIDER_CLOCK === "object" ? env.PROVIDER_CLOCK : {};
+  return {
+    model: String(model || ""),
+    deadlineAt: env && Number.isFinite(env.JOB_DEADLINE_AT) ? env.JOB_DEADLINE_AT : null,
+    stopped: async () => !!(sig && sig.aborted) || !!(sink && typeof sink.stopped === "function" && (await sink.stopped())),
+    onWait: sink && sink.onWait, onRecover: sink && sink.onRecover, onPark: sink && sink.onPark, onStop: sink && sink.onStop,
+    ...(typeof clock.now === "function" ? { now: clock.now } : {}),
+    ...(typeof clock.sleep === "function" ? { sleep: clock.sleep } : {}),
+  };
+}
+/**
+ * THE JOB'S SAVED STEPS (owner, 2026-10-24: "never redo finished steps"): a
+ * job that parked comes back and is answered, for every call it already
+ * finished, from its own journal (`CALL_JOURNAL`, under the job's id); only
+ * the call that failed is asked again. Absent everywhere but a queued job.
+ * A journal that cannot be read or written never costs the call.
+ */
+async function journaled(env, req, run) {
+  const j = env && env.CALL_JOURNAL && typeof env.CALL_JOURNAL === "object" ? env.CALL_JOURNAL : null;
+  if (!j) return run();
+  let got = null;
+  try { got = await j.get(req); } catch { got = null; }
+  if (got) return got;
+  const out = await run();
+  try { await j.put(req, out); } catch { /* the journal is a saving, never the answer */ }
+  return out;
+}
+const callBuilderModel = (env, req0, budget = null, opts = null) => { const req = withCustomerEffort(env, req0); const wait = providerWaitOpts(env, req && req.model); return journaled(env, req, () => (modelSend(env) ? patientCall(() => callModel(keysFrom(env), req, budget, modelSend(env), modelOpts(env, opts)), { log: (m) => console.error(m), wait }) : withProviderRetry(() => callModel(keysFrom(env), req, budget, modelSend(env), modelOpts(env, opts)), { log: (m) => console.error(m), ...wait }))); };
+
+/** A job's call journal (`journaled`), under its own id: read only when the job resumes from a park. */
+function callJournal(env, id, { resume = false } = {}) {
+  if (!env || !env.SITES_BUCKET || !isJobId(id)) return null;
+  const key = (req) => "jobs/" + id + ".calls/" + promptKey(JSON.stringify(req)) + ".json";
+  return {
+    async get(req) {
+      if (!resume) return null;
+      const o = await env.SITES_BUCKET.get(key(req));
+      return o ? JSON.parse(await o.text()) : null;
+    },
+    async put(req, out) { await env.SITES_BUCKET.put(key(req), JSON.stringify(out), { httpMetadata: { contentType: "application/json" } }); },
+  };
+}
+
+/**
+ * THE JOB'S NOTICE SINK (owner, 2026-10-24): the fixed notice written where
+ * the job's poll reads it (`noticeKey`), the park and the Stop remembered on
+ * `state` for the job's end. `stopped` reads the job's own Stop.
+ */
+function providerSink(env, id, state, { stopped = null } = {}) {
+  const put = (n) => {
+    state.notice = n;
+    if (!env || !env.SITES_BUCKET || !isJobId(id)) return;
+    const p = env.SITES_BUCKET.put(noticeKey(id), JSON.stringify(n), { httpMetadata: { contentType: "application/json" } }).catch((e) => console.error("provider wait: notice not kept for", id, errorClassForLog(e)));
+    state.writes = (state.writes || Promise.resolve()).then(() => p);
+  };
+  return {
+    onWait: (n) => { state.waited = true; put(n); },
+    onRecover: (n) => { state.parked = null; put(n); },
+    onPark: (n) => { state.parked = n; put(n); },
+    onStop: (n) => { state.stopped = true; put(n); },
+    stopped: typeof stopped === "function" ? stopped : () => false,
+  };
+}
+
+/** A job's current provider notice (`noticeKey`), or null: only a notice's own kinds pass. */
+async function readNotice(env, id) {
+  if (!env || !env.SITES_BUCKET || !isJobId(id)) return null;
+  try {
+    const o = await env.SITES_BUCKET.get(noticeKey(id));
+    const n = o ? JSON.parse(await o.text()) : null;
+    return n && typeof n === "object" && ["provider-wait", "provider-recovered", "provider-stopped"].includes(n.kind) ? n : null;
+  } catch { return null; }
+}
+
+/**
+ * A REQUEST'S PARTS WAITING FOR THEIR MODEL (owner, 2026-10-24): each open
+ * part's latest job's notice, on the part (`wait`), so its panel row reads
+ * "⚠ Events page · Grok 503 · retrying in 4:59" and the summary never calls a
+ * waiting part failed. At most eight reads; a part that ended shows none.
+ */
+async function withPartWaits(env, view) {
+  if (!view || !Array.isArray(view.parts)) return view;
+  let reads = 0, any = false;
+  const ended = ["done", "partial", "failed", "not-run", "cancelled", "needs-rewrite", "expired", "refused"];
+  const parts = [];
+  for (const p of view.parts) {
+    if (p && !ended.includes(p.status) && Array.isArray(p.ids) && p.ids.length && reads < 8) {
+      reads++;
+      const n = await readNotice(env, p.ids[p.ids.length - 1]);
+      if (n && n.kind !== "provider-stopped") { parts.push({ ...p, wait: n }); any = true; continue; }
+    }
+    parts.push(p);
+  }
+  return any ? { ...view, parts, now: Date.now() } : view;
+}
+
+/** A job's park record, or null (none, or unreadable). */
+async function readParkFor(env, id) {
+  if (!env || !env.SITES_BUCKET || !isJobId(id)) return null;
+  try { const o = await env.SITES_BUCKET.get(waitingKey(id)); return o ? readPark(JSON.parse(await o.text())) : null; } catch { return null; }
+}
+
+/** How long a parked job's turn is held under its name: past the 5-minute wait and one tick (the claim RPCs' own ceiling is 600). */
+const PARK_HOLD_S = 600;
+
+/**
+ * PARK A JOB (owner, 2026-10-24): the record the tick reads, and the job's
+ * lease handed to no one, held under its own name past the wait (the same
+ * hold `deferClaimed` uses), so nothing else edits the site between the
+ * finished steps and the one still to come. The container is freed: nothing
+ * runs while it waits.
+ */
+async function parkJob(env, { id, kind, holder, slug, uid, notice }) {
+  const rec = parkRecord({ id, kind, holder, slug, uid, notice, now: Date.now() });
+  try { await env.SITES_BUCKET.put(waitingKey(id), JSON.stringify(rec), { httpMetadata: { contentType: "application/json" } }); }
+  catch (e) { console.error("provider wait: could not park", id, errorClassForLog(e)); }
+  try { await editRpc(env, "edit_handoff", { p_id: id, p_owner: holder, p_next: null, p_ttl: PARK_HOLD_S, p_state: null, p_slug: null }); }
+  catch (e) { console.error("provider wait: could not hold the turn of", id, errorClassForLog(e)); }
+  console.log("provider wait:", id, "parked —", String(notice && notice.title || ""), "— the tick asks again at", new Date(rec.resumeAt).toISOString());
+  return rec;
+}
+
+/** A job's answer, told it was stopped while waiting: the owner's sentence and the fixed notice. */
+function withStoppedLine(bodyText, notice) {
+  let pb = null;
+  try { pb = JSON.parse(bodyText); } catch { pb = null; }
+  if (!pb || typeof pb !== "object" || Array.isArray(pb)) pb = { ok: false };
+  return JSON.stringify({ ...pb, ok: false, msg: STOPPED_LINE, wait: notice && notice.kind === "provider-stopped" ? notice : stoppedNotice(null, Date.now()) });
+}
+
+/**
+ * THE TICK FOR PARKED JOBS (owner, 2026-10-24: "the existing background tick
+ * retries every 5 minutes and resumes from the saved step"): each record due
+ * is sent again under its holder's name (its journal answers what it
+ * finished); a row that is over — stopped, finished, lost — drops its record,
+ * and a stopped one says so. Bounded per tick; silent when there is nothing.
+ */
+export async function runProviderWaits(env, { now = Date.now(), limit = 20 } = {}) {
+  if (!env || !env.SITES_BUCKET || typeof env.SITES_BUCKET.list !== "function") return { resumed: 0, dropped: 0 };
+  let listed;
+  try { listed = await env.SITES_BUCKET.list({ prefix: WAITING_PREFIX, limit }); } catch (e) { console.error("provider wait: list failed", errorClassForLog(e)); return { resumed: 0, dropped: 0 }; }
+  let resumed = 0, dropped = 0;
+  for (const o of (listed && listed.objects) || []) {
+    let rec = null;
+    try { const g = await env.SITES_BUCKET.get(o.key); rec = g ? readPark(JSON.parse(await g.text())) : null; } catch { rec = null; }
+    if (rec && now < rec.resumeAt) continue;
+    let state = null;
+    if (rec) { try { const g = await editRpc(env, "edit_get", { p_id: rec.id, p_uid: rec.uid }); state = g && typeof g.state === "string" ? g.state : (g && g.job && typeof g.job.state === "string" ? g.job.state : null); } catch { state = null; } }
+    const d = wakeDecision(rec, { now, state });
+    if (d.act === "wait") continue;
+    if (d.act === "drop") {
+      try { await env.SITES_BUCKET.delete(o.key); } catch { /* the next tick */ }
+      if (rec && state === "cancelled") { try { await env.SITES_BUCKET.put(noticeKey(rec.id), JSON.stringify(stoppedNotice(rec.notice, now))); } catch { /* the row says it */ } }
+      dropped++;
+      continue;
+    }
+    // THE TURN RENEWED UNDER ITS NAME, then the job sent again; a lapsed turn is a fresh claim.
+    let holder = rec.holder;
+    try { const h = await editRpc(env, "edit_handoff", { p_id: rec.id, p_owner: rec.holder, p_next: rec.holder, p_ttl: PARK_HOLD_S, p_state: null, p_slug: null }); if (!h || h.ok !== true) holder = ""; } catch { holder = ""; }
+    try {
+      await env.SITES_BUCKET.put(o.key, JSON.stringify(d.next));
+      if (!env.BUILD_QUEUE) throw new Error("no queue");
+      await env.BUILD_QUEUE.send({ kind: rec.kind === "build" ? JOB_KIND : EDIT_JOB_KIND, id: rec.id, ...(holder ? { holder } : {}) });
+      resumed++;
+    } catch (e) { console.error("provider wait: could not send", rec.id, "again", errorClassForLog(e)); }
+  }
+  if (resumed || dropped) console.log("provider wait:", JSON.stringify({ resumed, dropped }));
+  return { resumed, dropped };
+}
 
 // ── THE SMALL CALLS GO TO WHICHEVER PROVIDER THE MODEL BELONGS TO ───────────
 //
@@ -6159,7 +6348,9 @@ export async function siteWebResearch(env, brief, queries) {
 function pagesCall(env) {
   // THE CUSTOMER'S EFFORT (2026-10-20, the audit of every model call): an edit's
   // page rung and an addition's pages come through here, not `callBuilderModel`.
-  return (keys, req, budget) => callModel(keys, withCustomerEffort(env, req), budget, modelSend(env), modelOpts(env, null));
+  // AND A PROVIDER THAT IS DOWN IS WAITED FOR (owner, 2026-10-24), as every
+  // `callBuilderModel` is, from the job's journal when it resumes.
+  return (keys, req, budget) => journaled(env, withCustomerEffort(env, req), () => withProviderRetry(() => callModel(keys, withCustomerEffort(env, req), budget, modelSend(env), modelOpts(env, null)), { log: (m) => console.error(m), ...providerWaitOpts(env, req && req.model) }));
 }
 // `kind` AND `keep` RIDE THE TAIL, in the module's own order. The wrapper had
 // stopped one argument short of the module's signature twice before — the
@@ -6330,7 +6521,7 @@ function containerPagesCall(env, slug, out) {
     // WITH THIS PROCESS'S OWN TRANSPORT (2026-10-18, the Harbour Loaf build):
     // inside the container a bare call is Node's fetch — not streamed, cut by
     // its 300-second headers wall — the very death this fallback follows.
-    return callModel(keys, withCustomerEffort(env, req), budget, modelSend(env), modelOpts(env, null));
+    return withProviderRetry(() => callModel(keys, withCustomerEffort(env, req), budget, modelSend(env), modelOpts(env, null)), { log: (m) => console.error(m), ...providerWaitOpts(env, req && req.model) });
   };
 }
 
@@ -6513,6 +6704,12 @@ function containerPagesFanLocal(env, slug, out) {
         ans = JSON.parse(await r.text());
       } catch { ans = null; }
       if (!ans || ans.ok !== true) continue;
+      // THE CONTAINER'S CALL IS WAITING FOR ITS PROVIDER (owner, 2026-10-24):
+      // its fixed notice, handed to this job's sink each time it changes.
+      if (ans.state === "pending" && ans.wait && typeof ans.wait === "object" && env && env.PROVIDER_WAIT) {
+        const wk = JSON.stringify(ans.wait);
+        if (wk !== out.lastWait) { out.lastWait = wk; const sk = env.PROVIDER_WAIT; try { (ans.wait.kind === "provider-recovered" ? sk.onRecover : sk.onWait)(ans.wait); } catch { /* the notice never costs the call */ } }
+      }
       // HOW FAR IT HAS GOT, while it runs (2026-10-19, owner: "it needs to talk
       // more"): a fan-out's calls ended, or a single call's files finished,
       // handed to the caller each time the count moves (`out.onTick`).
@@ -19620,7 +19817,13 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   }
   // THE WRITER MAY ASK only where its answer comes back to this invocation.
   const canAskPages = !resumeCall && !canFire;
+  // THE ONE-CALL WRITER, ASKABLE AGAIN (round 2 of the retry rule, 2026-10-24):
+  // set by `generate` when a single page call answered in this invocation (or
+  // through its resume), so `publishPages` can ask it once more with the reason
+  // an answer failed (`regenerate`). A band fan-out leaves it null.
+  let pagesAgain = null;
   const out = await publishPages({
+    regenerate: (reason) => (pagesAgain ? pagesAgain(reason) : null),
     prefetch: ({ balance }) => {
       if (photoTask || !Array.isArray(imgBrief)) return;
       photoTask = startBuildPhotos(env, { slug, brief: imgBrief, balance, key: photoKey, owner: photoOwner });
@@ -19914,6 +20117,22 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         // a FIRST BUILD's where the route offered it (`pageAsk`, build-questions:
         // no answer yet, not `noAsk`, carried through a resume).
         const singleAnswer = await generateSitePages(env, briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief, media, devices: deviceWishes }) + ownTail, spec, brand, attachments, model, priorPages, undefined, undefined, budget, call, plan && plan.kind, [], { ownParts: ownFirst, only: reviseOnly, ...((revise || priorPages) ? { ask: canAskPages } : pageAsk) });
+        // ASKED AGAIN SYNCHRONOUSLY (round 2 of the retry rule): a fired call's
+        // sentinel or a resume's stored answer cannot carry a second request, so
+        // the retry goes to the container's ordinary page call — the same
+        // request with the writer's answer and the reason (`pagesAgainOf`).
+        if (singleAnswer && !singleAnswer.ask) {
+          const via = (resumeCall || canFire) ? containerPagesCall(env, slug, genPath) : call;
+          pagesAgain = async (reason) => {
+            const g = await pagesAgainOf(call, reason, via);
+            if (!g || g.ask || !ownFirst) return g;
+            const fix = await enforceFallbackFrame(g, {
+              send: (req) => pagesCall(env)(keysFrom(env), req, budget),
+              directive: ownTail.trim(), spec, kind: plan && plan.kind, model: g && g.usage && g.usage.model,
+            });
+            return fix.gen;
+          };
+        }
         // A QUESTION BACK (2026-10-24) is the answer as it stands: no frame
         // repair is asked of a writer that wrote nothing.
         if (singleAnswer && singleAnswer.ask) return singleAnswer;
@@ -21944,6 +22163,17 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
   // the launch's deadline rather than an invocation.
   const budget = makeBudget(inlineBudgetMs(startedAt, budgetMs || BUILD_BUDGET_MS), undefined, env && env.JOB_STOP && env.JOB_STOP.signal ? env.JOB_STOP.signal : null);
   let out;
+  // A PROVIDER THAT IS DOWN (owner, 2026-10-24): the build's notice sink, its
+  // Stop (the row's cancel, read by the beat below) and its journal, so a
+  // build that parked comes back with its design and every finished call kept.
+  const bState = {};
+  const bParkedBefore = lease ? await readParkFor(env, id) : null;
+  let bCancel = false;
+  const bEnv = lease ? { ...env, PROVIDER_WAIT: providerSink(env, id, bState, { stopped: async () => {
+    if (bCancel) return true;
+    try { const g = await editRpc(env, "edit_beat", { p_id: id, p_owner: lease, p_ttl: LEASE_TTL_S, p_phase: null }); bCancel = !!(g && g.ok === true && g.cancel === true); } catch { /* a blink is not a stop */ }
+    return bCancel;
+  } }), CALL_JOURNAL: callJournal(env, id, { resume: !!bParkedBefore }) } : env;
   try {
     // THE JOB ID TRAVELS, because it is what the resume record is keyed by. A
     // build that fires its generation stores the record under this id and
@@ -21961,7 +22191,7 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
       const g = await editRpc(env, "edit_beat", { p_id: id, p_owner: lease, p_ttl: LEASE_TTL_S, p_phase: null });
       return !!(g && g.ok === true && g.cancel === true);
     } : null;
-    const res = await runSiteBuild(replayRequest(job), env, { rec, tr, budget, auth: job.auth, jobId: id, lease, jobOwner: () => buildJobOwner(env, id, job.uid), stopCheck });
+    const res = await runSiteBuild(replayRequest(job), bEnv, { rec, tr, budget, auth: job.auth, jobId: id, lease, jobOwner: () => buildJobOwner(env, id, job.uid), stopCheck });
     out = packResult({
       status: res.status,
       type: res.headers.get("content-type") || "application/json",
@@ -21991,6 +22221,18 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
     // answer there is nothing left to hold.
     if (rowBeat) clearInterval(rowBeat);
   }
+  // ── PARKED: WAITING FOR THE MODEL (owner, 2026-10-24) ──────────────────────
+  // No answer is written and the row is not closed: the job (its own request
+  // kept again for the run that resumes it), its record for the tick, and its
+  // turn held under its name. Nothing is charged for the part still to come.
+  if (lease && bState.parked && !bState.stopped) {
+    try { await env.SITES_BUCKET.put(jobKey(id), JSON.stringify(packJob({ url: job.url, auth: job.auth, body: job.body, uid: job.uid, at: job.at }))); } catch (e) { console.error("provider wait: could not keep build", id, errorClassForLog(e)); }
+    await parkJob(env, { id, kind: "build", holder: lease, slug: "", uid: job.uid, notice: bState.parked });
+    if (bProgress) { try { await bProgress.close("waiting"); } catch { /* lines never cost the build */ } }
+    return;
+  }
+  if (lease && bState.stopped) out = { ...out, body: withStoppedLine(out.body, bState.notice) };
+  if (bParkedBefore) { try { await env.SITES_BUCKET.delete(waitingKey(id)); } catch { /* the tick drops it */ } }
   // THE RESULT IS THE LAST THING WRITTEN AND THE ONLY THING THE WAIT READS. A
   // failure to write it is not a failure of the build — the site may well be
   // published — so it is logged and the waiting request answers honestly on its
@@ -25211,6 +25453,10 @@ async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, 
   }
   const planned = planParts(message, out, { putOff: answered && ask.putOff ? ask.putOff : [] });
   if (!planned.ok) return null;
+  // A STANDALONE EDIT THAT WAS TOO BIG, SENT AGAIN BY ITS PAGE TO SPLIT ITSELF
+  // (owner, 2026-10-24): its parts have split once already, so each may split
+  // once more and no further (`SPLIT_MAX`).
+  if (readSplit(rb && rb.split)) for (const p of planned.parts) p.splitDepth = 1;
   // EVERY FILE THE MESSAGE CARRIES MUST READ (round 9), or it is not taken on
   // as a request that would hold fewer than it was sent: answered as before,
   // with the page still holding its files.
@@ -25988,12 +26234,15 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
       return;
     }
     let job = null;
+    // KEPT AS READ, for a job that parks waiting for its model (2026-10-24):
+    // its request is put back for the run that resumes it.
+    let jobRaw = null;
     try {
       const obj = await env.SITES_BUCKET.get(editJobKey(id));
       // READ ONCE. A body is a stream and cannot be consumed twice; the first
       // draft parsed it, tested a field, and parsed it again — which answers
       // null on the second read and turns every job into "request missing".
-      if (obj) job = readEditJob(JSON.parse(await obj.text()));
+      if (obj) { jobRaw = await obj.text(); job = readEditJob(JSON.parse(jobRaw)); }
     } catch { job = null; }
     if (!job) {
       console.error("edit queue: no stored request for", id);
@@ -26088,6 +26337,14 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
         renewTurn(env, job.slug, held).then((ok) => { if (ok === false && jctx.beside.turn === held) loseTurn(jctx, job.slug, "its renewal was refused"); }).catch(() => {});
       }
     }, HEARTBEAT_S * 1000);
+    // A PROVIDER THAT IS DOWN (owner, 2026-10-24): this job's notice sink, its
+    // Stop, and its journal — read back only when it resumes from a park, so
+    // every call it already finished is answered from it and only the call
+    // that failed is asked again. (After the beat starts, 2026-10-24 re-land:
+    // the read is awaited, and the budget block above stays synchronous.)
+    const pState = {};
+    const parkedBefore = await readParkFor(env, id);
+    const pEnv = { ...env, PROVIDER_WAIT: providerSink(env, id, pState, { stopped: () => jctx.cancelled() }), CALL_JOURNAL: callJournal(env, id, { resume: !!parkedBefore }) };
     // A REQUEST'S JOB MAY RUN BESIDE OTHERS OF ITS REQUEST (2026-10-15,
     // `PARALLEL_WRITES`): it publishes under the site's turn, rebased onto the
     // site as it is then (`recompileAndPublish`). A step that rewrites the
@@ -26181,7 +26438,13 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
       } else if (jctx.beside && jctx.beside.holds && (!jctx.beside.turn || !heldSt || heldSt.ok !== true)) {
         res = Response.json({ ok: false, error: "turn", ours: true, cost: 0, unchanged: true, msg: heldSt && !jctx.beside.lost ? "Couldn't check the site's saved state before this change. Nothing was changed." : "Another change in this request is still being published, and this one ran out of time waiting. Nothing was changed." }, { status: 503 });
       } else {
-        res = await handleRequest(req, env, ctx);
+        // STOPPED WHILE IT WAS PARKED (owner, 2026-10-24): the customer's Stop
+        // is read before anything resumes; nothing more is asked or charged.
+        if (parkedBefore) { try { await jctx.beat(null); } catch { /* a blink is not a stop */ } }
+        if (parkedBefore && jctx.cancelled()) {
+          pEnv.PROVIDER_WAIT.onStop(stoppedNotice(parkedBefore.notice, Date.now()));
+          res = Response.json({ ok: false, error: "stopped", cancelled: true, cost: 0, unchanged: true, msg: STOPPED_LINE }, { status: 410 });
+        } else res = await handleRequest(req, pEnv, ctx);
       }
     } finally {
       // DROPPED BEFORE IT IS GIVEN BACK (2026-10-22, audit A05-3): a heartbeat
@@ -26215,6 +26478,19 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
       if (jctx.held) heldSaved = await saveHeldCheckpoint(env, id, jctx.held);
     }
     let bodyText = await res.text().catch(() => "");
+    // ── PARKED: WAITING FOR THE MODEL (owner, 2026-10-24) ────────────────────
+    // A call could not wait any longer inside this run: nothing is finalized,
+    // refunded or moved on. The job's turn is held under its own name, its
+    // record is left for the tick, which sends it again in 5 minutes; the
+    // request's other parts that depend on it stay waiting, never "not run".
+    if (pState.parked && !pState.stopped) {
+      if (jobRaw) { try { await env.SITES_BUCKET.put(editJobKey(id), jobRaw); } catch (e) { console.error("provider wait: could not keep the request of", id, errorClassForLog(e)); } }
+      await parkJob(env, { id, kind: "edit", holder: owner, slug: job.slug, uid: job.uid, notice: pState.parked });
+      if (progress) { try { await progress.close("waiting"); } catch { /* the record never costs the job */ } }
+      return;
+    }
+    // STOPPED WHILE WAITING: the owner's sentence, and the fixed notice.
+    if (pState.stopped) bodyText = withStoppedLine(bodyText, pState.notice);
     let resStatus = res.status;
     // THE CHECKPOINT DECIDES WHETHER THE QUESTION STANDS (round 13).
     if (heldSaved) {
@@ -26314,6 +26590,7 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     // AND ITS REPLY IS ASKED FOR (2026-10-04): the outcome and the money are
     // final now, and the request has moved on, so nothing waits on it.
     await replyJobEnded(env, { id, uid: job.uid }, payload);
+    if (parkedBefore) { try { await env.SITES_BUCKET.delete(waitingKey(id)); } catch { /* the tick drops a finished row's record */ } }
     // The measured durations are written by the HANDLER, beside its trace flush
     // — that is where the trace lives, and copying it out here would be a second
     // opinion about what happened built from a value the handler owns.
@@ -34233,7 +34510,9 @@ async function handleRequest(request, env, ctx) {
         // (`upstreamKind`), so a failed route names the provider's token and
         // whether our account was refused the same way a failed build does —
         // one reader of provider errors, not two (Lane 1b).
-        { send: jobSend(rJob, quickSend(env)), classify: (e) => upstreamKind(e && e.detail, e && e.status) },
+        { send: jobSend(rJob, quickSend(env)), classify: (e) => upstreamKind(e && e.detail, e && e.status),
+          // RETRY_REASON {step, reason, ok} (2026-10-24): the routing route keeps no trace row, so it is logged.
+          mark: logRetryMark },
         {
           message: rb.message,
           // DRAFT-FIRST, FROM THE WORKER'S OWN SWITCH (audit #216): the router
@@ -34270,6 +34549,11 @@ async function handleRequest(request, env, ctx) {
           // THE PREVIEW'S DEVICE (2026-10-24, per-device edits): a hint the
           // router is told; the customer's words decide. One of three names or none.
           device: readDeviceHint(rb && rb.device),
+          // TOO BIG FOR ONE STEP, ROUTED AGAIN TO SPLIT ITSELF (owner,
+          // 2026-10-24): a part's own ask (`partOf`'s `split`, set by the
+          // request), or a standalone edit's from its page after its step
+          // climbed — read strictly either way (`readSplit`).
+          split: rPart ? (rPart.split || null) : readSplit(rb && rb.split),
           // THE CONVERSATION SO FAR (2026-10-14): the page's own copy of this
           // project's thread, read and windowed by `readHistory` there.
           history: rb.history,
@@ -34336,6 +34620,15 @@ async function handleRequest(request, env, ctx) {
       // THE REASON IS LOGGED AS WELL AS ANSWERED, and it is the same allow-listed
       // object: our log is where an outage is diagnosed after the fact.
       if (routed.failed === true) console.error("route failed:", JSON.stringify(routed.failure || null));
+      // ── THE ROUTER'S PROVIDER IS DOWN (owner, 2026-10-24) ──────────────────
+      // A 503/502/504/500/429, an in-stream `unavailable` or a dropped
+      // connection: nothing is routed, run or charged on the fallback. The
+      // browser shows the fixed notice and asks again when its countdown ends
+      // — only this call, every 5 minutes, until the model answers. A part's
+      // routing job (`rJob`) waits inside its job instead, and parks there.
+      if (routed.failed === true && routed.wait && !rJob) {
+        return Response.json({ ok: false, waiting: true, wait: routed.wait, now: Date.now(), cost: 0, failed: true, failure: routed.failure || undefined });
+      }
       // ── A PREPARATION ENDS HERE (2026-10-08, the parallel-tasks batch) ────
       // A part's routing made beside another part's job: the model's answer is
       // recorded by the transport, and nothing else happens — no question is
@@ -34607,7 +34900,9 @@ async function handleRequest(request, env, ctx) {
         // A CARVED PART'S ROUTING IS NOT CHARGED (2026-10-23, fix-edit-flow):
         // the message's routing already described it (`partOf`'s `carved`,
         // set by the request, never by a caller). Live: 3 credits, nothing done.
-        if (rJob && rPart && rPart.carved === true) rCost = 0;
+        // …NOR A PART ROUTED AGAIN TO SPLIT ITSELF (2026-10-24): its words were
+        // routed and paid for once; the split is ours, never charged twice.
+        if (rJob && rPart && (rPart.carved === true || !!rPart.split)) rCost = 0;
         else if (rJob) {
           try {
             const rr = rCost > 0 ? await editRpc(env, "edit_reserve", { p_id: rJob.id, p_seq: 1, p_cost: rCost }) : null;
@@ -34987,7 +35282,11 @@ async function handleRequest(request, env, ctx) {
       // the page prints after its own sentence.
       // A STOPPED JOB TOO (2026-10-07): one whose answer records nothing of what stands is read from its database record, as the driver reads it.
       const eLeft = ((row.state === "failed" || row.state === "lost") && !row.needs_review) || wantsEvidence(row) ? await endedEvidence(env, row.slug, ejid) : null;
+      // WAITING FOR ITS MODEL (owner, 2026-10-24): the fixed notice, while the job is open.
+      const eWait = ["done", "failed", "lost"].includes(row.state) ? null : await readNotice(env, ejid);
       return Response.json({
+        wait: eWait || undefined,
+        now: eWait ? Date.now() : undefined,
         ok: row.state !== "failed" && row.state !== "lost",
         job: ejid,
         status: row.state,
@@ -35144,7 +35443,7 @@ async function handleRequest(request, env, ctx) {
         // ONCE IT HAS ENDED, OR WHILE IT WAITS ONLY ON A GO-AHEAD: the reply
         // for what no part's own reply explains, and which one it is (`replyFor`).
         const reply = await requestReply(env, qRec);
-        const qOut = { ok: true, request: requestView(qRec, { progress: await progressForRequest(env, qRec), said: await saidForRequest(env, qRec), runs: await runsForRequest(env, qRec), prepUse: await prepUseForRequest(env, qRec) }) };
+        const qOut = { ok: true, request: await withPartWaits(env, requestView(qRec, { progress: await progressForRequest(env, qRec), said: await saidForRequest(env, qRec), runs: await runsForRequest(env, qRec), prepUse: await prepUseForRequest(env, qRec) })) };
         // WRITTEN, OR STILL BEING WRITTEN (2026-10-04): the page waits for it
         // while it is `pending`, and says the statuses as they are once failed.
         if (reply && typeof reply.text === "string") return Response.json({ ...withReplyText(qOut, reply.text, reply.suggested), replyFor: reply.for });
@@ -35399,6 +35698,9 @@ async function handleRequest(request, env, ctx) {
         // THE BUILD'S LIVE LINES (round 5), the model's own, from its real steps.
         const pv = await progressViewFor(env, jid, bu.id);
         if (pv.lines.length) pend.progress = pv.lines;
+        // WAITING FOR ITS MODEL (owner, 2026-10-24): the fixed notice.
+        const bWait = await readNotice(env, jid);
+        if (bWait) { pend.wait = bWait; pend.now = Date.now(); }
         return Response.json(pend, { status: 202 });
       }
       let out = null;
@@ -36000,6 +36302,8 @@ async function handleRequest(request, env, ctx) {
             // every exit is a `return` inside it, and its last statement is an
             // unconditional reply, so the wrapper always has one to report on.
             const eHeldOut = { parts: [], earlier: [] };
+            // WHAT A STEP ASSUMED INSTEAD OF ASKING AFTER A CHARGE (2026-10-24, `defaultedReport`).
+            const eDefaulted = [];
             // ── AND A STEP'S QUESTION IS KEPT THERE TOO (2026-10-02) ───────
             //
             // A step that asked instead of acting (`stepAsk`) writes nothing;
@@ -36015,7 +36319,7 @@ async function handleRequest(request, env, ctx) {
             // other part of the ending has run; a queued job keeps what the
             // reply needs instead, and the poll writes it.
             const eReplyOut = replyAsked({}, { slug: ownerSlug, job: false });
-            return replyEnding(env, await askReport(env, await heldReport(await (async () => {
+            return replyEnding(env, await askReport(env, await heldReport(await defaultedReport(await (async () => {
             // ── THE EDIT LANE ─────────────────────────────────────────────
             //
             // Two layers live here and neither runs the page generator, which
@@ -36159,10 +36463,20 @@ async function handleRequest(request, env, ctx) {
             // `ctx` FIXES WHAT ONE CALL IS SHOWN (2026-10-11): a call started
             // beside others (the look door's lanes) is shown its own answers,
             // never whichever `eCtx` the loop has moved on to.
+            // HAS THIS REQUEST BEEN CHARGED YET (2026-10-24, the owner: no question
+            // after a charge)? A reserve that landed on the job, or a synchronous
+            // collect that took credits. Once it has, every call below is sent with
+            // no question offered and states what it assumed (`clarifyTransport`).
+            // Read late (the ledger is declared below), and false when it cannot say.
+            // …OR AN EARLIER JOB OF THE SAME REQUEST WAS (2026-10-24, auto-split:
+            // the request carries it, `partOf`'s `charged`, set by the request,
+            // never by a caller): a later part asks nothing either.
+            const eChargedYet = () => { try { if (ePart && ePart.charged === true) return true; return eJob ? (typeof eJob.reserves === "function" && eJob.reserves() > 0) : syncLedger.taken > 0; } catch { return false; } };
+            const eReplayHas = (r) => (eJob && eJob.prepare !== true && eJob.replay && typeof eJob.replay.has === "function" ? eJob.replay.has(r) : false);
             const eQuick = (what = "", ctx) => clarifyTransport(jobSend(eJob, quickSend(env, what, eJob && eJob.budget)), {
               shown: () => (ctx !== undefined ? ctx : eCtx),
               all: () => eCtxAll || [],
-              part: ePartShown,
+              part: ePartShown, charged: eChargedYet, replayHas: eReplayHas, onDefault: (d) => { eDefaulted.push(...d); },
               onReuse: (hit) => { try { if (editTrace) editTrace.mark("clarify:reuse", "ok", { what, answers: hit.length }); } catch { /* the record never costs the job */ } },
             });
             // THE BLACK BOX STARTS HERE — see `editTrace` where it is declared.
@@ -37081,8 +37395,25 @@ async function handleRequest(request, env, ctx) {
                 return explain("page/no-page", { page: ePage.trim().toLowerCase(), verb: "", routes: eRoutes() });
               }
               editTrace.mark("pick_lanes", "start");
+              // ROUND 2 OF THE RETRY RULE (2026-10-24): the picker's scope is
+              // checked the way the door below checks it, before anything runs,
+              // and an answer the door would refuse is asked once more with the
+              // reason (`pickScopeReason`). Whether a field is an ADDITION is a
+              // fact about this site — the wall below's own reading: the stored
+              // look, or the thing's own mark in the page source. A look that
+              // cannot be read answers "not an addition" (no retry), never a guess.
+              let ePickLook;
+              const ePickAddition = async (f) => {
+                if (!ADD_ONLY_FIELDS.includes(f)) return false;
+                if (ePickLook === undefined) {
+                  try { const c = await readSiteConfig(env, ownerSlug, null); ePickLook = c.ok ? c.config.look : null; } catch { ePickLook = null; }
+                }
+                if (!ePickLook) return false;
+                const onPage = ADD_EVIDENCE[f] && eSrc.some((p) => ADD_EVIDENCE[f].test(String((p && p.source) || "")));
+                return !hasLookField(ePickLook, f) && !onPage;
+              };
               const picked = await pickLanes(
-                { send: eQuick("pick_lanes") },
+                { send: eQuick("pick_lanes"), mark: traceRetryMark(editTrace), isAddition: ePickAddition },
                 {
                   message: eInstruction,
                   // WHAT THE SITE IS, IN ONE LINE. Deliberately thin — this is
@@ -38006,6 +38337,7 @@ async function handleRequest(request, env, ctx) {
               const dHeldNow = new Set();
               const dOut = await runDataEdit({
                 send: eQuick(),
+                mark: traceRetryMark(editTrace),
                 // WHAT THE STEP WAS SHOWN (2026-10-11): counted on the job.
                 seen: (x) => noteSeen(eJob, x),
                 // PREPARED: the change is chosen; no row is touched here.
@@ -38370,6 +38702,7 @@ async function handleRequest(request, env, ctx) {
               let rCost = 0, rBilled = false, rStop = null;
               const rOut = await runRulesEdit({
                 send: eQuick(),
+                mark: traceRetryMark(editTrace),
                 seen: (x) => noteSeen(eJob, x),
                 // PREPARED: the rules are chosen; nothing is granted here.
                 before: async (usage) => { if (isPrep) { eJob.reached = (Number(eJob.reached) || 0) + 1; return false; } rCost = await eCharge(usage); rBilled = true; if (eCharges.refused() > 0) return false; rStop = await applyStop(eJob); return !rStop; },
@@ -38761,6 +39094,7 @@ async function handleRequest(request, env, ctx) {
               }
               const nOut = await runNavEdit({
                 send: eQuick(),
+                mark: traceRetryMark(editTrace),
               }, { instruction: eInstruction, pages: eSrc, routes: navRoutes, model: eQuickModel, addition: eb.addition === true });
               // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
               if (nOut.ask) return stepAsk("nav", nOut.ask);
@@ -39017,6 +39351,7 @@ async function handleRequest(request, env, ctx) {
                 : { files: [], missing: [] };
               const pOut = await runPictureEdit({
                 send: eQuick(),
+                mark: traceRetryMark(editTrace),
                 // The owner's upload library, named the way they see it.
                 library: async () => {
                   // A PICTURE BOUGHT FOR THIS VERY PART (2026-10-09, round 3), by
@@ -39702,6 +40037,8 @@ async function handleRequest(request, env, ctx) {
               // the `usage` and the `cost` beside it cannot disagree.
               const laneUsages = [];
               const dUsage = { langUsage: laneUsages };
+              // THE RE-ASKED LANES' USAGE (round 2): billed only when the step then changes something.
+              const eReaskUsages = [];
               // WHICH PARTS OF THE SITE THIS TOUCHED, carried out to the reply.
               // A lane that cannot say what it did is this file's single
               // most-repeated failure — `moved` names look FIELDS and a css edit
@@ -39916,6 +40253,38 @@ async function handleRequest(request, env, ctx) {
                   }
                   answers[field] = ran.value;
                 }
+                // ── EVERY PART DECLINED: EACH ASKED ONCE MORE WITH THAT FACT ──
+                //
+                // (Round 2 of the retry rule, owner 2026-10-24: "a task must
+                // never fail completely without at least one retry".) Each lane
+                // may decline on its own, legitimately; ALL of them declining,
+                // with nothing taken off, is `look/no-change` — the whole step
+                // doing nothing. So each lane that ran is asked once more, the
+                // SAME request (same model, same effort) with its own answer and
+                // the fact (`reaskLane`, `LOOK_DECLINED_REASON`), and its answer
+                // is read exactly as the first was. A second decline everywhere
+                // is today's sentence. The QR lane is left out: its answer is a
+                // patch read against the stored list above, not a value.
+                // Their usage is billed only if the step then changes something
+                // (taken back out in the no-change branch below).
+                const eReaskable = pickedFields.filter((f) => !eRemoves.remove.includes(f) && f !== "qr" && eLaneCalls.has(f));
+                if (!Object.keys(answers).length && !takeOffAll.size && !pickedFields.some((f) => eRemoves.remove.includes(f)) && eReaskable.length) {
+                  editTrace.mark("look:reask", "start", { lanes: eReaskable.length });
+                  let eReaskOk = false;
+                  for (const field of eReaskable) {
+                    const first = await eLaneCalls.get(field);
+                    if (!first || first.failed || first.ask) continue;
+                    const ctx = eToldBy && Object.hasOwn(eToldBy, field) ? eCtxOf(eToldBy[field]) : eLookCtx;
+                    const again = await reaskLane({ send: eQuick("lane", ctx) }, eLaneArgs(field), first, LOOK_DECLINED_REASON);
+                    if (again.usage) { laneUsages.push(again.usage); eReaskUsages.push(again.usage); }
+                    if (again.failed) continue;
+                    if (again.ask) { await eSettleLanes(); return stepAsk("look", again.ask); }
+                    if (again.value === undefined) continue;
+                    answers[field] = again.value;
+                    eReaskOk = true;
+                  }
+                  editTrace.mark("retry_reason", eReaskOk ? "ok" : "fail", { step: "look", reason: "no-change", ok: eReaskOk });
+                }
                 eCtx = eLookCtx;
                 // NULL WHEN NOTHING ANSWERED, not `{}` — `hasValue` below reads
                 // an empty object as "the model named nothing", which is the
@@ -40104,6 +40473,8 @@ async function handleRequest(request, env, ctx) {
                 // argument says recompiles from the same stored look and so
                 // cannot express it either. Asked which part and how, for nothing.
                 if (!named) return explain("look/no-change");
+                // PAY ONLY FOR WHAT WORKED (round 2): a re-ask that changed nothing is not billed.
+                for (const u of eReaskUsages) { const i = laneUsages.indexOf(u); if (i >= 0) laneUsages.splice(i, 1); }
                 return Response.json({
                   ok: true, layer: "look", moved: [], renamed: 0,
                   // Its own field, not `moved`: the client's sentence is built
@@ -40494,6 +40865,8 @@ async function handleRequest(request, env, ctx) {
                 model: eQuickModel,
                 inPart: !!partNameOf(target.path),
                 send: eQuick(),
+                // RETRY_REASON {step, reason, ok} on the edit's trace (2026-10-24).
+                mark: traceRetryMark(editTrace),
               });
               // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
               if (tw.ask) return stepAsk("page", tw.ask);
@@ -40906,6 +41279,12 @@ async function handleRequest(request, env, ctx) {
               const pPlanComponents = (pPageApi && Array.isArray(pPageApi.modules)) ? pPageApi.modules : [];
 
               let eGen = null;
+              // THE PAGE WRITER, KEPT CALLABLE (round 2 of the retry rule): its last
+              // request and answer are recorded (`pRec`) so an answer that failed the
+              // checks below can be asked once more with the reason (`pWrite`).
+              const pInner = clarifyCall(jobCall(eJob, pagesCall(env)), { shown: () => eCtx, all: () => eCtxAll || [], part: ePartShown, charged: eChargedYet, replayHas: eReplayHas, onDefault: (d) => { eDefaulted.push(...d); } });
+              const pRec = recordCall(pInner);
+              let pWrite = null;
               try {
                 // Same as the addon lane: a stated zero, because the absence of
                 // one is not an instruction and the model writes tokens anyway.
@@ -40918,7 +41297,7 @@ async function handleRequest(request, env, ctx) {
                 // THE OWNER'S VIDEO AND AUDIO (2026-10-14), by address — read
                 // for this site, and none when the library cannot be read.
                 const eMedia = (await withinMs(siteMediaFiles(env, ownerSlug), CONVERSE_READ_MS, "edit media:", ownerSlug)) || [];
-                eGen = await generateSitePages(env, briefWithLayout({
+                pWrite = (pCall) => generateSitePages(env, briefWithLayout({
                   brief: eAskOf(eInstruction),
                   media: eMedia,
                   // ── THE BUDGET IS STILL ZERO; THE SENTENCE IS NO LONGER A
@@ -40978,12 +41357,13 @@ async function handleRequest(request, env, ctx) {
                 // NO CLOCK OF ITS OWN, exactly as before; AND THE ANSWERS this
                 // step was given (2026-10-02), through the same transport every
                 // other call on this route goes through (`clarifyTransport`).
-                null, clarifyCall(jobCall(eJob, pagesCall(env)), { shown: () => eCtx, all: () => eCtxAll || [], part: ePartShown }),
+                null, pCall,
                 // A SITE THAT WRITES ITS OWN PARTS (2026-10-23) is edited by a
                 // writer told the same: the own-parts block, never the kit's.
                 // AND THE PICKED PAGES (2026-10-24): the rewrite fallback (a
                 // target too large to show alone) shows only the picked pages.
                 "", [], { ownParts: ownPartsSite(eSrc, pStoredParts), only: ePick && ePick.only ? ePick.only.pages : null });
+                eGen = await pWrite(pRec.call);
               } catch (e) {
                 console.error("page edit generate failed:", ownerSlug, e && e.message);
                 const pKind = upstreamKind(e && e.detail, e && e.status);
@@ -41006,46 +41386,54 @@ async function handleRequest(request, env, ctx) {
               // one-page edit used to have its correct <Link to="/book"> pointed
               // at "/" and the customer told their live page did not exist
               // (2026-08-13 audit, reproduced with the real module).
-              const pValid = validatePages(eGen && eGen.input, {
-                partial: true,
-                knownRoutes: (eSrc || []).map((p) => routeOf(p && p.path)).filter(Boolean),
-              });
-              // THE PARTS ARE COUNTED AND SWEPT BESIDE THE PAGES. This rung buys
-              // nothing (`images: 0`) and the sweep is the whole of what it does
-              // with a token — so a model that answered a photograph inside a
-              // COMPONENT had that token stored and published as a literal
-              // `src="@@IMG:…@@"`, which the browser cannot fetch. The build path
-              // shipped exactly that live on `hebden-bike-repair` (2026-09-12);
-              // `builder/site-images.mjs`'s `imageSources` has the account.
-              // ⚠ AND IT PRODUCES NO NUMBER ANY MORE. `countImageSlots` counts
-              // `@@IMG:` TOKENS, and this rung's directive forbids them, so on
-              // every obedient answer it was zero — and where a token WAS
-              // written the sweep one line down turns it into `src=""`, which
-              // is an empty frame the message-wide reader below the loop sees
-              // on the after side. Two readers of one fact, one of which is
-              // silent in the ordinary case; the sweep is the part that was
-              // ever load-bearing and it is what stays.
-              pValid.pages = applyImages(pValid.pages, {});
-              pValid.parts = applyImages(pValid.parts, {});
-              // AND THE INVENTED EXPORT NAME IS REPAIRED, on this lane too. It
-              // was wired into the build path alone, and these two lanes
-              // generate whole pages exactly as that path does — so a model
-              // reaching for `FaqAccordion` on a module that exports `Faq` cost
-              // the customer their whole change here while the build path
-              // silently fixed it. Deterministic and single-answer-only: no
-              // model call, and a module with more than one candidate is left
-              // for tsc rather than guessed at.
-              //
-              // BEFORE THE LINT, or the lint reports an import the repair has
-              // already fixed and the customer is told about a problem that no
-              // longer exists.
-              const pRepair = repairImports(pValid.pages, { parts: pValid.parts });
-              pValid.pages = pRepair.pages;
-              // AND THE PARTS, which compile in the same program — a bad import
-              // in a hand-written component takes the build down exactly as one
-              // in a page does.
-              pValid.parts = repairImports(pValid.parts, { parts: pValid.parts }).pages;
-              const pProblems = pValid.problems.concat(lintPages(pValid.pages, eSpec));
+              // THE WRITER'S ANSWER, READ (round 2: a function, so a retried answer is
+              // read exactly as the first).
+              const pRead = (gen) => {
+                const pValid = validatePages(gen && gen.input, {
+                  partial: true,
+                  knownRoutes: (eSrc || []).map((p) => routeOf(p && p.path)).filter(Boolean),
+                });
+                // THE PARTS ARE COUNTED AND SWEPT BESIDE THE PAGES. This rung buys
+                // nothing (`images: 0`) and the sweep is the whole of what it does
+                // with a token — so a model that answered a photograph inside a
+                // COMPONENT had that token stored and published as a literal
+                // `src="@@IMG:…@@"`, which the browser cannot fetch. The build path
+                // shipped exactly that live on `hebden-bike-repair` (2026-09-12);
+                // `builder/site-images.mjs`'s `imageSources` has the account.
+                // ⚠ AND IT PRODUCES NO NUMBER ANY MORE. `countImageSlots` counts
+                // `@@IMG:` TOKENS, and this rung's directive forbids them, so on
+                // every obedient answer it was zero — and where a token WAS
+                // written the sweep one line down turns it into `src=""`, which
+                // is an empty frame the message-wide reader below the loop sees
+                // on the after side. Two readers of one fact, one of which is
+                // silent in the ordinary case; the sweep is the part that was
+                // ever load-bearing and it is what stays.
+                pValid.pages = applyImages(pValid.pages, {});
+                pValid.parts = applyImages(pValid.parts, {});
+                // AND THE INVENTED EXPORT NAME IS REPAIRED, on this lane too. It
+                // was wired into the build path alone, and these two lanes
+                // generate whole pages exactly as that path does — so a model
+                // reaching for `FaqAccordion` on a module that exports `Faq` cost
+                // the customer their whole change here while the build path
+                // silently fixed it. Deterministic and single-answer-only: no
+                // model call, and a module with more than one candidate is left
+                // for tsc rather than guessed at.
+                //
+                // BEFORE THE LINT, or the lint reports an import the repair has
+                // already fixed and the customer is told about a problem that no
+                // longer exists.
+                const pRepair = repairImports(pValid.pages, { parts: pValid.parts });
+                pValid.pages = pRepair.pages;
+                // AND THE PARTS, which compile in the same program — a bad import
+                // in a hand-written component takes the build down exactly as one
+                // in a page does.
+                pValid.parts = repairImports(pValid.parts, { parts: pValid.parts }).pages;
+                const pProblems = pValid.problems.concat(lintPages(pValid.pages, eSpec));
+                return { pValid, pProblems };
+              };
+              const pFirstRead = pRead(eGen);
+              let pValid = pFirstRead.pValid;
+              let pProblems = pFirstRead.pProblems;
               // ONLY THE PAGE THAT WAS ASKED FOR. A page edit that returns a
               // different file is not a page edit, and taking it would let one
               // instruction rewrite a page the customer never named. The prompt
@@ -41056,6 +41444,41 @@ async function handleRequest(request, env, ctx) {
               // `orderingMoved`, the publication — must see that one and not the
               // answer it replaced.
               let wrote = (pValid.pages || []).find((p) => p.path === target.path);
+              // ── NO PAGE BACK, OR THE PAGE BACK UNCHANGED: ASKED ONCE MORE ─────
+              //
+              // (Round 2 of the retry rule, owner 2026-10-24: "a task must never
+              // fail completely without at least one retry".) The two endings
+              // below — `page/no-page-back` (the writer sent no file for the page
+              // asked about) and `page/no-change` (it sent the page back exactly
+              // as it was, and no component either) — are checks on the writer's
+              // own answer, so the SAME request (same model, same effort) is sent
+              // once more with that answer and the reason (`pRec.again`), and the
+              // retry's answer is read exactly as the first (`pRead`). A second
+              // miss is today's sentence, at no cost for the edit; a retry that
+              // asks is the step's question. Both calls ride the step's usage only
+              // when the retry wrote the change.
+              {
+                const pStoredByName = new Map((Array.isArray(pStoredParts) ? pStoredParts : []).filter((x) => x && typeof x.name === "string").map((x) => [x.name, x.source]));
+                const pPartChanged = (v) => (v.parts || []).some((pt) => pt && (!pStoredByName.has(pt.name) || pStoredByName.get(pt.name) !== pt.source));
+                const pMissWhy = (v, w) => !w ? "no-page-back" : (w.source === target.source && !pPartChanged(v)) ? "no-change" : null;
+                const pWhy = eGen && !eGen.ask && !eGen.truncated && pRec.last && typeof pWrite === "function" ? pMissWhy(pValid, wrote) : null;
+                if (pWhy) {
+                  const pReason = pWhy === "no-page-back"
+                    ? "Nothing was changed: your answer did not include the page " + target.path + " (the one file this change is about), so it could not be applied. Answer again with that page, whole, with the change the request asks for made in it."
+                    : "Nothing was changed: the page " + target.path + " came back exactly as it was, and no component changed either, so the request was not carried out. Read the request again and answer with the page, whole, with that change made" + (pProblems.length ? " (problems found: " + pProblems.join("; ").slice(0, 300) + ")" : "") + ". If the page really already does what is asked, send it back unchanged again.";
+                  let pGen2 = null;
+                  try { pGen2 = await pWrite(pRec.again(pReason, pInner)); } catch { pGen2 = null; }
+                  if (pGen2 && pGen2.ask) { editTrace.mark("retry_reason", "fail", { step: "page", reason: pWhy, ok: false }); return stepAsk("page", pGen2.ask); }
+                  const pRead2 = pGen2 && pGen2.input ? pRead(pGen2) : null;
+                  const wrote2 = pRead2 ? (pRead2.pValid.pages || []).find((p) => p.path === target.path) : null;
+                  const pOk2 = !!pRead2 && !pMissWhy(pRead2.pValid, wrote2);
+                  editTrace.mark("retry_reason", pOk2 ? "ok" : "fail", { step: "page", reason: pWhy, ok: pOk2 });
+                  if (pOk2) {
+                    eGen = { ...pGen2, usage: addUsages(eGen.usage || null, pGen2.usage || null) };
+                    pValid = pRead2.pValid; pProblems = pRead2.pProblems; wrote = wrote2;
+                  }
+                }
+              }
               // A CHANGED COMPONENT IS A CHANGE. Run 12's tsx lane (2026-09-02)
               // asked for a word inside the chord-diagram component; the model
               // rewrote the PART and handed the page back as it was, and this
@@ -42390,7 +42813,7 @@ async function handleRequest(request, env, ctx) {
               return Response.json(merged, { status: 422 });
             }
             return Response.json(merged);
-            })(), eHeldOut.parts, eHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: eAskOut.round, held: [...new Set([...eHeldOut.earlier, ...eHeldOut.parts])], request: eAskOut.request, attached: eAskOut.attached, context: eAskOut.context, picker: eReplyOut.picker, requestKey: eAskOut.requestKey, part: eAskOut.part, prep: eAskOut.prep === true }), "edit", eReplyOut);
+            })(), eDefaulted), eHeldOut.parts, eHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: eAskOut.round, held: [...new Set([...eHeldOut.earlier, ...eHeldOut.parts])], request: eAskOut.request, attached: eAskOut.attached, context: eAskOut.context, picker: eReplyOut.picker, requestKey: eAskOut.requestKey, part: eAskOut.part, prep: eAskOut.prep === true }), "edit", eReplyOut);
           }
 
           if (ad) {
@@ -42399,6 +42822,8 @@ async function handleRequest(request, env, ctx) {
             // the held-back part on its successes only. The body is not
             // re-indented; every exit is a `return` inside it.
             const aHeldOut = { parts: [], earlier: [] };
+            // WHAT A STEP ASSUMED INSTEAD OF ASKING AFTER A CHARGE (2026-10-24, `defaultedReport`).
+            const aDefaulted = [];
             // AND A QUESTION THE PICKER ASKED IS KEPT THERE TOO (2026-10-02,
             // `askReport`, the edit route's own ending), with every answer the
             // request carries: nothing of an addition is applied before a
@@ -42409,7 +42834,7 @@ async function handleRequest(request, env, ctx) {
             // THE PHOTOGRAPHS BEGUN BESIDE THE PAGE WRITER (2026-10-11): every
             // way out of this route ends with them accounted for (`earlyPhotosEnd`).
             const aEarlyPhotos = { task: null, prep: false, clock: null };
-            return replyEnding(env, await askReport(env, await heldReport(await earlyPhotosEnd(aEarlyPhotos, await (async () => {
+            return replyEnding(env, await askReport(env, await heldReport(await defaultedReport(await earlyPhotosEnd(aEarlyPhotos, await (async () => {
             // ── THE ADDON LANE ────────────────────────────────────────────
             //
             // The rung between edit and build: add a page the site does not
@@ -42570,10 +42995,16 @@ async function handleRequest(request, env, ctx) {
             };
             // `opts.refusals`: this call handles a prior refusal — only the
             // add-on designer's first request does (`aPriorOf`).
+            // HAS THIS ADDITION BEEN CHARGED YET (2026-10-24): a reserve that landed
+            // on the job (the row step, or the first reserve before the page
+            // writer). Synchronously the collect comes after the work, so never.
+            // …OR AN EARLIER JOB OF THE SAME REQUEST WAS (2026-10-24, `partOf`'s `charged`).
+            const aChargedYet = () => { try { if (aPart && aPart.charged === true) return true; return !!aJob && typeof aJob.reserves === "function" && aJob.reserves() > 0; } catch { return false; } };
+            const aReplayHas = (r) => (aJob && aJob.prepare !== true && aJob.replay && typeof aJob.replay.has === "function" ? aJob.replay.has(r) : false);
             const aQuick = (what = "", opts) => clarifyTransport(aCounted(jobSend(aJob, quickSend(env, what, aJob && aJob.budget), opts)), {
               shown: () => aShownTo(what),
               all: () => aCtxAll || [],
-              part: aPartShown,
+              part: aPartShown, charged: aChargedYet, replayHas: aReplayHas, onDefault: (d) => { aDefaulted.push(...d); },
               onReuse: (hit) => { try { if (editTrace) editTrace.mark("clarify:reuse", "ok", { what, answers: hit.length }); } catch { /* the record never costs the job */ } },
             });
             // THE BLACK BOX, the edit route's own: every phase marks itself,
@@ -43082,6 +43513,11 @@ async function handleRequest(request, env, ctx) {
                     : (what || "The builder is busy — try again in a moment."),
                 upstream: (e && e.status) || null, upstreamType: k.type, billing: k.billing || undefined,
                 timeout: timedOut || undefined,
+                // THE PROVIDER'S OWN ERROR, KEPT (owner, 2026-10-24): its parsed
+                // type and capped words, not only the log line; and the notice
+                // when the call parked waiting for it.
+                providerError: ((pe) => (pe.type || pe.message ? pe : undefined))(errorFacts(e)),
+                wait: e && e.parked === true && e.providerWait ? e.providerWait.notice : undefined,
                 // A JUDGMENT THAT DID NOT FINISH (2026-10-06): named for whoever
                 // reads the answer back; the customer's sentence is the caller's.
                 incomplete: (e && e.incomplete === true) || undefined,
@@ -44647,6 +45083,32 @@ async function handleRequest(request, env, ctx) {
               }
               // IT NEEDS A RESULT IT WAS NOT SHOWN: asked again with it (`aNeedsAgain`).
               let ran = aPrior ? ranFirst : await aNeedsAgain(k, ranFirst, aBrief);
+              // ── A DESIGNER THAT RETURNED NOTHING, ASKED ONCE MORE WITH THAT FACT ──
+              //
+              // (Round 2 of the retry rule, owner 2026-10-24.) It was picked for
+              // this kind because the request asks for one, and it answered no
+              // design and no question — the addition's `declined` ending when
+              // every designer does it. Asked again the way the cleaner's
+              // correction is asked (`feedback`, the same model and effort), and
+              // through `aNeedsAgain` like any answer. A second empty answer is
+              // the decline it was; a failed retry call keeps the first. Its
+              // usage is on the bill only when the retry designed something.
+              if (!aPrior && ran && !ran.failed && !ran.ask && ran.value === undefined) {
+                const aDeclineFeedback = "Your answer designed nothing and asked nothing, so this part of the request would be dropped. The customer's request asks for a " + k + ": read it again and answer with the design for it in the tool's shape. If one detail only they can decide is missing, ask your one question instead; if the request really asks for no " + k + ", answer with nothing again.";
+                let again = null;
+                try {
+                  aMark("add:" + k, "start", { again: true, prior: "empty" });
+                  again = await aNeedsAgain(k, await runAdd({ send: aQuick("add:" + k) }, { kind: k, message: aInstruction, site: aSiteFor(k), model: aModels.quick, brief: aBrief, feedback: aDeclineFeedback }), aBrief, aDeclineFeedback);
+                } catch { again = null; }
+                const aAgainOk = !!again && !again.failed && (again.ask || again.value !== undefined);
+                aMark("retry_reason", aAgainOk ? "ok" : "fail", { step: "add:" + k, reason: "declined", ok: aAgainOk });
+                if (aAgainOk) {
+                  // THE FIRST CALL'S USAGE JOINS THE DESIGN BILL with the answer
+                  // that worked (the retry's own is pushed below, as any answer's).
+                  if (ran.usage) aDesignUsage.push(ran.usage);
+                  ran = again;
+                }
+              }
               // DECIDED: what waits on it starts at the next kind's turn, once
               // its result below is folded in.
               aDecided.add(k);
@@ -44674,18 +45136,20 @@ async function handleRequest(request, env, ctx) {
               let clean = aPrior ? null : aCleanOf(ran);
               let aSupersededReq = null;
               if (aPrior || (clean && !clean.ok && clean.why !== "nothing")) {
-                let aFeedback;
+                let aFeedback, aRetryWhy = "";
                 if (aPrior) {
                   // THE RECORDED REFUSAL, TAKEN: no answer to bill or keep (the
                   // preparation paid for it, and its content never left that
                   // record); the same correction, from its own facts.
                   const why = aPrior.why.slice(4);
+                  aRetryWhy = why;
                   aMark("add:" + k, "correct", { why, skipped: 1 });
                   aKept.push({ kind: k, answered: true, superseded: why, skipped: true, stop_reason: null, content: null });
                   aSupersededReq = aPrior.superseded;
                   aFeedback = aPrior.feedback;
                 } else {
                   aSupersededReq = ran.requirements;
+                  aRetryWhy = clean.why;
                   // THE REASON, AND WHAT IT SAID THEY ASKED FOR, BY ID (round 11):
                   // so the correction can say which requirement it restates.
                   aFeedback = addRefusal(clean.why, k) + " (" + clean.why + ")" + supersededNote(aSupersededReq);
@@ -44702,6 +45166,10 @@ async function handleRequest(request, env, ctx) {
                 const fixFirst = await runAdd({ send: aQuick("add:" + k) }, { kind: k, message: aInstruction, site: aSiteFor(k), model: aModels.quick, brief: aBrief, feedback: aFeedback });
                 ran = await aNeedsAgain(k, fixFirst, aBrief, aFeedback);
                 clean = aCleanOf(ran);
+                // RETRY_REASON {step, reason, ok} (2026-10-24): this step already
+                // retried once with the cleaner's reason (`no-job-fn` among them),
+                // same model and effort; the mark makes it read like every other.
+                { const rWhy = aRetryWhy || "refused"; const rOk = !!(clean && clean.ok); aMark("retry_reason", rOk ? "ok" : "fail", { step: "add:" + k, reason: rWhy, ok: rOk }); }
                 if (clean && !clean.ok && clean.why !== "nothing") rejectReply(ran.raw, "add:" + clean.why);
               }
               // HOP 3 OF EIGHT, AND IT IS ABOVE EVERY `continue` AND `return`
@@ -45960,6 +46428,69 @@ async function handleRequest(request, env, ctx) {
               }
               return out;
             };
+            // ── THE WRITER ASKED ONCE MORE WITH THE REASON (round 2 of the retry
+            //    rule, owner 2026-10-24) ─────────────────────────────────────
+            //
+            // Two endings below refuse the WHOLE addition on the writer's own
+            // answer: `rewrote` (a page it changed lost words it said before) and
+            // `not-landed` (an addition of nothing but lines and photographs, one
+            // of which never arrived). Both are checked here first, on the answer
+            // as the merge would take it (`aWriterCheck`), and a failing answer
+            // is asked once more: each batch's SAME request (same model, same
+            // effort) with its own answer and the reason naming what was lost or
+            // what did not land (`aRecs[i].again`). Then everything below runs on
+            // the retry's answer as it would on the first — the database made
+            // beside the first call, the tables and their charges are NOT made
+            // again (provisioning settles once, below this loop). A second miss
+            // is the existing refusal; both calls are on the page bill only when
+            // the retry passed.
+            const aRecs = [];
+            let aWriterRetry = null, aWriterFirstUsage = null, aWriterRetried = false;
+            const aCallFor = (i) => {
+              const inner = clarifyCall(jobCall(aJob, pagesCall(env)), { shown: () => aCtxShown, all: () => aCtxAll || [], part: aPartShown, charged: aChargedYet, replayHas: aReplayHas, onDefault: (d) => { aDefaulted.push(...d); } });
+              if (aWriterRetry && aRecs[i] && aRecs[i].last) return aRecs[i].again(aWriterRetry.text, inner);
+              aRecs[i] = recordCall(inner);
+              return aRecs[i].call;
+            };
+            const aWriterCheck = async (gen) => {
+              if (!gen || !gen.input || gen.ask) return null;
+              const v = validatePages(gen.input, { partial: true, knownRoutes: (aSrc || []).map((p) => routeOf(p && p.path)).filter(Boolean) });
+              const unseen = new Set(aPagesSent.withheld.map(pageId).filter(Boolean));
+              const pages = (v.pages || []).filter((p) => p && !unseen.has(pageId(p.path)));
+              const aRemove = Array.isArray(gen.input.remove) ? gen.input.remove : [];
+              const m = mergeAddonPages(aSrc, pages, aRemove, aAskedPages);
+              // NOTHING USABLE CAME BACK (and no note of its own saying why): the whole
+              // addition would end `nothing-returned`/`no-change` — asked again too.
+              if (m && !m.ok && (m.reason === "no-change" || (m.reason === "nothing-returned" && !(typeof gen.input.notes === "string" && gen.input.notes.trim())))) {
+                return { code: m.reason, text: "Nothing was added: your answer returned no page change for this addition. Answer again with every page the addition changes or adds, each whole, with the addition in it." };
+              }
+              if (!m || !m.ok) return null;
+              const was = new Map((aSrc || []).filter((p) => p && typeof p.path === "string").map((p) => [p.path, String(p.source || "")]));
+              const lost = [];
+              for (const p of m.pages || []) {
+                if (!p || !m.changed.includes(p.path) || !was.has(p.path)) continue;
+                const kept = keptProse(was.get(p.path), p.source);
+                if (!kept.ok) lost.push({ path: p.path, lost: kept.lost.slice(0, 3) });
+              }
+              if (lost.length) {
+                return { code: "rewrote", text: "Nothing was added: your answer changed words the site already says, and an addition may only add. " +
+                  lost.map((l) => l.path + " lost: " + l.lost.map((x) => "\u201c" + String(x).slice(0, 120) + "\u201d").join(", ")).join("; ").slice(0, 900) +
+                  ". Answer again with every existing sentence, heading and label kept character for character, and the addition placed beside them." };
+              }
+              if (!aAnswers.every((a) => a && (a.kind === "words" || a.kind === "photo"))) return null;
+              const kit = aFold.words.length ? await loadSiteKit(env, ownerSlug) : [];
+              const partFiles = (list) => (Array.isArray(list) ? list : []).filter((x) => x && typeof x.name === "string" && typeof x.source === "string").map((x) => ({ path: partPath(x.name), source: x.source }));
+              const after = new Map(partFiles(aStoredParts).map((f) => [f.path, f]));
+              for (const f of partFiles(v.parts)) after.set(f.path, f);
+              const w = wordsLanded(aSrc, m.pages, aFold.words, { filesBefore: [...partFiles(aStoredParts), ...kit], files: [...after.values(), ...kit] });
+              const ph = photosLanded(aSrc, m.pages, aFold.reuse, ownerSlug);
+              if (w.ok && ph.ok) return null;
+              const said = [
+                ...w.missing.map((x) => "the line \u201c" + String((x && x.words) || "").slice(0, 160) + "\u201d on " + ((x && x.page) || "its page")),
+                ...ph.missing.map((x) => "the photograph " + String((x && x.src) || "").slice(0, 160) + " on " + ((x && x.page) || "its page")),
+              ];
+              return { code: "not-landed", text: "Nothing was added: " + said.join("; ").slice(0, 900) + " " + (said.length === 1 ? "is" : "are") + " not on the page you sent back. Answer again with " + (said.length === 1 ? "it" : "each of them") + " placed, word for word, on the page named." };
+            };
             for (let aPass = 0; ; aPass++) {
             const aPagesT0 = Date.now();
             aMark("pages", "start", { kinds: aAnswers.map((a) => a.kind) });
@@ -46003,7 +46534,7 @@ async function handleRequest(request, env, ctx) {
               // per `aFold.batchDirectives` entry at the same time, and
               // `mergePageBatches` makes the one answer read below.
               const aBatchDirs = Array.isArray(aFold.batchDirectives) && aFold.batchDirectives.length > 1 ? aFold.batchDirectives : [aFold.directive];
-              const aBatchGot = await Promise.all(aBatchDirs.map(async (aDirective) => { let aGen = null;
+              const aBatchGot = await Promise.all(aBatchDirs.map(async (aDirective, aBi) => { let aGen = null;
               aGen = await generateSitePages(env, briefWithLayout({
                 brief: aInstruction + (aDirective ? "\n\n" + aDirective : "") + (aDeviceNote ? "\n\n" + aDeviceNote : ""),
                 media: aMedia,
@@ -46095,7 +46626,7 @@ async function handleRequest(request, env, ctx) {
               // route that does not go through `aQuick`, and the longest.
               }), aSpec, aMerged.brand || aLook.brand || ownerSlug, [], aModels.pages, aWriterSrc, "addon", undefined, aJob && aJob.budget,
               // THE ANSWERS, through the transport every other call here uses.
-              clarifyCall(jobCall(aJob, pagesCall(env)), { shown: () => aCtxShown, all: () => aCtxAll || [], part: aPartShown }), "", aKeepPages,
+              aCallFor(aBi), "", aKeepPages,
               // AN OWN-PARTS SITE'S ADDITION writes its own parts too (2026-10-23).
               { ownParts: ownPartsSite(aSrc, aStoredParts), only: aPickOnly() ? aPickOnly().pages : null });
               return aGen; }));
@@ -46150,7 +46681,22 @@ async function handleRequest(request, env, ctx) {
               return Response.json({ ok: false, error: "clarify", layer: "addon", kind: "pages", by: "add:pages", cost: 0, unchanged: true, ask: aGen.ask, msg: aGen.ask.text });
             }
             const aOver = aPass === 0 ? aBreach(aGen && aGen.input) : [];
-            if (!aOver.length) break;
+            if (!aOver.length) {
+              if (aWriterRetried) {
+                const still = await aWriterCheck(aGen);
+                aMark("retry_reason", still ? "fail" : "ok", { step: "add:pages", reason: aWriterRetry.code, ok: !still });
+                // PAY ONLY FOR WHAT WORKED: both calls only when the retry passed
+                // (a refusal below takes nothing off the ledger either way).
+                if (!still && aGen) aGen = { ...aGen, usage: addUsages(aWriterFirstUsage, aGen.usage || null) };
+                break;
+              }
+              const why = await aWriterCheck(aGen);
+              if (!why) break;
+              aWriterRetry = why; aWriterRetried = true; aWriterFirstUsage = (aGen && aGen.usage) || null;
+              aMark("retry_reason", "start", { step: "add:pages", reason: why.code });
+              aPass--;
+              continue;
+            }
             aMark("scope", "breach", { reached: aOver.length });
             aWriterFor(false);
             // THE WIDENED WRITER IS PICKED FOR TOO (2026-10-24): it now sees the
@@ -48222,7 +48768,7 @@ async function handleRequest(request, env, ctx) {
               } : undefined,
               cost: aCost,
             });
-            })()), aHeldOut.parts, aHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: aAskOut.round, held: [...new Set([...aHeldOut.earlier, ...aHeldOut.parts])], request: aAskOut.request, attached: aAskOut.attached, context: aAskOut.context, picker: aReplyOut.picker, requestKey: aAskOut.requestKey, part: aAskOut.part, prep: aAskOut.prep === true }), "addon", aReplyOut);
+            })()), aDefaulted), aHeldOut.parts, aHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: aAskOut.round, held: [...new Set([...aHeldOut.earlier, ...aHeldOut.parts])], request: aAskOut.request, attached: aAskOut.attached, context: aAskOut.context, picker: aReplyOut.picker, requestKey: aAskOut.requestKey, part: aAskOut.part, prep: aAskOut.prep === true }), "addon", aReplyOut);
           }
           if (tx) {
             // ── CHANGING THE WORDS, WITH NO MODEL CALL ────────────────────

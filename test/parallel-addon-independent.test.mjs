@@ -28,6 +28,10 @@ import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { page as pageSrc, SOURCE_KEY, PARTS_KEY } from "./fixtures/live-ask.mjs";
 import { blockNetwork } from "./fixtures/no-network.mjs";
 import { addonScope, stepInputs, clearToPrepare } from "../builder/request-plan.mjs";
+// RE-ANCHORED 2026-10-24 (provider-retry re-landed): a provider 529 is now waited for
+// and the job parked (the owner's design, docs/plans/2026-10-24-model-failures.md),
+// so a call that must FAIL here fails on a refused request (400), which keeps its
+// failure handling exactly as these cases test it.
 
 blockNetwork();
 
@@ -540,7 +544,7 @@ test("PI 15 — THE PAGE WRITER FAILS WHILE THE PHOTOGRAPH IS STILL BEING MADE: 
   await oneAddition({
     slug: slugOf("p15"),
     imageWith: async () => { await held; return null; },
-    pagesWith: async () => { setTimeout(() => release(), 200); throw Object.assign(new Error("upstream 529"), { status: 529 }); },
+    pagesWith: async () => { setTimeout(() => release(), 200); throw Object.assign(new Error("upstream 400"), { status: 400 }); },
     check: async (P, r) => {
       const { rec } = await settle(P, r.key);
       for (let i = 0; i < 3; i++) await settle(P, r.key);
@@ -573,7 +577,7 @@ test("PI 16 — THE PAGE WRITER FAILS AND THE PHOTOGRAPH OUTLASTS THE IMAGE STEP
       imageWith: async () => { await held; return null; },
       pagesWith: async () => {
         writes++;
-        if (writes === 1) throw Object.assign(new Error("upstream 529"), { status: 529 });
+        if (writes === 1) throw Object.assign(new Error("upstream 400"), { status: 400 });
         return { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_PHOTO }, { path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] };
       },
       check: async (P, r) => {
@@ -664,7 +668,7 @@ test("PI 19 — THE IMAGE CALL'S ANSWER IS LOST AND THE PAGE WRITER FAILS: the p
     imageWith: async (entry, n) => (n === 0 ? lostCall() : null),
     pagesWith: async () => {
       writes++;
-      if (writes === 1) throw Object.assign(new Error("upstream 529"), { status: 529 });
+      if (writes === 1) throw Object.assign(new Error("upstream 400"), { status: 400 });
       return { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_PHOTO }, { path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] };
     },
     check: async (P, r) => {
@@ -705,7 +709,7 @@ test("PI 20 — THE PICTURE IS MADE, ITS STORE FAILS, AND THE PAGE WRITER FAILS:
     setup: (P) => failUploads(P, 3),
     pagesWith: async () => {
       writes++;
-      if (writes === 1) throw Object.assign(new Error("upstream 529"), { status: 529 });
+      if (writes === 1) throw Object.assign(new Error("upstream 400"), { status: 400 });
       return { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_PHOTO }, { path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] };
     },
     check: async (P, r) => {
@@ -740,7 +744,7 @@ test("PI 21 — THE RUN AFTER THE HELD PURCHASE IS KNOWN REUSES WHAT WAS FINISHE
     setup: (P) => failUploads(P, 3),
     pagesWith: async () => {
       writes++;
-      if (writes === 1) throw Object.assign(new Error("upstream 529"), { status: 529 });
+      if (writes === 1) throw Object.assign(new Error("upstream 400"), { status: 400 });
       return { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_PHOTO }, { path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] };
     },
     check: async (P, r) => {
@@ -1635,9 +1639,19 @@ test("CC 3b — THE SECOND ADD-ON PART'S PREPARATION FINDS A QUESTION: the prepa
   }, async (P) => {
     const r = await sendMessage(P, { message: "Please " + W_VISIT_HOURS + ", and " + W_ABOUT_FAQ + "." });
     const s1 = await settle(P, r.key);
-    assert.deepEqual(statuses(s1.rec), ["done", "waiting"], JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why, p.prep && p.prep.outcome])));
-    // THE QUESTION WAS FOUND BY THE PART'S PREPARATION (the observer is alive).
-    assert.equal(s1.rec.parts[1].prep && s1.rec.parts[1].prep.outcome, "ask", JSON.stringify(s1.rec.parts[1].prep));
+    // ⚠ RE-ANCHORED (the preparation, made after part 0's charge, offers no
+    // question either, so it no longer ends "ask"): 2026-10-24 (no question after a charge, carried across
+    // parts): part 0's job was charged, so part 1's question is never put to
+    // the customer — its job goes ahead with the first option, stated.
+    assert.deepEqual(statuses(s1.rec), ["done", "done"], JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why, p.prep && p.prep.outcome])));
+    const q0 = P.question();
+    assert.ok(!q0 || q0.status !== "pending", "a question was put to the customer after a charge");
+    const ids = new Set(s1.rec.parts[1].jobs.map((j) => j.id));
+    const run = [...P.jobs.values()].filter((j) => ids.has(j.id) && j.op === "addon" && j.result && typeof j.result.body === "string").pop();
+    assert.deepEqual(JSON.parse(run.result.body).defaulted, [{ assumed: "Before", instead: "After" }]);
+    assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
+    uniqueRefs(P);
+    if (s1) return;
     const own = s1.rec.parts[1].question;
     assert.ok(own && typeof own.id === "string", "the part names no question");
     assert.equal(own.queued, false, "the part's own question was queued behind another");
@@ -1667,7 +1681,7 @@ async function oneFails({ failing, check }) {
       "add:component": ABOUT_FAQ_ANSWER,
       // THE ADD-ON FAILS ON OUR SIDE: its page writer's provider is overloaded.
       [T.pages]: async () => {
-        if (failing === "addon") throw Object.assign(new Error("upstream 529"), { status: 529 });
+        if (failing === "addon") throw Object.assign(new Error("upstream 400"), { status: 400 });
         return { pages: [{ path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] };
       },
     },

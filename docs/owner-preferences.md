@@ -1379,6 +1379,7 @@ like we measure all the model calls"*). Everyone gets it (*"everyone is fine rn"
 - **A first build's reply tells what was left out** (owner, 2026-10-23, after the Saltmarsh & Sparrow build): the final reply must tell the customer what they asked for that the build did not make (e.g. orders, bookings, shop, sign-ups, forms, pages), that they can ask for those next as additions, and that no database project is created on a first build. **Model-written** from the build's real facts, never a hardcoded message. Not fixed yet: investigate first.
 - **Model-written messages only, everywhere, cost no object** (owner, 2026-10-23): *"i dont care about it costing more , i want it model replies only , not hardcoded messanges"* — including very frequent small notes like "Saved". Every customer-facing message (chat replies, toasts, cards, panels, progress lines) is written by the model from real operation facts. A fixed sentence may exist only where the writer is physically unreachable (browser offline, our server down, before sign-in).
 - **Next-step suggestions in replies** (owner, 2026-10-24, idea #24 adapted): suggestions are occasional, model-decided, a sentence not buttons. At most one, only when grounded in the facts (something asked for and not built or done, a new page not in the menu, a related issue, an unanswered part), none after simple self-contained edits, never repeating a recent one, and skipped more often than not. No hardcoded sentences, no keyword rules.
+- **A model provider that is down is waited for** (owner, 2026-10-24, `docs/plans/2026-10-24-model-failures.md`). These are retried: 503, 502, 504, 500, 429 (waiting at least as long as the provider asks), and a dropped connection or an in-stream error with no status, mapped to its standard code. Never retried: out of credit, a bad key, a bad request, a missing model, a cut-off answer, a refusal, a wrong shape. Only the failed call is retried, every 5 minutes, with **no attempt count**, until the model answers. A job parks past its deadline and the tick resumes it from its saved steps. The notice is a **fixed server notice** (the model may be the thing that is down), using the owner's exact texts; it never mentions Cloudflare. Status links: status.x.ai (Grok) and status.claude.com (Claude).
 - **The progress voice** (owner, 2026-10-23, after the Saltmarsh & Sparrow build): progress talk sounds like a professional speaking to a client — still first person, but never "I" / "I am" as the default opener; vary how lines begin (the task, the result, what's next); each line says something new and specific with the real names from the facts; no repeated tails (the draft/publish status said once, at the end); a problem said once, not on every line; confident, plain, warm, no jargon; still only what the facts say. Approved example: *"Starting with the structure: a single home page at saltmarsh-and-sparrow.gofarther.app." · "The look is settled — sea-glass green, sand and white, with serif headings to match the coastal feel." · "Now writing the home page: the harbour welcome, your opening hours, today's bakes and the sisters' story." · "Reviews and the "this week" events strip are in. Moving on to the details." · "One photo didn't come through, so I've kept that space clean rather than leaving a gap." · "Everything checks out in a real browser on phone and desktop." · "Your site is saved as a draft — have a look, and press Publish whenever you're happy."* Applies to every live writer (builds, edits, add-ons, request parts and the parallel card's opening and titles, Publish/Restore/Discard talk, the security scan's lines). It lives in one block, `PROGRESS_VOICE` (`builder/site-progress.mjs`).
 - **Per-device edits** (owner, 2026-10-24, summarised): one site, never a separate phone copy; pages adapt by screen size. Three sizes like the preview's buttons (phone, tablet, desktop); a change may target any subset, and **the default is all three together**. The router/model decides which devices from the customer's words (no keyword or fixture rules); the preview's device is a hint and the words win; when unclear it may ask a normal question with options. A scoped change may really differ (sizes, spacing, order, hide/show, layout), inside the same page with responsive rules. **Code enforces, model decides**: the page is rendered at the three widths before and after, devices not asked for must be unchanged, or the change is refused through the existing refusal path with no charge beyond the existing rules. The preview switches to the changed device, and the reply's facts say which devices changed. (This is about the customer's sites; "Desktop-first, no mobile" above is about our own app.)
 - **The stand-in on every path** (owner, 2026-10-24: *"use it everywhere … I don't think it should fail, but use it everywhere"*): when compile repair cannot fix a change, on any path (first build, revise, edit, add-on), salvage file by file instead of refusing: a file the site already had goes back to its last good version, a new file stands in (a new page with the site's header and footer and an empty main), the rest is published. Never publish code that does not compile; the reply says what was kept and what stands in.
@@ -1422,6 +1423,38 @@ Where a bound must remain for safety it carries the excess into further
 batches or parts in the same job, never drops it, and keeps a page together
 with the tables and functions it uses. Record: `docs/history/2026-10-24-addon-uncapped.md`.
 - **The visual review runs only for front-end changes** (owner, 2026-10-24): *"only when you're changing the front end … if you're changing … the back end, like the database … you don't need it"*. Decided from the files a change really alters (pages, parts, stylesheet, theme, logo), never from the request's words; data rows, rules, tables, functions, schedules, settings and restores are never reviewed.
+- **Retry once with the check's own reason** (owner, 2026-10-24): wherever a model's answer fails an exact check, send the same request once more with the model's previous answer and the failed check in plain words, at the **same effort and on the same model** (do not raise effort or switch model), then the existing refusal or climb. One retry only. Record: `docs/history/2026-10-24-retry-with-reason.md`.
+- **A task never fails completely without at least one retry** (owner, 2026-10-24): small AI imperfections are acceptable (a slightly different colour, a word off), but every model-driven step that would end a task as failed, refused or not done gets at least one retry first (same model, same effort, with the reason). Exclusions: provider outages (handled by the provider-wait work), our own account errors (billing, keys), and a request that is genuinely impossible (an honest refusal).
+
+## A change too big for the smaller steps splits itself (2026-10-24)
+
+Owner: an edit or add-on that is too big for the smaller steps should **split
+itself into smaller parts and carry on, instead of stopping**; the customer
+never has to resend. **So: when a step says a change is too big, the request
+routes that part again, tells the router the step's reason and asks it for
+parts it can do; those parts run as any parts do (their order, the panel's
+rows, each charged as usual); a standalone edit is sent again by its page and
+becomes a request of parts.** Nothing already done is redone and nothing is
+charged twice (the split routing and a carved part's routing are free). A part
+that comes back too big again may split once more; beyond that it ends
+honestly with the step's reason. Reasons smaller parts cannot fix (a change of
+what kind of site it is, a site without its saved design, a site with no
+pages) end as before, and the full rewrite is never offered for any of it.
+Record: `docs/history/2026-10-24-auto-split-edits.md`.
+
+## No question after a charge (2026-10-24)
+
+Owner: *"the model may ask the customer a question only BEFORE anything is
+charged; once work has been charged, it must not stop to ask — it goes ahead
+with a sensible stated default and says so in the reply facts."* So the router,
+the build's design and page questions, and an edit or add-on step that runs
+before any reserve or collect keep their question; every model call made after
+the request's first charge is sent with no question field, chooses a sensible
+default from the site and the message, and the reply says what was assumed
+("I used X; tell me if you'd prefer Y"). A step that still asks after that is
+never charged for it. Questions must never ask for what the site or the
+message already answers or implies. Record:
+`docs/history/2026-10-24-no-ask-after-charge.md`.
 
 ## Retries stay on the same model (owner, 2026-10-24)
 

@@ -1061,7 +1061,22 @@
     return "That needs more than the quicker steps can make in one go, so I haven\u2019t changed anything, and I won\u2019t rewrite your whole site for it. Send it as smaller changes, one at a time (each page or section on its own), and I\u2019ll make each.";
   }
 
+  /**
+   * A CLIMB THAT SPLITS ITSELF (owner, 2026-10-24): the split ask a page sends
+   * with the same words routed again (`{ why: "climb", reason? }`), or null
+   * for a reason smaller parts cannot fix — a site with no pages, a change of
+   * what kind of site it is, a site without its saved design — which is said
+   * (`climbSaid`) as before. The request's `SPLIT_NOT`, and `no-source`.
+   */
+  var SPLIT_NOT = ["no-source", "build", "no-look", "no-meta", "needs-pages"];
+  function splitOf(ho) {
+    var why = ho && ho.handOver && typeof ho.handOver.reason === "string" ? ho.handOver.reason : "";
+    if (SPLIT_NOT.indexOf(why) >= 0) return null;
+    return /^[a-z0-9_-]{1,40}$/i.test(why) ? { why: "climb", reason: why } : { why: "climb" };
+  }
+
   var api = {
+    splitOf: splitOf,
     climbSaid: climbSaid,
     FINAL_HEADER: FINAL_HEADER,
     FINAL_VALUE: FINAL_VALUE,
@@ -1116,7 +1131,51 @@
     REWRITE_MAX: REWRITE_MAX,
     RESUME_OPS: RESUME_OPS,
     STORE_KEY: STORE_KEY,
+    providerWait: providerWait,
+    waitLeftMs: waitLeftMs,
+    waitClock: waitClock,
+    noticeHTML: noticeHTML,
+    waitRowText: waitRowText,
   };
+
+  // ── A MODEL PROVIDER THAT IS DOWN (owner, 2026-10-24) ──────────────────────
+  // The server's FIXED notice (never model-written): read from any answer that
+  // carries one (`wait`, with the server's `now`), counted down live on this
+  // page's own clock, and drawn as a grey box. Only the notice's own kinds and
+  // string fields pass; the link only to the two status pages.
+  var WAIT_KINDS = ["provider-wait", "provider-recovered", "provider-stopped"];
+  var WAIT_LINKS = ["https://status.x.ai", "https://status.claude.com"];
+  function providerWait(body, localNow) {
+    var w = body && typeof body === "object" ? body.wait : null;
+    if (!w || typeof w !== "object" || WAIT_KINDS.indexOf(w.kind) < 0 || typeof w.title !== "string") return null;
+    var str = function (v) { return typeof v === "string" && v ? v : null; };
+    var out = { kind: w.kind, title: w.title, said: str(w.said), link: WAIT_LINKS.indexOf(w.link) >= 0 ? w.link : null, model: str(w.model), code: typeof w.code === "number" ? w.code : null };
+    if (w.kind === "provider-wait" && typeof w.until === "number") {
+      // ON THIS PAGE'S CLOCK: what was left when the server answered, from now.
+      var serverNow = typeof body.now === "number" ? body.now : typeof w.at === "number" ? w.at : w.until - (w.waitMs || 0);
+      out.localUntil = (typeof localNow === "number" ? localNow : Date.now()) + Math.max(0, w.until - serverNow);
+    }
+    return out;
+  }
+  function waitLeftMs(w, now) { return w && typeof w.localUntil === "number" ? Math.max(0, w.localUntil - (typeof now === "number" ? now : Date.now())) : 0; }
+  function waitClock(ms) { var s = Math.max(0, Math.ceil((Number(ms) || 0) / 1000)); return Math.floor(s / 60) + ":" + (s % 60 < 10 ? "0" : "") + (s % 60); }
+  function escHtml(s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]; }); }
+  /** The grey box. `data-wait-until` lets one page timer move every countdown. */
+  function noticeHTML(w, now) {
+    if (!w) return "";
+    if (w.kind !== "provider-wait") return "<div class=\"st-wait st-wait-" + (w.kind === "provider-recovered" ? "ok" : "stop") + "\"><div class=\"st-wait-t\">" + escHtml(w.title) + "</div></div>";
+    var said = w.said ? escHtml(w.said) + (w.link ? " · " : "") : "";
+    var link = w.link ? "<a href=\"" + w.link + "\" target=\"_blank\" rel=\"noopener\">status page</a>" : "";
+    return "<div class=\"st-wait\" role=\"status\"><div class=\"st-wait-t\">" + escHtml(w.title) + "</div>" +
+      (said || link ? "<div class=\"st-wait-s\">" + said + link + "</div>" : "") +
+      "<div class=\"st-wait-k\">Your work so far is kept. Retrying in <span data-wait-until=\"" + (w.localUntil || 0) + "\">" + waitClock(waitLeftMs(w, now)) + "</span> · no charge while waiting</div></div>";
+  }
+  /** The panel row: "⚠ Events page · Grok 503 · retrying in 4:59". */
+  function waitRowText(label, w, now) {
+    if (!w || w.kind !== "provider-wait") return "";
+    var what = (w.model || "The model") + (w.code ? " " + w.code : " connection dropped");
+    return "⚠ " + (label ? label + " · " : "") + what + " · retrying in " + waitClock(waitLeftMs(w, now));
+  }
 
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.EditPoll = api;

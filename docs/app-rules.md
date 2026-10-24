@@ -283,7 +283,8 @@ scheduler and the DST arithmetic is there. What belongs here is the site's half:
 
   | model | context | max output | $ / MTok in · out |
   |---|---|---|---|
-  | `grok-4.6` (default) | **500K** | **no stated limit** | $2 · $6 |
+  | `grok-4.7` (default since 2026-10-24) | **500K** | **no stated limit** | $2 · $6 |
+  | `grok-4.6` (before; still priced and sized for old rows) | **500K** | **no stated limit** | $2 · $6 |
   | `claude-sonnet-5` | **1M** | 128K | $2 · $10 |
   | `claude-opus-5` | **1M** | 128K | $5 · $25 |
 

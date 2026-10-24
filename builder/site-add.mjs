@@ -151,6 +151,7 @@ import { QUESTION_FIELD, askOf, withQuestion } from "./clarify.mjs";
 // ONE NEW ROW'S VALUE RULE AND ITS INSERT, shared with the data step (2026-10-01).
 import { rowValues, insertStatement } from "./site-rows.mjs";
 import { SERIOUS } from "./site-render.mjs";
+import { retryRequest } from "./retry-reason.mjs";
 import { stripLangPrefix } from "./site-langs.mjs";
 // THE QR LIST (2026-09-03): a site carries several, each named, so the `qr`
 // kind ADDS one beside the others and refuses only a duplicate.
@@ -2946,10 +2947,11 @@ export async function runJudge(deps, { message, entries = [], items = [], step =
   if (!list.length) return { ...none, usage: null, attempts: 0, failed: false };
   const ids = list.map((r) => r.id);
   const shown = (Array.isArray(items) ? items : []).map((i) => i && i.id);
-  const call = async (missed) => {
+  const call = async (missed, override = null) => {
     let reply;
+    const req = override || judgeRequest({ message, entries: list, items, step, model, missed });
     try {
-      reply = await deps.send(judgeRequest({ message, entries: list, items, step, model, missed }));
+      reply = await deps.send(req);
     } catch (e) {
       return { error: e, usage: null };
     }
@@ -2958,7 +2960,7 @@ export async function runJudge(deps, { message, entries = [], items = [], step =
       const e = new Error("judge truncated at max_tokens");
       e.truncated = true;
       e.incomplete = true;
-      return { error: e, usage };
+      return { error: e, usage, req, reply };
     }
     const ask = askOf(reply);
     if (ask) return { ask, usage, raw: reply };
@@ -2967,11 +2969,31 @@ export async function runJudge(deps, { message, entries = [], items = [], step =
     const input = use && use.input && typeof use.input === "object" ? use.input : null;
     return { read: readVerdicts(input, { ids, items: shown, meaningOnly: !!step }), usage, raw: reply };
   };
-  const first = await call([]);
+  let first = await call([]);
+  // ── A CUT-OFF FIRST ANSWER, ASKED ONCE MORE WITH THAT FACT (round 2 of the
+  //    retry rule, owner 2026-10-24) ─────────────────────────────────────────
+  // It used to end the judgment `incomplete` at once ("the same budget would
+  // cut it the same way"); the SAME request (same model, same effort) is now
+  // sent once more with the cut answer and the reason, asking for the short
+  // form. Its usage is ours (`extraUsage`), as the second call's always was;
+  // a second cut-off, a throw or a question is read as the first would be.
+  let cutUsage = null;
+  if (first.error && first.error.truncated && first.req) {
+    const again = await call([], retryRequest(first.req, first.reply, "Your answer was cut off before it finished, so none of it could be used. Answer again through the tool with every requirement's verdict, once each, by its id, and nothing else: no explanations, the shortest values the tool allows."));
+    cutUsage = again.usage || null;
+    if (!again.error) first = { ...again, usage: first.usage, retried: true };
+  }
   if (first.error) return { ...none, usage: first.usage, attempts: 1, failed: true, ...(first.error.incomplete ? { incomplete: true } : {}), error: first.error };
   if (first.ask) return { ...none, usage: first.usage, attempts: 1, failed: false, ask: first.ask, raw: first.raw };
   if (!first.read.missing.length) {
-    return { verdicts: first.read.verdicts, invalid: first.read.invalid, missing: [], usage: first.usage, attempts: 1, failed: false, raw: first.raw };
+    return { verdicts: first.read.verdicts, invalid: first.read.invalid, missing: [], usage: first.usage, attempts: first.retried ? 2 : 1, failed: false, raw: first.raw, ...(cutUsage ? { extraUsage: cutUsage, retryReason: { step: "judge", reason: "truncated", ok: true } } : {}) };
+  }
+  // AFTER A CUT-OFF'S RETRY, NEVER A THIRD CALL: what the retry still left
+  // without a verdict is the unfinished judgment it always was.
+  if (first.retried) {
+    const e = new Error("judge left " + first.read.missing.length + " requirement(s) without a verdict after a cut-off answer and its retry");
+    e.incomplete = true;
+    return { verdicts: first.read.verdicts, invalid: first.read.invalid, missing: first.read.missing, usage: first.usage, extraUsage: cutUsage, attempts: 2, failed: true, incomplete: true, error: e, raw: first.raw, retryReason: { step: "judge", reason: "truncated", ok: false } };
   }
   const second = await call(first.read.missing);
   const invalid = [...first.read.invalid, ...(second.read ? second.read.invalid.map((x) => ({ ...x, attempt: 2 })) : [])];

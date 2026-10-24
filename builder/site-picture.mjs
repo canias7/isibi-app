@@ -1,3 +1,4 @@
+import { withReasonRetry } from "./retry-reason.mjs";
 // The `picture` layer: change a photograph on a page that already exists.
 //
 // WHY IT IS NEEDED. Photographs are bought at BUILD time from `@@IMG:…@@`
@@ -1502,7 +1503,20 @@ export function pictureReply({ used = [], made = [], cleared = [], framed = [], 
  * only when an answer takes a photograph off; with none, that removal is
  * refused as `unchecked` and everything else still runs.
  */
-export async function runPictureEdit(deps, { instruction, pages, model = PICTURE_MODEL } = {}) {
+export async function runPictureEdit(deps, args = {}) {
+  // ONE RETRY WITH THE CHECK'S OWN REASON (owner, 2026-10-24): an answer that
+  // named no picture slot and no place for one is sent once more, same model
+  // and effort, told so.
+  return withReasonRetry({
+    step: "picture", deps, mark: deps && deps.mark,
+    run: (d) => runPictureOnce(d, args),
+    reasonOf: (r) => (r && !r.ok && r.reason === "no-match" && !r.ask
+      ? { code: "no-match", text: "Nothing was changed: your answer named no picture slot from the list you were shown, and no page to place a new one. Read the request again and name the slot (by its id) and the change, or the page that needs a new picture; if a detail is really missing, ask your one question instead." }
+      : null),
+  });
+}
+
+async function runPictureOnce(deps, { instruction, pages, model = PICTURE_MODEL } = {}) {
   const slots = imageSlots(pages);
   if (!slots.length) return { ok: false, escalate: true, reason: "no-slots", usage: null };
 

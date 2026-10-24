@@ -28,6 +28,10 @@ import { page as pageSrc } from "./fixtures/live-ask.mjs";
 import { blockNetwork } from "./fixtures/no-network.mjs";
 import { page, settle as idle } from "./fixtures/browser-page.mjs";
 import { requestView, heldPurchaseState, heldReasons, PHOTO_RUNNING_MS } from "../builder/request.mjs";
+// RE-ANCHORED 2026-10-24 (provider-retry re-landed): a provider 529 is now waited for
+// and the job parked (the owner's design, docs/plans/2026-10-24-model-failures.md),
+// so a call that must FAIL here fails on a refused request (400), which keeps its
+// failure handling exactly as these cases test it.
 
 blockNetwork();
 
@@ -78,7 +82,7 @@ async function heldAddition({ slug, shots = [BENCH], imageWith = null, storeDown
       "add:photo": { photo: shots.map((d, i) => ({ page: "/visit", describe: d, name: "photo" + i })) },
       [T.pages]: async () => {
         writes++;
-        if (writes === 1) throw Object.assign(new Error("upstream 529"), { status: 529 });
+        if (writes === 1) throw Object.assign(new Error("upstream 400"), { status: 400 });
         return { pages: [{ path: "src/routes/visit.tsx", source: visitWith(shots) }] };
       },
     },

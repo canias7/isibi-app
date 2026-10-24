@@ -77,7 +77,7 @@ async function route({ picker = "grok", provider, env = {}, body = {} } = {}) {
       seen.model.push(url);
       return provider(url, init);
     }
-    return new Response("unavailable", { status: 503 });
+    return new Response("no stub (test fixture)", { status: 400 });
   };
   try {
     const res = await worker.fetch(new Request("https://gofarther.dev/api/site/route", {
@@ -121,6 +121,33 @@ function assertFallback(r, intent = FALLBACK_WITH_SITE) {
   assertNoSecrets("the canary's routing line", canaryRoutingLine({ ms: 400 }, r.body));
 }
 
+/**
+ * RE-ANCHORED 2026-10-24 (provider-retry re-landed; the owner's design in
+ * docs/plans/2026-10-24-model-failures.md): a PROVIDER-SIDE failure of the
+ * routing call (503, 502, 504, 500, 429 that is not billing, 529 overloaded, a
+ * dropped connection) is no longer the fallback: nothing is routed, run or
+ * charged, and the route answers `waiting` with the fixed notice so the page
+ * asks again when its countdown ends. The reason is still carried and logged,
+ * exactly as the fallback carried it — which is what these cases guard.
+ */
+function assertWaiting(r) {
+  assert.equal(r.status, 200, "the waiting answer is not a 200: " + r.text.slice(0, 200));
+  assert.equal(r.body.ok, false);
+  assert.equal(r.body.waiting, true, "a provider outage did not answer waiting");
+  assert.equal(r.body.failed, true);
+  assert.equal(r.body.cost, 0, "a routing call that is waiting was billed");
+  assert.equal(r.body.wait && r.body.wait.kind, "provider-wait", "the waiting answer carries no notice");
+  assert.deepEqual(r.seen.debits, [], "the ledger was asked to collect while waiting");
+  const said = r.logs.filter((l) => l.startsWith("route failed:"));
+  assert.equal(said.length, 1, "the failure was not logged exactly once: " + JSON.stringify(r.logs).slice(0, 300));
+  assert.equal(said[0], "route failed: " + JSON.stringify(r.body.failure), "the log and the reply disagree");
+  assertNoSecrets("the Worker's log", r.logs.join("\n"));
+  assertNoSecrets("the canary's routing line", canaryRoutingLine({ ms: 400 }, r.body));
+}
+/** The owner's provider-side kinds, by status (a billing refusal is never one, whatever its status). */
+const WAITED = new Set([500, 502, 503, 504, 429, 529]);
+const assertFallbackOrWaiting = (r, status, billing, intent) => (WAITED.has(status) && !billing ? assertWaiting(r) : assertFallback(r, intent));
+
 // ── THE PROVIDER ANSWERED, WITH AN ERROR ───────────────────────────────────
 
 test("run 70's shape: xAI refuses on an empty balance — named as the provider, our account, with its status and token", async () => {
@@ -139,9 +166,24 @@ test("run 70's shape: xAI refuses on an empty balance — named as the provider,
 
 test("Anthropic overloaded: the provider's token, and not our account", async () => {
   const r = await route({ picker: "sonnet", provider: () => json({ type: "error", error: { type: "overloaded_error", message: "Overloaded while reading: " + MESSAGE } }, 529) });
-  assertFallback(r);
+  assertWaiting(r);
   assert.deepEqual(r.body.failure, { kind: "provider", provider: "anthropic", status: 529, type: "overloaded_error", billing: false, error: "Error" });
-  assertNoSecrets("anthropic 529", r.text, failureSaid(r.body.failure));
+  // RE-ANCHORED 2026-10-24: the owner's notice quotes the provider WORD FOR WORD
+  // (`wait.words`, `wait.said`), shown only to the customer who sent the
+  // message — so their own words may come back there, and only there.
+  // Everything else in the answer, and the reason, carries none of it.
+  const { wait, ...rest } = r.body;
+  const { words, said, ...waitRest } = wait;
+  assert.match(words, /^Overloaded while reading: /, "the provider's words were not kept");
+  assertNoSecrets("anthropic 529", JSON.stringify(rest), JSON.stringify(waitRest), failureSaid(r.body.failure));
+});
+
+test("A PROVIDER THAT ECHOES A CREDENTIAL: the notice keeps its words but never the key, bearer or connection string (2026-10-24)", async () => {
+  const echoed = "Overloaded; key " + KEYS.anthropic + " auth Bearer " + BEARER + " db " + CONN + " xai " + KEYS.xai;
+  const r = await route({ picker: "sonnet", provider: () => json({ type: "error", error: { type: "overloaded_error", message: echoed } }, 529) });
+  assertWaiting(r);
+  assert.match(r.body.wait.words, /^Overloaded; key \[hidden\]/, "the provider's own words were dropped");
+  for (const s of [KEYS.anthropic, KEYS.xai, BEARER, CONN, "npg_S3cretPassw0rd"]) assert.ok(!r.text.includes(s), "a credential reached the notice: " + s.slice(0, 16));
 });
 
 test("a provider token that is not a token is dropped, never echoed", async () => {
@@ -162,7 +204,7 @@ test("the connection failed on the way: transport, with the error's class and no
   const e = new TypeError("fetch failed: " + KEYS.xai + " " + CONN, { cause });
   e.request = { headers: { Authorization: "Bearer " + KEYS.xai }, body: MESSAGE };
   const r = await route({ picker: "grok", provider: () => { throw e; } });
-  assertFallback(r);
+  assertWaiting(r);
   assert.deepEqual(r.body.failure, { kind: "transport", provider: "xai", status: null, type: null, billing: false, error: "TypeError" });
   assert.equal(failureSaid(r.body.failure), "transport xai TypeError");
   assertNoSecrets("transport", r.text, failureSaid(r.body.failure));
@@ -228,7 +270,7 @@ test("a code that is not a string is dropped, never coerced — even into a docu
   // documented code the provider never sent as one.
   for (const type of [[PROBE], ["overloaded_error"], ["overloaded_error", "api_error"], { type: "api_error" }, 529, true]) {
     const r = await route({ picker: "sonnet", provider: () => json({ type: "error", error: { type, message: "no" } }, 529) });
-    assertFallback(r);
+    assertWaiting(r);
     assert.deepEqual(r.body.failure, { kind: "provider", provider: "anthropic", status: 529, type: null, billing: false, error: "Error" }, JSON.stringify(type));
     for (const t of [r.text, r.logs.join("\n"), canaryRoutingLine({ ms: 400 }, r.body)]) {
       assert.ok(!t.includes(PROBE) && !t.includes("overloaded_error"), `${JSON.stringify(type)}: a coerced code escaped into ${t.slice(0, 200)}`);
@@ -245,7 +287,7 @@ test("a code that is not a string is dropped, never coerced — even into a docu
 test("CONTROLS: every documented code is named, with its status and its classification", async () => {
   for (const [type, status] of ANTHROPIC_DOCUMENTED) {
     const r = await route({ picker: "sonnet", provider: () => json({ type: "error", error: { type, message: "no" } }, status) });
-    assertFallback(r);
+    assertFallbackOrWaiting(r, status, status === 401 || status === 402 || status === 403);
     assert.equal(r.body.failure.type, type, type);
     assert.equal(r.body.failure.status, status, type);
     assert.equal(r.body.failure.billing, status === 401 || status === 402 || status === 403, type);
@@ -282,7 +324,9 @@ test("with no site the fallback is still a build, and it carries its reason too"
   // xAI documents no body codes, so an OpenAI-style token it might send is not
   // one this route names: the 429 already says what happened.
   const r = await route({ picker: "grok", provider: () => json({ code: "rate_limit_exceeded", error: "slow down" }, 429), body: { hasSite: false } });
-  assertFallback(r, FALLBACK_NO_SITE);
+  // RE-ANCHORED 2026-10-24: a rate limit is waited for (the owner's #5), with or
+  // without a site; the reason is carried as before.
+  assertWaiting(r);
   assert.deepEqual(r.body.failure, { kind: "provider", provider: "xai", status: 429, type: null, billing: false, error: "Error" });
 });
 

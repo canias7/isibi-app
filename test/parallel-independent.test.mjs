@@ -42,6 +42,10 @@ import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { page as pageSrc } from "./fixtures/live-ask.mjs";
 import { rowsDb, BAKERY_LOAVES, LOAF_COLUMNS } from "./fixtures/rows-db.mjs";
 import { overlapVerdict } from "../scripts/canary-requests.mjs";
+// RE-ANCHORED 2026-10-24 (provider-retry re-landed): a provider 529 is now waited for
+// and the job parked (the owner's design, docs/plans/2026-10-24-model-failures.md),
+// so a call that must FAIL here fails on a refused request (400), which keeps its
+// failure handling exactly as these cases test it.
 
 blockNetwork();
 
@@ -408,7 +412,7 @@ async function savedUse(P, id) {
   const text = typeof o === "string" ? o : o && typeof o.text === "function" ? await o.text() : o && o.body !== undefined ? (typeof o.body === "string" ? o.body : new TextDecoder().decode(o.body)) : JSON.stringify(o);
   return JSON.parse(text);
 }
-const failWidened = () => { const e = new Error("upstream 529"); e.status = 529; throw e; };
+const failWidened = () => { const e = new Error("upstream 400"); e.status = 400; throw e; };
 
 test("IND 9 — DATA: the scoped answer said needs and the job's widened call failed — the saved job evidence and the request view say scoped 1, needs 1 (never 0, never not-scoped); the price is left as it was", async () => {
   let wide = 0;

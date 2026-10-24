@@ -81,7 +81,7 @@ async function driveBuild({ design = GOOD_DESIGN, layout = LAYOUT } = {}) {
         seen.writers.push(JSON.stringify(b.messages || []));
         return json({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "w1", name: "write_pages", input: { pages: [{ path: "index.tsx", source: FIRST_PAGE }], notes: "" } }], usage: { input_tokens: 10, output_tokens: 10 } });
       }
-      return new Response("stop here", { status: 503 });
+      return new Response("stop here", { status: 400 });
     }
     if (isDispatchUpload(url)) return dispatchOk();
     if (url.includes("/rest/v1/")) return json([]);

@@ -66,6 +66,15 @@ export function designFailure({ answer = null, error = null, upstream = null, st
   }
   if (error && error.truncated) return { kind: "truncated", retry: "repair", why: "max-tokens" };
   if (timeout) return { kind: "timeout", retry: null, why: "ceiling" };
+  // FOLDED INTO THE PROVIDER WAIT (owner, 2026-10-24): a provider-side failure
+  // is already asked again every 5 minutes inside the call itself
+  // (`builder/provider-retry.mjs`); one that reaches here was parked past the
+  // job's deadline or stopped, and the job resumes it — never a second try here.
+  // EXCEPT AN INLINE CALL (2026-10-24, the re-land): parked with no job to
+  // resume it (`providerWait.inline`), it keeps the one in-request retry it
+  // always had, read below as `transient` — a single 529 never fails it.
+  const inlinePark = !!(error && error.parked === true && error.providerWait && error.providerWait.inline === true);
+  if (error && !inlinePark && (error.parked === true || error.stopped === true)) return { kind: "waiting", retry: null, why: error.stopped === true ? "stopped" : "parked" };
   const up = upstream && typeof upstream === "object" ? upstream : {};
   if (up.billing) return { kind: "account", retry: null, why: "billing" };
   const code = Number(status) || 0;

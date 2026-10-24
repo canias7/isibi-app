@@ -288,7 +288,8 @@ test("P1c A PREPARED STEP THAT REFUSES — the photograph's picture step finds n
     const { rec } = await settle(P, r.key);
     assert.equal(rec.parts[0].status, "done");
     assert.notEqual(rec.parts[1].status, "done", "a refused picture was called done");
-    assert.equal(calls(P, "choose_pictures").length, 1, "the refused step's call was made again");
+    // ASKED ONCE AND ONCE MORE WITH THE no-match REASON (2026-10-24); the job replays, never asks again.
+    assert.equal(calls(P, "choose_pictures").length, 2, "the refused step's call was made again");
     assert.equal(P.imageLog.length, 0);
     const pic = P.jobsOf(r.key).filter((j) => j.op === "edit").pop();
     assert.equal(reserveOf(P, pic.id).length, 1, "the refusal was not charged to the part's own job, once");
@@ -318,34 +319,20 @@ test("P4 CLARIFICATION — a photograph whose preparation finds a question is as
   }, async (P) => {
     const r = await sendMessage(P, { message: TIKTOK + ", " + PHOTO + ", and " + OTHER_LINE + "." });
     const s1 = await settle(P, r.key);
-    // THE PHOTOGRAPH WAITS ON ITS QUESTION; BOTH TEXT CHANGES ARE APPLIED.
-    assert.deepEqual(statuses(s1.rec), ["done", "waiting", "done"], JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why, p.prep && p.prep.outcome])));
-    assert.equal(s1.rec.parts[1].prep.outcome, "ask");
+    // ⚠ RE-ANCHORED 2026-10-24 (no question after a charge, carried across
+    // parts): part 0's job was charged before the photograph's job ran, so its
+    // question (found by its preparation) is never put to the customer — the
+    // job goes ahead with the first option, stated (`defaulted`), and every
+    // call is still made once: the question once, the noted call once.
+    assert.deepEqual(statuses(s1.rec), ["done", "done", "done"], JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why, p.prep && p.prep.outcome])));
     assert.ok(P.page("visit.tsx").includes(TIKTOK_TO));
     assert.ok(P.page("index.tsx").includes("Bread, and a photograph of it."));
-    assert.equal(P.imageLog.length, 0, "a photograph was bought before its question was answered");
-    // ASKED FIRST: the photograph's job was filed before the third part's, though it came second.
-    const ids = s1.rec.parts.map((p) => p.jobs.filter((j) => j.kind === "run").map((j) => j.id));
-    const order = P.jobsOf(r.key).filter((j) => j.op === "edit").map((j) => j.id);
-    assert.ok(order.indexOf(ids[1][0]) < order.indexOf(ids[2][0]), "the question was not asked before the other part ran");
-    // ITS QUESTION, IN THE SITE'S SLOT, FOR PART 1 — asked with the answer its preparation recorded.
-    const q = P.question();
-    assert.equal(q.part, 1);
-    assert.equal(q.question.text, QPIC.text);
-    assert.equal(calls(P, "choose_pictures").length, 1, "the question was asked of the model twice");
-    // AND IT IS THE PART'S OWN QUESTION, SHOWN (audit A35-1, 2026-10-22): the
-    // preparation that found the question kept none in the slot, so the one
-    // there is the one the part's job asked, not queued behind a phantom.
-    const own = s1.rec.parts[1].question;
-    assert.ok(own && typeof own.id === "string", "the part names no question");
-    assert.equal(own.queued, false, "the part's own question was queued behind another");
-    assert.equal(q.id, own.id, "the slot holds a question the part is not waiting on");
-    assert.equal(q.status, "pending");
-    // THE ANSWER RESUMES IT: the photograph is made and placed.
-    await sendMessage(P, { message: "Whole", ask: { id: q.id, chosen: true } });
-    const s2 = await settle(P, r.key);
-    assert.deepEqual(statuses(s2.rec), ["done", "done", "done"], JSON.stringify(s2.rec.parts.map((p) => [p.status, p.why])));
     assert.match(P.page("index.tsx"), /<SafeImage src="\/u\/[^"]+\.jpg" alt="A loaf on the counter"/);
+    const q = P.question();
+    assert.ok(!q || q.status !== "pending", "a question was put to the customer after a charge");
+    const pid = new Set(s1.rec.parts[1].jobs.map((j) => j.id));
+    const run = [...P.jobs.values()].filter((j) => pid.has(j.id) && j.op === "edit" && j.result && typeof j.result.body === "string").pop();
+    assert.deepEqual(JSON.parse(run.result.body).defaulted, [{ assumed: "Whole", instead: "Sliced" }]);
     assert.equal(calls(P, "choose_pictures").length, 2);
     assert.equal(P.imageLog.length, 1);
     noPrepMoney(P, r.key);

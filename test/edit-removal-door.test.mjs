@@ -172,10 +172,10 @@ async function drive({ routed, ask, answers = {}, site = null, mode = "sync" }) 
         const input = tool === "write_tweak" ? tweakInput(raw, args) : raw;
         return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input }], usage: { input_tokens: 2000, output_tokens: 400 } });
       }
-      return new Response("no stub for tool " + tool, { status: 503 });
+      return new Response("no stub for tool " + tool, { status: 400 });
     }
     if (isDispatchUpload(u)) return dispatchOk();
-    return new Response("unavailable", { status: 503 });
+    return new Response("no stub (test fixture)", { status: 400 });
   };
   const c = installCompiler({});
   try {
@@ -629,9 +629,9 @@ for (const mode of ["sync", "job"]) {
       const label = "photo refused + layout " + mode + " " + JSON.stringify(answer);
       assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
       assert.equal(r.reply && r.reply.ok, true, label + ": " + JSON.stringify(r.reply));
-      assert.deepEqual(r.models, [PICK, "write_tweak", PICTURE_TOOL.name], label + ": the rungs called");
+      assert.deepEqual(r.models, [PICK, "write_tweak", PICTURE_TOOL.name, PICTURE_TOOL.name /* its one retry with the no-match reason (2026-10-24) */], label + ": the rungs called");
       assert.deepEqual(r.reply.layers, ["page"], label + ": layers");
-      assert.deepEqual((r.reply.partial || []).map((p) => [p.layer, p.error, p.cost]), [["picture", "no-match", 2]], label + ": partial");
+      assert.deepEqual((r.reply.partial || []).map((p) => [p.layer, p.error, p.cost]), [["picture", "no-match", 2]] /* a refused step charges its first call only: the retry is not billed (round 2) */, label + ": partial");
       assert.equal(r.builds.length, 1);
       assert.equal(page(r, "index.tsx"), MOVED, label + ": the home page is not exactly the layout");
       assertOthersKept(r, label);
@@ -690,7 +690,7 @@ for (const mode of ["sync", "job"]) {
       answers: { [PICK]: { additional: ["behavior", "shape"] }, edit_site: {}, write_tweak: { source: MOVED }, write_nav: NAV_ANSWER } });
     const label = "work named " + mode;
     assert.equal(r.reply && r.reply.ok, true, label + ": " + JSON.stringify(r.reply));
-    assert.deepEqual(r.models, [PICK, "edit_site", "write_tweak", "write_nav"], label + ": the rungs called");
+    assert.deepEqual(r.models, [PICK, "edit_site", "edit_site" /* every lane declined: asked once more with that fact (round 2) */, "write_tweak", "write_nav"], label + ": the rungs called");
     assert.deepEqual(r.reply.layers, ["page", "nav"], label + ": the menu rung did not run");
     assert.deepEqual((r.reply.partial || []).map((p) => [p.layer, p.error, p.lanes]), [["look", "no-change", ["behavior"]]], label + ": partial");
     for (const p of PAGES) {
@@ -793,7 +793,7 @@ test("CONTROL: the same door with no scope sends the layout where it always went
   const r = await drive({ routed: { layer: "picture", remove: true }, ask: PHOTO_VISIT_ASK,
     answers: { [PICK]: { additional: ["shape"] }, write_tweak: visitWriter, [PICTURE_TOOL.name]: REMOVE_BOULE } });
   const writes = r.sent.filter((q) => q.tool === "write_tweak").map((q) => writerAsked(q.args));
-  assert.deepEqual(writes, [{ path: "index.tsx", instruction: PHOTO_VISIT_ASK }], "unscoped: what the writer was handed");
+  assert.deepEqual(writes, [{ path: "index.tsx", instruction: PHOTO_VISIT_ASK }, { path: "index.tsx", instruction: PHOTO_VISIT_ASK } /* the same request once more with its check's reason (2026-10-24) */], "unscoped: what the writer was handed");
   assert.equal(page(r, "visit.tsx"), VISIT_SRC, "unscoped: the Visit page moved");
 });
 
@@ -851,7 +851,7 @@ test("a lane this route will not remove, tied to the routed change, cannot refus
 test("CONTROL: an ordinary look request still runs the lane the picker chose, and is asked the ordinary question", async () => {
   const ask = "Make the menu open when you hover over it.";
   const r = await drive({ routed: { layer: "look" }, ask, answers: { [PICK]: { fields: ["behavior"] }, edit_site: {} } });
-  assert.deepEqual(r.models, [PICK, "edit_site"], "the look door's pick was overruled");
+  assert.deepEqual(r.models, [PICK, "edit_site", "edit_site" /* every lane declined: asked once more with that fact (round 2) */], "the look door's pick was overruled");
   assert.equal(r.reply.error, "no-change");
   assert.equal(r.builds.length, 0);
   assert.deepEqual(doorMarks(r), []);
@@ -1191,7 +1191,7 @@ for (const mode of ["sync", "job"]) {
         edit_site: {}, write_tweak: bandWriter, write_nav: menuEditor } });
     const label = "behavior reading " + mode;
     assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
-    assert.deepEqual(r.models, [PICK, "edit_site", "write_tweak"], label + ": the menu editor ran, or the look step did not");
+    assert.deepEqual(r.models, [PICK, "edit_site", "edit_site" /* every lane declined: asked once more with that fact (round 2) */, "write_tweak"], label + ": the menu editor ran, or the look step did not");
     assertMenusKept(r, label);
     assert.equal(page(r, "index.tsx"), MOVED, label + ": the layout did not ship on its own");
     for (const p of PAGES) if (p.path !== "index.tsx") assert.equal(page(r, p.path), p.source, label + ": " + p.path + " changed");
@@ -1210,7 +1210,7 @@ for (const mode of ["sync", "job"]) {
 for (const mode of ["sync", "job"]) {
   for (const [name, navAnswer, partial, cost, charged, said] of [
     ["the menu editor answers nothing it can apply", {},
-      [["nav", "no-menu", [MENU_LANE], 2]], 5, [3, 2],
+      [["nav", "no-menu", [MENU_LANE], 2]], 5, [3, 2], // its retry with the no-menu reason is NOT billed on a refused step (round 2)
       "Updated /. “" + MENU_WORDS + "”: I couldn't work out what the menu should be. Tell me what to add, take out or move. That part still cost 2 credits."],
     ["the menu editor cannot be reached", undefined,
       [["nav", "send", [MENU_LANE], undefined]], 3, [3],
@@ -1223,7 +1223,7 @@ for (const mode of ["sync", "job"]) {
       const label = "menu half fails " + mode + ": " + name;
       assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
       assert.equal(r.reply.ok, true, label);
-      assert.deepEqual(r.models, [PICK, "write_tweak", "write_nav"], label + ": the executors called");
+      assert.deepEqual(r.models, [PICK, "write_tweak", "write_nav", ...(navAnswer !== undefined ? ["write_nav"] /* its one retry with the no-menu reason (2026-10-24) */ : [])], label + ": the executors called");
       assert.deepEqual(r.reply.layers, ["page"], label + ": what shipped");
       assert.deepEqual(r.reply.partial.map((p) => [p.layer, p.error, p.lanes, p.cost]), partial, label + ": partial");
       assert.equal(r.builds.length, 1, label);
@@ -1250,7 +1250,7 @@ for (const mode of ["sync", "job"]) {
       MENU_AND_BAND,
       { write_tweak: { cannot: "That needs the page rewritten." }, write_pages: { pages: [{ path: "index.tsx", source: ORIG["index.tsx"] }] } },
       // NAMED BY ITS OWN WORDS (2026-10-03); the builder's sentence names its page.
-      [PICK, "write_tweak", "write_pages", "write_nav"], [["page", "no-change", ["shape"]]], "“" + BAND_WORDS + "”: " + NO_CHANGE],
+      [PICK, "write_tweak", "write_pages", "write_pages" /* the writer asked once more with the no-change reason (round 2) */, "write_nav"], [["page", "no-change", ["shape"]]], "“" + BAND_WORDS + "”: " + NO_CHANGE],
   ]) {
     test(`LOOK DOOR, THE LAYOUT HALF FAILS (${mode}): ${name} — Gallery still leaves every menu, nothing else moves, and the reply says the layout was not changed`, async () => {
       const r = await drive({ mode, routed: { layer: "look" }, ask: BAND_ASK, answers: { [PICK]: pick, ...writers, write_nav: menuEditor } });
@@ -1680,4 +1680,88 @@ test("REVIEW: a removal whose words the picker gave wholly to an addition is ref
   assert.equal(Object.hasOwn(r.reply, "deferred"), false, "a part was named as put off on a message that ran nothing");
   for (const p of PAGES) assert.equal(page(r, p.path), p.source, p.path + " changed");
   assert.equal(r.builds.length, 0);
+});
+
+// ── ROUND 2 OF THE RETRY RULE (owner, 2026-10-24): "a task must never fail
+//    completely without at least one retry" ─────────────────────────────────
+//
+// Through the real edit route, sync and job, with supplied answers that are a
+// function of the request: the first answer fails the route's own check, the
+// retry is the SAME request (same model, same effort, same tools) with the
+// model's answer and the reason appended, and the retry's answer is what runs.
+// The fail-twice paths are the cases above, whose expected calls now carry
+// the retry (look/no-change, page/no-change, picker/scope-unread).
+const isAgain = (args) => Array.isArray(args && args.messages) && args.messages.some((m) => m && m.role === "assistant");
+const sentOf = (r, tool) => r.sent.filter((q) => q.tool === tool).map((q) => q.args);
+/** The retry is the first request with exactly two turns appended; answers the appended turns' text. */
+function retriedSame(first, again, label) {
+  const { messages: m1, ...rest1 } = first;
+  const { messages: m2, ...rest2 } = again;
+  assert.deepEqual(rest2, rest1, label + ": the retry changed something besides its messages (model, effort, tools)");
+  assert.equal(m2.length, m1.length + 2, label + ": not the answer and the reason appended");
+  assert.deepEqual(m2.slice(0, m1.length), m1, label + ": the first request's turns were not kept");
+  assert.equal(m2[m1.length].role, "assistant");
+  return JSON.stringify(m2.slice(m1.length + 1));
+}
+for (const mode of ["sync", "job"]) {
+  test(`ROUND 2, PAGE WRITER (${mode}): a page sent back unchanged is asked once more with the reason; the retry's change ships beside the menu`, async () => {
+    const writer = (args) => ({ pages: [{ path: "index.tsx", source: isAgain(args) ? MOVED : ORIG["index.tsx"] }] });
+    const r = await drive({ mode, routed: { layer: "look" }, ask: BAND_ASK, answers: { [PICK]: MENU_AND_BAND, write_tweak: { cannot: "That needs the page rewritten." }, write_pages: writer, write_nav: menuEditor } });
+    const label = "page no-change fixed " + mode;
+    assert.equal(r.reply && r.reply.ok, true, label + ": " + JSON.stringify(r.reply));
+    assert.deepEqual(r.models, [PICK, "write_tweak", "write_pages", "write_pages", "write_nav"], label + ": the calls");
+    const [w1, w2] = sentOf(r, "write_pages");
+    const said = retriedSame(w1, w2, label);
+    assert.match(said, /came back exactly as it was/, label + ": the reason's words");
+    assert.equal(outsideMenus(page(r, "index.tsx")), outsideMenus(MOVED), label + ": the retry's layout did not ship");
+    assert.ok(!(r.reply.partial || []).length, label + ": a part was reported failed");
+  });
+
+  test(`ROUND 2, PAGE WRITER (${mode}): a writer that sent no page back is asked once more with that reason; the retry's page ships`, async () => {
+    const writer = (args) => ({ pages: isAgain(args) ? [{ path: "index.tsx", source: MOVED }] : [] });
+    const r = await drive({ mode, routed: { layer: "look" }, ask: BAND_ASK, answers: { [PICK]: MENU_AND_BAND, write_tweak: { cannot: "That needs the page rewritten." }, write_pages: writer, write_nav: menuEditor } });
+    const label = "page no-page-back fixed " + mode;
+    assert.equal(r.reply && r.reply.ok, true, label + ": " + JSON.stringify(r.reply));
+    assert.deepEqual(r.models, [PICK, "write_tweak", "write_pages", "write_pages", "write_nav"], label + ": the calls");
+    const [w1, w2] = sentOf(r, "write_pages");
+    assert.match(retriedSame(w1, w2, label), /did not include the page index\.tsx/, label + ": the reason's words");
+    assert.equal(outsideMenus(page(r, "index.tsx")), outsideMenus(MOVED), label);
+  });
+
+  test(`ROUND 2, PICKER SCOPE (${mode}): a scope whose words are not the customer's is asked once more with the reason; the retry's scopes run both changes`, async () => {
+    const bad = { fields: MENU_AND_BAND.fields, scopes: [{ part: MENU_LANE, words: "take the gallery link away please" }, MENU_AND_BAND.scopes[1]] };
+    const r = await drive({ mode, routed: { layer: "look" }, ask: BAND_ASK, answers: { [PICK]: (args) => (isAgain(args) ? MENU_AND_BAND : bad), write_tweak: bandWriter, write_nav: menuEditor } });
+    const label = "picker scope fixed " + mode;
+    assert.equal(r.reply && r.reply.ok, true, label + ": " + JSON.stringify(r.reply));
+    assert.deepEqual(r.models, [PICK, PICK, "write_tweak", "write_nav"], label + ": the calls");
+    const [p1, p2] = sentOf(r, PICK);
+    assert.match(retriedSame(p1, p2, label), /not found word for word in the customer's message/, label + ": the reason's words");
+    assertMenuLessGallery(r, { "index.tsx": MOVED }, label);
+    assert.ok(!(r.reply.partial || []).length, label + ": a change was withheld");
+  });
+
+  test(`ROUND 2, PICKER SCOPE (${mode}): a pick whose scopes pass is never asked again`, async () => {
+    const r = await drive({ mode, routed: { layer: "look" }, ask: BAND_ASK, answers: { [PICK]: MENU_AND_BAND, write_tweak: bandWriter, write_nav: menuEditor } });
+    assert.deepEqual(r.models, [PICK, "write_tweak", "write_nav"]);
+  });
+}
+
+test("ROUND 2, LOOK: every lane declining is asked once more with that fact; the retry's value is what the step stores", async () => {
+  const ask = "Make the menu open when you hover over it.";
+  const value = [{ control: "the menu", on: "hover", does: "opens the menu", built: "needs-code" }];
+  const r = await drive({ routed: { layer: "look" }, ask, answers: { [PICK]: { fields: ["behavior"] }, edit_site: (args) => (isAgain(args) ? { behavior: value } : {}) } });
+  assert.deepEqual(r.models, [PICK, "edit_site", "edit_site"], "not exactly one re-ask of the declining lane");
+  const [l1, l2] = sentOf(r, "edit_site");
+  assert.match(retriedSame(l1, l2, "look"), /every part picked for this request answered no change/, "the fact was not told back");
+  assert.notEqual(r.reply && r.reply.error, "no-change", JSON.stringify(r.reply));
+});
+
+test("ROUND 2, LOOK: a lane that declines again ends as today's look/no-change, at no cost; a lane that answers first is never re-asked", async () => {
+  const ask = "Make the menu open when you hover over it.";
+  const twice = await drive({ routed: { layer: "look" }, ask, answers: { [PICK]: { fields: ["behavior"] }, edit_site: {} } });
+  assert.equal(twice.reply.error, "no-change");
+  assert.equal(twice.reply.cost, 0, "a step that still did nothing charged");
+  assert.deepEqual(twice.debits, [], "a step that still did nothing debited");
+  const once = await drive({ routed: { layer: "look" }, ask, answers: { [PICK]: { fields: ["behavior"] }, edit_site: { behavior: [{ control: "the menu", on: "hover", does: "opens the menu", built: "needs-code" }] } } });
+  assert.deepEqual(once.models.filter((m) => m === "edit_site"), ["edit_site"], "a lane that answered was re-asked");
 });

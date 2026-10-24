@@ -467,7 +467,8 @@ test("a router that names nothing escalates rather than guessing", async () => {
       assert.ok(typeof body.msg === "string" && body.msg.length > 0, "the refusal cannot say what to do next");
       // NEVER A FALLBACK TO EVERYTHING. Answering "we could not tell" by running
       // all seventeen lanes is the most expensive possible reading of it.
-      assert.deepEqual(toolsOf(calls), ["pick_lanes"], "lanes ran for a message the router could not place");
+      // ASKED ONCE MORE WITH THE no-lane REASON (2026-10-24), never a lane.
+      assert.deepEqual(toolsOf(calls), ["pick_lanes", "pick_lanes"], "lanes ran for a message the router could not place");
     },
   );
 });

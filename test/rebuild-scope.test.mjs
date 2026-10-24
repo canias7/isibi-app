@@ -58,7 +58,10 @@ const BIG = [{ path: "index.tsx", source: pageSrc("/", "<section>" + MANY + "</s
 // ─────────────────────────────────────────────────────────────────────────────
 
 test("(2) an edit too big for the smaller steps is not offered the full rewrite: the part ends, said, with nothing to press, and no build is filed", async () => {
-  await withPlatform({ slug: slugOf("big"), pages: BIG, replies: true, answers: { route: [{ intent: "edit", layer: "text" }] } }, async (P) => {
+  // ⚠ RE-ANCHORED 2026-10-24 (auto-split): the part splits itself up to
+  // SPLIT_MAX times (routed again each time) before it ends too big.
+  const TEXT = { intent: "edit", layer: "text" };
+  await withPlatform({ slug: slugOf("big"), pages: BIG, replies: true, answers: { route: [TEXT, TEXT, TEXT] } }, async (P) => {
     buildable(P);
     const r = await sendMessage(P, { message: "Reword every line to sound warmer." });
     const { rec } = await settle(P, r.key);

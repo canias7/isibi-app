@@ -251,11 +251,12 @@ async function dataEdit(slug, db) {
 test("COL 4 — THE DATA STEP: the data model is never shown a column the list's table does not have, however the stored schema declares it; with the column in the table, it is", async () => {
   const SPEC = { tables: [{ name: "loaves", access: "display", columns: [{ name: "name", type: "text" }, { name: "description", type: "text" }, { name: "price", type: "numeric" }, { name: "photo", type: "text" }, { name: "allergen_notes", type: "text" }] }] };
   const lacking = await dataEdit("col4-lacking", rowsDb({ tables: { loaves: { columns: LOAF_COLUMNS, rows: BAKERY_LOAVES } }, meta: { schema: JSON.stringify(SPEC) } }));
-  assert.equal(lacking.asked.length, 1, "the data model was not asked exactly once — the observer is dead");
+  // ITS ANSWER MATCHES NO ROW, SO IT IS ASKED ONCE MORE WITH THAT REASON (2026-10-24).
+  assert.equal(lacking.asked.length, 2, "the data model was not asked once plus its one retry — the observer is dead");
   assert.ok(/Dark Rye/.test(lacking.asked[0]), "the data model was not shown the list");
   assert.ok(!/allergen_notes/.test(lacking.asked[0]), "the data model was offered a column the table does not have");
   const having = await dataEdit("col4-having", rowsDb({ tables: { loaves: { columns: [...LOAF_COLUMNS, { name: "allergen_notes", type: "text" }], rows: BAKERY_LOAVES } }, meta: { schema: JSON.stringify(SPEC) } }));
-  assert.equal(having.asked.length, 1);
+  assert.equal(having.asked.length, 2);
   assert.ok(/allergen_notes/.test(having.asked[0]), "control: a column the table has was not shown");
 });
 

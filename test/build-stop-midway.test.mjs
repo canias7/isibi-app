@@ -69,7 +69,7 @@ async function driveQueued({ cancelFrom = Infinity, reverse = null } = {}) {
       const tool = (b.tool_choice && b.tool_choice.name) || "";
       seen.tools.push(tool);
       if (tool === "design_schema") return json({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "t1", name: "design_schema", input: GOOD_DESIGN }], usage: { input_tokens: 100, output_tokens: 50 } });
-      return new Response("stop here", { status: 503 });
+      return new Response("stop here", { status: 400 });
     }
     if (isDispatchUpload(url)) return dispatchOk();
     if (url.includes("/rest/v1/")) return json([]);

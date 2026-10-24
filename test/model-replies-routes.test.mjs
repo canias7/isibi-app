@@ -513,7 +513,7 @@ test("A STEP'S QUESTION BESIDE WORK DONE: the reply says what was done and leads
         { fields: ["shape"], scopes: [{ part: "shape", page: "/visit", words: MOVE_WORDS }] },
       ],
       "lane:description": NEW_DESC,
-      [T.tweak]: [{ source: "", question: Q2 }, { source: VISIT_MOVED }],
+      [T.tweak]: [{ source: "", question: Q2 }, { source: "", question: Q2 }, { source: VISIT_MOVED }] /* asks even when told it cannot, after the charge (2026-10-24) */,
       route: { intent: "edit", layer: "look", answered: true },
       [W]: writer(replies),
     }, async (seen) => {

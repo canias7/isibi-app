@@ -459,7 +459,9 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   // A PROVIDER REPLY AS GIVEN (`{ __raw }`, 2026-10-11, the unusable-answer
   // round): a case may answer with the provider's own shape — a reply cut off
   // at `max_tokens`, say — instead of a tool call made for it.
-  const say = (tool, input, usage = null) => (input && typeof input === "object" && Object.hasOwn(input, "__raw")
+  // A PROVIDER'S OWN FAILURE AS GIVEN (a `Response`, 2026-10-24, the provider
+  // retry): a case may answer a call with the provider's 503 or 429 itself.
+  const say = (tool, input, usage = null) => (input instanceof Response ? input : input && typeof input === "object" && Object.hasOwn(input, "__raw")
     ? resp({ usage: usage || { input_tokens: 10, output_tokens: 5 }, ...input.__raw })
     : resp({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input }], usage: usage || { input_tokens: 10, output_tokens: 5 } }));
   async function model(args, signal = null) {
@@ -530,23 +532,23 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     // cost what it likes — the money is priced from it — to show the ledger,
     // not an estimate, is what bounds a charge.
     const priced = () => (typeof usageFor === "function" ? usageFor(tool, args) : null);
-    if (tool === T.route) { const a = await answerFor("route", args); return a ? say(tool, a, priced()) : new Response("no stub for this routing call", { status: 503 }); }
+    if (tool === T.route) { const a = await answerFor("route", args); return a ? say(tool, a, priced()) : new Response("no stub for this routing call", { status: 400 }); }
     if (tool === T.lane) {
       const field = Object.keys(props)[0] || "";
-      if (!Object.hasOwn(answers, "lane:" + field)) return new Response("no stub for lane " + field, { status: 503 });
+      if (!Object.hasOwn(answers, "lane:" + field)) return new Response("no stub for lane " + field, { status: 400 });
       const a = answers["lane:" + field];
       const v = typeof a === "function" ? await a(args, nextN("lane:" + field)) : a;
       return say(tool, v && typeof v === "object" && ((Object.hasOwn(v, "question") && Object.keys(v).length === 1) || Object.hasOwn(v, "__raw")) ? v : { [field]: v });
     }
     if (tool === T.design) {
       const kind = Object.keys(props).find((k) => k !== "requirements" && k !== "question") || "";
-      if (!Object.hasOwn(answers, "add:" + kind)) return new Response("no stub for the " + kind + " designer", { status: 503 });
+      if (!Object.hasOwn(answers, "add:" + kind)) return new Response("no stub for the " + kind + " designer", { status: 400 });
       const a = answers["add:" + kind];
       // PRICED TOO (2026-10-13, correction reuse): a designer's call costs what
       // `usageFor` says, as every other call does; nothing changes without it.
       return say(tool, typeof a === "function" ? await a(args, nextN("add:" + kind)) : a, priced());
     }
-    if (!Object.hasOwn(answers, tool)) return new Response("no stub for tool " + tool, { status: 503 });
+    if (!Object.hasOwn(answers, tool)) return new Response("no stub for tool " + tool, { status: 400 });
     // THE TWEAK ANSWERS WITH EXACT EDITS (idea #18): a whole-file answer is turned into them.
     if (tool === "write_tweak") return say(tool, tweakInput(await answerFor(tool, args), args), priced());
     return say(tool, await answerFor(tool, args), priced());
@@ -571,7 +573,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     try { args = JSON.parse(String((init && init.body) || "{}")); } catch { args = {}; }
     // A TABLE READ THAT FAILS (`failRest`, 2026-10-18): Supabase answering 503
     // to every request `match(url, method)` accepts, for as long as it does.
-    if (url.includes("/rest/v1/") && restFaults.some((m) => m(url, method))) return new Response("unavailable", { status: 503 });
+    if (url.includes("/rest/v1/") && restFaults.some((m) => m(url, method))) return new Response("no stub (test fixture)", { status: 400 });
     if (images && url.startsWith("https://fal.run/")) {
       const entry = { prompt: String(args.prompt || ""), at: now() };
       imageLog.push(entry);
@@ -1003,7 +1005,7 @@ export function heldFor(ms, signal) {
 }
 
 /** The routing call as the browser makes it, with the message's key (`idem`). */
-export async function sendMessage(P, { message, key = newKey(), images, ask, attached, tz = "Europe/London", recent, picker = "sonnet", site } = {}) {
+export async function sendMessage(P, { message, key = newKey(), images, ask, attached, tz = "Europe/London", recent, picker = "sonnet", site, split } = {}) {
   const worker = await loadWorker();
   return P.run(async () => {
     const ctx = makeCtx();
@@ -1011,6 +1013,8 @@ export async function sendMessage(P, { message, key = newKey(), images, ask, att
       message, site: site || { name: "Harbour Loaf", url: "https://" + P.slug + ".gofarther.app", pages: ROUTES, tables: [] },
       picker, firstBuild: false, brief: message, qa: [], answering: !!ask, attached: attached === undefined ? !!(images && images.length) : attached,
       slug: P.slug, hasSite: true, idem: key, tz, ...(recent ? { recent } : {}), ...(images ? { images } : {}), ...(ask ? { ask } : {}),
+      // A STANDALONE EDIT SENT AGAIN TO SPLIT ITSELF (2026-10-24), as the page sends it.
+      ...(split ? { split } : {}),
     };
     const go = (async () => {
       const res = await worker.fetch(new Request("https://gofarther.dev/api/site/route", {

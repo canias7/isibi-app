@@ -99,7 +99,7 @@ async function drive({ mode = "sync", ask, pick, lane = null, off = null, setup 
       if (tool === PICK) return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: pick }], usage });
       if (tool === "take_off") {
         seen.offReq.push(args);
-        if (off === null) return new Response("no stub for tool take_off", { status: 503 });
+        if (off === null) return new Response("no stub for tool take_off", { status: 400 });
         const said = typeof off === "function" ? off(args) : off;
         // ITS OWN USAGE, so the bill can be read for this call by name.
         return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: Array.isArray(said) ? { targets: said } : said }], usage: OFF_USAGE });
@@ -110,11 +110,11 @@ async function drive({ mode = "sync", ask, pick, lane = null, off = null, setup 
       }
       // THE PUBLISH TRANSLATES THE EXTRA LANGUAGES; answered empty, so a
       // language left out of the stored list is visible as one never asked for.
-      if (tool === "write_translation") return new Response("translation not under test", { status: 503 });
-      return new Response("no stub for tool " + tool, { status: 503 });
+      if (tool === "write_translation") return new Response("translation not under test", { status: 400 });
+      return new Response("no stub for tool " + tool, { status: 400 });
     }
     if (isDispatchUpload(u)) return dispatchOk();
-    return new Response("unavailable", { status: 503 });
+    return new Response("no stub (test fixture)", { status: 400 });
   };
   const c = installCompiler();
   try {

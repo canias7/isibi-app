@@ -1,5 +1,70 @@
 # Owner Notes
 
+## 2026-10-24 — combine-e: today's five branches on one candidate (branch `combine-e`, not merged, not deployed)
+
+- Together on one branch: waiting out a model outage, one retry with the reason, a too-big change splitting itself, no questions after a charge, and Grok 4.7.
+- One real overlap was fixed by hand: the page writer's retry now also follows the no-questions-after-a-charge rule.
+- Full suite: 12,720 tests. 12,715 pass, 2 fail because of this machine only, 3 skipped. The site image will be rebuilt. Nothing spent. Record: `docs/history/2026-10-24-combine-e.md`.
+
+## 2026-10-24 — waiting for a model that is down, re-landed on today's main (branch `provider-retry-2`, not merged, not deployed)
+
+- This is the provider-retry work that combine-d had to take out, put back on top of main and repaired.
+- About 45 tests broke because their stand-ins said "provider down" (503) for anything they had no answer for. They now say "no answer here" (400). Nothing in the product was changed just to make a test pass.
+- A first build made while you wait (not as a job) still gets its one quick retry when Claude is busy, as before. It never fails faster than it used to.
+- Routing while the model is down now answers "waiting", as you designed. The reason is still recorded.
+- The notice quotes the provider's own words, but a key, password or connection string in them is now replaced by "[hidden]".
+- Your "⚠" and "✓" notice texts are kept exactly as you wrote them. The no-emoji check still applies to everything the AI writes.
+- Still true: the site stays reserved while a job waits (that needs a database change, not written).
+- Full suite 12,644: 12,639 pass, 2 environment-only failures, 3 skipped. The site image will be rebuilt. Nothing spent. Record: `docs/history/2026-10-24-provider-retry.md` §5.
+
+## 2026-10-24 — no whole task ends without one retry; a refused step costs no more than before (branch `retry-with-reason-2`, not merged, not deployed)
+
+- Now asked once more, same model and effort, with the reason: a look change where every part answered "no change"; the page writer sending the page back unchanged or not at all; the look picker's answer that could not be placed (words not yours, a page that is not a page, a new thing mixed with other work); the add-on writer losing words, leaving out what was promised, or returning nothing; an add-on designer that designed nothing; the requirements check cut off; a build with no usable page or no home page.
+- Cost: a step still refused after its retry is charged as before, its first call only (the menu and picture refusals are back to 2, not 3). A retry that works is billed for both calls.
+- Found on the way: on Grok (the default) the retry never carried the answer or the reason; it does now.
+- Still without a retry: provider outages and account errors (provider-retry), honest declines, impossible requests, one small part of a bigger change left out, and the QR part of a look change. The list is in the record.
+- Tests: 33 new; every fix case red on the first branch. Sweep 24 of 24 caught, control survived. Full suite 12,672: 12,667 pass, 2 environment failures, 3 skipped. Site image rebuilt (2d440bd194450245 → 63ac477324969a39). Nothing spent. Record: `docs/history/2026-10-24-retry-with-reason.md`, "Round 2".
+
+## 2026-10-24 — a failed AI answer is retried once with the reason, same model and effort (branch `retry-with-reason`, not merged, not deployed)
+
+- When an AI answer fails one of our exact checks, the same request now goes once more. The retry carries the AI's own answer and the reason in plain words. It runs on the same model at the same effort, as you chose.
+- Covered:
+  - the quick page change: it did not apply, changed nothing, cut the file, broke the code, moved the page, reworded the text, or touched a component;
+  - the router quoting a "later" part that is not in the message;
+  - the look picker naming no part;
+  - the menu step naming nothing usable, or nothing new;
+  - a data, rules or picture answer that matched nothing;
+  - a look part that answered nothing readable.
+- A second miss ends as it does today. Your rule is recorded: a task never fails completely without at least one retry (outages, account errors and impossible requests excluded).
+- Cost: the retry goes on the same bill. A refused picture or menu step beside work that shipped now costs 3 instead of 2.
+- Still without a retry (listed in the record): the look "no change", page-writer "no change", add-on "not landed" and "rewrote", the add-on judge and "declined", and the build's design and pages.
+- Tests: 16 new, 10 of 13 original cases red on main. Sweep 15 of 15 caught, control survived. Full suite 12,640: 12,634 pass, 3 fail (environment, a timing flake that passes alone, and the new file that was not yet committed during the run), 3 skipped. Site image rebuilt (2d440bd194450245 → fa5a328a6849668f, 235 → 236 inputs). Nothing spent. Record: `docs/history/2026-10-24-retry-with-reason.md`.
+
+## 2026-10-24 — a change too big for the quick steps now splits itself and carries on (branch `auto-split-edits`, not merged, not deployed)
+
+- Before: a change too big for the quicker steps stopped and asked you to "send it as smaller changes". Now it re-plans itself: the router is told why the step could not do it and splits it into parts, and those parts run in the panel like any others. You never resend.
+- A single change sent on its own (not part of a longer request) is sent again by the page with the same reason and becomes a request with parts.
+- Guard: a part that comes back too big again may split once more; after that it stops and says why. Changes that smaller parts cannot fix (a change of what kind of site it is, a site without its saved design) stop as before. The full rewrite is never offered.
+- Money: nothing done is redone; the re-planning call on a request is free, as is the routing of the parts it makes; each part's own work is charged as usual. One gap for your decision: on a single change sent on its own, the page's second routing call is charged as an ordinary message (1–2 credits).
+- Tests: 8 new with supplied answers; 7 fail on main (the 8th is a control). Record: `docs/history/2026-10-24-auto-split-edits.md`.
+- Also closed the gap left by "no questions after a charge": once any earlier part of a request has been charged, every later part (split parts included) asks you nothing and goes ahead with a stated default. This branch now includes `no-ask-after-charge`, so the two must be combined together.
+
+## 2026-10-24 — no questions after a charge (branch `no-ask-after-charge`, not merged, not deployed)
+
+- **Questions are asked only before anything is charged.** The router, the build's design and page questions, and the first step of an edit or add-on still ask as before. Once credits have been reserved or taken for a request, every AI step after that is not offered a question. It picks a sensible default from the site and your message, and the reply says what it used and that you can ask for the other choice.
+- **The case from the data is fixed.** An addition with a database (a table shown on a page) reserves its credits before the page writer runs. That writer can no longer stop to ask about layout: it goes ahead, and the reply says "it used …".
+- **If an AI asks anyway**, it is told once that it can't and which of its own choices to use. If it still asks, the step ends in the question and is not charged (the job is refunded, as before).
+- **Questions may no longer ask for what the site or your words already say or imply**: where a link or button should go, how something should be worded, how it should look.
+- **One open edge**: a request split into separate jobs (parts) does not carry the "already charged" mark from one part's job to the next.
+- **Tests**: 17 new cases through the real edit and add-on routes with supplied answers. 8 of them fail on main, and the other 8 are controls that pass there. 12 older cases written to the old rule were updated. Sweep: 21 of 21 caught, and the comment-only control survived. Full suite: 12,641 run, 2 environment-only failures, and 3 old-rule cases fixed afterwards. The site image will be rebuilt. Nothing was spent. Record: `docs/history/2026-10-24-no-ask-after-charge.md`.
+
+## 2026-10-24 — the builder now uses Grok 4.7 (branch `grok-4-7`, not merged, not deployed)
+
+- The Grok choice now calls `grok-4.7` instead of `grok-4.6` for design, pages and every small call (router, lanes, replies). The picker's menu says "Grok 4.7".
+- Checked on xAI's own docs (docs.x.ai, 2026-10-24): same prices as 4.6 ($2 in, $0.50 cached, $6 out per million), the same 500,000-token limit, and the same thinking settings (low / medium / high / xhigh, default high).
+- Grok 4.6 stays in the price and size tables, so old ledger rows and stored jobs still price correctly. A saved "Grok" choice moves to 4.7 by itself (it is stored as "grok", not the version).
+- Nothing spent. Record: `docs/history/2026-10-24-grok-4-7.md`.
+
 ## 2026-10-24 — combine-d: thirteen finished branches in one candidate (not merged, not deployed)
 
 - Combined from `main` (692087cde): reply bubble, progress voice, per-device builds, stand-ins and refunds, first-build database and limits, no add-on caps, "tasks" label, build panel Stop, edit file picker, rebuild scope, build questions, request needs, visual review, and two docs branches.

@@ -145,9 +145,46 @@ export function toXaiRequest(req) {
   if (sys) messages.push({ role: "system", content: sys });
 
   let droppedDocs = 0;
+  // THE ASSISTANT'S OWN TOOL CALL AND THE TOOL'S ANSWER (round 2 of the retry
+  // rule, 2026-10-24): a retry with the check's reason (`retryRequest`) is the
+  // first request, the model's previous answer (an assistant `tool_use`) and an
+  // `is_error` `tool_result` carrying the reason. Both used to be DROPPED here
+  // (`contentPart` knows text and images only), so on Grok the retry went out
+  // as the first request again, with neither the answer nor the reason. Now an
+  // assistant `tool_use` is a `tool_calls` entry and each `tool_result` a
+  // `tool` message answering it, ids paired in order when the answer had none
+  // (`fromXaiResponse` keeps no id).
+  let pending = [];
+  let callN = 0;
   for (const m of Array.isArray(r.messages) ? r.messages : []) {
     if (!m || typeof m !== "object") continue;
     if (typeof m.content === "string") { messages.push({ role: m.role || "user", content: m.content }); continue; }
+    const blocks = Array.isArray(m.content) ? m.content : [];
+    if (m.role === "assistant" && blocks.some((b) => b && b.type === "tool_use")) {
+      const text = blocks.filter((b) => b && b.type === "text").map((b) => String(b.text || "")).join("\n");
+      pending = [];
+      const calls = blocks.filter((b) => b && b.type === "tool_use").map((b) => {
+        const id = (typeof b.id === "string" && b.id && b.id !== "tool") ? b.id : "call_" + (++callN);
+        pending.push({ id, own: b.id });
+        return { id, type: "function", function: { name: String(b.name || ""), arguments: JSON.stringify(b.input && typeof b.input === "object" ? b.input : {}) } };
+      });
+      messages.push({ role: "assistant", content: text || null, tool_calls: calls });
+      continue;
+    }
+    if (blocks.some((b) => b && b.type === "tool_result")) {
+      const left = pending.slice();
+      for (const b of blocks) {
+        if (!b || b.type !== "tool_result") continue;
+        const at = left.findIndex((x) => x.own === b.tool_use_id && x.own !== "tool");
+        const hit = at >= 0 ? left.splice(at, 1)[0] : left.shift();
+        const said = typeof b.content === "string" ? b.content : (Array.isArray(b.content) ? b.content.map((c) => (c && c.text) || "").join("\n") : "");
+        messages.push({ role: "tool", tool_call_id: hit ? hit.id : String(b.tool_use_id || "call"), content: said });
+      }
+      pending = [];
+      const rest = blocks.filter((b) => b && b.type !== "tool_result").map(contentPart).filter(Boolean);
+      if (rest.length) messages.push({ role: m.role || "user", content: rest.every((p) => p.type === "text") ? rest.map((p) => p.text).join("\n") : rest });
+      continue;
+    }
     const parts = [];
     for (const b of Array.isArray(m.content) ? m.content : []) {
       const p = contentPart(b);
@@ -172,8 +209,8 @@ export function toXaiRequest(req) {
 
   const body = { model: r.model, messages, max_tokens: r.max_tokens };
   if (tools.length) body.tools = tools;
-  // HOW HARD IT THINKS (2026-10-19, owner: "set the talking to low"): grok-4.6
-  // takes low / medium / high (its default) / xhigh. Only a call that names one
+  // HOW HARD IT THINKS (2026-10-19, owner: "set the talking to low"): grok-4.7
+  // (like 4.6, docs.x.ai 2026-10-24) takes low / medium / high (its default) / xhigh. Only a call that names one
   // carries it; every other call keeps the model's default.
   if (XAI_EFFORTS.includes(r.effort)) body.reasoning_effort = r.effort;
   // A FORCED TOOL STAYS FORCED. Every builder call uses `tool_choice` to compel

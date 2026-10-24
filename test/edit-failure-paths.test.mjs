@@ -176,10 +176,10 @@ async function drive({ mode = "sync", routed, ask, pick = null, lanes = null, na
         if (navThrows) throw navThrows;
         if (nav !== undefined) return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: nav }], usage: { input_tokens: 800, output_tokens: 90 } });
       }
-      return new Response("no stub for tool " + tool, { status: 503 });
+      return new Response("no stub for tool " + tool, { status: 400 });
     }
     if (isDispatchUpload(u)) return dispatchOk();
-    return new Response("unavailable", { status: 503 });
+    return new Response("no stub (test fixture)", { status: 400 });
   };
   // THE CLOCK, moved forward after the first build when a case asks: the job's
   // budget reads `Date.now`, so this is how "not enough time left" is reached.
@@ -1120,7 +1120,8 @@ for (const mode of ["sync", "job"]) {
     const r = await drive({ mode, routed: { layer: "nav" }, ask: MENU_ASK, nav: {} });
     assert.equal(r.status, 422, JSON.stringify(r.reply));
     assert.equal(r.reply.error, "no-menu", "not the menu rung's refusal: " + JSON.stringify(r.reply));
-    assert.deepEqual(r.models, [T.nav], "the menu rung's model call did not run");
+    // ASKED ONCE MORE WITH THE no-menu REASON (2026-10-24) before the refusal.
+    assert.deepEqual(r.models, [T.nav, T.nav], "the menu rung's model call and its one retry did not run");
     assert.equal(r.builds.length, 0, "a refusal built something");
     if (mode === "job") {
       // RESERVED, THEN GIVEN BACK BY THE CONSUMER — and the reply the browser
@@ -1180,7 +1181,7 @@ async function poll(row) {
     if (u.includes("/rest/v1/rpc/edit_get")) return json({ ok: true, job: id, slug: "fail-poll", phase: null, needs_review: false, ms: 1000, ...row });
     if (u.includes("/auth/v1/user")) return json(USER);
     if (u.includes("/rest/v1/site_backends")) return json([{ uid: USER.id, brief: "", neon_db: "" }]);
-    return new Response("unavailable", { status: 503 });
+    return new Response("no stub (test fixture)", { status: 400 });
   };
   try {
     const worker = await loadWorker();

@@ -259,7 +259,10 @@ test("THE MODULE NEEDS NO WORKER — it imports no binding and reaches for no en
   // three modules at the repo ROOT — and the container's build context is
   // `builder/`, so `COPY ../site-access.mjs` is not something Docker permits.
   // One import back into that graph and this module stops being packageable.
-  assert.deepEqual((src.match(/from "[^"]+"/g) || []).sort(), [`from "./model-xai.mjs"`],
+  // RE-ANCHORED 2026-10-24 (provider-retry re-landed): `provider-retry.mjs` is a
+  // leaf too (no imports, no I/O, no clock), copied beside this one in both
+  // Dockerfile COPY lines, so the module stays packageable.
+  assert.deepEqual((src.match(/from "[^"]+"/g) || []).sort(), [`from "./model-xai.mjs"`, `from "./provider-retry.mjs"`],
     "build-call.mjs grew an import — it must stay a leaf the container can package");
   // And its own imports are all plain modules, reachable from Node.
   for (const m of src.match(/from "([^"]+)"/g) || []) {

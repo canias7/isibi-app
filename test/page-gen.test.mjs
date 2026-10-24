@@ -4582,7 +4582,10 @@ test("both partial lanes hand validate the stored site's routes", () => {
   // rewritten rather than published dangling. It carries the same two things
   // for the same reason, which is why it belongs in this census rather than
   // beside it as an exemption.
-  assert.equal(wins.length, 3, "expected the two partial lanes plus the addon's withholding repair, found " + wins.length);
+  // THE FOURTH (2026-10-24, round 2 of the retry rule): the add-on writer's
+  // answer read ahead of the merge (`aWriterCheck`), so an answer that would end
+  // `rewrote` or `not-landed` is asked once more — same two things, same reason.
+  assert.equal(wins.length, 4, "expected the two partial lanes, the addon's withholding repair and its retry check, found " + wins.length);
   for (const c of wins) {
     assert.match(c, /knownRoutes:/, "a partial lane calls validate without the site's own routes:\n" + c.slice(0, 200));
     assert.match(c, /routeOf\(/, "knownRoutes is not derived from the stored pages:\n" + c.slice(0, 200));
