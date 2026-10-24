@@ -128,3 +128,24 @@ re-pinned `addon-route` case (20 pictures asked for, 20 kept, none over-cap).
 stored photographs the add-on designer is shown in its prompt (a prompt-size
 bound), so it is kept. **Combining with `addon-uncapped` needs its remaining
 photo over-cap removed** (it reported `IMAGE_CAP` 6 as the only one left).
+
+## Image prediction
+
+- SiteBuildContainer: `main` (`692087cde`) `0bae00a7003bcc23` (231 inputs) →
+  `first-build-uncapped` `546840dd0f2d1562` → this branch (`33560bac5`)
+  `e998ff45a3262363` (232 inputs, 200 paths; `builder/first-build-db.mjs`
+  added). **The site image rolls.** AppBuildContainer `65022ce71e3d7274` stays.
+- The image-inputs case passes once the new file is committed (38 of 38 in
+  `dockerfile` and `container-images`).
+
+## Time and cost
+
+- A first build whose design names storage features makes one more design
+  call (the backend tool, ~7,250 tokens of cached schema plus the answer):
+  roughly 2 to 6 credits and 20 to 60 seconds, plus Neon provisioning and the
+  schema (the measured 180 + 447 ms marks of earlier builds with a database).
+  A brochure site: unchanged.
+- Photographs: about 19 credits each at today's price, so 20 photographs cost
+  about 380 credits and take about 3 waves of 8; still bounded by the balance
+  and the clock. More repairs and all translated strings cost per call, as
+  before. Not measured live.
