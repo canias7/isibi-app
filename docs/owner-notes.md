@@ -1,5 +1,11 @@
 # Owner Notes
 
+## 2026-10-24 — combine-e: today's five branches on one candidate (branch `combine-e`, not merged, not deployed)
+
+- Together on one branch: waiting out a model outage, one retry with the reason, a too-big change splitting itself, no questions after a charge, and Grok 4.7.
+- One real overlap was fixed by hand: the page writer's retry now also follows the no-questions-after-a-charge rule.
+- Full suite: 12,720 tests. 12,715 pass, 2 fail because of this machine only, 3 skipped. The site image will be rebuilt. Nothing spent. Record: `docs/history/2026-10-24-combine-e.md`.
+
 ## 2026-10-24 — waiting for a model that is down, re-landed on today's main (branch `provider-retry-2`, not merged, not deployed)
 
 - This is the provider-retry work that combine-d had to take out, put back on top of main and repaired.

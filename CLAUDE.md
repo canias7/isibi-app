@@ -34,6 +34,7 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 
 ## Where things stand (2026-09-30)
 
+- **2026-10-24: deploy 2266 (`692087cde`, combine-c, canary 40053450252) and deploy 2267 (`1b16aaba0`, combine-d, canary 40102642196) are on `main`, both runtime-confirmed.** Candidate `combine-e` (provider wait, retry with reason, auto-split, no-ask after charge, grok-4.7) is not merged: `docs/history/2026-10-24-combine-e.md`.
 - **2026-10-23, 23:11 UTC: `main` is `6b980ae15` (deploy 2265, green; runtime-confirmed by canary run 40039829521).** The evening batch: `docs/history/2026-10-23-combine-b.md`. Next: compile repair everywhere, progress voice, background work (branches).
 - **2026-10-23, 18:12 UTC: `main` is `923d278c1` (deploy 2264, green; image `145239c1c143183b`, as predicted; runtime-confirmed by canary run 40004528546).** The owner's decisions batch (`docs/history/2026-10-23-decide-all.md`). `build_debit` applied to Supabase. Owed: `supabase/proposed/notify_missed.sql` (asks first). The bullet below is the earlier deploy.
 - **2026-10-23, 13:40 UTC: `main` is `091f153e1` (deploy 2263, green; deployed, not runtime-confirmed)**: audit findings 201–264 (round 2, the end of the audit list); `docs/history/2026-10-23-r2-*.md`. Every finding 1–264 is now fixed, confirmed already fixed, parked, or waiting on an owner decision listed in the records.
