@@ -293,8 +293,11 @@ export const ADD_DESIGN_RULE =
  * such split. Many pages are written by parallel page writers, `ADD_PAGE_BATCH`
  * new pages each (`foldAdds`' `batchDirectives`), so the job's 50-minute
  * deadline is spent in parallel, not in one ever-longer call. The one count
- * that remains is the PHOTOGRAPHS BOUGHT (`IMAGE_CAP`, site-images.mjs, the
- * platform's purchase ceiling shared with the build); it is still named.
+ * that remained was the PHOTOGRAPHS BOUGHT (`IMAGE_CAP`, site-images.mjs, the
+ * platform's purchase ceiling shared with the build); since first-build-db-limits
+ * (combined 2026-10-24, combine-d) it is `Infinity` too, so no add-on kind has
+ * a count cap. Purchases stay bounded by `IMAGE_PURCHASES`, the balance and the
+ * clock, as the build's are.
  */
 export const UNCAPPED = Infinity;
 export const MAX_ADDS = UNCAPPED;
@@ -4188,10 +4191,10 @@ export function cleanAdd(kind, value, site) {
     // for everything asked for; this keeps what a site can hold and names
     // every entry past it.
     // NO ADD-ON LIMITS (owner, 2026-10-24): every list kind keeps every
-    // usable entry. THE ONE CEILING LEFT IS THE PHOTOGRAPHS BOUGHT, the
-    // platform's own (`planImages` and the design step slice at `IMAGE_CAP`),
-    // so a wider cap here would clean an entry nothing downstream will buy;
-    // it is still named, never silent.
+    // usable entry. THE PHOTOGRAPHS BOUGHT read the platform's own ceiling
+    // (`IMAGE_CAP`, which `planImages` and the design step slice at), which is
+    // `Infinity` since first-build-db-limits (combine-d, 2026-10-24): no
+    // photo is over a cap either. Kept as a read so the two cannot drift.
     const cap = kind === "photo" ? IMAGE_CAP : UNCAPPED;
     const raw = Array.isArray(value) ? value : (isObj(value) ? [value] : []);
     const usable = raw.filter(isObj);
