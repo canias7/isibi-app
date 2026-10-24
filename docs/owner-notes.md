@@ -1,5 +1,15 @@
 # Owner Notes
 
+## 2026-10-24 — Per-device edits, your design (branch `device-scope`, not merged, not deployed; NOT proven live)
+
+- **One site, three sizes.** A change can now be for the phone, the tablet, the desktop, or any mix; with no size named it is for all three, as before. Phone is below 768px, tablet 768–1023px, desktop 1024px and up: the kit's own Tailwind breakpoints, and the preview's buttons fall inside them.
+- **The router decides from the words.** It gets a "devices" choice; the screen you are previewing on is sent as a hint only, and it can ask a normal question when it matters and the words don't say. No keyword rules.
+- **The lanes are told.** The style lane and the page writer get one short line: the change is for that size only, made in the same page with responsive rules, and the other sizes must look exactly as they do now.
+- **The code checks.** Every publish now measures each page at 375, 860 and 1280px wide (what a visitor sees: every visible thing's position, size and colours) and keeps it. A change for some sizes is compared with the last measurement; if another size moved, or can't be compared, nothing is published, the style it wrote is put back and a job is refunded, through the same refusal path a broken stylesheet takes. Pixels were not used (two renders differ for reasons that aren't the change), and neither was a raw page-structure diff (a harmless wrapper would trip it).
+- **After it lands**, the preview switches to the size that changed, and the reply's facts say which sizes changed and that the others were checked.
+- **Limits**: a site's first per-size change is refused until one ordinary edit has stored its measurement (builds don't store one yet); no automatic second try after a refusal; a page whose content changes on its own (a clock) would read as changed.
+- Tests: 20 new cases (through the real routing and edit routes with supplied answers, plus the measurement in a real Chromium), 11 of them red on main; sweep 33 of 33 killed, the comment-only control survived; full suite 12,478 with one environment-only failure. Merging rolls the site build container (`0bae00a7003bcc23` → `c296cdfafd62d5d3`), so it needs your specific go-ahead and a ~20-minute wait for builds. Paid tests proposed in the record (about 3–4 credits each). Nothing spent. Record: `docs/history/2026-10-24-device-scope.md`.
+
 ## 2026-10-24 — combine C: six finished branches in one candidate (branch `combine-c`, not merged, not deployed)
 
 - Brings together compile repair everywhere, the exact-edits tweak, the progress voice, the next-step hint, background work and the file picker (plus the 503 notes).

@@ -3162,6 +3162,11 @@ the root config files, a guard test, clean what existing sites show; step 2
 
 ## Different edits per device (owner, 2026-10-22: "note that for later")
 
+**BUILT 2026-10-24 on branch `device-scope` (not merged, not deployed; NOT
+proven live)** to the owner's design of that day: `docs/history/2026-10-24-device-scope.md`.
+Open: the paid tests in its §7; a site's first scoped change is refused until
+one ordinary edit has stored its layout; builds store none; no redo round.
+
 "Smaller on phones only". Missing: device never sent with edits; router has
 no device field; lanes not told to scope by @media/md:/lg:; no check the other
 devices are unchanged; preview doesn't switch. Plan: one breakpoint map

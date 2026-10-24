@@ -113,7 +113,7 @@ with any unknown device is refused.
 
 ## 4. Tests
 
-`test/device-scope.test.mjs`, 18 cases: the map against the kit, the render
+`test/device-scope.test.mjs`, 20 cases: the map against the kit, the render
 check and the preview's stylesheet; the reader; the comparison (pass, refuse,
 count, unknown, unscoped); two real-Chromium probe cases; through the real
 `POST /api/site/route` with supplied router answers (the field and the hint in
@@ -125,7 +125,8 @@ layout stored; desktop also moved refused as a job with the stylesheet put
 back, the layout kept, nothing committed or billed; no stored before refused
 as unknown; unscoped and all-three untold and unchecked); the page's two wires
 and the real hand-over; `siteDeviceShow` in a VM; a server-finished request's
-job body. The compiler fixture (`test/fixtures/cf-containers.mjs`) gained an
+job body; the render check's real capture at three widths on a static page
+in Chromium, and the build service's two wires. The compiler fixture (`test/fixtures/cf-containers.mjs`) gained an
 optional `layout` answer.
 
 Numbers are in §6.
@@ -136,8 +137,8 @@ Numbers are in §6.
   the container; no real lane has written a scoped rule. All shown with
   supplied answers and a static page in Chromium.
 - **The first scoped change on an existing site is refused** (no stored
-  "before"): every publish from this deploy on stores one, so after any one
-  ordinary edit (or build... see below) it works. The refusal says the other
+  "before"): every edit publish from this deploy on stores one, so after any
+  one ordinary edit it works. The refusal says the other
   view "couldn't be compared". Builds do not go through `recompileAndPublish`,
   so a site built and never edited has no layout yet.
 - A page whose content changes between renders on its own (a clock, "open
@@ -160,4 +161,51 @@ Numbers are in §6.
 
 ## 6. Readings
 
-(see the commit and the owner-notes entry for the measured numbers)
+- **Base**: rebased onto `origin/main` `692087cde` (Combine C) during the work;
+  the branch is one code commit plus this record.
+- **Existing guards updated for the new field** (each a deliberate re-anchor,
+  dated in place): `site-apply` (the routing answer's code bound 2,600 → 2,800
+  for `devices`), `canary-probes` (a probe has no preview, so `device` is not a
+  field it must post; the browser's sending it is asserted), `route-decision`
+  (a case reaches `devices-unread`).
+- **Red check** against `origin/main` (an archive copy): the test file fails
+  to load (no `builder/device-scope.mjs`); with the module copied in, 11 of 20
+  cases fail (every route, page, request, render-check and service case) and
+  the 9 module-only cases pass.
+- **Sweep**: 33 mutants over `device-scope.mjs`, `site-ask.mjs`, `worker.js`,
+  `site-reply.mjs`, `render-check.mjs`, `build-server.mjs`, `chat.js`,
+  `edit-poll.js` and `request.mjs`, each restored from a saved copy: **33 of
+  33 killed**; the comment-only control survived. No commit while it ran.
+- **Full suite** on the rebased head (worktree, `node_modules` linked):
+  `12478 / 12474 / 1 / 3`; the one failure is `no-generated-deps`'s symlink
+  case (the linked `node_modules`, environment only). Before the rebase, on
+  `c89732649`: `12423 / 12412 / 8 / 3`, which found the three re-anchors above,
+  a request record carrying `devices: undefined` (now set only when present),
+  the deferred publish's field order (`charges: eCharges` kept last) and the
+  image test (the new module not yet committed).
+- **Image prediction** (`containerInputs`/`imageId` over the git objects):
+  `origin/main` `692087cde` → `0bae00a7003bcc23` (231 inputs, 199 paths);
+  this branch → `c296cdfafd62d5d3` (233 inputs, 200 paths: `device-scope.mjs`
+  joins both COPY lines; `render-check.mjs`, `build-server.mjs`, `site-ask.mjs`,
+  `site-reply.mjs`, `request.mjs` and `worker.js` changed). **A merge rolls the
+  site build container** (the owner's rule: only with their specific
+  permission, and builds wait ~20 minutes). The app container is unchanged
+  (`65022ce71e3d7274`).
+- **Screenshots** (headless, the real `siteDeviceShow`, icons and
+  `public/styles.css`): `shots-device/1-before-desktop.png` and
+  `shots-device/2-after-phone-edit.png` in the session scratchpad.
+
+## 7. The paid tests to propose (the owner's approval first)
+
+On a fixture site after a merge and a deploy, and after one ordinary edit to
+seed its layout; each about a look edit's cost (routing 2 + css lane 1–2):
+
+1. "Make the headline smaller on phones only" from the desktop preview:
+   expect `devices=["phone"]`, a `max-width: 767px` rule, published, the
+   preview switching to phone, tablet and desktop unchanged.
+2. "On tablets, put the opening hours above the menu": the page rung scoped
+   to tablet.
+3. A message naming no device while previewing on phone: expect no `devices`
+   (all three): the hint does not override the words.
+4. The refusal (another device moved) is shown offline with supplied answers;
+   it needs no paid run.
