@@ -389,7 +389,11 @@ test("the chat is read from the request ONCE, on a first build, through the refu
   // through the refusal only to show the reply writer the suggestions already
   // made there; it decides no site.
   assert.match(w, /\.\.\.\(cleanChatId\(body\.chat\) \? \{ chat: cleanChatId\(body\.chat\) \} : \{\}\)/, "the reply's chat reader is gone or changed");
-  assert.equal(reads.length, 5, "the chat id is read in an unexpected number of places: " + reads.length);
+  // AND A FIFTH (2026-10-24, build-panel-stop): the build Stop route reads the
+  // chat through the refusal only to find the account's own claimed build to
+  // cancel; it decides no site.
+  assert.match(w, /const chat = cleanChatId\(sb\.chat\);/, "the build stop's chat reader is gone or changed");
+  assert.equal(reads.length, 6, "the chat id is read in an unexpected number of places: " + reads.length);
   assert.match(w, /const chatId = firstBuild \? cleanChatId\(body\.chat\) : "";/,
     "the chat is no longer read only on a first build, through the refusal");
   const at = w.indexOf("async function liveBuildStart(");

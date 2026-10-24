@@ -10060,6 +10060,8 @@ function wireSiteComposer(site) {
       // ANOTHER PROJECT'S WORK NO LONGER HOLDS THIS ONE (#138): `siteBusy` is this project's own.
       // A SLASH COMMAND IS NEVER SENT AS A MESSAGE (2026-10-23): run, or held with the menu saying no match.
       if (t && !siteBusy && slashSend(t, ta, site)) return;
+      // A SITE STILL BEING BUILT (2026-10-24): the words stay in the box, and it says so.
+      if (t && siteBusy && site.buildJob && (site.buildJob.state === 'run' || site.buildJob.state === 'stopping')) { if (typeof sbToast === 'function') sbToast('Your site is still being built \u2014 your message stays here. Send it once the build is done.'); return; }
       if (!t || siteBusy) return; ta.value = ''; draft.t = ''; siteSend(t);
     };
     ta.onkeydown = (e) => { if (slashKey(e, ta, site)) return; if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendBtn.onclick(); } };
@@ -10292,6 +10294,9 @@ function setBuildCode(origin, got) {
 }
 /** The build's live lines from its poll (round 5): kept, newest last, repainted only when they changed. */
 function setBuildProgress(origin, lines) {
+  // THE PANEL'S BUILD ROW KEEPS THE LINES TOO (2026-10-24, build-panel-stop),
+  // whichever project is open, so its job view follows the build.
+  if (Array.isArray(lines) && typeof siteBuildJobLines === 'function') siteBuildJobLines(origin, lines);
   if (!siteBuild || siteOpenId !== origin || !Array.isArray(lines)) return false;
   let list = lines.filter((l) => l && typeof l.text === 'string' && l.text && l.writing !== true).slice(-12);
   // THE LINE STILL BEING WRITTEN (2026-10-19), from the live stream, kept last
@@ -12166,11 +12171,88 @@ function siteBgKeep(id) {
   if (!u) return;
   try { sessionStorage.setItem(SITE_BG_KEEP_KEY + id, JSON.stringify({ open: u.open === true, job: u.job || '' })); } catch (e) { /* not kept */ }
 }
+// ── THE FIRST BUILD IN THE PANEL (2026-10-24, build-panel-stop) ──────────
+//
+// A running first build is a row of its own, as a standalone job is: its
+// title is the model's own first line, its job view every line the build
+// writes, and its Stop is the SERVER's (`/api/site/build-stop`: the build's
+// row is marked cancelled, the build stops at its next stage boundary and
+// every debit is reversed), never only this page letting go. Kept on the
+// project (`site.buildJob`), so a reload shows it again; another device finds
+// the build through `/api/site/builds`, which follows it the same way.
+// States: run, stopping, stopped, done, bad.
+function siteBuildJobLines(origin, lines) {
+  const s = typeof siteById === 'function' ? siteById(origin) : null;
+  const b = s && s.buildJob;
+  if (!b || (b.state !== 'run' && b.state !== 'stopping')) return;
+  const list = lines.filter((l) => l && typeof l.text === 'string' && l.text && l.writing !== true).map((l) => ({ text: String(l.text).slice(0, 400) })).slice(-40);
+  if (!list.length || JSON.stringify(b.progress || []) === JSON.stringify(list)) return;
+  b.progress = list;
+  if (siteOpenId === origin && typeof siteBgPaint === 'function') siteBgPaint(s);
+}
+/** A build's job is known (its 202, or found again on open): the panel shows it. */
+function siteBuildJobBegin(origin, job, words) {
+  const s = siteById(origin);
+  if (!s || typeof job !== 'string' || !job) return;
+  const was = s.buildJob && s.buildJob.job === job ? s.buildJob : null;
+  s.buildJob = { job, words: String(words || '').slice(0, 2000), at: was ? was.at : Date.now(), state: was && was.state === 'stopping' ? 'stopping' : 'run', progress: was && Array.isArray(was.progress) ? was.progress : [] };
+  sitesSave();
+  if (siteOpenId === origin) renderSites(); // the box's Send and the panel both change
+}
+/** The build answered: stopped (the server's `cancelled`), done, or not done; its reply is the answer's own sentence. */
+function siteBuildJobEnd(origin, ok, d) {
+  const s = siteById(origin);
+  const b = s && s.buildJob;
+  if (!b || (b.state !== 'run' && b.state !== 'stopping')) return;
+  b.state = d && d.cancelled === true ? 'stopped' : ok ? 'done' : 'bad';
+  b.doneAt = Date.now();
+  if (d && typeof d.msg === 'string' && d.msg) b.reply = d.msg.slice(0, 2000);
+  sitesSave();
+  if (siteOpenId === origin) renderSites();
+}
+/** The build's row for the panel, while it runs or within the keep window after. */
+function siteBuildJobItem(site, at) {
+  const b = site && site.buildJob;
+  if (!b || typeof b.job !== 'string') return null;
+  const live = b.state === 'run' || b.state === 'stopping';
+  if (!live && !(Number.isFinite(b.doneAt) && at - b.doneAt < SITE_BG_KEEP_MS)) return null;
+  const prog = Array.isArray(b.progress) ? b.progress : [];
+  const first = prog.length ? String(prog[0].text || '') : '';
+  return {
+    key: 'build', n: 0, build: true, parts: [],
+    state: live ? 'run' : b.state === 'done' ? 'done' : 'bad',
+    doneAt: live ? null : b.doneAt,
+    title: first ? (first.length > 70 ? first.slice(0, 69) + '…' : first) : 'Building your site',
+    p: { words: b.words || '', progress: prog, buildState: b.state, reply: b.reply || '' },
+  };
+}
+/** STOP THE BUILD ON THE SERVER: by its job, else by its chat (an inline build this page has no job id for). */
+function siteBuildServerStop(origin) {
+  const s = siteById(origin);
+  if (!s) return;
+  const b = s.buildJob && (s.buildJob.state === 'run' || s.buildJob.state === 'stopping') ? s.buildJob : null;
+  if (b) { b.state = 'stopping'; sitesSave(); if (siteOpenId === origin) siteBgPaint(s); }
+  const back = (say) => {
+    if (b && b.state === 'stopping') { b.state = 'run'; sitesSave(); if (siteOpenId === origin) siteBgPaint(s); }
+    if (say && typeof sbToast === 'function') sbToast(say);
+  };
+  apiFetch('/api/site/build-stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b ? { job: b.job, chat: origin } : { chat: origin }) }).then(async (r) => {
+    const d = await r.json().catch(() => ({}));
+    // MARKED: the build's own answer (410, the reply written from what it did) ends the follow.
+    if (r.ok && d && d.ok) return;
+    if (d && d.error === 'too-late') { back('Too late to stop \u2014 your site is already published.'); return; }
+    // NO BUILD THE SERVER KNOWS BY THIS CHAT YET: this page lets go of its send, as before.
+    if (!b && r.status === 404) { siteStop(s); return; }
+    back('Couldn\u2019t stop the build just now \u2014 it\u2019s still going. Try again in a moment.');
+  }).catch(() => back('Lost the connection \u2014 try again.'));
+}
 /** Every part the panel lists: each request's parts on this site, unfinished, or finished within the keep window. */
 function siteBgItems(site, now) {
   const at = Number.isFinite(now) ? now : Date.now();
   const out = [];
   if (!site || !Array.isArray(site.msgs)) return out;
+  const bj = typeof siteBuildJobItem === 'function' ? siteBuildJobItem(site, at) : null;
+  if (bj) out.push(bj);
   const seen = new Set();
   for (const m of site.msgs) {
     if (!m || typeof m.request !== 'string' || !m.request || seen.has(m.request)) continue;
@@ -12205,6 +12287,11 @@ function siteBgWhen(ms, now) {
 /** A row's one line: its newest progress line while it works, its model line otherwise; labels where nothing is written. */
 function siteBgLine(it, now) {
   const p = it.p;
+  if (it.build) {
+    if (p.buildState === 'stopping') return 'Stopping…';
+    if (it.state === 'run') return p.progress.length ? p.progress[p.progress.length - 1].text : 'Working…';
+    return (p.buildState === 'stopped' ? 'Stopped' : p.buildState === 'done' ? 'Done' : 'Didn’t finish') + ' · ' + siteBgWhen(it.doneAt, now);
+  }
   if (it.state === 'run') {
     const prog = Array.isArray(p.progress) ? p.progress.filter((l) => l && typeof l.text === 'string' && l.text) : [];
     return prog.length ? prog[prog.length - 1].text : siteSaidFor(p.said, 'doing') || 'Working…';
@@ -12233,7 +12320,7 @@ function siteBgHTML(site, now) {
   // A JOB NOT LISTED (yet, after a reload, or no more) shows the list; the choice is kept.
   if (it) return '<div class="st-bg-pane st-bg-jobview">' + siteBgJobHTML(site, it) + '</div>';
   const rows = items.map((x) => '<div class="st-bg-row st-par-' + x.state + '" data-bg-row="' + esc(x.key + '|' + x.n) + '" role="button" tabindex="0">' +
-    '<span class="st-par-dot"></span><span class="st-bg-txt"><span class="st-bg-name">' + esc(siteParTitle(x.p)) + '</span>' +
+    '<span class="st-par-dot"></span><span class="st-bg-txt"><span class="st-bg-name">' + esc(x.build ? x.title : siteParTitle(x.p)) + '</span>' +
     '<span class="st-bg-sub">' + esc(siteBgLine(x, now)) + '</span></span><span class="st-bg-go">›</span></div>').join('');
   return '<div class="st-bg-pane">' +
     '<div class="st-bg-top"><span>' + esc(things(items.length)) + ' · ' + working + ' in progress</span><span class="st-bg-acts">' +
@@ -12246,6 +12333,17 @@ function siteBgJobHTML(site, it) {
   const p = it.p;
   const link = (t) => esc(t).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
   const id = esc(it.key + '|' + it.n);
+  if (it.build) {
+    const stopping = p.buildState === 'stopping';
+    const act = it.state === 'run' ? '<span class="st-par-dot"></span>' + (stopping ? '<span class="st-bg-sub">Stopping…</span>' : '<button type="button" class="st-bg-btn" data-bg="stop" data-bg-id="' + id + '">Stop</button>') : '';
+    const top = '<div class="st-bg-top st-par-' + it.state + '"><span class="st-bg-crumb"><button type="button" class="st-bg-btn" data-bg="back">‹ Back</button> · <b>' + esc(it.title) + '</b></span><span class="st-bg-acts">' + act + '</span></div>';
+    let body = p.words ? '<div class="st-bg-asked">You asked: “' + esc(p.words) + '”</div>' : '';
+    body += '<div class="st-bg-lines">' + progressListHTML(p.progress, it.state === 'run', it.state !== 'run') + '</div>';
+    if (it.state !== 'run' && p.reply) body += '<div class="st-par-said">' + link(p.reply) + '</div>';
+    if (it.state === 'done') body += '<button type="button" class="st-par-retry" data-bg="show" data-bg-page="">Show me</button>';
+    return top + '<div class="st-bg-wrap"><div class="st-bg-scroll" data-bg-box="' + id + '">' + body + '</div>' +
+      '<button type="button" class="st-bg-new" data-bg="new" hidden>↓ new</button></div>';
+  }
   const act = it.state === 'run' || it.state === 'ask' ? '<span class="st-par-dot"></span><button type="button" class="st-bg-btn" data-bg="stop" data-bg-id="' + id + '">Stop</button>'
     : it.state === 'wait' ? '<button type="button" class="st-bg-btn" data-bg="stop" data-bg-id="' + id + '">Remove</button>' : '';
   const top = '<div class="st-bg-top st-par-' + it.state + '"><span class="st-bg-crumb"><button type="button" class="st-bg-btn" data-bg="back">‹ Back</button> · <b>' + esc(siteParTitle(p)) + '</b></span><span class="st-bg-acts">' + act + '</span></div>';
@@ -12328,10 +12426,11 @@ function siteBgClick(e, id) {
 /** STOP ALL: every request on this site with a part still to finish, through the request's own stop. */
 function siteBgStopAll(site) {
   const keys = [...new Set(siteBgItems(site).filter((it) => it.state === 'run' || it.state === 'wait' || it.state === 'ask').map((it) => it.key))];
-  for (const k of keys) siteRequestStop(site.id, k);
+  for (const k of keys) { if (k === 'build') siteBuildServerStop(site.id); else siteRequestStop(site.id, k); }
 }
 /** STOP (or REMOVE) ONE PART: the server stops that part and its job; the rest of its request goes on. */
 function siteBgStopPart(origin, key, n) {
+  if (key === 'build') { siteBuildServerStop(origin); return; }
   const s = siteById(origin);
   if (!s || !s.slug) return;
   const failed = () => { if (typeof sbToast === 'function') sbToast('Couldn’t stop that just now — it’s still going. Try again in a moment.'); };
@@ -16010,8 +16109,11 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
     let firedJob = '';
     if (r.status === 202 && d && (d.stage === 'resuming' || d.stage === 'accepted') && d.job) {
       if (Object.prototype.hasOwnProperty.call(d, 'deferred')) firedHeld = d.deferred;
+      // A FIRST BUILD IS A ROW IN THE PANEL WHILE IT RUNS (2026-10-24).
+      if (mode === 'build' && typeof siteBuildJobBegin === 'function') siteBuildJobBegin(origin, d.job, t);
       const done = await followBuildJob(d.job, siteAbort ? siteAbort.signal : undefined, origin);
       if (done) { r = done.r; d = done.d; }
+      if (done && mode === 'build' && typeof siteBuildJobEnd === 'function') siteBuildJobEnd(origin, r.ok && d && d.error !== true && !!d.slug, d);
       // STILL RUNNING WHEN WE STOPPED WATCHING. Not a failure and not a build:
       // the site has a real page at its real address and the pages are still
       // being written. The recording below still runs — the slug is CLAIMED, so
@@ -17118,6 +17220,10 @@ function siteStopWork(site) {
     }).catch(() => { if (typeof sbToast === 'function') sbToast('Lost the connection \u2014 try again.'); });
     return;
   }
+  // A FIRST BUILD IS STOPPED ON THE SERVER (2026-10-24): by its job when the
+  // panel holds it, else by its chat; only when the server knows no build for
+  // it does this page let go of its own send.
+  if (site && !site.slug && siteBusyHere(site)) { siteBuildServerStop(site.id); return; }
   siteStop(site);
 }
 function siteStop(site) {
