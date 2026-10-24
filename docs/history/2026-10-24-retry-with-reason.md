@@ -97,3 +97,19 @@ The container image's worker tree now carries `builder/retry-reason.mjs`
 - Red check on `origin/main` (1b16aaba0): 10 of 13 fail. The 3 that pass are
   the new helper's own 2 cases and the "passes, no retry" control.
 - Sweep, suite and image: see the owner-notes entry.
+
+## Readings
+
+- Sweep: 15 mutants across the helper and every wired step, all killed. The
+  comment-only control survived. One mutant (the data reserve seeing only the
+  retry's usage) first survived; a test was added for it, and then it was
+  killed.
+- Full suite (`node --test "test/*.test.mjs"`) at the final code: 12,640
+  tests, 12,634 pass, 3 fail, 3 skipped. The 3 failures:
+  - `no-generated-deps`: the environment.
+  - `dockerfile` image inputs: `builder/retry-reason.mjs` was not yet
+    committed during the run.
+  - `canary-ui` "request mode end to end": a timing flake that passes alone.
+- Image: SiteBuildContainer `2d440bd194450245` (235 inputs, main `1b16aaba0`)
+  → `fa5a328a6849668f` (236 inputs, branch). AppBuildContainer is unchanged at
+  `65022ce71e3d7274`.
