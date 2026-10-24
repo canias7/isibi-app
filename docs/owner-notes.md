@@ -1,5 +1,12 @@
 # Owner Notes
 
+## 2026-10-24 — combine-d: thirteen finished branches in one candidate (not merged, not deployed)
+
+- Combined from `main` (692087cde): reply bubble, progress voice, per-device builds, stand-ins and refunds, first-build database and limits, no add-on caps, "tasks" label, build panel Stop, edit file picker, rebuild scope, build questions, request needs, visual review, and two docs branches.
+- Where two branches met: an addition of many asked pages is no longer refused as "too many"; the page writer's question (written by two branches) is one path; a start-over rewrite also shows in the panel with Stop.
+- **provider-retry is left out**: it fails about 45 existing tests on its own; it needs your decision on waiting versus failing and on the ✓/⚠ notice.
+- Full suite 12,624: 12,618 pass, 3 environment-only failures, 3 skipped. Site image rebuilt. Record: `docs/history/2026-10-24-combine-d.md`.
+
 ## 2026-10-24 — a finished build now shows the AI's own reply in the message (branch `build-reply-bubble`, not merged, not deployed)
 
 - On driftwood-and-daughters the AI's write-up of the build sat in the small grey note above the steps, and the message itself said the fixed "Built … Tell me what to change." Now the message is the AI's reply, and the note no longer repeats it (the money line and the other notes stay).
