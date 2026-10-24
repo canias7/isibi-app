@@ -3218,3 +3218,54 @@ reel). To do near the end: check what's in it, its license and reputation, and
 whether any of it safely improves our security scan or tests OUR OWN platform
 and test sites. Attack tools only ever against what we own or may test, never
 customers' live sites without permission. Not looked at yet.
+
+## Per-site handoff note for the builder (owner, 2026-10-24: "note that for later")
+
+From a video on handoff.md (Goal, Current state, Active files, Changes made,
+Failed attempts, Next steps). For the builder, not for Claude: a short note per
+site, updated after each request, sent to the model in place of the older chat
+once a chat gets long (e.g. past 20 messages), with the recent messages kept.
+Facts from the system (pages, tables, draft/live, changes from job records,
+failures and pending parts from request records); the model writes only the
+goal and the customer's preferences. Cheaper, faster, no forgotten or stale
+wishes; feeds #23 (long-chat summary) and next-step hints. ~3–5 days offline.
+To discuss with the owner first.
+
+## "Ponytail" ladder for the builder's writers (owner, 2026-10-24: "note it for later")
+
+From the open-source Ponytail ruleset (write the least code: stop at the first
+step that solves it). For the builder's page writer, add-on writer and edit
+lanes: 1 did the customer ask for it; 2 does the site already have it (reuse
+its parts, tables, pages); 3 is it in the kit (2,112 components); 4 does the
+browser do it (native form, date input, CSS); 5 is it already installed (never
+add packages); 6 can it be a small exact edit (#18); 7 only then minimal new
+code. Non-negotiable: validation, spam protection, owner-only data,
+accessibility, everything asked. First builds: code only, not design (keep
+sections, photos, copy rich). Measure on the stored corpus (lines, compile
+errors, cost) plus a few paid comparison runs. ~2–3 days offline.
+
+## Four Claude-skill repos worth a look for the builder (owner, 2026-10-24: "note it")
+
+From a "10 fastest-growing Claude skill repos" post (stars unverified;
+descriptions secondhand, check each repo before use):
+- **Humanizer** (blader/humanizer): removes AI-sounding tells from text while
+  keeping meaning; for model-written replies and site copy.
+- **Impeccable**: a final design polish pass for a front end; a last step after
+  a build, like the screenshot look-and-fix pass.
+- **Addy Osmani Skills**: web performance and best practices; faster customer
+  sites, better Lighthouse scores.
+- **Security Audit Skill**: compare with our own scan (/sentinel) for ideas.
+(Ponytail, #1 on that list, has its own entry above.)
+
+## Replace the 500 themes with skill-guided design + the engine's checks (owner, 2026-10-24: "note it for later")
+
+Idea: the model designs each site's theme itself (main colours, fonts, corner
+style, plus the decor/backdrop/display axes the 500 carry), guided by a design
+skill (Anthropic's theme-factory / frontend-design, Impeccable; generators like
+tweakcn, Radix Colors). `site-theme.mjs`'s engine builds the full colour set
+and refuses unreadable contrast. Keep ~20–30 tested themes as examples and
+fallbacks. HISTORY, do not repeat: 2026-08-20 the 500 were removed for
+model-authored three anchor colours; 2026-08-27 the owner brought them back
+("we are gonna have the 500 themes, and with the option if user wants a
+specific thing then the free css comes in"), because three colours alone
+lacked fonts, decor and backdrops. Any change needs the owner's decision.

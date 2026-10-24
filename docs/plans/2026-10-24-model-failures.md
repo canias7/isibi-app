@@ -36,3 +36,46 @@ Saved on the owner's word: **a list only, nothing built yet.**
 3. **Park the part and come back later**: mark it "waiting for the model", free the site, and have the regular tick retry it in a few minutes. Nothing holds the container while waiting.
 4. **Keep the real error**: save the provider's type and message on the job and its trace, so we know which kind it was.
 5. **Check before retrying**: never retry kinds 6–9, 12 and 13. Never charge twice: retry only the call that failed.
+
+## The owner's design for the waiting notice (2026-10-24)
+
+- **A fixed server notice, not a model line** (the model may be the thing that is down). Shown in the chat as a grey box:
+  - the code and its name, e.g. **"Grok error 503 · Service Unavailable"**; when the provider sends a word with no number, it is mapped to the standard code (unavailable → 503, overloaded → 529, rate limited → 429), and a real number is shown as sent;
+  - the provider's own words, word for word;
+  - a link to the provider's status page: **status.x.ai** for Grok (official, named in docs.x.ai's Debugging page), status.claude.com for Claude;
+  - **No attempt count** (owner, 2026-10-24): "Retrying in 4:59 · no charge while waiting", counting down live, and it **keeps retrying every 5 minutes until the model answers**. Past the job's 50-minute limit the part is parked ("waiting for Grok"), the site is freed, and the background tick keeps trying every 5 minutes, resuming from the saved step.
+- On recovery: "✓ Grok is answering again", then the model's own progress lines resume.
+- There is no "every retry failed" end state; the customer can press Stop, or switch to Claude. (Open for the owner: a long cap such as 24 hours, and whether to switch to Claude automatically.)
+- **A retry picks up where it stopped**: only the call that failed is sent again, inside the same job; steps already finished (e.g. the tables designed) are kept, nothing finished is redone or charged again.
+- Mockup: `scratchpad/retry-mock/m3.html` (this session).
+- **Which failures get this notice and the endless 5-minute retry** (owner, 2026-10-24): every provider-side kind in the table above, not only 503: **#1 503 unavailable, #2 502, #3 504, #4 500, #5 429 (waiting at least as long as the provider asks), #10 connection dropped.** Not the kinds that come from our side (#6 out of credit, #7 key, #8 bad request, #9 model not found) or from the answer itself (#12–#15); those keep their own handling.
+
+## The exact fixed messages (owner, 2026-10-24)
+
+Shown as a grey server notice, never model-written. `<Model>` is the model's name (Grok, Claude); `<words>` is the provider's own message, word for word; the link is the provider's status page (status.x.ai for Grok, status.claude.com for Claude).
+
+**While waiting** (every kind below, countdown live, repeats every 5 minutes until the model answers):
+
+| Kind | Title line |
+|---|---|
+| 503 | ⚠ `<Model>` error 503 · Service Unavailable |
+| 502 | ⚠ `<Model>` error 502 · Bad Gateway |
+| 504 | ⚠ `<Model>` error 504 · Gateway Timeout |
+| 500 | ⚠ `<Model>` error 500 · Internal Server Error |
+| 429 | ⚠ `<Model>` error 429 · Too Many Requests |
+| Connection dropped | ⚠ `<Model>` connection dropped · No response |
+
+Then, for every kind:
+
+> `<Model>` said: `<words>` · [status page]
+> Your work so far is kept. Retrying in 4:59 · no charge while waiting
+
+(For 429 the countdown is the longer of 5 minutes and the wait the provider names. When the provider sends no words, the "said" part is left out.)
+
+**When it answers again:**
+
+> ✓ `<Model>` is answering again · picking up where it stopped
+
+**When the customer presses Stop while waiting:**
+
+> Stopped. Nothing was built or charged for this part.
