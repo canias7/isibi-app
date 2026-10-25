@@ -328,7 +328,7 @@ import { wantsFirstBuildBackend, featuresNeedingData, firstBuildBackendTool, fir
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig, writesSchema as partWritesSchema } from "./builder/request-plan.mjs";
-import { routeOnExisting, partClarifyChoice } from "./builder/addon-existing.mjs";
+import { routeOnExisting, partClarifyChoice, rowUnmet } from "./builder/addon-existing.mjs";
 import { turnKey, turnRecord, readTurn, turnFree, nextGen, rebaseFiles, TURN_POLL_MS, TURN_WAIT_MS, TURN_UNREAD_MAX, TURN_TTL_MS, turnLooksDead } from "./builder/publish-turn.mjs";
 import { PART_TERMINAL as REQ_PART_TERMINAL, heldFromOf, rewriteWire, othersOpenIn } from "./builder/request.mjs";
 import { visualReviewOn, buildRepairOn, visibleChanges, shotPreference, runVisualReview } from "./builder/visual-review.mjs";
@@ -43920,6 +43920,18 @@ async function handleRequest(request, env, ctx) {
                   notAdded: rowSkipped.length > 1 ? rowSkipped : undefined,
                 }, 422);
               }
+              // WHAT THE ENTRIES DO NOT DO IS TOLD AND HANDED ON (2026-10-25,
+              // `rowUnmet`): the row designer's requirements not `covered` —
+              // live, "bookable" lessons whose bookings were never built — are
+              // said beside the entries (`notAdded`, never read as done), and
+              // their own words go on as a part of their own (`aHeldOut.parts`,
+              // the answer's `deferred`) unless they are the whole message.
+              const rowUnmetOut = rowUnmet(rowRan.requirements, aInstruction, wordsIn);
+              for (const w of rowUnmetOut.carry) if (!aHeldOut.parts.includes(w)) aHeldOut.parts.push(w);
+              for (const u of rowUnmetOut.told) {
+                rowSkipped.push({ kind: "row", why: "needs-more", need: u.need, status: u.status, step: u.step, msg: "Not done yet: " + u.need + (rowUnmetOut.carry.length ? " — that goes on as its own step." : " — adding an entry to a list can't do that, so ask for it on its own.") });
+              }
+              if (rowUnmetOut.told.length) aMark("add:row", "unmet", { told: rowUnmetOut.told.length, carried: rowUnmetOut.carry.length });
               const rowBill = pageCredits(...aDesignUsage);
               // PREPARED: the entry is chosen and checked; nothing is charged or saved.
               if (aPrep) return aPrepStop();

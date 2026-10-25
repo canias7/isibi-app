@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { addonOnExisting, routeOnExisting, partClarifyChoice, sitePages, siteTables } from "../builder/addon-existing.mjs";
+import { addonOnExisting, routeOnExisting, partClarifyChoice, rowUnmet, sitePages, siteTables } from "../builder/addon-existing.mjs";
 // A NAMESPACE, so a missing export fails its own cases, not the whole file.
 import * as SA from "../builder/site-add.mjs";
 const { rowBrief, cleanAdd, addRefusal } = SA;
@@ -15,7 +15,7 @@ const rowRequired = (...a) => SA.rowRequired(...a);
 import { addonFailure } from "../builder/site-addon.mjs";
 import { readRun, handOff } from "../builder/request.mjs";
 import { readHandOver, HAND_REASONS } from "../builder/hand-over.mjs";
-import { ROUTE_REASONS } from "../builder/site-ask.mjs";
+import { ROUTE_REASONS, wordsIn } from "../builder/site-ask.mjs";
 
 const site = { pages: ["/", "/shop", { path: "/cafe" }, "/lessons-info"], tables: ["lessons", { name: "Products" }] };
 const addon = (writes, reads = []) => ({ intent: "addon", targets: [{ change: 0, writes, reads }], decision: { source: "model", reasons: [] } });
@@ -148,7 +148,7 @@ test("the router's answer is read against the site before anything uses it", () 
   assert.ok(conv < prep && prep < asking);
   // The question half is wired (owner, 2026-10-25): a part's routing job and an
   // answer resuming a paid request, before the add-on conversion and the preparation.
-  const clar = at("routed = partClarifyChoice(routed, rDigest.site, { reason: "clarify-part" });", route);
+  const clar = at("routed = partClarifyChoice(routed, rDigest.site, { reason: \"clarify-part\" });", route);
   assert.ok(clar < conv);
   const gate = W.lastIndexOf("if (routed.failed !== true && (rPart || (rWaiting && rWaiting.requestKey && routed.answered === true))) {", clar);
   assert.ok(gate > route && clar - gate < 200);
@@ -175,4 +175,32 @@ test("the add-on step hands nothing-new to the page step, and a page request nev
   const row = W.slice(rowPath, rowPath + 2500);
   assert.match(row, /rowBrief\(aRowLists, aRowRequired\)/);
   assert.match(row, /rowRequired: aRowRequired \}/);
+});
+
+test("a lone entry's unmet requirements are told and, unless they are the whole message, handed on", () => {
+  const msg = "Add a Jazz lesson to the lessons and let people book one.";
+  const out = rowUnmet([
+    { need: "Jazz is on the list", words: "Add a Jazz lesson", status: "covered" },
+    { need: "a visitor can book a lesson", words: "let people book one", status: "unsupported" },
+    { need: "made up", words: "words not there", status: "elsewhere" },
+    { need: "", words: "let people book one", status: "elsewhere" },
+    null,
+  ], msg, wordsIn);
+  assert.deepEqual(out.told, [{ need: "a visitor can book a lesson", status: "unsupported" }]);
+  assert.deepEqual(out.carry, ["let people book one"]);
+  // THE WHOLE MESSAGE IS TOLD, NEVER HANDED ON (it would come straight back here).
+  const whole = rowUnmet([{ need: "bookings", words: msg, status: "elsewhere", step: "table" }], msg, wordsIn);
+  assert.deepEqual(whole.told, [{ need: "bookings", status: "elsewhere", step: "table" }]);
+  assert.deepEqual(whole.carry, []);
+  assert.deepEqual(rowUnmet(undefined, msg, wordsIn), { told: [], carry: [] });
+});
+
+test("the row path tells what its entries do not do before it charges or writes", () => {
+  const lone = at("if (aPicked.kinds.length === 1 && aPicked.kinds[0] === \"row\") {");
+  const clean = at("const rowClean = cleanAdd(\"row\", rowRan.value", lone);
+  const unmet = at("const rowUnmetOut = rowUnmet(rowRan.requirements, aInstruction, wordsIn);", clean);
+  const carry = at("for (const w of rowUnmetOut.carry) if (!aHeldOut.parts.includes(w)) aHeldOut.parts.push(w);", unmet);
+  const bill = at("const rowBill = pageCredits(...aDesignUsage);", carry);
+  assert.ok(clean < unmet && unmet < carry && carry < bill);
+  assert.ok(SA.REQUIREMENT_ADDS.includes("row"));
 });

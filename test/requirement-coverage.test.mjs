@@ -249,7 +249,7 @@ test("the coverage list is a sibling of the kind and never a field inside TABLE_
   // name:"three"}`. `photo` needed an IDENTITY as well, which is its
   // PLACEMENT — see `SITE_KINDS` in `site-requirements.mjs`.
   const designing = [...OWN_ADDS, ...PLACING_ADDS];
-  assert.deepEqual(REQUIREMENT_ADDS, ["table", "function", "api", "job", "page", "component", "qr", "three", "photo"],
+  assert.deepEqual(REQUIREMENT_ADDS, ["table", "row", "function", "api", "job", "page", "component", "qr", "three", "photo"],
     "the designing kinds that answer coverage changed — say which and why");
   for (const k of REQUIREMENT_ADDS) {
     assert.ok(designing.includes(k), "`" + k + "` answers coverage and has no tool of its own to answer it in");
@@ -307,10 +307,14 @@ test("the coverage list is a sibling of the kind and never a field inside TABLE_
   // `words` (2026-10-02) is the second, for the row's reason: a line is
   // either found on its page before the publish (`wordsLanded`) or the whole
   // addition is refused, so no part of it is left for a coverage list to owe.
+  // ⚠ `row` CARRIES IT SINCE 2026-10-25: the live lone entry for "a bookable
+  // Lessons page" was told as done while the bookings were never built. The
+  // row path now reads the list (`rowUnmet`): what the entries do not do is
+  // told and handed on. `words` stays flagless, for its own reason.
   const flagless = designing.filter((k) => !REQUIREMENT_ADDS.includes(k));
-  assert.deepEqual(flagless, ["row", "words"],
+  assert.deepEqual(flagless, ["words"],
     "a kind now has a tool and no coverage flag — this census's negative direction is live again, so drive it");
-  assert.equal(addTool("row").input_schema.properties.requirements, undefined, "the row tool asks for a coverage list nothing reads");
+  assert.ok(addTool("row").input_schema.properties.requirements, "the row tool lost the coverage list the row path reads");
   assert.equal(addTool("words").input_schema.properties.requirements, undefined, "the words tool asks for a coverage list nothing reads");
   for (const k of designing) {
     const has = !!addTool(k).input_schema.properties.requirements;

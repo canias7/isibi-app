@@ -361,7 +361,7 @@ test("every kind that can answer coverage carries the list, and the rest cannot"
   //     that never shipped. Its identity is the PLACEMENT (a route), because
   //     the designer answers `{page, describe}` and cannot know a url the
   //     provider mints after it has spoken.
-  assert.deepEqual(REQUIREMENT_ADDS, ["table", "function", "api", "job", "page", "component", "qr", "three", "photo"]);
+  assert.deepEqual(REQUIREMENT_ADDS, ["table", "row", "function", "api", "job", "page", "component", "qr", "three", "photo"]);
   for (const k of REQUIREMENT_ADDS) {
     assert.ok(addTool(k).input_schema.properties.requirements, k + " designs something and cannot say what it could not cover");
   }

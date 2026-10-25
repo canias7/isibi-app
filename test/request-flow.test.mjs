@@ -2251,6 +2251,42 @@ test("M2 — additions and a list entry from one message: the entry set aside be
   });
 });
 
+test("M2b — a lone entry that does not do all that was asked (2026-10-25): the entry is written, what it does not do is told as not done (never read as done) and goes on in the customer's own words as a part of its own", async () => {
+  const ENTRY_WORDS = "add Rye & Caraway at £5.00 to the loaves";
+  const BOOK_WORDS = "let people book a tasting";
+  const SPEC = { tables: [{ name: "loaves", columns: [{ name: "name", type: "text" }, { name: "description", type: "text" }, { name: "price", type: "numeric" }, { name: "photo", type: "text" }], read: "public", write: "none" }] };
+  const db = rowsDb({ tables: { loaves: { columns: LOAF_COLUMNS, rows: BAKERY_LOAVES, next: 12 } }, meta: { schema: JSON.stringify(SPEC) } });
+  await withPlatform({
+    slug: slugOf("m2b"), db,
+    answers: {
+      route: [{ intent: "addon" }, { intent: "addon" }],
+      [T.adds]: [{ kinds: ["row"] }, { kinds: [] }],
+      "add:row": {
+        row: [{ table: "loaves", values: { name: "Rye & Caraway", price: 5, description: "A light rye with toasted caraway." } }],
+        requirements: [
+          { need: "the new loaf is on the list", basis: "asked", words: ENTRY_WORDS, status: "covered", by: "loaves row Rye & Caraway" },
+          { need: "a visitor can book a tasting", basis: "asked", words: BOOK_WORDS, status: "unsupported", why: "an entry cannot take bookings" },
+        ],
+      },
+    },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: ENTRY_WORDS + " and " + BOOK_WORDS + "." });
+    const { rec } = await settle(P, r.key);
+    const first = P.answerOf(P.jobsOf(r.key)[0]);
+    // THE ENTRY IS WRITTEN.
+    assert.deepEqual(first.kinds, ["row"]);
+    assert.equal(db.rows("loaves").filter((l) => l.name === "Rye & Caraway").length, 1);
+    // WHAT IT DOES NOT DO IS TOLD, NEVER AS DONE.
+    const unmet = (first.notAdded || []).filter((n) => n.why === "needs-more");
+    assert.deepEqual(unmet.map((n) => n.need), ["a visitor can book a tasting"], JSON.stringify(first));
+    assert.match(unmet[0].msg, /^Not done yet: a visitor can book a tasting/);
+    // AND GOES ON IN THEIR WORDS AS A PART OF ITS OWN.
+    assert.deepEqual([].concat(first.deferred), [BOOK_WORDS]);
+    assert.equal(rec.parts.length, 2, JSON.stringify(rec.parts.map((p) => [p.words, p.status])));
+    assert.equal(rec.parts[1].words, BOOK_WORDS);
+  });
+});
+
 test("M3 — work that needs the set-aside link waits for it: the link's own part runs first, then the dependent part, against the menu the link made", async () => {
   const RENAME = "make the menu's Gallery link say Our photos";
   await withPlatform({

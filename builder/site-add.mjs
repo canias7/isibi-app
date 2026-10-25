@@ -693,6 +693,9 @@ const ADDS = {
       "added to a table it already has, which every page showing that list then shows by itself. Say `row` when what " +
       "they name is one more item of a kind the site already keeps a table of. Not a new kind of list (that is a " +
       "`table`), not a change to an entry that is already there, and never a card or section drawn onto a page by hand.",
+    // ITS COVERAGE LIST (2026-10-25): what the entries do not do — "bookable"
+    // beside "add the lessons" — is said, never written as done (`rowUnmet`).
+    requirements: true,
     shape: {
       type: "array",
       items: {

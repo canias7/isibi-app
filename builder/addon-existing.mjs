@@ -130,3 +130,30 @@ export function partClarifyChoice(routed, site, { reason } = {}) {
   if (page) return { ...base, intent: "edit", layer: "page", page, remove: false, tab: false };
   return { ...base, intent: "addon" };
 }
+
+/**
+ * WHAT A LONE ENTRY DOES NOT DO (2026-10-25, owner: a lone `row` answer was
+ * written and replied to as done while the feature asked for beside it — live,
+ * bookings — was never built). The row designer lists its requirements as every
+ * other designer does; each one not `covered` by the entries, grounded in the
+ * customer's own words, is TOLD (never read as done) and, when its words are
+ * not the whole message, HANDED ON as a part of its own. `wordsIn` is the
+ * route's own reader (`builder/site-ask.mjs`), passed in.
+ *   → { told: [{ need, status, step }], carry: [words] }
+ */
+export function rowUnmet(requirements, instruction, wordsIn) {
+  const told = [];
+  const carry = [];
+  const msg = typeof instruction === "string" ? instruction : "";
+  const whole = msg.trim();
+  for (const r of Array.isArray(requirements) ? requirements : []) {
+    if (!r || typeof r !== "object") continue;
+    if (r.status !== "elsewhere" && r.status !== "unsupported") continue;
+    const need = typeof r.need === "string" ? r.need.trim() : "";
+    const w = typeof r.words === "string" && r.words.trim() ? wordsIn(msg, r.words) : "";
+    if (!need || !w) continue;
+    told.push({ need, status: r.status, ...(typeof r.step === "string" && r.step ? { step: r.step } : {}) });
+    if (w.trim() !== whole && !carry.includes(w)) carry.push(w);
+  }
+  return { told, carry };
+}
