@@ -3317,3 +3317,24 @@ check, keep-existing-content, billing per piece). The router becomes the
 "small job or big job?" switch. Weighed against Lovable-style single agents:
 fewer hand-off failures and better on messy requests, but costlier per change,
 less predictable, and harder to hold to our guarantees.
+
+## Spam protection and custom domains: limits (2026-10-25, owner: note it)
+
+Go Farther provides spam protection (Cloudflare Turnstile) with one platform key
+pair covering every `*.gofarther.app` site (a hostname covers its subdomains).
+Free plan (developers.cloudflare.com/turnstile/plans, read 2026-10-25): price
+"Free", no trial or end date stated, unlimited challenges, up to 20 widgets,
+10 hostnames per widget, 7-day analytics, no "any hostname" widget.
+
+- **Custom domains** each need adding to a widget: about **200 custom domains free**
+  (20 × 10). Plan: add a customer's domain to a widget automatically through the
+  Cloudflare API when they connect it, creating a new widget when one is full.
+  Until that exists, a site on a custom domain falls back to off unless it has its
+  own keys.
+- **After about 200 custom domains:**
+  - Cloudflare's **Enterprise** plan has an "any hostname" widget (no list at all;
+    Enterprise also raises the cap to 200 hostnames per widget). It is a paid,
+    negotiated deal with Cloudflare, not a listed price.
+  - Or a second Cloudflare account for another ~200 free. **Check Cloudflare's
+    terms first**: using extra accounts mainly to get round a plan limit may not be
+    allowed.
