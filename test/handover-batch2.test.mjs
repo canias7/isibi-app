@@ -255,6 +255,8 @@ test("every reason a step hands work on with is on the hand-over's list, and eve
   // router's page-asked note, each read off its producer.
   if (addonFailure("existing", { layer: "page", page: "/shop" }).escalate === true) addon.add("existing");
   if (/reason: "page-asked"/.test(readFileSync(new URL("../builder/addon-existing.mjs", import.meta.url), "utf8"))) addon.add("page-asked");
+  // 2026-10-25, feature-existing: the router's feature-on-page note, read off its producer.
+  if (/reason: "feature-on-page"/.test(readFileSync(new URL("../builder/addon-existing.mjs", import.meta.url), "utf8"))) addon.add("feature-on-page");
   const produced = new Set([...edit, ...route, ...addon]);
   for (const r of produced) assert.ok(Object.hasOwn(HAND_REASONS, r), "a step hands work on with `" + r + "`, which the hand-over drops");
   for (const r of Object.keys(HAND_REASONS)) assert.ok(produced.has(r), "`" + r + "` is on the hand-over's list and no step hands on with it");

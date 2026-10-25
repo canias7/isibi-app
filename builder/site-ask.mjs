@@ -1120,6 +1120,9 @@ const TARGETS = {
     "(a table this change creates), component:Name, new-component:Name, function:name, new-function:name (a stored " +
     "function this change creates), api:name, new-api:name (an outside connection it creates), job:name, new-job:name " +
     "(a schedule it creates), and site when a change can reach anything. " +
+    "A form, section or working feature added to a page that already exists also names what it creates beside " +
+    "page:/path: new-component:Name for the form or section, new-data:table for a table it needs that the site " +
+    "has not got, data:table for an existing table it writes. page:/path alone means only that page's content changes. " +
     "Name every shared part a change reaches, even when its words do not mention it. Leave a change out only when " +
     "you cannot tell what it touches.",
   items: {
