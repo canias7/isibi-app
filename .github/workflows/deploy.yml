@@ -223,6 +223,7 @@ jobs:
             MODEL_REPLIES
             PROGRESS_REPLIES
             PROGRESS_TALK
+            DIAGNOSE_FAILURES
             REQUEST_FLOW
             VISUAL_REVIEW
             IMAGE_PURCHASES
@@ -453,6 +454,15 @@ jobs:
           # Still not charged to the customer. OFF BY DEFAULT: off, every
           # record is written exactly as before.
           PROGRESS_TALK: ${{ secrets.PROGRESS_TALK || 'on' }}
+          # ── THE FAILURE DIAGNOSIS STEP, PHASE 1: SHADOW MODE (2026-10-24) ──
+          #
+          # When a build, an edit or an add-on part fails, one model call
+          # diagnoses it (read the evidence, locate, one root cause, one fix;
+          # builder/diagnose.mjs) and the diagnosis is written beside the job
+          # (`jobs/<id>.diagnosis.json`). It changes nothing, tells the
+          # customer nothing and charges the customer nothing. OFF BY DEFAULT:
+          # set the secret to `on` and redeploy to switch it on.
+          DIAGNOSE_FAILURES: ${{ secrets.DIAGNOSE_FAILURES || 'on' }}
           # ── ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03) ──
           #
           # With this on, a site's message the routing call accepts is kept as a

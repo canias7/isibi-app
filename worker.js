@@ -302,6 +302,9 @@ import { pickLanes, runLane, reaskLane, LOOK_DECLINED_REASON, laneLayer, laneUnb
 // EVERY WAY THE EDIT ROUTE DECLINES, CLASSIFIED (2026-09-23): rewrite, add-on,
 // hop or explain, one table, and `test/edit-failure.test.mjs` holds the route to it.
 import { editFailure, failureMsg, stepMsg } from "./builder/edit-failure.mjs";
+// THE FAILURE DIAGNOSIS STEP, PHASE 1 (2026-10-24): shadow mode, behind
+// `DIAGNOSE_FAILURES` (off by default). Records only; changes nothing.
+import { diagnoseJobEnded, diagnosisKey } from "./builder/diagnose.mjs";
 // ONE MARK, SEVERAL FORMS (2026-09-07, owner: *"instead of it being 3 things or
 // 4 or 5, its gotta be one, wordmark, but it can be made in svg"*). The header
 // mark and the tab icon are one stored field each, carrying a form — a drawing,
@@ -8709,6 +8712,32 @@ async function requeueReply(env, key, at, task, now) {
  * inside the container, which has no queue, through the gateway's `/reply`,
  * bound to the job's own token. Lost either way, the sweep asks.
  */
+/**
+ * A FAILED JOB'S DIAGNOSIS, SHADOW MODE (2026-10-24, `builder/diagnose.mjs`).
+ * Off unless `DIAGNOSE_FAILURES` is "on". It writes `jobs/<id>.diagnosis.json`
+ * and nothing else: no reply, no record the customer reads, no ledger call.
+ * Its model call is the picker's quick model through `quickSend`, whose usage
+ * no route bills. Never throws; run after the job's outcome is final.
+ */
+async function diagnoseEnded(env, ctx, { id, op, slug = "", body = null, status = 200, payload = null, shipped = null }) {
+  try {
+    let b = null;
+    if (typeof body === "string") { try { b = JSON.parse(body); } catch { b = null; } } else if (body && typeof body === "object") b = body;
+    const words = b && typeof b.instruction === "string" ? b.instruction : b && typeof b.message === "string" ? b.message : b && typeof b.brief === "string" ? b.brief : "";
+    const picker = b && typeof b.picker === "string" ? b.picker : undefined;
+    const run = diagnoseJobEnded({
+      env,
+      send: quickSend(env, "diagnose"),
+      model: modelsFor(picker).quick,
+      put: (key, text) => env.SITES_BUCKET.put(key, text, { httpMetadata: { contentType: "application/json" } }),
+    }, { id, op, slug, words, status, payload, shipped }).then((rec) => {
+      // ONE LOG LINE, so `wrangler tail` shows it beside the R2 record.
+      if (rec) console.log("diagnosis:", id, op, rec.diagnosis ? rec.diagnosis.kind + " / " + rec.diagnosis.fix_move + " / retry " + rec.diagnosis.retry_would_succeed : "unread " + rec.unread);
+    });
+    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(run); else await run;
+  } catch { /* an instrument may not break the thing it measures */ }
+}
+
 async function replyJobEnded(env, job, payload) {
   if (!repliesOn(env) || !job || !payload || typeof payload !== "object" || !payload.replyFor) return;
   try {
@@ -22273,6 +22302,8 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
     if (payload && payload.cancelled === true && out.status === 410) await editRpc(env, "edit_refund", { p_id: id, p_state: "cancelled", p_note: "stopped while the build ran" });
     else await closeBuildRow(env, id, buildOutcome(out.status, payload), "the build failed");
   }
+  // A FAILED BUILD'S DIAGNOSIS (shadow mode, off by default): a final answer only.
+  if (resultKind(out) !== "interim") await diagnoseEnded(env, ctx, { id, op: "build", slug: payload && typeof payload.slug === "string" ? payload.slug : "", body: job && job.body, status: out.status, payload });
   // A REQUEST'S REWRITE ENDED (2026-10-03): the request moves on now — the
   // dependents its part held run — not at the next sweep. Not on a build that
   // fired its generation, whose answer is interim: the sweep reads the
@@ -26591,6 +26622,8 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     // AND ITS REPLY IS ASKED FOR (2026-10-04): the outcome and the money are
     // final now, and the request has moved on, so nothing waits on it.
     await replyJobEnded(env, { id, uid: job.uid }, payload);
+    // AND, WHEN IT FAILED, ITS DIAGNOSIS IS RECORDED (shadow mode, off by default).
+    await diagnoseEnded(env, ctx, { id, op: /addon/.test(job.url) ? "addon" : "edit", slug: job.slug, body: job.body, status: resStatus, payload, shipped });
     if (parkedBefore) { try { await env.SITES_BUCKET.delete(waitingKey(id)); } catch { /* the tick drops a finished row's record */ } }
     // The measured durations are written by the HANDLER, beside its trace flush
     // — that is where the trace lives, and copying it out here would be a second
@@ -33043,6 +33076,37 @@ async function handleRequest(request, env, ctx) {
       // before this shipped lands in this branch.
       if (!stored) return Response.json({ ok: true, slug: aslug, answer: null, why: "nothing stored — this site has not been built since the answer store shipped" });
       return Response.json({ ok: true, slug: aslug, answer: stored });
+    }
+
+    // GET /api/site/diagnoses?slug= — THE SITE'S RECENT FAILED JOBS AND THEIR
+    // DIAGNOSES, FOR THE OWNER ONLY (2026-10-24). Read-only: one edit_jobs read
+    // scoped to this uid AND this slug, then one R2 get per job for
+    // `jobs/<id>.diagnosis.json`. No model call, no ledger call. Ownership is
+    // the answer route's (404 for not-yours, so a slug's existence is not told).
+    // A job with no stored diagnosis answers `diagnosis: null`, never an error.
+    if (url.pathname === "/api/site/diagnoses" && request.method === "GET") {
+      const au = await authUser(request);
+      if (!au) return UNAUTHED();
+      const dslug = (url.searchParams.get("slug") || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 60).replace(/^-+|-+$/g, "");
+      if (!dslug) return Response.json({ ok: false, error: "no slug" }, { status: 400 });
+      const down = await siteOwnerBySlug(dslug, env);
+      if (!down || down !== au.id) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+      let rows;
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/edit_jobs?select=id,op,created_at,state&uid=eq.${encodeURIComponent(au.id)}&slug=eq.${encodeURIComponent(dslug)}&state=in.(failed,lost)&order=created_at.desc&limit=20`, { headers: svcHeaders(env), signal: AbortSignal.timeout(8000) });
+        if (!r.ok) return Response.json({ ok: false, error: "jobs unreadable" }, { status: 502 });
+        rows = await r.json();
+      } catch { return Response.json({ ok: false, error: "jobs unreadable" }, { status: 502 }); }
+      if (!Array.isArray(rows)) return Response.json({ ok: false, error: "jobs unreadable" }, { status: 502 });
+      const jobs = await Promise.all(rows.slice(0, 20).map(async (j) => {
+        let diagnosis = null;
+        try {
+          const o = typeof j.id === "string" && env.SITES_BUCKET ? await env.SITES_BUCKET.get(diagnosisKey(j.id)) : null;
+          if (o) diagnosis = JSON.parse(await o.text());
+        } catch { diagnosis = null; }
+        return { id: j.id, op: j.op, created_at: j.created_at, state: j.state, diagnosis };
+      }));
+      return Response.json({ ok: true, slug: dslug, jobs });
     }
 
     // GET /api/site/source — THE SITE'S OWN CODE, FOR THE CUSTOMER WHO OWNS IT.
