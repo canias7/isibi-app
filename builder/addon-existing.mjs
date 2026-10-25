@@ -103,7 +103,10 @@ export function routeOnExisting(routed, site, { reason } = {}) {
   const note = (d) => (d && typeof d === "object" && Array.isArray(d.reasons)
     ? { ...d, reasons: d.reasons.includes(reason) ? d.reasons : [...d.reasons, reason] } : d);
   if (read.act === "edit") {
-    return { ...routed, intent: "edit", layer: "page", page: read.page, remove: false, rename: undefined, tab: false, handOver: undefined, model3d: undefined, decision: reason ? note(routed.decision) : routed.decision };
+    // THE HAND-OVER SAYS WHY (2026-10-25, frame-parallel): `existing`, so the
+    // page step takes an unchanged page as "already there" instead of retrying
+    // it into a whole-page rewrite.
+    return { ...routed, intent: "edit", layer: "page", page: read.page, remove: false, rename: undefined, tab: false, handOver: { from: "route", reason: "existing", page: read.page }, model3d: undefined, decision: reason ? note(routed.decision) : routed.decision };
   }
   if (routed.handOver && typeof routed.handOver === "object") return routed;
   return { ...routed, handOver: { from: "route", reason: "page-asked", field: "page", ...(read.page ? { page: read.page } : {}) } };

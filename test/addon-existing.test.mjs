@@ -52,7 +52,9 @@ test("the router's answer is rewritten to the page step, with its reason", () =>
   assert.equal(r.layer, "page");
   assert.equal(r.page, "/shop");
   assert.equal(r.remove, false);
-  assert.equal(r.handOver, undefined);
+  // The add-on's own hand-over is dropped; the page step is told why it got
+  // the change (2026-10-25, frame-parallel: `existing`, so no no-change retry).
+  assert.deepEqual(r.handOver, { from: "route", reason: "existing", page: "/shop" });
   assert.equal(r.model3d, undefined);
   assert.deepEqual(r.decision.reasons, ["addon-existing"]);
   assert.ok(Object.hasOwn(ROUTE_REASONS, "addon-existing"));

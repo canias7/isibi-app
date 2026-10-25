@@ -230,7 +230,7 @@ import { editableFiles, splitEditable, partPath, partNameOf, PART_DIR } from "./
 import { FOUNDATION_FILES } from "./builder/foundation-files.mjs";
 import { runNavEdit, applyAdditions, menuLinksKept } from "./builder/site-nav.mjs";
 import { runLogoEdit } from "./builder/site-logo.mjs";
-import { writtenFrame, ownPartsSite, runFrameEdit, addFrameLinks, FRAME_PARTS } from "./builder/site-frame.mjs";
+import { writtenFrame, ownPartsSite, runFrameEdit, addFrameLinks, FRAME_PARTS, frameTables } from "./builder/site-frame.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
 import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings, canWriteAccess } from "./site-access.mjs";
@@ -10576,6 +10576,26 @@ function withStoredSpec(spec, stored) {
     if (merged.length) out[k] = merged;
   }
   return out;
+}
+
+/**
+ * THE TABLES A FORM IN THE WRITTEN FRAME MAY STORE INTO (2026-10-25,
+ * frame-parallel): the site's own schema, read the catalog-aware way, read
+ * only. `[]` for a site with no database; `[]` too when it cannot be read, so
+ * the frame call is told none and a sign-up is answered `cannot` rather than
+ * wired to a table nobody checked. Never throws.
+ */
+async function frameTablesOf(env, slug) {
+  try {
+    let conn = await siteBackendBySlug(env, slug);
+    if (!conn) { const d = await siteBackendDetail(env, slug); conn = d && d.conn ? d.conn : null; }
+    if (!conn) return [];
+    const r = await specForAddon(conn);
+    return r && r.ok ? frameTables(r.spec) : [];
+  } catch (e) {
+    console.error("frame tables unreadable:", slug, e && e.name);
+    return [];
+  }
 }
 
 async function specForAddon(conn) {
@@ -34828,7 +34848,7 @@ async function handleRequest(request, env, ctx) {
             (Array.isArray(routed.alsoAsked) && routed.alsoAsked.length && routed.alsoAsked.every((x) => typeof x === "string" && x) ? routed.alsoAsked : undefined) || undefined,
           dependsOn: Array.isArray(routed.dependsOn) && routed.dependsOn.length ? routed.dependsOn : undefined,
           targets: Array.isArray(routed.targets) && routed.targets.length ? routed.targets : undefined,
-          handOver: routed.intent === "addon" && routed.handOver ? routed.handOver : undefined,
+          handOver: routed.handOver && (routed.intent === "addon" || (routed.intent === "edit" && routed.handOver.reason === "existing")) ? routed.handOver : undefined,
           model3d: routed.intent === "addon" && routed.model3d ? routed.model3d : undefined,
           question: prepQuestion,
           routeScope: rJob.routeScope || undefined,
@@ -35207,7 +35227,7 @@ async function handleRequest(request, env, ctx) {
         // the router named, and the reason — rather than starting again from
         // the message alone. The fourteenth field of this shape, added with its
         // wire: the browser posts it with the add-on request.
-        handOver: routed.intent === "addon" && routed.handOver ? routed.handOver : undefined,
+        handOver: routed.handOver && (routed.intent === "addon" || (routed.intent === "edit" && routed.handOver.reason === "existing")) ? routed.handOver : undefined,
         // The question to put in front of the build, already cleaned into
         // something renderable — two to four options, deduped, capped. The
         // client shows it verbatim rather than re-deciding anything, so there is
@@ -36715,6 +36735,17 @@ async function handleRequest(request, env, ctx) {
             // step against the site's real pages; this records, it never acts.
             const eHand = eHanded ? readHandOver(eb && eb.handOver) : null;
             if (eHand) editTrace.mark("handover", "ok", eHand);
+            // AN ADD-ON ABOUT WHAT THE SITE ALREADY HAS (2026-10-25,
+            // frame-parallel): the router (`routeOnExisting`) or the add-on step
+            // (`existing`) sent "Add a Cafe page…" here because the site already
+            // has that page and its lists. Live on driftwood-and-daughters-5 the
+            // page writer answered the page unchanged — it already did what was
+            // asked — and the no-change retry pushed it into a whole-page rewrite
+            // anyway (12–17 credits each, four at once). For such a part an
+            // unchanged page is the answer: said, not retried, nothing charged
+            // for the edit. Read whether or not `handedOff` (it only narrows).
+            const eExistingHand = readHandOver(eb && eb.handOver);
+            const eExisting = !!(eExistingHand && eExistingHand.reason === "existing");
             const eRemove = !eHanded && !!(eb && eb.remove === true);
             const eRename = !eHanded && typeof (eb && eb.rename) === "string" ? eb.rename.trim().toLowerCase() : "";
             // `let`, AND THE MESSAGE KEPT BESIDE IT: a step the look branch adds
@@ -39242,6 +39273,8 @@ async function handleRequest(request, env, ctx) {
                   const fOut = await runFrameEdit({ send: eQuick() }, {
                     instruction: eInstruction, pages: eSrc, parts: fRead.parts, routes: navRoutes,
                     model: eQuickModel, addition: eb.addition === true,
+                    // THE TABLES A FORM HERE MAY STORE INTO (2026-10-25, frame-parallel).
+                    tables: await frameTablesOf(env, ownerSlug),
                   });
                   if (fOut.ask) return stepAsk("nav", fOut.ask);
                   if (!fOut.ok && fOut.reason === "send") return modelDown(fOut.error, "I couldn't reach the model that sets the menu — try again in a moment.");
@@ -41646,7 +41679,9 @@ async function handleRequest(request, env, ctx) {
                 const pStoredByName = new Map((Array.isArray(pStoredParts) ? pStoredParts : []).filter((x) => x && typeof x.name === "string").map((x) => [x.name, x.source]));
                 const pPartChanged = (v) => (v.parts || []).some((pt) => pt && (!pStoredByName.has(pt.name) || pStoredByName.get(pt.name) !== pt.source));
                 const pMissWhy = (v, w) => !w ? "no-page-back" : (w.source === target.source && !pPartChanged(v)) ? "no-change" : null;
-                const pWhy = eGen && !eGen.ask && !eGen.truncated && pRec.last && typeof pWrite === "function" ? pMissWhy(pValid, wrote) : null;
+                const pWhy0 = eGen && !eGen.ask && !eGen.truncated && pRec.last && typeof pWrite === "function" ? pMissWhy(pValid, wrote) : null;
+                // NOT RETRIED FOR WHAT THE SITE ALREADY HAS (`eExisting`, above).
+                const pWhy = pWhy0 === "no-change" && eExisting ? null : pWhy0;
                 if (pWhy) {
                   const pReason = pWhy === "no-page-back"
                     ? "Nothing was changed: your answer did not include the page " + target.path + " (the one file this change is about), so it could not be applied. Answer again with that page, whole, with the change the request asks for made in it."
@@ -41910,6 +41945,16 @@ async function handleRequest(request, env, ctx) {
                 // that sent no page back is a model failure, ours. Both are a
                 // sentence at no cost for the edit.
                 if (!wrote) return explain("page/no-page-back", { page: wantRoute }, { problems: pProblems });
+                // ALREADY ON THE SITE (2026-10-25, frame-parallel): an add-on about
+                // a page the site has, answered unchanged by that page's writer, is
+                // done as it stands — nothing published, nothing charged for it.
+                if (eExisting) {
+                  return Response.json({
+                    ok: true, satisfied: true, existing: true, layer: "page", changed: [], pageOps: [],
+                    msg: "The " + wantRoute + " page already has what you asked for, so I left it as it was.",
+                    cost: 0,
+                  });
+                }
                 return explain("page/no-change", { page: wantRoute }, { problems: pProblems });
               }
               // ── AND A LOSS THE PROTECTION COULD NOT REACH IS WITHHELD ────
