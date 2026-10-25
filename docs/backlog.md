@@ -3338,3 +3338,10 @@ Free plan (developers.cloudflare.com/turnstile/plans, read 2026-10-25): price
   - Or a second Cloudflare account for another ~200 free. **Check Cloudflare's
     terms first**: using extra accounts mainly to get round a plan limit may not be
     allowed.
+- **Enterprise cost (read 2026-10-25):** Cloudflare publishes no price ("Contact
+  Sales", custom per contract). Unverified third-party figures: Enterprise Bot
+  Management from about $2,000/month (Roundtable, a competitor); a basic Cloudflare
+  Enterprise contract around $5,000/month (Blazing CDN blog); Turnstile Enterprise
+  reportedly not sold on its own (Prosopo, a competitor). Cheaper paths at that
+  point: another anti-robot service for custom-domain sites, or a small add-on fee
+  for customers on their own domain.
