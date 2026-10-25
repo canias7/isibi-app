@@ -1,5 +1,17 @@
 # Owner Notes
 
+## 2026-10-25 — Stop can no longer go missing while a request runs (branch `fix-stop-panel`, not merged, not deployed)
+
+- **What happened:** on 2026-10-24, one message with many parts ran about 30 jobs for 15 minutes. The page showed no "tasks in progress" pill and no Stop the whole time.
+- **Why (found by reading the code):** the panel and the message box only found a running request by its card in the chat. Each part writes its own reply into the chat. The browser keeps only the last 40 messages, and loading the chat from the server replaces the thread. So the card could drop off while the request was still running. A request whose parts couldn't be read yet also left Stop nowhere. On the server, pressing Stop a second time did nothing.
+- **Now:**
+  - The panel lists every request this page knows about, card or no card.
+  - A request whose parts can't be read yet shows one row, "Your request", with a Stop button.
+  - The message box keeps its own Stop whenever the panel isn't showing the running request.
+  - Pressing Stop again asks every running job to cancel again.
+  - No new routes: these use the existing request stop and part stop.
+- Not proven which of these the live session hit; its browser state wasn't read. 4 tests, all red on main; a sweep killed 6 of 6 mutants and the comment-only control survived. Full suite 12,743: 12,738 pass, 2 fail on this machine only (the same two fail on main), 3 skipped. Nothing spent. Record: `docs/history/2026-10-25-stop-panel.md`.
+
 ## 2026-10-24 — read a site's failure diagnoses (branch `diagnosis-view`, not merged, not deployed)
 
 - New owner-only read: `GET /api/site/diagnoses?slug=<site>` lists that site's last 20 failed (or lost) jobs, newest first, each with its stored diagnosis from `jobs/<job id>.diagnosis.json`, or `null` when none was written.

@@ -56,7 +56,7 @@ function cutConst(head) {
   return CHAT.slice(open, CHAT.indexOf("\n};\n", open) + 4);
 }
 const FNS = ["esc", "progressListHTML", "siteSaidFor", "siteParState", "siteParTitle", "siteParTag", "siteRequestWorking", "siteRunningWork", "siteBusyHere", "siteComposerStops",
-  "siteBgState", "siteBgKeep", "siteBgItems", "siteBgWhen", "siteBgLine", "siteBgHTML", "siteBgJobHTML", "siteBgPaint", "siteBgScrolled", "siteBgClick", "siteBgStopAll", "siteBgStopPart",
+  "siteBgState", "siteBgKeep", "siteReqKeys", "siteBgItems", "siteBgWhen", "siteBgLine", "siteBgHTML", "siteBgJobHTML", "siteBgPaint", "siteBgScrolled", "siteBgClick", "siteBgStopAll", "siteBgStopPart",
   "siteBuildJobLines", "siteBuildJobBegin", "siteBuildJobEnd", "siteBuildJobItem", "siteBuildServerStop", "siteStopWork", "siteStop", "setBuildProgress"];
 const CONSTS = ["const SITE_PAR_STATE =", "const SITE_PAR_LABEL =", "const SITE_REQ_PREP =", "const SITE_SAID_FOR =", "const SITE_BG_KEEP_MS =", "const siteBgUi =", "const SITE_BG_KEEP_KEY ="];
 const src = () => [...FNS.map((n) => cut("function " + n + "(")), ...CONSTS.map(cutConst)].join("\n");

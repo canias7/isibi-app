@@ -12349,20 +12349,49 @@ function siteBuildServerStop(origin) {
     back('Couldn\u2019t stop the build just now \u2014 it\u2019s still going. Try again in a moment.');
   }).catch(() => back('Lost the connection \u2014 try again.'));
 }
+/**
+ * EVERY REQUEST THIS PAGE KNOWS ON A SITE (2026-10-25, stop-panel), oldest
+ * first: each card on the thread, in thread order, then each request record
+ * this page keeps (`site.requests`) whose card is not on the thread, by when
+ * the server made it. Live 2026-10-24: one message's request ran some thirty
+ * part jobs for about fifteen minutes with no row in the panel and no Stop
+ * anywhere. Its parts' replies are put on the thread one by one, the browser
+ * keeps only the last forty messages (`sitesSave`), and a chat read back from
+ * the server replaces the thread whole (`chatAdopt`): the card fell off while
+ * the request's record stayed, and both the panel and the box read the
+ * thread's cards alone. `m` is the card, or null.
+ */
+function siteReqKeys(site) {
+  const out = [];
+  const seen = new Set();
+  for (const m of Array.isArray(site && site.msgs) ? site.msgs : []) {
+    if (!m || typeof m.request !== 'string' || !m.request || seen.has(m.request)) continue;
+    seen.add(m.request);
+    out.push({ key: m.request, m });
+  }
+  const recs = site && site.requests && typeof site.requests === 'object' && !Array.isArray(site.requests) ? site.requests : {};
+  const at = (k) => { const v = recs[k] && recs[k].view; return v && Number.isFinite(v.at) ? v.at : 0; };
+  for (const k of Object.keys(recs).filter((k) => !seen.has(k) && recs[k] && recs[k].view && Array.isArray(recs[k].view.parts)).sort((a, b) => at(a) - at(b))) out.push({ key: k, m: null });
+  return out;
+}
 /** Every part the panel lists: each request's parts on this site, unfinished, or finished within the keep window. */
 function siteBgItems(site, now) {
   const at = Number.isFinite(now) ? now : Date.now();
   const out = [];
-  if (!site || !Array.isArray(site.msgs)) return out;
+  if (!site) return out;
   const bj = typeof siteBuildJobItem === 'function' ? siteBuildJobItem(site, at) : null;
   if (bj) out.push(bj);
-  const seen = new Set();
-  for (const m of site.msgs) {
-    if (!m || typeof m.request !== 'string' || !m.request || seen.has(m.request)) continue;
-    seen.add(m.request);
-    const st = site.requests && typeof site.requests === 'object' ? site.requests[m.request] : null;
-    const v = st && st.view && Array.isArray(st.view.parts) ? st.view : m.rq && Array.isArray(m.rq.parts) ? m.rq : null;
-    if (!v || !v.parts.length) continue;
+  for (const { key, m } of siteReqKeys(site)) {
+    const st = site.requests && typeof site.requests === 'object' ? site.requests[key] : null;
+    const v = st && st.view && Array.isArray(st.view.parts) ? st.view : m && m.rq && Array.isArray(m.rq.parts) ? m.rq : null;
+    if (!v) continue;
+    // A LIVE REQUEST WHOSE PARTS CANNOT BE READ YET (2026-10-25, stop-panel):
+    // `siteRunningWork` counts it as running, so the box gives up its Stop;
+    // the panel lists it as one row whose Stop stops the whole request.
+    if (!v.parts.length) {
+      if (!v.ended && !v.stop && siteRequestWorking(v)) out.push({ key, n: -1, whole: true, title: 'Your request', p: { words: '', said: null, progress: [] }, parts: [], state: 'run', doneAt: null });
+      continue;
+    }
     for (const p of v.parts) {
       if (!p || !Number.isInteger(p.n)) continue;
       const state = siteParState(p);
@@ -12376,8 +12405,8 @@ function siteBgItems(site, now) {
           doneAt = at;
         }
         if (at - doneAt >= SITE_BG_KEEP_MS) continue;
-        out.push({ key: m.request, n: p.n, p, parts: v.parts, state, doneAt });
-      } else if (!v.ended && !v.stop) out.push({ key: m.request, n: p.n, p, parts: v.parts, state, doneAt: null });
+        out.push({ key, n: p.n, p, parts: v.parts, state, doneAt });
+      } else if (!v.ended && !v.stop) out.push({ key, n: p.n, p, parts: v.parts, state, doneAt: null });
     }
   }
   return out;
@@ -12423,7 +12452,7 @@ function siteBgHTML(site, now) {
   // A JOB NOT LISTED (yet, after a reload, or no more) shows the list; the choice is kept.
   if (it) return '<div class="st-bg-pane st-bg-jobview">' + siteBgJobHTML(site, it) + '</div>';
   const rows = items.map((x) => '<div class="st-bg-row st-par-' + x.state + '" data-bg-row="' + esc(x.key + '|' + x.n) + '" role="button" tabindex="0">' +
-    '<span class="st-par-dot"></span><span class="st-bg-txt"><span class="st-bg-name">' + esc(x.build ? x.title : siteParTitle(x.p)) + '</span>' +
+    '<span class="st-par-dot"></span><span class="st-bg-txt"><span class="st-bg-name">' + esc(x.build || x.whole ? x.title : siteParTitle(x.p)) + '</span>' +
     '<span class="st-bg-sub">' + esc(siteBgLine(x, now)) + '</span></span><span class="st-bg-go">›</span></div>').join('');
   return '<div class="st-bg-pane">' +
     '<div class="st-bg-top"><span>' + esc(things(items.length)) + ' · ' + working + ' in progress</span><span class="st-bg-acts">' +
@@ -12449,7 +12478,7 @@ function siteBgJobHTML(site, it) {
   }
   const act = it.state === 'run' || it.state === 'ask' ? '<span class="st-par-dot"></span><button type="button" class="st-bg-btn" data-bg="stop" data-bg-id="' + id + '">Stop</button>'
     : it.state === 'wait' ? '<button type="button" class="st-bg-btn" data-bg="stop" data-bg-id="' + id + '">Remove</button>' : '';
-  const top = '<div class="st-bg-top st-par-' + it.state + '"><span class="st-bg-crumb"><button type="button" class="st-bg-btn" data-bg="back">‹ Back</button> · <b>' + esc(siteParTitle(p)) + '</b></span><span class="st-bg-acts">' + act + '</span></div>';
+  const top = '<div class="st-bg-top st-par-' + it.state + '"><span class="st-bg-crumb"><button type="button" class="st-bg-btn" data-bg="back">‹ Back</button> · <b>' + esc(it.whole ? it.title : siteParTitle(p)) + '</b></span><span class="st-bg-acts">' + act + '</span></div>';
   const words = String(p.words || '').trim();
   let body = words ? '<div class="st-bg-asked">You asked: “' + esc(words) + '”</div>' : '';
   if (it.state === 'wait') {
@@ -12534,6 +12563,8 @@ function siteBgStopAll(site) {
 /** STOP (or REMOVE) ONE PART: the server stops that part and its job; the rest of its request goes on. */
 function siteBgStopPart(origin, key, n) {
   if (key === 'build') { siteBuildServerStop(origin); return; }
+  // THE WHOLE REQUEST'S ROW (no part could be read): the request's own stop.
+  if (!(Number.isInteger(n) && n >= 0)) { siteRequestStop(origin, key); return; }
   const s = siteById(origin);
   if (!s || !s.slug) return;
   const failed = () => { if (typeof sbToast === 'function') sbToast('Couldn’t stop that just now — it’s still going. Try again in a moment.'); };
@@ -17321,13 +17352,12 @@ function siteRequestWorking(v) {
 }
 function siteRunningWork(site) {
   if (!site) return null;
-  const msgs = Array.isArray(site.msgs) ? site.msgs : [];
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    const m = msgs[i];
-    if (!m || typeof m.request !== 'string' || !m.request) continue;
-    const st = site.requests && typeof site.requests === 'object' ? site.requests[m.request] : null;
+  // EVERY REQUEST THIS PAGE KNOWS, its card on the thread or not (`siteReqKeys`), newest first.
+  const keys = siteReqKeys(site);
+  for (let i = keys.length - 1; i >= 0; i--) {
+    const st = site.requests && typeof site.requests === 'object' ? site.requests[keys[i].key] : null;
     const v = st && st.view;
-    if (v && !v.ended && !v.stop && siteRequestWorking(v)) return { kind: 'request', key: m.request };
+    if (v && !v.ended && !v.stop && siteRequestWorking(v)) return { kind: 'request', key: keys[i].key };
   }
   const cards = site.jobCards && typeof site.jobCards === 'object' && !Array.isArray(site.jobCards) ? site.jobCards : {};
   for (const k of Object.keys(cards)) {
@@ -17361,7 +17391,10 @@ function siteStop(site) {
 /** Whether the box shows Stop: this project's own send in flight with nothing in the panel, or a standalone job (no request) running. */
 function siteComposerStops(site) {
   const w = siteRunningWork(site);
-  if (w && w.kind === 'request') return false;
+  // A REQUEST'S STOP IS THE PANEL'S only while the panel lists it with work
+  // left (2026-10-25, stop-panel); otherwise the box keeps Stop, which stops
+  // the request (`siteStopWork`). Stop is never nowhere.
+  if (w && w.kind === 'request') return !siteBgItems(site).some((it) => it.key === w.key && (it.state === 'run' || it.state === 'wait' || it.state === 'ask'));
   if (w && w.kind === 'job') return true;
   return siteBusyHere(site) && !siteBgItems(site).some((it) => it.state === 'run' || it.state === 'wait' || it.state === 'ask');
 }
