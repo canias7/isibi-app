@@ -625,7 +625,8 @@ test("the row designer is told the lists it may add to — the display list, nev
   const props = designer.args.tools[0].input_schema.properties;
   // RE-ANCHORED 2026-10-02 (the owner's review: the add-on designers can ask):
   // and the one question back, never designed into the site.
-  assert.deepEqual(Object.keys(props), ["row", "question"]);
+  // RE-ANCHORED 2026-10-25: and its coverage list (`rowUnmet` reads it), with its suggestions.
+  assert.deepEqual(Object.keys(props), ["row", "requirements", "suggestions", "question"]);
   assert.deepEqual(props.row.items.required, ["table", "values"]);
   // NO `maxItems` SINCE 2026-10-03 (the mixed-work fixes): the tool asks for
   // every entry asked for, and the cleaner keeps `MAX_ADD_ROWS` and names the rest.

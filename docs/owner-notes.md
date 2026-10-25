@@ -1,5 +1,12 @@
 # Owner Notes
 
+## 2026-10-25 — finishing the add-on fixes (branch `fix-addon-existing`, not merged, not deployed)
+
+- Once a request is paid for, its later parts no longer ask a question. They take the obvious choice instead: edit the page that's named, or let the add-on step decide. The tests that relied on a part asking were rewritten as you approved.
+- A lone list entry (like "add a bookable Lessons page" becoming one row) no longer reads as done. Anything the entry can't do, such as bookings, is said as "Not done yet", and it goes on as its own step.
+- Header and footer edit (Driftwood): the AI added a kit component (`figure`) that the footer isn't allowed to use, and the rules never told it so. Now the rules say it, a refused answer gets one retry with the reason, and a refused header or footer edit costs nothing.
+- Full suite: 12,747 tests, 12,740 pass. One test was updated afterwards. One fails because of this machine only. Nothing spent. Record: `docs/history/2026-10-25-addon-fixes-2.md`.
+
 ## 2026-10-24 — add-ons about pages and lists you already have (branch `fix-addon-existing`, not merged, not deployed)
 
 - When the router calls something an "addition" but everything it touches already exists (like /shop or /cafe), it now goes to the page editor on that page, with the same words, instead of ending with nothing done.
