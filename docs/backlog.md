@@ -3305,3 +3305,15 @@ not a `SITE_MAP.md` in the customer's project. Includes the bug that a first bui
 never saves its landmark map (`saveLandmarks` gated on an `ok` `publishPages` never
 returns, worker.js ~20961). Router batch 1's `siteMap()` (builder/route-inventory.mjs)
 is its start.
+
+## Router for small edits, an agent with tools for big ones (2026-10-25, owner: later)
+
+A direction to decide later. Keep the router and the pipeline for small, clear
+edits (text, colour, one photo, a menu link: cheap, predictable, exact billing).
+Send big or unclear requests (like the Driftwood add-on message) to one agent
+with read-only look-around tools plus write/build tools that fixes its own
+errors, with our existing checks still run after it (feature verify, render
+check, keep-existing-content, billing per piece). The router becomes the
+"small job or big job?" switch. Weighed against Lovable-style single agents:
+fewer hand-off failures and better on messy requests, but costlier per change,
+less predictable, and harder to hold to our guarantees.
