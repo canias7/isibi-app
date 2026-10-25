@@ -3277,3 +3277,17 @@ When a model-driven step fails, a diagnose step gathers the evidence (request, s
 ## "XHigh" effort option in the picker (owner, 2026-10-24: "yes put it on … that will go in the next update with the skill")
 
 Grok 4.7 accepts reasoning_effort low/medium/high/xhigh (docs.x.ai). Add "XHigh" to the Effort picker (public/chat.js) and pass it through to the xAI request (builder/model-xai.mjs); decide the Claude equivalent. Ships with the failure-diagnosis step in the next round.
+
+## Router on a cheap model, later (2026-10-25, owner)
+
+The owner plans to move the routing call to a cheaper model **later, not now**.
+Do it after the router batches (site inventory, rules halved, route once) and
+after a router test set of real messages with known answers exists, so the
+cheap model can be scored against the current one offline before switching.
+
+## Router test set (2026-10-25)
+
+A fixed set of real customer messages with the right routing answer for each
+(e.g. "add a Lessons page" when it exists → edit; "make lessons bookable" →
+feature on /lessons; "footer social links + newsletter" → frame), scored
+offline with supplied site inventories before any router or model change.
