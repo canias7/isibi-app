@@ -226,7 +226,7 @@ function chatFn(name) {
   return CHAT.slice(at + 1, end + 2);
 }
 test("F1 — a request whose unfinished parts wait on a question is not running work; one with a part running is", () => {
-  const fns = ["siteRequestWorking", "siteRunningWork"].filter((n) => CHAT.includes("\nfunction " + n + "(")).map(chatFn).join("\n");
+  const fns = ["siteReqKeys", "siteRequestWorking", "siteRunningWork"].filter((n) => CHAT.includes("\nfunction " + n + "(")).map(chatFn).join("\n");
   const run = new Function("siteJobOutcome", fns + "\nreturn siteRunningWork;")(() => "done");
   const site = (parts) => ({ msgs: [{ request: "k" }], requests: { k: { view: { ended: false, stop: false, parts } } }, jobCards: {} });
   assert.equal(run(site([{ n: 0, status: "done" }, { n: 1, status: "waiting" }])), null, "a waiting question held the composer on Stop");

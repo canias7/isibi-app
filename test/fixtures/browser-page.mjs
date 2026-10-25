@@ -80,7 +80,7 @@ const FNS = [...new Set([
   // ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03): the
   // message's key, following a request, its card, Stop and the rewrite go-ahead.
   "siteMessageKey", "siteUnsentBack", "siteRequestOf", "siteReqState", "siteReqSay", "siteRequestStart", "siteRequestFollow",
-  "siteRequestStop", "siteRequestWorking", "siteRunningWork", "siteStopWork", "siteStop", "siteRequestApprove", "siteRequestsCheck", "siteRequestHTML",
+  "siteRequestStop", "siteRequestWorking", "siteReqKeys", "siteRunningWork", "siteStopWork", "siteStop", "siteRequestApprove", "siteRequestsCheck", "siteRequestHTML",
   // AND A HELD PART'S BUY-AGAIN PRESS (2026-10-11, the recovery card).
   "siteRequestBuyAgain",
   // EACH REQUEST'S MESSAGES WITH THAT REQUEST (2026-10-05): its own, its
