@@ -41,9 +41,9 @@ The reply is still written by the model, from these facts.
 
 ## Not done (kept separate)
 
-- **One retry for a missing need.** A `missing` verdict is told as not done, with the gap named. Handing it back to the page step for one more pass needs a second design-and-publish round inside the addon route. Recorded in the backlog.
+- **One retry for a missing need**: done in round 2 below.
 - **The three live jobs.** All three were unpublished failures, so the check does not run there by design. Their hedges came from the failure path.
-- **Exercising behaviour.** Nothing submits a form or tests a rule. "Present" means the pieces are there and wired.
+- **Exercising behaviour**: done in round 2 below, for forms and for the rules Postgres enforces. A row cap and one-per-person are counted per owner, and no-overlap is the Worker's own insert, so a test write from here would not be judged the way a visitor's is. Those stay as declared facts.
 
 ## Evidence
 
@@ -53,3 +53,42 @@ The reply is still written by the model, from these facts.
 - Sweep: 13 of 13 mutants killed (the join, the table-alone guard, the function guard, `declaredPart`, the drawn check, drawn-over-code fields, comment blanking, the report hook, the missing→not-done step, the probe push, the worker pass, the reply kind, the report's `forms`). The comment-only control survived.
 - Dockerfile: `builder/requirement-verify.mjs` added to the worker tree (the job runner imports it; `test/dockerfile.test.mjs` caught it).
 - Full suite `node --test "test/*.test.mjs"`: `12796 / 12791 / 2 / 3` before the Dockerfile line. The two failures were the Dockerfile case (fixed, re-run green) and `container-room` (the worktree had no `node_modules`; green with it linked: 15 / 15).
+
+## Round 2 (same day, on the owner's approval): one retry, and features exercised
+
+**The retry** (`builder/requirement-retry.mjs`):
+- It runs in `aAfterCompile`, after the repair round and before the schema apply and publish.
+- Each judged need (`judgedNeeds(aReq)`) is checked against the compiled pages.
+- A need whose only gaps are a page and a table that never meet (`verifyNeed`'s `fixes`) goes back ONCE to the page writer, with the gap as the reason. It uses the tweak rung with the repair round's model and clock (`RETRY_RULES`, "WHAT THE CHECK FOUND MISSING"). The corrected pages are compiled again and checked again.
+- What is still missing is told as not done. There is never a second round.
+- Not retried, and told as not done straight away: a missing page, table, column or rule, or a page with no file of its own.
+- When the round mends something, its compile is what ships (`aSwap`, `aShippedPages`).
+- **Billing**: the usage is charged once, as job reserve #7 (`edit_reserve` is idempotent per sequence number, so a re-run job is not charged twice). On the synchronous road it goes on the one bill. A round that mends nothing costs only its usage.
+- `runTweak` / `readTweak` / `tweakLint` now take an optional `spec`. With it, the differential lint judges both sides against the schema, so joining a declared table is not a "new problem". Every other caller passes none and is unchanged.
+
+**Forms exercised** (`render-check.mjs`):
+- `exerciseForms` runs on desktop, last on each route, for up to 3 forms.
+- It puts an interceptor in front of every request: GETs fall through, and **every non-GET is aborted**. A write to `/api/db/<slug>/data/<table>` (or `rpc/<fn>`) is recorded first (`interceptedWrite`).
+- `fillProbe` fills each form with plain test values and calls `requestSubmit()`.
+- The result goes into `report.submits`. Evidence: "filled in and submitted in a test, the form on /lessons sent date, time, people to lesson_bookings (stopped before anything was saved)".
+
+**Rules exercised** (`builder/requirement-exercise.mjs`):
+- Each judged table gets a plain row, then for each numeric CHECK the passing and the breaking value, then a duplicate for each `unique`.
+- Every write goes only through `sqlRehearse`, the existing write that always fails after the statement, so Postgres rolls it back. Each write has a 5 s timeout.
+- It runs only once the apply has landed and nothing is held in a draft (`adb && !aWriter.holding`).
+- A refusal counts only with Postgres's own codes (23514, 23505, 23502, P0001). Anything else is `unrun`.
+- If the database is unreachable or the plain row is refused, nothing is judged and the declared facts stand.
+- Evidence: "a test write with people = 9 was refused by lesson_bookings (rolled back, nothing kept)". A breaking write accepted is a gap when the need rests on that rule.
+- `requirement-exercise.mjs` is added to both Dockerfile trees.
+
+**Evidence**:
+- `test/feature-verify-exercise.test.mjs`, 7 cases:
+  - no retry when nothing is missing, or when nothing is mendable;
+  - missing → retried → present;
+  - missing → retried → still missing → told not done, one call only;
+  - the worker wiring and reserve #7 placed once;
+  - rules: enforced, lax, unreachable, timeout, plain row refused, connection error;
+  - the worker exercises rules only through the rehearsal;
+  - forms: through a stand-in page, every write aborted and the interceptor removed.
+- Red check: against round 1's code the file fails (`exerciseForms` does not exist).
+- Sweep: 19 of 19 mutants killed. The comment-only control survived.

@@ -165,7 +165,8 @@ test("the addon's hook IS the add step's own round: its module, its scope, the p
   // returned LAST, because the schema apply now sits between the round and
   // the return and may answer a refusal instead — the property is that the
   // build the hook hands back is the round's, and only when the round built.
-  assert.match(hook, /const aSwap = aRepairRound\.ran && aRepairRound\.built \? \{ built: aRepairRound\.built, pages: aRepairRound\.pages \} : null;/);
+  // RE-ANCHORED 2026-10-25 (feature-verify): the requirement retry round's build first, else the repair round's.
+  assert.match(hook, /const aSwap = aReqRetry && aReqRetry\.built \? \{ built: aReqRetry\.built, pages: aReqRetry\.pages \}\n\s+: aRepairRound\.ran && aRepairRound\.built \? \{ built: aRepairRound\.built, pages: aRepairRound\.pages \} : null;/);
   assert.ok(hook.includes("\n              return aSwap;\n            };"), "the hook's last answer is not the round's build");
   // The bill and the reply read the round.
   assert.match(route, /const aCharge = async \(bill, seq = 1\) => \{/, "the charge closure does not take the ledger sequence");

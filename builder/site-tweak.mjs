@@ -307,11 +307,11 @@ export function routeIdOf(source) {
  * `null` means the scanner could not ANSWER, which has to stay distinct from an
  * empty set — collapse the two and a crash reads as a clean page.
  */
-export function lintOne(source) {
+export function lintOne(source, spec = undefined) {
   try {
     // ONE path for every call, or the `path + ": "` prefix differs between the
     // two sides and nothing cancels — every problem would read as introduced.
-    return new Set(lintPages([{ path: "page.tsx", source: String(source == null ? "" : source) }], undefined));
+    return new Set(lintPages([{ path: "page.tsx", source: String(source == null ? "" : source) }], spec));
   } catch { return null; }
 }
 
@@ -347,8 +347,12 @@ export function lintOne(source) {
  * twice over — with no baseline to subtract, every problem the page already had
  * would be blamed on this edit.
  */
-export function tweakLint(before, after) {
-  const b = lintOne(before), a = lintOne(after);
+// WITH A SPEC (2026-10-25, feature-verify's retry round, which exists to join
+// a page to a table the schema declares): both sides are judged against it,
+// still differentially, so a declared table is no longer a new problem and an
+// undeclared one still is. Every other caller passes none and reads as before.
+export function tweakLint(before, after, spec = undefined) {
+  const b = lintOne(before, spec), a = lintOne(after, spec);
   if (!b || !a) return [];
   return [...a].filter((p) => !b.has(p));
 }
@@ -362,7 +366,7 @@ export function tweakLint(before, after) {
  * ordinary request is impossible, on a rung they never asked to be routed to.
  * So there is no `ok: false` here that a customer ever sees.
  */
-export function readTweak(reply, { source, inPart, parse } = {}) {
+export function readTweak(reply, { source, inPart, parse, spec } = {}) {
   const before = String(source == null ? "" : source);
   // The raw API reply, read the way every other lane reads one — a forced tool
   // can still come back without a `tool_use` block when the call is cut short,
@@ -450,7 +454,7 @@ export function readTweak(reply, { source, inPart, parse } = {}) {
   // rung keeps refusing" and "the cheap rung keeps breaking pages" want
   // opposite fixes, and without the strings they are one log line. Absent on
   // success, so a working tweak's result is unchanged.
-  const problems = tweakLint(before, after);
+  const problems = spec ? tweakLint(before, after, spec) : tweakLint(before, after);
   if (problems.length) return { ok: false, reason: "lint", problems };
 
   return { ok: true, source: after };
@@ -777,7 +781,7 @@ export function tweakable(source) {
  * exception escaping would turn "the cheap rung was unavailable" into "the edit
  * failed", which is strictly worse than not having built it.
  */
-export async function runTweak({ instruction, path, source, send, rules, heading, model = TWEAK_MODEL, inPart, mark }) {
+export async function runTweak({ instruction, path, source, send, rules, heading, model = TWEAK_MODEL, inPart, mark, spec }) {
   const can = tweakable(source);
   if (!can.ok) return { ok: false, reason: can.reason, usage: null };
   let reply = null;
@@ -809,7 +813,7 @@ export async function runTweak({ instruction, path, source, send, rules, heading
   const ask = askOf(reply);
   if (ask) return { ok: false, reason: "ask", ask, usage: tweakUsage(reply, model) };
   const parse = await tweakParser();
-  const first = readTweak(reply, { source, inPart, parse });
+  const first = readTweak(reply, { source, inPart, parse, spec });
   // A REFUSAL NO ANSWER CAN CHANGE IS NOT RETRIED: `needs-parts` because no
   // parser could read the page (`no-parser`, `unparsed`) is this runtime's
   // fact, not the model's slip.
@@ -840,7 +844,7 @@ export async function runTweak({ instruction, path, source, send, rules, heading
   const usage = sumUsage(tweakUsage(reply, model), tweakUsage(again, model));
   const ask2 = askOf(again);
   if (ask2) { markRetry(mark, "tweak", first.reason, false); return { ok: false, reason: "ask", ask: ask2, usage, retried: true, retryReason: { step: "tweak", reason: first.reason, ok: false } }; }
-  const second = readTweak(again, { source, inPart, parse });
+  const second = readTweak(again, { source, inPart, parse, spec });
   markRetry(mark, "tweak", first.reason, second.ok === true);
   // PAY ONLY FOR WHAT WORKED (round 2): a tweak still refused after its retry
   // carries the first call's usage only, as before retries; the retry's rides apart.

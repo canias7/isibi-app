@@ -322,7 +322,8 @@ test("the hook applies last: after the round's reserve, after the swap is formed
   const r = route();
   const hook = between(r, "const aAfterCompile = async ({ built, pages, langs, recompile, job, version }) => {", 'aMark("publish:1", "start"', "the hook");
   const charge = at(hook, "aRepairRound.charged = Number(await aCharge(pageCredits(...aRepairRound.usage), 2)) || 0;", "reserve #2");
-  const swap = at(hook, "const aSwap = aRepairRound.ran && aRepairRound.built ? { built: aRepairRound.built, pages: aRepairRound.pages } : null;", "the swap");
+  // RE-ANCHORED 2026-10-25 (feature-verify): the swap prefers the requirement retry round's build, then the repair round's.
+  const swap = at(hook, "const aSwap = aReqRetry && aReqRetry.built ? { built: aReqRetry.built, pages: aReqRetry.pages }\n                : aRepairRound.ran && aRepairRound.built ? { built: aRepairRound.built, pages: aRepairRound.pages } : null;", "the swap");
   const gate = at(hook, "if (aApplyBackend) {", "the apply gate");
   const skip = at(hook, 'if (aCharges.refused() > 0) { aMark("schema", "skip", { why: "unbilled" }); return aSwap; }', "the ledger skip");
   const apply = at(hook, "const ap = await aApplyBackend(version);", "the apply");

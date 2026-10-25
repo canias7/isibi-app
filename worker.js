@@ -322,7 +322,10 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // (2026-10-13, after run 144): the evidence a component's requirement is read
 // against, in place of "nobody can see one".
 import { addedByRoute, publishedTexts, componentEvidence } from "./builder/content-evidence.mjs";
-import { publishedForms, routeCode } from "./builder/requirement-verify.mjs";
+import { publishedForms, routeCode, renderedForms, renderedSubmits } from "./builder/requirement-verify.mjs";
+import { requirementRetryRound, judgedNeeds } from "./builder/requirement-retry.mjs";
+import { exerciseTables } from "./builder/requirement-exercise.mjs";
+import { renderedTexts } from "./builder/content-evidence.mjs";
 import { noteFor, pickAdds, designWaits, ADD_KINDS, mergePageBatches, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, frameToMissing, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, qrShownSources, qrDestinationCheck, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowRequired, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 import { compileRepairRound, compileRepairRounds, writtenPaths, withParts, splitParts } from "./builder/compile-repair.mjs";
 import { salvageRound, anythingLanded, MAX_SALVAGE_ROUNDS, landedBill, partKey, writtenPartKeys } from "./builder/change-salvage.mjs";
@@ -44621,6 +44624,10 @@ async function handleRequest(request, env, ctx) {
             // feature-verify: shipped code by route, those forms, the routes
             // drawn, the post-apply schema). Null until the pages shipped.
             let aForms = null, aVerifySite = null;
+            // …AND `aReqRetry` THE ONE MORE ROUND FOR NEEDS THE CHECK FOUND
+            // MISSING before publish (2026-10-25, `requirement-retry.mjs`):
+            // its compile, when it mended anything, is what ships.
+            let aReqRetry = null, aSubmits = null;
             // WHAT THE PUBLISHED MENUS SHOWED OF THE LINKS THIS CHANGE PUT IN
             // (2026-10-15, `linkEvidence`): read once the menu step ran; null
             // until then, when every link a requirement rests on is unknown.
@@ -48156,11 +48163,47 @@ async function handleRequest(request, env, ctx) {
                 { why: String(aRepairRound.why || aRepairRound.failed || ""), repaired: aRepairRound.repaired.length, refused: aRepairRound.refused.length });
               aRendered = publishedTexts(built, aRepairRound);
               aForms = publishedForms(built, aRepairRound);
+              aSubmits = renderedSubmits(aRepairRound && aRepairRound.built ? aRepairRound.built.render : built.render);
               if (aJob && aRepairRound.usage.length) {
                 try { aRepairRound.charged = Number(await aCharge(pageCredits(...aRepairRound.usage), 2)) || 0; }
                 catch (e) { aRepairRound.charged = 0; console.error("addon repair charge failed:", ownerSlug, e && e.message); }
               }
-              const aSwap = aRepairRound.ran && aRepairRound.built ? { built: aRepairRound.built, pages: aRepairRound.pages } : null;
+              // ── ONE MORE ROUND FOR WHAT THE CHECK FOUND MISSING (2026-10-25) ──
+              //
+              // Each judged need is checked against the compiled pages; a page
+              // and a table that never meet are handed back ONCE to the page
+              // writer with the gap as the reason, recompiled and checked again
+              // (`requirementRetryRound`). Never a second round. Its usage is
+              // its own reserve (#7), placed once per job like every other.
+              {
+                const aCur = aRepairRound.ran && aRepairRound.built ? { built: aRepairRound.built, pages: aRepairRound.pages } : { built, pages };
+                const aSiteOf = (pg, b) => ({
+                  pages: routeCode(routedSources(pg || [], aParts || (aPartsRead.ok ? aPartsRead.parts : []) || [])),
+                  forms: renderedForms(b && b.render), submits: renderedSubmits(b && b.render),
+                  drawn: new Set(renderedTexts(b && b.render).keys()), spec: aSpec,
+                });
+                try {
+                  aReqRetry = await requirementRetryRound({
+                    needs: judgedNeeds(aReq), site: aSiteOf(aCur.pages, aCur.built), pages: aCur.pages, siteOf: aSiteOf,
+                    send: quickSend(env, "repair", repairClock(aClock)), model: aModels.quick, compile: recompile,
+                    room: !aClock || aClock.canRepair(aRepairNeedMs),
+                  });
+                } catch (e) { aReqRetry = null; console.error("addon requirement retry failed:", ownerSlug, e && e.message); }
+                if (aReqRetry) {
+                  aMark("retry", aReqRetry.ran ? (aReqRetry.built ? "ok" : "fail") : "skip", { why: String(aReqRetry.why || ""), retried: aReqRetry.retried.length, mended: aReqRetry.mended.length, still: aReqRetry.still.length });
+                  if (aReqRetry.built) {
+                    aRendered = renderedTexts(aReqRetry.built.render);
+                    aForms = renderedForms(aReqRetry.built.render);
+                    aSubmits = renderedSubmits(aReqRetry.built.render);
+                  }
+                  if (aJob && aReqRetry.usage.length) {
+                    try { aReqRetry.charged = Number(await aCharge(pageCredits(...aReqRetry.usage), 7)) || 0; }
+                    catch (e) { aReqRetry.charged = 0; console.error("addon requirement retry charge failed:", ownerSlug, e && e.message); }
+                  }
+                }
+              }
+              const aSwap = aReqRetry && aReqRetry.built ? { built: aReqRetry.built, pages: aReqRetry.pages }
+                : aRepairRound.ran && aRepairRound.built ? { built: aRepairRound.built, pages: aRepairRound.pages } : null;
               // ── THE SCHEMA, LAST BEFORE THE GATE (stage 8, 2026-09-05) ────
               //
               // The compile has passed and the render check has spoken; the
@@ -48755,7 +48798,7 @@ async function handleRequest(request, env, ctx) {
             // after it both hear it. No parser, a read that failed or a route
             // the render check did not reach is `unread`, never a guess.
             try {
-              const aShippedPages = aRepairRound && aRepairRound.built && Array.isArray(aRepairRound.pages) ? aRepairRound.pages : aMerge.pages;
+              const aShippedPages = aReqRetry && aReqRetry.built ? aReqRetry.pages : aRepairRound && aRepairRound.built && Array.isArray(aRepairRound.pages) ? aRepairRound.pages : aMerge.pages;
               const aWasParts = aPartsRead.ok ? aPartsRead.parts : [];
               aContent = componentEvidence({
                 answers: aAnswers,
@@ -48771,16 +48814,28 @@ async function handleRequest(request, env, ctx) {
             // feature-verify): no model call, nothing sent. A read that fails
             // leaves it null, and every requirement keeps its sentence.
             try {
-              const aShippedPages2 = aRepairRound && aRepairRound.built && Array.isArray(aRepairRound.pages) ? aRepairRound.pages : aMerge.pages;
+              const aShippedPages2 = aReqRetry && aReqRetry.built ? aReqRetry.pages : aRepairRound && aRepairRound.built && Array.isArray(aRepairRound.pages) ? aRepairRound.pages : aMerge.pages;
               aVerifySite = {
                 pages: routeCode(routedSources(aShippedPages2 || [], aParts || (aPartsRead.ok ? aPartsRead.parts : []) || [])),
                 forms: aForms || new Map(),
                 drawn: new Set(aRendered instanceof Map ? aRendered.keys() : []),
                 spec: aSpec,
+                submits: aSubmits || new Map(),
+                // THE RULES EXERCISED (2026-10-25, `requirement-exercise.mjs`):
+                // each judged table's rules tried with writes that are always
+                // rolled back (`sqlRehearse`), on the live database only once the
+                // apply landed and nothing is held in a draft. Unreachable: the
+                // declared facts stand.
+                exercised: adb && !(aWriter && aWriter.holding)
+                  ? await exerciseTables(aSpec, judgedNeeds(aReq).flatMap((n) => n.carriers).filter((c) => c.startsWith("table:")).map((c) => c.slice(6).split(/[.:]/)[0]), { rehearse: (sql, params) => sqlRehearse(adb, sql, params) })
+                  : new Map(),
               };
             } catch (e) { aVerifySite = null; console.error("addon requirement check failed:", ownerSlug, e && e.message); }
             await aSaveAnswer();
             const aRepairUsage = (aRepairRound && Array.isArray(aRepairRound.usage)) ? aRepairRound.usage : [];
+            // THE RETRY ROUND'S USAGE (2026-10-25, `requirement-retry.mjs`), on the one bill.
+            const aRetryUsage = (aReqRetry && Array.isArray(aReqRetry.usage)) ? aReqRetry.usage : [];
+            const aRetryCharged = Number(aReqRetry && aReqRetry.charged) || 0;
             // AND THE TRANSLATIONS' (run 39): the same two roads — one rounding
             // synchronously, the spine's own reserve (#3) under a job.
             // THE PHOTOGRAPHS JOIN THE SYNCHRONOUS BILL AND RODE THEIR OWN
@@ -48793,8 +48848,8 @@ async function handleRequest(request, env, ctx) {
             // AND THE FILE PICKER'S CALL (2026-10-24): the job's `aBill` carried
             // it since 2266; this synchronous bill left it out.
             const aPickUsage = aPick ? aPick.usage : null;
-            if (!aJob) aCost = await aCharge(pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage, ...aRepairUsage, ...aLangUsage, aPhotoBill, aPickUsage));
-            else aCost += (Number(aRepairRound && aRepairRound.charged) || 0) + aLangCharged + aPhotoCharged;
+            if (!aJob) aCost = await aCharge(pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage, ...aRepairUsage, ...aLangUsage, ...aRetryUsage, aPhotoBill, aPickUsage));
+            else aCost += (Number(aRepairRound && aRepairRound.charged) || 0) + aLangCharged + aPhotoCharged + aRetryCharged;
             // ── PAY ONLY FOR WHAT LANDED (owner, 2026-10-24) ────────────────
             // A page or part the writer wrote that ended kept as it was or
             // standing in (`aPub.salvaged`) is given back its share of the

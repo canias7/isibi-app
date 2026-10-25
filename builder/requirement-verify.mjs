@@ -121,7 +121,9 @@ export function verifyNeed(carriers, site) {
   const forms = s.forms instanceof Map ? s.forms : new Map();
   const drawn = s.drawn instanceof Set ? s.drawn : null;
   const fnNames = new Set((spec && Array.isArray(spec.functions) ? spec.functions : []).map((f) => String((f && f.name) || "").toLowerCase()).filter(Boolean));
-  const evidence = [], gaps = [];
+  const evidence = [], gaps = [], fixes = [];
+  const submits = s.submits instanceof Map ? s.submits : new Map();
+  const exercised = s.exercised instanceof Map ? s.exercised : new Map();
   let unreadable = false;
   const tables = [], pageWires = [], fns = [];
   for (const c of list) {
@@ -154,13 +156,26 @@ export function verifyNeed(carriers, site) {
     for (const tb of tables) {
       const writes = p.w.writes.has(tb.name), reads = p.w.reads.has(tb.name);
       const viaFn = fns.some((f) => p.w.rpcs.has(f));
-      if (!writes && !reads && !viaFn) { gaps.push(p.route + " does not read or save " + tb.name); continue; }
+      if (!writes && !reads && !viaFn) {
+        gaps.push(p.route + " does not read or save " + tb.name);
+        // WHAT ONE MORE PAGE PASS COULD MEND (`requirement-retry.mjs`): the
+        // page is there and the table is there; only the join is not.
+        fixes.push({ route: p.route, table: tb.name, columns: tb.cols.slice() });
+        continue;
+      }
       if (writes) {
         const drawnFields = (forms.get(p.route) || []).flatMap((f) => (Array.isArray(f && f.fields) ? f.fields : []).map((x) => String((x && x.name) || "").toLowerCase()));
         const from = drawnFields.length ? drawnFields : [...p.w.fields];
         const mapped = [...new Set(from.filter((x) => tb.cols.includes(x)))];
         const formSeen = drawnFields.length > 0;
         evidence.push(p.route + (formSeen ? " shows a form" : " has code") + " that saves to " + tb.name + (mapped.length ? " (" + mapped.join(", ") + ")" : ""));
+        // EXERCISED (2026-10-25): the form was filled and submitted in the
+        // render check, its request read and aborted before it left the page.
+        const sent = (submits.get(p.route) || []).filter((x) => x && x.table === tb.name);
+        if (sent.length) {
+          const f = [...new Set(sent.flatMap((x) => (Array.isArray(x.fields) ? x.fields : []).filter((c) => tb.cols.includes(c))))];
+          evidence.push("filled in and submitted in a test, the form on " + p.route + " sent " + (f.length ? f.join(", ") : "a row") + " to " + tb.name + " (stopped before anything was saved)");
+        }
       }
       if (reads) evidence.push(p.route + " lists the rows of " + tb.name);
       if (viaFn && !writes && !reads) evidence.push(p.route + " calls " + fns.filter((f) => p.w.rpcs.has(f)).join(", "));
@@ -175,9 +190,22 @@ export function verifyNeed(carriers, site) {
     if (tb.part) evidence.push(tb.name + " has " + pieceSaid(tb.part) + " in its schema");
     evidence.push(tb.name + " is a table the owner can edit in the Data panel");
     for (const r of tableRules(tb.t)) evidence.push(tb.name + " " + r);
+    // EXERCISED (2026-10-25, `requirement-exercise.mjs`): each rule tried with
+    // a write that should be refused, always rolled back. A rule the need
+    // rests on that let the write through is a gap; one that refused it is a
+    // fact; a database that could not be reached leaves the declared fact.
+    const ex = exercised.get(tb.name);
+    for (const r of ex && ex.ran && Array.isArray(ex.results) ? ex.results : []) {
+      const tried = r.value !== undefined ? "a test write with " + r.column + " = " + r.value : "a test write breaking " + r.says;
+      if (r.outcome === "refused") evidence.push(tried + " was refused by " + tb.name + " (rolled back, nothing kept)");
+      else if (r.outcome === "accepted" || r.outcome === "pass-refused") {
+        const what = r.outcome === "accepted" ? tried + " was accepted by " + tb.name + ", against its rule " + r.says : "a test write meeting " + r.says + " was refused by " + tb.name;
+        if (tb.part === r.rule) gaps.push(what); else evidence.push(what + " (rolled back)");
+      }
+    }
   }
   for (const f of fns) if (!pageWires.some((p) => p.w.rpcs.has(f))) evidence.push("the database has the " + f + " function");
-  if (gaps.length) return { state: "missing", evidence, gaps };
+  if (gaps.length) return { state: "missing", evidence, gaps, ...(fixes.length && fixes.length === gaps.length ? { fixes } : {}) };
   // A TABLE NAMED WHOLE AND NOTHING ELSE is a list that exists, not anything a
   // visitor sees or anything that happens (the row-hedge rule, kept): with no
   // page, function, column or declared setting beside it, it stays hedged.
@@ -204,6 +232,17 @@ export function renderedForms(report) {
 export function publishedForms(built, repair) {
   if (repair && repair.built) return renderedForms(repair.built.render);
   return renderedForms(built && built.render);
+}
+
+/** What each form sent when filled and submitted in the render check, by route (`report.submits`). */
+export function renderedSubmits(report) {
+  const out = new Map();
+  for (const x of report && Array.isArray(report.submits) ? report.submits : []) {
+    if (!x || typeof x.route !== "string") continue;
+    if (!out.has(x.route)) out.set(x.route, []);
+    out.get(x.route).push({ ...(x.table ? { table: String(x.table) } : {}), ...(x.rpc ? { rpc: String(x.rpc) } : {}), fields: Array.isArray(x.fields) ? x.fields.map(String) : [] });
+  }
+  return out;
 }
 
 /**

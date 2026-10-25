@@ -826,7 +826,7 @@ export function runtimeErrorsOf(observations) {
   return { errors: all, more };
 }
 
-export function renderReport(observations, { ok = true, error = "", cut = false, sandboxed = true, deadSelectors = null, selectorsLooked = 0, landmarks = null, texts = null, forms = null } = {}) {
+export function renderReport(observations, { ok = true, error = "", cut = false, sandboxed = true, deadSelectors = null, selectorsLooked = 0, landmarks = null, texts = null, forms = null, submits = null } = {}) {
   const list = Array.isArray(observations) ? observations : [];
   const raw = [];
   for (const o of list) for (const f of readPage(o)) raw.push(f);
@@ -886,6 +886,9 @@ export function renderReport(observations, { ok = true, error = "", cut = false,
   // each form's field names, types and labels, read without typing or sending
   // anything. Evidence for `requirement-verify.mjs`; never told as markup.
   if (Array.isArray(forms) && forms.length) report.forms = forms;
+  // WHAT EACH FORM SENT WHEN FILLED AND SUBMITTED IN A TEST, its request
+  // intercepted and ABORTED, so nothing reached the site's data (2026-10-25).
+  if (Array.isArray(submits) && submits.length) report.submits = submits;
   const rt = runtimeErrorsOf(list);
   if (rt.errors.length) report.runtimeErrors = rt.errors;
   if (rt.more) report.runtimeMore = rt.more;
@@ -947,6 +950,39 @@ export function formProbe({ route, maxForms, maxFields }) {
   const loose = forms.length < maxForms && document.body ? fieldsOf(document.body, true) : [];
   if (loose.length) forms.push({ fields: loose, loose: true });
   return { route, forms };
+}
+
+/**
+ * FILL ONE FORM WITH PLAIN TEST VALUES AND SUBMIT IT (2026-10-25,
+ * feature-verify), run in the browser. The caller has already put an
+ * interceptor in front of every write, which records and ABORTS it, so the
+ * submission never leaves the page. `true` when the form was found and
+ * submitted. Self-contained, like `textProbe`.
+ */
+export function fillProbe({ index }) {
+  const f = document.querySelectorAll("form")[index];
+  if (!f) return false;
+  const set = (el, v) => {
+    const proto = el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : el.tagName === "SELECT" ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+    const d = Object.getOwnPropertyDescriptor(proto, "value");
+    if (d && d.set) d.set.call(el, v); else el.value = v;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+  for (const el of f.querySelectorAll("input, select, textarea")) {
+    if (el.disabled || el.readOnly) continue;
+    const type = String(el.getAttribute("type") || el.tagName).toLowerCase();
+    if (["hidden", "submit", "button", "reset", "image", "file"].includes(type)) continue;
+    if (type === "checkbox" || type === "radio") { if (!el.checked) el.click(); continue; }
+    if (el.tagName === "SELECT") { const o = [...el.options].find((x) => x.value); if (o) set(el, o.value); continue; }
+    const min = el.getAttribute("min");
+    const v = type === "date" ? (min && min > "2030-01-15" ? min : "2030-01-15") : type === "time" ? "10:00" : type === "datetime-local" ? "2030-01-15T10:00"
+      : type === "number" || type === "range" ? (min || "2") : type === "email" ? "verify@example.com" : type === "tel" ? "07700900000"
+        : type === "url" ? "https://example.com" : "Test";
+    set(el, v);
+  }
+  if (typeof f.requestSubmit === "function") f.requestSubmit(); else f.submit();
+  return true;
 }
 
 // ── A HYDRATION MISMATCH NAMES ITSELF (task #80, 2026-09-04) ─────────────────

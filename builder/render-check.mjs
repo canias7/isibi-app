@@ -19,7 +19,8 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
-import { shotRoutes, MAX_SHOT_HEIGHT, VIEWPORTS, MAX_OPENS, OVERLAY_TRIGGERS, probe, probeOverlay, renderReport, landmarkProbe, MAX_LANDMARKS, textProbe, MAX_ROUTE_TEXT, formProbe, MAX_ROUTE_FORMS, MAX_FORM_FIELDS, HYDRATION_ERROR, hydrationProbe, isNavTimeout, apiAnswer, DEP_HEADER } from "./site-render.mjs";
+import { shotRoutes, MAX_SHOT_HEIGHT, VIEWPORTS, MAX_OPENS, OVERLAY_TRIGGERS, probe, probeOverlay, renderReport, landmarkProbe, MAX_LANDMARKS, textProbe, MAX_ROUTE_TEXT, formProbe, fillProbe, MAX_ROUTE_FORMS, MAX_FORM_FIELDS, HYDRATION_ERROR, hydrationProbe, isNavTimeout, apiAnswer, DEP_HEADER } from "./site-render.mjs";
+import { interceptedWrite } from "./requirement-exercise.mjs";
 
 const MIME = {
   ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css",
@@ -89,6 +90,42 @@ export { fileForRoute };
 // exactly the shape of the defect this export exists to guard. The socket needs
 // no browser, so the wire is driven directly and the rendering half is asserted
 // where it can be: on the pure readers.
+/** How many forms per route are filled and submitted, and how long each waits for its request. */
+export const MAX_EXERCISED_FORMS = 3;
+export const FORM_WAIT_MS = 1500;
+
+/**
+ * EACH FORM, FILLED AND SUBMITTED WITH NOTHING SENT (2026-10-25, feature-verify).
+ * Every request that is not a GET is intercepted while the forms are tried:
+ * a row or function write to the site's Data API is recorded
+ * (`interceptedWrite`), and EVERY non-GET request is aborted, so nothing
+ * reaches the site's data. A GET falls through to whatever else routes it.
+ */
+export async function exerciseForms(page, route, count, waitMs = FORM_WAIT_MS) {
+  const seen = [];
+  const handler = async (r) => {
+    const req = r.request();
+    if (req.method() === "GET") return r.fallback();
+    const w = interceptedWrite(req.method(), req.url(), req.postData());
+    if (w) seen.push({ route, ...w });
+    return r.abort();
+  };
+  await page.route("**/*", handler);
+  try {
+    for (let i = 0; i < count; i++) {
+      const before = seen.length;
+      let ok = false;
+      try { ok = await page.evaluate(fillProbe, { index: i }); } catch (e) { ok = false; }
+      if (!ok) continue;
+      const until = Date.now() + waitMs;
+      while (seen.length === before && Date.now() < until) await page.waitForTimeout(100);
+    }
+  } finally {
+    await page.unroute("**/*", handler).catch(() => {});
+  }
+  return seen;
+}
+
 export function serveDist(dir, ssrFetch) {
   return http.createServer(async (req, res) => {
     const raw = String(req.url || "/");
@@ -382,6 +419,8 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
   const texts = [];
   // THE FORMS EACH ROUTE DREW, desktop only (2026-10-25, feature-verify).
   const forms = [];
+  // WHAT EACH FORM SENT WHEN FILLED AND SUBMITTED, every write aborted (2026-10-25).
+  const submits = [];
   // THE VERDICT, DERIVED ONCE, at whichever return the run reaches. Written as
   // a function rather than assembled at each of the three exits because a
   // classification repeated per call site is the thing this repo's `settle`
@@ -396,6 +435,7 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
     ...(marks.length ? { landmarks: marks } : {}),
     ...(texts.length ? { texts } : {}),
     ...(forms.length ? { forms } : {}),
+    ...(submits.length ? { submits } : {}),
   });
   // THE VERDICT IS ASKED FOR, NEVER DEFAULTED. This was a local initialised to
   // `true` and overwritten only after the browser launched, so every failure
@@ -603,6 +643,9 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
               try {
                 const f = await page.evaluate(formProbe, { route, maxForms: MAX_ROUTE_FORMS, maxFields: MAX_FORM_FIELDS });
                 if (f && Array.isArray(f.forms)) forms.push({ route, forms: f.forms });
+                // LAST ON THE ROUTE, because submitting may change the page.
+                const real = f && Array.isArray(f.forms) ? f.forms.filter((x) => x && !x.loose).length : 0;
+                if (real) for (const s of await exerciseForms(page, route, Math.min(real, MAX_EXERCISED_FORMS))) submits.push(s);
               } catch (e) { /* forms are evidence for a reader; never let them cost a render report */ }
             }
           } catch (e) {

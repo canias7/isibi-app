@@ -9,8 +9,14 @@
   - which table the page saves to or lists, and the table's columns;
   - the rules stored in the database (a maximum, no overlaps, one per person).
 - **What you hear.** A requirement that checks out is said as a fact, for example "Lessons has a form that saves to lesson_bookings (date, time, people); lesson_bookings only accepts rows where people ≤ 8". One that is conclusively not there is told as not done, with the gap named (for example "/cafe does not read or save menu_items"). Only what can't be read from code stays "have a look": something that sends an email or text, a scheduled job, an outside connection, or a component's own behaviour. No keyword rules: it goes by what the judge said carries each need and what the site really has.
-- **Not yet.** A requirement found missing is not yet handed back for one more try. That needs a second build round inside the add-on, and is in the backlog. The new form reading changes the container, so its image will rebuild on the next deploy.
-- **Tests.** 7 new tests; 13 of 13 mutants killed; the comment-only control survived. Nothing spent. Record: `docs/history/2026-10-25-feature-verify.md`.
+- **One more try (added the same day, on your approval).** If the check finds a page and its table not connected (for example "/lessons does not read or save lesson_bookings"), that page goes back once to the writer, with that exact reason. It is then rebuilt and checked again. Anything still missing is told as not done, and there is never a second try. The try is charged once for what the AI used. Something a page edit can't fix (a missing table or column) is told as not done straight away.
+- **Features are now tried, not just looked at (added the same day, on your approval).**
+  - Forms: in the test browser, each form is filled in with test values and submitted, and its request is stopped before it leaves the page, so nothing is saved. That shows which table and fields it would send.
+  - Rules (a limit like "at most 8", "no two the same"): tried on the site's database with writes that are always undone. "A 9th person was refused" is then said as a fact.
+  - If the database can't be reached, it falls back to checking the rule exists.
+  - A row cap and one-per-person are counted per person, so they are not tried from here.
+- The new form reading changes the container, so its image will rebuild on the next deploy.
+- **Tests.** 14 new tests; 13 of 13 and then 19 of 19 mutants killed; the comment-only control survived both times. Nothing spent, nothing written live. Record: `docs/history/2026-10-25-feature-verify.md`.
 
 ## 2026-10-25 — the router sees what the site has, and has one rule of each (branch `router-b1`, not merged, not deployed)
 

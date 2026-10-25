@@ -222,8 +222,9 @@ test("every model call on the addon route rides the job's clock", () => {
   // clock, which is what this guard exists to refuse.
   const bare = [...b.matchAll(/quickSend\(env/g)].length;
   // THREE (2026-10-23): aQuick's own definition, the seam's repair round and the compile repair round — both repairs ride `repairClock`.
-  assert.equal(bare, 3, `${bare} calls reach quickSend directly — only aQuick's own definition and the two repair rounds may`);
-  assert.equal([...b.matchAll(/quickSend\(env, "repair", repairClock\(aClock\)\)/g)].length, 2, "a repair call does not ride the job's clock");
+  // FOUR (2026-10-25, feature-verify): the requirement retry round, the seam's own second pass, rides `repairClock` too.
+  assert.equal(bare, 4, `${bare} calls reach quickSend directly — only aQuick's own definition, the two repair rounds and the retry round may`);
+  assert.equal([...b.matchAll(/quickSend\(env, "repair", repairClock\(aClock\)\)/g)].length, 3, "a repair call does not ride the job's clock");
   assert.match(b, /quickSend\(env, "repair", repairClock\(aClock\)\)/, "the repair call does not ride the job's clock through repairClock");
   assert.match(b, /const aClock = job && job\.budget && typeof job\.budget\.canRepair === "function" \? job\.budget : null;/,
     "aClock is not the job's own budget, so the repair clock is not the job's");
