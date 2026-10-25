@@ -801,6 +801,8 @@ test("A QUEUED CHANGE STOPPED AT THE CUSTOMER'S CANCEL: its stored answer is an 
     assert.deepEqual(replies[0].facts.map((f) => f.text), [
       "The change was not made. The builder's own reason: “I stopped that edit before anything was published.”",
       "This change cost them nothing.",
+      // THE LEDGER'S REFUND, SAID (2026-10-25, run 6): the reserve was given back.
+      "Given back: one credit held for this change.",
       "Reading their message cost 2 credits.",
     ]);
     assert.equal(editBrowserReply(p.body, false, {}).text, p.body.reply);

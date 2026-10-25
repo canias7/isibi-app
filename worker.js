@@ -326,7 +326,7 @@ import { publishedForms, routeCode, renderedForms, renderedSubmits } from "./bui
 import { requirementRetryRound, judgedNeeds } from "./builder/requirement-retry.mjs";
 import { exerciseTables } from "./builder/requirement-exercise.mjs";
 import { renderedTexts } from "./builder/content-evidence.mjs";
-import { noteFor, pickAdds, designWaits, ADD_KINDS, mergePageBatches, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, frameToMissing, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, qrShownSources, qrDestinationCheck, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowRequired, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
+import { noteFor, pickAdds, designWaits, ADD_KINDS, mergePageBatches, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, frameToMissing, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, qrShownSources, qrDestinationCheck, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowRequired, requiredColumns, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 import { compileRepairRound, compileRepairRounds, writtenPaths, withParts, splitParts } from "./builder/compile-repair.mjs";
 import { salvageRound, anythingLanded, MAX_SALVAGE_ROUNDS, landedBill, partKey, writtenPartKeys } from "./builder/change-salvage.mjs";
 import { wantsFirstBuildBackend, featuresNeedingData, firstBuildBackendTool, firstBuildBackendBrief, mergeFirstBuildBackend, FIRST_BUILD_BACKEND_RULES } from "./builder/first-build-db.mjs";
@@ -334,6 +334,7 @@ import { wantsFirstBuildBackend, featuresNeedingData, firstBuildBackendTool, fir
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig, writesSchema as partWritesSchema } from "./builder/request-plan.mjs";
 import { routeOnExisting, partClarifyChoice, rowUnmet, designedNothing, featureBrief } from "./builder/addon-existing.mjs";
+import { accessShortfalls, accessHandTo } from "./builder/addon-existing.mjs";
 import { turnKey, turnRecord, readTurn, turnFree, nextGen, rebaseFiles, TURN_POLL_MS, TURN_WAIT_MS, TURN_UNREAD_MAX, TURN_TTL_MS, turnLooksDead } from "./builder/publish-turn.mjs";
 import { PART_TERMINAL as REQ_PART_TERMINAL, heldFromOf, rewriteWire, othersOpenIn } from "./builder/request.mjs";
 import { visualReviewOn, buildRepairOn, visibleChanges, shotPreference, runVisualReview } from "./builder/visual-review.mjs";
@@ -8370,7 +8371,7 @@ function replyFactsOf(kind, body, ask) {
   if (kind === "edit") return editReplyFacts(body, { routedCost: ask.routedCost, inRequest: ask.inRequest === true, partWords: typeof ask.request === "string" ? ask.request : "" });
   // A REQUEST OF SEVERAL PARTS (2026-10-03): what no part's own reply explains.
   if (kind === "request") return requestReplyFacts(body);
-  if (kind === "addon") return addonReplyFacts(body, { routedCost: ask.routedCost, inRequest: ask.inRequest === true, partWords: typeof ask.request === "string" ? ask.request : "" });
+  if (kind === "addon") return addonReplyFacts(body, { routedCost: ask.routedCost, inRequest: ask.inRequest === true, partWords: typeof ask.request === "string" ? ask.request : "", sitePages: Array.isArray(ask.pages) ? ask.pages : null });
   if (kind === "route") return routeReplyFacts(body);
   if (kind === "cancel") return cancelReplyFacts(body);
   return { skip: "kind", facts: [] };
@@ -38988,13 +38989,21 @@ async function handleRequest(request, env, ctx) {
               // THE WIDENING QUESTION, WORDED BY THE WRITER FROM ITS FACTS (decide-all, sec-3).
               if (rOut.ask) return stepAsk("rules", Array.isArray(rOut.widening) && rOut.widening.length ? await wideningQuestion(env, { ask: rOut.ask, widening: rOut.widening, request: eRun, answers: readContext(eCtx) || [], picker: eb && eb.picker, slug: ownerSlug }) : rOut.ask);
 
+              // ALREADY SO (2026-10-25, run 6): every rule asked for is the one
+              // the table has; nothing applied, so nothing is charged — the menu
+              // editor's `satisfied`. The facts (`already`) go to the reply.
+              if (rOut.ok && rOut.satisfied === true) {
+                return Response.json({ ok: true, satisfied: true, layer: "rules", applied: [], already: rOut.already, refused: rOut.refused || [], cost: 0, usage: rOut.usage });
+              }
               if (!rOut.ok) {
                 if (!rOut.escalate) {
                   if (rOut.reason === "send") return modelDown(rOut.error, "I couldn't reach the model that sets that rule — try again in a moment.");
                   // THE LEDGER REFUSED, before any DDL was emitted.
                   if (rOut.reason === "unbilled") return unbilledReply(eCharges);
                   return Response.json({
-                    ok: false, error: rOut.reason, cost: rBilled ? rCost : await eCharge(rOut.usage), usage: rOut.usage,
+                    // A RULES EDIT THAT CHANGED NOTHING IS NEVER BILLED (2026-10-25,
+                    // run 6): a no-match took the reading's price for nothing.
+                    ok: false, error: rOut.reason, cost: rBilled ? rCost : (rOut.reason === "no-match" ? 0 : await eCharge(rOut.usage)), usage: rOut.usage,
                     // A REFUSAL IS SAID IN FULL. `rulesReply` is the one place
                     // that turns a refused rule into words, and a no-match that
                     // silently reads as "nothing happened" is how a booking
@@ -39017,7 +39026,7 @@ async function handleRequest(request, env, ctx) {
                 if (!rSealed.ok) return Response.json({ ok: false, error: "draft", ours: true, cost: rBilled ? rCost : await eCharge(rOut.usage), usage: rOut.usage, msg: "I couldn't save that change to your draft just now, so nothing changed — try again in a moment." }, { status: 503 });
               }
               return Response.json({
-                ok: true, layer: "rules", applied: rOut.applied, refused: rOut.refused || [],
+                ok: true, layer: "rules", applied: rOut.applied, refused: rOut.refused || [], already: Array.isArray(rOut.already) && rOut.already.length ? rOut.already : undefined,
                 msg: rOut.msg, cost: rBilled ? rCost : await eCharge(rOut.usage), usage: rOut.usage,
                 draft: rSealed.revision ? heldDraft(rSealed.revision) : undefined,
               });
@@ -43105,7 +43114,7 @@ async function handleRequest(request, env, ctx) {
             // — the edit route's wrapper, for the same reason: this route said
             // the held-back part on its successes only. The body is not
             // re-indented; every exit is a `return` inside it.
-            const aHeldOut = { parts: [], earlier: [] };
+            const aHeldOut = { parts: [], earlier: [], handTo: [] };
             // WHAT A STEP ASSUMED INSTEAD OF ASKING AFTER A CHARGE (2026-10-24, `defaultedReport`).
             const aDefaulted = [];
             // AND A QUESTION THE PICKER ASKED IS KEPT THERE TOO (2026-10-02,
@@ -43857,7 +43866,9 @@ async function handleRequest(request, env, ctx) {
             // addition reads nothing it did not read before.
             const aRowLists = adb ? rowTables(aSpec) : new Map();
             // AND THE COLUMNS AN ENTRY MUST FILL (2026-10-24, addon-existing).
-            const aRowRequired = adb ? rowRequired(aSpec) : new Map();
+            // READ FROM THE LIVE TABLE FIRST (2026-10-25, run 6): the spec can
+            // differ from the database; the spec only when the read fails.
+            const aRowRequired = adb && aRowLists.size ? (await requiredColumns((q, p) => sqlQuery(adb, q, p), aSpec, aRowLists)).required : new Map();
             const aRowKey = aRowLists.size ? rowMarkerKey({ job: aJob && aJob.id, idem: ab && ab.idem }) : "";
             // WHAT THE CUSTOMER IS TOLD, FROM WHAT THE DATABASE SAVED — every
             // entry's table, its own id and the row as stored, never the
@@ -44223,6 +44234,8 @@ async function handleRequest(request, env, ctx) {
                   console.error("addon row write failed:", ownerSlug, thrown.code);
                   return Response.json({
                     ok: false, error: "row-write", cost: 0, ours: true, detail: thrown.code,
+                    // POSTGRES'S OWN COLUMN NAME (2026-10-25, run 6), when it gave one.
+                    column: thrown.column || undefined,
                     msg: "I couldn't save that entry — the database didn't accept it, so nothing was added. Try again in a moment.",
                   }, { status: 502 });
                 }
@@ -44539,7 +44552,7 @@ async function handleRequest(request, env, ctx) {
             // `aCoverage()`, whose first possible call is a refusal in the kinds
             // loop ABOVE that line. The same trap, in the same route, found by
             // reading rather than by a throw this time.
-            let aTables = [], aAltered = [], aFunctions = [], aApis = [], aJobs = [], aFnErrors = [], aJobErrors = [];
+            let aTables = [], aAltered = [], aAccessDesigned = null, aFunctions = [], aApis = [], aJobs = [], aFnErrors = [], aJobErrors = [];
             // WHAT THE DATABASE REFUSED OF THE TABLES (2026-10-07, the engine's
             // `refusedRules`): a rule it could not put in place, a column it
             // could not add. Read off the apply, so empty until it ran.
@@ -46075,6 +46088,7 @@ async function handleRequest(request, env, ctx) {
               // no body to re-send.
               const folded = mergeAddonSchema(aDraftView ? aSpec : (aSpec.tables || []), aDesigned);
               aAltered = folded.altered;
+              aAccessDesigned = aDesigned;
               const merged = normalizeSchema(folded.spec);
               // A JOB THAT RUNS A FUNCTION THE SITE ALREADY HAS (2026-09-03).
               // `normalizeSchema` keeps a job only when its function is
@@ -48882,6 +48896,20 @@ async function handleRequest(request, env, ctx) {
             const aMenuParse = await tweakParser();
             const aMenuKept = menuLinksKept({ pages: aMerge.pages, linked: aLinked, parse: aMenuParse });
             aLinks = linkEvidence(aMenuKept);
+            // A LEVEL THE ADDITION NEEDED ON A TABLE IT CANNOT MOVE (2026-10-25,
+            // run 6): each requirement left unmet because an existing table's
+            // read or write level is too narrow — named by the requirement's own
+            // account, or a level the designer put there — is handed to the rules
+            // step as a part of its own, scoped to that table (`accessHandTo`,
+            // the request's `handCarved`). Read once the requirements are final.
+            {
+              const ht = accessHandTo(accessShortfalls(aSpec, aAccessDesigned), aReq, aInstruction, wordsIn, aSpec);
+              for (const h of ht.handTo) {
+                if (!aHeldOut.parts.includes(h.words)) aHeldOut.parts.push(h.words);
+                if (!aHeldOut.handTo.some((x) => x.words === h.words && x.table === h.table)) aHeldOut.handTo.push(h);
+              }
+              if (ht.handTo.length || ht.told.length) aMark("add:access", "handed", { handed: ht.handTo.length, told: ht.told.length });
+            }
             return Response.json({
               ok: true,
               // WHAT THIS TURN HELD BACK, for the reply's last sentence.
@@ -49179,7 +49207,7 @@ async function handleRequest(request, env, ctx) {
               } : undefined,
               cost: aCost,
             });
-            })()), aDefaulted), aHeldOut.parts, aHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: aAskOut.round, held: [...new Set([...aHeldOut.earlier, ...aHeldOut.parts])], request: aAskOut.request, attached: aAskOut.attached, context: aAskOut.context, picker: aReplyOut.picker, requestKey: aAskOut.requestKey, part: aAskOut.part, prep: aAskOut.prep === true }), "addon", aReplyOut);
+            })()), aDefaulted), aHeldOut.parts, aHeldOut.earlier, aHeldOut.handTo), { slug: ownerSlug, uid: ou.id, round: aAskOut.round, held: [...new Set([...aHeldOut.earlier, ...aHeldOut.parts])], request: aAskOut.request, attached: aAskOut.attached, context: aAskOut.context, picker: aReplyOut.picker, requestKey: aAskOut.requestKey, part: aAskOut.part, prep: aAskOut.prep === true }), "addon", aReplyOut);
           }
           if (tx) {
             // ── CHANGING THE WORDS, WITH NO MODEL CALL ────────────────────

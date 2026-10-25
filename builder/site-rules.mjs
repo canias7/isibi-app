@@ -682,6 +682,43 @@ export function withoutRefused(applied, dbRefused, refused) {
 }
 const RULE_FEATURES = ["unique", "oncePerUser", "noOverlap"];
 
+/**
+ * WHAT IS ALREADY SO (2026-10-25, run 6). A rule asked for that the table
+ * already has — a level equal to the one it resolves to now (`resolveAccess`,
+ * never a preset's name), a rule stored exactly as asked, a rule asked off
+ * that is already off — changes nothing, so it is not a change: it is taken
+ * out of `changes` and named in `already` (`{ table, fields, read?, write? }`,
+ * the levels as they stand). Nothing applied, nothing billed for it.
+ */
+export function splitAlready(changes, tables) {
+  const byName = new Map();
+  for (const t of Array.isArray(tables) ? tables : []) if (t && t.name) byName.set(String(t.name).toLowerCase(), t);
+  const keep = [], already = [];
+  const same = (a, b) => JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b);
+  for (const c of Array.isArray(changes) ? changes : []) {
+    const prior = c && byName.get(String(c.table || "").toLowerCase());
+    if (!prior) { keep.push(c); continue; }
+    const now = resolveAccess(prior);
+    const rest = { table: c.table };
+    const was = [];
+    for (const k of Object.keys(c)) {
+      if (k === "table" || k === "readWords") continue;
+      if (k === "read" || k === "write") {
+        if (resolveAccess({ ...prior, [k]: c[k] })[k] === now[k]) was.push(k); else rest[k] = c[k];
+      } else if (k === "clear") {
+        const left = (Array.isArray(c.clear) ? c.clear : []).filter((x) => prior[x] !== undefined && prior[x] !== null);
+        for (const x of c.clear) if (!left.includes(x)) was.push("cleared " + x);
+        if (left.length) rest.clear = left;
+      } else if (same(prior[k], c[k])) was.push(k);
+      else rest[k] = c[k];
+    }
+    if (rest.read !== undefined && c.readWords !== undefined) rest.readWords = c.readWords;
+    if (was.length) already.push({ table: prior.name, fields: was, ...(was.includes("read") ? { read: now.read } : {}), ...(was.includes("write") ? { write: now.write } : {}) });
+    if (Object.keys(rest).some((k) => k !== "table" && k !== "readWords")) keep.push(rest);
+  }
+  return { changes: keep, already };
+}
+
 export async function runRulesEdit(deps, args = {}) {
   // ONE RETRY WITH THE CHECK'S OWN REASON (owner, 2026-10-24): an answer that
   // changed no rule and refused nothing is sent once more, same model and
@@ -736,7 +773,11 @@ async function runRulesOnce(deps, { instruction, tables, scope = null, model = R
   const ask = askOf(reply);
   if (ask) return { ok: false, escalate: false, reason: "ask", ask, usage };
   // CHECKED AGAINST WHAT IT WAS SHOWN: a scoped answer can name only its tables.
-  const { changes, refused } = readRules(reply, view);
+  const read = readRules(reply, view);
+  const refused = read.refused;
+  // A RULE ALREADY SO IS DONE, NOT DONE AGAIN (2026-10-25, run 6).
+  const { changes, already } = splitAlready(read.changes, view);
+  if (!changes.length && already.length && !refused.length) return { ok: true, satisfied: true, applied: [], already, refused, usage };
   // THE NO-MATCH REPLY IS COMPOSED HERE, not at the call site, and that is not
   // tidiness: a refusal carries the reason a rule could not be applied, and a
   // caller that writes its own sentence eventually writes one that does not
@@ -771,5 +812,5 @@ async function runRulesOnce(deps, { instruction, tables, scope = null, model = R
   // A29-4): `apply` may answer `{ refusedRules }` (the engine's own list),
   // and each refused rule leaves `applied` and is said as refused.
   const done = withoutRefused(applied, res && Array.isArray(res.refusedRules) ? res.refusedRules : [], refused);
-  return { ok: true, spec, applied: done, refused, usage, msg: rulesReply({ applied: done, refused }) };
+  return { ok: true, spec, applied: done, refused, already, usage, msg: rulesReply({ applied: done, refused }) };
 }

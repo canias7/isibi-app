@@ -157,9 +157,12 @@ export function deferredOf(parts) {
 // message, so they are never taken out of it or run. Named on every reply as
 // `putOff`, apart from `deferred` — a hop sends `deferred` on as the parts to
 // take out of its message, and these are not there to take out.
-export async function heldReport(res, parts, earlier) {
+// AND A PART HANDED STRAIGHT TO A STEP (2026-10-25, run 6, `handTo`): data
+// beside `deferred`, only for words `deferred` carries.
+export async function heldReport(res, parts, earlier, handTo = null) {
   const deferred = deferredOf(parts);
   const putOff = deferredOf(earlier);
+  const handed = (Array.isArray(handTo) ? handTo : []).filter((h) => h && Array.isArray(parts) && parts.includes(h.words));
   if ((deferred === undefined && putOff === undefined) || !res || !res.headers) return res;
   if (!String(res.headers.get("content-type") || "").includes("application/json")) return res;
   let body;
@@ -169,6 +172,7 @@ export async function heldReport(res, parts, earlier) {
   let added = false;
   if (deferred !== undefined && !Object.hasOwn(body, "deferred")) { out.deferred = deferred; added = true; }
   if (putOff !== undefined && !Object.hasOwn(body, "putOff")) { out.putOff = putOff; added = true; }
+  if (handed.length && !Object.hasOwn(body, "handTo")) { out.handTo = handed; added = true; }
   // NOTHING TO ADD IS THE REPLY AS IT CAME — the same object, never a copy.
   if (!added) return res;
   const headers = new Headers(res.headers);

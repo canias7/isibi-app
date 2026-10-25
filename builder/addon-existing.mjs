@@ -15,6 +15,7 @@
 // the site's own page and table lists: no words of the message are read here.
 
 import { readTargets, pagePath } from "./request-plan.mjs";
+import { resolveAccess } from "../site-access.mjs";
 
 /** The site's pages, as paths, from a digest's `pages` (strings or `{ path }`). */
 export function sitePages(site) {
@@ -209,4 +210,103 @@ export function featureBrief(hand, kind) {
   return "\n\nHow this reached you: the router read this as something new to build on " + page
     + ", a page the site already has. Build it here, as a component placed on " + page
     + ". What it has to do (a form, a limit, a switch) is this component's to make: do not hand it to the page step.";
+}
+
+/**
+ * WHAT AN ADDITION NEEDED OF A TABLE THE SITE ALREADY HAS AND COULD NOT TAKE
+ * (2026-10-25, run 6). The add-on never moves an existing table's read or
+ * write level (`mergeAddonSchema` keeps only `ADDON_TABLE_FIELDS`), and that
+ * is right; but a designer that put a level on such a table was saying what
+ * the feature needs (live: a visitor form on `lesson_bookings`, which nobody
+ * could write to), and the need went nowhere. Each designed level that
+ * resolves differently from the stored one (`resolveAccess`, never a preset's
+ * name) is returned: `{ table, read?, write? }`, only the halves that differ.
+ */
+export function accessShortfalls(prior, designed) {
+  const priorTables = Array.isArray(prior) ? prior : (prior && Array.isArray(prior.tables) ? prior.tables : []);
+  const designedTables = Array.isArray(designed) ? designed : (designed && Array.isArray(designed.tables) ? designed.tables : []);
+  const byName = new Map();
+  for (const t of priorTables) if (t && typeof t.name === "string") byName.set(t.name.toLowerCase(), t);
+  const out = [];
+  for (const d of designedTables) {
+    if (!d || typeof d.name !== "string") continue;
+    const have = byName.get(d.name.toLowerCase());
+    if (!have) continue;
+    if (d.access === undefined && d.read === undefined && d.write === undefined) continue;
+    const before = resolveAccess(have);
+    const viaPreset = d.access !== undefined;
+    const wanted = resolveAccess({
+      access: viaPreset ? d.access : have.access,
+      read: d.read !== undefined ? d.read : (viaPreset ? undefined : have.read),
+      write: d.write !== undefined ? d.write : (viaPreset ? undefined : have.write),
+    });
+    const gap = { table: have.name };
+    if (wanted.read !== before.read) gap.read = wanted.read;
+    if (wanted.write !== before.write) gap.write = wanted.write;
+    if (gap.read !== undefined || gap.write !== undefined) out.push(gap);
+  }
+  return out;
+}
+
+/**
+ * EACH UNMET NEED ON AN EXISTING TABLE HANDED TO THE RULES STEP AS A PART OF
+ * ITS OWN (2026-10-25, run 6), through the request's existing carve
+ * (`deferred`). Two sources, both structural:
+ *   - a requirement the step did not cover (`unsupported` or `elsewhere`)
+ *     whose own account (`need`, `why`) names a table the site already has —
+ *     live: "lesson_bookings is not open for visitors to write";
+ *   - a level the designer put on such a table (`accessShortfalls`), which the
+ *     add-on never takes.
+ * The part's words are the customer's own (the requirement's grounded
+ * `words`, never the whole message); it goes straight to `rules`, shown that
+ * one table. A shortfall with no words of theirs is `told`, never dropped and
+ * never read as done.
+ *   -> { handTo: [{ words, layer: "rules", table, read?, write? }], told: [gap] }
+ */
+export function accessHandTo(gaps, requirements, instruction, wordsInFn, priorTables = []) {
+  const msg = typeof instruction === "string" ? instruction : "";
+  const whole = msg.trim();
+  const tables = (Array.isArray(priorTables) ? priorTables : (priorTables && Array.isArray(priorTables.tables) ? priorTables.tables : []))
+    .map((t) => (t && typeof t.name === "string" ? t.name : "")).filter((n) => /^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(n));
+  const gapOf = new Map();
+  for (const g of Array.isArray(gaps) ? gaps : []) if (g && typeof g.table === "string") gapOf.set(g.table.toLowerCase(), g);
+  const names = (text, list) => list.filter((n) => new RegExp("(^|[^A-Za-z0-9_])" + n + "([^A-Za-z0-9_]|$)", "i").test(text));
+  const open = [];
+  for (const r of Array.isArray(requirements) ? requirements : []) {
+    if (!r || typeof r !== "object" || (r.status !== "elsewhere" && r.status !== "unsupported")) continue;
+    const w = typeof r.words === "string" && r.words.trim() && typeof wordsInFn === "function" ? wordsInFn(msg, r.words) : "";
+    if (!w || w.trim() === whole) continue;
+    const text = [r.need, r.why].filter((x) => typeof x === "string").join(" ");
+    open.push({ w, text, tables: names(text, tables) });
+  }
+  const handTo = [];
+  const seen = new Set();
+  const push = (w, table) => {
+    const key = w + "\n" + table.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    const g = gapOf.get(table.toLowerCase()) || {};
+    handTo.push({ words: w, layer: "rules", table, ...(g.read !== undefined ? { read: g.read } : {}), ...(g.write !== undefined ? { write: g.write } : {}) });
+  };
+  for (const o of open) for (const t of o.tables) push(o.w, t);
+  const told = [];
+  for (const g of gapOf.values()) {
+    if (handTo.some((h) => h.table.toLowerCase() === g.table.toLowerCase())) continue;
+    const unnamed = open.filter((o) => !o.tables.length);
+    if (unnamed.length === 1) push(unnamed[0].w, g.table);
+    else told.push(g);
+  }
+  return { handTo, told };
+}
+
+/** A `handTo` list as read off a step's answer: well-formed entries only, `[]` otherwise. */
+export function readHandTo(v) {
+  const LEVELS = /^[a-z]{2,16}$/;
+  return (Array.isArray(v) ? v : []).filter((h) => h && typeof h === "object" && !Array.isArray(h)
+    && typeof h.words === "string" && h.words.trim() && h.layer === "rules"
+    && typeof h.table === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(h.table)
+    && (h.read === undefined || (typeof h.read === "string" && LEVELS.test(h.read)))
+    && (h.write === undefined || (typeof h.write === "string" && LEVELS.test(h.write)))
+    )
+    .map((h) => ({ words: h.words.trim(), layer: "rules", table: h.table, ...(h.read !== undefined ? { read: h.read } : {}), ...(h.write !== undefined ? { write: h.write } : {}) }));
 }

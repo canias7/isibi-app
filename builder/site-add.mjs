@@ -3209,12 +3209,57 @@ export function rowRequired(spec) {
     if (!t || typeof t !== "object" || typeof t.name !== "string" || !lists.has(t.name)) continue;
     const need = (Array.isArray(t.columns) ? t.columns : [])
       .filter((c) => c && typeof c === "object" && typeof c.name === "string" && c.name !== "id" && c.name !== "created_at")
-      .filter((c) => (c.notnull === true || c.required === true || c.notNull === true) && !(c.pk || c.primary))
+      // TRUTHY, AS THE ENGINE READS IT (2026-10-25, run 6): `coerceCol` keeps
+      // `c.notnull || c.required || c.notNull` and the DDL writes NOT NULL on
+      // any truthy value, so `"yes"` or `1` is required here too.
+      .filter((c) => !!(c.notnull || c.required || c.notNull) && !(c.pk || c.primary))
       .filter((c) => c.default == null && c.defaultValue == null)
       .map((c) => c.name);
     if (need.length) out.set(t.name, need);
   }
   return out;
+}
+
+/**
+ * THE COLUMNS A NEW ENTRY MUST FILL, READ FROM THE LIVE DATABASE (2026-10-25,
+ * run 6, job 90ffa1d5's 23502 again): the stored spec can differ from the live
+ * table, so the live catalogue is asked first. NOT NULL, no default, not an
+ * identity or generated column, in the `public` schema. One read-only query.
+ */
+export const LIVE_REQUIRED_SQL =
+  "SELECT table_name, column_name FROM information_schema.columns " +
+  "WHERE table_schema = 'public' AND is_nullable = 'NO' AND column_default IS NULL " +
+  "AND is_identity = 'NO' AND is_generated = 'NEVER' ORDER BY table_name, ordinal_position";
+
+/**
+ * The catalogue's rows as `rowRequired`'s map, for the display lists only
+ * (`lists`), never `id` or `created_at`. `null` when the answer cannot be read
+ * (not an array, or a row without string names): the caller then falls back
+ * to the spec, never to "nothing is required".
+ */
+export function liveRequired(rows, lists) {
+  if (!Array.isArray(rows)) return null;
+  const want = lists instanceof Map ? lists : new Map();
+  const out = new Map();
+  for (const r of rows) {
+    if (!r || typeof r !== "object" || typeof r.table_name !== "string" || typeof r.column_name !== "string") return null;
+    if (!want.has(r.table_name) || r.column_name === "id" || r.column_name === "created_at") continue;
+    const cur = out.get(r.table_name) || [];
+    if (!cur.includes(r.column_name)) cur.push(r.column_name);
+    out.set(r.table_name, cur);
+  }
+  return out;
+}
+
+/** Live first; the spec when the live read threw or could not be read. `read(sql, params)` is an async query. */
+export async function requiredColumns(read, spec, lists) {
+  if (typeof read === "function") {
+    try {
+      const live = liveRequired(await read(LIVE_REQUIRED_SQL, []), lists);
+      if (live) return { source: "live", required: live };
+    } catch { /* fall back to the spec */ }
+  }
+  return { source: "spec", required: rowRequired(spec) };
 }
 
 /**
@@ -3400,7 +3445,9 @@ const ROW_REFUSED_CLASSES = new Set(["0A", "21", "22", "23", "25", "27", "28", "
 export function rowWriteOutcome(err) {
   const c = err && typeof err === "object" && typeof err.code === "string" && /^[0-9A-Z]{5}$/.test(err.code) ? err.code : "";
   if (c === "23505") return { outcome: "duplicate", code: c };
-  if (c && c !== "40003" && ROW_REFUSED_CLASSES.has(c.slice(0, 2))) return { outcome: "refused", code: c };
+  // THE COLUMN POSTGRES NAMED (2026-10-25, run 6): a 23502 says which column was empty.
+  const column = err && typeof err.column === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(err.column) ? err.column : "";
+  if (c && c !== "40003" && ROW_REFUSED_CLASSES.has(c.slice(0, 2))) return column ? { outcome: "refused", code: c, column } : { outcome: "refused", code: c };
   return { outcome: "uncertain", code: c };
 }
 

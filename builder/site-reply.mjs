@@ -920,12 +920,33 @@ function stepFacts(F, e) {
   });
 }
 
+/** Each table whose asked-for rules were already in place (`already`), as one "nothing" fact. */
+const RULE_SAID = { read: "who can see its entries", write: "who can add to it", confirm: "the confirmation email", sms: "the text message", webhooks: "sending entries on", unique: "the no-duplicates rule", oncePerUser: "the one-per-customer rule", noOverlap: "the no-double-booking rule", maxRows: "the limit on how many", retired: "whether it is open" };
+const LEVEL_SAID = { none: "only the owner", own: "each person their own", members: "signed-in members", public: "anyone", anyone: "anyone", owner: "only the owner" };
+function rulesAlreadyFacts(F, list) {
+  (Array.isArray(list) ? list : []).forEach((a, i) => {
+    if (!a || typeof a.table !== "string" || !Array.isArray(a.fields) || !a.fields.length) return;
+    const bits = a.fields.map((f) => {
+      if (f === "read" && typeof a.read === "string") return "who can see its entries (" + (LEVEL_SAID[a.read] || a.read) + ")";
+      if (f === "write" && typeof a.write === "string") return "who can add to it (" + (LEVEL_SAID[a.write] || a.write) + ")";
+      if (typeof f === "string" && f.startsWith("cleared ")) return (RULE_SAID[f.slice(8)] || f.slice(8)) + " (already off)";
+      return RULE_SAID[f] || f;
+    });
+    F.add("nothing", "Already so on " + flat(a.table) + ", so nothing was changed there and nothing was charged for it: " + listOf(bits) + ".", "already-rule:" + i);
+  });
+}
+
 /** The money a refusal states (`wholeRequestNote`): the edit's own charge, and the routing call's when it is known. */
 function refusalMoney(F, body, routedCost) {
   const cost = num(body.cost);
   const unchanged = body.unchanged === true || body.error === "withheld";
   if (unchanged) F.add("nothing", "Nothing on their site changed.");
   if (cost !== null && cost >= 0) F.add("money", cost > 0 ? "This change still cost " + count(cost, "credit") + "." : "This change cost them nothing.");
+  // THE LEDGER'S OWN GIVE-BACK (2026-10-25, run 6): a job reserved and then
+  // refunded (`servedEditReply`'s `refunded`) is said as such, so the reserve
+  // is never read as a charge.
+  const back = num(body.refunded);
+  if (back !== null && back > 0) F.add("money", "Given back: " + count(back, "credit") + " held for this change.");
   const routed = num(routedCost);
   if (routed !== null && routed > 0) F.add("money", "Reading their message cost " + count(routed, "credit") + ".");
 }
@@ -1182,6 +1203,11 @@ export function editReplyFacts(e, { routedCost = null, inRequest = false, partWo
       for (const n of [e.styleNote, e.tokenNote, e.cssNote]) { const s = said(n); if (s) F.add("note", s); }
       stepFacts(F, e);
       if (!F.out.length) F.add("changed", "Updated the look.");
+    } else if (layer === "rules" && e.satisfied === true) {
+      // A RULE ALREADY SO (2026-10-25, run 6): nothing changed because the
+      // table already does what was asked; said per table, from `already`.
+      rulesAlreadyFacts(F, e.already);
+      if (!F.out.length) F.add("nothing", "Nothing needed changing: the rules asked for were already in place.");
     } else if (e.satisfied === true) {
       // AN ADDITION ALREADY TRUE (2026-10-04, run 95's F1): nothing changed,
       // because nothing needed to; the step's own sentence names what was
@@ -1194,6 +1220,7 @@ export function editReplyFacts(e, { routedCost = null, inRequest = false, partWo
       const own = said(e.msg);
       F.add(e.placed === 0 ? "nothing" : "changed", own ? "What the builder reports it did: " + quote(own.replace(/^✅\s*/, "")) : "The change was made.");
       if (layer === "rules" && !heldDraftOf(e.draft)) F.add("note", "It took effect at once; nothing needed rebuilding.");
+      if (layer === "rules") rulesAlreadyFacts(F, e.already);
       // A WAITING FRAME THAT COULD NOT BE FILLED (2026-10-09, round 5).
       (Array.isArray(e.notPlaced) ? e.notPlaced : []).forEach((x, i) => {
         if (x && typeof x.d === "string") F.add("not-done", "The photograph " + quote(x.d) + " was not put on the page: " + notPlacedWhy(x), "notPlaced:" + i);
@@ -1368,7 +1395,7 @@ function placedFacts(F, a) {
 }
 
 /** THE FACTS OF AN ADD-ON'S FINAL ANSWER, synchronous or a queued job's stored one. */
-export function addonReplyFacts(a, { routedCost = null, inRequest = false, partWords = "", carved = null } = {}) {
+export function addonReplyFacts(a, { routedCost = null, inRequest = false, partWords = "", carved = null, sitePages = null } = {}) {
   if (!a || typeof a !== "object" || Array.isArray(a)) return { skip: "unreadable", facts: [] };
   if (a.escalate === true) return { skip: "escalate", facts: [] };
   if (typeof a.job === "string" && typeof a.poll === "string") return { skip: "receipt", facts: [] };
@@ -1394,6 +1421,20 @@ export function addonReplyFacts(a, { routedCost = null, inRequest = false, partW
     if (added.length) F.add("changed", "Added " + listOf(added) + " to the site.");
     if (removed.length) F.add("changed", "Removed " + listOf(removed) + ".");
     if (changed.length) F.add("changed", "Updated " + listOf(changed) + ".");
+    // WHAT WAS ALREADY THERE (2026-10-25, run 6): the reply named pages from
+    // the request's wording ("an addition was made for the Lessons, Board
+    // shop, Cafe… pages") when only lessons.tsx changed. The pages the site
+    // had before this, that this addition neither added, changed nor removed,
+    // are one fact of their own, from the site's page list and the answer's
+    // own lists, never from the request.
+    {
+      const touched = new Set([...added, ...removed, ...paths(a.changed)]);
+      const before = (Array.isArray(sitePages) ? sitePages : []).map(pathOf).filter((x) => x && !touched.has(x));
+      const kept = [...new Set(before)];
+      if (kept.length && (added.length || changed.length || removed.length || linkedOnly.size)) {
+        F.add("note", "Already on the site before this and not changed by it: " + listOf(kept) + ". Only the pages named as added or updated were touched.", "already-there");
+      }
+    }
     restored.forEach((r, i) => F.add("changed", "On " + r.page + ", the only change is the link to " + listOf(r.to) + " in its menu; nothing else there needed to change for this.", "restored:" + i));
     // EVERY OTHER MENU THIS ADDITION LINKED, FROM THE MENU WRITER'S OWN REPORT
     // AND THE PUBLISHED SOURCE (`linked`, 2026-10-08, run 107): one fact for

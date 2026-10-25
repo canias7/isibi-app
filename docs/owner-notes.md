@@ -1,5 +1,14 @@
 # Owner Notes
 
+## 2026-10-25 — run 6's four causes fixed in code (branch `fix-run6`, not merged, not deployed)
+
+- **The Lessons form saved nowhere.** It was built on `lesson_bookings`, which visitors can't write to (and the bad-weather switch on `closed_days`, which you couldn't write to). The add-on step rightly never changes an existing table's access, but it only told you. Now each such gap goes on as its own part of the same request, straight to the rules step, shown just that table, in your own words. No routing call for it.
+- **Lesson entry refused again (error 23502).** The builder now asks the live database which columns an entry must fill before writing, and falls back to the stored design only if that read fails. A refusal names the column.
+- **The reply named pages that weren't touched.** Only the Lessons page changed. The reply is now told which pages were already there and left alone, from what really changed, not from the request's wording.
+- **Rules that are already in place.** Asking for a level a table already has is now "already so", with nothing charged. A rules edit that changes nothing is never charged. The reply also says when held credits were given back. (The "3" you saw was the message's reading charge; the step itself held 2 and returned them.)
+- **Not done: "spam protection on every form".** That check is switched on by your site's own Turnstile keys. There's no switch the builder can flip without them, and a new field for it would mean new AI instructions. That's your decision.
+- Tests: 14 new, all red on the old code; 12 of 12 mutants killed; the comment-only control survived. Nothing spent. Record: `docs/history/2026-10-25-run6-fixes.md`.
+
 ## 2026-10-25 — the builder now checks what it built before it tells you (branch `feature-verify`, not merged, not deployed)
 
 - **What you saw.** After the Lessons, Cafe and Board shop additions on Driftwood (17:22), every booking form, limit, switch, editable menu and badge was told as "I can't see from here whether…". All three of those jobs had also failed before publishing, so nothing of theirs went live.

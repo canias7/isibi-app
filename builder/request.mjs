@@ -54,6 +54,7 @@ import { REQUEST_KEY_RE } from "./clarify.mjs";
 import { readMarks } from "./prepared.mjs";
 import { outcomeOf } from "./site-reply.mjs";
 import { savedDraftOf } from "./check-evidence.mjs";
+import { readHandTo } from "./addon-existing.mjs";
 import { readTargets, inferNeeds, neededFrom, applyOrder, clearToPrepare, clearToWrite, prepScope, addonScope, routeScope } from "./request-plan.mjs";
 
 export const REQUEST_V = 1;
@@ -386,6 +387,28 @@ function addTargets(part, t) {
   part.targets = cur;
 }
 
+/**
+ * A CARVED PART A STEP HANDED STRAIGHT TO ANOTHER STEP (2026-10-25, run 6):
+ * an addition that needed an existing table's level moved (which it never
+ * moves) hands the need to `rules`, shown that one table. The part runs there
+ * with no routing call; its words are the customer's own. Only a part this
+ * parent just carved, still waiting to be routed, is given a route.
+ */
+export function handCarved(rec, parentN, handTo) {
+  for (const h of Array.isArray(handTo) ? handTo : []) {
+    const w = wordsIn(rec.message, h.words);
+    if (!w) continue;
+    const q = rec.parts.find((x) => x.words === w && x.parent === parentN && x.phase === "route" && !x.route && x.status === "ready");
+    if (!q) continue;
+    q.route = {
+      op: "edit", intent: "edit", layer: "rules", page: "", remove: false, rename: "", tab: false,
+      handOver: null, scope: { tables: [h.table] }, cost: 0, handedOff: false, fromAddon: false, hops: 0,
+    };
+    q.need = { table: h.table, ...(h.read !== undefined ? { read: h.read } : {}), ...(h.write !== undefined ? { write: h.write } : {}) };
+    q.phase = "run";
+  }
+}
+
 /** What a routing answer says the part it routed should run with. */
 function routeOf(r) {
   const intent = r && r.intent === "addon" ? "addon" : "edit";
@@ -692,8 +715,11 @@ export function readRun(ans) {
     if (typeof b.layer !== "string" || (b.page != null && typeof b.page !== "string")) return unknown;
     return { act: "hop", layer: b.layer, page: b.page || "", ...why };
   }
+  // A PART HANDED STRAIGHT TO A STEP (2026-10-25, run 6, `accessHandTo`):
+  // read as data, beside `deferred`, which carries its words.
+  const handTo = readHandTo(b.handTo).filter((h) => deferred.includes(h.words));
   if (b.ok === false && ask && b.error === "clarify") return { act: "clarify", ask, deferred };
-  if (b.ok === false) return { act: "refusal", ask, deferred, error: typeof b.error === "string" ? b.error : "" };
+  if (b.ok === false) return { act: "refusal", ask, deferred, ...(handTo.length ? { handTo } : {}), error: typeof b.error === "string" ? b.error : "" };
   if (!httpOk) return unknown;
   if (b.recovered === true) {
     // A RECONCILED SAVE PROVEN BY ITS OWN DRAFT REVISION (2026-10-16): saved,
@@ -701,7 +727,7 @@ export function readRun(ans) {
     const saved = b.reconciled === "draft-saved" ? savedDraftOf(b.draft) : null;
     return saved ? { act: "recovered", draft: saved } : { act: "recovered" };
   }
-  return { act: "success", ask, deferred };
+  return handTo.length ? { act: "success", ask, deferred, handTo } : { act: "success", ask, deferred };
 }
 
 /**
@@ -1390,6 +1416,7 @@ function settle(rec, p, job, row, now) {
     const made = createdPages(ans && ans.body);
     if (made.length) addTargets(p, { writes: made.map((pg) => "new-page:" + pg), reads: [] });
     carveParts(rec, p.n, read.deferred);
+    handCarved(rec, p.n, read.handTo);
   }
   // A PART THIS STEP LEFT FOR LATER THAT IS NO PART OF THE REQUEST NOW — not
   // the customer's words, or all of this part's — is work asked for and not
@@ -2551,7 +2578,8 @@ export function jobBody(rec, n, kind, key, { files = [] } = {}) {
       picker: rec.picker, ...(REQUEST_EFFORTS.includes(rec.effort) ? { effort: rec.effort } : {}),
       routedCost: Number.isInteger(d.cost) && d.cost >= 0 ? d.cost : undefined,
       recent: d.layer === "data" && Array.isArray(rec.recent) && rec.recent.length ? rec.recent.slice(0, 3) : undefined,
-      scope: scope || undefined,
+      // …OR THE TABLE A HAND-OVER NAMED (2026-10-25, run 6, `handCarved`).
+      scope: scope || (d.scope && Array.isArray(d.scope.tables) && d.scope.tables.length ? { tables: d.scope.tables.slice() } : undefined),
       images: imgs.length ? imgs : undefined,
       // AN ADDITION'S MARKED FRAMES TO FILL (round 5): the picture step places
       // each one's purchase, with no model call.
