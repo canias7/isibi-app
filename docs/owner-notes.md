@@ -1,5 +1,12 @@
 # Owner Notes
 
+## 2026-10-25 — adding a feature to a page you already have (branch `fix-feature-existing`, not merged, not deployed)
+
+- Driftwood's "make each lesson bookable on the Lessons page, max 8, with a closed-day switch" went to the page editor, which only changed the words. Now, when the router says the change creates something beside an existing page (a form or section, a new table, a rule, a connection, a schedule), it stays with the add-on step, which builds it on that page. Changing only a page's content still goes to the page editor.
+- The router is told to name those new things for such requests. That part is a prompt change and hasn't been tried with a real model yet (no AI calls this round).
+- If the add-on step would only add list entries for it (the old failure), it builds the form on the page instead, and it never hands the feature back to the page editor.
+- Full suite 12,773: 12,767 pass, 3 skipped. Of the 3 failures, 2 were tests on the changed lines, now updated and passing; the third fails on this machine only. Nothing spent. Record: `docs/history/2026-10-25-feature-existing.md`.
+
 ## 2026-10-25 — finishing the add-on fixes (branch `fix-addon-existing`, not merged, not deployed)
 
 - Once a request is paid for, its later parts no longer ask a question. They take the obvious choice instead: edit the page that's named, or let the add-on step decide. The tests that relied on a part asking were rewritten as you approved.
