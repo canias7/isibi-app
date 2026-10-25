@@ -1,5 +1,13 @@
 # Owner Notes
 
+## 2026-10-25: header/footer sign-up, and parts that rewrote whole pages (branch `fix-frame-parallel`, not merged, not deployed)
+
+- What happened on Driftwood (01:37 run): the message's "Add a Lessons / Board shop / Cafe / Hire page" parts were about pages the site already had. Each went to the page editor, which said "nothing to change". Then the automatic retry pushed it into rewriting the whole page anyway. That was 12–17 credits each, four at once (one per page). The header/footer part never got its turn in that run (it was cancelled first). The refusal you saw was from the earlier run (24 Oct, 21:03), the kit-import one main has since fixed.
+- Now, when a page you already have answers "already does that", it is left alone and not charged, and nothing is rewritten.
+- Now, several parts of one message on the same page run as one edit of that page, not one rewrite each. No limits were added.
+- Header/footer: the AI is now told which of your lists a visitor can add to (for example `newsletter_signups`), so a footer sign-up actually saves entries (with the site's spam protection). A sign-up wired to any other list is refused and retried once with the reason.
+- Tests: 8 new; a sweep killed 15 of 16 mutants (the survivor is a double guard) and the control survived; full suite 12,772 tests, with only machine/load failures left. Nothing spent. Record: `docs/history/2026-10-25-frame-parallel.md`.
+
 ## 2026-10-25 — finishing the add-on fixes (branch `fix-addon-existing`, not merged, not deployed)
 
 - Once a request is paid for, its later parts no longer ask a question. They take the obvious choice instead: edit the page that's named, or let the add-on step decide. The tests that relied on a part asking were rewritten as you approved.

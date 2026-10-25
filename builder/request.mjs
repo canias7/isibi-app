@@ -1704,6 +1704,68 @@ export function editJobOutcome(row, op = "edit") {
  * not yet given an id (the filer died after the write) comes back to be filed
  * again under the same key.
  */
+// ── PARTS ON ONE PAGE RUN AS ONE EDIT (2026-10-25, frame-parallel) ──────────
+//
+// Live on driftwood-and-daughters-5 (main b12dba52c): one long message was
+// carved into parts, each routed to the page step, and each page step writes
+// its page whole (12–17 credits). Parts that land on the SAME page were run as
+// separate whole-page rewrites of it, one after another (`clearToWrite` holds
+// the second until the first is done) — the page written twice, paid twice.
+// Now, when a page-step run is filed, every other part already routed to the
+// page step on that same page, ready and with nothing of its own held back or
+// put off, rides in the same job: its words are added to what the job runs,
+// and it ends as that job's part ends (`settleJoined`). No cap: nothing is
+// refused or limited, the same work is just not done twice.
+
+/** Is `q` a part that may ride in `next`'s page-step job? */
+function joinable(rec, next, q) {
+  if (!q || q === next || q.status !== "ready" || q.phase !== "run" || currentJob(q)) return false;
+  if (Number.isInteger(q.joinedTo) || q.resume || stoppedPart(rec, q.n)) return false;
+  if ((q.held && q.held.length) || (q.putOff && q.putOff.length)) return false;
+  if (q.needs.includes(next.n) || next.needs.includes(q.n)) return false;
+  // NOTHING ELSE WAITS ON IT unless it would wait on `next` anyway.
+  if (rec.parts.some((r) => r && r !== next && r.parent === q.n)) return false;
+  const a = next.route, b = q.route;
+  if (!plain(a) || !plain(b)) return false;
+  if (a.op !== "edit" || b.op !== "edit" || a.layer !== "page" || b.layer !== "page") return false;
+  if (!a.page || a.page !== b.page) return false;
+  if (a.remove || b.remove || a.rename || b.rename || a.tab || b.tab) return false;
+  return true;
+}
+
+/** Take every joinable part into `next`'s run: words added, `joinedTo` set. */
+export function joinSamePage(rec, next) {
+  if (!next || !plain(next.route) || next.resume) return [];
+  const took = [];
+  for (const q of rec.parts) {
+    if (!joinable(rec, next, q)) continue;
+    const base = next.runs || next.words;
+    // ITS WORDS ARE ALREADY IN WHAT `next` RUNS when `next` held them back
+    // (part 0 runs the whole message with its held parts beside it): they are
+    // no longer held back. Otherwise they are added.
+    const at = next.held.indexOf(q.words);
+    if (at >= 0 && wordsIn(base, q.words)) next.held.splice(at, 1);
+    else next.runs = base + "\n\n" + q.words;
+    q.joinedTo = next.n;
+    q.status = "blocked"; q.why = "with:" + next.n;
+    took.push(q.n);
+  }
+  if (took.length) next.joined = [...(Array.isArray(next.joined) ? next.joined : []), ...took];
+  return took;
+}
+
+/** A joined part ends as the part whose job carried it ends. */
+function settleJoined(rec, p) {
+  if (!Number.isInteger(p.joinedTo) || PART_TERMINAL.includes(p.status)) return;
+  const t = rec.parts[p.joinedTo];
+  if (!t) { p.status = "failed"; p.why = "with-lost"; return; }
+  if (!PART_TERMINAL.includes(t.status)) return;
+  p.status = t.status;
+  p.why = t.why;
+  p.outcome = plain(t.outcome) ? { ...t.outcome, with: t.n } : { with: t.n };
+  if (t.done !== undefined) p.done = t.done;
+}
+
 export function nextStep(record, rows = {}, now = Date.now(), { writeMax = 1 } = {}) {
   const rec = clone(record);
   for (const p of rec.parts) {
@@ -1716,6 +1778,9 @@ export function nextStep(record, rows = {}, now = Date.now(), { writeMax = 1 } =
     if (LIVE_JOB.includes(row.state)) { p.status = row.state === "queued" ? "queued" : "started"; continue; }
     if (ENDED_JOB.includes(row.state)) settle(rec, p, job, row, now);
   }
+  // A PART THAT RIDES WITH ANOTHER'S JOB (`joinedTo`, 2026-10-25,
+  // frame-parallel) ends as that job's part ends: its words were in that job.
+  for (const p of rec.parts) settleJoined(rec, p);
   // NOTHING NEW STARTS ONCE A STOP IS ASKED: a part not yet running is
   // stopped; a running one ends through its own job's cancel, as any job's.
   if (rec.stop) {
@@ -1765,6 +1830,7 @@ export function nextStep(record, rows = {}, now = Date.now(), { writeMax = 1 } =
     moved = false;
     for (const p of rec.parts) {
       if (p.status !== "blocked" && p.status !== "ready") continue;
+      if (Number.isInteger(p.joinedTo)) continue;
       const parent = p.parent === null ? null : rec.parts[p.parent];
       // GATED ON WHAT IT NEEDS, NOT ON HOW THE OTHER PART ENDED (2026-10-24,
       // request-needs): a part runs when the things it needs exist, even if
@@ -1812,6 +1878,7 @@ export function nextStep(record, rows = {}, now = Date.now(), { writeMax = 1 } =
     const free = ready.filter((p) => !preparing(p, now));
     const choose = (next) => {
       const kind = next.phase === "run" && next.route ? "run" : "route";
+      if (kind === "run") joinSamePage(rec, next);
       const op = kind === "route" ? ROUTE_OP : (next.route.op === "addon" ? "addon" : "edit");
       next.seq += 1;
       const key = jobKey(rec.key, next.n, next.seq);
@@ -1827,6 +1894,8 @@ export function nextStep(record, rows = {}, now = Date.now(), { writeMax = 1 } =
       const ended = (q) => PART_TERMINAL.includes(q.status);
       for (const next of [...asks, ...free.filter((p) => !asks.includes(p))]) {
         if (count >= writeMax) break;
+        // TAKEN INTO A JOB CHOSEN JUST BEFORE IT (`joinSamePage`).
+        if (next.status !== "ready") continue;
         // THE FIRST JOB OF A REQUEST WITH NOTHING RUNNING is chosen as it
         // always was; every one beside it must be clear to write.
         if ((files.length || rec.parts.some(running)) && !clearToWrite(rec.parts, next.n, ended, running)) continue;

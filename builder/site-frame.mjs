@@ -33,6 +33,7 @@ import { modelsFor } from "./build-models.mjs";
 import { QUESTION_FIELD, askOf } from "./clarify.mjs";
 import { OWN_PARTS_RULE } from "./page-bands.mjs";
 import { retryRequest, addUsages } from "./retry-reason.mjs";
+import { resolveAccess, isManagedColumn } from "../site-access.mjs";
 
 export const FRAME_PARTS = [
   { role: "header", file: "site-header", name: "SiteHeader" },
@@ -116,10 +117,49 @@ export const FRAME_EDIT_RULES =
   // edit was refused (`footer:kit:@/components/ui/figure`).
   "- From \"@/components/ui/\" and \"@/components/charts/\" these files may import ONLY " + FRAME_PLUMBING.map((p) => "\"" + p + "\"").join(" and ") +
   ", and only where the file already does. Any other module there is refused and nothing is changed: write the markup yourself " +
-  "(a sign-up form is a plain <form> with an <input> and a <button>).\n\n" + OWN_PARTS_RULE;
+  "(a sign-up form is a plain <form> with an <input> and a <button>).\n" +
+  "- A form that stores what a visitor sends (a newsletter sign-up, a message) stores it in ONE of the TABLES A FORM HERE MAY STORE INTO, " +
+  "the one that fits: `const add = useCreateRow(\"<table>\")` from \"@/lib/rows\", and on submit `add.mutate({ <column>: value })` with only that table's columns, " +
+  "every required one filled; show a thank-you after `add.isSuccess` and a short error after `add.isError`. Spam protection is added by the site on its own. " +
+  "Never name a table that is not listed; when none fits, answer `cannot` for that form.\n\n" + OWN_PARTS_RULE;
+
+// ── A FORM IN THE FRAME THAT STORES WHAT IT IS SENT (2026-10-25, frame-parallel) ──
+//
+// Live on driftwood-and-daughters-5: "a newsletter sign-up in the footer". The
+// site HAS a `newsletter_signups` table a visitor may write, and the frame's
+// files may import "@/lib/rows" (only the kit is refused), but the call was
+// never told the site's tables: its only instruction was "a plain <form>", so
+// a sign-up either stored nothing or named a table the check could not know.
+// Now the tables a visitor may write (`write: "anyone"`, read from the site's
+// own schema by `resolveAccess`, never by preset name) are listed with their
+// columns, the rule says how to store into one (`useCreateRow`, which also
+// carries the site's spam protection), and the check refuses a frame naming a
+// table it was not shown (`table:<name>`), which the one retry then fixes.
+
+/** The tables a visitor's form may write, `[{ name, columns }]`, from a schema. */
+export function frameTables(spec) {
+  const list = spec && Array.isArray(spec.tables) ? spec.tables : [];
+  const out = [];
+  for (const t of list) {
+    if (!t || typeof t.name !== "string" || !t.name.trim() || t.retired) continue;
+    if (resolveAccess(t).write !== "anyone") continue;
+    const cols = (Array.isArray(t.columns) ? t.columns : [])
+      .filter((c) => c && typeof c.name === "string" && c.name && !isManagedColumn(c.name))
+      .map((c) => ({ name: c.name, type: typeof c.type === "string" ? c.type : "", required: c.required === true || c.notnull === true }));
+    out.push({ name: t.name, columns: cols });
+  }
+  return out;
+}
+
+function tablesBlock(tables) {
+  const list = Array.isArray(tables) ? tables : [];
+  if (!list.length) return "\n\nTABLES A FORM HERE MAY STORE INTO\nNone. A form that would store what a visitor sends (a sign-up, a message) cannot be made here: answer `cannot` for it, saying that it needs somewhere to store the entries.";
+  return "\n\nTABLES A FORM HERE MAY STORE INTO (a visitor may add a row; nothing else)\n" + list.map((t) =>
+    "- " + t.name + ": " + (t.columns.length ? t.columns.map((c) => c.name + (c.type ? " " + c.type : "") + (c.required ? " (required)" : "")).join(", ") : "(no columns)")).join("\n");
+}
 
 /** The exact body sent. */
-export function frameEditRequest({ instruction, frame, routes, addition = false, note = "", model = FRAME_EDIT_MODEL } = {}) {
+export function frameEditRequest({ instruction, frame, routes, addition = false, note = "", tables = null, model = FRAME_EDIT_MODEL } = {}) {
   const f = frame && typeof frame === "object" ? frame : {};
   const pages = (Array.isArray(routes) ? routes : []).filter((r) => typeof r === "string" && r);
   const files = FRAME_PARTS.filter((p) => f[p.role]).map((p) =>
@@ -137,6 +177,7 @@ export function frameEditRequest({ instruction, frame, routes, addition = false,
         (addition ? "\n\nTHIS IS AN ADDITION: add what was asked and change nothing that is already there." : "") +
         (note ? "\n\n" + String(note) : "") +
         "\n\nTHE SITE'S PAGES\n" + (pages.length ? pages.join(", ") : "/") +
+        tablesBlock(tables) +
         "\n\n" + files,
     }],
   };
@@ -162,8 +203,17 @@ function routeKey(path) {
   return (t || "/").toLowerCase();
 }
 
-/** What is wrong with one answered file, `[]` when nothing is. */
-export function frameFileProblems(source, routes) {
+/** Every table a file names through "@/lib/rows" hooks. */
+export function frameTableUses(source) {
+  const out = [];
+  const re = /\buse(?:CreateRow|Rows|Row|UpdateRow|DeleteRow)\s*(?:<[^>()]*>)?\s*\(\s*["'`]([^"'`]+)["'`]/g;
+  for (const m of String(source || "").matchAll(re)) if (!out.includes(m[1])) out.push(m[1]);
+  return out;
+}
+
+/** What is wrong with one answered file, `[]` when nothing is. `tables`: the
+ *  names a form may store into; a table hook naming any other is refused. */
+export function frameFileProblems(source, routes, tables = []) {
   const s = typeof source === "string" ? source : null;
   if (s === null || !s.trim()) return ["empty"];
   const why = [];
@@ -177,6 +227,12 @@ export function frameFileProblems(source, routes) {
   for (const l of internalLinks(s)) {
     if (!allowed.has(routeKey(l))) why.push("route:" + l);
   }
+  const okTables = new Set((Array.isArray(tables) ? tables : []).map((t) => (typeof t === "string" ? t : t && t.name)).filter(Boolean));
+  const created = new Set();
+  for (const m of s.matchAll(/\buseCreateRow\s*(?:<[^>()]*>)?\s*\(\s*["'`]([^"'`]+)["'`]/g)) created.add(m[1]);
+  for (const t of frameTableUses(s)) {
+    if (!created.has(t) || !okTables.has(t)) why.push("table:" + t);
+  }
   return why;
 }
 
@@ -184,7 +240,7 @@ export function frameFileProblems(source, routes) {
  * The model's answer, checked. `{ ok, frame, changed }` with the files it
  * changed replaced, or `{ ok: false, reason }`.
  */
-export function readFrameEdit(reply, frame, routes) {
+export function readFrameEdit(reply, frame, routes, tables = []) {
   const input = toolInput(reply);
   if (!input) return { ok: false, reason: "no-answer" };
   const f = frame && typeof frame === "object" ? frame : {};
@@ -195,7 +251,10 @@ export function readFrameEdit(reply, frame, routes) {
     if (!Object.hasOwn(input, p.role) || input[p.role] === undefined || input[p.role] === null) continue;
     if (!f[p.role]) { problems.push(p.role + ":absent"); continue; }
     const src = input[p.role];
-    const why = frameFileProblems(src, routes);
+    // A HOOK THE STORED FILE ALREADY HAD is the site's own and is not judged
+    // again (only what this answer adds is).
+    const had = new Set(frameTableUses(f[p.role].source));
+    const why = frameFileProblems(src, routes, tables).filter((w) => !(w.startsWith("table:") && had.has(w.slice(6))));
     if (why.length) { problems.push(...why.map((w) => p.role + ":" + w)); continue; }
     if (src.trim() === f[p.role].source.trim()) continue;
     next[p.role] = { name: f[p.role].name, source: src.replace(/\s*$/, "\n") };
@@ -258,6 +317,7 @@ export function frameRetryReason(read) {
     if (w.startsWith("route:")) return "the " + role + " links to " + w.slice(6) + ", which is not one of the site's pages";
     if (w === "no-default-export") return "the " + role + " lost its default export";
     if (w === "site-chrome") return "the " + role + " uses SiteChrome, which these files must not";
+    if (w.startsWith("table:")) return "the " + role + " stores into or reads " + w.slice(6) + ", which is not one of the TABLES A FORM HERE MAY STORE INTO (only useCreateRow into a listed table is allowed)";
     if (w === "too-big") return "the " + role + " is longer than " + MAX_FRAME_CHARS + " characters";
     if (w === "absent") return "the site has no " + role + " file to change";
     if (w === "empty") return "the " + role + " was answered empty";
@@ -266,11 +326,11 @@ export function frameRetryReason(read) {
   return "Nothing was changed, because your answer failed these checks: " + said.join("; ") + ". Answer again through edit_frame, each file complete, fixing exactly these and changing nothing else.";
 }
 
-export async function runFrameEdit(deps, { instruction, pages, parts, routes, addition = false, note = "", model = FRAME_EDIT_MODEL } = {}) {
+export async function runFrameEdit(deps, { instruction, pages, parts, routes, addition = false, note = "", tables = null, model = FRAME_EDIT_MODEL } = {}) {
   const frame = writtenFrame(pages, parts);
   if (!frame) return { ok: false, reason: "no-frame", usage: null };
   let reply = null;
-  const request = frameEditRequest({ instruction, frame, routes, addition, note, model });
+  const request = frameEditRequest({ instruction, frame, routes, addition, note, tables, model });
   try {
     reply = await deps.send(request);
   } catch (e) {
@@ -279,7 +339,7 @@ export async function runFrameEdit(deps, { instruction, pages, parts, routes, ad
   let usage = frameUsage(reply, model);
   const ask = askOf(reply);
   if (ask) return { ok: false, reason: "ask", ask, usage };
-  let read = readFrameEdit(reply, frame, routes);
+  let read = readFrameEdit(reply, frame, routes, tables || []);
   // NEVER A COMPLETE FAILURE WITHOUT ONE RETRY (owner, 2026-10-24/25): an
   // answer the checks refused, or no answer at all, is sent back once with the
   // check's own reason — the same request, the same model and effort
@@ -294,7 +354,7 @@ export async function runFrameEdit(deps, { instruction, pages, parts, routes, ad
       usage = addUsages(usage, frameUsage(again, model));
       const ask2 = askOf(again);
       if (ask2) return { ok: false, reason: "ask", ask: ask2, usage, retried };
-      read = readFrameEdit(again, frame, routes);
+      read = readFrameEdit(again, frame, routes, tables || []);
     }
   }
   if (!read.ok) {
@@ -400,7 +460,8 @@ export async function addFrameLinks(deps, { pages, parts, routes, adds } = {}) {
       if (!frame[p.role]) continue;
       const r = p.role === "header" ? head : insertFrameLinks(frame[p.role].source, items);
       if (!r || !r.added.length) continue;
-      if (frameFileProblems(r.source, routes).length) return { ok: false, reason: "refused", usage: null };
+      const had = new Set(frameTableUses(frame[p.role].source));
+      if (frameFileProblems(r.source, routes).filter((w) => !(w.startsWith("table:") && had.has(w.slice(6)))).length) return { ok: false, reason: "refused", usage: null };
       next[p.role] = { name: frame[p.role].name, source: r.source };
       changed.push(p.role);
     }
