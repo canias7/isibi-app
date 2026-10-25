@@ -162,4 +162,8 @@ test("a form filled and submitted in the render check: its write recorded and ab
   const RC = readFileSync(new URL("../builder/render-check.mjs", import.meta.url), "utf8");
   at(RC, "for (const s of await exerciseForms(page, route, Math.min(real, MAX_EXERCISED_FORMS))) submits.push(s);");
   at(RC, "...(submits.length ? { submits } : {}),");
+  // What the page logs because of the test (the aborted writes) is not a finding on the page as it loaded.
+  const keep = at(RC, "const kept = [pageErrors.length, consoleErrors.length, runtime.length, unmet.length];");
+  assert.ok(keep < at(RC, "for (const s of await exerciseForms(page, route", keep));
+  at(RC, "pageErrors.length = kept[0]; consoleErrors.length = kept[1]; runtime.length = kept[2]; unmet.length = kept[3];", keep);
 });

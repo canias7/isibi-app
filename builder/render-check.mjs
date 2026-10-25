@@ -645,7 +645,20 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
                 if (f && Array.isArray(f.forms)) forms.push({ route, forms: f.forms });
                 // LAST ON THE ROUTE, because submitting may change the page.
                 const real = f && Array.isArray(f.forms) ? f.forms.filter((x) => x && !x.loose).length : 0;
-                if (real) for (const s of await exerciseForms(page, route, Math.min(real, MAX_EXERCISED_FORMS))) submits.push(s);
+                // WHAT THE PAGE SAYS BECAUSE OF OUR TEST IS NOT THE PAGE'S
+                // FAULT (2026-10-25, CI site-build "A GOOD PAGE IS REPORTED
+                // CLEAN"): the aborted writes log "Failed to load resource" and
+                // the page may react to them. The findings describe the page as
+                // it loaded, so every error, rejection and unmet request seen
+                // during the exercise is dropped, and only then.
+                if (real) {
+                  const kept = [pageErrors.length, consoleErrors.length, runtime.length, unmet.length];
+                  try {
+                    for (const s of await exerciseForms(page, route, Math.min(real, MAX_EXERCISED_FORMS))) submits.push(s);
+                  } finally {
+                    pageErrors.length = kept[0]; consoleErrors.length = kept[1]; runtime.length = kept[2]; unmet.length = kept[3];
+                  }
+                }
               } catch (e) { /* forms are evidence for a reader; never let them cost a render report */ }
             }
           } catch (e) {

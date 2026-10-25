@@ -94,3 +94,10 @@ The reply is still written by the model, from these facts.
 - Sweep: 19 of 19 mutants killed. The comment-only control survived.
 - Re-anchored guards, because the wiring really changed: `addon-queue` (direct `quickSend` calls 3 → 4, repair-clock calls 2 → 3), `site-migrations` and `spine-repair` (the swap prefers the retry round's build).
 - Full suite on the commit: `12803 / 12798 / 2 / 3`. The two failures are `container-room` (no `node_modules` in the worktree; 15/15 with them linked) and `canary-reopen-browser` REOPEN 1. That test reads only `public/`, `scripts/` and its own fixture, none of which this branch changes; it passed in this session's second full run and now fails alone, so it is environmental and kept separate.
+
+## Round 2 fix: CI `site build` (run 40228562094, shard 4, render-check)
+
+- **What failed:** "A GOOD PAGE IS REPORTED CLEAN" broke on `/@desktop logged: Failed to load resource: net::ERR_FAILED`. The form exercise's aborted writes were logged by the browser, and the render check read them as the page's own console errors.
+- **The fix:** what the page logs during our own test (errors, rejections, unmet requests) is dropped from the findings, and only that. The findings describe the page as it loaded. The interceptor still aborts every write.
+- **Tests:** a guard was added to `test/feature-verify-exercise.test.mjs`. Full unit suite: `12803 / 12798 / 2 / 3`, the same two environmental failures as before.
+- **Not run locally:** the site-build section itself, because the template's dependencies are not installed here. It is checked by the branch's CI.
