@@ -3291,3 +3291,17 @@ A fixed set of real customer messages with the right routing answer for each
 (e.g. "add a Lessons page" when it exists → edit; "make lessons bookable" →
 feature on /lessons; "footer social links + newsletter" → frame), scored
 offline with supplied site inventories before any router or model change.
+
+## One site map that every step reads (2026-10-25, owner: later)
+
+The owner's idea: one map per site, and every step looks into it, instead of the
+6–7 separate partial reads today (router names only; add-on `siteFacts`/`siteNote`;
+conversation `readConverseContext`; row designer and frame writer their own NOT
+NULL reads; css lane the landmark map; pages built 5 ways, tables 6). It holds pages
+and sections, tables with columns and required fields, page↔table links, menu and
+footer, theme and photos; rebuilt from the real site after every save, saved per
+version, each step reading only its slice. Kept behind the scenes (our storage),
+not a `SITE_MAP.md` in the customer's project. Includes the bug that a first build
+never saves its landmark map (`saveLandmarks` gated on an `ok` `publishPages` never
+returns, worker.js ~20961). Router batch 1's `siteMap()` (builder/route-inventory.mjs)
+is its start.
