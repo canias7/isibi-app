@@ -92,3 +92,5 @@ The reply is still written by the model, from these facts.
   - forms: through a stand-in page, every write aborted and the interceptor removed.
 - Red check: against round 1's code the file fails (`exerciseForms` does not exist).
 - Sweep: 19 of 19 mutants killed. The comment-only control survived.
+- Re-anchored guards, because the wiring really changed: `addon-queue` (direct `quickSend` calls 3 → 4, repair-clock calls 2 → 3), `site-migrations` and `spine-repair` (the swap prefers the retry round's build).
+- Full suite on the commit: `12803 / 12798 / 2 / 3`. The two failures are `container-room` (no `node_modules` in the worktree; 15/15 with them linked) and `canary-reopen-browser` REOPEN 1. That test reads only `public/`, `scripts/` and its own fixture, none of which this branch changes; it passed in this session's second full run and now fails alone, so it is environmental and kept separate.
