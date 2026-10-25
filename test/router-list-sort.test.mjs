@@ -40,7 +40,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
-import { ASK_TOOL, EDIT_LAYERS, readEdit } from "../builder/site-ask.mjs";
+import { ASK_TOOL, LIVE_ASK_TOOL, EDIT_LAYERS, readEdit } from "../builder/site-ask.mjs";
 import { LANE_FIELDS, laneLayer } from "../builder/site-lanes.mjs";
 import { readExpectRoute, routeVerdict } from "../scripts/canary-route.mjs";
 
@@ -240,8 +240,10 @@ test("instructions: the router is sent both sentences, with the pages and tables
   assert.ok(tool, "the routing tool is not in the request");
   // THE REQUEST AS IT LEFT, not the module's constant.
   const layer = tool.input_schema.properties.layer.description;
-  assert.ok(layer.includes(siteWide().line), "the site-wide sort sentence is not in the request");
-  assert.ok(layer.includes(onePage().line), "the one-page sort sentence is not in the request");
+  // THE LIVE TOOL'S SORT RULE (2026-10-25, router-b1), said once in `data`.
+  assert.equal(layer, LIVE_ASK_TOOL.input_schema.properties.layer.description);
+  assert.match(layer, /sorts a list by something every entry has \(cheapest first, A to Z\) ACROSS THE WHOLE SITE, when they say so or name no page\. It cannot leave a page out: a sort on one page they name is "page", and on several pages they name the closing rule decides\./, "the sort rule is not in the request");
+  assert.match(layer, /"page" — [^\n]*a list's order on that page alone/, "the one-page sort is not in the request");
   assert.doesNotMatch(JSON.stringify(r.router[0]), /limit(?:ed)? it to one page|not limited to one page/i, "a broad phrase left in the request");
   // "Those lists" and "the pages" have referents in the same request.
   const content = String(r.router[0].messages[0].content);

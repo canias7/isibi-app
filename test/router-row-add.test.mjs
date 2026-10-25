@@ -31,7 +31,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
-import { ASK_TOOL, askRequest } from "../builder/site-ask.mjs";
+import { ASK_TOOL, LIVE_ASK_TOOL, LIVE_SYSTEM, askRequest } from "../builder/site-ask.mjs";
 import { readExpectRoute, routeVerdict } from "../scripts/canary-route.mjs";
 
 const P = ASK_TOOL.input_schema.properties;
@@ -211,6 +211,8 @@ async function route(message, answer, { picker } = {}) {
 // Test 11's route box, unchanged: the canary's expected-addon guard.
 const ADDON_PRESS = readExpectRoute("intent=addon alsoAsked=none");
 const DATA_PRESS = readExpectRoute("intent=edit layer=data alsoAsked=none");
+// What a live site is sent (router-b1); the first build's tool above keeps its own words.
+const LIVE_INTENT_SENT = LIVE_ASK_TOOL.input_schema.properties.intent.description;
 
 test("the request the real route sends to xAI, the default router, carries every sentence of the rule", async () => {
   const r = await route(NEW_SERVICE, { intent: "addon" });
@@ -223,11 +225,15 @@ test("the request the real route sends to xAI, the default router, carries every
   const tool = (body.tools || []).find((t) => t && t.function && t.function.name === ASK_TOOL.name);
   assert.ok(tool, "the routing tool is not in the request");
   const props = tool.function.parameters.properties;
-  assert.ok(props.intent.description.includes(addonEntry().line), "the addon clause's new-entry line is not in the request");
-  assert.ok(props.intent.description.includes(tieBreak().line), "the tie-break as sent is not the new one");
-  assert.ok(props.layer.description.includes(DATA[0]), "the data clause as sent is not the new one");
+  // A SITE THAT EXISTS IS SENT THE LIVE TOOL'S ONE RULE (2026-10-25, router-b1):
+  // the new entry is an addon in `intent`'s addon clause and its single test.
+  assert.equal(props.intent.description, LIVE_INTENT_SENT, "the intent rule as sent is not the live tool's");
+  assert.match(props.intent.description, /a new entry in a list it keeps \(a product, service, dish, class, event, team member: the list existing does not make the entry exist\)/);
+  assert.match(props.intent.description, /ASKED OF THE THING ITSELF AND NEVER OF WHAT IT GOES INTO/);
+  assert.match(props.layer.description, /"data" — [^\n]*A NEW entry is intent "addon"\./);
   const system = (body.messages || []).find((m) => m && m.role === "system");
-  assert.ok(system && String(system.content).includes(costRule()), "the system's cost rule as sent does not speak about a new entry");
+  assert.ok(system && String(system.content) === LIVE_SYSTEM, "the system as sent is not the live one");
+  assert.doesNotMatch(String(system.content), /cheapest one that can honestly do the job/, "the cost tie-break still reaches a live site");
   // Forced to the tool, so the answer is a field the route reads.
   assert.deepEqual(body.tool_choice, { type: "function", function: { name: ASK_TOOL.name } });
   // What "listed above" points at, and the customer's own sentence, are in the
@@ -246,10 +252,9 @@ test("the request the real route sends to Anthropic carries the same sentences",
   const tool = (body.tools || []).find((t) => t && t.name === ASK_TOOL.name);
   assert.ok(tool, "the routing tool is not in the request");
   const props = tool.input_schema.properties;
-  assert.ok(props.intent.description.includes(addonEntry().line));
-  assert.ok(props.intent.description.includes(tieBreak().line));
-  assert.ok(props.layer.description.includes(DATA[0]));
-  assert.ok(String(body.system && body.system[0] && body.system[0].text).includes(costRule()));
+  assert.equal(props.intent.description, LIVE_INTENT_SENT);
+  assert.match(props.layer.description, /"data" — [^\n]*A NEW entry is intent "addon"\./);
+  assert.equal(String(body.system && body.system[0] && body.system[0].text), LIVE_SYSTEM);
   assert.match(String(body.messages[0].content), /Its database tables are: services, team\./);
 });
 

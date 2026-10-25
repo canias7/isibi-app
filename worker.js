@@ -234,6 +234,7 @@ import { writtenFrame, ownPartsSite, runFrameEdit, addFrameLinks, FRAME_PARTS, f
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
 import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings, canWriteAccess } from "./site-access.mjs";
+import { routeInventory } from "./builder/route-inventory.mjs";
 import { converse, readHistory, converseRequest, requestChars, CONTEXT_CHARS, converseTables } from "./builder/site-converse.mjs";
 import { planWindow, compact as compactChat, COMPACT_AT } from "./builder/chat-context.mjs";
 // The pair a `display` table resolves to. Named once, from the presets, so the
@@ -10444,7 +10445,7 @@ async function withBuildLines(env, jid, uid, status, body, type) {
   return new Response(body, { status, headers: { "content-type": type || "application/json" } });
 }
 
-async function routeDigest(env, user, rb, { keepPages = false } = {}) {
+async function routeDigest(env, user, rb, { keepPages = false, words = true } = {}) {
   const site = rb && rb.site && typeof rb.site === "object" && !Array.isArray(rb.site) ? rb.site : null;
   if (!site || rb.hasSite !== true) return { site: rb && rb.site, filled: null, pagesFilled: false, pagesComplete: false };
   const slug = typeof rb.slug === "string" ? rb.slug : "";
@@ -10457,13 +10458,28 @@ async function routeDigest(env, user, rb, { keepPages = false } = {}) {
   // owner's review): the browser's list can be one addition's tables alone,
   // so it is never taken for the site's — read for the owner on every call,
   // and the browser's stand only when the read cannot answer.
-  const [names, routes] = await Promise.all([
+  // THE SITE INVENTORY (2026-10-25, router-b1): the stored pages are read
+  // once, for their addresses and for what each holds, and the stored spec
+  // for each table's columns (`routeInventory`). Each read is bounded and
+  // fails open: what could not be read is left out of the inventory.
+  const [names, src, spec] = await Promise.all([
     owned.then((ok) => (ok === true ? withinMs(routeTableNames(env, uid, slug, true), ROUTE_TABLES_MS, "route tables:", slug) : null)),
     // A SCOPED ROUTING (2026-10-15, `routeScope`) keeps the page list its
     // request recorded at acceptance: it is never read, so a page another part
     // has made since cannot change what this call is shown.
-    keepPages ? Promise.resolve(null) : owned.then((ok) => (ok === true ? withinMs(loadSiteSource(env, slug).then(sitePageRoutes), ROUTE_PAGES_MS, "route pages:", slug) : null)),
+    keepPages ? Promise.resolve(null) : owned.then((ok) => (ok === true ? withinMs(loadSiteSource(env, slug), ROUTE_PAGES_MS, "route pages:", slug) : null)),
+    owned.then((ok) => (ok === true ? withinMs((async () => {
+      const conn = await ownerSiteConn(env, slug);
+      if (!conn) return { ok: true, spec: { tables: [] } };
+      return readStoredSpec(conn);
+    })(), ROUTE_TABLES_MS, "route spec:", slug) : null)),
   ]);
+  const routes = Array.isArray(src) ? sitePageRoutes(src) : null;
+  let inventory = "";
+  try {
+    const invPages = Array.isArray(src) ? routes.map((route) => { const p = src.find((x) => x && routeOf(x.path) === route); return p && typeof p.source === "string" ? { path: p.path, route, source: p.source } : null; }).filter(Boolean) : null;
+    inventory = routeInventory({ pages: invPages, spec: spec && spec.ok === true && spec.spec ? spec.spec : null, label: accessLabel, words });
+  } catch (e) { console.error("route inventory:", slug, errorClassForLog(e)); inventory = ""; }
   let out = site;
   // THE THREE KEPT APART (2026-10-05): names read replace the browser's, and so
   // does an empty list — a site read to have no tables is told it has none
@@ -10473,7 +10489,7 @@ async function routeDigest(env, user, rb, { keepPages = false } = {}) {
   if (filled) out = { ...out, tables: filled };
   const pagesFilled = Array.isArray(routes) && routes.length > 0;
   if (pagesFilled) out = { ...out, pages: routes };
-  return { site: out, filled, pagesFilled, pagesComplete: pagesFilled };
+  return { site: out, filled, pagesFilled, pagesComplete: pagesFilled, inventory };
 }
 
 // ── WHAT THE CONVERSATION IS TOLD ABOUT THE OWNER'S SITE (2026-10-14) ───────
@@ -34589,7 +34605,10 @@ async function handleRequest(request, env, ctx) {
       // A PART'S ROUTING MAY BE SCOPED (2026-10-15): only a routing job or its
       // preparation, never a browser's call, and only a scope that reads.
       const rScope = rJob ? routeScopeOf(rb.scope) : null;
-      let rDigest = await routeDigest(env, ru, rb, { keepPages: !!rScope });
+      // A PART'S ROUTING IS SHOWN NO PAGE WORDS IN ITS INVENTORY (router-b1):
+      // another part's edit to a heading must never change what this part is
+      // asked (the request's rule, R11), so only structure is shown.
+      let rDigest = await routeDigest(env, ru, rb, { keepPages: !!rScope, words: !rPart });
       // ── THE SITE'S LIVE QUESTION, READ BEFORE THE MODEL (2026-10-02) ──────
       //
       // A site that exists keeps one live question (`builder/clarify.mjs`).
@@ -34792,7 +34811,16 @@ async function handleRequest(request, env, ctx) {
           // WHETHER A QUESTION CAN BE KEPT, WHAT THEY ALREADY TOLD US about
           // the waiting request, and the question this message may answer
           // (2026-10-02). Where no question can be kept, none may be asked.
+          // NEVER ON A PART (2026-10-25, router-b1; the router audit's step 2):
+          // a part of a request already charged is told questions are closed,
+          // rather than offered one and patched after (`partClarifyChoice`
+          // stays below as a safety net).
           canAsk: rLive,
+          offerAsk: !rPart,
+          // WHAT THE SITE HAS (router-b1, `routeInventory`), and a per-site
+          // cache pin so every routing call about this site reads one cache.
+          inventory: typeof rDigest.inventory === "string" ? rDigest.inventory : "",
+          cacheKey: typeof rb.slug === "string" && /^[a-z0-9][a-z0-9-]{0,80}$/.test(rb.slug) ? "route-" + rb.slug : "",
           // A PART OF A LONGER REQUEST (2026-10-03) is shown that request's
           // answers, the message it came from and what the parts before it did.
           context: rWaiting ? rWaiting.context : rPart ? rPart.context : [],
@@ -34808,7 +34836,7 @@ async function handleRequest(request, env, ctx) {
       // the same pages, the scoped request was already the one the whole site
       // would get, and its answer stands as any answer does.
       if (rScope && routed.failed !== true && !routeInScope(rScope, routed)) {
-        const whole = await routeDigest(env, ru, rb);
+        const whole = await routeDigest(env, ru, rb, { words: !rPart });
         if (samePages(rDigest.site, whole.site)) rJob.routeScope = "current";
         else {
           const first = routed.usage;

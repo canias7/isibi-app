@@ -741,7 +741,10 @@ test("the editable copy: four editing readers read through the repairing reader,
   assert.ok(W.includes("loadSiteSource(env, slug).then((pp) => pageLabels("), "the request's label read is gone, or does more than read labels");
   assert.ok(bare.includes("readSiteSource(env, sslug)"), "the Code tab's read is gone, or no longer bare");
   assert.ok(bare.includes("loadSiteSource(env, rslug)"), "the page picker's read is gone, or no longer bare");
-  assert.ok(/withinMs\(loadSiteSource\(env, slug\)\.then\(sitePageRoutes\)/.test(W), "the router's page list is no longer the bare, bounded, addresses-only read");
+  // SINCE 2026-10-25 (router-b1): the same bare, bounded read gives the router
+  // both the addresses (`sitePageRoutes`) and its inventory (`routeInventory`);
+  // it only reads.
+  assert.ok(/withinMs\(loadSiteSource\(env, slug\), ROUTE_PAGES_MS, "route pages:", slug\)/.test(W) && /const routes = Array\.isArray\(src\) \? sitePageRoutes\(src\) : null;/.test(W), "the router's page read is no longer the bare, bounded, read-only one");
   // Both editing routes now use the checked recovery wrapper, so the
   // second bare classification read is gone rather than becoming editable input.
   assert.doesNotMatch(W, /const eSrcRead = await readSiteSource/);

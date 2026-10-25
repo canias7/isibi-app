@@ -901,10 +901,9 @@ export const ASK_TOOL = {
 // a question whose answers are optional (a typed answer is always taken), and
 // one more field, `answered`, read only when a question is waiting.
 //
-// DERIVED, NEVER WRITTEN TWICE: every other clause is `ASK_TOOL`'s own text,
-// and the clause swapped out is found exactly once or the module fails to load.
-const FIRST_BUILD_CLARIFY_AT = "\"clarify\" when you are told below that this is a first build";
-const FIRST_BUILD_CLARIFY_END = "to a site that already exists.\n\n";
+// SINCE 2026-10-25 (router-b1) the live tool's `intent`, `alsoAsked`,
+// `layer`, `page` and `remove` are its own compact rules (below), no longer
+// `ASK_TOOL`'s text with clauses swapped; the first build's are untouched.
 const LIVE_CLARIFY =
   "\"clarify\" — ONE QUESTION BACK INSTEAD OF WORK, only when you are told below that a question may be asked, and " +
   "only when a detail they left out decides your answer here: whether it is a change or an addition, which page or " +
@@ -913,32 +912,136 @@ const LIVE_CLARIFY =
   "sees the page and asks for itself if it must. Never to check that they meant it, never for something you can see " +
   "above, never for a choice the work can make sensibly on its own. When the message is clear, answer with the work.\n\n";
 
-// ── AND THE TIE-BREAK, WHERE A QUESTION MAY BE ASKED (2026-10-02, the owner's
-//    review: *"Reconcile contradictory prompts"*) ─────────────────────────────
+// ── THE LIVE ROUTER'S RULES, ONE OF EACH (2026-10-25, router-b1) ─────────────
 //
-// The shared tie-break says "WHEN YOU CANNOT TELL, ANSWER addon", and on a site
-// that exists the live clause says to ask when a detail decides whether it is a
-// change or an addition: two instructions for one case. Here the tie-break is
-// for where questions are closed, and where one may be asked, not being able to
-// tell is what the question is for. The first build's tool keeps its own words.
-const SHARED_TIE_BREAK = "WHEN YOU CANNOT TELL, ANSWER \"addon\" — it can do everything an edit can EXCEPT take something away.\n";
-const LIVE_TIE_BREAK =
-  "WHEN YOU CANNOT TELL WHETHER IT IS A CHANGE OR AN ADDITION, ASK THEM (\"clarify\") where a question may be asked " +
-  "(said below); only where questions are closed, answer \"addon\" — it can do everything an edit can EXCEPT take " +
-  "something away.\n";
+// The router audit (`docs/audits/2026-10-25-router-audit.md`) found the live
+// tool's rules grown one run at a time: the edit/addon line said five times
+// (and again in six layers), three tie-breaks pulling three ways ("answer
+// addon", "ask them", the system's "pick the cheapest"), removals claimed by
+// `look`, `picture` and `nav` at once, the several-changes rule in three
+// wordings, and frame additions split between `nav`, `addon` and `look`. A
+// site that exists is now sent ONE rule for each, here, written for it alone;
+// a first build is still sent `ASK_TOOL` and `SYSTEM` byte for byte (the
+// owner: *"preserve current first-build behavior"*). Every guarded behaviour
+// keeps a sentence:
+//   - edit/addon: one test, asked of the thing itself, answered from the site
+//     inventory (`route-inventory.mjs`), in `intent` only;
+//   - one tie-break: the inventory first; a question where one may be asked;
+//     `addon` where questions are closed; cost never decides;
+//   - a removal has one owner by what holds it: a whole page `page`+`remove`,
+//     a stored row `data`, a frame item or the logo `nav`/`logo`+`remove`, and
+//     anything else on a page that stays `look`;
+//   - a new item in the frame is `edit` + `nav` (the frame step), not `addon`;
+//   - the several-changes rule once, closing `layer`.
+const LIVE_INTENT =
+  "\"ask\" if the message is conversation rather than a request for work: a question, a greeting, a thank-you, an " +
+  "idea or plan they are thinking through, a request for suggestions or a comparison, talk about files they attached, " +
+  "or a side question while one of ours waits. Talking about a change (\"should I add a gallery?\") is not asking for " +
+  "it. When it is genuinely both a question AND a change, answer with the work.\n" +
+  "NEVER ANSWER \"ask\" TO CHECK THAT THEY MEANT IT. A request to take something away is an instruction: there is no " +
+  "yes button, so \"are you sure?\" reads as the builder refusing to work. Every change is archived and can be undone. " +
+  "Do the work.\n\n" +
+  LIVE_CLARIFY +
+  "\"build\" — only when they want this whole site thrown away and remade as something else. It rewrites every page, so " +
+  "it is never the answer to a change.\n" +
+  "\"edit\" — something the site ALREADY HAS, changed, moved, reworded, restyled or taken away — and a new item in the " +
+  "frame every page shares (a menu link, a footer link, a contact detail, the header button), which layer \"nav\" adds " +
+  "on every page. Taking a whole page off is an edit: layer \"page\", that page, `remove` true.\n" +
+  "\"addon\" — something the site DOES NOT HAVE YET: a page or a table it lacks; a section, form, map, QR code or 3D " +
+  "scene on a page; a new line of words or a new photograph on a page, even one that has some; a new entry in a list " +
+  "it keeps (a product, service, dish, class, event, team member: the list existing does not make the entry exist); " +
+  "or something its database must newly do (a lookup or a cancel a page needs, something read live from an outside " +
+  "service, something on a timer). A site with no database gets one with the first of these.\n" +
+  "EDIT OR ADDON IS ONE TEST, ASKED OF THE THING ITSELF AND NEVER OF WHAT IT GOES INTO, AND ANSWERED FROM THE SITE " +
+  "INVENTORY ABOVE: is it there now? Yes — \"edit\". No — \"addon\". A working feature on a page that exists (taking " +
+  "bookings or orders, a sign-up) is there only when the inventory shows it: a form on that page writing to a table " +
+  "for it. When it does not, it is \"addon\" with that page as its target and the form as a new-component — never a " +
+  "new entry in a list. Changing a component is an edit: the page's code always exists.\n" +
+  "WHEN THE INVENTORY STILL CANNOT SETTLE IT, ask them (\"clarify\") where a question may be asked (said below); where " +
+  "questions are closed, answer \"addon\". Cost never decides between edit and addon.\n" +
+  "A REMOVAL IS NEVER AN ADDON: nothing in that lane can delete anything. If they want something to GO, it is \"edit\", " +
+  "even when you are unsure of anything else.";
 
-function liveIntentDescription() {
-  const d = ASK_TOOL.input_schema.properties.intent.description;
-  const at = d.indexOf(FIRST_BUILD_CLARIFY_AT);
-  const end = d.indexOf(FIRST_BUILD_CLARIFY_END, at);
-  if (at < 0 || end < 0 || d.indexOf(FIRST_BUILD_CLARIFY_AT, at + 1) >= 0) {
-    throw new Error("site-ask: the first build's clarify clause was not found exactly once");
-  }
-  const live = d.slice(0, at) + LIVE_CLARIFY + d.slice(end + FIRST_BUILD_CLARIFY_END.length);
-  const tie = live.indexOf(SHARED_TIE_BREAK);
-  if (tie < 0 || live.indexOf(SHARED_TIE_BREAK, tie + 1) >= 0) throw new Error("site-ask: the tie-break was not found exactly once");
-  return live.slice(0, tie) + LIVE_TIE_BREAK + live.slice(tie + SHARED_TIE_BREAK.length);
-}
+const LIVE_ALSO_RULE =
+  "ALMOST ALWAYS LEAVE THIS OUT. Two things said about ONE change are one change: \"make the background yellow and the " +
+  "corners rounder\", \"put Book first and drop Prices\", \"change the phone number in the header and the footer\". " +
+  "Several changes one answer can make are one turn, and the closing rule of `layer` says which answer.\n" +
+  "PUT A REQUEST HERE ONLY WHEN YOUR ANSWER CANNOT MAKE IT THIS TURN: something to add beside a change (\"make the " +
+  "background yellow and add a booking form\" is a \"look\" answer holding \"add a booking form\"), a change beside an " +
+  "addition when you answered \"addon\", or a change to stored rows (\"data\") or to a page's exact words (\"text\") " +
+  "beside a change of another kind. Never a detail, a reason or a restatement. When in doubt, say nothing.";
+
+const LIVE_LAYER =
+  "Only when intent is \"edit\", and required for one. Which part of the site the change lives in; the site inventory " +
+  "above says what each page, table and the frame hold.\n" +
+  "\"data\" — the rows the site STORES in its tables and shows as a list: a price, a dish, a service, an opening time, " +
+  "a team member. The cheapest step: prefer it whenever the thing changed is a stored row. It also deletes an existing " +
+  "row taken off a list (every page showing it stops), and sorts a list by something every entry has (cheapest first, " +
+  "A to Z) ACROSS THE WHOLE SITE, when they say so or name no page. It cannot leave a page out: a sort on one page they " +
+  "name is \"page\", and on several pages they name the closing rule decides. Placing one entry by hand is not a sort. " +
+  "A NEW entry is intent \"addon\".\n" +
+  "\"text\" — ONLY the words change: a heading, a sentence, a button label, a phone number, a price or opening hours " +
+  "written into a page's own sections (not stored rows). It reaches every word inside a page's sections, a button in a " +
+  "hero included, which \"nav\" cannot. Words not on the page yet are intent \"addon\".\n" +
+  "\"look\" — how the site LOOKS: colour, theme, dark or light, fonts, corners, the tab icon (favicon), a logo drawn or " +
+  "set as text when no file is attached, the site's name and one-line description, and the language its pages are " +
+  "declared in (not a translation). A colour or typeface can be for one page they name; corners and spacing are the " +
+  "whole site's.\n" +
+  "IT IS ALSO WHERE A REMOVAL IS WORKED OUT for anything taken off a page that stays: a section, a band, a photograph, " +
+  "a 3D scene, a QR code, a behaviour (\"the accordion shouldn't open on click any more\"), a language offered. Answer " +
+  "\"look\" and say what should go; you need not know which part holds it. Three removals have their own owner " +
+  "instead: a whole page (\"page\" with `remove`), a row the site stores (\"data\"), and an item of the frame or the " +
+  "logo (\"nav\" or \"logo\" with `remove`).\n" +
+  "\"rules\" — what the site DOES with what people submit, nothing a visitor sees: who may see or add an entry, whether " +
+  "an email or a text goes out, what is refused (\"don't let two people book the same slot\", \"only twenty places\", " +
+  "\"close the booking form\"). THE LINE IS ENFORCEMENT AGAINST DISPLAY, AND WORDS LIKE BOOKINGS, CAPACITY, PLACES OR " +
+  "LIMIT DO NOT DECIDE IT: \"rules\" when the site must start ACCEPTING or REFUSING something different; \"page\" when " +
+  "a part of a page must CALCULATE OR SHOW differently from data it already gets (\"show six minus the booking " +
+  "count\", \"show nothing instead of zero\"). If something new must also appear on a page, it is \"addon\".\n" +
+  "\"picture\" — a photograph a page ALREADY shows, or its empty frame: swap it, fill the frame, or change which part " +
+  "you see (\"his head is chopped off\", \"show more of the left\" — free, it moves the crop). The image itself, never " +
+  "the words beside it. A new photograph is intent \"addon\"; taking one off is \"look\".\n" +
+  "\"logo\" — the business's own logo at the top of every page, nearly always with a picture attached: the word " +
+  "\"logo\" is a strong signal, and an attached picture for the header or the brand mark is this, not \"picture\". " +
+  "Taking it off (\"just the name is fine\") is this with `remove`.\n" +
+  "\"nav\" — THE FRAME EVERY PAGE SHARES, and nothing inside a page's own sections: the menu (its items, their order " +
+  "and names, a whole list rewritten), the header's one button (its words and where it goes; a phone number suits a " +
+  "trade whose customers ring), the footer's details (phone, email, address, the one opening line — a full timetable " +
+  "is stored rows or a page's words), social icons and small print, how the header sits (centred, full width, not " +
+  "following the scroll; its colours are \"look\"), and links written into the pages (every link with those words " +
+  "moves at once). IT ADDS TO THE FRAME AS WELL AS CHANGING IT: a new menu link, footer link, contact detail or header " +
+  "button is this layer. It points only at pages the site has: a link to a page it lacks is \"addon\", the page first. " +
+  "Taking an item off is this with `remove`. It changes every page at once and is nearly free.\n" +
+  "\"page\" — the arrangement of ONE existing page, named in `page`: move a section, lay a list out differently, a " +
+  "list's order on that page alone, what a section calculates or shows. It edits that one page and leaves the rest as " +
+  "they are, so a change meant for several pages is not this (the closing rule decides). Something new on the page is " +
+  "intent \"addon\". IT IS ALSO WHERE A PAGE IS DELETED: that page in `page`, `remove` true.\n" +
+  "\"rename\" — THE SITE'S WEB ADDRESS only, the word in <name>.gofarther.app: when they plainly ask to rename or move " +
+  "the site, or to stop an old address working (\"forget the old address\"). Never the business's name in the header, " +
+  "which is \"look\".\n" +
+  "ONE ANSWER FOR THE WHOLE MESSAGE, CHOSEN AFTER READING EVERY CHANGE THEY ASK FOR AND WHERE EACH ONE IS — NEVER FROM " +
+  "THE FIRST CHANGE ALONE. A layer other than \"look\" is the answer when it can make all of them, on every page each " +
+  "one is on. When none can, answer \"look\" if it can make them all, and hold nothing back: it reaches the site's " +
+  "colours, fonts, name and description, a section or band on any page, a photograph, the menu and the button as they " +
+  "are, what the site enforces, its web address, and taking something off (not a stored row), and it makes each change " +
+  "on its own page, so changes on different pages are one \"look\" answer even when they are all of one kind (leave " +
+  "`page` out then). Hold a change back only when no one answer can make it with the rest.";
+
+const LIVE_PAGE =
+  "When layer is \"page\": the route path of the page, copied EXACTLY from the pages above (\"/\" for the home page). " +
+  "A page that is not there does not exist yet: the intent is \"addon\".\n" +
+  "When layer is \"look\": the page they SAID the change is on, copied the same way. Leave it out when they named none, " +
+  "for the whole site, and when the changes are on more than one page. Never guess one: the page named here is the " +
+  "page that gets changed.\n" +
+  "For every other layer, leave it out.";
+
+const LIVE_REMOVE =
+  "For layer \"page\": true ONLY when they plainly want that whole page TAKEN AWAY (\"remove the gallery page\", " +
+  "\"delete /prices\"). Taking a section off a page is not this.\n" +
+  "For layer \"logo\": true when they want the logo taken off and the name shown instead; a message that ATTACHES a " +
+  "picture is never a removal.\n" +
+  "For layer \"nav\": true when a menu item, a footer link or the header's button should GO.\n" +
+  "WITHOUT THIS FIELD NOTHING IS TAKEN AWAY: when they have asked for a page, the logo or a frame item to be gone, set it.";
 
 // ── SEVERAL PARTS HELD BACK, ON A SITE THAT EXISTS (2026-10-03) ────────────
 //
@@ -976,7 +1079,7 @@ function liveAlsoAsked() {
   const d = ASK_TOOL.input_schema.properties.alsoAsked.description;
   const at = d.indexOf(FIRST_ALSO_AT);
   if (at !== 0 || d.indexOf(FIRST_ALSO_AT, at + 1) >= 0) throw new Error("site-ask: the held-back field's first sentence was not found exactly once");
-  return { type: "array", items: { type: "string" }, description: LIVE_ALSO_AT + d.slice(FIRST_ALSO_AT.length) };
+  return { type: "array", items: { type: "string" }, description: LIVE_ALSO_AT + LIVE_ALSO_RULE };
 }
 
 // ── WHAT IS HELD BACK, NAMED BY ITEM NUMBER (2026-10-23, the owner) ─────────
@@ -1123,6 +1226,9 @@ const TARGETS = {
     "A form, section or working feature added to a page that already exists also names what it creates beside " +
     "page:/path: new-component:Name for the form or section, new-data:table for a table it needs that the site " +
     "has not got, data:table for an existing table it writes. page:/path alone means only that page's content changes. " +
+    // WHAT EXISTS IS NEVER NEW (2026-10-25, router-b1): the audit's p1–p4 named
+    // new-component: for features the site already had; the inventory shows them.
+    "A form, section or table the site inventory already shows is never new-: name it as it is. " +
     "Name every shared part a change reaches, even when its words do not mention it. Leave a change out only when " +
     "you cannot tell what it touches.",
   items: {
@@ -1229,13 +1335,16 @@ export const LIVE_ASK_TOOL = {
       // calls"): a sixth answer, offered only here, on a site that exists, so a
       // first build's tool and request stay exactly as they were.
       ...(APPS_OPEN ? {
-        intent: { ...ASK_TOOL.input_schema.properties.intent, enum: [...ASK_TOOL.input_schema.properties.intent.enum, "app", "security"], description: liveIntentDescription() + "\n\n" + LIVE_APP_CLAUSE + "\n\n" + LIVE_SECURITY_CLAUSE },
+        intent: { ...ASK_TOOL.input_schema.properties.intent, enum: [...ASK_TOOL.input_schema.properties.intent.enum, "app", "security"], description: LIVE_INTENT + "\n\n" + LIVE_APP_CLAUSE + "\n\n" + LIVE_SECURITY_CLAUSE },
         platform: {
           type: "string",
           enum: ["android", "ios"],
           description: "Only with intent \"app\": \"ios\" when they name an iPhone, iPad or Apple, otherwise \"android\".",
         },
-      } : { intent: { ...ASK_TOOL.input_schema.properties.intent, enum: [...ASK_TOOL.input_schema.properties.intent.enum, "security"], description: liveIntentDescription() + "\n\n" + LIVE_SECURITY_CLAUSE } }),
+      } : { intent: { ...ASK_TOOL.input_schema.properties.intent, enum: [...ASK_TOOL.input_schema.properties.intent.enum, "security"], description: LIVE_INTENT + "\n\n" + LIVE_SECURITY_CLAUSE } }),
+      layer: { ...ASK_TOOL.input_schema.properties.layer, description: LIVE_LAYER },
+      page: { ...ASK_TOOL.input_schema.properties.page, description: LIVE_PAGE },
+      remove: { ...ASK_TOOL.input_schema.properties.remove, description: LIVE_REMOVE },
       alsoAsked: liveAlsoAsked(),
       heldItems: HELD_ITEMS,
       dependsOn: DEPENDS_ON,
@@ -1290,7 +1399,9 @@ export const LIVE_ASK_TOOL = {
  */
 export function layerLine(layer) {
   if (typeof layer !== "string" || !EDIT_LAYERS.includes(layer)) return "";
-  const desc = String(ASK_TOOL.input_schema.properties.layer.description || "");
+  // THE LIVE TOOL'S WORDS (2026-10-25, router-b1): a layer is only ever chosen
+  // on a site that exists, and the lane picker is told what that router read.
+  const desc = String(LIVE_ASK_TOOL.input_schema.properties.layer.description || "");
   const open = "\"" + layer + "\" — ";
   const lines = desc.split("\n").filter((l) => l.startsWith(open));
   return lines.length === 1 ? lines[0].slice(open.length).trim() : "";
@@ -1350,12 +1461,15 @@ export function siteDigest(site, { tablesNone = false } = {}) {
  * characters, and a site has as many as it has published: the list is the
  * site's own, not a window of it.
  */
+export const MAX_DIGEST_TABLES = 64;
 export function digestLists(site) {
   const s = site || {};
   const sentPages = Array.isArray(s.pages) ? s.pages : [];
   const sentTables = Array.isArray(s.tables) ? s.tables : [];
   const pages = sentPages.filter((p) => typeof p === "string" && p.trim());
-  const tables = sentTables.filter((t) => typeof t === "string" && t.trim()).slice(0, 24);
+  // 64, NOT 24 (2026-10-25, router-b1): a table name is a few characters and
+  // the audit found a site's tables were the facts the router lacked.
+  const tables = sentTables.filter((t) => typeof t === "string" && t.trim()).slice(0, MAX_DIGEST_TABLES);
   return { pages, tables, tablesCut: tables.length < sentTables.length };
 }
 
@@ -1415,6 +1529,35 @@ const SYSTEM =
   "recompiled, and not one page is rewritten. Adding a page: one page is written. Rebuilding: every page is written " +
   "again from nothing, and whatever the owner had is gone.";
 
+// ── A SITE THAT EXISTS IS SENT ONE TIE-BREAK (2026-10-25, router-b1) ────────
+//
+// `SYSTEM`'s third step told a live site to "pick the cheapest one that can
+// honestly do the job" and restated the new-entry and frame rules, against the
+// tool's own tie-break (the audit's contradiction 2). A site that exists is
+// sent `SYSTEM` with that paragraph replaced by a pointer to the one rule in
+// the tool's `intent`; a first build is sent `SYSTEM` exactly as it was.
+const SYSTEM_SITE_AT = "   A SITE EXISTS — ";
+const SYSTEM_SITE_END = "\n\nWHAT THE THREE COST";
+const LIVE_SITE_STEP =
+  "   A SITE EXISTS — \"edit\" or \"addon\", decided by the one test in the tool's `intent` field against the site " +
+  "inventory, and \"build\" only to throw the whole site away and start again: it replaces every page they have. " +
+  "Somebody who asked for a different shade of blue must never be given a new site.";
+export const LIVE_SYSTEM = (() => {
+  const at = SYSTEM.indexOf(SYSTEM_SITE_AT);
+  const end = SYSTEM.indexOf(SYSTEM_SITE_END, at);
+  if (at < 0 || end < 0 || SYSTEM.indexOf(SYSTEM_SITE_AT, at + 1) >= 0) throw new Error("site-ask: the system's site step was not found exactly once");
+  return SYSTEM.slice(0, at) + LIVE_SITE_STEP + SYSTEM.slice(end);
+})();
+
+// ── WHAT THE SITE HAS, FOR A SITE THAT EXISTS (2026-10-25, router-b1) ───────
+// The route's own read (`builder/route-inventory.mjs`), after the digest: per
+// site, after the stable tools and system, so the cached prefix holds.
+const MAX_INVENTORY_CHARS = 8000;
+export function inventoryBlock(inventory) {
+  const t = typeof inventory === "string" ? inventory.trim() : "";
+  return t ? "SITE INVENTORY (what the site has now, read from its own files and stored tables)\n" + t.slice(0, MAX_INVENTORY_CHARS) : "";
+}
+
 /**
  * The one definition of the routing call.
  *
@@ -1464,7 +1607,7 @@ function liveBlock({ canAsk = false, pending = null, context = [], part = null }
   return waiting + (told ? "\n" + told : "") + asking;
 }
 
-export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false, model = ASK_MODEL, live = false, canAsk = false, pending = null, context = [], part = null, tablesNone = false, history = null, summary = null, answering = false, items = null, device = "", split = null } = {}) {
+export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false, model = ASK_MODEL, live = false, canAsk = false, pending = null, context = [], part = null, tablesNone = false, history = null, summary = null, answering = false, items = null, device = "", split = null, inventory = "", cacheKey = "" } = {}) {
   // A FIRST BUILD'S MESSAGE IS CUT TO ITS OWN BOUND, AS IT ALWAYS WAS; a site
   // that exists sends it whole (2026-10-03, the size policy): the route has
   // already refused one past `MAX_INPUT_CHARS`, so nothing here shortens what
@@ -1542,14 +1685,19 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
     // in prose, and the caller has no field to branch on — the whole point here
     // is a decision the code can read, not a reply a human has to interpret.
     tool_choice: { type: "tool", name: "route_message" },
-    system: [{ type: "text", text: SYSTEM }],
+    system: [{ type: "text", text: live && hasSite ? LIVE_SYSTEM : SYSTEM }],
+    // A PER-SITE CACHE PIN (2026-10-25, router-b1): every routing call about
+    // one site goes to one xAI server (`x-grok-conv-id`, `xaiHeaders`), so a
+    // part's route reads the prefix the last one wrote. Ours; stripped before
+    // Anthropic (`anthropicWire`).
+    ...(live && typeof cacheKey === "string" && /^[A-Za-z0-9_-]{1,120}$/.test(cacheKey) ? { cacheKey } : {}),
     // ONE PART OF A LONGER REQUEST (2026-10-03): the message it came from and
     // what the parts before it did, after its own words — a site's only, and
     // only when the route was handed one (`partBlock`).
     // THE CONVERSATION SO FAR (2026-10-14), its small window only — enough to
     // tell "do that" from a question and to write `resolved` — before their
     // message. Absent when the page sent none.
-    messages: [{ role: "user", content: "THEIR SITE\n" + siteDigest(site, { tablesNone }) + state + round + (summaryBlock(summary) ? "\n\n" + summaryBlock(summary) : "") + (historyBlock(history) ? "\n\n" + historyBlock(history) : "") + (live && hasSite && deviceHintLine(device) ? "\n\n" + deviceHintLine(device) : "") + "\n\nTHEIR MESSAGE\n" + text + (live && itemsBlock(items) ? "\n\n" + itemsBlock(items) : "") + (live && partBlock(part) ? "\n\n" + partBlock(part) : "") + (live && splitBlock(split) ? "\n\n" + splitBlock(split) : "") }],
+    messages: [{ role: "user", content: "THEIR SITE\n" + siteDigest(site, { tablesNone }) + (live && hasSite && inventoryBlock(inventory) ? "\n\n" + inventoryBlock(inventory) : "") + state + round + (summaryBlock(summary) ? "\n\n" + summaryBlock(summary) : "") + (historyBlock(history) ? "\n\n" + historyBlock(history) : "") + (live && hasSite && deviceHintLine(device) ? "\n\n" + deviceHintLine(device) : "") + "\n\nTHEIR MESSAGE\n" + text + (live && itemsBlock(items) ? "\n\n" + itemsBlock(items) : "") + (live && partBlock(part) ? "\n\n" + partBlock(part) : "") + (live && splitBlock(split) ? "\n\n" + splitBlock(split) : "") }],
   };
 }
 
@@ -3300,7 +3448,7 @@ export const KEPT_TURN_CHARS = 2000;
 export const KEPT_STEP = 20;
 export const KEPT_CHARS = 40000;
 const ROUTER_LAST_REPLY = 3200;
-export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, picked = false, hasSite = false, model = ASK_MODEL, tablesFilled = false, tablesNone = false, pagesFilled = false, pagesComplete = true, canAsk: askable = false, context = [], pending = null, part = null, history = null, kept = null, device = "", split = null } = {}) {
+export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, picked = false, hasSite = false, model = ASK_MODEL, tablesFilled = false, tablesNone = false, pagesFilled = false, pagesComplete = true, canAsk: askable = false, context = [], pending = null, part = null, history = null, kept = null, device = "", split = null, inventory = "", cacheKey = "", offerAsk = true } = {}) {
   const text = String(message || "").trim();
   // AN EMPTY MESSAGE NEVER REACHES THE MODEL. The composer will not send one, but
   // this is a paid call behind a public route and "the client wouldn't do that"
@@ -3398,7 +3546,13 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
     // reply's call uses, and said in the decision when shown or cut.
     if (shownHistory.turns.length) shown.push("history-shown");
     if (shownHistory.turns.length && (shownHistory.left > 0 || shownHistory.turns.some((t) => t.cut))) shown.push("history-cut");
-    request = askRequest({ items, message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, context: waiting ? told : (partOf ? (readContext(context) || []) : told), part: partOf, tablesNone: tablesNone === true, history: shownHistory.turns.length ? shownHistory : null, summary: keptSummary, answering: canClarify && answering === true && picked !== true, device, split: live && hasSite ? split : null });
+    request = askRequest({ items, message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live,
+      // OFFERED ONLY WHERE THE ROUTE SAYS SO (2026-10-25, router-b1): a part of
+      // a request already charged is told questions are closed (`offerAsk`
+      // false), while `canAsk` still says one can be kept, so a start-over
+      // question a part raises still waits and a stray clarify is still read
+      // and handled by the route's safety net (`partClarifyChoice`).
+      canAsk: canAsk && offerAsk !== false, pending: waiting, context: waiting ? told : (partOf ? (readContext(context) || []) : told), part: partOf, tablesNone: tablesNone === true, history: shownHistory.turns.length ? shownHistory : null, summary: keptSummary, answering: canClarify && answering === true && picked !== true, device, split: live && hasSite ? split : null, inventory, cacheKey });
   } catch (e) {
     return fail("request", e);
   }

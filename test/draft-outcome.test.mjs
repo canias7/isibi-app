@@ -66,6 +66,9 @@ const VISIT = pageSrc("/visit", "<section className=\"come\"><h1>Come to the bak
 const LOAVES = { name: "loaves", columns: [{ name: "name", type: "text" }, { name: "description", type: "text" }, { name: "price", type: "numeric" }, { name: "photo", type: "text" }], read: "public", write: "none" };
 const ROUTE_TEXT = { intent: "edit", layer: "text", page: "/visit", targets: [{ change: 0, writes: ["page:/visit"] }] };
 const said = (args) => String(args.messages[0].content);
+// THE ROUTER'S OWN MESSAGE (router-b1): the route stubs below choose by the
+// customer's words, never by the site inventory now shown above them.
+const message = (args) => { const c = said(args); const at = c.indexOf("THEIR MESSAGE\n"); return at >= 0 ? c.slice(at) : c; };
 const lineOf = (args, file, from) => {
   const at = said(args).split("\n").find((l) => l.includes("[" + file + "] ") && (l.includes(TT_FROM) || l.includes(TT_1) || l.includes(TT_2) || l.includes(from)));
   return Number(String(at || "-1.").split(".")[0]);
@@ -337,7 +340,7 @@ test("DOR5 A NEWER DRAFT ARRIVES WHILE THE ANSWER IS LOST — built on this job'
 test("DOR6 HELD BACKEND CHANGES — a data edit sealed under draft-first whose record answer is lost is proven by its own held revision: billed once, its journal there once, no row written before Publish", async () => {
   const db = rowsDb({ tables: { loaves: { columns: LOAF_COLUMNS, rows: BAKERY_LOAVES, next: 12 } }, meta: { schema: JSON.stringify({ tables: [LOAVES] }) } });
   const { P, done } = await bakery({ db, answers: {
-    route: (args) => (/price|£/i.test(said(args)) ? { intent: "edit", layer: "data", targets: [{ change: 0, writes: ["data:loaves"] }] } : ROUTE_TEXT),
+    route: (args) => (/price|£/i.test(message(args)) ? { intent: "edit", layer: "data", targets: [{ change: 0, writes: ["data:loaves"] }] } : ROUTE_TEXT),
     write_row_changes: () => ({ changes: [{ table: "loaves", id: 2, values: { price: 5.6 } }] }),
   } });
   try {
@@ -364,7 +367,7 @@ test("DOR6b AN ADD-ON'S PAGE AND HELD TABLE, STOPPED FOR GOOD AFTER ITS RECORD �
   const db = rowsDb({ tables: { loaves: { columns: LOAF_COLUMNS, rows: BAKERY_LOAVES, next: 12 } }, meta: { schema: JSON.stringify({ tables: [LOAVES] }) } });
   const PAGE = { path: "/sign-up", name: "Sign up", purpose: "what Sign up is for", sections: ["a band"], components: ["section-header"] };
   const { P, v0, done } = await bakery({ db, answers: {
-    route: (args) => (/sign-up/i.test(said(args)) ? { intent: "addon" } : ROUTE_TEXT),
+    route: (args) => (/sign-up/i.test(message(args)) ? { intent: "addon" } : ROUTE_TEXT),
     [T.adds]: { kinds: ["table", "page"] },
     "add:table": { table: [{ table: { name: "signups", access: "collect", columns: [{ name: "name", type: "text" }, { name: "email", type: "text" }] }, seed: [] }] },
     "add:page": { page: [PAGE] },
@@ -402,7 +405,7 @@ test("DOR6c AN ADD-ON'S HELD SAVE WHOSE PROOF COULD NOT BE READ AT ONCE — its 
   const db = rowsDb({ tables: { loaves: { columns: LOAF_COLUMNS, rows: BAKERY_LOAVES, next: 12 } }, meta: { schema: JSON.stringify({ tables: [LOAVES] }) } });
   const PAGE = { path: "/sign-up", name: "Sign up", purpose: "what Sign up is for", sections: ["a band"], components: ["section-header"] };
   const { P, v0, done } = await bakery({ db, answers: {
-    route: (args) => (/sign-up/i.test(said(args)) ? { intent: "addon" } : ROUTE_TEXT),
+    route: (args) => (/sign-up/i.test(message(args)) ? { intent: "addon" } : ROUTE_TEXT),
     [T.adds]: { kinds: ["table", "page"] },
     "add:table": { table: [{ table: { name: "signups", access: "collect", columns: [{ name: "name", type: "text" }, { name: "email", type: "text" }] }, seed: [] }] },
     "add:page": { page: [PAGE] },
@@ -428,7 +431,7 @@ test("DOR7 A DEPENDENT PART WAITS FOR ITS PREREQUISITE TO BE PROVEN SAVED — th
   const PAGE = { path: "/gallery", name: "Gallery", purpose: "what Gallery is for", sections: ["a band"], components: ["section-header"] };
   let routed = 0;
   const { P, v0, done } = await bakery({ answers: {
-    route: (args) => (/gallery/i.test(said(args)) && routed++ === 0 ? { ...ROUTE_TEXT, alsoAsked: [ADD] } : /gallery/i.test(said(args)) ? { intent: "addon" } : ROUTE_TEXT),
+    route: (args) => (/gallery/i.test(message(args)) && routed++ === 0 ? { ...ROUTE_TEXT, alsoAsked: [ADD] } : /gallery/i.test(message(args)) ? { intent: "addon" } : ROUTE_TEXT),
     [T.adds]: { kinds: ["page"] }, "add:page": { page: [PAGE] }, [T.pages]: { pages: [writtenPage("/gallery")] },
   } });
   try {

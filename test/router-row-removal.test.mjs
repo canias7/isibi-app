@@ -24,7 +24,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
-import { ASK_TOOL, EDIT_LAYERS, REMOVABLE_LAYERS, readEdit } from "../builder/site-ask.mjs";
+import { ASK_TOOL, LIVE_ASK_TOOL, EDIT_LAYERS, REMOVABLE_LAYERS, readEdit } from "../builder/site-ask.mjs";
 import { readExpectRoute, routeVerdict } from "../scripts/canary-route.mjs";
 
 const P = ASK_TOOL.input_schema.properties;
@@ -195,9 +195,12 @@ test("the router is sent the rule and the tables it points at", async () => {
   assert.ok(tool, "the routing tool is not in the request");
   // THE REQUEST AS IT LEFT, not the module's constant.
   const layer = tool.input_schema.properties.layer.description;
-  assert.ok(layer.includes(dataRow().line), "the data clause's row sentence is not in the request");
-  assert.ok(layer.includes(lookRow().line), "look's stored-row exception is not in the request");
-  assert.ok(tool.input_schema.properties.alsoAsked.description.includes(reachRow()), "look's reach in the request still claims a stored row");
+  // THE LIVE TOOL'S ONE REMOVAL RULE (2026-10-25, router-b1): a stored row is
+  // `data`'s, said in the data clause and as one of look's three owners.
+  assert.equal(layer, LIVE_ASK_TOOL.input_schema.properties.layer.description);
+  assert.match(layer, /"data" — [^\n]*It also deletes an existing row taken off a list/);
+  assert.match(layer, /Three removals have their own owner instead: a whole page \("page" with `remove`\), a row the site stores \("data"\)/);
+  assert.match(layer, /and taking something off \(not a stored row\)/, "look's reach in the request still claims a stored row");
   // "The tables named above" has a referent in the same request.
   assert.match(String(sent.messages[0].content), /Its database tables are: workshops, bookings\./);
 });

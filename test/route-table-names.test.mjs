@@ -126,7 +126,16 @@ function toldAbout(r) {
   const at = content.indexOf("THEIR SITE\n");
   const end = content.indexOf("\n\nWHICH CASE", at);
   assert.ok(at >= 0 && end > at, "the site section's landmarks moved");
-  return content.slice(at + "THEIR SITE\n".length, end);
+  // THE DIGEST ENDS WHERE THE SITE INVENTORY BEGINS (2026-10-25, router-b1).
+  const inv = content.indexOf("\n\nSITE INVENTORY", at);
+  return content.slice(at + "THEIR SITE\n".length, inv > at && inv < end ? inv : end);
+}
+/** The site inventory the router was shown (router-b1), or "" for none. */
+function inventoryShown(r) {
+  const content = String(r.seen.router[0].messages[0].content);
+  const at = content.indexOf("\n\nSITE INVENTORY");
+  const end = content.indexOf("\n\nWHICH CASE");
+  return at >= 0 && end > at ? content.slice(at + 2, end) : "";
 }
 const TABLES_LINE = /Its database tables are: ([^.]*)\./;
 const tablesTold = (r) => { const m = TABLES_LINE.exec(toldAbout(r)); return m ? m[1].split(", ") : []; };
@@ -156,10 +165,15 @@ test("the owner's own site: its tables reach the router by name, and nothing els
   assert.equal(r.status, 200);
   assert.equal(r.body.layer, "data");
   assert.deepEqual(tablesTold(r), ["bookings", "lessons"], "the router was not told the site's tables");
-  // NAMES ONLY: the whole site section, exactly — the pages and the two table
-  // names, and no column, no row, no type and not the engine's own `_meta`.
+  // THE DIGEST: the pages and the two table names, exactly.
   assert.equal(toldAbout(r), "The site is called tables-ready. It is published at https://tables-ready.gofarther.app. "
     + "Its pages are: /, /prices, /gear. Its database tables are: bookings, lessons.");
+  // AND THE INVENTORY (router-b1, the owner's approval to reword this guard):
+  // each table's COLUMNS and access, from the stored spec — still no row, no
+  // type and not the engine's own `_meta`.
+  assert.equal(inventoryShown(r), "SITE INVENTORY (what the site has now, read from its own files and stored tables)\n"
+    + "Tables (columns; * an entry must fill, = has a default):\n- lessons: name, price (display)\n- bookings: email (collect)");
+  assert.ok(!/_meta|\btext\b|\binteger\b/.test(inventoryShown(r).split("\n").slice(1).join("\n")), "the inventory carried a type or the engine's table");
   // The route says what it filled in, so the evidence of a run can show it.
   assert.deepEqual(r.body.tablesFilled, ["bookings", "lessons"]);
   // AND THE DECISION SAYS SO (the router audit, 2026-10-02): a context code,
@@ -256,6 +270,8 @@ test("an empty database: the router is told the site has no tables, in words", a
   // THE WHOLE SITE SECTION, EXACTLY: the no-tables sentence where the names go.
   assert.equal(toldAbout(r), "The site is called tables-empty. It is published at https://tables-empty.gofarther.app. "
     + "Its pages are: /, /prices, /gear. It has no database tables.");
+  // The inventory agrees, in words (router-b1).
+  assert.match(inventoryShown(r), /Tables \(columns[^)]*\):\n- none$/);
   assert.deepEqual(r.body.tablesFilled, [], "a site read to have no tables is not told apart from one that could not be read");
   assert.ok(r.body.decision.reasons.includes("tables-none"));
   assert.ok(!r.body.decision.reasons.includes("tables-filled"));

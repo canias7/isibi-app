@@ -1,5 +1,20 @@
 # Owner Notes
 
+## 2026-10-25 — the router sees what the site has, and has one rule of each (branch `router-b1`, not merged, not deployed)
+
+- **Parts don't ask questions.** Once a request is paid for, the router is now told questions are closed when it routes a later part. Before, it was offered a question and then overruled. The safety net stays.
+- **The router sees what the site has.** It is now shown each table's columns, each page's headline, sections and the tables it reads or writes, and the menu, header button and footer. So it can tell that "/lessons" already shows lessons, or that no booking form exists yet. It is read from your site's files and table definitions, never from rows, and is kept to about 1,500 tokens. Its page facts come from the same readers the add-on step uses.
+- **One rule for each question.** The rules that contradicted each other are merged into one for each question:
+  - whether a change is an edit or an addition;
+  - one tie-break: use what the site has, then ask if a question is allowed, otherwise treat it as an addition;
+  - who takes something off;
+  - several changes in one message;
+  - a new menu link, footer link, contact detail or header button now goes to the menu/footer step as an edit, not to the add-on step.
+- **Smaller prompt.** The rule text is less than half what it was (25,272 → 11,059 characters). The whole routing request went from about 11,500 to about 7,800 tokens, plus the site description.
+- **First builds are untouched.** They are sent exactly what they were before.
+- **Cache pin.** Every routing call for one site now carries that site's cache key (`x-grok-conv-id`, xAI's documented header for this connection). Repeated part routes should hit the cache instead of by luck.
+- **Tests and cost.** 10 new tests; 6 guard tests reworded as you approved. A sweep killed 16 of 16 mutants and the comment-only control survived. A later part of a request is shown the site's structure but not page words, so one part's edit can't change what the next is asked. No AI calls, nothing spent. Record: `docs/history/2026-10-25-router-b1.md`.
+
 ## 2026-10-25 — the Lessons booking that became list entries, and replies that hedged (branch `fix-row-hedge`, not merged, not deployed)
 
 - Driftwood run (04:27–04:36 UTC, main `a63451c3a`): the Lessons booking part *was* routed as "a new feature on /lessons" (the earlier fix worked). But the AI that designs the component sent back an empty design and said the booking was "the page's job". The "try once more when you designed nothing" rule only caught a blank answer, not an empty list, so it never retried, and the job ended with nothing built. The lesson list, split off as its own part, was then added as four rows (job dc143ad0). That is where "Group lessons" row 9 came from.

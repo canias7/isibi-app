@@ -86,12 +86,12 @@ test("the digest names every page the site has, and still caps the table names",
   // authoritative page identities"*): the addresses were cut at 24, so a
   // site's 25th page could not be named by the router or the lane picker. A
   // page address is a few dozen characters and the list is the site's own;
-  // table names keep their 24.
+  // table names keep a cap, 64 since router-b1 (2026-10-25).
   const many = Array.from({ length: 500 }, (_, i) => "/p" + i);
   const d = siteDigest({ name: "x".repeat(400), pages: many, tables: many });
   assert.ok(d.includes("/p25,") && d.includes("/p499."), "a page past the 24th was left out of the digest");
   const tables = d.slice(d.indexOf("Its database tables are: "));
-  assert.ok(tables.includes("/p23") && !tables.includes("/p24"), "the table names are no longer capped at 24");
+  assert.ok(tables.includes("/p63") && !tables.includes("/p64"), "the table names are no longer capped at 64");
 });
 
 test("junk in the site object does not become junk in the prompt", () => {
