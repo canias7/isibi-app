@@ -19,7 +19,7 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
-import { shotRoutes, MAX_SHOT_HEIGHT, VIEWPORTS, MAX_OPENS, OVERLAY_TRIGGERS, probe, probeOverlay, renderReport, landmarkProbe, MAX_LANDMARKS, textProbe, MAX_ROUTE_TEXT, HYDRATION_ERROR, hydrationProbe, isNavTimeout, apiAnswer, DEP_HEADER } from "./site-render.mjs";
+import { shotRoutes, MAX_SHOT_HEIGHT, VIEWPORTS, MAX_OPENS, OVERLAY_TRIGGERS, probe, probeOverlay, renderReport, landmarkProbe, MAX_LANDMARKS, textProbe, MAX_ROUTE_TEXT, formProbe, MAX_ROUTE_FORMS, MAX_FORM_FIELDS, HYDRATION_ERROR, hydrationProbe, isNavTimeout, apiAnswer, DEP_HEADER } from "./site-render.mjs";
 
 const MIME = {
   ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css",
@@ -380,6 +380,8 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
   // WHAT EACH ROUTE SHOWED AS IT FIRST LOADED (2026-10-13): desktop's read,
   // or phone's as incomplete when desktop was never reached (2026-10-25).
   const texts = [];
+  // THE FORMS EACH ROUTE DREW, desktop only (2026-10-25, feature-verify).
+  const forms = [];
   // THE VERDICT, DERIVED ONCE, at whichever return the run reaches. Written as
   // a function rather than assembled at each of the three exits because a
   // classification repeated per call site is the thing this repo's `settle`
@@ -393,6 +395,7 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
     ...(selectors.length ? { deadSelectors: selectors.filter((s) => !hit.has(s)), selectorsLooked: looked } : {}),
     ...(marks.length ? { landmarks: marks } : {}),
     ...(texts.length ? { texts } : {}),
+    ...(forms.length ? { forms } : {}),
   });
   // THE VERDICT IS ASKED FOR, NEVER DEFAULTED. This was a local initialised to
   // `true` and overwritten only after the browser launched, so every failure
@@ -594,6 +597,14 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
                 else if (vp.name === "desktop") texts[at] = entry;
               }
             } catch (e) { /* text is evidence for a reader; never let it cost a render report */ }
+            // THE FORMS AS IT FIRST LOADED, desktop only: structure, like the
+            // landmark map. Read-only; a throw leaves the route unread.
+            if (vp.name === "desktop") {
+              try {
+                const f = await page.evaluate(formProbe, { route, maxForms: MAX_ROUTE_FORMS, maxFields: MAX_FORM_FIELDS });
+                if (f && Array.isArray(f.forms)) forms.push({ route, forms: f.forms });
+              } catch (e) { /* forms are evidence for a reader; never let them cost a render report */ }
+            }
           } catch (e) {
             obs.error = String((e && e.message) || e).slice(0, 200);
             // WHOSE FAILURE IT WAS, DECIDED WHERE THE EVIDENCE IS (task #87).

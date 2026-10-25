@@ -462,7 +462,7 @@ const hiddenSaid = (hidden) => (Array.isArray(hidden) && hidden.length
   : "");
 const TOLD_FACTS = Object.freeze({
   unsupported: ["not-done", (o) => "Their site cannot do this yet: " + o.need + (o.why ? " (" + o.why + ")" : "") + "."],
-  "still-to-do": ["not-done", (o) => "Not done: " + o.need + "."],
+  "still-to-do": ["not-done", (o) => "Not done: " + o.need + "." + (Array.isArray(o.gaps) && o.gaps.length ? " Checked on the built site: " + o.gaps.join("; ") + "." : "")],
   blocked: ["not-done", (o) => "Not done, because another part of this change it depends on did not work: " + o.need + (o.why ? " (" + o.why + ")" : "") + "."],
   "set-up": ["note", (o) => "Set up, but nothing here can check that it works: " + o.need + "." + partlySaid(o)],
   // WHAT THE PUBLISHED PAGE SHOWED OF CONTENT THIS CHANGE ADDED (2026-10-13,
@@ -487,12 +487,17 @@ const TOLD_FACTS = Object.freeze({
   // …AND ONE CARRIED ONLY BY PAGES AND TABLES SEEN ON THE SITE (2026-10-25,
   // row-hedge, `present`) is that fact, with what was seen named.
   "already-there": ["note", (o) => (o.present === true && Array.isArray(o.carriers) && o.carriers.length
-    ? "Their site already had this before this request, and it was seen there (" + o.carriers.filter((c) => typeof c === "string").join(", ") + "): " + o.need + "."
+    ? "Their site already had this before this request, and it was seen there (" + (Array.isArray(o.evidence) && o.evidence.length ? o.evidence.join("; ") : o.carriers.filter((c) => typeof c === "string").join(", ")) + "): " + o.need + "."
     : "Their site already had this before this request, and nothing here can check that it works: " + o.need + ".") + partlySaid(o)],
   // UNVERIFIED, NEVER "NOT DONE" (2026-10-15, after run 38649153034's reply
   // said a menu link it could not read back was "not done" beside the links
   // it had read): a requirement nothing could look at is unknown either way —
   // not counted as undone by the request (`notDoneOf`), and not told as such.
+  // CHECKED ON THE BUILT SITE (2026-10-25, feature-verify): every carrier the
+  // judge named was found and joined — the page's code reads or saves the
+  // table, the rule is in the schema — so it is said as a fact, with what was
+  // seen (`requirement-verify.mjs`). Nothing was sent or submitted.
+  checked: ["changed", (o) => "Checked on the built site: " + o.need + " — " + (Array.isArray(o.evidence) && o.evidence.length ? o.evidence.join("; ") : "its parts are there") + "."],
   unseen: ["unverified", (o) => "Nothing here can see whether this is in place, so it is not known either way — neither done nor not done: " + o.need + "."],
   // PAST WHAT ONE STEP KEEPS TRACK OF (2026-10-07, `overCapNeeds`): written
   // down by the designer and never judged or checked — not done, saying why.
@@ -565,7 +570,9 @@ const additionsRead = (v) => v === undefined || (Array.isArray(v) && v.length > 
 const toldReads = (o) => typeof o.need === "string" && !!flat(o.need) && Object.hasOwn(TOLD_FACTS, o.told) && (o.why === undefined || typeof o.why === "string")
   && hiddenReads(o.hidden) && (o.hidden === undefined || o.told === "behind")
   && additionsRead(o.additions) && (o.additions === undefined || UNTRIED.has(o.told))
-  && (o.partly === undefined || (Array.isArray(o.partly) && o.partly.length > 0 && o.partly.every((x) => typeof x === "string" && !!flat(x))));
+  && (o.partly === undefined || (Array.isArray(o.partly) && o.partly.length > 0 && o.partly.every((x) => typeof x === "string" && !!flat(x))))
+  && factsRead(o.evidence) && factsRead(o.gaps) && (o.gaps === undefined || o.told === "still-to-do");
+const factsRead = (v) => v === undefined || (Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string" && !!flat(x)));
 const warnedReads = (o) => Object.hasOwn(WARNED_FACTS, o.what) && typeof o.name === "string" && !!flat(o.name)
   && (o.added === undefined || typeof o.added === "boolean")
   && (o.route === undefined || typeof o.route === "string")
@@ -651,7 +658,7 @@ export function toldAs(o, out) {
   const t = o && o.told;
   // CONTENT READ OFF THE PUBLISHED PAGE (2026-10-13) is "set up" with its
   // evidence: under a failure that applied nothing it was not this change's.
-  if (!out || out.database === "applied" || (t !== "set-up" && t !== "scheduled" && t !== "shown" && t !== "behind" && t !== "in-code")) return t;
+  if (!out || out.database === "applied" || (t !== "set-up" && t !== "scheduled" && t !== "shown" && t !== "behind" && t !== "in-code" && t !== "checked")) return t;
   return out.database === "unknown" ? "unseen" : "already-there";
 }
 
@@ -682,7 +689,7 @@ function coverFacts(F, a, { out = null } = {}) {
   for (const o of told) {
     const as = toldAs(o, out);
     const [kind, text] = TOLD_FACTS[as];
-    F.add(kind, text({ need: flat(o.need), why: o.why ? flat(o.why) : "", ...(Array.isArray(o.partly) ? { partly: o.partly.map(flat) } : {}), ...(Array.isArray(o.hidden) ? { hidden: o.hidden } : {}), ...(Array.isArray(o.additions) ? { additions: o.additions } : {}) }));
+    F.add(kind, text({ need: flat(o.need), why: o.why ? flat(o.why) : "", ...(Array.isArray(o.partly) ? { partly: o.partly.map(flat) } : {}), ...(Array.isArray(o.hidden) ? { hidden: o.hidden } : {}), ...(Array.isArray(o.additions) ? { additions: o.additions } : {}), ...(Array.isArray(o.evidence) ? { evidence: o.evidence.map(flat) } : {}), ...(Array.isArray(o.gaps) ? { gaps: o.gaps.map(flat) } : {}), ...(o.present === true ? { present: true, carriers: Array.isArray(o.carriers) ? o.carriers : [] } : {}) }));
     if (UNTRIED.has(as)) F.add("note", untriedSaid(flat(o.need)));
   }
   for (const o of warned) F.add("not-done", WARNED_FACTS[o.what]({ ...o, name: flat(o.name), route: o.route ? flat(o.route) : "" }));

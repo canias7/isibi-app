@@ -1,5 +1,17 @@
 # Owner Notes
 
+## 2026-10-25 — the builder now checks what it built before it tells you (branch `feature-verify`, not merged, not deployed)
+
+- **What you saw.** After the Lessons, Cafe and Board shop additions on Driftwood (17:22), every booking form, limit, switch, editable menu and badge was told as "I can't see from here whether…". All three of those jobs had also failed before publishing, so nothing of theirs went live.
+- **What checking already existed.** The builder opens every page in a real browser after each change. It also checks that a table or page the change names exists, and that new text shows on the page. But nothing put these together for a requirement. It never asked whether the Lessons page's form saves to the bookings table, or whether the limit of 8 is in the database. So anything beyond "a page exists" came out as "can't see".
+- **What it does now.** Before the reply, each requirement is checked in code against the built site, with no AI call:
+  - the page's code and the form the browser drew (its fields);
+  - which table the page saves to or lists, and the table's columns;
+  - the rules stored in the database (a maximum, no overlaps, one per person).
+- **What you hear.** A requirement that checks out is said as a fact, for example "Lessons has a form that saves to lesson_bookings (date, time, people); lesson_bookings only accepts rows where people ≤ 8". One that is conclusively not there is told as not done, with the gap named (for example "/cafe does not read or save menu_items"). Only what can't be read from code stays "have a look": something that sends an email or text, a scheduled job, an outside connection, or a component's own behaviour. No keyword rules: it goes by what the judge said carries each need and what the site really has.
+- **Not yet.** A requirement found missing is not yet handed back for one more try. That needs a second build round inside the add-on, and is in the backlog. The new form reading changes the container, so its image will rebuild on the next deploy.
+- **Tests.** 7 new tests; 13 of 13 mutants killed; the comment-only control survived. Nothing spent. Record: `docs/history/2026-10-25-feature-verify.md`.
+
 ## 2026-10-25 — the router sees what the site has, and has one rule of each (branch `router-b1`, not merged, not deployed)
 
 - **Parts don't ask questions.** Once a request is paid for, the router is now told questions are closed when it routes a later part. Before, it was offered a question and then overruled. The safety net stays.

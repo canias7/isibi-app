@@ -322,6 +322,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // (2026-10-13, after run 144): the evidence a component's requirement is read
 // against, in place of "nobody can see one".
 import { addedByRoute, publishedTexts, componentEvidence } from "./builder/content-evidence.mjs";
+import { publishedForms, routeCode } from "./builder/requirement-verify.mjs";
 import { noteFor, pickAdds, designWaits, ADD_KINDS, mergePageBatches, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, frameToMissing, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, qrShownSources, qrDestinationCheck, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowRequired, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 import { compileRepairRound, compileRepairRounds, writtenPaths, withParts, splitParts } from "./builder/compile-repair.mjs";
 import { salvageRound, anythingLanded, MAX_SALVAGE_ROUNDS, landedBill, partKey, writtenPartKeys } from "./builder/change-salvage.mjs";
@@ -44615,6 +44616,11 @@ async function handleRequest(request, env, ctx) {
             // shipped (2026-10-13). Null until then: every component reads as
             // it always did, unknown.
             let aRendered = null, aContent = null;
+            // …AND `aForms` THE FORMS EACH ROUTE DREW, `aVerifySite` the built site a
+            // requirement is checked against before the reply (2026-10-25,
+            // feature-verify: shipped code by route, those forms, the routes
+            // drawn, the post-apply schema). Null until the pages shipped.
+            let aForms = null, aVerifySite = null;
             // WHAT THE PUBLISHED MENUS SHOWED OF THE LINKS THIS CHANGE PUT IN
             // (2026-10-15, `linkEvidence`): read once the menu step ran; null
             // until then, when every link a requirement rests on is unknown.
@@ -44892,7 +44898,7 @@ async function handleRequest(request, env, ctx) {
               // it one by one, and the note from it whole.
               // …AND WHAT EACH STEP WROTE DOWN PAST WHAT IT KEEPS TRACK OF
               // (2026-10-07, `skipped`): told as not checked, never dropped.
-              const aRep = requirementReport(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], failedItems: aFailedItems(), made: aMade(failed), reportable: aReportable(failed), existing: aExisting(), unexpressed: [...aUnexpressed], judged: true, skipped: aReqSkipped, content: failed ? null : aContent, links: failed ? null : aLinks });
+              const aRep = requirementReport(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], failedItems: aFailedItems(), made: aMade(failed), reportable: aReportable(failed), existing: aExisting(), unexpressed: [...aUnexpressed], judged: true, skipped: aReqSkipped, content: failed ? null : aContent, links: failed ? null : aLinks, site: failed ? null : aVerifySite });
               // …AND EVERYTHING ELSE THE NOTE SAYS, which is about this change
               // rather than about a requirement: the reply's facts carry it
               // beside the requirements (`coverOther`), never twice.
@@ -48149,6 +48155,7 @@ async function handleRequest(request, env, ctx) {
               aMark("repair", aRepairRound.ran ? (aRepairRound.built ? "ok" : "fail") : "skip",
                 { why: String(aRepairRound.why || aRepairRound.failed || ""), repaired: aRepairRound.repaired.length, refused: aRepairRound.refused.length });
               aRendered = publishedTexts(built, aRepairRound);
+              aForms = publishedForms(built, aRepairRound);
               if (aJob && aRepairRound.usage.length) {
                 try { aRepairRound.charged = Number(await aCharge(pageCredits(...aRepairRound.usage), 2)) || 0; }
                 catch (e) { aRepairRound.charged = 0; console.error("addon repair charge failed:", ownerSlug, e && e.message); }
@@ -48760,6 +48767,18 @@ async function handleRequest(request, env, ctx) {
                 rendered: aRendered || new Map(),
               });
             } catch (e) { aContent = null; console.error("addon content evidence failed:", ownerSlug, e && e.message); }
+            // THE BUILT SITE, FOR CHECKING EACH REQUIREMENT (2026-10-25,
+            // feature-verify): no model call, nothing sent. A read that fails
+            // leaves it null, and every requirement keeps its sentence.
+            try {
+              const aShippedPages2 = aRepairRound && aRepairRound.built && Array.isArray(aRepairRound.pages) ? aRepairRound.pages : aMerge.pages;
+              aVerifySite = {
+                pages: routeCode(routedSources(aShippedPages2 || [], aParts || (aPartsRead.ok ? aPartsRead.parts : []) || [])),
+                forms: aForms || new Map(),
+                drawn: new Set(aRendered instanceof Map ? aRendered.keys() : []),
+                spec: aSpec,
+              };
+            } catch (e) { aVerifySite = null; console.error("addon requirement check failed:", ownerSlug, e && e.message); }
             await aSaveAnswer();
             const aRepairUsage = (aRepairRound && Array.isArray(aRepairRound.usage)) ? aRepairRound.usage : [];
             // AND THE TRANSLATIONS' (run 39): the same two roads — one rounding

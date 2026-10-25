@@ -1,3 +1,4 @@
+import { verifyNeed } from "./requirement-verify.mjs";
 // ── WHAT THE CHANGE NEEDED, AND WHETHER THIS STEP COVERED IT ────────────────
 //
 // Owner, 2026-09-13: "Implement structured requirement coverage, not just
@@ -2377,7 +2378,7 @@ export function reconcileHandoffs(outcomes) {
  * change, and nothing here checked it; nothing here could see whether it is
  * there.
  */
-export const TOLD = Object.freeze(["unsupported", "still-to-do", "blocked", "set-up", "shown", "behind", "in-code", "scheduled", "already-there", "unseen", "not-tracked"]);
+export const TOLD = Object.freeze(["unsupported", "still-to-do", "blocked", "checked", "set-up", "shown", "behind", "in-code", "scheduled", "already-there", "unseen", "not-tracked"]);
 
 /**
  * WHAT A STEP WROTE DOWN PAST WHAT ONE STEP USED TO KEEP TRACK OF (2026-10-07).
@@ -2414,6 +2415,9 @@ export function overCapNeeds(skipped) {
  * site, at least one a page. Anything else — a function, a job, a connection, a component, a
  * column or setting — returns null.
  */
+/** The sentences a check against the built site may settle (`verifyNeed`). */
+const VERIFIABLE = new Set(["set-up", "shown", "behind", "in-code", "unseen", "already-there"]);
+
 export function presentOnly(r) {
   const by = r && r.judged && typeof r.judged === "object" && Array.isArray(r.judged.by) ? r.judged.by : null;
   if (!by || !by.length) return null;
@@ -2425,7 +2429,7 @@ export function presentOnly(r) {
   return ok && by.some((b) => b.startsWith("page:")) ? by.slice() : null;
 }
 
-export function requirementReport(list, { told = [], invalid = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unexpressed = [], judged = false, skipped = [], content = null, links = null } = {}) {
+export function requirementReport(list, { told = [], invalid = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unexpressed = [], judged = false, skipped = [], content = null, links = null, site = null } = {}) {
   // AN UNJUDGED ENTRY IS NEVER TOLD (2026-10-05): see `requirementOutcomes`.
   const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing, judged, content, links }).filter((r) => !r.unjudged);
   const bad = (Array.isArray(invalid) ? invalid : []).filter((x) => typeof x === "string" && x);
@@ -2534,6 +2538,33 @@ export function requirementReport(list, { told = [], invalid = [], failed = [], 
     if (by) { o.present = true; o.carriers = by; }
   }
   for (const r of unseen) tell(r, "unseen", false);
+  // ── CHECKED AGAINST THE BUILT SITE (2026-10-25, feature-verify) ─────────
+  //
+  // Live on driftwood-and-daughters-5 every behavioural need — a booking form,
+  // an owner-editable menu, a group limit, a closed-day switch — was "I can't
+  // see from here whether…", though the render check had opened every page and
+  // the schema was in hand. `site` is that evidence (`requirement-verify.mjs`):
+  // each need is checked against the carriers the judge named, in code. Every
+  // carrier there and joined is said as a fact with what was seen (`checked`,
+  // or `present` beside what the site already had); a carrier conclusively not
+  // there is not done, the gap named; a carrier nothing here reads keeps its
+  // sentence. Only on a change that shipped: the caller passes `site` then.
+  if (site && typeof site === "object") {
+    const pool = outcomes.filter(spoken);
+    for (const o of out) {
+      if (!VERIFIABLE.has(o.told)) continue;
+      const r = pool.find((x) => typeof x.need === "string" && x.need.trim() === o.need && Array.isArray(x.carriedBy) && x.carriedBy.length);
+      if (!r) continue;
+      const v = verifyNeed(r.carriedBy, site);
+      if (v.state === "present") {
+        if (o.told === "already-there") { o.present = true; o.carriers = r.carriedBy.slice(); }
+        else { o.told = "checked"; delete o.additions; delete o.hidden; }
+        o.evidence = v.evidence.length ? v.evidence : ["its parts are there"];
+      } else if (v.state === "missing" && o.told !== "already-there") {
+        o.told = "still-to-do"; o.gaps = v.gaps.slice(); delete o.additions; delete o.hidden; delete o.partly;
+      }
+    }
+  }
   // PAST THE LIMIT AT INTAKE (2026-10-07, `overCapNeeds`): never judged, so
   // never in the outcomes above — told last, each by its own words.
   for (const r of overCapNeeds(skipped)) tell(r, "not-tracked", true);
@@ -2555,7 +2586,7 @@ export function toldNote(told) {
     parts.push("One thing your site can't do yet: " + unsupported.map((r) => r.need + (r.why ? " — " + r.why : "")).join("; ") + ".");
   }
   const absent = of("still-to-do");
-  if (absent.length) parts.push("Still to do: " + absent.map((r) => r.need).join("; ") + ".");
+  if (absent.length) parts.push("Still to do: " + absent.map((r) => r.need + (Array.isArray(r.gaps) && r.gaps.length ? " (" + r.gaps.join("; ") + ")" : "")).join("; ") + ".");
   // A DIFFERENT SENTENCE FOR A DEPENDENCY, because it points somewhere else: a
   // customer can act on "the part this needed didn't work" by asking about that
   // part, where "still to do" invites them to ask for the same thing again.
@@ -2568,6 +2599,10 @@ export function toldNote(told) {
   // is built; what nothing here can confirm is said as exactly that, rather
   // than left to the reply's "Done" to claim. It is deliberately an invitation
   // to check rather than a warning: the ordinary case is that it works.
+  // CHECKED ON THE BUILT SITE (2026-10-25, feature-verify): said plainly,
+  // with what was seen, because it was seen.
+  const checked = of("checked");
+  if (checked.length) parts.push(checked.map((r) => r.need.replace(/[.\s]+$/, "") + ": " + (Array.isArray(r.evidence) ? r.evidence.join("; ") : "") + ".").join(" "));
   const rest = of("set-up");
   if (rest.length) {
     parts.push("I've set that up, but I can't confirm from here that " + rest.map((r) => r.need).join("; or that ")
@@ -2610,7 +2645,7 @@ export function toldNote(told) {
   // WHAT THE SITE WAS SEEN TO HAVE (2026-10-25, row-hedge: `present`) is said
   // plainly; only what rests on behaviour keeps the check-it clause.
   const seen = of("already-there").filter((r) => r.present === true);
-  if (seen.length) parts.push("Your site already had that in place: " + seen.map((r) => r.need).join("; ") + ".");
+  if (seen.length) parts.push("Your site already had that in place: " + seen.map((r) => r.need.replace(/[.\s]+$/, "") + (Array.isArray(r.evidence) && r.evidence.length ? " (" + r.evidence.join("; ") + ")" : "")).join("; ") + ".");
   const there = of("already-there").filter((r) => r.present !== true);
   if (there.length) {
     parts.push("Your site already had that in place, but I can't confirm from here that " + there.map((r) => r.need).join("; or that ")

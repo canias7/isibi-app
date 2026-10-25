@@ -826,7 +826,7 @@ export function runtimeErrorsOf(observations) {
   return { errors: all, more };
 }
 
-export function renderReport(observations, { ok = true, error = "", cut = false, sandboxed = true, deadSelectors = null, selectorsLooked = 0, landmarks = null, texts = null } = {}) {
+export function renderReport(observations, { ok = true, error = "", cut = false, sandboxed = true, deadSelectors = null, selectorsLooked = 0, landmarks = null, texts = null, forms = null } = {}) {
   const list = Array.isArray(observations) ? observations : [];
   const raw = [];
   for (const o of list) for (const f of readPage(o)) raw.push(f);
@@ -882,6 +882,10 @@ export function renderReport(observations, { ok = true, error = "", cut = false,
   // finding and never told to the customer as text; `complete` is false when
   // the cap cut it, and a route the check never reached is simply absent.
   if (Array.isArray(texts) && texts.length) report.texts = texts;
+  // THE FORMS EACH ROUTE DREW AS IT FIRST LOADED (2026-10-25, feature-verify):
+  // each form's field names, types and labels, read without typing or sending
+  // anything. Evidence for `requirement-verify.mjs`; never told as markup.
+  if (Array.isArray(forms) && forms.length) report.forms = forms;
   const rt = runtimeErrorsOf(list);
   if (rt.errors.length) report.runtimeErrors = rt.errors;
   if (rt.more) report.runtimeMore = rt.more;
@@ -900,6 +904,49 @@ export const MAX_ROUTE_TEXT = 12000;
 export function textProbe({ route, cap }) {
   const raw = String((document.body && document.body.innerText) || "").replace(/[ \t\f\v]+/g, " ").replace(/\s*\n\s*/g, "\n").trim();
   return { route, text: raw.slice(0, cap), complete: raw.length <= cap };
+}
+
+/** How many forms, and fields per form, one route may report. */
+export const MAX_ROUTE_FORMS = 8;
+export const MAX_FORM_FIELDS = 24;
+
+/**
+ * THE FORMS A PAGE DREW AS IT FIRST LOADED (2026-10-25, feature-verify), run
+ * in the browser like `textProbe`: every `<form>` (and the named fields outside
+ * one, as one more), each field's `name`, `type` and visible label. Nothing is
+ * typed, clicked or sent. `{ route, forms }`.
+ */
+export function formProbe({ route, maxForms, maxFields }) {
+  const clip = (s, n) => String(s == null ? "" : s).replace(/\s+/g, " ").trim().slice(0, n);
+  const labelOf = (el) => {
+    const id = el.getAttribute("id");
+    let l = null;
+    try { l = id ? document.querySelector('label[for="' + CSS.escape(id) + '"]') : null; } catch (e) { l = null; }
+    l = l || el.closest("label");
+    return clip((l && l.innerText) || el.getAttribute("aria-label") || el.getAttribute("placeholder") || "", 60);
+  };
+  const fieldsOf = (root, outside) => {
+    const out = [];
+    for (const el of root.querySelectorAll("input, select, textarea")) {
+      if (outside && el.closest("form")) continue;
+      const type = String(el.getAttribute("type") || el.tagName).toLowerCase();
+      if (["hidden", "submit", "button", "reset", "image"].includes(type)) continue;
+      const name = clip(el.getAttribute("name") || el.getAttribute("id") || "", 40);
+      if (!name) continue;
+      out.push({ name, type, label: labelOf(el) });
+      if (out.length >= maxFields) break;
+    }
+    return out;
+  };
+  const forms = [];
+  for (const f of document.querySelectorAll("form")) {
+    const fields = fieldsOf(f, false);
+    if (fields.length) forms.push({ fields });
+    if (forms.length >= maxForms) break;
+  }
+  const loose = forms.length < maxForms && document.body ? fieldsOf(document.body, true) : [];
+  if (loose.length) forms.push({ fields: loose, loose: true });
+  return { route, forms };
 }
 
 // ── A HYDRATION MISMATCH NAMES ITSELF (task #80, 2026-09-04) ─────────────────
