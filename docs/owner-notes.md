@@ -1,5 +1,13 @@
 # Owner Notes
 
+## 2026-10-25 — the Lessons booking that became list entries, and replies that hedged (branch `fix-row-hedge`, not merged, not deployed)
+
+- Driftwood run (04:27–04:36 UTC, main `a63451c3a`): the Lessons booking part *was* routed as "a new feature on /lessons" (the earlier fix worked). But the AI that designs the component sent back an empty design and said the booking was "the page's job". The "try once more when you designed nothing" rule only caught a blank answer, not an empty list, so it never retried, and the job ended with nothing built. The lesson list, split off as its own part, was then added as four rows (job dc143ad0). That is where "Group lessons" row 9 came from.
+- Now: under that hand-over, the component designer is told the feature is its own to build on that page (not the page editor's), and an empty design is asked once more. Elsewhere an empty design is still the AI's own "no" (an earlier rule kept).
+- Replies: a need the site already had, carried by a page (and its list), is now said plainly: "Your site already had that in place: …". Things that rest on behaviour (emails, functions, schedules) keep the "have a look" clause.
+- "I couldn't read the built page": the browser check reads phones first and ran out of time before desktop, and only desktop text was read. Now the phone's text counts too (what it shows is seen; what it lacks is "not known", never "hidden").
+- Tests: 8 new (2 end to end with supplied answers), red on main; sweep 8 of 8 killed, comment-only control survived. Full suite 12,793: 12,789 pass, 3 skipped, 1 fails on this machine only (a test-run artefact). Nothing spent. Changes the container image (`render-check.mjs`). Record: `docs/history/2026-10-25-row-hedge.md`.
+
 ## 2026-10-25: header/footer sign-up, and parts that rewrote whole pages (branch `fix-frame-parallel`, not merged, not deployed)
 
 - What happened on Driftwood (01:37 run): the message's "Add a Lessons / Board shop / Cafe / Hire page" parts were about pages the site already had. Each went to the page editor, which said "nothing to change". Then the automatic retry pushed it into rewriting the whole page anyway. That was 12–17 credits each, four at once (one per page). The header/footer part never got its turn in that run (it was cancelled first). The refusal you saw was from the earlier run (24 Oct, 21:03), the kit-import one main has since fixed.

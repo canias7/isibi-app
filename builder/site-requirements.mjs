@@ -2408,6 +2408,23 @@ export function overCapNeeds(skipped) {
  * exact: the same need in the same sentence is said once. Two different needs
  * are two entries, and one need told two different ways is two.
  */
+/**
+ * THE CARRIERS OF A NEED, WHEN EVERY ONE IS A PAGE OR A TABLE (2026-10-25,
+ * row-hedge): the judge's own `by` (`page:/x`, `table:x`), each found on the
+ * site, at least one a page. Anything else — a function, a job, a connection, a component, a
+ * column or setting — returns null.
+ */
+export function presentOnly(r) {
+  const by = r && r.judged && typeof r.judged === "object" && Array.isArray(r.judged.by) ? r.judged.by : null;
+  if (!by || !by.length) return null;
+  if (r.implementation !== "found") return null;
+  const ok = by.every((b) => typeof b === "string" && /^(page:\/[^\s#]*|table:[a-z0-9_]+)$/i.test(b));
+  // AT LEAST ONE PAGE: a table alone holds entries and is not, by itself, a
+  // thing a visitor sees or anything that happens ("each enquiry is emailed",
+  // carried by a table, stays hedged).
+  return ok && by.some((b) => b.startsWith("page:")) ? by.slice() : null;
+}
+
 export function requirementReport(list, { told = [], invalid = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unexpressed = [], judged = false, skipped = [], content = null, links = null } = {}) {
   // AN UNJUDGED ENTRY IS NEVER TOLD (2026-10-05): see `requirementOutcomes`.
   const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing, judged, content, links }).filter((r) => !r.unjudged);
@@ -2503,6 +2520,19 @@ export function requirementReport(list, { told = [], invalid = [], failed = [], 
   for (const r of unsure.filter((x) => !before(x) && !jobKind(x))) tell(r, shownTold(r) || "set-up", false);
   for (const r of unsure.filter((x) => !before(x) && jobKind(x))) tell(r, "scheduled", false);
   for (const r of unsure.filter(before)) tell(r, "already-there", false);
+  // …AND WHAT THE SITE WAS SEEN TO HAVE IS SAID AS A FACT (2026-10-25,
+  // row-hedge). Live on driftwood-and-daughters-5 every "already there" need —
+  // a Gallery page, a Cafe page over its menu table — was hedged with "I can't
+  // confirm", though every carrier the judge named was found on the site. A
+  // need carried only by pages and tables (`presentOnly`) IS its carriers being
+  // there: it is marked `present`, with them named. One resting on a function,
+  // a job or a connection is behaviour nothing here exercised and stays hedged.
+  for (const o of out) {
+    if (o.told !== "already-there") continue;
+    const r = unsure.find((x) => before(x) && typeof x.need === "string" && x.need.trim() === o.need);
+    const by = r ? presentOnly(r) : null;
+    if (by) { o.present = true; o.carriers = by; }
+  }
   for (const r of unseen) tell(r, "unseen", false);
   // PAST THE LIMIT AT INTAKE (2026-10-07, `overCapNeeds`): never judged, so
   // never in the outcomes above — told last, each by its own words.
@@ -2577,7 +2607,11 @@ export function toldNote(told) {
   }
   // THE SITE ALREADY HAD IT (2026-10-06): the set-up sentence's own words,
   // without the claim that this change did the setting up.
-  const there = of("already-there");
+  // WHAT THE SITE WAS SEEN TO HAVE (2026-10-25, row-hedge: `present`) is said
+  // plainly; only what rests on behaviour keeps the check-it clause.
+  const seen = of("already-there").filter((r) => r.present === true);
+  if (seen.length) parts.push("Your site already had that in place: " + seen.map((r) => r.need).join("; ") + ".");
+  const there = of("already-there").filter((r) => r.present !== true);
   if (there.length) {
     parts.push("Your site already had that in place, but I can't confirm from here that " + there.map((r) => r.need).join("; or that ")
       + " — have a look and tell me if it isn't right.");

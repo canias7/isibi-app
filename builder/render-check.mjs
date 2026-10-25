@@ -377,7 +377,8 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
   let looked = 0;
   // The landmark map, unioned across routes — each entry carries its own `route`.
   const marks = [];
-  // WHAT EACH ROUTE SHOWED AS IT FIRST LOADED, desktop only (2026-10-13).
+  // WHAT EACH ROUTE SHOWED AS IT FIRST LOADED (2026-10-13): desktop's read,
+  // or phone's as incomplete when desktop was never reached (2026-10-25).
   const texts = [];
   // THE VERDICT, DERIVED ONCE, at whichever return the run reaches. Written as
   // a function rather than assembled at each of the three exits because a
@@ -574,14 +575,25 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
               try {
                 for (const m of await page.evaluate(landmarkProbe, { route, cap: MAX_LANDMARKS })) marks.push(m);
               } catch (e) { /* a map is a bonus; never let it cost a render report */ }
-              // THE TEXT AS IT FIRST LOADED, read before anything here clicks:
-              // the landmark probe only reads. A route whose read throws is
-              // left out, which every reader takes as "not read".
-              try {
-                const t = await page.evaluate(textProbe, { route, cap: MAX_ROUTE_TEXT });
-                if (t && typeof t.text === "string") texts.push({ route, text: t.text, complete: t.complete === true });
-              } catch (e) { /* text is evidence for a reader; never let it cost a render report */ }
             }
+            // THE TEXT AS IT FIRST LOADED, read before anything here clicks:
+            // the landmark probe only reads. A route whose read throws is
+            // left out, which every reader takes as "not read".
+            // ON EVERY VIEWPORT (2026-10-25, row-hedge): phone runs first and a
+            // cut check (live, fa27a5fd) never reached desktop, so a page the
+            // check opened had no text and every addition read "unread". The
+            // phone read is kept as INCOMPLETE (a phone layout may hide what
+            // desktop shows: what it shows is shown, what it lacks is unsure,
+            // never hidden); desktop's read, when reached, replaces it.
+            try {
+              const t = await page.evaluate(textProbe, { route, cap: MAX_ROUTE_TEXT });
+              if (t && typeof t.text === "string") {
+                const entry = { route, text: t.text, complete: vp.name === "desktop" && t.complete === true };
+                const at = texts.findIndex((x) => x.route === route);
+                if (at < 0) texts.push(entry);
+                else if (vp.name === "desktop") texts[at] = entry;
+              }
+            } catch (e) { /* text is evidence for a reader; never let it cost a render report */ }
           } catch (e) {
             obs.error = String((e && e.message) || e).slice(0, 200);
             // WHOSE FAILURE IT WAS, DECIDED WHERE THE EVIDENCE IS (task #87).

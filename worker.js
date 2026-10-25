@@ -328,7 +328,7 @@ import { wantsFirstBuildBackend, featuresNeedingData, firstBuildBackendTool, fir
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig, writesSchema as partWritesSchema } from "./builder/request-plan.mjs";
-import { routeOnExisting, partClarifyChoice, rowUnmet } from "./builder/addon-existing.mjs";
+import { routeOnExisting, partClarifyChoice, rowUnmet, designedNothing, featureBrief } from "./builder/addon-existing.mjs";
 import { turnKey, turnRecord, readTurn, turnFree, nextGen, rebaseFiles, TURN_POLL_MS, TURN_WAIT_MS, TURN_UNREAD_MAX, TURN_TTL_MS, turnLooksDead } from "./builder/publish-turn.mjs";
 import { PART_TERMINAL as REQ_PART_TERMINAL, heldFromOf, rewriteWire, othersOpenIn } from "./builder/request.mjs";
 import { visualReviewOn, buildRepairOn, visibleChanges, shotPreference, runVisualReview } from "./builder/visual-review.mjs";
@@ -45247,7 +45247,7 @@ async function handleRequest(request, env, ctx) {
                 if (aAskedBy && (j === aAskedBy || (aWaits[j] || []).includes(aAskedBy))) continue;
                 if (!aInputsReady(j)) continue;
                 const site = aViewFor(j, aProvisional);
-                const brief = requirementBrief(aReq.filter((r) => r.judged), j) + aHeldShown(j);
+                const brief = requirementBrief(aReq.filter((r) => r.judged), j) + aHeldShown(j) + featureBrief(aHand, j);
                 aMark("add:" + j, "start", (aWaits[j] || []).length ? { after: aWaits[j] } : undefined);
                 const p = runAdd({ send: aQuick("add:" + j, { refusals: true }) }, { kind: j, message: aInstruction, site, model: aModels.quick, brief })
                   .catch((e) => ({ failed: true, error: e }))
@@ -45336,7 +45336,9 @@ async function handleRequest(request, env, ctx) {
               if (aBriefHanded) aTold.add(k);
               // THE DESIGNER WHOSE QUESTION WAS ANSWERED is shown what its step
               // already had (round 12), by id, so it can say which it restates.
-              const aBrief = aBriefHanded + aHeldShown(k);
+              // A FEATURE ON A PAGE THE SITE HAS is told to its component
+              // designer (2026-10-25, row-hedge: `featureBrief`).
+              const aBrief = aBriefHanded + aHeldShown(k) + featureBrief(aHand, k);
               // ── WHAT THIS DESIGNER WAS REALLY SHOWN (2026-09-15) ──────────
               //
               // Owner, after run 48: *"Recover the actual designer input if it
@@ -45394,7 +45396,13 @@ async function handleRequest(request, env, ctx) {
               // through `aNeedsAgain` like any answer. A second empty answer is
               // the decline it was; a failed retry call keeps the first. Its
               // usage is on the bill only when the retry designed something.
-              if (!aPrior && ran && !ran.failed && !ran.ask && ran.value === undefined) {
+              // …AND AN EMPTY LIST IS NOTHING TOO WHEN THE ROUTER HANDED A
+              // FEATURE ON A PAGE TO THIS COMPONENT STEP (2026-10-25,
+              // row-hedge: `designedNothing`; live, the Lessons booking's empty
+              // design). Elsewhere an empty list stays the model's own decline
+              // (validation-reuse VA 4).
+              const aEmptyFeature = aFeature && k === "component" && designedNothing(ran && ran.value);
+              if (!aPrior && ran && !ran.failed && !ran.ask && (ran.value === undefined || aEmptyFeature)) {
                 const aDeclineFeedback = "Your answer designed nothing and asked nothing, so this part of the request would be dropped. The customer's request asks for a " + k + ": read it again and answer with the design for it in the tool's shape. If one detail only they can decide is missing, ask your one question instead; if the request really asks for no " + k + ", answer with nothing again.";
                 let again = null;
                 try {

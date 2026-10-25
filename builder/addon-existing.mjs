@@ -180,3 +180,33 @@ export function rowUnmet(requirements, instruction, wordsIn) {
   }
   return { told, carry };
 }
+
+/**
+ * A DESIGN THAT DESIGNS NOTHING (2026-10-25, row-hedge). Live on
+ * driftwood-and-daughters-5 at a63451c3a: the Lessons booking reached the
+ * component designer under `feature-on-page`, which answered an empty design
+ * (not `undefined`) and handed every requirement to the page step. The
+ * "designed nothing" retry read only `undefined`, so it never ran, the
+ * cleaner refused the empty list (`nothing`), and the booking was never built.
+ * Absent, null, an empty list, or a list with no object in it are all nothing.
+ */
+export function designedNothing(value) {
+  if (value === undefined || value === null) return true;
+  if (Array.isArray(value)) return !value.some((v) => v && typeof v === "object" && !Array.isArray(v));
+  return false;
+}
+
+/**
+ * WHAT THE COMPONENT DESIGNER IS TOLD ABOUT A FEATURE HANDED TO IT ON A PAGE
+ * THE SITE HAS (2026-10-25, row-hedge). The hand-over reached the picker only,
+ * so the designer read "on the Lessons page" as the page step's work. `""` for
+ * any other kind or hand-over. Model input, never a customer sentence.
+ */
+export function featureBrief(hand, kind) {
+  if (kind !== "component" || !hand || typeof hand !== "object" || hand.reason !== "feature-on-page") return "";
+  const page = typeof hand.page === "string" && hand.page ? hand.page : "";
+  if (!page) return "";
+  return "\n\nHow this reached you: the router read this as something new to build on " + page
+    + ", a page the site already has. Build it here, as a component placed on " + page
+    + ". What it has to do (a form, a limit, a switch) is this component's to make: do not hand it to the page step.";
+}

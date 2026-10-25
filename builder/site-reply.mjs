@@ -484,7 +484,11 @@ const TOLD_FACTS = Object.freeze({
   scheduled: ["note", (o) => "Scheduled as asked; its automatic running has not been seen yet: " + o.need + "." + partlySaid(o)],
   // WHAT THE SITE ALREADY HAD (2026-10-06): there and unchecked, like "set
   // up", and never said to be this request's work.
-  "already-there": ["note", (o) => "Their site already had this before this request, and nothing here can check that it works: " + o.need + "." + partlySaid(o)],
+  // …AND ONE CARRIED ONLY BY PAGES AND TABLES SEEN ON THE SITE (2026-10-25,
+  // row-hedge, `present`) is that fact, with what was seen named.
+  "already-there": ["note", (o) => (o.present === true && Array.isArray(o.carriers) && o.carriers.length
+    ? "Their site already had this before this request, and it was seen there (" + o.carriers.filter((c) => typeof c === "string").join(", ") + "): " + o.need + "."
+    : "Their site already had this before this request, and nothing here can check that it works: " + o.need + ".") + partlySaid(o)],
   // UNVERIFIED, NEVER "NOT DONE" (2026-10-15, after run 38649153034's reply
   // said a menu link it could not read back was "not done" beside the links
   // it had read): a requirement nothing could look at is unknown either way —

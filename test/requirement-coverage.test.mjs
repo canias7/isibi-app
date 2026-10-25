@@ -521,7 +521,8 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   // step is still recorded as told only where hand-offs were composed for it.
   assert.match(W, /const aBriefHanded = requirementBrief\(aReq\.filter\(\(r\) => r\.judged\), k\);\s*\n\s*if \(aBriefHanded\) aTold\.add\(k\);/,
     "a step is recorded as told without the brief being composed, or the brief is composed and not recorded");
-  assert.match(W, /const aBrief = aBriefHanded \+ aHeldShown\(k\);/, "the designer is no longer handed the composed brief");
+  // RE-ANCHORED 2026-10-25 (row-hedge): a feature's hand-over line follows.
+  assert.match(W, /const aBrief = aBriefHanded \+ aHeldShown\(k\)( \+ featureBrief\(aHand, k\))?;/,"the designer is no longer handed the composed brief");
   // ── AND THE COMPOSER READS WHAT REALLY HAPPENED ──────────────────────────
   //
   // RE-ANCHORED 2026-09-14. This used to check that the composer did not
