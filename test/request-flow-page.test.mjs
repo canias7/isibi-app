@@ -29,6 +29,7 @@ const PAGE = (path, name) => ({ path, name, purpose: "what " + name + " is for",
 const GALLERY = { [T.adds]: { kinds: ["page"] }, "add:page": { page: [PAGE("/gallery", "Gallery")] }, [T.pages]: { pages: [writtenPage("/gallery")] } };
 const DESCRIBE = { [T.pick]: { fields: ["description"], scopes: [{ part: "description", words: DESC }] }, "lane:description": NEW_DESC };
 const Q = { text: "Which photos should the gallery show?", options: ["Loaves", "The bakery"] };
+const QS = { text: "Which word should lead — overnight or slow?", options: ["Overnight", "Slow"] };
 const slugOf = (k) => "rqp-" + k + "-" + Math.random().toString(16).slice(2, 8);
 const siteFor = (slug) => ({ id: "origin-1", slug, react: true, name: "Harbour Loaf", url: "https://" + slug + ".gofarther.app/", pages: [{ path: "/" }, { path: "/visit" }], msgs: [] });
 
@@ -140,10 +141,10 @@ test("PAGE 2 — a page opened later on another device picks the request up from
   });
 });
 
-test("PAGE 3 — a part's question comes up on the page's question card and is answered there; the answer resumes the part on the server and its reply follows", async () => {
+test("PAGE 3 — a part's question (asked by its step: a part's routing never asks after the charge, owner 2026-10-25) comes up on the page's question card and is answered there; the answer resumes the part on the server and its reply follows", async () => {
   await withPage({
     slug: slugOf("p3"),
-    answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "clarify", question: Q }, { intent: "addon", answered: true }], ...DESCRIBE, ...GALLERY },
+    answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }, { intent: "edit", layer: "look", answered: true }], ...DESCRIBE, "lane:description": (args, n) => (n === 0 ? { question: QS } : NEW_DESC), ...GALLERY },
   }, async (P) => {
     const seen = [];
     const p = openPage(P, wire(P, seen));
@@ -155,11 +156,12 @@ test("PAGE 3 — a part's question comes up on the page's question card and is a
     // THE CARD: the question, its answers, Cancel — and it knows whose part it is.
     const asked = p.ask();
     assert.ok(asked, "no question card");
-    assert.equal(asked.text, Q.text);
-    assert.deepEqual(asked.request, { key: KEY, part: 1 });
+    assert.equal(asked.text, QS.text);
+    // The card is the part's: the request record names this question on part 0.
+    assert.equal(P.record(KEY).parts[0].question.id, asked.id);
     assert.match(p.ctx.siteRequestHTML(card(p, KEY), p.s), /Waiting for your answer/);
     // ANSWERED BY ITS BUTTON.
-    (p.click("data-ask-pick", "Loaves"), p.click("data-ask-go", "1"));
+    (p.click("data-ask-pick", "Overnight"), p.click("data-ask-go", "1"));
     await idle();
     const answer = seen.filter((c) => c.url === "/api/site/route")[1];
     assert.deepEqual(answer.body.ask, { id: asked.id, chosen: true });

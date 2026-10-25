@@ -245,14 +245,15 @@ test("F2 — every step's question carries two to four answers the model writes"
 
 test("F3 — cancelling a request part's question ends that part even when the site's slot holds another question, and the slot is left as it is", async () => {
   const ADD = "add a gallery page";
-  const Q = { text: "Which photos should the gallery show?", options: ["Loaves", "The bakery"] };
+  const Q = { text: "Which word should lead — overnight or slow?", options: ["Overnight", "Slow"] };
   const DESC = "Change the site description to say we bake overnight sourdough";
   const compiler = installCompiler();
   const P = platform({
     slug: "rq-f3-" + Math.random().toString(16).slice(2, 8),
     answers: {
-      route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "clarify", question: Q }],
-      [T.pick]: { fields: ["description"], scopes: [{ part: "description", words: DESC }] }, "lane:description": "Overnight sourdough.",
+      // A part's routing never asks after the charge (owner, 2026-10-25): part 0's step asks.
+      route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }],
+      [T.pick]: { fields: ["description"], scopes: [{ part: "description", words: DESC }] }, "lane:description": (args, n) => (n === 0 ? { question: Q } : "Overnight sourdough."),
     },
   });
   try {
@@ -260,18 +261,18 @@ test("F3 — cancelling a request part's question ends that part even when the s
     const other = { v: 2, id: "f".repeat(32), uid: USER.id, slug: P.slug, stage: "route", round: 1, question: { text: "Something else?", options: ["Yes", "No"] }, request: "Something else", held: [], at: P.now(), status: "pending", attached: false, context: [] };
     await P.bucket.put("source/" + P.slug + "/question.json", JSON.stringify(other));
     const s1 = await settle(P, r.key);
-    assert.equal(s1.rec.parts[1].status, "waiting");
-    const qid = s1.rec.parts[1].question.id;
+    assert.equal(s1.rec.parts[0].status, "waiting");
+    const qid = s1.rec.parts[0].question.id;
     assert.notEqual(qid, other.id);
     // AS THE CARD SENDS IT: its own question id and its request part.
-    const c = await call(P, "POST", "/api/site/" + P.slug + "/question", { id: qid, cancel: true, request: { key: r.key, part: 1 } });
+    const c = await call(P, "POST", "/api/site/" + P.slug + "/question", { id: qid, cancel: true, request: { key: r.key, part: 0 } });
     assert.equal(c.body.cancelled, true, "the card's part was not cancelled: " + JSON.stringify(c.body));
-    assert.equal(P.record(r.key).parts[1].status, "cancelled");
+    assert.equal(P.record(r.key).parts[0].status, "cancelled");
     assert.equal(P.question().id, other.id);
     assert.equal(P.question().status, "pending", "another question in the slot was closed");
     // A WRONG QUESTION ID FOR THAT PART ENDS NOTHING.
     const P2rec = P.record(r.key);
-    assert.equal(P2rec.parts[0].status, "done");
+    assert.notEqual(P2rec.parts[1].status, "cancelled");
   } finally { P.close(); compiler.uninstall(); }
 });
 

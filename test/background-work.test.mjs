@@ -488,6 +488,9 @@ test("SV — POST /stop with a part: a part not yet running is cancelled as stop
     const done = await settle(P2, r.key);
     assert.equal(done.rec.parts[0].status, "cancelled");
     assert.equal(done.rec.parts[0].why, "stopped");
-    assert.equal(done.rec.parts[1].status, "waiting", "the rest of the request did not go on after one part stopped");
+    // A part's routing never asks after the charge (owner, 2026-10-25): part 1 goes on to its step.
+    assert.notEqual(done.rec.parts[1].status, "cancelled", "the rest of the request did not go on after one part stopped");
+    assert.ok(P2.jobsOf(r.key).some((j) => j.op === "addon"), "part 1 never reached its step");
+    assert.equal(P2.question(), null);
   } finally { P2.close(); compiler2.uninstall(); }
 });

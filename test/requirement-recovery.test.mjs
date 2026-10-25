@@ -339,18 +339,16 @@ async function answerPart(P, key, n, text) {
   await sendMessage(P, { message: text, ask: { id: q.id, chosen: true } });
 }
 
-test("RC 6 — AN INDEPENDENT SIBLING FINISHES WHILE THE ADDITION RECOVERS: the tagline's own question is answered after the addition starts recovering; the tagline is applied and done while the addition still waits, and the addition then resumes by itself — the request partial, both requirements told, each charge once", { timeout: 120000 }, async () => {
+test("RC 6 — AN INDEPENDENT SIBLING FINISHES WHILE THE ADDITION RECOVERS: the tagline (whose routing never asks once the request is charged, owner 2026-10-25) is applied and done while the addition waits on its question and then recovers, and the addition then resumes by itself — the request partial, both requirements told, each charge once", { timeout: 120000 }, async () => {
   await twoParts("6", {
-    asks: true,
+    asks: false,
     check: async ({ P, key, down, j, c }) => {
       let rec = P.record(key);
-      assert.deepEqual(rec.parts.map((p) => p.status), ["waiting", "waiting"], why(rec));
+      assert.deepEqual(rec.parts.map((p) => p.status), ["waiting", "done"], why(rec));
       down.on = true;
       await answerPart(P, key, 0, "Below");
       await settle(P, key);
       assert.equal(P.record(key).parts[0].status, "recovering", why(P.record(key)));
-      await answerPart(P, key, 1, "Yes");
-      await settle(P, key);
       rec = P.record(key);
       assert.equal(rec.parts[1].status, "done", why(rec));
       assert.equal(rec.parts[0].status, "recovering", "the addition stopped recovering while the store was down: " + why(rec));

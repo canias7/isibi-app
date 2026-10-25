@@ -328,7 +328,7 @@ import { wantsFirstBuildBackend, featuresNeedingData, firstBuildBackendTool, fir
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig, writesSchema as partWritesSchema } from "./builder/request-plan.mjs";
-import { routeOnExisting } from "./builder/addon-existing.mjs";
+import { routeOnExisting, partClarifyChoice } from "./builder/addon-existing.mjs";
 import { turnKey, turnRecord, readTurn, turnFree, nextGen, rebaseFiles, TURN_POLL_MS, TURN_WAIT_MS, TURN_UNREAD_MAX, TURN_TTL_MS, turnLooksDead } from "./builder/publish-turn.mjs";
 import { PART_TERMINAL as REQ_PART_TERMINAL, heldFromOf, rewriteWire, othersOpenIn } from "./builder/request.mjs";
 import { visualReviewOn, buildRepairOn, visibleChanges, shotPreference, runVisualReview } from "./builder/visual-review.mjs";
@@ -34693,10 +34693,13 @@ async function handleRequest(request, env, ctx) {
       // add-on step decides). And an add-on whose every target the site
       // already has is the page step's on that page, in the same words; one
       // that writes a page says so to the add-on step (`page-asked`).
-      // ⚠ THE QUESTION HALF IS NOT WIRED YET: `partClarifyChoice` is written
-      // and tested, but twelve request-flow scenarios (C1, C3, C5, CR 1, CR 2,
-      // D2, E2, I4, F3, SV, PAGE 3, DFU4, RC 6) are built on a part's routing
-      // asking, so wiring it is the owner's call (docs/history/2026-10-24-addon-existing.md).
+      // WIRED 2026-10-25 on the owner's word (docs/history/2026-10-25-addon-fixes-2.md):
+      // a part's routing job (`rPart`) and an answer resuming a paid request
+      // (`requestKey`) never ask; before the preparation return, so a part's
+      // preparation and its job agree.
+      if (routed.failed !== true && (rPart || (rWaiting && rWaiting.requestKey && routed.answered === true))) {
+        routed = partClarifyChoice(routed, rDigest.site, { reason: "clarify-part" });
+      }
       if (routed.failed !== true) {
         routed = routeOnExisting(routed, rDigest.site, { reason: "addon-existing" });
       }

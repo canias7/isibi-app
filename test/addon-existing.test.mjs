@@ -146,8 +146,12 @@ test("the router's answer is read against the site before anything uses it", () 
   const prep = at("if (rJob && rJob.prepare === true) {", route);
   const asking = at("const asking = routed.intent === \"clarify\" && rLive;", route);
   assert.ok(conv < prep && prep < asking);
-  // The question half is written, not wired (left to the owner): see the history doc.
-  assert.equal(W.includes("partClarifyChoice("), false);
+  // The question half is wired (owner, 2026-10-25): a part's routing job and an
+  // answer resuming a paid request, before the add-on conversion and the preparation.
+  const clar = at("routed = partClarifyChoice(routed, rDigest.site, { reason: "clarify-part" });", route);
+  assert.ok(clar < conv);
+  const gate = W.lastIndexOf("if (routed.failed !== true && (rPart || (rWaiting && rWaiting.requestKey && routed.answered === true))) {", clar);
+  assert.ok(gate > route && clar - gate < 200);
 });
 
 test("an answer resuming a paid request is not charged routing again", () => {
