@@ -34,7 +34,8 @@ test("an add-on whose every target exists goes to the page step on that page", (
 
 test("an add-on that makes something new stays an add-on", () => {
   assert.deepEqual(addonOnExisting(addon(["new-page:/lessons", "data:lessons"]), site), { act: "page-asked", page: "" });
-  assert.deepEqual(addonOnExisting(addon(["page:/shop", "new-data:orders"]), site), { act: "page-asked", page: "/shop" });
+  // A table created beside a page the site has is a feature on that page (2026-10-25, feature-existing).
+  assert.deepEqual(addonOnExisting(addon(["page:/shop", "new-data:orders"]), site), { act: "feature", page: "/shop" });
   assert.deepEqual(addonOnExisting(addon(["page:/shop", "component:cart"]), site), { act: "page-asked", page: "/shop" });
   // Lists only: one more entry is the add-on's, unchanged.
   assert.equal(addonOnExisting(addon(["data:lessons"]), site), null);
@@ -167,7 +168,7 @@ test("an answer resuming a paid request is not charged routing again", () => {
 
 test("the add-on step hands nothing-new to the page step, and a page request never takes the lone-entry path", () => {
   const pick = at("const aPicked = await pickAdds(");
-  const noAdd = at("if (!aPicked.kinds.length) return aOnPage ? aToPage(\"no-add\") : aFailure(\"no-add\");", pick);
+  const noAdd = at("if (!aPicked.kinds.length) return (aOnPage && !aFeature) ? aToPage(\"no-add\") : aFailure(\"no-add\");", pick);
   const asked = at("if (aPageAsked && aPicked.kinds.length === 1 && aPicked.kinds[0] === \"row\") {", noAdd);
   const rowPath = at("if (aPicked.kinds.length === 1 && aPicked.kinds[0] === \"row\") {", asked);
   assert.ok(noAdd < asked && asked < rowPath);

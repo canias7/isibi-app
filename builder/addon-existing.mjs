@@ -51,6 +51,18 @@ const pageOf = (t) => (t.startsWith("page:") ? t.slice(5) : t.startsWith("new-pa
 const tableOf = (t) => (t.startsWith("data:") ? t.slice(5) : t.startsWith("new-data:") ? t.slice(9) : null);
 
 /**
+ * WHAT A CHANGE CREATES BESIDE A PAGE (2026-10-25, feature-existing). Live on
+ * driftwood-and-daughters-5 after b12dba52c: "each lesson bookable online ...
+ * max 8 per group ... a switch to mark a day closed" on the Lessons page the
+ * site has went to the page step, which rewrote the page's words and built no
+ * booking. A change that creates a table, a component (a form, a section), a
+ * stored function, a connection or a schedule is an addition even when the
+ * page it goes on exists; `new-page` is not here (a new page is read below).
+ */
+const CREATES = ["new-data:", "new-component:", "new-function:", "new-api:", "new-job:"];
+const creates = (t) => CREATES.some((k) => t.startsWith(k));
+
+/**
  * AN ADD-ON ANSWER READ AGAINST THE SITE AS IT IS.
  *
  *   `{ act: "edit", page }`        every thing the change writes is a page or a
@@ -58,6 +70,11 @@ const tableOf = (t) => (t.startsWith("data:") ? t.slice(5) : t.startsWith("new-d
  *                                  is a page: nothing is new, so the change is
  *                                  the page step's, on that page, in the same
  *                                  words.
+ *   `{ act: "feature", page }`     the change writes a page the site has AND
+ *                                  creates something beside it (`CREATES`), or
+ *                                  writes a table the site does not have: an
+ *                                  addition on that page, kept on the add-on
+ *                                  step with the page as its target.
  *   `{ act: "page-asked", page }`  the change writes a page (one the site has,
  *                                  or a new one): it is not one more entry in a
  *                                  list. `page` is the first written page the
@@ -85,6 +102,8 @@ export function addonOnExisting(routed, site) {
     if (n) return tables.includes(n);
     return false;
   });
+  const newThing = writes.some((t) => creates(t) || (t.startsWith("data:") && !tables.includes(tableOf(t))));
+  if (firstHad && newThing) return { act: "feature", page: firstHad };
   if (allHad && firstHad) return { act: "edit", page: firstHad };
   if (written.length) return { act: "page-asked", page: firstHad };
   return null;
@@ -109,6 +128,7 @@ export function routeOnExisting(routed, site, { reason } = {}) {
     return { ...routed, intent: "edit", layer: "page", page: read.page, remove: false, rename: undefined, tab: false, handOver: { from: "route", reason: "existing", page: read.page }, model3d: undefined, decision: reason ? note(routed.decision) : routed.decision };
   }
   if (routed.handOver && typeof routed.handOver === "object") return routed;
+  if (read.act === "feature") return { ...routed, handOver: { from: "route", reason: "feature-on-page", field: "component", page: read.page } };
   return { ...routed, handOver: { from: "route", reason: "page-asked", field: "page", ...(read.page ? { page: read.page } : {}) } };
 }
 

@@ -70,6 +70,8 @@ export const HAND_REASONS = Object.freeze({
   layer: "a new item in the frame every page shares is the menu editor's",
   // 2026-10-24, addon-existing (`builder/addon-existing.mjs`).
   "page-asked": "the router read the change as writing a page, so it is not one more entry in a list",
+  // 2026-10-25, feature-existing.
+  "feature-on-page": "the router read the change as adding something new (a form, a list, a rule) to a page the site already has: build it on that page",
   existing: "the add-on step found nothing new to add: what was asked is on a page the site already has",
 });
 

@@ -1635,7 +1635,8 @@ test("THE ROUTE RUNS THE ADD STEP WHERE IT RAN THE BUILD'S DESIGNER, and folds w
   assert.match(b.slice(clean, fold), /addRefusal\(clean\.why, k\)/, "a refused answer is not told to the customer");
   assert.match(b.slice(clean, fold), /if \(!aAnswers\.length\) \{/, "every kind declining is not a named answer");
   // An empty picker stops, or (2026-10-24, addon-existing) hands a known page to the page step.
-  assert.match(b, /if \(!aPicked\.kinds\.length\) return aOnPage \? aToPage\("no-add"\) : aFailure\("no-add"\)/, "an empty picker must stop");
+  // A feature on a known page (2026-10-25, feature-existing) is never handed back.
+  assert.match(b, /if \(!aPicked\.kinds\.length\) return \(aOnPage && !aFeature\) \? aToPage\("no-add"\) : aFailure\("no-add"\)/, "an empty picker must stop");
   // The page call is told the addition and shown the kit parts' props.
   const gen = at(b, "aGen = await generateSitePages(env, briefWithLayout({", "page call");
   const call = b.slice(gen, b.indexOf("}), aSpec", gen));

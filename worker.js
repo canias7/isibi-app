@@ -44016,7 +44016,17 @@ async function handleRequest(request, env, ctx) {
               : (aScopeIn && aScopeIn.pages && aScopeIn.pages.length === 1 && aSitePaths.includes(aScopeIn.pages[0])) ? aScopeIn.pages[0] : "";
             const aToPage = (why) => { aMark("handover:page", "ok", { why, page: aOnPage }); return aFailure("existing", { layer: "page", page: aOnPage }); };
             // An empty or invalid picker answer establishes no broader request.
-            if (!aPicked.kinds.length) return aOnPage ? aToPage("no-add") : aFailure("no-add");
+            // A FEATURE ON A PAGE THE SITE HAS (2026-10-25, feature-existing): the
+            // router named something this change creates beside that page, so
+            // it is never handed back to the page step (live, the Lessons
+            // booking: the page step rewrote words and built nothing), and a
+            // lone `row` is not the feature: it is the component on that page.
+            const aFeature = !!(aHand && aHand.reason === "feature-on-page" && aOnPage);
+            if (!aPicked.kinds.length) return (aOnPage && !aFeature) ? aToPage("no-add") : aFailure("no-add");
+            if (aFeature && aPicked.kinds.length === 1 && aPicked.kinds[0] === "row") {
+              aMark("add:row", "as-component", { feature: 1 });
+              aPicked.kinds = ["component"];
+            }
             // A CHANGE THE ROUTER READ AS WRITING A PAGE IS NOT ONE MORE ENTRY
             // (2026-10-24, addon-existing): live, "Add a bookable Lessons page…"
             // was picked as a lone `row` and wrote a partial entry. On a page the
