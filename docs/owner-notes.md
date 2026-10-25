@@ -15,6 +15,13 @@
 - If the add-on step would only add list entries for it (the old failure), it builds the form on the page instead, and it never hands the feature back to the page editor.
 - Full suite 12,773: 12,767 pass, 3 skipped. Of the 3 failures, 2 were tests on the changed lines, now updated and passing; the third fails on this machine only. Nothing spent. Record: `docs/history/2026-10-25-feature-existing.md`.
 
+## 2026-10-25 — a job you stopped is no longer "diagnosed" as a failure (branch `fix-diagnose-cancel`, not merged, not deployed)
+
+- On Driftwood (driftwood-and-daughters-5) two edits were stopped with the request's Stop button, and the failure diagnosis then blamed a "build service restart". Their answers did not say "cancelled" in the way the diagnosis checked, though the job rows did (`cancel_requested_at`).
+- Now a job whose row has that stop mark, or whose request (or that part of it) was stopped, gets no diagnosis at all: no AI call, nothing written. If the stop can't be read, it diagnoses as before.
+- The diagnosis's `read_job` tool now also shows the stop mark and the request's stop state.
+- 4 new tests from the live job's answer; red on main (2 of 4 fail); sweep 8 of 8 killed, the comment-only control survived. Full suite 12,772: 12,768 pass, 1 fails on this machine only, 3 skipped. Nothing spent. Record: `docs/history/2026-10-25-diagnose-cancel.md`.
+
 ## 2026-10-25 — finishing the add-on fixes (branch `fix-addon-existing`, not merged, not deployed)
 
 - Once a request is paid for, its later parts no longer ask a question. They take the obvious choice instead: edit the page that's named, or let the add-on step decide. The tests that relied on a part asking were rewritten as you approved.

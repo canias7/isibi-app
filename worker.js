@@ -8726,7 +8726,7 @@ async function requeueReply(env, key, at, task, now) {
  * tables, one page's source. Each is bounded in time and answers null when it
  * cannot tell; the loop turns that into "unavailable", never a value.
  */
-const DIAGNOSE_JOB_COLS = "id,slug,op,state,phase,billing,cost,worker_status,needs_review,review_note,created_at,updated_at,phase_ms,error,result";
+const DIAGNOSE_JOB_COLS = "id,slug,op,state,phase,billing,cost,worker_status,needs_review,review_note,created_at,updated_at,phase_ms,error,result,cancel_requested_at";
 function diagnoseTools(env, { id, slug, b }) {
   let rowP = null;
   const row = () => (rowP ||= (async () => {
@@ -8739,12 +8739,32 @@ function diagnoseTools(env, { id, slug, b }) {
   const okSlug = typeof slug === "string" && /^[a-z0-9][a-z0-9-]{0,80}$/.test(slug);
   let pagesP = null;
   const pages = () => (pagesP ||= (okSlug ? loadSiteSource(env, slug) : Promise.resolve(null)).catch(() => null));
+  // THE REQUEST'S STOP STATE (2026-10-25): `{ stopped, partStopped }` from the
+  // request record this job's part belongs to, or null when there is none or
+  // it cannot be read.
+  let reqP = null;
+  const requestStop = () => (reqP ||= (async () => {
+    const rq = b && b.request && typeof b.request === "object" ? b.request : null;
+    if (!okSlug || !rq || typeof rq.key !== "string" || !rq.key) return null;
+    const { rec } = await loadRequest(env, slug, rq.key);
+    if (!rec || typeof rec !== "object") return null;
+    const parts = Array.isArray(rec.stopParts) ? rec.stopParts : [];
+    return { stopped: rec.stop === true, partStopped: Number.isInteger(rq.part) && parts.includes(rq.part) };
+  })().catch(() => null));
   return {
+    // WHETHER A PERSON STOPPED THIS JOB: its row's `cancel_requested_at`, or
+    // its request (or its part) stopped. Only a positive reading is true.
+    stoppedByPerson: async () => {
+      const r = await row();
+      if (r && typeof r.cancel_requested_at === "string" && r.cancel_requested_at) return true;
+      const q = await requestStop();
+      return !!(q && (q.stopped || q.partStopped));
+    },
     read_job: async () => {
       const r = await row();
       if (!r) return null;
       const { result, ...rest } = r;
-      return { ...rest, answer: answerOf(result), answerStatus: result && result.status };
+      return { ...rest, answer: answerOf(result), answerStatus: result && result.status, requestStop: await requestStop() };
     },
     read_trace: async () => {
       const r = await row();
@@ -8816,11 +8836,13 @@ async function diagnoseEnded(env, ctx, { id, op, slug = "", body = null, status 
     if (typeof body === "string") { try { b = JSON.parse(body); } catch { b = null; } } else if (body && typeof body === "object") b = body;
     const words = b && typeof b.instruction === "string" ? b.instruction : b && typeof b.message === "string" ? b.message : b && typeof b.brief === "string" ? b.brief : "";
     const picker = b && typeof b.picker === "string" ? b.picker : undefined;
+    const { stoppedByPerson, ...tools } = diagnoseTools(env, { id, slug, b });
     const run = diagnoseJobEnded({
       env,
       send: quickSend(env, "diagnose"),
       model: modelsFor(picker).quick,
-      tools: diagnoseTools(env, { id, slug, b }),
+      tools,
+      stopped: stoppedByPerson,
       put: (key, text) => env.SITES_BUCKET.put(key, text, { httpMetadata: { contentType: "application/json" } }),
     }, { id, op, slug, words, status, payload, shipped }).then((rec) => {
       // ONE LOG LINE, so `wrangler tail` shows it beside the R2 record.
