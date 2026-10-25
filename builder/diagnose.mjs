@@ -113,7 +113,11 @@ export const DIAGNOSE_TOOL = Object.freeze({
  * `ok: false`, or partly done. A cancelled job is the customer's choice, not
  * a failure; an ok answer with nothing to do is not one either.
  */
-export function needsDiagnosis({ status = 200, payload = null, shipped = null } = {}) {
+export function needsDiagnosis({ status = 200, payload = null, shipped = null, stopped = false } = {}) {
+  // STOPPED BY A PERSON (2026-10-25, driftwood-and-daughters-5): a job whose
+  // row carries `cancel_requested_at`, or whose request was stopped, ended
+  // because someone pressed Stop. Not a failure, whatever its answer says.
+  if (stopped === true) return false;
   if (payload && typeof payload === "object" && payload.cancelled === true) return false;
   if (shipped === false) return true;
   if (Number(status) >= 400) return true;
@@ -352,6 +356,14 @@ export async function diagnoseJobEnded(deps, { id, op, slug = "", words = "", st
     if (!deps || !diagnoseOn(deps.env)) return null;
     if (typeof id !== "string" || !id || typeof deps.put !== "function") return null;
     if (!needsDiagnosis({ status, payload, shipped })) return null;
+    // A PERSON'S STOP IS READ ONLY WHEN THE ANSWER LOOKS LIKE A FAILURE, and
+    // it ends the step with no model call and no record. Cannot-tell is not
+    // a stop: a throw or anything but `true` diagnoses as before.
+    if (typeof deps.stopped === "function") {
+      let st = false;
+      try { st = (await deps.stopped()) === true; } catch { st = false; }
+      if (st) return null;
+    }
     const evidence = failureEvidence({ op, slug, words, status, payload, notes });
     // WITH TOOLS, IT INVESTIGATES (2026-10-25); without, the one call as before.
     const out = deps.tools && typeof deps.tools === "object"

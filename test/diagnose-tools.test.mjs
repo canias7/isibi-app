@@ -129,5 +129,7 @@ test("DT6 the worker binds the five tools to the job, reads only, and hands them
   const cols = between(W, "const DIAGNOSE_JOB_COLS = \"", "\";");
   for (const bad of ["lease_owner", "uid", "idem_key"]) assert.ok(!cols.includes(bad), bad);
   const helper = code(between(W, "async function diagnoseEnded(", "async function replyJobEnded("));
-  assert.ok(helper.includes("tools: diagnoseTools(env, { id, slug, b })"));
+  // 2026-10-25: the stop reader is split off; the rest go to the step as its tools.
+  assert.ok(helper.includes("const { stoppedByPerson, ...tools } = diagnoseTools(env, { id, slug, b })"));
+  assert.ok(/\btools,\n/.test(helper) && helper.includes("stopped: stoppedByPerson"));
 });
