@@ -25870,8 +25870,11 @@ async function stopRequest(env, ctx, slug, key, uid) {
   for (let k = 0; k < 4; k++) {
     const { rec, etag } = await loadRequest(env, slug, key);
     if (!rec || rec.uid !== uid) return null;
-    if (rec.ended || rec.stop) break;
-    const t = await saveRequestRecord(env, { ...rec, stop: true, updatedAt: Date.now() }, etag);
+    if (rec.ended) break;
+    // STOPPED ALREADY, AND JOBS STILL LIVE (2026-10-25, stop-panel): a second
+    // Stop asks each live job to cancel again — the first press's cancel may
+    // have failed, or a job been filed beside it — instead of doing nothing.
+    const t = rec.stop ? etag || true : await saveRequestRecord(env, { ...rec, stop: true, updatedAt: Date.now() }, etag);
     if (t) {
       // …AND A RECORDED GO-AHEAD'S BUILD A STEP MAY HAVE FILED AND DIED BEFORE
       // RECORDING, under the id it is filed by (its key), so it ends at its
