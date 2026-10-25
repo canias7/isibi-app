@@ -39768,6 +39768,22 @@ rather than refuses; a scan for red words answers two on a run that passed.
   - No new routes: these use the existing request stop and part stop.
 - Not proven which of these the live session hit; its browser state wasn't read. 4 tests, all red on main; a sweep killed 6 of 6 mutants and the comment-only control survived. Full suite 12,743: 12,738 pass, 2 fail on this machine only (the same two fail on main), 3 skipped. Nothing spent. Record: `docs/history/2026-10-25-stop-panel.md`.
 
+## 2026-10-25 — the failure diagnosis now investigates by itself (branch `diagnose-tools`, not merged, not deployed)
+
+- Before, the diagnosis saw only the failed job's final answer, and for all three real Driftwood failures it said it could not find a cause. Now it can look things up for itself first, up to 6 times, and then it must write its diagnosis. Everything it can look at is read-only:
+  - the job's record;
+  - its step-by-step trace;
+  - the routing decision that sent the work there;
+  - the site's pages and tables (with their columns);
+  - one page's code.
+- New field "fault": ours, model, provider (an outage), customer (an impossible or unclear request), or unknown.
+- Every quote it gives must appear in something it actually read.
+- Still record only: nothing is shown to the customer, nothing is charged, and it never breaks the job.
+- The three real Driftwood jobs (2124dc02, 6f7583f4, 75f25f2f) were read from Supabase to make the tests realistic. In the tests, the diagnosis looks things up and reaches the right answer for each job. Those answers were written for the tests: no real AI was asked yet.
+  - 2124dc02 and 6f7583f4: our routing sent them to the wrong step.
+  - 75f25f2f: the AI's footer used a component the footer is not allowed to use, so the change was refused and refunded.
+- Full suite: 12,747 tests, 12,740 pass, 3 skipped. Of the failures, one was a count of the code's direct reads of a site's stored pages, which this change grew from 15 to 16; that count is updated. The other passes when run alone. Nothing spent. Record: `docs/history/2026-10-25-diagnose-tools.md`.
+
 ## 2026-10-24 — read a site's failure diagnoses (branch `diagnosis-view`, not merged, not deployed)
 
 - New owner-only read: `GET /api/site/diagnoses?slug=<site>` lists that site's last 20 failed (or lost) jobs, newest first, each with its stored diagnosis from `jobs/<job id>.diagnosis.json`, or `null` when none was written.

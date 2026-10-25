@@ -8719,6 +8719,97 @@ async function requeueReply(env, key, at, task, now) {
  * Its model call is the picker's quick model through `quickSend`, whose usage
  * no route bills. Never throws; run after the job's outcome is final.
  */
+/**
+ * THE DIAGNOSIS'S READ-ONLY TOOLS (2026-10-25), each bound to this one job and
+ * its site, so the model can name no other. Reads only: the job's own row
+ * (non-secret columns), its trace, its routing decision, the site's pages and
+ * tables, one page's source. Each is bounded in time and answers null when it
+ * cannot tell; the loop turns that into "unavailable", never a value.
+ */
+const DIAGNOSE_JOB_COLS = "id,slug,op,state,phase,billing,cost,worker_status,needs_review,review_note,created_at,updated_at,phase_ms,error,result";
+function diagnoseTools(env, { id, slug, b }) {
+  let rowP = null;
+  const row = () => (rowP ||= (async () => {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/edit_jobs?select=${DIAGNOSE_JOB_COLS}&id=eq.${encodeURIComponent(id)}`, { headers: svcHeaders(env), signal: AbortSignal.timeout(5000) });
+    if (!r.ok) return null;
+    const rows = await r.json();
+    return Array.isArray(rows) && rows[0] ? rows[0] : null;
+  })().catch(() => null));
+  const answerOf = (res) => { try { return JSON.parse(res && typeof res.body === "string" ? res.body : "null"); } catch { return null; } };
+  const okSlug = typeof slug === "string" && /^[a-z0-9][a-z0-9-]{0,80}$/.test(slug);
+  let pagesP = null;
+  const pages = () => (pagesP ||= (okSlug ? loadSiteSource(env, slug) : Promise.resolve(null)).catch(() => null));
+  return {
+    read_job: async () => {
+      const r = await row();
+      if (!r) return null;
+      const { result, ...rest } = r;
+      return { ...rest, answer: answerOf(result), answerStatus: result && result.status };
+    },
+    read_trace: async () => {
+      const r = await row();
+      if (!r || !okSlug || !r.created_at) return null;
+      // THE TRACE IS KEYED BY ITS OWN cid, not the job id: the job's window on
+      // its site (a minute before its row, to its last update).
+      const from = new Date(Date.parse(r.created_at) - 60000).toISOString();
+      const to = new Date(Date.parse(r.updated_at || r.created_at) + 5000).toISOString();
+      const q = `select=cid,started_at,ms,ok,failed_phase,err_name,err_msg,events&slug=eq.${encodeURIComponent(slug)}&started_at=gte.${encodeURIComponent(from)}&started_at=lte.${encodeURIComponent(to)}&order=started_at.asc&limit=4`;
+      const t = await fetch(`${SUPABASE_URL}/rest/v1/edit_traces?${q}`, { headers: svcHeaders(env), signal: AbortSignal.timeout(5000) });
+      return t.ok ? await t.json() : null;
+    },
+    read_route: async () => {
+      // THE PART'S OWN RECORD FIRST: the route the request kept for it.
+      const rq = b && b.request && typeof b.request === "object" ? b.request : null;
+      if (okSlug && rq && typeof rq.key === "string" && Number.isInteger(rq.part)) {
+        const { rec } = await loadRequest(env, slug, rq.key);
+        const p = rec && Array.isArray(rec.parts) ? rec.parts.find((x) => x && x.n === rq.part) : null;
+        if (p) {
+          const routeJob = [...p.jobs].reverse().find((j) => j && j.kind === "route" && typeof j.id === "string" && j.id);
+          let raw = null;
+          if (routeJob) {
+            const r = await fetch(`${SUPABASE_URL}/rest/v1/edit_jobs?select=result&id=eq.${encodeURIComponent(routeJob.id)}`, { headers: svcHeaders(env), signal: AbortSignal.timeout(5000) });
+            const rows = r.ok ? await r.json() : [];
+            raw = Array.isArray(rows) && rows[0] ? answerOf(rows[0].result) : null;
+          }
+          return { part: rq.part, words: p.words, route: p.route || null, held: p.held, putOff: p.putOff, question: p.question || null, router: raw };
+        }
+      }
+      // ELSE THE SITE'S LAST ROUTING BEFORE THIS JOB, said to be a guess.
+      const r = await row();
+      if (!r || !okSlug) return null;
+      const q = `select=id,created_at,result&slug=eq.${encodeURIComponent(slug)}&op=eq.route&created_at=lte.${encodeURIComponent(r.created_at)}&order=created_at.desc&limit=1`;
+      const x = await fetch(`${SUPABASE_URL}/rest/v1/edit_jobs?${q}`, { headers: svcHeaders(env), signal: AbortSignal.timeout(5000) });
+      const rows = x.ok ? await x.json() : [];
+      return Array.isArray(rows) && rows[0] ? { matched: "latest-before-job", id: rows[0].id, router: answerOf(rows[0].result) } : null;
+    },
+    list_site: async () => {
+      if (!okSlug) return null;
+      const ps = await pages();
+      let tables = null;
+      try {
+        const conn = await ownerSiteConn(env, slug);
+        if (!conn) tables = [];
+        else {
+          const st = await readStoredSpec(conn);
+          if (st && st.ok) tables = (st.spec && Array.isArray(st.spec.tables) ? st.spec.tables : []).map((t) => ({
+            name: t && t.name,
+            columns: (t && Array.isArray(t.columns) ? t.columns : []).map((c) => (typeof c === "string" ? c : c && { name: c.name, type: c.type, notNull: c.notNull ?? c.not_null ?? (c.nullable === false ? true : undefined), default: c.default })),
+          }));
+        }
+      } catch { tables = null; }
+      return { pages: ps ? sitePageRoutes(ps) : null, tables };
+    },
+    read_page: async ({ path } = {}) => {
+      if (typeof path !== "string" || !path) return null;
+      const ps = await pages();
+      if (!ps) return null;
+      const want = path.startsWith("/") ? (path.replace(/\/+$/, "") || "/") : routeOf(path);
+      const p = ps.find((x) => x && typeof x.path === "string" && (routeOf(x.path) === want || x.path === path));
+      return p ? { path: p.path, source: String(p.source || "").slice(0, 5000) } : "no such page; pages: " + sitePageRoutes(ps).join(", ");
+    },
+  };
+}
+
 async function diagnoseEnded(env, ctx, { id, op, slug = "", body = null, status = 200, payload = null, shipped = null }) {
   try {
     let b = null;
@@ -8729,6 +8820,7 @@ async function diagnoseEnded(env, ctx, { id, op, slug = "", body = null, status 
       env,
       send: quickSend(env, "diagnose"),
       model: modelsFor(picker).quick,
+      tools: diagnoseTools(env, { id, slug, b }),
       put: (key, text) => env.SITES_BUCKET.put(key, text, { httpMetadata: { contentType: "application/json" } }),
     }, { id, op, slug, words, status, payload, shipped }).then((rec) => {
       // ONE LOG LINE, so `wrangler tail` shows it beside the R2 record.

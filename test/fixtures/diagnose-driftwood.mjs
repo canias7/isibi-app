@@ -71,5 +71,6 @@ export function answerFor(f) {
     proposed_fix: "Make the one change the move names for this step.",
     fix_move: f.fix_move,
     retry_would_succeed: f.retry,
+    fault: f.fault || "unknown",
   };
 }

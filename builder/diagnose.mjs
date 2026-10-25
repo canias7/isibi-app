@@ -42,6 +42,13 @@ export const DIAGNOSIS_KINDS = Object.freeze([
 /** The phase-2 menu, named now so a phase-1 proposal is comparable later. */
 export const FIX_MOVES = Object.freeze(["retry-with-instruction", "re-route", "split", "ask-before-charge", "stand-in", "code-fix", "none"]);
 
+/**
+ * WHOSE FAULT IT WAS (2026-10-25): "ours" (our code or routing), "model" (the
+ * model answered wrongly), "provider" (an outage), "customer" (an impossible
+ * or unclear request), "unknown".
+ */
+export const FAULTS = Object.freeze(["ours", "model", "provider", "customer", "unknown"]);
+
 /** Whether a retry, unchanged, would plausibly succeed. */
 export const RETRY_VERDICTS = Object.freeze(["yes", "no", "unsure"]);
 
@@ -67,6 +74,19 @@ export const DIAGNOSE_SKILL = [
   "4. ONE TARGETED FIX. Propose the smallest single change that addresses the root cause, and pick the move it is from the menu. Say whether retrying the same request unchanged would plausibly succeed (a provider outage may; a wrong route or a refused value will not).",
   "",
   "Each item of `evidence` must be copied word for word from the evidence you were given, so a reader can find it. Quote the lines that prove the cause; quote nothing you did not see.",
+  "",
+  "Say whose fault it was (`fault`): \"ours\" (the builder's code or routing sent the work the wrong way or refused it wrongly), \"model\" (a model answered wrongly where the step was right), \"provider\" (the model provider failed), \"customer\" (the request is impossible or unclear), \"unknown\" (the evidence cannot tell).",
+].join("\n");
+
+/**
+ * INVESTIGATE LIKE A PERSON (2026-10-25, the owner: the builder investigates
+ * by itself, not spoon-fed). Appended to the skill when read-only tools are
+ * offered: the job's final answer is only where the trail starts.
+ */
+export const DIAGNOSE_INVESTIGATE = [
+  "",
+  "YOU CAN INVESTIGATE. The final answer above is where the trail starts, not the whole of it. Before you record, use the read-only tools to find the facts the answer leaves out: the job row (`read_job`), its step-by-step trace (`read_trace`), the routing decision that sent this part here (`read_route`: intent, targets, reasons, held-back parts, questions), the site's pages and tables (`list_site`) and one page's source (`read_page`).",
+  "Read what the failure points at: a misroute needs the route; a refused write needs the table's columns; a refused page, header or footer change needs that page or the problem it names. You have at most 6 tool calls; then you must call `record_diagnosis`. Quotes may come from the evidence or from any tool result, word for word.",
 ].join("\n");
 
 export const DIAGNOSE_TOOL = Object.freeze({
@@ -82,8 +102,9 @@ export const DIAGNOSE_TOOL = Object.freeze({
       proposed_fix: { type: "string", description: "The one smallest change that addresses the root cause." },
       fix_move: { type: "string", enum: [...FIX_MOVES] },
       retry_would_succeed: { type: "string", enum: [...RETRY_VERDICTS] },
+      fault: { type: "string", enum: [...FAULTS], description: "Whose fault: ours, model, provider, customer or unknown." },
     },
-    required: ["kind", "broke_at", "root_cause", "evidence", "proposed_fix", "fix_move", "retry_would_succeed"],
+    required: ["kind", "broke_at", "root_cause", "evidence", "proposed_fix", "fix_move", "retry_would_succeed", "fault"],
   },
 });
 
@@ -164,6 +185,7 @@ export function readDiagnosis(reply, evidence) {
   if (!DIAGNOSIS_KINDS.includes(i.kind)) return { ok: false, why: "kind" };
   if (!FIX_MOVES.includes(i.fix_move)) return { ok: false, why: "fix-move" };
   if (!RETRY_VERDICTS.includes(i.retry_would_succeed)) return { ok: false, why: "retry" };
+  if (!FAULTS.includes(i.fault)) return { ok: false, why: "fault" };
   for (const f of ["broke_at", "root_cause", "proposed_fix"]) if (!nonEmpty(i[f])) return { ok: false, why: f };
   if (!Array.isArray(i.evidence) || i.evidence.length === 0) return { ok: false, why: "evidence" };
   const quotes = i.evidence.slice(0, MAX_QUOTES);
@@ -181,6 +203,7 @@ export function readDiagnosis(reply, evidence) {
       proposed_fix: clip(i.proposed_fix.trim(), MAX_FIELD),
       fix_move: i.fix_move,
       retry_would_succeed: i.retry_would_succeed,
+      fault: i.fault,
     },
   };
 }
@@ -201,6 +224,106 @@ export async function diagnose(deps, { evidence, model }) {
   return { ...read, ...(usage ? { usage } : {}) };
 }
 
+// ── THE INVESTIGATION LOOP (2026-10-25) ─────────────────────────────────────
+//
+// Shadow only, as before: the tools READ (the worker binds each to this one
+// job and site), nothing is written but the record, nothing is charged. At
+// most DIAGNOSE_MAX_TOOL_CALLS reads; then `record_diagnosis` is forced.
+
+export const DIAGNOSE_MAX_TOOL_CALLS = 6;
+const MAX_TURNS = DIAGNOSE_MAX_TOOL_CALLS + 2;
+export const DIAGNOSE_TOOL_RESULT_CHARS = 6000;
+export const DIAGNOSE_MAX_SEEN_CHARS = 60000;
+
+/** The read-only tools. Each is bound to the failed job by the caller. */
+export const DIAGNOSE_READ_TOOLS = Object.freeze([
+  { name: "read_job", description: "The failed job's row (state, op, billing, cost, phase timings, error) and its final answer.", input_schema: { type: "object", properties: {} } },
+  { name: "read_trace", description: "The job's recorded steps (edit trace): each phase, its outcome and details, and any error.", input_schema: { type: "object", properties: {} } },
+  { name: "read_route", description: "The routing decision that sent this part here: intent, layer, targets (writes/reads), reasons, held-back parts (alsoAsked) and any question.", input_schema: { type: "object", properties: {} } },
+  { name: "list_site", description: "The site's pages (routes) and its tables with their columns (type, NOT NULL, default where known).", input_schema: { type: "object", properties: {} } },
+  { name: "read_page", description: "One page's source, truncated.", input_schema: { type: "object", properties: { path: { type: "string", description: "The page's route, e.g. / or /lessons." } }, required: ["path"] } },
+]);
+export const DIAGNOSE_READ_TOOL_NAMES = Object.freeze(DIAGNOSE_READ_TOOLS.map((t) => t.name));
+
+/** One turn of the loop: tools offered, or the record forced. */
+export function investigateRequest({ evidence, model, messages = null, forced = false }) {
+  return {
+    model,
+    max_tokens: DIAGNOSE_MAX_TOKENS,
+    cacheKey: "diagnose",
+    tools: [...DIAGNOSE_READ_TOOLS, DIAGNOSE_TOOL],
+    tool_choice: forced ? { type: "tool", name: DIAGNOSE_TOOL.name } : { type: "any" },
+    system: [{ type: "text", text: DIAGNOSE_SKILL + "\n" + DIAGNOSE_INVESTIGATE }],
+    messages: messages || [{ role: "user", content: "THE EVIDENCE OF THE FAILURE:\n" + String(evidence || "") }],
+  };
+}
+
+/** A tool's answer as bounded text; a failing tool answers "unavailable", never throws. */
+async function runReadTool(tools, name, input) {
+  const fn = tools && Object.hasOwn(tools, name) && typeof tools[name] === "function" ? tools[name] : null;
+  if (!fn) return "unavailable: not provided";
+  try {
+    const v = await fn(input && typeof input === "object" && !Array.isArray(input) ? input : {});
+    if (v === null || v === undefined) return "unavailable: nothing recorded";
+    return clip(v, DIAGNOSE_TOOL_RESULT_CHARS);
+  } catch (e) {
+    return "unavailable: " + clip((e && e.message) || "error", 120);
+  }
+}
+
+const addUsage = (sum, u) => {
+  if (!u || typeof u !== "object") return sum;
+  const out = { ...(sum || {}) };
+  for (const [k, v] of Object.entries(u)) if (typeof v === "number" && Number.isFinite(v)) out[k] = (out[k] || 0) + v;
+  return out;
+};
+
+/**
+ * THE INVESTIGATION: up to DIAGNOSE_MAX_TOOL_CALLS reads, then the record.
+ * Every quote must appear in the evidence or a tool result (`seen`). Never
+ * throws. `{ ok, diagnosis?, why?, calls, seen, usage? }`.
+ */
+export async function investigate(deps, { evidence, model, tools }) {
+  const calls = [];
+  let seen = String(evidence || "");
+  if (!deps || typeof deps.send !== "function") return { ok: false, why: "send", calls, seen };
+  if (!nonEmpty(evidence)) return { ok: false, why: "no-evidence", calls, seen };
+  const messages = [{ role: "user", content: "THE EVIDENCE OF THE FAILURE:\n" + String(evidence) }];
+  let usage = null;
+  const end = (o) => ({ ...o, calls, seen, ...(usage ? { usage } : {}) });
+  for (let turn = 0; turn < MAX_TURNS; turn++) {
+    const forced = calls.length >= DIAGNOSE_MAX_TOOL_CALLS || turn === MAX_TURNS - 1;
+    let reply;
+    try { reply = await deps.send(investigateRequest({ model, messages: messages.slice(), forced })); }
+    catch (e) { return end({ ok: false, why: "call", error: clip((e && e.message) || String(e), 200) }); }
+    usage = addUsage(usage, reply && reply.usage);
+    const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
+    if (blocks.some((b) => b && b.type === "tool_use" && b.name === DIAGNOSE_TOOL.name)) return end(readDiagnosis(reply, seen));
+    if (forced) return end({ ok: false, why: "unreadable" });
+    const uses = blocks.filter((b) => b && b.type === "tool_use" && DIAGNOSE_READ_TOOL_NAMES.includes(b.name));
+    if (!uses.length) {
+      messages.push({ role: "assistant", content: blocks.length ? blocks : [{ type: "text", text: "(nothing)" }] });
+      messages.push({ role: "user", content: "Call one of the read tools, or record_diagnosis." });
+      continue;
+    }
+    const results = [];
+    for (const u of uses) {
+      let text;
+      if (calls.length >= DIAGNOSE_MAX_TOOL_CALLS) text = "unavailable: the tool budget is spent; call record_diagnosis now.";
+      else {
+        text = await runReadTool(tools, u.name, u.input);
+        const hasInput = u.input && typeof u.input === "object" && Object.keys(u.input).length > 0;
+        calls.push({ tool: u.name, ...(hasInput ? { input: clip(u.input, 200) } : {}) });
+        if (seen.length < DIAGNOSE_MAX_SEEN_CHARS) seen += "\n[" + u.name + "]\n" + text;
+      }
+      results.push({ type: "tool_result", tool_use_id: u.id || u.name, content: text });
+    }
+    messages.push({ role: "assistant", content: blocks });
+    messages.push({ role: "user", content: results });
+  }
+  return end({ ok: false, why: "unreadable" });
+}
+
 /**
  * THE RECORD WRITTEN BESIDE THE JOB. `shadow: true` says what phase 1 is: no
  * behaviour followed from it, and `charged: 0` says the customer paid nothing.
@@ -215,6 +338,7 @@ export function diagnosisRecord({ id, op, at, evidence, out }) {
     evidence: String(evidence || ""),
     ...(out && out.ok ? { diagnosis: out.diagnosis } : { unread: (out && out.why) || "unknown" }),
     ...(out && out.usage ? { usage: out.usage } : {}),
+    ...(out && Array.isArray(out.calls) ? { investigation: out.calls, seen: String(out.seen || "").slice(0, DIAGNOSE_MAX_SEEN_CHARS) } : {}),
   };
 }
 
@@ -229,7 +353,10 @@ export async function diagnoseJobEnded(deps, { id, op, slug = "", words = "", st
     if (typeof id !== "string" || !id || typeof deps.put !== "function") return null;
     if (!needsDiagnosis({ status, payload, shipped })) return null;
     const evidence = failureEvidence({ op, slug, words, status, payload, notes });
-    const out = await diagnose({ send: deps.send }, { evidence, model: deps.model });
+    // WITH TOOLS, IT INVESTIGATES (2026-10-25); without, the one call as before.
+    const out = deps.tools && typeof deps.tools === "object"
+      ? await investigate({ send: deps.send }, { evidence, model: deps.model, tools: deps.tools })
+      : await diagnose({ send: deps.send }, { evidence, model: deps.model });
     const rec = diagnosisRecord({ id, op, at: typeof deps.now === "function" ? deps.now() : Date.now(), evidence, out });
     await deps.put(diagnosisKey(id), JSON.stringify(rec));
     return rec;
