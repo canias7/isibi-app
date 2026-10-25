@@ -32,6 +32,7 @@
 import { modelsFor } from "./build-models.mjs";
 import { QUESTION_FIELD, askOf } from "./clarify.mjs";
 import { OWN_PARTS_RULE } from "./page-bands.mjs";
+import { retryRequest, addUsages } from "./retry-reason.mjs";
 
 export const FRAME_PARTS = [
   { role: "header", file: "site-header", name: "SiteHeader" },
@@ -107,7 +108,15 @@ export const FRAME_EDIT_RULES =
   "- Never invent a phone number, an email, an address, opening hours or a social account the customer did not give you: " +
   "when the change needs one and it is not in their words or the files, ask through `question`.\n" +
   "- The logo: `SITE_LOGO` from \"@/site-brand\" is the logo's address, or \"\" when there is none.\n" +
-  "- When the change is not about the header or the footer, answer `cannot`.\n\n" + OWN_PARTS_RULE;
+  "- When the change is not about the header or the footer, answer `cannot`.\n" +
+  // THE CHECK'S OWN LIST, SAID (2026-10-25, driftwood-and-daughters-5's job
+  // 75f25f2f): `frameFileProblems` refuses every "@/components/ui/" or
+  // "@/components/charts/" import but these, and the rules never named them —
+  // the model imported `@/components/ui/figure` for a footer and the whole
+  // edit was refused (`footer:kit:@/components/ui/figure`).
+  "- From \"@/components/ui/\" and \"@/components/charts/\" these files may import ONLY " + FRAME_PLUMBING.map((p) => "\"" + p + "\"").join(" and ") +
+  ", and only where the file already does. Any other module there is refused and nothing is changed: write the markup yourself " +
+  "(a sign-up form is a plain <form> with an <input> and a <button>).\n\n" + OWN_PARTS_RULE;
 
 /** The exact body sent. */
 export function frameEditRequest({ instruction, frame, routes, addition = false, note = "", model = FRAME_EDIT_MODEL } = {}) {
@@ -239,26 +248,62 @@ export function frameReply(changed) {
  * with the changed files replaced, ready for the publish (which compiles it).
  * `{ ok: false, reason, msg, usage }` otherwise; `ask` when the model asked.
  */
+/** The retry's reason, in plain words, from the check that refused the answer. */
+export function frameRetryReason(read) {
+  if (!read || read.reason === "no-answer") return "You did not answer through edit_frame. Answer the file(s) the change needs, each complete, through edit_frame.";
+  const said = (Array.isArray(read.problems) ? read.problems : []).map((p) => {
+    const [role, ...rest] = String(p).split(":");
+    const w = rest.join(":");
+    if (w.startsWith("kit:")) return "the " + role + " imports " + w.slice(4) + ", which is not allowed: only " + FRAME_PLUMBING.join(" and ") + " may be imported from the kit, so write that markup yourself";
+    if (w.startsWith("route:")) return "the " + role + " links to " + w.slice(6) + ", which is not one of the site's pages";
+    if (w === "no-default-export") return "the " + role + " lost its default export";
+    if (w === "site-chrome") return "the " + role + " uses SiteChrome, which these files must not";
+    if (w === "too-big") return "the " + role + " is longer than " + MAX_FRAME_CHARS + " characters";
+    if (w === "absent") return "the site has no " + role + " file to change";
+    if (w === "empty") return "the " + role + " was answered empty";
+    return "the " + role + " failed a check (" + w + ")";
+  });
+  return "Nothing was changed, because your answer failed these checks: " + said.join("; ") + ". Answer again through edit_frame, each file complete, fixing exactly these and changing nothing else.";
+}
+
 export async function runFrameEdit(deps, { instruction, pages, parts, routes, addition = false, note = "", model = FRAME_EDIT_MODEL } = {}) {
   const frame = writtenFrame(pages, parts);
   if (!frame) return { ok: false, reason: "no-frame", usage: null };
   let reply = null;
+  const request = frameEditRequest({ instruction, frame, routes, addition, note, model });
   try {
-    reply = await deps.send(frameEditRequest({ instruction, frame, routes, addition, note, model }));
+    reply = await deps.send(request);
   } catch (e) {
     return { ok: false, reason: "send", error: e, usage: null };
   }
-  const usage = frameUsage(reply, model);
+  let usage = frameUsage(reply, model);
   const ask = askOf(reply);
   if (ask) return { ok: false, reason: "ask", ask, usage };
-  const read = readFrameEdit(reply, frame, routes);
+  let read = readFrameEdit(reply, frame, routes);
+  // NEVER A COMPLETE FAILURE WITHOUT ONE RETRY (owner, 2026-10-24/25): an
+  // answer the checks refused, or no answer at all, is sent back once with the
+  // check's own reason — the same request, the same model and effort
+  // (`retryRequest`). `cannot` and `unchanged` are answers, never retried.
+  let retried = false;
+  if (!read.ok && (read.reason === "refused" || read.reason === "no-answer")) {
+    retried = true;
+    const reason = frameRetryReason(read);
+    let again = null;
+    try { again = await deps.send(retryRequest(request, reply, reason)); } catch { again = null; }
+    if (again) {
+      usage = addUsages(usage, frameUsage(again, model));
+      const ask2 = askOf(again);
+      if (ask2) return { ok: false, reason: "ask", ask: ask2, usage, retried };
+      read = readFrameEdit(again, frame, routes);
+    }
+  }
   if (!read.ok) {
     const msg = read.reason === "cannot" ? read.cannot
       : read.reason === "unchanged" ? "That's already how the header and footer are, so I left them as they were."
       : "I couldn't make that change to the header or footer safely, so your site is unchanged.";
-    return { ok: false, reason: read.reason, problems: read.problems, msg, usage };
+    return { ok: false, reason: read.reason, problems: read.problems, msg, usage, retried };
   }
-  return { ok: true, parts: withFrame(parts, read.frame, read.changed), changed: read.changed, msg: frameReply(read.changed), usage };
+  return { ok: true, parts: withFrame(parts, read.frame, read.changed), changed: read.changed, msg: frameReply(read.changed), usage, retried };
 }
 
 // ── A NEW PAGE'S LINK IN THE WRITTEN FRAME (2026-10-23) ─────────────────────

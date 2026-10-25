@@ -39158,7 +39158,9 @@ async function handleRequest(request, env, ctx) {
                   }
                   if (!fOut.ok) {
                     return Response.json({
-                      ok: false, error: fOut.reason, frame: true, cost: await eCharge(fOut.usage), usage: fOut.usage,
+                      // A REFUSED FRAME EDIT IS NOT CHARGED (owner, 2026-10-25): nothing
+                      // changed, after one retry with the check's reason (`runFrameEdit`).
+                      ok: false, error: fOut.reason, frame: true, cost: 0, usage: fOut.usage, retried: fOut.retried || undefined,
                       problems: fOut.problems || undefined, msg: fOut.msg,
                     }, { status: 422 });
                   }

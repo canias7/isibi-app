@@ -287,6 +287,42 @@ test("a frame answer linking to a page the site does not have is refused: nothin
   assert.deepEqual(r.reply.problems, ["header:route:/shop"]);
   assert.equal(r.builds.length, 0);
   assert.deepEqual(r.parts, PARTS);
+  // ONE RETRY WITH THE REASON, THEN NOT CHARGED (owner, 2026-10-25).
+  assert.deepEqual(r.models.map((m) => m.tool), [FRAME_EDIT_TOOL.name, FRAME_EDIT_TOOL.name]);
+  assert.equal(r.reply.retried, true);
+  assert.equal(r.reply.cost, 0);
+});
+
+test("runFrameEdit: a refused answer is sent back once with the check's reason, same model; a fixed second answer lands; cannot/unchanged are never retried", async () => {
+  const KIT_FOOTER = 'import { Figure } from "@/components/ui/figure";\n' + FOOTER;
+  const sent = [];
+  const twice = await runFrameEdit({ send: async (req) => { sent.push(req); return answer(sent.length === 1 ? { footer: KIT_FOOTER } : { header: NO_GALLERY }); } }, { instruction: "x", pages: PAGES, parts: PARTS, routes: ROUTES });
+  assert.equal(twice.ok, true, JSON.stringify(twice));
+  assert.equal(twice.retried, true);
+  assert.equal(sent.length, 2);
+  assert.equal(sent[1].model, sent[0].model);
+  assert.equal(sent[1].system, sent[0].system);
+  const last = JSON.stringify(sent[1].messages.at(-1));
+  assert.match(last, /imports @\/components\/ui\/figure, which is not allowed/);
+  assert.equal(twice.usage.in, 3000);
+  // STILL REFUSED: one retry, never a loop.
+  let n = 0;
+  const still = await runFrameEdit({ send: async () => { n++; return answer({ footer: KIT_FOOTER }); } }, { instruction: "x", pages: PAGES, parts: PARTS, routes: ROUTES });
+  assert.equal(still.reason, "refused");
+  assert.equal(n, 2);
+  // AN ANSWER, NOT A FAILURE: never retried.
+  for (const input of [{ cannot: "Not the frame." }, { header: HEADER }]) {
+    let k = 0;
+    const r = await runFrameEdit({ send: async () => { k++; return answer(input); } }, { instruction: "x", pages: PAGES, parts: PARTS, routes: ROUTES });
+    assert.ok(["cannot", "unchanged"].includes(r.reason));
+    assert.equal(k, 1);
+    assert.equal(r.retried, false);
+  }
+});
+
+test("the frame rules name the only kit modules the check allows", () => {
+  const req = frameEditRequest({ instruction: "x", frame: writtenFrame(PAGES, PARTS), routes: ROUTES });
+  assert.match(req.system, /may import ONLY "@\/components\/ui\/safe-image" and "@\/components\/ui\/lang-switch"/);
 });
 
 test("a SiteChrome site still runs the menu editor, never the frame editor", async () => {
