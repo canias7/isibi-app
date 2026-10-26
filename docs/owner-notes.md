@@ -1,6 +1,10 @@
 # Owner Notes
 
 
+## 2026-10-26 — Questions no longer count as "in progress"; "Something else…" lights up
+
+The tasks pill now says "2 need you · 1 in progress", so a request that's only waiting on your answers doesn't look stuck. Clicking "Something else…" on a question now marks it chosen and shows "Type your answer in the box below and press send." Branch `reply-seen`. `docs/history/2026-10-26-pill-and-own-answer.md`.
+
 ## 2026-10-26 — Adding an entry that's already there asks first
 
 If an add-on would add an entry whose name is already in that list (like the second "Group lessons (beginners and improvers)"), it now asks, free: "add another one anyway, or leave it as it is?" Branch `reply-seen`. `docs/history/2026-10-26-addon-row-duplicate.md`.

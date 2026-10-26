@@ -9436,7 +9436,7 @@ function renderSiteWorkspace(view, site) {
       const askPick = e.target.closest('[data-ask-pick]');
       if (askPick && thread.contains(askPick)) { sitePick(sitePickKeyLive(siteById(siteOpenId)), askPick.getAttribute('data-ask-pick')); return; }
       const askOwn = e.target.closest('[data-ask-own]');
-      if (askOwn && thread.contains(askOwn)) { sitePickOwn(); return; }
+      if (askOwn && thread.contains(askOwn)) { sitePickOwn(askOwn.getAttribute('data-pick-key') || ''); return; }
       const askGo = e.target.closest('[data-ask-go]');
       if (askGo && thread.contains(askGo)) { const v = sitePickTake(sitePickKeyLive(siteById(siteOpenId))); if (v) siteAskReply(v, true); return; }
       const askCancel = e.target.closest('[data-ask-cancel]');
@@ -9461,7 +9461,7 @@ function renderSiteWorkspace(view, site) {
       const pick = e.target.closest('[data-pick]');
       if (pick && thread.contains(pick)) { sitePick(sitePickKeyFirst(siteById(siteOpenId)), pick.getAttribute('data-pick')); return; }
       const pickOwn = e.target.closest('[data-pick-own]');
-      if (pickOwn && thread.contains(pickOwn)) { sitePickOwn(); return; }
+      if (pickOwn && thread.contains(pickOwn)) { sitePickOwn(pickOwn.getAttribute('data-pick-key') || ''); return; }
       const pickGo = e.target.closest('[data-pick-go]');
       if (pickGo && thread.contains(pickGo)) { const v = sitePickTake(sitePickKeyFirst(siteById(siteOpenId))); if (v) siteAnswer(v, false, true); return; }
       const h = e.target.closest('[data-steptog]');
@@ -12455,11 +12455,17 @@ function siteBgHTML(site, now) {
   const ui = siteBgState(site.id);
   const active = items.filter((it) => it.state === 'run' || it.state === 'wait' || it.state === 'ask').length;
   const working = items.filter((it) => it.state === 'run').length;
+  // A QUESTION IS NOT WORK IN PROGRESS (2026-10-26, live test 11): parts
+  // waiting on the customer are counted on their own ("2 need you"), so a
+  // request held only by questions never reads as stuck.
+  const needYou = items.filter((it) => it.state === 'ask').length;
+  const going = active - needYou;
   const things = (n) => n + (n === 1 ? ' task' : ' tasks');
+  const activeSaid = [needYou ? needYou + ' need' + (needYou === 1 ? 's' : '') + ' you' : '', going ? (needYou ? going + ' in progress' : things(going) + ' in progress') : ''].filter(Boolean).join(' · ');
   if (!ui.open) {
     const waitCred = typeof siteCreditsOf === 'function' ? siteCreditsOf(site).paused : 0;
     return '<button type="button" class="st-bg-pill" data-bg="open" aria-expanded="false">' + (working ? '<span class="st-par-dot st-bg-spin"></span>' : '') +
-      esc(waitCred ? things(waitCred) + ' waiting for credits' : active ? things(active) + ' in progress' : things(items.length) + ' finished') + ' ▾</button>';
+      esc(waitCred ? things(waitCred) + ' waiting for credits' : active ? activeSaid : things(items.length) + ' finished') + ' ▾</button>';
   }
   const it = ui.job ? items.find((x) => x.key + '|' + x.n === ui.job) : null;
   // A JOB NOT LISTED (yet, after a reload, or no more) shows the list; the choice is kept.
@@ -12468,7 +12474,7 @@ function siteBgHTML(site, now) {
     '<span class="st-par-dot"></span><span class="st-bg-txt"><span class="st-bg-name">' + esc(x.build || x.whole ? x.title : siteParTitle(x.p)) + '</span>' +
     '<span class="st-bg-sub">' + esc(siteBgLine(x, now)) + '</span></span><span class="st-bg-go">›</span></div>').join('');
   return '<div class="st-bg-pane">' +
-    '<div class="st-bg-top"><span>' + esc(things(items.length)) + ' · ' + working + ' in progress</span><span class="st-bg-acts">' +
+    '<div class="st-bg-top"><span>' + esc(things(items.length)) + (needYou ? ' · ' + needYou + ' need' + (needYou === 1 ? 's' : '') + ' you' : '') + ' · ' + working + ' in progress</span><span class="st-bg-acts">' +
     (active ? '<button type="button" class="st-bg-btn" data-bg="stopall">Stop all</button>' : '') +
     '<button type="button" class="st-bg-btn" data-bg="close" aria-label="Close">▴</button></span></div>' +
     '<div class="st-bg-scroll st-bg-list" data-bg-box="list">' + rows + '</div></div>';
@@ -16708,6 +16714,10 @@ function siteLiveAskHTML(m, site) {
 // its own words whole. Drawn from the palette's own tokens, never a colour of
 // its own.
 let sitePicked = null;
+// "SOMETHING ELSE…" CHOSEN (2026-10-26, live test 11): the row was clicked and
+// nothing showed it, so the answer typed below looked unconnected. The row is
+// marked chosen and a line says where the answer goes, until another pick.
+let sitePickOwnKey = '';
 function sitePickKeyLive(site) {
   return site && site.ask ? 'live:' + site.ask.id : '';
 }
@@ -16718,6 +16728,7 @@ function sitePickKeyFirst(site) {
 }
 function sitePickHTML(kind, key, opts, wayOut) {
   const sel = sitePicked && sitePicked.key === key ? sitePicked.value : null;
+  const ownOn = sitePickOwnKey === key && !!key;
   const trig = kind === 'live' ? 'data-ask-pick' : 'data-pick';
   return '<div class="st-pick" role="radiogroup" aria-label="Your answer">' +
     opts.map((o) => {
@@ -16727,8 +16738,9 @@ function sitePickHTML(kind, key, opts, wayOut) {
         trig + '="' + esc(v) + '" data-pick-key="' + esc(key) + '" data-pick-val="' + esc(v) + '">' +
         '<span class="st-pick-dot" aria-hidden="true"></span><span>' + esc(v) + '</span></button>';
     }).join('') +
-    '<button type="button" class="st-pick-opt st-pick-own" role="radio" aria-checked="false" ' + (kind === 'live' ? 'data-ask-own' : 'data-pick-own') + '="1">' +
+    '<button type="button" class="st-pick-opt st-pick-own' + (ownOn ? ' on' : '') + '" role="radio" aria-checked="' + (ownOn ? 'true' : 'false') + '" ' + (kind === 'live' ? 'data-ask-own' : 'data-pick-own') + '="1" data-pick-key="' + esc(key) + '">' +
       '<span class="st-pick-dot" aria-hidden="true"></span><span>Something else&hellip;</span></button>' +
+    '<p class="st-pick-hint" data-pick-hint="' + esc(key) + '"' + (ownOn ? '' : ' hidden') + '>Type your answer in the box below and press send.</p>' +
     '<div class="st-pick-go">' +
       '<button type="button" class="st-pick-continue" ' + (kind === 'live' ? 'data-ask-go' : 'data-pick-go') + '="1" data-pick-key="' + esc(key) + '"' + (sel === null ? ' disabled' : '') + '>Continue</button>' +
       wayOut +
@@ -16744,16 +16756,25 @@ function sitePickPaint() {
       b.setAttribute('aria-checked', on ? 'true' : 'false');
     }
     for (const g of document.querySelectorAll('.st-pick-continue')) g.disabled = !(sitePicked && sitePicked.key === g.getAttribute('data-pick-key'));
+    for (const o of document.querySelectorAll('.st-pick-own')) {
+      const on = !!sitePickOwnKey && o.getAttribute('data-pick-key') === sitePickOwnKey;
+      o.classList.toggle('on', on);
+      o.setAttribute('aria-checked', on ? 'true' : 'false');
+    }
+    for (const h of document.querySelectorAll('.st-pick-hint')) h.hidden = !(sitePickOwnKey && h.getAttribute('data-pick-hint') === sitePickOwnKey);
   } catch (e) { /* no page to paint */ }
 }
 /** Pick `value` for the question `key`; null clears it. */
 function sitePick(key, value) {
   sitePicked = key && typeof value === 'string' && value ? { key, value } : null;
+  if (sitePicked) sitePickOwnKey = '';
   sitePickPaint();
 }
 /** "Something else…": no pick, and the composer takes the answer. */
-function sitePickOwn() {
+function sitePickOwn(key) {
   sitePick('', null);
+  sitePickOwnKey = typeof key === 'string' ? key : '';
+  sitePickPaint();
   try { const ta = document.getElementById('stRevise'); if (ta) ta.focus(); } catch (e) { /* no composer */ }
 }
 /** Continue: the pick for the live question `key`, sent the way a click on the answer always was; nothing when nothing is picked. */

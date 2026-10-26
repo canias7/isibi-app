@@ -22,7 +22,7 @@ const cut = (head) => {
 const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 function card() {
   let focused = 0;
-  const ctx = vm.createContext({ esc, sitePicked: null, document: { querySelectorAll: () => [], getElementById: (id) => (id === "stRevise" ? { focus: () => { focused++; } } : null) } });
+  const ctx = vm.createContext({ esc, sitePicked: null, sitePickOwnKey: "", document: { querySelectorAll: () => [], getElementById: (id) => (id === "stRevise" ? { focus: () => { focused++; } } : null) } });
   for (const n of ["sitePickKeyLive", "sitePickKeyFirst", "sitePickHTML", "sitePickPaint", "sitePick", "sitePickOwn", "sitePickTake"]) vm.runInContext(cut("function " + n + "("), ctx);
   return { ctx, focused: () => focused };
 }
@@ -82,4 +82,24 @@ test("KEYS — the question's key comes from the site's state, the same one the 
   assert.equal(ctx.sitePickKeyLive({}), "");
   assert.equal(ctx.sitePickKeyFirst({ msgs: [{ r: "u" }, { r: "a", q: "x" }, { r: "a", t: "hi" }, { r: "a", q: "y" }] }), "first:3");
   assert.equal(ctx.sitePickKeyFirst({ msgs: [{ r: "u" }] }), "");
+});
+
+// "SOMETHING ELSE…" SHOWS IT WAS CHOSEN (2026-10-26, live test 11): the row was
+// clicked and nothing changed, so the answer typed below looked unconnected.
+test("SOMETHING ELSE — chosen, it is drawn checked with a line saying where the answer goes; a real pick clears it", () => {
+  const { ctx, focused } = card();
+  const before = ctx.sitePickHTML("live", "live:q1", ["Every loaf"], "");
+  assert.match(before, /st-pick-own" role="radio" aria-checked="false" data-ask-own="1" data-pick-key="live:q1"/);
+  assert.match(before, /<p class="st-pick-hint" data-pick-hint="live:q1" hidden>Type your answer in the box below and press send\.<\/p>/);
+  ctx.sitePickOwn("live:q1");
+  assert.equal(focused(), 1, "the box below was not focused");
+  const on = ctx.sitePickHTML("live", "live:q1", ["Every loaf"], "");
+  assert.match(on, /st-pick-own on" role="radio" aria-checked="true"/);
+  assert.match(on, /data-pick-hint="live:q1">Type your answer/, "the hint is still hidden");
+  assert.match(on, /disabled>Continue/, "Continue is not for a typed answer");
+  assert.doesNotMatch(ctx.sitePickHTML("live", "live:q2", ["x"], ""), /aria-checked="true"/, "another question shows this one's choice");
+  ctx.sitePick("live:q1", "Every loaf");
+  const picked = ctx.sitePickHTML("live", "live:q1", ["Every loaf"], "");
+  assert.match(picked, /st-pick-own" role="radio" aria-checked="false"/, "a real pick left Something else checked");
+  assert.match(picked, /data-pick-hint="live:q1" hidden>/);
 });

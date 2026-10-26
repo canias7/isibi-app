@@ -289,7 +289,7 @@ function workspace({ sites, open = "origin-1", routes = [], route = [] }) {
     sitesLoad: () => records,
     sitesCache: records,
     buildPicker: "grok",
-    siteBusy: false, sitePicked: null,
+    siteBusy: false, sitePicked: null, sitePickOwnKey: "",
     siteBuild: null,
     siteTicker: null,
     siteOpenId: open,

@@ -491,3 +491,21 @@ test("SV — POST /stop with a part: a part not yet running is cancelled as stop
     assert.equal(done.rec.parts[1].status, "waiting", "the rest of the request did not go on after one part stopped");
   } finally { P2.close(); compiler2.uninstall(); }
 });
+
+// A QUESTION IS NOT WORK IN PROGRESS (2026-10-26, live test 11): the pill read
+// "3 tasks in progress" for twenty minutes while two of the three waited on the
+// customer's answers. Questions are counted on their own.
+test("P — parts waiting on the customer are counted as 'need you', apart from the work in progress", () => {
+  const site = siteOf();
+  const parts = site.requests[KA].view.parts;
+  parts.push({ n: 3, words: "which beginner lesson", status: "waiting", jobs: [], question: { text: "Which one?" }, said: said("Lesson price") });
+  parts.push({ n: 4, words: "which blocks", status: "waiting", jobs: [], question: { text: "Which blocks?" }, said: said("Reviews") });
+  const p = load(site);
+  assert.equal(text(p.html(1000)), "2 need you · 3 in progress ▾");
+  p.press({ "data-bg": "open" });
+  assert.match(text(p.html(1000)), /^6 tasks · 2 need you · 2 in progress Stop all ▴/);
+  // ONLY QUESTIONS LEFT: the pill says so, never "in progress".
+  const only = { id: "s1", slug: "shop", pages: [], msgs: [{ r: "u", t: "x" }, { r: "a", t: "", request: KA }], jobCards: {},
+    requests: { [KA]: { view: { key: KA, ended: false, stop: false, parts: [{ n: 0, words: "w", status: "waiting", jobs: [], question: { text: "Q?" }, said: said("One") }] } } } };
+  assert.equal(text(load(only).html(1000)), "1 needs you ▾");
+});

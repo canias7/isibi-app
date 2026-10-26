@@ -274,7 +274,7 @@ export function page({ site, answer = () => null, idb, timers = false, frame = f
     siteActivePage: () => null,
     paintAttachStrip: () => {},
     buildPicker: "grok",
-    siteBusy: false, siteBusyFor: null, siteBuild: null, siteTicker: null, sitePicked: null,
+    siteBusy: false, siteBusyFor: null, siteBuild: null, siteTicker: null, sitePicked: null, sitePickOwnKey: "",
     siteOpenId: s.id,
     renderSites: () => {
       if (!frame) return;
