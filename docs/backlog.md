@@ -3361,3 +3361,13 @@ once credits suffice; Stop cancels (nothing charged). To decide later: (1) Conti
 after the site changed while paused should run on the current site (the site map
 makes this easy); (2) paused tasks left untouched for a long time (suggested 7 days)
 are cleared automatically, nothing charged, with a note in the chat.
+
+## Privacy policy: site data is processed by our AI provider (2026-10-26, owner: note it)
+
+The builder's steps may now read everything about a customer's site except
+secrets (keys, passwords, tokens, connection strings): code, every table's rows
+including their own customers' names, emails and phones, function bodies, error
+logs, uploads. What a step reads is sent to the AI provider (xAI for Grok) with
+the request. The privacy policy and terms must say that site data, including
+the site's visitors' submissions, may be processed by an AI provider to make
+the changes the owner asks for. Text only; no code change.

@@ -1467,3 +1467,9 @@ When a model's answer fails a check, retry once with the reason, on the **same m
   the customer is never charged for a question or for waiting on one; other tasks
   keep going; answering resumes the task where it stopped. Questions stay rare (real
   doubt only).
+
+- **The AI may see everything about a site except secrets** (owner, 2026-10-26:
+  *"only thing it cant see its secrets basically, thats why its called secrets
+  for a reason"*). Read-only look-around tools for code, database rows,
+  functions, logs, settings and uploads; never an API key, password, token or
+  connection string. Steps explore the code instead of being handed a map.
