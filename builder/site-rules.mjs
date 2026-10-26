@@ -251,6 +251,9 @@ const RULES_SYSTEM =
   "one mistake here that cannot be taken back — a booking list read by anyone is somebody's name, phone number and " +
   "address in public. When the instruction does not plainly say to open something up, leave the read and write as " +
   "they are.\n\n" +
+  "WHEN A TABLE ALREADY HAS WHAT THEY ASKED FOR — say they want only themselves to see the sign-ups, and only they " +
+  "can see them already — STILL NAME THAT TABLE WITH THE LEVEL THEY ASKED FOR. It is recorded as already so, nothing " +
+  "changes, and they are told it already was. Never answer an empty list for a rule that already holds.\n\n" +
   "If nothing they asked for is a rule, return an empty list. It costs them nothing and they are told why.";
 
 /**
@@ -727,7 +730,7 @@ export async function runRulesEdit(deps, args = {}) {
     step: "rules", deps, mark: deps && deps.mark,
     run: (d) => runRulesOnce(d, args),
     reasonOf: (r) => (r && !r.ok && r.reason === "no-match" && !r.ask && !(Array.isArray(r.refused) && r.refused.length)
-      ? { code: "no-match", text: "Nothing was changed: your answer named no rule change for any table you were shown. Read the request again and answer with the table and the change it asks for; if a detail is really missing, ask your one question instead." }
+      ? { code: "no-match", text: "Nothing was changed: your answer named no rule change for any table you were shown. Read the request again and answer with the table and the change it asks for — when the table already has it, still name the table with the level asked for, and it is recorded as already so; if a detail is really missing, ask your one question instead." }
       : null),
     wrapDeps: (d, firstUsage) => ({ ...d, seen: undefined, before: typeof d.before === "function" ? (u) => d.before(addUsages(firstUsage, u)) : d.before }),
   });

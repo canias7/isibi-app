@@ -1,6 +1,10 @@
 # Owner Notes
 
 
+## 2026-10-26 — "Only I can see sign-ups" when that's already true says so
+
+The rules step now names the table even when the rule you asked for already holds, so the reply says it's already so (free) instead of "There was no rule I could change". Branch `reply-seen`. `docs/history/2026-10-26-rules-already-named.md`.
+
 ## 2026-10-26 — An unpublished site's public address no longer shows its tables
 
 driftwood-and-daughters-5 was never published, so its public address showed the stand-in page, and that page listed every table, column and privacy rule (for example `lesson_bookings` with `customer_email` and `customer_phone`). The stand-in is now your design: the site's name and "Coming soon" (or "This site isn't ready yet." after a failed build) on a dark background. It pulses gently, and the pulse stops for visitors who turn off motion. When a first build is saved as a draft, the page is now rewritten from scratch, so an old page's table list goes too. Old stand-ins already up stay until the site is published, rebuilt or its draft lands. Branch `reply-seen`, not merged. `docs/history/2026-10-26-placeholder-public.md`.
