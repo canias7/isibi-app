@@ -293,7 +293,7 @@ import {
 import {
   isRequestKey, requestFlowOn, recordKey as requestRecordKey, liveKey as requestLiveKey, fileKey as requestFileKey, requestReplyKey,
   parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ORPHAN_MARKER_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts, requestMaking,
-  nextStep, readLabels, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, heldPurchaseState, heldReasons, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, readSplit, requestView, liveJobIds, stopPart, partJobId, appendParts, questionsToOffer, noteOffered,
+  nextStep, readLabels, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, heldPurchaseState, heldReasons, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, readSplit, requestView, liveJobIds, stopPart, partJobId, creditsPaused, creditsDecision, resumeCredits, setCreditsAuto, appendParts, questionsToOffer, noteOffered,
   approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt, editJobOutcome, answerless, wantsEvidence,
 } from "./builder/request.mjs";
 // ONE SIZE POLICY FOR WHAT A CUSTOMER SAYS ON A SITE THAT EXISTS (2026-10-03).
@@ -25680,6 +25680,12 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
         if (await purchasesKnown(env, slug, key, p.n, heldPurchases(p), (id, why) => seen.set(id, why))) { const moved = purchaseResolved(base, p.n); if (moved) base = moved; }
         else if (seen.size) { const noted = heldReasons(base, p.n, seen); if (noted) base = noted; }
       }
+      // OUT OF CREDITS, PAUSED (2026-10-26, owner): the balance read again on
+      // every step (the sweep's tick, a page's look); credits added by any
+      // route — a top-up, an upgrade, the monthly grant — resume the paused
+      // parts when "Continue when topped up" is ticked, and only mark them
+      // ready for the owner's Continue when it is not.
+      base = await creditsStep(env, base);
       const rewrites = new Set(base.parts.flatMap((p) => p.jobs.filter((j) => j.kind === "rewrite" && j.id).map((j) => j.id)));
       const rows = {};
       for (const id of liveJobIds(base)) {
@@ -26217,6 +26223,46 @@ async function stopRequest(env, ctx, slug, key, uid) {
  * ahead. `{ status, rec }`: 404 for no such request or part, 409 when the part
  * has nothing left to stop, 200 once recorded.
  */
+/** A paused request moved by its owner's balance (`creditsDecision`); the record unchanged when the balance cannot be read. */
+export async function creditsStep(env, rec, readBalance = readCreditsFor) {
+  if (!creditsPaused(rec).length) return rec;
+  let bal = NaN;
+  try { bal = Number(await readBalance(env, rec.uid)); } catch (e) { console.error("request credits: balance", errorClassForLog(e)); return rec; }
+  const d = creditsDecision(rec, bal, Date.now());
+  if (d.act === "resume") { console.log("request credits:", rec.slug, rec.key, "credits added — resuming"); return resumeCredits(rec) || rec; }
+  return d.rec || rec;
+}
+
+/**
+ * `POST /api/site/request/<slug>/<key>/credits` (2026-10-26, owner): `{ auto }`
+ * stores "Continue when topped up" on the request, so a reload or another tab
+ * reads it and the tick honours it; `{ resume: true }` is Continue, which
+ * resumes the paused parts only once credits were added (409 `no-credits`
+ * otherwise; nothing is charged either way).
+ */
+export async function requestCredits(env, ctx, { slug, key, uid, auto, resume, readBalance = readCreditsFor }) {
+  let kept = null;
+  for (let k = 0; k < 4 && !kept; k++) {
+    const { rec, etag } = await loadRequest(env, slug, key);
+    if (!rec || rec.uid !== uid) return { status: 404 };
+    let next = rec;
+    if (typeof auto === "boolean") { next = setCreditsAuto(rec, auto); if (!next) return { status: 409, rec }; }
+    if (resume === true) {
+      if (!creditsPaused(next).length) return { status: 409, rec, error: "not-paused" };
+      let bal = NaN;
+      try { bal = Number(await readBalance(env, uid)); } catch { return { status: 503 }; }
+      const base = next.credits && Number.isFinite(next.credits.base) ? next.credits.base : 0;
+      if (!(next.credits && next.credits.ready === true) && !(Number.isFinite(bal) && bal > base)) return { status: 409, rec, error: "no-credits" };
+      next = resumeCredits(next);
+    }
+    if (next === rec) { kept = rec; break; }
+    if (await saveRequestRecord(env, { ...next, updatedAt: Date.now() }, etag)) kept = next;
+  }
+  if (!kept) return { status: 503 };
+  const moved = await advanceRequest(env, ctx, slug, key, "credits");
+  return { status: 200, rec: moved || kept };
+}
+
 async function stopRequestPart(env, ctx, slug, key, uid, n) {
   let job = "";
   let kept = null;
@@ -35764,11 +35810,13 @@ async function handleRequest(request, env, ctx) {
       // `POST /api/site/request/<slug>/<key>/stop` `{ part }` — ONE PART STOPPED
       // OR REMOVED (2026-10-23, background work); the rest goes on.
       const rqp = rqm || rqa || rqb ? null : url.pathname.match(/^\/api\/site\/request\/([a-z0-9][a-z0-9-]{0,80})\/([A-Za-z0-9_-]{16,64})\/stop$/);
-      const rlm = rqm || rqa || rqb || rqp ? null : url.pathname.match(/^\/api\/site\/requests\/([a-z0-9][a-z0-9-]{0,80})$/);
-      if (!rqm && !rqa && !rqb && !rqp && !rlm) return Response.json({ error: "not found" }, { status: 404 });
+      // `POST /api/site/request/<slug>/<key>/credits` `{ auto } | { resume }` — OUT OF CREDITS (2026-10-26).
+      const rqc = rqm || rqa || rqb || rqp ? null : url.pathname.match(/^\/api\/site\/request\/([a-z0-9][a-z0-9-]{0,80})\/([A-Za-z0-9_-]{16,64})\/credits$/);
+      const rlm = rqm || rqa || rqb || rqp || rqc ? null : url.pathname.match(/^\/api\/site\/requests\/([a-z0-9][a-z0-9-]{0,80})$/);
+      if (!rqm && !rqa && !rqb && !rqp && !rqc && !rlm) return Response.json({ error: "not found" }, { status: 404 });
       {
         if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "requests are not available" }, { status: 503 });
-        const qSlug = (rqm || rqa || rqb || rqp || rlm)[1];
+        const qSlug = (rqm || rqa || rqb || rqp || rqc || rlm)[1];
         const qOwner = await siteOwnerBySlug(qSlug, env).catch(() => null);
         if (qOwner && qOwner !== qu.id) return Response.json({ error: "not found" }, { status: 404 });
         // `POST /api/site/request/<slug>/<key>/approve` `{ part }` — THE GO-AHEAD
@@ -35808,6 +35856,21 @@ async function handleRequest(request, env, ctx) {
           if (bOut.status === 409) return Response.json({ ok: false, error: "not-held", request: bView }, { status: 409 });
           if (bOut.status === 503) return Response.json({ ok: false, error: "could not release the purchase", request: bView }, { status: 503 });
           return Response.json({ ok: true, released: bOut.released, kept: bOut.kept, request: bView });
+        }
+        if (rqc) {
+          if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
+          const cb = await readJsonBody(request, { max: 4096 });
+          const cAuto = cb.ok && cb.body && typeof cb.body.auto === "boolean" ? cb.body.auto : undefined;
+          const cResume = !!(cb.ok && cb.body && cb.body.resume === true);
+          if (cAuto === undefined && !cResume) return Response.json({ ok: false, error: "auto or resume?" }, { status: 400 });
+          let cOut;
+          try { cOut = await requestCredits(env, ctx, { slug: qSlug, key: rqc[2], uid: qu.id, auto: cAuto, resume: cResume }); }
+          catch (e) { console.error("request credits:", qSlug, errorClassForLog(e)); return Response.json({ ok: false, error: "could not change that" }, { status: 503 }); }
+          if (cOut.status === 404) return Response.json({ error: "not found" }, { status: 404 });
+          const cView = cOut.rec ? requestView(cOut.rec) : undefined;
+          if (cOut.status === 409) return Response.json({ ok: false, error: cOut.error || "ended", request: cView }, { status: 409 });
+          if (cOut.status === 503) return Response.json({ ok: false, error: "could not change that" }, { status: 503 });
+          return Response.json({ ok: true, request: cView });
         }
         if (rqp) {
           if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
