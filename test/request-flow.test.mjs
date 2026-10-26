@@ -755,7 +755,7 @@ test("E4b — A24-4 (2026-10-23): deleting a site takes what its request jobs ke
     assert.ok(kept().length > 0, "no job kept anything under jobs/prepared/ — the case tests nothing: " + JSON.stringify([...P.objects.keys()].filter((k) => k.startsWith("jobs/"))));
     const other = "jobs/prepared/" + "f".repeat(32) + ".kept.json";
     P.writeObj(other, JSON.stringify({ calls: [] }));
-    const del = await call(P, "DELETE", "/api/site/" + P.slug);
+    const del = await call(P, "DELETE", "/api/site/" + P.slug, { confirm: P.slug });
     assert.equal(del.status, 200, JSON.stringify(del.body));
     assert.deepEqual(kept(), [], "a deleted site's jobs left their kept records behind");
     assert.ok(P.readObj(other), "another job's record was removed");

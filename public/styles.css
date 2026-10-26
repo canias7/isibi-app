@@ -5463,6 +5463,8 @@ body::after { display: none; }
 .go-confirm-box { width: min(420px, 100%); background: #fff; border-radius: 16px; box-shadow: 0 18px 50px rgba(0,0,0,.18); padding: 1.4rem 1.4rem 1.1rem; font-family: Inter, system-ui, sans-serif; }
 .go-confirm-title { display: block; font-size: 1.05rem; font-weight: 700; color: var(--text); margin-bottom: .45rem; }
 .go-confirm-text { font-size: .92rem; line-height: 1.5; color: var(--muted); }
+.go-confirm-input { display: block; width: 100%; box-sizing: border-box; margin-top: .9rem; font: inherit; font-size: .92rem; color: var(--text); background: #fff; border: 1px solid var(--line-2); border-radius: 10px; padding: .55rem .75rem; }
+.go-confirm-yes:disabled { opacity: .45; cursor: not-allowed; }
 .go-confirm-acts { display: flex; justify-content: flex-end; gap: .6rem; margin-top: 1.3rem; }
 .go-confirm-acts button { font: inherit; font-size: .9rem; font-weight: 600; border-radius: 10px; padding: .55rem 1.05rem; cursor: pointer; }
 .go-confirm-no { background: #fff; color: var(--text); border: 1px solid var(--line-2); }

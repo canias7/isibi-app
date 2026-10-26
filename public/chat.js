@@ -6265,7 +6265,13 @@ function renderSites() {
     // A published/React site has a live page + (maybe) its own database — deleting
     // it is permanent, so confirm, then wipe it server-side before removing locally.
     if (s && s.slug) {
-      if (!(await goConfirm('Its live page' + (s.backend ? ' and any saved data' : '') + ' will be permanently removed. This cannot be undone.', { title: 'Delete \u201c' + (s.name || s.slug) + '\u201d?', ok: 'Delete site', danger: true }))) return;
+      // WHAT IS LOST, NAMED, AND THE NAME TYPED BACK (2026-10-26, owner): the
+      // counts are the server's (`delete-preview`); one it could not read is
+      // said so, never shown as 0 \u2014 and an unanswered preview says it could not check.
+      let pv = null;
+      try { const pr = await apiFetch('/api/site/' + encodeURIComponent(s.slug) + '/delete-preview'); if (pr && pr.ok) pv = await pr.json(); } catch (e) { pv = null; }
+      if (!pv || pv.ok !== true) pv = { slug: s.slug, name: s.name || s.slug, pages: null, database: null, tables: null };
+      if (!(await DeleteConfirm.ask(document, pv))) return;
       // THE REAL ROUTE. This posted to `/api/site/backend/delete`, which has never
       // existed: the 404 was swallowed, the local record was dropped anyway, and
       // the published site, its Neon database and its claimed slug all kept
@@ -6273,7 +6279,7 @@ function renderSites() {
       // removed. And with the local record gone there was no UI left to retry.
       // A failure now KEEPS the site in the list, so it can be tried again.
       let dr;
-      try { dr = await apiFetch('/api/site/' + encodeURIComponent(s.slug), { method: 'DELETE' }); } catch (e) { dr = null; }
+      try { dr = await apiFetch('/api/site/' + encodeURIComponent(s.slug), { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ confirm: s.slug }) }); } catch (e) { dr = null; }
       // A 404 IS "ALREADY GONE", AND KEEPING THE CARD FOR IT MADE ONE
       // UNDELETABLE FOREVER. The backend row is the ownership record, so a slug
       // with no row answers 404 — and a site that was already taken down (or

@@ -21203,6 +21203,80 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
 // nav links to pages that don't exist, and hotlinked external images (which the
 // published-site CSP will block). Returns a list of plain-English problems; an
 // empty list means "ship it, no fix pass" (so clean generations cost nothing extra).
+// ── WHAT A DELETE WOULD TAKE, READ BEFORE IT IS ASKED (2026-10-26) ──────────
+//
+// Owner: the ✕ on a site card names what is lost — the site, its database and
+// how many entries each table holds, its pages — and the customer types the
+// site's name before Delete lights. These read only; nothing here writes.
+//
+// `siteOwnerRow` is the same ownership read `deleteSiteFor` makes (the row IS
+// the ownership record; a failed read is 503, never "no such site"), with the
+// site's own name when the column exists.
+async function siteOwnerRow(env, uid, slug) {
+  if (!env.SUPABASE_SERVICE_KEY) return { res: Response.json({ ok: false, error: "service key not configured" }, { status: 501 }) };
+  const ask = (cols) => fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=${cols}`, { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });
+  let row;
+  try {
+    let g = await ask("uid,display_name");
+    if (g.status === 400) g = await ask("uid");
+    if (!g.ok) throw new Error("site_backends " + g.status);
+    const rows = await g.json();
+    if (!Array.isArray(rows)) throw new Error("site_backends shape");
+    row = rows[0] || null;
+  } catch {
+    return { res: Response.json({ ok: false, error: "couldn't look that site up — try again in a moment" }, { status: 503 }) };
+  }
+  if (!row) return { res: Response.json({ ok: false, error: "no such site" }, { status: 404 }) };
+  if (row.uid !== uid) return { res: Response.json({ ok: false, error: "not your site" }, { status: 403 }) };
+  return { row };
+}
+
+// Each table's row count, at most 24 tables. `null` for the whole answer when
+// the schema cannot be read; `null` for one table whose count failed. Never a
+// zero that was not counted.
+async function countSiteRows(conn) {
+  const r = await specForAddon(conn);
+  if (!r || r.ok !== true || !r.spec || !Array.isArray(r.spec.tables)) return null;
+  const names = r.spec.tables.map((t) => t && t.name).filter((n) => typeof n === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(n)).slice(0, 24);
+  const counts = {};
+  await Promise.all(names.map(async (n) => {
+    let v = null;
+    try { const q = await sqlReadOnly(conn, 'select count(*)::int as n from "' + n + '"', []); const x = Array.isArray(q) && q[0] ? Number(q[0].n) : NaN; if (Number.isInteger(x) && x >= 0) v = x; } catch { v = null; }
+    counts[n] = v;
+  }));
+  return counts;
+}
+
+/**
+ * GET /api/site/<slug>/delete-preview's answer, after the owner check:
+ * `{ ok, slug, name, pages, database, tables }`. `pages` is a number or null
+ * (unreadable); `database` is true, false, or null (could not tell); `tables`
+ * maps each table to its count (null where not counted), or is null when no
+ * count could be read at all. Deps are for tests: `conn`, `count`, `pages`.
+ */
+async function deletePreviewFor(env, uid, slug, deps = {}) {
+  const own = await siteOwnerRow(env, uid, slug);
+  if (own.res) return own.res;
+  const name = typeof own.row.display_name === "string" && own.row.display_name.trim() ? own.row.display_name.trim().slice(0, 80) : slug;
+  const readPages = deps.pages || (async () => { const s = await readSiteSource(env, slug); return s.ok ? s.pages.length : null; });
+  const readConn = deps.conn || (() => ownerSiteConn(env, slug));
+  const count = deps.count || countSiteRows;
+  const [pages, db] = await Promise.all([
+    (async () => { try { const n = await readPages(); return Number.isInteger(n) ? n : null; } catch { return null; } })(),
+    (async () => {
+      let conn;
+      try { conn = await readConn(); } catch { return { database: null, tables: null }; }
+      if (!conn) return { database: false, tables: null };
+      try { return { database: true, tables: await count(conn) }; } catch { return { database: true, tables: null }; }
+    })(),
+  ]);
+  return Response.json({ ok: true, slug, name, pages, database: db.database, tables: db.tables || null }, { headers: { "cache-control": "no-store" } });
+}
+export const deletePreviewApi = { deletePreviewFor, siteOwnerRow, countSiteRows };
+
+/** The DELETE's confirmation: the slug, or the site's own name, typed back. */
+const sameName = (a, b) => typeof a === "string" && typeof b === "string" && a.trim() !== "" && a.trim().toLowerCase() === b.trim().toLowerCase();
+
 /**
  * Take one published site down: its edge route, its Neon project, its files,
  * its domains, and its registration — in that order, each for its own reason.
@@ -51362,7 +51436,28 @@ async function handleRequest(request, env, ctx) {
     if (/^\/api\/site\/[a-z0-9][a-z0-9-]{0,80}$/i.test(url.pathname) && request.method === "DELETE") {
       const du = await authUser(request);
       if (!du) return UNAUTHED();
-      return await deleteSiteFor(env, du.id, url.pathname.slice("/api/site/".length).toLowerCase());
+      const dslug = url.pathname.slice("/api/site/".length).toLowerCase();
+      // THE CONFIRMATION IS REQUIRED (2026-10-26, owner): the body's `confirm`
+      // must be the slug or the site's own name, so a stray DELETE without it is
+      // refused before anything is read or torn down. The account-deletion sweep
+      // below calls `deleteSiteFor` directly and is not asked for one.
+      const dbody = await request.json().catch(() => null);
+      const typed = dbody && typeof dbody.confirm === "string" ? dbody.confirm : "";
+      if (!typed.trim()) return Response.json({ ok: false, error: "confirm the site's name to delete it" }, { status: 400 });
+      if (!sameName(typed, dslug)) {
+        const own = await siteOwnerRow(env, du.id, dslug);
+        if (own.res) return own.res;
+        if (!sameName(typed, own.row.display_name)) return Response.json({ ok: false, error: "that isn't this site's name" }, { status: 400 });
+      }
+      return await deleteSiteFor(env, du.id, dslug);
+    }
+    // GET /api/site/<slug>/delete-preview — what that DELETE would take, for the
+    // confirmation (owner-checked like it; reads only).
+    const dpm = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/delete-preview$/i);
+    if (dpm && request.method === "GET") {
+      const pu = await authUser(request);
+      if (!pu) return UNAUTHED();
+      return await deletePreviewFor(env, pu.id, dpm[1].toLowerCase());
     }
 
     // POST /api/site/delete-all — every site this account owns, taken down.

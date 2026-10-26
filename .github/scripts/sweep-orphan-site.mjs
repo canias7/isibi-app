@@ -98,7 +98,7 @@ try {
   });
   step("claimed the orphan for that account", claim.ok, claim.status + " " + (await claim.text().catch(() => "")).slice(0, 200));
 
-  const del = await fetch(`${BASE}/api/site/${slug}`, { method: "DELETE", headers: { Authorization: `Bearer ${jwt}` } });
+  const del = await fetch(`${BASE}/api/site/${slug}`, { method: "DELETE", headers: { Authorization: `Bearer ${jwt}`, "content-type": "application/json" }, body: JSON.stringify({ confirm: slug }) });
   const dd = await del.json().catch(() => ({}));
   step("deleted it through the owner route", del.status === 200 && dd.ok === true, del.status + " " + JSON.stringify(dd).slice(0, 200));
   if (dd && dd.ok) console.log(`  removed ${dd.removed} object(s)`);

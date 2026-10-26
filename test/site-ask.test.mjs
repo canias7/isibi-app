@@ -2308,15 +2308,18 @@ test("deleting a site asks with our own dialog, not the browser's confirm()", ()
   const src = chat();
   const at = src.indexOf("view.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {");
   assert.ok(at > 0, "the site delete handler moved; this guard checks nothing");
-  const block = src.slice(at, src.indexOf("apiFetch('/api/site/' + encodeURIComponent(s.slug), { method: 'DELETE' })", at));
+  // RE-ANCHORED 2026-10-26 (delete-confirm): the dialog is the typed-name one
+  // in `public/delete-confirm.js`, in the same `go-confirm` look; the DELETE
+  // now carries its confirmation.
+  const block = src.slice(at, src.indexOf("apiFetch('/api/site/' + encodeURIComponent(s.slug), { method: 'DELETE',", at));
   assert.ok(block.length > 100 && block.length < 3000, "the delete call moved");
   assert.doesNotMatch(block, /[^.\w]confirm\(/, "the browser's confirm() is back");
-  assert.match(block, /if \(!\(await goConfirm\(/, "the delete is not asked with goConfirm");
-  assert.match(block, /danger: true/);
-  const g = src.slice(src.indexOf("function goConfirm("), src.indexOf("function siteCreate("));
-  assert.match(g, /e\.key === 'Escape'[^]*done\(false\)/, "Esc does not cancel");
+  assert.match(block, /if \(!\(await DeleteConfirm\.ask\(document, pv\)\)\) return;/, "the delete is not asked with our dialog");
+  const g = fs.readFileSync(new URL("../public/delete-confirm.js", import.meta.url), "utf8");
+  assert.match(g, /class="go-confirm-yes danger" disabled/);
+  assert.match(g, /e\.key === "Escape"[^]*done\(false\)/, "Esc does not cancel");
   assert.match(g, /e\.target === wrap\) done\(false\)/, "a click outside does not cancel");
-  assert.match(g, /'\.go-confirm-no'\)\.focus\(\)/, "the safe answer is not the one focused");
+  assert.match(g, /input\.focus\(\)/, "the name box is not the one focused");
 });
 
 // OFF THE SCREEN TOO (2026-10-21, owner: "after i click ok it stays there").
