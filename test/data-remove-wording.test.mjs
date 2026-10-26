@@ -171,7 +171,9 @@ test("the picker's request tells it one thing about deleting a row: use `remove`
   const req = r.seen.requests[0];
   // THE REQUEST AS IT LEFT, not the module's constant: the route could send a
   // different tool, and that is the thing the picker reads.
-  assert.equal(req.tool_choice && req.tool_choice.name, TOOL, "the picker is not forced to the row tool");
+  // WHILE IT MAY LOOK (explore-code, 2026-10-26) it is asked for any tool, its own first; never prose.
+  const forced = req.tool_choice && (req.tool_choice.name || (req.tool_choice.type === "any" && req.tools && req.tools[0] && req.tools[0].name));
+  assert.equal(forced, TOOL, "the picker is not forced to the row tool");
   const tool = (req.tools || []).find((t) => t && t.name === TOOL);
   assert.ok(tool, "the row tool is not in the request");
   const said = descriptions(tool);

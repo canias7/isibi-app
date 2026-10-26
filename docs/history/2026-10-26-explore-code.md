@@ -103,3 +103,27 @@ Each round resends the whole conversation, and the tool schemas add about
 - **Full suite**: `12909 / 12905 / 1 / 3`. The one failure is
   `no-generated-deps`, which is caused by this worktree's `node_modules`
   symlink. It passes once the link is removed.
+
+## Phase 2: the data and rules steps
+
+- **The change.** `runDataEdit` is now sent as `"data"` and `runRulesEdit`
+  as `"rules"`, and both explore. Each gets the file list and the table names
+  up front, plus every tool. Their own row and rule tools come first in the
+  request. The look limit is 6. The map is removed from both.
+- **"Only I can see newsletter sign-ups"** (`test/site-explore.test.mjs`,
+  supplied answers). The step calls `describe_table("newsletter_signups")`,
+  which shows "access: visitors can add; only you can read". It then answers
+  `read: "none"`, and `splitAlready` records the rule as already so
+  (`satisfied`) with nothing applied. Both rounds are billed (1,100 input
+  tokens).
+- **Test changes.** One assertion in `test/data-remove-wording.test.mjs`
+  checked that the row tool is forced. While the step may still look, it is
+  asked for any tool, with its own tool first.
+- **Checks.** Sweep: 5 of 5 mutants killed, and the comment-only control
+  survived. The 12 data and rules test files pass, 174 tests in all.
+  - **Full suite:** `12911 / 12906 / 2 / 3`. Neither failure comes from this
+    change:
+    - `no-generated-deps` fails because of the worktree's `node_modules`
+      symlink.
+    - `canary-reopen-browser` is a browser case that passes when run alone
+      (2 of 2).

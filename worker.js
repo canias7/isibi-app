@@ -14422,8 +14422,8 @@ function exploreLooks(env, cap = null) {
 const exploredSend = (env, slug, send, { cap = null } = {}) => exploreSend(send, () => (slug ? siteExploreNow(env, slug) : null), { maxLooks: exploreLooks(env, cap) });
 const exploredCall = (env, slug, call, { cap = null } = {}) => exploreCall(call, () => (slug ? siteExploreNow(env, slug) : null), { maxLooks: exploreLooks(env, cap) });
 // THE EDIT STEPS THAT EXPLORE, by the name each call is sent under. Phase 1:
-// the page rung's quick writer and the look door's lanes.
-const EDIT_EXPLORE_STEPS = new Set(["pick_lanes", "lane", "lane-correction", "tweak"]);
+// the page rung's quick writer and the look door's lanes; phase 2: the data and rules steps.
+const EDIT_EXPLORE_STEPS = new Set(["pick_lanes", "lane", "lane-correction", "tweak", "data", "rules"]);
 // Steps that judge only what they are handed (a before and an after; the named entries a removal picks from): no map, no looks.
 const EDIT_BARE_STEPS = new Set(["keep_check", "take_off"]);
 const mappedCall = (env, slug, kind, call, opts = null) => mapCall(call, siteMapNote(env, slug, kind, opts));
@@ -38993,7 +38993,7 @@ async function handleRequest(request, env, ctx) {
               const dRefused = [];
               const dHeldNow = new Set();
               const dOut = await runDataEdit({
-                send: eQuick(),
+                send: eQuick("data"),
                 mark: traceRetryMark(editTrace),
                 // WHAT THE STEP WAS SHOWN (2026-10-11): counted on the job.
                 seen: (x) => noteSeen(eJob, x),
@@ -39358,7 +39358,7 @@ async function handleRequest(request, env, ctx) {
               // hand and no DDL emitted.
               let rCost = 0, rBilled = false, rStop = null;
               const rOut = await runRulesEdit({
-                send: eQuick(),
+                send: eQuick("rules"),
                 mark: traceRetryMark(editTrace),
                 seen: (x) => noteSeen(eJob, x),
                 // PREPARED: the rules are chosen; nothing is granted here.

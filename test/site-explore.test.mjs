@@ -134,3 +134,32 @@ test("the free measure: rounds and characters a step would send", async () => {
   assert.ok(m.charsPerRound[1] > m.charsPerRound[0]);
   assert.ok(EXPLORE_TOOL_NAMES.includes("describe_table"));
 });
+
+test("PHASE 2: 'only I can see newsletter sign-ups' — the rules step looks up the table's read level and answers already so", async () => {
+  const { runRulesEdit } = await import("../builder/site-rules.mjs");
+  const tables = [{ name: "newsletter_signups", columns: [{ name: "id", pk: true }, { name: "email", notnull: true }], access: "collect" }];
+  const ex = { files: ctx.files, tables: [{ name: "newsletter_signups", columns: [{ name: "email", required: true }], read: "none", access: "visitors can add; only you can read", rows: 12 }] };
+  const sent = [];
+  const answers = [
+    { content: [use("describe_table", { name: "newsletter_signups" }, "d1")], usage: { input_tokens: 500, output_tokens: 10 } },
+    { content: [use("write_table_rules", { tables: [{ table: "newsletter_signups", read: "none", readWords: "only I can see" }] })], usage: { input_tokens: 600, output_tokens: 20 } },
+  ];
+  const send = async (r) => { sent.push(r); return answers[sent.length - 1]; };
+  const out = await runRulesEdit({ send: exploreSend(send, ex) }, { instruction: "Only I can see newsletter sign-ups.", tables });
+  assert.equal(sent.length, 2);
+  assert.ok(sent[0].tools.some((t) => t.name === "describe_table") && sent[0].tools[0].name === "write_table_rules", "its own tool first, the looks beside it");
+  assert.match(sent[1].messages.at(-1).content[0].content, /access: visitors can add; only you can read/);
+  assert.equal(out.ok, true, JSON.stringify(out).slice(0, 300));
+  assert.equal(out.satisfied, true);
+  assert.deepEqual(out.already.map((a) => [a.table, a.read]), [["newsletter_signups", "none"]]);
+  assert.equal(out.usage.in, 1100, "both rounds billed");
+});
+
+test("PHASE 2: the data and rules steps explore, by name", async () => {
+  const { readFileSync } = await import("node:fs");
+  const SRC = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(SRC, /runDataEdit\(\{\s*send: eQuick\("data"\),/);
+  assert.match(SRC, /runRulesEdit\(\{\s*send: eQuick\("rules"\),/);
+  const set = /const EDIT_EXPLORE_STEPS = new Set\(\[([^\]]*)\]\)/.exec(SRC)[1];
+  for (const n of ["data", "rules"]) assert.ok(set.includes('"' + n + '"'), n);
+});
