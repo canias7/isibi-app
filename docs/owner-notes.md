@@ -1,6 +1,18 @@
 # Owner Notes
 
 
+## 2026-10-26 — Phase 1: the page step and the look lanes explore the site themselves
+
+As you decided ("option b"), the quick page writer, the page rewrite, the file picker and the look door's lanes no longer get the site map. They get the list of files (each page with its address) and the table names, and then they look for themselves with read-only tools. They can search the code, open a file, describe a table, read rows 20 at a time, see rules, functions and policies, read settings, see recent changes and see uploads. Everything is visible except secrets, which are hidden wherever they appear. What they read is marked as data, not instructions. The tools are locked to the job's own site: a call that names another site, or a path that tries to leave the site's folder, is refused.
+
+- **Looks are limited and billed**: at most 6 looks per step, and each one is counted in that step's cost.
+- **The "move the reviews above the lessons" case now works by looking**, without asking you which component it is. This is shown with supplied answers only, and not proven live.
+- **Cost**: answering at once costs about 2,300 tokens, against 1,200 with the map. One look costs about 4,700, and all 6 looks about 17,700. You can measure it free with `node scripts/explore-measure.mjs`.
+- **Not built yet**: error logs, traffic, scheduled tasks, connected services and logins answer "unavailable", because no per-site store holds them today.
+- **Still using the map until their phase**: data, rules, text, menu and frame, pictures, add-ons and the router.
+
+Branch `explore-code`, not merged. `docs/history/2026-10-26-explore-code.md`.
+
 ## 2026-10-26 — Questions no longer count as "in progress"; "Something else…" lights up
 
 The tasks pill now says "2 need you · 1 in progress", so a request that's only waiting on your answers doesn't look stuck. Clicking "Something else…" on a question now marks it chosen and shows "Type your answer in the box below and press send." Branch `reply-seen`. `docs/history/2026-10-26-pill-and-own-answer.md`.
