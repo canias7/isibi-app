@@ -1459,3 +1459,11 @@ message already answers or implies. Record:
 ## Retries stay on the same model (owner, 2026-10-24)
 
 When a model's answer fails a check, retry once with the reason, on the **same model and the same effort**. Do **not** switch to the other model (Grok ↔ Claude) or raise the effort as an escalation step. Asked directly ("after a failed retry, try once more on the other model?"), the owner answered "No".
+
+- **Questions can come at any time, from any step (2026-10-26, replaces "no
+  questions after charging").** Owner: "any single time that the model doesn't
+  understand… it doesn't matter what step it is… whenever it has a question, it can
+  ask it." Rule now: a step that genuinely can't tell pauses that one task and asks;
+  the customer is never charged for a question or for waiting on one; other tasks
+  keep going; answering resumes the task where it stopped. Questions stay rare (real
+  doubt only).
