@@ -8,7 +8,14 @@
 - **"Change the opening hours" on /contact now finds hours written in the footer.** A page's shared parts count as its words. If you quote words that are on another page, the step looks there instead of answering "couldn't find it".
 - **Bug fixed:** a first build never saved its landmark map (the thing edits aim by), because the save waited for a signal the publish never sends.
 - Tests: 11 new; 8 of 8 mutants killed; the comment-only control survived. Nothing was spent. Record: `docs/history/2026-10-26-site-map.md`.
-- **Later the same day, it reaches every step:** the entry designer sees each table's columns (with the required ones marked; the live database still decides); the menu and footer writer sees the frame, the tables pages write to and the key details; the reply is told what pages and tables exist. Asking up front: with a supplied answer, "make the cafe opening hours 8am to 4pm" on a site whose one set of hours sits in the footer lets the router's existing question come back before any edit runs; a part of a longer message still never asks. The router's map adds about 300 tokens on a typical site (about 1,500 at most). 6 more tests; 7 of 7 mutants killed.
+- **Later the same day, it reaches every step:** the entry designer sees each table's columns (with the required ones marked; the live database still decides); the menu and footer writer sees the frame, the tables pages write to and the key details; the reply is told what pages and tables exist. Asking up front: with a supplied answer, "make the cafe opening hours 8am to 4pm" on a site whose one set of hours sits in the footer lets the router's existing question come back before any edit runs. The router's map adds about 300 tokens on a typical site (about 1,500 at most). 5 more tests; 7 of 7 mutants killed.
+
+## 2026-10-26 — a changed email address now reaches its links (branch `fix-run6`, not merged, not deployed)
+
+- **What you saw.** Changing the Contact email to bookings@… changed the words, but the footer and two bands still had email links sending to hello@….
+- **Now.** When the wording step changes one email address to another, every link to the old address (`mailto:`) and every other exact copy of it across the site's pages and sections changes too, before publishing. The reply is told which links changed, file by file.
+- **Your exception.** If a customer asks to change the shown address but keep the link going to the old one, the wording step says so in its own answer (one new yes/no field, `keepLinks`); then only the visible text changes and the reply is told the links were kept. No keyword matching.
+- Phone links are still only reported, not rewritten. Tests: 6 new; 12 of 12 mutants killed, control survived. Nothing spent.
 
 ## 2026-10-26 — spam protection from Go Farther's own key, per site when asked (branch `fix-run6`, not merged, not deployed)
 

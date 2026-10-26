@@ -156,6 +156,13 @@ export const TEXT_TOOL = {
           "price\"). Leave it empty when every change they asked for is in `edits`.",
         items: { type: "string" },
       },
+      // THE DEFAULT CARRIES A CHANGED EMAIL ADDRESS TO ITS LINKS (run 6,
+      // `carryEmailChange`); this is the customer's own exception, read from
+      // the step's structured answer, never from keywords.
+      keepLinks: {
+        type: "boolean",
+        description: "true only if the customer asked to keep link targets unchanged.",
+      },
       question: QUESTION_FIELD,
     },
     required: ["edits"],
@@ -167,6 +174,13 @@ export const TEXT_TOOL = {
  * refused here (2026-10-23, fix-edit-flow). Both are requested changes not
  * made: the first in the model's words, the second counted, never named by us.
  */
+/** The step's `keepLinks`: true only when it answered exactly `true`. */
+export function readTextKeepLinks(reply) {
+  const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
+  const use = blocks.find((b) => b && b.type === "tool_use");
+  return !!(use && use.input && typeof use.input === "object" && use.input.keepLinks === true);
+}
+
 export function readTextNotDone(reply, items) {
   const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
   const use = blocks.find((b) => b && b.type === "tool_use");
@@ -573,7 +587,7 @@ export async function runTextEdit(deps, { instruction, pages, scope = null, mode
   // A PART OF THE MESSAGE NOT MADE IS SAID, NEVER SWALLOWED (2026-10-23):
   // `ok` stays true for what did go in, and `notDone` makes it partial.
   const notDone = readTextNotDone(reply, shown);
-  return { ok: true, pages: ed.pages, applied: ed.applied, edits, usage: used, ...seen, ...(notDone.length ? { notDone, partial: true } : {}) };
+  return { ok: true, pages: ed.pages, applied: ed.applied, edits, usage: used, ...seen, ...(notDone.length ? { notDone, partial: true } : {}), ...(readTextKeepLinks(reply) ? { keepLinks: true } : {}) };
 }
 
 // ── THE DATA LAYER: the content the site STORES ──────────────────────────────

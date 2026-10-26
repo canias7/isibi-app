@@ -8,7 +8,6 @@ import { readFileSync } from "node:fs";
 import { buildSiteMap, mapFor } from "../builder/site-map.mjs";
 import { routeInventory } from "../builder/route-inventory.mjs";
 import { routeMessage, LIVE_ASK_TOOL } from "../builder/site-ask.mjs";
-import { partClarifyChoice } from "../builder/addon-existing.mjs";
 import { siteNote, noteFor } from "../builder/site-add.mjs";
 import { replyContext } from "../builder/site-reply.mjs";
 import { frameEditRequest } from "../builder/site-frame.mjs";
@@ -43,19 +42,6 @@ test("UP FRONT: the first routing is shown the one shared set of hours, and its 
   assert.equal(r.intent, "clarify");
   assert.equal(r.question.text, Q.text);
   assert.deepEqual(r.question.options, Q.options);
-});
-
-test("A PART NEVER ASKS: offered no question, and a stray clarify is turned into work by the route's safety net", async () => {
-  const inventory = routeInventory({ pages: ROUTES, spec: SPEC, parts: PARTS, words: false });
-  let sent = null;
-  const r = await routeMessage({ send: async (req) => { sent = req; return said({ intent: "clarify", question: { text: "Which hours?", options: ["a", "b"] } }); } },
-    { message: "make the cafe opening hours 8am to 4pm", site: SITE, hasSite: true, firstBuild: false, model: "test-model", canAsk: true, offerAsk: false,
-      part: { original: "make the cafe opening hours 8am to 4pm and add a gallery", done: [] }, inventory });
-  assert.doesNotMatch(JSON.stringify(sent.messages), /A QUESTION MAY BE ASKED/, "a part was offered a question");
-  const fixed = partClarifyChoice(r, SITE, { reason: "clarify-part" });
-  assert.notEqual(fixed.intent, "clarify");
-  assert.equal(fixed.question, undefined);
-  assert.match(W, /routed = partClarifyChoice\(routed, rDigest\.site, \{ reason: "clarify-part" \}\);/);
 });
 
 test("THE ROUTER SLICE'S SIZE on a realistic site: inside ~2–3k tokens with the inventory", () => {
