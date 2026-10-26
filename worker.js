@@ -236,6 +236,7 @@ import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
 import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings, canWriteAccess } from "./site-access.mjs";
 import { routeInventory } from "./builder/route-inventory.mjs";
+import { buildSiteMap, mapFor, mapKey as siteMapKey, mapVersionKey as siteMapVersionKey, MAP_VERSION as SITE_MAP_VERSION } from "./builder/site-map.mjs";
 import { converse, readHistory, converseRequest, requestChars, CONTEXT_CHARS, converseTables } from "./builder/site-converse.mjs";
 import { planWindow, compact as compactChat, COMPACT_AT } from "./builder/chat-context.mjs";
 // The pair a `display` table resolves to. Named once, from the presets, so the
@@ -8827,7 +8828,10 @@ function diagnoseTools(env, { id, slug, b }) {
           }));
         }
       } catch { tables = null; }
-      return { pages: ps ? sitePageRoutes(ps) : null, tables };
+      // THE SITE MAP AS SAVED WITH THE VERSION (2026-10-26), compacted.
+      let map = null;
+      try { const cur = await currentSiteMap(env, slug); map = cur ? { ...mapFor("diagnose", cur), ...(cur.stale ? { stale: true } : {}) } : null; } catch { map = null; }
+      return { pages: ps ? sitePageRoutes(ps) : null, tables, map };
     },
     read_page: async ({ path } = {}) => {
       if (typeof path !== "string" || !path) return null;
@@ -10471,7 +10475,7 @@ async function routeDigest(env, user, rb, { keepPages = false, words = true } = 
   // once, for their addresses and for what each holds, and the stored spec
   // for each table's columns (`routeInventory`). Each read is bounded and
   // fails open: what could not be read is left out of the inventory.
-  const [names, src, spec] = await Promise.all([
+  const [names, src, spec, routeParts] = await Promise.all([
     owned.then((ok) => (ok === true ? withinMs(routeTableNames(env, uid, slug, true), ROUTE_TABLES_MS, "route tables:", slug) : null)),
     // A SCOPED ROUTING (2026-10-15, `routeScope`) keeps the page list its
     // request recorded at acceptance: it is never read, so a page another part
@@ -10482,12 +10486,15 @@ async function routeDigest(env, user, rb, { keepPages = false, words = true } = 
       if (!conn) return { ok: true, spec: { tables: [] } };
       return readStoredSpec(conn);
     })(), ROUTE_TABLES_MS, "route spec:", slug) : null)),
+    // THE PARTS, FOR THE SITE MAP'S KEY FACTS (2026-10-26): a footer part's
+    // opening hours are the whole site's. Unread, the facts come from the pages.
+    keepPages ? Promise.resolve(null) : owned.then((ok) => (ok === true ? withinMs(loadSiteParts(env, slug), ROUTE_PAGES_MS, "route parts:", slug) : null)),
   ]);
   const routes = Array.isArray(src) ? sitePageRoutes(src) : null;
   let inventory = "";
   try {
     const invPages = Array.isArray(src) ? routes.map((route) => { const p = src.find((x) => x && routeOf(x.path) === route); return p && typeof p.source === "string" ? { path: p.path, route, source: p.source } : null; }).filter(Boolean) : null;
-    inventory = routeInventory({ pages: invPages, spec: spec && spec.ok === true && spec.spec ? spec.spec : null, label: accessLabel, words });
+    inventory = routeInventory({ pages: invPages, spec: spec && spec.ok === true && spec.spec ? spec.spec : null, label: accessLabel, words, parts: Array.isArray(routeParts) ? routeParts : null });
   } catch (e) { console.error("route inventory:", slug, errorClassForLog(e)); inventory = ""; }
   let out = site;
   // THE THREE KEPT APART (2026-10-05): names read replace the browser's, and so
@@ -10551,7 +10558,13 @@ async function readConverseContext(env, user, rb, digest) {
       return { url: uploadUrl(slug, name), name: f.download ? readDownloadName(f.download) || name : name, kind, size: f.size, ...media };
     })
     : null;
-  return { ...base, pages, tables, files: lib, draftFirst: draftFirst(env) };
+  // THE SITE MAP'S KEY FACTS (2026-10-26), from the pages just read and the parts.
+  let keyFacts = "";
+  try {
+    const cParts = Array.isArray(src) ? await withinMs(loadSiteParts(env, slug), CONVERSE_READ_MS, "converse parts:", slug) : null;
+    keyFacts = Array.isArray(src) ? mapFor("text", buildSiteMap({ pages: src, parts: Array.isArray(cParts) ? cParts : [] })) : "";
+  } catch { keyFacts = ""; }
+  return { ...base, pages, tables, files: lib, draftFirst: draftFirst(env), ...(keyFacts ? { keyFacts } : {}) };
 }
 
 /**
@@ -14192,6 +14205,69 @@ async function loadLandmarks(env, slug) {
   } catch (e) { console.error("landmarks read failed:", slug, e && e.message); return []; }
 }
 
+// ── THE ONE SITE MAP, SAVED WITH EACH VERSION (2026-10-26) ──────────────────
+//
+// `builder/site-map.mjs` describes the site from its stored source and its
+// live schema, deterministically. It is rebuilt after every save that
+// publishes (the edit spine, the build), written beside the site
+// (`source/<slug>/sitemap.json`) and with the version (`sitemaps/<id>.json`),
+// so a restore puts back the map of the version it restores. Never in the way
+// of a publish: every read and write here fails open and logs.
+async function refreshSiteMap(env, slug, version = null) {
+  if (!env.SITES_BUCKET || !slug) return null;
+  try {
+    const [src, partsR, spec, css] = await Promise.all([
+      readSiteSource(env, slug).catch(() => null),
+      readSiteParts(env, slug).catch(() => null),
+      (async () => { const conn = await ownerSiteConn(env, slug); if (!conn) return { tables: [] }; const r = await readStoredSpec(conn); return r && r.ok === true ? r.spec : null; })().catch(() => null),
+      (async () => { const db = await siteBackendBySlug(env, slug); const c = await readSiteConfig(env, slug, db); return c.ok ? c.config.css : null; })().catch(() => null),
+    ]);
+    const map = buildSiteMap({
+      pages: src && src.ok ? src.pages : null,
+      parts: partsR && partsR.ok ? partsR.parts : null,
+      spec, label: accessLabel, css, version: typeof version === "string" ? version : null,
+    });
+    const body = JSON.stringify({ at: new Date().toISOString(), slug, ...map });
+    const meta = { httpMetadata: { contentType: "application/json" } };
+    await env.SITES_BUCKET.put(siteMapKey(slug), body, meta);
+    if (typeof version === "string" && version) await env.SITES_BUCKET.put(siteMapVersionKey(slug, version), body, meta);
+    return map;
+  } catch (e) { console.error("site map save failed:", slug, errorClassForLog(e)); return null; }
+}
+async function loadSiteMap(env, slug) {
+  if (!env.SITES_BUCKET || !slug) return null;
+  try {
+    const o = await env.SITES_BUCKET.get(siteMapKey(slug));
+    if (!o) return null;
+    const v = JSON.parse(await o.text());
+    return v && typeof v === "object" && v.v === SITE_MAP_VERSION ? v : null;
+  } catch (e) { console.error("site map read failed:", slug, errorClassForLog(e)); return null; }
+}
+/**
+ * THE MAP AS IT IS NOW, FOR A READER (2026-10-26, the owner: "always current").
+ * Every way a site changes is not one code path — a schema or access change, a
+ * Data-panel edit, a discarded draft, a draft save under draft-first that moves
+ * the stored source without a publish — so a reader is never handed the saved
+ * copy on trust: the map is rebuilt from the stored source and the live schema
+ * on every read (and saved). Only when that rebuild cannot be made is the
+ * saved copy served, marked `stale: true`, never silently.
+ */
+async function currentSiteMap(env, slug) {
+  const fresh = await refreshSiteMap(env, slug, null);
+  if (fresh) return fresh;
+  const kept = await loadSiteMap(env, slug);
+  return kept ? { ...kept, stale: true } : null;
+}
+async function restoreSiteMap(env, slug, id) {
+  if (!env.SITES_BUCKET || !slug || !id) return false;
+  try {
+    const o = await env.SITES_BUCKET.get(siteMapVersionKey(slug, id));
+    if (o) { await env.SITES_BUCKET.put(siteMapKey(slug), await o.text(), { httpMetadata: { contentType: "application/json" } }); return true; }
+    // A version saved before the map existed: rebuilt from what is stored now.
+    return !!(await refreshSiteMap(env, slug, id));
+  } catch (e) { console.error("site map restore failed:", slug, errorClassForLog(e)); return false; }
+}
+
 async function saveGenAnswer(env, slug, answer) {
   if (!env.SITES_BUCKET) return false;
   try {
@@ -16084,6 +16160,8 @@ async function restoreVersion(env, slug, id, { refuseLegacy = false } = {}) {
         error: act.error === "superseded" ? "the site changed while that version was being put back — try again" : "restore failed: " + act.error,
       };
     }
+    // THE MAP OF THE VERSION PUT BACK (2026-10-26), saved with it.
+    await restoreSiteMap(env, slug, id);
     return { ok: true, id, files: b.manifest.files.length, swept: 0, worker: b.worker, build: b.manifest.build || "", activated: true, uploaded: act.uploaded, wput };
   }
   // NO LEGACY COPY UNDER DRAFT-FIRST (2026-10-23, audit A38-6): the copy path
@@ -19538,6 +19616,8 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       tm("r2:landmarks", "ok", { marks: ((built.render && built.render.landmarks) || []).length });
       // AND THE LAYOUT AT EACH DEVICE, the next per-device edit's "before".
       await saveLayout(env, slug, built.layout);
+      // AND THE SITE MAP OF THIS VERSION (2026-10-26), from the source just saved.
+      if (!unsaved.length) await refreshSiteMap(env, slug, version);
       // AND THE MARKER LAST (stage 6): the editable copy names the version it
       // came from, so the next job can tell a finished copy from one that
       // died between the pointer and here, and repair it before it reads.
@@ -21051,12 +21131,17 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   // GATED ON A REAL PUBLISH. A build that failed has no live page, and a map
   // describing one that was never served would aim the next edit at elements
   // nobody can see.
-  if (out && out.ok && out.render) await saveLandmarks(env, slug, out.render.landmarks, { partial: out.render.partial === true, routes: bRoutes });
+  // THE GATE READ `out.ok`, WHICH `publishPages` NEVER ANSWERS ON SUCCESS
+  // (2026-10-26, the site map's inventory): no first build ever saved its map.
+  // It reads the route's own published-build signal now, as the layout does.
+  if (out && out.page === "app" && out.render) await saveLandmarks(env, slug, out.render.landmarks, { partial: out.render.partial === true, routes: bRoutes });
   // AND THE LAYOUT AT EACH DEVICE (2026-10-24), the first per-device edit's
   // "before", from the same render check. Gated on what the route itself
   // reads as a published build (`page: "app"`, a salvaged one included: its
   // layout is the kept compile's); `publishPages` answers no `ok` on success.
   if (out && out.page === "app" && Array.isArray(out.layout)) await saveLayout(env, slug, out.layout);
+  // AND THE SITE MAP OF THE VERSION THIS BUILD PUBLISHED (2026-10-26).
+  if (out && out.page === "app") await refreshSiteMap(env, slug, typeof out.version === "string" ? out.version : null);
   if (out && bDraftSaved) out.draft = bDraftSaved;
   // THE BUILD CHECKLIST'S PLAN (2026-10-22, idea #14): derived in code from the
   // design this build was handed, checked by `pageNotes` against what landed.
@@ -43791,6 +43876,10 @@ async function handleRequest(request, env, ctx) {
               // own parts each page imports, so the component designer can
               // name the one a like section already uses.
               builtFrom: pageComponents(aView),
+              // THE SITE MAP'S KEY FACTS (2026-10-26): contact details, hours,
+              // prices and addresses with where each is written, from the
+              // pages and parts this addition is shown.
+              keyFacts: (() => { try { return mapFor("addon", buildSiteMap({ pages: aView, parts: Array.isArray(aViewParts) ? aViewParts : [] })); } catch { return ""; } })(),
               tables: ((spec && spec.tables) || []).map((t) => t && t.name).filter(Boolean),
               // EACH TABLE'S COLUMNS, "name type" (2026-09-03), for the
               // function designer: a `sql` body is parsed at CREATE, so a

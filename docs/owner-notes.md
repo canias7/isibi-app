@@ -1,5 +1,14 @@
 # Owner Notes
 
+## 2026-10-26 — one site map that every step reads (branch `site-map`, not merged, not deployed)
+
+- **One map of the whole site**, built from its stored pages and parts and its live database, with no AI call. It holds the pages, the shared parts, the tables (columns, required fields, who may read and write), which pages read or write which tables, the menu and footer, the theme, the photos, and the key details: phone, email, opening hours, prices and addresses, each with every place it is written (for example "hours in the footer, on every page").
+- **Always current.** It is saved with every version and comes back when you restore a version. A reader never trusts the saved copy: the map is rebuilt from the site as it is now each time it is read. If that rebuild cannot be made, the saved copy is labelled stale rather than passed off as current.
+- **Who reads it now:** the router (the key details and where they are), the text step, the add-on designers, the conversation and the diagnosis tool.
+- **"Change the opening hours" on /contact now finds hours written in the footer.** A page's shared parts count as its words. If you quote words that are on another page, the step looks there instead of answering "couldn't find it".
+- **Bug fixed:** a first build never saved its landmark map (the thing edits aim by), because the save waited for a signal the publish never sends.
+- Tests: 11 new; 8 of 8 mutants killed; the comment-only control survived. Nothing was spent. Record: `docs/history/2026-10-26-site-map.md`.
+
 ## 2026-10-26 — spam protection from Go Farther's own key, per site when asked (branch `fix-run6`, not merged, not deployed)
 
 - **One Turnstile key pair for the whole platform.** The Worker now reads `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET` (optional GitHub secrets; until you add them nothing changes). A site's own keys still win.

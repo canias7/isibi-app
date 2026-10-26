@@ -935,7 +935,7 @@ test("BOTH publish paths store the landmark map, not just the edit one", async (
   // first point on the build path where the map exists at all. Widening the
   // callback to carry it is the OTHER way to do this, and doing both is how the
   // duplicate above happened.
-  const buildStore = src.indexOf("if (out && out.ok && out.render) await saveLandmarks(");
+  const buildStore = src.indexOf("if (out && out.page === \"app\" && out.render) await saveLandmarks(");
   assert.ok(buildStore > 0,
     "the build path's store is no longer gated on a successful publish, or it moved");
 });

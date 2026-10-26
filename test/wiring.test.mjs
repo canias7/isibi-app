@@ -1706,7 +1706,7 @@ test("BOTH publish paths store the landmark map, or a fresh site's first edit ai
 
   // AND THE BUILD PATH'S IS GATED ON A REAL PUBLISH. A map describing a page
   // that was never served would aim the next edit at elements nobody can see.
-  const at = src.indexOf("if (out && out.ok && out.render) await saveLandmarks(");
+  const at = src.indexOf("if (out && out.page === \"app\" && out.render) await saveLandmarks(");
   assert.ok(at > 0, "the build path stores its map ungated, or the store is gone");
 });
 

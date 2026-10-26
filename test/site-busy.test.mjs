@@ -732,10 +732,11 @@ test("the editable copy: four editing readers read through the repairing reader,
   // 15 SINCE 2026-10-24 (combine-d): + THE VISUAL REVIEW'S DECISION READ in the seam (`recompileAndPublish`,
   // visual-review-frontend): it compares the publish's pages with the editable copy; it only reads.
   assert.ok(W.includes("const [srcBefore, partsBefore] = await Promise.all([readSiteSource(env, slug), readSiteParts(env, slug)]);"), "the visual review's decision read is gone, or does more than read");
+  // 17 SINCE 2026-10-26 (site-map): + `refreshSiteMap`, a reader that never publishes.
   // 16 SINCE 2026-10-25 (diagnose-tools): + THE DIAGNOSIS'S `list_site`/`read_page` read
   // (`diagnoseTools`), shadow only; it never writes or publishes.
   assert.ok(W.includes("const pages = () => (pagesP ||= (okSlug ? loadSiteSource(env, slug) : Promise.resolve(null)).catch(() => null));"), "the diagnosis's read is gone, or does more than read");
-  assert.equal(bare.length, 16, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
+  assert.equal(bare.length, 17, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
   assert.ok(W.includes("const pages = url.searchParams.get(\"force\") === \"1\" ? null : await loadSiteSource(env, uslug).catch(() => null);"), "the media delete's read is gone, or does more than read which pages name a file");
   assert.ok(W.includes("withinMs(loadSiteSource(env, slug), CONVERSE_READ_MS, \"converse pages:\", slug)"), "the conversation's read is gone, or does more than read the pages for a reply");
   assert.ok(W.includes("loadSiteSource(env, slug).then((pp) => pageLabels("), "the request's label read is gone, or does more than read labels");
@@ -761,7 +762,8 @@ test("the editable copy: four editing readers read through the repairing reader,
   // a strict read that repairs nothing (argued for above).
   // 6 → 7 (2026-10-24, standin-everywhere): the seam's salvage read.
   // 7 → 8 (2026-10-24, combine-d): + the visual review's decision read in the seam (visual-review-frontend).
-  assert.equal(bare.filter((b) => b.startsWith("readSiteSource")).length, 8,
+  // 8 → 9 (2026-10-26, site-map): + `refreshSiteMap`, which reads and never publishes.
+  assert.equal(bare.filter((b) => b.startsWith("readSiteSource")).length, 9,
     "the six reads are not the plain wrapper's, the checked wrapper's two, the Code tab's and the security scan's two: " + bare.join(" | "));
   assert.match(fnW("loadSiteSource"), /const r = await readSiteSource\(env, slug\);/,
     "the wrapper no longer delegates — there are two readers of the store, which drift");

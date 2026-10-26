@@ -30,6 +30,8 @@ import { navSlots, menuUnion, actionSlots, contactSlots, chromeListSlots } from 
 // is built from the same fact source as the add-on's `siteFacts` (`labels`,
 // `builtFrom`), not from a reader of its own.
 import { pageLabels, pageComponents } from "./site-add.mjs";
+// THE ONE SITE MAP (2026-10-26): the key facts and where each is written.
+import { buildSiteMap, mapFor } from "./site-map.mjs";
 
 export const INVENTORY_CHARS = 6000;
 const MAX_TABLES = 64;
@@ -130,8 +132,15 @@ export function siteMap({ pages = null, spec = null, label = null, words = true 
   return { tables, pages: facts, frame: pageList ? frameFacts(pageList) : [] };
 }
 
-export function routeInventory({ pages = null, spec = null, label = null, budget = INVENTORY_CHARS, words = true } = {}) {
+export function routeInventory({ pages = null, spec = null, label = null, budget = INVENTORY_CHARS, words = true, parts = null, map = null } = {}) {
   const { tables, pages: facts, frame } = siteMap({ pages, spec, label, words });
+  // KEY DETAILS WITH WHERE EACH IS WRITTEN (the site map's router slice), so
+  // one set of opening hours in a shared footer is seen as the whole site's.
+  // Left out with the headings when a part may not see words (`words` false).
+  let keyFacts = "";
+  if (words !== false) {
+    try { keyFacts = mapFor("router", map || (Array.isArray(pages) ? buildSiteMap({ pages: pages.map((p) => ({ path: p.path || "", source: p.source })), parts }) : null)); } catch { keyFacts = ""; }
+  }
   const pageLine = (f, withSections) => {
     const bits = [];
     if (f.headings.length) bits.push("headings: " + f.headings.map((h) => "\"" + clip(h, 60) + "\"").join(", "));
@@ -148,11 +157,14 @@ export function routeInventory({ pages = null, spec = null, label = null, budget
     if (frame.length) parts.push("The frame every page shares:\n" + frame.join("\n"));
     return parts.join("\n");
   };
+  // ONE BUDGET FOR BOTH: the key facts' room is taken first, the inventory cut to the rest.
+  const room = Math.max(0, budget - (keyFacts ? keyFacts.length + 1 : 0));
   let out = build(true);
-  if (out.length > budget) out = build(false);
-  if (out.length > budget) {
-    const cut = out.slice(0, budget);
+  if (out.length > room) out = build(false);
+  if (out.length > room) {
+    const cut = out.slice(0, room);
     out = cut.slice(0, cut.lastIndexOf("\n") > 0 ? cut.lastIndexOf("\n") : cut.length) + "\n- … (more not shown)";
   }
-  return out;
+  // The key facts ride after the budgeted inventory, on their own budget (`mapFor`).
+  return keyFacts ? (out ? out + "\n" : "") + keyFacts : out;
 }

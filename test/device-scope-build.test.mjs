@@ -135,7 +135,7 @@ test("a build whose render check measured nothing stores no layout (never an emp
 });
 
 test("the build path stores the layout only after a real publish, from `out.layout`, beside the landmark map", () => {
-  const a = W.indexOf("if (out && out.ok && out.render) await saveLandmarks(env, slug, out.render.landmarks");
+  const a = W.indexOf("if (out && out.page === \"app\" && out.render) await saveLandmarks(env, slug, out.render.landmarks");
   assert.ok(a > 0, "the build path's landmark save moved");
   const tail = W.slice(a, a + 600);
   assert.match(tail, /if \(out && out\.page === "app" && Array\.isArray\(out\.layout\)\) await saveLayout\(env, slug, out\.layout\);/);

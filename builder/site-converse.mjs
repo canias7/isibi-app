@@ -338,6 +338,8 @@ export function siteContextBlock(ctx) {
           shown.map(fileLine).join("\n") + (c.files.length > shown.length ? "\n(" + (c.files.length - shown.length) + " more files not listed)" : ""));
       }
     } else out.push("Its file library could not be read for this answer.");
+    // THE SITE MAP'S KEY FACTS (2026-10-26), with where each is written.
+    if (typeof c.keyFacts === "string" && c.keyFacts.trim()) out.push(c.keyFacts.trim());
   }
   let text = out.join("\n\n");
   if (text.length > CONTEXT_CHARS) text = text.slice(0, CONTEXT_CHARS) + "\n[the rest of the site's description is not shown]";

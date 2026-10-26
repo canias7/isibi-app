@@ -50,6 +50,8 @@ import { withReasonRetry, addUsages } from "./retry-reason.mjs";
 // container and no Worker.
 
 import { extractText, applyEdits } from "./site-text.mjs";
+import { partsImported, quotedElsewhere } from "./site-map.mjs";
+import { partPath } from "./site-files.mjs";
 import { sortSlots, sortDigest, sortColumns, applySort, sortReply, sortRefusal, SORT_DIRS } from "./site-order.mjs";
 import { modelsFor } from "./build-models.mjs";
 // THE QUESTION BACK (2026-10-02), shared with every step (`builder/clarify.mjs`).
@@ -295,11 +297,24 @@ export function fileOfPagePath(r) {
  * Null — shown the whole site — when a named page has no words here, or when
  * nothing would be left out.
  */
-export function scopedText(items, scope) {
+export function scopedText(items, scope, pages = null) {
   const files = scope && Array.isArray(scope.pages) ? [...new Set(scope.pages.map(fileOfPagePath).filter(Boolean))] : [];
   if (!files.length) return null;
-  const own = new Set(items.filter((it) => files.includes(it.path)).map((it) => it.text));
   if (!files.every((f) => items.some((it) => it.path === f))) return null;
+  // THE PARTS A NAMED PAGE RENDERS ARE ITS WORDS TOO (2026-10-26, the site
+  // map): a footer written once in `-parts/footer.tsx` is on /contact, so a
+  // step scoped to /contact is shown it (`partsImported`, followed through
+  // parts that import parts). Without `pages`, the page files alone, as before.
+  if (Array.isArray(pages)) {
+    const src = new Map(pages.filter((p) => p && typeof p.path === "string").map((p) => [p.path, String(p.source || "")]));
+    for (let i = 0; i < files.length && files.length < 64; i++) {
+      for (const n of partsImported(src.get(files[i]) || "")) {
+        const f = partPath(n);
+        if (f && src.has(f) && !files.includes(f)) files.push(f);
+      }
+    }
+  }
+  const own = new Set(items.filter((it) => files.includes(it.path)).map((it) => it.text));
   const shown = items.filter((it) => files.includes(it.path) || own.has(it.text));
   const rest = items.filter((it) => !shown.includes(it));
   if (!rest.length) return null;
@@ -482,7 +497,7 @@ export async function runTextEdit(deps, { instruction, pages, scope = null, mode
   if (items.length > MAX_TEXT_ITEMS) return { ok: false, escalate: true, reason: "too-much-text", usage: null };
   // SHOWN ITS SCOPE FIRST when its route names one (`scopedText`); asked again
   // with every page, as they are now, when its answer needs more.
-  const sc = scopedText(items, scope);
+  const sc = scopedText(items, scope, pages);
   let shown = sc ? sc.shown : items;
   let reply, widened = false, first = null;
   try {
@@ -525,8 +540,24 @@ export async function runTextEdit(deps, { instruction, pages, scope = null, mode
   if (ask) return { ok: false, escalate: false, reason: "ask", ask, usage, ...seen };
   // CHECKED AGAINST WHAT IT WAS SHOWN: a scoped answer can name only the lines
   // of the pages in its scope.
-  const edits = readTextEdits(reply, shown);
-  if (!edits.length) return { ok: false, escalate: true, reason: "no-match", usage, ...seen };
+  let edits = readTextEdits(reply, shown);
+  let used = usage;
+  // THE WORDS THEY QUOTED ARE WRITTEN ELSEWHERE (2026-10-26, the site map): a
+  // scoped answer that matched nothing, when the message holds the site's own
+  // words from a page or part it was not shown, is asked once more with every
+  // page as it is now — applied where the words are, never a no-match.
+  if (!edits.length && sc && !widened && quotedElsewhere(instruction, items.filter((it) => !shown.includes(it)), []).length) {
+    let again;
+    try { again = await deps.send(textRequest({ instruction, items, model })); }
+    catch (e) { return { ok: false, escalate: false, reason: "send", error: e, usage }; }
+    used = addUsage(usage, textUsage(again, model));
+    seen.seen = "widened";
+    const askAgain = askOf(again);
+    if (askAgain) return { ok: false, escalate: false, reason: "ask", ask: askAgain, usage: used, ...seen };
+    shown = items; reply = again;
+    edits = readTextEdits(again, shown);
+  }
+  if (!edits.length) return { ok: false, escalate: true, reason: "no-match", usage: used, ...seen };
   const ed = applyEdits(pages, edits);
   // A REFUSAL FROM `applyEdits` IS NOT AN ESCALATION, and it is DEFENSIVE rather
   // than a path this function can reach on its own: the offsets it sends are the
@@ -538,11 +569,11 @@ export async function runTextEdit(deps, { instruction, pages, scope = null, mode
   // It must NOT go up the ladder: the rung above would be working from the same
   // out-of-date copy, so retrying is what fixes it and a bigger lane is not.
   // Nothing is published either way; `ok:false` is the whole contract.
-  if (!ed.ok) return { ok: false, escalate: false, reason: "stale", detail: ed.error, usage, ...seen };
+  if (!ed.ok) return { ok: false, escalate: false, reason: "stale", detail: ed.error, usage: used, ...seen };
   // A PART OF THE MESSAGE NOT MADE IS SAID, NEVER SWALLOWED (2026-10-23):
   // `ok` stays true for what did go in, and `notDone` makes it partial.
   const notDone = readTextNotDone(reply, shown);
-  return { ok: true, pages: ed.pages, applied: ed.applied, edits, usage, ...seen, ...(notDone.length ? { notDone, partial: true } : {}) };
+  return { ok: true, pages: ed.pages, applied: ed.applied, edits, usage: used, ...seen, ...(notDone.length ? { notDone, partial: true } : {}) };
 }
 
 // ── THE DATA LAYER: the content the site STORES ──────────────────────────────
