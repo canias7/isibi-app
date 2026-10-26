@@ -452,19 +452,24 @@ export function withMapNote(request, text) {
 }
 /** A `send(req)` that carries the slice `note()` answers (async, fails open). */
 export function mapSend(send, note) {
-  return async (req) => {
-    let t = "";
-    try { t = typeof note === "function" ? await note() : ""; } catch { t = ""; }
-    return send(withMapNote(req, t));
-  };
+  const out = async (req) => send(await mapRequest(req, note));
+  // WHAT IT WRAPS, for a job's replayer (2026-10-26): the map is added BEFORE
+  // the request is recorded or replayed (`jobSend`), so an answer recorded
+  // with no map, or another map, is never replayed for this one.
+  out.mapped = { send, note };
+  return out;
 }
 /** The same for a `call(keys, req, budget)` transport (the page writer's). */
 export function mapCall(call, note) {
-  return async (keys, req, ...rest) => {
-    let t = "";
-    try { t = typeof note === "function" ? await note() : ""; } catch { t = ""; }
-    return call(keys, withMapNote(req, t), ...rest);
-  };
+  const out = async (keys, req, ...rest) => call(keys, await mapRequest(req, note), ...rest);
+  out.mapped = { call, note };
+  return out;
+}
+/** The request with its map note in place; a note that cannot be read leaves it as it was. */
+export async function mapRequest(req, note) {
+  let t = "";
+  try { t = typeof note === "function" ? await note() : ""; } catch { t = ""; }
+  return withMapNote(req, t);
 }
 
 /**
