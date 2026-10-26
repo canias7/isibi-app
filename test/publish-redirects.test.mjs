@@ -187,7 +187,7 @@ function platform(slug, seen) {
     if (u.includes("/rest/v1/site_backends")) return json([{ uid: USER.id, brief: "", neon_db: "" }]);
     if (u.includes("/rest/v1/site_project") || u.includes("/rest/v1/site_aliases")) return json([]);
     if (u.includes("/v1/messages")) {
-      const tool = (args.tool_choice && args.tool_choice.name) || "";
+      const tool = (args.tool_choice && (args.tool_choice.name || (args.tool_choice.type === "any" && args.tools && args.tools[0] && args.tools[0].name))) || "";
       seen.calls.push(tool);
       if (tool === TWEAK_TOOL.name) {
         const content = String((args.messages && args.messages[0] && args.messages[0].content) || "");

@@ -736,7 +736,9 @@ test("the editable copy: four editing readers read through the repairing reader,
   // 16 SINCE 2026-10-25 (diagnose-tools): + THE DIAGNOSIS'S `list_site`/`read_page` read
   // (`diagnoseTools`), shadow only; it never writes or publishes.
   assert.ok(W.includes("const pages = () => (pagesP ||= (okSlug ? loadSiteSource(env, slug) : Promise.resolve(null)).catch(() => null));"), "the diagnosis's read is gone, or does more than read");
-  assert.equal(bare.length, 17, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
+  // 18 SINCE 2026-10-26 (explore-code): + `siteExploreNow`, the explore tools' file read; it only reads.
+  assert.ok(W.includes("readSiteSource(env, k).catch(() => null), readSiteParts(env, k).catch(() => null),"), "the explore read is gone, or does more than read");
+  assert.equal(bare.length, 18, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
   assert.ok(W.includes("const pages = url.searchParams.get(\"force\") === \"1\" ? null : await loadSiteSource(env, uslug).catch(() => null);"), "the media delete's read is gone, or does more than read which pages name a file");
   assert.ok(W.includes("withinMs(loadSiteSource(env, slug), CONVERSE_READ_MS, \"converse pages:\", slug)"), "the conversation's read is gone, or does more than read the pages for a reply");
   assert.ok(W.includes("loadSiteSource(env, slug).then((pp) => pageLabels("), "the request's label read is gone, or does more than read labels");
@@ -763,7 +765,8 @@ test("the editable copy: four editing readers read through the repairing reader,
   // 6 → 7 (2026-10-24, standin-everywhere): the seam's salvage read.
   // 7 → 8 (2026-10-24, combine-d): + the visual review's decision read in the seam (visual-review-frontend).
   // 8 → 9 (2026-10-26, site-map): + `refreshSiteMap`, which reads and never publishes.
-  assert.equal(bare.filter((b) => b.startsWith("readSiteSource")).length, 9,
+  // 9 → 10 (2026-10-26, explore-code): + `siteExploreNow`, the explore tools' read; it never publishes.
+  assert.equal(bare.filter((b) => b.startsWith("readSiteSource")).length, 10,
     "the six reads are not the plain wrapper's, the checked wrapper's two, the Code tab's and the security scan's two: " + bare.join(" | "));
   assert.match(fnW("loadSiteSource"), /const r = await readSiteSource\(env, slug\);/,
     "the wrapper no longer delegates — there are two readers of the store, which drift");

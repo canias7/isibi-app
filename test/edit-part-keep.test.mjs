@@ -84,7 +84,7 @@ function withWire(answers, run) {
     if (url.includes("/v1/messages")) {
       let body = {};
       try { body = JSON.parse(String(init && init.body) || "{}"); } catch { body = {}; }
-      const tool = body.tool_choice?.name || "";
+      const tool = body.tool_choice?.name || (body.tool_choice?.type === "any" && body.tools?.[0]?.name) || "";
       calls.push({ tool, body });
       if (!Object.hasOwn(answers, tool)) return new Response("no stub for tool " + tool, { status: 503 });
       return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: answers[tool] }], usage: { input_tokens: 10, output_tokens: 5 } });

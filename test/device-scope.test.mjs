@@ -312,7 +312,7 @@ async function edit({ mode = "sync", devices, before = BEFORE, after = (b) => b,
     if (u.includes("/rest/v1/site_backends")) return json(u.includes("slug=eq." + slug) ? [{ uid: USER.id, brief: "", neon_db: "" }] : []);
     if (u.includes("/rest/v1/")) return json([]);
     if (u.includes("/v1/messages")) {
-      const tool = (args.tool_choice && args.tool_choice.name) || "";
+      const tool = (args.tool_choice && (args.tool_choice.name || (args.tool_choice.type === "any" && args.tools && args.tools[0] && args.tools[0].name))) || "";
       if (tool === T.pick) return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: { fields: ["css"] } }], usage: { input_tokens: 1000, output_tokens: 50 } });
       if (tool === T.lane) {
         seen.lanePrompts.push(JSON.stringify(args.messages || []));

@@ -180,7 +180,7 @@ async function chain({ report = "done", alsoAsked = [LATER, MAP], handOver = HAN
     if (url.includes("/rest/v1/site_backends")) return method === "GET" ? rjson([{ uid: USER.id, neon_db: "", brief: "a bakery" }]) : rjson([]);
     if (url.includes("/rest/v1/")) return rjson([]);
     if (url.includes("/v1/messages")) {
-      const tool = (args.tool_choice && args.tool_choice.name) || "";
+      const tool = (args.tool_choice && (args.tool_choice.name || (args.tool_choice.type === "any" && args.tools && args.tools[0] && args.tools[0].name))) || "";
       prompts.push({ tool, text: JSON.stringify(args.messages || []) + JSON.stringify(args.system || "") });
       if (tool === "design_schema") return rjson({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: { brand: "Harbour Loaf", slug, description: "a bakery", kind: "shopfront", purpose: "visit", pages: [{ path: "/", name: "Home" }], components: [], css: "" } }], usage: { input_tokens: 100, output_tokens: 50 } });
       return new Response("no stub for " + tool, { status: 503 });

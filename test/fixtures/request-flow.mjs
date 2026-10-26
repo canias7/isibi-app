@@ -465,7 +465,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     ? resp({ usage: usage || { input_tokens: 10, output_tokens: 5 }, ...input.__raw })
     : resp({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input }], usage: usage || { input_tokens: 10, output_tokens: 5 } }));
   async function model(args, signal = null) {
-    const tool = (args.tool_choice && args.tool_choice.name) || "";
+    const tool = (args.tool_choice && (args.tool_choice.name || (args.tool_choice.type === "any" && args.tools && args.tools[0] && args.tools[0].name))) || (args.tool_choice && args.tool_choice.type === "any" && args.tools && args.tools[0] && args.tools[0].name) || ""; // a step that may look first asks for any tool; its own comes first (site-explore.mjs)
     const props = (args.tools && args.tools[0] && args.tools[0].input_schema && args.tools[0].input_schema.properties) || {};
     // THE CALL'S OWN INSTRUCTIONS TOO (2026-10-13), so a case can tell which writer was asked.
     const system = Array.isArray(args.system) ? args.system.map((b) => (b && typeof b.text === "string" ? b.text : "")).join("") : typeof args.system === "string" ? args.system : "";

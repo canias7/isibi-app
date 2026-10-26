@@ -123,7 +123,7 @@ async function tweakDrive(answers) {
     if (u.includes("/rest/v1/site_backends")) return json([{ uid: USER.id, brief: "", neon_db: "" }]);
     if (u.includes("/rest/v1/site_project") || u.includes("/rest/v1/site_aliases")) return json([]);
     if (u.includes("/v1/messages")) {
-      const tool = (args.tool_choice && args.tool_choice.name) || "";
+      const tool = (args.tool_choice && (args.tool_choice.name || (args.tool_choice.type === "any" && args.tools && args.tools[0] && args.tools[0].name))) || "";
       seen.tools.push(tool);
       if (tool === TWEAK_TOOL.name) seen.reqs.push(args);
       const list = left[tool];
@@ -219,7 +219,7 @@ async function dataDrive(slug, answers) {
     }
     if (/neon\.tech|\/sql$/.test(url)) return db.answer(String(body.query || ""), Array.isArray(body.params) ? body.params : []) || json({ command: "SELECT", rowCount: 0, rows: [], fields: [] });
     if (url.includes("/v1/messages")) {
-      const tool = (body.tool_choice && body.tool_choice.name) || "";
+      const tool = (body.tool_choice && (body.tool_choice.name || (body.tool_choice.type === "any" && body.tools && body.tools[0] && body.tools[0].name))) || "";
       if (tool !== DATA_TOOL.name || !left.length) return new Response("no stub for tool " + tool, { status: 503 });
       seen.reqs.push(body);
       return json({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "d" + seen.reqs.length, name: DATA_TOOL.name, input: left.shift() }], usage: { input_tokens: 10, output_tokens: 5 } });

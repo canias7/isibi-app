@@ -496,7 +496,7 @@ async function syncEdit({ slug, config, instruction, fields }) {
     if (u.includes("/v1/messages")) {
       let bj = {};
       try { bj = JSON.parse(String(init && init.body) || "{}"); } catch { bj = {}; }
-      const tool = (bj.tool_choice && bj.tool_choice.name) || "";
+      const tool = (bj.tool_choice && (bj.tool_choice.name || (bj.tool_choice.type === "any" && bj.tools && bj.tools[0] && bj.tools[0].name))) || "";
       tools.push(tool);
       // ANSWERED PER FIELD, because each lane's tool has ONE property and an
       // answer naming a different field is no answer at all — the lane

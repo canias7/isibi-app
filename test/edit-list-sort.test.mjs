@@ -226,7 +226,7 @@ function withWire(answers, slug, run, { cancel = false } = {}) {
       return json({ command: "SELECT", rowCount: a.rows.length, rows: a.rows, fields });
     }
     if (url.includes("/v1/messages")) {
-      const tool = (args.tool_choice && args.tool_choice.name) || "";
+      const tool = (args.tool_choice && (args.tool_choice.name || (args.tool_choice.type === "any" && args.tools && args.tools[0] && args.tools[0].name))) || "";
       seen.calls.push(tool);
       (seen.requests[tool] = seen.requests[tool] || []).push(args);
       if (!Object.hasOwn(answers, tool)) return new Response("no stub for tool " + tool, { status: 503 });

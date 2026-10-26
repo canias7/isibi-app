@@ -220,6 +220,10 @@ export function toXaiRequest(req) {
   if (r.tool_choice && r.tool_choice.type === "tool" && r.tool_choice.name) {
     body.tool_choice = { type: "function", function: { name: r.tool_choice.name } };
   }
+  // ANY TOOL, BUT A TOOL (2026-10-26, the explore loop): while a step looks at
+  // the site, its own tool is no longer forced and any offered tool may be
+  // called; "required" keeps it from answering in prose.
+  else if (r.tool_choice && r.tool_choice.type === "any" && tools.length) body.tool_choice = "required";
   // Sticky routing for the prefix cache. Keyed on the tool, which is what
   // identifies a call site here: the design call and the pages call have
   // different invariant prefixes and should not chase each other's cache.

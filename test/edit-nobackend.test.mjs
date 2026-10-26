@@ -170,7 +170,7 @@ async function withModel(run, { hasDb = false, owned = true } = {}) {
       const asked = (() => {
         try {
           const b = JSON.parse(String(init && init.body) || "{}");
-          return b.tool_choice?.name || b.tool_choice?.function?.name || "";
+          return b.tool_choice?.name || (b.tool_choice?.type === "any" && b.tools?.[0]?.name) || b.tool_choice?.function?.name || (b.tool_choice === "required" && b.tools?.[0]?.function?.name) || "";
         } catch { return ""; }
       })();
       const input = asked === "pick_lanes"
@@ -642,7 +642,7 @@ async function withBodies(run, { fields = ["css"], answer = { css: "header a{col
     if (url.includes("/v1/messages") || url.includes("/v1/chat/completions")) {
       let body = {};
       try { body = JSON.parse(String(init && init.body) || "{}"); } catch {}
-      const asked = body.tool_choice?.name || body.tool_choice?.function?.name || "";
+      const asked = body.tool_choice?.name || (body.tool_choice?.type === "any" && body.tools?.[0]?.name) || body.tool_choice?.function?.name || (body.tool_choice === "required" && body.tools?.[0]?.function?.name) || "";
       calls.push({ url, asked, body });
       const input = asked === "pick_lanes" ? { fields } : answer;
       const anthropic = url.includes("/v1/messages");

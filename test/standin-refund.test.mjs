@@ -105,7 +105,7 @@ async function driveEdit({ answerHome, answerParts, judge }) {
     if (u.includes("/rest/v1/site_backends")) return json([{ uid: USER.id, brief: "", neon_db: "" }]);
     if (u.includes("/rest/v1/site_project") || u.includes("/rest/v1/site_aliases")) return json([]);
     if (u.includes("/v1/messages")) {
-      const tool = (args.tool_choice && args.tool_choice.name) || "";
+      const tool = (args.tool_choice && (args.tool_choice.name || (args.tool_choice.type === "any" && args.tools && args.tools[0] && args.tools[0].name))) || "";
       let a;
       let usage = { input_tokens: 1000, output_tokens: 500 };
       if (tool === TWEAK_TOOL.name) a = { cannot: "too large" };

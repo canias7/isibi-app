@@ -160,7 +160,7 @@ async function drive({ routed, ask, answers = {}, site = null, mode = "sync" }) 
     if (u.includes("/rest/v1/site_aliases")) return json([]);
     if (u.includes("/rest/v1/site_project")) return json([]);
     if (u.includes("/v1/messages")) {
-      const tool = (args.tool_choice && args.tool_choice.name) || "";
+      const tool = (args.tool_choice && (args.tool_choice.name || (args.tool_choice.type === "any" && args.tools && args.tools[0] && args.tools[0].name))) || "";
       seen.models.push(tool);
       // WHAT EACH CALL WAS ASKED, so a case can read the picker's real input —
       // its tool, its system text and its message — and not only its answer.

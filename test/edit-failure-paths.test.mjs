@@ -158,7 +158,7 @@ async function drive({ mode = "sync", routed, ask, pick = null, lanes = null, na
     }
     if (u.includes("/rest/v1/site_project")) return json([]);
     if (u.includes("/v1/messages")) {
-      const tool = (args.tool_choice && args.tool_choice.name) || "";
+      const tool = (args.tool_choice && (args.tool_choice.name || (args.tool_choice.type === "any" && args.tools && args.tools[0] && args.tools[0].name))) || "";
       seen.models.push(tool);
       if (tool === T.pick && pick) return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: pick }], usage: { input_tokens: 1000, output_tokens: 500 } });
       if (tool === T.lane && lanes) {

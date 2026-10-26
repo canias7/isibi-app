@@ -316,7 +316,7 @@ async function rewrite(extra) {
     if (url.includes("/rest/v1/site_project")) return rjson([]);
     if (url.includes("/v1/messages")) {
       const body = JSON.parse(String(init.body || "{}"));
-      const tool = (body.tool_choice && body.tool_choice.name) || "";
+      const tool = (body.tool_choice && (body.tool_choice.name || (body.tool_choice.type === "any" && body.tools && body.tools[0] && body.tools[0].name))) || "";
       prompts.push({ tool, text: JSON.stringify(body.messages || []) + JSON.stringify(body.system || "") });
       const usage = { input_tokens: 100, output_tokens: 50 };
       if (tool === "design_schema") {

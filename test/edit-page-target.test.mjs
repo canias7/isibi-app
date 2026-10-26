@@ -138,7 +138,7 @@ function withWire(answers, run) {
     if (url.includes("/v1/messages")) {
       let body = {};
       try { body = JSON.parse(String(init && init.body) || "{}"); } catch { body = {}; }
-      const tool = body.tool_choice && body.tool_choice.name || "";
+      const tool = (body.tool_choice && (body.tool_choice.name || (body.tool_choice.type === "any" && body.tools && body.tools[0] && body.tools[0].name))) || ""; // a step that may look first asks for any tool; its own comes first
       seen.calls.push(tool);
       if (tool === T.tweak) {
         const f = shownFile(body);

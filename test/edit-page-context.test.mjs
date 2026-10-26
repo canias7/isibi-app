@@ -157,7 +157,7 @@ function withWire(answers, run) {
     if (url.includes("/v1/messages")) {
       let body = {};
       try { body = JSON.parse(String(init && init.body) || "{}"); } catch { body = {}; }
-      const tool = body.tool_choice?.name || "";
+      const tool = body.tool_choice?.name || (body.tool_choice?.type === "any" && body.tools?.[0]?.name) || "";
       calls.push({ tool, body });
       // A TOOL WITH NO STUB IS REFUSED, never given a plausible answer: a stub
       // more capable than the real thing hides bugs exactly like one that is

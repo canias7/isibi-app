@@ -620,7 +620,7 @@ function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null,
       // from call order. Every add call asks for `add_to_site`, whose ONE
       // property besides `requirements` is named by the kind.
       const b = (() => { try { return JSON.parse(String(init && init.body) || "{}"); } catch { return {}; } })();
-      const asked = (b.tool_choice && (b.tool_choice.name || (b.tool_choice.function && b.tool_choice.function.name))) || "";
+      const asked = (b.tool_choice && (b.tool_choice.name || (b.tool_choice.function && b.tool_choice.function.name))) || ((b.tool_choice === "required" || (b.tool_choice && b.tool_choice.type === "any")) && b.tools && b.tools[0] && (b.tools[0].name || (b.tools[0].function && b.tools[0].function.name))) || ""; // a step that may look first asks for any tool; its own comes first (site-explore.mjs)
       const schemaOf = (() => {
         const t = (b.tools || []).find((x) => (x.name || (x.function && x.function.name)) === asked);
         return t && (t.input_schema || (t.function && t.function.parameters));

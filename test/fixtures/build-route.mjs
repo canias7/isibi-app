@@ -111,7 +111,7 @@ export async function driveBuild({ design, pages = null, body, ledger = {}, usag
     if (url.includes("console.neon.tech") || url.includes("neon.tech/api")) { seen.neon++; return new Response("no neon here", { status: 503 }); }
     if (url.includes("/v1/messages")) {
       const b = JSON.parse(String((init && init.body) || "{}"));
-      const tool = (b.tool_choice && b.tool_choice.name) || "";
+      const tool = (b.tool_choice && (b.tool_choice.name || (b.tool_choice.type === "any" && b.tools && b.tools[0] && b.tools[0].name))) || (b.tool_choice && b.tool_choice.type === "any" && b.tools && b.tools[0] && b.tools[0].name) || ""; // a step that may look first asks for any tool; its own comes first (site-explore.mjs)
       seen.tools.push(tool);
       if (tool === "design_schema") {
         seen.designer.push(JSON.stringify(b.messages || ""));

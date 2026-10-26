@@ -79,7 +79,7 @@ async function drive({ answers, compileOk = true }) {
     if (u.includes("/rest/v1/site_backends")) return json([{ uid: USER.id, brief: "", neon_db: "" }]);
     if (u.includes("/rest/v1/site_project") || u.includes("/rest/v1/site_aliases")) return json([]);
     if (u.includes("/v1/messages")) {
-      const tool = (args.tool_choice && args.tool_choice.name) || "";
+      const tool = (args.tool_choice && (args.tool_choice.name || (args.tool_choice.type === "any" && args.tools && args.tools[0] && args.tools[0].name))) || "";
       seen.tools.push(tool);
       if (!Object.hasOwn(answers, tool)) return new Response("no stub for tool " + tool, { status: 503 });
       return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: tool === "write_tweak" ? tweakInput(answers[tool], args) : answers[tool] }], usage: { input_tokens: 1000, output_tokens: 500 } });

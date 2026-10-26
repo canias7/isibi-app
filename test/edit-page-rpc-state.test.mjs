@@ -396,7 +396,7 @@ function withWire(wire, run) {
     if (url.includes("/v1/messages")) {
       let body = {};
       try { body = JSON.parse(String(init && init.body) || "{}"); } catch { body = {}; }
-      const tool = body.tool_choice?.name || "";
+      const tool = body.tool_choice?.name || (body.tool_choice?.type === "any" && body.tools?.[0]?.name) || "";
       seen.calls.push({ tool, body });
       if (!Object.hasOwn(wire.answers, tool)) return new Response("no stub for tool " + tool, { status: 503 });
       const a = wire.answers[tool];

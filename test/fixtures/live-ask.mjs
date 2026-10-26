@@ -184,7 +184,7 @@ export function withWire(answers, run, { owner = USER.id, slug = "" } = {}) {
     if (url.includes("/rest/v1/site_backends")) return json([{ uid: owner, brief: "", neon_db: "" }]);
     if (url.includes("/rest/v1/site_project") || url.includes("/rest/v1/site_aliases")) return json([]);
     if (url.includes("/v1/messages")) {
-      const tool = (args.tool_choice && args.tool_choice.name) || "";
+      const tool = (args.tool_choice && (args.tool_choice.name || (args.tool_choice.type === "any" && args.tools && args.tools[0] && args.tools[0].name))) || (args.tool_choice && args.tool_choice.type === "any" && args.tools && args.tools[0] && args.tools[0].name) || ""; // a step that may look first asks for any tool; its own comes first (site-explore.mjs)
       seen.calls.push(tool);
       (seen.inputs[tool] = seen.inputs[tool] || []).push(userText(args));
       const usage = { input_tokens: 10, output_tokens: 5 };

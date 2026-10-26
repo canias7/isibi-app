@@ -101,7 +101,7 @@ async function drive({ slug, pages = [HOME], langs = null, body: bodyExtra = {},
     if (u.includes("/v1/messages")) {
       let bj = {};
       try { bj = JSON.parse(String(init && init.body) || "{}"); } catch { bj = {}; }
-      const tool = (bj.tool_choice && bj.tool_choice.name) || "";
+      const tool = (bj.tool_choice && (bj.tool_choice.name || (bj.tool_choice.type === "any" && bj.tools && bj.tools[0] && bj.tools[0].name))) || "";
       if (!Object.hasOwn(answers, tool)) return new Response("no stub for tool " + tool, { status: 503 });
       return json({
         stop_reason: "tool_use",
@@ -394,7 +394,7 @@ async function syncEdit({ slug, ledger, answers = CSS }) {
     if (u.includes("/v1/messages")) {
       let bj = {};
       try { bj = JSON.parse(String(init && init.body) || "{}"); } catch { bj = {}; }
-      const tool = (bj.tool_choice && bj.tool_choice.name) || "";
+      const tool = (bj.tool_choice && (bj.tool_choice.name || (bj.tool_choice.type === "any" && bj.tools && bj.tools[0] && bj.tools[0].name))) || "";
       if (!Object.hasOwn(answers, tool)) return new Response("no stub for tool " + tool, { status: 503 });
       return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: answers[tool] }], usage: { input_tokens: 10, output_tokens: 5 } });
     }

@@ -66,7 +66,7 @@ async function driveQueued({ cancelFrom = Infinity, reverse = null } = {}) {
     if (url.includes("neon.tech")) return new Response("no neon here", { status: 503 });
     if (url.includes("/v1/messages")) {
       const b = JSON.parse(String((init && init.body) || "{}"));
-      const tool = (b.tool_choice && b.tool_choice.name) || "";
+      const tool = (b.tool_choice && (b.tool_choice.name || (b.tool_choice.type === "any" && b.tools && b.tools[0] && b.tools[0].name))) || "";
       seen.tools.push(tool);
       if (tool === "design_schema") return json({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "t1", name: "design_schema", input: GOOD_DESIGN }], usage: { input_tokens: 100, output_tokens: 50 } });
       return new Response("stop here", { status: 400 });

@@ -212,7 +212,7 @@ async function drive({ layer = "nav", frameAnswer = null, navAnswer = null, ask,
     if (u.includes("/rest/v1/site_aliases")) return json([]);
     if (u.includes("/rest/v1/site_project")) return json([]);
     if (u.includes("/v1/messages")) {
-      const tool = (args.tool_choice && args.tool_choice.name) || "";
+      const tool = (args.tool_choice && (args.tool_choice.name || (args.tool_choice.type === "any" && args.tools && args.tools[0] && args.tools[0].name))) || "";
       seen.models.push({ tool, args });
       if (tool === FRAME_EDIT_TOOL.name && frameAnswer) return json(answer(frameAnswer));
       if (tool === NAV_TOOL.name && navAnswer) return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: navAnswer }], usage: { input_tokens: 2000, output_tokens: 400 } });

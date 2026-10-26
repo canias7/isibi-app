@@ -381,7 +381,7 @@ function progressStand(b, id) {
     if (anthropic || u.includes("/v1/chat/completions")) {
       let bd = {};
       try { bd = JSON.parse(String((init && init.body) || "{}")); } catch { bd = {}; }
-      const asked = (bd.tool_choice && (bd.tool_choice.name || (bd.tool_choice.function && bd.tool_choice.function.name))) || "";
+      const asked = (bd.tool_choice && (bd.tool_choice.name || (bd.tool_choice.function && bd.tool_choice.function.name))) || (bd.tool_choice === "required" && bd.tools && bd.tools[0] && bd.tools[0].function && bd.tools[0].function.name) || "";
       // THE CONVERSATIONAL WRITER (2026-10-13) answered the same way, its tool by its own name.
       if (asked === "write_progress" || asked === "write_update") {
         const text = (bd.messages || []).filter((m) => m && m.role === "user").map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content))).join("\n");

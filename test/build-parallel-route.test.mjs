@@ -67,7 +67,7 @@ async function buildIn(env, design = WIDE, body = {}) {
   let last = null;
   const order = [];
   const onFetch = async (url, init) => {
-    if (url.includes("/v1/messages")) { try { const b = JSON.parse(String((init && init.body) || "{}")); order.push((b.tool_choice && b.tool_choice.name) || "?"); } catch { /* recorded below */ } }
+    if (url.includes("/v1/messages")) { try { const b = JSON.parse(String((init && init.body) || "{}")); order.push((b.tool_choice && (b.tool_choice.name || (b.tool_choice.type === "any" && b.tools && b.tools[0] && b.tools[0].name))) || "?"); } catch { /* recorded below */ } }
     if (url.includes("/rest/v1/site_builds") && init && init.body) { try { const b = JSON.parse(init.body); last = Array.isArray(b) ? b[0] : b; } catch { /* not a row */ } }
     return null;
   };

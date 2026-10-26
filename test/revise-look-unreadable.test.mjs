@@ -96,7 +96,7 @@ async function revise({ state = "none", db = "up", backend = null, down = false 
     }
     if (url.includes("/v1/messages")) {
       const body = JSON.parse(String(init.body || "{}"));
-      const tool = (body.tool_choice && body.tool_choice.name) || "";
+      const tool = (body.tool_choice && (body.tool_choice.name || (body.tool_choice.type === "any" && body.tools && body.tools[0] && body.tools[0].name))) || "";
       seen.tools.push(tool);
       if (tool === SITE_PAGES_TOOL.name) seen.writer = { system: JSON.stringify(body.system || ""), user: JSON.stringify(body.messages || "") };
       if (tool === "design_schema") {

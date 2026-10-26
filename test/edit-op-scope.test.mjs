@@ -193,7 +193,7 @@ function withWire(answers, run, slug = "") {
     if (url.includes("/rest/v1/site_backends")) return json([{ uid: USER.id, brief: "", neon_db: "" }]);
     if (url.includes("/rest/v1/site_project") || url.includes("/rest/v1/site_aliases")) return json([]);
     if (url.includes("/v1/messages")) {
-      const tool = (args.tool_choice && args.tool_choice.name) || "";
+      const tool = (args.tool_choice && (args.tool_choice.name || (args.tool_choice.type === "any" && args.tools && args.tools[0] && args.tools[0].name))) || "";
       seen.calls.push(tool);
       const usage = { input_tokens: 10, output_tokens: 5 };
       if (tool === T.pick) seen.picks.push(after(args, "Their message:\n"));

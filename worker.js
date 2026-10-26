@@ -236,6 +236,7 @@ import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
 import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings, canWriteAccess } from "./site-access.mjs";
 import { routeInventory } from "./builder/route-inventory.mjs";
+import { exploreSend, exploreCall, siteFiles, EXPLORE_MAX_LOOKS } from "./builder/site-explore.mjs";
 import { buildSiteMap, mapFor, siteSlice, mapSend, mapCall, mapKey as siteMapKey, mapVersionKey as siteMapVersionKey, MAP_VERSION as SITE_MAP_VERSION } from "./builder/site-map.mjs";
 import { converse, readHistory, converseRequest, requestChars, CONTEXT_CHARS, converseTables } from "./builder/site-converse.mjs";
 import { planWindow, compact as compactChat, COMPACT_AT } from "./builder/chat-context.mjs";
@@ -14296,6 +14297,135 @@ function siteMapNote(env, slug, kind, opts = null) {
   };
 }
 const mappedSend = (env, slug, kind, send, opts = null) => mapSend(send, siteMapNote(env, slug, kind, opts));
+// ── EXPLORING THE SITE'S CODE INSTEAD OF THE MAP (owner, 2026-10-26, "option
+// b"). A step that reasons about the site gets the file list (and, for a data
+// step, the table names) and read-only look tools (`builder/site-explore.mjs`).
+// One read of the stored pages and parts per site for a short while, shared by
+// the calls of a job; the tables come from the map's live schema read. Fails
+// open: unread files send the call as it was. `EXPLORE_MAX_LOOKS` (env) sets
+// the look rounds per step (default 6); the router never takes more than 2.
+const EXPLORE_MEMO_MS = 20000;
+const siteExploreMemo = new Map();
+// THE SITE AS THE LOOK TOOLS SEE IT, BOUND TO ONE SITE WHEN THE JOB STARTS:
+// its stored pages and parts, its tables read straight from its own database
+// (columns, who may read, row counts), and the readers below. `slug` is the
+// verified owner's site (`ownerSlug`, the route's own check): no tool can name
+// another, and every reader is opened for this slug alone.
+async function exploreTables(env, slug) {
+  const conn = await ownerSiteConn(env, slug);
+  if (!conn) return [];
+  const r = await specForAddon(conn);
+  const list = r && r.ok === true && r.spec && Array.isArray(r.spec.tables) ? r.spec.tables : [];
+  const out = list.filter((t) => t && typeof t.name === "string" && EXPLORE_IDENT.test(t.name)).slice(0, 64).map((t) => {
+    let read = null, access = null;
+    try { read = resolveAccess(t).read; } catch { read = null; }
+    try { access = accessLabel(t) || null; } catch { access = null; }
+    const columns = (Array.isArray(t.columns) ? t.columns : []).map((c) => (typeof c === "string" ? { name: c } : c && typeof c.name === "string" ? { name: c.name, type: typeof c.type === "string" ? c.type : null, required: c.notnull === true || c.required === true, pk: !!(c.pk || c.primary) } : null)).filter(Boolean);
+    return { name: t.name, columns, read, access, rows: null };
+  });
+  await Promise.all(out.slice(0, 24).map(async (t) => {
+    try { const q = await sqlReadOnly(conn, 'select count(*)::int as n from "' + t.name + '"', []); const v = Array.isArray(q) && q[0] ? Number(q[0].n) : NaN; if (Number.isInteger(v)) t.rows = v; } catch { /* not known */ }
+  }));
+  return out;
+}
+function siteExploreNow(env, slug) {
+  const k = String(slug || "").toLowerCase();
+  if (!k) return Promise.resolve(null);
+  const hit = siteExploreMemo.get(k);
+  if (hit && Date.now() - hit.at < EXPLORE_MEMO_MS) return hit.p;
+  const p = withinMs((async () => {
+    const [src, parts, tables] = await Promise.all([
+      readSiteSource(env, k).catch(() => null), readSiteParts(env, k).catch(() => null),
+      exploreTables(env, k).catch(() => []),
+    ]);
+    const files = siteFiles({ pages: src && src.ok ? src.pages : null, parts: parts && parts.ok ? parts.parts : null });
+    return { files, tables, read: siteReaders(env, k, tables) };
+  })(), MAP_NOTE_MS, "site explore:", k).catch(() => null);
+  if (siteExploreMemo.size > 200) siteExploreMemo.clear();
+  siteExploreMemo.set(k, { at: Date.now(), p });
+  return p;
+}
+// THE SITE'S READERS FOR THE EXPLORE TOOLS (owner, 2026-10-26): every one a
+// read — a read-only transaction on the site's own database, a store read or
+// list, or a select on our own records — bound to this one site. What they
+// answer is redacted, fenced and bounded by `builder/explore-site-tools.mjs`;
+// a reader that is not here answers "unavailable" (no traffic, error-log or
+// scheduled-task store exists for a site today).
+const EXPLORE_IDENT = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
+function siteReaders(env, slug, tables) {
+  const s = String(slug || "").toLowerCase();
+  const known = new Set((Array.isArray(tables) ? tables : []).map((t) => t && t.name).filter((n) => typeof n === "string" && EXPLORE_IDENT.test(n)));
+  let connP = null;
+  const conn = () => (connP = connP || ownerSiteConn(env, s));
+  const q = async (sql, params = []) => { const c = await conn(); if (!c) return null; return sqlReadOnly(c, sql, params); };
+  const tableOk = (t) => typeof t === "string" && known.has(t);
+  return {
+    rows: async (t, { search = "", limit = 20, offset = 0 } = {}) => (tableOk(t)
+      ? q('select * from "' + t + '" as r where ($1 = \'\' or r::text ilike \'%\' || $1 || \'%\') order by 1 limit ' + Math.min(20, Math.max(1, limit | 0)) + " offset " + Math.max(0, offset | 0), [String(search)]) : null),
+    links: async () => q("select c.conrelid::regclass::text as from_table, c.confrelid::regclass::text as to_table, pg_get_constraintdef(c.oid) as rule from pg_constraint c join pg_namespace n on n.oid = c.connamespace where c.contype = 'f' and n.nspname = 'public' order by 1"),
+    rules: async (t) => (tableOk(t) ? q("select column_name as column, data_type as type, is_nullable = 'NO' as required, column_default as default_value from information_schema.columns where table_schema = 'public' and table_name = $1 order by ordinal_position", [t]).then(async (cols) => [...(cols || []), ...((await q("select conname as name, pg_get_constraintdef(oid) as rule from pg_constraint where conrelid = ('public.' || quote_ident($1))::regclass and contype in ('c','u','p')", [t])) || [])]) : null),
+    automatic: async (t) => {
+      const one = tableOk(t) ? t : null;
+      const [trg, fns, pol, views] = await Promise.all([
+        q("select tgrelid::regclass::text as on_table, tgname as name, pg_get_triggerdef(oid) as sql from pg_trigger where not tgisinternal" + (one ? " and tgrelid = ('public.' || quote_ident($1))::regclass" : ""), one ? [one] : []),
+        q("select p.proname as name, pg_get_functiondef(p.oid) as sql from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prokind = 'f' limit 30"),
+        q("select tablename as on_table, policyname as name, cmd as applies_to, roles::text as roles, qual as using_rule, with_check from pg_policies where schemaname = 'public'" + (one ? " and tablename = $1" : ""), one ? [one] : []),
+        q("select viewname as name, definition as sql from pg_views where schemaname = 'public'"),
+      ]);
+      return [...(trg || []).map((x) => ({ kind: "trigger", ...x })), ...(fns || []).map((x) => ({ kind: "function", ...x })), ...(pol || []).map((x) => ({ kind: "policy", ...x })), ...(views || []).map((x) => ({ kind: "view", ...x }))];
+    },
+    history: async () => { const c = await conn(); if (!c) return null; const st = await readStoredSpec(c); return st && st.ok ? { tables: (st.spec && st.spec.tables || []).map((x) => x.name), stored: true } : null; },
+    indexes: async (t) => q("select tablename as on_table, indexname as name, indexdef as sql from pg_indexes where schemaname = 'public'" + (tableOk(t) ? " and tablename = $1" : ""), tableOk(t) ? [t] : []),
+    size: async () => q("select pg_size_pretty(pg_database_size(current_database())) as size, (select count(*) from information_schema.tables where table_schema = 'public')::int as tables"),
+    activity: async ({ days = 7, table = null } = {}) => {
+      const names = [...known].filter((n) => !table || n === table).slice(0, 24);
+      const out = [];
+      for (const n of names) {
+        try {
+          const has = await q("select 1 from information_schema.columns where table_schema = 'public' and table_name = $1 and column_name = 'created_at'", [n]);
+          if (!has || !has.length) { out.push({ table: n, added: "not known (no created_at)" }); continue; }
+          const r = await q('select count(*)::int as n from "' + n + '" where created_at > now() - make_interval(days => $1)', [Math.max(1, days | 0)]);
+          out.push({ table: n, days, added: r && r[0] ? r[0].n : "not known" });
+        } catch { out.push({ table: n, added: "not known" }); }
+      }
+      return out;
+    },
+    settings: async () => {
+      const db = await siteBackendBySlug(env, s).catch(() => null);
+      const c = await readSiteConfig(env, s, db).catch(() => null);
+      const live = await env.SITES_BUCKET.get("current/" + s + ".json").then((o) => (o ? o.json() : null)).catch(() => null);
+      return { config: c && c.ok ? c.config : "not known", live };
+    },
+    changes: async (n = 5) => {
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/edit_jobs?select=op,state,created_at,cost,error,result&slug=eq.${encodeURIComponent(s)}&order=created_at.desc&limit=${Math.min(10, Math.max(1, n | 0))}`, { headers: svcHeaders(env), signal: AbortSignal.timeout(5000) });
+      return r.ok ? r.json() : null;
+    },
+    uploads: async () => {
+      const page = await env.SITES_BUCKET.list({ prefix: "uploads/" + s + "/", include: ["customMetadata", "httpMetadata"] });
+      return (page && page.objects ? page.objects : []).slice(0, 60).map((o) => ({ path: o.key.slice(("uploads/" + s + "/").length), size: o.size, type: (o.httpMetadata && o.httpMetadata.contentType) || "not known", uploaded: o.uploaded }));
+    },
+    upload: async (path) => {
+      if (typeof path !== "string" || !path || path.includes("..")) return null;
+      const o = await env.SITES_BUCKET.get("uploads/" + s + "/" + path);
+      if (!o) return null;
+      const type = (o.httpMetadata && o.httpMetadata.contentType) || "";
+      if (/^text\/|json|csv|markdown/.test(type)) return { path, type, text: (await o.text()).slice(0, 6000) };
+      return { path, type, size: o.size, description: (o.customMetadata && (o.customMetadata.alt || o.customMetadata.description)) || "none" };
+    },
+  };
+}
+function exploreLooks(env, cap = null) {
+  const n = Number.parseInt(String((env && env.EXPLORE_MAX_LOOKS) || ""), 10);
+  const v = Number.isInteger(n) && n >= 0 && n <= 20 ? n : EXPLORE_MAX_LOOKS;
+  return Number.isInteger(cap) ? Math.min(v, cap) : v;
+}
+const exploredSend = (env, slug, send, { cap = null } = {}) => exploreSend(send, () => (slug ? siteExploreNow(env, slug) : null), { maxLooks: exploreLooks(env, cap) });
+const exploredCall = (env, slug, call, { cap = null } = {}) => exploreCall(call, () => (slug ? siteExploreNow(env, slug) : null), { maxLooks: exploreLooks(env, cap) });
+// THE EDIT STEPS THAT EXPLORE, by the name each call is sent under. Phase 1:
+// the page rung's quick writer and the look door's lanes.
+const EDIT_EXPLORE_STEPS = new Set(["pick_lanes", "lane", "lane-correction", "tweak"]);
+// Steps that judge only what they are handed (a before and an after; the named entries a removal picks from): no map, no looks.
+const EDIT_BARE_STEPS = new Set(["keep_check", "take_off"]);
 const mappedCall = (env, slug, kind, call, opts = null) => mapCall(call, siteMapNote(env, slug, kind, opts));
 
 async function currentSiteMap(env, slug) {
@@ -36987,7 +37117,9 @@ async function handleRequest(request, env, ctx) {
             // EVERY EDIT STEP AND LANE SEES THE SITE (2026-10-26): one slice for
             // the whole job, the same for every call, so a call repeated within
             // the job is the same request (the journal answers it once).
-            const eQuick = (what = "", ctx) => clarifyTransport(jobSend(eJob, mappedSend(env, ownerSlug, "site", quickSend(env, what, eJob && eJob.budget))), {
+            const eQuick = (what = "", ctx) => clarifyTransport(EDIT_EXPLORE_STEPS.has(what) ? exploredSend(env, ownerSlug, jobSend(eJob, quickSend(env, what, eJob && eJob.budget)))
+              : EDIT_BARE_STEPS.has(what) ? jobSend(eJob, quickSend(env, what, eJob && eJob.budget))
+              : jobSend(eJob, mappedSend(env, ownerSlug, "site", quickSend(env, what, eJob && eJob.budget))), {
               shown: () => (ctx !== undefined ? ctx : eCtx),
               all: () => eCtxAll || [],
               part: ePartShown, replayHas: eReplayHas, onDefault: (d) => { eDefaulted.push(...d); },
@@ -40712,7 +40844,7 @@ async function handleRequest(request, env, ctx) {
                     editTrace.mark("lane:" + field, "take-off");
                     const stored = (priorLook || {})[field];
                     const off = await runTakeOff(
-                      { send: eQuick("lane") },
+                      { send: eQuick("take_off") },
                       {
                         field,
                         message: (eAsks && typeof eAsks[field] === "string" && eAsks[field]) || eInstruction,
@@ -41417,7 +41549,7 @@ async function handleRequest(request, env, ctx) {
                 instruction: eAskOf(eInstruction), path: target.path, source: target.source,
                 model: eQuickModel,
                 inPart: !!partNameOf(target.path),
-                send: eQuick(),
+                send: eQuick("tweak"),
                 // RETRY_REASON {step, reason, ok} on the edit's trace (2026-10-24).
                 mark: traceRetryMark(editTrace),
               });
@@ -41801,7 +41933,7 @@ async function handleRequest(request, env, ctx) {
               // `only`; measured equivalent today (a returned part the page does
               // not import is already held, `partsHeld`), kept so the prompt and
               // the wall cannot disagree.
-              const ePick = pPartsRead.ok ? await pickFiles({ send: jobSend(eJob, mappedSend(env, ownerSlug, "page", quickSend(env, "file-pick"))) },
+              const ePick = pPartsRead.ok ? await pickFiles({ send: exploredSend(env, ownerSlug, jobSend(eJob, quickSend(env, "file-pick"))) },
                 { request: eInstruction, pages: eSrc, parts: pStoredParts, targets: [target.path], model: eModels.quick }) : null;
               const pPartsOnly = ePick && ePick.only ? ePick.only.parts : undefined;
               if (ePick) { try { if (editTrace) editTrace.mark("file_pick", ePick.mark.status, ePick.mark); } catch { /* never */ } }
@@ -41835,7 +41967,7 @@ async function handleRequest(request, env, ctx) {
               // THE PAGE WRITER, KEPT CALLABLE (round 2 of the retry rule): its last
               // request and answer are recorded (`pRec`) so an answer that failed the
               // checks below can be asked once more with the reason (`pWrite`).
-              const pInner = clarifyCall(jobCall(eJob, mappedCall(env, ownerSlug, "site", pagesCall(env))), { shown: () => eCtx, all: () => eCtxAll || [], part: ePartShown, replayHas: eReplayHas, onDefault: (d) => { eDefaulted.push(...d); } });
+              const pInner = clarifyCall(exploredCall(env, ownerSlug, jobCall(eJob, pagesCall(env))), { shown: () => eCtx, all: () => eCtxAll || [], part: ePartShown, replayHas: eReplayHas, onDefault: (d) => { eDefaulted.push(...d); } });
               const pRec = recordCall(pInner);
               let pWrite = null;
               try {

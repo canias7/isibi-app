@@ -91,6 +91,7 @@ const EXEMPT = {
   runSiteBuild: "a first build's seed rows, written before the site's address is chosen",
   'handleRequest:quickSend(env, "converse")': "the conversation: handed the verified owner's key facts by readConverseContext, never another owner's site",
   "handleRequest:jobSend(rJob, quickSend(env))": "the router: its own budgeted inventory and key facts (route-inventory.mjs)",
+  "handleRequest:EDIT_BARE_STEPS.has(what)": "the keep check judges only the before and after it is handed",
 };
 
 function enclosing(lines, i) {
@@ -101,7 +102,7 @@ function enclosing(lines, i) {
   return "";
 }
 
-test("every model-call site in worker.js carries the site map or is named with a reason", () => {
+test("every model-call site in worker.js explores the site, carries the site map, or is named with a reason", () => {
   const lines = SRC.split("\n");
   const sites = [];
   lines.forEach((l, i) => { if (CALL.test(l)) sites.push({ n: i + 1, line: l, fn: enclosing(lines, i) }); });
@@ -109,25 +110,28 @@ test("every model-call site in worker.js carries the site map or is named with a
   const used = new Set();
   const bare = [];
   for (const s of sites) {
-    if (/\bmapped(?:Send|Call)\(/.test(s.line)) continue;
+    if (/\b(?:mapped|explored)(?:Send|Call)\(/.test(s.line)) continue;
     const key = Object.keys(EXEMPT).find((k) => (k.includes(":") ? s.fn === k.split(":")[0] && s.line.includes(k.slice(k.indexOf(":") + 1)) : s.fn === k));
     if (key) { used.add(key); continue; }
     bare.push(s.n + " [" + s.fn + "] " + s.line.trim().slice(0, 120));
   }
   assert.deepEqual(bare, [], "model calls without the site map");
   assert.deepEqual(Object.keys(EXEMPT).filter((k) => !used.has(k)), [], "every exemption still names a real call site");
-  const mapped = sites.filter((s) => /\bmapped(?:Send|Call)\(/.test(s.line)).length;
-  assert.ok(mapped >= 20, "mapped sites counted (" + mapped + ")");
+  const carried = sites.filter((s) => /\b(?:mapped|explored)(?:Send|Call)\(/.test(s.line)).length;
+  assert.ok(carried >= 20, "explored or mapped sites counted (" + carried + ")");
 });
 
 test("the edit and add-on transports carry the map for every step and lane", () => {
   const eq = SRC.split("\n").find((l) => /const eQuick = /.test(l));
   const aq = SRC.split("\n").find((l) => /const aQuick = /.test(l));
   assert.ok(eq && aq, "both transports found");
-  assert.match(eq, /mappedSend\(env, ownerSlug,/);
+  const eqAt = SRC.indexOf("const eQuick = ");
+  const eqBody = SRC.slice(eqAt, SRC.indexOf("{\n", eqAt));
+  assert.match(eqBody, /EDIT_EXPLORE_STEPS\.has\(what\) \? exploredSend\(env, ownerSlug, jobSend\(eJob,/);
   assert.match(aq, /mappedSend\(env, ownerSlug,/);
-  // The page writers of the edit and the add-on reach the model through pagesCall.
-  assert.equal((SRC.match(/mappedCall\(env, ownerSlug, "[a-z]+", pagesCall\(env\)/g) || []).length, 2);
+  // The edit's page writer explores; the add-on's still reaches the map (its phase is 3).
+  assert.equal((SRC.match(/exploredCall\(env, ownerSlug, jobCall\(eJob, pagesCall\(env\)\)\)/g) || []).length, 1);
+  assert.equal((SRC.match(/mappedCall\(env, ownerSlug, "[a-z]+", pagesCall\(env\)/g) || []).length, 1);
 });
 
 test("the map read for a call is built from everything the site holds", () => {
@@ -139,4 +143,19 @@ test("the map read for a call is built from everything the site holds", () => {
   const note = SRC.slice(SRC.indexOf("function siteMapNote("), SRC.indexOf("const mappedSend"));
   assert.match(note, /siteMapNow\(env, slug\)/);
   assert.match(note, /siteSlice\(m, k/);
+});
+
+// ── EXPLORING INSTEAD OF THE MAP (owner, 2026-10-26, "option b") ─────────────
+test("phase 1: the page rung and the look door's lanes explore, by the name each call is sent under", () => {
+  const set = /const EDIT_EXPLORE_STEPS = new Set\(\[([^\]]*)\]\)/.exec(SRC);
+  assert.ok(set, "the explore set found");
+  const names = [...set[1].matchAll(/"([a-z_-]+)"/g)].map((m) => m[1]);
+  for (const n of ["pick_lanes", "lane", "lane-correction", "tweak"]) assert.ok(names.includes(n), n);
+  // Every named edit call is either exploring, bare by reason, or not yet moved: found by pattern.
+  const called = [...new Set([...SRC.matchAll(/\beQuick\("([a-z_-]+)"/g)].map((m) => m[1]))];
+  assert.ok(called.length >= 4, "the observer found named calls");
+  const bare = /const EDIT_BARE_STEPS = new Set\(\[([^\]]*)\]\)/.exec(SRC)[1];
+  assert.deepEqual(called.filter((n) => !names.includes(n) && !bare.includes('"' + n + '"')), []);
+  assert.match(SRC, /runTweak\(\{[^]{0,400}send: eQuick\("tweak"\)/);
+  assert.match(SRC, /const ePick = [^\n]*exploredSend\(env, ownerSlug, jobSend\(eJob, quickSend\(env, "file-pick"\)\)\)/);
 });

@@ -72,7 +72,7 @@ async function driveBuild({ design = GOOD_DESIGN, layout = LAYOUT } = {}) {
     if (url.includes("/rest/v1/edit_jobs")) return json([{ id, uid: BUILD_USER.id, op: "build", state: "claimed" }]);
     if (url.includes("/v1/messages")) {
       const b = JSON.parse(String((init && init.body) || "{}"));
-      const tool = (b.tool_choice && b.tool_choice.name) || "";
+      const tool = (b.tool_choice && (b.tool_choice.name || (b.tool_choice.type === "any" && b.tools && b.tools[0] && b.tools[0].name))) || "";
       if (tool === "design_schema") {
         seen.designer.push(b);
         return json({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "t1", name: "design_schema", input: design }], usage: { input_tokens: 100, output_tokens: 50 } });
