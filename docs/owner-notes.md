@@ -1,5 +1,13 @@
 # Owner Notes
 
+## 2026-10-26 — out of credits mid-task now pauses, and the context line became a ring (branch `credit-pause-2`, not merged, not deployed)
+
+- **Before.** When credits ran out part-way through a request of several parts, the remaining parts were ended as failed and lost.
+- **Now.** They pause ("waiting for credits"): nothing charged, nothing held. A slim black bar on top of the message box says "Out of credits · N tasks paused", with "Continue when topped up" (ticked by default) and Add Credits. The pill says "N tasks waiting for credits".
+- **The checkbox works and is stored on the request (server-side).** Ticked: the two-minute tick resumes the parts as soon as the balance goes up, however the credits came (top-up, upgrade, monthly grant). Unticked: nothing resumes by itself; once credits are there, Add Credits becomes Continue, and pressing it resumes. Stop cancels paused parts. A new message sent with no credits behaves as before.
+- **Context.** The "Context · this chat" line above the box is now a small ring just left of Send; hover or tap shows the same details.
+- Tests: 6 new (5 server-flow, 1 real browser) plus one updated guard; 7 of 7 mutants killed, control survived. Nothing spent. Record: `docs/history/2026-10-26-credit-pause.md`.
+
 ## 2026-10-26 — a changed email address now reaches its links (branch `fix-run6`, not merged, not deployed)
 
 - **What you saw.** Changing the Contact email to bookings@… changed the words, but the footer and two bands still had email links sending to hello@….

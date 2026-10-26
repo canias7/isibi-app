@@ -7998,12 +7998,23 @@ function ctxChatHTML(site, d) {
     + '<span class="st-ctx-key-v">' + ctxCap(d.parts[k] || 0) + '</span><span class="st-ctx-key-p">' + ((d.parts[k] || 0) / d.window * 100).toFixed(1) + '%</span></div>').join('');
   const free = Math.max(0, d.window - d.tokens);
   const note = (d.summarized ? 'Earlier messages are summarized. ' : '') + 'Compacts automatically at ' + Math.round(d.compactAt * 100) + '%. ' + esc(String(d.model || '')) + ' \u00b7 estimated, three characters a token.';
-  return '<div class="st-ctxl' + (ctxOpen ? ' open' : '') + '" id="stCtxLine" role="button" tabindex="0" title="What the next reply is shown">'
-    + '<div class="st-ctxl-more"><div class="st-ctx-legend">' + rows
+  return ctxRing(pct, '<div class="st-ctxl-more"><div class="st-ctx-legend">' + rows
     + '<div class="st-ctx-key"><span class="st-ctx-dot st-ctx-free"></span><span class="st-ctx-key-l">Free space</span><span class="st-ctx-key-v">' + ctxCap(free) + '</span><span class="st-ctx-key-p">' + Math.max(0, 100 - pct).toFixed(1) + '%</span></div>'
     + '</div><p class="st-ctx-note">' + note + '</p></div>'
     + '<div class="st-ctxl-top"><span>Context \u00b7 this chat</span><span>' + pct.toFixed(1) + '% \u00b7 ' + ctxCap(d.tokens) + ' / ' + ctxCap(d.window) + ' <span class="st-ctxl-car">\u2303</span></span></div>'
-    + '<div class="st-ctx-bar st-ctx-bar-chat">' + seg + '<i class="st-ctx-mark" style="left:' + (d.compactAt * 100) + '%" title="Compacts here"></i></div></div>';
+    + '<div class="st-ctx-bar st-ctx-bar-chat">' + seg + '<i class="st-ctx-mark" style="left:' + (d.compactAt * 100) + '%" title="Compacts here"></i></div>', 'What the next reply is shown');
+}
+// THE CONTEXT MEASURE AS A RING IN THE MESSAGE BOX (owner, 2026-10-26): the
+// line that sat above the box is now a small ring just left of Send, filling
+// with the share used; hover or a tap opens the same details the line showed
+// (the percent, used / total, the legend and its note), unchanged.
+function ctxRing(pct, inner, title) {
+  const C = 50.27; // 2πr, r = 8
+  const f = typeof pct === 'number' && pct > 0 ? Math.min(100, pct) / 100 : 0;
+  return '<div class="st-ctxr' + (ctxOpen ? ' open' : '') + '" id="stCtxLine" role="button" tabindex="0" title="' + title + '" aria-label="Context · this chat' + (typeof pct === 'number' ? ' ' + pct.toFixed(1) + '%' : '') + '">'
+    + '<svg class="st-ctxr-ring" width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="8" fill="none" stroke="#e5e5e5" stroke-width="3"/>'
+    + '<circle cx="11" cy="11" r="8" fill="none" stroke="#111" stroke-width="3" stroke-dasharray="' + C + '" stroke-dashoffset="' + (C * (1 - f)).toFixed(2) + '" transform="rotate(-90 11 11)" stroke-linecap="round"/></svg>'
+    + '<div class="st-ctxr-pop">' + inner + '</div></div>';
 }
 function ctxLineHTML(site) {
   if (!site || !site.slug) return '';
@@ -8015,7 +8026,7 @@ function ctxLineHTML(site) {
     if (d && d.model === CTX_MODEL_OF[buildPicker]) return ctxChatHTML(site, d);
   }
   const now = ctxNow(site);
-  if (!now) { siteCtxFetch(site); return '<div class="st-ctxl" id="stCtxLine"><div class="st-ctxl-top"><span>Context · this chat</span><span>reading…</span></div><div class="st-ctx-bar"></div></div>'; }
+  if (!now) { siteCtxFetch(site); return ctxRing(null, '<div class="st-ctxl-top"><span>Context · this chat</span><span>reading…</span></div><div class="st-ctx-bar"></div>', 'Context · this chat'); }
   const { shape, m } = now;
   const pct = typeof m.used === 'number' ? m.used * 100 : null;
   const rows = CTX_PARTS.map(([key, label, tone]) => {
@@ -8027,11 +8038,10 @@ function ctxLineHTML(site) {
   }).join('');
   const free = m.window ? Math.max(0, m.window - (m.tokens || 0)) : 0;
   const freeRow = m.window ? '<div class="st-ctx-key"><span class="st-ctx-dot st-ctx-free"></span><span class="st-ctx-key-l">Free space</span><span class="st-ctx-key-v">' + ctxCap(free) + '</span><span class="st-ctx-key-p">' + (100 - pct).toFixed(1) + '%</span></div>' : '';
-  return '<div class="st-ctxl' + (ctxOpen ? ' open' : '') + '" id="stCtxLine" role="button" tabindex="0" title="What the next message carries">'
-    + '<div class="st-ctxl-more"><div class="st-ctx-legend">' + rows + freeRow + '</div>'
+  return ctxRing(pct, '<div class="st-ctxl-more"><div class="st-ctx-legend">' + rows + freeRow + '</div>'
     + '<p class="st-ctx-note">' + esc(String(m.model || '')) + ' · estimated from what we send, three characters a token.</p></div>'
     + '<div class="st-ctxl-top"><span>Context · this chat</span><span>' + (pct === null ? '—' : pct.toFixed(1) + '%') + ' · ' + ctxCap(m.tokens) + ' / ' + ctxCap(m.window) + ' <span class="st-ctxl-car">⌃</span></span></div>'
-    + ctxBar(shape.parts, m.used) + '</div>';
+    + ctxBar(shape.parts, m.used), 'What the next message carries');
 }
 function paintCtxLine(site) {
   const host = document.getElementById('stCtxLine');
@@ -9252,8 +9262,9 @@ function renderSiteWorkspace(view, site) {
             ? siteHistoryRail(site)
             : '<div class="st-date">' + esc(stStamp(site.updatedAt || site.createdAt)) + '</div>' +
               '<div class="st-thread" id="stThread"></div>' +
-              ctxLineHTML(site) +
               '<div class="st-bg" id="stBg"></div>' +
+              // OUT OF CREDITS, PAUSED (2026-10-26): the slim bar on top of the box.
+              '<div class="st-credits" id="stCredits"></div>' +
               '<div class="st-comp">' +
                 '<div class="st-slash" id="stSlash" role="listbox" aria-label="Commands" hidden></div>' +
                 '<textarea id="stRevise" class="st-comp-in" rows="2" placeholder="Ask Go Farther…"></textarea>' +
@@ -9275,6 +9286,7 @@ function renderSiteWorkspace(view, site) {
                   // a request's parts are stopped from the panel above the box
                   // (`siteBgHTML`); Stop stays only for this project's own send
                   // in flight with nothing in the panel, and a standalone job.
+                  ctxLineHTML(site) +
                   (siteComposerStops(site)
                     ? '<button type="button" class="st-sendc st-stopc" id="stStop" title="Stop" aria-label="Stop">■</button>'
                     : '<button type="button" class="st-sendc" id="stSend" title="Send" aria-label="Send">↑</button>') +
@@ -12445,8 +12457,9 @@ function siteBgHTML(site, now) {
   const working = items.filter((it) => it.state === 'run').length;
   const things = (n) => n + (n === 1 ? ' task' : ' tasks');
   if (!ui.open) {
+    const waitCred = typeof siteCreditsOf === 'function' ? siteCreditsOf(site).paused : 0;
     return '<button type="button" class="st-bg-pill" data-bg="open" aria-expanded="false">' + (working ? '<span class="st-par-dot st-bg-spin"></span>' : '') +
-      esc(active ? things(active) + ' in progress' : things(items.length) + ' finished') + ' ▾</button>';
+      esc(waitCred ? things(waitCred) + ' waiting for credits' : active ? things(active) + ' in progress' : things(items.length) + ' finished') + ' ▾</button>';
   }
   const it = ui.job ? items.find((x) => x.key + '|' + x.n === ui.job) : null;
   // A JOB NOT LISTED (yet, after a reload, or no more) shows the list; the choice is kept.
@@ -12499,8 +12512,90 @@ function siteBgJobHTML(site, it) {
   return top + '<div class="st-bg-wrap"><div class="st-bg-scroll" data-bg-box="' + id + '">' + body + '</div>' +
     '<button type="button" class="st-bg-new" data-bg="new" hidden>↓ new</button></div>';
 }
+// ── OUT OF CREDITS DURING A RUNNING TASK (owner, 2026-10-26, variant C) ─────
+// A request's later parts refused for insufficient credits wait (`credits`);
+// the slim black bar on top of the box says so, carries "Continue when topped
+// up" (stored on each request, server-side, so a reload or another tab reads
+// it and the server's tick honours it) and Add Credits — or Continue, once
+// credits were added and the box is unticked. Text fixed here, for this notice only.
+const CREDIT_COINS = '<svg width="30" height="30" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><ellipse cx="14" cy="9" rx="9" ry="4"/><path d="M5 9v6c0 2.2 4 4 9 4s9-1.8 9-4V9"/><path d="M5 15v6c0 2.2 4 4 9 4s9-1.8 9-4v-6"/><ellipse cx="25" cy="22" rx="7" ry="3.2"/><path d="M18 22v5c0 1.8 3.1 3.2 7 3.2s7-1.4 7-3.2v-5"/></svg>';
+const SITE_CREDITS_RESUMED_MS = 60000;
+/** What the site's requests say about credits: the paused count, the requests paused, the tick, ready, and the last resume. */
+function siteCreditsOf(site) {
+  const out = { paused: 0, keys: [], auto: true, ready: false, resumedAt: 0 };
+  const recs = site && site.requests && typeof site.requests === 'object' ? site.requests : {};
+  for (const k of Object.keys(recs)) {
+    const v = recs[k] && recs[k].view;
+    if (!v || v.ended || v.stop) continue;
+    if (Number.isFinite(v.creditsResumedAt)) out.resumedAt = Math.max(out.resumedAt, v.creditsResumedAt);
+    const c = v.credits;
+    if (!c || !(c.paused > 0)) continue;
+    out.paused += c.paused; out.keys.push(k);
+    if (c.auto === false) out.auto = false;
+    if (c.ready === true) out.ready = true;
+  }
+  return out;
+}
+function siteCreditsHTML(site, now) {
+  const c = siteCreditsOf(site);
+  const at = Number.isFinite(now) ? now : Date.now();
+  if (!c.paused) {
+    return c.resumedAt && at - c.resumedAt < SITE_CREDITS_RESUMED_MS ? '<div class="st-cred st-cred-ok" role="status">' + CREDIT_COINS + '<span><b>Credits added</b> · picking up where it stopped</span></div>' : '';
+  }
+  const n = c.paused + (c.paused === 1 ? ' task' : ' tasks');
+  const btn = !c.auto && c.ready
+    ? '<button type="button" class="st-cred-btn" data-cred="continue">Continue</button>'
+    : '<button type="button" class="st-cred-btn" data-cred="add">Add Credits</button>';
+  return '<div class="st-cred" role="status">' + CREDIT_COINS +
+    '<div class="st-cred-txt"><div><b>Out of credits</b> · ' + n + ' paused</div>' +
+    '<label class="st-cred-chk"><input type="checkbox" data-cred="auto"' + (c.auto ? ' checked' : '') + '><span class="st-cred-box" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2"><path d="M1.5 5.2l2.3 2.3 4.7-5"/></svg></span>Continue when topped up</label></div>' +
+    btn + '</div>';
+}
+function siteCreditsPaint(site) {
+  const host = typeof document !== 'undefined' ? document.getElementById('stCredits') : null;
+  if (!host || !site) return;
+  const html = siteCreditsHTML(site);
+  host.innerHTML = html;
+  const comp = host.nextElementSibling;
+  if (comp && comp.classList) comp.classList.toggle('st-comp-cred', !!html);
+  host.onclick = (e) => siteCreditsClick(e, site.id);
+  host.onchange = (e) => siteCreditsClick(e, site.id);
+  const c = siteCreditsOf(site);
+  if (!c.paused && c.resumedAt) setTimeout(() => { if (siteOpenId === site.id) siteCreditsPaint(siteById(site.id) || site); }, Math.max(1000, c.resumedAt + SITE_CREDITS_RESUMED_MS - Date.now() + 50));
+}
+function siteCreditsClick(e, id) {
+  const el = e.target && e.target.closest ? e.target.closest('[data-cred]') : null;
+  if (!el) return;
+  const what = el.getAttribute('data-cred');
+  if (what === 'auto' && e.type !== 'change') return;
+  if (what !== 'auto' && e.type !== 'click') return;
+  const s = siteById(id);
+  if (!s || !s.slug) return;
+  if (what === 'add') { openCredits(); return; }
+  const c = siteCreditsOf(s);
+  const body = what === 'auto' ? { auto: !!el.checked } : what === 'continue' ? { resume: true } : null;
+  if (!body) return;
+  if (what === 'auto') for (const k of c.keys) { const v = s.requests[k].view; if (v && v.credits) v.credits.auto = body.auto; }
+  for (const k of c.keys) siteCreditsSend(id, k, body);
+}
+function siteCreditsSend(origin, key, body) {
+  const s = siteById(origin);
+  if (!s || !s.slug) return;
+  const failed = () => { if (typeof sbToast === 'function') sbToast(body.resume ? 'No credits added yet — add credits, then press Continue.' : 'Couldn’t save that just now. Try again in a moment.'); };
+  apiFetch('/api/site/request/' + encodeURIComponent(s.slug) + '/' + encodeURIComponent(key) + '/credits', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  }).then(async (r) => {
+    const b = await r.json().catch(() => null);
+    if (b && b.request && Array.isArray(b.request.parts)) siteReqState(origin, key, b.request);
+    if (!r.ok) failed();
+    sitesSave();
+    if (siteOpenId === origin) renderSites();
+    if (b && b.request && !b.request.ended) siteRequestFollow(origin, key);
+  }).catch(failed);
+}
 /** Paint the pill or panel into its place above the box, keeping the box's scroll, or following the newest line. */
 function siteBgPaint(site) {
+  if (typeof siteCreditsPaint === 'function') siteCreditsPaint(site);
   const host = typeof document !== 'undefined' ? document.getElementById('stBg') : null;
   if (!host || !site) return;
   const ui = siteBgState(site.id);

@@ -5442,18 +5442,13 @@ body::after { display: none; }
 .st-att-bad { outline: 1px solid currentColor; }
 
 /* THE CONTEXT BAR ABOVE THE MESSAGE BOX (2026-10-20, owner chose "C"). */
-.st-ctxl { margin: 0 .75rem .5rem; cursor: pointer; user-select: none; }
 .st-ctxl-top { display: flex; justify-content: space-between; font-size: .74rem; color: var(--muted); margin-bottom: .3rem; font-variant-numeric: tabular-nums; }
-.st-ctxl .st-ctx-bar { height: 5px; flex: none; width: 100%; }
 .st-ctxl-car { display: inline-block; transition: transform .15s; }
-.st-ctxl.open .st-ctxl-car { transform: rotate(180deg); }
 .st-ctxl-more { display: none; border: 1px solid var(--line); border-radius: 12px; padding: .7rem .8rem .55rem; margin-bottom: .5rem; background: var(--bg, #fff); }
-.st-ctxl.open .st-ctxl-more { display: block; }
 .st-ctxl-more .st-ctx-legend { margin-top: 0; padding-top: 0; border-top: 0; }
 .st-ctx-free { background: var(--panel-2); }
 
 /* The tick where the chat compacts (2026-10-20). */
-.st-ctxl .st-ctx-bar-chat { position: relative; overflow: visible; }
 .st-ctx-mark { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--muted, #8a8a8a); opacity: .7; }
 
 /* The app itself, running in each phone (2026-10-20). */
@@ -5512,3 +5507,30 @@ body::after { display: none; }
 .st-slash-it span { color: var(--muted); font-size: .82rem; }
 .st-slash-it.on, .st-slash-it:hover { background: var(--panel-2); }
 .st-slash-none { font-size: .84rem; color: var(--muted); padding: .45rem .6rem; }
+
+/* OUT OF CREDITS, PAUSED (owner, 2026-10-26, variant C): a slim black bar on top of the message box. */
+.st-credits { margin: 0 .7rem; }
+.st-credits:empty { display: none; }
+.st-cred { background: #111; color: #fff; border-radius: 14px 14px 0 0; padding: 10px 12px; display: flex; align-items: center; gap: 10px; margin-top: .4rem; }
+.st-cred > svg { flex: none; }
+.st-cred-txt { flex: 1; min-width: 0; font-size: 13px; line-height: 1.35; }
+.st-cred-txt b, .st-cred-ok b { font-size: 14px; }
+.st-cred-chk { color: #bdbdbd; display: flex; gap: 6px; align-items: center; margin-top: 3px; cursor: pointer; user-select: none; }
+.st-cred-chk input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.st-cred-box { width: 16px; height: 16px; border-radius: 4px; background: #fff; color: #111; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex: none; }
+.st-cred-chk input:not(:checked) + .st-cred-box { background: transparent; color: transparent; box-shadow: inset 0 0 0 1.5px #bdbdbd; }
+.st-cred-chk input:focus-visible + .st-cred-box { outline: 2px solid #fff; outline-offset: 2px; }
+.st-cred-btn { flex: none; font: inherit; background: #fff; color: #111; border: 0; border-radius: 999px; padding: 7px 14px; font-weight: 600; font-size: 13px; cursor: pointer; }
+.st-cred-ok { font-size: 13px; }
+.st-comp.st-comp-cred { margin-top: 0; }
+
+/* THE CONTEXT MEASURE AS A RING LEFT OF SEND (owner, 2026-10-26): the details open on hover or a tap. */
+.st-ctxr { position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; cursor: pointer; user-select: none; }
+.st-ctxr-ring { display: block; }
+.st-ctxr-pop { display: none; position: absolute; right: -40px; bottom: calc(100% + 10px); width: 300px; max-width: calc(100vw - 32px); z-index: 30; background: var(--bg, #fff); border: 1px solid var(--line); border-radius: 12px; padding: .7rem .8rem .6rem; box-shadow: 0 6px 24px rgba(0,0,0,.12); cursor: default; }
+.st-ctxr:hover .st-ctxr-pop, .st-ctxr:focus-visible .st-ctxr-pop, .st-ctxr.open .st-ctxr-pop { display: block; }
+.st-ctxr-pop .st-ctxl-more { display: block; border: 0; padding: 0; margin: 0 0 .5rem; background: none; }
+.st-ctxr-pop .st-ctxl-top { margin-bottom: .3rem; }
+.st-ctxr-pop .st-ctxl-car { display: none; }
+.st-ctxr-pop .st-ctx-bar { height: 5px; flex: none; width: 100%; }
+.st-ctxr-pop .st-ctx-bar-chat { position: relative; overflow: visible; }

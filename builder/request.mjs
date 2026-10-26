@@ -245,6 +245,11 @@ export const SPLIT_NOT = Object.freeze(["build", "no-look", "no-meta", "needs-pa
 //                  what needs it held, independent parts going on. Ends as failed, saying
 //                  why, only when its checkpoint is known lost (missing with no copy, or
 //                  malformed) or after a day of tries
+//   credits        a later part of a running request refused for insufficient credits
+//                  (2026-10-26, owner): nothing charged, no job or lease held; not
+//                  picked by `nextStep`, the request kept open; moved back to ready
+//                  (`resumeCredits`) once credits were added and the request's own
+//                  "Continue when topped up" says so, or the owner presses Continue
 //   expired        its question went unanswered for a day
 //   refused        it could not be placed in an order that makes sense (the relations formed a cycle)
 export const PART_TERMINAL = Object.freeze(["done", "partial", "failed", "not-run", "cancelled", "needs-rewrite", "expired", "refused"]);
@@ -1557,6 +1562,17 @@ function settle(rec, p, job, row, now) {
     p.status = "ready"; p.why = null;
     return;
   }
+  // OUT OF CREDITS PART-WAY THROUGH A RUNNING REQUEST (2026-10-26, owner):
+  // a later part refused for insufficient credits, with nothing of it left
+  // standing, is paused (`credits`), never lost: it holds no job and nothing
+  // was charged; it runs again once credits are added (`resumeCredits`). A
+  // request of one part keeps today's behaviour.
+  if (read.act === "refusal" && read.error === "unbilled" && ans.body.detail === "insufficient" && !leftOf(ans.body) && !p.left && rec.parts.length > 1) {
+    job.end.act = "credits";
+    p.outcome = { job: job.id, kind: "credits" };
+    p.status = "credits"; p.why = "insufficient";
+    return;
+  }
   if (read.act === "refusal") {
     // A FAILURE AFTER PART OF IT WENT LIVE (2026-10-07) is done in part — what
     // went in stands, and nothing that needs the part runs, as for any part
@@ -2160,9 +2176,55 @@ export function settleState(rec, now = Date.now()) {
     rec.ended = false;
     rec.state = ps.some((p) => p.status === "unverified") ? "review"
       : ps.some((p) => ["queued", "started", "ready", "recovering"].includes(p.status)) ? "running"
+      : ps.some((p) => p.status === "credits") ? "credits"
       : ps.some((p) => p.status === "waiting" || p.status === "approval" || p.status === "uncertain") ? "waiting" : "blocked";
   }
   return rec;
+}
+
+/**
+ * OUT OF CREDITS, PAUSED (2026-10-26, owner): the parts paused for credits,
+ * whether the request resumes by itself once credits are added ("Continue when
+ * topped up", ticked unless the owner unticked it: `creditsAuto`), and the
+ * balance seen when it paused (`credits.base`), which a later balance must
+ * rise above before anything resumes.
+ */
+export function creditsPaused(rec) {
+  return rec && Array.isArray(rec.parts) && !rec.ended && !rec.stop ? rec.parts.filter((p) => p && p.status === "credits" && !stoppedPart(rec, p.n)).map((p) => p.n) : [];
+}
+export function creditsAuto(rec) { return !(rec && rec.creditsAuto === false); }
+/** The record with the owner's tick stored; null for an ended request or a value that is not a boolean. */
+export function setCreditsAuto(rec, on) {
+  if (!rec || rec.ended || typeof on !== "boolean") return null;
+  return { ...rec, creditsAuto: on };
+}
+/**
+ * WHAT A BALANCE READ MEANS FOR A PAUSED REQUEST: `{ act: "none" }` with
+ * nothing paused or a balance that cannot be told; `{ act: "base", rec }` the
+ * first reading kept; `{ act: "resume" }` when credits were added (by any
+ * route) and the tick is on; `{ act: "ready", rec }` when they were added and
+ * the tick is off — nothing resumes until the owner presses Continue;
+ * `{ act: "wait" }` otherwise.
+ */
+export function creditsDecision(rec, balance, now = Date.now()) {
+  if (!creditsPaused(rec).length || !Number.isFinite(balance)) return { act: "none" };
+  const c = rec.credits && typeof rec.credits === "object" ? rec.credits : null;
+  if (!c || !Number.isFinite(c.base)) return { act: "base", rec: { ...rec, credits: { base: balance, at: now } } };
+  if (balance > c.base) {
+    if (creditsAuto(rec)) return { act: "resume" };
+    return c.ready === true ? { act: "wait" } : { act: "ready", rec: { ...rec, credits: { ...c, ready: true } } };
+  }
+  if (balance < c.base) return { act: "base", rec: { ...rec, credits: { base: balance, at: now } } };
+  return c.ready === true ? { act: "base", rec: { ...rec, credits: { base: c.base, at: c.at } } } : { act: "wait" };
+}
+/** Every part paused for credits back to ready, the reading dropped; null when none is paused. */
+export function resumeCredits(record, now = Date.now()) {
+  if (!creditsPaused(record).length) return null;
+  const rec = clone(record);
+  for (const p of rec.parts) if (p.status === "credits" && !stoppedPart(rec, p.n)) { p.status = "ready"; p.why = null; }
+  delete rec.credits;
+  rec.creditsResumedAt = now;
+  return settleState(rec, now);
 }
 
 /** The ids of every job of the request that has not ended: the rows a step reads. */
@@ -2704,6 +2766,10 @@ export function requestView(rec, { progress = null, said = null, runs = null, pr
   const saidByPart0 = !!p0 && !p0.jobs.some((j) => j.kind === "route") && p0.jobs.some(shownRun);
   return {
     key: rec.key, state: rec.state, ended: rec.ended === true, stop: rec.stop === true, at: rec.at, updatedAt: rec.updatedAt,
+    // OUT OF CREDITS, PAUSED (2026-10-26): how many parts wait, the owner's tick, and whether credits were added since.
+    ...((n) => (n ? { credits: { paused: n, auto: creditsAuto(rec), ready: !!(rec.credits && rec.credits.ready === true) } } : {}))(creditsPaused(rec).length),
+    ...(Number.isFinite(rec.creditsResumedAt) ? { creditsResumedAt: rec.creditsResumedAt } : {}),
+    ...(rec.creditsAuto === false ? { creditsAuto: false } : {}),
     routedUnsaid: !saidByPart0 && Number.isInteger(rec.routedCost) && rec.routedCost > 0 ? rec.routedCost : 0,
     // A SPLIT REQUEST'S OPENING LINE (2026-10-23), the model's own, when written.
     ...(said && typeof said === "object" && typeof said.opening === "string" && said.opening.trim() ? { opening: said.opening.trim() } : {}),
