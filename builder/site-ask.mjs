@@ -962,14 +962,27 @@ const LIVE_INTENT =
   "A REMOVAL IS NEVER AN ADDON: nothing in that lane can delete anything. If they want something to GO, it is \"edit\", " +
   "even when you are unsure of anything else.";
 
+// ── AN ADDON ANSWER EDITS NOTHING (2026-10-26, the owner's combined test) ──
+//
+// Live, driftwood-and-daughters-5: six requests (hours, an email, a hire
+// form, two menu items, who sees hire requests, a footer phone) were answered
+// "addon" with nothing held back, and five were dropped. This rule had said
+// "almost always leave this out" and "several changes one answer can make are
+// one turn" ahead of the addon hold, so a model that thought addon could make
+// it all held nothing. Now the addon case comes first and says what an addon
+// cannot make: anything already on the site, or an addition elsewhere.
 const LIVE_ALSO_RULE =
-  "ALMOST ALWAYS LEAVE THIS OUT. Two things said about ONE change are one change: \"make the background yellow and the " +
-  "corners rounder\", \"put Book first and drop Prices\", \"change the phone number in the header and the footer\". " +
-  "Several changes one answer can make are one turn, and the closing rule of `layer` says which answer.\n" +
-  "PUT A REQUEST HERE ONLY WHEN YOUR ANSWER CANNOT MAKE IT THIS TURN: something to add beside a change (\"make the " +
-  "background yellow and add a booking form\" is a \"look\" answer holding \"add a booking form\"), a change beside an " +
-  "addition when you answered \"addon\", or a change to stored rows (\"data\") or to a page's exact words (\"text\") " +
-  "beside a change of another kind. Never a detail, a reason or a restatement. When in doubt, say nothing.";
+  "WHEN YOUR ANSWER IS \"addon\": it adds new things to ONE target (one page, one table or the frame) and edits " +
+  "nothing. Put here, one entry each, EVERY change to something the site already has (an opening time, an email, a " +
+  "phone number, a price, words, a layout) and EVERY addition to a different target. Several additions are one " +
+  "\"addon\" answer only when they go on the same target.\n" +
+  "WHEN YOUR ANSWER IS AN EDIT: two things said about ONE change are one change (\"make the background yellow and " +
+  "the corners rounder\", \"put Book first and drop Prices\", \"change the phone number in the header and the " +
+  "footer\"), and several edits one answer can make are one turn: the closing rule of `layer` says which answer. " +
+  "Put here only what that answer cannot make this turn: something to add beside a change (\"make the background " +
+  "yellow and add a booking form\" is a \"look\" answer holding \"add a booking form\"), or a change to stored rows " +
+  "(\"data\") or to a page's exact words (\"text\") beside a change of another kind.\n" +
+  "Never a detail, a reason or a restatement of a request already in your answer.";
 
 const LIVE_LAYER =
   "Only when intent is \"edit\", and required for one. Which part of the site the change lives in; the site inventory " +
@@ -3688,7 +3701,7 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
 }
 
 /** The reason told back when a held-back part is not in the message (2026-10-24). */
-export const HELD_UNREAD_REASON = "Your answer could not be used: a part you held back in alsoAsked is not found word for word in the customer's message, or is not a list of their own words. Every held-back part must be copied exactly from the message (or named by its number in brackets when the message is numbered). Answer again with the same decision, copying each held-back part exactly; hold nothing back if every change can be made now.";
+export const HELD_UNREAD_REASON = "Your answer could not be used: a part you held back in alsoAsked is not found word for word in the customer's message, or is not a list of their own words. Every held-back part must be copied exactly from the message (or named by its number in brackets when the message is numbered). Answer again with the same decision, holding back the same parts, each copied exactly.";
 
 /** Whether the router's held-back parts cannot be found in the message — the routes' own `held-unread` check. */
 export function heldUnread(message, alsoAsked) {

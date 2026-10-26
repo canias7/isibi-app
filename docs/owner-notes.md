@@ -1,5 +1,9 @@
 # Owner Notes
 
+## 2026-10-26 — the router splits a mixed message again (branch `router-split`, not merged, not deployed)
+
+Your combined test on driftwood-and-daughters-5 asked for six things and got only the Hire form: the router answered "add-on" for the whole message and held nothing back, so the hours, email, menu items and footer phone were never handed to anyone. Its held-back rule had said "almost always leave this out" and "several changes one answer can make are one turn" before the add-on case, so it kept everything together. The rule now starts with the add-on case: an add-on adds to one page, table or the frame and edits nothing, so every change to what the site already has, and every addition somewhere else, is held back as its own request (and then runs as its own part, in parallel or waiting, as before). The edit case and the look-door rule (Test 8) are unchanged. The quoting retry no longer tells the router "hold nothing back". Wording only, no keyword rules. Tests: 3 new (`test/router-split.test.mjs`), red on `main` (2 of 3), sweep 6 of 6 killed with 2 comment controls surviving. Full suite 12,871 tests: 2 fail, both outside this change (`site-secrets` fails on `main` too; `build-reply-bubble` passes alone). Record: `docs/history/2026-10-26-router-split.md`.
+
 ## 2026-10-26 — one site map that every step reads (branch `site-map`, not merged, not deployed)
 
 - **One map of the whole site**, built from its stored pages and parts and its live database, with no AI call. It holds the pages, the shared parts, the tables (columns, required fields, who may read and write), which pages read or write which tables, the menu and footer, the theme, the photos, and the key details: phone, email, opening hours, prices and addresses, each with every place it is written (for example "hours in the footer, on every page").
