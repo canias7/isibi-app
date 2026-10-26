@@ -192,3 +192,25 @@ test("PHASE 3: the text step looks up where a phrase is written, then makes its 
   assert.ok(out.pages[0].source.includes("£4.50"));
   assert.equal(out.usage.in, 100);
 });
+
+test("PHASE 4: the router looks (at most twice) where a section is, then routes; a router that keeps looking is made to answer", async () => {
+  const { routeMessage, LIVE_ASK_TOOL } = await import("../builder/site-ask.mjs");
+  const SITE = { name: "Driftwood", url: "https://driftwood.gofarther.app", pages: ["/"], tables: [] };
+  const routed = (input) => ({ stop_reason: "tool_use", content: [use(LIVE_ASK_TOOL.name, input)], usage: { input_tokens: 100, output_tokens: 5 } });
+  const sent = [];
+  const send = async (r) => {
+    sent.push(r);
+    return sent.length === 1 ? { content: [use("search", { pattern: "reviews" }, "s1")], usage: { input_tokens: 90, output_tokens: 4 } } : routed({ intent: "edit", layer: "look", page: "/" });
+  };
+  const out = await routeMessage({ send: exploreSend(send, ctx, { maxLooks: 2 }) }, { message: "Move the reviews section above the lessons section.", site: SITE, hasSite: true });
+  assert.equal(sent.length, 2);
+  assert.deepEqual(sent[0].tool_choice, { type: "any" });
+  assert.equal(sent[0].tools[0].name, LIVE_ASK_TOOL.name, "the router's own tool first");
+  assert.match(sent[1].messages.at(-1).content[0].content, /band-3-split\.tsx:2/);
+  assert.equal(out.layer, "look", JSON.stringify(out).slice(0, 300));
+  // Capped at two: the third round is sent with the router's own tool forced.
+  const greedy = [];
+  await routeMessage({ send: exploreSend(async (r) => { greedy.push(r); return r.tool_choice && r.tool_choice.type === "tool" ? routed({ intent: "edit", layer: "look", page: "/" }) : { content: [use("list_files", {}, "l" + greedy.length)] }; }, ctx, { maxLooks: 2 }) }, { message: "x", site: SITE, hasSite: true });
+  assert.equal(greedy.length, 3);
+  assert.equal(greedy[2].tool_choice.type, "tool");
+});

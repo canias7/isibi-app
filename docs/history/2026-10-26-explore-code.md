@@ -176,3 +176,38 @@ Each round resends the whole conversation, and the tool schemas add about
 - **Checks.** Sweep: 9 of 9 mutants killed, and the comment-only control
   survived. Full suite: `12905 / 12901 / 1 / 3`; the one failure is the
   worktree's `node_modules` symlink.
+
+## Phase 4: the router
+
+- **What the router gets now.** No inventory: `routeInventory` and the
+  router's key facts are gone from the request. Up front it has its digest
+  (routes and table names, as before) and the file list, with the table
+  names read for the owner. On top of that it can take at most 2 looks
+  (`ROUTER_MAX_LOOKS`). `exploreLooks` never lets the env setting raise that
+  cap.
+- **When it does not look:**
+  - **Unverified owner.** It explores only on the verified owner's site:
+    `routeDigest` now returns `owned` and `slug`.
+  - **A part of a longer request** gets no looks, so it is never shown words
+    another part may have changed (R11).
+- **Database reads.** The table names come from the owner read the route
+  already made, so a routing call that does not look reads nothing more of
+  the database. A table's columns are read in full only when `describe_table`
+  asks (`read.table`).
+- **Router wording** (`builder/site-ask.mjs`). Six phrases that pointed at
+  "the site inventory above" now point at the site's files and tables and at
+  looking. "WHEN THE INVENTORY STILL CANNOT SETTLE IT" became "WHEN LOOKING
+  STILL CANNOT SETTLE IT". `inventoryBlock` and the `inventory` argument are
+  removed.
+  - **Owner review needed.** This is router wording (Lane 3), and nothing
+    else in the rules changed.
+- **Tests.**
+  - **Supplied answers:** the router searches "reviews", finds
+    `-parts/band-3-split.tsx:2` and answers `edit`/`look`. A router that
+    keeps looking is forced to answer on the third round.
+  - **Updated:** `router-b1`, `route-table-names` and `live-clarify-contract`
+    follow the new wording and the absence of the inventory.
+- **Checks.** Sweep: 7 of 7 mutants killed, and the comment-only control
+  survived. Full suite: `12904 / 12899 / 2 / 3`. The `live-clarify-contract`
+  failure was the old wording, fixed after the run (32 of 32 when re-run);
+  the other failure is the worktree's `node_modules` symlink.

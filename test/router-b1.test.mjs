@@ -11,8 +11,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { ASK_TOOL, LIVE_ASK_TOOL, LIVE_SYSTEM, askRequest, routeMessage, inventoryBlock, layerLine } from "../builder/site-ask.mjs";
-import { routeInventory, pageFacts, INVENTORY_CHARS } from "../builder/route-inventory.mjs";
+import { ASK_TOOL, LIVE_ASK_TOOL, LIVE_SYSTEM, askRequest, routeMessage, layerLine } from "../builder/site-ask.mjs";
 import { toXaiRequest } from "../builder/model-xai.mjs";
 import { xaiHeaders, anthropicWire } from "../builder/build-call.mjs";
 
@@ -29,7 +28,7 @@ const sysOf = (req) => req.system.map((b) => b.text).join("");
 test("one edit/addon test, one tie-break, one several-changes rule — each said once in everything a live site is sent", () => {
   // THE OBSERVERS ARE ALIVE: each rule is found exactly once.
   assert.equal(count(RULES, /ASKED OF THE THING ITSELF AND NEVER OF WHAT IT GOES INTO/), 1, "the edit/addon test is not said exactly once");
-  assert.equal(count(RULES, /WHEN THE INVENTORY STILL CANNOT SETTLE IT/), 1, "the tie-break is not said exactly once");
+  assert.equal(count(RULES, /WHEN LOOKING STILL CANNOT SETTLE IT/), 1, "the tie-break is not said exactly once");
   assert.equal(count(RULES, /ONE ANSWER FOR THE WHOLE MESSAGE/), 1, "the several-changes rule is not said exactly once");
   // THE OLD COPIES ARE GONE from the live tool and the live system.
   const wire = JSON.stringify(LIVE_ASK_TOOL) + LIVE_SYSTEM;
@@ -37,8 +36,8 @@ test("one edit/addon test, one tie-break, one several-changes rule — each said
     /cheapest one that can honestly do the job/, /COST NEVER MAKES A NEW ENTRY AN EDIT/, /SEVERAL CHANGES IN ONE MESSAGE ARE STILL ONE "look" ANSWER/, /SEVERAL CHANGES ARE ONE TURN WHEN YOUR ANSWER/]) {
     assert.doesNotMatch(wire, old, "a duplicate or contradictory rule still reaches a live site: " + old);
   }
-  // THE TIE-BREAK USES THE INVENTORY, then a question, then addon where closed; cost never decides.
-  assert.match(INTENT, /ANSWERED FROM THE SITE INVENTORY ABOVE: is it there now\? Yes — "edit"\. No — "addon"\./);
+  // THE TIE-BREAK LOOKS FIRST (2026-10-26: the site as the router finds it), then a question, then addon where closed; cost never decides.
+  assert.match(INTENT, /ANSWERED FROM THE SITE AS IT IS \(its files and tables; look with the read-only tools when you need to\): is it there now\? Yes — "edit"\. No — "addon"\./);
   assert.match(INTENT, /ask them \("clarify"\) where a question may be asked \(said below\); where questions are closed, answer "addon"\. Cost never decides between edit and addon\./);
   // A FEATURE ON A PAGE THAT EXISTS: an addon with that page, never a new row.
   assert.match(INTENT, /it is "addon" with that page as its target and the form as a new-component — never a new entry in a list/);
@@ -93,7 +92,7 @@ test("a first build is sent exactly what it was: its own tool and system", () =>
   // A SITE THAT EXISTS IS SENT THE LIVE SYSTEM, which differs only in its site step.
   const live = askRequest({ message: "x", site: SITE, hasSite: true, live: true });
   assert.equal(sysOf(live), LIVE_SYSTEM);
-  assert.match(LIVE_SYSTEM, /decided by the one test in the tool's `intent` field against the site inventory/);
+  assert.match(LIVE_SYSTEM, /decided by the one test in the tool's `intent` field against the site as it is/);
 });
 
 const said = (input) => ({ stop_reason: "tool_use", content: [{ type: "tool_use", name: LIVE_ASK_TOOL.name, input }], usage: { input_tokens: 10, output_tokens: 5 } });
@@ -122,73 +121,19 @@ test("a caller with nobody to ask closes questions; a part of a request is offer
   const call = w.slice(at, end);
   assert.match(call, /\n\s*canAsk: rLive,\n/);
   assert.doesNotMatch(call, /offerAsk/);
-  assert.match(call, /inventory: typeof rDigest\.inventory === "string" \? rDigest\.inventory : ""/);
+  // THE ROUTER EXPLORES (2026-10-26): at most two looks, on the verified owner's site; a part does not look.
+  assert.match(call, /send: exploredSend\(env, rDigest\.owned === true && !rPart \? rDigest\.slug : "", jobSend\(rJob, quickSend\(env\)\), \{ cap: ROUTER_MAX_LOOKS, names: /);
+  assert.doesNotMatch(call, /inventory:/);
   assert.match(call, /cacheKey: [^\n]*"route-" \+ rb\.slug/);
 });
 
-const LESSONS = `import { usePublicRows } from "@/lib/rows";
-import { SectionHeader } from "@/components/ui/section-header";
-import { Button } from "@/components/ui/button";
-function Lessons() {
-  const rows = usePublicRows<{ title: string }>(
-    "lessons", {});
-  return (<SiteChrome links={[{ label: "Home", href: "/" }, { label: "Lessons", href: "/lessons" }]} action={{ label: "Call us", href: "tel:0123" }}>
-    <SectionHeader title="x" /><h1 className="t">Surf lessons</h1><Button>Go</Button></SiteChrome>);
-}`;
-const SPEC = { tables: [
-  { name: "lessons", access: "display", columns: [{ name: "id", pk: true }, { name: "title", notnull: true }, { name: "price", notnull: true }, { name: "spots", notnull: true, default: 8 }] },
-  { name: "lesson_bookings", access: "collect", columns: [{ name: "email", notnull: true }] },
-] };
 
-test("the inventory: each table's columns, each page's sections and tables, the frame's items — read from the site's files, never a row", () => {
-  const f = pageFacts(LESSONS);
-  assert.deepEqual(f.reads, ["lessons"]);
-  assert.deepEqual(f.writes, []);
-  assert.deepEqual(f.components, ["SectionHeader"], "a primitive or a missing section was listed");
-  assert.deepEqual(f.headings, ["Surf lessons"]);
-  const inv = routeInventory({ pages: [{ path: "src/routes/lessons.tsx", route: "/lessons", source: LESSONS }], spec: SPEC });
-  assert.match(inv, /- lessons: id, title\*, price\*, spots=/);
-  assert.match(inv, /- lesson_bookings: email\*/);
-  assert.match(inv, /- \/lessons: headings: "Surf lessons"; sections: SectionHeader; reads lessons/);
-  assert.match(inv, /- menu: Home → \/; Lessons → \/lessons/);
-  assert.match(inv, /- header button: Call us → tel:0123/);
-  // A PART IS SHOWN NO PAGE WORDS: another part's heading change never changes its request (R11).
-  const noWords = routeInventory({ pages: [{ path: "src/routes/lessons.tsx", route: "/lessons", source: LESSONS }], spec: SPEC, words: false });
-  assert.doesNotMatch(noWords, /Surf lessons|headings:/);
-  assert.match(noWords, /- \/lessons: sections: SectionHeader; reads lessons/);
-  const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(w, /let rDigest = await routeDigest\(env, ru, rb, \{ keepPages: !!rScope, words: !rPart \}\);/);
-  assert.match(w, /const whole = await routeDigest\(env, ru, rb, \{ words: !rPart \}\);/);
-  // WHAT COULD NOT BE READ IS LEFT OUT, never said as none.
-  assert.equal(routeInventory({ pages: null, spec: null }), "");
-  assert.match(routeInventory({ pages: null, spec: { tables: [] } }), /^Tables[^\n]*\n- none$/);
-});
-
-test("the inventory is budgeted: a large site is cut with a line saying so, and the 24-table cut is gone", () => {
-  const tables = Array.from({ length: 60 }, (_, i) => ({ name: "t" + i, columns: Array.from({ length: 30 }, (_, j) => "column_" + j) }));
-  const inv = routeInventory({ spec: { tables } });
-  assert.ok(inv.length <= INVENTORY_CHARS + 40, "the inventory ran past its budget: " + inv.length);
-  assert.match(inv, /… \(more not shown\)$/);
-  const small = routeInventory({ spec: { tables: tables.slice(0, 30).map((t) => ({ name: t.name, columns: ["a"] })) } });
-  assert.match(small, /- t29: a/, "a table past the 24th was cut");
-  // SECTIONS GO FIRST: over budget, every page keeps its line and loses its section list.
-  const pages = Array.from({ length: 8 }, (_, i) => ({ path: "src/routes/p" + i + ".tsx", route: "/p" + i, source: LESSONS }));
-  const full = routeInventory({ pages });
-  const tight = routeInventory({ pages, budget: full.length - 1 });
-  assert.match(full, /sections: SectionHeader/);
-  assert.doesNotMatch(tight, /sections:/, "the section lists were not the first thing cut");
-  for (let i = 0; i < 8; i++) assert.match(tight, new RegExp("- /p" + i + ": "), "a page was cut before the sections");
-});
-
-test("the inventory reaches the request after the stable prefix and the digest, and the per-site pin reaches xAI's header", async () => {
-  const inv = routeInventory({ pages: [{ path: "src/routes/lessons.tsx", route: "/lessons", source: LESSONS }], spec: SPEC });
-  const req = await sent({ inventory: inv, cacheKey: "route-driftwood" });
+test("no inventory is handed (the router explores, 2026-10-26), and the per-site pin reaches xAI's header", async () => {
+  const req = await sent({ cacheKey: "route-driftwood" });
   // NOTHING PER-SITE IN THE PREFIX: the tools and the system are the same for every site.
   assert.equal(req.tools[0], LIVE_ASK_TOOL);
   assert.equal(sysOf(req), LIVE_SYSTEM);
-  const c = req.messages[0].content;
-  const digest = c.indexOf("Its database tables are:"), block = c.indexOf(inventoryBlock(inv)), state = c.indexOf("WHICH CASE YOU ARE IN"), msg = c.indexOf("THEIR MESSAGE");
-  assert.ok(digest > 0 && block > digest && state > block && msg > state, "the inventory is not between the digest and the rest");
+  assert.ok(!req.messages[0].content.includes("SITE INVENTORY"), "an inventory was handed");
   // THE PIN: ours on the request, `x-grok-conv-id` on the wire, never sent to Anthropic.
   assert.equal(req.cacheKey, "route-driftwood");
   const { body } = toXaiRequest({ ...req, model: "grok-4" });

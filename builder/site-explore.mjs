@@ -147,7 +147,9 @@ export async function runExploreTool(ctx, name, input) {
     if (name === "describe_table") {
       const tables = Array.isArray(ctx && ctx.tables) ? ctx.tables : null;
       if (!tables) return "unavailable: this step is not given the tables";
-      const t = tables.find((x) => x && x.name === str(i.name));
+      let t = tables.find((x) => x && x.name === str(i.name));
+      // A TABLE KNOWN BY NAME ONLY (the router's, read fast) is read in full when asked.
+      if (t && !Array.isArray(t.columns) && ctx.read && typeof ctx.read.table === "function") { const full = await ctx.read.table(t.name); if (full && full.name === t.name) t = full; }
       if (!t) return "no such table: " + str(i.name) + " (tables: " + tables.map((x) => x && x.name).filter(Boolean).join(", ") + ")";
       const cols = Array.isArray(t.columns) ? t.columns.map((c) => "- " + c.name + (c.type ? " " + c.type : "") + (c.required ? " (required)" : "") + (c.pk ? " (key)" : "")).join("\n") : "- not known";
       return clip("table " + t.name + "\ncolumns:\n" + cols + "\naccess: " + (t.access || "not known") + "\nrows: " + (Number.isInteger(t.rows) ? t.rows : "not known"), EXPLORE_RESULT_CHARS);

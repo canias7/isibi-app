@@ -925,8 +925,9 @@ const LIVE_CLARIFY =
 // owner: *"preserve current first-build behavior"*). Every guarded behaviour
 // keeps a sentence:
 //   - edit/addon: one test, asked of the thing itself, answered from the site
-//     inventory (`route-inventory.mjs`), in `intent` only;
-//   - one tie-break: the inventory first; a question where one may be asked;
+//     as the router finds it (its file list and table names, and up to two
+//     looks with the read-only tools, `site-explore.mjs`), in `intent` only;
+//   - one tie-break: looking first; a question where one may be asked;
 //     `addon` where questions are closed; cost never decides;
 //   - a removal has one owner by what holds it: a whole page `page`+`remove`,
 //     a stored row `data`, a frame item or the logo `nav`/`logo`+`remove`, and
@@ -953,11 +954,11 @@ const LIVE_INTENT =
   "or something its database must newly do (a lookup or a cancel a page needs, something read live from an outside " +
   "service, something on a timer). A site with no database gets one with the first of these.\n" +
   "EDIT OR ADDON IS ONE TEST, ASKED OF THE THING ITSELF AND NEVER OF WHAT IT GOES INTO, AND ANSWERED FROM THE SITE " +
-  "INVENTORY ABOVE: is it there now? Yes — \"edit\". No — \"addon\". A working feature on a page that exists (taking " +
-  "bookings or orders, a sign-up) is there only when the inventory shows it: a form on that page writing to a table " +
+  "AS IT IS (its files and tables; look with the read-only tools when you need to): is it there now? Yes — \"edit\". No — \"addon\". A working feature on a page that exists (taking " +
+  "bookings or orders, a sign-up) is there only when the site's code shows it: a form on that page writing to a table " +
   "for it. When it does not, it is \"addon\" with that page as its target and the form as a new-component — never a " +
   "new entry in a list. Changing a component is an edit: the page's code always exists.\n" +
-  "WHEN THE INVENTORY STILL CANNOT SETTLE IT, ask them (\"clarify\") where a question may be asked (said below); where " +
+  "WHEN LOOKING STILL CANNOT SETTLE IT, ask them (\"clarify\") where a question may be asked (said below); where " +
   "questions are closed, answer \"addon\". Cost never decides between edit and addon.\n" +
   "A REMOVAL IS NEVER AN ADDON: nothing in that lane can delete anything. If they want something to GO, it is \"edit\", " +
   "even when you are unsure of anything else.";
@@ -985,8 +986,8 @@ const LIVE_ALSO_RULE =
   "Never a detail, a reason or a restatement of a request already in your answer.";
 
 const LIVE_LAYER =
-  "Only when intent is \"edit\", and required for one. Which part of the site the change lives in; the site inventory " +
-  "above says what each page, table and the frame hold.\n" +
+  "Only when intent is \"edit\", and required for one. Which part of the site the change lives in; the site's files " +
+  "and tables say what each page, table and the frame hold.\n" +
   "\"data\" — the rows the site STORES in its tables and shows as a list: a price, a dish, a service, an opening time, " +
   "a team member. The cheapest step: prefer it whenever the thing changed is a stored row. It also deletes an existing " +
   "row taken off a list (every page showing it stops), and sorts a list by something every entry has (cheapest first, " +
@@ -1240,8 +1241,8 @@ const TARGETS = {
     "page:/path: new-component:Name for the form or section, new-data:table for a table it needs that the site " +
     "has not got, data:table for an existing table it writes. page:/path alone means only that page's content changes. " +
     // WHAT EXISTS IS NEVER NEW (2026-10-25, router-b1): the audit's p1–p4 named
-    // new-component: for features the site already had; the inventory shows them.
-    "A form, section or table the site inventory already shows is never new-: name it as it is. " +
+    // new-component: for features the site already had; the site's code shows them.
+    "A form, section or table the site already has is never new-: name it as it is. " +
     "Name every shared part a change reaches, even when its words do not mention it. Leave a change out only when " +
     "you cannot tell what it touches.",
   items: {
@@ -1553,7 +1554,7 @@ const SYSTEM_SITE_AT = "   A SITE EXISTS — ";
 const SYSTEM_SITE_END = "\n\nWHAT THE THREE COST";
 const LIVE_SITE_STEP =
   "   A SITE EXISTS — \"edit\" or \"addon\", decided by the one test in the tool's `intent` field against the site " +
-  "inventory, and \"build\" only to throw the whole site away and start again: it replaces every page they have. " +
+  "as it is, and \"build\" only to throw the whole site away and start again: it replaces every page they have. " +
   "Somebody who asked for a different shade of blue must never be given a new site.";
 export const LIVE_SYSTEM = (() => {
   const at = SYSTEM.indexOf(SYSTEM_SITE_AT);
@@ -1562,14 +1563,9 @@ export const LIVE_SYSTEM = (() => {
   return SYSTEM.slice(0, at) + LIVE_SITE_STEP + SYSTEM.slice(end);
 })();
 
-// ── WHAT THE SITE HAS, FOR A SITE THAT EXISTS (2026-10-25, router-b1) ───────
-// The route's own read (`builder/route-inventory.mjs`), after the digest: per
-// site, after the stable tools and system, so the cached prefix holds.
-const MAX_INVENTORY_CHARS = 8000;
-export function inventoryBlock(inventory) {
-  const t = typeof inventory === "string" ? inventory.trim() : "";
-  return t ? "SITE INVENTORY (what the site has now, read from its own files and stored tables)\n" + t.slice(0, MAX_INVENTORY_CHARS) : "";
-}
+// WHAT THE SITE HAS is no longer handed as an inventory (2026-10-26,
+// explore-code): the router is given the file list and table names and up to
+// two read-only looks (`site-explore.mjs`, wired in the worker).
 
 /**
  * The one definition of the routing call.
@@ -1620,7 +1616,7 @@ function liveBlock({ canAsk = false, pending = null, context = [], part = null }
   return waiting + (told ? "\n" + told : "") + asking;
 }
 
-export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false, model = ASK_MODEL, live = false, canAsk = false, pending = null, context = [], part = null, tablesNone = false, history = null, summary = null, answering = false, items = null, device = "", split = null, inventory = "", cacheKey = "" } = {}) {
+export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false, model = ASK_MODEL, live = false, canAsk = false, pending = null, context = [], part = null, tablesNone = false, history = null, summary = null, answering = false, items = null, device = "", split = null, cacheKey = "" } = {}) {
   // A FIRST BUILD'S MESSAGE IS CUT TO ITS OWN BOUND, AS IT ALWAYS WAS; a site
   // that exists sends it whole (2026-10-03, the size policy): the route has
   // already refused one past `MAX_INPUT_CHARS`, so nothing here shortens what
@@ -1710,7 +1706,7 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
     // THE CONVERSATION SO FAR (2026-10-14), its small window only — enough to
     // tell "do that" from a question and to write `resolved` — before their
     // message. Absent when the page sent none.
-    messages: [{ role: "user", content: "THEIR SITE\n" + siteDigest(site, { tablesNone }) + (live && hasSite && inventoryBlock(inventory) ? "\n\n" + inventoryBlock(inventory) : "") + state + round + (summaryBlock(summary) ? "\n\n" + summaryBlock(summary) : "") + (historyBlock(history) ? "\n\n" + historyBlock(history) : "") + (live && hasSite && deviceHintLine(device) ? "\n\n" + deviceHintLine(device) : "") + "\n\nTHEIR MESSAGE\n" + text + (live && itemsBlock(items) ? "\n\n" + itemsBlock(items) : "") + (live && partBlock(part) ? "\n\n" + partBlock(part) : "") + (live && splitBlock(split) ? "\n\n" + splitBlock(split) : "") }],
+    messages: [{ role: "user", content: "THEIR SITE\n" + siteDigest(site, { tablesNone }) + state + round + (summaryBlock(summary) ? "\n\n" + summaryBlock(summary) : "") + (historyBlock(history) ? "\n\n" + historyBlock(history) : "") + (live && hasSite && deviceHintLine(device) ? "\n\n" + deviceHintLine(device) : "") + "\n\nTHEIR MESSAGE\n" + text + (live && itemsBlock(items) ? "\n\n" + itemsBlock(items) : "") + (live && partBlock(part) ? "\n\n" + partBlock(part) : "") + (live && splitBlock(split) ? "\n\n" + splitBlock(split) : "") }],
   };
 }
 
@@ -3461,7 +3457,7 @@ export const KEPT_TURN_CHARS = 2000;
 export const KEPT_STEP = 20;
 export const KEPT_CHARS = 40000;
 const ROUTER_LAST_REPLY = 3200;
-export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, picked = false, hasSite = false, model = ASK_MODEL, tablesFilled = false, tablesNone = false, pagesFilled = false, pagesComplete = true, canAsk: askable = false, context = [], pending = null, part = null, history = null, kept = null, device = "", split = null, inventory = "", cacheKey = "", offerAsk = true } = {}) {
+export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, picked = false, hasSite = false, model = ASK_MODEL, tablesFilled = false, tablesNone = false, pagesFilled = false, pagesComplete = true, canAsk: askable = false, context = [], pending = null, part = null, history = null, kept = null, device = "", split = null, cacheKey = "", offerAsk = true } = {}) {
   const text = String(message || "").trim();
   // AN EMPTY MESSAGE NEVER REACHES THE MODEL. The composer will not send one, but
   // this is a paid call behind a public route and "the client wouldn't do that"
@@ -3563,7 +3559,7 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
       // OFFERED WHEREVER ONE CAN BE KEPT (owner, 2026-10-26: any step may
       // ask, at any stage, parts included); `offerAsk` false is still read
       // for a caller that has nobody to ask.
-      canAsk: canAsk && offerAsk !== false, pending: waiting, context: waiting ? told : (partOf ? (readContext(context) || []) : told), part: partOf, tablesNone: tablesNone === true, history: shownHistory.turns.length ? shownHistory : null, summary: keptSummary, answering: canClarify && answering === true && picked !== true, device, split: live && hasSite ? split : null, inventory, cacheKey });
+      canAsk: canAsk && offerAsk !== false, pending: waiting, context: waiting ? told : (partOf ? (readContext(context) || []) : told), part: partOf, tablesNone: tablesNone === true, history: shownHistory.turns.length ? shownHistory : null, summary: keptSummary, answering: canClarify && answering === true && picked !== true, device, split: live && hasSite ? split : null, cacheKey });
   } catch (e) {
     return fail("request", e);
   }

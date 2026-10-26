@@ -755,7 +755,7 @@ test("NO PROMPT TELLS A MODEL THAT CANNOT TELL TO GUESS BESIDE A FIELD THAT TELL
   assert.doesNotMatch(live, /WHEN YOU CANNOT TELL, ANSWER "addon"/, "the live router is still told to answer addon when it cannot tell");
   // ONE TIE-BREAK (router-b1): the inventory first, then a question where one
   // may be asked, addon only where questions are closed.
-  assert.match(live, /WHEN THE INVENTORY STILL CANNOT SETTLE IT, ask them \("clarify"\) where a question may be asked/);
+  assert.match(live, /WHEN LOOKING STILL CANNOT SETTLE IT, ask them \("clarify"\) where a question may be asked/);
   assert.match(ASK_TOOL.input_schema.properties.intent.description, /WHEN YOU CANNOT TELL, ANSWER "addon"/, "the first build's tie-break moved");
   // AND THE DESIGNER'S COVERAGE LIST DOES NOT DEMAND AN ANSWER BESIDE A QUESTION.
   assert.match(addTool("page").input_schema.properties.requirements.description, /question back to them: then leave this out too/);

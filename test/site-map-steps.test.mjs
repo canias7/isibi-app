@@ -28,21 +28,7 @@ const SITE = { name: "Harbour Books", url: "https://harbour.gofarther.app", page
 const said = (input) => ({ stop_reason: "tool_use", content: [{ type: "tool_use", name: LIVE_ASK_TOOL.name, input }], usage: { input_tokens: 10, output_tokens: 5 } });
 const ROUTES = PAGES.map((p) => ({ ...p, route: p.path === "index.tsx" ? "/" : "/" + p.path.replace(/\.tsx$/, "") }));
 
-test("UP FRONT: the first routing is shown the one shared set of hours, and its existing question comes back as the answer — nothing else runs", async () => {
-  const inventory = routeInventory({ pages: ROUTES, spec: SPEC, parts: PARTS });
-  assert.match(inventory, /hours "Open Mon–Sun 9am–5pm" in part footer \(on every page\)/);
-  const Q = { text: "The site has one set of opening hours, for the shop and the cafe together. Change those, or add separate cafe hours?", options: ["Change the shared hours", "Add cafe hours"] };
-  let sent = null, calls = 0;
-  const r = await routeMessage({ send: async (req) => { sent = req; calls++; return said({ intent: "clarify", question: Q }); } },
-    { message: "make the cafe opening hours 8am to 4pm", site: SITE, hasSite: true, firstBuild: false, model: "test-model", canAsk: true, inventory });
-  assert.equal(calls, 1);
-  const told = JSON.stringify(sent.messages);
-  assert.ok(told.includes("in part footer (on every page)"), "the router was not shown where the hours are written");
-  assert.match(told, /A QUESTION MAY BE ASKED/);
-  assert.equal(r.intent, "clarify");
-  assert.equal(r.question.text, Q.text);
-  assert.deepEqual(r.question.options, Q.options);
-});
+// THE ROUTER no longer gets the key facts: it explores (2026-10-26, explore-code).
 
 test("THE ROUTER SLICE'S SIZE on a realistic site: inside ~2–3k tokens with the inventory", () => {
   // Eight pages with footer facts, a menu of prices, twelve tables.

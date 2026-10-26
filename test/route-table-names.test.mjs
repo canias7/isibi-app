@@ -168,12 +168,9 @@ test("the owner's own site: its tables reach the router by name, and nothing els
   // THE DIGEST: the pages and the two table names, exactly.
   assert.equal(toldAbout(r), "The site is called tables-ready. It is published at https://tables-ready.gofarther.app. "
     + "Its pages are: /, /prices, /gear. Its database tables are: bookings, lessons.");
-  // AND THE INVENTORY (router-b1, the owner's approval to reword this guard):
-  // each table's COLUMNS and access, from the stored spec — still no row, no
-  // type and not the engine's own `_meta`.
-  assert.equal(inventoryShown(r), "SITE INVENTORY (what the site has now, read from its own files and stored tables)\n"
-    + "Tables (columns; * an entry must fill, = has a default):\n- lessons: name, price (display)\n- bookings: email (collect)");
-  assert.ok(!/_meta|\btext\b|\binteger\b/.test(inventoryShown(r).split("\n").slice(1).join("\n")), "the inventory carried a type or the engine's table");
+  // NO INVENTORY (2026-10-26, explore-code): the router is given the file list
+  // and table names and looks for the rest with read-only tools.
+  assert.equal(inventoryShown(r), "", "the router was handed an inventory");
   // The route says what it filled in, so the evidence of a run can show it.
   assert.deepEqual(r.body.tablesFilled, ["bookings", "lessons"]);
   // AND THE DECISION SAYS SO (the router audit, 2026-10-02): a context code,
@@ -270,8 +267,6 @@ test("an empty database: the router is told the site has no tables, in words", a
   // THE WHOLE SITE SECTION, EXACTLY: the no-tables sentence where the names go.
   assert.equal(toldAbout(r), "The site is called tables-empty. It is published at https://tables-empty.gofarther.app. "
     + "Its pages are: /, /prices, /gear. It has no database tables.");
-  // The inventory agrees, in words (router-b1).
-  assert.match(inventoryShown(r), /Tables \(columns[^)]*\):\n- none$/);
   assert.deepEqual(r.body.tablesFilled, [], "a site read to have no tables is not told apart from one that could not be read");
   assert.ok(r.body.decision.reasons.includes("tables-none"));
   assert.ok(!r.body.decision.reasons.includes("tables-filled"));

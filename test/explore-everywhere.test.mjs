@@ -34,7 +34,7 @@ const EXEMPT = {
   runSiteBuild: "a first build's seed rows, written before the site's address is chosen",
   'handleRequest:EDIT_BARE_STEPS.has(what)': "the keep check and the take-off judge only what they are handed",
 };
-// STILL ON THE MAP UNTIL THEIR PHASE (4: the router; 5: everything else that reads the map).
+// STILL ON THE MAP UNTIL THEIR PHASE (5: everything else that reads the map).
 const LEFT = {
   composeModelReply: "phase 5: the reply writer (handed mapFor reply)",
   narrateBuild: "phase 5: the reply writer",
@@ -43,7 +43,6 @@ const LEFT = {
   'handleRequest:writeReply({ send: mappedSend(env, scslug': "phase 5: the security scan's reply writer",
   diagnoseEnded: "phase 5: the diagnosis (handed mapFor diagnose)",
   'handleRequest:quickSend(env, "converse")': "phase 5: the conversation's key facts",
-  "handleRequest:jobSend(rJob, quickSend(env))": "phase 4: the router",
 };
 
 function enclosing(lines, i) {
@@ -95,4 +94,16 @@ test("the edit and add-on transports explore for every step, and every edit call
 
 test("the map slices the steps used to carry are gone from the steps that explore", () => {
   for (const k of ['mapFor("frame"', 'mapFor("addon"', 'mapFor("rowNote"']) assert.ok(!SRC.includes(k), k);
+});
+
+test("the router explores, fast: at most two looks, its table names read for the owner, never on a part", async () => {
+  const { ROUTER_MAX_LOOKS } = await import("../builder/site-explore.mjs");
+  assert.equal(ROUTER_MAX_LOOKS, 2);
+  assert.match(SRC, /\{ send: exploredSend\(env, rDigest\.owned === true && !rPart \? rDigest\.slug : "", jobSend\(rJob, quickSend\(env\)\), \{ cap: ROUTER_MAX_LOOKS, names: Array\.isArray\(rDigest\.filled\) \? rDigest\.filled : \[\] \}\), classify:/);
+  // exploreLooks never lets the env setting lift the router's cap.
+  const at = SRC.indexOf("function exploreLooks(");
+  assert.match(SRC.slice(at, SRC.indexOf("\n}\n", at)), /Number\.isInteger\(cap\) \? Math\.min\(v, cap\) : v/);
+  // routeDigest says whose site it verified; nothing else hands the router an inventory.
+  assert.match(SRC, /return \{ site: out, filled, pagesFilled, pagesComplete: pagesFilled, owned: \(await owned\) === true, slug \};/);
+  assert.ok(!SRC.includes("routeInventory("), "the router is handed an inventory");
 });

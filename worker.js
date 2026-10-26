@@ -235,8 +235,7 @@ import { writtenFrame, ownPartsSite, runFrameEdit, addFrameLinks, FRAME_PARTS, f
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
 import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings, canWriteAccess } from "./site-access.mjs";
-import { routeInventory } from "./builder/route-inventory.mjs";
-import { exploreSend, exploreCall, siteFiles, EXPLORE_MAX_LOOKS } from "./builder/site-explore.mjs";
+import { exploreSend, exploreCall, siteFiles, EXPLORE_MAX_LOOKS, ROUTER_MAX_LOOKS } from "./builder/site-explore.mjs";
 import { buildSiteMap, mapFor, siteSlice, mapSend, mapKey as siteMapKey, mapVersionKey as siteMapVersionKey, MAP_VERSION as SITE_MAP_VERSION } from "./builder/site-map.mjs";
 import { converse, readHistory, converseRequest, requestChars, CONTEXT_CHARS, converseTables } from "./builder/site-converse.mjs";
 import { planWindow, compact as compactChat, COMPACT_AT } from "./builder/chat-context.mjs";
@@ -10447,7 +10446,7 @@ async function withBuildLines(env, jid, uid, status, body, type) {
   return new Response(body, { status, headers: { "content-type": type || "application/json" } });
 }
 
-async function routeDigest(env, user, rb, { keepPages = false, words = true } = {}) {
+async function routeDigest(env, user, rb, { keepPages = false } = {}) {
   const site = rb && rb.site && typeof rb.site === "object" && !Array.isArray(rb.site) ? rb.site : null;
   if (!site || rb.hasSite !== true) return { site: rb && rb.site, filled: null, pagesFilled: false, pagesComplete: false };
   const slug = typeof rb.slug === "string" ? rb.slug : "";
@@ -10460,31 +10459,17 @@ async function routeDigest(env, user, rb, { keepPages = false, words = true } = 
   // owner's review): the browser's list can be one addition's tables alone,
   // so it is never taken for the site's — read for the owner on every call,
   // and the browser's stand only when the read cannot answer.
-  // THE SITE INVENTORY (2026-10-25, router-b1): the stored pages are read
-  // once, for their addresses and for what each holds, and the stored spec
-  // for each table's columns (`routeInventory`). Each read is bounded and
-  // fails open: what could not be read is left out of the inventory.
-  const [names, src, spec, routeParts] = await Promise.all([
+  // THE ROUTER EXPLORES (2026-10-26, explore-code): it is given the file list
+  // and table names and up to two read-only looks, bound to this site only when
+  // the owner is verified (`owned`), in place of the inventory it was handed.
+  const [names, src] = await Promise.all([
     owned.then((ok) => (ok === true ? withinMs(routeTableNames(env, uid, slug, true), ROUTE_TABLES_MS, "route tables:", slug) : null)),
     // A SCOPED ROUTING (2026-10-15, `routeScope`) keeps the page list its
     // request recorded at acceptance: it is never read, so a page another part
     // has made since cannot change what this call is shown.
     keepPages ? Promise.resolve(null) : owned.then((ok) => (ok === true ? withinMs(loadSiteSource(env, slug), ROUTE_PAGES_MS, "route pages:", slug) : null)),
-    owned.then((ok) => (ok === true ? withinMs((async () => {
-      const conn = await ownerSiteConn(env, slug);
-      if (!conn) return { ok: true, spec: { tables: [] } };
-      return readStoredSpec(conn);
-    })(), ROUTE_TABLES_MS, "route spec:", slug) : null)),
-    // THE PARTS, FOR THE SITE MAP'S KEY FACTS (2026-10-26): a footer part's
-    // opening hours are the whole site's. Unread, the facts come from the pages.
-    keepPages ? Promise.resolve(null) : owned.then((ok) => (ok === true ? withinMs(loadSiteParts(env, slug), ROUTE_PAGES_MS, "route parts:", slug) : null)),
   ]);
   const routes = Array.isArray(src) ? sitePageRoutes(src) : null;
-  let inventory = "";
-  try {
-    const invPages = Array.isArray(src) ? routes.map((route) => { const p = src.find((x) => x && routeOf(x.path) === route); return p && typeof p.source === "string" ? { path: p.path, route, source: p.source } : null; }).filter(Boolean) : null;
-    inventory = routeInventory({ pages: invPages, spec: spec && spec.ok === true && spec.spec ? spec.spec : null, label: accessLabel, words, parts: Array.isArray(routeParts) ? routeParts : null });
-  } catch (e) { console.error("route inventory:", slug, errorClassForLog(e)); inventory = ""; }
   let out = site;
   // THE THREE KEPT APART (2026-10-05): names read replace the browser's, and so
   // does an empty list — a site read to have no tables is told it has none
@@ -10494,7 +10479,7 @@ async function routeDigest(env, user, rb, { keepPages = false, words = true } = 
   if (filled) out = { ...out, tables: filled };
   const pagesFilled = Array.isArray(routes) && routes.length > 0;
   if (pagesFilled) out = { ...out, pages: routes };
-  return { site: out, filled, pagesFilled, pagesComplete: pagesFilled, inventory };
+  return { site: out, filled, pagesFilled, pagesComplete: pagesFilled, owned: (await owned) === true, slug };
 }
 
 // ── WHAT THE CONVERSATION IS TOLD ABOUT THE OWNER'S SITE (2026-10-14) ───────
@@ -14328,21 +14313,28 @@ async function exploreTables(env, slug) {
   }));
   return out;
 }
-function siteExploreNow(env, slug) {
+// `names` (the router's, already read for the owner): the tables are known by
+// name up front and read in full only when a look asks (`read.table`), so a
+// routing call that does not look reads nothing of the database.
+function siteExploreNow(env, slug, { names = null } = {}) {
   const k = String(slug || "").toLowerCase();
   if (!k) return Promise.resolve(null);
-  const hit = siteExploreMemo.get(k);
+  const byName = Array.isArray(names);
+  const key = byName ? k + "\u0000" + names.join(",") : k;
+  const hit = siteExploreMemo.get(key);
   if (hit && Date.now() - hit.at < EXPLORE_MEMO_MS) return hit.p;
   const p = withinMs((async () => {
     const [src, parts, tables] = await Promise.all([
       readSiteSource(env, k).catch(() => null), readSiteParts(env, k).catch(() => null),
-      exploreTables(env, k).catch(() => []),
+      byName ? names.filter((n) => typeof n === "string" && EXPLORE_IDENT.test(n)).map((name) => ({ name })) : exploreTables(env, k).catch(() => []),
     ]);
     const files = siteFiles({ pages: src && src.ok ? src.pages : null, parts: parts && parts.ok ? parts.parts : null });
-    return { files, tables, read: siteReaders(env, k, tables) };
+    let full = null;
+    const read = { ...siteReaders(env, k, tables), table: async (n) => { full = full || exploreTables(env, k).catch(() => []); return (await full).find((t) => t.name === n) || null; } };
+    return { files, tables, read };
   })(), MAP_NOTE_MS, "site explore:", k).catch(() => null);
   if (siteExploreMemo.size > 200) siteExploreMemo.clear();
-  siteExploreMemo.set(k, { at: Date.now(), p });
+  siteExploreMemo.set(key, { at: Date.now(), p });
   return p;
 }
 // THE SITE'S READERS FOR THE EXPLORE TOOLS (owner, 2026-10-26): every one a
@@ -14419,7 +14411,7 @@ function exploreLooks(env, cap = null) {
   const v = Number.isInteger(n) && n >= 0 && n <= 20 ? n : EXPLORE_MAX_LOOKS;
   return Number.isInteger(cap) ? Math.min(v, cap) : v;
 }
-const exploredSend = (env, slug, send, { cap = null } = {}) => exploreSend(send, () => (slug ? siteExploreNow(env, slug) : null), { maxLooks: exploreLooks(env, cap) });
+const exploredSend = (env, slug, send, { cap = null, names } = {}) => exploreSend(send, () => (slug ? siteExploreNow(env, slug, { names }) : null), { maxLooks: exploreLooks(env, cap) });
 const exploredCall = (env, slug, call, { cap = null } = {}) => exploreCall(call, () => (slug ? siteExploreNow(env, slug) : null), { maxLooks: exploreLooks(env, cap) });
 // EVERY EDIT STEP EXPLORES (phases 1–3), by the name each call is sent under,
 // except the bare ones below.
@@ -34990,7 +34982,7 @@ async function handleRequest(request, env, ctx) {
       // A PART'S ROUTING IS SHOWN NO PAGE WORDS IN ITS INVENTORY (router-b1):
       // another part's edit to a heading must never change what this part is
       // asked (the request's rule, R11), so only structure is shown.
-      let rDigest = await routeDigest(env, ru, rb, { keepPages: !!rScope, words: !rPart });
+      let rDigest = await routeDigest(env, ru, rb, { keepPages: !!rScope });
       // ── THE SITE'S LIVE QUESTION, READ BEFORE THE MODEL (2026-10-02) ──────
       //
       // A site that exists keeps one live question (`builder/clarify.mjs`).
@@ -35113,7 +35105,10 @@ async function handleRequest(request, env, ctx) {
         // (`upstreamKind`), so a failed route names the provider's token and
         // whether our account was refused the same way a failed build does —
         // one reader of provider errors, not two (Lane 1b).
-        { send: jobSend(rJob, quickSend(env)), classify: (e) => upstreamKind(e && e.detail, e && e.status),
+        // THE ROUTER EXPLORES, FAST (2026-10-26): at most two looks, on the
+        // verified owner's site only; a part of a longer request does not look
+        // (it is never shown words another part may have changed, R11).
+        { send: exploredSend(env, rDigest.owned === true && !rPart ? rDigest.slug : "", jobSend(rJob, quickSend(env)), { cap: ROUTER_MAX_LOOKS, names: Array.isArray(rDigest.filled) ? rDigest.filled : [] }), classify: (e) => upstreamKind(e && e.detail, e && e.status),
           // RETRY_REASON {step, reason, ok} (2026-10-24): the routing route keeps no trace row, so it is logged.
           mark: logRetryMark },
         {
@@ -35197,9 +35192,7 @@ async function handleRequest(request, env, ctx) {
           // "never on a part"): its question pauses that part only, and is kept
           // in the site's slot when free (`storeAskIfFree`) or offered in turn.
           canAsk: rLive,
-          // WHAT THE SITE HAS (router-b1, `routeInventory`), and a per-site
-          // cache pin so every routing call about this site reads one cache.
-          inventory: typeof rDigest.inventory === "string" ? rDigest.inventory : "",
+          // A per-site cache pin so every routing call about this site reads one cache.
           cacheKey: typeof rb.slug === "string" && /^[a-z0-9][a-z0-9-]{0,80}$/.test(rb.slug) ? "route-" + rb.slug : "",
           // A PART OF A LONGER REQUEST (2026-10-03) is shown that request's
           // answers, the message it came from and what the parts before it did.
@@ -35216,7 +35209,7 @@ async function handleRequest(request, env, ctx) {
       // the same pages, the scoped request was already the one the whole site
       // would get, and its answer stands as any answer does.
       if (rScope && routed.failed !== true && !routeInScope(rScope, routed)) {
-        const whole = await routeDigest(env, ru, rb, { words: !rPart });
+        const whole = await routeDigest(env, ru, rb);
         if (samePages(rDigest.site, whole.site)) rJob.routeScope = "current";
         else {
           const first = routed.usage;
