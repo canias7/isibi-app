@@ -3345,3 +3345,11 @@ Free plan (developers.cloudflare.com/turnstile/plans, read 2026-10-25): price
   reportedly not sold on its own (Prosopo, a competitor). Cheaper paths at that
   point: another anti-robot service for custom-domain sites, or a small add-on fee
   for customers on their own domain.
+
+## From the quick-changes test (2026-10-26)
+
+`docs/history/2026-10-26-quick-changes-test.md`: (1) "change the photo to a surfer at
+sunrise" can't be done, no image is found or made; (2) "make the cafe hours 8–4" when
+no hours are shown is refused ("couldn't find that wording") instead of adding them;
+(3) an email change updates the text but not the mailto link; (4) duplicate lesson rows
+left by earlier test runs.
