@@ -1,6 +1,15 @@
 # Owner Notes
 
 
+## 2026-10-26 — A message typed beside a waiting question is no longer swallowed; a stale answer is no longer replayed
+
+Two fixes from the 19:26–19:28 retest on driftwood-and-daughters-5, where "Put the reviews section above the lessons section…, and make sure only I can see who signed up to the newsletter" was read as the answer to the old 17:28 question, the old request ran again, and the newsletter half was dropped.
+
+- **New work beside an answer is kept.** When a message answers the waiting question and also asks for something new, the router names the new part in the customer's own words (`alsoNew`, checked word for word), and it is added to the same request as parts of their own, routed when their turn comes. A pure answer resumes as before; a new request alone closes the old question and is routed fresh (as before); a pressed option is still an answer. New work not found in the message makes the routing call fail at no charge rather than run something they didn't say.
+- **A saved model answer made without the map is never replayed.** A job now records a mapped call under its request plus a marker for the map's format, and still sends the full map. So the 17:28 answer (made with no map) can't be reused after the deploy. The map's *contents* are deliberately not in the key: putting them there broke 25 tests of the parallel-tasks feature, because one part's job changing another page changed the map and threw away every other part's preparation (paying twice).
+
+Branch `ask-free-msg`, not merged. Not yet live-tested. `docs/history/2026-10-26-ask-free-msg.md`.
+
 ## 2026-10-26 — Questions no longer count as "in progress"; "Something else…" lights up
 
 The tasks pill now says "2 need you · 1 in progress", so a request that's only waiting on your answers doesn't look stuck. Clicking "Something else…" on a question now marks it chosen and shows "Type your answer in the box below and press send." Branch `reply-seen`. `docs/history/2026-10-26-pill-and-own-answer.md`.
