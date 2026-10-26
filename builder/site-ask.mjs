@@ -1391,6 +1391,14 @@ export const LIVE_ASK_TOOL = {
           "waiting for their answer. Everything else you decide is for what you are answering: with true, their last " +
           "request with the answer taken into account; with false, the new message alone.",
       },
+      alsoNew: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Only with `answered` true. EACH NEW REQUEST THEIR MESSAGE ADDS BEYOND THE ANSWER — something to change or add " +
+          "that is not part of their waiting request — one entry each, copied EXACTLY from their message. It is done " +
+          "after, as a request of its own. Leave it out when the message only answers.",
+      },
     },
   },
 };
@@ -1603,7 +1611,9 @@ function liveBlock({ canAsk = false, pending = null, context = [], part = null }
       "remark that leaves the question waiting (\"ask\", with `answered` false): say which in `answered`. " +
       "With true, decide everything for their last request with the answer taken into account — when it does not " +
       "settle what you asked, ask them a more specific question that names exactly what it left open — and copy any " +
-      "part you hold back from their last request. With false, decide everything for the new message alone."
+      "part you hold back from their last request. When their message answers AND asks for something new as well, " +
+      "say true and put each new request in `alsoNew`, in their own words: it is never dropped. " +
+      "With false, decide everything for the new message alone."
     : "";
   // WHAT THEY ALREADY TOLD US ABOUT THE WAITING REQUEST, in its own section
   // under it: the details of that request, never asked again. Only beside a
@@ -1778,6 +1788,7 @@ export const ROUTE_REASONS = Object.freeze({
   "clarify-again": Object.freeze({ kind: "changed", what: "the model asked again what it had been answered, shown the answer: kept with a note naming the answer that did not settle it, and never sent again on our own at the repeated-question threshold or past the total-answer limit" }),
   "answered-unread": Object.freeze({ kind: "fallback", what: "a reply to a waiting question that did not say whether it answers it" }),
   "answered-ignored": Object.freeze({ kind: "changed", what: "an answer flag on a message with no question waiting, left out" }),
+  "also-new-unread": Object.freeze({ kind: "fallback", what: "an answer whose new requests beside it were not a list of the customer's own words" }),
   "work-without-site": Object.freeze({ kind: "fallback", what: "an edit or an add-on, with no site to change" }),
   "ask-empty": Object.freeze({ kind: "fallback", what: "a reply with nothing to say" }),
   // NARROWED 2026-10-14: an answer they picked from our options only. A typed
@@ -2001,7 +2012,19 @@ export function readRouting(reply, opts = {}) {
       return { intent: fallback, answer: "", unusable: true };
     }
   } else if (input.answered !== undefined) mark("answered-ignored");
-  const withAnswered = (out) => (answered === undefined ? out : { ...out, answered });
+  // NEW WORK BESIDE AN ANSWER (2026-10-26): a message that answers the
+  // waiting question and asks for more names the more in `alsoNew`, read
+  // only beside a true `answered`; one that cannot be read is no answer at all.
+  let alsoNew = [];
+  if (answered === true && input.alsoNew !== undefined) {
+    alsoNew = heldList(input.alsoNew);
+    if (alsoNew === null) {
+      if (o.trace) o.trace.input = input;
+      mark("also-new-unread");
+      return { intent: fallback, answer: "", unusable: true };
+    }
+  }
+  const withAnswered = (out) => (answered === undefined ? out : { ...out, answered, ...(alsoNew.length ? { alsoNew } : {}) });
   if (input.intent === "clarify") {
     if (o.trace) o.trace.input = input;
     // A QUESTION THAT CANNOT BE SHOWN WHOLE IS NO QUESTION (2026-10-03):
@@ -3680,6 +3703,13 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
       markRetry(deps && deps.mark, "route", "held-unread", false);
       retryReason = { step: "route", reason: "held-unread", ok: false };
     }
+  }
+  // NEW WORK BESIDE AN ANSWER MUST BE THEIR OWN WORDS (2026-10-26): each
+  // `alsoNew` entry is run later as a request of its own, so one not found in
+  // the message is never run — the answer is unusable, as a misread one is.
+  if (waiting && routed.unusable !== true && routed.answered === true && Array.isArray(routed.alsoNew) && heldUnread(text, routed.alsoNew)) {
+    trace.reasons.push("also-new-unread");
+    routed = { ...routed, unusable: true };
   }
   // AN ANSWER THAT CANNOT BE USED, ON A SITE THAT EXISTS, IS A FAILURE OF THE
   // CALL (2026-10-02): a question that cannot be shown, or a reply to a waiting

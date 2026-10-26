@@ -293,7 +293,7 @@ import {
 import {
   isRequestKey, requestFlowOn, recordKey as requestRecordKey, liveKey as requestLiveKey, fileKey as requestFileKey, requestReplyKey,
   parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ORPHAN_MARKER_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts, requestMaking,
-  nextStep, readLabels, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, heldPurchaseState, heldReasons, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, readSplit, requestView, liveJobIds, stopPart, partJobId, creditsPaused, creditsDecision, resumeCredits, setCreditsAuto, appendParts, questionsToOffer, noteOffered,
+  nextStep, readLabels, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, heldPurchaseState, heldReasons, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, readSplit, requestView, liveJobIds, stopPart, partJobId, creditsPaused, creditsDecision, resumeCredits, setCreditsAuto, appendParts, appendNewWork, questionsToOffer, noteOffered,
   approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt, editJobOutcome, answerless, wantsEvidence,
 } from "./builder/request.mjs";
 // ONE SIZE POLICY FOR WHAT A CUSTOMER SAYS ON A SITE THAT EXISTS (2026-10-03).
@@ -26085,12 +26085,19 @@ async function resumeRequestPart(env, ctx, { uid, slug, key, out, waiting, ask, 
       // next question. It never resumes the part with words meant for another.
       const was = at.rec.parts[n];
       if (was && was.status === "waiting" && was.question && was.question.id !== waiting.id) { gone = at.rec; break; }
-      const next = out.intent === "clarify"
+      let next = out.intent === "clarify"
         ? askedAgain(at.rec, n, { ask: { ...(out.question || {}), request: waiting.request, stage: "route", round: waiting.round + 1 }, context: ask.context })
         : answerPart(at.rec, n, { routed: out, resume: waiting.request, context: ask.context, round: waiting.round });
       // THE PART NO LONGER WAITS — stopped, or past its day — so the answer
       // has nothing to resume: the request is shown as it is.
       if (!next) { gone = at.rec; break; }
+      // AND THE NEW WORK THE SAME MESSAGE ASKED FOR (2026-10-26): its own parts
+      // in this request, routed when their turn comes — never dropped behind
+      // the answer. Kept with the answer in one write.
+      if (Array.isArray(ask.alsoNew) && ask.alsoNew.length) {
+        const more = appendNewWork(next, { key, items: ask.alsoNew });
+        if (more.ok && !more.duplicate) next = more.rec;
+      }
       // AND THE ANSWER'S OWN FILES JOIN THE REQUEST'S, kept as its others are
       // (the route has already held the two together to one request's).
       if (added === null) added = await storeRequestFiles(env, slug, rkey, images, newAttempt());
@@ -35187,6 +35194,11 @@ async function handleRequest(request, env, ctx) {
         const resumed = !!(rWaiting && (routed.answered === true || (rBuildAsk && routed.intent !== "ask")));
         const asking = routed.intent === "clarify" && rLive;
         let rContext = [];
+        // NEW WORK THE ANSWER CARRIES (2026-10-26, `alsoNew`): a request part
+        // takes it as parts of its own request (`appendNewWork`); a question
+        // with no request behind it puts it off beside the request it resumes.
+        const rNew = resumed && Array.isArray(routed.alsoNew) ? routed.alsoNew : [];
+        const rPutOff = resumed ? [...rWaiting.held, ...(rWaiting.requestKey ? [] : rNew.filter((w) => !rWaiting.held.includes(w)))] : [];
         if (resumed) {
           // THE ANSWER IS KEPT AS THEY GAVE IT, OR NOT AT ALL: a reply to one
           // question, never a second request. One too long to keep leaves the
@@ -35245,7 +35257,7 @@ async function handleRequest(request, env, ctx) {
           if (stop) return stop;
           // WHAT THEY TOLD US rides beside the request to the step that runs
           // it, so every model there is shown it and none asks it again.
-          rAsk = { answered: true, round: rWaiting.round, putOff: rWaiting.held.length ? rWaiting.held : undefined, context: rContext };
+          rAsk = { answered: true, round: rWaiting.round, putOff: rPutOff.length ? rPutOff : undefined, context: rContext, ...(rNew.length ? { alsoNew: rNew } : {}) };
         } else if (rWaiting && !resumed && routed.intent === "ask") {
           // A SIDE QUESTION LEAVES THE QUESTION WAITING (2026-10-14): nothing is
           // closed, and the page keeps its card (`waiting`).
@@ -35313,7 +35325,7 @@ async function handleRequest(request, env, ctx) {
             catch (e) { console.error("question store:", rSlug, errorClassForLog(e)); }
             if (!replaced) return rStoreFailed(routed.decision);
             if (!replaced.ok) return staleAnswer(replaced.why === "raced" ? "closed" : replaced.why);
-            rAsk = { answered: true, round: rWaiting.round, putOff: rWaiting.held.length ? rWaiting.held : undefined, context: rContext };
+            rAsk = { answered: true, round: rWaiting.round, putOff: rPutOff.length ? rPutOff : undefined, context: rContext, ...(rNew.length ? { alsoNew: rNew } : {}) };
           } else if (rPart) {
             // A PART'S QUESTION NEVER REPLACES ONE WAITING ON THE CUSTOMER: put
             // in the site's slot only when it is free, else kept on the part,

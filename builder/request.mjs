@@ -717,6 +717,37 @@ export function appendParts(rec, { key, message, routed, at = Date.now() } = {})
   return { ok: true, rec: settleState(next, at), parts: made };
 }
 
+/**
+ * NEW WORK BESIDE AN ANSWER (2026-10-26). A message that answers a part's
+ * question and asks for more (`alsoNew`, the customer's own words) adds that
+ * more to the same request: one part per entry, each routed when its turn
+ * comes, against the site as it is then — never dropped behind the answer.
+ * Idempotent on the message key, as `appendParts` is.
+ */
+export function appendNewWork(rec, { key, items, at = Date.now() } = {}) {
+  if (!rec || !Array.isArray(rec.parts)) return { ok: false, why: "no-request" };
+  if (!isRequestKey(key)) return { ok: false, why: "key" };
+  const joined = Array.isArray(rec.joined) ? rec.joined : [];
+  const had = joined.find((j) => j && j.key === key);
+  if (had) return { ok: true, rec, parts: had.parts.slice(), duplicate: true };
+  if (rec.ended || rec.stop) return { ok: false, why: "ended" };
+  const list = heldList(items);
+  if (list === null || !list.length) return { ok: false, why: "items" };
+  const next = clone(rec);
+  const made = [];
+  for (const w of list) {
+    const offset = next.message.length + 2;
+    next.message = next.message + "\n\n" + w;
+    const p = newPart(next.parts.length, w, { at: offset, source: "answer-new" });
+    p.joined = key;
+    next.parts.push(p);
+    made.push(p.n);
+  }
+  next.joined = [...joined, { key, at, parts: made }];
+  next.updatedAt = at;
+  return { ok: true, rec: settleState(next, at), parts: made };
+}
+
 // ── READING A JOB'S STORED ANSWER ────────────────────────────────────────────
 
 /** The stored answer of a job row (`edit_get`): `{ status, body }`, or `null` when it has none that reads. */
