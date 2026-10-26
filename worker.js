@@ -8411,6 +8411,11 @@ async function composeModelReply(env0, kind, body, ask, { background = false, on
   // WHAT AN OCCASIONAL NEXT STEP MAY STAND ON, AND WHAT IT MUST NOT REPEAT (2026-10-24).
   const recent = Array.isArray(ask.recent) ? ask.recent : await recentSuggestedFor(env, ask.uid, ask.chat);
   const offMenu = kind === "addon" ? offMenuPages(body) : [];
+  // WHAT EXISTS ON THE SITE NOW (2026-10-26): the current map's `reply` slice, bounded, failing open.
+  let siteMapText = "";
+  if (typeof ask.slug === "string" && /^[a-z0-9][a-z0-9-]{0,80}$/.test(ask.slug)) {
+    try { siteMapText = mapFor("reply", await withinMs(currentSiteMap(env, ask.slug), REPLY_MAP_MS, "reply map:", ask.slug)); } catch { siteMapText = ""; }
+  }
   const t0 = Date.now();
   let out;
   try {
@@ -8418,7 +8423,7 @@ async function composeModelReply(env0, kind, body, ask, { background = false, on
     const budget = background ? replyBgBudget : replyBudget;
     out = await writeReply({ send: typeof onPartial === "function" ? quickSendLive(env, "reply", budget, onPartial) : quickSend(env, "reply", budget) }, {
       facts: read.facts,
-      context: replyContext({ request: ask.request, answers: ask.answers, site: { name: ask.name, slug: ask.slug, pages }, recent, offMenu }),
+      context: replyContext({ request: ask.request, answers: ask.answers, site: { name: ask.name, slug: ask.slug, pages, map: siteMapText }, recent, offMenu }),
       model,
       ...(background ? { deadlineMs: REPLY_BG_DEADLINE_MS } : {}),
       talk,
@@ -14213,6 +14218,7 @@ async function loadLandmarks(env, slug) {
 // (`source/<slug>/sitemap.json`) and with the version (`sitemaps/<id>.json`),
 // so a restore puts back the map of the version it restores. Never in the way
 // of a publish: every read and write here fails open and logs.
+const REPLY_MAP_MS = 2500;
 async function refreshSiteMap(env, slug, version = null) {
   if (!env.SITES_BUCKET || !slug) return null;
   try {
@@ -39500,6 +39506,8 @@ async function handleRequest(request, env, ctx) {
                     model: eQuickModel, addition: eb.addition === true,
                     // THE TABLES A FORM HERE MAY STORE INTO (2026-10-25, frame-parallel).
                     tables: await frameTablesOf(env, ownerSlug),
+                    // THE SITE MAP'S FRAME SLICE (2026-10-26): facts beside the live tables.
+                    note: (() => { try { return mapFor("frame", buildSiteMap({ pages: eSrc, parts: fRead.parts })); } catch { return ""; } })(),
                   });
                   if (fOut.ask) return stepAsk("nav", fOut.ask);
                   if (!fOut.ok && fOut.reason === "send") return modelDown(fOut.error, "I couldn't reach the model that sets the menu — try again in a moment.");
@@ -43880,6 +43888,9 @@ async function handleRequest(request, env, ctx) {
               // prices and addresses with where each is written, from the
               // pages and parts this addition is shown.
               keyFacts: (() => { try { return mapFor("addon", buildSiteMap({ pages: aView, parts: Array.isArray(aViewParts) ? aViewParts : [] })); } catch { return ""; } })(),
+              // AND THE ROW DESIGNER'S TABLE CONTEXT FROM THE MAP (2026-10-26);
+              // the live required-columns read (`aRowRequired`) stays the truth.
+              rowNote: (() => { try { return mapFor("rowNote", buildSiteMap({ spec, label: accessLabel })); } catch { return ""; } })(),
               tables: ((spec && spec.tables) || []).map((t) => t && t.name).filter(Boolean),
               // EACH TABLE'S COLUMNS, "name type" (2026-09-03), for the
               // function designer: a `sql` body is parsed at CREATE, so a

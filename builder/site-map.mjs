@@ -262,8 +262,22 @@ export function mapFor(kind, map, opts = {}) {
       return Object.fromEntries(map.tables.map((t) => [t.name, t.columns.filter((c) => c.required === true).map((c) => c.name)]));
     }
     case "frame": {
-      const writable = Array.isArray(map.links) ? [...new Set(map.links.filter((l) => l.writes).map((l) => l.table))] : null;
-      return { frame: map.frame, writable };
+      // FACTS FOR THE FRAME WRITER: what the frame holds now, which tables a
+      // page writes to, and the key facts with where each is written. The
+      // live schema handed beside it stays the truth for what a form may use.
+      const bits = [];
+      if (Array.isArray(map.frame) && map.frame.length) bits.push("The frame now:\n" + map.frame.join("\n"));
+      const writable = Array.isArray(map.links) ? [...new Set(map.links.filter((l) => l.writes).map((l) => l.table + " (written by " + map.links.filter((x) => x.writes && x.table === l.table).map((x) => x.route).join(", ") + ")"))] : [];
+      if (writable.length) bits.push("Tables a page writes to: " + writable.join("; "));
+      const facts = factLines(map, { budget: opts.budget || 1600 });
+      if (facts.length) bits.push("Key details and where each is written:\n" + facts.join("\n"));
+      return bits.length ? FRAMING + ":\n" + bits.join("\n") : "";
+    }
+    case "rowNote": {
+      // THE ROW DESIGNER'S CONTEXT: each table's columns, those an entry must
+      // fill marked `*`, and who may write it. The live read stays the truth.
+      if (!Array.isArray(map.tables) || !map.tables.length) return "";
+      return FRAMING + " (tables; * an entry must fill):\n" + map.tables.map((t) => "- " + t.name + ": " + t.columns.map((c) => c.name + (c.required ? "*" : "")).join(", ") + (t.access ? " (" + t.access + ")" : "")).join("\n");
     }
     case "reply": {
       const bits = [];

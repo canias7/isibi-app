@@ -160,6 +160,6 @@ test("every change path refreshes the map or is covered by the read-time rebuild
   assert.ok(body("currentSiteMap").includes("await loadSiteMap("));
   // EVERY OTHER READER BUILDS FROM WHAT ITS OWN REQUEST JUST READ.
   const readers = [...w.matchAll(/mapFor\("(\w+)"/g)].map((m) => m[1]).sort();
-  assert.deepEqual(readers, ["addon", "diagnose", "text"], "a new map reader: decide how it stays current, then list it here");
+  assert.deepEqual(readers, ["addon", "diagnose", "frame", "reply", "rowNote", "text"], "a new map reader: decide how it stays current, then list it here");
   assert.ok(/currentSiteMap\(env, slug\); map = cur/.test(w), "list_site reads the current map");
 });
