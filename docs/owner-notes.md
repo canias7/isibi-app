@@ -1,5 +1,12 @@
 # Owner Notes
 
+## 2026-10-26 — a changed email address now reaches its links (branch `fix-run6`, not merged, not deployed)
+
+- **What you saw.** Changing the Contact email to bookings@… changed the words, but the footer and two bands still had email links sending to hello@….
+- **Now.** When the wording step changes one email address to another, every link to the old address (`mailto:`) and every other exact copy of it across the site's pages and sections changes too, before publishing. The reply is told which links changed, file by file.
+- **Your exception.** If a customer asks to change the shown address but keep the link going to the old one, the wording step says so in its own answer (one new yes/no field, `keepLinks`); then only the visible text changes and the reply is told the links were kept. No keyword matching.
+- Phone links are still only reported, not rewritten. Tests: 6 new; 12 of 12 mutants killed, control survived. Nothing spent.
+
 ## 2026-10-26 — spam protection from Go Farther's own key, per site when asked (branch `fix-run6`, not merged, not deployed)
 
 - **One Turnstile key pair for the whole platform.** The Worker now reads `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET` (optional GitHub secrets; until you add them nothing changes). A site's own keys still win.

@@ -399,7 +399,7 @@ test("the text lane carries it and the client says it", () => {
   assert.ok(imp, "the Worker imports the text module");
   assert.ok(imp[1].split(",").map((x) => x.trim()).includes("staleContactLinks"),
     "the Worker must import the name it calls: " + imp[1]);
-  assert.match(w, /const staleTel = staleContactLinks\(out\.pages, out\.edits\);/);
+  assert.match(w, /const staleTel = staleContactLinks\(eMail\.pages, out\.edits\)/);
   assert.match(w, /staleTel: staleTel\.length \? staleTel\.slice\(0, 4\) : undefined,/);
   const c = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
   assert.match(c, /Array\.isArray\(e\.staleTel\)/);

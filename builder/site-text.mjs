@@ -277,6 +277,54 @@ function phoneTail(s) {
   return digits.slice(-PHONE_TAIL);
 }
 
+/**
+ * An email address the wording step changed, carried to every exact copy of it.
+ *
+ * Run 6 (job e440655f): "change the email address to bookings@…" changed the
+ * words the step read and left `mailto:hello@…` in the footer and two bands,
+ * because `extractText` never offers an href. An address is written VERBATIM in
+ * both encodings, so this is an exact match, not a guess: every
+ * `mailto:<old>` (address compared case-insensitively, any `?query` kept)
+ * becomes `mailto:<new>`, and every other exact, bounded copy of the old
+ * address in the site's files becomes the new one. Only when the edit's OLD
+ * text is one email address and its NEW text is another. Phone numbers are not
+ * touched (they need a heuristic; `staleContactLinks` reports them).
+ *
+ * Returns the files (new objects; unchanged ones as they were), the links it
+ * rewrote and the other copies it rewrote, one entry per file and address.
+ */
+export function carryEmailChange(files, edits, { keepLinks = false } = {}) {
+  const pairs = [];
+  for (const e of Array.isArray(edits) ? edits : []) {
+    const from = String((e && e.from) || "").trim();
+    const to = String((e && e.to) || "").trim();
+    if (!EMAIL.test(from) || !EMAIL.test(to) || from.toLowerCase() === to.toLowerCase()) continue;
+    if (!pairs.some((p) => p.from.toLowerCase() === from.toLowerCase())) pairs.push({ from, to });
+  }
+  const list = Array.isArray(files) ? files : [];
+  if (!pairs.length) return { pages: list, links: [], texts: [], kept: [] };
+  const links = [];
+  const kept = [];
+  const texts = [];
+  const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pages = list.map((f) => {
+    if (!f || typeof f.source !== "string") return f;
+    let src = f.source;
+    for (const { from, to } of pairs) {
+      // Bounded: not part of a longer address on either side.
+      const re = new RegExp("(mailto:)?(?<![\\w.+-])" + esc(from) + "(?![\\w-]|\\.[\\w])", "gi");
+      let nLink = 0, nText = 0, nKept = 0;
+      // `keepLinks` (the customer asked so): the link keeps its address.
+      src = src.replace(re, (m, mail) => { if (mail && keepLinks) { nKept++; return m; } if (mail) { nLink++; return "mailto:" + to; } nText++; return to; });
+      if (nKept) kept.push({ file: f.path, href: "mailto:" + from, count: nKept });
+      if (nLink) links.push({ file: f.path, from: "mailto:" + from, to: "mailto:" + to, count: nLink });
+      if (nText) texts.push({ file: f.path, from, to, count: nText });
+    }
+    return src === f.source ? f : { ...f, source: src };
+  });
+  return { pages, links, texts, kept };
+}
+
 export function staleContactLinks(pages, edits) {
   const out = [];
   const seen = new Set();

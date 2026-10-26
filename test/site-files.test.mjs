@@ -147,7 +147,9 @@ test("the text lane reads BOTH stores, and both halves are published", () => {
   // ceiling is what proves the slice is the lane and not the rest of the file.
   // RE-DERIVED 2026-10-23, 9,000 to 15,000: the lane carries the translated-page
   // edit (#196, `eLangEdit`), and measures about 13,600.
-  assert.ok(lane.length > 200 && lane.length < 15000, "re-derive this window");
+  // RE-DERIVED 2026-10-26, 15,000 to 17,000: the email change carried to its
+  // links and copies (run 6, `carryEmailChange`); measures about 15,000.
+  assert.ok(lane.length > 200 && lane.length < 17000, "re-derive this window");
   assert.match(lane, /editableFiles\(eSrc, eParts\)/, "the lane no longer shows the rung the site's components");
   // RE-ANCHORED 2026-09-20, and the move is the fix rather than a rename.
   // `loadSiteParts` COLLAPSES "this site has no components" and "the read
@@ -165,7 +167,9 @@ test("the text lane reads BOTH stores, and both halves are published", () => {
   // `test/edit-page-context.test.mjs`; the property here is the ORDER.
   assert.ok(lane.indexOf("const eTextParts") < lane.indexOf("runTextEdit("),
     "the components store is read after the model call it should refuse before");
-  assert.match(lane, /splitEditable\(out\.pages\)/, "what came back is published without being split — a component would be stored as a page");
+  // 2026-10-26: what came back passes through the email carry (run 6) first.
+  assert.match(lane, /const eMail = carryEmailChange\(out\.pages, out\.edits, \{ keepLinks: out\.keepLinks === true \}\);/, "the step's pages no longer reach the email carry");
+  assert.match(lane, /splitEditable\(eMail\.pages\)/, "what came back is published without being split — a component would be stored as a page");
   // BOTH HALVES TO THE PUBLISH, and the parts EVERY time rather than only when
   // one changed: `recompileAndPublish` stores the list it is handed, so handing
   // it the changed ones alone would take every untouched component off the site.

@@ -210,7 +210,7 @@ import { ASKABLE as SITE_TOKEN_NAMES } from "./builder/site-tokens.mjs";
 // THE MODEL'S OWN STYLESHEET — read, never validated. See site-freecss.mjs for
 // why that is the whole point and what it reports instead.
 import { readCss, cssNote, MAX_CSS, changedSelectors } from "./builder/site-freecss.mjs";
-import { extractText, applyEdits, staleContactLinks } from "./builder/site-text.mjs";
+import { extractText, applyEdits, staleContactLinks, carryEmailChange } from "./builder/site-text.mjs";
 import { runTextEdit, runDataEdit, dataChanges, renamePages, renameRoute, MAX_DATA_ROWS, freshRecent, PUT_BACK_READ_MAX } from "./builder/site-apply.mjs";
 import { insertStatement } from "./builder/site-rows.mjs";
 import { runRulesEdit } from "./builder/site-rules.mjs";
@@ -40177,7 +40177,11 @@ async function handleRequest(request, env, ctx) {
               // list handed in is the list stored — and handing in only the
               // changed ones would store only those, taking every untouched
               // component off the site on a one-word edit.
-              const eSplit = splitEditable(out.pages);
+              // AN EMAIL ADDRESS IS CARRIED TO EVERY EXACT COPY (run 6): its
+              // `mailto:` links and its other copies in pages and parts, which
+              // the wording step never reads. Exact, so rewritten, not reported.
+              const eMail = carryEmailChange(out.pages, out.edits, { keepLinks: out.keepLinks === true });
+              const eSplit = splitEditable(eMail.pages);
               const pub = await publishStep(env, {
                 slug: ownerSlug, pages: eSplit.pages, parts: eSplit.parts,
                 label: versionLabel({ revise: true, changeNote: eRun }),
@@ -40200,7 +40204,8 @@ async function handleRequest(request, env, ctx) {
               // rewritten: pairing `0113 200 0000` with `tel:+441132000000`
               // needs a heuristic, and a heuristic that fires wrongly sends a
               // customer's calls somewhere nobody asked for.
-              const staleTel = staleContactLinks(out.pages, out.edits);
+              // A link kept on purpose is reported as kept, not as stale.
+              const staleTel = staleContactLinks(eMail.pages, out.edits).filter((l) => !(eMail.kept.length && /^mailto:/.test(l.href)));
               return Response.json({
                 ok: true, layer: "text", applied: out.applied, files: pub.files, render: pub.render, renderNote: pub.renderNote, checks: pub.checks, draft: pub.draft,
                 changed: out.edits.map((e) => e.to).slice(0, 8),
@@ -40210,6 +40215,10 @@ async function handleRequest(request, env, ctx) {
                 // Omitted when empty, so an ordinary wording change's response
                 // is byte-identical and the field's PRESENCE is the signal.
                 staleTel: staleTel.length ? staleTel.slice(0, 4) : undefined,
+                // The links and other copies the email change was carried to.
+                links: eMail.links.length ? eMail.links.slice(0, 12) : undefined,
+                alsoChanged: eMail.texts.length ? eMail.texts.slice(0, 12) : undefined,
+                keptLinks: eMail.kept.length ? eMail.kept.slice(0, 12) : undefined,
                 cost: await eCharge(out.usage, pub), usage: out.usage,
               });
             }

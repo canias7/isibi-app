@@ -1141,6 +1141,12 @@ export function editReplyFacts(e, { routedCost = null, inRequest = false, partWo
           ? "Not made: " + flat(nd.what) + " could not be written safely into the page, so those were left as they were."
           : "Not made: " + quote(nd.what) + " — the wording step could not find it among the site's words, so it is unchanged.");
       }
+      // AN EMAIL CHANGE CARRIED (run 6): the links and copies rewritten, as facts.
+      const carried = (list) => (Array.isArray(list) ? list : []).filter((x) => x && typeof x.file === "string" && typeof x.from === "string" && typeof x.to === "string");
+      carried(e.links).forEach((l, i) => F.add("changed", "Email link in " + l.file + " changed from " + flat(l.from) + " to " + flat(l.to) + ".", "link:" + i));
+      (Array.isArray(e.keptLinks) ? e.keptLinks : []).filter((k) => k && typeof k.file === "string" && typeof k.href === "string")
+        .forEach((k, i) => F.add("note", "Email link in " + k.file + " left pointing at " + flat(k.href) + ", as asked.", "kept:" + i));
+      carried(e.alsoChanged).forEach((t, i) => F.add("changed", "Address also changed in " + t.file + " from " + flat(t.from) + " to " + flat(t.to) + ".", "copy:" + i));
       for (const link of (Array.isArray(e.staleTel) ? e.staleTel : [])) {
         if (!link || typeof link.href !== "string" || !link.href) continue;
         F.add("not-done", /^mailto:/.test(link.href)
