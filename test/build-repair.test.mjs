@@ -369,7 +369,7 @@ test("the switch: BUILD_REPAIR on by default (owner, 2026-10-23), off only on a 
   assert.equal(buildRepairOn({ BUILD_REPAIR: true }), true, "a non-string is not a no");
   assert.equal(buildRepairOn({ BUILD_REPAIR: "on" }), true);
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.ok(/compileRepair: buildRepairOn\(env\) \? \(req\) => callBuilderModel\(env, req,[^\n]*: undefined,/.test(w), "the dep is gated on the switch");
+  assert.ok(/compileRepair: buildRepairOn\(env\) \? (?:mappedSend\(env, slug, "page", )?\(req\) => callBuilderModel\(env, req,[^\n]*: undefined,/.test(w), "the dep is gated on the switch");
   assert.ok(w.includes("compileRepairModel: models.pages,"), "the build's own pages model");
   assert.ok(w.includes("compileRepairRoom: () => !budget || (!budget.expired() && budget.remainingMs() >= BUILD_REPAIR_NEED_MS),"), "the build's clock");
 });

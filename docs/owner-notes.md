@@ -1,6 +1,18 @@
 # Owner Notes
 
 
+## 2026-10-26 — The site map now rides every model call that reasons about a site
+
+The page step asked "which component is the reviews section?" because it saw block names like `Band3Split` and nothing else; the map had reached only the router, text, add-on, frame, reply and diagnosis. Now:
+
+- **The map lists each page's blocks in the order the page shows them**, each with its component name and the first words it shows ("Band3Split — 'What people say after a session'"), plus row counts per table, the columns the tables really have (a declared column never made is left out), redirects and languages.
+- **Every edit step and lane, every add-on call (designers, writers, judge, verification, retries, questions), both page writers, compile repairs, the visual review, file picking, the reply writers and the security scan** get the whole map, in the system turn after the step's own rules. The customer's message and the file are untouched. Reading the map writes nothing, and a map that can't be read in 4 seconds is simply left out.
+- **Left out on purpose**, each named in the test: progress lines, chat compaction, first-build design and seed rows (no site yet), translation of given strings, the router (it has its own budgeted map), the conversation (it already gets the verified owner's key facts), the phone-app product.
+- **A test reads every model call in worker.js by pattern**, so a new call without the map fails CI.
+- **Dates are left out of the map** while you look at date handling.
+
+Branch `reply-seen`, not merged. `docs/history/2026-10-26-map-everywhere.md`.
+
 ## 2026-10-26 — Replies stop saying "couldn't read the page" when it was read
 
 On the router-split test the hidden spam field added to the Hire page was

@@ -94,7 +94,7 @@ test("deepScan reports each step as facts: the areas, each area done, the challe
 test("the route keeps each step under the scan's key and words it once through the writer; the page polls it while the scan runs", () => {
   const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(w, /const facts = securityProgressFacts\(ev\.kind, ev\.data\);\n\s+ev\.line = facts \? \(await scanSay\(facts,/);
-  assert.match(w, /deepScan\(\{ send: quickSend\(env, "security"\) \}, \{ model, files: sfiles, facts, tables, thorough, plan, \.\.\.\(progSay \? \{ say: progSay \} : \{\}\) \}\);/);
+  assert.match(w, /deepScan\(\{ send: (?:mappedSend\(env, scslug, "site", )?quickSend\(env, "security"\)\)? \}, \{ model, files: sfiles, facts, tables, thorough, plan, \.\.\.\(progSay \? \{ say: progSay \} : \{\}\) \}\);/);
   const c = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
   assert.match(c, /'\/security\?progress=' \+ encodeURIComponent\(scanKey\)/);
   assert.match(c, /await siteSecurityDeep\(s, \{ say: true, message: m\.sentinel\.message, key: scanKey \}\);\n\s+polling = false;/);

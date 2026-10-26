@@ -65,7 +65,7 @@ test("THE WIRING: the build opens its record at the start, and the publish's ste
   assert.match(fn, /open\(\) \{(?:\s*\n\s*\/\/.*)*\s*\n\s*if \(p \|\| take \|\| typeof env\.JOB_PROGRESS !== "function"\) return;/, "the early open is no longer kept to the container's own run, or no longer refused on a carried-on run");
   assert.match(fn, /addressFacts\(slug\)/, "the address the design chose is never said");
   // RE-ANCHORED 2026-10-22 (combine): the visual review (#10) sits between them.
-  assert.match(W, /repair: quickSend\(env\),[\s\S]{0,1200}?\n\s*note: \(stage, nums\) => \{ try \{ mark\?\.\(stage, nums\); \}/, "the publish's steps no longer reach the build's trace");
+  assert.match(W, /repair: (?:mappedSend\(env, slug, "page", )?quickSend\(env\)\)?,[\s\S]{0,1400}?\n\s*note: \(stage, nums\) => \{ try \{ mark\?\.\(stage, nums\); \}/, "the publish's steps no longer reach the build's trace");
 });
 
 // ── ROUND 2: THE WRITING AS IT GOES ─────────────────────────────────────────

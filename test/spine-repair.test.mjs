@@ -152,7 +152,7 @@ test("the addon's hook IS the add step's own round: its module, its scope, the p
   // back the two reserves alone, right for every call before the first
   // compile, and it is what let run 36's fix run four minutes into the room
   // its own recompile needed. `repairClock` holds back the compile too.
-  for (const needle of ["report: built.render, pages, touched: aTouched, langs,", 'send: quickSend(env, "repair", repairClock(aClock)), model: aModels.quick, compile: recompile, room,']) {
+  for (const needle of ["report: built.render, pages, touched: aTouched, langs,", 'send: mappedSend(env, ownerSlug, "page", quickSend(env, "repair", repairClock(aClock))), model: aModels.quick, compile: recompile, room,']) {
     assert.ok(call.includes(needle), `the round is not handed: ${needle}`);
   }
   assert.ok(!call.includes('aQuick("repair")'), "the repair call is back on the plain clock");

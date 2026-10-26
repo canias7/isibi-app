@@ -236,7 +236,7 @@ import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
 import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings, canWriteAccess } from "./site-access.mjs";
 import { routeInventory } from "./builder/route-inventory.mjs";
-import { buildSiteMap, mapFor, mapKey as siteMapKey, mapVersionKey as siteMapVersionKey, MAP_VERSION as SITE_MAP_VERSION } from "./builder/site-map.mjs";
+import { buildSiteMap, mapFor, siteSlice, mapSend, mapCall, mapKey as siteMapKey, mapVersionKey as siteMapVersionKey, MAP_VERSION as SITE_MAP_VERSION } from "./builder/site-map.mjs";
 import { converse, readHistory, converseRequest, requestChars, CONTEXT_CHARS, converseTables } from "./builder/site-converse.mjs";
 import { planWindow, compact as compactChat, COMPACT_AT } from "./builder/chat-context.mjs";
 // The pair a `display` table resolves to. Named once, from the presets, so the
@@ -8463,7 +8463,7 @@ async function narrateBuild(env, body, { picker = "", request = "", name = "", s
     // item 3): the suggestions already made in the build's chat, and the
     // off-menu pages, as `composeModelReply` passes them for an edit.
     const recent = await recentSuggestedFor(env, uid, chat);
-    const out = await writeReply({ send: quickSend(env, "reply", background ? replyBgBudget : replyBudget) }, {
+    const out = await writeReply({ send: mappedSend(env, slug, "site", quickSend(env, "reply", background ? replyBgBudget : replyBudget)) }, {
       facts: read.facts,
       context: replyContext({ request, site: { name, slug, pages: [] }, recent, offMenu: offMenuPages(body) }),
       model: modelsFor(picker).quick,
@@ -10311,7 +10311,7 @@ async function repeatNote(env, { question, earlier, atLimit, request, answers, p
   if (read.skip) return fallback;
   let out;
   try {
-    out = await writeReply({ send: quickSend(env, "reply", replyBudget) }, {
+    out = await writeReply({ send: mappedSend(env, slug, "site", quickSend(env, "reply", replyBudget)) }, {
       facts: read.facts,
       context: replyContext({ request, answers, site: { slug } }) + "\n\nWRITE A NOTE OF ONE OR TWO SHORT SENTENCES, UNDER 280 CHARACTERS IN ALL.",
       model: modelsFor(picker).quick,
@@ -10336,7 +10336,7 @@ async function wideningQuestion(env, { ask, widening, request, answers, picker, 
   if (read.skip) return ask;
   let out;
   try {
-    out = await writeReply({ send: quickSend(env, "reply", replyBudget) }, {
+    out = await writeReply({ send: mappedSend(env, slug, "site", quickSend(env, "reply", replyBudget)) }, {
       facts: read.facts,
       context: replyContext({ request, answers, site: { slug } }) + "\n\nWRITE ONLY THE QUESTION: ONE OR TWO SHORT SENTENCES, UNDER 240 CHARACTERS IN ALL.",
       model: modelsFor(picker).quick,
@@ -14219,24 +14219,51 @@ async function loadLandmarks(env, slug) {
 // so a restore puts back the map of the version it restores. Never in the way
 // of a publish: every read and write here fails open and logs.
 const REPLY_MAP_MS = 2500;
-async function refreshSiteMap(env, slug, version = null) {
+async function refreshSiteMap(env, slug, version = null, { save = true } = {}) {
   if (!env.SITES_BUCKET || !slug) return null;
   try {
-    const [src, partsR, spec, css] = await Promise.all([
+    const [src, partsR, live, cfg, side] = await Promise.all([
       readSiteSource(env, slug).catch(() => null),
       readSiteParts(env, slug).catch(() => null),
-      (async () => { const conn = await ownerSiteConn(env, slug); if (!conn) return { tables: [] }; const r = await readStoredSpec(conn); return r && r.ok === true ? r.spec : null; })().catch(() => null),
-      (async () => { const db = await siteBackendBySlug(env, slug); const c = await readSiteConfig(env, slug, db); return c.ok ? c.config.css : null; })().catch(() => null),
+      // THE SCHEMA AND HOW MANY ROWS EACH TABLE HOLDS (2026-10-26, the map
+      // covers everything): one count per table, at most 24, each failing
+      // open to "not known" rather than to a number.
+      (async () => {
+        const conn = await ownerSiteConn(env, slug);
+        if (!conn) return { spec: { tables: [] }, counts: {} };
+        // THE COLUMNS THE TABLES REALLY HAVE: the add-on's own reader, so a
+        // column declared and never made is in no map, and a table the stored
+        // schema forgot is (`specForAddon`). Unreadable is not known, never empty.
+        const r = await specForAddon(conn);
+        const spec = r && r.ok === true ? r.spec : null;
+        const counts = {};
+        const names = (spec && Array.isArray(spec.tables) ? spec.tables : []).map((t) => t && t.name).filter((n) => typeof n === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(n)).slice(0, 24);
+        await Promise.all(names.map(async (n) => {
+          try { const q = await sqlReadOnly(conn, 'select count(*)::int as n from "' + n + '"', []); const v = Array.isArray(q) && q[0] ? Number(q[0].n) : NaN; if (Number.isInteger(v)) counts[n] = v; } catch { /* not known */ }
+        }));
+        return { spec, counts };
+      })().catch(() => null),
+      (async () => { const db = await siteBackendBySlug(env, slug); const c = await readSiteConfig(env, slug, db); return c.ok ? c.config : null; })().catch(() => null),
+      (async () => { const o = await env.SITES_BUCKET.get(siteMetaKey(slug)); return o ? JSON.parse(await o.text()) : null; })().catch(() => null),
     ]);
+    let redirects = null;
+    try { const man = side && !isHeldBody(side) ? manifestFromCsv(side.routesCsv, side.redirectsCsv) : null; redirects = man ? man.redirects : null; } catch { redirects = null; }
+    const look = cfg && cfg.look && typeof cfg.look === "object" ? cfg.look : null;
     const map = buildSiteMap({
       pages: src && src.ok ? src.pages : null,
       parts: partsR && partsR.ok ? partsR.parts : null,
-      spec, label: accessLabel, css, version: typeof version === "string" ? version : null,
+      spec: live ? live.spec : null, rowCounts: live ? live.counts : null,
+      label: accessLabel, css: cfg ? cfg.css : null, version: typeof version === "string" ? version : null,
+      redirects, languages: look ? { lang: look.lang || "en", extra: Array.isArray(look.langs) ? look.langs : [] } : null,
     });
+    // A CALL'S NOTE READS THE MAP AND WRITES NOTHING: a refused or asking
+    // step never moves the store (2026-10-26).
+    if (!save) return map;
     const body = JSON.stringify({ at: new Date().toISOString(), slug, ...map });
     const meta = { httpMetadata: { contentType: "application/json" } };
     await env.SITES_BUCKET.put(siteMapKey(slug), body, meta);
     if (typeof version === "string" && version) await env.SITES_BUCKET.put(siteMapVersionKey(slug, version), body, meta);
+    siteMapMemo.set(String(slug).toLowerCase(), { at: Date.now(), p: Promise.resolve(map) });
     return map;
   } catch (e) { console.error("site map save failed:", slug, errorClassForLog(e)); return null; }
 }
@@ -14258,6 +14285,36 @@ async function loadSiteMap(env, slug) {
  * on every read (and saved). Only when that rebuild cannot be made is the
  * saved copy served, marked `stale: true`, never silently.
  */
+// ── THE MAP IN EVERY CALL (2026-10-26, the owner: "isn't the map in
+// everything already"). One read per site, shared by every call of a job for
+// a short while and replaced the moment a save rebuilds it, each call
+// carrying its own slice (`siteSlice`), its own section first. Fails open: a
+// map not read in time sends the call as it was.
+const MAP_NOTE_MS = 4000;
+const MAP_MEMO_MS = 20000;
+const siteMapMemo = new Map();
+function siteMapNow(env, slug) {
+  const k = String(slug || "").toLowerCase();
+  if (!k) return Promise.resolve(null);
+  const hit = siteMapMemo.get(k);
+  if (hit && Date.now() - hit.at < MAP_MEMO_MS) return hit.p;
+  const p = withinMs(refreshSiteMap(env, k, null, { save: false }).then((m) => m || loadSiteMap(env, k)), MAP_NOTE_MS, "site map note:", k).catch(() => null);
+  if (siteMapMemo.size > 200) siteMapMemo.clear();
+  siteMapMemo.set(k, { at: Date.now(), p });
+  return p;
+}
+function siteMapNote(env, slug, kind, opts = null) {
+  return async () => {
+    if (!slug) return "";
+    const m = await siteMapNow(env, slug);
+    const o = typeof opts === "function" ? opts() : opts;
+    const k = typeof kind === "function" ? kind() : kind;
+    return m ? siteSlice(m, k, o || {}) : "";
+  };
+}
+const mappedSend = (env, slug, kind, send, opts = null) => mapSend(send, siteMapNote(env, slug, kind, opts));
+const mappedCall = (env, slug, kind, call, opts = null) => mapCall(call, siteMapNote(env, slug, kind, opts));
+
 async function currentSiteMap(env, slug) {
   const fresh = await refreshSiteMap(env, slug, null);
   if (fresh) return fresh;
@@ -18305,7 +18362,7 @@ function seamCompileRepair(env, { slug, touched = null, models = null, charge = 
     const r = await compileRepairRounds({
       error, pages, touched: Array.isArray(touched) ? touched : null,
       room: () => !clock || clock.canRepair(0),
-      send: quickSend(env, "repair", repairClock(clock)), model: models && models.quick, compile: recompile,
+      send: mappedSend(env, slug, "page", quickSend(env, "repair", repairClock(clock))), model: models && models.quick, compile: recompile,
     });
     if (r.built && r.usage.length && typeof charge === "function") {
       try { r.charged = Number(await charge(r.usage)) || 0; }
@@ -19272,7 +19329,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     const vrPages = vrChanges.pages.length ? (pages || []).filter((p) => p && vrChanges.pages.includes(p.path)) : (pages || []);
     const vrModel = (models && (models.pages || models.quick)) || modelsFor().pages;
     const clock = job && job.budget && typeof job.budget.canRepair === "function" ? job.budget : null;
-    const vr = await runVisualReview({ shots: built.shots, pages: vrPages, send: quickSend(env, "visual", repairClock(clock)), model: vrModel, viewport: (job && job.deviceScope) || null });
+    const vr = await runVisualReview({ shots: built.shots, pages: vrPages, send: mappedSend(env, slug, "look", quickSend(env, "visual", repairClock(clock))), model: vrModel, viewport: (job && job.deviceScope) || null });
     let vrCharged = 0;
     if (vr.usage) {
       try { vrCharged = Number(await vrCharge([vr.usage])) || 0; }
@@ -20149,7 +20206,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   if (revise && !resumeCall && Array.isArray(priorPages) && priorPages.length) {
     try {
       const qModel = (models && models.quick) || modelsFor(picker || undefined).quick;
-      const pick = await pickFiles({ send: quickSend(env, "file-pick", budget) },
+      const pick = await pickFiles({ send: mappedSend(env, slug, "page", quickSend(env, "file-pick", budget)) },
         { request: String(changeNote || brief || ""), pages: priorPages, parts: priorParts && Array.isArray(priorParts.parts) ? priorParts.parts : [], targets: [], model: qModel });
       if (pick) {
         try { mark?.("file_pick", { status: pick.mark.status, chosen: pick.mark.chosen, total: pick.mark.total }); } catch { /* a trace must never break a build */ }
@@ -20470,7 +20527,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
             const g = await pagesAgainOf(call, reason, via);
             if (!g || g.ask || !ownFirst) return g;
             const fix = await enforceFallbackFrame(g, {
-              send: (req) => pagesCall(env)(keysFrom(env), req, budget),
+              send: mappedSend(env, slug, "page", (req) => pagesCall(env)(keysFrom(env), req, budget)),
               directive: ownTail.trim(), spec, kind: plan && plan.kind, model: g && g.usage && g.usage.model,
             });
             return fix.gen;
@@ -20488,7 +20545,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         // nothing to repair. The counts ride the `fallback` mark.
         if (!ownFirst) return singleAnswer;
         const oneFix = await enforceFallbackFrame(singleAnswer, {
-          send: (req) => pagesCall(env)(keysFrom(env), req, budget),
+          send: mappedSend(env, slug, "page", (req) => pagesCall(env)(keysFrom(env), req, budget)),
           directive: ownTail.trim(), spec, kind: plan && plan.kind, model: singleAnswer && singleAnswer.usage && singleAnswer.usage.model,
         });
         if (oneFix.counts) try { mark?.("fallback", oneFix.counts); } catch { /* a trace must never break a build */ }
@@ -20866,16 +20923,16 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
     // `recompileAndPublish`, which never calls `publishPages` at all, and a
     // repair there would be re-checking pages the customer just changed by hand
     // against a report about the build before it.
-    repair: quickSend(env),
+    repair: mappedSend(env, slug, "page", quickSend(env)),
     // THE VISUAL REVIEW'S MODEL CALL: the build's own pages model, through the
     // same send (and so the same customer effort) as every builder call.
-    visualReview: visualOn ? (req) => callBuilderModel(env, req, budget ? { capMs: (cap) => budget.capMs(Math.min(Number(cap) || QUICK_STREAM_MS, QUICK_STREAM_MS)) } : quickBudget, QUICK_STREAM) : undefined,
+    visualReview: visualOn ? mappedSend(env, slug, "look", (req) => callBuilderModel(env, req, budget ? { capMs: (cap) => budget.capMs(Math.min(Number(cap) || QUICK_STREAM_MS, QUICK_STREAM_MS)) } : quickBudget, QUICK_STREAM)) : undefined,
     visualModel: models.pages,
     // THE COMPILE REPAIR'S MODEL CALL (2026-10-22, ideas #11-#13): one try at a
     // page that did not build, on the build's own pages model through the same
     // send as the visual review. Supplied only with `BUILD_REPAIR` on; off,
     // `publishPages` gets none and nothing changes.
-    compileRepair: buildRepairOn(env) ? (req) => callBuilderModel(env, req, budget ? { capMs: (cap) => budget.capMs(Math.min(Number(cap) || QUICK_STREAM_MS, QUICK_STREAM_MS)) } : quickBudget, QUICK_STREAM) : undefined,
+    compileRepair: buildRepairOn(env) ? mappedSend(env, slug, "page", (req) => callBuilderModel(env, req, budget ? { capMs: (cap) => budget.capMs(Math.min(Number(cap) || QUICK_STREAM_MS, QUICK_STREAM_MS)) } : quickBudget, QUICK_STREAM)) : undefined,
     compileRepairModel: models.pages,
     // THE STEPS INSIDE THE PUBLISH THAT USED TO RUN IN SILENCE (2026-10-19):
     // their numbers go on the trace, which the build's progress already hears.
@@ -36944,7 +37001,10 @@ async function handleRequest(request, env, ctx) {
             // this task, and its job is refunded (nothing is charged for a
             // question or while it waits).
             const eReplayHas = (r) => (eJob && eJob.prepare !== true && eJob.replay && typeof eJob.replay.has === "function" ? eJob.replay.has(r) : false);
-            const eQuick = (what = "", ctx) => clarifyTransport(jobSend(eJob, quickSend(env, what, eJob && eJob.budget)), {
+            // EVERY EDIT STEP AND LANE SEES THE SITE (2026-10-26): one slice for
+            // the whole job, the same for every call, so a call repeated within
+            // the job is the same request (the journal answers it once).
+            const eQuick = (what = "", ctx) => clarifyTransport(jobSend(eJob, mappedSend(env, ownerSlug, "site", quickSend(env, what, eJob && eJob.budget))), {
               shown: () => (ctx !== undefined ? ctx : eCtx),
               all: () => eCtxAll || [],
               part: ePartShown, replayHas: eReplayHas, onDefault: (d) => { eDefaulted.push(...d); },
@@ -41758,7 +41818,7 @@ async function handleRequest(request, env, ctx) {
               // `only`; measured equivalent today (a returned part the page does
               // not import is already held, `partsHeld`), kept so the prompt and
               // the wall cannot disagree.
-              const ePick = pPartsRead.ok ? await pickFiles({ send: jobSend(eJob, quickSend(env, "file-pick")) },
+              const ePick = pPartsRead.ok ? await pickFiles({ send: jobSend(eJob, mappedSend(env, ownerSlug, "page", quickSend(env, "file-pick"))) },
                 { request: eInstruction, pages: eSrc, parts: pStoredParts, targets: [target.path], model: eModels.quick }) : null;
               const pPartsOnly = ePick && ePick.only ? ePick.only.parts : undefined;
               if (ePick) { try { if (editTrace) editTrace.mark("file_pick", ePick.mark.status, ePick.mark); } catch { /* never */ } }
@@ -41792,7 +41852,7 @@ async function handleRequest(request, env, ctx) {
               // THE PAGE WRITER, KEPT CALLABLE (round 2 of the retry rule): its last
               // request and answer are recorded (`pRec`) so an answer that failed the
               // checks below can be asked once more with the reason (`pWrite`).
-              const pInner = clarifyCall(jobCall(eJob, pagesCall(env)), { shown: () => eCtx, all: () => eCtxAll || [], part: ePartShown, replayHas: eReplayHas, onDefault: (d) => { eDefaulted.push(...d); } });
+              const pInner = clarifyCall(jobCall(eJob, mappedCall(env, ownerSlug, "site", pagesCall(env))), { shown: () => eCtx, all: () => eCtxAll || [], part: ePartShown, replayHas: eReplayHas, onDefault: (d) => { eDefaulted.push(...d); } });
               const pRec = recordCall(pInner);
               let pWrite = null;
               try {
@@ -43521,7 +43581,9 @@ async function handleRequest(request, env, ctx) {
             // gate, so the add-on's calls are offered their question after a
             // reserve too; the job that ends in a question is refunded.
             const aReplayHas = (r) => (aJob && aJob.prepare !== true && aJob.replay && typeof aJob.replay.has === "function" ? aJob.replay.has(r) : false);
-            const aQuick = (what = "", opts) => clarifyTransport(aCounted(jobSend(aJob, quickSend(env, what, aJob && aJob.budget), opts)), {
+            // EVERY ADD-ON CALL SEES THE SITE (2026-10-26): designers, writers,
+            // the judge, verification and retries, through this one transport.
+            const aQuick = (what = "", opts) => clarifyTransport(aCounted(jobSend(aJob, mappedSend(env, ownerSlug, "site", quickSend(env, what, aJob && aJob.budget)), opts)), {
               shown: () => aShownTo(what),
               all: () => aCtxAll || [],
               part: aPartShown, replayHas: aReplayHas, onDefault: (d) => { aDefaulted.push(...d); },
@@ -47045,7 +47107,7 @@ async function handleRequest(request, env, ctx) {
             const aRecs = [];
             let aWriterRetry = null, aWriterFirstUsage = null, aWriterRetried = false;
             const aCallFor = (i) => {
-              const inner = clarifyCall(jobCall(aJob, pagesCall(env)), { shown: () => aCtxShown, all: () => aCtxAll || [], part: aPartShown, replayHas: aReplayHas, onDefault: (d) => { aDefaulted.push(...d); } });
+              const inner = clarifyCall(jobCall(aJob, mappedCall(env, ownerSlug, "site", pagesCall(env))), { shown: () => aCtxShown, all: () => aCtxAll || [], part: aPartShown, replayHas: aReplayHas, onDefault: (d) => { aDefaulted.push(...d); } });
               if (aWriterRetry && aRecs[i] && aRecs[i].last) return aRecs[i].again(aWriterRetry.text, inner);
               aRecs[i] = recordCall(inner);
               return aRecs[i].call;
@@ -48405,7 +48467,7 @@ async function handleRequest(request, env, ctx) {
                 // clock holds back the reserves alone — right for every call
                 // before the first compile, and what let run 36's fix run four
                 // minutes into the room its own recompile needed.
-                send: quickSend(env, "repair", repairClock(aClock)), model: aModels.quick, compile: recompile, room,
+                send: mappedSend(env, ownerSlug, "page", quickSend(env, "repair", repairClock(aClock))), model: aModels.quick, compile: recompile, room,
               });
               aMark("repair", aRepairRound.ran ? (aRepairRound.built ? "ok" : "fail") : "skip",
                 { why: String(aRepairRound.why || aRepairRound.failed || ""), repaired: aRepairRound.repaired.length, refused: aRepairRound.refused.length });
@@ -48433,7 +48495,7 @@ async function handleRequest(request, env, ctx) {
                 try {
                   aReqRetry = await requirementRetryRound({
                     needs: judgedNeeds(aReq), site: aSiteOf(aCur.pages, aCur.built), pages: aCur.pages, siteOf: aSiteOf,
-                    send: quickSend(env, "repair", repairClock(aClock)), model: aModels.quick, compile: recompile,
+                    send: mappedSend(env, ownerSlug, "page", quickSend(env, "repair", repairClock(aClock))), model: aModels.quick, compile: recompile,
                     room: !aClock || aClock.canRepair(aRepairNeedMs),
                   });
                 } catch (e) { aReqRetry = null; console.error("addon requirement retry failed:", ownerSlug, e && e.message); }
@@ -48500,7 +48562,7 @@ async function handleRequest(request, env, ctx) {
               aMark("compile-repair", "start", { room, touched: aTouched.length });
               aCompileRepair = await compileRepairRounds({
                 error, pages, touched: aTouched, room: () => !aClock || aClock.canRepair(aRepairNeedMs),
-                send: quickSend(env, "repair", repairClock(aClock)), model: aModels.quick, compile: recompile,
+                send: mappedSend(env, ownerSlug, "page", quickSend(env, "repair", repairClock(aClock))), model: aModels.quick, compile: recompile,
               });
               aMark("compile-repair", aCompileRepair.ran ? (aCompileRepair.built ? "ok" : "fail") : "skip",
                 { why: String(aCompileRepair.why || aCompileRepair.failed || ""), repaired: aCompileRepair.repaired.length });
@@ -50634,7 +50696,7 @@ async function handleRequest(request, env, ctx) {
               let out;
               try {
                 const recent = await recentSuggestedFor(env, ou.id, chat);
-                out = await writeReply({ send: quickSend(env, "reply", replyBudget) }, {
+                out = await writeReply({ send: mappedSend(env, scslug, "site", quickSend(env, "reply", replyBudget)) }, {
                   facts,
                   context: replyContext({ request: String(words || "").slice(0, 500), site: { slug: scslug }, recent }) + (rule ? "\n\n" + rule : ""),
                   model: modelsFor(picker).quick,
@@ -50749,7 +50811,7 @@ async function handleRequest(request, env, ctx) {
                 const snap = JSON.stringify({ events: progEvents });
                 progChain = progChain.then(() => env.SITES_BUCKET.put(progKey(scbody.key), snap)).catch(() => {});
               } : undefined;
-              const deep = await deepScan({ send: quickSend(env, "security") }, { model, files: sfiles, facts, tables, thorough, plan, ...(progSay ? { say: progSay } : {}) });
+              const deep = await deepScan({ send: mappedSend(env, scslug, "site", quickSend(env, "security")) }, { model, files: sfiles, facts, tables, thorough, plan, ...(progSay ? { say: progSay } : {}) });
               await progChain;
               report.thorough = thorough;
               let cost = 0;
