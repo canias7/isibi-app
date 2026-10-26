@@ -11,3 +11,31 @@
 **Tests.** `test/router-split.test.mjs` (3): the addon case first and its holds; the retry keeps holds; supplied answers through `planParts` — the drift message with four holds gives 5 parts, the same answer holding nothing gives 1 (control). Red on `main`: 2 of 3 fail (the `planParts` case passes on both, as it should: the parts machinery was never removed). Sweep 6/6 killed, 2 comment controls survived. Full suite 12,871: 12,867 pass, 2 fail, 2 skipped; `site-secrets` "nothing outside this module derives a site-secrets key" fails on `main` too; `build-reply-bubble` failed in the full run only and passes alone.
 
 **Not shown.** No paid run: whether the real router now holds back is untested live. The add-on step's one-component narrowing (`addonOnExisting`, `feature-on-page`) and a code-side split when the router holds nothing are separate (fixes 2 and 3).
+
+## Fix 2: the code's own split (2026-10-26)
+
+Whatever the router's wording, an `addon` answer that holds nothing back
+while its change-0 `targets` write more than one place (an existing
+`page:`, an existing `data:` table, `header`, `footer` or `menu`) is split
+in `planParts` (`builder/request.mjs`, `addonSplit`): each item of the
+message (`messageItems`) naming another of those places, and not the
+answer's own, is held back as its own part (`source: "split"`, routed on its
+own words). The answer's own place is the hand-over's page, else its first
+page; what the answer creates (`new-…`) is its own. An item naming no place
+stays with the answer (`unmatched`). Edit answers, an answer with the
+router's own holds, and one-place answers are never split. Both the queued
+path and the request flow go through `planParts`; the synchronous path
+(no message key) does not and is unchanged.
+
+**Limit**: a place is matched by its name's words in the item (`/cafe` ↔
+"cafe"); an item naming no place — the email in the Driftwood message —
+stays with the add-on answer. Matching depends on the router's `targets`
+naming every place; with none named, nothing is split.
+
+Tests (`test/router-split.test.mjs`, 4 new): the Driftwood message with an
+answer naming six places' writes and holding nothing → 4 parts (hours,
+menu, phone split; hire form and its privacy kept together); controls
+(one place, Test 8's look answer, the router's own holds, no targets,
+intent edit/none/clarify). Red: the new tests fail on `2c96b54a9`. Sweep:
+8 of 9 killed; the survivor (`places.length < 2` → `< 1`) is equivalent
+(one place leaves nothing else to hold); the comment-only control survived.

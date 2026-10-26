@@ -48,7 +48,7 @@
 // additions), which needs which (`dependsOn`), what each part is and where it
 // goes (the router, every step) — never a keyword, and never the position of
 // words in the message, which only breaks ties between parts with no relation.
-import { heldList, heldParts, wordsIn, wordSpans, readSpans, readContext, EDIT_LAYERS } from "./site-ask.mjs";
+import { heldList, heldParts, wordsIn, wordSpans, readSpans, readContext, EDIT_LAYERS, messageItems } from "./site-ask.mjs";
 import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS, REWRITE_MAX_CHARS } from "./input-budget.mjs";
 import { REQUEST_KEY_RE } from "./clarify.mjs";
 import { readMarks } from "./prepared.mjs";
@@ -448,8 +448,13 @@ function routeOf(r) {
  */
 export function planParts(message, routed, { putOff = [] } = {}) {
   const text = typeof message === "string" ? message.trim() : "";
-  const listed = heldList(routed && routed.alsoAsked);
+  let listed = heldList(routed && routed.alsoAsked);
   if (listed === null) return { ok: false, why: "held-unread" };
+  // THE CODE'S OWN SPLIT (2026-10-26): an addon answer that held nothing
+  // back but names writes on more than one place holds, here, each item of
+  // the message tied to another place (`addonSplit`).
+  const safety = listed.length ? null : addonSplit(text, routed);
+  if (safety && safety.held.length) listed = safety.held;
   const off = heldList(putOff);
   if (off === null) return { ok: false, why: "put-off-unread" };
   // EVERY HELD PART IS THE CUSTOMER'S OWN WORDS, found in the message.
@@ -483,6 +488,7 @@ export function planParts(message, routed, { putOff = [] } = {}) {
     parts.push(newPart(parts.length, w, { at: Math.max(0, text.indexOf(w)), source: "router" }));
   });
   held.forEach((w, i) => { if (outerOf[i] >= 0) numberOf[i + 1] = numberOf[outermost(i) + 1]; });
+  if (safety && safety.held.length) for (const p of parts) if (p.source === "router") p.source = "split";
   for (const w of off) {
     if (parts.some((p) => p.words === w)) continue;
     parts.push(newPart(parts.length, w, { at: Math.max(0, text.indexOf(w)), source: "put-off" }));
@@ -514,6 +520,51 @@ export function planParts(message, routed, { putOff = [] } = {}) {
   refuseCycles(parts);
   for (const p of parts) if (p.status !== "refused") p.status = p.needs.length ? "blocked" : "ready";
   return { ok: true, parts };
+}
+
+// ── THE CODE'S OWN SPLIT OF AN ADDON ANSWER (2026-10-26) ─────────────────────
+//
+// The owner's combined test on driftwood-and-daughters-5: six requests were
+// answered "addon" with nothing held back, and the add-on step, which adds to
+// one target and edits nothing, did one. Whatever the router's wording, an
+// addon answer that holds nothing back while its writes name more than one
+// place (an existing page, an existing table, the header, footer or menu) is
+// split here: each item of the message (`messageItems`, the customer's own
+// sentences) that names another of those places and not the answer's own is
+// held back as a part of its own, routed on its own words. The answer's own
+// place is the hand-over's page, else its first page; what the answer creates
+// (new-…) is its own too. An item that names no place stays with the answer,
+// and is said (`unmatched`). Edit answers are never split here.
+const SPLIT_PLACE = /^(page|data):|^(header|footer|menu)$/;
+function placeWords(t) {
+  const at = t.indexOf(":");
+  const name = at < 0 ? t : t.slice(at + 1);
+  return name.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
+}
+function namesPlace(item, words) {
+  if (!words.length) return 0;
+  const said = new Set(item.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
+  return words.every((w) => said.has(w) || said.has(w + "s") || (w.endsWith("s") && said.has(w.slice(0, -1)))) ? words.length : 0;
+}
+export function addonSplit(message, routed) {
+  const none = { held: [], unmatched: [] };
+  if (!routed || routed.intent !== "addon" || typeof message !== "string") return none;
+  const t0 = readTargets(routed.targets)[0];
+  if (!t0) return none;
+  const places = t0.writes.filter((t) => SPLIT_PLACE.test(t));
+  if (places.length < 2) return none;
+  const hand = plain(routed.handOver) && typeof routed.handOver.page === "string" ? "page:" + routed.handOver.page : "";
+  const own = places.includes(hand) ? hand : (places.find((t) => t.startsWith("page:")) || places[0]);
+  const ownWords = [own, ...t0.writes.filter((t) => t.startsWith("new-"))].map(placeWords);
+  const others = places.filter((t) => t !== own).map(placeWords);
+  const held = [], unmatched = [];
+  for (const { text } of messageItems(message)) {
+    const mine = Math.max(0, ...ownWords.map((w) => namesPlace(text, w)));
+    const theirs = Math.max(0, ...others.map((w) => namesPlace(text, w)));
+    if (theirs > mine) held.push(text);
+    else if (!mine) unmatched.push(text);
+  }
+  return { held, unmatched };
 }
 
 /** A message as part 0 is shown: each held part's words replaced by "…", once, the runs of marks folded. */
