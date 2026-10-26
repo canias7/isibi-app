@@ -130,7 +130,15 @@ nothing.
 - **Sweep**: 22 of 22 mutants killed, 2 comment-only controls survived (after
   one equivalent mutant was rewritten and two test gaps closed: a bare
   password in an error, and a failure in the middle of one tick).
-- Full unit suite: see `docs/owner-notes.md`'s entry (stamped after the run).
+- **Full unit suite** (locally, before the commit): `12917 / 12912 / 2 / 3`.
+  The two failures were of the working tree, not the code: a new file not yet
+  a git object (`container-images`) and a `node_modules` symlink the session
+  used (`no-generated-deps`); both pass on the commit `a5b3dd465` with the
+  link removed (19 of 19). Five existing source guards were re-anchored to the
+  new resolver names (`site-apply`, `site-ask`, `site-backup`, `site-jobs`,
+  `site-db`), one fake in `route-table-names` stops counting the login lookup
+  as a project-row read, and `Dockerfile` carries the new module into the
+  worker tree.
 
 ## Not proven live
 
