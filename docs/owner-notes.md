@@ -1,6 +1,10 @@
 # Owner Notes
 
 
+## 2026-10-26 — Deleting a site says what goes, and asks for its name
+
+The ✕ on a site card now opens a dialog that names what will be lost, for example "This deletes Saltmarsh, its database with 42 orders and 5 lessons, and 3 pages. Type the site name to confirm." Delete stays greyed out until the site's name is typed (capitals and spaces don't matter); Cancel, Escape or a click outside closes it. The numbers come from a new read-only check (`GET /api/site/<slug>/delete-preview`), only for the site's owner. If the entries can't be counted it says "its database (couldn't count its entries)", never 0; a site with no database reads "This deletes X and its N pages." The server now refuses a delete that doesn't carry the confirmation (400); deleting your whole account still removes every site as before. Same dialog look as the other confirmations; only the name box was added. Branch `delete-confirm`, not merged or deployed. `docs/history/2026-10-26-delete-confirm.md`.
+
 ## 2026-10-26 — Questions no longer count as "in progress"; "Something else…" lights up
 
 The tasks pill now says "2 need you · 1 in progress", so a request that's only waiting on your answers doesn't look stuck. Clicking "Something else…" on a question now marks it chosen and shows "Type your answer in the box below and press send." Branch `reply-seen`. `docs/history/2026-10-26-pill-and-own-answer.md`.
