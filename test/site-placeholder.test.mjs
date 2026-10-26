@@ -195,13 +195,14 @@ test("A01-5: A FIRST BUILD SAVED AS A DRAFT — the stand-in stops asking for a 
   assert.equal(typeof m.draftPlaceholder, "function", "draftPlaceholder is not exported");
   const SITES_BUCKET = bucket();
   assert.equal(await m.publishPlaceholder({ SITES_BUCKET }, "shop", "Fold Coffee", SPEC, { building: true }), true);
-  assert.match(SITES_BUCKET.store.get(KEY("shop")), /send your message again/, "the fixture is not the building stand-in");
+  assert.match(SITES_BUCKET.store.get(KEY("shop")), /content="building"/, "the fixture is not the building stand-in");
 
   assert.equal(await m.draftPlaceholder({ SITES_BUCKET }, "shop"), true);
   const html = SITES_BUCKET.store.get(KEY("shop"));
   assert.ok(html, "the stand-in was removed: the address would fall to nothing");
   assert.doesNotMatch(html, /again/i, "the draft's live address still asks for a resend");
-  assert.match(html, /isn't published yet/, "no honest not-published wording");
+  assert.match(html, /content="draft"/, "not rewritten in its draft voice");
+  assert.match(html, /<p>Coming soon<\/p>/, "no coming-soon line");
   assert.ok(html.includes(markFromSource()), "the mark was lost, so a later publish could not clear it");
   assert.match(html, /<title>Fold Coffee<\/title>/, "the site's own name was lost");
   assert.equal(await m.clearPlaceholder({ SITES_BUCKET }, "shop"), true, "a later real publish no longer takes it down");
@@ -246,4 +247,41 @@ test("A01-5: THE PREVIEW UPLOAD REWORDS IT, AFTER THE UPLOAD'S REFUSALS", () => 
   const call = body.indexOf("else await draftPlaceholder(env, slug)");
   assert.ok(bail > 0 && clear > bail, "the clear's anchors moved — re-anchor this");
   assert.ok(call > clear && call < clear + 120, "the draft rewording is not the preview branch of the clear");
+});
+
+// THE PUBLIC STAND-IN SHOWS NO DATA (owner, 2026-10-26). driftwood-and-daughters-5,
+// never published, showed every table, column and access rule at its public
+// address (`lesson_bookings`, `customer_email`, `customer_phone`).
+const TABLED = { tables: [
+  { name: "lesson_bookings", access: "collect", columns: [{ name: "customer_email" }, { name: "customer_phone" }, "lesson_date"] },
+  { name: "lessons", access: "display", columns: ["name", "price"] },
+] };
+const DATA_WORDS = /lesson_bookings|customer_email|customer_phone|lesson_date|\blessons\b|price|only you can read|anyone can read|Database is live|<code>|<h2>/;
+
+test("THE STAND-IN SHOWS ONLY THE NAME AND ONE LINE, in every voice, and keeps its mark", async () => {
+  const m = await loadWorkerModule();
+  for (const opts of [{ building: true }, undefined]) {
+    const b = bucket();
+    assert.equal(await m.publishPlaceholder({ SITES_BUCKET: b }, "shop", "Fold & <Co>", TABLED, opts), true);
+    const html = b.store.get(KEY("shop"));
+    assert.ok(html.includes(markFromSource()), "the mark is gone, so a publish could not clear it");
+    assert.doesNotMatch(html, DATA_WORDS, "the public stand-in shows the site's data: " + html);
+    assert.match(html, /<h1>Fold &amp; &lt;Co&gt;<\/h1>/, "the name is not shown, escaped");
+    assert.match(html, opts ? /<p>Coming soon<\/p>/ : /<p>This site isn't ready yet\.<\/p>/);
+    assert.match(html, /prefers-reduced-motion:reduce\)\{h1\{animation:none\}/, "the pulse ignores reduced motion");
+    assert.doesNotMatch(html, /made with|gofarther\.dev|<img/i, "no logo or made-with line");
+    assert.equal(await m.clearPlaceholder({ SITES_BUCKET: b }, "shop"), true);
+  }
+});
+
+test("A STAND-IN FROM BEFORE, STILL LISTING TABLES, IS WRITTEN AFRESH WHEN THE DRAFT LANDS — its tables gone", async () => {
+  const m = await loadWorkerModule();
+  const old = "<!doctype html><meta " + markFromSource() + "><title>Driftwood &amp; Daughters</title><h1>Driftwood &amp; Daughters</h1><p class=sub>" + BUILDING +
+    "</p><section><h2>lesson_bookings</h2><ul><li><code>customer_email</code></li></ul></section>";
+  const b = bucket({ [KEY("drift")]: old });
+  assert.equal(await m.draftPlaceholder({ SITES_BUCKET: b }, "drift"), true);
+  const html = b.store.get(KEY("drift"));
+  assert.doesNotMatch(html, DATA_WORDS, "the old stand-in's tables survived the draft swap");
+  assert.match(html, /<h1>Driftwood &amp; Daughters<\/h1>/, "the name was lost or double-escaped");
+  assert.ok(html.includes(markFromSource()));
 });

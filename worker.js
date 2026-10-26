@@ -6935,67 +6935,48 @@ const PLACEHOLDER_META = "<meta name=\"" + PLACEHOLDER_MARK + "\" content=\"plac
 // keeps serving this stand-in until the owner presses Publish — and "send your
 // message again" then buys another build. `draftPlaceholder` swaps the one
 // sentence for an honest "not published yet", with no instruction to resend.
+// THE OLD BUILDING SENTENCE, KEPT ONLY TO RECOGNISE A STAND-IN WRITTEN BEFORE
+// 2026-10-26, so the draft swap still rewrites it (and with it the table list
+// it carried) into today's page.
 const PLACEHOLDER_BUILDING = "Your site is still being put together — this page is standing in until it's ready. If it's still here in a few minutes, send your message again and I'll pick it up.";
-const PLACEHOLDER_DRAFT = "This site isn't published yet. Its owner is getting it ready, so check back soon.";
+// THE PUBLIC STAND-IN SAYS ONLY THE NAME AND ONE LINE (owner, 2026-10-26).
+// It used to list every table, its columns and who may read it — on the
+// public address of a site that was never published (driftwood-and-daughters-5
+// showed `lesson_bookings` with `customer_email` and `customer_phone` to
+// anyone). Building and draft say "Coming soon"; a failed build its own short
+// line. Which voice a page is in rides beside the mark, for the draft swap.
+const PLACEHOLDER_SOON = "Coming soon";
+const PLACEHOLDER_FAILED = "This site isn't ready yet.";
+const PLACEHOLDER_VOICE = "gofarther-voice";
+const PLACEHOLDER_STYLE =
+  "body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;font-family:Inter,system-ui,sans-serif;text-align:center;background:radial-gradient(circle at 50% 40%,#2a2733,#121116 70%);color:#cfcbd8}" +
+  "h1{font-size:34px;color:#fff;margin:0 0 10px;font-weight:600;animation:p 2.4s ease-in-out infinite}@keyframes p{50%{opacity:.55}}" +
+  "p{margin:0;color:#8f8b99;font-size:17px}" +
+  "@media (prefers-reduced-motion:reduce){h1{animation:none}}";
 
 function schemaPlaceholderPage(brand, spec, opts) {
   const esc = (v) => String(v == null ? "" : v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  const tables = (spec.tables || []).map((t) => {
-    const cols = (t.columns || []).map((c) => "<li><code>" + esc(typeof c === "string" ? c : c.name) + "</code></li>").join("");
-    // Every access level, not "user vs everything else". A `collect` table is
-    // WRITE-ONLY — calling it "shared across visitors" on the owner's fallback
-    // page says the opposite of what it does, and this page is the only thing a
-    // failed build leaves them.
-    const pair = resolveAccess(t);
-    const says = {
-      display: "anyone can read this",
-      collect: "visitors submit to this; only you can read it",
-      user: "each visitor sees only their own rows",
-      feed: "signed-in visitors read all of it, and write their own",
-      admin: "signed-in visitors read it; only an admin writes it",
-      // …AND IT ASKS THE RESOLVED PAIR, not the stamped preset. `normalizeSchema`
-      // stamps `access: "collect"` on any table declared with a `read`/`write`
-      // pair — and the design tool tells the model to do exactly that when no
-      // preset fits — so a PUBLIC menu was described here as "visitors submit to
-      // this; only you can read it", the precise opposite of what it does. On
-      // the ONE page a failed build leaves the owner. The fourth place this
-      // misread has been found, after the lint's write gate, the digest's PAID
-      // line and the response's own `schema` field.
-    }[accessNameFor(pair)] || pairSays(pair);
-    return "<section><h2>" + esc(t.name) + "</h2><p>" + esc(says) +
-           "</p><ul>" + cols + "</ul></section>";
-  }).join("");
+  // THREE VOICES, because this page is published at three moments: before the
+  // pages exist (building), when a first build is saved as a draft (draft),
+  // and when a build failed. `spec` is no longer read: nothing about the
+  // site's data is ever shown to the public.
+  const voice = opts && opts.draft ? "draft" : opts && opts.building ? "building" : "failed";
   return "<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\">" +
-    PLACEHOLDER_META +
-    "<title>" + esc(brand) + "</title>" +
-    "<style>body{font:16px/1.6 system-ui,sans-serif;max-width:46rem;margin:4rem auto;padding:0 1.5rem;color:#111}" +
-    "h1{font-size:2rem;margin:0 0 .25rem}p.sub{color:#666;margin:0 0 2.5rem}" +
-    "section{border:1px solid #e5e5e5;border-radius:10px;padding:1rem 1.25rem;margin:0 0 1rem}" +
-    "h2{font-size:1.05rem;margin:0 0 .25rem}section p{color:#666;font-size:.9rem;margin:0 0 .5rem}" +
-    "ul{margin:0;padding-left:1.1rem}code{background:#f5f5f5;padding:.1rem .35rem;border-radius:4px;font-size:.85rem}</style>" +
-    "<h1>" + esc(brand) + "</h1><p class=sub>" +
-    // THE SUBTITLE IS A CLAIM AND IT WAS HARDCODED. "Database is live. These
-    // tables were created for this site." is false on a FIRST BUILD since
-    // 2026-08-25 — there is no database and no table — and this is the ONE page
-    // an owner is left with when a build fails. That is the exact class this
-    // repo already records: the placeholder telling the owner something about
-    // their site that is not true, on the page they have nothing else to read.
-    // THREE VOICES, because this page is now published at three different
-    // moments and only one of them is a failure.
-    //
-    // `building` is the EARLY write, put up before the pages are generated so
-    // the address is never a 404 (see `publishPlaceholder`). At that moment
-    // nothing has gone wrong, so the failure wording would be a lie — and the
-    // wording used instead has to stay true if the build then dies, because
-    // this page is what the owner is left holding. "Still being put together,
-    // send it again if it is still here" is true either way; "refresh in a
-    // minute" is not.
-    (opts && opts.building
-      ? PLACEHOLDER_BUILDING
-      : tables
-      ? "Database is live. These tables were created for this site."
-      : "The pages didn't come out right this time, so this stands in for them. Nothing was lost — say what you want and I'll build it again.") +
-    "</p>" + tables;
+    PLACEHOLDER_META + "<meta name=\"" + PLACEHOLDER_VOICE + "\" content=\"" + voice + "\">" +
+    "<title>" + esc(brand) + "</title><style>" + PLACEHOLDER_STYLE + "</style>" +
+    "<div><h1>" + esc(brand) + "</h1><p>" + (voice === "failed" ? PLACEHOLDER_FAILED : PLACEHOLDER_SOON) + "</p></div>";
+}
+
+/** The voice a stored stand-in is in: its own tag, or the old building sentence; "" for anything else. */
+function placeholderVoiceOf(html) {
+  const m = new RegExp("<meta name=\"" + PLACEHOLDER_VOICE + "\" content=\"([a-z]+)\">").exec(String(html));
+  if (m) return m[1];
+  return String(html).includes(PLACEHOLDER_BUILDING) ? "building" : "";
+}
+/** The site's name, read back from a stand-in's own title. */
+function placeholderBrandOf(html) {
+  const m = /<title>([^<]*)<\/title>/.exec(String(html));
+  return m ? m[1].replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&") : "";
 }
 
 /**
@@ -7113,7 +7094,7 @@ export async function clearPlaceholder(env, slug) {
  * Called from `uploadScriptOnce` when a PREVIEW script has landed — the draft
  * exists, and nothing is live. The stand-in stays (visitors must not see the
  * unpublished draft, and the address must not 404), but its building sentence
- * is replaced by `PLACEHOLDER_DRAFT`. Guarded by the mark AND the building
+ * is replaced: the page is written again in its draft voice ("Coming soon"). Guarded by the mark AND the building
  * sentence, so a real page, the failure wording, or a site with nothing there
  * is left alone. Never throws: the draft is already saved.
  */
@@ -7124,8 +7105,10 @@ export async function draftPlaceholder(env, slug) {
     const obj = await env.SITES_BUCKET.get(key);
     if (!obj) return false;
     const html = await obj.text();
-    if (!html.includes(PLACEHOLDER_META) || !html.includes(PLACEHOLDER_BUILDING)) return false;
-    await env.SITES_BUCKET.put(key, html.replace(PLACEHOLDER_BUILDING, PLACEHOLDER_DRAFT), {
+    if (!html.includes(PLACEHOLDER_META) || placeholderVoiceOf(html) !== "building") return false;
+    // WRITTEN AFRESH, NEVER EDITED IN PLACE: a stand-in from before 2026-10-26
+    // still carries the site's tables, so swapping its sentence kept them public.
+    await env.SITES_BUCKET.put(key, schemaPlaceholderPage(placeholderBrandOf(html), null, { draft: true }), {
       httpMetadata: { contentType: "text/html; charset=utf-8" },
     });
     return true;

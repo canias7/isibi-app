@@ -701,19 +701,15 @@ test("every tool the model is given is a schema the API will accept", () => {
   assert.deepEqual(skipped, [], "tool schemas that could not be parsed, so were never checked:\n" + skipped.join("\n"));
 });
 
-test("the placeholder page describes each access level correctly", () => {
-  // It is the only thing a failed build leaves the owner, and it called a
-  // `collect` table "shared across visitors" — the opposite of write-only.
-  // Seen on a real published fallback on 2026-07-29.
+test("the placeholder page describes no table and no access level (owner, 2026-10-26)", () => {
+  // SUPERSEDED: it described each table's access level for the owner, on the
+  // site's PUBLIC address. It now shows only the name and one line.
   const i = SRC.indexOf("function schemaPlaceholderPage");
   assert.ok(i > 0, "the placeholder moved");
-  const body = SRC.slice(i, i + 1800);
-  assert.ok(!/\? "each visitor sees only their own rows" : "shared across visitors"/.test(body),
-    "the two-way label is back — collect and admin are not 'shared across visitors'");
-  for (const level of ["display", "collect", "user", "feed", "admin"]) {
-    assert.match(body, new RegExp("\\b" + level + ":"), "no wording for access level " + level);
+  const body = SRC.slice(i, SRC.indexOf("\n}\n", i));
+  for (const level of ["display:", "collect:", "only you can read it", "spec.tables", "resolveAccess"]) {
+    assert.ok(!body.includes(level), "the public stand-in describes the site's data again: " + level);
   }
-  assert.match(body, /only you can read it/, "a collect table must be described as write-only");
 });
 
 // -------------------------------------------- what a model failure may reveal
@@ -1523,7 +1519,7 @@ test("the last of the audit lows: honest statuses, honest sentences, honest fiel
   // about the platform rather than about one call site — a second copy is how
   // the early write and the late one come to disagree about when it is safe.
   const writes = [...w.matchAll(/schemaPlaceholderPage\(/g)].length;
-  assert.equal(writes, 2, "schemaPlaceholderPage is built somewhere other than its one writer");
+  assert.equal(writes, 3, "schemaPlaceholderPage is built somewhere other than its one writer and the draft swap");
   // AND AN UNREADABLE ANSWER SKIPS THE WRITE. Reading an R2 blip as "nothing is
   // published" overwrites a live site with the placeholder, which is precisely
   // the outcome the guard exists to prevent.

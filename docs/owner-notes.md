@@ -1,6 +1,10 @@
 # Owner Notes
 
 
+## 2026-10-26 — An unpublished site's public address no longer shows its tables
+
+driftwood-and-daughters-5 was never published, so its public address showed the stand-in page, and that page listed every table, column and privacy rule (for example `lesson_bookings` with `customer_email` and `customer_phone`). The stand-in is now your design: the site's name and "Coming soon" (or "This site isn't ready yet." after a failed build) on a dark background. It pulses gently, and the pulse stops for visitors who turn off motion. When a first build is saved as a draft, the page is now rewritten from scratch, so an old page's table list goes too. Old stand-ins already up stay until the site is published, rebuilt or its draft lands. Branch `reply-seen`, not merged. `docs/history/2026-10-26-placeholder-public.md`.
+
 ## 2026-10-26 — The site map now rides every model call that reasons about a site
 
 The page step asked "which component is the reviews section?" because it saw block names like `Band3Split` and nothing else; the map had reached only the router, text, add-on, frame, reply and diagnosis. Now:

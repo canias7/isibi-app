@@ -599,24 +599,15 @@ test("a site with no database still claims its slug, and a revise never re-claim
 });
 
 test("the placeholder does not promise a database to a site that has none", () => {
-  // IT IS THE ONE PAGE A FAILED BUILD LEAVES THE OWNER, so a false claim on it
-  // is a claim they have nothing else to check against. The subtitle was
-  // hardcoded "Database is live. These tables were created for this site." —
-  // true on every build until 2026-08-25 and false on every first build since.
+  // SUPERSEDED 2026-10-26 (owner): the public stand-in shows no data at all —
+  // no tables, no "Database is live" — only the site's name and one line, so
+  // it can make no claim about a database either way.
   const src = bare(WORKER);
   const at = src.indexOf("function schemaPlaceholderPage");
   assert.ok(at > 0, "schemaPlaceholderPage is gone");
   const fn = src.slice(at, src.indexOf("\n}", at));
-  // ON THE GATE, NOT ON THE WHOLE EXPRESSION. This read `(tables ? "Database is
-  // live` — pinned to `tables` being the FIRST test in the ternary — and went
-  // red on 2026-08-25 when a third case (the stand-in published before the
-  // pages exist) was added ahead of it. The claim was never about position: it
-  // is that the database sentence is reachable only when there are tables.
-  assert.match(fn, /\btables\s*\n?\s*\?\s*"Database is live/,
-    "the placeholder claims a live database whether or not there is one");
-  // Both halves exist, or a fix that deleted the true sentence would pass.
-  assert.match(fn, /Database is live/, "the database sentence is gone from the tabled case");
-  assert.match(fn, /Nothing was lost/, "a site with no tables gets no sentence of its own");
+  assert.doesNotMatch(fn, /Database is live|spec\.tables|<code>/, "the stand-in reads or claims the site's data again");
+  assert.match(fn, /PLACEHOLDER_FAILED/, "a failed build has no line of its own");
 });
 
 test("the no-tables refusal cannot fire on a build that was never asked for tables", () => {
