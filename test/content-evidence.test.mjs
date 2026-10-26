@@ -200,8 +200,15 @@ test("CE 7 — INCOMPLETE OR FAILED READS are never read as present or absent", 
   assert.equal(r.told[0].told, "in-code");
   assert.match(toldNote(r.told), /couldn't read the built page to see it/);
   assert.match(factsOf(r.told).find((x) => /could not be read/.test(x.text)).text, /^What this change added for it: a new faq on \/bake-list whose own words are “Can I leave the list\?” \(not confirmed on the built page\).*The built page could not be read, so whether it shows is not known\. Whether what was added is what was asked for is not checked here/);
-  // (d) THE READ THE CAP CUT: a text not found there is unread, never hidden…
+  // (d) THE READ THE CAP CUT: a text not found there is never hidden…
+  // (Revised 2026-10-26, reply-seen: one of its texts WAS seen, so the page
+  // was read — "some", told "behind", never "couldn't read the built page".)
   ev = componentEvidence({ answers: ANSWERS, added, rendered: render("Bake List Can I leave the list?", false) });
+  assert.equal(ev.faq.shown, "some");
+  assert.equal(ev.faq.hidden, undefined, "an unsure text was called hidden");
+  assert.equal(report(ev).told[0].told, "behind");
+  // …and with none of its texts seen on a cut read, still unread.
+  ev = componentEvidence({ answers: ANSWERS, added, rendered: render("Bake List", false) });
   assert.equal(ev.faq.shown, "unread");
   assert.equal(report(ev).told[0].told, "in-code");
   // …and a text found there still counts as shown.
@@ -210,13 +217,17 @@ test("CE 7 — INCOMPLETE OR FAILED READS are never read as present or absent", 
   const part = { path: "src/routes/-parts/faq-band.tsx", name: "faq-band", source: "export default function F(){ return <section><p>Yes, reply STOP to any note.</p></section> }", routes: [], maybeRoutes: ["/bake-list"] };
   ev = componentEvidence({ answers: ANSWERS, added: addedByRoute({ before: [], after: [part], parse }), rendered: render("x") });
   assert.equal(ev.faq.stored, "unread");
-  // (f) A NEW COMPONENT WITH NO WORDS OF ITS OWN: added, content unread — 'in-code', never 'still to do'.
+  // (f) A NEW COMPONENT WITH NO WORDS OF ITS OWN: added, 'wordless' — told as
+  // set up, never 'still to do' and never "couldn't read the built page"
+  // (revised 2026-10-26, reply-seen: a hidden spam field on driftwood's /hire,
+  // job d7b45bac, was told "the finished page could not be read").
   // (Revised 2026-10-13: the questions component's own tag, imported — an
   // unrelated <OpeningHours /> used to be taken for it.)
   const tagOnly = BEFORE.replace("</main>", "<Faq />" + "</main>");
   ev = componentEvidence({ answers: ANSWERS, added: addedByRoute({ before: [page(BEFORE)], after: [page(tagOnly)], parse }), rendered: render("Bake List") });
-  assert.deepEqual(core(readContent(ev.faq)), { stored: "added", shown: "unread" });
-  assert.equal(report(ev).told[0].told, "in-code");
+  assert.deepEqual(core(readContent(ev.faq)), { stored: "added", shown: "wordless" });
+  assert.equal(report(ev).told[0].told, "set-up");
+  assert.doesNotMatch(toldNote(report(ev).told), /couldn't read the built page/);
   // (g) NO EVIDENCE AT ALL (a failure exit, or a record written before this): the old reading, exactly.
   assert.equal(report(null).told[0].told, "unseen");
   assert.equal(report({ faq: { stored: "added", shown: "maybe" } }).told[0].told, "unseen", "a malformed reading was trusted");
@@ -372,9 +383,23 @@ test("CE 15 — TWO COMPONENTS ON ONE PAGE: each is read by its own share — on
   ev = componentEvidence({ answers: both, added: addedByRoute({ before: [page(BEFORE)], after: [page(BEFORE)], parse }), rendered });
   assert.equal(ev.faq.stored, "none");
   assert.equal(ev.testimonial.stored, "none");
-  // A NEW TAG WITH NO WORDS OF ITS OWN, beside the questions: that component's, content unread.
+  // A NEW TAG WITH NO WORDS OF ITS OWN, beside the questions: that component's, wordless (2026-10-26).
   ev = componentEvidence({ answers: [{ kind: "component", value: [both[0].value[0], { page: "/bake-list", does: "opening hours", components: ["opening-hours"] }] }],
     added: addedByRoute({ before: [page(BEFORE)], after: [page(imp(BEFORE.replace("</main>", FAQ + "<OpeningHours /></main>")))], parse }), rendered });
-  assert.deepEqual(core(readContent(ev["opening-hours"])), { stored: "added", shown: "unread" });
+  assert.deepEqual(core(readContent(ev["opening-hours"])), { stored: "added", shown: "wordless" });
   assert.equal(ev.faq.stored, "added");
+});
+
+// REPLY-SEEN (2026-10-26): live on driftwood-and-daughters-5 (job d7b45bac)
+// the add-on put a hidden spam field on /hire — an element with no words —
+// and the reply said "the finished page could not be read". A route that gained
+// only wordless elements is "wordless": nothing on the page to read for it,
+// told as set up, never "couldn't read the built page".
+test("CE reply-seen — a wordless addition is not an unread page", () => {
+  const hiddenField = BEFORE.replace("</main>", "<Faq /></main>");
+  const added = addedByRoute({ before: [page(BEFORE)], after: [page(hiddenField)], parse });
+  assert.ok(added.get("/bake-list") && added.get("/bake-list").read, "the observer did not read the route");
+  const e = routeEvidence("/bake-list", added, render("Bake List", false));
+  assert.deepEqual({ stored: e.stored, shown: e.shown }, { stored: "added", shown: "wordless" });
+  assert.deepEqual(readContent(e) && readContent(e).shown, "wordless");
 });

@@ -482,14 +482,18 @@ export function routeEvidence(route, added, rendered) {
   const a = added.get(route);
   if (!a) return { stored: "none" };
   if (!a.read) return { stored: "unread" };
-  if (!a.added.length) return a.tags > 0 ? { stored: "added", texts: 0, shown: "unread" } : { stored: "none" };
+  if (!a.added.length) return a.tags > 0 ? { stored: "added", texts: 0, shown: "wordless" } : { stored: "none" };
   return judged(a.added, rendered instanceof Map ? rendered.get(route) : null, a.storedAll);
 }
 
 function judged(texts, page, storedAll) {
   const { shown, hidden, unsure } = shownOf(texts, page, storedAll);
   const base = { stored: "added", texts: texts.length };
-  if (unsure.length) return { ...base, shown: "unread", ...(hidden.length ? { hidden } : {}) };
+  // SEEN IS EVIDENCE THE PAGE WAS READ (2026-10-26, reply-seen): with some
+  // texts seen and the rest unsure (a check cut short, words that appear only
+  // after a visitor acts), the page was read, so "some"; "unread" only when
+  // nothing at all was seen.
+  if (unsure.length) return { ...base, shown: shown.length ? "some" : "unread", ...(hidden.length ? { hidden } : {}) };
   if (!hidden.length) return { ...base, shown: "all" };
   return { ...base, shown: shown.length ? "some" : "none", hidden };
 }
@@ -525,7 +529,7 @@ function componentOnRoute(name, route, designs, added, rendered) {
     return t.part && norm(t.part) === norm(name) ? "part:" + t.part : null;
   };
   const mine = a.added.filter((t) => instOf(t) !== null);
-  const out = mine.length ? judged(mine, rendered instanceof Map ? rendered.get(route) : null, a.storedAll) : { stored: "added", texts: 0, shown: "unread" };
+  const out = mine.length ? judged(mine, rendered instanceof Map ? rendered.get(route) : null, a.storedAll) : { stored: "added", texts: 0, shown: "wordless" };
   // EVERY ADDITION BY ITSELF (2026-10-13, Codex at d0e76bdf): two cards
   // designed for two requests, and a writer that put "Free parking." in both,
   // read as one component "shown: all" — and both requests were told "added
@@ -571,7 +575,7 @@ export function componentEvidence({ answers = [], added = null, rendered = new M
       routes.get(name).set(v.page, (routes.get(name).get(v.page) || 0) + 1);
     }
   }
-  const rank = { all: 3, some: 2, none: 1, unread: 0 };
+  const rank = { wordless: 4, all: 3, some: 2, none: 1, unread: 0 };
   const out = {};
   for (const [name, per] of routes) {
     const list = [...per.keys()];
@@ -579,7 +583,7 @@ export function componentEvidence({ answers = [], added = null, rendered = new M
     if (each.some((e) => e.stored === "unread")) { out[name] = { stored: "unread", routes: list }; continue; }
     if (each.every((e) => e.stored === "none")) { out[name] = { stored: "none", routes: list }; continue; }
     if (each.some((e) => e.stored === "none")) { out[name] = { stored: "unread", routes: list }; continue; }
-    const worst = each.reduce((w, e) => (rank[e.shown] < rank[w] ? e.shown : w), "all");
+    const worst = each.reduce((w, e) => (rank[e.shown] < rank[w] ? e.shown : w), "wordless");
     const hidden = each.flatMap((e) => (Array.isArray(e.hidden) ? e.hidden.map((h) => ({ text: h.text, placement: h.placement, route: e.route })) : []));
     const additions = each.flatMap((e) => (Array.isArray(e.additions) ? e.additions : []));
     out[name] = { stored: "added", shown: worst, routes: list, texts: each.reduce((n, e) => n + (e.texts || 0), 0), ...(hidden.length ? { hidden } : {}), additions };

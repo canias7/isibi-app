@@ -1589,7 +1589,9 @@ export function readContent(ev) {
   if (!ev || typeof ev !== "object" || Array.isArray(ev)) return null;
   if (!["added", "none", "unread"].includes(ev.stored)) return null;
   if (ev.stored !== "added") return { stored: ev.stored };
-  if (!["all", "some", "none", "unread"].includes(ev.shown)) return null;
+  // "wordless" (2026-10-26, reply-seen): the addition has no words of its own
+  // (a hidden field), so there is nothing on the page to read for it.
+  if (!["all", "some", "none", "unread", "wordless"].includes(ev.shown)) return null;
   const hidden = (Array.isArray(ev.hidden) ? ev.hidden : [])
     .filter((h) => h && typeof h.text === "string" && h.text && Array.isArray(h.placement) && h.placement.length
       && h.placement.every((x) => ["direct", "handed", "conditional"].includes(x)))
@@ -1623,7 +1625,7 @@ export function readAdditions(v) {
  * when no found item carries one.
  */
 function contentOf(found) {
-  const rank = { all: 3, some: 2, none: 1, unread: 0 };
+  const rank = { wordless: 4, all: 3, some: 2, none: 1, unread: 0 };
   let shown = null;
   const hidden = [], additions = [];
   for (const f of Array.isArray(found) ? found : []) {

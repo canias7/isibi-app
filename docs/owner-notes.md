@@ -1,5 +1,15 @@
 # Owner Notes
 
+
+## 2026-10-26 — Replies stop saying "couldn't read the page" when it was read
+
+On the router-split test the hidden spam field added to the Hire page was
+reported as "I couldn't read the built page". Now: when some of what was added
+was seen on the page, the reply says the rest wasn't on the page as it first
+loaded; when the addition has no words at all (like a hidden spam field), it
+says it was set up. "Couldn't read the page" is kept only when nothing was
+seen. Branch `reply-seen`; not merged. `docs/history/2026-10-26-reply-seen.md`.
+
 ## 2026-10-26 — The code splits an add-on answer that should have been split
 
 If the router answers "add-on" for a message but its own list of what it touches names more than one place (two pages, a page and the footer, a table), the code now splits the message itself: each sentence about another place becomes its own task. The add-on keeps only its own page and what it creates. Edits are never touched. A sentence naming no place (like the email change) still stays with the add-on — a known limit. Branch `router-split`, not merged. `docs/history/2026-10-26-router-split.md`.
