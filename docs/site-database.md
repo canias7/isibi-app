@@ -60,6 +60,16 @@ The full law is `docs/site-database.md`.
   owner's listing with its label unchanged, so the refusal a visitor meets is
   the proof, not the listing.
 
+- **Two logins per site database** (2026-10-26, branch `limited-login`, not
+  merged; inert until `supabase/proposed/site_app_conn.sql` is applied): the
+  owner's (`site_project.neon_conn`) for schema and admin work, and `<db>_app`
+  (`site_project.app_conn`, `site-app-login.mjs`) for row work: rows only, no
+  CREATE, no ownership, no BYPASSRLS, one `gf_app_rows` policy per RLS table
+  (the owner's old view of the rows, under RLS). Row paths open
+  `siteRowConn`/`ownerRowConn`, which fall back to the owner's login only for a
+  site that has no limited login yet; the tick backfills 3 sites at a time.
+  The call-site table is `docs/history/2026-10-26-limited-login.md`.
+
 ---
 
 ### THE FOUR STATES "NO DATABASE" MEANT (2026-09-15)

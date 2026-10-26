@@ -1,6 +1,10 @@
 # Owner Notes
 
 
+## 2026-10-26 — Each site's database gets a second, limited login
+
+Every site database now gets a second login, `<database>_app`, for everyday work: it can read and write rows, and nothing else. It cannot create, change or drop a table, change a permission, or skip the row rules. Visitor routes through our server (forms, checkout, uploads, errors, webhooks), your Data panel (reads, saves, import, export), the data edit step, scheduled jobs, backups and the read-only tools use it. Building, add-ons, the rules step, publishing new tables, recovery, the members list (Neon's own tables) and repairs stay on the owner login. A site that has no limited login yet keeps using the owner login, and a background step makes one for older sites, 3 at a time. **Nothing changes until you apply `supabase/proposed/site_app_conn.sql`** (one new column). Proven on a real local Postgres (every table change refused, rows as before); not run on Neon. Branch `limited-login`, not merged. `docs/history/2026-10-26-limited-login.md` has the full list of which path uses which login.
+
 ## 2026-10-26 — Questions no longer count as "in progress"; "Something else…" lights up
 
 The tasks pill now says "2 need you · 1 in progress", so a request that's only waiting on your answers doesn't look stuck. Clicking "Something else…" on a question now marks it chosen and shows "Type your answer in the box below and press send." Branch `reply-seen`. `docs/history/2026-10-26-pill-and-own-answer.md`.

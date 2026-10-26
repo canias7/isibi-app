@@ -288,7 +288,7 @@ test("the save deps read the column the project row actually has", () => {
   // filter, then a plain string for the select — so a single-literal regex sees
   // nothing. Same trap the `_users` column sweep hit: match the anchor, then
   // read forward past the concatenation.
-  const at = src.indexOf("site_project?slug=eq");
+  const at = src.indexOf("site_project?slug=eq", src.indexOf("async function siteNeonProject("));
   assert.ok(at > 0, "the project lookup is gone");
   // RUN TO A LANDMARK, NOT A BYTE COUNT. This was `at + 400` and went red the
   // moment the select gained a comment explaining WHY it carries `uid` — the
