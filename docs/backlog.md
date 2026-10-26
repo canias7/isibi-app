@@ -3371,3 +3371,24 @@ logs, uploads. What a step reads is sent to the AI provider (xAI for Grok) with
 the request. The privacy policy and terms must say that site data, including
 the site's visitors' submissions, may be processed by an AI provider to make
 the changes the owner asks for. Text only; no code change.
+
+## The Neon key, walked through one by one (2026-10-26, owner review)
+
+- #1 list projects: used only to recover an unrecorded project by exact name.
+- #2 create project: one per site that has tables; costs from creation.
+- #3 read project details: teardown confirmation and reconnecting a found project.
+- #4 project settings: unused. Later, maybe: builder reads them; may change
+  compute size and history only within the customer's plan; never name, IP
+  allow-list or our usage limits. Note: Neon's IP allow-list is the database's
+  back door (our servers), not a visitor block list; a per-site visitor block
+  list (IP / country / email domain) is a website rule the builder could own.
+- #5 delete project: site ✕, account deletion, failed-setup orphans, and the
+  `site_project` row trigger. Building: a confirmation that names what's lost
+  and asks for the site name (`delete-confirm`). Later: a 7-day grace period.
+- #6 branches: used for rehearsals before risky schema/rule changes.
+- #7 restore to a time: unused until now. Building (`restore-data`): 1-day
+  window, real row diff, a model-written explanation checked against the diff,
+  typed confirmation, a snapshot first so the restore can be undone. Expected to
+  be rarely used.
+- Rule for every tool: locked to the job's own site; the AI never holds the
+  Neon key and has no tool that reaches the Neon management API.
