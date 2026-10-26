@@ -3353,3 +3353,11 @@ sunrise" can't be done, no image is found or made; (2) "make the cafe hours 8–
 no hours are shown is refused ("couldn't find that wording") instead of adding them;
 (3) an email change updates the text but not the mailto link; (4) duplicate lesson rows
 left by earlier test runs.
+
+## Credit pause: what "Continue when topped up" unticked should do long-term (2026-10-26, owner: later)
+
+Built now: unticked means paused tasks never auto-resume; a "Continue" button appears
+once credits suffice; Stop cancels (nothing charged). To decide later: (1) Continue
+after the site changed while paused should run on the current site (the site map
+makes this easy); (2) paused tasks left untouched for a long time (suggested 7 days)
+are cleared automatically, nothing charged, with a note in the chat.
