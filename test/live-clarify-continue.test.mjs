@@ -62,7 +62,7 @@ for (const mode of ["sync", "job"]) {
           { fields: ["shape"], scopes: [{ part: "shape", page: "/visit", words: MOVE_WORDS }] },
         ],
         "lane:description": NEW_DESC,
-        [T.tweak]: [{ source: "", question: Q2 }, { source: "", question: Q2 }, { source: VISIT_MOVED }] /* asks even when told it cannot, after the charge (2026-10-24) */,
+        [T.tweak]: [{ source: "", question: Q2 }, { source: VISIT_MOVED }],
         route: { intent: "edit", layer: "look", answered: true },
       }, async (seen) => {
         // THE FIRST MESSAGE: the description runs and is charged; the page step asks.
@@ -93,9 +93,9 @@ for (const mode of ["sync", "job"]) {
         const r2 = await postRoute(worker, envFor(store), store, seen, slug, post, mode);
         assert.equal(r2.body.ok, true, "the resumed request did not run: " + JSON.stringify(r2.body).slice(0, 400));
         assert.ok(!String(seen.picks[1]).includes(NEW_DESC), "the resumed picker was shown the completed change: " + seen.picks[1]);
-        assert.ok(!seen.inputs[T.tweak].at(-1).includes(NEW_DESC), "the resumed page writer was handed the completed change");
-        assert.equal(String(seen.writers.at(-1).instruction), MOVE_WORDS, "the resumed page writer's words are not its own part alone");
-        assert.ok(seen.inputs[T.tweak].at(-1).endsWith(contextBlock([{ q: Q2.text, a: "Yes" }])), "the page step was not shown the answer, in its own section");
+        assert.ok(!seen.inputs[T.tweak][1].includes(NEW_DESC), "the resumed page writer was handed the completed change");
+        assert.equal(String(seen.writers[1].instruction), MOVE_WORDS, "the resumed page writer's words are not its own part alone");
+        assert.ok(seen.inputs[T.tweak][1].endsWith(contextBlock([{ q: Q2.text, a: "Yes" }])), "the page step was not shown the answer, in its own section");
         assert.equal(seen.lanes.filter((l) => l.field === "description").length, 1, "the completed change was made again on the answer");
         assert.ok(bandFirst(storedPage(store, slug, "visit.tsx")), "the part that waited on the answer was not made");
         assert.equal(storedLook(store, slug).description, NEW_DESC);
@@ -188,7 +188,7 @@ test("BESIDE A CHANGE THAT WAS MADE, AN ANSWER THE PICKER NAMED ONLY FOR THAT CH
         { fields: ["shape"], scopes: [{ part: "shape", page: "/visit", words: MOVE_WORDS }] },
       ],
       "lane:description": NEW_DESC,
-      [T.tweak]: [{ source: "", question: Q2 }, { source: "", question: Q2 }, { source: VISIT_MOVED }] /* asks even when told it cannot, after the charge (2026-10-24) */,
+      [T.tweak]: [{ source: "", question: Q2 }, { source: VISIT_MOVED }],
     }, async (seen) => {
       const a = (await routeCall(worker, envFor(store), { slug, message })).body;
       const b = (await routeCall(worker, envFor(store), { slug, message: NEW_DESC, ask: { id: a.question.id } })).body;
@@ -217,7 +217,7 @@ test("BESIDE A CHANGE THAT WAS MADE, AN ANSWER THE PICKER NAMED ONLY FOR THAT CH
       assert.ok(!seen.inputs[T.pick].at(-1).includes(NEW_DESC), "the resumed picker was shown the made change's answer");
       assert.ok(seen.inputs[T.pick].at(-1).endsWith(contextBlock([{ q: Q2.text, a: "Yes" }])), "the resumed picker was not shown the answer still for it");
       assert.equal(seen.lanes.filter((l) => l.field === "description").length, 1, "the made change was made again");
-      assert.ok(seen.inputs[T.tweak].at(-1).endsWith(contextBlock([{ q: Q2.text, a: "Yes" }])) && !seen.inputs[T.tweak].at(-1).includes(NEW_DESC), "the page step was not shown only the answer still for it");
+      assert.ok(seen.inputs[T.tweak][1].endsWith(contextBlock([{ q: Q2.text, a: "Yes" }])) && !seen.inputs[T.tweak][1].includes(NEW_DESC), "the page step was not shown only the answer still for it");
       assert.ok(bandFirst(storedPage(store, slug, "visit.tsx")));
       assert.equal(charged(seen, m1), 2, "the answer's routing call and the one step that was left, and nothing more");
     }, { slug });

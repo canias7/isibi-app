@@ -1442,7 +1442,18 @@ what kind of site it is, a site without its saved design, a site with no
 pages) end as before, and the full rewrite is never offered for any of it.
 Record: `docs/history/2026-10-24-auto-split-edits.md`.
 
-## No question after a charge (2026-10-24)
+## Any step may ask, at any stage (owner, 2026-10-26)
+
+Replaces "No question after a charge" (below, kept as history). Owner: any
+step, at any stage, may ask the customer a question when it genuinely can't
+tell. That one task pauses ("Waiting for your answer" in the panel, the
+existing question card); **nothing is charged for the question or while
+waiting** (a reserve held for that part's unfinished work is refunded; only
+completed work is charged); the other parts keep running; answering resumes
+that task where it stopped, with the answer passed to the same step; questions
+stay rare (genuine doubt only). Record: `docs/history/2026-10-26-ask-anywhere.md`.
+
+## No question after a charge (2026-10-24) — SUPERSEDED on 2026-10-26 (above)
 
 Owner: *"the model may ask the customer a question only BEFORE anything is
 charged; once work has been charged, it must not stop to ask — it goes ahead

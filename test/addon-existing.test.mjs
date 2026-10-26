@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { addonOnExisting, routeOnExisting, partClarifyChoice, rowUnmet, sitePages, siteTables } from "../builder/addon-existing.mjs";
+import { addonOnExisting, routeOnExisting, rowUnmet, sitePages, siteTables } from "../builder/addon-existing.mjs";
 // A NAMESPACE, so a missing export fails its own cases, not the whole file.
 import * as SA from "../builder/site-add.mjs";
 const { rowBrief, cleanAdd, addRefusal } = SA;
@@ -73,26 +73,6 @@ test("a page-asked add-on carries a hand-over the add-on step reads, never over 
   assert.equal(routeOnExisting(plain, site), plain);
 });
 
-test("a question for a paid part becomes the obvious choice", () => {
-  const q = { intent: "clarify", question: { text: "Which page?", options: ["a", "b"] }, targets: [{ change: 0, writes: [], reads: ["page:/cafe"] }], decision: { source: "model", reasons: [] } };
-  const r = partClarifyChoice(q, site, { reason: "clarify-part" });
-  assert.equal(r.intent, "edit");
-  assert.equal(r.layer, "page");
-  assert.equal(r.page, "/cafe");
-  assert.equal(r.question, undefined);
-  assert.deepEqual(r.decision.reasons, ["clarify-part"]);
-  assert.ok(Object.hasOwn(ROUTE_REASONS, "clarify-part"));
-  // No page it names exists: the add-on step decides, nothing asked.
-  const n = partClarifyChoice({ ...q, targets: [{ change: 0, writes: ["new-page:/new"] }] }, site);
-  assert.equal(n.intent, "addon");
-  assert.equal(n.question, undefined);
-  // The start-over confirmation is never converted; nor is a non-question.
-  const so = { ...q, confirm: "rewrite" };
-  assert.equal(partClarifyChoice(so, site), so);
-  const ed = { intent: "edit", layer: "text" };
-  assert.equal(partClarifyChoice(ed, site), ed);
-});
-
 test("NOT NULL columns without a default are an entry's required columns", () => {
   const spec = { tables: [
     { name: "lessons", access: "display", columns: [{ name: "id", pk: true, notnull: true }, { name: "title", notnull: true }, { name: "price", required: true, default: 0 }, { name: "teacher", notnull: true }, { name: "note" }, { name: "created_at", notnull: true }] },
@@ -149,12 +129,10 @@ test("the router's answer is read against the site before anything uses it", () 
   const prep = at("if (rJob && rJob.prepare === true) {", route);
   const asking = at("const asking = routed.intent === \"clarify\" && rLive;", route);
   assert.ok(conv < prep && prep < asking);
-  // The question half is wired (owner, 2026-10-25): a part's routing job and an
-  // answer resuming a paid request, before the add-on conversion and the preparation.
-  const clar = at("routed = partClarifyChoice(routed, rDigest.site, { reason: \"clarify-part\" });", route);
-  assert.ok(clar < conv);
-  const gate = W.lastIndexOf("if (routed.failed !== true && (rPart || (rWaiting && rWaiting.requestKey && routed.answered === true))) {", clar);
-  assert.ok(gate > route && clar - gate < 200);
+  // A PART'S QUESTION IS KEPT (owner, 2026-10-26, any step may ask): nothing
+  // turns a part's clarify, or an answer's follow-up, into a choice.
+  assert.ok(!W.includes("partClarifyChoice"));
+  assert.ok(!W.includes("routed.failed !== true && (rPart || (rWaiting && rWaiting.requestKey"));
 });
 
 test("an answer resuming a paid request is not charged routing again", () => {

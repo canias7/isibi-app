@@ -335,7 +335,7 @@ import { wantsFirstBuildBackend, featuresNeedingData, firstBuildBackendTool, fir
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { designOnly as planDesignOnly, routeInScope, holdsConfig as partHoldsConfig, writesSchema as partWritesSchema } from "./builder/request-plan.mjs";
-import { routeOnExisting, partClarifyChoice, rowUnmet, designedNothing, featureBrief } from "./builder/addon-existing.mjs";
+import { routeOnExisting, rowUnmet, designedNothing, featureBrief } from "./builder/addon-existing.mjs";
 import { accessShortfalls, accessHandTo } from "./builder/addon-existing.mjs";
 import { turnKey, turnRecord, readTurn, turnFree, nextGen, rebaseFiles, TURN_POLL_MS, TURN_WAIT_MS, TURN_UNREAD_MAX, TURN_TTL_MS, turnLooksDead } from "./builder/publish-turn.mjs";
 import { PART_TERMINAL as REQ_PART_TERMINAL, heldFromOf, rewriteWire, othersOpenIn } from "./builder/request.mjs";
@@ -35025,12 +35025,10 @@ async function handleRequest(request, env, ctx) {
           // WHETHER A QUESTION CAN BE KEPT, WHAT THEY ALREADY TOLD US about
           // the waiting request, and the question this message may answer
           // (2026-10-02). Where no question can be kept, none may be asked.
-          // NEVER ON A PART (2026-10-25, router-b1; the router audit's step 2):
-          // a part of a request already charged is told questions are closed,
-          // rather than offered one and patched after (`partClarifyChoice`
-          // stays below as a safety net).
+          // A PART MAY ASK TOO (owner, 2026-10-26, replacing router-b1's
+          // "never on a part"): its question pauses that part only, and is kept
+          // in the site's slot when free (`storeAskIfFree`) or offered in turn.
           canAsk: rLive,
-          offerAsk: !rPart,
           // WHAT THE SITE HAS (router-b1, `routeInventory`), and a per-site
           // cache pin so every routing call about this site reads one cache.
           inventory: typeof rDigest.inventory === "string" ? rDigest.inventory : "",
@@ -35064,21 +35062,14 @@ async function handleRequest(request, env, ctx) {
       // THE REASON IS LOGGED AS WELL AS ANSWERED, and it is the same allow-listed
       // object: our log is where an outage is diagnosed after the fact.
       if (routed.failed === true) console.error("route failed:", JSON.stringify(routed.failure || null));
-      // ── ADD-ONS ABOUT WHAT EXISTS, AND NO QUESTION AFTER CHARGING (2026-10-24,
-      //    addon-existing, `builder/addon-existing.mjs`) ─────────────────────
-      // A part of a request already charged — or an answer resuming one — is
-      // never answered with a question: the obvious choice runs (a page the
-      // change names and the site has is edited by the page step; otherwise the
-      // add-on step decides). And an add-on whose every target the site
-      // already has is the page step's on that page, in the same words; one
-      // that writes a page says so to the add-on step (`page-asked`).
-      // WIRED 2026-10-25 on the owner's word (docs/history/2026-10-25-addon-fixes-2.md):
-      // a part's routing job (`rPart`) and an answer resuming a paid request
-      // (`requestKey`) never ask; before the preparation return, so a part's
-      // preparation and its job agree.
-      if (routed.failed !== true && (rPart || (rWaiting && rWaiting.requestKey && routed.answered === true))) {
-        routed = partClarifyChoice(routed, rDigest.site, { reason: "clarify-part" });
-      }
+      // ── ADD-ONS ABOUT WHAT EXISTS (2026-10-24, addon-existing,
+      //    `builder/addon-existing.mjs`) ──────────────────────────────────────
+      // An add-on whose every target the site already has is the page step's
+      // on that page, in the same words; one that writes a page says so to the
+      // add-on step (`page-asked`). A part's question is no longer turned into
+      // a choice (owner, 2026-10-26: any step may ask, at any stage): it is
+      // kept below and pauses that part only, and an answer that is met with a
+      // follow-up keeps it as a follow-up for the same part.
       if (routed.failed !== true) {
         routed = routeOnExisting(routed, rDigest.site, { reason: "addon-existing" });
       }
@@ -36947,20 +36938,16 @@ async function handleRequest(request, env, ctx) {
             // `ctx` FIXES WHAT ONE CALL IS SHOWN (2026-10-11): a call started
             // beside others (the look door's lanes) is shown its own answers,
             // never whichever `eCtx` the loop has moved on to.
-            // HAS THIS REQUEST BEEN CHARGED YET (2026-10-24, the owner: no question
-            // after a charge)? A reserve that landed on the job, or a synchronous
-            // collect that took credits. Once it has, every call below is sent with
-            // no question offered and states what it assumed (`clarifyTransport`).
-            // Read late (the ledger is declared below), and false when it cannot say.
-            // …OR AN EARLIER JOB OF THE SAME REQUEST WAS (2026-10-24, auto-split:
-            // the request carries it, `partOf`'s `charged`, set by the request,
-            // never by a caller): a later part asks nothing either.
-            const eChargedYet = () => { try { if (ePart && ePart.charged === true) return true; return eJob ? (typeof eJob.reserves === "function" && eJob.reserves() > 0) : syncLedger.taken > 0; } catch { return false; } };
+            // ANY STEP MAY ASK, AT ANY STAGE (owner, 2026-10-26, replacing "no
+            // question after a charge"): no `charged` gate is passed, so every
+            // call below is offered its question; a step that asks pauses only
+            // this task, and its job is refunded (nothing is charged for a
+            // question or while it waits).
             const eReplayHas = (r) => (eJob && eJob.prepare !== true && eJob.replay && typeof eJob.replay.has === "function" ? eJob.replay.has(r) : false);
             const eQuick = (what = "", ctx) => clarifyTransport(jobSend(eJob, quickSend(env, what, eJob && eJob.budget)), {
               shown: () => (ctx !== undefined ? ctx : eCtx),
               all: () => eCtxAll || [],
-              part: ePartShown, charged: eChargedYet, replayHas: eReplayHas, onDefault: (d) => { eDefaulted.push(...d); },
+              part: ePartShown, replayHas: eReplayHas, onDefault: (d) => { eDefaulted.push(...d); },
               onReuse: (hit) => { try { if (editTrace) editTrace.mark("clarify:reuse", "ok", { what, answers: hit.length }); } catch { /* the record never costs the job */ } },
             });
             // THE BLACK BOX STARTS HERE — see `editTrace` where it is declared.
@@ -41805,7 +41792,7 @@ async function handleRequest(request, env, ctx) {
               // THE PAGE WRITER, KEPT CALLABLE (round 2 of the retry rule): its last
               // request and answer are recorded (`pRec`) so an answer that failed the
               // checks below can be asked once more with the reason (`pWrite`).
-              const pInner = clarifyCall(jobCall(eJob, pagesCall(env)), { shown: () => eCtx, all: () => eCtxAll || [], part: ePartShown, charged: eChargedYet, replayHas: eReplayHas, onDefault: (d) => { eDefaulted.push(...d); } });
+              const pInner = clarifyCall(jobCall(eJob, pagesCall(env)), { shown: () => eCtx, all: () => eCtxAll || [], part: ePartShown, replayHas: eReplayHas, onDefault: (d) => { eDefaulted.push(...d); } });
               const pRec = recordCall(pInner);
               let pWrite = null;
               try {
@@ -43530,16 +43517,14 @@ async function handleRequest(request, env, ctx) {
             };
             // `opts.refusals`: this call handles a prior refusal — only the
             // add-on designer's first request does (`aPriorOf`).
-            // HAS THIS ADDITION BEEN CHARGED YET (2026-10-24): a reserve that landed
-            // on the job (the row step, or the first reserve before the page
-            // writer). Synchronously the collect comes after the work, so never.
-            // …OR AN EARLIER JOB OF THE SAME REQUEST WAS (2026-10-24, `partOf`'s `charged`).
-            const aChargedYet = () => { try { if (aPart && aPart.charged === true) return true; return !!aJob && typeof aJob.reserves === "function" && aJob.reserves() > 0; } catch { return false; } };
+            // ANY STEP MAY ASK, AT ANY STAGE (owner, 2026-10-26): no `charged`
+            // gate, so the add-on's calls are offered their question after a
+            // reserve too; the job that ends in a question is refunded.
             const aReplayHas = (r) => (aJob && aJob.prepare !== true && aJob.replay && typeof aJob.replay.has === "function" ? aJob.replay.has(r) : false);
             const aQuick = (what = "", opts) => clarifyTransport(aCounted(jobSend(aJob, quickSend(env, what, aJob && aJob.budget), opts)), {
               shown: () => aShownTo(what),
               all: () => aCtxAll || [],
-              part: aPartShown, charged: aChargedYet, replayHas: aReplayHas, onDefault: (d) => { aDefaulted.push(...d); },
+              part: aPartShown, replayHas: aReplayHas, onDefault: (d) => { aDefaulted.push(...d); },
               onReuse: (hit) => { try { if (editTrace) editTrace.mark("clarify:reuse", "ok", { what, answers: hit.length }); } catch { /* the record never costs the job */ } },
             });
             // THE BLACK BOX, the edit route's own: every phase marks itself,
@@ -47060,7 +47045,7 @@ async function handleRequest(request, env, ctx) {
             const aRecs = [];
             let aWriterRetry = null, aWriterFirstUsage = null, aWriterRetried = false;
             const aCallFor = (i) => {
-              const inner = clarifyCall(jobCall(aJob, pagesCall(env)), { shown: () => aCtxShown, all: () => aCtxAll || [], part: aPartShown, charged: aChargedYet, replayHas: aReplayHas, onDefault: (d) => { aDefaulted.push(...d); } });
+              const inner = clarifyCall(jobCall(aJob, pagesCall(env)), { shown: () => aCtxShown, all: () => aCtxAll || [], part: aPartShown, replayHas: aReplayHas, onDefault: (d) => { aDefaulted.push(...d); } });
               if (aWriterRetry && aRecs[i] && aRecs[i].last) return aRecs[i].again(aWriterRetry.text, inner);
               aRecs[i] = recordCall(inner);
               return aRecs[i].call;

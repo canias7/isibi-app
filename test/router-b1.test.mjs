@@ -103,7 +103,7 @@ async function sent(opts) {
   return req;
 }
 
-test("a part of a request is told questions are closed; a new message where one can be kept is offered one", async () => {
+test("a caller with nobody to ask closes questions; a part of a request is offered one (owner, 2026-10-26)", async () => {
   const part = { original: "Change the description, and make Lessons bookable.", done: [], others: [] };
   const p = await sent({ canAsk: true, offerAsk: false, part });
   const content = p.messages[0].content;
@@ -111,13 +111,17 @@ test("a part of a request is told questions are closed; a new message where one 
   assert.doesNotMatch(content, /A QUESTION MAY BE ASKED/);
   const fresh = await sent({ canAsk: true });
   assert.match(fresh.messages[0].content, /A QUESTION MAY BE ASKED/, "the observer is not alive: a new message was not offered a question");
-  // THE ROUTE PASSES IT: a part's routing job (`rPart`) is never offered one, and still keeps a question it is handed.
+  // ANY STEP MAY ASK (owner, 2026-10-26): a part is offered its question as a new message is.
+  const asPart = await sent({ canAsk: true, part });
+  assert.match(asPart.messages[0].content, /A QUESTION MAY BE ASKED/);
+  // THE ROUTE NO LONGER CLOSES IT for a part's routing job (`rPart`).
   const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   const at = w.indexOf("const rRoute = async (rDigest) => await routeMessage(");
   const end = w.indexOf("let routed = await rRoute(rDigest);", at);
   assert.ok(at > 0 && end > at, "the route's landmarks moved");
   const call = w.slice(at, end);
-  assert.match(call, /\n\s*canAsk: rLive,\n\s*offerAsk: !rPart,/);
+  assert.match(call, /\n\s*canAsk: rLive,\n/);
+  assert.doesNotMatch(call, /offerAsk/);
   assert.match(call, /inventory: typeof rDigest\.inventory === "string" \? rDigest\.inventory : ""/);
   assert.match(call, /cacheKey: [^\n]*"route-" \+ rb\.slug/);
 });

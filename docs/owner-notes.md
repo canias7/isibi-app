@@ -19,6 +19,15 @@
 - **Context.** The "Context · this chat" line above the box is now a small ring just left of Send; hover or tap shows the same details.
 - Tests: 6 new (5 server-flow, 1 real browser) plus one updated guard; 7 of 7 mutants killed, control survived. Nothing spent. Record: `docs/history/2026-10-26-credit-pause.md`.
 
+
+## 2026-10-26 — any step may ask a question, at any stage (branch `ask-anywhere`, not merged, not deployed)
+
+- **Your decision, replacing "no questions after charging".** Any step, at any point in a request, may ask the customer a question when it genuinely can't tell. That one task pauses ("Waiting for your answer" in the panel, the existing question card); the other tasks keep running.
+- **Nothing is charged for a question or while it waits.** The job that ends in a question is refunded; only completed work is charged. The answer resumes the same task at the same step with the answer passed to it, and the answer's routing is not charged again.
+- **What changed.** The router is no longer told "questions are closed" on a task of a longer request; a task's question is no longer swapped for a guess (that swap was why an answer once resumed the add-on step and failed); and the edit and add-on steps no longer drop their question field once something was charged.
+- **Every step can already ask.** Wording, entries, rules, the look lanes (including the description), pictures, the menu, page tweaks, frames, bands, the page writer, the add-on picker, its designers and its requirements check all carry the same question field. Only two internal repair calls with nobody to ask (a component part written during a build, and the frame repair) have none.
+- Tests: 2 new; the earlier cases that said tasks never ask were put back to asking (13 files). 20 cases are red on the old code. 5 of 5 mutants killed, control survived. Nothing spent. Record: `docs/history/2026-10-26-ask-anywhere.md`.
+
 ## 2026-10-26 — a changed email address now reaches its links (branch `fix-run6`, not merged, not deployed)
 
 - **What you saw.** Changing the Contact email to bookings@… changed the words, but the footer and two bands still had email links sending to hello@….

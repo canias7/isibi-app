@@ -190,7 +190,7 @@ test("SP 3 — A PREPARED STEP ASKS: the fourth step's tweak asks a question whi
   const Q = { text: "Which story heading — the big one at the top?", options: ["Yes", "No"] };
   await six("3", {
     story: async (n, f, args) => {
-      if (n <= 2) return /* asks even when told it cannot, after the charge (2026-10-24) */ { source: "", question: Q };
+      if (n === 1) return { source: "", question: Q };
       assert.match(JSON.stringify(args.messages), /Yes/);
       return { source: String(f.source).replace("<h1>" + head("story") + "</h1>", BIG("story")) };
     },
@@ -199,14 +199,14 @@ test("SP 3 — A PREPARED STEP ASKS: the fourth step's tweak asks a question whi
     const s1 = await settle(P, r.key);
     const q = P.question();
     assert.ok(q, "no question: " + why(s1.rec));
-    assert.equal(tally.story, 2, "the prepared question was not replayed once and told once it cannot ask (2026-10-24)");
+    assert.equal(tally.story, 1, "the question was asked twice (prepared, then again at its turn)");
     await sendMessage(P, { message: "Yes", ask: { id: q.id, chosen: true } });
     const s2 = await settle(P, r.key);
     assert.equal(s2.rec.parts[0].resume, WORDS("story"), "the answer resumed more than the asking step's change");
     assert.equal(s2.rec.parts[0].status, "done", why(s2.rec));
     for (const n of NAMES) assert.ok(P.page(fileOf(n)).includes(BIG(n)), n + " did not land");
-    assert.equal(tally.story, 3);
-    assert.deepEqual(tally, { home: 1, menu: 1, visit: 1, story: 3, order: 1, jobs: 1 }, "a step was asked again: " + JSON.stringify(tally));
+    assert.equal(tally.story, 2);
+    assert.deepEqual(tally, { home: 1, menu: 1, visit: 1, story: 2, order: 1, jobs: 1 }, "a step was asked again: " + JSON.stringify(tally));
     once(P);
   }, { resumed: WORDS("story") });
 });
