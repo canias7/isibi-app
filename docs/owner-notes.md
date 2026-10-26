@@ -1,6 +1,16 @@
 # Owner Notes
 
 
+## 2026-10-26 — Phases 2–5: every step explores, and the site map is gone
+
+- **Exploring everywhere.** The data and rules steps, the text, menu, frame and picture steps, every add-on call (picker, designers, writers, the requirement judge), the compile repairs, the visual review and the security scan now look at the site's files and data themselves. They no longer read the map.
+- **The router looks quickly.** It gets the file list and table names and at most 2 looks. A part of a longer request does not look. Its instructions changed in six places, from "the site inventory above" to the site's files and tables and looking. Please review that wording.
+- **"Only I can see newsletter sign-ups"** now looks up the table's current rule and answers "already so". This is shown with supplied answers only, and not proven live.
+- **The site map is deleted**: the module, its saved copies per version and every reader. Replies are written from what the steps did, the diagnosis uses its own tools, and the conversation reads your site directly. Old `sitemap.json` files already in storage were left alone. Nothing reads them, and deleting them is your call.
+- **Not built yet**: error logs, traffic, scheduled tasks, connected services and logins answer "unavailable" (no per-site store holds them today).
+
+Branch `explore-code`, not merged. `docs/history/2026-10-26-explore-code.md`.
+
 ## 2026-10-26 — Phase 1: the page step and the look lanes explore the site themselves
 
 As you decided ("option b"), the quick page writer, the page rewrite, the file picker and the look door's lanes no longer get the site map. They get the list of files (each page with its address) and the table names, and then they look for themselves with read-only tools. They can search the code, open a file, describe a table, read rows 20 at a time, see rules, functions and policies, read settings, see recent changes and see uploads. Everything is visible except secrets, which are hidden wherever they appear. What they read is marked as data, not instructions. The tools are locked to the job's own site: a call that names another site, or a path that tries to leave the site's folder, is refused.

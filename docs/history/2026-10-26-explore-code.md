@@ -211,3 +211,58 @@ Each round resends the whole conversation, and the tool schemas add about
   survived. Full suite: `12904 / 12899 / 2 / 3`. The `live-clarify-contract`
   failure was the old wording, fixed after the run (32 of 32 when re-run);
   the other failure is the worktree's `node_modules` symlink.
+
+## Phase 5: the site map is deleted
+
+The owner's instruction: get rid of the site map once exploring replaces it.
+
+**Removed:**
+- **Modules:** `builder/site-map.mjs` and `builder/route-inventory.mjs`
+  (after phase 4, only the map used it), and both from the Dockerfile's
+  worker tree.
+- **Map code in `worker.js`:** `refreshSiteMap`, `loadSiteMap`,
+  `currentSiteMap`, `restoreSiteMap`, `siteMapNow`, `siteMapNote`,
+  `mappedSend`, the memo, and `REPLY_MAP_MS`/`MAP_NOTE_MS`. The explore read
+  keeps its own `EXPLORE_READ_MS`.
+- **Store writes:** `source/<slug>/sitemap.json` and
+  `source/<slug>/sitemaps/<version>.json` are no longer written, rebuilt
+  after a publish or a build, or put back by a restore.
+- **Map readers:**
+  - The reply writers: `composeModelReply`'s `reply` slice is gone, along
+    with `replyContext`'s `site.map` line in `site-reply.mjs`. The four
+    `writeReply` calls no longer carry the map.
+  - The diagnosis's `list_site` keeps its pages and tables read directly and
+    drops the map.
+  - The conversation's key facts, and the `keyFacts` line in
+    `site-converse.mjs`.
+- **Tests:** `test/site-map.test.mjs` and `test/site-map-steps.test.mjs`.
+
+**Moved, not kept:** the text step's two deterministic helpers,
+`partsImported` and `quotedElsewhere`. They are not model calls, and they now
+live in `builder/site-apply.mjs`. Their tests, with the widened text retry,
+moved to `test/text-widen.test.mjs`, which adds one case: words in a file
+already shown are not "elsewhere". That case closed a mutant the old test let
+survive.
+
+**Named as exceptions in `explore-everywhere`, each with its reason:**
+- **The reply writers** write from what the operations did (the owner's rule
+  of 2026-09-24), not from the site.
+- **The diagnosis** has its own read-only tools (`diagnose.mjs`).
+- **The conversation** is handed the verified owner's site, read directly
+  (`readConverseContext`).
+
+**Left on purpose:**
+- **Old `sitemap.json` objects.** Any already stored in R2 for existing
+  sites are not deleted. Nothing reads them now, and deleting live store
+  objects is the owner's call.
+- **Data cleanup.** No R2 or data cleanup was run.
+
+**Checks:**
+- **Sweep:** 5 of 5 mutants killed after the added case, and the
+  comment-only control survived.
+- **Full suite:** `12892 / 12887 / 2 / 3`, taken before
+  `test/text-widen.test.mjs` was added; that file passes 4 of 4 on its own.
+  Neither failure comes from this change:
+  - `no-generated-deps` fails because of the worktree's `node_modules`
+    symlink.
+  - `canary-reopen-browser` is the browser case that passes when run alone.

@@ -2113,9 +2113,6 @@ export function replyContext({ request = "", answers = [], site = null, recent =
   const pages = site && Array.isArray(site.pages) ? site.pages.filter((p) => typeof p === "string" && p.charAt(0) === "/") : [];
   if (name || slug) lines.push("THEIR SITE: " + (name || slug) + (name && slug ? " (" + slug + ")" : ""));
   if (pages.length) lines.push("ITS PAGES: " + pages.join(", "));
-  // WHAT EXISTS ON THE SITE (2026-10-26, the site map's `reply` slice), as facts.
-  const map = site && typeof site.map === "string" ? site.map.trim() : "";
-  if (map) lines.push(map.slice(0, 2400));
   const words = typeof request === "string" ? request.trim() : "";
   if (words) lines.push("WHAT THEY ASKED FOR:\n" + flat(words));
   const told = readContext(answers) || [];

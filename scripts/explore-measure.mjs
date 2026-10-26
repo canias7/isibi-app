@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // THE FREE OFFLINE MEASURE (owner, 2026-10-26, "option b"): one step run with
 // supplied model answers through the explore loop, against the same step sent
-// with the site-map slice it used to carry. No model is called and nothing is
+// with the site-map slice it used to carry (recorded; the map is deleted). No model is called and nothing is
 // spent; characters are counted and tokens estimated at characters / 4.
 //
 //   node scripts/explore-measure.mjs [site.json]
@@ -12,7 +12,6 @@
 import { readFileSync } from "node:fs";
 import { siteFiles, measureExplore } from "../builder/site-explore.mjs";
 import { tweakRequest } from "../builder/site-tweak.mjs";
-import { buildSiteMap, siteSlice, withMapNote } from "../builder/site-map.mjs";
 
 const arg = process.argv[2];
 const site = arg ? JSON.parse(readFileSync(arg, "utf8")) : {
@@ -35,8 +34,9 @@ const scenarios = {
   "spends all 6 looks": [...Array.from({ length: 6 }, () => ({ content: [use("list_files", {})] })), answer],
 };
 const ctx = { files: siteFiles(site), tables: [] }; // as production: the database tools are offered to every exploring step
-const mapped = JSON.stringify(withMapNote(req, siteSlice(buildSiteMap({ pages: site.pages, parts: site.parts }), "site"))).length;
-console.log("with the map (one call):".padEnd(34), String(mapped).padStart(8), "chars ≈", Math.round(mapped / 4), "tokens");
+// THE MAP, FOR COMPARISON: measured on this same default page before the map
+// was deleted (2026-10-26, docs/history/2026-10-26-explore-code.md): one call.
+if (!arg) console.log("with the map (one call, recorded):".padEnd(34), String(4810).padStart(8), "chars ≈", 1203, "tokens");
 for (const [name, answers] of Object.entries(scenarios)) {
   const m = await measureExplore({ req, ctx, answers });
   console.log((name + ":").padEnd(34), String(m.chars).padStart(8), "chars ≈", String(m.approxTokens).padStart(6), "tokens over", m.rounds, "round(s),", m.looks, "look(s)");

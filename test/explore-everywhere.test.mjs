@@ -5,8 +5,7 @@
 // The call sites are found in worker.js by pattern (`quickSend(env`,
 // `quickSendLive(env`, `pagesCall(env)`, `callBuilderModel(env`), never by a
 // hand list. Each one explores (`exploredSend(` / `exploredCall(` on its line),
-// still carries the map until its phase (`mappedSend(` / `mappedCall(`, named
-// below as LEFT), or is named as an exception with its reason.
+// or is named as an exception with its reason. The site map is deleted (phase 5).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -33,16 +32,14 @@ const EXEMPT = {
   translateStrings: "translates the strings it is handed; no site in scope",
   runSiteBuild: "a first build's seed rows, written before the site's address is chosen",
   'handleRequest:EDIT_BARE_STEPS.has(what)': "the keep check and the take-off judge only what they are handed",
-};
-// STILL ON THE MAP UNTIL THEIR PHASE (5: everything else that reads the map).
-const LEFT = {
-  composeModelReply: "phase 5: the reply writer (handed mapFor reply)",
-  narrateBuild: "phase 5: the reply writer",
-  repeatNote: "phase 5: the reply writer",
-  wideningQuestion: "phase 5: the reply writer",
-  'handleRequest:writeReply({ send: mappedSend(env, scslug': "phase 5: the security scan's reply writer",
-  diagnoseEnded: "phase 5: the diagnosis (handed mapFor diagnose)",
-  'handleRequest:quickSend(env, "converse")': "phase 5: the conversation's key facts",
+  // THE REPLY WRITERS (owner, 2026-09-24: what a reply states comes from what the operations really did):
+  composeModelReply: "a reply is written from the operations' results, never from the site",
+  narrateBuild: "a reply is written from the build's results, never from the site",
+  repeatNote: "a reply is written from the step's results, never from the site",
+  wideningQuestion: "a reply is written from the step's results, never from the site",
+  'handleRequest:quickSend(env, "reply", replyBudget)': "the security scan's reply is written from the scan's findings",
+  diagnoseEnded: "the diagnosis investigates with its own read-only tools (diagnose.mjs: list_site, read_page, read_job, …)",
+  'handleRequest:quickSend(env, "converse")': "the conversation is handed the verified owner's site read directly (readConverseContext: pages, tables, files)",
 };
 
 function enclosing(lines, i) {
@@ -64,13 +61,13 @@ test("every model call that reasons about a site explores it, or is named with a
   let explored = 0, mapped = 0;
   for (const s of sites) {
     if (/\bexplored(?:Send|Call)\(/.test(s.line)) { explored++; continue; }
-    const k = keyOf(EXEMPT, s) || keyOf(LEFT, s);
+    const k = keyOf(EXEMPT, s);
     if (k) { used.add(k); if (/\bmapped(?:Send|Call)\(/.test(s.line)) mapped++; continue; }
     if (/\bmapped(?:Send|Call)\(/.test(s.line)) { mapped++; bare.push(s.n + " [" + s.fn + "] still on the map: " + s.line.trim().slice(0, 110)); continue; }
     bare.push(s.n + " [" + s.fn + "] " + s.line.trim().slice(0, 120));
   }
   assert.deepEqual(bare, [], "model calls that neither explore nor are named");
-  assert.deepEqual([...Object.keys(EXEMPT), ...Object.keys(LEFT)].filter((k) => !used.has(k)), [], "every name still names a real call site");
+  assert.deepEqual(Object.keys(EXEMPT).filter((k) => !used.has(k)), [], "every name still names a real call site");
   assert.ok(explored >= 8, "explored sites counted (" + explored + ")");
 });
 
@@ -106,4 +103,12 @@ test("the router explores, fast: at most two looks, its table names read for the
   // routeDigest says whose site it verified; nothing else hands the router an inventory.
   assert.match(SRC, /return \{ site: out, filled, pagesFilled, pagesComplete: pagesFilled, owned: \(await owned\) === true, slug \};/);
   assert.ok(!SRC.includes("routeInventory("), "the router is handed an inventory");
+});
+
+test("PHASE 5: the site map is gone — no module, no store, no reader, no note", async () => {
+  const { existsSync } = await import("node:fs");
+  for (const f of ["../builder/site-map.mjs", "../builder/route-inventory.mjs"]) assert.ok(!existsSync(new URL(f, import.meta.url)), f + " is back");
+  for (const k of ["sitemap.json", "sitemaps/", "refreshSiteMap", "currentSiteMap", "restoreSiteMap", "loadSiteMap", "siteMapNote", "mappedSend", "mappedCall", "mapFor(", "buildSiteMap", "site-map.mjs"]) assert.ok(!SRC.includes(k), "worker.js still has " + k);
+  const docker = readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
+  assert.ok(docker.includes("builder/site-explore.mjs") && !docker.includes("builder/site-map.mjs") && !docker.includes("builder/route-inventory.mjs"));
 });

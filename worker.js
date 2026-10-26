@@ -236,7 +236,6 @@ import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
 import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings, canWriteAccess } from "./site-access.mjs";
 import { exploreSend, exploreCall, siteFiles, EXPLORE_MAX_LOOKS, ROUTER_MAX_LOOKS } from "./builder/site-explore.mjs";
-import { buildSiteMap, mapFor, siteSlice, mapSend, mapKey as siteMapKey, mapVersionKey as siteMapVersionKey, MAP_VERSION as SITE_MAP_VERSION } from "./builder/site-map.mjs";
 import { converse, readHistory, converseRequest, requestChars, CONTEXT_CHARS, converseTables } from "./builder/site-converse.mjs";
 import { planWindow, compact as compactChat, COMPACT_AT } from "./builder/chat-context.mjs";
 // The pair a `display` table resolves to. Named once, from the presets, so the
@@ -8394,11 +8393,6 @@ async function composeModelReply(env0, kind, body, ask, { background = false, on
   // WHAT AN OCCASIONAL NEXT STEP MAY STAND ON, AND WHAT IT MUST NOT REPEAT (2026-10-24).
   const recent = Array.isArray(ask.recent) ? ask.recent : await recentSuggestedFor(env, ask.uid, ask.chat);
   const offMenu = kind === "addon" ? offMenuPages(body) : [];
-  // WHAT EXISTS ON THE SITE NOW (2026-10-26): the current map's `reply` slice, bounded, failing open.
-  let siteMapText = "";
-  if (typeof ask.slug === "string" && /^[a-z0-9][a-z0-9-]{0,80}$/.test(ask.slug)) {
-    try { siteMapText = mapFor("reply", await withinMs(currentSiteMap(env, ask.slug), REPLY_MAP_MS, "reply map:", ask.slug)); } catch { siteMapText = ""; }
-  }
   const t0 = Date.now();
   let out;
   try {
@@ -8406,7 +8400,7 @@ async function composeModelReply(env0, kind, body, ask, { background = false, on
     const budget = background ? replyBgBudget : replyBudget;
     out = await writeReply({ send: typeof onPartial === "function" ? quickSendLive(env, "reply", budget, onPartial) : quickSend(env, "reply", budget) }, {
       facts: read.facts,
-      context: replyContext({ request: ask.request, answers: ask.answers, site: { name: ask.name, slug: ask.slug, pages, map: siteMapText }, recent, offMenu }),
+      context: replyContext({ request: ask.request, answers: ask.answers, site: { name: ask.name, slug: ask.slug, pages }, recent, offMenu }),
       model,
       ...(background ? { deadlineMs: REPLY_BG_DEADLINE_MS } : {}),
       talk,
@@ -8446,7 +8440,7 @@ async function narrateBuild(env, body, { picker = "", request = "", name = "", s
     // item 3): the suggestions already made in the build's chat, and the
     // off-menu pages, as `composeModelReply` passes them for an edit.
     const recent = await recentSuggestedFor(env, uid, chat);
-    const out = await writeReply({ send: mappedSend(env, slug, "site", quickSend(env, "reply", background ? replyBgBudget : replyBudget)) }, {
+    const out = await writeReply({ send: quickSend(env, "reply", background ? replyBgBudget : replyBudget) }, {
       facts: read.facts,
       context: replyContext({ request, site: { name, slug, pages: [] }, recent, offMenu: offMenuPages(body) }),
       model: modelsFor(picker).quick,
@@ -8816,10 +8810,7 @@ function diagnoseTools(env, { id, slug, b }) {
           }));
         }
       } catch { tables = null; }
-      // THE SITE MAP AS SAVED WITH THE VERSION (2026-10-26), compacted.
-      let map = null;
-      try { const cur = await currentSiteMap(env, slug); map = cur ? { ...mapFor("diagnose", cur), ...(cur.stale ? { stale: true } : {}) } : null; } catch { map = null; }
-      return { pages: ps ? sitePageRoutes(ps) : null, tables, map };
+      return { pages: ps ? sitePageRoutes(ps) : null, tables };
     },
     read_page: async ({ path } = {}) => {
       if (typeof path !== "string" || !path) return null;
@@ -10294,7 +10285,7 @@ async function repeatNote(env, { question, earlier, atLimit, request, answers, p
   if (read.skip) return fallback;
   let out;
   try {
-    out = await writeReply({ send: mappedSend(env, slug, "site", quickSend(env, "reply", replyBudget)) }, {
+    out = await writeReply({ send: quickSend(env, "reply", replyBudget) }, {
       facts: read.facts,
       context: replyContext({ request, answers, site: { slug } }) + "\n\nWRITE A NOTE OF ONE OR TWO SHORT SENTENCES, UNDER 280 CHARACTERS IN ALL.",
       model: modelsFor(picker).quick,
@@ -10319,7 +10310,7 @@ async function wideningQuestion(env, { ask, widening, request, answers, picker, 
   if (read.skip) return ask;
   let out;
   try {
-    out = await writeReply({ send: mappedSend(env, slug, "site", quickSend(env, "reply", replyBudget)) }, {
+    out = await writeReply({ send: quickSend(env, "reply", replyBudget) }, {
       facts: read.facts,
       context: replyContext({ request, answers, site: { slug } }) + "\n\nWRITE ONLY THE QUESTION: ONE OR TWO SHORT SENTENCES, UNDER 240 CHARACTERS IN ALL.",
       model: modelsFor(picker).quick,
@@ -10532,13 +10523,7 @@ async function readConverseContext(env, user, rb, digest) {
       return { url: uploadUrl(slug, name), name: f.download ? readDownloadName(f.download) || name : name, kind, size: f.size, ...media };
     })
     : null;
-  // THE SITE MAP'S KEY FACTS (2026-10-26), from the pages just read and the parts.
-  let keyFacts = "";
-  try {
-    const cParts = Array.isArray(src) ? await withinMs(loadSiteParts(env, slug), CONVERSE_READ_MS, "converse parts:", slug) : null;
-    keyFacts = Array.isArray(src) ? mapFor("text", buildSiteMap({ pages: src, parts: Array.isArray(cParts) ? cParts : [] })) : "";
-  } catch { keyFacts = ""; }
-  return { ...base, pages, tables, files: lib, draftFirst: draftFirst(env), ...(keyFacts ? { keyFacts } : {}) };
+  return { ...base, pages, tables, files: lib, draftFirst: draftFirst(env) };
 }
 
 /**
@@ -14179,109 +14164,8 @@ async function loadLandmarks(env, slug) {
   } catch (e) { console.error("landmarks read failed:", slug, e && e.message); return []; }
 }
 
-// ── THE ONE SITE MAP, SAVED WITH EACH VERSION (2026-10-26) ──────────────────
-//
-// `builder/site-map.mjs` describes the site from its stored source and its
-// live schema, deterministically. It is rebuilt after every save that
-// publishes (the edit spine, the build), written beside the site
-// (`source/<slug>/sitemap.json`) and with the version (`sitemaps/<id>.json`),
-// so a restore puts back the map of the version it restores. Never in the way
-// of a publish: every read and write here fails open and logs.
-const REPLY_MAP_MS = 2500;
-async function refreshSiteMap(env, slug, version = null, { save = true } = {}) {
-  if (!env.SITES_BUCKET || !slug) return null;
-  try {
-    const [src, partsR, live, cfg, side] = await Promise.all([
-      readSiteSource(env, slug).catch(() => null),
-      readSiteParts(env, slug).catch(() => null),
-      // THE SCHEMA AND HOW MANY ROWS EACH TABLE HOLDS (2026-10-26, the map
-      // covers everything): one count per table, at most 24, each failing
-      // open to "not known" rather than to a number.
-      (async () => {
-        const conn = await ownerSiteConn(env, slug);
-        if (!conn) return { spec: { tables: [] }, counts: {} };
-        // THE COLUMNS THE TABLES REALLY HAVE: the add-on's own reader, so a
-        // column declared and never made is in no map, and a table the stored
-        // schema forgot is (`specForAddon`). Unreadable is not known, never empty.
-        const r = await specForAddon(conn);
-        const spec = r && r.ok === true ? r.spec : null;
-        const counts = {};
-        const names = (spec && Array.isArray(spec.tables) ? spec.tables : []).map((t) => t && t.name).filter((n) => typeof n === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(n)).slice(0, 24);
-        await Promise.all(names.map(async (n) => {
-          try { const q = await sqlReadOnly(conn, 'select count(*)::int as n from "' + n + '"', []); const v = Array.isArray(q) && q[0] ? Number(q[0].n) : NaN; if (Number.isInteger(v)) counts[n] = v; } catch { /* not known */ }
-        }));
-        return { spec, counts };
-      })().catch(() => null),
-      (async () => { const db = await siteBackendBySlug(env, slug); const c = await readSiteConfig(env, slug, db); return c.ok ? c.config : null; })().catch(() => null),
-      (async () => { const o = await env.SITES_BUCKET.get(siteMetaKey(slug)); return o ? JSON.parse(await o.text()) : null; })().catch(() => null),
-    ]);
-    let redirects = null;
-    try { const man = side && !isHeldBody(side) ? manifestFromCsv(side.routesCsv, side.redirectsCsv) : null; redirects = man ? man.redirects : null; } catch { redirects = null; }
-    const look = cfg && cfg.look && typeof cfg.look === "object" ? cfg.look : null;
-    const map = buildSiteMap({
-      pages: src && src.ok ? src.pages : null,
-      parts: partsR && partsR.ok ? partsR.parts : null,
-      spec: live ? live.spec : null, rowCounts: live ? live.counts : null,
-      label: accessLabel, css: cfg ? cfg.css : null, version: typeof version === "string" ? version : null,
-      redirects, languages: look ? { lang: look.lang || "en", extra: Array.isArray(look.langs) ? look.langs : [] } : null,
-    });
-    // A CALL'S NOTE READS THE MAP AND WRITES NOTHING: a refused or asking
-    // step never moves the store (2026-10-26).
-    if (!save) return map;
-    const body = JSON.stringify({ at: new Date().toISOString(), slug, ...map });
-    const meta = { httpMetadata: { contentType: "application/json" } };
-    await env.SITES_BUCKET.put(siteMapKey(slug), body, meta);
-    if (typeof version === "string" && version) await env.SITES_BUCKET.put(siteMapVersionKey(slug, version), body, meta);
-    siteMapMemo.set(String(slug).toLowerCase(), { at: Date.now(), p: Promise.resolve(map) });
-    return map;
-  } catch (e) { console.error("site map save failed:", slug, errorClassForLog(e)); return null; }
-}
-async function loadSiteMap(env, slug) {
-  if (!env.SITES_BUCKET || !slug) return null;
-  try {
-    const o = await env.SITES_BUCKET.get(siteMapKey(slug));
-    if (!o) return null;
-    const v = JSON.parse(await o.text());
-    return v && typeof v === "object" && v.v === SITE_MAP_VERSION ? v : null;
-  } catch (e) { console.error("site map read failed:", slug, errorClassForLog(e)); return null; }
-}
-/**
- * THE MAP AS IT IS NOW, FOR A READER (2026-10-26, the owner: "always current").
- * Every way a site changes is not one code path — a schema or access change, a
- * Data-panel edit, a discarded draft, a draft save under draft-first that moves
- * the stored source without a publish — so a reader is never handed the saved
- * copy on trust: the map is rebuilt from the stored source and the live schema
- * on every read (and saved). Only when that rebuild cannot be made is the
- * saved copy served, marked `stale: true`, never silently.
- */
-// ── THE MAP IN EVERY CALL (2026-10-26, the owner: "isn't the map in
-// everything already"). One read per site, shared by every call of a job for
-// a short while and replaced the moment a save rebuilds it, each call
-// carrying its own slice (`siteSlice`), its own section first. Fails open: a
-// map not read in time sends the call as it was.
-const MAP_NOTE_MS = 4000;
-const MAP_MEMO_MS = 20000;
-const siteMapMemo = new Map();
-function siteMapNow(env, slug) {
-  const k = String(slug || "").toLowerCase();
-  if (!k) return Promise.resolve(null);
-  const hit = siteMapMemo.get(k);
-  if (hit && Date.now() - hit.at < MAP_MEMO_MS) return hit.p;
-  const p = withinMs(refreshSiteMap(env, k, null, { save: false }).then((m) => m || loadSiteMap(env, k)), MAP_NOTE_MS, "site map note:", k).catch(() => null);
-  if (siteMapMemo.size > 200) siteMapMemo.clear();
-  siteMapMemo.set(k, { at: Date.now(), p });
-  return p;
-}
-function siteMapNote(env, slug, kind, opts = null) {
-  return async () => {
-    if (!slug) return "";
-    const m = await siteMapNow(env, slug);
-    const o = typeof opts === "function" ? opts() : opts;
-    const k = typeof kind === "function" ? kind() : kind;
-    return m ? siteSlice(m, k, o || {}) : "";
-  };
-}
-const mappedSend = (env, slug, kind, send, opts = null) => mapSend(send, siteMapNote(env, slug, kind, opts));
+// HOW LONG A STEP WAITS FOR THE SITE'S FILES BEFORE IT IS SENT WITHOUT THEM.
+const EXPLORE_READ_MS = 4000;
 // ── EXPLORING THE SITE'S CODE INSTEAD OF THE MAP (owner, 2026-10-26, "option
 // b"). A step that reasons about the site gets the file list (and, for a data
 // step, the table names) and read-only look tools (`builder/site-explore.mjs`).
@@ -14332,7 +14216,7 @@ function siteExploreNow(env, slug, { names = null } = {}) {
     let full = null;
     const read = { ...siteReaders(env, k, tables), table: async (n) => { full = full || exploreTables(env, k).catch(() => []); return (await full).find((t) => t.name === n) || null; } };
     return { files, tables, read };
-  })(), MAP_NOTE_MS, "site explore:", k).catch(() => null);
+  })(), EXPLORE_READ_MS, "site explore:", k).catch(() => null);
   if (siteExploreMemo.size > 200) siteExploreMemo.clear();
   siteExploreMemo.set(key, { at: Date.now(), p });
   return p;
@@ -14417,22 +14301,6 @@ const exploredCall = (env, slug, call, { cap = null } = {}) => exploreCall(call,
 // except the bare ones below.
 // Steps that judge only what they are handed (a before and an after; the named entries a removal picks from): no map, no looks.
 const EDIT_BARE_STEPS = new Set(["keep_check", "take_off"]);
-
-async function currentSiteMap(env, slug) {
-  const fresh = await refreshSiteMap(env, slug, null);
-  if (fresh) return fresh;
-  const kept = await loadSiteMap(env, slug);
-  return kept ? { ...kept, stale: true } : null;
-}
-async function restoreSiteMap(env, slug, id) {
-  if (!env.SITES_BUCKET || !slug || !id) return false;
-  try {
-    const o = await env.SITES_BUCKET.get(siteMapVersionKey(slug, id));
-    if (o) { await env.SITES_BUCKET.put(siteMapKey(slug), await o.text(), { httpMetadata: { contentType: "application/json" } }); return true; }
-    // A version saved before the map existed: rebuilt from what is stored now.
-    return !!(await refreshSiteMap(env, slug, id));
-  } catch (e) { console.error("site map restore failed:", slug, errorClassForLog(e)); return false; }
-}
 
 async function saveGenAnswer(env, slug, answer) {
   if (!env.SITES_BUCKET) return false;
@@ -16326,8 +16194,6 @@ async function restoreVersion(env, slug, id, { refuseLegacy = false } = {}) {
         error: act.error === "superseded" ? "the site changed while that version was being put back — try again" : "restore failed: " + act.error,
       };
     }
-    // THE MAP OF THE VERSION PUT BACK (2026-10-26), saved with it.
-    await restoreSiteMap(env, slug, id);
     return { ok: true, id, files: b.manifest.files.length, swept: 0, worker: b.worker, build: b.manifest.build || "", activated: true, uploaded: act.uploaded, wput };
   }
   // NO LEGACY COPY UNDER DRAFT-FIRST (2026-10-23, audit A38-6): the copy path
@@ -19782,8 +19648,6 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       tm("r2:landmarks", "ok", { marks: ((built.render && built.render.landmarks) || []).length });
       // AND THE LAYOUT AT EACH DEVICE, the next per-device edit's "before".
       await saveLayout(env, slug, built.layout);
-      // AND THE SITE MAP OF THIS VERSION (2026-10-26), from the source just saved.
-      if (!unsaved.length) await refreshSiteMap(env, slug, version);
       // AND THE MARKER LAST (stage 6): the editable copy names the version it
       // came from, so the next job can tell a finished copy from one that
       // died between the pointer and here, and repair it before it reads.
@@ -21306,8 +21170,6 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   // reads as a published build (`page: "app"`, a salvaged one included: its
   // layout is the kept compile's); `publishPages` answers no `ok` on success.
   if (out && out.page === "app" && Array.isArray(out.layout)) await saveLayout(env, slug, out.layout);
-  // AND THE SITE MAP OF THE VERSION THIS BUILD PUBLISHED (2026-10-26).
-  if (out && out.page === "app") await refreshSiteMap(env, slug, typeof out.version === "string" ? out.version : null);
   if (out && bDraftSaved) out.draft = bDraftSaved;
   // THE BUILD CHECKLIST'S PLAN (2026-10-22, idea #14): derived in code from the
   // design this build was handed, checked by `pageNotes` against what landed.
@@ -50812,7 +50674,7 @@ async function handleRequest(request, env, ctx) {
               let out;
               try {
                 const recent = await recentSuggestedFor(env, ou.id, chat);
-                out = await writeReply({ send: mappedSend(env, scslug, "site", quickSend(env, "reply", replyBudget)) }, {
+                out = await writeReply({ send: quickSend(env, "reply", replyBudget) }, {
                   facts,
                   context: replyContext({ request: String(words || "").slice(0, 500), site: { slug: scslug }, recent }) + (rule ? "\n\n" + rule : ""),
                   model: modelsFor(picker).quick,

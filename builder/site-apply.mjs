@@ -50,7 +50,34 @@ import { withReasonRetry, addUsages } from "./retry-reason.mjs";
 // container and no Worker.
 
 import { extractText, applyEdits } from "./site-text.mjs";
-import { partsImported, quotedElsewhere } from "./site-map.mjs";
+
+// ── TWO DETERMINISTIC READERS, moved here from the deleted site map (2026-10-26) ──
+const PART_IMPORT = /from\s*["']@\/routes\/-parts\/([A-Za-z0-9_.-]+?)(?:\.tsx?)?["']/g;
+/** The parts a source imports, by stored name. */
+export function partsImported(source) {
+  const out = [];
+  for (const m of String(source || "").matchAll(PART_IMPORT)) if (!out.includes(m[1])) out.push(m[1]);
+  return out;
+}
+const oneLineOf = (s) => String(s).replace(/\s+/g, " ").trim();
+/**
+ * THE FILES THAT HOLD WORDS THE INSTRUCTION QUOTES, outside `shownFiles`: the
+ * text step's way to find a phrase written in a shared part or on another
+ * page. Literal containment of the site's own words in the message, nothing
+ * read from the message's vocabulary. Items `[{ path, text }]`.
+ */
+export function quotedElsewhere(instruction, items, shownFiles) {
+  const said = oneLineOf(String(instruction || "")).toLowerCase();
+  if (!said) return [];
+  const shown = new Set(shownFiles || []);
+  const out = new Set();
+  for (const it of Array.isArray(items) ? items : []) {
+    if (!it || shown.has(it.path)) continue;
+    const t = oneLineOf(it.text || "").toLowerCase();
+    if (t.length >= 4 && said.includes(t)) out.add(it.path);
+  }
+  return [...out];
+}
 import { partPath } from "./site-files.mjs";
 import { sortSlots, sortDigest, sortColumns, applySort, sortReply, sortRefusal, SORT_DIRS } from "./site-order.mjs";
 import { modelsFor } from "./build-models.mjs";
