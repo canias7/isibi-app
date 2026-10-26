@@ -26,3 +26,5 @@ Today's date is not in the map (date handling on hold).
 - Sweep: 9 of 9 mutants killed; the comment-only control survived.
 - Spelling guards updated for the wrapped lines: `addon-queue`, `build-repair`, `security-say`, `site-security`, `spine-repair`, `wiring`, `progress-more`.
 - Full suite: 12,883 tests, 12,878 pass, 3 fail, 2 skipped. The failures: `site-secrets` (fails on `main` too), `canary-reopen-browser` REOPEN 1 (passes alone), and `progress-more` THE WIRING (a spelling guard, fixed after the run; passes).
+
+**Full suite on `09e2dc19c` (all five changes):** 12,893 tests: 12,889 pass, 2 fail, 2 skipped. The 2 failures: `site-secrets` (fails on `main` too) and `canary-reopen-browser` REOPEN 1 (passes alone).

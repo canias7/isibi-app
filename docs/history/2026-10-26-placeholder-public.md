@@ -25,3 +25,5 @@ An old *draft* or *failed* page is not rewritten automatically.
 - Red check: 3 tests fail on the old `worker.js`.
 - Sweep: 5 of 5 mutants killed; the comment control survived.
 - Screenshots of the real produced HTML (desktop and phone, building and failed) are in the session scratchpad as `placeholder-*.png`.
+
+**Full suite on `09e2dc19c` (all five changes):** 12,893 tests: 12,889 pass, 2 fail, 2 skipped. The 2 failures: `site-secrets` (fails on `main` too) and `canary-reopen-browser` REOPEN 1 (passes alone).

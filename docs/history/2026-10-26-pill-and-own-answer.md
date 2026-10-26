@@ -20,3 +20,5 @@ Continue stays disabled, because the answer is sent from the box. The first-buil
 - Red: 2 fail before the change.
 - Sweep: 4 of 4 run were killed (a fifth's anchor was missing); the comment control survived.
 - Screenshot: `ui-something-else-and-pill.png` in the session scratchpad, rendered with the real `styles.css` and the real `sitePickHTML` output.
+
+**Full suite on `09e2dc19c` (all five changes):** 12,893 tests: 12,889 pass, 2 fail, 2 skipped. The 2 failures: `site-secrets` (fails on `main` too) and `canary-reopen-browser` REOPEN 1 (passes alone).

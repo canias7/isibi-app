@@ -12,3 +12,5 @@
 - Red: both fail before the change.
 - Sweep: 3 of 3 killed; the comment control survived.
 - `run6-fixes`, `site-rules*`, `picked-model`: 79 of 79 pass.
+
+**Full suite on `09e2dc19c` (all five changes):** 12,893 tests: 12,889 pass, 2 fail, 2 skipped. The 2 failures: `site-secrets` (fails on `main` too) and `canary-reopen-browser` REOPEN 1 (passes alone).

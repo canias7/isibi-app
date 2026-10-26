@@ -15,3 +15,5 @@
 - `test/addon-row-duplicate.test.mjs`, 4 cases. Red: fails before the change.
 - Sweep: 5 of 5 killed; the comment control survived.
 - Every test file touching the row path: 452 of 452 pass.
+
+**Full suite on `09e2dc19c` (all five changes):** 12,893 tests: 12,889 pass, 2 fail, 2 skipped. The 2 failures: `site-secrets` (fails on `main` too) and `canary-reopen-browser` REOPEN 1 (passes alone).
