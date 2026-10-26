@@ -76,7 +76,7 @@ export const SITE_TOOLS = Object.freeze([
   { name: "schema_history", description: "The database's schema and migration history.", input_schema: obj },
   { name: "indexes", description: "The tables' indexes.", input_schema: tableArg },
   { name: "db_size", description: "The database's size and limits.", input_schema: obj },
-  { name: "error_logs", description: "This site's recent errors (worker, form, page).", input_schema: { type: "object", properties: { limit: { type: "integer", description: "At most 50." } } } },
+  { name: "site_errors", description: "This site's recent errors, last 30 days, deduplicated and counted: the visitor's browser (page errors, failed form sends) and our server (failed data writes and form notifications).", input_schema: { type: "object", properties: { limit: { type: "integer", description: "At most 50." } } } },
   { name: "site_settings", description: "Settings outside the code: SEO, languages, redirects, the live and draft pointers.", input_schema: obj },
   { name: "traffic", description: "Visitor counts we hold for the site.", input_schema: { type: "object", properties: { days: { type: "integer" } } } },
   { name: "services", description: "Connected services and our own records of emails and payments: status and counts. Never a key.", input_schema: obj },
@@ -113,7 +113,7 @@ export function safeUploadPath(p) {
 const tableOf = (ctx, name) => (Array.isArray(ctx && ctx.tables) ? ctx.tables.find((t) => t && t.name === name) : null);
 const int = (v, lo, hi, d) => (Number.isInteger(v) ? Math.max(lo, Math.min(hi, v)) : d);
 /** Readers by tool name; `read_rows` → `rows`, the rest by their own name in camel case. */
-const READER = { read_rows: "rows", table_links: "links", column_rules: "rules", automatic_rules: "automatic", schema_history: "history", indexes: "indexes", db_size: "size", error_logs: "errors", site_settings: "settings", traffic: "traffic", services: "services", scheduled_tasks: "tasks", logins: "logins", draft_status: "drafts", recent_changes: "changes", uploads: "uploads", read_upload: "upload", activity: "activity" };
+const READER = { read_rows: "rows", table_links: "links", column_rules: "rules", automatic_rules: "automatic", schema_history: "history", indexes: "indexes", db_size: "size", site_errors: "errors", site_settings: "settings", traffic: "traffic", services: "services", scheduled_tasks: "tasks", logins: "logins", draft_status: "drafts", recent_changes: "changes", uploads: "uploads", read_upload: "upload", activity: "activity" };
 
 function lines(got) {
   if (got === null || got === undefined) return "(none)";
@@ -145,11 +145,13 @@ export async function runSiteTool(ctx, name, input) {
     }
     let arg = null;
     if (name === "recent_changes") arg = int(i.limit, 1, 10, 5);
-    else if (name === "error_logs") arg = int(i.limit, 1, 50, 20);
+    else if (name === "site_errors") arg = int(i.limit, 1, 50, 20);
     else if (name === "traffic" || name === "activity") arg = { days: int(i.days, 1, 365, 7), table: typeof i.table === "string" ? i.table : null };
     else if (name === "read_upload") arg = safeUploadPath(i.path);
     else if (typeof i.table === "string") arg = i.table;
     const got = await fn(arg);
+    // A reader's own honest "unavailable" (no token, a failed query) is said as it is.
+    if (typeof got === "string" && /^unavailable: /.test(got)) return redact(got).slice(0, 200);
     return clipOut(asData(name.replace(/_/g, " "), lines(got)));
   } catch { return "unavailable: could not be read"; }
 }

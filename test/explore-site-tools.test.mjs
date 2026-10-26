@@ -37,7 +37,7 @@ test("secrets never come back: in a function body, a setting, a log line, a key 
     errors: async () => ["500 at /order: connect " + leak],
     services: async () => [{ service: "stripe", connected: true, key: "sk_live_q1w2e3r4t5y6" }],
   } };
-  for (const tool of ["automatic_rules", "site_settings", "error_logs", "services"]) {
+  for (const tool of ["automatic_rules", "site_settings", "site_errors", "services"]) {
     const out = await runSiteTool(ctx, tool, {});
     for (const s of [...secrets, "sk_live_zzzzzzzzzzzz", "sk_live_q1w2e3r4t5y6"]) assert.ok(!out.includes(s), tool + " leaked " + s);
     assert.match(out, /UNTRUSTED DATA/);
@@ -57,8 +57,8 @@ test("writes are impossible: no tool writes, and the worker's readers use read-o
 });
 
 test("a missing reader or a failing one is 'unavailable', never a throw", async () => {
-  assert.match(await runSiteTool({ tables, read: {} }, "error_logs", {}), /^unavailable/);
-  assert.match(await runSiteTool({ tables, read: { errors: async () => { throw new Error("x"); } } }, "error_logs", {}), /^unavailable/);
+  assert.match(await runSiteTool({ tables, read: {} }, "site_errors", {}), /^unavailable/);
+  assert.match(await runSiteTool({ tables, read: { errors: async () => { throw new Error("x"); } } }, "site_errors", {}), /^unavailable/);
   assert.match(await runSiteTool({}, "no_tool", {}), /^unavailable: no such tool/);
   assert.match(asData("x", "a"), /^UNTRUSTED DATA \(x\)/);
 });

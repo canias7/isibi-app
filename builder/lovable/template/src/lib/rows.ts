@@ -516,6 +516,40 @@ export function useRow<T = Row>(table: string, id: RowId | undefined) {
  * refused even when it looks right.
  */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
+// THE SITE ERROR LOG'S BROWSER HALF (2026-10-26). A page error, a rejected
+// promise or a failed form send is told to `POST /api/site-errors/<slug>`, so
+// the builder can see what broke for visitors. Tiny on purpose:
+// - NO COOKIES, NO PERSON: `credentials: "omit"`, and only a kind, the page's
+//   path and a short message leave (the server scrubs the message again). A
+//   form failure sends its status and code, never what the visitor typed.
+// - NEVER IN THE WAY: fire-and-forget, never throws, at most 5 a page load,
+//   and the same message once.
+const MAX_PER_LOAD = 5;
+let sent = 0;
+const seen = new Set<string>();
+
+export function reportSiteSignal(slug: string, kind: string, message: string): void {
+  try {
+    if (typeof window === "undefined" || !slug || slug === "preview") return;
+    if (sent >= MAX_PER_LOAD) return;
+    const msg = String(message || "").slice(0, 300);
+    const key = kind + "\u0000" + msg;
+    if (!msg || seen.has(key)) return;
+    seen.add(key);
+    sent++;
+    const route = (window.location.pathname.replace(/^\/s\/[a-z0-9][a-z0-9-]*/i, "") || "/").slice(0, 200);
+    void fetch(`/api/site-errors/${slug}`, {
+      method: "POST",
+      credentials: "omit",
+      keepalive: true,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind, route, message: msg }),
+    }).catch(() => {});
+  } catch {
+    /* reporting must never throw */
+  }
+}
+
 export function useCreateRow<T = Row>(table: string) {
   const qc = useQueryClient();
   const idem = useIdemKey();
@@ -531,6 +565,13 @@ export function useCreateRow<T = Row>(table: string) {
         // fixed carries the SAME key, and the platform never remembers a
         // refusal, so the corrected one reaches the database.
         idem.renew();
+      } catch (e) {
+        // A FAILED FORM SEND, told to the site's error log: the status and the
+        // code only, never what the visitor typed.
+        const st = (e as { status?: number })?.status;
+        const code = (e as { code?: string })?.code;
+        reportSiteSignal(siteSlug(), "form", `form send to ${table} failed (${st ?? "network"}${code ? " " + code : ""})`);
+        throw e;
       } finally {
         resetChallenge();
       }

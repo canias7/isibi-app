@@ -232,6 +232,7 @@ jobs:
             ADDON_DRY_RUN
             TURNSTILE_SITE_KEY
             TURNSTILE_SECRET
+            CF_ANALYTICS_TOKEN
         env:
           DEPLOY_ID: ${{ github.sha }}
           # ── VIDEO AND AUDIO LIMITS (2026-10-16) ───────────────────────────
@@ -640,6 +641,10 @@ jobs:
           # owner adds both secrets the check stays off exactly as before.
           TURNSTILE_SITE_KEY: ${{ secrets.TURNSTILE_SITE_KEY || '-' }}
           TURNSTILE_SECRET: ${{ secrets.TURNSTILE_SECRET || '-' }}
+          # THE EXPLORE TOOL `traffic` (2026-10-26): Cloudflare's own analytics,
+          # read-only (Account Analytics: Read). Optional: `-` reads as unset,
+          # and the Worker then tries CLOUDFLARE_API_TOKEN, else "unavailable".
+          CF_ANALYTICS_TOKEN: ${{ secrets.CF_ANALYTICS_TOKEN || '-' }}
           # Mail needs NO secret here. The Worker sends through Cloudflare Email
           # Service via the `send_email` binding in wrangler.jsonc (2026-07-30,
           # replacing Go Farther) — nothing to mint, upload each deploy, or rotate.

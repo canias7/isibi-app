@@ -12,6 +12,7 @@
 // being picked up globally.
 
 import { siteSlug } from "./rows";
+import { reportSiteSignal } from "./rows";
 
 const CAUSE_DEPTH_LIMIT = 5;
 const DESCRIPTION_LENGTH_LIMIT = 8_000;
@@ -149,6 +150,7 @@ export function reportAppError(error: unknown, source: ErrorReport["source"] = "
           source: report.source,
         }),
       }).catch(() => {});
+      reportSiteSignal(slug, source === "error_boundary" ? "render" : source, report.message);
     }
   } catch {
     /* reporting must never throw */

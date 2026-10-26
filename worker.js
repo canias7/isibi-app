@@ -112,6 +112,8 @@ import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, 
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
+import { siteTraffic } from "./builder/site-traffic.mjs";
+import { makeErrorRecorder, browserReport, errorLines, servicesSignal, loginsSignal, validSlug, SITE_ERRORS_BODY_MAX, SITE_ERRORS_PER_IP_MIN } from "./builder/site-signals.mjs";
 import { handleAgentApi, makeAgentStore, AGENT_ROUTES, AGENT_POST_ROUTES, agentBodyMax } from "./agent-store.mjs";
 import { listSecrets, addSecret, deleteSecret, readSecret } from "./site-secrets.mjs";
 
@@ -2279,6 +2281,8 @@ export default {
     // A JOB PARKED WAITING FOR ITS MODEL IS SENT AGAIN EVERY 5 MINUTES
     // (owner, 2026-10-24), resuming from its saved steps, until it answers.
     ctx.waitUntil(runProviderWaits(env).catch((e) => console.error("provider waits failed", errorClassForLog(e))));
+    // THE SITE ERROR LOG'S RETENTION (2026-10-26): 30 days, once an hour.
+    ctx.waitUntil(runSiteErrorsPrune(env, event && event.scheduledTime).catch(() => {}));
   },
   // ── THE BUILD QUEUE CONSUMER (see wrangler.jsonc for why this exists) ──────
   //
@@ -13787,6 +13791,7 @@ function notifyOwnerOfSubmission(env, ctx, payload) {
     }, payload);
     // It runs detached, so nothing else would ever see why it did not send.
     if (!out.sent && out.error) console.error("submission notify:", payload.slug, out.reason, out.error);
+    if (!out.sent && out.error) siteErrorLater(env, ctx, payload.slug, { kind: "form-notify", route: "/", message: "owner notification not sent: " + String(out.reason || "error") + ": " + String((out.error && out.error.message) || out.error) });
   })();
   if (ctx && ctx.waitUntil) ctx.waitUntil(p); else p.catch(() => {});
 }
@@ -14225,8 +14230,11 @@ function siteExploreNow(env, slug, { names = null } = {}) {
 // read — a read-only transaction on the site's own database, a store read or
 // list, or a select on our own records — bound to this one site. What they
 // answer is redacted, fenced and bounded by `builder/explore-site-tools.mjs`;
-// a reader that is not here answers "unavailable" (no traffic, error-log or
-// scheduled-task store exists for a site today).
+// a reader that is not here answers "unavailable" (no traffic or
+// scheduled-task store exists for a site today). Errors, services and logins
+// are real since 2026-10-26 (`builder/site-signals.mjs`): services and logins
+// are yes/no and counts read from what is already stored (a secret by the
+// presence of its NAME, never its value); errors from `site_errors`.
 const EXPLORE_IDENT = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
 function siteReaders(env, slug, tables) {
   const s = String(slug || "").toLowerCase();
@@ -14280,6 +14288,35 @@ function siteReaders(env, slug, tables) {
       const page = await env.SITES_BUCKET.list({ prefix: "uploads/" + s + "/", include: ["customMetadata", "httpMetadata"] });
       return (page && page.objects ? page.objects : []).slice(0, 60).map((o) => ({ path: o.key.slice(("uploads/" + s + "/").length), size: o.size, type: (o.httpMetadata && o.httpMetadata.contentType) || "not known", uploaded: o.uploaded }));
     },
+    errors: async (n = 20) => {
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/site_errors?select=last_seen,first_seen,count,source,kind,route,message&slug=eq.${encodeURIComponent(s)}&order=last_seen.desc&limit=${Math.min(50, Math.max(1, n | 0))}`, { headers: svcHeaders(env), signal: AbortSignal.timeout(5000) });
+      if (!r.ok) throw new Error("site_errors " + r.status);
+      return errorLines(await r.json());
+    },
+    services: async () => {
+      // NAMES ONLY: the cipher column is never selected.
+      const names = await q("select name from _secrets").then((rows) => (Array.isArray(rows) ? rows.map((x) => x && x.name) : undefined)).catch(() => undefined);
+      const dom = await fetch(`${SUPABASE_URL}/rest/v1/site_domains?slug=eq.${encodeURIComponent(s)}&status=eq.live&select=status&limit=1`, { headers: svcHeaders(env), signal: AbortSignal.timeout(5000) })
+        .then(async (r) => (r.ok ? (await r.json()).length > 0 : undefined)).catch(() => undefined);
+      return servicesSignal({ secretNames: names, domainLive: dom });
+    },
+    // TRAFFIC FROM CLOUDFLARE'S OWN ANALYTICS (owner, 2026-10-26): this site's
+    // hosts only, worked out here, never taken from the model.
+    traffic: async ({ days = 7 } = {}) => {
+      const hosts = [siteHostFor(s)];
+      const dom = await fetch(`${SUPABASE_URL}/rest/v1/site_domains?slug=eq.${encodeURIComponent(s)}&status=eq.live&select=hostname&limit=2`, { headers: svcHeaders(env), signal: AbortSignal.timeout(5000) })
+        .then(async (r) => (r.ok ? r.json() : [])).catch(() => []);
+      for (const d of Array.isArray(dom) ? dom : []) if (d && typeof d.hostname === "string") hosts.push(d.hostname);
+      return siteTraffic({ env, hosts: hosts.filter(Boolean), days });
+    },
+    logins: async () => {
+      const db = await siteBackendBySlug(env, s).catch(() => null);
+      const authSetUp = db ? await siteServiceBase(db, "auth_info").then((b) => !!b).catch(() => undefined) : false;
+      const one = async (sql) => { const r = await q(sql).catch(() => null); return r && r[0] && Number.isInteger(r[0].n) ? r[0].n : undefined; };
+      const accounts = authSetUp ? await one("select count(*)::int as n from neon_auth.users_sync where deleted_at is null") : authSetUp === false ? 0 : undefined;
+      const roles = await one("select count(distinct r)::int as n from pg_policies p, unnest(p.roles) r where p.schemaname = 'public' and r::text not in ('public')");
+      return loginsSignal({ authSetUp, accounts, roles });
+    },
     upload: async (path) => {
       if (typeof path !== "string" || !path || path.includes("..")) return null;
       const o = await env.SITES_BUCKET.get("uploads/" + s + "/" + path);
@@ -14289,6 +14326,76 @@ function siteReaders(env, slug, tables) {
       return { path, type, size: o.size, description: (o.customMetadata && (o.customMetadata.alt || o.customMetadata.description)) || "none" };
     },
   };
+}
+// THE SITE ERROR LOG'S WRITERS (2026-10-26). One recorder per isolate, so
+// its per-site budget and in-flight bound hold across requests. Every write is
+// handed to `waitUntil`: a visitor never waits on it, and a failed write is
+// dropped. Until `supabase/proposed/site_errors.sql` is applied the RPC
+// answers 404 and nothing is stored.
+let _siteErrorRecorder = null;
+function siteErrorRecorder(env) {
+  if (_siteErrorRecorder) return _siteErrorRecorder;
+  _siteErrorRecorder = makeErrorRecorder({
+    rpc: async (slug, e) => {
+      if (!env.SUPABASE_SERVICE_KEY) return;
+      await fetch(`${SUPABASE_URL}/rest/v1/rpc/site_error_hit`, {
+        method: "POST", headers: svcHeaders(env, { "content-type": "application/json" }),
+        body: JSON.stringify({ p_slug: slug, p_fingerprint: e.fingerprint, p_source: e.source, p_kind: e.kind, p_route: e.route, p_message: e.message }),
+        signal: AbortSignal.timeout(3000),
+      });
+    },
+  });
+  return _siteErrorRecorder;
+}
+/** A server-side failure for a site, recorded later. Never throws, never awaited. */
+function siteErrorLater(env, ctx, slug, { kind, route, message }) {
+  try {
+    const p = siteErrorRecorder(env)(String(slug || "").toLowerCase(), { source: "server", kind, route, message });
+    if (ctx && ctx.waitUntil) ctx.waitUntil(p); else p.catch(() => {});
+  } catch { /* never on the visitor's path */ }
+}
+// A SLUG IS A REAL SITE when its live pointer exists. Remembered for ten
+// minutes either way, so a flood for a made-up slug costs one read.
+const _realSite = new Map();
+async function isRealSite(env, slug) {
+  const hit = _realSite.get(slug);
+  if (hit && Date.now() - hit.at < 600_000) return hit.yes;
+  let yes = false;
+  try { yes = !!(env.SITES_BUCKET && (await env.SITES_BUCKET.head("current/" + slug + ".json"))); } catch { yes = false; }
+  if (_realSite.size > 5000) _realSite.clear();
+  _realSite.set(slug, { at: Date.now(), yes });
+  return yes;
+}
+/**
+ * POST /api/site-errors/<slug>: the browser reporter's door. PUBLIC, so every
+ * answer is 204 and says nothing (no cookie set or read, nothing echoed): a
+ * malformed body, a made-up slug, a report over the limit or the size cap all
+ * look the same from outside. Per site + IP rate-limited, size-capped, and the
+ * write happens after the answer.
+ */
+async function siteErrorsEndpoint(env, request, url, ctx) {
+  const m = url.pathname.match(/^\/api\/site-errors\/([a-z0-9][a-z0-9-]{0,80})$/);
+  if (!m) return Response.json({ error: "not found" }, { status: 404 });
+  if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
+  const none = () => new Response(null, { status: 204 });
+  const slug = m[1];
+  if (!validSlug(slug)) return none();
+  const len = Number(request.headers.get("content-length") || "0");
+  if (len > SITE_ERRORS_BODY_MAX) return none();
+  const hit = _dataLimiter.hit(bucketKey({ ip: request.headers.get("CF-Connecting-IP") || "", slug, table: "site-errors", method: "POST" }), SITE_ERRORS_PER_IP_MIN);
+  if (!hit.ok) return none();
+  const rb = await readJsonBody(request, { max: SITE_ERRORS_BODY_MAX }).catch(() => null);
+  const report = browserReport(rb && rb.ok ? rb.body : null);
+  if (!report) return none();
+  const p = (async () => { if (await isRealSite(env, slug)) await siteErrorRecorder(env)(slug, report); })().catch(() => {});
+  if (ctx && ctx.waitUntil) ctx.waitUntil(p);
+  return none();
+}
+/** Retention: once an hour (the tick is every 2 minutes), anything unseen for 30 days goes. */
+async function runSiteErrorsPrune(env, at) {
+  const t = new Date(Number(at) || Date.now());
+  if (t.getUTCMinutes() >= 2 || !env.SUPABASE_SERVICE_KEY) return;
+  await fetch(`${SUPABASE_URL}/rest/v1/rpc/site_errors_prune`, { method: "POST", headers: svcHeaders(env, { "content-type": "application/json" }), body: "{}", signal: AbortSignal.timeout(10000) });
 }
 function exploreLooks(env, cap = null) {
   const n = Number.parseInt(String((env && env.EXPLORE_MAX_LOOKS) || ""), 10);
@@ -17028,6 +17135,7 @@ async function runScriptPendingSweep(env, { now = Date.now(), maxSites = 25 } = 
  * the same store a job runs on (2026-10-15): nothing in the product calls this.
  */
 /** Draft-first's own pieces, for the tests that drive them directly (`test/draft-first.test.mjs`). */
+export const siteSignalsApi = { siteReaders, siteErrorsEndpoint, runSiteErrorsPrune, siteErrorLater, resetRecorder: () => { _siteErrorRecorder = null; _realSite.clear(); } };
 export const draftFirstApi = { clearSiteDraft, backendWriter, draftView, sealHeld, publishDraft, runPublication, runPublishRecovery, siteIsLive, heldDeleteOr, previewVersion, runPreviewRecovery, draftFacts, recompileAndPublish };
 export const siteTurn = { turnStop, tryTurn, takeTurn, giveTurn, renewTurn, turnStillMine, mayWriteConfig, patchSiteConfig, ensureEditableState, jobFence, fencedPut, fencedBuildDeps, stampFences, alignLiveScript, putSiteWorker, runScriptPendingSweep };
 /** Renew a held turn (on the job's heartbeat): false when it is no longer this job's. */
@@ -34285,7 +34393,12 @@ async function handleRequest(request, env, ctx) {
           const t = tooMany(hit);
           return Response.json(t.body, { status: t.status, headers: t.headers });
         }
-        return proxySiteService(env, request, url, slug, dpath, "data", ctx);
+        const dres = await proxySiteService(env, request, url, slug, dpath, "data", ctx).catch((e) => { siteErrorLater(env, ctx, slug, { kind: "data-write", route: "/data/" + dpath.split("/")[0], message: "data request failed: " + errorClassForLog(e) }); throw e; });
+        // A WRITE THE DATABASE FAILED FOR ITS OWN REASONS (5xx, never the visitor's 4xx) is recorded, off the visitor's path.
+        if (request.method !== "GET" && request.method !== "HEAD" && dres && dres.status >= 500) {
+          siteErrorLater(env, ctx, slug, { kind: dpath.startsWith("rpc/") ? "data-action" : "data-write", route: "/data/" + dpath.split("/")[0], message: request.method + " failed with " + dres.status });
+        }
+        return dres;
       }
     }
 
@@ -34414,6 +34527,8 @@ async function handleRequest(request, env, ctx) {
     // unauthenticated endpoint. The write itself rides `ctx.waitUntil` (the
     // audit-log lesson: a detached promise nobody holds is cancelled with the
     // request), so the visitor's tab never waits on Postgres.
+    if (url.pathname.startsWith("/api/site-errors/")) return siteErrorsEndpoint(env, request, url, ctx);
+
     if (url.pathname.startsWith("/api/db/") && url.pathname.endsWith("/error")) {
       const erm = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/error$/i);
       if (erm) {

@@ -1,6 +1,19 @@
 # Owner Notes
 
 
+## 2026-10-26 — The builder can now see a site's errors, services, logins and traffic
+
+On the `site-signals` branch (not merged, not deployed). Asked "is Stripe
+connected?", "how many people have accounts?", "what broke for visitors?" or
+"how busy is it?", the builder now gets real answers instead of "unavailable":
+yes/no and counts for services and logins (never a key or a person), the
+site's own recent errors (emails, phone numbers and keys taken out first), and
+page views from Cloudflare's own analytics. **You must apply
+`supabase/proposed/site_errors.sql`** before errors are stored; until then
+nothing is recorded and nothing breaks. Traffic uses the existing
+`CLOUDFLARE_API_TOKEN`; if that token lacks "Account Analytics: Read", traffic
+says "unavailable". Record: `docs/history/2026-10-26-site-signals.md`.
+
 ## 2026-10-26 — Phases 2–5: every step explores, and the site map is gone
 
 - **Exploring everywhere.** The data and rules steps, the text, menu, frame and picture steps, every add-on call (picker, designers, writers, the requirement judge), the compile repairs, the visual review and the security scan now look at the site's files and data themselves. They no longer read the map.

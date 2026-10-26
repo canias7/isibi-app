@@ -77,6 +77,7 @@ const PUBLIC = {
   // DISAPPEARANCE as interesting, which is exactly right, and this says which
   // of the three reasons it was.)
   "/api/stripe/site/*": "A SITE OWNER's own Stripe telling us one of their orders was paid. Separate from /api/stripe/webhook, which is isibi's own billing — different account, different signing secret, and one handler deciding whether an event mints platform credits or marks a barber shop's order is not a thing to build. Stripe cannot hold a session; what authenticates it is the HMAC over the raw body verified against THAT SITE's own webhook secret, so a signature valid for one shop proves nothing about another.",
+  "/api/site-errors/*": "A published site's browser reporting its own errors (2026-10-26). Its visitors hold no session here. Write-only and answers 204 to everything; rate-limited per site + IP, size-capped, the slug checked against a live site, the message scrubbed (builder/site-signals.mjs).",
   "/api/db/*": "A published site's own API. Its visitors are not isibi users — a customer booking a haircut has no account here. As of 2026-07-30 it is TRANSPORT ONLY: the row routes were deleted and these paths forward to the site's Neon Data API and Neon Auth, where the site's own RLS policies decide every access question. What is enforced here is a per-source rate limit and that the slug resolves to a real site.",
   "/api/site/genresult": "THE BUILD CONTAINER handing back the generation it was fired. It holds no Supabase session and never will — it is our own compute, reached over the queue, not a person. What authenticates it is a 128-bit token minted for ONE generation at fire time and stored in that build's resume record, travelling in a HEADER rather than the path so it stays out of logs and proxies. Knowing it authorises writing exactly one build's answer to one R2 key and nothing else; it is the same shape as a site's inbound webhook secret. An unrecognised token is 404, not 401, because the route's existence is not worth confirming to somebody probing it and a container that got the token wrong has no recovery either way.",
   "/api/site/gencode": "THE BUILD CONTAINER sending the code it is writing, while it writes it (2026-09-07). The same caller, the same credential and the same binding as genbeat one entry up — the report token in a header, the job and the generation in the body matched against the resume record — and the narrowest authority of the three: it writes a bounded tail of the generation's own output to one R2 key under `jobs/`, which the retention sweep already owns. Nothing reads that key but the build poll, and only for the record's own uid. A body that does not bind is 404, as the report and the beat are, and writes nothing.",
@@ -346,7 +347,8 @@ test("the public allow-list is exactly what we think it is", () => {
   // what it did for `gencode`, and the entries above are those decisions. It
   // goes DOWN as happily as up: an unauthenticated endpoint leaving is the one
   // direction that needs no argument.
-  assert.equal(Object.keys(PUBLIC).length, 6, "a new unauthenticated endpoint was added — is that intended?");
+  // SEVEN since 2026-10-26: the site error reporter (`/api/site-errors/*`), written down above.
+  assert.equal(Object.keys(PUBLIC).length, 7, "a new unauthenticated endpoint was added — is that intended?");
 });
 
 test("the unauthenticated webhook verifies a signature instead", () => {
