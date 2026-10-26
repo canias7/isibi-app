@@ -3392,3 +3392,11 @@ the changes the owner asks for. Text only; no code change.
   be rarely used.
 - Rule for every tool: locked to the job's own site; the AI never holds the
   Neon key and has no tool that reaches the Neon management API.
+
+## Cloudflare token: check it can read analytics (2026-10-26, owner: later)
+
+Site traffic for the builder comes from Cloudflare's own analytics (GraphQL
+`httpRequestsAdaptiveGroups` by host; 31 days kept on every plan), queried with
+the existing `CLOUDFLARE_API_TOKEN`. If that token lacks "Analytics: Read", the
+traffic tool answers "unavailable". Owner to check the token's permissions and
+add Analytics Read if missing. No new secret needed.
