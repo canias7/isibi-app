@@ -78,6 +78,11 @@ const CASES = [
     pending: { request: "Change the photo.", question: { text: "Which photo?", options: [] } },
   }), "fallback"],
   ["answered-ignored", () => routed({ intent: "edit", layer: "look", answered: true }), "model"],
+  // NEW WORK BESIDE AN ANSWER (2026-10-26): an `alsoNew` entry that is not the
+  // customer's own words fails the call — never run as something they said.
+  ["also-new-unread", () => routed({ intent: "edit", layer: "look", answered: true, alsoNew: ["lock the bookings table"] }, {
+    pending: { request: "Change the photo.", question: { text: "Which photo?", options: [] } },
+  }), "fallback"],
   ["clarify-unreadable", () => routed({ intent: "clarify", question: { text: "", options: [] } }, { firstBuild: true, hasSite: false, site: {} }), "fallback"],
   ["work-without-site", () => routed({ intent: "edit", layer: "look" }, { hasSite: false }), "fallback"],
   ["ask-empty", () => routed({ intent: "ask", answer: "  " }), "fallback"],

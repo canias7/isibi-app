@@ -465,6 +465,23 @@ export function mapCall(call, note) {
   out.mapped = { call, note };
   return out;
 }
+/**
+ * WHAT A JOB RECORDS A MAPPED CALL UNDER, AND WHAT IT SENDS (2026-10-26).
+ * `real` is the request with the map in place; `keyed` the request with a
+ * stand-in naming only that a map of this format rode it. So an answer made
+ * with no map, or with a map of another format, is never replayed for a call
+ * that has one — while a part prepared beside another part's job is still
+ * answered from its preparation when that job changes some other page (its
+ * own scope is in the request itself; the parallel batch's rule).
+ */
+export async function mapKeyed(req, note) {
+  let t = "";
+  try { t = typeof note === "function" ? await note() : ""; } catch { t = ""; }
+  if (!t || !String(t).trim()) return { keyed: req, real: req };
+  return { keyed: mapStandIn(req), real: withMapNote(req, t) };
+}
+/** The request as a job records it when a map rode it (`mapKeyed`). */
+export function mapStandIn(req) { return withMapNote(req, "(site map, format " + MAP_VERSION + ")"); }
 /** The request with its map note in place; a note that cannot be read leaves it as it was. */
 export async function mapRequest(req, note) {
   let t = "";

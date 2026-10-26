@@ -236,7 +236,7 @@ import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
 import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings, canWriteAccess } from "./site-access.mjs";
 import { routeInventory } from "./builder/route-inventory.mjs";
-import { buildSiteMap, mapFor, siteSlice, mapSend, mapCall, mapRequest, mapKey as siteMapKey, mapVersionKey as siteMapVersionKey, MAP_VERSION as SITE_MAP_VERSION } from "./builder/site-map.mjs";
+import { buildSiteMap, mapFor, siteSlice, mapSend, mapCall, mapKeyed, mapStandIn, mapKey as siteMapKey, mapVersionKey as siteMapVersionKey, MAP_VERSION as SITE_MAP_VERSION } from "./builder/site-map.mjs";
 import { converse, readHistory, converseRequest, requestChars, CONTEXT_CHARS, converseTables } from "./builder/site-converse.mjs";
 import { planWindow, compact as compactChat, COMPACT_AT } from "./builder/chat-context.mjs";
 // The pair a `display` table resolves to. Named once, from the presets, so the
@@ -7324,15 +7324,19 @@ function makePrepCtx({ id, budget, uid = "", slug = "", rec = recorder() }) {
 // is made as before.
 const jobSendRaw = (job, send, opts) => (job && job.prepare === true && job.rec ? job.rec.wrap(send)
   : job && job.replay ? (job.keep ? job.keep.wrap(job.replay.wrap(send, opts)) : job.replay.wrap(send, opts)) : send);
-// THE MAP IS PART OF WHAT IS RECORDED (2026-10-26): a mapped send has its map
-// added first, so the recorder and the replayer key on the request as the
-// model sees it. An answer made with no map, or with a different one, is never
-// replayed; the same request with the same map still is.
+// THE MAP IS PART OF WHAT IS RECORDED (2026-10-26): a mapped call is recorded
+// and replayed under its request plus a stand-in for the map's format
+// (`mapKeyed`), and sent with the map itself. An answer made with no map, or a
+// map of another format, is never replayed; the same request with a map of
+// the same format still is — a preparation made beside another part's job is
+// not thrown away because that job changed some other page.
 const jobSend = (job, send, opts) => {
   const m = send && send.mapped;
   if (!m || !job || !(job.rec || job.replay)) return jobSendRaw(job, send, opts);
-  const inner = jobSendRaw(job, m.send, opts);
-  return async (req) => inner(await mapRequest(req, m.note));
+  return async (req) => {
+    const { keyed, real } = await mapKeyed(req, m.note);
+    return jobSendRaw(job, () => m.send(real), opts)(keyed);
+  };
 };
 /**
  * THE SAME FOR A TRANSPORT CALLED `(keys, req, budget)` — the page writer's
@@ -7342,7 +7346,10 @@ const jobSend = (job, send, opts) => {
 const jobCall = (job, call) => {
   const m = call && call.mapped;
   if (!m || !job || !(job.rec || job.replay)) return (keys, req, budget) => jobSend(job, (r) => call(keys, r, budget))(req);
-  return async (keys, req, budget) => jobSendRaw(job, (r) => m.call(keys, r, budget))(await mapRequest(req, m.note));
+  return async (keys, req, budget) => {
+    const { keyed, real } = await mapKeyed(req, m.note);
+    return jobSendRaw(job, () => m.call(keys, real, budget))(keyed);
+  };
 };
 /**
  * The same for a picture bought for a description. A REQUEST PART'S JOB buys
@@ -37009,7 +37016,7 @@ async function handleRequest(request, env, ctx) {
             // call below is offered its question; a step that asks pauses only
             // this task, and its job is refunded (nothing is charged for a
             // question or while it waits).
-            const eReplayHas = (r) => (eJob && eJob.prepare !== true && eJob.replay && typeof eJob.replay.has === "function" ? eJob.replay.has(r) : false);
+            const eReplayHas = (r) => (eJob && eJob.prepare !== true && eJob.replay && typeof eJob.replay.has === "function" ? (eJob.replay.has(r) || eJob.replay.has(mapStandIn(r))) : false);
             // EVERY EDIT STEP AND LANE SEES THE SITE (2026-10-26): one slice for
             // the whole job, the same for every call, so a call repeated within
             // the job is the same request (the journal answers it once).
@@ -43589,7 +43596,7 @@ async function handleRequest(request, env, ctx) {
             // ANY STEP MAY ASK, AT ANY STAGE (owner, 2026-10-26): no `charged`
             // gate, so the add-on's calls are offered their question after a
             // reserve too; the job that ends in a question is refunded.
-            const aReplayHas = (r) => (aJob && aJob.prepare !== true && aJob.replay && typeof aJob.replay.has === "function" ? aJob.replay.has(r) : false);
+            const aReplayHas = (r) => (aJob && aJob.prepare !== true && aJob.replay && typeof aJob.replay.has === "function" ? (aJob.replay.has(r) || aJob.replay.has(mapStandIn(r))) : false);
             // EVERY ADD-ON CALL SEES THE SITE (2026-10-26): designers, writers,
             // the judge, verification and retries, through this one transport.
             const aQuick = (what = "", opts) => clarifyTransport(aCounted(jobSend(aJob, mappedSend(env, ownerSlug, "site", quickSend(env, what, aJob && aJob.budget)), opts)), {
