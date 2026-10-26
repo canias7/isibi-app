@@ -134,28 +134,6 @@ export function routeOnExisting(routed, site, { reason } = {}) {
 }
 
 /**
- * A QUESTION FOR A PART OF A REQUEST ALREADY CHARGED IS NEVER ASKED: it becomes
- * the obvious choice. A page the site has, named by the change (written or
- * read), is edited by the page step; otherwise the add-on step decides what to
- * make. A start-over confirmation (`confirm: "rewrite"`) is not converted: it
- * is the one question that must be asked before a rewrite, and it is never a
- * part's. Returns the answer unchanged when it is not a question.
- */
-export function partClarifyChoice(routed, site, { reason } = {}) {
-  if (!routed || routed.intent !== "clarify" || routed.confirm === "rewrite") return routed;
-  const pages = sitePages(site);
-  const { writes, reads } = namedOf(routed, 0);
-  const named = [...writes, ...reads].map(pageOf).filter(Boolean);
-  const page = named.find((p) => pages.includes(p)) || "";
-  const decision = routed.decision && typeof routed.decision === "object" && Array.isArray(routed.decision.reasons) && reason
-    ? { ...routed.decision, reasons: routed.decision.reasons.includes(reason) ? routed.decision.reasons : [...routed.decision.reasons, reason] }
-    : routed.decision;
-  const base = { ...routed, question: undefined, again: undefined, note: undefined, decision };
-  if (page) return { ...base, intent: "edit", layer: "page", page, remove: false, tab: false };
-  return { ...base, intent: "addon" };
-}
-
-/**
  * WHAT A LONE ENTRY DOES NOT DO (2026-10-25, owner: a lone `row` answer was
  * written and replied to as done while the feature asked for beside it — live,
  * bookings — was never built). The row designer lists its requirements as every

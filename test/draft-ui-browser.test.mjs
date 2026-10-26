@@ -261,7 +261,7 @@ const NEEDS = "Change the site description to mention our gallery page";
 const Q = { text: "Which photos should the gallery show?", options: ["Loaves", "The bakery"] };
 const GPAGE = (p, name) => ({ path: p, name, purpose: "what " + name + " is for", sections: ["a band"], components: ["section-header"] });
 
-test("DFU4 ONE MESSAGE, TWO PARTS, UNDER DRAFT-FIRST, ON THE PAGE: the part that needs the other waits for it; the other's routing answers with a question, which is never asked after the charge (owner, 2026-10-25): the add-on step runs it; both end saved as a draft, the live site untouched until Publish", { skip: SKIP, timeout: 240000 }, async () => {
+test("DFU4 ONE MESSAGE, TWO PARTS, UNDER DRAFT-FIRST, ON THE PAGE: the part that needs the other says which part it waits for; the other asks, and the question answered on the page resumes it; both end saved as a draft, the live site untouched until Publish", { skip: SKIP, timeout: 240000 }, async () => {
   const compiler = installCompiler();
   const { writtenPage } = await import("./fixtures/addon-route.mjs");
   let descs = 0;
@@ -273,6 +273,7 @@ test("DFU4 ONE MESSAGE, TWO PARTS, UNDER DRAFT-FIRST, ON THE PAGE: the part that
         { intent: "edit", layer: "look" },
         { intent: "edit", layer: "look", alsoAsked: [ADD], dependsOn: [{ change: 0, after: [1] }] },
         { intent: "clarify", question: Q },
+        { intent: "addon", answered: true },
         { intent: "edit", layer: "look" },
       ],
       [T.pick]: { fields: ["description"], scopes: [{ part: "description", words: NEEDS }] }, "lane:description": () => (descs++ ? "Sourdough, and a gallery of our loaves." : "Sourdough from the harbour."),
@@ -301,11 +302,15 @@ test("DFU4 ONE MESSAGE, TWO PARTS, UNDER DRAFT-FIRST, ON THE PAGE: the part that
 
     await page.fill("#stRevise", NEEDS + ", and " + ADD + ".");
     await page.click("#stSend");
-    // NO QUESTION: the part's routing never asks once the request is charged.
+    // THE WAITING PART NAMES THE PART IT WAITS FOR; THE OTHER ASKS.
+    await page.waitForFunction(() => { const c = [...document.querySelectorAll(".st-par")].pop(); return !!c && [...c.querySelectorAll(".st-par-tag")].some((e) => e.textContent === "waiting for part 2"); }, null, { timeout: 60000 });
+    await page.waitForSelector("[data-ask-pick]", { timeout: 60000 });
+    assert.deepEqual(await labels(), ["waiting for part 2", "needs you"]);
+    await shot("dfu4-waiting-and-question");
+    // THE ANSWER, ON THE PAGE.
+    await page.click("[data-ask-pick] >> text=Loaves");
+    await page.click("[data-ask-go]");
     await page.waitForFunction(() => { const c = [...document.querySelectorAll(".st-par")].pop(); const l = c ? [...c.querySelectorAll(".st-par-tag")].map((e) => e.textContent) : []; return l.length === 2 && l.every((t) => t === "saved as draft"); }, null, { timeout: 120000 });
-    assert.deepEqual(await labels(), ["saved as draft", "saved as draft"]);
-    assert.equal(await page.locator("[data-ask-pick]").count(), 0, "a question card came up");
-    assert.equal(P.question(), null, "a part's routing asked after the charge");
     assert.ok(P.pages().includes("gallery.tsx"), "the gallery was not made");
     // THE LIVE SITE DID NOT MOVE.
     assert.equal(P.readObj("current/" + P.slug + ".json"), pointer0, "the live pointer moved before Publish");

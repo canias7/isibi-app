@@ -209,35 +209,50 @@ test("B2 — a prerequisite that fails to make the page another part links to: t
 // ─────────────────────────────────────────────────────────────────────────────
 
 const Q = { text: "Which photos should the gallery show?", options: ["Loaves", "The bakery"] };
-// A PART'S ROUTING NEVER ASKS ONCE THE REQUEST IS CHARGED (owner, 2026-10-25,
-// docs/history/2026-10-25-addon-fixes-2.md): the question cases below are asked
-// by a STEP instead — the description lane of part 0, as CR 1 does — so the
-// question machinery (waiting, resume, files, expiry, reconnection) is still
-// what they prove; C1 and CR 2 prove the new rule itself.
-const QS = { text: "Which word should lead — overnight or slow?", options: ["Overnight", "Slow"] };
-const STEP_ASKS = { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }, { intent: "edit", layer: "look", answered: true }], ...DESCRIBE, "lane:description": (args, n) => (n === 0 ? { question: QS } : NEW_DESC), ...GALLERY };
 
-test("C1 — a part's routing answers with a question after the request was charged: nothing is asked, the obvious choice runs (no page named, so the add-on step decides), the part finishes in the same pass, and routing is charged once", async () => {
+test("C1 — a part's routing asks: the part waits on the site's question, the answer resumes it on the server, and the same answer sent again is handed back without a second routing call", async () => {
   await withPlatform({
     slug: slugOf("c1"),
     answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "clarify", question: Q }, { intent: "addon", answered: true }], ...DESCRIBE, ...GALLERY },
   }, async (P) => {
     const r = await sendMessage(P, { message: DESC + ", and " + ADD + " for it." });
     const s1 = await settle(P, r.key);
-    assert.deepEqual(statuses(s1.rec), ["done", "done"], JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why])));
-    // NOTHING WAS ASKED: no question on the site, none on the part.
-    assert.equal(P.question(), null);
-    assert.ok(s1.rec.parts[1].question == null);
-    // THE OBVIOUS CHOICE RAN: the add-on step made the page.
-    assert.ok(P.pages().includes("gallery.tsx"));
-    assert.equal(P.jobsOf(r.key).filter((j) => j.op === "addon").length, 1);
+    assert.deepEqual(statuses(s1.rec), ["done", "waiting"]);
+    assert.equal(s1.rec.state, "waiting");
+    // THE QUESTION IS THE SITE'S LIVE ONE, AND NAMES ITS PART.
+    const q = P.question();
+    assert.equal(q.status, "pending");
+    assert.equal(q.requestKey, r.key);
+    assert.equal(q.part, 1);
+    assert.equal(s1.rec.parts[1].question.id, q.id);
     // "IT" STILL MEANS WHAT IT MEANT: the part's routing was shown the whole message.
+    // (Its other part's words marked as another part's, 2026-10-12: the message is still whole.)
     const shown1 = P.modelLog.filter((m) => m.tool === T.route)[1].text;
     assert.ok(shown1.replace(/⟦ANOTHER PART: |⟧/g, "").includes(DESC + ", and " + ADD + " for it."));
     assert.ok(shown1.includes("⟦ANOTHER PART: " + DESC), "the first part's words were not marked as another part's");
-    // ONE ROUTING CALL PER PART, NO THIRD (the supplied answer to a question is never read).
-    assert.equal(P.modelLog.filter((m) => m.tool === T.route).length, 2);
-    assert.deepEqual(rows(P, "route"), [-1]);
+    // THE ANSWER, AS THE PAGE SENDS IT.
+    const before = P.spent();
+    const a = await sendMessage(P, { message: "Loaves", ask: { id: q.id, chosen: true } });
+    assert.equal(a.status, 200, JSON.stringify(a.body));
+    assert.deepEqual(a.body.resumed, { key: r.key, part: 1 });
+    assert.equal(a.body.request.key, r.key);
+    assert.equal(P.question().status, "answered");
+    const s2 = await settle(P, r.key);
+    assert.deepEqual(statuses(s2.rec), ["done", "done"]);
+    assert.ok(P.pages().includes("gallery.tsx"));
+    assert.deepEqual(s2.rec.context, [{ q: Q.text, a: "Loaves" }]);
+    // THE ANSWER'S ROUTING IS NOT CHARGED (2026-10-24, addon-existing): it
+    // resumes a request whose routing was already paid for.
+    assert.deepEqual(P.ledger.filter((e) => e.ref === "route:" + P.slug + ":" + a.key).map((e) => e.delta), []);
+    // THE SAME ANSWER AGAIN (a lost response): no model asked, nothing charged.
+    const calls = P.modelLog.length;
+    const spent = P.spent();
+    const again = await sendMessage(P, { message: "Loaves", ask: { id: q.id, chosen: true }, key: a.key });
+    assert.equal(again.body.duplicate, true);
+    assert.deepEqual(again.body.resumed, { key: r.key, part: 1 });
+    assert.equal(P.modelLog.length, calls, "a second routing call was made for the same answer");
+    assert.equal(P.spent(), spent);
+    assert.ok(spent > before);
   });
 });
 
@@ -426,11 +441,11 @@ test("CR 1 — CLARIFY AND RESUME, AN EDIT'S STEP ASKS: the addition beside it f
   }));
 });
 
-test("CR 2 — AN ADDITION'S ROUTING ANSWERS WITH A QUESTION AFTER THE CHARGE (owner, 2026-10-25): nothing is asked; the addition runs as the add-on step's, the description edit beside it finishes, the page edit that needs the addition runs once after it; one routing row, one reserve per job, no refund; a reload runs and charges nothing", async () => {
+test("CR 2 — CLARIFY AND RESUME, AN ADDITION'S ROUTING ASKS: the description edit beside it finishes while it waits; the page edit that needs the addition is held; the same reconnection, resume, single-run and money checks hold for this other task type and stage", async () => {
   await withPlatform({
     slug: slugOf("cr2"),
     answers: {
-      route: [{ intent: "edit", layer: "look", alsoAsked: [ADD, LINE_CR], dependsOn: [{ change: 2, after: [1] }] }, { intent: "clarify", question: Q }, { intent: "edit", layer: "look", page: "/visit" }],
+      route: [{ intent: "edit", layer: "look", alsoAsked: [ADD, LINE_CR], dependsOn: [{ change: 2, after: [1] }] }, { intent: "clarify", question: Q }, { intent: "addon", answered: true }, { intent: "edit", layer: "look", page: "/visit" }],
       [T.pick]: [
         { fields: ["description"], scopes: [{ part: "description", words: DESC }] },
         { fields: ["shape"], scopes: [{ part: "shape", page: "/visit", words: LINE_CR }] },
@@ -439,41 +454,26 @@ test("CR 2 — AN ADDITION'S ROUTING ANSWERS WITH A QUESTION AFTER THE CHARGE (o
       [T.tweak]: { source: VISIT_MOVED },
       ...{ [T.adds]: GALLERY[T.adds], "add:page": GALLERY["add:page"], [T.pages]: GALLERY[T.pages] },
     },
-  }, async (P) => {
-    const r = await sendMessage(P, { message: DESC + ", " + ADD + ", and " + LINE_CR + "." });
-    const s1 = await settle(P, r.key);
-    assert.deepEqual(statuses(s1.rec), ["done", "done", "done"], JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why])));
-    assert.equal(P.question(), null, "a part's routing asked after the charge");
-    assert.ok(P.pages().includes("gallery.tsx"));
-    assert.equal(P.page("visit.tsx"), VISIT_MOVED);
-    assert.equal(P.look().description, NEW_DESC);
-    const after = jobsByPart(P, r.key);
-    const depOps = after[2].map((x) => x.split(":")[1]);
-    assert.equal(new Set(depOps).size, depOps.length, "the dependent part ran a step twice: " + JSON.stringify(depOps));
-    assert.deepEqual(P.ledger.filter((e) => e.reason === "route").map((e) => e.ref), ["route:" + P.slug + ":" + r.key]);
-    for (const j of P.jobsOf(r.key)) assert.ok(reserveOf(P, j.id).length <= 1, j.op + " was reserved twice");
-    assert.deepEqual(rows(P, "refund"), []);
-    const spent = P.spent();
-    const later = (await call(P, "GET", "/api/site/requests/" + P.slug)).body.requests.find((x) => x.key === r.key);
-    assert.equal(later.ended, true);
-    await tick(P);
-    assert.deepEqual(jobsByPart(P, r.key), after);
-    assert.equal(P.spent(), spent);
-  });
+  }, (P) => clarifyResume(P, {
+    asking: 1, independent: 0, dependent: 2, answer: "Loaves",
+    landedBefore: (P) => assert.equal(P.look().description, NEW_DESC, "the independent edit did not land while the question waited"),
+    unchangedBefore: (P) => { assert.ok(!P.pages().includes("gallery.tsx"), "the asking addition made its page before its answer"); assert.equal(P.page("visit.tsx"), VISIT, "the held part changed its page before the answer"); },
+    landedAfter: (P) => { assert.ok(P.pages().includes("gallery.tsx")); assert.equal(P.page("visit.tsx"), VISIT_MOVED); assert.equal(P.look().description, NEW_DESC); },
+  }));
 });
 
 test("C3 — a part's question never replaces one the customer is answering: it waits its turn on the part, and is put in the slot once that one is settled", async () => {
   await withPlatform({
     slug: slugOf("c3"),
-    answers: STEP_ASKS,
+    answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "clarify", question: Q }], ...DESCRIBE, ...GALLERY },
   }, async (P) => {
     const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
     // ANOTHER QUESTION GOES LIVE ON THE SITE MEANWHILE (another tab's message).
     const other = { v: 2, id: "f".repeat(32), uid: USER.id, slug: P.slug, stage: "route", round: 1, question: { text: "Something else?", options: [] }, request: "Something else", held: [], at: P.now(), status: "pending", attached: false, context: [] };
     await P.bucket.put("source/" + P.slug + "/question.json", JSON.stringify(other));
     const s1 = await settle(P, r.key);
-    assert.deepEqual(statuses(s1.rec), ["waiting", "done"]);
-    assert.equal(s1.rec.parts[0].question.queued, true, "the part's question did not wait its turn");
+    assert.deepEqual(statuses(s1.rec), ["done", "waiting"]);
+    assert.equal(s1.rec.parts[1].question.queued, true, "the part's question did not wait its turn");
     assert.equal(P.question().id, other.id, "the part's question replaced the one waiting on the customer");
     // THE OTHER IS CANCELLED: the part's question is offered on the next look.
     const c = await call(P, "POST", "/api/site/" + P.slug + "/question", { id: other.id, cancel: true });
@@ -482,7 +482,7 @@ test("C3 — a part's question never replaces one the customer is answering: it 
     const live = P.question();
     assert.equal(live.requestKey, r.key);
     assert.equal(live.status, "pending");
-    assert.equal(P.record(r.key).parts[0].question.queued, false);
+    assert.equal(P.record(r.key).parts[1].question.queued, false);
   });
 });
 
@@ -519,14 +519,14 @@ test("C4 — cancelling a part's question ends that part: what needed it is not 
 test("C5 — a part's question nobody answers for a day expires, as the question does, and what needed it is not run", async () => {
   await withPlatform({
     slug: slugOf("c5"),
-    answers: STEP_ASKS,
+    answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "clarify", question: Q }], ...DESCRIBE, ...GALLERY },
   }, async (P) => {
     const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
     await settle(P, r.key);
     P.advance(24 * 60 * 60 * 1000 + 1000);
     await tick(P);
     const rec = P.record(r.key);
-    assert.deepEqual(statuses(rec), ["expired", "done"]);
+    assert.deepEqual(statuses(rec), ["done", "expired"]);
     assert.equal(rec.state, "partial");
     assert.equal(rec.ended, true);
   });
@@ -622,13 +622,13 @@ test("D1 — a message's file is kept on the server under its request, reaches t
 test("D2 — an answer to a part's question may bring a file: it joins the request's; past one request's files nothing is sent, the question stays and nothing is charged", async () => {
   await withPlatform({
     slug: slugOf("d2"),
-    answers: STEP_ASKS,
+    answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "clarify", question: Q }, { intent: "addon", answered: true }], ...DESCRIBE, ...GALLERY },
   }, async (P) => {
     const three = [1, 2, 3].map((n) => ({ name: "p" + n + ".png", data: PNG }));
     const r = await sendMessage(P, { message: DESC + ", and " + ADD + ".", images: three });
     await settle(P, r.key);
     const q = P.question();
-    assert.equal(q.part, 0);
+    assert.equal(q.part, 1);
     const spent = P.spent();
     const calls = P.modelLog.length;
     // A FOURTH FILE WITH THE ANSWER: refused before any model is asked.
@@ -639,7 +639,7 @@ test("D2 — an answer to a part's question may bring a file: it joins the reque
     assert.equal(P.spent(), spent);
     assert.equal(P.modelLog.length, calls);
     // WITHOUT IT, THE ANSWER GOES THROUGH.
-    await sendMessage(P, { message: "Overnight", ask: { id: q.id, chosen: true } });
+    await sendMessage(P, { message: "Loaves", ask: { id: q.id, chosen: true } });
     const { rec } = await settle(P, r.key);
     assert.deepEqual(statuses(rec), ["done", "done"]);
   });
@@ -673,7 +673,7 @@ test("E1 — after the routing call nothing from the page is needed: a job's end
 test("E2 — a page opened later, or on another device, finds the request, its parts and its question; an ended one stays listed for a day and is then let go", async () => {
   await withPlatform({
     slug: slugOf("e2"),
-    answers: STEP_ASKS,
+    answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "clarify", question: Q }, { intent: "addon", answered: true }], ...DESCRIBE, ...GALLERY },
   }, async (P) => {
     const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
     await settle(P, r.key);
@@ -682,15 +682,15 @@ test("E2 — a page opened later, or on another device, finds the request, its p
     assert.equal(list.body.requests.length, 1);
     const v = list.body.requests[0];
     assert.equal(v.key, r.key);
-    assert.deepEqual(v.parts.map((p) => p.status), ["waiting", "done"]);
-    assert.equal(v.parts[0].question.text, QS.text);
+    assert.deepEqual(v.parts.map((p) => p.status), ["done", "waiting"]);
+    assert.equal(v.parts[1].question.text, Q.text);
     // THE QUESTION ROUTE NAMES ITS PART, so the other device's card answers it there.
     const qd = await call(P, "GET", "/api/site/" + P.slug + "/question");
-    assert.deepEqual(qd.body.question.request, { key: r.key, part: 0 });
+    assert.deepEqual(qd.body.question.request, { key: r.key, part: 1 });
     // NOTHING PRIVATE: no owner id, no file keys.
     assert.equal(JSON.stringify(list.body).includes(USER.id), false);
     // ANSWERED, ENDED, STILL LISTED; A DAY ON, LET GO.
-    await sendMessage(P, { message: "Overnight", ask: { id: P.question().id, chosen: true } });
+    await sendMessage(P, { message: "Loaves", ask: { id: P.question().id, chosen: true } });
     await settle(P, r.key);
     assert.equal((await call(P, "GET", "/api/site/requests/" + P.slug)).body.requests[0].ended, true);
     P.advance(24 * 60 * 60 * 1000 + 5 * 60 * 1000);
@@ -1752,14 +1752,14 @@ test("I3 — every job delivered twice runs once: the second delivery finds the 
 test("I4 — an answer sent again under a new key finds its question already answered: nothing runs twice", async () => {
   await withPlatform({
     slug: slugOf("i4"),
-    answers: STEP_ASKS,
+    answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "clarify", question: Q }, { intent: "addon", answered: true }], ...DESCRIBE, ...GALLERY },
   }, async (P) => {
     const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
     await settle(P, r.key);
     const q = P.question();
-    await sendMessage(P, { message: "Overnight", ask: { id: q.id, chosen: true } });
+    await sendMessage(P, { message: "Loaves", ask: { id: q.id, chosen: true } });
     const spent = P.spent();
-    const second = await sendMessage(P, { message: "Overnight", ask: { id: q.id, chosen: true } });
+    const second = await sendMessage(P, { message: "Loaves", ask: { id: q.id, chosen: true } });
     assert.equal(second.body.error, "stale-question");
     assert.equal(P.spent(), spent);
     const { rec } = await settle(P, r.key);

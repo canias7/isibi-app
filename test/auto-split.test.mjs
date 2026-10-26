@@ -235,32 +235,40 @@ test("S8 — a part that already held another part back splits itself and still 
   });
 });
 
-// ── ALREADY CHARGED, ACROSS PARTS (2026-10-24, the gap `no-ask-after-charge` left) ──
-test("C1 — a part after an earlier part's job was charged offers no question: its model request has no question field, and a question asked anyway becomes its stated default", async () => {
+// ── ANY STEP MAY ASK, AT ANY STAGE (owner, 2026-10-26, replacing "no question
+//    after a charge" across parts) ──
+test("C1 — a part after an earlier part's job was charged is still offered its question: it pauses only that part, uncharged, and the answer resumes it with no new routing charge", async () => {
+  const QA = { text: "A whole page, or a band on the home page?", options: ["A gallery page", "A band on the home page"] };
   await withPlatform({
     slug: slugOf("c1"),
     answers: {
-      route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }],
+      route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }, { intent: "addon", answered: true }],
       ...DESCRIBE, ...GALLERY,
-      [T.adds]: (args, n) => (n === 0 ? { question: { text: "A whole page, or a band on the home page?", options: ["A gallery page", "A band on the home page"] } } : { kinds: ["page"] }),
+      [T.adds]: (args, n) => (n === 0 ? { question: QA } : { kinds: ["page"] }),
     },
   }, async (P) => {
     const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
     const { rec } = await settle(P, r.key, { rounds: 20 });
-    assert.deepEqual(statuses(rec), ["done", "done"], shape(rec));
-    // PART 0'S JOB WAS CHARGED…
+    assert.deepEqual(statuses(rec), ["done", "waiting"], shape(rec));
     const jobs = P.jobsOf(r.key);
     assert.equal(reserveOf(P, jobs[0].id).length, 1, "part 0 was not charged");
-    // …SO PART 1'S PICKER WAS ASKED WITH NO QUESTION FIELD.
+    // PART 1'S PICKER WAS OFFERED ITS QUESTION after part 0's charge.
     const picks = P.modelLog.filter((m) => m.tool === T.adds);
-    assert.ok(picks.length >= 1);
-    assert.ok(picks.every((m) => !m.props.includes("question") && m.props.includes("defaulted")), JSON.stringify(picks.map((m) => m.props)));
-    // AND THE QUESTION IT ASKED ANYWAY IS ITS STATED DEFAULT, never the customer's to answer.
+    assert.ok(picks.length >= 1 && picks[0].props.includes("question") && !picks[0].props.includes("defaulted"), JSON.stringify(picks.map((m) => m.props)));
+    // NOTHING KEPT FOR THE QUESTION: every job of part 1 nets to zero.
+    // NOTHING KEPT FOR THE QUESTION: the add-on job that asked holds no
+    // reserve (the part's routing call, made and answered, is its own row).
+    for (const j of jobs.filter((x) => x.op === "addon")) assert.equal(reserveOf(P, j.id).length, 0, "the part that asked kept a charge");
+    const q = P.question();
+    assert.equal(q && q.part, 1);
+    assert.equal(q.question.text, QA.text);
+    const routing = () => P.ledger.filter((l) => l.ref.startsWith("route:") || P.jobsOf(r.key).some((j) => j.op === "route" && l.ref.startsWith(j.id))).length;
+    const routes0 = routing();
+    await sendMessage(P, { message: "A gallery page", ask: { id: q.id, chosen: true } });
+    const s2 = await settle(P, r.key, { rounds: 20 });
+    assert.deepEqual(statuses(s2.rec), ["done", "done"], shape(s2.rec));
     assert.ok(P.pages().includes("gallery.tsx"));
-    const add = [...P.jobs.values()].find((j) => j.op === "addon");
-    const body = JSON.parse(add.result.body);
-    assert.deepEqual(body.defaulted, [{ assumed: "A gallery page", instead: "A band on the home page" }]);
-    assert.equal(rec.parts[1].question, null);
+    assert.equal(routing(), routes0, "the answer was charged routing again");
   });
 });
 

@@ -3547,11 +3547,9 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
     if (shownHistory.turns.length) shown.push("history-shown");
     if (shownHistory.turns.length && (shownHistory.left > 0 || shownHistory.turns.some((t) => t.cut))) shown.push("history-cut");
     request = askRequest({ items, message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live,
-      // OFFERED ONLY WHERE THE ROUTE SAYS SO (2026-10-25, router-b1): a part of
-      // a request already charged is told questions are closed (`offerAsk`
-      // false), while `canAsk` still says one can be kept, so a start-over
-      // question a part raises still waits and a stray clarify is still read
-      // and handled by the route's safety net (`partClarifyChoice`).
+      // OFFERED WHEREVER ONE CAN BE KEPT (owner, 2026-10-26: any step may
+      // ask, at any stage, parts included); `offerAsk` false is still read
+      // for a caller that has nobody to ask.
       canAsk: canAsk && offerAsk !== false, pending: waiting, context: waiting ? told : (partOf ? (readContext(context) || []) : told), part: partOf, tablesNone: tablesNone === true, history: shownHistory.turns.length ? shownHistory : null, summary: keptSummary, answering: canClarify && answering === true && picked !== true, device, split: live && hasSite ? split : null, inventory, cacheKey });
   } catch (e) {
     return fail("request", e);

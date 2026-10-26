@@ -1,4 +1,9 @@
-// NO QUESTION AFTER A CHARGE (owner, 2026-10-24).
+// NO QUESTION AFTER A CHARGE (owner, 2026-10-24) — SUPERSEDED IN THE ROUTES by
+// "any step may ask, at any stage" (owner, 2026-10-26; test/ask-anywhere.test.mjs):
+// the routes no longer pass `charged`, so the route cases below now assert that
+// a step after a charge is still offered its question and that the question is
+// never charged. The transport's `charged` option itself is unchanged and its
+// unit cases stand.
 //
 // Owner: *"the model may ask the customer a question only BEFORE anything is
 // charged; once work has been charged, it must not stop to ask — it goes ahead
@@ -150,7 +155,7 @@ const focusOf = (src) => { const m = /focus="(\w+)"/.exec(String(src || "")); re
 const SITE3 = (slug) => ({ ...SITE(slug), pages: [{ path: "/" }, { path: "/visit" }, { path: "/contact" }] });
 
 for (const mode of ["sync", "job"]) {
-  test("EDIT ROUTE (" + mode + "): after the heading is charged the photo step is offered no question; the question it asks anyway is not shown — its first offered answer is used, made, charged once and stated", async () => {
+  test("EDIT ROUTE (" + mode + "): after the heading is charged the photo step is still offered its question (owner, 2026-10-26); the question is kept and the photo is neither made nor charged", async () => {
     const slug = freshSlug("no-ask-" + mode);
     const store = bucket(slug);
     store.poke(SOURCE_KEY(slug), JSON.stringify([{ path: "index.tsx", source: HOME }, { path: "visit.tsx", source: VISIT }, { path: "contact.tsx", source: CONTACT }]));
@@ -161,21 +166,16 @@ for (const mode of ["sync", "job"]) {
       await withWire({
         [T.pick]: { fields: ["shape", "images"], scopes: [{ part: "shape", page: "/", words: HEADING, answers: [] }, { part: "images", words: PHOTO, answers: [] }] },
         [T.tweak]: { source: HOME_BIG },
-        [PIC]: (args, n) => { offered.push(offers(args)); return /THEY CANNOT BE ASKED ANYTHING NOW/.test(JSON.stringify(args.messages)) ? { pictures: [{ page: "contact.tsx", alt: "The shop front at dawn", focus: "top" }] } : { pictures: [], question: QPIC }; },
+        [PIC]: (args) => { offered.push(offers(args)); return { pictures: [], question: QPIC }; },
       }, async (seen) => {
         const m0 = reserves(seen);
         const r = await postRoute(worker, envFor(store), store, seen, slug, browserPost(SITE3(slug), { intent: "edit", layer: "look" }, HEADING + " and " + PHOTO + "."), mode);
         const why = " (" + mode + "): " + JSON.stringify(r.body).slice(0, 500);
-        assert.equal(r.body.ok, true, why);
-        assert.equal(storedPage(store, slug, "index.tsx"), HOME_BIG, "the heading was not made" + why);
-        assert.equal(focusOf(storedPage(store, slug, "contact.tsx")), "top", "the photo step stopped instead of going ahead" + why);
-        assert.equal(offered.at(-1), false, "the photo step's last request after the charge offered the question field");
-        if (mode === "sync") assert.deepEqual(offered, [false, false], "after the charge the photo step was offered its question");
-        assert.deepEqual(r.body.defaulted, [{ assumed: "The sign", instead: "The doorway" }], "what was assumed is not on the answer" + why);
-        assert.equal(r.body.clarify, undefined, "a question was shown after the charge" + why);
-        assert.equal(question(store, slug), null, "a question was kept after the charge");
-        assert.equal(reserves(seen) - m0, 2, "the heading and the photo were not each charged once" + why);
-        assert.ok(editReplyFacts(r.body).facts.some((f) => /used “The sign”/.test(f.text)), "the reply facts do not state the default");
+        assert.ok(offered.length >= 1 && offered.every((o) => o === true), "after the charge the photo step was not offered its question: " + JSON.stringify(offered));
+        assert.equal(storedPage(store, slug, "contact.tsx"), CONTACT, "the photo was made beside its question" + why);
+        assert.equal(r.body.defaulted, undefined, why);
+        assert.ok(question(store, slug), "the question was not kept" + why);
+        assert.ok(reserves(seen) - m0 <= 1, "the step that asked was charged" + why);
       }, { slug });
     } finally { compiler.uninstall(); }
   });
@@ -260,24 +260,26 @@ const TABLE_ADD = {
   "add:table": { table: [{ table: { name: "suppliers", access: "public", columns: [{ name: "name", type: "text" }] }, seed: [{ name: "Mill Farm" }], shows: "/about" }] },
 };
 
-test("ADD-ON ROUTE (job): after the first reserve the page writer is offered no question; the one it asks anyway is not shown — the addition lands with the first offered answer, charged once, and the reply states it", { timeout: 30000 }, async () => {
+test("ADD-ON ROUTE (job): after the first reserve the page writer is still offered its question (owner, 2026-10-26): the addition waits on it with its reserve refunded, and the answer resumes it — the addition lands, charged once", { timeout: 30000 }, async () => {
   let n = 0;
   await withPlatform({
     slug: slugOf("a"), pages: PAGES, replies: true, balance: 400, db: rowsDb({ tables: {} }),
-    answers: { ...TABLE_ADD, [RT.pages]: async () => (++n === 1 ? { question: QPAGES } : { pages: [{ path: "src/routes/about.tsx", source: ABOUT_LIST }] }) },
+    answers: { ...TABLE_ADD, route: [{ intent: "addon" }, { intent: "addon", answered: true }], [RT.pages]: async (args) => (/Below the story/.test(JSON.stringify(args.messages)) ? { pages: [{ path: "src/routes/about.tsx", source: ABOUT_LIST }] } : (++n, { question: QPAGES })) },
   }, async (P) => {
     const r = await sendMessage(P, { message: "Please add a suppliers list to the About page." });
-    const { rec } = await settle(P, r.key);
-    assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    const s1 = await settle(P, r.key);
+    assert.equal(s1.rec.parts[0].status, "waiting", JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why])));
     const writes = P.modelLog.filter((m) => m.tool === RT.pages);
-    assert.equal(writes.length, 2);
-    assert.ok(writes.every((w) => !w.props.includes("question") && w.props.includes("defaulted")), "a page writer request after the reserve offered the question field: " + JSON.stringify(writes.map((w) => w.props)));
+    assert.ok(writes.length >= 1 && writes.every((w) => w.props.includes("question") && !w.props.includes("defaulted")), "a page writer request after the reserve was not offered its question: " + JSON.stringify(writes.map((w) => w.props)));
+    assert.equal(net(P, "edit"), 0, "the addition waiting on its question kept a charge: " + JSON.stringify(P.ledger));
+    const q = P.question();
+    assert.equal(q && q.question.text, QPAGES.text);
+    await sendMessage(P, { message: "Below the story", ask: { id: q.id, chosen: true } });
+    const s2 = await settle(P, r.key);
+    assert.equal(s2.rec.parts[0].status, "done", JSON.stringify(s2.rec.parts.map((p) => [p.status, p.why])));
     assert.ok(P.page("about.tsx").includes("Our suppliers"));
-    assert.equal(P.question(), null, "a question was kept after the charge");
     assert.ok(net(P, "edit") < 0, "the addition was not charged");
-    const refs = P.ledger.map((e) => e.ref + e.reason);
-    assert.equal(new Set(refs).size, refs.length, "a charge was made twice");
-    assert.ok(P.replyLog.some((facts) => facts.some((f) => /used “Below the story”/.test(f.text))), "the reply was not given the default: " + JSON.stringify(P.replyLog));
+    assert.ok(n >= 1);
   });
 });
 

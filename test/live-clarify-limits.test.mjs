@@ -106,9 +106,7 @@ for (const mode of ["sync", "job"]) {
         const why = " (" + mode + "): " + JSON.stringify(r.body).slice(0, 400);
         assert.equal(r.body.ok, true, "the heading beside the question did not run" + why);
         // NEVER SENT AGAIN ON OUR OWN, AND OFFERED ITS QUESTION.
-        // AFTER THE HEADING WAS CHARGED (2026-10-24, no question after a charge): the photo step is offered no
-        // question, asks anyway, is told once it cannot ask, and asking still ends in its question at no charge.
-        assert.deepEqual(offered, [false, false], "after a charge the photo step was offered its question, or not told once it cannot ask" + why);
+        assert.deepEqual(offered, [true], "the photo step was sent again at the threshold, or not offered its question" + why);
         assert.ok(seen.inputs[PIC][0].endsWith(contextBlock([CONTACT_ANSWER, SIGN, DOOR])), "the photo step was not shown the answers that did not settle it");
         // NOTHING PROPOSED BESIDE THE QUESTION IS MADE, PUBLISHED OR CHARGED.
         assert.equal(storedPage(store, slug, "contact.tsx"), CONTACT, "the focus proposed beside the unresolved question was made" + why);
@@ -418,8 +416,7 @@ for (const mode of ["sync", "job"]) {
         const r = await postRoute(worker, envFor(store), store, seen, slug, post, mode);
         const why = " (" + mode + "): " + JSON.stringify(r.body).slice(0, 400);
         assert.equal(r.body.ok, true, "the heading beside the question did not run" + why);
-        // AFTER THE HEADING WAS CHARGED (2026-10-24): offered no question, told once, and asking still ends in it.
-        assert.equal(offered.at(-1), false, "after a charge the move's writer was offered its question, or not told once it cannot ask" + why);
+        assert.deepEqual(offered, [true], "the move's writer was not offered its question at the limit, or was sent again" + why);
         assert.equal(storedPage(store, slug, "visit.tsx"), VISIT, "the move proposed beside the unresolved question was made" + why);
         assert.equal(storedPage(store, slug, "index.tsx"), HOME_BIG, "the heading did not run" + why);
         const pubs = published(compiler);
