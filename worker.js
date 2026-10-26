@@ -328,7 +328,7 @@ import { publishedForms, routeCode, renderedForms, renderedSubmits } from "./bui
 import { requirementRetryRound, judgedNeeds } from "./builder/requirement-retry.mjs";
 import { exerciseTables } from "./builder/requirement-exercise.mjs";
 import { renderedTexts } from "./builder/content-evidence.mjs";
-import { noteFor, pickAdds, designWaits, ADD_KINDS, mergePageBatches, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, frameToMissing, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, qrShownSources, qrDestinationCheck, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowRequired, requiredColumns, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
+import { noteFor, pickAdds, designWaits, ADD_KINDS, mergePageBatches, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, frameToMissing, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, qrShownSources, qrDestinationCheck, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowRequired, requiredColumns, rowMarkerKey, duplicateRows, duplicateAsk, duplicateAnswer, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 import { compileRepairRound, compileRepairRounds, writtenPaths, withParts, splitParts } from "./builder/compile-repair.mjs";
 import { salvageRound, anythingLanded, MAX_SALVAGE_ROUNDS, landedBill, partKey, writtenPartKeys } from "./builder/change-salvage.mjs";
 import { wantsFirstBuildBackend, featuresNeedingData, firstBuildBackendTool, firstBuildBackendBrief, mergeFirstBuildBackend, FIRST_BUILD_BACKEND_RULES } from "./builder/first-build-db.mjs";
@@ -44422,6 +44422,26 @@ async function handleRequest(request, env, ctx) {
               // said beside the entries (`notAdded`, never read as done), and
               // their own words go on as a part of their own (`aHeldOut.parts`,
               // the answer's `deferred`) unless they are the whole message.
+              // AN ENTRY THE LIST ALREADY HAS (2026-10-26, live test 11): asked
+              // about before anything is charged or written — never added twice.
+              if (adb) {
+                let dups = [];
+                try { dups = await duplicateRows((q, ps) => sqlReadOnly(adb, q, ps), rowClean.value); }
+                catch (e) { console.error("add-on duplicate check unanswered:", ownerSlug, errorClassForLog(e)); dups = []; }
+                for (const d of dups) {
+                  const said = duplicateAnswer(aCtxAll || [], d);
+                  if (said === "add") continue;
+                  if (said === "leave" || said === "other") {
+                    aMark("add:row", "ok", { duplicate: d.table, kept: true });
+                    return aNone({ ok: false, error: "declined", kinds: ["row"], cost: 0, unchanged: true,
+                      msg: "Nothing was added: “" + d.value + "” is already in " + d.table + "." + (said === "other" ? " To change the one already there, send that as a change." : "") }, 422);
+                  }
+                  const ask = duplicateAsk(d);
+                  aMark("add:row", "ok", { duplicate: d.table, asked: true });
+                  aAskOut.request = aInstruction;
+                  return Response.json({ ok: false, error: "clarify", layer: "addon", kind: "row", by: "add:row", cost: 0, unchanged: true, ask, msg: ask.text });
+                }
+              }
               const rowUnmetOut = rowUnmet(rowRan.requirements, aInstruction, wordsIn);
               for (const w of rowUnmetOut.carry) if (!aHeldOut.parts.includes(w)) aHeldOut.parts.push(w);
               for (const u of rowUnmetOut.told) {

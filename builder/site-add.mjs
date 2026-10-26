@@ -3265,6 +3265,57 @@ export async function requiredColumns(read, spec, lists) {
   return { source: "spec", required: rowRequired(spec) };
 }
 
+// ── AN ENTRY THE LIST ALREADY HAS IS ASKED ABOUT, NEVER ADDED TWICE ─────────
+//
+// Live test 11 (2026-10-26): an earlier add-on put "Group lessons (beginners
+// and improvers)" into `lessons` twice (ids 5 and 9), and the next price change
+// had to ask which of two identical rows it meant. An entry whose name (its
+// `name`, `title` or `label`, compared trimmed and ignoring case) is already in
+// its list is asked about before anything is charged or written: add another
+// anyway, or leave it. Only those three columns are read, so an entry with no
+// name of its own is never held back on a guess.
+export const DUP_ADD_ANYWAY = "Add another one anyway";
+export const DUP_LEAVE = "Leave it as it is";
+const DUP_NAME_COLS = ["name", "title", "label"];
+const DUP_IDENT = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
+
+/** The entry's own name: `{ col, value }`, or null when it has none. */
+export function rowNameOf(values) {
+  if (!values || typeof values !== "object") return null;
+  for (const col of DUP_NAME_COLS) {
+    if (Object.hasOwn(values, col) && typeof values[col] === "string" && values[col].trim()) return { col, value: values[col].trim() };
+  }
+  return null;
+}
+
+/** Entries whose name the list already has: `[{ table, col, value, id }]`. `read(sql, params)` is a read-only query. */
+export async function duplicateRows(read, rows) {
+  const out = [];
+  for (const r of Array.isArray(rows) ? rows : []) {
+    const n = r && DUP_IDENT.test(String(r.table || "")) ? rowNameOf(r.values) : null;
+    if (!n) continue;
+    const got = await read('SELECT id FROM "' + r.table + '" WHERE lower(trim("' + n.col + '"::text)) = lower($1) ORDER BY id LIMIT 1', [n.value]);
+    if (Array.isArray(got) && got[0] && got[0].id !== undefined) out.push({ table: r.table, col: n.col, value: n.value, id: got[0].id });
+  }
+  return out;
+}
+
+/** The question for the first duplicate: its own words, two answers. */
+export function duplicateAsk(d) {
+  return {
+    text: "“" + d.value + "” is already in " + d.table + ". Should I add another one anyway, or leave it as it is? To change the one already there, tell me what to change.",
+    options: [DUP_ADD_ANYWAY, DUP_LEAVE],
+  };
+}
+
+/** What they answered to that question, read from the request's context: "add", "leave", "other", or "" when not asked. */
+export function duplicateAnswer(context, d) {
+  const q = duplicateAsk(d).text;
+  const hit = (Array.isArray(context) ? context : []).filter((p) => p && p.q === q).pop();
+  if (!hit) return "";
+  return hit.a === DUP_ADD_ANYWAY ? "add" : hit.a === DUP_LEAVE ? "leave" : "other";
+}
+
 /**
  * WHAT THE `row` DESIGNER IS TOLD BESIDE THE SITE: the lists an entry may go in,
  * each with the columns it may fill. The site note already lists every table

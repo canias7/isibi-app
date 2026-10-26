@@ -1,6 +1,10 @@
 # Owner Notes
 
 
+## 2026-10-26 — Adding an entry that's already there asks first
+
+If an add-on would add an entry whose name is already in that list (like the second "Group lessons (beginners and improvers)"), it now asks, free: "add another one anyway, or leave it as it is?" Branch `reply-seen`. `docs/history/2026-10-26-addon-row-duplicate.md`.
+
 ## 2026-10-26 — "Only I can see sign-ups" when that's already true says so
 
 The rules step now names the table even when the rule you asked for already holds, so the reply says it's already so (free) instead of "There was no rule I could change". Branch `reply-seen`. `docs/history/2026-10-26-rules-already-named.md`.
