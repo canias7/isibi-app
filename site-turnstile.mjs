@@ -175,3 +175,39 @@ export async function rpcGate(deps, { path, sent, contentType, ip }) {
   if (verdict.ok) return { ...out, verdict };
   return { ...out, verdict, refused: "That didn't look like it came from a person. Please try again." };
 }
+
+// ── THE PLATFORM'S OWN PAIR (2026-10-25, owner: "Go Farther provides spam
+// protection itself", on by default) ─────────────────────────────────────────
+//
+// ONE key pair on our Cloudflare account (Worker env `TURNSTILE_SITE_KEY` /
+// `TURNSTILE_SECRET`) covers every site served on our own zones, because a
+// Turnstile widget's hostname covers its subdomains. A site's OWN pair, in its
+// secrets, still wins. Unset, or the deploy's `-` sentinel (wrangler refuses
+// an empty value), is off exactly as before; half a pair is off (A30-7).
+const envValue = (x) => {
+  const s = typeof x === "string" ? x.trim() : "";
+  return s && s !== "-" ? s : "";
+};
+export function platformPair(env) {
+  const secret = envValue(env && env.TURNSTILE_SECRET);
+  const siteKey = envValue(env && env.TURNSTILE_SITE_KEY);
+  return secret && siteKey ? { secret, siteKey } : null;
+}
+
+/**
+ * The pair a request is judged by. `own` is the site's own read
+ * (`{ secret, siteKey }`); `covered` is `true` only when the platform's widget
+ * can render where the request came from (our own hostnames). A site on a
+ * customer's own domain is not covered, so it stays as its own pair says (off
+ * without one). Anything but `true` is not covered.
+ */
+export function chooseTurnstile(own, env, { covered } = {}) {
+  const mine = {
+    secret: own && typeof own.secret === "string" ? own.secret : "",
+    siteKey: own && typeof own.siteKey === "string" ? own.siteKey : "",
+  };
+  if (mine.secret) return { ...mine, source: "site" };
+  const p = platformPair(env);
+  if (p && covered === true) return { ...p, source: "platform" };
+  return { ...mine, source: "off" };
+}

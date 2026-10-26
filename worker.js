@@ -6,6 +6,7 @@ import { runRowEffects, resolveCreatedRow } from "./site-row-effects.mjs";
 import { deliverWebhook, firesFor, signPayload, retryable as webhookRetryable, MAX_PER_MINUTE as WEBHOOK_PER_MIN } from "./site-webhooks.mjs";
 import { drainQueue, enqueueRow, sameOwner, queueFull, retentionCutoffs, LEASE_MS as WEBHOOK_LEASE_MS, MAX_PENDING_PER_SITE } from "./site-webhook-queue.mjs";
 import { takeToken, verify as turnstileVerify, oneRow as turnstileOneRow, TOKEN_FIELD as TURNSTILE_FIELD, rpcGate as turnstileRpcGate } from "./site-turnstile.mjs";
+import { platformPair, chooseTurnstile } from "./site-turnstile.mjs";
 import { handleInbound, MAX_BODY as INBOUND_MAX_BODY, MAX_PER_MINUTE as INBOUND_PER_MIN } from "./site-inbound.mjs";
 // `OWN_ZONES` is imported because `cfZoneId` reads it — it was not, and that is
 // a ReferenceError on the FIRST line of that function, outside every try, so
@@ -2059,7 +2060,10 @@ function harden(res, request) {
       // removing it — the load succeeds and the send is refused. Same class as
       // the map/video `frame-src` fix below, where one of two hosts on the list
       // would have left `VideoEmbed` rendering nothing.
-      "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com",
+      // SPAM PROTECTION (2026-10-25): Turnstile's script and its challenge
+      // frame both come from challenges.cloudflare.com; without these the
+      // widget never rendered, so no visitor could get a token.
+      "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com https://challenges.cloudflare.com",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com https://fonts.googleapis.com",
       "img-src 'self' data: blob: https://*.supabase.co",
@@ -2073,7 +2077,7 @@ function harden(res, request) {
       // this repo's signature failure shape, sitting live. Both are the
       // privacy-preserving hosts the component deliberately chose (no cookie on
       // a visitor who never pressed play), which is why they are safe to name.
-      "frame-src 'self' https://www.openstreetmap.org https://www.google.com https://maps.google.com https://www.youtube-nocookie.com https://player.vimeo.com",
+      "frame-src 'self' https://www.openstreetmap.org https://www.google.com https://maps.google.com https://www.youtube-nocookie.com https://player.vimeo.com https://challenges.cloudflare.com",
       "base-uri 'self'",
       // THE BUILDER'S PREVIEW IS NOW CROSS-ORIGIN, which `'self'` alone cannot
       // express. It was written when a site was served from `gofarther.dev/s/…`,
@@ -12796,6 +12800,8 @@ const webhookHits = new Map();
 // after switching OFF, real submissions are refused — which is why the delete
 // path clears this cache as well as the webhook one.
 const turnstileCfg = makeCache({ ttlMs: 15_000, max: 500 });
+// The per-site flag that opts a site into the platform's Turnstile pair.
+const TURNSTILE_PLATFORM_FLAG = "TURNSTILE_PLATFORM";
 
 /**
  * The real side effects for an inbound webhook, supplied to `site-inbound.mjs`
@@ -13220,13 +13226,17 @@ function forgetSiteConfig(slug) {
 // and the SECRET verifies what that widget produced. Read separately they would
 // be two queries and two caches that can disagree about whether this site is
 // protected.
-const turnstileConfig = memoize(turnstileCfg, async (slug, env, db) => {
+const siteTurnstileKeys = memoize(turnstileCfg, async (slug, env, db) => {
   const out = { secret: "", siteKey: "" };
   let rows = [];
   try { rows = await sqlQuery(db, "SELECT name, cipher FROM _secrets WHERE name LIKE 'TURNSTILE%'", []); }
   catch { return out; }
-  for (const r of (rows || []).slice(0, 4)) {
+  for (const r of (rows || []).slice(0, 6)) {
     const name = r && r.name;
+    // THE SITE ASKED FOR THE PLATFORM'S CHECK (2026-10-25, owner: on when a
+    // customer asks, not by default): presence of the row is the flag; its
+    // value is never read. Deleting it in the Secrets panel switches it off.
+    if (name === TURNSTILE_PLATFORM_FLAG) { out.platform = true; continue; }
     const field = name === "TURNSTILE_SECRET" ? "secret" : name === "TURNSTILE_SITE_KEY" ? "siteKey" : null;
     if (!field) continue;
     // A value that will not decrypt reads as absent, which fails OPEN — the
@@ -13247,6 +13257,68 @@ const turnstileConfig = memoize(turnstileCfg, async (slug, env, db) => {
 });
 
 /**
+ * THE PAIR A REQUEST IS JUDGED BY (2026-10-25, owner: the platform provides
+ * spam protection, on by default): the site's own pair when it has one, else
+ * the platform's (`TURNSTILE_SECRET` / `TURNSTILE_SITE_KEY` on the Worker) —
+ * only where the platform widget can render. `host` is the hostname the
+ * request arrived on: one of our own zones is covered; a customer's own domain
+ * mapped to THIS site is not (the widget cannot run there, so it stays off
+ * without the site's own pair); a domain mapped to another site is covered (a
+ * foreign host is no way round the check); a host that maps to nothing, or a
+ * lookup that fails, is not (fails open, the direction this gate always
+ * takes). With the platform pair unset nothing here is asked: as before.
+ */
+async function turnstileConfig(slug, env, db, host) {
+  const own = await siteTurnstileKeys(slug, env, db);
+  if (own.secret || own.platform !== true || !platformPair(env)) return own;
+  return chooseTurnstile(own, env, { covered: await platformCovers(env, slug, host) });
+}
+async function platformCovers(env, slug, host) {
+  const h = normalizeHostname(host);
+  if (!h) return false;
+  if (isOwnHostname(h)) return true;
+  const mapped = await siteForHostname(env, h).catch(() => null);
+  return !!mapped && mapped !== slug;
+}
+
+/**
+ * IS EVERY VISITOR FORM CHECKED, for the owner's facts (the security check,
+ * the rules reply): true with the site's own pair, or with the platform's and
+ * no live custom domain (where the site is served, the platform widget runs);
+ * false otherwise; null when it cannot be told.
+ */
+/**
+ * SWITCH THE PLATFORM'S CHECK ON FOR ONE SITE (the owner's ask, 2026-10-25):
+ * the flag row, through the site's own `_secrets` table, then the isolate's
+ * cache forgotten. Not a secret: the value is a marker and is never read.
+ * Answers true when written, false when it could not be. Called from the
+ * request flow once a structured outcome asks for protection (not yet wired:
+ * no step's answer carries such a field today).
+ */
+async function enableSpamCheck(env, slug, db) {
+  try {
+    await sqlExec(db, "INSERT INTO _secrets (name, cipher, hint) VALUES (?,?,?) ON CONFLICT (name) DO NOTHING", [TURNSTILE_PLATFORM_FLAG, "flag", JSON.stringify({ platform: true })]);
+  } catch { return false; }
+  forgetSiteConfig(slug);
+  return true;
+}
+
+async function spamCheckOn(env, slug, db) {
+  const own = await siteTurnstileKeys(slug, env, db);
+  if (own.secret) return true;
+  if (own.platform !== true || !platformPair(env)) return false;
+  if (!env.SUPABASE_SERVICE_KEY) return null;
+  try {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/site_domains?slug=eq.${encodeURIComponent(slug)}&status=eq.live&select=hostname&limit=1`,
+      { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY }, signal: AbortSignal.timeout(5000) });
+    if (!r.ok) return null;
+    const rows = await r.json();
+    return Array.isArray(rows) ? rows.length === 0 : null;
+  } catch { return null; }
+}
+
+/**
  * Decide whether this submission may reach Postgres, and hand back the body
  * with the challenge token removed.
  *
@@ -13263,7 +13335,7 @@ async function turnstileGate(env, request, { slug, db, path, sent }) {
   // before the field existed, passes as before. Every RPC is a POST, reads
   // included, so the method cannot tell them apart and the declaration does.
   const rpc = await turnstileRpcGate({
-    config: () => turnstileConfig(slug, env, db),
+    config: () => turnstileConfig(slug, env, db, new URL(request.url).hostname),
     spec: () => loadSiteSchema(db),
     post: (u, form) => fetch(u, { method: "POST", body: form, signal: AbortSignal.timeout(5000) }),
   }, { path, sent, contentType: request.headers.get("content-type"), ip: request.headers.get("CF-Connecting-IP") || "" });
@@ -13278,7 +13350,7 @@ async function turnstileGate(env, request, { slug, db, path, sent }) {
   const shape = turnstileOneRow(sent, request.headers.get("content-type"));
   const body = shape.row || null;
   if (!body) {
-    const { secret } = await turnstileConfig(slug, env, db);
+    const { secret } = await turnstileConfig(slug, env, db, new URL(request.url).hostname);
     if (!secret) return {};
     const t = String(path).split("/")[0].toLowerCase();
     let d = null;
@@ -13302,7 +13374,7 @@ async function turnstileGate(env, request, { slug, db, path, sent }) {
   // THE TOGGLE IS ASKED FIRST, on purpose. It is absent for almost every site,
   // so on a cold isolate an unprotected form pays one lookup here rather than a
   // schema read as well.
-  const { secret } = await turnstileConfig(slug, env, db);
+  const { secret } = await turnstileConfig(slug, env, db, new URL(request.url).hostname);
   if (!secret) return out;
 
   const table = String(path).split("/")[0].toLowerCase();
@@ -34289,7 +34361,7 @@ async function handleRequest(request, env, ctx) {
         const tdb = await siteBackendBySlug(env, slug);
         if (!tdb) return Response.json({}, { status: 404 });
         let key = "";
-        try { key = (await turnstileConfig(slug, env, tdb)).siteKey || ""; } catch { /* unconfigured */ }
+        try { key = (await turnstileConfig(slug, env, tdb, url.hostname)).siteKey || ""; } catch { /* unconfigured */ }
         // Cached at the edge as well: it changes about once in the life of a
         // site, and every visitor to every page asks for it.
         return Response.json(key ? { siteKey: key } : {}, { headers: { "cache-control": "public, max-age=60" } });
@@ -38992,8 +39064,12 @@ async function handleRequest(request, env, ctx) {
               // ALREADY SO (2026-10-25, run 6): every rule asked for is the one
               // the table has; nothing applied, so nothing is charged — the menu
               // editor's `satisfied`. The facts (`already`) go to the reply.
+              // SPAM PROTECTION AS A FACT (2026-10-25): whether every visitor
+              // form is checked (`spamCheckOn`), so a reply can say it is
+              // already on from the platform's state, never from the wording.
+              const rSpam = () => spamCheckOn(env, ownerSlug, rdb).then((v) => (typeof v === "boolean" ? v : undefined), () => undefined);
               if (rOut.ok && rOut.satisfied === true) {
-                return Response.json({ ok: true, satisfied: true, layer: "rules", applied: [], already: rOut.already, refused: rOut.refused || [], cost: 0, usage: rOut.usage });
+                return Response.json({ ok: true, satisfied: true, layer: "rules", applied: [], already: rOut.already, refused: rOut.refused || [], cost: 0, usage: rOut.usage, spamCheck: await rSpam() });
               }
               if (!rOut.ok) {
                 if (!rOut.escalate) {
@@ -39004,6 +39080,7 @@ async function handleRequest(request, env, ctx) {
                     // A RULES EDIT THAT CHANGED NOTHING IS NEVER BILLED (2026-10-25,
                     // run 6): a no-match took the reading's price for nothing.
                     ok: false, error: rOut.reason, cost: rBilled ? rCost : (rOut.reason === "no-match" ? 0 : await eCharge(rOut.usage)), usage: rOut.usage,
+                    spamCheck: rOut.reason === "no-match" ? await rSpam() : undefined,
                     // A REFUSAL IS SAID IN FULL. `rulesReply` is the one place
                     // that turns a refused rule into words, and a no-match that
                     // silently reads as "nothing happened" is how a booking
@@ -39027,7 +39104,7 @@ async function handleRequest(request, env, ctx) {
               }
               return Response.json({
                 ok: true, layer: "rules", applied: rOut.applied, refused: rOut.refused || [], already: Array.isArray(rOut.already) && rOut.already.length ? rOut.already : undefined,
-                msg: rOut.msg, cost: rBilled ? rCost : await eCharge(rOut.usage), usage: rOut.usage,
+                msg: rOut.msg, cost: rBilled ? rCost : await eCharge(rOut.usage), usage: rOut.usage, spamCheck: await rSpam(),
                 draft: rSealed.revision ? heldDraft(rSealed.revision) : undefined,
               });
             }
@@ -50469,7 +50546,7 @@ async function handleRequest(request, env, ctx) {
             }
             // BOT PROTECTION: true or false only when the site's secrets were read.
             let spamProtected = null;
-            if (scdb) { try { spamProtected = !!(await turnstileConfig(scslug, env, scdb)).secret; checked.push("spam"); } catch { spamProtected = null; } }
+            if (scdb) { try { const on = await spamCheckOn(env, scslug, scdb); if (typeof on === "boolean") { spamProtected = on; checked.push("spam"); } } catch { spamProtected = null; } }
             // THE CODE IT SERVES: the live build, or the draft's when never published.
             const files = [];
             try {

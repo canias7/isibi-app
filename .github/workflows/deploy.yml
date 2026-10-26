@@ -230,6 +230,8 @@ jobs:
             PARALLEL_WRITES
             DRAFT_FIRST
             ADDON_DRY_RUN
+            TURNSTILE_SITE_KEY
+            TURNSTILE_SECRET
         env:
           DEPLOY_ID: ${{ github.sha }}
           # ── VIDEO AND AUDIO LIMITS (2026-10-16) ───────────────────────────
@@ -629,6 +631,15 @@ jobs:
           # (403). The fallback is `-`, not empty, for the reason given at
           # EDIT_ASYNC_CANARY above: it parses to no uid at all.
           OPERATOR_UIDS: ${{ secrets.OPERATOR_UIDS || '-' }}
+          # ── SPAM PROTECTION, THE PLATFORM'S OWN PAIR (2026-10-25) ──────────
+          #
+          # One Cloudflare Turnstile widget on our account covers every site on
+          # our zones (`site-turnstile.mjs` `platformPair`); a site's own pair
+          # still wins. Optional: the fallback is `-`, not empty (the reason is
+          # at EDIT_ASYNC_CANARY above), and `-` reads as unset, so until the
+          # owner adds both secrets the check stays off exactly as before.
+          TURNSTILE_SITE_KEY: ${{ secrets.TURNSTILE_SITE_KEY || '-' }}
+          TURNSTILE_SECRET: ${{ secrets.TURNSTILE_SECRET || '-' }}
           # Mail needs NO secret here. The Worker sends through Cloudflare Email
           # Service via the `send_email` binding in wrangler.jsonc (2026-07-30,
           # replacing Go Farther) — nothing to mint, upload each deploy, or rotate.

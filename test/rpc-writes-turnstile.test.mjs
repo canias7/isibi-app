@@ -189,7 +189,7 @@ test("turnstileGate asks the rpc gate first, with the site's config and stored s
   const shape = fn.indexOf("turnstileOneRow(sent,");
   assert.ok(rpc > 0 && shape > 0, "both landmarks exist");
   assert.ok(rpc < shape, "the rpc gate runs before the table gate");
-  assert.match(fn, /config: \(\) => turnstileConfig\(slug, env, db\)/);
+  assert.match(fn, /config: \(\) => turnstileConfig\(slug, env, db, new URL\(request\.url\)\.hostname\)/);
   assert.match(fn, /spec: \(\) => loadSiteSchema\(db\)/);
   assert.match(fn, /if \(rpc\) \{/);
   assert.match(worker, /rpcGate as turnstileRpcGate \} from "\.\/site-turnstile\.mjs"/);

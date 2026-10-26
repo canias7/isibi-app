@@ -1255,9 +1255,21 @@ export function editReplyFacts(e, { routedCost = null, inRequest = false, partWo
   if (e.ok === true) salvageFact(F, e.salvaged, e.salvageRefund);
   if (e.ok === true) visualReviewFact(F, e.visualReview);
   if (e.ok === true) heldDraftFact(F, e);
+  spamCheckFact(F, e.spamCheck);
   heldFacts(F, e, e.ok === true, inRequest === true, { partWords, carved });
   questionFact(F, e.clarify);
   return questionOnly(F.out) ? { skip: "question-only", facts: [] } : { skip: null, facts: F.out };
+}
+
+/**
+ * SPAM PROTECTION, AS THE PLATFORM HOLDS IT (2026-10-25): the rules step's
+ * answer carries `spamCheck` (true only when every visitor form on the site is
+ * checked — the site's own pair, or the platform's where the site is served).
+ * Said as a state fact, so a request for it is answered from what is so;
+ * nothing when false or not told.
+ */
+export function spamCheckFact(F, on) {
+  if (on === true) F.add("note", "Spam protection is already on for every form visitors can fill in on this site: the platform checks each submission comes from a person, so nothing needed turning on for it and nothing was charged for it.");
 }
 
 /**

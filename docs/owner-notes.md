@@ -1,5 +1,15 @@
 # Owner Notes
 
+## 2026-10-26 — spam protection from Go Farther's own key, per site when asked (branch `fix-run6`, not merged, not deployed)
+
+- **One Turnstile key pair for the whole platform.** The Worker now reads `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET` (optional GitHub secrets; until you add them nothing changes). A site's own keys still win.
+- **On when a customer asks, not by default** (your update). A site is opted in by a flag in its own secrets (`TURNSTILE_PLATFORM`); sites that never asked stay as today. You can switch one off by deleting that row in its Secrets panel.
+- **Not yet automatic from a chat request.** The switch-on function exists (`enableSpamCheck`), but no step's answer has a structured field that says "they asked for spam protection", and adding one is new prompt text, which you ruled out. That choice is yours.
+- **Only our addresses.** The platform key covers `<slug>.gofarther.app` and the `gofarther.dev` previews. A site on its own domain stays off unless it has its own keys (later, as you said).
+- **Found and fixed on the way:** published sites' security policy blocked Turnstile's script and frame, so the widget could never have shown, even with a site's own keys.
+- When protection is on, the rules reply is told so as a fact ("already on").
+- Setup steps are in `docs/deploy.md` (Spam protection). Tests: 8 new; 11 of 11 mutants killed, control survived. Nothing spent.
+
 ## 2026-10-25 — run 6's four causes fixed in code (branch `fix-run6`, not merged, not deployed)
 
 - **The Lessons form saved nowhere.** It was built on `lesson_bookings`, which visitors can't write to (and the bad-weather switch on `closed_days`, which you couldn't write to). The add-on step rightly never changes an existing table's access, but it only told you. Now each such gap goes on as its own part of the same request, straight to the rules step, shown just that table, in your own words. No routing call for it.

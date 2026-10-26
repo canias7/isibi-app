@@ -229,6 +229,33 @@ workflow's `|| 'off'` is what the Worker runs only while nobody has ever set
 that secret, and `GET /api/site/runtime?slug=` is the one thing that can say
 which is live.
 
+### Spam protection: the platform's Turnstile pair (owner setup)
+
+A site that asked for spam protection (its `TURNSTILE_PLATFORM` flag row in
+its `_secrets`, written by `enableSpamCheck`) has every visitor form checked
+by Cloudflare Turnstile once the Worker has `TURNSTILE_SITE_KEY` and
+`TURNSTILE_SECRET` (both optional; the deploy's fallback `-` reads as unset,
+so without them nothing changes). Sites that never asked stay as today
+(owner, 2026-10-25: on when a customer asks, not by default). A site's own
+pair in its secrets still wins. A site served on a customer's own
+domain is not covered by the platform pair (the widget only runs on our
+hostnames) and stays off there unless it has its own pair.
+
+1. Cloudflare dashboard → **Turnstile** → **Add widget**.
+2. Name: `Go Farther forms`.
+3. Hostnames: `gofarther.app` and `gofarther.dev` (each covers its
+   subdomains, so `<slug>.gofarther.app` and the `gofarther.dev/s/<slug>/`
+   previews are both covered).
+4. Widget mode: **Managed** (Invisible also works; the site already renders
+   it out of sight and only shows it when Cloudflare asks for a click).
+5. Create, then copy the **Site Key** and the **Secret Key**.
+6. GitHub → the repository → Settings → Secrets and variables → Actions →
+   New repository secret: `TURNSTILE_SITE_KEY` (the site key) and
+   `TURNSTILE_SECRET` (the secret key).
+7. The next deploy uploads both; the check is on from the next page load of
+   each site (the site key is served by `/api/db/<slug>/turnstile`, cached 60
+   seconds), with no rebuild.
+
 ## Releasing
 
 ### The rollback, and what a release verdict may claim

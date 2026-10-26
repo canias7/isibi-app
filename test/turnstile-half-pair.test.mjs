@@ -14,7 +14,7 @@ const between = (a, b) => {
 };
 
 test("half a pair is off: the secret is dropped when the site key is absent, after both are read", () => {
-  const cfg = between("const turnstileConfig = memoize(turnstileCfg,", "\n});\n");
+  const cfg = between("const siteTurnstileKeys = memoize(turnstileCfg,", "\n});\n");
   const loop = cfg.indexOf("for (const r of (rows || [])");
   const off = cfg.search(/if \(out\.secret && !out\.siteKey\) \{[\s\S]{0,200}?out\.secret = "";/);
   assert.ok(loop > 0 && off > loop, "a secret without its site key still switches the check on");
