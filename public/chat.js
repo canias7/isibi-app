@@ -9413,7 +9413,7 @@ function renderSiteWorkspace(view, site) {
     const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
     thread.innerHTML = (site.msgs || []).filter((m) => !siteParHidden(m, site)).map((m) => m.r === 'u'
       ? '<div class="st-msg u">' + esc(m.t) + '</div>'
-      : ('<div class="st-msg a"' + (m.request && !m.t && !m.jobCard && !siteReqCardShows(m, site) ? ' hidden' : '') + '>') + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + (m.talkLive === true ? (Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, true) : '<div class="st-think"><i></i>Working on it</div>') : Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, false, true) : '') + siteMsgText(m, linkify) + (m.wait && typeof EditPoll.noticeHTML === 'function' ? EditPoll.noticeHTML(m.wait) : '') + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + '' + siteAskHTML(m, site) + siteModel3dHTML(m, site) + siteSentinelHTML(m) + (m.request ? siteReqCardHTML(m, site) : '') + (m.jobCard ? siteJobCardHTML(m, site) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
+      : ('<div class="st-msg a"' + (m.request && !m.t && !m.jobCard && !siteReqCardShows(m, site) ? ' hidden' : '') + '>') + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + (m.talkLive === true ? (Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, true) : '<div class="st-think"><i></i>Working on it</div>') : Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, false, true) : '') + siteMsgText(m, linkify) + (m.wait && typeof EditPoll.noticeHTML === 'function' ? EditPoll.noticeHTML(m.wait) : '') + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + '' + siteAskHTML(m, site) + siteModel3dHTML(m, site) + siteSentinelHTML(m) + siteRestoreHTML(m) + (m.request ? siteReqCardHTML(m, site) : '') + (m.jobCard ? siteJobCardHTML(m, site) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
     ).join('') + (siteBusyHere(site)
       ? (siteBuild
           ? '<div class="st-msg a st-busy st-busy-react">' + reactLiveStepsHTML() + '</div>'
@@ -9446,6 +9446,11 @@ function renderSiteWorkspace(view, site) {
       if (m3Go && thread.contains(m3Go)) { siteModel3dGo(site.id, m3Go.getAttribute('data-m3d-go')); return; }
       const m3No = e.target.closest('[data-m3d-no]');
       if (m3No && thread.contains(m3No)) { siteModel3dNo(site.id, m3No.getAttribute('data-m3d-no')); return; }
+      // THE RESTORE CARD (2026-10-26): Restore only once "restore" is typed; Cancel changes nothing.
+      const rsGo = e.target.closest('[data-restore-go]');
+      if (rsGo && thread.contains(rsGo)) { siteRestoreGo(site.id, rsGo.getAttribute('data-restore-go')); return; }
+      const rsNo = e.target.closest('[data-restore-no]');
+      if (rsNo && thread.contains(rsNo)) { siteRestoreNo(site.id, rsNo.getAttribute('data-restore-no')); return; }
       // /sentinel's PRICE CARD (2026-10-23): the scan button spends, Not now does not.
       const snGo = e.target.closest('[data-sentinel-go]');
       if (snGo && thread.contains(snGo)) { siteSentinelGo(site.id, snGo.getAttribute('data-sentinel-go')); return; }
@@ -9981,6 +9986,77 @@ async function siteSecurityOffer(site, message, origin, finish) {
   const last = s && s.msgs.length ? s.msgs[s.msgs.length - 1] : null;
   if (!last) return;
   last.sentinel = { key: sentinelKey(), state: 'offer', credits: n, message: String(message || '').slice(0, 500), working: typeof d.working === 'string' ? d.working.trim() : '' };
+  sitesSave(); if (siteOpenId === origin) renderSites();
+}
+// ── PUT THE DATA BACK (2026-10-26, `builder/data-restore.mjs`) ──────────────
+// The server reads the moment in the browser's time zone, makes the real
+// difference and its explanation; the card shows it and waits for the word.
+function restoreTz() { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (e) { return 'UTC'; } }
+function restoreKey() { return 'rs' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+async function restoreCall(slug, body) {
+  try {
+    const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/data-restore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tz: restoreTz(), picker: buildPicker, ...(typeof sendEffort === 'function' ? sendEffort() : null), ...body }) });
+    const j = await r.json().catch(() => null);
+    return j && typeof j === 'object' ? j : null;
+  } catch (e) { return null; }
+}
+async function siteRestoreOffer(site, d, origin, finish) {
+  const slug = site && site.slug;
+  if (!slug) { finish('There is no site yet, so there is no data to put back.'); return; }
+  if (d.undo === true) {
+    finish('I can put your data back to how it was just before the last restore.');
+    const s0 = siteById(origin); const l0 = s0 && s0.msgs.length ? s0.msgs[s0.msgs.length - 1] : null;
+    if (l0) { l0.restore = { key: restoreKey(), state: 'offer', undo: true, word: 'undo', comes: [], lost: [] }; sitesSave(); if (siteOpenId === origin) renderSites(); }
+    return;
+  }
+  const j = await restoreCall(slug, { step: 'preview', when: String(d.when || '') });
+  if (!j) { finish('I couldn’t look at your data’s history just now. Nothing was changed — try again in a moment.'); return; }
+  if (!j.ok || j.empty) { finish(typeof j.say === 'string' && j.say ? j.say : String(j.text || 'Nothing was changed.')); return; }
+  finish(String(j.text || ''));
+  const s = siteById(origin);
+  const last = s && s.msgs.length ? s.msgs[s.msgs.length - 1] : null;
+  if (!last) return;
+  last.restore = { key: restoreKey(), state: 'offer', at: j.at, said: j.said, word: 'restore', comes: (j.lists && j.lists.comes) || [], lost: (j.lists && j.lists.lost) || [] };
+  sitesSave(); if (siteOpenId === origin) renderSites();
+}
+function siteRestoreHTML(m) {
+  if (!m || !m.restore || m.restore.state !== 'offer') return '';
+  const r = m.restore; const k = esc(r.key); const w = esc(r.word);
+  const list = (title, xs) => xs.length ? '<div class="st-rs-sec"><b>' + title + '</b><ul>' + xs.slice(0, 40).map((x) => '<li>' + esc(x) + '</li>').join('') + (xs.length > 40 ? '<li>…and ' + (xs.length - 40) + ' more</li>' : '') + '</ul></div>' : '';
+  return '<div class="st-restore">' + list('Comes back', r.comes) + list('Will be lost', r.lost) +
+    '<p class="st-rs-note">A copy of your data as it is now is saved first, so this can be undone.</p>' +
+    '<label class="st-rs-type">Type ' + w + ' to confirm<input type="text" autocomplete="off" spellcheck="false" data-restore-type="' + k + '" data-restore-word="' + w + '"></label>' +
+    '<div class="st-m3d"><button type="button" class="st-m3d-go" data-restore-go="' + k + '" disabled>' + (r.undo ? 'Undo the restore' : 'Restore') + '</button>' +
+    '<button type="button" class="st-pick-cancel" data-restore-no="' + k + '">Cancel</button></div></div>';
+}
+if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') document.addEventListener('input', (e) => {
+  const box = e.target && e.target.closest ? e.target.closest('[data-restore-type]') : null;
+  if (!box) return;
+  const go = document.querySelector('[data-restore-go="' + box.getAttribute('data-restore-type') + '"]');
+  if (go) go.disabled = box.value.trim().toLowerCase() !== box.getAttribute('data-restore-word');
+});
+function restoreMsg(s, key) { return s && Array.isArray(s.msgs) ? s.msgs.find((x) => x && x.restore && x.restore.key === key) : null; }
+function siteRestoreNo(origin, key) {
+  const s = siteById(origin); const m = restoreMsg(s, key);
+  if (!m || m.restore.state !== 'offer') return;
+  m.restore.state = 'declined';
+  s.msgs.push({ r: 'u', t: 'Cancel' });
+  s.msgs.push({ r: 'a', t: 'Okay — your data stays as it is. Nothing was changed.' });
+  sitesSave(); if (siteOpenId === origin) renderSites();
+}
+async function siteRestoreGo(origin, key) {
+  const s = siteById(origin); const m = restoreMsg(s, key);
+  if (!s || !m || m.restore.state !== 'offer' || !s.slug) return;
+  const box = document.querySelector('[data-restore-type="' + key + '"]');
+  const typed = box ? box.value : '';
+  m.restore.state = 'working';
+  s.msgs.push({ r: 'u', t: typed });
+  const live = { r: 'a', t: '', talkLive: true, prog: [{ text: m.restore.undo ? 'Undoing the restore…' : 'Saving a copy, then putting your data back…' }] };
+  s.msgs.push(live); sitesSave(); if (siteOpenId === origin) renderSites();
+  const j = await restoreCall(s.slug, m.restore.undo ? { step: 'undo', typed } : { step: 'confirm', at: m.restore.at, typed });
+  live.talkLive = false; live.prog = [];
+  live.t = j && typeof j.say === 'string' && j.say ? j.say : 'I couldn’t reach your site’s database just now. Nothing was changed — try again in a moment.';
+  m.restore.state = j && j.ok ? 'done' : 'offer';
   sitesSave(); if (siteOpenId === origin) renderSites();
 }
 // THE CONFIRMATION: two plain buttons under the model's reply, which carries the price.
@@ -10733,6 +10809,8 @@ function routeActionable(d, site) {
   if (d.intent === 'app') return slug && (d.platform === 'android' || d.platform === 'ios');
   // A SECURITY SCAN OF THE SITE (2026-10-21): the router named no more than that.
   if (d.intent === 'security') return !!slug;
+  // PUT THE DATA BACK (2026-10-26): the moment, or an undo, read by the server.
+  if (d.intent === 'restore') return !!slug;
   if (d.intent === 'build') return true;
   if (d.intent === 'ask') return typeof d.answer === 'string' && d.answer.trim() !== '';
   // ON A SITE THAT EXISTS A QUESTION CARRIES THE ID IT WAS KEPT UNDER (2026-10-02).
@@ -11257,6 +11335,8 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // answer alone, with no price. The model's reply names what it will check
     // and the price; the scan waits for their press (`siteSecurityOffer`).
     if (d.intent === 'security' && site.slug) return siteSecurityOffer(site, t, origin, finish);
+    // ⚠ NEVER STRAIGHT TO THE RESTORE (2026-10-26): the difference first, then a typed confirmation.
+    if (d.intent === 'restore' && site.slug) return siteRestoreOffer(site, d, origin, finish);
     // On a live site only an explicit `build` reaches this `go()`: the check
     // above refused every answer it could not act on. What an answered
     // question put off earlier rides with it, to be named when it ends.

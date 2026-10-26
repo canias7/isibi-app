@@ -1,6 +1,10 @@
 # Owner Notes
 
 
+## 2026-10-26 — "Put my data back to yesterday 6pm" (branch `restore-data`, not merged, not deployed)
+
+A customer can now ask in chat to put their site's data back to an earlier moment, up to 24 hours ago (Neon's default history; no project's setting was changed). The router answers a new `restore`. The server makes a copy of the database as it was at that moment, compares every list row by row with now, and shows a card: a model-written explanation (checked by code: every number and name must come from the comparison, otherwise a plain list is shown instead), "Comes back", "Will be lost", and a box where they type "restore". The Restore button stays off until they type it, and the server refuses without it too. The restore is Neon's own, and Neon keeps the data as it was just before as a `before-restore-…` branch in the same step, so "undo the restore" puts it back. The comparison is free apart from the explanation's one model call; the restore and the undo are free. Shown with a fake Neon only: NOT proven live. `docs/history/2026-10-26-restore-data.md`.
+
 ## 2026-10-26 — Questions no longer count as "in progress"; "Something else…" lights up
 
 The tasks pill now says "2 need you · 1 in progress", so a request that's only waiting on your answers doesn't look stuck. Clicking "Something else…" on a question now marks it chosen and shows "Type your answer in the box below and press send." Branch `reply-seen`. `docs/history/2026-10-26-pill-and-own-answer.md`.

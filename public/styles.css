@@ -1626,6 +1626,12 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   padding: .5rem 1.1rem; cursor: pointer; }
 .st-m3d-go:disabled { opacity: .35; cursor: default; }
 .st-m3d-go:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+.st-restore { margin-top: .6rem; display: flex; flex-direction: column; gap: .55rem; }
+.st-rs-sec b { font-size: .8rem; font-weight: 600; }
+.st-rs-sec ul { margin: .25rem 0 0; padding-left: 1.1rem; font-size: .85rem; }
+.st-rs-note { margin: 0; font-size: .8rem; color: var(--muted); }
+.st-rs-type { display: flex; flex-direction: column; gap: .3rem; font-size: .8rem; color: var(--muted); }
+.st-rs-type input { font: inherit; font-size: .9rem; color: var(--text); background: transparent; border: 1px solid var(--line, rgba(127,127,127,.35)); border-radius: 8px; padding: .4rem .6rem; max-width: 16rem; }
 .st-m3d-note { flex-basis: 100%; font-size: .8rem; color: var(--muted); }
 
 /* A REQUEST OF SEVERAL PARTS (2026-10-03): one card under its message, each

@@ -145,8 +145,11 @@ import { drainTeardown } from "./site-teardown.mjs";
 import { drainRebuild, BATCH as REBUILD_BATCH, BUSY_DEFER_SEC as REBUILD_BUSY_SEC, REBUILD_OP, REBUILD_START_DELAY_S, rebuildIdem } from "./site-rebuild.mjs";
 // The litter under `jobs/` (stage 9): what the unhappy paths leave behind.
 import { sweepJobObjects } from "./builder/job-retention.mjs";
-import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, sqlRehearse, sqlReadOnly, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite, projectNameForSite, findSiteProjects, siteProjectDetails, createRehearsalBranch, rehearsalConn, deleteRehearsalBranch, staleRehearsalBranches } from "./site-db.mjs";
-import { rehearseHeldSchema, heldFromRehearsal } from "./builder/addon-rehearse.mjs";
+import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, sqlRehearse, sqlReadOnly, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite, projectNameForSite, findSiteProjects, siteProjectDetails, createRehearsalBranch, rehearsalConn, deleteRehearsalBranch, staleRehearsalBranches, createPastBranch, listBranches, branchDatabases, restoreBranch } from "./site-db.mjs";
+import { previewRestore, confirmRestore, undoRestore } from "./builder/data-restore.mjs";
+// What the restore's explanation may say: only the difference, plainly.
+const RESTORE_REPLY_RULE = "You are explaining to a small-business owner what putting their site's data back to an earlier moment would do, BEFORE they confirm. Use only the facts: name the actual entries, counts and times exactly as given, say plainly what comes back, what changes back and what would be lost. Never mention an email address or a phone number. Do not say it is done: nothing has changed yet.";
+import { rehearseHeldSchema, heldFromRehearsal, connParts } from "./builder/addon-rehearse.mjs";
 import { applySiteSchema, loadSiteSchema, readSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields, auditTier, withJobDeps, storedJobFns } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
@@ -36637,6 +36640,9 @@ async function handleRequest(request, env, ctx) {
       // shown by the kit's Scene3D): the price, the paid generation and its
       // finish. `builder/model3d-route.mjs`.
       const m3d = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/model3d$/i);
+      // PUT THE SITE'S DATA BACK TO AN EARLIER MOMENT (2026-10-26): the
+      // difference, the confirmed restore and its undo. `builder/data-restore.mjs`.
+      const rsd = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/data-restore$/i);
       // EVERY owner-scoped matcher above has to appear here, and `dm2` did not —
       // so `/api/site/<slug>/domains` was dispatched by nothing and fell through
       // to the 404 at the bottom of the router. Custom domains were unreachable
@@ -36648,10 +36654,10 @@ async function handleRequest(request, env, ctx) {
       // so from outside the two are indistinguishable — which is how this
       // survived a live probe until the dispatch was read.
       // `test/api-auth.test.mjs` holds the list against the matchers now.
-      if (om || im || mm || an || uf || mdr || mad || xp || nt || lv || sk || dm2 || vr || pb || sa || dd || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || sc || qu || m3d) {
+      if (om || im || mm || an || uf || mdr || mad || xp || nt || lv || sk || dm2 || vr || pb || sa || dd || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || rsd || sq || sc || qu || m3d) {
         // THE SLUG IS RESOLVED FIRST, because the replay identity below is scoped
         // to it. Nothing about deriving it depends on who is asking.
-        const ownerSlug = (om || im || mm || an || uf || mdr || mad || xp || nt || lv || sk || dm2 || vr || pb || sa || dd || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || sc || qu || m3d)[1].toLowerCase();
+        const ownerSlug = (om || im || mm || an || uf || mdr || mad || xp || nt || lv || sk || dm2 || vr || pb || sa || dd || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || rsd || sq || sc || qu || m3d)[1].toLowerCase();
         // ── A QUEUED EDIT'S OWN REPLAY HAS NO BEARER TOKEN ──────────────────
         //
         // The consumer replays the customer's request minutes after they made
@@ -50659,6 +50665,56 @@ async function handleRequest(request, env, ctx) {
               shLive = true;
             } catch (e) { console.error("share sidecar patch failed:", shslug, e && e.message); }
             return Response.json({ ok: true, share: shFile, live: shLive });
+          } else if (rsd && request.method === "POST") {
+            // ── PUT THE DATA BACK (2026-10-26) ──────────────────────────────
+            // Locked to this site: its owner (asserted here), its own project
+            // row and connection, and a project holding no other database
+            // (`lockSite`). The difference is free; its explanation is one
+            // model call, charged by its usage like any reply. The restore and
+            // its undo are Neon operations with no model call, and free.
+            const rslug = rsd[1].toLowerCase();
+            const g = await assertOwner(ownerDeps, rslug, ou.id);
+            if (g.error) return Response.json(g.error.body, { status: g.error.status });
+            let body = {};
+            try { body = await request.json(); } catch { body = {}; }
+            const step = body && typeof body.step === "string" ? body.step : "";
+            const tz = body && typeof body.tz === "string" ? body.tz.slice(0, 64) : "UTC";
+            const rpicker = body && body.picker;
+            let project = null, mainConn = null;
+            try { project = await siteNeonProject(env, rslug); mainConn = await ownerSiteConn(env, rslug); } catch { project = null; }
+            const parts = mainConn ? connParts(mainConn) : null;
+            if (!project || !parts || !env.NEON_API_KEY) return Response.json({ ok: false, why: "no-project", say: "This site has no database I can put back." });
+            const rdeps = {
+              query: (c, sql, params) => sqlReadOnly(c, sql, params),
+              mainConn,
+              neon: {
+                databases: (p, b) => branchDatabases(env, p, b),
+                pastBranch: (p, b, iso) => createPastBranch(env, p, b, iso),
+                conn: (p, b) => rehearsalConn(env, p, b, parts.db, parts.role),
+                del: (p, b) => deleteRehearsalBranch(env, p, b),
+                restore: (p, b, o) => restoreBranch(env, p, b, o),
+                branches: (p) => listBranches(env, p),
+              },
+              explain: repliesOn(env) ? async (facts) => {
+                const out = await writeReply({ send: mappedSend(env, rslug, "site", quickSend(env, "reply")) }, {
+                  facts, context: RESTORE_REPLY_RULE, model: modelsFor(rpicker).quick,
+                });
+                return { text: out && out.ok ? out.text : "", usage: (out && out.usage) || [] };
+              } : null,
+            };
+            const who = { project, uid: ou.id, dbName: parts.db };
+            let res;
+            if (step === "preview") {
+              res = await previewRestore(rdeps, { ...who, when: String(body.when || "").slice(0, 200), tz });
+              let charged = 0;
+              if (res.usage && res.usage.length) { try { charged = await collectCredits(request.headers.get("Authorization") || "", pageCredits(...res.usage)); } catch { charged = 0; } }
+              const { diff: _d, usage: _u, ...shownRes } = res;
+              return Response.json({ ...shownRes, charged });
+            }
+            if (step === "confirm") res = await confirmRestore(rdeps, { ...who, at: body.at, typed: body.typed, tz });
+            else if (step === "undo") res = await undoRestore(rdeps, { ...who, typed: body.typed });
+            else return Response.json({ ok: false, why: "step" }, { status: 400 });
+            return Response.json(res);
           } else if (sc) {
             // ── THE QUICK SECURITY CHECK ─────────────────────────────────────
             // No model and no charge: the site's tables and their rules, its

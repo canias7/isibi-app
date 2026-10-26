@@ -869,3 +869,56 @@ export async function staleRehearsalBranches(env, projectId, now = Date.now(), l
     return !!m && x.default !== true && x.primary !== true && now - Number(m[1]) > REHEARSAL_STALE_MS;
   }).slice(0, limit).map((x) => String(x.id));
 }
+
+// ------------------------------------------------- restoring a site's data (2026-10-26)
+//
+// THE OWNER'S "PUT MY DATA BACK" (`builder/data-restore.mjs`). Neon calls
+// beside the rehearsal ones: a branch made from the site's branch AS IT WAS at
+// a moment (`parent_timestamp`, Neon's point-in-time branch), the branch's
+// databases (the site lock refuses a project that holds another site's), and
+// Neon's own restore of the site's branch to its own history, which keeps the
+// state it replaces as a branch named `preserve_under_name` in the same
+// operation (the copy that makes the restore undoable).
+export const RESTORE_PAST_PREFIX = "restore-diff-";
+
+/** A branch of `parentId` as it was at `atIso` (with a compute, to be read). Answers `{ branchId }`; a throw after the create carries `branchId`. */
+export async function createPastBranch(env, projectId, parentId, atIso, now = Date.now()) {
+  const id = projectIdOf(projectId);
+  const branch = { name: RESTORE_PAST_PREFIX + now, parent_id: String(parentId), parent_timestamp: String(atIso) };
+  const d = await neonApi(env, `/projects/${id}/branches`, { method: "POST", body: JSON.stringify({ branch, endpoints: [{ type: "read_write" }] }) });
+  const branchId = d && d.branch && d.branch.id ? String(d.branch.id) : "";
+  if (!branchId) throw Object.assign(new Error("neon branch: unexpected response"), { detail: scrubSecrets(JSON.stringify(d)).slice(0, 200) });
+  try { await waitForProject(env, id); }
+  catch (e) { throw Object.assign(e instanceof Error ? e : new Error(String(e)), { branchId }); }
+  return { branchId };
+}
+
+/** The project's branches: `[{ id, name, parent_id, default }]`. */
+export async function listBranches(env, projectId) {
+  const id = projectIdOf(projectId);
+  const b = await neonApi(env, `/projects/${id}/branches`);
+  return (b && Array.isArray(b.branches) ? b.branches : []).map((x) => ({ id: String(x.id || ""), name: String(x.name || ""), parent_id: x.parent_id ? String(x.parent_id) : "", default: x.default === true || x.primary === true }));
+}
+
+/** The database names on one branch. */
+export async function branchDatabases(env, projectId, branchId) {
+  const id = projectIdOf(projectId);
+  const d = await neonApi(env, `/projects/${id}/branches/${encodeURIComponent(String(branchId))}/databases`);
+  return (d && Array.isArray(d.databases) ? d.databases : []).map((x) => String((x && x.name) || "")).filter(Boolean);
+}
+
+/**
+ * Neon's restore of `branchId`: with `atIso`, to its own history at that
+ * moment; otherwise to `sourceBranchId`'s head. `preserveName` is required and
+ * always sent: the state replaced is kept as a branch of that name in the same
+ * operation, so no restore can run without its copy.
+ */
+export async function restoreBranch(env, projectId, branchId, { atIso = "", sourceBranchId = "", preserveName = "" } = {}) {
+  const id = projectIdOf(projectId);
+  if (!preserveName) throw new Error("restore refused: no name to keep the current state under");
+  const body = { source_branch_id: String(sourceBranchId || branchId), preserve_under_name: String(preserveName) };
+  if (atIso) body.source_timestamp = String(atIso);
+  await neonApi(env, `/projects/${id}/branches/${encodeURIComponent(String(branchId))}/restore`, { method: "POST", body: JSON.stringify(body) });
+  await waitForProject(env, id);
+  return { ok: true };
+}

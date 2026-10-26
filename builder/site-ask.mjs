@@ -1273,6 +1273,25 @@ const LIVE_SECURITY_CLAUSE =
   "\"scan my CRM for security holes\", \"check if anyone can see my customers' details\". It runs a security scan and changes " +
   "nothing on the site. Asking HOW to make something secure, or asking to ADD a login or a rule, is not this: that is a change.";
 
+// PUT THE SITE'S DATA BACK TO AN EARLIER MOMENT (2026-10-26, the owner's
+// feature; `builder/data-restore.mjs`). A typed answer, never a keyword rule:
+// the moment is kept in their own words and read by code in their time zone.
+const LIVE_RESTORE_CLAUSE =
+  "\"restore\" — they want the DATA stored in their site (its lists: entries, bookings, prices, items) put back to how it was " +
+  "at an earlier moment, or an earlier restore undone: \"put my data back to how it was yesterday 6pm\", \"undo what happened to my " +
+  "lessons this morning\", \"undo the restore\". Nothing changes until they see what would come back and confirm. Changing one " +
+  "entry to a value they name is not this: that is a change (\"data\"). Going back to an earlier saved version of the site's PAGES is not this either.";
+
+export const RESTORE_WHEN_FIELD = {
+  type: "string",
+  description: "Only with intent \"restore\": the moment they named, in their own words (\"yesterday 6pm\", \"this morning at 9\", \"2 hours ago\"). Empty when they named none.",
+};
+
+export const RESTORE_UNDO_FIELD = {
+  type: "boolean",
+  description: "Only with intent \"restore\": true when they ask to undo a restore already made.",
+};
+
 /**
  * A 3D MODEL THEY ASKED FOR (2026-10-22, the owner: Meshy 7.1 through fal,
  * shown by the kit's Scene3D). A typed field beside intent "addon" — never a
@@ -1348,13 +1367,17 @@ export const LIVE_ASK_TOOL = {
       // calls"): a sixth answer, offered only here, on a site that exists, so a
       // first build's tool and request stay exactly as they were.
       ...(APPS_OPEN ? {
-        intent: { ...ASK_TOOL.input_schema.properties.intent, enum: [...ASK_TOOL.input_schema.properties.intent.enum, "app", "security"], description: LIVE_INTENT + "\n\n" + LIVE_APP_CLAUSE + "\n\n" + LIVE_SECURITY_CLAUSE },
+        intent: { ...ASK_TOOL.input_schema.properties.intent, enum: [...ASK_TOOL.input_schema.properties.intent.enum, "app", "security", "restore"], description: LIVE_INTENT + "\n\n" + LIVE_APP_CLAUSE + "\n\n" + LIVE_SECURITY_CLAUSE + "\n\n" + LIVE_RESTORE_CLAUSE },
         platform: {
           type: "string",
           enum: ["android", "ios"],
           description: "Only with intent \"app\": \"ios\" when they name an iPhone, iPad or Apple, otherwise \"android\".",
         },
-      } : { intent: { ...ASK_TOOL.input_schema.properties.intent, enum: [...ASK_TOOL.input_schema.properties.intent.enum, "security"], description: LIVE_INTENT + "\n\n" + LIVE_SECURITY_CLAUSE } }),
+        restoreWhen: RESTORE_WHEN_FIELD,
+        restoreUndo: RESTORE_UNDO_FIELD,
+      } : { intent: { ...ASK_TOOL.input_schema.properties.intent, enum: [...ASK_TOOL.input_schema.properties.intent.enum, "security", "restore"], description: LIVE_INTENT + "\n\n" + LIVE_SECURITY_CLAUSE + "\n\n" + LIVE_RESTORE_CLAUSE } }),
+      restoreWhen: RESTORE_WHEN_FIELD,
+      restoreUndo: RESTORE_UNDO_FIELD,
       layer: { ...ASK_TOOL.input_schema.properties.layer, description: LIVE_LAYER },
       page: { ...ASK_TOOL.input_schema.properties.page, description: LIVE_PAGE },
       remove: { ...ASK_TOOL.input_schema.properties.remove, description: LIVE_REMOVE },
@@ -2112,6 +2135,12 @@ function readDecision(reply, { canClarify = false, picked = false, hasSite = fal
   // from the model's fixed list, Android when it named none.
   // A SECURITY SCAN OF THE SITE (2026-10-21): no step of the site runs; the
   // page starts the scan. Only for a site that exists.
+  // PUT THE DATA BACK (2026-10-26): no step of the site runs; the page asks
+  // for the difference and shows it before anything changes.
+  if (hasSite && input.intent === "restore") {
+    markLeftOut(input, [], mark);
+    return { intent: "restore", when: typeof input.restoreWhen === "string" ? input.restoreWhen.slice(0, 200) : "", undo: input.restoreUndo === true, answer: "" };
+  }
   if (hasSite && input.intent === "security") {
     markLeftOut(input, [], mark);
     return { intent: "security", answer: "" };
