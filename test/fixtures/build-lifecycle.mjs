@@ -69,7 +69,7 @@ function linkAnswer(links, u) {
  */
 export function replyAnswer(reply, seen, init) {
   const bd = JSON.parse(String((init && init.body) || "{}"));
-  if (!(bd.tool_choice && bd.tool_choice.name === "write_reply")) return null;
+  if (!((bd.tool_choice && (bd.tool_choice.name || (bd.tool_choice.type === "any" && bd.tools && bd.tools[0] && bd.tools[0].name))) === "write_reply")) return null;
   const text = JSON.stringify(bd.messages || "");
   seen.push(text);
   if (typeof reply !== "string") return new Response("no stub (test fixture): no reply", { status: 400 });
@@ -105,7 +105,7 @@ export async function fireInterim(b, id, led, { design = GOOD_DESIGN, brief = BR
       const bd = JSON.parse(String((init && init.body) || "{}"));
       // `design: null` — a designer that answered no plan, so the build ends
       // before it fires, on its own terminal answer.
-      if (bd.tool_choice && bd.tool_choice.name === "design_schema") {
+      if ((bd.tool_choice && (bd.tool_choice.name || (bd.tool_choice.type === "any" && bd.tools && bd.tools[0] && bd.tools[0].name))) === "design_schema") {
         // EACH DESIGN CALL ANSWERED BY THE CASE (the ninth batch), in order,
         // and every request kept so a case can read what the designer was told.
         designs.push(bd);

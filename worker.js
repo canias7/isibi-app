@@ -237,7 +237,7 @@ import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, 
 import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings, canWriteAccess } from "./site-access.mjs";
 import { routeInventory } from "./builder/route-inventory.mjs";
 import { exploreSend, exploreCall, siteFiles, EXPLORE_MAX_LOOKS } from "./builder/site-explore.mjs";
-import { buildSiteMap, mapFor, siteSlice, mapSend, mapCall, mapKey as siteMapKey, mapVersionKey as siteMapVersionKey, MAP_VERSION as SITE_MAP_VERSION } from "./builder/site-map.mjs";
+import { buildSiteMap, mapFor, siteSlice, mapSend, mapKey as siteMapKey, mapVersionKey as siteMapVersionKey, MAP_VERSION as SITE_MAP_VERSION } from "./builder/site-map.mjs";
 import { converse, readHistory, converseRequest, requestChars, CONTEXT_CHARS, converseTables } from "./builder/site-converse.mjs";
 import { planWindow, compact as compactChat, COMPACT_AT } from "./builder/chat-context.mjs";
 // The pair a `display` table resolves to. Named once, from the presets, so the
@@ -14421,12 +14421,10 @@ function exploreLooks(env, cap = null) {
 }
 const exploredSend = (env, slug, send, { cap = null } = {}) => exploreSend(send, () => (slug ? siteExploreNow(env, slug) : null), { maxLooks: exploreLooks(env, cap) });
 const exploredCall = (env, slug, call, { cap = null } = {}) => exploreCall(call, () => (slug ? siteExploreNow(env, slug) : null), { maxLooks: exploreLooks(env, cap) });
-// THE EDIT STEPS THAT EXPLORE, by the name each call is sent under. Phase 1:
-// the page rung's quick writer and the look door's lanes; phase 2: the data and rules steps.
-const EDIT_EXPLORE_STEPS = new Set(["pick_lanes", "lane", "lane-correction", "tweak", "data", "rules"]);
+// EVERY EDIT STEP EXPLORES (phases 1–3), by the name each call is sent under,
+// except the bare ones below.
 // Steps that judge only what they are handed (a before and an after; the named entries a removal picks from): no map, no looks.
 const EDIT_BARE_STEPS = new Set(["keep_check", "take_off"]);
-const mappedCall = (env, slug, kind, call, opts = null) => mapCall(call, siteMapNote(env, slug, kind, opts));
 
 async function currentSiteMap(env, slug) {
   const fresh = await refreshSiteMap(env, slug, null);
@@ -18475,7 +18473,7 @@ function seamCompileRepair(env, { slug, touched = null, models = null, charge = 
     const r = await compileRepairRounds({
       error, pages, touched: Array.isArray(touched) ? touched : null,
       room: () => !clock || clock.canRepair(0),
-      send: mappedSend(env, slug, "page", quickSend(env, "repair", repairClock(clock))), model: models && models.quick, compile: recompile,
+      send: exploredSend(env, slug, quickSend(env, "repair", repairClock(clock))), model: models && models.quick, compile: recompile,
     });
     if (r.built && r.usage.length && typeof charge === "function") {
       try { r.charged = Number(await charge(r.usage)) || 0; }
@@ -19442,7 +19440,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     const vrPages = vrChanges.pages.length ? (pages || []).filter((p) => p && vrChanges.pages.includes(p.path)) : (pages || []);
     const vrModel = (models && (models.pages || models.quick)) || modelsFor().pages;
     const clock = job && job.budget && typeof job.budget.canRepair === "function" ? job.budget : null;
-    const vr = await runVisualReview({ shots: built.shots, pages: vrPages, send: mappedSend(env, slug, "look", quickSend(env, "visual", repairClock(clock))), model: vrModel, viewport: (job && job.deviceScope) || null });
+    const vr = await runVisualReview({ shots: built.shots, pages: vrPages, send: exploredSend(env, slug, quickSend(env, "visual", repairClock(clock))), model: vrModel, viewport: (job && job.deviceScope) || null });
     let vrCharged = 0;
     if (vr.usage) {
       try { vrCharged = Number(await vrCharge([vr.usage])) || 0; }
@@ -20319,7 +20317,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   if (revise && !resumeCall && Array.isArray(priorPages) && priorPages.length) {
     try {
       const qModel = (models && models.quick) || modelsFor(picker || undefined).quick;
-      const pick = await pickFiles({ send: mappedSend(env, slug, "page", quickSend(env, "file-pick", budget)) },
+      const pick = await pickFiles({ send: exploredSend(env, slug, quickSend(env, "file-pick", budget)) },
         { request: String(changeNote || brief || ""), pages: priorPages, parts: priorParts && Array.isArray(priorParts.parts) ? priorParts.parts : [], targets: [], model: qModel });
       if (pick) {
         try { mark?.("file_pick", { status: pick.mark.status, chosen: pick.mark.chosen, total: pick.mark.total }); } catch { /* a trace must never break a build */ }
@@ -20640,7 +20638,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
             const g = await pagesAgainOf(call, reason, via);
             if (!g || g.ask || !ownFirst) return g;
             const fix = await enforceFallbackFrame(g, {
-              send: mappedSend(env, slug, "page", (req) => pagesCall(env)(keysFrom(env), req, budget)),
+              send: exploredSend(env, slug, (req) => pagesCall(env)(keysFrom(env), req, budget)),
               directive: ownTail.trim(), spec, kind: plan && plan.kind, model: g && g.usage && g.usage.model,
             });
             return fix.gen;
@@ -20658,7 +20656,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         // nothing to repair. The counts ride the `fallback` mark.
         if (!ownFirst) return singleAnswer;
         const oneFix = await enforceFallbackFrame(singleAnswer, {
-          send: mappedSend(env, slug, "page", (req) => pagesCall(env)(keysFrom(env), req, budget)),
+          send: exploredSend(env, slug, (req) => pagesCall(env)(keysFrom(env), req, budget)),
           directive: ownTail.trim(), spec, kind: plan && plan.kind, model: singleAnswer && singleAnswer.usage && singleAnswer.usage.model,
         });
         if (oneFix.counts) try { mark?.("fallback", oneFix.counts); } catch { /* a trace must never break a build */ }
@@ -21036,16 +21034,16 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
     // `recompileAndPublish`, which never calls `publishPages` at all, and a
     // repair there would be re-checking pages the customer just changed by hand
     // against a report about the build before it.
-    repair: mappedSend(env, slug, "page", quickSend(env)),
+    repair: exploredSend(env, slug, quickSend(env)),
     // THE VISUAL REVIEW'S MODEL CALL: the build's own pages model, through the
     // same send (and so the same customer effort) as every builder call.
-    visualReview: visualOn ? mappedSend(env, slug, "look", (req) => callBuilderModel(env, req, budget ? { capMs: (cap) => budget.capMs(Math.min(Number(cap) || QUICK_STREAM_MS, QUICK_STREAM_MS)) } : quickBudget, QUICK_STREAM)) : undefined,
+    visualReview: visualOn ? exploredSend(env, slug, (req) => callBuilderModel(env, req, budget ? { capMs: (cap) => budget.capMs(Math.min(Number(cap) || QUICK_STREAM_MS, QUICK_STREAM_MS)) } : quickBudget, QUICK_STREAM)) : undefined,
     visualModel: models.pages,
     // THE COMPILE REPAIR'S MODEL CALL (2026-10-22, ideas #11-#13): one try at a
     // page that did not build, on the build's own pages model through the same
     // send as the visual review. Supplied only with `BUILD_REPAIR` on; off,
     // `publishPages` gets none and nothing changes.
-    compileRepair: buildRepairOn(env) ? mappedSend(env, slug, "page", (req) => callBuilderModel(env, req, budget ? { capMs: (cap) => budget.capMs(Math.min(Number(cap) || QUICK_STREAM_MS, QUICK_STREAM_MS)) } : quickBudget, QUICK_STREAM)) : undefined,
+    compileRepair: buildRepairOn(env) ? exploredSend(env, slug, (req) => callBuilderModel(env, req, budget ? { capMs: (cap) => budget.capMs(Math.min(Number(cap) || QUICK_STREAM_MS, QUICK_STREAM_MS)) } : quickBudget, QUICK_STREAM)) : undefined,
     compileRepairModel: models.pages,
     // THE STEPS INSIDE THE PUBLISH THAT USED TO RUN IN SILENCE (2026-10-19):
     // their numbers go on the trace, which the build's progress already hears.
@@ -37117,9 +37115,8 @@ async function handleRequest(request, env, ctx) {
             // EVERY EDIT STEP AND LANE SEES THE SITE (2026-10-26): one slice for
             // the whole job, the same for every call, so a call repeated within
             // the job is the same request (the journal answers it once).
-            const eQuick = (what = "", ctx) => clarifyTransport(EDIT_EXPLORE_STEPS.has(what) ? exploredSend(env, ownerSlug, jobSend(eJob, quickSend(env, what, eJob && eJob.budget)))
-              : EDIT_BARE_STEPS.has(what) ? jobSend(eJob, quickSend(env, what, eJob && eJob.budget))
-              : jobSend(eJob, mappedSend(env, ownerSlug, "site", quickSend(env, what, eJob && eJob.budget))), {
+            const eQuick = (what = "", ctx) => clarifyTransport(EDIT_BARE_STEPS.has(what) ? jobSend(eJob, quickSend(env, what, eJob && eJob.budget))
+              : exploredSend(env, ownerSlug, jobSend(eJob, quickSend(env, what, eJob && eJob.budget))), {
               shown: () => (ctx !== undefined ? ctx : eCtx),
               all: () => eCtxAll || [],
               part: ePartShown, replayHas: eReplayHas, onDefault: (d) => { eDefaulted.push(...d); },
@@ -39462,7 +39459,7 @@ async function handleRequest(request, env, ctx) {
                 // `LANE_MODEL` (now the picker table's DEFAULT, not the
                 // customer's) to a hardcoded Anthropic endpoint, so a Sonnet
                 // customer's rename was both priced and addressed wrong.
-                rq = await eQuick()(renameRequest({
+                rq = await eQuick("rename")(renameRequest({
                   message: eInstruction, current, former: await formerNamesFor(env, ownerSlug), model: eQuickModel,
                 }));
               } catch (e) {
@@ -39726,13 +39723,11 @@ async function handleRequest(request, env, ctx) {
               {
                 const fRead = await editParts();
                 if (fRead.ok && writtenFrame(eSrc, fRead.parts)) {
-                  const fOut = await runFrameEdit({ send: eQuick() }, {
+                  const fOut = await runFrameEdit({ send: eQuick("frame") }, {
                     instruction: eInstruction, pages: eSrc, parts: fRead.parts, routes: navRoutes,
                     model: eQuickModel, addition: eb.addition === true,
                     // THE TABLES A FORM HERE MAY STORE INTO (2026-10-25, frame-parallel).
                     tables: await frameTablesOf(env, ownerSlug),
-                    // THE SITE MAP'S FRAME SLICE (2026-10-26): facts beside the live tables.
-                    note: (() => { try { return mapFor("frame", buildSiteMap({ pages: eSrc, parts: fRead.parts })); } catch { return ""; } })(),
                   });
                   if (fOut.ask) return stepAsk("nav", fOut.ask);
                   if (!fOut.ok && fOut.reason === "send") return modelDown(fOut.error, "I couldn't reach the model that sets the menu — try again in a moment.");
@@ -39769,7 +39764,7 @@ async function handleRequest(request, env, ctx) {
                 }
               }
               const nOut = await runNavEdit({
-                send: eQuick(),
+                send: eQuick("nav"),
                 mark: traceRetryMark(editTrace),
               }, { instruction: eInstruction, pages: eSrc, routes: navRoutes, model: eQuickModel, addition: eb.addition === true });
               // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
@@ -40026,7 +40021,7 @@ async function handleRequest(request, env, ctx) {
                 ? await storeAttachedPhotos(eb.images.slice(0, MAX_ATTACHMENTS), attachments(eb.images.slice(0, MAX_ATTACHMENTS)).named, (name, bytes) => storeOwnPhoto(env, ownerSlug, name, bytes))
                 : { files: [], missing: [] };
               const pOut = await runPictureEdit({
-                send: eQuick(),
+                send: eQuick("picture"),
                 mark: traceRetryMark(editTrace),
                 // The owner's upload library, named the way they see it.
                 library: async () => {
@@ -40261,7 +40256,7 @@ async function handleRequest(request, env, ctx) {
                   if (!eRemove && !(!eHanded && eb && eb.tab === true)) {
                     const lRead = await editParts();
                     if (lRead.ok && writtenFrame(eSrc, lRead.parts)) {
-                      const lf = await runFrameEdit({ send: eQuick() }, {
+                      const lf = await runFrameEdit({ send: eQuick("frame") }, {
                         instruction: eInstruction, pages: eSrc, parts: lRead.parts,
                         routes: [...new Set(eSrc.map((p) => routeOf(p.path)).filter(Boolean))], model: eQuickModel,
                         note: "THE LOGO IS NOW SET: `SITE_LOGO` holds its address. Show it in the header where the customer asked (beside or in place of the name), with alt text the business's name.",
@@ -40404,7 +40399,7 @@ async function handleRequest(request, env, ctx) {
               const eLangEdit = async (lr, lt) => {
                 const current = lr.currentOf(lt.tag);
                 const tPages = translatePages(eFiles, lt.prefix, lr.strings, lr.strings.map((sTxt) => current[sTxt]), { routes: lr.routes }).pages;
-                const lOut = await runTextEdit({ send: eQuick(), seen: (x) => noteSeen(eJob, x) },
+                const lOut = await runTextEdit({ send: eQuick("text"), seen: (x) => noteSeen(eJob, x) },
                   { instruction: eInstruction, pages: tPages, scope: null, model: eQuickModel });
                 if (lOut.ask) return stepAsk("text", lOut.ask);
                 if (!lOut.ok) {
@@ -40452,7 +40447,7 @@ async function handleRequest(request, env, ctx) {
               }
               // A REQUEST PART'S DECLARED SCOPE (2026-10-11): shown only its
               // pages first, as its preparation was (`scopedText`).
-              const out = await runTextEdit({ send: eQuick(), seen: (x) => noteSeen(eJob, x) },
+              const out = await runTextEdit({ send: eQuick("text"), seen: (x) => noteSeen(eJob, x) },
                 { instruction: eInstruction, pages: eFiles, scope: stepScopeOf(eb && eb.scope), model: eQuickModel });
               // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
               if (out.ask) return stepAsk("text", out.ask);
@@ -43698,7 +43693,7 @@ async function handleRequest(request, env, ctx) {
             const aReplayHas = (r) => (aJob && aJob.prepare !== true && aJob.replay && typeof aJob.replay.has === "function" ? aJob.replay.has(r) : false);
             // EVERY ADD-ON CALL SEES THE SITE (2026-10-26): designers, writers,
             // the judge, verification and retries, through this one transport.
-            const aQuick = (what = "", opts) => clarifyTransport(aCounted(jobSend(aJob, mappedSend(env, ownerSlug, "site", quickSend(env, what, aJob && aJob.budget)), opts)), {
+            const aQuick = (what = "", opts) => clarifyTransport(exploredSend(env, ownerSlug, aCounted(jobSend(aJob, quickSend(env, what, aJob && aJob.budget), opts))), {
               shown: () => aShownTo(what),
               all: () => aCtxAll || [],
               part: aPartShown, replayHas: aReplayHas, onDefault: (d) => { aDefaulted.push(...d); },
@@ -44118,13 +44113,6 @@ async function handleRequest(request, env, ctx) {
               // own parts each page imports, so the component designer can
               // name the one a like section already uses.
               builtFrom: pageComponents(aView),
-              // THE SITE MAP'S KEY FACTS (2026-10-26): contact details, hours,
-              // prices and addresses with where each is written, from the
-              // pages and parts this addition is shown.
-              keyFacts: (() => { try { return mapFor("addon", buildSiteMap({ pages: aView, parts: Array.isArray(aViewParts) ? aViewParts : [] })); } catch { return ""; } })(),
-              // AND THE ROW DESIGNER'S TABLE CONTEXT FROM THE MAP (2026-10-26);
-              // the live required-columns read (`aRowRequired`) stays the truth.
-              rowNote: (() => { try { return mapFor("rowNote", buildSiteMap({ spec, label: accessLabel })); } catch { return ""; } })(),
               tables: ((spec && spec.tables) || []).map((t) => t && t.name).filter(Boolean),
               // EACH TABLE'S COLUMNS, "name type" (2026-09-03), for the
               // function designer: a `sql` body is parsed at CREATE, so a
@@ -47242,7 +47230,7 @@ async function handleRequest(request, env, ctx) {
             const aRecs = [];
             let aWriterRetry = null, aWriterFirstUsage = null, aWriterRetried = false;
             const aCallFor = (i) => {
-              const inner = clarifyCall(jobCall(aJob, mappedCall(env, ownerSlug, "site", pagesCall(env))), { shown: () => aCtxShown, all: () => aCtxAll || [], part: aPartShown, replayHas: aReplayHas, onDefault: (d) => { aDefaulted.push(...d); } });
+              const inner = clarifyCall(exploredCall(env, ownerSlug, jobCall(aJob, pagesCall(env))), { shown: () => aCtxShown, all: () => aCtxAll || [], part: aPartShown, replayHas: aReplayHas, onDefault: (d) => { aDefaulted.push(...d); } });
               if (aWriterRetry && aRecs[i] && aRecs[i].last) return aRecs[i].again(aWriterRetry.text, inner);
               aRecs[i] = recordCall(inner);
               return aRecs[i].call;
@@ -48602,7 +48590,7 @@ async function handleRequest(request, env, ctx) {
                 // clock holds back the reserves alone — right for every call
                 // before the first compile, and what let run 36's fix run four
                 // minutes into the room its own recompile needed.
-                send: mappedSend(env, ownerSlug, "page", quickSend(env, "repair", repairClock(aClock))), model: aModels.quick, compile: recompile, room,
+                send: exploredSend(env, ownerSlug, quickSend(env, "repair", repairClock(aClock))), model: aModels.quick, compile: recompile, room,
               });
               aMark("repair", aRepairRound.ran ? (aRepairRound.built ? "ok" : "fail") : "skip",
                 { why: String(aRepairRound.why || aRepairRound.failed || ""), repaired: aRepairRound.repaired.length, refused: aRepairRound.refused.length });
@@ -48630,7 +48618,7 @@ async function handleRequest(request, env, ctx) {
                 try {
                   aReqRetry = await requirementRetryRound({
                     needs: judgedNeeds(aReq), site: aSiteOf(aCur.pages, aCur.built), pages: aCur.pages, siteOf: aSiteOf,
-                    send: mappedSend(env, ownerSlug, "page", quickSend(env, "repair", repairClock(aClock))), model: aModels.quick, compile: recompile,
+                    send: exploredSend(env, ownerSlug, quickSend(env, "repair", repairClock(aClock))), model: aModels.quick, compile: recompile,
                     room: !aClock || aClock.canRepair(aRepairNeedMs),
                   });
                 } catch (e) { aReqRetry = null; console.error("addon requirement retry failed:", ownerSlug, e && e.message); }
@@ -48697,7 +48685,7 @@ async function handleRequest(request, env, ctx) {
               aMark("compile-repair", "start", { room, touched: aTouched.length });
               aCompileRepair = await compileRepairRounds({
                 error, pages, touched: aTouched, room: () => !aClock || aClock.canRepair(aRepairNeedMs),
-                send: mappedSend(env, ownerSlug, "page", quickSend(env, "repair", repairClock(aClock))), model: aModels.quick, compile: recompile,
+                send: exploredSend(env, ownerSlug, quickSend(env, "repair", repairClock(aClock))), model: aModels.quick, compile: recompile,
               });
               aMark("compile-repair", aCompileRepair.ran ? (aCompileRepair.built ? "ok" : "fail") : "skip",
                 { why: String(aCompileRepair.why || aCompileRepair.failed || ""), repaired: aCompileRepair.repaired.length });
@@ -50946,7 +50934,7 @@ async function handleRequest(request, env, ctx) {
                 const snap = JSON.stringify({ events: progEvents });
                 progChain = progChain.then(() => env.SITES_BUCKET.put(progKey(scbody.key), snap)).catch(() => {});
               } : undefined;
-              const deep = await deepScan({ send: mappedSend(env, scslug, "site", quickSend(env, "security")) }, { model, files: sfiles, facts, tables, thorough, plan, ...(progSay ? { say: progSay } : {}) });
+              const deep = await deepScan({ send: exploredSend(env, scslug, quickSend(env, "security")) }, { model, files: sfiles, facts, tables, thorough, plan, ...(progSay ? { say: progSay } : {}) });
               await progChain;
               report.thorough = thorough;
               let cost = 0;

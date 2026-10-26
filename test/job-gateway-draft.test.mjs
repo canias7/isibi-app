@@ -222,7 +222,7 @@ test("JGD4 A BUILD AFTER SCOPING, IN ITS CONTAINER — pre-scoped, its site's dr
     }
     if (u.includes("/v1/messages")) {
       const bd = JSON.parse(String((init && init.body) || "{}"));
-      if (bd.tool_choice && bd.tool_choice.name === "design_schema") return json({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "t1", name: "design_schema", input: GOOD_DESIGN }], usage: { input_tokens: 100, output_tokens: 50 } });
+      if ((bd.tool_choice && (bd.tool_choice.name || (bd.tool_choice.type === "any" && bd.tools && bd.tools[0] && bd.tools[0].name))) === "design_schema") return json({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "t1", name: "design_schema", input: GOOD_DESIGN }], usage: { input_tokens: 100, output_tokens: 50 } });
       return new Response("stop", { status: 503 });
     }
     if (isDispatchUpload(u)) return dispatchOk();
@@ -409,7 +409,7 @@ test("JGD5 A FIRST BUILD IN ITS CONTAINER, SUPABASE THROUGH THE GATEWAY'S OWN DO
     if (u.includes("/auth/v1/user")) return json(BUILD_USER);
     if (u.includes("/v1/messages")) {
       const bd = JSON.parse(String((init && init.body) || "{}"));
-      if (bd.tool_choice && bd.tool_choice.name === "design_schema") return json({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "t1", name: "design_schema", input: GOOD_DESIGN }], usage: { input_tokens: 100, output_tokens: 50 } });
+      if ((bd.tool_choice && (bd.tool_choice.name || (bd.tool_choice.type === "any" && bd.tools && bd.tools[0] && bd.tools[0].name))) === "design_schema") return json({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "t1", name: "design_schema", input: GOOD_DESIGN }], usage: { input_tokens: 100, output_tokens: 50 } });
       return new Response("stop", { status: 503 });
     }
     if (isDispatchUpload(u)) return dispatchOk();

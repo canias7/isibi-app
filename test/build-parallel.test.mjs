@@ -328,7 +328,7 @@ test("BLD 9 — THE COMPILE'S READY INPUTS BESIDE THE PHOTOGRAPHS (round 5): the
     if (u.includes("/v1/messages")) {
       let bd = {};
       try { bd = JSON.parse(String((init && init.body) || "{}")); } catch { bd = {}; }
-      if (bd.tool_choice && bd.tool_choice.name === "write_translation") {
+      if ((bd.tool_choice && (bd.tool_choice.name || (bd.tool_choice.type === "any" && bd.tools && bd.tools[0] && bd.tools[0].name))) === "write_translation") {
         const text = String((bd.messages && bd.messages[0] && bd.messages[0].content) || "");
         const strings = JSON.parse(text.slice(text.indexOf("Strings:\n") + "Strings:\n".length));
         seen.translate.push({ phase, ended: img.log.filter((e) => e.end != null).length, n: strings.length });

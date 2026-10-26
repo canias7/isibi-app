@@ -2340,9 +2340,6 @@ export function siteNote(site) {
   if (theme) look.push("Its theme is " + theme + " — every colour, radius and font comes from that theme's tokens, never a colour of your own");
   if (s.css) look.push("it also carries a stylesheet written for it, which is applied on top of the theme");
   if (look.length) lines.push(look.join("; ") + ".");
-  // THE SITE MAP'S KEY FACTS (2026-10-26), with where each is written: facts, never a rule.
-  if (typeof s.keyFacts === "string" && s.keyFacts.trim()) lines.push(s.keyFacts.trim().slice(0, 2600));
-  if (typeof s.rowNote === "string" && s.rowNote.trim()) lines.push(s.rowNote.trim().slice(0, 3000));
   return lines.join("\n");
 }
 
@@ -2483,8 +2480,8 @@ const SCHEMA_KINDS = new Set(["table", "row", "function", "api", "job"]);
 // address, and a photograph placed beside it changed its request for nothing.
 export function noteFor(kind, site) {
   if (!site || typeof site !== "object") return site;
-  const { photos, builtFrom, rowNote, ...rest } = site;
-  return { ...rest, ...(kind === "photo" ? { photos } : {}), ...(SCHEMA_KINDS.has(kind) ? {} : { builtFrom }), ...(kind === "row" && rowNote ? { rowNote } : {}) };
+  const { photos, builtFrom, ...rest } = site;
+  return { ...rest, ...(kind === "photo" ? { photos } : {}), ...(SCHEMA_KINDS.has(kind) ? {} : { builtFrom }) };
 }
 
 export function addRequest({ kind, message, site, model, brief = "", feedback = "" }) {

@@ -56,25 +56,8 @@ test("THE ROUTER SLICE'S SIZE on a realistic site: inside ~2–3k tokens with th
   assert.ok(tokens(inv) <= 1600, "inventory with facts " + tokens(inv));
 });
 
-test("THE ROW DESIGNER is shown the map's tables with required columns; other designers are not", () => {
-  const rowNote = mapFor("rowNote", buildSiteMap({ spec: SPEC }));
-  assert.match(rowNote, /- orders: id, name\*, note/);
-  const site = { name: "Harbour Books", pages: ["/"], rowNote };
-  assert.ok(siteNote(noteFor("row", site)).includes("- orders: id, name*, note"));
-  assert.ok(!siteNote(noteFor("page", site)).includes("name*"));
-  assert.match(W, /rowNote: \(\(\) => \{ try \{ return mapFor\("rowNote", buildSiteMap\(\{ spec, label: accessLabel \}\)\)/);
-  // The live read stays the truth for what an entry must fill.
-  assert.match(W, /rowRequired: aRowRequired/);
-});
-
-test("THE FRAME WRITER is given the frame slice as its note, beside the live tables", () => {
-  const note = mapFor("frame", buildSiteMap({ pages: PAGES, parts: PARTS }));
-  assert.match(note, /^The site as it stands:/);
-  assert.match(note, /hours "Open Mon–Sun 9am–5pm" in part footer/);
-  const req = frameEditRequest({ instruction: "x", frame: {}, routes: ["/"], note });
-  assert.ok(req.messages[0].content.includes(note));
-  assert.match(W, /note: \(\(\) => \{ try \{ return mapFor\("frame", buildSiteMap\(\{ pages: eSrc, parts: fRead\.parts \}\)\)/);
-});
+// THE ROW DESIGNER AND THE FRAME WRITER no longer get map slices: they explore
+// (2026-10-26, explore-code; test/explore-everywhere.test.mjs).
 
 test("THE REPLY MODEL is told what exists, from the current map, as facts", () => {
   const map = mapFor("reply", buildSiteMap({ pages: PAGES, parts: PARTS, spec: SPEC }));

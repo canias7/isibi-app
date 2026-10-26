@@ -141,7 +141,7 @@ test("PAGE EDIT: the review runs on the render check's shots, its fix is recompi
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
   assert.equal(reviews(r.seen), 1, "one review call");
   assert.ok(Array.isArray(r.builds[0].body.shots) && r.builds[0].body.shots.includes("/"), "the compile did not ask for the changed page's screenshots");
-  const req = r.seen.requests.find((q) => q.tool_choice && q.tool_choice.name === REVIEW_TOOL.name);
+  const req = r.seen.requests.find((q) => (q.tool_choice && (q.tool_choice.name || (q.tool_choice.type === "any" && q.tools && q.tools[0] && q.tools[0].name))) === REVIEW_TOOL.name);
   const images = req.messages[0].content.filter((x) => x.type === "image");
   assert.equal(images.length, 2, "both widths of the shot reached the model");
   assert.equal(r.builds.length, 2, "the edit's compile and the review's recompile");
@@ -185,7 +185,7 @@ test("ADD-ON WITH A PAGE: looked at, the new page's route screenshotted, its fix
   assert.equal(r.r.ok, true, JSON.stringify(r.r));
   assert.equal(reviews(r.seen), 1);
   assert.deepEqual(r.builds[0].body.shots, ["/gallery"]);
-  const req = r.seen.requests.find((q) => q.tool_choice && q.tool_choice.name === REVIEW_TOOL.name);
+  const req = r.seen.requests.find((q) => (q.tool_choice && (q.tool_choice.name || (q.tool_choice.type === "any" && q.tools && q.tools[0] && q.tools[0].name))) === REVIEW_TOOL.name);
   const text = JSON.stringify(req.messages);
   assert.ok(text.includes("THE SOURCE OF /gallery") && !text.includes("THE SOURCE OF / ("), "the review was offered a page this change did not touch");
   assert.equal(r.builds[1].body.files["gallery.tsx"], GALLERY.replace("mt-96", "mt-4"));

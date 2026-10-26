@@ -127,3 +127,52 @@ Each round resends the whole conversation, and the tool schemas add about
       symlink.
     - `canary-reopen-browser` is a browser case that passes when run alone
       (2 of 2).
+
+## Phase 3: every other edit step, the add-on, repairs, the visual review and the security scan
+
+- **The change.** Every edit call is now sent under its own name: `text`,
+  `nav`, `frame`, `picture` and `rename`. Every name explores except
+  `keep_check` and `take_off`. These now explore:
+  - the add-on transport (`aQuick`: the picker, designers, writers, the
+    requirement judge, verification and retries);
+  - the add-on page writer;
+  - every compile repair (the build, the seam and the add-on);
+  - the visual review;
+  - the build path's file picker and page writers (on a first build there
+    are no files, so the call goes out as it was);
+  - the security scan's deep read.
+- **What left the code.** The map slices `mapFor("frame")`,
+  `mapFor("addon")` and `mapFor("rowNote")` are gone, along with
+  `mappedCall` and `mapCall`, and the add-on's `keyFacts`/`rowNote` handling
+  in `site-add.mjs` (now dead). The frame writer's `note` stays, because it
+  also carries the "logo is now set" line.
+- **Two producer fixes the explore loop needed:**
+  - **A refused answer is still marked on the recorded reply.** The loop
+    hands a step a copy of the reply, so `prepared.mjs` gains
+    `replyStandsFor`. A step's `rejectReply` on the copy now also marks the
+    reply the recorder kept, so prepared refusals and corrections replay as
+    before. `correction-reuse` showed the break.
+  - **Part marks name the step's own tool.** `partMarks` now reads it while
+    the call asks for "any tool".
+- **The replay rule, corrected from phase 1.** A digest of the whole site in
+  the note would stop a part running beside another from reusing its
+  prepared answers (`parallel-requests` P5). So the note now carries only
+  the file list and table names, and each look's result rides in the rounds
+  after it. An answer rests exactly on what the step saw: a changed file the
+  step read gives a different request, and a file it never read does not.
+- **Test changes.** `test/site-map-everywhere.test.mjs` is replaced by
+  `test/explore-everywhere.test.mjs`. That test finds every model call by
+  pattern and requires it to explore or be named. The names left are:
+  - the exceptions (progress lines, first-build design, translation, the
+    keep check and the take-off);
+  - phase 4's router and phase 5's reply writers, diagnosis and
+    conversation.
+
+  Source-text guards were updated to the new spelling in 9 test files, plus
+  the map tests for the slices that were removed.
+- **The text step** (`test/site-explore.test.mjs`, supplied answers). It
+  searches "£4.25", finds `index.tsx:2` and makes its change. Both rounds are
+  billed.
+- **Checks.** Sweep: 9 of 9 mutants killed, and the comment-only control
+  survived. Full suite: `12905 / 12901 / 1 / 3`; the one failure is the
+  worktree's `node_modules` symlink.

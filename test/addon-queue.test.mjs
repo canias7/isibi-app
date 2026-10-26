@@ -213,7 +213,7 @@ test("every model call on the addon route rides the job's clock", () => {
   // option (`refusals`, read only by the replayer), and `aCounted` counts
   // after the call — every call made, never a first request a prior refusal
   // answered with no model; it still only counts and hands the request on.
-  assert.match(b, /const aQuick = \(what = "", opts\) => clarifyTransport\(aCounted\(jobSend\(aJob, (?:mappedSend\(env, ownerSlug, "site", )?quickSend\(env, what, aJob && aJob\.budget\)\)?, opts\)\), \{/, "aQuick does not carry the job's budget");
+  assert.match(b, /const aQuick = \(what = "", opts\) => clarifyTransport\(exploredSend\(env, ownerSlug, aCounted\(jobSend\(aJob, quickSend\(env, what, aJob && aJob\.budget\), opts\)\)\), \{/, "aQuick does not carry the job's budget");
   assert.match(b, /const aCounted = \(send\) => async \(req\) => \{\n\s+try \{ const r = await send\(req\); if \(aScoped\) noteSeen\(aJob, "scope"\); return r; \}\n\s+catch \(e\) \{ if \(aScoped && !priorRefusalOf\(e\)\) noteSeen\(aJob, "scope"\); throw e; \}\n\s+\};/, "aCounted does more than count and hand the request on");
   // TWO DIRECT CALLS SINCE 2026-09-04 (run 36), and the second is the job's
   // clock too, seen through `repairClock`: the repair call holds back the

@@ -77,7 +77,7 @@ function writer(replies, { gate = null } = {}) {
   const onFetch = async (u, init) => {
     if (!(u.includes("/v1/messages") || u.includes("/chat/completions"))) return null;
     const bd = JSON.parse(String((init && init.body) || "{}"));
-    if (!(bd.tool_choice && bd.tool_choice.name === "write_reply")) return null;
+    if (!((bd.tool_choice && (bd.tool_choice.name || (bd.tool_choice.type === "any" && bd.tools && bd.tools[0] && bd.tools[0].name))) === "write_reply")) return null;
     reachedR();
     if (gate) await gate;
     const reply = Array.isArray(replies) ? replies[Math.min(i, replies.length - 1)] : replies;
@@ -306,7 +306,7 @@ test("2: NO PARSER (a Worker bundle) — the narrower fact: in the published fil
 const replyFetch = (reply, seen) => async (u, init) => {
   if (!u.includes("/v1/messages")) return null;
   const bd = JSON.parse(String((init && init.body) || "{}"));
-  if (!(bd.tool_choice && bd.tool_choice.name === "write_reply")) return null;
+  if (!((bd.tool_choice && (bd.tool_choice.name || (bd.tool_choice.type === "any" && bd.tools && bd.tools[0] && bd.tools[0].name))) === "write_reply")) return null;
   return replyAnswer(reply, seen, init);
 };
 
@@ -339,7 +339,7 @@ test("3 CONTROL: an OUTAGE keeps its fixed message — the designer's provider o
     onFetch: async (u, init) => {
       if (!u.includes("/v1/messages")) return null;
       const bd = JSON.parse(String((init && init.body) || "{}"));
-      if (bd.tool_choice && bd.tool_choice.name === "design_schema") return json({ type: "error", error: { type: "billing_error", message: "credit balance is too low" } }, 400);
+      if ((bd.tool_choice && (bd.tool_choice.name || (bd.tool_choice.type === "any" && bd.tools && bd.tools[0] && bd.tools[0].name))) === "design_schema") return json({ type: "error", error: { type: "billing_error", message: "credit balance is too low" } }, 400);
       return replyFetch("SHOULD NOT BE ASKED", seen)(u, init);
     },
   });

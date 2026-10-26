@@ -236,7 +236,7 @@ test("BUILD: the drafts the message names move into the new site's library, and 
     onFetch: async (url, init) => {
       if (url.includes("/v1/messages")) {
         const b = JSON.parse(String((init && init.body) || "{}"));
-        if (b.tool_choice && b.tool_choice.name === "write_pages") writer = JSON.stringify(b.messages || "");
+        if ((b.tool_choice && (b.tool_choice.name || (b.tool_choice.type === "any" && b.tools && b.tools[0] && b.tools[0].name))) === "write_pages") writer = JSON.stringify(b.messages || "");
       }
       return null;
     },

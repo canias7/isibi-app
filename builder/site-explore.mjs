@@ -19,15 +19,19 @@
 // round summed onto it — the step bills from `reply.usage`, so each look round
 // is billed through the step's existing cost path. Each round goes through the
 // `send` it wraps, so a job's recorder and replayer (`jobSend`) see every round
-// as its own exact request, tool calls and results included; the note carries
-// a digest of the files and tables, so a changed site is a different request
-// and never replays an answer made for the old one.
+// as its own exact request, tool calls and results included. AN ANSWER RESTS
+// ON EXACTLY WHAT THE STEP SAW: the file list and table names in the note, and
+// every look's result in the rounds after it, read from the site as it is now.
+// A file the step read that has changed makes the next round a different
+// request, which is never answered from an old record; a file it never read
+// does not (so a part running beside another keeps its prepared answers).
 //
 // Dependency-light: imports only `routeOf` and `partPath`. Nothing from worker.js.
 
 import { routeOf } from "./site-addon.mjs";
 import { partPath } from "./site-files.mjs";
 import { SITE_TOOLS, SITE_TOOL_NAMES, runSiteTool, foreignArgs } from "./explore-site-tools.mjs";
+import { replyStandsFor } from "./prepared.mjs";
 
 export const EXPLORE_MARK = "THE SITE'S FILES";
 /** Look rounds a step may spend before it must answer. Owner: default 6. */
@@ -70,22 +74,13 @@ export function siteFiles({ pages = null, parts = null, extra = null } = {}) {
   return out;
 }
 
-/** A short, stable digest (FNV-1a, two lanes) of every file and table: the site's revision as the call saw it. */
-export function exploreDigest(files, tables) {
-  let a = 0x811c9dc5, b = 0x01000193 ^ 0x5bd1e995;
-  const feed = (s) => { for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); a = Math.imul(a ^ c, 0x01000193) >>> 0; b = Math.imul(b ^ c, 0x5bd1e995) >>> 0; } };
-  for (const f of Array.isArray(files) ? files : []) { feed(str(f.path)); feed("\u0000"); feed(str(f.source)); feed("\u0001"); }
-  try { feed(JSON.stringify(Array.isArray(tables) ? tables : [])); } catch { feed("?"); }
-  return a.toString(16).padStart(8, "0") + b.toString(16).padStart(8, "0");
-}
-
 const label = (f) => f.path + (f.route ? " (" + f.route + ")" : f.role ? " (" + f.role + ")" : "");
 
 /** The note a step is given up front: the file list, the table names for a data step, nothing else. */
 export function exploreNote(ctx, { tables = false } = {}) {
   const files = Array.isArray(ctx && ctx.files) ? ctx.files : [];
   if (!files.length && !(tables && Array.isArray(ctx && ctx.tables) && ctx.tables.length)) return "";
-  const lines = [EXPLORE_MARK + " (revision " + exploreDigest(files, tables ? ctx.tables : null) + "). Read-only tools let you look before you answer: list_files, search, read_file" + (tables ? ", describe_table and the site's database and settings tools" : "") + ". Look only as much as you need; then answer with your own tool as usual."];
+  const lines = [EXPLORE_MARK + ". Read-only tools let you look before you answer: list_files, search, read_file" + (tables ? ", describe_table and the site's database and settings tools" : "") + ". Look only as much as you need; then answer with your own tool as usual."];
   lines.push("Files:");
   for (const f of files.slice(0, MAX_LIST)) lines.push("- " + label(f));
   if (files.length > MAX_LIST) lines.push("- … (" + (files.length - MAX_LIST) + " more: list_files)");
@@ -235,7 +230,9 @@ export function exploreSend(send, ctx, { maxLooks = EXPLORE_MAX_LOOKS, tables = 
       const done = ownUses.length > 0 || !lookUses.length || !looking;
       if (done) {
         const content = blocks.filter((b) => !(b && b.type === "tool_use" && EXPLORE_TOOL_NAMES.includes(b.name)));
-        return { ...(reply && typeof reply === "object" ? reply : {}), content, ...(usage ? { usage } : {}), explore: { looks, rounds } };
+        const out = { ...(reply && typeof reply === "object" ? reply : {}), content, ...(usage ? { usage } : {}), explore: { looks, rounds } };
+        replyStandsFor(out, reply);
+        return out;
       }
       const results = [];
       for (const u of lookUses) {

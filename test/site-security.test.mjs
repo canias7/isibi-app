@@ -66,7 +66,7 @@ test("DEEP: only when asked, on the picker's model, every token charged once und
   const body = w.slice(a, w.indexOf("} else if (sq) {", a));
   assert.match(body, /if \(scbody && scbody\.deep === true\) \{/, "the deep scan runs without being asked");
   assert.match(body, /const model = modelsFor\(scbody\.picker\)\.pages;/, "not the picker's model");
-  assert.match(body, /await deepScan\(\{ send: (?:mappedSend\(env, scslug, "site", )?quickSend\(env, "security"\)\)? \}/);
+  assert.match(body, /await deepScan\(\{ send: (?:exploredSend\(env, scslug, )?quickSend\(env, "security"\)\)? \}/);
   assert.match(body, /Math\.min\(pageCredits\(\.\.\.priced\), cap\)/, "the calls are not priced");
   assert.match(body, /debitCredits\(request\.headers\.get\("Authorization"\) \|\| "", cost, scref, "security", true\)/, "the scan is not charged, or not once");
   assert.match(body, /readSiteSource\(env, scslug\)/, "the deep scan does not read the site's source");

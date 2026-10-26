@@ -2044,7 +2044,7 @@ test("the translation calls are CHARGED — by the spine, before the commit poin
   }
 
   // ── THE BUILD PATH: the usage rides the compile result onto the build's ONE bill ──
-  const dep = w.slice(pos(w, "compile: async (pages, builtParts) => {", "the build's compile dep"), pos(w, "repair: mappedSend(env, slug, \"page\", quickSend(env)),", "the repair dep"));
+  const dep = w.slice(pos(w, "compile: async (pages, builtParts) => {", "the build's compile dep"), pos(w, "repair: exploredSend(env, slug, quickSend(env)),", "the repair dep"));
   assert.match(dep, /const langUsage = \[\];/, "the build's compile dep keeps no translation usage");
   // RE-ANCHORED FOR TASK #88: the call and the push were adjacent lines until
   // the build loop split into `Promise.all` plus an ordered fold, so the round

@@ -616,7 +616,7 @@ function runNet({ rpc = [], designs = [], sql = sqlJobs() } = {}) {
     if (m && m[1] === "use_quota") { rpc.push({ fn: m[1], args: {} }); return json(true); }
     if (u.includes("/v1/messages")) {
       const bd = JSON.parse(String((init && init.body) || "{}"));
-      if (bd.tool_choice && bd.tool_choice.name === "design_schema") { designs.push(bd); return json({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "t1", name: "design_schema", input: GOOD_DESIGN }], usage: { input_tokens: 100, output_tokens: 50 } }); }
+      if ((bd.tool_choice && (bd.tool_choice.name || (bd.tool_choice.type === "any" && bd.tools && bd.tools[0] && bd.tools[0].name))) === "design_schema") { designs.push(bd); return json({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "t1", name: "design_schema", input: GOOD_DESIGN }], usage: { input_tokens: 100, output_tokens: 50 } }); }
       return new Response("stop", { status: 503 });
     }
     return base(input, init);

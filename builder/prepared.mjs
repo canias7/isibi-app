@@ -121,6 +121,17 @@ export function rejectReply(reply, why, facts) {
   REJECTED.set(reply, String(why || "rejected").slice(0, 80));
   const f = facts === undefined ? null : readRefusal(facts);
   if (f) REFUSAL_FACTS.set(reply, f); else REFUSAL_FACTS.delete(reply);
+  // THE REPLY IT STANDS FOR (2026-10-26, explore-code): a step handed a copy
+  // of the recorded answer (the explore loop's, with its looks taken out and
+  // every round's usage summed) refuses the recorded one too, so the record
+  // carries the verdict exactly as before.
+  const orig = STANDS_FOR.get(reply);
+  if (orig && orig !== reply) rejectReply(orig, why, facts);
+}
+const STANDS_FOR = new WeakMap();
+/** `copy` is handed to a step in place of `original`, the reply the recorder kept. */
+export function replyStandsFor(copy, original) {
+  if (copy && typeof copy === "object" && original && typeof original === "object" && copy !== original) STANDS_FOR.set(copy, original);
 }
 /** Why a step refused this reply, or "". */
 export const replyRejected = (reply) => (reply && typeof reply === "object" && REJECTED.get(reply)) || "";
@@ -271,7 +282,9 @@ export function partMarks(req) {
     rest = rest.slice(0, at) + "\n" + lines.slice(k).join("\n");
   }
   const unmarked = [...new Set(spans)].reduce((n, sp) => n + countIn(rest, sp), 0);
-  const what = req.tool_choice && typeof req.tool_choice.name === "string" ? req.tool_choice.name.slice(0, 60) : "";
+  // WHILE A STEP MAY LOOK (explore-code, 2026-10-26) it asks for any tool, its own first.
+  const named = req.tool_choice && typeof req.tool_choice.name === "string" ? req.tool_choice.name : req.tool_choice && req.tool_choice.type === "any" && Array.isArray(req.tools) && req.tools[0] && typeof req.tools[0].name === "string" ? req.tools[0].name : "";
+  const what = named.slice(0, 60);
   return { what, others: spans.length, rule: text.includes(PART_RULE), unmarked, done };
 }
 

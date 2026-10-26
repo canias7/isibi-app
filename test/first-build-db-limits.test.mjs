@@ -135,7 +135,7 @@ function routeRun({ design, backend = { backend: BACKEND, notBuilt: [] } }) {
     onFetch: async (url, init) => {
       if (!url.includes("/v1/messages")) return null;
       const b = JSON.parse(String((init && init.body) || "{}"));
-      if (!(b.tool_choice && b.tool_choice.name === "design_backend")) return null;
+      if (!((b.tool_choice && (b.tool_choice.name || (b.tool_choice.type === "any" && b.tools && b.tools[0] && b.tools[0].name))) === "design_backend")) return null;
       backendCalls.push(b);
       return json({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "b1", name: "design_backend", input: backend }], usage: { input_tokens: 200, output_tokens: 300 } });
     },

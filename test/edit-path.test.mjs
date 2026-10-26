@@ -1206,7 +1206,7 @@ function translateOver(answerFor) {
     if (url.includes("/v1/messages")) {
       let body = {};
       try { body = JSON.parse(String((init && init.body) || "{}")); } catch { body = {}; }
-      if (body.tool_choice && body.tool_choice.name === TRANSLATE_TOOL.name) {
+      if ((body.tool_choice && (body.tool_choice.name || (body.tool_choice.type === "any" && body.tools && body.tools[0] && body.tools[0].name))) === TRANSLATE_TOOL.name) {
         const text = String(body.messages[0].content);
         const strings = JSON.parse(text.slice(text.indexOf("Strings:\n") + "Strings:\n".length));
         asked.push(strings);

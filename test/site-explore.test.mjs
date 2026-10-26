@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  siteFiles, exploreNote, exploreDigest, runExploreTool, exploreRequest, exploreSend, exploreCall,
+  siteFiles, exploreNote, runExploreTool, exploreRequest, exploreSend, exploreCall,
   measureExplore, EXPLORE_MARK, EXPLORE_MAX_LOOKS, EXPLORE_TOOL_NAMES,
 } from "../builder/site-explore.mjs";
 import { runTweak } from "../builder/site-tweak.mjs";
@@ -103,11 +103,21 @@ test("fails open: no files, the call goes as it was", async () => {
   assert.deepEqual(got, ["K", req, 7]);
 });
 
-test("the replay key moves with the site: a changed file changes the request", () => {
-  const changed = { files: ctx.files.map((f) => (f.path === "-parts/band-3-split.tsx" ? { ...f, source: f.source + " " } : f)) };
-  assert.notEqual(exploreDigest(ctx.files), exploreDigest(changed.files));
-  assert.notEqual(exploreNote(ctx), exploreNote(changed));
-  assert.equal(exploreNote(ctx), exploreNote({ files: ctx.files.slice() }), "the same site is the same request");
+test("an answer rests on what the step saw: a changed file it read changes the next request; one it never read does not", async () => {
+  const run = async (c) => {
+    const sent = [];
+    const answers = [{ content: [use("read_file", { path: "-parts/band-3-split.tsx" }, "r1")] }, { content: [use("own", {})] }];
+    await exploreSend(async (r) => { sent.push(JSON.stringify(r)); return answers[sent.length - 1]; }, c)({ system: "S", tools: [{ name: "own" }], tool_choice: { type: "tool", name: "own" }, messages: [{ role: "user", content: "go" }] });
+    return sent;
+  };
+  const base = await run(ctx);
+  const readChanged = await run({ files: ctx.files.map((f) => (f.path === "-parts/band-3-split.tsx" ? { ...f, source: f.source + " " } : f)) });
+  const otherChanged = await run({ files: ctx.files.map((f) => (f.path === "-parts/band-1-hero.tsx" ? { ...f, source: f.source + " " } : f)) });
+  assert.equal(readChanged[0], base[0], "the first round shows only the file list");
+  assert.notEqual(readChanged[1], base[1], "the file it read changed: a different request, never an old answer");
+  assert.deepEqual(otherChanged, base, "a file it never read changed: the same requests, so a prepared answer still holds");
+  const added = await run({ files: [...ctx.files, { path: "new.tsx", source: "x" }] });
+  assert.notEqual(added[0], base[0], "a new file changes the list it was shown");
 });
 
 test("PHASE 1: the page rung moves the reviews above the lessons by looking, never asking", async () => {
@@ -160,6 +170,25 @@ test("PHASE 2: the data and rules steps explore, by name", async () => {
   const SRC = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(SRC, /runDataEdit\(\{\s*send: eQuick\("data"\),/);
   assert.match(SRC, /runRulesEdit\(\{\s*send: eQuick\("rules"\),/);
-  const set = /const EDIT_EXPLORE_STEPS = new Set\(\[([^\]]*)\]\)/.exec(SRC)[1];
-  for (const n of ["data", "rules"]) assert.ok(set.includes('"' + n + '"'), n);
+  const bare = /const EDIT_BARE_STEPS = new Set\(\[([^\]]*)\]\)/.exec(SRC)[1];
+  for (const n of ["data", "rules"]) assert.ok(!bare.includes('"' + n + '"'), n);
+});
+
+test("PHASE 3: the text step looks up where a phrase is written, then makes its change; both rounds billed", async () => {
+  const { runTextEdit, TEXT_TOOL } = await import("../builder/site-apply.mjs");
+  const src = "export const Route = createFileRoute('/')({ component: Home })\nfunction Home(){ return <main><h1>Saltmarsh</h1><p>Flat white</p><p>£4.25</p></main> }\n";
+  const sent = [];
+  const send = async (req) => {
+    sent.push(req);
+    if (sent.length === 1) return { content: [use("search", { pattern: "£4.25" }, "s1")], usage: { input_tokens: 40, output_tokens: 5 } };
+    const lines = req.messages[0].content.split("\n");
+    const id = Number(lines.find((l) => l.endsWith("] £4.25")).split(".")[0]);
+    return { content: [use(TEXT_TOOL.name, { edits: [{ id, to: "£4.50" }] })], usage: { input_tokens: 60, output_tokens: 5 } };
+  };
+  const out = await runTextEdit({ send: exploreSend(send, { files: siteFiles({ pages: [{ path: "index.tsx", source: src }] }) }) }, { instruction: "Make the flat white £4.50", pages: [{ path: "index.tsx", source: src }] });
+  assert.equal(sent.length, 2);
+  assert.match(sent[1].messages.at(-1).content[0].content, /index\.tsx:2: /);
+  assert.equal(out.ok, true, JSON.stringify(out).slice(0, 200));
+  assert.ok(out.pages[0].source.includes("£4.50"));
+  assert.equal(out.usage.in, 100);
 });
