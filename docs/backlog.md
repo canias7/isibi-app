@@ -3303,3 +3303,7 @@ default), verified in the site's Worker for public-form tables only.
 - Webhook per-minute cap (`tooMany`) is not enforced in the site yet.
 - Visitors' uploads saved by a site's own Worker live in its own bucket
   (`vuploads/`); the owner's Uploads panel does not list them yet.
+
+- **Site-run connections (2026-10-27)**: the API cache and the rate limits are
+  per isolate in the site Worker; a hook function that writes a table the
+  limited login cannot write fails as 500 in the site (no platform fallback).

@@ -17305,28 +17305,30 @@ async function siteReadVars(env, slug) {
     const owner = (await siteBackendRowFresh(env, slug).catch(() => null)) || {};
     const email = owner.uid ? await ownerEmail(env, owner.uid).catch(() => null) : null;
     const app = await siteAppConn(env, slug).catch(() => null);
-    const mail = await siteMailSecrets(env, db, slug)().catch(() => ({}));
-    const sms = await siteSmsSecrets(env, db, slug)().catch(() => ({}));
-    const hooks = await _webhookSecrets(slug, env, db).catch(() => ({}));
-    // The owner's own Stripe keys, for the site's checkout and its "paid" message.
-    const stripe = {};
-    for (const name of ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"]) {
-      try {
-        const v = await readSecret({ get: async (_s, n) => {
-          const rows = await sqlQuery(db, "SELECT cipher FROM _secrets WHERE name=?", [n]);
-          return (rows && rows[0] && rows[0].cipher) || null;
-        } }, env, { slug, name });
-        if (v) stripe[name] = v;
-      } catch { /* not set */ }
-    }
+    // EVERY SECRET THE SITE HOLDS, unlocked here and given to it alone: the
+    // owner's mail, SMS, webhook, Stripe and connection keys, whatever they
+    // named them. The platform's own marker rows are not secrets and stay.
+    const owned = {};
+    try {
+      const rows = await sqlQuery(db, "SELECT name, cipher FROM _secrets", []);
+      for (const r of (rows || []).slice(0, 64)) {
+        const name = r && String(r.name || "");
+        if (!name || name === TURNSTILE_PLATFORM_FLAG) continue;
+        try { const v = await readSecret({ get: async () => r.cipher }, env, { slug, name }); if (v) owned[name] = v; } catch { /* unreadable: skipped */ }
+      }
+    } catch { /* no secrets table: none */ }
     return {
       vars: {
         DATA_API_BASE: data, AUTH_BASE: auth,
         ...(spec && Array.isArray(spec.tables) ? { SITE_TABLES: JSON.stringify(spec.tables) } : {}),
+        // The site's own connections and hooks: what it may call out to, and
+        // which of its database functions an outside post may reach.
+        ...(spec && (Array.isArray(spec.apis) || Array.isArray(spec.functions))
+          ? { SITE_SPEC: JSON.stringify({ apis: spec.apis || [], functions: spec.functions || [] }) } : {}),
         ...(email ? { OWNER_EMAIL: email } : {}),
         NOTIFY: (await siteNotifyOn(env, slug)) ? "1" : "0",
       },
-      secrets: { ...(app ? { APP_CONN: app } : {}), ...mail, ...sms, ...hooks, ...stripe },
+      secrets: { ...owned, ...(app ? { APP_CONN: app } : {}) },
     };
   } catch (e) {
     console.error("own data: not given", slug, errorClassForLog(e));
@@ -17491,7 +17493,7 @@ async function uploadScriptOnce(env, slug, worker, { preview = false, go = null 
       // double-submit and follow-up memory there; on the shared bucket it
       // never writes, and never saves a row itself.
       const vars = given ? (bucket === siteBucketName(slug) ? { ...given.vars, OWN_BUCKET: "1" } : given.vars) : null;
-      return { bucket, vars, secrets: given ? given.secrets : null, smsNames: SMS_SECRET_NAMES };
+      return { bucket, vars, secrets: given ? given.secrets : null };
     })()),
   }).catch((e) => ({ ok: false, status: 0, error: String((e && e.message) || e) }));
   if (!r.ok) {
@@ -34601,6 +34603,8 @@ async function handleRequest(request, env, ctx) {
       if (am2) {
         if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
         const slug = am2[1].toLowerCase();
+        // THE SITE'S OWN WORKER ANSWERS FIRST, with its owner's keys.
+        if (env.SITE_OWN_DATA === "1") { const mine = await ownDataRead(env, request, slug); if (mine) return mine; }
         const aname = am2[2].toLowerCase().replace(/-/g, "_");
         // THIS SPENDS THE OWNER'S THIRD-PARTY QUOTA on behalf of anyone who
         // finds the URL, so the limit is not a formality. Before any lookup.
@@ -34674,6 +34678,7 @@ async function handleRequest(request, env, ctx) {
         // should learn that, where a stranger guessing names should not.
         if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
         const slug = hm[1].toLowerCase();
+        if (env.SITE_OWN_DATA === "1") { const mine = await ownDataRead(env, request, slug); if (mine) return mine; }
         const hname = hm[2].toLowerCase().replace(/-/g, "_");
         const hdb = await siteRowConn(env, slug);
         if (!hdb) return Response.json({ error: "no such hook" }, { status: 404 });

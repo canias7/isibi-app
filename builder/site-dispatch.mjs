@@ -72,17 +72,24 @@ export const SITE_PLAIN = {
   NOTIFY: (v) => v === "1" || v === "0",
   OWNER_EMAIL: (v) => /^[^\s@]{1,64}@[^\s@]{1,190}$/.test(v),
   SITE_TABLES: (v) => v.length <= 200_000 && v.startsWith("["),
+  SITE_SPEC: (v) => v.length <= 200_000 && v.startsWith("{"),
 };
-export const SITE_SECRET_NAMES = [
-  "APP_CONN", "RESEND_KEY", "SENDGRID_KEY", "POSTMARK_KEY", "EMAIL_FROM",
-  "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET",
-];
-/** A secret name a site may hold: the list above, the SMS names, or a WEBHOOK… name. */
-export function siteSecretAllowed(name, smsNames = []) {
-  return SITE_SECRET_NAMES.includes(name) || smsNames.includes(name) || /^WEBHOOK[A-Z0-9_]{0,40}$/.test(name);
+/**
+ * A secret a site may hold: its limited login, or any secret its owner keeps
+ * (mail, SMS, webhooks, Stripe, connections — named as the owner named them).
+ * Refused: a name another binding uses, and the platform's own key names, so a
+ * site can never be handed something that reads as ours.
+ */
+export const RESERVED_NAMES = new Set([
+  "SITES", "PLATFORM", ...Object.keys(SITE_PLAIN),
+  "SUPABASE_SERVICE_KEY", "SITE_SECRETS_KEY", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "NEON_API_KEY",
+  "GATEWAY_SIGNING_KEY", "CREDITS_MINT_SECRET", "ANTHROPIC_API_KEY", "XAI_API_KEY", "FAL_KEY", "EMAIL",
+]);
+export function siteSecretAllowed(name) {
+  return typeof name === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(name) && !RESERVED_NAMES.has(name);
 }
 
-export async function uploadSiteWorker({ accountId, namespace, name, code, bucket, apiToken, vars = null, secrets = null, smsNames = [] }, deps = {}) {
+export async function uploadSiteWorker({ accountId, namespace, name, code, bucket, apiToken, vars = null, secrets = null }, deps = {}) {
   const fetchImpl = deps.fetch || globalThis.fetch;
   if (!accountId || !namespace || !name || !code) return { ok: false, status: 0, error: "missing accountId, namespace, name or code" };
   if (!apiToken) return { ok: false, status: 0, error: "no api token" };
@@ -106,7 +113,7 @@ export async function uploadSiteWorker({ accountId, namespace, name, code, bucke
         .filter(([k, v]) => Object.hasOwn(SITE_PLAIN, k) && typeof v === "string" && SITE_PLAIN[k](v))
         .map(([k, v]) => ({ type: "plain_text", name: k, text: v })),
       ...Object.entries(secrets || {})
-        .filter(([k, v]) => siteSecretAllowed(k, smsNames) && typeof v === "string" && ONE_LINE(v))
+        .filter(([k, v]) => siteSecretAllowed(k) && typeof v === "string" && ONE_LINE(v))
         .map(([k, v]) => ({ type: "secret_text", name: k, text: v })),
     ],
   };

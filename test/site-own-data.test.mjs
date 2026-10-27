@@ -4,17 +4,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import ts from "typescript";
-import { uploadSiteWorker, SITE_PLAIN, SITE_SECRET_NAMES, siteSecretAllowed } from "../builder/site-dispatch.mjs";
+import { uploadSiteWorker, SITE_PLAIN, RESERVED_NAMES, siteSecretAllowed } from "../builder/site-dispatch.mjs";
 
-async function metaOf(vars, secrets = null, smsNames = []) {
+async function metaOf(vars, secrets = null) {
   let form;
-  await uploadSiteWorker({ accountId: "a", namespace: "n", name: "site-x", code: "x", bucket: "gfs-x", apiToken: "t", vars, secrets, smsNames },
+  await uploadSiteWorker({ accountId: "a", namespace: "n", name: "site-x", code: "x", bucket: "gfs-x", apiToken: "t", vars, secrets },
     { fetch: async (_u, init) => { form = init.body; return new Response(JSON.stringify({ success: true }), { status: 200 }); } });
   return JSON.parse(await form.get("metadata").text());
 }
 
 test("the upload gives a script only the named public addresses, never anything else", async () => {
-  assert.deepEqual(Object.keys(SITE_PLAIN), ["DATA_API_BASE", "AUTH_BASE", "OWN_BUCKET", "NOTIFY", "OWNER_EMAIL", "SITE_TABLES"]);
+  assert.deepEqual(Object.keys(SITE_PLAIN), ["DATA_API_BASE", "AUTH_BASE", "OWN_BUCKET", "NOTIFY", "OWNER_EMAIL", "SITE_TABLES", "SITE_SPEC"]);
   const m = await metaOf({ DATA_API_BASE: "https://ep-1.data.neon.tech/rest", AUTH_BASE: "https://ep-1.auth.neon.tech/auth", SECRET_KEY: "https://x", DATABASE_URL: "postgres://u:p@h/db" });
   assert.deepEqual(m.bindings, [
     { type: "r2_bucket", name: "SITES", bucket_name: "gfs-x" },
@@ -122,7 +122,9 @@ test("a site is given its own login and its owner's own keys as secrets, and nev
     APP_CONN: "secret_text", RESEND_KEY: "secret_text", EMAIL_FROM: "secret_text", TWILIO_SID: "secret_text", WEBHOOK_URL: "secret_text",
   });
   for (const k of ["SUPABASE_SERVICE_KEY", "SITE_SECRETS_KEY", "CLOUDFLARE_API_TOKEN", "NEON_API_KEY", "GATEWAY_SIGNING_KEY", "EMAIL"]) assert.equal(siteSecretAllowed(k), false, k);
-  assert.ok(SITE_SECRET_NAMES.includes("APP_CONN"));
+  assert.ok(siteSecretAllowed("APP_CONN") && siteSecretAllowed("MY_WEATHER_KEY"));
+  for (const k of ["SITES", "PLATFORM", "SITE_TABLES", "lower", "1X"]) assert.equal(siteSecretAllowed(k), false, k);
+  assert.ok(RESERVED_NAMES.has("XAI_API_KEY"));
   // A plain value that is not what its name says is dropped.
   const bad = await metaOf({ OWNER_EMAIL: "not an email", NOTIFY: "yes", OWN_BUCKET: "1x", SITE_TABLES: "{}" });
   assert.deepEqual(bad.bindings.map((b) => b.name), ["SITES"]);
@@ -130,9 +132,9 @@ test("a site is given its own login and its owner's own keys as secrets, and nev
 
 test("the platform unlocks the site's own keys at publish and gives them to that site; no note route is left", () => {
   const v = between("async function siteReadVars(", "\n}\n");
-  for (const re of [/siteMailSecrets\(env, db, slug\)\(\)/, /siteSmsSecrets\(env, db, slug\)\(\)/, /_webhookSecrets\(slug, env, db\)/, /siteAppConn\(env, slug\)/, /ownerEmail\(env, owner\.uid\)/, /siteNotifyOn\(env, slug\)/, /SITE_TABLES: JSON\.stringify\(spec\.tables\)/]) assert.match(v, re);
+  for (const re of [/SELECT name, cipher FROM _secrets/, /TURNSTILE_PLATFORM_FLAG/, /SITE_SPEC: JSON\.stringify/, /siteAppConn\(env, slug\)/, /ownerEmail\(env, owner\.uid\)/, /siteNotifyOn\(env, slug\)/, /SITE_TABLES: JSON\.stringify\(spec\.tables\)/]) assert.match(v, re);
   assert.doesNotMatch(v, /SITE_SECRETS_KEY|SUPABASE_SERVICE_KEY|gatewaySecretOf/);
-  assert.match(between("async function uploadScriptOnce(", "\n}\n"), /secrets: given \? given\.secrets : null, smsNames: SMS_SECRET_NAMES/);
+  assert.match(between("async function uploadScriptOnce(", "\n}\n"), /secrets: given \? given\.secrets : null \}/);
   assert.doesNotMatch(W, /\/api\/site-effect/);
 });
 
@@ -382,5 +384,18 @@ test("the platform asks the site first for checkout and for its Stripe messages"
   assert.match(W, /THE SITE TAKES ITS OWN PAYMENTS[\s\S]{0,200}ownDataRead\(env, request, cm\[1\]\.toLowerCase\(\)\)/);
   assert.match(W, /THE SITE HEARS ITS OWN STRIPE MESSAGES[\s\S]{0,200}ownDataRead\(env, request, wslug\)/);
   const v = W.slice(W.indexOf("async function siteReadVars("), W.indexOf("async function siteReadVars(") + 4000);
-  assert.match(v, /"STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"/);
+  assert.match(v, /SELECT name, cipher FROM _secrets/); // every key the site holds, Stripe's included
+});
+
+test("the site's own connections and hooks are answered by its Worker first", () => {
+  const C = fs.readFileSync(new URL("../builder/lovable/template/src/lib/site-connect.ts", import.meta.url), "utf8");
+  for (const re of [/apiFor\(specOf\(env\)/, /missingRequired\(api, params\)/, /callApi\(/, /handleInbound\(/, /"x-site-data": "own"/, /hit\("api\|"/, /hit\("inbound\|"/]) assert.match(C, re);
+  assert.doesNotMatch(C, /SUPABASE|SITE_SECRETS_KEY|gofarther/);
+  const S = fs.readFileSync(new URL("../builder/lovable/template/src/server.ts", import.meta.url), "utf8");
+  assert.match(S, /siteApi\(request[^)]*\)\)[\s|]*\(await siteHook\(/);
+  for (const head of ["const aname = am2[2]", "const hname = hm[2]"]) {
+    const at = W.indexOf(head);
+    assert.ok(at > 0, head);
+    assert.match(W.slice(at - 400, at), /SITE_OWN_DATA === "1"\) \{ const mine = await ownDataRead\(env, request, slug\)/);
+  }
 });

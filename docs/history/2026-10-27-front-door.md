@@ -177,3 +177,20 @@ the owner's Stripe dashboard; the platform passes it to the site) checks the
 OWNER'S `STRIPE_WEBHOOK_SECRET` (`stripe-webhook.mjs` copied), flips the order
 paid or lapsed, and runs the follow-ups (`runEffectsFor`). Both keys are
 unlocked at publish and given to that site only. 3 cases.
+
+## The site's own connections and inbound hooks move into its Worker (2026-10-27)
+
+- `GET /api/db/<slug>/api/<name>` and `POST /api/db/<slug>/hook/<name>` are
+  now answered by the site Worker (`lib/site-connect.ts`), using the
+  platform's own `site-apis`, `site-api-shape`, `site-inbound` and
+  `site-ssrf` modules copied byte for byte. The platform asks the site
+  first (`ownDataRead`) and falls back only when the site does not mark
+  its answer `x-site-data: own`.
+- At publish the site is given `SITE_SPEC` (its declared `apis` and
+  `functions`) and **every secret it holds** (its own `_secrets`, decrypted,
+  except the Turnstile marker), named however the owner named them;
+  `siteSecretAllowed` refuses the platform's own names (`RESERVED_NAMES`).
+- Hooks run the site's `hook_<name>` function as its limited login
+  (`APP_CONN`). Limits (60 API calls a minute, 30 hook posts) are per isolate.
+- Not yet shown live. Cache is per isolate (the platform's KV layer is not
+  the site's).
