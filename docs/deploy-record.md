@@ -2084,3 +2084,13 @@ read (`/api/db/fretwork-1/data/lessons`) 200 through the front door; the bare
 `gofarther.app` (301, platform's fallback route) and `gofarther.dev` (200)
 unchanged. `SITE_OWN_BUCKETS` is set by the owner (value not read); the first
 publish after this deploy is its test. Not runtime-confirmed by a canary press.
+
+## Deploy 2280 — `61dd33db4` (2026-10-27 20:18 UTC)
+
+Fast-forward from `59a6e3663` on the owner's "merge and deploy": the limited
+login (`site-app-login.mjs`), after `site_app_conn.sql` was applied on the
+owner's word. Run 40576916178 green. Image predicted `92992a4ddcce6503` →
+`aa188622d81478a6` (248 inputs; app reused). Read free at 20:45: 35 of 37
+`site_project` rows hold a limited login (`app_conn` present, value never
+read); `wassup` and `helm` do not yet. `ember-cart` (no database) and
+`fretwork-1`'s data read answer 200. Not runtime-confirmed by a canary press.
