@@ -3280,3 +3280,8 @@ lacked fonts, decor and backdrops. Any change needs the owner's decision.
 `docs/history/2026-10-27-own-bucket.md`. The Cloudflare token needs R2 edit; a
 rehearsal on a throwaway site. (Bucket delete and the tick retry: built,
 same day.)
+
+## Front door and site limits: owed (2026-10-27)
+`docs/history/2026-10-27-front-door.md`. Measure 300 ms CPU against real site
+renders after the deploy; deploy `gofarther-front`; rehearse on a test
+hostname; then the route swap (owner's word).

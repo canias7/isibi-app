@@ -16147,7 +16147,7 @@ async function servePreview(env, request, url, pv, ctx) {
   const fwd = new Request(url.toString(), request);
   try { fwd.headers.set(PREVIEW_HEADER, "1"); } catch { return no(); }
   let res;
-  try { res = await env.SITE_WORKERS.get(previewScriptName(pv.slug)).fetch(fwd); } catch { return no(); }
+  try { res = await env.SITE_WORKERS.get(previewScriptName(pv.slug), {}, siteLimits(env)).fetch(fwd); } catch { return no(); }
   const h = new Headers(res.headers);
   h.set("cache-control", "no-store");
   h.set("x-robots-tag", "noindex");
@@ -17202,6 +17202,21 @@ function confirmFields(wput) {
 // bucket just before the upload. Off, or when the copy does not finish, the
 // script is bound to the shared bucket exactly as before: a site is never
 // uploaded against a bucket missing its files.
+// ── THE SAME LIMITS FOR EVERY SITE (2026-10-27, the owner's Q2: A) ─────────
+//
+// Each visit's call into a site's script carries Workers for Platforms' custom
+// limits, so one site cannot spend another's share: 300 ms of CPU and 50
+// outside calls by default, tunable without a release (`SITE_CPU_MS`,
+// `SITE_SUBREQUESTS`). Only visitor traffic: the platform's own probes and
+// confirmations run unlimited, so a slow site is never mistaken for a broken
+// upload.
+export const SITE_CPU_MS = 300;
+export const SITE_SUBREQUESTS = 50;
+export function siteLimits(env) {
+  const n = (v, d) => { const x = Number(v); return Number.isInteger(x) && x > 0 ? x : d; };
+  return { limits: { cpuMs: n(env && env.SITE_CPU_MS, SITE_CPU_MS), subRequests: n(env && env.SITE_SUBREQUESTS, SITE_SUBREQUESTS) } };
+}
+
 async function sealedBucketFor(env, slug, creds) {
   const shared = env.SITES_BUCKET_NAME || "isibi-sites";
   if (env.SITE_OWN_BUCKETS !== "1" || !creds || !env.SITES_BUCKET) return shared;
@@ -31615,7 +31630,7 @@ async function handleRequest(request, env, ctx) {
             const inner = new URL(url.toString());
             inner.pathname = "/" + rest;
             try {
-              const stub = env.SITE_WORKERS.get(name);
+              const stub = env.SITE_WORKERS.get(name, {}, siteLimits(env));
               // THE PREVIEW HEADER NEVER REACHES A LIVE SCRIPT: only the
               // platform's own draft route sends it.
               const fwd = new Request(inner.toString(), request);

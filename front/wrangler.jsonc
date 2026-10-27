@@ -1,0 +1,14 @@
+// gofarther-front — the front door for customer sites. NOT DEPLOYED: no
+// workflow deploys this, and it has no routes yet. Moving `*.gofarther.app`
+// and the custom-domain fallback here is a separate step, on the owner's word,
+// rehearsed on a test site first (docs/plans/2026-10-26-site-worker-split.md §5).
+{
+  "name": "gofarther-front",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-07-02",
+  "workers_dev": false,
+  // The one binding: a private, fixed link to the platform Worker.
+  "services": [
+    { "binding": "PLATFORM", "service": "isibi-app" }
+  ]
+}

@@ -1,6 +1,10 @@
 # Owner Notes
 
 
+## 2026-10-27 — Every site gets the same limits; the front door is written
+
+Each visit into a site's Worker is now capped at 300 ms of computer time and 50 outside calls (your Q2 answer), so one busy site can't eat another's share. The numbers can be changed without a release. The front door, `gofarther-front`, is written: a small separate Worker that strips headers only we may set and passes visits to the platform over a private link. It isn't deployed and has no addresses yet; moving `*.gofarther.app` to it waits for your word and a test-site rehearsal. No outbound checkpoint, as you chose. Branch `claude/nice-ramanujan-9ry8wy`, not merged. `docs/history/2026-10-27-front-door.md`.
+
 ## 2026-10-27 — Each site gets its own file bucket (built, switched off)
 
 Until now every site's Worker could read the whole shared file bucket, so one site's code could read another site's files. Now, when the switch `SITE_OWN_BUCKETS` is on, each site gets its own bucket (`gfs-<site>`), the platform copies in only that site's pages, details and "live" marker at each publish, and the site's Worker can see that bucket and nothing else. If the copy can't finish, the site is published the old way, so it never goes blank. Taking a site offline removes its marker from its own bucket first. The switch is off; turning it on needs the Cloudflare token to have R2 edit rights and a rehearsal on a test site. Deleting a site now also deletes its bucket, and a site whose copy failed is retried in the background (5 sites per tick). Branch `claude/nice-ramanujan-9ry8wy`, not merged. `docs/history/2026-10-27-own-bucket.md`.
