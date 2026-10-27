@@ -62,10 +62,13 @@ test("every visitor dispatch carries the limits; probes and confirmations do not
   const limited = gets.filter((g) => g.includes("siteLimits(env)"));
   // Three since 2026-10-27: the site's own data reads (`ownDataRead`) too.
   assert.equal(limited.length, 3);
+  // And the clock's two calls (a job, a wake), with more outside calls.
+  const clock = gets.filter((g) => g.includes("{ limits: { ...lim.limits, subRequests: SITE_JOB_SUBREQUESTS } }"));
+  assert.equal(clock.length, 2);
   assert.ok(limited.some((g) => g.includes("get(name, {}, siteLimits(env)).fetch(fwd)")));
   assert.ok(limited.some((g) => g.includes("previewScriptName(pv.slug)")));
   assert.ok(limited.some((g) => g.includes("get(name, {}, siteLimits(env))")));
-  for (const g of gets.filter((g) => !g.includes("siteLimits"))) assert.match(g, /stubFor/, g);
+  for (const g of gets.filter((g) => !g.includes("siteLimits") && !g.includes("SITE_JOB_SUBREQUESTS"))) assert.match(g, /stubFor/, g);
 });
 
 test("the limits default to the owner's numbers and take only positive whole overrides", async () => {

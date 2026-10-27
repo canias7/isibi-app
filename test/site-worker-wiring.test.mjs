@@ -293,7 +293,9 @@ test("ONE reader decides whether the dispatch API is reachable", () => {
   const creds = offsets(code, /=\s*dispatchCreds\(env\)/g);
   // Three since 2026-10-27: the own-bucket paths read it through one helper,
   // `ownBucketCreds`, rather than each deciding for itself.
-  assert.equal(creds.length, 3, "dispatchCreds should be read by the upload, dropSiteWorker and ownBucketCreds and nowhere else");
+  // Four since 2026-10-27: a key the owner changes is pushed to the script (`pushSiteSecret`).
+  assert.equal(creds.length, 4, "dispatchCreds should be read by the upload, dropSiteWorker, ownBucketCreds and pushSiteSecret and nowhere else");
+  assert.match(code, /async function pushSiteSecret\(env, slug, secret, text\) \{[\s\S]{0,80}const c = dispatchCreds\(env\);/);
   assert.match(code, /function ownBucketCreds\(env\) \{\n  const c = dispatchCreds\(env\);/);
   // And nothing else in the file may assemble the account/token pair by hand.
   const hand = code.match(/accountId:\s*env\./g) || [];

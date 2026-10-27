@@ -868,7 +868,7 @@ test("THE RUNNER READS THE SITE'S CONNECTION, not its project row — and one se
   assert.match(deps, /\$\{dueness\}`, \{/, "the stamp's WHERE does not carry the claim condition");
   // The cron: due rows, one call each, the outcome recorded; and the select carries updated_at.
   const cron = worker.slice(worker.indexOf("async function runScheduledSiteJobs"), open);
-  assert.match(cron, /for \(const row of dueJobs\(rows, Date\.now\(\)\)\) \{\s*const out = await runJob\(jobDeps\(env, row\), row\);\s*await recordJobOutcome\(env, row, out\);\s*\}/, "the cron does not run each due job through the shared deps and record it");
+  assert.match(cron, /for \(const row of dueJobs\(rows, Date\.now\(\)\)\) \{\s*const out = await runJobAnywhere\(env, row\);\s*await recordJobOutcome\(env, row, out\);\s*\}/, "the cron does not run each due job through the shared deps and record it");
   assert.match(cron, /select=owner_id,slug,name,spec,schedule_minutes,last_run,updated_at&/, "the cron's read does not carry updated_at — a never-run clock-time job cannot know when it was added");
   // Run-now: owner-scoped, the same deps under force, recorded, answered as the sentence, before the switch's check that would 400 it.
   const run = worker.indexOf("if (jbody && jbody.run === true) {");
@@ -884,7 +884,9 @@ test("THE RUNNER READS THE SITE'S CONNECTION, not its project row — and one se
   // between — which is what the press meant and what makes two rapid presses
   // send one reminder rather than two. An option forbidden by name, because a
   // parameter that once disabled a wall is what a later session re-wires.
-  assert.match(branch, /const out = await runJob\(jobDeps\(env, jrow\), jrow\);/, "run-now does not run the shared deps");
+  assert.match(branch, /const out = await runJobAnywhere\(env, jrow\);/, "run-now does not run the shared path");
+  // 2026-10-27: the shared path claims with the shared deps, then the site does the work.
+  assert.match(worker, /async function runJobAnywhere\(env, row\) \{[\s\S]{0,200}runJob\(jobDeps\(env, row\), row\)[\s\S]{0,200}const deps = jobDeps\(env, row\);/);
   assert.ok(!/force/.test(branch), "run-now passes an option to the deps again: " + (branch.match(/.{0,60}force.{0,60}/) || [""])[0]);
   assert.match(branch, /await recordJobOutcome\(env, jrow, out\);/, "run-now's outcome is not written where the panel reads");
   assert.match(branch, /result: jobOutcome\(out\)/, "run-now does not answer the sentence");
