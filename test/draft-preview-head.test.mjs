@@ -103,12 +103,15 @@ async function siteScript(version) {
     'import { createStartHandler, defaultStreamHandler } from "@tanstack/react-start/server";',
     'import { SITE_BUILD, SITE_SLUG, SITE_VERSION, SITE_PARENT } from "./site-brand";',
     'import { setSiteMeta, type SiteMeta } from "./site-runtime";',
+    // 2026-10-27: the site's own follow-ups; stood in by a function that runs nothing.
+    'import { runSiteEffects, type EffectEnv } from "./lib/site-effects";',
   ];
   for (const i of imports) assert.ok(src.includes(i), "the site script's imports moved — rescope this: " + i);
   let body = src;
   for (const i of imports) body = body.replace(i, "");
   const head = [
     "let __meta = null;",
+    "const runSiteEffects = async () => [];",
     "const setSiteMeta = (m) => { __meta = m; };",
     "const createStartHandler = () => async () => new Response(JSON.stringify(__meta));",
     "const defaultStreamHandler = null;",

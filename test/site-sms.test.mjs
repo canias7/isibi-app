@@ -284,8 +284,10 @@ test("a builder a visitor could call is DROPPED, like confirm's", () => {
 test("Vonage's 200-on-failure is not read as success", () => {
   // Its `messages[].status` is "0" for success and an error code otherwise, so
   // the HTTP status alone reports every rejected message as sent.
-  const i = worker.indexOf("async function postProviderSms(");
+  // In site-providers.mjs since 2026-10-27 (shared with the site's own Worker).
+  const prov = fs.readFileSync(new URL("../site-providers.mjs", import.meta.url), "utf8");
+  const i = prov.indexOf("export async function postProviderSms(");
   assert.ok(i > 0);
-  const fn = worker.slice(i, i + 2500);
+  const fn = prov.slice(i, i + 2500);
   assert.ok(/String\(first\.status\) === "0"/.test(fn), "the body decides for vonage");
 });
