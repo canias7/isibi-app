@@ -42,3 +42,12 @@ front door exists now so the route swap is a routes change only.
 ## Tests
 
 `test/front-door.test.mjs`, 6 cases.
+
+## Going live (owner: "Yea do all 4", 2026-10-27)
+
+- `deploy.yml` deploys `gofarther-front` after the platform and its gate.
+- The front door's first route is a rehearsal: `fold-lane-bakery.gofarther.app/*`
+  only (the test bakery). A more specific route wins over the platform's
+  `*/*`; every other site is untouched.
+- `SITE_OWN_BUCKETS`, `SITE_CPU_MS`, `SITE_SUBREQUESTS` are optional GitHub
+  secrets with defaults `0`, `300`, `50`.

@@ -229,6 +229,9 @@ jobs:
             IMAGE_PURCHASES
             PARALLEL_WRITES
             DRAFT_FIRST
+            SITE_OWN_BUCKETS
+            SITE_CPU_MS
+            SITE_SUBREQUESTS
             ADDON_DRY_RUN
             TURNSTILE_SITE_KEY
             TURNSTILE_SECRET
@@ -509,6 +512,15 @@ jobs:
           # through JOB_ENV_NAMES (builder/edit-job.mjs). OFF BY DEFAULT: every
           # path publishes as before.
           DRAFT_FIRST: ${{ secrets.DRAFT_FIRST || 'on' }}
+          # ── EACH SITE'S OWN BUCKET AND ITS LIMITS (2026-10-27) ────────────
+          #
+          # `1` binds each site's script to its own `gfs-<slug>` bucket at its
+          # next publish (builder/site-bucket.mjs); it needs the Cloudflare
+          # token to have R2 edit. OFF BY DEFAULT. The limits are each
+          # visitor call's CPU ms and outside calls; blank means 300 and 50.
+          SITE_OWN_BUCKETS: ${{ secrets.SITE_OWN_BUCKETS || '0' }}
+          SITE_CPU_MS: ${{ secrets.SITE_CPU_MS || '300' }}
+          SITE_SUBREQUESTS: ${{ secrets.SITE_SUBREQUESTS || '50' }}
           # ── A HELD ADD-ON SCHEMA TRIED ON A COPY (2026-10-22) ─────────────
           #
           # With draft-first holding an add-on's database changes, they are
@@ -665,6 +677,16 @@ jobs:
           DEPLOY_ID: ${{ github.sha }}
           DEPLOY_OUTCOME: ${{ job.status }}
         run: node .github/scripts/deploy-gate.mjs clear
+
+      # THE FRONT DOOR, `gofarther-front` (2026-10-27): after the platform,
+      # which it calls through a service binding. Its own config
+      # (front/wrangler.jsonc) names its routes; wrangler sets only that
+      # script's routes. A failure here leaves the platform deployed and red.
+      - name: deploy the front door
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx --yes wrangler@4.107.0 deploy --config front/wrangler.jsonc
 
       # WHERE CUSTOM DOMAINS STAND, printed on every deploy. Read-only, dry run,
       # and it can NEVER fail the job — `continue-on-error` plus the script's own

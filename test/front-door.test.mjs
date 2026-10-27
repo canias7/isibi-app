@@ -39,16 +39,18 @@ test("no platform, or a platform that throws, is an honest 503/502 marked as the
   for (const r of [a, b]) assert.equal(r.headers.get("x-served-by"), SERVED_BY);
 });
 
-test("the front door holds one binding, the platform, and is not deployed or routed", () => {
+test("the front door holds one binding, the platform, and one rehearsal route", () => {
   const cfg = fs.readFileSync(new URL("../front/wrangler.jsonc", import.meta.url), "utf8").replace(/^\s*\/\/.*$/gm, "");
   const j = JSON.parse(cfg);
   assert.deepEqual(j.services, [{ binding: "PLATFORM", service: "isibi-app" }]);
-  for (const k of ["r2_buckets", "kv_namespaces", "d1_databases", "dispatch_namespaces", "vars", "routes", "route"]) assert.equal(j[k], undefined, k);
+  for (const k of ["r2_buckets", "kv_namespaces", "d1_databases", "dispatch_namespaces", "vars", "route"]) assert.equal(j[k], undefined, k);
+  assert.deepEqual(j.routes, [{ pattern: "fold-lane-bakery.gofarther.app/*", zone_name: "gofarther.app" }]);
   const main = JSON.parse(fs.readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8").replace(/^\s*\/\/.*$/gm, "").replace(/,(\s*[}\]])/g, "$1"));
   assert.equal(j.compatibility_date, main.compatibility_date);
-  for (const f of fs.readdirSync(new URL("../.github/workflows/", import.meta.url))) {
-    assert.doesNotMatch(fs.readFileSync(new URL("../.github/workflows/" + f, import.meta.url), "utf8"), /front\/wrangler|gofarther-front/, f);
-  }
+  // Deployed after the platform's own deploy and its gate, never before.
+  const dep = fs.readFileSync(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8");
+  const at = dep.indexOf("deploy --config front/wrangler.jsonc");
+  assert.ok(at > dep.indexOf("- name: Deploy with Wrangler") && at > dep.indexOf("deploy-gate.mjs clear"));
 });
 
 // ── the limits ───────────────────────────────────────────────────────────────
