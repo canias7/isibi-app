@@ -3423,3 +3423,12 @@ Old demo sites are ignored (no compatibility path).
 - Confirmed WfP features for Q2/Q3: per-site CPU/subrequest limits are set by the
   dispatcher per call ("Custom limits"); the outbound checkpoint is an optional
   "Outbound Worker" (owner chose none).
+- Q5 old demo sites (2026-10-27): yes, drop them and old `gofarther.dev/s/<slug>` addresses
+  (owner later said #5 was unclear; revisit if needed). Q6 backups: not yet understood, revisit.
+- Q7 confirmed by the owner's Cloudflare billing page (2026-10-27): Workers for Platforms,
+  Workers Paid, R2 Paid, Images Stream Basic, SSL for SaaS Basic subscribed, renewing
+  Nov 8 2026; WfP shows $25. (Images Stream Basic: check whether anything uses it.)
+- Add a **staging dispatch namespace** (e.g. `gofarther-sites-staging`), per Cloudflare's
+  WfP guidance: internal only, to rehearse platform-wide changes (upload/binding changes,
+  the front door) on test sites before real ones. Not customer-facing; previews stay
+  the customer's own draft check.
