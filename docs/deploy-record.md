@@ -2094,3 +2094,16 @@ owner's word. Run 40576916178 green. Image predicted `92992a4ddcce6503` →
 `site_project` rows hold a limited login (`app_conn` present, value never
 read); `wassup` and `helm` do not yet. `ember-cart` (no database) and
 `fretwork-1`'s data read answer 200. Not runtime-confirmed by a canary press.
+
+## Deploys 2281 and 2282 (2026-10-27)
+
+- 2281 — `f4997595e` (21:45 UTC): customer domains through the front door.
+  Read: `test.isibi.ai` 200 through the front door, and `gofarther.dev`/`www`
+  too (the catch-all runs before custom domains), which stripped `x-gf-*` from
+  build jobs' gateway calls; no job ran before the fix.
+- 2282 — `2f8006efa` (23:00 UTC, run 40598997235, green): the front door
+  passes the app's own hosts untouched; sites answer their own reads, save
+  their own rows and run their own follow-ups (`SITE_OWN_DATA` on). Image
+  predicted `aa188622d81478a6` → `d798304cc28b0e10`. Read free 23:1x:
+  `test.isibi.ai`, `gofarther.dev`, `ember-cart`, fretwork-1's data route 200.
+  Not runtime-confirmed by a canary press; not yet proven on a new site.
