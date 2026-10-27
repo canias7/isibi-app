@@ -3414,3 +3414,12 @@ Old demo sites are ignored (no compatibility path).
   requests, 60M CPU ms, 1,000 scripts; extra $0.30/M requests, $0.02/M CPU ms, $0.02/script.
 - Q3 outside calls (2026-10-27): **A, no checkpoint**: a site's Worker may call any
   outside service. (Owner's choice over an allow-list; the leak risk was explained.)
+- Q4 scheduled jobs (2026-10-27): owner prefers **A, each site Worker has its own
+  schedule**. NOT CONFIRMED for Workers for Platforms: its docs (limits, how it works)
+  say nothing about cron on user Workers; the "250 cron triggers per account" figure is
+  the Workers Paid page, not WfP. **To do: test** one dispatch-namespace site Worker with
+  a cron schedule (does the upload accept it, does it fire, what limit applies). If it
+  doesn't work or is capped low, fall back to B (one platform clock that nudges sites).
+- Confirmed WfP features for Q2/Q3: per-site CPU/subrequest limits are set by the
+  dispatcher per call ("Custom limits"); the outbound checkpoint is an optional
+  "Outbound Worker" (owner chose none).
