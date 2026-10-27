@@ -1,0 +1,27 @@
+# Builds the private "Go Farther Money" Windows installer (desktop/expenses).
+# Runs only for the desktop-expenses branch (or by hand); never on main, so it
+# is not part of the deploy. The installer is attached to the run as an artifact.
+name: desktop money (windows)
+on:
+  push:
+    branches: [desktop-expenses]
+    paths: ["desktop/expenses/**", ".github/workflows/desktop-money.yml"]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop/expenses
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --no-audit --no-fund
+      - run: npx electron-builder --win nsis --x64 --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Go-Farther-Money-Setup
+          path: desktop/expenses/dist/*.exe
+          if-no-files-found: error

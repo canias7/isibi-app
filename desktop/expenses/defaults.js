@@ -1,0 +1,33 @@
+// The starting rows for a new month. Amounts start at 0; edit them in the app.
+window.MONEY_DEFAULTS = {
+  expenses: [
+    { section: "platform", app: "Supabase", what: "Accounts, credits, jobs" },
+    { section: "platform", app: "Cloudflare", what: "Main Worker, KV, queues" },
+    { section: "platform", app: "GitHub", what: "Code + deploy minutes" },
+    { section: "platform", app: "Domains", what: "gofarther.dev / .app" },
+    { section: "builder", app: "Neon", what: "Sites' databases — plan" },
+    { section: "builder", extra: true, app: "↳ extra", what: "Compute hours" },
+    { section: "builder", extra: true, app: "↳ extra", what: "Storage" },
+    { section: "builder", app: "Cloudflare · Workers for Platforms", what: "Monthly plan", amount: 25 },
+    { section: "builder", extra: true, app: "↳ extra", what: "Requests over 20M ($0.30/M)" },
+    { section: "builder", extra: true, app: "↳ extra", what: "CPU time over 60M ms ($0.02/M ms)" },
+    { section: "builder", extra: true, app: "↳ extra", what: "Sites over 1,000 ($0.02 each)" },
+    { section: "builder", app: "Cloudflare · Containers", what: "Builds & edits — usage" },
+    { section: "builder", app: "Cloudflare · R2", what: "Site files, versions, uploads" },
+    { section: "builder", extra: true, app: "↳ extra", what: "Storage over 10 GB ($0.015/GB)" },
+    { section: "builder", extra: true, app: "↳ extra", what: "Writes over 1M ($4.50/M)" },
+    { section: "builder", extra: true, app: "↳ extra", what: "Reads over 10M ($0.36/M)" },
+    { section: "builder", app: "Cloudflare · Durable Objects", what: "Live build updates" },
+    { section: "builder", app: "Cloudflare · Custom domains", what: "Customers' own domains" },
+    { section: "builder", app: "Cloudflare · Email", what: "Form & booking emails" },
+    { section: "builder", app: "Cloudflare · Turnstile", what: "Spam protection" },
+    { section: "builder", app: "fal", what: "Images & video" },
+    { section: "builder", app: "Grok", what: "Builder AI (xAI)" },
+    { section: "builder", app: "Claude", what: "Builder AI (Anthropic)" },
+  ],
+  income: [
+    { app: "Credit packs", what: "Stripe" },
+    { app: "Pro plans", what: "Stripe" },
+    { app: "Custom domains", what: "Stripe" },
+  ],
+};

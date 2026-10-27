@@ -1,0 +1,26 @@
+{
+  "name": "gofarther-money",
+  "productName": "Go Farther Money",
+  "version": "0.1.0",
+  "description": "Private income and expenses for Go Farther",
+  "main": "main.js",
+  "author": "Go Farther",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win nsis --x64"
+  },
+  "devDependencies": {
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "dev.gofarther.money",
+    "productName": "Go Farther Money",
+    "files": ["main.js", "preload.js", "index.html", "app.js", "styles.css", "defaults.js"],
+    "directories": { "output": "dist" },
+    "win": { "target": "nsis", "signAndEditExecutable": false },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "artifactName": "Go-Farther-Money-Setup-${version}.exe" }
+  }
+}

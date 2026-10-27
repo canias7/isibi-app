@@ -1,0 +1,32 @@
+*{box-sizing:border-box}
+body{margin:0;font-family:"Segoe UI",Calibri,system-ui,sans-serif;background:#fff;color:#222;font-size:13px;display:flex;flex-direction:column;height:100vh}
+.bar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#f3f3f3;border-bottom:1px solid #d4d4d4;flex-wrap:wrap}
+.bar button,.bar select{border:1px solid #c8c8c8;background:#fff;padding:4px 10px;border-radius:3px;font:inherit;cursor:pointer}
+.bar button:hover{background:#eef5f0}
+#saved{margin-left:auto;color:#2f7d4f;font-size:12px}
+.sum{display:flex;border-bottom:1px solid #d4d4d4}
+.sum div{flex:1;padding:8px 14px;border-right:1px solid #e3e3e3}
+.sum small{color:#666}.sum b{display:block;font-size:18px}
+.in{color:#2f7d4f}.ex{color:#b3392f}
+.wrap{display:flex;gap:10px;padding:10px;flex:1;overflow:auto;align-items:flex-start}
+.sheet{flex:1;min-width:0}
+.cap{font-weight:600;padding:6px 8px;background:#f7f7f7;border:1px solid #d4d4d4;border-bottom:0}
+.ex-top{border-top:3px solid #b3392f}.in-top{border-top:3px solid #2f7d4f}
+table{border-collapse:collapse;width:100%;table-layout:fixed}
+td{border:1px solid #d4d4d4;padding:0;height:25px;white-space:nowrap;overflow:hidden}
+td input{width:100%;height:24px;border:0;padding:3px 6px;font:inherit;background:transparent;outline:none}
+td input:focus{outline:2px solid #217346;outline-offset:-2px;background:#fff}
+td.ro{padding:3px 6px}
+.cols td{background:#f0f0f0;color:#666;text-align:center;font-size:11px;padding:3px}
+.rn{width:34px;background:#f0f0f0;color:#666;text-align:center;font-size:11px;cursor:pointer}
+.hdr td{font-weight:600;background:#e8f1ea;padding:3px 6px}
+.num{width:120px}.num input,.num.ro{text-align:right}
+.div td{background:#e9e6f2;font-weight:700;font-size:11px;letter-spacing:.04em;color:#3d3a52;padding:3px 6px}
+.sub td{font-weight:600;background:#f6f5f8;font-style:italic}
+.total td{font-weight:700;background:#fafafa}
+.xtra td{background:#fcfcfd}.xtra input{color:#6a6672;font-size:12px}.xtra td:nth-child(2) input{padding-left:22px}
+.main td:nth-child(2) input{font-weight:600}
+tr.sel td{background:#dcebe1 !important}
+.tabs{display:flex;gap:2px;padding:0 10px;border-top:1px solid #d4d4d4;background:#f3f3f3}
+.tabs span{padding:6px 14px;font-size:12px;cursor:pointer}
+.tabs .on{background:#fff;border-bottom:2px solid #217346;font-weight:600}
