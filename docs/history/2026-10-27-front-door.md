@@ -152,3 +152,16 @@ answers `/api/db/<slug>/auth/…` from the site's own auth server (the
 (`site-cookie.mjs`, now copied by gen-site-effects.mjs) and the two session
 headers passed on. The platform's auth route asks the site first (rate limit
 kept). 2 cases.
+
+## Files in the site's own Worker and bucket (2026-10-27)
+
+The owner's uploads and hosted media (`uploads/<slug>/…`) are copied into the
+site's own bucket by the sync (copied when missing or changed, removed when
+gone). The template's `lib/site-files.ts` serves `/u/<slug>/<file>` from it
+with the platform's own range / revalidation / download-name rules
+(`site-media.mjs`, `site-uploads.mjs` copied), and takes a visitor's image on
+`POST /api/db/<slug>/uploads` with the platform's own `handleVisitorUpload`,
+stored under `vuploads/` in the site's bucket (the sync never touches it). The
+platform asks the site first, after its host tie. Not carried: the owner's
+Uploads panel lists the platform's copy, so visitors' files written by the site
+do not show there yet (backlog).

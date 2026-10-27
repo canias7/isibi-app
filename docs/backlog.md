@@ -3301,3 +3301,5 @@ default), verified in the site's Worker for public-form tables only.
 - Webhook retries: the platform kept failed deliveries in a Supabase queue;
   a site's Worker tries once (to add: retry from the site's own bucket).
 - Webhook per-minute cap (`tooMany`) is not enforced in the site yet.
+- Visitors' uploads saved by a site's own Worker live in its own bucket
+  (`vuploads/`); the owner's Uploads panel does not list them yet.

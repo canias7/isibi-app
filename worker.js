@@ -32116,6 +32116,12 @@ async function handleRequest(request, env, ctx) {
       // video or a recording, which can be replaced at the same address, is
       // cached briefly and revalidated (`MEDIA_CACHE`).
       const um = url.pathname.match(UPLOAD_URL_PATH);
+      // THE SITE SERVES ITS OWN FILES when its script says so (2026-10-27).
+      // The host tie holds first: a site's files answer only on its own address.
+      if (um && env.SITE_OWN_DATA === "1" && env.SITE_WORKERS && (uploadHost === "*" || uploadHost === um[1].toLowerCase())) {
+        const own = await ownDataRead(env, request, um[1].toLowerCase());
+        if (own) return own;
+      }
       if (um && env.SITES_BUCKET && request.method !== "GET" && request.method !== "HEAD") {
         return new Response("Method not allowed", { status: 405, headers: { allow: "GET, HEAD" } });
       }
@@ -34909,6 +34915,11 @@ async function handleRequest(request, env, ctx) {
         if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
         if (!env.SITES_BUCKET) return Response.json({ error: "storage not configured" }, { status: 501 });
         const vslug = vm[1].toLowerCase();
+        // THE SITE TAKES ITS OWN VISITORS' FILES when its script says so.
+        if (env.SITE_OWN_DATA === "1" && env.SITE_WORKERS) {
+          const own = await ownDataRead(env, request, vslug);
+          if (own) return own;
+        }
         const conn = await siteRowConn(env, vslug);
         if (!conn) return Response.json({ error: "no such site" }, { status: 404 });
         // Checked before the body is read: a flood should not get us to buffer

@@ -175,3 +175,15 @@ test("an unfinished copy is remembered and the tick retries it, dropping the mar
   assert.match(W, /ctx\.waitUntil\(runOwnBucketResync\(env\)/);
   assert.equal(RESYNC_PREFIX, "ownbucket-pending/");
 });
+
+test("the owner's uploads are copied, replaced and removed; a visitor's never touched", async () => {
+  const src = store({ "uploads/b/a.jpg": "A1", "uploads/b/clip.mp4": "V2" });
+  const dst = store({ "uploads/b/clip.mp4": "V1", "uploads/b/gone.jpg": "G", "vuploads/b/v.png": "VIS" });
+  const r = await syncSiteBucket({ slug: "b", src, dst });
+  assert.equal(r.done, true);
+  assert.deepEqual([...dst.m.keys()].sort(), ["uploads/b/a.jpg", "uploads/b/clip.mp4", "vuploads/b/v.png"]);
+  assert.equal(dst.m.get("uploads/b/clip.mp4").body, "V2");
+  assert.equal(isServingKey("b", "uploads/b/a.jpg"), true);
+  assert.equal(isServingKey("b", "uploads/b/x/y.jpg"), false);
+  assert.equal(isServingKey("b", "uploads/c/a.jpg"), false);
+});

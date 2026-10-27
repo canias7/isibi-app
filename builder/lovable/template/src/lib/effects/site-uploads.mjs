@@ -1,0 +1,602 @@
+// Pictures for a published site.
+//
+// `/u/<slug>/<file>` has served uploads from R2 since the D1 era — public,
+// immutable-cached, `nosniff` — and **nothing has ever written one**. The read
+// half survived the 2026-07-27 runtime deletion and the write half did not, so
+// no site the builder produces can have a photo: a café's menu, a barber's
+// gallery, a shop's products are all text.
+//
+// Storage lives at `uploads/<slug>/`, deliberately NOT under `sites/<slug>/`,
+// which `deleteSitePrefix` wipes on every publish. A revise must not delete the
+// owner's photographs.
+//
+// Injected like the rest, so every decision here runs without R2 or a Worker.
+
+import { isImageColumn, canWriteAccess, canMemberWrite } from "./site-access.mjs";
+import { MEDIA_FORMATS, MEDIA_EXTS, sniffMedia, readStoredMeta, MEDIA_FORMATS_SAID } from "./site-media.mjs";
+
+const json = (body, status = 200) => ({ status, body });
+
+/** Per file. Big enough for a real photograph, small enough to be a bad DoS. */
+export const MAX_UPLOAD_BYTES = 5_000_000;
+/**
+ * A DOCUMENT GETS MORE ROOM THAN A PHOTOGRAPH, because they are not the same
+ * object. A 5 MB cap is generous for a picture and mean for a scanned brochure
+ * or a council's annual return — the things this exists for. Still bounded by
+ * `MAX_SITE_BYTES`, so an owner can hold a few and not the whole bucket.
+ */
+export const MAX_DOC_BYTES = 10_000_000;
+
+/** What the per-file cap is, given what the bytes turned out to be. */
+export function maxBytesFor(kind) {
+  if (kind && kind.kind === "model") return MAX_MODEL_BYTES;
+  return kind && kind.kind === "doc" ? MAX_DOC_BYTES : MAX_UPLOAD_BYTES;
+}
+
+/**
+ * A 3D MODEL (2026-10-22, the owner: Meshy 7.1 through fal, shown with three.js
+ * by the kit's Scene3D). A `.glb` is binary glTF: its own magic (`glTF`, then
+ * version 2), never a script, served inline as `model/gltf-binary` so three.js
+ * can read it. A `.usdz` (the AR Quick Look file on iPhones) is an
+ * uncompressed zip, so within the zip family its declared name picks it, as it
+ * picks `.docx` — the same equivalence argument: the bytes are inert to the
+ * browser whichever member the name chooses. Models keep an allowance of their
+ * own, beside the pictures' and documents' and the video and audio's, because
+ * one model can be tens of megabytes.
+ */
+export const MAX_MODEL_BYTES = 50_000_000;
+export const MAX_MODEL_FILES_PER_SITE = 40;
+export const MAX_MODEL_SITE_BYTES = 500_000_000;
+export const MODEL_FORMATS = { glb: "model/gltf-binary", usdz: "model/vnd.usdz+zip" };
+/** Is it binary glTF, version 2, by its first eight bytes? */
+export function sniffGlb(b) {
+  return !!(b && b.length > 12 && b[0] === 0x67 && b[1] === 0x6c && b[2] === 0x54 && b[3] === 0x46 && b[4] === 2 && b[5] === 0 && b[6] === 0 && b[7] === 0);
+}
+/** Per site, so one account cannot fill the bucket. */
+export const MAX_FILES_PER_SITE = 200;
+export const MAX_SITE_BYTES = 100_000_000;
+
+/**
+ * What the bytes ACTUALLY are, from their leading bytes — never the declared
+ * Content-Type, which the caller writes and can lie about.
+ *
+ * **SVG is deliberately absent.** `/u/` serves with `content-disposition:
+ * inline` from gofarther.dev, and an SVG is a document that can carry <script>. That
+ * is stored XSS on the platform's own origin, and `nosniff` does not help
+ * because the type would be honestly declared as image/svg+xml. There is no
+ * safe way to serve visitor-supplied SVG from this origin without a separate
+ * domain, so it is refused rather than half-mitigated.
+ */
+export function sniffImage(b) {
+  if (!b || typeof b.length !== "number") return null;
+  if (b.length > 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return { mime: "image/png", ext: "png" };
+  if (b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return { mime: "image/jpeg", ext: "jpg" };
+  if (b.length > 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 &&
+      b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return { mime: "image/webp", ext: "webp" };
+  if (b.length > 6 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38 &&
+      (b[4] === 0x37 || b[4] === 0x39) && b[5] === 0x61) return { mime: "image/gif", ext: "gif" };
+  return null;
+}
+
+/**
+ * THE ZIP FAMILY: THE BYTES DECIDE THE FAMILY AND THE NAME PICKS THE MEMBER.
+ *
+ * `.xlsx`, `.docx` and `.pptx` ARE zip archives — Office Open XML is a zip of
+ * XML parts — so no magic number can tell them from each other or from a plain
+ * `.zip` without unpacking the archive and reading `[Content_Types].xml`, which
+ * may be deflated. So within this one family the declared extension chooses,
+ * and an extension we do not recognise degrades to `.zip`.
+ *
+ * THAT GIVES UP NOTHING, and the reason is worth stating rather than assuming:
+ * every member here is the same bytes, is served `attachment` (never rendered),
+ * and is inert to the browser. The extension can only pick among types that are
+ * already equivalent from a security point of view, so a lie about it buys an
+ * attacker a differently-named download and nothing else.
+ *
+ * THE MACRO-ENABLED FORMS ARE DELIBERATELY ABSENT. `.xlsm`/`.docm` are the ones
+ * that carry executable macros; they are zips too, so they still upload, and
+ * they come back down named `.zip`. That is the safe direction — somebody who
+ * genuinely wants one renames it — and it means we never hand a visitor a file
+ * their own operating system is right to warn them about.
+ */
+const ZIP_MEMBERS = {
+  zip: "application/zip",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+};
+
+/**
+ * What an OWNER may upload: a picture, or a document to hand out.
+ *
+ * `download-card` has been in the generator's shortlist since the kit was
+ * written and the corpus reaches for it 24 times — a parish council's annual
+ * return, a franchise prospectus, a food hygiene certificate, a photographer's
+ * press pack. **Every one of those was refused by the only route that could
+ * store it**, because both upload gates sniffed images and nothing else. So the
+ * platform put a download button in front of the model and had nowhere for the
+ * file to go: the component was reachable and the bytes were not.
+ *
+ * PDF IS THE FEATURE, measured rather than assumed — 21 of the corpus's 24
+ * named files are `.pdf`. The zip family is the tail and is here because the
+ * next two (`.xlsx`, `.docx`) are what a business hands out when it is not a
+ * PDF, and refusing them means a limit somebody hits on their first afternoon.
+ *
+ * SVG IS STILL REFUSED, for the reason in `sniffImage` above: it is a document
+ * that can carry <script>, and `attachment` would not save us — an owner can
+ * link the raw URL from their own page, at which point the browser is rendering
+ * it inline on this origin whatever we sent.
+ */
+export function sniffUpload(b, name) {
+  const img = sniffImage(b);
+  if (img) return { ...img, kind: "image" };
+  if (!b || typeof b.length !== "number") return null;
+  if (sniffGlb(b)) return { mime: MODEL_FORMATS.glb, ext: "glb", kind: "model" };
+  // %PDF-
+  if (b.length > 5 && b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46 && b[4] === 0x2d) {
+    return { mime: "application/pdf", ext: "pdf", kind: "doc" };
+  }
+  // PK\x03\x04 — the local file header every zip starts with. The empty-archive
+  // and spanned-archive signatures (PK\x05\x06, PK\x07\x08) are deliberately not
+  // accepted: an archive with nothing in it is not a download.
+  if (b.length > 4 && b[0] === 0x50 && b[1] === 0x4b && b[2] === 0x03 && b[3] === 0x04) {
+    const declared = String(name || "").toLowerCase().split(".").pop();
+    if (declared === "usdz") return { mime: MODEL_FORMATS.usdz, ext: "usdz", kind: "model" };
+    const ext = Object.hasOwn(ZIP_MEMBERS, declared) ? declared : "zip";
+    return { mime: ZIP_MEMBERS[ext], ext, kind: "doc" };
+  }
+  return null;
+}
+
+/**
+ * Every extension a sniffer can mint, so one list decides what `/u/` may
+ * address — the pictures, the documents, and (2026-10-14) the video and audio
+ * formats `site-media.mjs` reads from a file's contents.
+ */
+export const UPLOAD_EXTS = ["png", "jpg", "webp", "gif", "pdf", ...Object.keys(ZIP_MEMBERS), ...MEDIA_EXTS, ...Object.keys(MODEL_FORMATS)];
+
+/**
+ * WHAT A STORED UPLOAD IS, BY THE NAME OUR OWN SNIFFERS MINTED (2026-10-14):
+ * "image", "doc", "video", "audio", or null for a name none of them mints.
+ * One reading for every listing, panel, picker and model context — said
+ * outright, never inferred from "not a document", which read every video and
+ * every recording as a picture (`uploadIsImage("interview.mp3")` was true).
+ */
+export function uploadKind(name) {
+  const ext = String(name || "").toLowerCase().split(".").pop();
+  if (Object.hasOwn(MEDIA_FORMATS, ext)) return MEDIA_FORMATS[ext].kind;
+  if (Object.hasOwn(MODEL_FORMATS, ext)) return "model";
+  if (ext === "pdf" || Object.hasOwn(ZIP_MEMBERS, ext)) return "doc";
+  if (["png", "jpg", "webp", "gif"].includes(ext)) return "image";
+  return null;
+}
+const isMediaKind = (k) => k === "video" || k === "audio";
+const isModelKind = (k) => k === "model";
+
+/**
+ * Is a stored upload an IMAGE, by the name our own sniffer minted?
+ *
+ * ONE reading, shared by the panel's kind label and the share picker's gate —
+ * two copies of "pdf or a zip member is a document" is how a format added to
+ * one list turns up choosable as a link preview in the other. An og:image
+ * pointing at a PDF renders NOTHING in WhatsApp or Slack, silently, which is
+ * why the picker refuses documents outright rather than letting the unfurler
+ * discover it.
+ */
+// 2026-10-14: a POSITIVE answer now, from `uploadKind` — a video, a recording
+// or a name nothing mints is not a picture.
+export const uploadIsImage = (name) => uploadKind(name) === "image";
+
+/**
+ * THE EXTENSIONS THAT REALLY ARE PICTURES — derived, never typed (2026-09-19).
+ *
+ * `uploadIsImage` above answers a NEGATIVE — "not a document" — which is exactly
+ * right for its two callers, because both are handed a name OUR OWN sniffer
+ * minted, so the universe they ask about is `UPLOAD_EXTS` and nothing else. It
+ * is the wrong shape for a caller holding a url a MODEL wrote, where the
+ * universe is anything at all: `uploadIsImage("interview.mp3")` is TRUE, since
+ * an mp3 is not a pdf and not a zip member.
+ *
+ * So the POSITIVE set is the intersection of the two definitions this file
+ * already has — what we mint, less what we call a document — and it needs no
+ * third list to drift from them. A fifth format added to `sniffImage` joins
+ * `UPLOAD_EXTS` in the same edit and arrives here by existing.
+ *
+ * WHO ASKS, AND WHY IT IS THE POSITIVE FORM. `shownPhotos` offers a page writer
+ * this site's own picture urls to COPY INTO A `src`, and an invitation is where
+ * being wrong propagates: a `/u/…/pricelist.pdf` offered as a photograph is a
+ * broken image on the next page, and the reasoning is `uploadIsImage`'s own —
+ * a PDF behind an `<img>` renders NOTHING, silently. An unknown extension, and
+ * a url with none, are OUT: not offering a real picture costs a reuse nobody
+ * asked for, and offering a file that cannot render costs a visible defect.
+ */
+export const IMAGE_EXTS = UPLOAD_EXTS.filter(uploadIsImage);
+
+/**
+ * What a browser should DO with the bytes, decided from the type that was
+ * STORED — which is what the leading bytes said, and the one thing about a file
+ * the caller cannot lie about.
+ *
+ * A picture is `inline`, exactly as it has always been: an `<img>` pointing at
+ * an attachment renders nothing. A document is `attachment`, which is both what
+ * a download button means and the thing that stops a PDF being rendered by the
+ * browser's own viewer on this origin.
+ *
+ * BOTH FILENAME FORMS, or a business whose language is not written in Latin
+ * letters gets a download called `a1b2c3d4….pdf`. The bare `filename=` is
+ * ASCII-only by the spec, so it carries the stripped fallback; `filename*=` is
+ * percent-encoded UTF-8 and carries the real one. `encodeURIComponent` escapes
+ * the quote and every control character, so that half cannot inject a header
+ * whatever was uploaded — and the plain half is built from an allow-list, so
+ * neither can.
+ */
+export function dispositionFor(mime, filename) {
+  const isDoc = typeof mime === "string" && (mime === "application/pdf" || Object.values(ZIP_MEMBERS).includes(mime));
+  if (!isDoc) return "inline";
+  // Cleaned again even though `downloadNameFor` already cleaned it, because this
+  // reads a value out of storage rather than out of that function: an object
+  // written before this existed, or by anything else, has to be safe here too.
+  const raw = String(filename || "").trim();
+  if (!raw) return "attachment";
+  const ascii = raw.replace(/[^A-Za-z0-9 ._-]+/g, "").replace(/\s+/g, " ").trim();
+  const head = ascii ? 'attachment; filename="' + ascii + '"' : "attachment";
+  // The starred form is only worth sending when it says something the plain one
+  // could not — otherwise it is a second copy of the same string for every
+  // ordinary English filename.
+  return ascii === raw ? head : head + "; filename*=UTF-8''" + encodeURIComponent(raw);
+}
+
+/**
+ * The name a download arrives under. NOT the stored name — that is the content
+ * hash and stays exactly as it was, because everything the hash buys (no
+ * traversal, free dedup, an honest `immutable`) depends on it.
+ *
+ * THE EXTENSION IS OURS, NEVER THEIRS. A file called `invoice.exe` whose bytes
+ * are a PDF comes back down as `invoice.pdf`: the stem is the owner's, the
+ * suffix is what the bytes actually are, so the two can never disagree.
+ */
+export function downloadNameFor(original, ext) {
+  // INVISIBLES FIRST. This ends up in a header and in a browser's own save
+  // dialog, and `\p{Cf}` is where the bidi overrides live — the character that
+  // makes `holiday<RLO>fdp.exe` DISPLAY as `holidayexe.pdf`, which is the oldest
+  // filename spoof there is and is invisible in every log.
+  const clean = String(original || "").replace(/[\p{Cc}\p{Cf}]+/gu, " ");
+  // THE BASENAME, the way a browser does it: `a/b/c.pdf` is `c.pdf` and
+  // `../../etc/passwd` is `passwd`. Collapsing separators to spaces instead
+  // keeps every directory in the name, which is both ugly and a `..` away from
+  // being a path again.
+  const base = clean.split(/[\\/]/).filter((part) => part.trim()).pop() || "";
+  const stem = base
+    // Never the LEADING dot: `.hidden` is a file called `.hidden` with no
+    // extension, and treating that dot as one leaves nothing at all.
+    .replace(/(?!^)\.[^.]*$/, "")
+    .replace(/\s+/g, " ")
+    .slice(0, 60)
+    // A leading dot is a hidden file on every unix-ish machine, and a trailing
+    // dot or space is a name Windows silently rewrites.
+    .replace(/^[.\s]+|[.\s]+$/g, "");
+  return stem ? stem + "." + ext : null;
+}
+
+/**
+ * The metadata key the download name is stored under, and the encoding it is
+ * stored in.
+ *
+ * PERCENT-ENCODED, because R2 custom metadata rides in object metadata that is
+ * ASCII by convention, and a Greek or Japanese filename is exactly the case
+ * `downloadNameFor` keeps rather than strips. Encoding here means the stored
+ * value is always ASCII and the string that comes back is byte-for-byte the one
+ * that went in.
+ *
+ * ONE PLACE KNOWS IT, deliberately. The upload route writes this and the serve
+ * route reads it, ~6,000 lines apart, and a contract shared between two call
+ * sites with no function in the middle is the shape this repo has recorded a
+ * dozen times: the two halves drift and the failure is a filename nobody can
+ * explain.
+ */
+export const DOWNLOAD_NAME_KEY = "dl";
+export const storeDownloadName = (name) => (name ? encodeURIComponent(name) : null);
+export function readDownloadName(v) {
+  // A value we cannot decode is one we did not write. `dispositionFor` would
+  // strip it safely either way, but the honest answer is that we do not know
+  // what this is, and a hash-named download beats a mangled one.
+  if (!v || typeof v !== "string") return "";
+  try { return decodeURIComponent(v); } catch { return ""; }
+}
+
+/**
+ * The stored name is a hash of the CONTENT, not anything the caller sent.
+ *
+ * Three things fall out of that and all of them matter. A caller cannot choose
+ * a path, so traversal and overwriting another site's file are closed by
+ * construction rather than by escaping. Re-uploading the same picture is free
+ * and idempotent instead of a second copy. And `/u/` serving `immutable` is
+ * actually TRUE — the name *is* the bytes, so a cached copy can never be stale.
+ */
+export function uploadName(hashHex, ext) {
+  const hex = String(hashHex || "").replace(/[^a-f0-9]/gi, "").slice(0, 32).toLowerCase();
+  // Null rather than a short name. `handleUploadDelete` only accepts names of
+  // the shape minted here, so a degenerate one — reachable only by wiring `hash`
+  // to something that is not hex — would create an object nothing could ever
+  // address again. Permanent garbage in the bucket from our own bug.
+  return hex.length === 32 ? hex + "." + ext : null;
+}
+
+// Exported, because the build's own photograph generator stores files in the
+// same place and a SECOND copy of these two lines is a picture written where
+// `/u/` does not look for it — a 404 nothing in the pipeline would catch, since
+// the bundle compiles perfectly around a dead URL.
+export const uploadKey = (slug, name) => "uploads/" + String(slug).toLowerCase() + "/" + name;
+export const uploadUrl = (slug, name) => "/u/" + String(slug).toLowerCase() + "/" + name;
+/**
+ * THE SHAPE `uploadUrl` MINTS, AND THE ONLY ONE THE SERVE ROUTE ANSWERS — one
+ * constant, read by the route that serves `/u/<slug>/<file>` and by the reader
+ * that asks whether such a url fetches bytes (`uploadKeyFor`).
+ *
+ * IT IS HERE FOR THE REASON `uploadFileName` IS: the layout of that path is
+ * this module's, so a second copy elsewhere is a second place that knows it —
+ * and the two drifting is not a compile error, it is a reader disagreeing with
+ * the route about whether a customer's own file exists.
+ *
+ * MATCHED AGAINST A PATHNAME, NEVER A WHOLE URL. The route reads
+ * `url.pathname`, so a query string or a fragment is already gone by the time
+ * this is asked; a reader that matched the raw string would refuse
+ * `/u/fw/a.jpg?v=2` — a url that serves perfectly well.
+ */
+export const UPLOAD_URL_PATH = /^\/u\/([a-z0-9][a-z0-9-]{0,80})\/([A-Za-z0-9._-]{1,80})$/;
+/**
+ * The inverse of `uploadKey` — the file's own name out of a stored object key.
+ *
+ * HERE BECAUSE `uploadKey` IS HERE. The layout of that key is this module's, so
+ * a caller splitting it by hand is a second place that knows it, and the two
+ * drift the first time the prefix changes.
+ */
+export const uploadFileName = (key) => String(key || "").split("/").pop() || "";
+const keyFor = uploadKey;
+const urlFor = uploadUrl;
+
+/**
+ * deps:
+ *   gate(slug, uid)              → {error} | {}     ownership, shared with site-owner.mjs
+ *   hash(bytes)                  → hex
+ *   list(slug)                   → [{key, size}]
+ *   put(key, bytes, contentType, meta?) → void
+ *   remove(key)                  → void
+ */
+export async function handleUpload(deps, { slug, uid, bytes, filename } = {}) {
+  const gate = await deps.gate(slug, uid);
+  if (gate.error) return gate.error;
+
+  if (!bytes || !bytes.length) return json({ error: "no file" }, 400);
+
+  // THE SNIFF COMES BEFORE THE SIZE CHECK, because what the bytes are is what
+  // decides which cap applies — a 7 MB brochure is fine and a 7 MB photograph is
+  // not. The outer bound is still enforced ahead of this by the route, on
+  // content-length, so nothing unbounded is ever buffered to get here.
+  const kind = sniffUpload(bytes, filename);
+  // Named types, so the answer is "we take these" rather than "not that".
+  if (!kind) {
+    // A VIDEO OR A RECORDING IS TAKEN — in parts, by the media upload
+    // (`site-media.mjs`), never whole through this route (2026-10-14).
+    if (sniffMedia(bytes)) return json({ error: "video and audio are uploaded in parts — use the media upload (" + MEDIA_FORMATS_SAID + ")", code: "use_media_upload" }, 415);
+    return json({ error: "that doesn't look like a picture (PNG, JPEG, WebP, GIF) or a document (PDF, ZIP, Word, Excel)", code: "bad_type" }, 415);
+  }
+
+  const cap = maxBytesFor(kind);
+  if (bytes.length > cap) {
+    return json({
+      error: kind.kind === "model"
+        ? "that 3D model is too big — keep it under 50 MB"
+        : kind.kind === "doc"
+        ? "that file is too big — keep it under 10 MB"
+        : "that image is too big — keep it under 5 MB",
+      code: "too_big", max: cap,
+    }, 413);
+  }
+
+  const name = uploadName(await deps.hash(bytes), kind.ext);
+  if (!name) return json({ error: "couldn't store that just now" }, 500);
+  const key = keyFor(slug, name);
+
+  // THE PICTURES' AND DOCUMENTS' OWN LIMITS (2026-10-14): video and audio are
+  // counted against theirs (`mediaLimits`), never against these.
+  const all = await deps.list(slug);
+  const kindOfKey = (o) => (o && typeof o.key === "string" ? uploadKind(o.key.split("/").pop()) : null);
+  // A MODEL IS COUNTED AGAINST THE MODELS' OWN ALLOWANCE (2026-10-22); a
+  // picture or a document against theirs, as before.
+  const existing = all.filter((o) => {
+    const k = kindOfKey(o);
+    return isModelKind(kind.kind) ? isModelKind(k) : !(isMediaKind(k) || isModelKind(k));
+  });
+  // Re-uploading the same picture is the same object. It must not count against
+  // the cap, and must not fail when the site is full — the bytes are already
+  // there, so refusing would be refusing to do nothing.
+  const already = existing.find((o) => o && o.key === key);
+  // A re-upload keeps the name the FIRST one was stored under. The key is the
+  // content hash, so these really are the same file, and rewriting the metadata
+  // would rename a download that pages already link to by that name.
+  if (already) {
+    return json({ ok: true, url: urlFor(slug, name), name, size: bytes.length, mime: kind.mime, kind: kind.kind, download: readDownloadName(already.download) || undefined, dedup: true });
+  }
+
+  const used = existing.reduce((n, o) => n + (Number(o && o.size) || 0), 0);
+  if (isModelKind(kind.kind)) {
+    if (existing.length >= MAX_MODEL_FILES_PER_SITE || used + bytes.length > MAX_MODEL_SITE_BYTES) {
+      return json({ error: "this site has reached its 3D model limit — delete some first", code: "full", max: existing.length >= MAX_MODEL_FILES_PER_SITE ? MAX_MODEL_FILES_PER_SITE : MAX_MODEL_SITE_BYTES }, 409);
+    }
+  } else if (existing.length >= MAX_FILES_PER_SITE) {
+    return json({ error: "this site has reached its image limit — delete some first", code: "full", max: MAX_FILES_PER_SITE }, 409);
+  }
+  if (!isModelKind(kind.kind) && used + bytes.length > MAX_SITE_BYTES) {
+    return json({ error: "this site is out of image storage — delete some first", code: "full", max: MAX_SITE_BYTES }, 409);
+  }
+
+  const download = downloadNameFor(filename, kind.ext);
+  const stored = storeDownloadName(download);
+  await deps.put(key, bytes, kind.mime, stored ? { [DOWNLOAD_NAME_KEY]: stored } : undefined);
+  return json({ ok: true, url: urlFor(slug, name), name, size: bytes.length, mime: kind.mime, kind: kind.kind, download: download || undefined }, 201);
+}
+
+/** What the site has, so the owner can pick one or clear space. */
+export async function handleUploadList(deps, { slug, uid } = {}) {
+  const gate = await deps.gate(slug, uid);
+  if (gate.error) return gate.error;
+  const objs = await deps.list(slug);
+  const prefix = "uploads/" + String(slug).toLowerCase() + "/";
+  const files = objs
+    .filter((o) => o && typeof o.key === "string" && o.key.startsWith(prefix))
+    .map((o) => {
+      const name = o.key.slice(prefix.length);
+      // Which of the two a file is, said out loud rather than left to the panel
+      // to guess from an extension. The panel shows a thumbnail for one and a
+      // filename for the other, and a wrong guess there is a broken image.
+      // AND A VIDEO OR A RECORDING IS SAID AS ONE (2026-10-14, `uploadKind`),
+      // with its type and what the owner's browser reported about it.
+      const kind = uploadKind(name) || "doc";
+      const download = readDownloadName(o.download);
+      const media = isMediaKind(kind) ? { mime: MEDIA_FORMATS[name.split(".").pop()].mime, ...readStoredMeta(o.meta) } : {};
+      // `visitor` travels too (2026-08-28): the share picker must not offer a
+      // stranger's file as the business's link preview, and a panel that shows
+      // the button anyway teaches the owner a click the server then refuses.
+      return { name, url: urlFor(slug, name), size: Number(o.size) || 0, kind, ...media, ...(download ? { download } : {}), ...(o.visitor ? { visitor: true } : {}) };
+    });
+  // TWO ALLOWANCES, KEPT APART (2026-10-14): the pictures' and documents' own,
+  // as it always was, and the video and audio's (`deps.mediaLimits`).
+  const still = files.filter((f) => !isMediaKind(f.kind) && !isModelKind(f.kind));
+  const media = files.filter((f) => isMediaKind(f.kind));
+  const lim = deps.mediaLimits || null;
+  return json({
+    files,
+    used: still.reduce((n, f) => n + f.size, 0),
+    max: MAX_SITE_BYTES,
+    count: still.length,
+    maxCount: MAX_FILES_PER_SITE,
+    ...(lim ? { media: { used: media.reduce((n, f) => n + f.size, 0), max: lim.siteBytes, count: media.length, maxCount: lim.siteFiles, maxVideo: lim.videoBytes, maxAudio: lim.audioBytes, formats: MEDIA_FORMATS_SAID } } : {}),
+  });
+}
+
+export async function handleUploadDelete(deps, { slug, uid, file } = {}) {
+  const gate = await deps.gate(slug, uid);
+  if (gate.error) return gate.error;
+  // The name is checked against the shape we MINT, not merely sanitised: this
+  // reaches an R2 key, and a name from a caller must never be able to address
+  // anything outside this site's prefix.
+  // DERIVED FROM THE SNIFFERS, never a second list: a name this route refuses is
+  // a file the owner can upload and can never remove, and the two lists drifting
+  // apart is exactly how that happens.
+  if (!new RegExp("^[a-f0-9]{1,32}\\.(" + UPLOAD_EXTS.join("|") + ")$").test(String(file || ""))) {
+    return json({ error: "no such file" }, 404);
+  }
+  const objs = await deps.list(slug);
+  const key = keyFor(slug, file);
+  if (!objs.some((o) => o && o.key === key)) return json({ error: "no such file" }, 404);
+  await deps.remove(key);
+  return json({ ok: true, name: file });
+}
+
+
+// ─────────────────────────────────────────────────── uploads from a VISITOR
+//
+// A different thing entirely from the owner's, and treated as such. This one is
+// unauthenticated by design — a customer attaching a photo to a booking has no
+// account — which makes it a public endpoint that accepts arbitrary bytes and
+// serves them back from gofarther.dev. Everything above still applies (bytes decide
+// the type, no SVG, we name the file); these are the additional limits that
+// exist only because the caller is a stranger.
+
+/** Smaller than the owner's: a phone photo, not a print master. */
+export const MAX_VISITOR_UPLOAD_BYTES = 2_000_000;
+/**
+ * A visitor allowance INSIDE the site's budget, so a flood can never crowd the
+ * owner out of their own storage. They can exhaust this and the owner's own
+ * pictures are untouched.
+ */
+export const MAX_VISITOR_FILES = 50;
+export const MAX_VISITOR_BYTES = 25_000_000;
+
+/**
+ * May this site accept a file for this table at all?
+ *
+ * Both halves matter. The table must be one a visitor can WRITE — there is no
+ * reason to accept a picture for a table they cannot submit to — and it must
+ * DECLARE somewhere to put it. A barber shop whose booking form is six text
+ * fields has no image column, so it accepts nothing, which is the answer for
+ * the large majority of sites.
+ *
+ * This is what keeps the endpoint from being open image hosting for anyone who
+ * knows a slug.
+ *
+ * IT ASKED THE PRESET NAME, WHICH IS THE PAIR BUG — the fourth reader to have
+ * it, after the lint's write gate, the digest's PAID line and the response's
+ * `schema` field. `normalizeSchema` STAMPS `access: "collect"` on any table that
+ * did not name one of the five presets, and `design_schema` tells the model to
+ * leave `access` out when it declares a `read`/`write` pair instead — so a table
+ * declared as a pair arrived here wearing a name nobody wrote, and the answer
+ * was whatever that stamp happened to be. Both directions were wrong: a
+ * pair-declared table with no writes at all read as `collect` and accepted
+ * files, and one declared `{read:"public", write:"own"}` — a members' gallery,
+ * exactly the shape this feature is for — was refused.
+ *
+ * `site-access.mjs` answers the access question and this file does not re-derive
+ * it: the two named predicates between them are "write is not `none`", which is
+ * precisely the set the preset list was reaching for.
+ */
+export function acceptsVisitorUploads(def) {
+  if (!def) return false;
+  // A closed (`retired`) table keeps no visitor privilege (grantsFor,
+  // policiesFor), so its upload door is closed too (audit A29-8).
+  if (def.retired) return false;
+  if (!canWriteAccess(def) && !canMemberWrite(def)) return false;
+  return (Array.isArray(def.columns) ? def.columns : [])
+    .map((c) => String(typeof c === "string" ? c : (c && c.name) || ""))
+    .some(isImageColumn);
+}
+
+/**
+ * deps: as handleUpload, minus `gate`, plus
+ *   tableFor(slug, table) → def | null      resolved from the site's own schema
+ *   throttle(key)         → {ok, retryAfter}
+ */
+export async function handleVisitorUpload(deps, { slug, table, bytes, ip } = {}) {
+  const def = await deps.tableFor(slug, table);
+  if (!def) return json({ error: "no such table" }, 404);
+  if (!acceptsVisitorUploads(def)) {
+    return json({ error: "this form doesn't take files", code: "no_uploads" }, 403);
+  }
+
+  // Throttled before anything is read or hashed: a flood must cost us as close
+  // to nothing as possible, and this is the endpoint a stranger can call.
+  const t = await deps.throttle(`vu:${String(slug).toLowerCase()}:${ip || "unknown"}`);
+  if (!t || !t.ok) {
+    return json({ error: "too many uploads — wait a moment", code: "rate_limit", retryAfter: (t && t.retryAfter) || 60 }, 429);
+  }
+
+  if (!bytes || !bytes.length) return json({ error: "no file" }, 400);
+  if (bytes.length > MAX_VISITOR_UPLOAD_BYTES) {
+    return json({ error: "that image is too big — keep it under 2 MB", code: "too_big", max: MAX_VISITOR_UPLOAD_BYTES }, 413);
+  }
+
+  const kind = sniffImage(bytes);
+  if (!kind) return json({ error: "that doesn't look like a PNG, JPEG, WebP or GIF", code: "bad_type" }, 415);
+
+  const name = uploadName(await deps.hash(bytes), kind.ext);
+  if (!name) return json({ error: "couldn't store that just now" }, 500);
+  const key = keyFor(slug, name);
+
+  const existing = await deps.list(slug);
+  const already = existing.find((o) => o && o.key === key);
+  if (already) return json({ ok: true, url: urlFor(slug, name), name, size: bytes.length, mime: kind.mime, dedup: true });
+
+  // Only what visitors have added counts against the visitor allowance. The
+  // owner's own pictures are not the stranger's budget to spend.
+  const mine = existing.filter((o) => o && o.visitor);
+  const used = mine.reduce((n, o) => n + (Number(o.size) || 0), 0);
+  if (mine.length >= MAX_VISITOR_FILES || used + bytes.length > MAX_VISITOR_BYTES) {
+    return json({ error: "this form can't take more files right now", code: "full" }, 409);
+  }
+
+  // Marked, so the owner's listing can tell them apart, the allowance above can
+  // be counted, and a sweep could one day drop unreferenced ones.
+  await deps.put(key, bytes, kind.mime, { visitor: "1" });
+  return json({ ok: true, url: urlFor(slug, name), name, size: bytes.length, mime: kind.mime }, 201);
+}

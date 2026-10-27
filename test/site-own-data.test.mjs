@@ -236,3 +236,64 @@ test("the platform asks the site first for logins too, with the switch on", () =
   const before = W.slice(at - 400, at);
   assert.match(before, /env\.SITE_OWN_DATA === "1" && env\.SITE_WORKERS[\s\S]*ownDataRead\(env, request, slug\)/);
 });
+
+// ── files: the owner's uploads, hosted media and visitors' uploads (2026-10-27) ──
+function r2() {
+  const m = new Map();
+  const meta = (k) => { const v = m.get(k); return v && { size: v.bytes.length, etag: v.etag, httpEtag: '"' + v.etag + '"', uploaded: new Date(0), httpMetadata: { contentType: v.ct }, customMetadata: v.cm || {} }; };
+  return {
+    m,
+    async head(k) { return m.has(k) ? meta(k) : null; },
+    async get(k, o) {
+      if (!m.has(k)) return null;
+      let b = m.get(k).bytes;
+      if (o && o.range) b = b.slice(o.range.offset, o.range.offset + o.range.length);
+      return { ...meta(k), body: new Blob([b]).stream() };
+    },
+    async put(k, v, o = {}) { const bytes = typeof v === "string" ? new TextEncoder().encode(v) : new Uint8Array(v); m.set(k, { bytes, etag: "e" + bytes.length, ct: o.httpMetadata && o.httpMetadata.contentType, cm: o.customMetadata }); },
+    async list({ prefix }) { return { objects: [...m.keys()].filter((k) => k.startsWith(prefix)).map((key) => ({ key, ...meta(key) })), truncated: false }; },
+  };
+}
+
+test("the site serves its owner's media with byte ranges and its visitors' files, only on its own path", async () => {
+  const { serveUpload } = await loadTemplate("lib/site-files.ts");
+  const B = r2();
+  await B.put("uploads/ember-cart/clip.mp4", new Uint8Array(100), { httpMetadata: { contentType: "video/mp4" } });
+  await B.put("vuploads/ember-cart/abc.png", new Uint8Array(10), { httpMetadata: { contentType: "image/png" } });
+  const env = { SITES: B, OWN_BUCKET: "1" };
+  const at = (p, h) => { const u = new URL("https://ember-cart.gofarther.app" + p); return [new Request(u, { headers: h }), env, u, "ember-cart"]; };
+  const full = await serveUpload(...at("/u/ember-cart/clip.mp4"));
+  assert.equal(full.status, 200);
+  assert.equal(full.headers.get("x-site-data"), "own");
+  assert.equal((await full.arrayBuffer()).byteLength, 100);
+  const part = await serveUpload(...at("/u/ember-cart/clip.mp4", { range: "bytes=10-19" }));
+  assert.equal(part.status, 206);
+  assert.equal((await part.arrayBuffer()).byteLength, 10);
+  assert.equal((await serveUpload(...at("/u/ember-cart/abc.png"))).status, 200, "a visitor's file");
+  assert.equal((await serveUpload(...at("/u/ember-cart/missing.png"))).status, 404);
+  assert.equal(await serveUpload(...at("/u/other-site/clip.mp4")), null, "another site's path is not this site's to answer");
+  assert.equal(await serveUpload(new Request("https://x/u/ember-cart/clip.mp4"), { SITES: B }, new URL("https://x/u/ember-cart/clip.mp4"), "ember-cart"), null, "not on its own bucket");
+});
+
+test("a visitor's image goes into the site's own bucket under vuploads/, checked by the platform's own rules", async () => {
+  const { visitorUpload } = await loadTemplate("lib/site-files.ts");
+  const B = r2();
+  const tables = [{ name: "applications", access: "collect", columns: [{ name: "photo", type: "image" }] }, { name: "menu", access: "display" }];
+  const env = { SITES: B, OWN_BUCKET: "1", SITE_TABLES: JSON.stringify(tables) };
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0]);
+  const post = (t, body = png) => { const u = new URL("https://ember-cart.gofarther.app/api/db/ember-cart/uploads?table=" + t); return [new Request(u, { method: "POST", body }), env, u, "ember-cart"]; };
+  const ok = await visitorUpload(...post("applications"));
+  const j = await ok.json();
+  assert.equal(ok.status, 201, JSON.stringify(j));
+  assert.match(j.url, /^\/u\/ember-cart\/[0-9a-f]+\.png$/);
+  assert.deepEqual([...B.m.keys()].map((k) => k.split("/").slice(0, 2).join("/")), ["vuploads/ember-cart"]);
+  assert.equal((await visitorUpload(...post("menu"))).status, 403, "a table that takes no files");
+  assert.equal((await visitorUpload(...post("applications", new Uint8Array([1, 2, 3])))).status, 415, "not an image");
+});
+
+test("the platform asks the site first for its files and its visitors' uploads, after the host tie", () => {
+  const files = W.slice(W.indexOf("// THE SITE SERVES ITS OWN FILES"), W.indexOf("// THE SITE SERVES ITS OWN FILES") + 500);
+  assert.match(files, /uploadHost === "\*" \|\| uploadHost === um\[1\]\.toLowerCase\(\)/);
+  assert.match(files, /ownDataRead\(env, request, um\[1\]\.toLowerCase\(\)\)/);
+  assert.match(W, /THE SITE TAKES ITS OWN VISITORS' FILES[\s\S]{0,200}ownDataRead\(env, request, vslug\)/);
+});

@@ -19,7 +19,7 @@ test("every copy equals its source, and each declaration names its exports", () 
 
 test("the copied modules import only each other", () => {
   for (const f of EFFECT_MODULES) {
-    for (const m of read(f).matchAll(/from\s+"([^"]+)"/g)) assert.ok(EFFECT_MODULES.includes(m[1].replace(/^\.\//, "")), f + " imports " + m[1]);
+    for (const m of read(f).matchAll(/^\s*(?:import|export)\b[^;\n]*?\bfrom\s+"([^"]+)"/gm)) assert.ok(EFFECT_MODULES.includes(m[1].replace(/^\.\//, "")), f + " imports " + m[1]);
   }
 });
 

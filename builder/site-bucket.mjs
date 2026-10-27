@@ -56,6 +56,9 @@ export function isServingKey(slug, key) {
   const k = String(key || "");
   if (!slug || k.includes("..")) return false;
   if (headKeys(slug).includes(k)) return true;
+  // The owner's uploads and hosted media (2026-10-27): one level, a file name.
+  const up = "uploads/" + slug + "/";
+  if (k.startsWith(up)) return /^[A-Za-z0-9._-]{1,120}$/.test(k.slice(up.length));
   const pre = "builds/" + slug + "/";
   if (!k.startsWith(pre)) return false;
   const rest = k.slice(pre.length).split("/");
@@ -91,6 +94,18 @@ export async function syncSiteBucket({ slug, src, dst, budget = 2000 }) {
   for (const o of want) if (!have.has(o.key)) jobs.push({ op: "copy", key: o.key });
   // A build the platform trimmed is trimmed here too.
   for (const o of dstBuilds) if (!wantKeys.has(o.key)) jobs.push({ op: "del", key: o.key });
+  // THE OWNER'S UPLOADS: copied when missing or changed (a media file can be
+  // replaced under its name), removed when the platform no longer has them.
+  // A VISITOR'S upload is written by the site itself under `vuploads/`, which
+  // this never touches.
+  {
+    const pre = "uploads/" + slug + "/";
+    const [s, d] = await Promise.all([src.list(pre), dst.list(pre)]);
+    const want = new Map(s.filter((o) => isServingKey(slug, o.key)).map((o) => [o.key, o.etag]));
+    const got = new Map(d.map((o) => [o.key, o.etag]));
+    for (const [k, e] of want) if (got.get(k) !== e) jobs.push({ op: "copy", key: k });
+    for (const k of got.keys()) if (!want.has(k)) jobs.push({ op: "del", key: k });
+  }
   for (const k of headKeys(slug)) {
     const [s] = await src.list(k).then((l) => l.filter((o) => o.key === k));
     const [d] = await dst.list(k).then((l) => l.filter((o) => o.key === k));

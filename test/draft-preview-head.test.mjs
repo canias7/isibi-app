@@ -104,16 +104,17 @@ async function siteScript(version) {
     'import { SITE_BUILD, SITE_SLUG, SITE_VERSION, SITE_PARENT } from "./site-brand";',
     'import { setSiteMeta, type SiteMeta } from "./site-runtime";',
     // 2026-10-27: the site's own follow-ups; stood in by a function that runs nothing.
-    'import { runSiteEffects, type EffectEnv } from "./lib/site-effects";',
-    'import { rescopeCookie } from "./lib/effects/site-cookie.mjs";',
   ];
   for (const i of imports) assert.ok(src.includes(i), "the site script's imports moved — rescope this: " + i);
   let body = src;
   for (const i of imports) body = body.replace(i, "");
+  body = body.replace(/^import \{[^}]*\} from "\.\/lib\/[^"]+";$/gm, "");
   const head = [
     "let __meta = null;",
-    "const runSiteEffects = async () => [];",
-    "const rescopeCookie = () => null;",
+    // The site's own-handlers' helpers (./lib/…, 2026-10-27): stood in by
+    // functions that answer nothing, so every request reaches the reader.
+    ...[...src.matchAll(/^import \{([^}]*)\} from "\.\/lib\/[^"]+";$/gm)].flatMap((m) =>
+      m[1].split(",").map((x) => x.trim()).filter((x) => x && !x.startsWith("type ")).map((n) => `const ${n} = async () => null;`)),
     "const setSiteMeta = (m) => { __meta = m; };",
     "const createStartHandler = () => async () => new Response(JSON.stringify(__meta));",
     "const defaultStreamHandler = null;",

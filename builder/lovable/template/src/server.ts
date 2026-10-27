@@ -27,6 +27,7 @@ import { SITE_BUILD, SITE_SLUG, SITE_VERSION, SITE_PARENT } from "./site-brand";
 import { setSiteMeta, type SiteMeta } from "./site-runtime";
 import { runSiteEffects, type EffectEnv } from "./lib/site-effects";
 import { rescopeCookie } from "./lib/effects/site-cookie.mjs";
+import { serveUpload, visitorUpload, type FilesEnv } from "./lib/site-files";
 
 // ── THIS SCRIPT READS ITS OWN PREFIX (stage 7, 2026-09-05) ────────────────────
 //
@@ -347,7 +348,8 @@ const site = {
   async fetch(request: Request, env: Env, ctx?: Ctx): Promise<Response> {
     const url = new URL(request.url);
 
-    const own = (await ownDataRead(request, env, url)) || (await ownDataWrite(request, env, url, ctx)) || (await ownAuth(request, env, url));
+    const own = (await ownDataRead(request, env, url)) || (await ownDataWrite(request, env, url, ctx)) || (await ownAuth(request, env, url))
+      || (await serveUpload(request, env as unknown as FilesEnv, url, SITE_SLUG)) || (await visitorUpload(request, env as unknown as FilesEnv, url, SITE_SLUG));
     if (own) return own;
 
     // ASSETS STAY ON R2, and this is a cost decision rather than a detail.
