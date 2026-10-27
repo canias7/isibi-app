@@ -3432,3 +3432,14 @@ Old demo sites are ignored (no compatibility path).
   WfP guidance: internal only, to rehearse platform-wide changes (upload/binding changes,
   the front door) on test sites before real ones. Not customer-facing; previews stay
   the customer's own draft check.
+
+## Neon: upgraded to Scale; apply for the Agent Plan (2026-10-27, owner)
+
+The owner moved the Neon account to **Scale** (no monthly minimum; $0.222/CU-hour,
+$0.35/GB-month; 1,000 projects, 25 branches/project, restore up to 30 days, IP Allow,
+SLA). Next: apply for the **Neon Agent Plan** (neon.com/programs/agents; requires Scale +
+card): Neon pays for free-tier projects, compute from $0.106/CU-hour, unlimited projects,
+up to $25K credits. Website https://gofarther.dev, contact support@gofarther.dev.
+Scheduled jobs: Neon Functions are on every plan; schedule triggers (scale-to-zero safe)
+still to test. Each project's history retention stays at its current setting until we
+raise it (the restore feature assumes 1 day).
