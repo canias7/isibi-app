@@ -109,3 +109,19 @@ without `x-site-data: own` falls back to `proxySiteService`. Writes stay on
 the platform (spam gate, double-submit guard, row effects).
 `test/site-own-data.test.mjs`, 6 cases, the template handler run for real.
 Not yet proven live: needs a new site with a table.
+
+## Phase A: a site saves its own visitors' rows (2026-10-27)
+
+Owner: "if its their site, their platform then it should be their worker".
+With `SITE_OWN_DATA` on and the site on its own bucket, the script also
+handles POST/PATCH/PUT/DELETE on its data path (`ownDataWrite`): the spam
+token field is dropped (Turnstile off, backlog), a press with an
+idempotency key is answered once (kept 10 minutes in the site's own bucket),
+the row is saved through the site's Data API, and a note signed with the
+site's own key (`builder/site-effect.mjs`: HMAC(platform root,
+"site-effect:v1:"+slug), uploaded as a secret) goes to the platform's
+`/api/site-effect` over a service binding. The platform proves the site from
+the signature and runs the same follow-ups (`applyRowEffects`, now shared with
+the proxy): owner email, confirmation, text, webhook. Phase B (the owner's own
+mail/SMS/webhook keys bound to the site) and C (our notification email and
+webhook retries) follow. Tests: `test/site-own-data.test.mjs`, 12 cases.

@@ -59,7 +59,18 @@ export const DISPATCH_CALL_MS = 600000;
  * visitors' reads. Anything else is dropped: a script gets only what is named
  * here, never a key.
  */
-export const SITE_VARS = ["DATA_API_BASE", "AUTH_BASE"];
+export const SITE_VARS = ["DATA_API_BASE", "AUTH_BASE", "EFFECT_URL", "OWN_BUCKET", "EFFECT_KEY"];
+/** Of those, the ones uploaded as secrets (never shown in the dashboard). */
+export const SITE_SECRET_VARS = ["EFFECT_KEY"];
+/** The platform's own script name (wrangler.jsonc `name`). */
+export const PLATFORM_SCRIPT = "isibi-app";
+const VAR_OK = {
+  DATA_API_BASE: (v) => /^https:\/\/[^\s]+$/.test(v),
+  AUTH_BASE: (v) => /^https:\/\/[^\s]+$/.test(v),
+  EFFECT_URL: (v) => /^https:\/\/[^\s]+$/.test(v),
+  OWN_BUCKET: (v) => v === "1",
+  EFFECT_KEY: (v) => /^[0-9a-f]{64}$/.test(v),
+};
 
 export async function uploadSiteWorker({ accountId, namespace, name, code, bucket, apiToken, vars = null }, deps = {}) {
   const fetchImpl = deps.fetch || globalThis.fetch;
@@ -82,8 +93,13 @@ export async function uploadSiteWorker({ accountId, namespace, name, code, bucke
     bindings: [
       ...(bucket ? [{ type: "r2_bucket", name: "SITES", bucket_name: bucket }] : []),
       ...Object.entries(vars || {})
-        .filter(([k, v]) => SITE_VARS.includes(k) && typeof v === "string" && /^https:\/\/[^\s]+$/.test(v))
-        .map(([k, v]) => ({ type: "plain_text", name: k, text: v })),
+        .filter(([k, v]) => SITE_VARS.includes(k) && typeof v === "string" && VAR_OK[k](v))
+        .map(([k, v]) => ({ type: SITE_SECRET_VARS.includes(k) ? "secret_text" : "plain_text", name: k, text: v })),
+      // THE PRIVATE LINK BACK, only with the site's own note key: the platform's
+      // public routes over a service binding, which is all a site could reach
+      // over the internet anyway, minus the route through the front door.
+      ...(vars && typeof vars.EFFECT_KEY === "string" && VAR_OK.EFFECT_KEY(vars.EFFECT_KEY)
+        ? [{ type: "service", name: "PLATFORM", service: PLATFORM_SCRIPT }] : []),
     ],
   };
 

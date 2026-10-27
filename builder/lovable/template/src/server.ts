@@ -67,7 +67,16 @@ type Env = {
   // and the auth server that mints a visitor token. Given at upload, never a key.
   DATA_API_BASE?: string;
   AUTH_BASE?: string;
+  // Phase A (2026-10-27): this site saves its own visitors' rows. Its own key
+  // for signing "a row changed" notes, the platform's address for them, the
+  // private link to the platform, and whether the bucket above is its own.
+  EFFECT_URL?: string;
+  EFFECT_KEY?: string;
+  OWN_BUCKET?: string;
+  PLATFORM?: { fetch(r: Request): Promise<Response> };
 };
+type Bucket = { get(key: string): Promise<SiteObject | null>; put(key: string, v: string): Promise<unknown> };
+type Ctx = { waitUntil(p: Promise<unknown>): void };
 
 // ── THIS SITE ANSWERS ITS OWN VISITORS' READS (2026-10-27) ──────────────────
 //
@@ -89,6 +98,94 @@ async function anonToken(env: Env): Promise<string> {
   if (!tok) { const m = /\b(ey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/.exec(text); tok = m ? m[1] : ""; }
   if (tok) { anonTok = tok; anonAt = Date.now(); }
   return tok;
+}
+
+// ── THIS SITE SAVES ITS OWN VISITORS' ROWS (phase A, 2026-10-27) ────────────
+//
+// POST / PATCH / PUT / DELETE on its own data path, only when this site holds
+// its own note key and its own bucket. The spam check is off for now (owner,
+// 2026-10-27: a later addition), so its token field is dropped. A press sent
+// twice with one idempotency key is answered once: the first 2xx answer is
+// kept in the site's own bucket for 10 minutes and replayed. What follows a
+// row change (emails, texts, webhooks) needs keys the platform holds, so a
+// note signed with this site's own key goes to the platform, after the answer.
+const WRITE = new Set(["POST", "PATCH", "PUT", "DELETE"]);
+const IDEM_RE = /^[A-Za-z0-9_-]{16,64}$/;
+const IDEM_TTL_MS = 600_000;
+const hexOf = (b: ArrayBuffer) => Array.from(new Uint8Array(b), (x) => x.toString(16).padStart(2, "0")).join("");
+async function hmacHex(key: string, text: string): Promise<string> {
+  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return hexOf(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(text)));
+}
+function dropChallenge(text: string): string {
+  try {
+    const o = JSON.parse(text);
+    if (o && typeof o === "object" && !Array.isArray(o) && Object.prototype.hasOwnProperty.call(o, "cf-turnstile-response")) {
+      delete o["cf-turnstile-response"];
+      return JSON.stringify(o);
+    }
+  } catch { /* not JSON: as sent */ }
+  return text;
+}
+
+export async function ownDataWrite(request: Request, env: Env, url: URL, ctx?: Ctx): Promise<Response | null> {
+  if (!WRITE.has(request.method)) return null;
+  if (!env.DATA_API_BASE || !env.AUTH_BASE || !env.EFFECT_KEY || env.OWN_BUCKET !== "1" || !env.SITES) return null;
+  const prefix = "/api/db/" + SITE_SLUG + "/data/";
+  if (!url.pathname.toLowerCase().startsWith(prefix)) return null;
+  const path = url.pathname.slice(prefix.length);
+  if (!/^[a-z0-9_][a-z0-9/._-]{0,79}$/i.test(path)) return null;
+  const bucket = env.SITES as unknown as Bucket;
+  const sent = dropChallenge(await request.text());
+
+  const key = request.method === "POST" ? request.headers.get("idempotency-key") : null;
+  const idemKey = key && IDEM_RE.test(key) ? "idem/" + path.split("/")[0].toLowerCase() + "/" + key : "";
+  const fp = idemKey ? await hmacHex("fp", sent) : "";
+  if (idemKey) {
+    try {
+      const prior = await bucket.get(idemKey);
+      if (prior) {
+        const p = JSON.parse(await prior.text());
+        if (Date.now() - Number(p.at) < IDEM_TTL_MS && p.fp === fp) {
+          return new Response(p.body, { status: p.status, headers: { "content-type": p.ct || "application/json", "x-idempotent-replay": "1", "x-site-data": "own" } });
+        }
+      }
+    } catch { /* a memory that cannot be read is no memory: the press goes through */ }
+  }
+
+  const h = new Headers();
+  for (const k of ["accept", "prefer", "authorization", "cookie", "content-type"]) { const v = request.headers.get(k); if (v) h.set(k, v); }
+  try { h.set("origin", new URL(env.DATA_API_BASE).origin); } catch { /* answered below */ }
+  if (!h.has("authorization")) {
+    const tok = await anonToken(env).catch(() => "");
+    if (!tok) return null;
+    h.set("authorization", "Bearer " + tok);
+  }
+  let r: Response;
+  try { r = await fetch(env.DATA_API_BASE + "/" + path + url.search, { method: request.method, headers: h, body: sent }); }
+  catch { return Response.json({ error: "couldn't reach that just now" }, { status: 503, headers: { "x-site-data": "own" } }); }
+  const body = await r.text();
+  const ct = r.headers.get("content-type") || "application/json";
+
+  if (r.status >= 200 && r.status < 300) {
+    if (idemKey && body.length <= 64 * 1024) {
+      const keep = bucket.put(idemKey, JSON.stringify({ at: Date.now(), fp, status: r.status, body, ct })).catch(() => {});
+      if (ctx) ctx.waitUntil(keep); else await keep;
+    }
+    const note = JSON.stringify({ slug: SITE_SLUG, method: request.method, path, search: url.search || "", sent, body, at: Date.now() });
+    const tell = (async () => {
+      const sig = await hmacHex(env.EFFECT_KEY as string, note);
+      const req = new Request(env.EFFECT_URL || "https://gofarther.dev/api/site-effect", {
+        method: "POST", headers: { "content-type": "application/json", "x-gf-effect-sig": sig }, body: note,
+      });
+      await (env.PLATFORM ? env.PLATFORM.fetch(req) : fetch(req));
+    })().catch(() => {});
+    if (ctx) ctx.waitUntil(tell); else await tell;
+  }
+  const out = new Headers({ "content-type": ct, "x-site-data": "own" });
+  const cr = r.headers.get("content-range");
+  if (cr) out.set("content-range", cr);
+  return new Response(body, { status: r.status, headers: out });
 }
 
 export async function ownDataRead(request: Request, env: Env, url: URL): Promise<Response | null> {
@@ -218,16 +315,16 @@ const stamp = (res: Response): Response => {
 };
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    return stamp(await site.fetch(request, env));
+  async fetch(request: Request, env: Env, ctx?: Ctx): Promise<Response> {
+    return stamp(await site.fetch(request, env, ctx));
   },
 };
 
 const site = {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx?: Ctx): Promise<Response> {
     const url = new URL(request.url);
 
-    const own = await ownDataRead(request, env, url);
+    const own = (await ownDataRead(request, env, url)) || (await ownDataWrite(request, env, url, ctx));
     if (own) return own;
 
     // ASSETS STAY ON R2, and this is a cost decision rather than a detail.

@@ -109,6 +109,7 @@ import { securityOfferFacts, securityWorkingFacts, securityReportFacts, security
 import { OFFLINE_COLUMN, siteOffline, offlineStamp } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, STOPPED_FREE_MSG, STOPPED_SHORT_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE, carryPanelFields, keepPanelDescription } from "./site-meta.mjs";
+import { EFFECT_PATH, EFFECT_SIG_HEADER, effectKeyFor, readEffect } from "./builder/site-effect.mjs";
 import { siteBucketName, ensureSiteBucket, syncSiteBucket, restBucket, bindingBucket, deleteSiteBucket, RESYNC_PREFIX } from "./builder/site-bucket.mjs";
 import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, MAX_NEW_SLUG, capNewSlug, rebuildGoesLive, PUBLISH_KEEP_BUILDS, publishKeeps, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, applyRowQuery, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec, previousSidecar, heldMediaSource, heldStandIns, previewServed, ftsFilterOf, FTS_CATALOG_SQL, ftsJudgeSql, ftsJudgeParams, heldChangedIds, deadNewFunctions, jobsWithoutDead } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
@@ -11837,6 +11838,34 @@ function idemFor(env, slug, scope, key, fp = null) {
   });
 }
 
+/**
+ * WHAT FOLLOWS A ROW CHANGE (notify, confirm, text, webhook), shared by the
+ * platform's own proxy and the note a site's own Worker sends after it saved
+ * the row itself (`/api/site-effect`, 2026-10-27). Never throws.
+ */
+async function applyRowEffects(env, ctx, { slug, db, method, path, search, body, sent }) {
+  const action = method === "POST" ? "created"
+    : method === "PATCH" || method === "PUT" ? "updated"
+    : method === "DELETE" ? "deleted" : null;
+  if (!action) return;
+  try {
+    const table = String(path).split("/")[0].toLowerCase();
+    const spec = await loadSiteSchema(db);
+    const def = (spec && spec.tables || []).find((t) => String(t.name).toLowerCase() === table);
+    if (!def) return;
+    let row = null;
+    if (action === "deleted") {
+      row = { filter: String(search || "").replace(/^\?/, "").slice(0, 500) };
+    } else if (action === "created") {
+      row = await resolveCreatedRow({ def, body, sent, lookup: (q, p) => sqlQuery(db, q, p) });
+    } else {
+      try { const j = JSON.parse(body); row = Array.isArray(j) ? j[0] : j; } catch { /* not json */ }
+      if (!row) { try { row = JSON.parse(sent || "null"); } catch { row = null; } }
+    }
+    siteRowEffects(env, ctx, { slug, db, def, table, action, row: row || {}, submission: method === "POST" });
+  } catch (e) { console.error("row effects:", slug, e && e.message); }
+}
+
 async function proxySiteService(env, request, url, slug, path, which, ctx) {
   const db = await siteRowConn(env, slug);
   if (!db) return Response.json({ error: "no such site" }, { status: 404 });
@@ -11997,33 +12026,7 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
     // the row is already in Postgres and a broken mailer must not look like a
     // broken form.
     if (which === "data" && r.status >= 200 && r.status < 300) {
-      const action = request.method === "POST" ? "created"
-        : request.method === "PATCH" || request.method === "PUT" ? "updated"
-        : request.method === "DELETE" ? "deleted" : null;
-      if (action) {
-        try {
-          const table = String(path).split("/")[0].toLowerCase();
-          const spec = await loadSiteSchema(db);
-          const def = (spec && spec.tables || []).find((t) => String(t.name).toLowerCase() === table);
-          if (def) {
-            let row = null;
-            if (action === "deleted") {
-              row = { filter: String(url.search || "").replace(/^\?/, "").slice(0, 500) };
-            } else if (action === "created") {
-              // THE STORED ROW, WITH ITS ID (audit A12-2). The kit's insert asks
-              // for nothing back (a collect table has no SELECT), so the answer is
-              // an empty 201; the row is read on the OWNER connection by the
-              // values just sent, so a `{fn}` confirmation has its id and a
-              // webhook's data carries it.
-              row = await resolveCreatedRow({ def, body, sent, lookup: (q, p) => sqlQuery(db, q, p) });
-            } else {
-              try { const j = JSON.parse(body); row = Array.isArray(j) ? j[0] : j; } catch { /* not json */ }
-              if (!row) { try { row = JSON.parse(sent || "null"); } catch { row = null; } }
-            }
-            siteRowEffects(env, ctx, { slug, db, def, table, action, row: row || {}, submission: request.method === "POST" });
-          }
-        } catch (e) { console.error("row effects:", slug, e && e.message); }
-      }
+      await applyRowEffects(env, ctx, { slug, db, method: request.method, path, search: url.search || "", body, sent });
     }
 
     return new Response(body, {
@@ -17349,19 +17352,27 @@ async function siteReadVars(env, slug) {
     const db = await siteRowConn(env, slug);
     if (!db) return null;
     const [data, auth] = await Promise.all([siteDataBase(db), siteAuthBase(db)]);
-    return data && auth ? { DATA_API_BASE: data, AUTH_BASE: auth } : null;
+    if (!data || !auth) return null;
+    // Phase A: the site saves its own visitors' rows too, and signs a note for
+    // what follows with a key that is its own (`site-effect.mjs`).
+    const root = gatewaySecretOf(env);
+    const key = root ? await effectKeyFor(root.secret, slug) : "";
+    return { DATA_API_BASE: data, AUTH_BASE: auth, ...(key ? { EFFECT_URL: "https://" + APP_ZONE + EFFECT_PATH, EFFECT_KEY: key } : {}) };
   } catch (e) {
     console.error("own data: addresses not read", slug, errorClassForLog(e));
     return null;
   }
 }
 
-/** Ask the site's own script to answer a visitor's read; null to fall back. */
+/** Ask the site's own script to answer a visitor's read or write; null to fall back. */
 async function ownDataRead(env, request, slug) {
   const name = scriptNameFor(slug);
   if (!name) return null;
   try {
-    const fwd = new Request(request.url, { method: request.method, headers: request.headers });
+    // The body travels as bytes: a write the site declines falls back to the
+    // proxy, which reads the body again, so it is cloned, never consumed.
+    const body = request.method === "GET" || request.method === "HEAD" ? undefined : await request.clone().arrayBuffer();
+    const fwd = new Request(request.url, { method: request.method, headers: request.headers, body });
     try { fwd.headers.delete(PREVIEW_HEADER); } catch { /* immutable: nothing of ours in it */ }
     const res = await env.SITE_WORKERS.get(name, {}, siteLimits(env)).fetch(fwd);
     return res.headers.get("x-site-data") === "own" ? res : null;
@@ -17503,8 +17514,13 @@ async function uploadScriptOnce(env, slug, worker, { preview = false, go = null 
     // from us, so naming the bucket here is what lets it read its own assets —
     // and naming nothing else is what keeps it away from the ledger, the
     // secrets key and every other site's anything.
-    bucket: await sealedBucketFor(env, slug, creds),
-    vars: await siteReadVars(env, slug),
+    ...(await (async () => {
+      const bucket = await sealedBucketFor(env, slug, creds);
+      const vars = await siteReadVars(env, slug);
+      // OWN_BUCKET tells the script its bucket is its own, so it may keep its
+      // double-submit memory there; on the shared bucket it never writes.
+      return { bucket, vars: vars && bucket === siteBucketName(slug) ? { ...vars, OWN_BUCKET: "1" } : vars };
+    })()),
   }).catch((e) => ({ ok: false, status: 0, error: String((e && e.message) || e) }));
   if (!r.ok) {
     console.error("site worker upload failed:", slug, r.status, r.error);
@@ -34563,6 +34579,23 @@ async function handleRequest(request, env, ctx) {
     // Proxied rather than called from the page for the same three reasons the auth
     // proxy is: the bundle holds no URL and no key, it is same-origin so there is
     // no CORS and no cross-site cookie, and a generated page's URLs do not change.
+    // A SITE'S OWN WORKER SAYING A ROW CHANGED (2026-10-27): it saved the row
+    // itself; the follow-ups that need our keys run here, for the site its
+    // signature proves and no other. Answers 202 before they finish.
+    if (url.pathname === EFFECT_PATH && request.method === "POST") {
+      const root = gatewaySecretOf(env);
+      if (!root) return Response.json({ error: "not configured" }, { status: 503 });
+      const text = await request.text().catch(() => "");
+      const r = await readEffect(root.secret, text, request.headers.get(EFFECT_SIG_HEADER));
+      if (!r.ok) return Response.json({ error: r.why }, { status: r.status });
+      const n = r.note;
+      const db = await siteRowConn(env, n.slug).catch(() => null);
+      if (!db) return Response.json({ error: "no such site" }, { status: 404 });
+      const p = applyRowEffects(env, ctx, { slug: n.slug, db, method: n.method, path: n.path, search: n.search, body: n.body, sent: n.sent });
+      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(p); else await p;
+      return Response.json({ ok: true }, { status: 202 });
+    }
+
     if (url.pathname.startsWith("/api/db/") && url.pathname.includes("/data/")) {
       const dm = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/data\/([a-z0-9_][a-z0-9/._-]{0,79})$/i);
       if (dm) {
@@ -34579,7 +34612,8 @@ async function handleRequest(request, env, ctx) {
         // A READ THE SITE ANSWERS ITSELF, when its script says so
         // (`x-site-data: own`); a script without the addresses answers
         // without the mark and this falls through to the proxy below.
-        if ((request.method === "GET" || request.method === "HEAD") && env.SITE_OWN_DATA === "1" && env.SITE_WORKERS) {
+        // Reads, and since phase A writes too: the site answers when it can.
+        if (env.SITE_OWN_DATA === "1" && env.SITE_WORKERS) {
           const own = await ownDataRead(env, request, slug);
           if (own) return own;
         }

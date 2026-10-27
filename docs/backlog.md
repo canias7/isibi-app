@@ -3286,3 +3286,10 @@ same day.)
 `docs/history/2026-10-27-front-door.md`. Measure 300 ms CPU against real site
 renders after the deploy; deploy `gofarther-front`; rehearse on a test
 hostname; then the route swap (owner's word).
+
+## Spam check (Turnstile) for submissions a site saves itself (2026-10-27)
+Owner: "We can turn the turnstile thing off rn, that will be a future
+addition." Phase A's site-side save (`ownDataWrite`) drops the
+`cf-turnstile-response` field and checks nothing. To add later: each site
+given its own Turnstile secret at publish (the owner's own, or a site-only
+default), verified in the site's Worker for public-form tables only.
