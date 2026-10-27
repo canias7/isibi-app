@@ -170,7 +170,9 @@ test("…and the substituted origin follows the mount too", async () => {
   const seen = [];
   const r = await hit("/sitemap.xml", { env: env(seen), origin: `https://${SLUG}.gofarther.app` });
   assert.match(r.text, /<loc>https:\/\/fold-coffee\.gofarther\.app\/menu<\/loc>/);
-  assert.ok(!seen.includes("/sitemap.xml"), "it was dispatched: " + seen.join(", "));
+  // On the site's own host the script is asked first (2026-10-27); a script
+  // that does not mark its answer its own is not believed for these two files.
+  assert.ok(seen.includes("/sitemap.xml"), "the site was not asked: " + seen.join(", "));
 });
 
 // ── an address the site does not have ────────────────────────────────────────

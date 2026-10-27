@@ -30,6 +30,8 @@ import { rescopeCookie } from "./lib/effects/site-cookie.mjs";
 import { serveUpload, visitorUpload, type FilesEnv } from "./lib/site-files";
 import { siteCheckout, stripeSiteWebhook, type PayEnv } from "./lib/site-pay";
 import { siteApi, siteHook, type ConnectEnv } from "./lib/site-connect";
+import { siteSeoFile, siteRedirect, absolutized, type AddressEnv } from "./lib/site-addresses";
+import { siteError, countVisit, type TelemetryEnv } from "./lib/site-telemetry";
 
 // ── THIS SCRIPT READS ITS OWN PREFIX (stage 7, 2026-09-05) ────────────────────
 //
@@ -353,13 +355,17 @@ const site = {
     const own = (await ownDataRead(request, env, url)) || (await ownDataWrite(request, env, url, ctx)) || (await ownAuth(request, env, url))
       || (await serveUpload(request, env as unknown as FilesEnv, url, SITE_SLUG)) || (await visitorUpload(request, env as unknown as FilesEnv, url, SITE_SLUG))
       || (await siteCheckout(request, env as unknown as PayEnv, url, SITE_SLUG, ctx)) || (await stripeSiteWebhook(request, env as unknown as PayEnv, url, SITE_SLUG, ctx))
-      || (await siteApi(request, env as unknown as ConnectEnv, url, SITE_SLUG)) || (await siteHook(request, env as unknown as ConnectEnv, url, SITE_SLUG));
+      || (await siteApi(request, env as unknown as ConnectEnv, url, SITE_SLUG)) || (await siteHook(request, env as unknown as ConnectEnv, url, SITE_SLUG))
+      || (await siteError(request, env as unknown as TelemetryEnv, url, SITE_SLUG, ctx));
     if (own) return own;
 
     // ASSETS STAY ON R2, and this is a cost decision rather than a detail.
     // Putting a JavaScript bundle or a stylesheet through compute is paying per
     // request for what a CDN does for nothing, on the files requested most.
     // Only the document is rendered.
+    const seo = await siteSeoFile(request, env as unknown as AddressEnv, url, [OWN_ASSETS, PARENT_ASSETS]);
+    if (seo) return seo;
+
     if (isAsset(url.pathname)) {
       let obj = env.SITES && (await env.SITES.get(OWN_ASSETS + url.pathname));
       // The one hop back — see `PARENT_ASSETS` above. Never for a versionless
@@ -412,6 +418,14 @@ const site = {
     }
 
     await loadMeta(env, previewing);
-    return startFetch(request);
+    const page = await startFetch(request);
+    // AN ADDRESS THE SITE DOES NOT HAVE: a moved or deleted page goes where it
+    // went (previews never redirect: the draft's own routes are what they show).
+    if (page.status === 404 && !previewing) {
+      const moved = await siteRedirect(env as unknown as AddressEnv, url, SITE_SLUG);
+      if (moved) return moved;
+    }
+    if (!previewing) countVisit(request, env as unknown as TelemetryEnv, page, url, SITE_SLUG, ctx);
+    return absolutized(page, url, SITE_SLUG);
   },
 };

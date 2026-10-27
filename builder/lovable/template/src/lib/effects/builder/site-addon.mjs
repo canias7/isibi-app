@@ -1,0 +1,865 @@
+// The addon lane: add what the site does not have, and keep everything it does.
+//
+// THE RUNG BETWEEN EDIT AND BUILD. An edit changes what exists; a build makes a
+// site from nothing and replaces every page. Neither can answer "add a gallery"
+// honestly — the edit lane finds no target and a build costs ~25 credits and
+// rewrites five pages that were fine.
+//
+// WHAT MAKES IT CHEAPER IS WHAT COMES BACK, not what goes out. The prompt still
+// carries the whole site (input is ~5% of a warm build and rides in the cache);
+// what changes is that the model returns ONLY the new page and the pages it had
+// to touch to make it reachable, and this module merges that over the rest.
+// Output is ~87% of what a build costs, so two files instead of six is most of
+// the bill.
+//
+// THE NAV IS WHY IT IS NOT "AND NOTHING ELSE". Each generated page declares its
+// own CHROME with its own links — there is no shared header file — so a new page
+// nobody links to is a page nobody can reach. The one place this lane reaches
+// beyond the thing it adds is the page a visitor would look on to find it.
+//
+// Plain module, no I/O, like `site-apply.mjs` beside it.
+
+/** A returned set larger than this is not an addon, it is a rewrite wearing one. */
+export const MAX_RETURNED = 6;
+
+/**
+ * WHERE AN ADD-ON KIND'S WORK IS AN EDIT RUNG'S, and the only rungs it may hand
+ * a message to (2026-10-02): the group name a kind's `elsewhere` carries in
+ * `site-add.mjs`, mapped to the layer that does it. ONE TABLE, read by both
+ * sides — `site-add.mjs` routes by it and `addonFailure` below refuses any hop
+ * it does not name — so the list of hops cannot be written twice.
+ *
+ * `frame` → `nav`: a new menu link, footer link or header button. The menu
+ * editor already writes every one of them on every page at once, for about a
+ * credit, and is the only code that can. (`photo` → `picture` was here until
+ * the same day: the picture rung fills a slot that EXISTS and cannot add a
+ * second photograph to a page, so a photograph is now placed by the add-on's
+ * own page call.)
+ */
+export const ADD_HOPS = Object.freeze({ frame: "nav" });
+
+/** A failure is not permission to rewrite. Only verified reconstruction and
+ * the add-on's own hand-offs (`ADD_HOPS`) may start another operation. Messages
+ * describe this step, not the whole request's bill or side effects
+ * (routing/recovery may precede it).
+ */
+export function addonFailure(reason, { reconstruct = false, layer, kind, problems, recovery, chars, max, carried, page } = {}) {
+  const base = { ok: false, reason, cost: 0 };
+  // NOTHING NEW TO ADD, ON A PAGE THE SITE HAS (2026-10-24, addon-existing):
+  // handed to the page step on that page with the same words, never ended.
+  // Only the page step, and only with a page.
+  if (reason === "existing" && layer === "page" && typeof page === "string" && /^\/[a-z0-9/_-]*$/.test(page)) {
+    return { ...base, escalate: true, layer, page };
+  }
+  if (reconstruct === true && (reason === "no-source" || reason === "no-meta")) {
+    return { ...base, escalate: true };
+  }
+  if (reason === "layer" && typeof kind === "string" && Object.hasOwn(ADD_HOPS, kind) && ADD_HOPS[kind] === layer) {
+    return { ...base, escalate: true, layer, kind };
+  }
+  const messages = {
+    empty: "Tell me what you'd like to add before I continue.",
+    unconfigured: "The site builder is missing required configuration, so I couldn't continue with the addition. This needs fixing on our side.",
+    "editable-state": "I couldn't verify or recover the site's editable files, so I've stopped this addition instead of rebuilding from uncertain data.",
+    "no-source": "I couldn't read the site's saved page files reliably, so I've stopped this addition instead of rebuilding without them.",
+    "no-meta": "I couldn't read the site's saved design or database information reliably, so I've stopped this addition instead of guessing.",
+    "no-look": "The site's stylesheet is available, but its saved design information isn't sufficient for this addition. I've stopped instead of rewriting the site.",
+    "no-add": "I couldn't determine a supported addition from that message. Please clarify what you'd like to add.",
+    "nothing-returned": "The builder didn't return usable page changes for this addition. I've stopped instead of starting a full-site rewrite.",
+    "no-change": "The builder produced no page changes for this addition. I've stopped instead of starting a full-site rewrite.",
+    "too-many": "The builder returned more pages than this addition can accept. I've stopped instead of starting a full-site rewrite.",
+    // THE ROUTER HELD PART OF THE MESSAGE BACK AND IT IS NOT IN THE MESSAGE
+    // (2026-09-29): the edit route's `route/held-unread`, in this route's shape.
+    "held-unread": "I couldn't separate the part of your message I was leaving for later from the part to do now, so I haven't added anything — this is on us. Send the changes one at a time and I'll make each.",
+    // THE ANSWERS A RESUMED REQUEST CAME WITH CANNOT BE READ (2026-10-02): the
+    // edit route's `route/context-unread`, in this route's shape.
+    "context-unread": "I couldn't read the answers you'd already given me for that request, so I haven't added anything — this is on us. Send the request again with the details in it and I'll make it.",
+    // PAST THE SIZE POLICY (2026-10-03): the edit route's `route/input-too-long`,
+    // in this route's shape, with the numbers.
+    "input-too-long": (carried === true
+      ? "That request, with the answers and parts that go with it," + (Number.isFinite(chars) ? " comes to " + chars.toLocaleString("en-GB") + " characters," : "") + " which is more than one request can carry to the builder"
+      : "That request" + (Number.isFinite(chars) ? " is " + chars.toLocaleString("en-GB") + " characters," : " is") + " more than one message can hold") +
+      (Number.isFinite(max) ? " (" + max.toLocaleString("en-GB") + " characters)" : "") + ", so I haven't added anything. Send it in shorter parts and I'll make each.",
+  };
+  const msg = Object.hasOwn(messages, reason) ? messages[reason]
+    : "I couldn't complete this addition, so I've stopped instead of starting another operation.";
+  return {
+    ...base, error: reason, msg, ...(problems ? { problems } : {}), ...(recovery ? { recovery } : {}),
+    ...(reason === "input-too-long" && Number.isFinite(chars) ? { chars } : {}),
+    ...(reason === "input-too-long" && Number.isFinite(max) ? { max } : {}),
+  };
+}
+
+/**
+ * WHAT AN ADDON MAY CHANGE ABOUT A TABLE THE SITE ALREADY HAS.
+ *
+ * Exactly the two features that need a PAGE as well as a schema change, which is
+ * what makes them this lane's and not the `rules` layer's:
+ *
+ *   payment    — a table becomes payable, and a page needs a Buy button.
+ *   publicView — a read-only projection, and a page needs `usePublicRows`.
+ *
+ * Everything else about an existing table belongs to `rules`, which publishes
+ * nothing. Two lanes able to change one thing is two answers that can disagree.
+ */
+export const ADDON_TABLE_FIELDS = ["payment", "publicView"];
+
+/**
+ * Fold a designed schema over the site's stored one.
+ *
+ * WHAT THIS FIXES. `normalizeSchema`'s dedup is "first declaration wins, and
+ * later ones contribute any COLUMNS the first did not have" — written for the
+ * BUILD path, where two tables of one name is a model mistake and first-wins is
+ * the protection that stopped a duplicate destroying the first's guarantees.
+ * The addon lane concatenated `[...prior, ...designed]` straight into it, so on
+ * a table that already existed the designer's `payment` and `publicView` were
+ * dropped SILENTLY. Measured through the real normaliser. That is why a site
+ * built without a price could never start taking money.
+ *
+ * AN ANSWER IS NOT A STATEMENT OF INTENT, AND THAT IS THE WHOLE SAFETY ARGUMENT
+ * HERE. A designer asked to make `bookings` payable is filling in a schema, and
+ * an access level it puts there on the way past is compliance rather than a
+ * decision about who may read a real business's booking list. Taking it would
+ * let "let people pay for these" quietly publish every customer's name and phone
+ * number. So `access`, `read` and `write` are IGNORED on a table that already
+ * exists; moving them is the `rules` layer, whose own tool leaves them optional,
+ * so a value there really is something somebody asked for.
+ *
+ * THIS PARAGRAPH USED TO SAY `design_schema` REQUIRES `["name","access",
+ * "columns"]` AND IT DOES NOT — the required list is `["name","columns"]`, and
+ * was relaxed so a table could declare a `read`/`write` pair instead. Corrected
+ * 2026-08-21: the conclusion never depended on the field being compelled (an
+ * answer is not intent whether or not it was demanded), but the stale premise
+ * was cited as the reason the build/revise route did not need the same guard.
+ * It did — see `keepStoredAccess` in site-edit.mjs, which is this rule applied
+ * there after a live re-levelling was measured.
+ *
+ * A COLUMN IS NEVER REMOVED AND A TABLE IS NEVER DROPPED, for the reason
+ * `mergeRules` gives: `_meta` is what the data API derives from, so dropping a
+ * column hides it from every read while the values sit in Postgres.
+ */
+/**
+ * The spec-level tiers an addon may declare, beyond its tables.
+ *
+ * ALL THREE WERE DROPPED ON THIS PATH, measured: the route passed
+ * `{ tables: … }` and nothing else, so `normalizeSchema` never saw them. That
+ * is the entire "the model writes the backend" tier — an inbound webhook
+ * handler, a confirmation computed by SQL, a third-party read — unreachable on
+ * any site after its first build.
+ *
+ * They are name-keyed lists, so passing only what the designer NAMED is right:
+ * `applySiteSchema` seeds `_meta` from the stored spec before merging, so a
+ * function nobody mentioned stays recorded, and one that is mentioned is
+ * `CREATE OR REPLACE`d. Rate limits are deliberately NOT here — an addon does
+ * not ask for them, and the erase semantics are a separate question.
+ */
+export const ADDON_SPEC_FIELDS = ["functions", "apis", "jobs"];
+
+export function mergeAddonSchema(prior, designed) {
+  const priorTables = Array.isArray(prior) ? prior : (prior && Array.isArray(prior.tables) ? prior.tables : []);
+  const designedSpec = Array.isArray(designed) ? { tables: designed } : (designed && typeof designed === "object" ? designed : {});
+  const designedTables = Array.isArray(designedSpec.tables) ? designedSpec.tables : [];
+  const base = priorTables.filter((t) => t && t.name).map((t) => ({ ...t }));
+  const byName = new Map(base.map((t) => [String(t.name).toLowerCase(), t]));
+  const added = [], altered = [];
+
+  for (const d of designedTables) {
+    if (!d || !d.name) continue;
+    const key = String(d.name).toLowerCase();
+    const have = byName.get(key);
+    // A TABLE THE SITE DOES NOT HAVE IS APPENDED WHOLE, exactly as before. This
+    // is the ordinary addon and nothing about it changes.
+    if (!have) {
+      const copy = { ...d };
+      base.push(copy);
+      byName.set(key, copy);
+      added.push(copy.name);
+      continue;
+    }
+    const fields = [];
+    for (const k of ADDON_TABLE_FIELDS) {
+      if (d[k] === undefined || d[k] === null) continue;
+      have[k] = d[k];
+      fields.push(k);
+    }
+    // NEW COLUMNS ONLY. This is what `normalizeSchema`'s dedup already did, kept
+    // deliberately: "add a photo to the booking form" is a real addon, and it is
+    // the one part of the old behaviour that was right.
+    const has = new Set((Array.isArray(have.columns) ? have.columns : [])
+      .map((c) => String(typeof c === "string" ? c : (c && c.name) || "").toLowerCase()).filter(Boolean));
+    for (const c of Array.isArray(d.columns) ? d.columns : []) {
+      const name = String(typeof c === "string" ? c : (c && c.name) || "").toLowerCase();
+      if (!name || has.has(name)) continue;
+      have.columns = [...(Array.isArray(have.columns) ? have.columns : []), c];
+      has.add(name);
+      fields.push("column " + name);
+    }
+    if (fields.length) altered.push({ table: have.name, fields });
+  }
+
+  // The three spec-level tiers, carried only when the designer named one, so a
+  // build that declares nothing sends exactly what it sent before.
+  // …AND THE PRIOR SPEC'S OWN, BY NAME (2026-10-18, audit A04-1): handed the
+  // draft's overlay (a spec, not a table list), the held functions, apis and
+  // jobs of earlier add-ons ride along, this message's winning a shared name,
+  // so the held schema and jobs ops are whole. A table list carries none,
+  // exactly as before; `declared` names only what this message designed.
+  const spec = { tables: base };
+  const declared = [];
+  const priorSpec = prior && !Array.isArray(prior) && typeof prior === "object" ? prior : {};
+  for (const k of ADDON_SPEC_FIELDS) {
+    const v = designedSpec[k];
+    const had = Array.isArray(priorSpec[k]) ? priorSpec[k] : [];
+    const mine = Array.isArray(v) ? v : [];
+    if (mine.length) declared.push(k);
+    if (!mine.length && !had.length) continue;
+    const byKey = new Map();
+    for (const x of [...had, ...mine]) if (x && typeof x === "object" && x.name) byKey.set(String(x.name).toLowerCase(), x);
+    spec[k] = [...byKey.values()];
+  }
+  return { spec, tables: base, added, altered, declared };
+}
+
+/**
+ * TAKING PAGES AWAY — THE ONE RULE FOR EVERY WRITER THAT MAY (moved here out of
+ * `mergeAddonPages` on 2026-10-02, when the full rewrite started to need it
+ * too: the whole-router audit's W3).
+ *
+ * `byPath` is the merged page map, and the pages that come off are deleted from
+ * it; `remove` is the paths asked to go; `written` is the paths this same answer
+ * wrote, which are never removed in the same breath. Answers `{ gone, kept }`,
+ * `kept` naming each refused removal and why (`keptReply` words it).
+ */
+/**
+ * THE LINT'S PROBLEMS ABOUT WHAT WENT OUT (2026-10-07). Each is "<path>:
+ * <what>" (`lintPages`); one naming a page this change wrote that did not then
+ * go out — held back, or put back as it was — is about nothing on the site,
+ * and was said beside it. One naming no page this change wrote (a component,
+ * or text with no path) cannot be placed, so it is kept rather than dropped.
+ * Every one that stays is kept: no cut.
+ */
+export function problemsShipped(problems, written, shipped) {
+  const wrote = new Set((Array.isArray(written) ? written : []).filter((p) => typeof p === "string" && p));
+  const out = new Set((Array.isArray(shipped) ? shipped : []).filter((p) => typeof p === "string" && p));
+  return (Array.isArray(problems) ? problems : []).filter((q) => {
+    if (typeof q !== "string" || !q.trim()) return false;
+    const at = q.indexOf(": ");
+    const path = at > 0 ? q.slice(0, at) : "";
+    return !path || !wrote.has(path) || out.has(path);
+  });
+}
+
+export function takePagesAway(byPath, remove, written) {
+  const gone = [];
+  const kept = [];
+  const wrote = Array.isArray(written) ? written : [];
+  for (const raw of Array.isArray(remove) ? remove : []) {
+    const path = typeof raw === "string" ? raw : "";
+    if (!byPath.has(path)) continue;                       // nothing to remove
+    if (wrote.includes(path)) continue;                    // written and removed in one breath
+    // THE HOME PAGE IS NEVER REMOVABLE. It is the one address a customer shares,
+    // and a site whose root renders nothing is worse than any page they wanted
+    // gone. Same rule the salvage already applies to a build with no index.
+    if (routeOf(path) === "/") { kept.push({ path, why: "home" }); continue; }
+    // A LINK POINTING AT A ROUTE THAT NO LONGER EXISTS DOES NOT COMPILE, so
+    // deleting a page nothing was told to unlink would fail the whole change and
+    // leave the site untouched — 20-40s of container time to achieve nothing,
+    // and a TypeScript error the owner cannot act on. Refused here instead, with
+    // the pages that still point at it named.
+    const route = routeOf(path);
+    const linkers = [...byPath.values()]
+      .filter((p) => p.path !== path && !gone.includes(p.path) && typeof p.source === "string" && p.source.includes('"' + route + '"'))
+      .map((p) => p.path);
+    // EVERY PAGE THAT LINKS TO IT (2026-10-07): four were named, so the
+    // customer took four links out and the removal was refused again.
+    if (linkers.length) { kept.push({ path, why: "linked", from: linkers }); continue; }
+    byPath.delete(path);
+    gone.push(path);
+  }
+  return { gone, kept };
+}
+
+/**
+ * A FULL REWRITE'S PAGES, FOLDED OVER THE SITE IT REWROTE (2026-10-02, the
+ * whole-router audit's W3).
+ *
+ * The rewrite publishes the page set the container is handed, and it was handed
+ * only what the writer RETURNED — while the one tool every mode shares says
+ * "leaving a page out of `pages` does NOT delete it: an unreturned page is
+ * KEPT", and the rewrite's own prompt said the opposite ("to DELETE a page,
+ * simply do not return it"). A writer that trusted the tool and returned the
+ * pages it changed deleted every other page of the site, with nothing said.
+ *
+ * NOW THERE IS ONE CONTRACT, the tool's: a returned page replaces the stored
+ * one at that path, a page that was not there is added, a page nobody returned
+ * is KEPT exactly as it was, and a page comes off only when the writer names it
+ * in `remove` AND it passes `takePagesAway` — never the home page, never one a
+ * page that stays still links to, never one written in the same answer. The
+ * refused ones are named (`kept`), so the customer can be told.
+ *
+ * Unlike the add-on's merge this reverts nothing and caps nothing: rewriting
+ * every page is what a rewrite is for.
+ */
+export function mergeRevisedPages(prior, returned, remove) {
+  const usable = (p) => p && typeof p.path === "string" && typeof p.source === "string";
+  const base = (Array.isArray(prior) ? prior : []).filter(usable);
+  const got = (Array.isArray(returned) ? returned : []).filter((p) => usable(p) && p.source.trim());
+  const byPath = new Map(base.map((p) => [p.path, { path: p.path, source: p.source }]));
+  const written = [];
+  for (const p of got) {
+    byPath.set(p.path, { path: p.path, source: p.source });
+    written.push(p.path);
+  }
+  const { gone, kept } = takePagesAway(byPath, remove, written);
+  const untouched = base.map((p) => p.path).filter((path) => !written.includes(path) && !gone.includes(path));
+  return { pages: [...byPath.values()], written, removed: gone, kept, untouched };
+}
+
+/**
+ * Fold what the model returned over what the site already has.
+ *
+ * THE MERGE IS THE WHOLE FEATURE, and it is deliberately dumb: a returned path
+ * replaces the stored page at that path, a path nobody returned is kept exactly
+ * as it was, and a path that did not exist before is new. Nothing is deleted —
+ * this lane ADDS, and "return every page and I will infer the deletions" is the
+ * revise's contract, not this one. An addon that could delete would turn a model
+ * returning two files into a site of two pages.
+ *
+ * Returns the FULL page set, because that is what the container needs: it wipes
+ * `src/routes` and writes what it is given, so handing it the subset would
+ * publish a site consisting of the new page alone.
+ */
+export function mergeAddonPages(prior, returned, remove, asked) {
+  const base = (Array.isArray(prior) ? prior : [])
+    .filter((p) => p && typeof p.path === "string" && typeof p.source === "string");
+  const got = (Array.isArray(returned) ? returned : [])
+    .filter((p) => p && typeof p.path === "string" && typeof p.source === "string" && p.source.trim());
+  // A REMOVAL IS WORK EVEN WITH NO PAGE BEHIND IT, and reading it as an empty
+  // answer is how the commonest deletion there is stayed expensive: take away a
+  // page nothing links to and the model correctly returns no files at all, which
+  // this refused as `nothing-returned` — straight up the ladder to the ~25-credit
+  // revise the lane exists to undercut. Found by a mutant, not by reading.
+  const wants = (Array.isArray(remove) ? remove : []).some((r) => typeof r === "string" && r);
+  if (!got.length && !wants) return { ok: false, reason: "nothing-returned" };
+  // NO ADD-ON LIMITS (owner, 2026-10-24; combined in combine-d): the pages the
+  // designers were ASKED to add do not count against the rewrite guard, so an
+  // addition of nine asked pages (addon-uncapped, with page-gen's `MAX_PAGES`
+  // lifted by first-build-uncapped) is not refused as `too-many`. What the
+  // guard still refuses is a set larger than the asked pages plus the few a
+  // new page touches (`MAX_RETURNED`): a rewrite wearing an addition.
+  const askedCount = Array.isArray(asked) ? asked.filter((a) => typeof a === "string" && a).length : 0;
+  if (got.length > MAX_RETURNED + askedCount) return { ok: false, reason: "too-many", count: got.length };
+
+  const had = new Set(base.map((p) => p.path));
+  const byPath = new Map(base.map((p) => [p.path, { path: p.path, source: p.source }]));
+  const added = [], changed = [];
+  for (const p of got) {
+    const same = byPath.has(p.path) && byPath.get(p.path).source === p.source;
+    byPath.set(p.path, { path: p.path, source: p.source });
+    if (!had.has(p.path)) added.push(p.path);
+    // A RETURNED PAGE THAT IS BYTE-IDENTICAL IS NOT A CHANGE, and saying so
+    // matters: it is what the customer is told happened, and "changed 4 pages"
+    // when three came back untouched is the report that makes somebody go
+    // looking for damage that is not there.
+    else if (!same) changed.push(p.path);
+  }
+  // ── TAKING A PAGE AWAY ────────────────────────────────────────────────────
+  //
+  // Allowed here and NOT in the data layer, and the difference is whether it can
+  // be undone: every publish is archived and there is a restore route, so a page
+  // deleted by mistake is one click from coming back. A deleted ROW has no such
+  // record, which is why that layer echoes what it removed instead.
+  //
+  // Before this, "remove the gallery page" fell through the merge (which only
+  // ever added), came back `no-change`, escalated, and cost a ~25-credit full
+  // revise to do by omission — about twelve times what it should.
+  const { gone, kept } = takePagesAway(byPath, Array.isArray(remove) ? remove.slice(0, MAX_RETURNED) : [], [...added, ...changed]);
+
+  // ── AN ADDON MAY NOT REWRITE THE PAGES IT WAS NOT ASKED ABOUT ─────────────
+  //
+  // MEASURED LIVE, first run of `edit smoke`: "add a gallery page" came back
+  // having changed index, book, manage AND work — four of the site's four
+  // existing pages — for 28 credits, which is a whole build's price for an
+  // addition. The prompt says "RETURN ONLY WHAT IS NEW OR CHANGED… returning one
+  // unchanged bills the customer for retyping their own site", and the model
+  // returned everything anyway. A rule a model is merely TOLD is not a rule —
+  // the same reasoning that put `MAX_CLARIFY` in code rather than in a schema
+  // description.
+  //
+  // THE JUSTIFICATION IS REACHABILITY, which is the module's own stated reason
+  // for touching anything beyond the new page: "the one place this lane reaches
+  // beyond the thing it adds is the page a visitor would look on to find it." So
+  // a changed page keeps its change if it MENTIONS a route that was added or
+  // removed — it is carrying the link, or it is dropping one that would no
+  // longer compile. Anything else is a rewrite nobody asked for, and it is
+  // reverted to what the customer already had.
+  //
+  // IT DOES NOT APPLY WHEN NOTHING WAS ADDED OR REMOVED. "Put testimonials on the
+  // home page" is an addon whose whole content is a changed page, and the prompt
+  // tells the model to do exactly that; there is no route to point at, and
+  // reverting there would throw away the entire request.
+  //
+  // ⚠ AND REACHABILITY IS NOT THE ONLY REASON A CHANGED PAGE IS LEGITIMATE —
+  // `asked` IS THE OTHER ONE (owner, 2026-09-17). REPRODUCED through the route:
+  // *"Add a gallery page and add a parking note to the homepage"* had the
+  // component designer target `/`, the writer return exactly that home page, and
+  // this rule REVERT it — because the note carries no link to `/gallery`. The
+  // note reached neither the compiler nor the store, and the customer was told
+  // *"I left / as it was — nothing there needed to change for this"* about the
+  // half of their sentence that named it. **The identical component-only request
+  // succeeds**, which is what makes it a rule with a hole rather than a rule.
+  //
+  // `asked` IS THE CLEANED DESIGNERS' OWN DESTINATIONS and nothing else — the
+  // `page`/`path` fields of the answers that survived `cleanAdd`, carried in by
+  // the route. Never the customer's prose, which would make a wall out of
+  // something a model paraphrases; never a blanket exemption, so a page NOBODY
+  // named is protected exactly as it was. The two reasons are independent and
+  // both are kept: reachability covers the nav link nobody asked for in as many
+  // words, `asked` covers the page somebody did.
+  //
+  // IT ARRIVES AS ROUTE IDENTITIES, not file paths, and that is a contract
+  // rather than a preference: `page-gen.mjs` imports `routeOf` FROM HERE, so
+  // importing its `pageId` back would be a cycle. The route produces the list
+  // with `pageId` — which delegates to this very `routeOf` for a file — and this
+  // side maps its own stored paths through `routeOf`, so the two normalisers are
+  // one definition with the file case shared. MEASURED equal on every real
+  // shape.
+  //
+  // THE COMPARISON IS CASE-INSENSITIVE AND THAT IS LOAD-BEARING: `SAFE_PATH` in
+  // `page-gen.mjs` carries `/i`, so `About.tsx` is stored with its capital and
+  // `routeOf` answers `/About` while `pageId` answers `/about`. Measured through
+  // `validatePages`, not assumed.
+  const named = new Set((Array.isArray(asked) ? asked : [])
+    .filter((r) => typeof r === "string" && r.trim())
+    .map((r) => r.trim().toLowerCase()));
+  const reverted = [];
+  if (added.length || gone.length) {
+    const routes = [...added, ...gone].map(routeOf).filter(Boolean);
+    for (const path of changed.slice()) {
+      const src = (byPath.get(path) || {}).source || "";
+      const was = base.find((p) => p.path === path);
+      if (!was) continue;
+      // SOMEBODY NAMED THIS PAGE, so the change to it is the request rather than
+      // a rewrite nobody asked for. Asked FIRST because it is the stronger claim
+      // — a destination out of a cleaned answer — and the reachability test below
+      // is the one that has to guess.
+      if (named.has(String(routeOf(path) || "").toLowerCase())) continue;
+      // BOTH SIDES, AND THE SECOND ONE IS LOAD-BEARING RATHER THAN THOROUGH.
+      // On a REMOVAL the model's new source is the one with the link taken OUT,
+      // so it mentions nothing; the stored source is the one that still points
+      // at the deleted route. Checking only the new source would revert exactly
+      // that page — putting back a `<Link to="/gallery">` for a route that no
+      // longer exists, which does not compile, on the one path where the
+      // removal loop above has already satisfied itself that nothing links to it.
+      if (routes.some((r) => src.includes('"' + r + '"') || was.source.includes('"' + r + '"'))) continue;
+      byPath.set(path, { path, source: was.source });
+      changed.splice(changed.indexOf(path), 1);
+      reverted.push(path);
+    }
+  }
+
+  if (!added.length && !changed.length && !gone.length) {
+    // Preserve a specific refusal; otherwise report an unchanged result.
+    // Neither result permits a full rewrite.
+    if (kept.length) return { ok: false, reason: "kept", kept, msg: keptReply(kept) };
+    return { ok: false, reason: "no-change" };
+  }
+  return { ok: true, pages: [...byPath.values()], added, changed, removed: gone, kept, reverted };
+}
+
+/**
+ * Did this addon leave its new page reachable?
+ *
+ * NOT AN ERROR, A NOTE. A page with no link is a real failure — a visitor cannot
+ * get to it and the owner will report the feature as not working — but refusing
+ * the publish over it is worse: the page exists, it compiles, and the owner can
+ * ask for the link in one more sentence. Refusing would throw the work away and
+ * charge for it.
+ *
+ * Checked crudely on purpose. A link can be written a dozen ways (`SiteLink`, a
+ * `links` entry, an `action`, a `Link to=`), and a checker that understands only
+ * some of them reports a working site as broken — which this repo has recorded
+ * costing more than the miss it prevents. So: does the path appear anywhere in
+ * any other page's source, at all.
+ */
+export function unlinkedPages(pages, added) {
+  const list = Array.isArray(pages) ? pages : [];
+  const fresh = Array.isArray(added) ? added : [];
+  const out = [];
+  for (const path of fresh) {
+    const route = routeOf(path);
+    if (!route) continue;
+    const linked = list.some((p) => p && p.path !== path && typeof p.source === "string" && p.source.includes('"' + route + '"'));
+    if (!linked) out.push(route);
+  }
+  return out;
+}
+
+/**
+ * The URL a generated route file answers on. THE ONE READING OF THIS MAPPING.
+ *
+ * `src/routes/index.tsx` is `/`, `src/routes/gallery.tsx` is `/gallery`. An
+ * unrecognised shape answers "" and is skipped rather than guessed at — a wrong
+ * route here would report a linked page as orphaned.
+ *
+ * FOUR CALLERS NOW, and that is the point rather than an accident: the page-edit
+ * layer finds a page by it, the addon lane looks for links by it, `siteRoutes`
+ * builds the published manifest and sitemap from it, and the container's
+ * `routePaths()` decides what to prerender by it. The container used to compute
+ * its own, and the two agreed only by coincidence — which is this repo's
+ * "path-shape mismatch" family, and correcting one alone would have been a NEW
+ * instance rather than a fix: with the manifest saying `/about.team` and the
+ * router serving `/about/team`, Round 7's fallback answers 404 for a page that
+ * used to load. One function, so they cannot disagree.
+ *
+ * THE DOT IS A DIRECTORY SEPARATOR. TanStack's flat-route convention reads
+ * `about.team.tsx` as `/about/team`; `safeRoute` admits dots in a stem and the
+ * form is the dominant one in TanStack's own documentation, so it is what
+ * training data teaches. A trailing `_` opts a segment out of nesting and is not
+ * part of the URL. A LEADING `_` is a pathless layout, which has no address at
+ * all — so it is not a page to route to, list in a sitemap, or prerender, and ""
+ * is the honest answer for every caller. `__root` falls out of that same rule.
+ *
+ * A `$` PASSES STRAIGHT THROUGH, deliberately. It is not a shape this function
+ * can resolve, and the two callers that care need different things from it:
+ * `siteRoutes` reads it as "this site is dynamic, publish no route list", and
+ * `routePaths` skips the file. Swallowing it here would silently turn a dynamic
+ * site's manifest into a confident, wrong list of static routes.
+ */
+export function routeOf(path) {
+  // THE PREFIX IS OPTIONAL BECAUSE STORED PAGES DO NOT HAVE IT, and requiring it
+  // made this function answer "" for every page on every site.
+  //
+  // `cleanPath` in page-gen.mjs strips `src/routes/` on the way in — the
+  // container puts it back when it writes the files — so what is stored, and
+  // what every caller here is handed, is a BARE `gallery.tsx`. This matched none
+  // of it. Measured live 2026-08-12: a deletion arrived correctly at the page
+  // layer with the right route and answered `no-page`, because
+  // `eSrc.find((p) => routeOf(p.path) === wantRoute)` could never match
+  // anything. THE WHOLE `page` EDIT LAYER WAS DEAD, not only deletion — every
+  // page edit escalated to a ~25-credit addon — and the nav-link logic below
+  // and `addonReply`'s page names went with it.
+  //
+  // NOTHING CAUGHT IT BECAUSE THE FIXTURE WAS WRONG: `test/site-addon.test.mjs`
+  // builds every page as `"src/routes/" + path`, a shape the pipeline never
+  // produces. A fixture more capable than reality hides exactly the bug it is
+  // there to catch — the `setTotp` lesson, in a path string.
+  const m = String(path || "").match(/^(?:src\/routes\/)?(.+)\.tsx$/i);
+  if (!m) return "";
+  const rel = m[1];
+  const cut = rel.lastIndexOf("/");
+  const dir = cut < 0 ? "" : rel.slice(0, cut + 1);
+  const segs = (cut < 0 ? rel : rel.slice(cut + 1)).split(".").filter(Boolean).map((s) => s.replace(/_$/, ""));
+  if (segs.some((s) => s.startsWith("_"))) return "";
+  if (segs[segs.length - 1] === "index") segs.pop();
+  return "/" + (dir + segs.join("/")).replace(/\/$/, "");
+}
+
+/**
+ * The file a route was prerendered to — `routeOf` run backwards.
+ *
+ * LIVES BESIDE ITS INVERSE, because a mapping and its inverse drifting apart is
+ * the same failure as two copies of the mapping. There were already TWO copies
+ * of this — `render-check.mjs` and an inline expression in the container's
+ * prerender loop — and the last commit before this one exists solely because a
+ * fifth private copy of `routeOf` shipped a bug. Both now import this.
+ *
+ * The publish path is the third caller: it needs to know WHICH route produced a
+ * given `.html` so `og:url` can name that page instead of the site's home page.
+ */
+export function fileForRoute(route) {
+  const r = String(route || "/");
+  return r === "/" ? "index.html" : r.replace(/^\//, "") + ".html";
+}
+
+/**
+ * What the customer is told, in one line.
+ *
+ * NAMES THE PAGES. "Done" tells somebody nothing they can check, and this lane
+ * can touch a page they did not ask about — the nav link — so not saying which
+ * is how a legitimate change reads as their site being altered behind them.
+ */
+/**
+ * The pages we would not delete, and why — one composition, two readers.
+ *
+ * It is BOTH half of a success reply and the WHOLE of a refusal: an addon whose
+ * every removal was refused did no other work, so this sentence is all there is
+ * to say. Two copies of it drift into a refusal that explains itself and a
+ * success that keeps a page silently, which is the partial this lane already had
+ * once.
+ */
+export function keptReply(kept) {
+  let out = "";
+  // EVERY PAGE KEPT (2026-10-07): three were named and a fourth left silently.
+  for (const k of Array.isArray(kept) ? kept : []) {
+    if (!k || !k.path) continue;
+    out += k.why === "home"
+      ? " I left " + routeOf(k.path) + " — that is the home page, and removing it would leave the site with no front door."
+      : " I left " + routeOf(k.path) + " — " + (k.from || []).map(routeOf).filter(Boolean).join(", ") +
+        " still link" + ((k.from || []).length === 1 ? "s" : "") + " to it. Ask me to take the link out first.";
+  }
+  return out;
+}
+
+/**
+ * A COMPONENT THE SITE ALREADY HAD AND THE PAGE WRITER WAS NOT SHOWN.
+ *
+ * Owner, 2026-09-17: *"prevent replacement of an existing component whose
+ * source the writer was never shown."* The writer returned a rewrite of one of
+ * this site's own components composed from a one-line description, because its
+ * real source is too long to carry in one request, and the real file was kept.
+ * The page still compiles and still works; a change the customer may have
+ * asked for did not land, and that is the half only they can judge.
+ *
+ * COMPOSED HERE AND PRINTED VERBATIM by the browser, the rule `coverNote`
+ * already follows: the decision is entirely the server's (it is the only thing
+ * that knows which sources fitted), so a second composer in `chat.js` would be
+ * two sentences about one fact and only one of them would have the facts.
+ *
+ * `""` FOR AN EMPTY LIST, so a reply with nothing to say adds nothing — which
+ * is every addon that has ever run until this shipped.
+ */
+export function keptPartsNote(names) {
+  // EVERY ONE (2026-10-07): three were named and the rest left unsaid.
+  const list = (Array.isArray(names) ? names : []).filter((n) => typeof n === "string" && n.trim());
+  if (!list.length) return "";
+  const one = list.length === 1;
+  return "I left " + list.join(", ") + " exactly as " + (one ? "it is" : "they are") +
+    " — " + (one ? "that component is" : "those components are") +
+    " too long for me to read in one go, so I won't rewrite " + (one ? "it" : "them") +
+    " from a description. Ask me to change " + (one ? "it" : "them") + " on its own and I'll work on " +
+    (one ? "it" : "them") + " directly.";
+}
+
+/**
+ * …AND THE SAME REFUSAL FOR A REASON THE CUSTOMER CAN ACT ON DIFFERENTLY.
+ *
+ * `keptPartsNote` is about ONE component that is too long to carry, and it
+ * tells the customer to ask for that component on its own — which is real
+ * advice, and which would be WRONG here. This is the store of components
+ * failing to read at all: nothing was shown, so nothing may be replaced, and
+ * asking for the same thing on its own changes nothing about the store. What
+ * helps is asking again, because the next request reads it afresh.
+ *
+ * TWO SENTENCES BECAUSE THEY ARE TWO FACTS. Collapsing them into one with a
+ * `why` flag would put both wordings in one function and make the harder one —
+ * a refusal with no name behind it — the branch nobody reads.
+ *
+ * NAMES WHAT THE WRITER TRIED TO WRITE, never what the site has: with the read
+ * failed we do not know what the site has, and this sentence must not imply we
+ * do. `""` for an empty list, so an ordinary addon says nothing.
+ */
+export function unseenPartsNote(names) {
+  const list = (Array.isArray(names) ? names : []).filter((n) => typeof n === "string" && n.trim());
+  if (!list.length) return "";
+  const one = list.length === 1;
+  return "I couldn't load the components your site already has, so I left every one of them alone rather than " +
+    "write over something I hadn't seen — " + list.join(", ") + " " + (one ? "was" : "were") +
+    " part of this and " + (one ? "hasn't" : "haven't") + " changed. Everything else here is done. " +
+    "Ask me for that bit again and I'll have another go.";
+}
+
+/**
+ * A PAGE THE PROMPT WINDOW COULD NOT CARRY, RETURNED ANYWAY.
+ *
+ * Owner, 2026-09-17: *"Enforce preservation of withheld existing pages at the
+ * merge boundary. Prompt wording and `keptProse` do not establish that an
+ * unseen rewrite preserves behavior."*
+ *
+ * THIS IS `unseenPartsNote` ONE LAYER OVER and the reasoning is identical: the
+ * pages we could not SHOW are exactly the pages we cannot CHECK. The prompt
+ * names them and forbids returning one, which is wording; `keptProse` asks
+ * whether the WORDS survived, which a rewrite that quietly loses a form, a
+ * link or a hook passes cleanly. So the file is refused and the stored version
+ * kept — and SAID, because a withheld page dropped in silence reads exactly
+ * like a page the model never touched.
+ *
+ * NAMES ROUTES, NOT FILES, and the advice is the one thing that really helps:
+ * ask for that page on its own, where it is the whole of the request and fits.
+ */
+export function unseenPagesNote(paths) {
+  // EVERY PAGE (2026-10-07): three were named and the rest left unsaid.
+  const list = (Array.isArray(paths) ? paths : []).map((p) => routeOf(p) || p)
+    .filter((n) => typeof n === "string" && n.trim());
+  if (!list.length) return "";
+  const one = list.length === 1;
+  return "Your site is big enough now that I can't hold every page at once, so " + list.join(", ") + " " +
+    (one ? "wasn't" : "weren't") + " in front of me — and I won't write over a page I haven't read. " +
+    (one ? "It is" : "They are") + " exactly as " + (one ? "it was" : "they were") + ". " +
+    "Ask me for " + (one ? "that page" : "those pages") + " on " + (one ? "its" : "their") +
+    " own and I'll have the whole thing in view.";
+}
+
+/**
+ * WHAT WAS PUT BACK, SETTLED ONCE EVERY STEP HAS RUN (2026-10-05, run 101).
+ *
+ * `reverted` is decided at the merge above: a page the page writer changed
+ * though this addition never named it, its change nothing to do with a new or
+ * removed route, is put back to its stored source. LATER STEPS CAN THEN CHANGE
+ * THAT SAME PAGE for a reason of their own — the code puts a new page's link in
+ * every menu — and "left as it was" stops being true of it. Run 101's reply
+ * said both of one page: "updated … Visit" and "The Visit page was left as it
+ * was".
+ *
+ * Settled against the FINAL sources, page by page:
+ *   - byte for byte what was stored → still `reverted`: left as it was;
+ *   - exactly what the menu-link step left it as → `restored`: the writer's
+ *     change was not kept, and the one change there is the link, named by
+ *     where it goes (`to`);
+ *   - anything else → neither: it changed for a reason this cannot name, and
+ *     no claim is made either way.
+ * Pure. `linked` is the menu-link step's own record: each page it changed,
+ * with its source right after it and the addresses it gained.
+ */
+export function settleReverted({ reverted = [], stored = [], pages = [], linked = new Map() } = {}) {
+  const sources = (list) => new Map((Array.isArray(list) ? list : []).filter((p) => p && typeof p.path === "string").map((p) => [p.path, p.source]));
+  const was = sources(stored);
+  const now = sources(pages);
+  const out = { reverted: [], restored: [] };
+  for (const path of Array.isArray(reverted) ? reverted : []) {
+    if (typeof path !== "string") continue;
+    const a = was.get(path);
+    const b = now.get(path);
+    if (typeof a !== "string" || typeof b !== "string") continue;
+    if (a === b) { out.reverted.push(path); continue; }
+    const l = linked instanceof Map ? linked.get(path) : null;
+    const to = l && Array.isArray(l.to) ? l.to.filter((t) => typeof t === "string" && t) : [];
+    if (l && l.source === b && to.length) out.restored.push({ path, to });
+  }
+  return out;
+}
+
+export function addonReply({ added = [], changed = [], removed = [], kept = [], unlinked = [], reverted = [], restored = [], suggestions = [] } = {}) {
+  const bits = [];
+  if (added.length) bits.push("added " + added.map(routeOf).filter(Boolean).join(", "));
+  if (removed.length) bits.push("removed " + removed.map(routeOf).filter(Boolean).join(", "));
+  // A PAGE WHOSE ONE CHANGE IS THE NEW PAGE'S LINK (`restored`, settled after
+  // every step) is said on its own below, never as a page "updated" as a whole.
+  const onlyLinked = (Array.isArray(restored) ? restored : [])
+    .map((r) => (r && typeof r.path === "string" ? { page: routeOf(r.path), to: (Array.isArray(r.to) ? r.to : []).filter((t) => typeof t === "string" && t) } : null))
+    .filter((r) => r && r.page && r.to.length);
+  const linkedPages = new Set(onlyLinked.map((r) => r.page));
+  changed = changed.filter((p) => !linkedPages.has(routeOf(p)));
+  // ⚠ A CHANGED PAGE IS "UPDATED", ALWAYS (owner, 2026-09-17: *"a changed page
+  // does not establish that a link was added"*).
+  //
+  // THIS READ `added.length ? "linked it from " : "updated "` — an INFERENCE
+  // from "a page was added in the same change" to "this changed page is the one
+  // carrying the link to it", written for run 35 when that was the only reason
+  // a page could legitimately change beside an addition. Since the preservation
+  // policy learned its second reason it is simply false: a page changed because
+  // somebody NAMED it has nothing to do with the new route.
+  //
+  // AND IT CONTRADICTED ITSELF IN ONE SENTENCE. The parking-note case produced
+  // *"added /gallery, linked it from /. Nothing links to /gallery yet…"* — the
+  // link claim and the no-link warning, four words apart, and the composer had
+  // both facts in hand while saying them.
+  //
+  // "updated /" is true of every changed page whatever else happened, so there
+  // is no inference left to be wrong. `unlinked` below is the one that really
+  // knows about links, and it is measured rather than guessed. The browser's
+  // `addonReplyText` says the same, by the same rule.
+  if (changed.length) bits.push("updated " + changed.map(routeOf).filter(Boolean).join(", "));
+  let head = bits.length ? "Done — " + bits.join(", ") + "." : "Done.";
+  // A PAGE WE REFUSED TO DELETE IS SAID PLAINLY, with the reason. Silently
+  // keeping it is the silent partial this lane already had once: the owner asks
+  // for it gone, is told the change worked, and it is still there.
+  head += keptReply(kept);
+  // A REVERT IS SAID OUT LOUD. It is the customer's own page being put back, so
+  // staying quiet about it is the silent partial this lane has already had twice
+  // — and if the model really was asked to change that page, this sentence is
+  // how they find out it did not stick.
+  const back = (Array.isArray(reverted) ? reverted : []).map(routeOf).filter(Boolean).slice(0, 3);
+  if (back.length) {
+    head += " I left " + back.join(", ") + " as " + (back.length === 1 ? "it was" : "they were") +
+      " — nothing there needed to change for this. Ask me directly if you did want " +
+      (back.length === 1 ? "it" : "them") + " edited.";
+  }
+  for (const r of onlyLinked) head += " On " + r.page + " I only added the link to " + r.to.join(", ") + " — nothing else there needed to change for this.";
+  // AN EXTRA A DESIGNER SUGGESTED (2026-10-05): offered, never claimed.
+  const ideas = (Array.isArray(suggestions) ? suggestions : []).filter((t) => typeof t === "string" && t.trim()).slice(0, 3);
+  if (ideas.length) head += " You didn't ask for " + (ideas.length === 1 ? "this" : "these") + ", so I didn't add " + (ideas.length === 1 ? "it" : "them") + ": " + ideas.join("; ") + " — say if you'd like " + (ideas.length === 1 ? "it" : "any of them") + ".";
+  if (!unlinked.length) return head;
+  // Said plainly, because the owner is about to look for a page they cannot
+  // find, and the fix is one sentence from them.
+  return head + " Nothing links to " + unlinked.join(", ") + " yet — say where you want the link and I'll add it.";
+}
+
+/**
+ * The tables a page LISTS, and how each list is ordered.
+ *
+ * `useRows<T>("menu", { order: "name", dir: "asc" })` and its `usePublicRows`
+ * twin. Measured over the only pages in this repo the generator wrote plus the
+ * reference pages: 14 calls, 13 with a literal table name, 10 carrying exactly
+ * that options shape.
+ *
+ * A CALL WITH NO LITERAL TABLE IS SKIPPED rather than guessed at — one real call
+ * takes a computed argument, and a wrong reading here becomes a sentence telling
+ * an owner their menu appears on a page it does not.
+ */
+export function rowLists(source) {
+  const src = String(source || "");
+  const out = [];
+  for (const m of src.matchAll(/\buse(?:Public)?Rows\s*(?:<[\s\S]*?>)?\s*\(\s*"([a-z0-9_]+)"\s*(,)?/gi)) {
+    const table = m[1].toLowerCase();
+    let order = "", dir = "";
+    if (m[2]) {
+      // The options object, if there is one — bounded to this call so an
+      // `order:` belonging to the NEXT list cannot be read as this one's.
+      const rest = src.slice(m.index + m[0].length, m.index + m[0].length + 400);
+      const stop = rest.indexOf(");");
+      const opts = stop < 0 ? rest : rest.slice(0, stop);
+      order = (opts.match(/\border\s*:\s*"([a-z0-9_]+)"/i) || [, ""])[1];
+      dir = (opts.match(/\bdir\s*:\s*"(asc|desc)"/i) || [, ""])[1];
+    }
+    out.push({ table, order: order.toLowerCase(), dir: dir.toLowerCase() });
+  }
+  return out;
+}
+
+/**
+ * Tables whose ORDERING this edit changed on one page, and which OTHER pages of
+ * the site also list.
+ *
+ * THE SILENT FAILURE THIS NAMES. The `page` layer edits exactly one file by
+ * design — its own description says so and points multi-page changes at the
+ * addon lane. But "order the menu by price" does not READ as a multi-page
+ * change to anybody, and measured over the generated samples and the reference
+ * pages, 2 of 11 tables are listed on more than one page — including `services`
+ * on BOTH reference pages, which is what the model copies. So the ordinary
+ * outcome for those is a site that now disagrees with itself, reported as a
+ * plain success.
+ *
+ * REPORTED, NEVER REWRITTEN, and that asymmetry is the decision. Rewriting the
+ * other pages is exactly what this layer refuses to do — one instruction must
+ * not touch a page the customer never named — and the fix costs the owner one
+ * more sentence, which they can only say if they are told.
+ *
+ * KEYED ON THE ORDERING HAVING MOVED, not on the table merely appearing. A page
+ * edit that changes the wording around a list must not produce a sentence about
+ * sort order.
+ */
+export function orderingMoved(prevSource, nextSource, pages, selfPath) {
+  const before = new Map();
+  for (const l of rowLists(prevSource)) before.set(l.table, l.order + "|" + l.dir);
+  const changed = new Set();
+  for (const l of rowLists(nextSource)) {
+    if (!before.has(l.table)) continue;
+    if (before.get(l.table) !== l.order + "|" + l.dir) changed.add(l.table);
+  }
+  if (!changed.size) return [];
+  // THE EDITED PAGE EXCLUDES ITSELF, HERE RATHER THAN IN THE CALLER. Left to
+  // the caller it was a `.filter()` on the line below the call, visible only to
+  // a source-read — and a mutation deleting it SURVIVED, because the edited
+  // page's own new list matches every time, so EVERY reorder would report as
+  // shared and the sentence would be noise on the majority of edits. One fewer
+  // way for a caller to get it wrong, and a property a test can drive.
+  const self = typeof selfPath === "string" ? selfPath : null;
+  const elsewhere = new Set();
+  for (const p of Array.isArray(pages) ? pages : []) {
+    if (!p || typeof p.source !== "string") continue;
+    if (self !== null && p.path === self) continue;
+    for (const l of rowLists(p.source)) if (changed.has(l.table)) elsewhere.add(l.table);
+  }
+  return [...elsewhere];
+}

@@ -1,6 +1,10 @@
 # Owner Notes
 
 
+## 2026-10-27 — the site answers its own addresses, errors and visits
+
+Each site now serves its own robots.txt and sitemap, sends its own moved-page redirects, stores its own error reports, and counts its own visits in its own database. Visits on newer sites were not being counted at all before this; now they are. The "coming soon" page stays ours, because it shows before the site has a Worker.
+
 ## 2026-10-27 — the site answers its own API and hooks
 
 A site's connections to outside services, and outside services posting into the site, are now handled by that site's own Worker with the owner's own keys. The platform only passes the request along.

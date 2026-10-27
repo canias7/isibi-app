@@ -194,3 +194,24 @@ unlocked at publish and given to that site only. 3 cases.
   (`APP_CONN`). Limits (60 API calls a minute, 30 hook posts) are per isolate.
 - Not yet shown live. Cache is per isolate (the platform's KV layer is not
   the site's).
+
+## Addresses, error reports and visits move into the site Worker (2026-10-27)
+
+- **robots.txt and sitemap.xml** on the site's own hosts are served by the
+  site with its own origin filled in (`lib/site-addresses.ts`); the workspace
+  address `/s/<slug>/` keeps the platform's. A script without the own mark is
+  not believed for these two files (an older one would leave the placeholder
+  origin in).
+- **A moved or deleted page's 301** is read by the site from its own
+  `sitemeta/<slug>.json`; the document's `./` links are made absolute by the
+  site. A response marked `x-site-data: own` is passed through untouched.
+- **Error reports** (`POST /api/db/<slug>/error`) go into the site's own
+  `_errors` from its Worker (`lib/site-telemetry.ts`), always 204.
+- **Visits** are counted by the site into a new `_hits` table in its own
+  database (made at build and, for older sites, at publish by the owner's
+  login). Before this, sites served by their own script were **not counted
+  at all**: the platform counted only on the old static path. The owner's
+  panel adds the site's `_hits` to the older Supabase counts (a visitor seen
+  by both can count twice).
+- **The "coming soon" stand-in stays with the platform**: it is shown before a
+  site has a Worker, so it is part of building.

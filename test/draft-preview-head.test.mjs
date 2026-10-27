@@ -114,7 +114,7 @@ async function siteScript(version) {
     // The site's own-handlers' helpers (./lib/…, 2026-10-27): stood in by
     // functions that answer nothing, so every request reaches the reader.
     ...[...src.matchAll(/^import \{([^}]*)\} from "\.\/lib\/[^"]+";$/gm)].flatMap((m) =>
-      m[1].split(",").map((x) => x.trim()).filter((x) => x && !x.startsWith("type ")).map((n) => `const ${n} = async () => null;`)),
+      m[1].split(",").map((x) => x.trim()).filter((x) => x && !x.startsWith("type ")).map((n) => (n === "absolutized" ? `const ${n} = async (r) => r;` : `const ${n} = async () => null;`))),
     "const setSiteMeta = (m) => { __meta = m; };",
     "const createStartHandler = () => async () => new Response(JSON.stringify(__meta));",
     "const defaultStreamHandler = null;",

@@ -150,7 +150,7 @@ import { drainRebuild, BATCH as REBUILD_BATCH, BUSY_DEFER_SEC as REBUILD_BUSY_SE
 import { sweepJobObjects } from "./builder/job-retention.mjs";
 import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, sqlRehearse, sqlReadOnly, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite, projectNameForSite, findSiteProjects, siteProjectDetails, createRehearsalBranch, rehearsalConn, deleteRehearsalBranch, staleRehearsalBranches } from "./site-db.mjs";
 import { rehearseHeldSchema, heldFromRehearsal } from "./builder/addon-rehearse.mjs";
-import { applySiteSchema, loadSiteSchema, readSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields, auditTier, withJobDeps, storedJobFns } from "./site-schema.mjs";
+import { applySiteSchema, loadSiteSchema, readSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, ERRORS_TABLE_SQL, HITS_TABLE_SQL, droppedFields, refusedFields, auditTier, withJobDeps, storedJobFns } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { pagesAgain as pagesAgainOf } from "./builder/page-gen.mjs";
@@ -2854,6 +2854,34 @@ async function sha256hex(str) {
 }
 // Fire-and-forget (ctx.waitUntil) so serving the page is never slowed. Bots are
 // skipped; the IP is hashed (never stored raw) so "visitors" = distinct hash/day.
+/** The site's own `_hits`, in `site_analytics`' shape. */
+async function readOwnHits(conn) {
+  const t = await sqlQuery(conn,
+    "SELECT count(*)::int AS views, count(DISTINCT ip_hash)::int AS visitors, " +
+    "count(*) FILTER (WHERE at > now() - interval '7 days')::int AS views7, " +
+    "count(DISTINCT ip_hash) FILTER (WHERE at > now() - interval '7 days')::int AS visitors7 FROM _hits", []);
+  const series = await sqlQuery(conn,
+    "SELECT to_char(d::date, 'YYYY-MM-DD') AS day, (SELECT count(*)::int FROM _hits WHERE (at AT TIME ZONE 'UTC')::date = d::date) AS views " +
+    "FROM generate_series((now() AT TIME ZONE 'UTC')::date - 6, (now() AT TIME ZONE 'UTC')::date, interval '1 day') AS d ORDER BY d", []);
+  return { ...((t && t[0]) || {}), series: series || [] };
+}
+
+/** Two counts added: totals summed, the week summed by day. Visitors may count one person twice across the two. */
+function addHits(a, b) {
+  if (!b) return a;
+  const n = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+  const days = new Map();
+  for (const s of [...((a && a.series) || []), ...((b && b.series) || [])]) {
+    const d = String((s && s.day) || "");
+    if (d) days.set(d, (days.get(d) || 0) + n(s.views));
+  }
+  return {
+    views: n(a && a.views) + n(b.views), visitors: n(a && a.visitors) + n(b.visitors),
+    views7: n(a && a.views7) + n(b.views7), visitors7: n(a && a.visitors7) + n(b.visitors7),
+    series: [...days.entries()].sort((x, y) => (x[0] < y[0] ? -1 : 1)).map(([day, views]) => ({ day, views })),
+  };
+}
+
 function logSiteHit(env, ctx, slug, path, request) {
   if (!env.SUPABASE_SERVICE_KEY) return;
   const ua = request.headers.get("User-Agent") || "";
@@ -17305,6 +17333,12 @@ async function siteReadVars(env, slug) {
     const owner = (await siteBackendRowFresh(env, slug).catch(() => null)) || {};
     const email = owner.uid ? await ownerEmail(env, owner.uid).catch(() => null) : null;
     const app = await siteAppConn(env, slug).catch(() => null);
+    // The two tables the site's Worker writes into, made by the owner's login
+    // (the limited one cannot create): on a site built before they existed.
+    if (app) {
+      const ownerConn = await siteBackendBySlug(env, slug).catch(() => null);
+      if (ownerConn) for (const q of [ERRORS_TABLE_SQL, HITS_TABLE_SQL]) await sqlExec(ownerConn, q).catch(() => {});
+    }
     // EVERY SECRET THE SITE HOLDS, unlocked here and given to it alone: the
     // owner's mail, SMS, webhook, Stripe and connection keys, whatever they
     // named them. The platform's own marker rows are not secrets and stay.
@@ -31767,7 +31801,10 @@ async function handleRequest(request, env, ctx) {
         // script's own asset branch would serve them straight off R2, token and
         // all, so a customer's sitemap would list `https://__SITE_ORIGIN__/book`
         // and every URL in it would be unusable to a crawler.
-        if (env.SITE_WORKERS && rest !== "robots.txt" && rest !== "sitemap.xml") {
+        // ON THE SITE'S OWN HOSTS THE SITE SERVES THEM TOO (2026-10-27): it
+        // puts its own origin in (`lib/site-addresses.ts`), so only the
+        // workspace address, `/s/<slug>/`, still needs this side's mount.
+        if (env.SITE_WORKERS && ((rest !== "robots.txt" && rest !== "sitemap.xml") || !isAppHostname(url.hostname))) {
           const name = scriptNameFor(slug);
           if (name) {
             const inner = new URL(url.toString());
@@ -31779,6 +31816,14 @@ async function handleRequest(request, env, ctx) {
               const fwd = new Request(inner.toString(), request);
               try { fwd.headers.delete(PREVIEW_HEADER); } catch { /* an immutable header list carries none of ours */ }
               const res = await stub.fetch(fwd);
+              // A SITE THAT ANSWERS FOR ITS OWN ADDRESSES (2026-10-27): its
+              // redirects, its 404, its asset links and its robots/sitemap are
+              // done; nothing of ours is added. A script built before that
+              // carries no mark and gets the platform's help below, as before.
+              if (res.headers.get("x-site-data") === "own") return res;
+              // An older script would serve these two straight off storage,
+              // placeholder origin and all: this side's static path answers.
+              if (rest === "robots.txt" || rest === "sitemap.xml") throw new Error("not found: an older script fills no origin");
               const ct = res.headers.get("content-type") || "";
               const html = /text\/html/i.test(ct);
 
@@ -34722,6 +34767,8 @@ async function handleRequest(request, env, ctx) {
       if (erm) {
         if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
         const slug = erm[1].toLowerCase();
+        // The site's own Worker stores its own reports (2026-10-27).
+        if (env.SITE_OWN_DATA === "1") { const mine = await ownDataRead(env, request, slug); if (mine) return mine; }
         // Rate limit BEFORE any lookup, CF-Connecting-IP only — the
         // X-Forwarded-For fallback is client-settable and would mint a fresh
         // bucket per request. A limited caller still gets 204: dropping is the
@@ -37010,7 +37057,13 @@ async function handleRequest(request, env, ctx) {
               signal: AbortSignal.timeout(12000),
             });
             if (!g.ok) throw new Error("analytics rpc " + g.status);
-            return g.json();
+            const older = await g.json();
+            // VISITS COUNTED BY THE SITE ITSELF (2026-10-27), in its own
+            // `_hits`, added to what the platform counted before. A site with
+            // no such table yet reads as nothing extra.
+            const conn = await ownerRowConn(env, s2).catch(() => null);
+            const mine = conn ? await readOwnHits(conn).catch(() => null) : null;
+            return addHits(older, mine);
           },
         };
         // Anything thrown below reaches the owner as a bare Cloudflare 1101 with

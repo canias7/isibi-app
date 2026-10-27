@@ -399,3 +399,78 @@ test("the site's own connections and hooks are answered by its Worker first", ()
     assert.match(W.slice(at - 400, at), /SITE_OWN_DATA === "1"\) \{ const mine = await ownDataRead\(env, request, slug\)/);
   }
 });
+
+test("the site serves its own robots, sitemap and redirects, with its own origin", async () => {
+  const { siteSeoFile, siteRedirect, absolutized } = await loadTemplate("lib/site-addresses.ts");
+  const store = {
+    "builds/x/v1/client/robots.txt": "User-agent: *\nSitemap: https://__SITE_ORIGIN__/sitemap.xml\n",
+    "sitemeta/x.json": JSON.stringify({ routesCsv: "/,/menu", redirectsCsv: "/gallery=/" }),
+  };
+  const env = { SITES: { get: async (k) => (k in store ? { text: async () => store[k] } : null) } };
+  const r = await siteSeoFile(new Request("https://x.gofarther.app/robots.txt"), env, new URL("https://x.gofarther.app/robots.txt"), ["builds/x/v1/client", null]);
+  assert.equal(r.headers.get("x-site-data"), "own");
+  assert.match(await r.text(), /Sitemap: https:\/\/x\.gofarther\.app\/sitemap\.xml/);
+  // The workspace address keeps the platform's mount.
+  assert.equal(await siteSeoFile(new Request("https://gofarther.dev/robots.txt"), env, new URL("https://gofarther.dev/robots.txt"), ["builds/x/v1/client"]), null);
+  const m = await siteRedirect(env, new URL("https://shop.example.com/gallery?ref=a"), "x");
+  assert.equal(m.status, 301);
+  assert.equal(m.headers.get("location"), "https://shop.example.com/?ref=a");
+  assert.equal(m.headers.get("x-site-data"), "own");
+  assert.equal(await siteRedirect(env, new URL("https://x.gofarther.app/nope"), "x"), null);
+  assert.equal(await siteRedirect(env, new URL("https://x.gofarther.app/gallery.js"), "x"), null);
+  store["sitemeta/x.json"] = '{"held":"absent"}';
+  assert.equal(await siteRedirect(env, new URL("https://x.gofarther.app/gallery"), "x"), null);
+  const a = await absolutized(new Response('<script src="./assets/a.js"></script>', { headers: { "content-type": "text/html" } }), new URL("https://x.gofarther.app/shop/item"), "x");
+  assert.equal(await a.text(), '<script src="/assets/a.js"></script>');
+  assert.equal(a.headers.get("x-site-data"), "own");
+});
+
+test("the platform passes a site's own answer through untouched, and lets it serve robots on its own hosts", () => {
+  assert.match(W, /res\.headers\.get\("x-site-data"\) === "own"\) return res;/);
+  assert.match(W, /\(rest !== "robots\.txt" && rest !== "sitemap\.xml"\) \|\| !isAppHostname\(url\.hostname\)/);
+  const S = fs.readFileSync(new URL("../builder/lovable/template/src/server.ts", import.meta.url), "utf8");
+  assert.match(S, /page\.status === 404 && !previewing/);
+  assert.match(S, /return absolutized\(page, url, SITE_SLUG\)/);
+});
+
+test("the site stores its own error reports and counts its own visits, in its own database", async () => {
+  const { siteError, countVisit } = await loadTemplate("lib/site-telemetry.ts");
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (u, init) => { sent.push({ u: String(u), body: JSON.parse(init.body), conn: init.headers["Neon-Connection-String"] }); return Response.json({ rows: [] }); };
+  try {
+    const env = { APP_CONN: "postgresql://x_app:p@ep-1.neon.tech/x" };
+    const url = new URL("https://x.gofarther.app/api/db/x/error");
+    const r = await siteError(new Request(url, { method: "POST", body: JSON.stringify({ message: "boom", source: "evil", route: "/book" }) }), env, url, "x");
+    assert.equal(r.status, 204);
+    assert.equal(r.headers.get("x-site-data"), "own");
+    assert.match(sent[0].body.query, /^INSERT INTO _errors/);
+    assert.deepEqual(sent[0].body.params.slice(1), [null, "/book", "onerror"]);
+    assert.equal(sent[0].conn, env.APP_CONN);
+    assert.equal(await siteError(new Request(url, { method: "POST" }), {}, url, "x"), null);
+    const waits = [];
+    const ctx = { waitUntil: (p) => waits.push(p) };
+    const page = (ct = "text/html") => new Response("<p>", { headers: { "content-type": ct } });
+    const pu = new URL("https://x.gofarther.app/menu");
+    countVisit(new Request(pu, { headers: { "CF-Connecting-IP": "1.2.3.4" } }), env, page(), pu, "x", ctx);
+    countVisit(new Request(pu, { headers: { "User-Agent": "Googlebot" } }), env, page(), pu, "x", ctx);
+    countVisit(new Request(pu), env, page("text/css"), pu, "x", ctx);
+    countVisit(new Request(pu), env, new Response("", { status: 404, headers: { "content-type": "text/html" } }), pu, "x", ctx);
+    await Promise.all(waits);
+    const visits = sent.filter((s) => /_hits/.test(s.body.query));
+    assert.equal(visits.length, 1);
+    assert.equal(visits[0].body.params[1], "/menu");
+    assert.match(visits[0].body.params[0], /^[0-9a-f]{32}$/);
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test("the platform asks the site first for reports, makes the two tables, and adds the site's own visits", () => {
+  const at = W.indexOf("const slug = erm[1].toLowerCase();");
+  assert.match(W.slice(at, at + 300), /SITE_OWN_DATA === "1"\) \{ const mine = await ownDataRead\(env, request, slug\)/);
+  assert.match(between("async function siteReadVars(", "\n}\n"), /for \(const q of \[ERRORS_TABLE_SQL, HITS_TABLE_SQL\]\)/);
+  assert.match(W, /return addHits\(older, mine\);/);
+  const addHits = new Function("return " + between("function addHits(a, b) {", "\n}\n") + "\n}")();
+  assert.deepEqual(addHits({ views: 2, visitors: 1, views7: 1, visitors7: 1, series: [{ day: "2026-10-26", views: 1 }] },
+    { views: 3, visitors: 2, views7: 3, visitors7: 2, series: [{ day: "2026-10-26", views: 2 }, { day: "2026-10-27", views: 1 }] }),
+    { views: 5, visitors: 3, views7: 4, visitors7: 3, series: [{ day: "2026-10-26", views: 3 }, { day: "2026-10-27", views: 1 }] });
+});

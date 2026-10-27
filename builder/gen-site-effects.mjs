@@ -14,6 +14,9 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const EFFECT_MODULES = [
   "site-access.mjs", "site-row-effects.mjs", "site-notify.mjs", "site-mail.mjs",
   "site-sms.mjs", "site-webhooks.mjs", "site-ssrf.mjs", "site-providers.mjs", "site-cookie.mjs", "site-media.mjs", "site-uploads.mjs", "site-payments.mjs", "stripe-webhook.mjs", "site-apis.mjs", "site-api-shape.mjs", "site-inbound.mjs",
+  // The address rules: robots, sitemap, redirects, mount. site-seo imports
+  // `./builder/site-addon.mjs`, so that copy keeps its folder.
+  "site-seo.mjs", "site-domains.mjs", "builder/site-addon.mjs",
 ];
 export const EFFECTS_DIR = "builder/lovable/template/src/lib/effects";
 
@@ -30,8 +33,8 @@ export function declarationOf(src) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const dir = path.join(ROOT, EFFECTS_DIR);
-  fs.mkdirSync(dir, { recursive: true });
   for (const f of EFFECT_MODULES) {
+    fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
     const src = fs.readFileSync(path.join(ROOT, f), "utf8");
     fs.writeFileSync(path.join(dir, f), src);
     fs.writeFileSync(path.join(dir, f.replace(/\.mjs$/, ".d.mts")), declarationOf(src));
