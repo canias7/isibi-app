@@ -3307,3 +3307,9 @@ default), verified in the site's Worker for public-form tables only.
 - **Site-run connections (2026-10-27)**: the API cache and the rate limits are
   per isolate in the site Worker; a hook function that writes a table the
   limited login cannot write fails as 500 in the site (no platform fallback).
+- **Site wake-up scale (2026-10-27)**: the platform wakes up to 40 own-data
+  sites a minute for their webhook retries; at many hundreds of sites a retry
+  waits longer. Move to cron triggers on user Workers if Cloudflare confirms
+  them.
+- **A job whose site call is lost after sending** is run again by the platform's
+  own fallback in the same claim (duplicate messages possible, rare).

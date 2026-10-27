@@ -474,3 +474,105 @@ test("the platform asks the site first for reports, makes the two tables, and ad
     { views: 3, visitors: 2, views7: 3, visitors7: 2, series: [{ day: "2026-10-26", views: 2 }, { day: "2026-10-27", views: 1 }] }),
     { views: 5, visitors: 3, views7: 4, visitors7: 3, series: [{ day: "2026-10-26", views: 3 }, { day: "2026-10-27", views: 1 }] });
 });
+
+function fakeBucket() {
+  const m = new Map();
+  let n = 0;
+  return {
+    m,
+    get: async (k) => (m.has(k) ? { etag: m.get(k).etag, text: async () => m.get(k).v } : null),
+    put: async (k, v, o = {}) => {
+      const cur = m.get(k);
+      if (o.onlyIf && o.onlyIf.etagDoesNotMatch === "*" && cur) return null;
+      if (o.onlyIf && o.onlyIf.etagMatches && (!cur || cur.etag !== o.onlyIf.etagMatches)) return null;
+      const etag = "e" + ++n;
+      m.set(k, { v: String(v), etag, uploaded: new Date() });
+      return { etag };
+    },
+    delete: async (k) => { m.delete(k); },
+    list: async ({ prefix }) => ({ objects: [...m.keys()].filter((k) => k.startsWith(prefix)).sort().map((key) => ({ key, uploaded: m.get(key).uploaded })), truncated: false }),
+  };
+}
+
+test("a failed webhook is kept in the site's own bucket and retried on the platform's wake, with the owner's own secret", async () => {
+  const { queueFailed, drainOwnQueue, siteTick } = await loadTemplate("lib/site-webhook-retry.ts");
+  const B = fakeBucket();
+  const env = { SITES: B, WEBHOOK_URL: "https://hooks.example.com/in", WEBHOOK_SECRET: "s" };
+  assert.equal(await queueFailed(env, { slug: "x", table: "orders", action: "created", out: { sent: false, status: 404, body: "{}", eventId: "e1" } }), null, "a 4xx is not retried");
+  assert.equal(await queueFailed(env, { slug: "x", table: "orders", action: "created", out: { sent: false, status: 503, body: '{"a":1}', eventId: "e1", attempts: 3 } }), "queued for retry");
+  const row = JSON.parse(B.m.get("webhooks/q/e1.json").v);
+  assert.equal(row.status, "pending");
+  // Due now.
+  B.m.get("webhooks/q/e1.json").v = JSON.stringify({ ...row, next_attempt_at: new Date(Date.now() - 1000).toISOString() });
+  const realFetch = globalThis.fetch;
+  const posts = [];
+  globalThis.fetch = async (u, init) => { posts.push({ u: String(u), init }); return new Response("ok", { status: 200 }); };
+  try {
+    const out = await drainOwnQueue(env, "x");
+    assert.equal(out.delivered, 1, JSON.stringify(out));
+    assert.equal(posts[0].u, "https://hooks.example.com/in");
+    assert.equal(posts[0].init.body, '{"a":1}', "the exact bytes first sent");
+    assert.match(posts[0].init.headers["x-gofarther-signature"], /^v1=/);
+    assert.equal(B.m.has("webhooks/q/e1.json"), false);
+    // Only the platform's wake reaches it.
+    const tu = new URL("https://x.gofarther.app/__gf/tick");
+    assert.equal(await siteTick(new Request(tu, { method: "POST" }), env, tu, "x", "x-gf-site-job"), null);
+    const t = await siteTick(new Request(tu, { method: "POST", headers: { "x-gf-site-job": "1" } }), env, tu, "x", "x-gf-site-job");
+    assert.equal(t.headers.get("x-site-data"), "own");
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test("a scheduled job runs in the site, with its own function and its owner's own mail key, only when the platform asks", async () => {
+  const { siteJob } = await loadTemplate("lib/site-jobs-run.ts");
+  const realFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (u, init) => {
+    calls.push({ u: String(u), body: init && init.body });
+    if (String(u).endsWith("/sql")) return Response.json({ rows: [{ out: JSON.stringify([{ to: "a@b.co", subject: "Hi", body: "x" }]) }] });
+    return Response.json({ id: "m1" });
+  };
+  try {
+    const env = { APP_CONN: "postgresql://x_app:p@ep-1.neon.tech/x", RESEND_KEY: "re_k", EMAIL_FROM: "shop@x.co", SITE_SPEC: JSON.stringify({ jobs: [{ name: "remind", fn: "job_remind" }] }) };
+    const u = new URL("https://x.gofarther.app/__gf/job");
+    const body = JSON.stringify({ name: "remind", spec: { fn: "job_remind" } });
+    assert.equal(await siteJob(new Request(u, { method: "POST", body }), env, u), null, "a visitor cannot run it");
+    const r = await siteJob(new Request(u, { method: "POST", body, headers: { "x-gf-site-job": "1" } }), env, u);
+    assert.equal(r.headers.get("x-site-data"), "own");
+    const out = await r.json();
+    assert.equal(out.sent, 1, JSON.stringify(out));
+    assert.match(JSON.parse(calls[0].body).query, /SELECT "job_remind"\(\) AS out/);
+    assert.match(calls[1].u, /resend/);
+    const gone = await siteJob(new Request(u, { method: "POST", body: JSON.stringify({ name: "old", spec: { fn: "job_old" } }), headers: { "x-gf-site-job": "1" } }), env, u);
+    assert.match((await gone.json()).reason, /no longer part of the site/);
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test("the platform keeps the clock and the claim, strips its job header from everything it forwards, and wakes sites", () => {
+  assert.equal((W.match(/fwd\.headers\.delete\(SITE_JOB_HEADER\)/g) || []).length, 3);
+  assert.match(W, /fwd\.headers\.set\(PREVIEW_HEADER, "1"\); fwd\.headers\.delete\(SITE_JOB_HEADER\)/);
+  const run = between("async function runJobAnywhere(env, row) {", "\n}\n");
+  assert.ok(run.indexOf("deps.stamp(row)") < run.indexOf("siteRunJob(env, row)"), "claimed before the site is asked");
+  assert.match(run, /mine \|\| runJob\(\{ \.\.\.deps, stamp: async \(\) => \(\{ won: true \}\) \}, row\)/);
+  assert.doesNotMatch(W, /await runJob\(jobDeps\(env, (row|jrow)\), (row|jrow)\);/);
+  assert.match(W, /ctx\.waitUntil\(runSiteTicks\(env\)/);
+  assert.match(between("async function siteReadVars(", "\n}\n"), /jobs: spec\.jobs \|\| \[\]/);
+});
+
+test("a key the owner saves or removes reaches the site's script at once, and a platform name never does", async () => {
+  const { setSiteSecret } = await import("../builder/site-dispatch.mjs");
+  const seen = [];
+  const fetch = async (u, init) => { seen.push({ u, method: init.method, body: init.body }); return new Response("{}", { status: 200 }); };
+  const c = { accountId: "a", namespace: "n", name: "site-x", apiToken: "t" };
+  assert.equal((await setSiteSecret({ ...c, secret: "RESEND_KEY", text: "re_1" }, { fetch })).ok, true);
+  assert.equal(seen[0].method, "PUT");
+  assert.match(seen[0].u, /\/dispatch\/namespaces\/n\/scripts\/site-x\/secrets$/);
+  assert.deepEqual(JSON.parse(seen[0].body), { name: "RESEND_KEY", text: "re_1", type: "secret_text" });
+  await setSiteSecret({ ...c, secret: "RESEND_KEY", text: null }, { fetch });
+  assert.equal(seen[1].method, "DELETE");
+  assert.match(seen[1].u, /\/secrets\/RESEND_KEY$/);
+  assert.equal((await setSiteSecret({ ...c, secret: "SUPABASE_SERVICE_KEY", text: "x" }, { fetch })).ok, false);
+  assert.equal(seen.length, 2);
+  const post = W.slice(W.indexOf("const r = await addSecret(vault, env"), W.indexOf("const d = await deleteSecret(vault"));
+  assert.match(post, /pushSiteSecret\(env, sslug, r\.name, cv\.value\)/);
+  assert.match(W, /if \(d && d\.ok\) ctx\.waitUntil\(pushSiteSecret\(env, sslug, sk\[2\], null\)\)/);
+});

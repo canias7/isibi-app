@@ -21,6 +21,7 @@ import { sendSms, SMS_SECRET_NAMES } from "./effects/site-sms.mjs";
 import { deliverWebhook, firesFor, signPayload } from "./effects/site-webhooks.mjs";
 import { blockedReason } from "./effects/site-ssrf.mjs";
 import { postProviderEmail, postProviderSms } from "./effects/site-providers.mjs";
+import { queueFailed, type RetryEnv } from "./site-webhook-retry";
 
 type Obj = { text(): Promise<string> };
 export type EffectEnv = {
@@ -151,13 +152,16 @@ export function runEffectsFor(env: EffectEnv, ctx: Ctx | undefined, { slug, def,
       ...seen("sms"),
       callFn,
     }, { def, row: r, slug })),
-    webhook: (a: string, r: unknown) => later(deliverWebhook({
+    webhook: (a: string, r: unknown) => later((async () => { const out = await deliverWebhook({
       firesFor: (x: string) => firesFor(def, x),
       loadSecrets: async () => secretsOf(env, (n) => /^WEBHOOK[A-Z0-9_]*$/.test(n)),
       blockedReason: (u: string) => blockedReason(u),
       sign: (secret: string, b: string, ts: number) => signPayload(secret, b, ts),
       tooMany: async () => false,
       post: (url: string, init: RequestInit) => fetch(url, { ...init, redirect: "manual" }),
-    }, { slug, table, action: a, row: r, now: Date.now(), eventId: crypto.randomUUID() })),
+    }, { slug, table, action: a, row: r, now: Date.now(), eventId: crypto.randomUUID() });
+      // A delivery worth retrying is kept in the site's own bucket for the next tick.
+      await queueFailed(env as unknown as RetryEnv, { slug, table, action: a, out });
+    })()),
   }, { def, action, row: row || {}, submission });
 }

@@ -215,3 +215,26 @@ unlocked at publish and given to that site only. 3 cases.
   by both can count twice).
 - **The "coming soon" stand-in stays with the platform**: it is shown before a
   site has a Worker, so it is part of building.
+
+## Scheduled jobs, webhook retries and secret changes (2026-10-27)
+
+- **Scheduled jobs**: the platform keeps the clock and the claim
+  (`site_functions`, the owner's on/off and last result). When a job is due
+  it claims the run, then asks the site's Worker (`POST /__gf/job`, header
+  `x-gf-site-job`, 250 outside calls); the site runs its own database
+  function and sends with its owner's own mail/SMS keys
+  (`lib/site-jobs-run.ts`, the platform's `site-jobs.mjs` copied). A script
+  without the own mark is run the old way. The header is set only by the
+  platform and deleted from every request it forwards to a site (three
+  places); the front door strips `x-gf-*` from visitors.
+- **Webhook retries**: a delivery worth retrying is kept in the site's own
+  bucket (`webhooks/q/<event>.json`, dead ones under `webhooks/dead/` for 30
+  days) with the platform's own backoff rules (`site-webhook-queue.mjs`
+  copied). The platform's tick wakes up to 40 own-data sites a minute
+  (`POST /__gf/tick`); the site drains its own queue. Cron triggers on user
+  Workers are not confirmed in Cloudflare's docs, so the clock stays ours.
+- **Secret changes** are sent to the site's live and preview scripts at once
+  (`setSiteSecret`: PUT/DELETE on the script's secrets); a platform name is
+  refused.
+- Not shown live. A job whose site call fails after it sent messages is run
+  again by the platform (the claim is held, so not by the next tick).

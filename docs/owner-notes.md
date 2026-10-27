@@ -1,6 +1,10 @@
 # Owner Notes
 
 
+## 2026-10-27 — the site runs its own jobs, webhook retries and key changes
+
+Scheduled jobs now run in the site's own Worker with the owner's own keys; we only keep the clock that says when. A webhook that failed is kept in the site's own storage and retried from there. A key the owner saves or deletes reaches their site at once, without a republish.
+
 ## 2026-10-27 — the site answers its own addresses, errors and visits
 
 Each site now serves its own robots.txt and sitemap, sends its own moved-page redirects, stores its own error reports, and counts its own visits in its own database. Visits on newer sites were not being counted at all before this; now they are. The "coming soon" page stays ours, because it shows before the site has a Worker.

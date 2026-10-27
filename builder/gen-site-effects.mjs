@@ -17,6 +17,10 @@ export const EFFECT_MODULES = [
   // The address rules: robots, sitemap, redirects, mount. site-seo imports
   // `./builder/site-addon.mjs`, so that copy keeps its folder.
   "site-seo.mjs", "site-domains.mjs", "builder/site-addon.mjs",
+  // The owner's scheduled jobs: the platform keeps the clock, the site does the work.
+  "site-jobs.mjs",
+  // Webhook retries, queued in the site's own bucket.
+  "site-webhook-queue.mjs",
 ];
 export const EFFECTS_DIR = "builder/lovable/template/src/lib/effects";
 

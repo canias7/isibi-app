@@ -116,7 +116,7 @@ import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verifi
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
 import { handleAgentApi, makeAgentStore, AGENT_ROUTES, AGENT_POST_ROUTES, agentBodyMax } from "./agent-store.mjs";
-import { listSecrets, addSecret, deleteSecret, readSecret } from "./site-secrets.mjs";
+import { listSecrets, addSecret, deleteSecret, readSecret, checkSecretValue } from "./site-secrets.mjs";
 
 /**
  * THE DOORBELL ON THE AGENT ENGINE'S QUEUE.
@@ -192,7 +192,7 @@ import { readDevices, readDeviceHint, readLayout, compareLayouts, deviceRefusal,
 // WHAT A PUBLISH REALLY CHECKED, kept on its answer for every final reply (2026-10-14).
 import { checksOf, readChecks, DRAFT_SAID } from "./builder/check-evidence.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
-import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker, DISPATCH_CALL_MS } from "./builder/site-dispatch.mjs";
+import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker, DISPATCH_CALL_MS, setSiteSecret } from "./builder/site-dispatch.mjs";
 import { reconcileVerdict, draftVerdict, reconcileReply, storedAnswer, publicFacts, findMine, RECONCILE_RETRY_MAX } from "./builder/site-reconcile.mjs";
 import { MIGRATIONS_KEY, readMigrations, newMigration, withApplied, upsertMigration, markMigration, pendingMigration, jobMigration, reconciledMigration, migrationNote, migrationSummary } from "./builder/site-migrations.mjs";
 // ── THE LOOK IS THE STYLESHEET, AND ONE NAME SURVIVES THE ENGINE ────────────
@@ -2275,6 +2275,7 @@ export default {
     // a failed, lost or interrupted preview upload, with the browser closed.
     ctx.waitUntil(runPreviewRecovery(env).catch((e) => console.error("preview recovery failed", errorClassForLog(e))));
     ctx.waitUntil(runOwnBucketResync(env).catch((e) => console.error("own bucket resync failed", errorClassForLog(e))));
+    ctx.waitUntil(runSiteTicks(env).catch((e) => console.error("site ticks failed", errorClassForLog(e))));
     // A PUBLICATION THAT STOPPED AFTER ITS SWITCH IS FINISHED (draft-first):
     // the approved revision, from its journal; this never begins one.
     // WHATEVER THE SWITCH SAYS NOW (2026-10-16): a publication the owner
@@ -3241,7 +3242,7 @@ export async function runScheduledSiteJobs(env, ctx) {
   if (!Array.isArray(rows)) return;
 
   for (const row of dueJobs(rows, Date.now())) {
-    const out = await runJob(jobDeps(env, row), row);
+    const out = await runJobAnywhere(env, row);
     await recordJobOutcome(env, row, out);
   }
 }
@@ -3380,6 +3381,43 @@ export function jobDeps(env, row) {
       phone: (v) => toE164(v),
       recipient,
   };
+}
+
+// THE SITE DOES ITS OWN JOBS (2026-10-27). The platform keeps the clock and
+// the claim; the work (the site's database function, the owner's own mail and
+// SMS keys) runs in the site's Worker. The header is set here and nowhere
+// else, and stripped from every request forwarded to a site.
+const SITE_JOB_HEADER = "x-gf-site-job";
+// A run may send up to `MAX_MESSAGES_PER_RUN`, so it gets more outside calls
+// than a page view does.
+const SITE_JOB_SUBREQUESTS = 250;
+
+/** Claim the run here, then let the site do it; the platform does it only for a script that cannot. */
+async function runJobAnywhere(env, row) {
+  if (env.SITE_OWN_DATA !== "1" || !env.SITE_WORKERS) return runJob(jobDeps(env, row), row);
+  const deps = jobDeps(env, row);
+  const fn = row && row.spec && typeof row.spec.fn === "string" ? row.spec.fn : null;
+  if (!fn || !/^[a-z][a-z0-9_]{0,40}$/.test(fn)) return { ok: false, name: row && row.name, reason: "no function" };
+  const claimed = await deps.stamp(row);
+  if (claimed && claimed.won === false) return { ok: true, name: row.name, skipped: true };
+  const mine = await siteRunJob(env, row);
+  return mine || runJob({ ...deps, stamp: async () => ({ won: true }) }, row);
+}
+
+async function siteRunJob(env, row) {
+  const name = scriptNameFor(row.slug);
+  if (!name) return null;
+  try {
+    const lim = siteLimits(env);
+    const res = await env.SITE_WORKERS.get(name, {}, { limits: { ...lim.limits, subRequests: SITE_JOB_SUBREQUESTS } }).fetch(
+      new Request("https://" + row.slug + ".gofarther.app/__gf/job", {
+        method: "POST", headers: { "content-type": "application/json", [SITE_JOB_HEADER]: "1" },
+        body: JSON.stringify({ name: row.name, spec: row.spec }),
+      }));
+    if (res.headers.get("x-site-data") !== "own") return null;
+    const out = await res.json();
+    return out && typeof out === "object" ? out : null;
+  } catch { return null; }
 }
 
 /**
@@ -16229,7 +16267,7 @@ async function servePreview(env, request, url, pv, ctx) {
     return Response.json(answered.rows, { headers: { "cache-control": "no-store", "x-robots-tag": "noindex" } });
   }
   const fwd = new Request(url.toString(), request);
-  try { fwd.headers.set(PREVIEW_HEADER, "1"); } catch { return no(); }
+  try { fwd.headers.set(PREVIEW_HEADER, "1"); fwd.headers.delete(SITE_JOB_HEADER); } catch { return no(); }
   let res;
   try { res = await env.SITE_WORKERS.get(previewScriptName(pv.slug), {}, siteLimits(env)).fetch(fwd); } catch { return no(); }
   const h = new Headers(res.headers);
@@ -17215,6 +17253,24 @@ async function noteBase(env, slug, job, pages) {
  * account the platform Worker is already deployed into; the override exists so
  * the namespace can be moved without a code change.
  */
+/**
+ * A KEY THE OWNER SAVED OR REMOVED REACHES THEIR SITE NOW (2026-10-27), on the
+ * live script and the preview copy; `text: null` removes it. The value goes
+ * straight from the owner's request to their own script; nothing keeps it.
+ */
+async function pushSiteSecret(env, slug, secret, text) {
+  if (env.SITE_OWN_DATA !== "1") return;
+  const c = dispatchCreds(env);
+  if (!c) return;
+  for (const name of [scriptNameFor(slug), previewScriptName(slug)]) {
+    if (!name) continue;
+    try {
+      const r = await setSiteSecret({ ...c, name, secret, text });
+      if (!r.ok && r.status !== 404) console.error("site secret not pushed:", slug, secret, r.status);
+    } catch (e) { console.error("site secret not pushed:", slug, secret, errorClassForLog(e)); }
+  }
+}
+
 function dispatchCreds(env) {
   const accountId = env.SITE_WORKERS_API_ACCOUNT || env.CLOUDFLARE_ACCOUNT_ID;
   if (!accountId || !env.CLOUDFLARE_API_TOKEN) return null;
@@ -17357,8 +17413,8 @@ async function siteReadVars(env, slug) {
         ...(spec && Array.isArray(spec.tables) ? { SITE_TABLES: JSON.stringify(spec.tables) } : {}),
         // The site's own connections and hooks: what it may call out to, and
         // which of its database functions an outside post may reach.
-        ...(spec && (Array.isArray(spec.apis) || Array.isArray(spec.functions))
-          ? { SITE_SPEC: JSON.stringify({ apis: spec.apis || [], functions: spec.functions || [] }) } : {}),
+        ...(spec && (Array.isArray(spec.apis) || Array.isArray(spec.functions) || Array.isArray(spec.jobs))
+          ? { SITE_SPEC: JSON.stringify({ apis: spec.apis || [], functions: spec.functions || [], jobs: spec.jobs || [] }) } : {}),
         ...(email ? { OWNER_EMAIL: email } : {}),
         NOTIFY: (await siteNotifyOn(env, slug)) ? "1" : "0",
       },
@@ -17379,7 +17435,7 @@ async function ownDataRead(env, request, slug) {
     // proxy, which reads the body again, so it is cloned, never consumed.
     const body = request.method === "GET" || request.method === "HEAD" ? undefined : await request.clone().arrayBuffer();
     const fwd = new Request(request.url, { method: request.method, headers: request.headers, body });
-    try { fwd.headers.delete(PREVIEW_HEADER); } catch { /* immutable: nothing of ours in it */ }
+    try { fwd.headers.delete(PREVIEW_HEADER); fwd.headers.delete(SITE_JOB_HEADER); } catch { /* immutable: nothing of ours in it */ }
     const res = await env.SITE_WORKERS.get(name, {}, siteLimits(env)).fetch(fwd);
     return res.headers.get("x-site-data") === "own" ? res : null;
   } catch { return null; }
@@ -17450,6 +17506,35 @@ async function markResync(env, slug) {
  * against the shared bucket moves to its own at its next publish.
  */
 const RESYNC_PER_TICK = 5;
+// THE CLOCK, AND ONLY THE CLOCK (2026-10-27). A site keeps its own webhook
+// retries in its own bucket; this wakes each site that runs its own data, a
+// slice per tick, and the site does the work. Nothing of the site's is read.
+const SITE_TICKS_PER_TICK = 40;
+async function runSiteTicks(env) {
+  if (env.SITE_OWN_DATA !== "1" || !env.SITE_WORKERS || !env.SUPABASE_SERVICE_KEY) return { woke: 0 };
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/site_project?select=slug&app_conn=not.is.null&order=slug.asc&limit=1000`,
+    { headers: svcHeaders(env), signal: AbortSignal.timeout(8000) });
+  if (!r.ok) return { woke: 0 };
+  const slugs = ((await r.json().catch(() => [])) || []).map((x) => x && x.slug).filter(Boolean);
+  if (!slugs.length) return { woke: 0 };
+  const start = (Math.floor(Date.now() / 60_000) * SITE_TICKS_PER_TICK) % slugs.length;
+  const slice = [];
+  for (let i = 0; i < Math.min(SITE_TICKS_PER_TICK, slugs.length); i++) slice.push(slugs[(start + i) % slugs.length]);
+  let woke = 0;
+  await Promise.all(slice.map(async (slug) => {
+    const name = scriptNameFor(slug);
+    if (!name) return;
+    try {
+      const lim = siteLimits(env);
+      const res = await env.SITE_WORKERS.get(name, {}, { limits: { ...lim.limits, subRequests: SITE_JOB_SUBREQUESTS } }).fetch(
+        new Request("https://" + slug + ".gofarther.app/__gf/tick", { method: "POST", headers: { [SITE_JOB_HEADER]: "1" } }));
+      if (res.headers.get("x-site-data") === "own") woke++;
+      await res.body?.cancel();
+    } catch { /* not found: an older site, or none */ }
+  }));
+  return { woke };
+}
+
 async function runOwnBucketResync(env) {
   if (env.SITE_OWN_BUCKETS !== "1" || !env.SITES_BUCKET) return { tried: 0, done: 0 };
   const creds = ownBucketCreds(env);
@@ -31814,7 +31899,7 @@ async function handleRequest(request, env, ctx) {
               // THE PREVIEW HEADER NEVER REACHES A LIVE SCRIPT: only the
               // platform's own draft route sends it.
               const fwd = new Request(inner.toString(), request);
-              try { fwd.headers.delete(PREVIEW_HEADER); } catch { /* an immutable header list carries none of ours */ }
+              try { fwd.headers.delete(PREVIEW_HEADER); fwd.headers.delete(SITE_JOB_HEADER); } catch { /* an immutable header list carries none of ours */ }
               const res = await stub.fetch(fwd);
               // A SITE THAT ANSWERS FOR ITS OWN ADDRESSES (2026-10-27): its
               // redirects, its 404, its asset links and its robots/sitemap are
@@ -50555,6 +50640,7 @@ async function handleRequest(request, env, ctx) {
                 // Isolate-local, like every other invalidation here: other PoPs
                 // heal by expiry.
                 if (r && r.ok) forgetSiteConfig(sslug);
+                if (r && r.ok) { const cv = checkSecretValue(sb.value); if (cv && cv.ok !== false && typeof cv.value === "string") ctx.waitUntil(pushSiteSecret(env, sslug, r.name, cv.value)); }
                 return Response.json(r.ok ? { ok: true, name: r.name, replaced: r.replaced } : { ok: false, error: r.error }, { status: r.ok ? 200 : (r.status || 400) });
               }
               if (request.method === "DELETE") {
@@ -50566,6 +50652,7 @@ async function handleRequest(request, env, ctx) {
                 // adding one: a cached Turnstile secret outliving its deletion
                 // refuses real submissions on a form whose widget has gone.
                 if (d && d.ok) forgetSiteConfig(sslug);
+                if (d && d.ok) ctx.waitUntil(pushSiteSecret(env, sslug, sk[2], null));
                 return Response.json(d);
               }
               return Response.json({ error: "method not allowed" }, { status: 405 });
@@ -50763,7 +50850,7 @@ async function handleRequest(request, env, ctx) {
                 const jrows = await jr.json().catch(() => null);
                 const jrow = Array.isArray(jrows) ? jrows[0] : null;
                 if (!jrow) return Response.json({ error: "no such job" }, { status: 404 });
-                const out = await runJob(jobDeps(env, jrow), jrow);
+                const out = await runJobAnywhere(env, jrow);
                 await recordJobOutcome(env, jrow, out);
                 return Response.json({ ok: true, name: jname, ran: true, sent: Number(out && out.sent) || 0, result: jobOutcome(out) });
               }

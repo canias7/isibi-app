@@ -32,6 +32,8 @@ import { siteCheckout, stripeSiteWebhook, type PayEnv } from "./lib/site-pay";
 import { siteApi, siteHook, type ConnectEnv } from "./lib/site-connect";
 import { siteSeoFile, siteRedirect, absolutized, type AddressEnv } from "./lib/site-addresses";
 import { siteError, countVisit, type TelemetryEnv } from "./lib/site-telemetry";
+import { siteJob, JOB_HEADER, type JobEnv } from "./lib/site-jobs-run";
+import { siteTick, type RetryEnv } from "./lib/site-webhook-retry";
 
 // ── THIS SCRIPT READS ITS OWN PREFIX (stage 7, 2026-09-05) ────────────────────
 //
@@ -356,7 +358,9 @@ const site = {
       || (await serveUpload(request, env as unknown as FilesEnv, url, SITE_SLUG)) || (await visitorUpload(request, env as unknown as FilesEnv, url, SITE_SLUG))
       || (await siteCheckout(request, env as unknown as PayEnv, url, SITE_SLUG, ctx)) || (await stripeSiteWebhook(request, env as unknown as PayEnv, url, SITE_SLUG, ctx))
       || (await siteApi(request, env as unknown as ConnectEnv, url, SITE_SLUG)) || (await siteHook(request, env as unknown as ConnectEnv, url, SITE_SLUG))
-      || (await siteError(request, env as unknown as TelemetryEnv, url, SITE_SLUG, ctx));
+      || (await siteError(request, env as unknown as TelemetryEnv, url, SITE_SLUG, ctx))
+      || (await siteJob(request, env as unknown as JobEnv, url))
+      || (await siteTick(request, env as unknown as RetryEnv, url, SITE_SLUG, JOB_HEADER));
     if (own) return own;
 
     // ASSETS STAY ON R2, and this is a cost decision rather than a detail.

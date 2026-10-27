@@ -344,3 +344,21 @@ async function readError(r) {
 // and the second one is a customer's live site changing for no reason anybody
 // can point at.
 export const COMPAT_DATE = "2026-08-16";
+
+/**
+ * ONE SECRET, CHANGED ON THE SITE'S SCRIPT AT ONCE (2026-10-27), so a key the
+ * owner saves or removes reaches their site now rather than at the next
+ * publish. `text: null` removes it. A script that does not exist answers 404,
+ * which is the ordinary state of a site never published: nothing to change.
+ */
+export async function setSiteSecret({ accountId, namespace, name, apiToken, secret, text }, deps = {}) {
+  const fetchImpl = deps.fetch || globalThis.fetch;
+  if (!accountId || !namespace || !name || !apiToken) return { ok: false, status: 0, error: "missing credentials" };
+  if (!siteSecretAllowed(secret)) return { ok: false, status: 0, error: "not a name a site may hold" };
+  const base = `${API}/accounts/${accountId}/workers/dispatch/namespaces/${namespace}/scripts/${encodeURIComponent(name)}/secrets`;
+  const res = text == null
+    ? await fetchImpl(base + "/" + encodeURIComponent(secret), { method: "DELETE", headers: { Authorization: `Bearer ${apiToken}` } })
+    : await fetchImpl(base, { method: "PUT", headers: { Authorization: `Bearer ${apiToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ name: secret, text: String(text), type: "secret_text" }) });
+  return { ok: res.ok || (text == null && res.status === 404), status: res.status };
+}
