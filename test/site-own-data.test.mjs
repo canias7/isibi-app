@@ -198,3 +198,41 @@ test("the server saves rows only with its own bucket and its form settings, and 
   assert.match(src, /runSiteEffects\(env as unknown as EffectEnv, ctx/);
   assert.doesNotMatch(src, /EFFECT_KEY|site-effect\b(?!s)/);
 });
+
+// ── logins (2026-10-27) ─────────────────────────────────────────────────────
+test("the site signs its visitors in with its own auth server, and keeps the session cookie to its own API paths", async () => {
+  const { ownAuth } = await loadTemplate("server.ts").catch(async () => {
+    // server.ts imports Start; the handler alone is what is run here.
+    const src = fs.readFileSync(new URL("../builder/lovable/template/src/server.ts", import.meta.url), "utf8");
+    const a = src.indexOf("export async function ownAuth"), b = src.indexOf("\n}\n", a) + 3;
+    const cookie = fs.readFileSync(new URL("../site-cookie.mjs", import.meta.url), "utf8");
+    const body = cookie + "\nconst SITE_SLUG = 'ember-cart';\n" + src.slice(a, b);
+    const js = ts.transpileModule(body, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
+    return import("data:text/javascript," + encodeURIComponent(js + "\n// a" + ++loads));
+  });
+  const seen = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (u, init = {}) => {
+    seen.push([String(u), init.method, new Headers(init.headers).get("cookie")]);
+    return new Response('{"user":{"id":"u1"}}', { status: 200, headers: { "content-type": "application/json", "set-cookie": "session=abc; Domain=auth.example; Path=/; HttpOnly; Secure", "set-auth-jwt": "eyJ.jwt.x" } });
+  };
+  try {
+    const env = { AUTH_BASE: "https://auth.example", SITE_TABLES: "[]" };
+    const url = new URL("https://ember-cart.gofarther.app/api/db/ember-cart/auth/sign-in/email");
+    const r = await ownAuth(new Request(url, { method: "POST", headers: { "content-type": "application/json", cookie: "old=1" }, body: '{"email":"a@b.c","password":"x"}' }), env, url);
+    assert.equal(r.status, 200);
+    assert.equal(r.headers.get("x-site-data"), "own");
+    assert.deepEqual(seen.at(-1), ["https://auth.example/sign-in/email", "POST", "old=1"]);
+    assert.equal(r.headers.get("set-cookie"), "session=abc; HttpOnly; Secure; Path=/api/db/ember-cart/");
+    assert.equal(r.headers.get("set-auth-jwt"), "eyJ.jwt.x");
+    const other = new URL("https://ember-cart.gofarther.app/api/db/other/auth/sign-in/email");
+    assert.equal(await ownAuth(new Request(other, { method: "POST", body: "{}" }), env, other), null);
+    assert.equal(await ownAuth(new Request(url, { method: "POST", body: "{}" }), { AUTH_BASE: "https://auth.example" }, url), null, "not a site of the new kind");
+  } finally { globalThis.fetch = real; }
+});
+
+test("the platform asks the site first for logins too, with the switch on", () => {
+  const at = W.indexOf('return proxySiteService(env, request, url, slug, apath, "auth");');
+  const before = W.slice(at - 400, at);
+  assert.match(before, /env\.SITE_OWN_DATA === "1" && env\.SITE_WORKERS[\s\S]*ownDataRead\(env, request, slug\)/);
+});

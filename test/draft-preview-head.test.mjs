@@ -105,6 +105,7 @@ async function siteScript(version) {
     'import { setSiteMeta, type SiteMeta } from "./site-runtime";',
     // 2026-10-27: the site's own follow-ups; stood in by a function that runs nothing.
     'import { runSiteEffects, type EffectEnv } from "./lib/site-effects";',
+    'import { rescopeCookie } from "./lib/effects/site-cookie.mjs";',
   ];
   for (const i of imports) assert.ok(src.includes(i), "the site script's imports moved — rescope this: " + i);
   let body = src;
@@ -112,6 +113,7 @@ async function siteScript(version) {
   const head = [
     "let __meta = null;",
     "const runSiteEffects = async () => [];",
+    "const rescopeCookie = () => null;",
     "const setSiteMeta = (m) => { __meta = m; };",
     "const createStartHandler = () => async () => new Response(JSON.stringify(__meta));",
     "const defaultStreamHandler = null;",

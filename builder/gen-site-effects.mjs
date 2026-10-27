@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const EFFECT_MODULES = [
   "site-access.mjs", "site-row-effects.mjs", "site-notify.mjs", "site-mail.mjs",
-  "site-sms.mjs", "site-webhooks.mjs", "site-ssrf.mjs", "site-providers.mjs",
+  "site-sms.mjs", "site-webhooks.mjs", "site-ssrf.mjs", "site-providers.mjs", "site-cookie.mjs",
 ];
 export const EFFECTS_DIR = "builder/lovable/template/src/lib/effects";
 

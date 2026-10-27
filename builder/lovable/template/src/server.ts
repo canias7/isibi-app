@@ -26,6 +26,7 @@ import { createStartHandler, defaultStreamHandler } from "@tanstack/react-start/
 import { SITE_BUILD, SITE_SLUG, SITE_VERSION, SITE_PARENT } from "./site-brand";
 import { setSiteMeta, type SiteMeta } from "./site-runtime";
 import { runSiteEffects, type EffectEnv } from "./lib/site-effects";
+import { rescopeCookie } from "./lib/effects/site-cookie.mjs";
 
 // ── THIS SCRIPT READS ITS OWN PREFIX (stage 7, 2026-09-05) ────────────────────
 //
@@ -184,6 +185,32 @@ export async function ownDataWrite(request: Request, env: Env, url: URL, ctx?: C
   return new Response(body, { status: r.status, headers: out });
 }
 
+// ── THIS SITE SIGNS ITS OWN VISITORS IN (2026-10-27) ────────────────────────
+//
+// `/api/db/<this site>/auth/…` goes straight to this site's own auth server.
+// The session cookie it answers with is kept for this site's API paths only
+// (`rescopeCookie`, the platform's own rule, copied), and the two session
+// headers the auth server hands back are passed on as they came.
+export async function ownAuth(request: Request, env: Env, url: URL): Promise<Response | null> {
+  if (!env.AUTH_BASE || !env.SITE_TABLES) return null;
+  const prefix = "/api/db/" + SITE_SLUG + "/auth/";
+  if (!url.pathname.toLowerCase().startsWith(prefix)) return null;
+  const path = url.pathname.slice(prefix.length);
+  if (!/^[a-z0-9][a-z0-9/._-]{0,79}$/i.test(path)) return null;
+  const h = new Headers();
+  for (const k of ["content-type", "authorization", "accept", "prefer", "cookie"]) { const v = request.headers.get(k); if (v) h.set(k, v); }
+  try { h.set("origin", new URL(env.AUTH_BASE).origin); } catch { /* answered below */ }
+  const body = request.method === "GET" || request.method === "HEAD" ? undefined : await request.text();
+  let r: Response;
+  try { r = await fetch(env.AUTH_BASE + "/" + path + url.search, { method: request.method, headers: h, body, redirect: "follow" }); }
+  catch { return Response.json({ error: "couldn't reach that just now" }, { status: 503, headers: { "x-site-data": "own" } }); }
+  const out = new Headers({ "content-type": r.headers.get("content-type") || "application/json", "x-site-data": "own" });
+  const cookie = rescopeCookie(r.headers.get("set-cookie"), "/api/db/" + SITE_SLUG + "/");
+  if (cookie) out.set("set-cookie", cookie);
+  for (const k of ["set-auth-token", "set-auth-jwt"]) { const v = r.headers.get(k); if (v) out.set(k, v); }
+  return new Response(await r.text(), { status: r.status, headers: out });
+}
+
 export async function ownDataRead(request: Request, env: Env, url: URL): Promise<Response | null> {
   if (request.method !== "GET" && request.method !== "HEAD") return null;
   if (!env.DATA_API_BASE || !env.AUTH_BASE) return null;
@@ -320,7 +347,7 @@ const site = {
   async fetch(request: Request, env: Env, ctx?: Ctx): Promise<Response> {
     const url = new URL(request.url);
 
-    const own = (await ownDataRead(request, env, url)) || (await ownDataWrite(request, env, url, ctx));
+    const own = (await ownDataRead(request, env, url)) || (await ownDataWrite(request, env, url, ctx)) || (await ownAuth(request, env, url));
     if (own) return own;
 
     // ASSETS STAY ON R2, and this is a cost decision rather than a detail.

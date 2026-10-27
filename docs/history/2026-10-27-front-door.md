@@ -142,3 +142,13 @@ copied byte for byte into `src/lib/effects/` (`builder/gen-site-effects.mjs`,
 bucket), confirmation, text, webhook, with the site's own SQL over Neon's HTTP
 endpoint as its limited login. `postProviderEmail`/`postProviderSms` moved to
 `site-providers.mjs`, shared by both. Old sites: nothing changes.
+
+## Logins in the site's own Worker (2026-10-27)
+
+Owner: "Everything that's related to their website needs to go to their own
+thing ... Nothing should be ours." `ownAuth` in the template's server.ts
+answers `/api/db/<slug>/auth/…` from the site's own auth server (the
+`AUTH_BASE` it already holds), with the platform's cookie rule
+(`site-cookie.mjs`, now copied by gen-site-effects.mjs) and the two session
+headers passed on. The platform's auth route asks the site first (rate limit
+kept). 2 cases.

@@ -34827,6 +34827,11 @@ async function handleRequest(request, env, ctx) {
           const t = tooMany(hit);
           return Response.json(t.body, { status: t.status, headers: t.headers });
         }
+        // THE SITE SIGNS ITS OWN VISITORS IN when its script says so.
+        if (env.SITE_OWN_DATA === "1" && env.SITE_WORKERS) {
+          const own = await ownDataRead(env, request, slug);
+          if (own) return own;
+        }
         return proxySiteService(env, request, url, slug, apath, "auth");
       }
     }
