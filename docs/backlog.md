@@ -3400,3 +3400,15 @@ Site traffic for the builder comes from Cloudflare's own analytics (GraphQL
 the existing `CLOUDFLARE_API_TOKEN`. If that token lacks "Analytics: Read", the
 traffic tool answers "unavailable". Owner to check the token's permissions and
 add Analytics Read if missing. No new secret needed.
+
+## Site Worker split: parked, owner's answers so far (2026-10-27)
+
+Plan: `docs/plans/2026-10-26-site-worker-split.md` on branch `plan-site-worker-split`.
+Old demo sites are ignored (no compatibility path).
+- Q1 files: **B, one R2 bucket per site** (R2 allows 1,000,000 buckets per account; no
+  per-bucket fee; storage $0.015/GB-month, writes $4.50/M, reads $0.36/M, egress free).
+- Q2 per-site limits: **A, the same for every site**; start at 300 ms CPU and 50 outside
+  requests per visit, then tune from measured use.
+- Q3–Q8 not answered yet. Parked by the owner; step 1 (apply site_app_conn.sql, merge
+  `limited-login`) comes first when resumed. Workers for Platforms: $25/month, 20M
+  requests, 60M CPU ms, 1,000 scripts; extra $0.30/M requests, $0.02/M CPU ms, $0.02/script.
