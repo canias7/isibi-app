@@ -2072,3 +2072,15 @@ green, front-door step included. Image predicted `8a6274d06052dea1` →
 (40553645209, 17:46 UTC): both readers `91b7f1f0060f`, cold image
 `92992a4ddcce6503`, async and runner on, nothing charged (balance 603).
 The front door's rehearsal route answers for `fold-lane-bakery`.
+
+## Deploy 2279 — `59a6e3663` (2026-10-27 17:58 UTC)
+
+Fast-forward from `91b7f1f00` on the owner's "merge and deploy". Run
+40555556961 green; no container input changed (image stays
+`92992a4ddcce6503`). The front door now takes `*.gofarther.app/*`; read free
+at 18:0x: `fretwork-1`, `washhouse-3`, `fold-lane-bakery`, `markbook-1` all 200
+with `x-served-by: gofarther-front` and their own build ids; a visitor data
+read (`/api/db/fretwork-1/data/lessons`) 200 through the front door; the bare
+`gofarther.app` (301, platform's fallback route) and `gofarther.dev` (200)
+unchanged. `SITE_OWN_BUCKETS` is set by the owner (value not read); the first
+publish after this deploy is its test. Not runtime-confirmed by a canary press.
