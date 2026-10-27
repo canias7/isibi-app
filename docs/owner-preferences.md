@@ -1470,3 +1470,5 @@ message already answers or implies. Record:
 ## Retries stay on the same model (owner, 2026-10-24)
 
 When a model's answer fails a check, retry once with the reason, on the **same model and the same effort**. Do **not** switch to the other model (Grok ↔ Claude) or raise the effort as an escalation step. Asked directly ("after a failed retry, try once more on the other model?"), the owner answered "No".
+
+- **Old demo sites don't matter; new sites must work** (2026-10-27): *"i dont care about old demo sites, as long as from now and on it should work."* For the site Worker split: no compatibility work for sites built before it; test on newly built sites; old sites may be rebuilt or dropped.
