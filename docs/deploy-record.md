@@ -2062,3 +2062,13 @@ Required CI green on `fdf73825a`: unit tests 39721233513, site build 39721233572
 ## Deploy 2267 (2026-10-24 08:19–08:22 UTC)
 
 `main` fast-forwarded `692087cde` → `1b16aaba0` (combine-d: 13 code branches — build-reply-bubble, progress-voice-2, device-scope + device-scope-build, repair-everywhere + standin-everywhere + standin-refund, first-build-uncapped + first-build-db-limits, addon-uncapped, task-label, build-panel-stop, edit-file-picker, rebuild-scope, build-questions, request-needs, visual-review-frontend; provider-retry merged then reverted in `016aa3d93`; `docs/history/2026-10-24-combine-d.md`), on the owner's "merge and deploy when all the helpers are done". Run 40077593945, green; container images step ran (predicted site image `0bae00a7003bcc23` → `2d440bd194450245`, app `65022ce71e3d7274` unchanged). CI on the candidate: unit 40076993648 (12624 / 12554 / 0 / 70), site build 40076993644 green. **Runtime-confirmed by canary run 40102642196** (14:28 UTC, free): the expected deploy `1b16aaba0` and cold-container image `2d440bd194450245` checks passed, all free checks passed, nothing charged.
+
+## Deploy 2278 — `91b7f1f00` (2026-10-27 17:22 UTC)
+
+Fast-forward from `8f29c37d3` on the owner's "merge and deploy". Run 40549986932
+green, front-door step included. Image predicted `8a6274d06052dea1` →
+`92992a4ddcce6503` (247 inputs; app image reused `65022ce71e3d7274`).
+**Runtime-confirmed by the owner's free press, canary run 169**
+(40553645209, 17:46 UTC): both readers `91b7f1f0060f`, cold image
+`92992a4ddcce6503`, async and runner on, nothing charged (balance 603).
+The front door's rehearsal route answers for `fold-lane-bakery`.
