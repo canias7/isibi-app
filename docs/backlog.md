@@ -3443,3 +3443,7 @@ up to $25K credits. Website https://gofarther.dev, contact support@gofarther.dev
 Scheduled jobs: Neon Functions are on every plan; schedule triggers (scale-to-zero safe)
 still to test. Each project's history retention stays at its current setting until we
 raise it (the restore feature assumes 1 day).
+- Before applying (2026-10-27): the logged-out gofarther.dev home still shows the deleted
+  media product ("Generate the impossible.", Video selected by default, Video/App tabs).
+  Owner will fix the front page before the Neon Agent Plan application. support@gofarther.dev
+  now forwards to the owner's Gmail via Cloudflare Email Routing.
