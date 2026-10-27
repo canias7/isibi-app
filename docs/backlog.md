@@ -3412,3 +3412,5 @@ Old demo sites are ignored (no compatibility path).
 - Q3–Q8 not answered yet. Parked by the owner; step 1 (apply site_app_conn.sql, merge
   `limited-login`) comes first when resumed. Workers for Platforms: $25/month, 20M
   requests, 60M CPU ms, 1,000 scripts; extra $0.30/M requests, $0.02/M CPU ms, $0.02/script.
+- Q3 outside calls (2026-10-27): **A, no checkpoint**: a site's Worker may call any
+  outside service. (Owner's choice over an allow-list; the leak risk was explained.)
