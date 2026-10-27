@@ -297,7 +297,7 @@ export async function readPointerTag(deps, slug) {
  */
 export async function activateBuild(deps, {
   slug, version, build = "", parent = "", job = null, expectEtag, previous = null,
-  sidecar, sidecarKey, liveKey, putWorker, commit, afterActivate, assertLease, now, asDraft = null,
+  sidecar, sidecarKey, liveKey, putWorker, commit, afterActivate, assertLease, now, asDraft = null, afterLive = null,
 } = {}) {
   // DRAFT-FIRST (owner, 2026-10-15): a caller that hands `asDraft` saves the
   // staged version as the site's draft with it and moves nothing live — no
@@ -426,6 +426,12 @@ export async function activateBuild(deps, {
       } catch (e) { if (deps.log) deps.log("live marker write failed", slug, e && e.message); }
     }
     if (!made) { liveMissing = true; uploadedOk = false; }
+  }
+  // THE SITE'S OWN BUCKET GETS THE MARKER TOO (2026-10-27), copied after the
+  // shared one stands. Never fatal: a copy that fails is retried by the next
+  // publish, panel save or Back online.
+  if (uploadedOk && typeof afterLive === "function") {
+    try { await afterLive(); } catch (e) { if (deps.log) deps.log("own bucket marker failed", slug, e && e.message); }
   }
 
   // ── SERVED, NOT MERELY "NOT REFUSED" ──────────────────────────────────────

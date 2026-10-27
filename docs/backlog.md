@@ -3275,3 +3275,8 @@ lacked fonts, decor and backdrops. Any change needs the owner's decision.
 ## Failure diagnosis step for the builder (owner, 2026-10-24: "give it a try … for the next round")
 
 **Phase 1 (shadow mode) built on `diagnose-step`, not merged** (`docs/history/2026-10-24-diagnose-step.md`): `builder/diagnose.mjs`, switch `DIAGNOSE_FAILURES` (off), records at `jobs/<id>.diagnosis.json`. Still open: turn it on, rerun the Driftwood prompts and compare records with real outcomes; then phase 2 (act on `fix_move` from the fixed menu of safe moves and retry once, pay-only-for-what-worked). The "XHigh" effort option was already shipped as "Extra high" (2026-10-19); renaming the label is the owner's call.
+
+## Own buckets: owed before the switch goes on (2026-10-27)
+`docs/history/2026-10-27-own-bucket.md`. The Cloudflare token needs R2 edit; a
+rehearsal on a throwaway site; deleting a site must delete its `gfs-<slug>`
+bucket; a tick should re-sync sites whose copy failed.

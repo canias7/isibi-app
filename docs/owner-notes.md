@@ -1,6 +1,10 @@
 # Owner Notes
 
 
+## 2026-10-27 — Each site gets its own file bucket (built, switched off)
+
+Until now every site's Worker could read the whole shared file bucket, so one site's code could read another site's files. Now, when the switch `SITE_OWN_BUCKETS` is on, each site gets its own bucket (`gfs-<site>`), the platform copies in only that site's pages, details and "live" marker at each publish, and the site's Worker can see that bucket and nothing else. If the copy can't finish, the site is published the old way, so it never goes blank. Taking a site offline removes its marker from its own bucket first. The switch is off; turning it on needs the Cloudflare token to have R2 edit rights and a rehearsal on a test site. Branch `claude/nice-ramanujan-9ry8wy`, not merged. `docs/history/2026-10-27-own-bucket.md`.
+
 ## 2026-10-26 — Questions no longer count as "in progress"; "Something else…" lights up
 
 The tasks pill now says "2 need you · 1 in progress", so a request that's only waiting on your answers doesn't look stuck. Clicking "Something else…" on a question now marks it chosen and shows "Type your answer in the box below and press send." Branch `reply-seen`. `docs/history/2026-10-26-pill-and-own-answer.md`.

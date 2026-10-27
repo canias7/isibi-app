@@ -108,6 +108,7 @@ import { securityOfferFacts, securityWorkingFacts, securityReportFacts, security
 import { OFFLINE_COLUMN, siteOffline, offlineStamp } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, STOPPED_FREE_MSG, STOPPED_SHORT_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE, carryPanelFields, keepPanelDescription } from "./site-meta.mjs";
+import { siteBucketName, ensureSiteBucket, syncSiteBucket, restBucket, bindingBucket } from "./builder/site-bucket.mjs";
 import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, MAX_NEW_SLUG, capNewSlug, rebuildGoesLive, PUBLISH_KEEP_BUILDS, publishKeeps, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, applyRowQuery, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec, previousSidecar, heldMediaSource, heldStandIns, previewServed, ftsFilterOf, FTS_CATALOG_SQL, ftsJudgeSql, ftsJudgeParams, heldChangedIds, deadNewFunctions, jobsWithoutDead } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
@@ -15561,7 +15562,7 @@ async function runPublication(env, slug, j, etag, say = null) {
           slug, version: j.version, build: b.manifest.build || "", parent: liveV, job: null,
           expectEtag: ptrTag, previous: ptr || null,
           sidecar, sidecarKey: siteMetaKey(slug),
-          liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
+          liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE, afterLive: () => ownBucketMarker(env, slug, "sync"),
           putWorker: async () => putSiteWorker(env, slug, { ok: true, code: b.worker, build: b.manifest.build || "" }, { version: j.version }),
         });
         let act = await activate();
@@ -15603,7 +15604,7 @@ async function runPublication(env, slug, j, etag, say = null) {
           const side = sidecarOf(cur ? await cur.text() : null);
           side.origin = addressOf(rename.to);
           rehostShareImage(side, rename.to);
-          await env.SITES_BUCKET.put(siteMetaKey(slug), JSON.stringify(side), { httpMetadata: { contentType: "application/json" } });
+          await env.SITES_BUCKET.put(siteMetaKey(slug), JSON.stringify(side), { httpMetadata: { contentType: "application/json" } }); await ownBucketMarker(env, slug, "sync");
         } catch (e) { return keep("switch", "the site's address could not be set (" + errorClassForLog(e) + ")", "unknown"); }
       }
       await save({ phase: "switched", done: [] });
@@ -16178,7 +16179,7 @@ async function restoreVersion(env, slug, id, { refuseLegacy = false } = {}) {
       // canonical back on the old, redirecting address.
       // Its share picture too (audit A33-8), when the version predates a rename.
       sidecar: await withShareHost(env, slug, await withPanelFields(deps, slug, typeof b.sidecar === "string" ? b.sidecar : undefined, before && before.version ? String(before.version) : "", { origin: true })), sidecarKey: siteMetaKey(slug),
-      liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
+      liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE, afterLive: () => ownBucketMarker(env, slug, "sync"),
       putWorker: async () => {
         wput = await putSiteWorker(env, slug, { ok: true, code: b.worker, build: b.manifest.build || "" }, { version: id });
         return wput;
@@ -17193,6 +17194,52 @@ function confirmFields(wput) {
   return { confirmed: wput.confirmed === true, confirmMs: wput.confirmMs };
 }
 
+// ── EACH SITE'S OWN BUCKET (2026-10-27, the owner's Q1) ─────────────────────
+//
+// With `SITE_OWN_BUCKETS` on, a site's script is bound to a bucket holding only
+// its own serving files (`builder/site-bucket.mjs`), copied from the shared
+// bucket just before the upload. Off, or when the copy does not finish, the
+// script is bound to the shared bucket exactly as before: a site is never
+// uploaded against a bucket missing its files.
+async function sealedBucketFor(env, slug, creds) {
+  const shared = env.SITES_BUCKET_NAME || "isibi-sites";
+  if (env.SITE_OWN_BUCKETS !== "1" || !creds || !env.SITES_BUCKET) return shared;
+  const bucket = siteBucketName(slug);
+  if (!bucket) return shared;
+  try {
+    const made = await ensureSiteBucket({ accountId: creds.accountId, apiToken: creds.apiToken, bucket });
+    if (!made.ok) { console.error("own bucket: not created", slug, made.status); return shared; }
+    const r = await syncSiteBucket({ slug, src: bindingBucket(env.SITES_BUCKET), dst: restBucket({ accountId: creds.accountId, apiToken: creds.apiToken, bucket }) });
+    if (!r.done) { console.error("own bucket: copy unfinished", slug, r.copied, r.failed, r.left); return shared; }
+    return bucket;
+  } catch (e) {
+    console.error("own bucket: copy failed", slug, errorClassForLog(e));
+    return shared;
+  }
+}
+
+/**
+ * The liveness marker in the site's own bucket. "off" removes it (true when it
+ * is gone or there is no own bucket in use); "sync" copies the site's serving
+ * files again, marker last. Nothing to do with the switch off.
+ */
+async function ownBucketMarker(env, slug, how) {
+  if (env.SITE_OWN_BUCKETS !== "1") return true;
+  const creds = dispatchCreds(env);
+  const bucket = siteBucketName(slug);
+  if (!creds || !bucket) return true;
+  const dst = restBucket({ accountId: creds.accountId, apiToken: creds.apiToken, bucket });
+  try {
+    if (how === "off") { await dst.del("sites/" + slug + "/" + SITE_LIVE_FILE); return true; }
+    const r = await syncSiteBucket({ slug, src: bindingBucket(env.SITES_BUCKET), dst });
+    if (!r.done) console.error("own bucket: resync unfinished", slug, r.copied, r.failed, r.left);
+    return r.done;
+  } catch (e) {
+    console.error("own bucket: marker", how, slug, errorClassForLog(e));
+    return false;
+  }
+}
+
 async function uploadScriptOnce(env, slug, worker, { preview = false, go = null } = {}) {
   // The container returns `{ok, why, code}` and packages only when asked, so
   // "no worker" is the ordinary answer on every path that did not request one.
@@ -17245,7 +17292,7 @@ async function uploadScriptOnce(env, slug, worker, { preview = false, go = null 
     // from us, so naming the bucket here is what lets it read its own assets —
     // and naming nothing else is what keeps it away from the ledger, the
     // secrets key and every other site's anything.
-    bucket: env.SITES_BUCKET_NAME || "isibi-sites",
+    bucket: await sealedBucketFor(env, slug, creds),
   }).catch((e) => ({ ok: false, status: 0, error: String((e && e.message) || e) }));
   if (!r.ok) {
     console.error("site worker upload failed:", slug, r.status, r.error);
@@ -19565,7 +19612,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // put it back instead of leaving the site pointing at a version nothing
     // serves. Null on a first activation, where the undo is a delete.
     previous: pointerBefore || null,
-    sidecar: JSON.stringify(composed.sidecar), sidecarKey: siteMetaKey(slug), liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
+    sidecar: JSON.stringify(composed.sidecar), sidecarKey: siteMetaKey(slug), liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE, afterLive: () => ownBucketMarker(env, slug, "sync"),
     putWorker: async () => {
       // ── DEPLOYMENT IDENTITY, RECORDED BEFORE THE COMMIT POINT ────────────
       //
@@ -21036,7 +21083,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         // put it back rather than leaving the site pointing at a version
         // nothing serves. Null on a first build, where the undo is a delete.
         previous: before || null,
-        sidecar: JSON.stringify(composed.sidecar), sidecarKey: siteMetaKey(slug), liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE,
+        sidecar: JSON.stringify(composed.sidecar), sidecarKey: siteMetaKey(slug), liveKey: "sites/" + slug + "/" + SITE_LIVE_FILE, afterLive: () => ownBucketMarker(env, slug, "sync"),
         putWorker: async () => { workerUpload = await putSiteWorker(env, slug, worker, { version: bVersion }); return workerUpload; },
         afterActivate: async () => {
           // AND WHETHER THE SOURCE LANDED: a lost source store turns the NEXT
@@ -39533,7 +39580,7 @@ async function handleRequest(request, env, ctx) {
                 const side = sidecarOf(cur ? await cur.text() : null);
                 side.origin = addressOf(wanted);
                 rehostShareImage(side, wanted);
-                await env.SITES_BUCKET.put(siteMetaKey(ownerSlug), JSON.stringify(side), { httpMetadata: { contentType: "application/json" } });
+                await env.SITES_BUCKET.put(siteMetaKey(ownerSlug), JSON.stringify(side), { httpMetadata: { contentType: "application/json" } }); await ownBucketMarker(env, ownerSlug, "sync");
                 live = true;
               } catch (e) { console.error("rename sidecar patch failed:", ownerSlug, e && e.message); }
               const addr = siteHostFor(wanted);
@@ -50318,9 +50365,17 @@ async function handleRequest(request, env, ctx) {
               try { await env.SITES_BUCKET.put(offlineMarkKey(lslug), JSON.stringify({ at: new Date().toISOString(), by: ou.id }), { httpMetadata: { contentType: "application/json" } }); }
               catch { return Response.json({ ok: false, reason: "mark", msg: "Couldn\u2019t take it offline just now \u2014 your site is still up. Try again." }, { status: 503 }); }
             }
+            // THE SITE'S OWN BUCKET FIRST when taking it down: its marker is the
+            // one its script reads, so a failure here refuses before anything
+            // changes. Back online copies it last, after the shared marker.
+            if (lb.on !== false && !(await ownBucketMarker(env, lslug, "off"))) {
+              try { await env.SITES_BUCKET.delete(offlineMarkKey(lslug)); } catch { /* the marker stays: the site reads as offline until Back online */ }
+              return Response.json({ ok: false, reason: "own-bucket", msg: "Couldn\u2019t take it offline just now \u2014 your site is still up. Try again." }, { status: 503 });
+            }
             const out = lb.on === false
               ? await putBackOnline(liveDeps, { slug: lslug })
               : await takeOffline(liveDeps, { slug: lslug });
+            if (lb.on === false && out.ok) await ownBucketMarker(env, lslug, "sync");
             if (lb.on !== false && !out.ok) { try { await env.SITES_BUCKET.delete(offlineMarkKey(lslug)); } catch { /* the marker stays: the site reads as offline until Back online */ } }
             if (lb.on === false && out.ok) { try { await env.SITES_BUCKET.delete(offlineMarkKey(lslug)); } catch (e) { console.error("offline marker:", lslug, errorClassForLog(e)); } }
             // AN OPEN PUBLICATION IS ABANDONED (audit #119): retired on the etag
@@ -50551,7 +50606,7 @@ async function handleRequest(request, env, ctx) {
               const cur = await env.SITES_BUCKET.get(siteMetaKey(vslug));
               const side = sidecarOf(cur ? await cur.text() : null);
               side.verify = verificationPairs(merged.verify);
-              await env.SITES_BUCKET.put(siteMetaKey(vslug), JSON.stringify(side), { httpMetadata: { contentType: "application/json" } });
+              await env.SITES_BUCKET.put(siteMetaKey(vslug), JSON.stringify(side), { httpMetadata: { contentType: "application/json" } }); await ownBucketMarker(env, vslug, "sync");
               live = true;
             } catch (e) { console.error("verification sidecar patch failed:", vslug, e && e.message); }
             return Response.json({
@@ -50655,7 +50710,7 @@ async function handleRequest(request, env, ctx) {
               const cur = await env.SITES_BUCKET.get(siteMetaKey(shslug));
               const side = sidecarOf(cur ? await cur.text() : null);
               side.image = img || "";
-              await env.SITES_BUCKET.put(siteMetaKey(shslug), JSON.stringify(side), { httpMetadata: { contentType: "application/json" } });
+              await env.SITES_BUCKET.put(siteMetaKey(shslug), JSON.stringify(side), { httpMetadata: { contentType: "application/json" } }); await ownBucketMarker(env, shslug, "sync");
               shLive = true;
             } catch (e) { console.error("share sidecar patch failed:", shslug, e && e.message); }
             return Response.json({ ok: true, share: shFile, live: shLive });
@@ -50947,7 +51002,7 @@ async function handleRequest(request, env, ctx) {
               const cur = await env.SITES_BUCKET.get(siteMetaKey(sqslug));
               const side = sidecarOf(cur ? await cur.text() : null);
               side.description = sqClean.value;
-              await env.SITES_BUCKET.put(siteMetaKey(sqslug), JSON.stringify(side), { httpMetadata: { contentType: "application/json" } });
+              await env.SITES_BUCKET.put(siteMetaKey(sqslug), JSON.stringify(side), { httpMetadata: { contentType: "application/json" } }); await ownBucketMarker(env, sqslug, "sync");
               sqLive = true;
             } catch (e) { console.error("seo sidecar patch failed:", sqslug, e && e.message); }
             return Response.json({ ok: true, description: sqClean.value, live: sqLive });
