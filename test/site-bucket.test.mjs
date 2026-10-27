@@ -112,7 +112,7 @@ test("the switch decides, and anything short of a finished copy keeps the shared
   assert.match(f, /if \(!made\.ok\)[^\n]*return shared/);
   assert.match(f, /if \(!r\.done\)[^\n]*return shared/);
   assert.match(f, /catch \(e\) \{[\s\S]*return shared/);
-  assert.match(between("async function uploadScriptOnce(", "\n}\n"), /const bucket = await sealedBucketFor\(env, slug, creds\);[\s\S]*return \{ bucket, vars:/);
+  assert.match(between("async function uploadScriptOnce(", "\n}\n"), /const bucket = await sealedBucketFor\(env, slug, creds\);[\s\S]*return \{ bucket, vars, secrets:/);
 });
 
 test("offline removes the own bucket's marker before anything changes; Back online copies it after", () => {

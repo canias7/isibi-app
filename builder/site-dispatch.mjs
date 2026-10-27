@@ -54,25 +54,34 @@ export const DISPATCH_CALL_MS = 600000;
  * key, or another customer's anything, because it was never handed them.
  */
 /**
- * The plain-text values a site's script may be given (2026-10-27): its own
- * Data API and auth addresses, both public, so the script can serve its own
- * visitors' reads. Anything else is dropped: a script gets only what is named
- * here, never a key.
+ * WHAT A SITE'S SCRIPT MAY BE GIVEN (2026-10-27), and nothing else:
+ *
+ *  plain values — its database's two public addresses, whether its bucket is
+ *  its own, its form settings, its owner's email and whether they asked to be
+ *  told of submissions;
+ *  secrets — its LIMITED database login and the owner's own provider keys
+ *  (mail, SMS, webhooks). Never a key of the platform's: those names are not
+ *  in this list and never pass.
  */
-export const SITE_VARS = ["DATA_API_BASE", "AUTH_BASE", "EFFECT_URL", "OWN_BUCKET", "EFFECT_KEY"];
-/** Of those, the ones uploaded as secrets (never shown in the dashboard). */
-export const SITE_SECRET_VARS = ["EFFECT_KEY"];
-/** The platform's own script name (wrangler.jsonc `name`). */
-export const PLATFORM_SCRIPT = "isibi-app";
-const VAR_OK = {
-  DATA_API_BASE: (v) => /^https:\/\/[^\s]+$/.test(v),
-  AUTH_BASE: (v) => /^https:\/\/[^\s]+$/.test(v),
-  EFFECT_URL: (v) => /^https:\/\/[^\s]+$/.test(v),
+const HTTPS = (v) => /^https:\/\/[^\s]+$/.test(v);
+const ONE_LINE = (v) => v.length > 0 && v.length <= 4096 && !/[\r\n]/.test(v);
+export const SITE_PLAIN = {
+  DATA_API_BASE: HTTPS,
+  AUTH_BASE: HTTPS,
   OWN_BUCKET: (v) => v === "1",
-  EFFECT_KEY: (v) => /^[0-9a-f]{64}$/.test(v),
+  NOTIFY: (v) => v === "1" || v === "0",
+  OWNER_EMAIL: (v) => /^[^\s@]{1,64}@[^\s@]{1,190}$/.test(v),
+  SITE_TABLES: (v) => v.length <= 200_000 && v.startsWith("["),
 };
+export const SITE_SECRET_NAMES = [
+  "APP_CONN", "RESEND_KEY", "SENDGRID_KEY", "POSTMARK_KEY", "EMAIL_FROM",
+];
+/** A secret name a site may hold: the list above, the SMS names, or a WEBHOOK… name. */
+export function siteSecretAllowed(name, smsNames = []) {
+  return SITE_SECRET_NAMES.includes(name) || smsNames.includes(name) || /^WEBHOOK[A-Z0-9_]{0,40}$/.test(name);
+}
 
-export async function uploadSiteWorker({ accountId, namespace, name, code, bucket, apiToken, vars = null }, deps = {}) {
+export async function uploadSiteWorker({ accountId, namespace, name, code, bucket, apiToken, vars = null, secrets = null, smsNames = [] }, deps = {}) {
   const fetchImpl = deps.fetch || globalThis.fetch;
   if (!accountId || !namespace || !name || !code) return { ok: false, status: 0, error: "missing accountId, namespace, name or code" };
   if (!apiToken) return { ok: false, status: 0, error: "no api token" };
@@ -93,13 +102,11 @@ export async function uploadSiteWorker({ accountId, namespace, name, code, bucke
     bindings: [
       ...(bucket ? [{ type: "r2_bucket", name: "SITES", bucket_name: bucket }] : []),
       ...Object.entries(vars || {})
-        .filter(([k, v]) => SITE_VARS.includes(k) && typeof v === "string" && VAR_OK[k](v))
-        .map(([k, v]) => ({ type: SITE_SECRET_VARS.includes(k) ? "secret_text" : "plain_text", name: k, text: v })),
-      // THE PRIVATE LINK BACK, only with the site's own note key: the platform's
-      // public routes over a service binding, which is all a site could reach
-      // over the internet anyway, minus the route through the front door.
-      ...(vars && typeof vars.EFFECT_KEY === "string" && VAR_OK.EFFECT_KEY(vars.EFFECT_KEY)
-        ? [{ type: "service", name: "PLATFORM", service: PLATFORM_SCRIPT }] : []),
+        .filter(([k, v]) => Object.hasOwn(SITE_PLAIN, k) && typeof v === "string" && SITE_PLAIN[k](v))
+        .map(([k, v]) => ({ type: "plain_text", name: k, text: v })),
+      ...Object.entries(secrets || {})
+        .filter(([k, v]) => siteSecretAllowed(k, smsNames) && typeof v === "string" && ONE_LINE(v))
+        .map(([k, v]) => ({ type: "secret_text", name: k, text: v })),
     ],
   };
 

@@ -3293,3 +3293,11 @@ addition." Phase A's site-side save (`ownDataWrite`) drops the
 `cf-turnstile-response` field and checks nothing. To add later: each site
 given its own Turnstile secret at publish (the owner's own, or a site-only
 default), verified in the site's Worker for public-form tables only.
+
+## Site-run follow-ups: what is not carried yet (2026-10-27)
+- A key, the owner's email or the "tell me" switch changed after publish
+  reaches the site only at its next publish (to add: push secrets to the
+  script through Cloudflare's secrets endpoint on change).
+- Webhook retries: the platform kept failed deliveries in a Supabase queue;
+  a site's Worker tries once (to add: retry from the site's own bucket).
+- Webhook per-minute cap (`tooMany`) is not enforced in the site yet.

@@ -4,17 +4,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import ts from "typescript";
-import { uploadSiteWorker, SITE_VARS } from "../builder/site-dispatch.mjs";
+import { uploadSiteWorker, SITE_PLAIN, SITE_SECRET_NAMES, siteSecretAllowed } from "../builder/site-dispatch.mjs";
 
-async function metaOf(vars) {
+async function metaOf(vars, secrets = null, smsNames = []) {
   let form;
-  await uploadSiteWorker({ accountId: "a", namespace: "n", name: "site-x", code: "x", bucket: "gfs-x", apiToken: "t", vars },
+  await uploadSiteWorker({ accountId: "a", namespace: "n", name: "site-x", code: "x", bucket: "gfs-x", apiToken: "t", vars, secrets, smsNames },
     { fetch: async (_u, init) => { form = init.body; return new Response(JSON.stringify({ success: true }), { status: 200 }); } });
   return JSON.parse(await form.get("metadata").text());
 }
 
 test("the upload gives a script only the named public addresses, never anything else", async () => {
-  assert.deepEqual(SITE_VARS, ["DATA_API_BASE", "AUTH_BASE", "EFFECT_URL", "OWN_BUCKET", "EFFECT_KEY"]);
+  assert.deepEqual(Object.keys(SITE_PLAIN), ["DATA_API_BASE", "AUTH_BASE", "OWN_BUCKET", "NOTIFY", "OWNER_EMAIL", "SITE_TABLES"]);
   const m = await metaOf({ DATA_API_BASE: "https://ep-1.data.neon.tech/rest", AUTH_BASE: "https://ep-1.auth.neon.tech/auth", SECRET_KEY: "https://x", DATABASE_URL: "postgres://u:p@h/db" });
   assert.deepEqual(m.bindings, [
     { type: "r2_bucket", name: "SITES", bucket_name: "gfs-x" },
@@ -40,7 +40,7 @@ test("the platform asks the site only for reads, only with the switch on, and fa
   assert.match(f, /catch \{ return null; \}/);
   const v = between("async function siteReadVars(", "\n}\n");
   assert.match(v, /env\.SITE_OWN_DATA !== "1"\) return null/);
-  assert.match(between("async function uploadScriptOnce(", "\n}\n"), /const vars = await siteReadVars\(env, slug\)/);
+  assert.match(between("async function uploadScriptOnce(", "\n}\n"), /const given = await siteReadVars\(env, slug\)/);
   // The rate limit runs first, as before.
   const route = W.slice(W.indexOf('const dm = url.pathname.match(/^\\/api\\/db\\/'), W.indexOf("// A READ THE SITE ANSWERS ITSELF"));
   assert.match(route, /_dataLimiter\.hit/);
@@ -106,112 +106,95 @@ test("the handler runs before everything else in the site's fetch, and the found
   assert.ok(fs.readFileSync(new URL("../builder/foundation-files.mjs", import.meta.url), "utf8").includes("ownDataRead(request, env, url)"));
 });
 
-// ── phase A: the site saves its own visitors' rows ──────────────────────────
-import { effectKeyFor, signEffect, readEffect, EFFECT_SIG_HEADER, EFFECT_PATH } from "../builder/site-effect.mjs";
 
-test("the upload gives a site its own note key as a secret, the link back, and the own-bucket flag", async () => {
-  const key = await effectKeyFor("root-secret", "ember-cart");
-  assert.match(key, /^[0-9a-f]{64}$/);
-  assert.notEqual(key, await effectKeyFor("root-secret", "other-site"));
-  assert.equal(await effectKeyFor("", "ember-cart"), "");
-  const m = await metaOf({ DATA_API_BASE: "https://d.x/rest", AUTH_BASE: "https://a.x", EFFECT_URL: "https://gofarther.dev/api/site-effect", EFFECT_KEY: key, OWN_BUCKET: "1" });
-  const by = Object.fromEntries(m.bindings.map((b) => [b.name, b]));
-  assert.equal(by.EFFECT_KEY.type, "secret_text");
-  assert.equal(by.OWN_BUCKET.type, "plain_text");
-  assert.deepEqual(by.PLATFORM, { type: "service", name: "PLATFORM", service: "isibi-app" });
-  // No key, no link back; a malformed key or flag is dropped.
-  const n = await metaOf({ EFFECT_KEY: "nothex", OWN_BUCKET: "yes" });
-  assert.deepEqual(n.bindings.map((b) => b.name), ["SITES"]);
+// ── the site saves its own rows and runs what follows (2026-10-27) ──────────
+
+test("a site is given its own login and its owner's own keys as secrets, and never a platform key", async () => {
+  const m = await metaOf(
+    { DATA_API_BASE: "https://d.x/rest", AUTH_BASE: "https://a.x", OWN_BUCKET: "1", NOTIFY: "1", OWNER_EMAIL: "owner@example.com", SITE_TABLES: '[{"name":"bookings"}]' },
+    { APP_CONN: "postgresql://x_app:p@ep.neon.tech/db", RESEND_KEY: "re_1", EMAIL_FROM: "a@b.c", TWILIO_SID: "AC1", WEBHOOK_URL: "https://h.x",
+      SUPABASE_SERVICE_KEY: "no", SITE_SECRETS_KEY: "no", CLOUDFLARE_API_TOKEN: "no", NEON_API_KEY: "no", GATEWAY_SIGNING_KEY: "no", MULTI: "a\nb" },
+    ["TWILIO_SID"]);
+  const by = Object.fromEntries(m.bindings.map((b) => [b.name, b.type]));
+  assert.deepEqual(by, {
+    SITES: "r2_bucket", DATA_API_BASE: "plain_text", AUTH_BASE: "plain_text", OWN_BUCKET: "plain_text", NOTIFY: "plain_text",
+    OWNER_EMAIL: "plain_text", SITE_TABLES: "plain_text",
+    APP_CONN: "secret_text", RESEND_KEY: "secret_text", EMAIL_FROM: "secret_text", TWILIO_SID: "secret_text", WEBHOOK_URL: "secret_text",
+  });
+  for (const k of ["SUPABASE_SERVICE_KEY", "SITE_SECRETS_KEY", "CLOUDFLARE_API_TOKEN", "NEON_API_KEY", "GATEWAY_SIGNING_KEY", "EMAIL"]) assert.equal(siteSecretAllowed(k), false, k);
+  assert.ok(SITE_SECRET_NAMES.includes("APP_CONN"));
+  // A plain value that is not what its name says is dropped.
+  const bad = await metaOf({ OWNER_EMAIL: "not an email", NOTIFY: "yes", OWN_BUCKET: "1x", SITE_TABLES: "{}" });
+  assert.deepEqual(bad.bindings.map((b) => b.name), ["SITES"]);
 });
 
-test("a note is accepted only for the site whose key signed it, fresh, and well shaped", async () => {
-  const now = 1_800_000_000_000;
-  const note = (o = {}) => JSON.stringify({ slug: "ember-cart", method: "POST", path: "bookings", sent: '{"a":1}', body: "", at: now, ...o });
-  const sign = async (slug, text) => signEffect(await effectKeyFor("root", slug), text);
-  const ok = await readEffect("root", note(), await sign("ember-cart", note()), now);
-  assert.equal(ok.ok, true);
-  assert.deepEqual([ok.note.slug, ok.note.action, ok.note.table], ["ember-cart", "created", "bookings"]);
-  // Signed by another site's key: refused.
-  assert.equal((await readEffect("root", note(), await sign("other-site", note()), now)).status, 401);
-  // Tampered after signing, stale, or a wrong root: refused.
-  const t = note();
-  assert.equal((await readEffect("root", note({ slug: "other-site" }), await sign("ember-cart", t), now)).status, 401);
-  assert.equal((await readEffect("root", note({ at: now - 10 * 60_000 }), await sign("ember-cart", note({ at: now - 10 * 60_000 })), now)).why, "stale");
-  assert.equal((await readEffect("other-root", t, await sign("ember-cart", t), now)).status, 401);
-  // Shape.
-  for (const bad of [{ method: "GET" }, { path: "../x" }, { slug: "Bad Slug!" }]) {
-    const text = note(bad);
-    assert.equal((await readEffect("root", text, await sign(String(bad.slug || "ember-cart").toLowerCase(), text), now)).ok, false, JSON.stringify(bad));
-  }
-  assert.equal((await readEffect("root", "x".repeat(70000), "", now)).status, 413);
+test("the platform unlocks the site's own keys at publish and gives them to that site; no note route is left", () => {
+  const v = between("async function siteReadVars(", "\n}\n");
+  for (const re of [/siteMailSecrets\(env, db, slug\)\(\)/, /siteSmsSecrets\(env, db, slug\)\(\)/, /_webhookSecrets\(slug, env, db\)/, /siteAppConn\(env, slug\)/, /ownerEmail\(env, owner\.uid\)/, /siteNotifyOn\(env, slug\)/, /SITE_TABLES: JSON\.stringify\(spec\.tables\)/]) assert.match(v, re);
+  assert.doesNotMatch(v, /SITE_SECRETS_KEY|SUPABASE_SERVICE_KEY|gatewaySecretOf/);
+  assert.match(between("async function uploadScriptOnce(", "\n}\n"), /secrets: given \? given\.secrets : null, smsNames: SMS_SECRET_NAMES/);
+  assert.doesNotMatch(W, /\/api\/site-effect/);
 });
 
-test("the platform's note route proves the site, then runs the shared follow-ups; the proxy uses the same", () => {
-  const route = between("if (url.pathname === EFFECT_PATH && request.method === \"POST\")", "return Response.json({ ok: true }, { status: 202 });");
-  assert.match(route, /readEffect\(root\.secret, text, request\.headers\.get\(EFFECT_SIG_HEADER\)\)/);
-  assert.match(route, /siteRowConn\(env, n\.slug\)/);
-  assert.match(route, /applyRowEffects\(env, ctx, \{ slug: n\.slug/);
-  const proxy = between("async function proxySiteService(", "\n}\n");
-  assert.match(proxy, /await applyRowEffects\(env, ctx, \{ slug, db, method: request\.method/);
-  assert.equal(EFFECT_SIG_HEADER, "x-gf-effect-sig");
-  assert.equal(EFFECT_PATH, "/api/site-effect");
-});
-
-async function loadWrite() {
-  const src = fs.readFileSync(new URL("../builder/lovable/template/src/server.ts", import.meta.url), "utf8");
-  const a = src.indexOf("let anonTok"), b = src.indexOf("\nexport async function ownDataRead");
-  const body = "const SITE_SLUG = 'ember-cart';\n" + src.slice(a, b);
-  const js = ts.transpileModule(body, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
-  return import("data:text/javascript," + encodeURIComponent(js + "\n// w" + ++loads));
-}
-function memBucket() {
-  const m = new Map();
-  return { m, async get(k) { return m.has(k) ? { text: async () => m.get(k) } : null; }, async put(k, v) { m.set(k, v); } };
+// The template's own save and follow-ups, run for real: transpiled into the
+// template folder so the copied modules resolve.
+import path from "node:path";
+async function loadTemplate(rel) {
+  const dir = new URL("../builder/lovable/template/src/", import.meta.url);
+  const src = fs.readFileSync(new URL(rel, dir), "utf8");
+  const js = ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
+    .replace(/from "(\.\/[^"]+?)(?<!\.mjs)"/g, 'from "$1.mjs"');
+  const out = new URL(rel.replace(/\.ts$/, `.__test${++loads}.mjs`), dir);
+  fs.writeFileSync(out, js);
+  try { return await import(out.href); } finally { fs.rmSync(out); }
 }
 
-test("a form submission is saved by the site, answered once per key, and a signed note follows", async () => {
-  const { ownDataWrite } = await loadWrite();
-  const key = await effectKeyFor("root", "ember-cart");
-  const notes = [], saves = [];
-  const env2 = { ...env, EFFECT_KEY: key, OWN_BUCKET: "1", SITES: memBucket(),
-    PLATFORM: { fetch: async (r) => { notes.push([await r.text(), r.headers.get("x-gf-effect-sig")]); return new Response("", { status: 202 }); } } };
+test("after a booking, the site emails its owner, confirms to the visitor and fires the webhook, with its own keys", async () => {
+  const { runSiteEffects, toPg } = await loadTemplate("lib/site-effects.ts");
+  assert.equal(toPg("SELECT ? , '?' , ?"), "SELECT $1 , '?' , $2");
+  const calls = [];
   const real = globalThis.fetch;
   globalThis.fetch = async (u, init = {}) => {
-    if (String(u).endsWith("/token/anonymous")) return new Response(JSON.stringify({ token: "eyJabc.def.ghi" }));
-    saves.push([String(u), init.method, init.body]);
-    return new Response("", { status: 201, headers: { "content-type": "application/json" } });
+    const url = String(u);
+    calls.push([url, init.method || "GET", init.headers && (init.headers.Authorization || init.headers.authorization || init.headers["Neon-Connection-String"] || "")]);
+    if (url.endsWith("/sql")) return new Response(JSON.stringify({ rows: [{ id: 7, name: "Ana", email: "ana@example.com" }] }));
+    return new Response("{}", { status: 200 });
   };
+  const store = new Map();
+  const bucket = { get: async (k) => (store.has(k) ? { text: async () => store.get(k) } : null), put: async (k, v) => { store.set(k, v); }, delete: async (k) => { store.delete(k); } };
+  const tables = [{ name: "bookings", access: "collect", notify: true, confirm: { to: "email", subject: "Thanks {name}", body: "See you soon" }, webhooks: ["created"] }];
+  const env = { APP_CONN: "postgresql://x_app:p@ep-1.neon.tech/db", OWNER_EMAIL: "owner@example.com", NOTIFY: "1", SITE_TABLES: JSON.stringify(tables), SITES: bucket,
+    RESEND_KEY: "re_owner", EMAIL_FROM: "hello@site.com", WEBHOOK_URL: "https://hooks.example/x", WEBHOOK_SECRET: "whs" };
+  const waits = [];
   try {
-    const url = new URL("https://ember-cart.gofarther.app/api/db/ember-cart/data/bookings");
-    const mk = () => new Request(url, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": "k".repeat(20) }, body: JSON.stringify({ name: "Ana", "cf-turnstile-response": "tok" }) });
-    const r1 = await ownDataWrite(mk(), env2, url);
-    assert.equal(r1.status, 201);
-    assert.equal(r1.headers.get("x-site-data"), "own");
-    assert.deepEqual(saves, [["https://db.example/rest/bookings", "POST", '{"name":"Ana"}']], "saved once, spam token dropped");
-    // The note: signed with the site's own key, and the platform accepts it.
-    assert.equal(notes.length, 1);
-    const [text, sig] = notes[0];
-    const read = await readEffect("root", text, sig);
-    assert.equal(read.ok, true);
-    assert.deepEqual([read.note.slug, read.note.action, read.note.sent], ["ember-cart", "created", '{"name":"Ana"}']);
-    // The same press again: replayed, not saved twice, no second note.
-    const r2 = await ownDataWrite(mk(), env2, url);
-    assert.equal(r2.status, 201);
-    assert.equal(r2.headers.get("x-idempotent-replay"), "1");
-    assert.equal(saves.length, 1);
-    assert.equal(notes.length, 1);
+    const fired = await runSiteEffects(env, { waitUntil: (p) => waits.push(p) }, { slug: "ember-cart", method: "POST", path: "bookings", search: "", sent: '{"name":"Ana","email":"ana@example.com"}', body: "" });
+    await Promise.all(waits);
+    assert.deepEqual(fired.sort(), ["confirm", "notify", "sms", "webhook"]);
+    const mail = calls.filter(([u]) => u === "https://api.resend.com/emails");
+    assert.ok(mail.length >= 1, "an email went out through the owner's own Resend key");
+    assert.ok(mail.every(([, , auth]) => auth === "Bearer re_owner"));
+    assert.ok(calls.some(([u]) => u === "https://hooks.example/x"), "the webhook fired");
+    assert.ok(calls.every(([u]) => !/gofarther\.dev|supabase/.test(u)), "nothing went to the platform");
+    // The cooldown is the site's own: a second booking within five minutes does not email the owner again.
+    const before = calls.filter(([u]) => u.includes("resend")).length;
+    waits.length = 0;
+    await runSiteEffects(env, { waitUntil: (p) => waits.push(p) }, { slug: "ember-cart", method: "POST", path: "bookings", search: "", sent: '{"name":"Bo"}', body: "" });
+    await Promise.all(waits);
+    assert.ok(store.has("effects/notify/ember-cart"));
+    assert.ok(calls.filter(([u]) => u.includes("resend")).length - before <= 1, "at most the confirmation, not a second owner email");
   } finally { globalThis.fetch = real; }
 });
 
-test("without its own key or its own bucket, or for a read, the site leaves the write to the platform", async () => {
-  const { ownDataWrite } = await loadWrite();
-  const url = new URL("https://ember-cart.gofarther.app/api/db/ember-cart/data/bookings");
-  const post = () => new Request(url, { method: "POST", body: "{}" });
-  const base = { ...env, EFFECT_KEY: "k", OWN_BUCKET: "1", SITES: memBucket() };
-  assert.equal(await ownDataWrite(post(), { ...base, EFFECT_KEY: undefined }, url), null);
-  assert.equal(await ownDataWrite(post(), { ...base, OWN_BUCKET: undefined }, url), null);
-  assert.equal(await ownDataWrite(post(), { ...base, SITES: undefined }, url), null);
-  assert.equal(await ownDataWrite(new Request(url), base, url), null);
-  const other = new URL("https://ember-cart.gofarther.app/api/db/other-site/data/bookings");
-  assert.equal(await ownDataWrite(new Request(other, { method: "POST", body: "{}" }), base, other), null);
+test("a table with no settings, or a read, runs nothing", async () => {
+  const { runSiteEffects } = await loadTemplate("lib/site-effects.ts");
+  const env = { SITE_TABLES: "[]" };
+  assert.deepEqual(await runSiteEffects(env, undefined, { slug: "s", method: "POST", path: "bookings", search: "", sent: "{}", body: "" }), []);
+  assert.deepEqual(await runSiteEffects({ SITE_TABLES: '[{"name":"bookings","notify":true}]' }, undefined, { slug: "s", method: "GET", path: "bookings", search: "", sent: "", body: "" }), []);
+});
+
+test("the server saves rows only with its own bucket and its form settings, and runs the follow-ups itself", () => {
+  const src = fs.readFileSync(new URL("../builder/lovable/template/src/server.ts", import.meta.url), "utf8");
+  assert.match(src, /!env\.SITE_TABLES \|\| env\.OWN_BUCKET !== "1" \|\| !env\.SITES\) return null/);
+  assert.match(src, /runSiteEffects\(env as unknown as EffectEnv, ctx/);
+  assert.doesNotMatch(src, /EFFECT_KEY|site-effect\b(?!s)/);
 });

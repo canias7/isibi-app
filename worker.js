@@ -109,7 +109,7 @@ import { securityOfferFacts, securityWorkingFacts, securityReportFacts, security
 import { OFFLINE_COLUMN, siteOffline, offlineStamp } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, STOPPED_FREE_MSG, STOPPED_SHORT_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE, carryPanelFields, keepPanelDescription } from "./site-meta.mjs";
-import { EFFECT_PATH, EFFECT_SIG_HEADER, effectKeyFor, readEffect } from "./builder/site-effect.mjs";
+import { postProviderEmail, postProviderSms } from "./site-providers.mjs";
 import { siteBucketName, ensureSiteBucket, syncSiteBucket, restBucket, bindingBucket, deleteSiteBucket, RESYNC_PREFIX } from "./builder/site-bucket.mjs";
 import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, MAX_NEW_SLUG, capNewSlug, rebuildGoesLive, PUBLISH_KEEP_BUILDS, publishKeeps, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, applyRowQuery, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec, previousSidecar, heldMediaSource, heldStandIns, previewServed, ftsFilterOf, FTS_CATALOG_SQL, ftsJudgeSql, ftsJudgeParams, heldChangedIds, deadNewFunctions, jobsWithoutDead } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
@@ -2876,64 +2876,6 @@ function logSiteHit(env, ctx, slug, path, request) {
 // Send an email through a provider (Resend/SendGrid/Postmark) — shared by the
 // `email` function action and password-reset. Key + recipient go only to the
 // provider; returns {ok, status}.
-async function postProviderEmail(provider, key, from, to, subject, html) {
-  let url, headers, bodyObj;
-  if (provider === "sendgrid") { url = "https://api.sendgrid.com/v3/mail/send"; headers = { Authorization: "Bearer " + key, "Content-Type": "application/json" }; bodyObj = { personalizations: [{ to: [{ email: to }] }], from: { email: from }, subject, content: [{ type: "text/html", value: html }] }; }
-  else if (provider === "postmark") { url = "https://api.postmarkapp.com/email"; headers = { "X-Postmark-Server-Token": key, "Content-Type": "application/json", Accept: "application/json" }; bodyObj = { From: from, To: to, Subject: subject, HtmlBody: html }; }
-  else { url = "https://api.resend.com/emails"; headers = { Authorization: "Bearer " + key, "Content-Type": "application/json" }; bodyObj = { from, to, subject, html }; }
-  try {
-    const resp = await fetch(url, { method: "POST", headers, body: JSON.stringify(bodyObj), signal: AbortSignal.timeout(12000) });
-    await readCapped(resp, 4096);
-    return { ok: resp.status >= 200 && resp.status < 300, status: resp.status };
-  } catch { return { ok: false, status: 0 }; }
-}
-/**
- * Send one text through whichever provider the owner configured.
- *
- * Three shapes, kept as data rather than three code paths, because they differ
- * only in where the credential and the fields go. Twilio is form-encoded and
- * basic-auth'd; MessageBird and Vonage are JSON.
- *
- * NEVER THROWS — `sendSms` treats a falsy `ok` as a refusal and the booking has
- * already succeeded either way.
- */
-async function postProviderSms(provider, key, secret, from, to, body) {
-  let url, headers, payload, form = false;
-  if (provider === "twilio") {
-    url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(key)}/Messages.json`;
-    headers = { Authorization: "Basic " + btoa(key + ":" + secret), "Content-Type": "application/x-www-form-urlencoded" };
-    payload = new URLSearchParams({ From: from, To: to, Body: body }).toString();
-    form = true;
-  } else if (provider === "vonage") {
-    url = "https://rest.nexmo.com/sms/json";
-    headers = { "Content-Type": "application/json" };
-    // Vonage carries its credential IN THE BODY rather than a header — the one
-    // real irregularity here, and the reason this is a switch and not a table.
-    payload = { api_key: key, api_secret: secret, from, to: to.replace(/^\+/, ""), text: body };
-  } else {
-    url = "https://rest.messagebird.com/messages";
-    headers = { Authorization: "AccessKey " + key, "Content-Type": "application/json" };
-    payload = { originator: from, recipients: [to], body };
-  }
-  try {
-    const resp = await fetch(url, {
-      method: "POST", headers,
-      body: form ? payload : JSON.stringify(payload),
-      signal: AbortSignal.timeout(12000),
-    });
-    const text = await readCapped(resp, 4096);
-    // VONAGE ANSWERS 200 ON FAILURE. Its `messages[].status` is "0" for
-    // success and a numeric error code otherwise, so trusting the HTTP status
-    // here would report every rejected message as sent — and the owner would
-    // be told their customer was texted when nobody was.
-    if (provider === "vonage") {
-      let j = null; try { j = JSON.parse(text); } catch { /* not json */ }
-      const first = j && Array.isArray(j.messages) && j.messages[0];
-      return { ok: !!(first && String(first.status) === "0"), status: resp.status };
-    }
-    return { ok: resp.status >= 200 && resp.status < 300, status: resp.status };
-  } catch { return { ok: false, status: 0 }; }
-}
 // Register a site's scheduled jobs. Reuses the `site_functions` table, whose
 // shape (slug, name, spec, schedule_minutes, last_run) is exactly a schedule
 // registry — it was the eight-verb SPEC that was the wrong design, not the row.
@@ -11838,34 +11780,6 @@ function idemFor(env, slug, scope, key, fp = null) {
   });
 }
 
-/**
- * WHAT FOLLOWS A ROW CHANGE (notify, confirm, text, webhook), shared by the
- * platform's own proxy and the note a site's own Worker sends after it saved
- * the row itself (`/api/site-effect`, 2026-10-27). Never throws.
- */
-async function applyRowEffects(env, ctx, { slug, db, method, path, search, body, sent }) {
-  const action = method === "POST" ? "created"
-    : method === "PATCH" || method === "PUT" ? "updated"
-    : method === "DELETE" ? "deleted" : null;
-  if (!action) return;
-  try {
-    const table = String(path).split("/")[0].toLowerCase();
-    const spec = await loadSiteSchema(db);
-    const def = (spec && spec.tables || []).find((t) => String(t.name).toLowerCase() === table);
-    if (!def) return;
-    let row = null;
-    if (action === "deleted") {
-      row = { filter: String(search || "").replace(/^\?/, "").slice(0, 500) };
-    } else if (action === "created") {
-      row = await resolveCreatedRow({ def, body, sent, lookup: (q, p) => sqlQuery(db, q, p) });
-    } else {
-      try { const j = JSON.parse(body); row = Array.isArray(j) ? j[0] : j; } catch { /* not json */ }
-      if (!row) { try { row = JSON.parse(sent || "null"); } catch { row = null; } }
-    }
-    siteRowEffects(env, ctx, { slug, db, def, table, action, row: row || {}, submission: method === "POST" });
-  } catch (e) { console.error("row effects:", slug, e && e.message); }
-}
-
 async function proxySiteService(env, request, url, slug, path, which, ctx) {
   const db = await siteRowConn(env, slug);
   if (!db) return Response.json({ error: "no such site" }, { status: 404 });
@@ -12026,7 +11940,28 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
     // the row is already in Postgres and a broken mailer must not look like a
     // broken form.
     if (which === "data" && r.status >= 200 && r.status < 300) {
-      await applyRowEffects(env, ctx, { slug, db, method: request.method, path, search: url.search || "", body, sent });
+      const action = request.method === "POST" ? "created"
+        : request.method === "PATCH" || request.method === "PUT" ? "updated"
+        : request.method === "DELETE" ? "deleted" : null;
+      if (action) {
+        try {
+          const table = String(path).split("/")[0].toLowerCase();
+          const spec = await loadSiteSchema(db);
+          const def = (spec && spec.tables || []).find((t) => String(t.name).toLowerCase() === table);
+          if (def) {
+            let row = null;
+            if (action === "deleted") {
+              row = { filter: String(url.search || "").replace(/^\?/, "").slice(0, 500) };
+            } else if (action === "created") {
+              row = await resolveCreatedRow({ def, body, sent, lookup: (q, p) => sqlQuery(db, q, p) });
+            } else {
+              try { const j = JSON.parse(body); row = Array.isArray(j) ? j[0] : j; } catch { /* not json */ }
+              if (!row) { try { row = JSON.parse(sent || "null"); } catch { row = null; } }
+            }
+            siteRowEffects(env, ctx, { slug, db, def, table, action, row: row || {}, submission: request.method === "POST" });
+          }
+        } catch (e) { console.error("row effects:", slug, e && e.message); }
+      }
     }
 
     return new Response(body, {
@@ -17346,6 +17281,16 @@ export function siteLimits(env) {
 // itself. Writes stay here: they carry the spam gate, the double-submit guard
 // and the effects (mail, webhooks) that follow a form. Off, or a site without
 // a database, uploads exactly as before.
+/** Did the owner ask to be emailed about submissions? false when it cannot be told. */
+async function siteNotifyOn(env, slug) {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=notify`, { headers: svcHeaders(env), signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return false;
+    const rows = await r.json();
+    return Array.isArray(rows) && rows[0] && rows[0].notify === true;
+  } catch { return false; }
+}
+
 async function siteReadVars(env, slug) {
   if (env.SITE_OWN_DATA !== "1") return null;
   try {
@@ -17353,13 +17298,27 @@ async function siteReadVars(env, slug) {
     if (!db) return null;
     const [data, auth] = await Promise.all([siteDataBase(db), siteAuthBase(db)]);
     if (!data || !auth) return null;
-    // Phase A: the site saves its own visitors' rows too, and signs a note for
-    // what follows with a key that is its own (`site-effect.mjs`).
-    const root = gatewaySecretOf(env);
-    const key = root ? await effectKeyFor(root.secret, slug) : "";
-    return { DATA_API_BASE: data, AUTH_BASE: auth, ...(key ? { EFFECT_URL: "https://" + APP_ZONE + EFFECT_PATH, EFFECT_KEY: key } : {}) };
+    // WHAT FOLLOWS A SUBMISSION, run by the site itself: its form settings,
+    // its owner's address and whether they want to be told, its limited login
+    // and the owner's own provider keys, unlocked here and given only to it.
+    const spec = await loadSiteSchema(db).catch(() => null);
+    const owner = (await siteBackendRowFresh(env, slug).catch(() => null)) || {};
+    const email = owner.uid ? await ownerEmail(env, owner.uid).catch(() => null) : null;
+    const app = await siteAppConn(env, slug).catch(() => null);
+    const mail = await siteMailSecrets(env, db, slug)().catch(() => ({}));
+    const sms = await siteSmsSecrets(env, db, slug)().catch(() => ({}));
+    const hooks = await _webhookSecrets(slug, env, db).catch(() => ({}));
+    return {
+      vars: {
+        DATA_API_BASE: data, AUTH_BASE: auth,
+        ...(spec && Array.isArray(spec.tables) ? { SITE_TABLES: JSON.stringify(spec.tables) } : {}),
+        ...(email ? { OWNER_EMAIL: email } : {}),
+        NOTIFY: (await siteNotifyOn(env, slug)) ? "1" : "0",
+      },
+      secrets: { ...(app ? { APP_CONN: app } : {}), ...mail, ...sms, ...hooks },
+    };
   } catch (e) {
-    console.error("own data: addresses not read", slug, errorClassForLog(e));
+    console.error("own data: not given", slug, errorClassForLog(e));
     return null;
   }
 }
@@ -17516,10 +17475,12 @@ async function uploadScriptOnce(env, slug, worker, { preview = false, go = null 
     // secrets key and every other site's anything.
     ...(await (async () => {
       const bucket = await sealedBucketFor(env, slug, creds);
-      const vars = await siteReadVars(env, slug);
+      const given = await siteReadVars(env, slug);
       // OWN_BUCKET tells the script its bucket is its own, so it may keep its
-      // double-submit memory there; on the shared bucket it never writes.
-      return { bucket, vars: vars && bucket === siteBucketName(slug) ? { ...vars, OWN_BUCKET: "1" } : vars };
+      // double-submit and follow-up memory there; on the shared bucket it
+      // never writes, and never saves a row itself.
+      const vars = given ? (bucket === siteBucketName(slug) ? { ...given.vars, OWN_BUCKET: "1" } : given.vars) : null;
+      return { bucket, vars, secrets: given ? given.secrets : null, smsNames: SMS_SECRET_NAMES };
     })()),
   }).catch((e) => ({ ok: false, status: 0, error: String((e && e.message) || e) }));
   if (!r.ok) {
@@ -34579,23 +34540,6 @@ async function handleRequest(request, env, ctx) {
     // Proxied rather than called from the page for the same three reasons the auth
     // proxy is: the bundle holds no URL and no key, it is same-origin so there is
     // no CORS and no cross-site cookie, and a generated page's URLs do not change.
-    // A SITE'S OWN WORKER SAYING A ROW CHANGED (2026-10-27): it saved the row
-    // itself; the follow-ups that need our keys run here, for the site its
-    // signature proves and no other. Answers 202 before they finish.
-    if (url.pathname === EFFECT_PATH && request.method === "POST") {
-      const root = gatewaySecretOf(env);
-      if (!root) return Response.json({ error: "not configured" }, { status: 503 });
-      const text = await request.text().catch(() => "");
-      const r = await readEffect(root.secret, text, request.headers.get(EFFECT_SIG_HEADER));
-      if (!r.ok) return Response.json({ error: r.why }, { status: r.status });
-      const n = r.note;
-      const db = await siteRowConn(env, n.slug).catch(() => null);
-      if (!db) return Response.json({ error: "no such site" }, { status: 404 });
-      const p = applyRowEffects(env, ctx, { slug: n.slug, db, method: n.method, path: n.path, search: n.search, body: n.body, sent: n.sent });
-      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(p); else await p;
-      return Response.json({ ok: true }, { status: 202 });
-    }
-
     if (url.pathname.startsWith("/api/db/") && url.pathname.includes("/data/")) {
       const dm = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/data\/([a-z0-9_][a-z0-9/._-]{0,79})$/i);
       if (dm) {

@@ -25,6 +25,7 @@
 import { createStartHandler, defaultStreamHandler } from "@tanstack/react-start/server";
 import { SITE_BUILD, SITE_SLUG, SITE_VERSION, SITE_PARENT } from "./site-brand";
 import { setSiteMeta, type SiteMeta } from "./site-runtime";
+import { runSiteEffects, type EffectEnv } from "./lib/site-effects";
 
 // ── THIS SCRIPT READS ITS OWN PREFIX (stage 7, 2026-09-05) ────────────────────
 //
@@ -67,13 +68,13 @@ type Env = {
   // and the auth server that mints a visitor token. Given at upload, never a key.
   DATA_API_BASE?: string;
   AUTH_BASE?: string;
-  // Phase A (2026-10-27): this site saves its own visitors' rows. Its own key
-  // for signing "a row changed" notes, the platform's address for them, the
-  // private link to the platform, and whether the bucket above is its own.
-  EFFECT_URL?: string;
-  EFFECT_KEY?: string;
+  // 2026-10-27: this site saves its own visitors' rows and runs what follows
+  // them (lib/site-effects.ts). Whether the bucket above is its own, and its
+  // form settings; the owner's keys, address and limited login arrive as the
+  // other named values (`EffectEnv`).
   OWN_BUCKET?: string;
-  PLATFORM?: { fetch(r: Request): Promise<Response> };
+  SITE_TABLES?: string;
+  [name: string]: unknown;
 };
 type Bucket = { get(key: string): Promise<SiteObject | null>; put(key: string, v: string): Promise<unknown> };
 type Ctx = { waitUntil(p: Promise<unknown>): void };
@@ -107,8 +108,8 @@ async function anonToken(env: Env): Promise<string> {
 // 2026-10-27: a later addition), so its token field is dropped. A press sent
 // twice with one idempotency key is answered once: the first 2xx answer is
 // kept in the site's own bucket for 10 minutes and replayed. What follows a
-// row change (emails, texts, webhooks) needs keys the platform holds, so a
-// note signed with this site's own key goes to the platform, after the answer.
+// row change (emails, texts, webhooks) runs here too, after the answer, with
+// this site's own keys (lib/site-effects.ts).
 const WRITE = new Set(["POST", "PATCH", "PUT", "DELETE"]);
 const IDEM_RE = /^[A-Za-z0-9_-]{16,64}$/;
 const IDEM_TTL_MS = 600_000;
@@ -130,7 +131,7 @@ function dropChallenge(text: string): string {
 
 export async function ownDataWrite(request: Request, env: Env, url: URL, ctx?: Ctx): Promise<Response | null> {
   if (!WRITE.has(request.method)) return null;
-  if (!env.DATA_API_BASE || !env.AUTH_BASE || !env.EFFECT_KEY || env.OWN_BUCKET !== "1" || !env.SITES) return null;
+  if (!env.DATA_API_BASE || !env.AUTH_BASE || !env.SITE_TABLES || env.OWN_BUCKET !== "1" || !env.SITES) return null;
   const prefix = "/api/db/" + SITE_SLUG + "/data/";
   if (!url.pathname.toLowerCase().startsWith(prefix)) return null;
   const path = url.pathname.slice(prefix.length);
@@ -172,15 +173,10 @@ export async function ownDataWrite(request: Request, env: Env, url: URL, ctx?: C
       const keep = bucket.put(idemKey, JSON.stringify({ at: Date.now(), fp, status: r.status, body, ct })).catch(() => {});
       if (ctx) ctx.waitUntil(keep); else await keep;
     }
-    const note = JSON.stringify({ slug: SITE_SLUG, method: request.method, path, search: url.search || "", sent, body, at: Date.now() });
-    const tell = (async () => {
-      const sig = await hmacHex(env.EFFECT_KEY as string, note);
-      const req = new Request(env.EFFECT_URL || "https://gofarther.dev/api/site-effect", {
-        method: "POST", headers: { "content-type": "application/json", "x-gf-effect-sig": sig }, body: note,
-      });
-      await (env.PLATFORM ? env.PLATFORM.fetch(req) : fetch(req));
-    })().catch(() => {});
-    if (ctx) ctx.waitUntil(tell); else await tell;
+    // WHAT FOLLOWS, run here: the owner's email, the confirmation, the text,
+    // the webhook — with this site's own keys (lib/site-effects.ts).
+    const follow = runSiteEffects(env as unknown as EffectEnv, ctx, { slug: SITE_SLUG, method: request.method, path, search: url.search || "", sent, body }).catch(() => []);
+    if (ctx) ctx.waitUntil(follow); else await follow;
   }
   const out = new Headers({ "content-type": ct, "x-site-data": "own" });
   const cr = r.headers.get("content-range");

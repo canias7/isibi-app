@@ -125,3 +125,20 @@ the signature and runs the same follow-ups (`applyRowEffects`, now shared with
 the proxy): owner email, confirmation, text, webhook. Phase B (the owner's own
 mail/SMS/webhook keys bound to the site) and C (our notification email and
 webhook retries) follow. Tests: `test/site-own-data.test.mjs`, 12 cases.
+
+## The site runs its own follow-ups (2026-10-27, replaces the signed note)
+
+Owner: "have the site worker do that bro, dont worry about old sites". The
+platform note route and `builder/site-effect.mjs` are gone. At publish
+(`siteReadVars`), the platform unlocks the site's own provider keys (mail,
+SMS, `WEBHOOK…`), reads its limited login, its owner's email, whether the
+owner asked to be told (`site_backends.notify`) and its form settings, and
+uploads them to THAT site's script: plain values `SITE_TABLES`,
+`OWNER_EMAIL`, `NOTIFY`; secrets `APP_CONN` and the owner's keys
+(`SITE_PLAIN`, `siteSecretAllowed` in site-dispatch.mjs; platform keys never
+pass). The template's `lib/site-effects.ts` runs the platform's own modules,
+copied byte for byte into `src/lib/effects/` (`builder/gen-site-effects.mjs`,
+`test/site-effects-copy.test.mjs`): owner email (cooldown in the site's own
+bucket), confirmation, text, webhook, with the site's own SQL over Neon's HTTP
+endpoint as its limited login. `postProviderEmail`/`postProviderSms` moved to
+`site-providers.mjs`, shared by both. Old sites: nothing changes.
