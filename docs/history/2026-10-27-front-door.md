@@ -82,3 +82,16 @@ route before the front door adds its own (about a minute with no Worker on
 customer hostnames; `site_domains` held no customer domain, only the test
 one). `saas-setup.mjs` now names the front door's config; `site-zone`'s
 control and `saas-setup`'s wildcard test read it there.
+
+## Deploy 2281 and the app-host finding (21:52 UTC)
+
+`main` `61dd33db4` → `f4997595e` on the owner's "merge and deploy". Read free:
+`test.isibi.ai`, `ember-cart.gofarther.app` — 200 through the front door. BUT
+`gofarther.dev` and `www.gofarther.dev` also answered through the front door:
+the `*/*` route on the zone caught them despite their `custom_domain` routes.
+Build jobs call `https://gofarther.dev/api/job/<id>` with `x-gf-*` headers
+(conditional writes `x-gf-if-match` …, replay marker `x-gf-job`), which the
+front door stripped. No edit or build job ran between the deploy and the fix
+(`edit_jobs`: none in the 30 minutes). Fix: the front door passes the app's
+own hosts through untouched (`APP_HOSTS`, `isAppHost`); customer hosts are
+still cleaned. 2 new cases.

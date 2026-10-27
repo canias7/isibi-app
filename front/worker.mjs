@@ -26,7 +26,21 @@ export function isPlatformHeader(name) {
   return n.startsWith("x-gf-") || n === "x-site-preview";
 }
 
+/**
+ * THE APP'S OWN HOSTS PASS THROUGH UNTOUCHED (2026-10-27, found live after
+ * deploy 2281): the catch-all route on gofarther.dev's zone also catches
+ * gofarther.dev and www, and build jobs call `https://gofarther.dev/api/job/…`
+ * with `x-gf-*` headers the platform reads (conditional writes, replay
+ * markers). Stripping them there would turn conditional writes into blind
+ * ones. Only customer sites' hosts are cleaned.
+ */
+export const APP_HOSTS = new Set(["gofarther.dev", "www.gofarther.dev"]);
+export function isAppHost(request) {
+  try { return APP_HOSTS.has(new URL(request.url).hostname.toLowerCase()); } catch { return false; }
+}
+
 export function cleanRequest(request) {
+  if (isAppHost(request)) return request;
   const h = new Headers(request.headers);
   for (const k of [...h.keys()]) if (isPlatformHeader(k)) h.delete(k);
   return new Request(request, { headers: h });

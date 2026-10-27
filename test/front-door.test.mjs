@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import front, { isPlatformHeader, SERVED_BY } from "../front/worker.mjs";
+import front, { isPlatformHeader, SERVED_BY, APP_HOSTS } from "../front/worker.mjs";
 import { PREVIEW_HEADER } from "../site-draft.mjs";
 
 test("a visitor's platform headers never reach the platform; everything else does", async () => {
@@ -83,4 +83,26 @@ test("the platform no longer holds gofarther.dev's catch-all; the app keeps its 
   assert.doesNotMatch(w, /"pattern": "\*\/\*", "zone_name": "gofarther\.dev"/);
   assert.match(w, /"pattern": "gofarther\.dev", "custom_domain": true/);
   assert.match(w, /"pattern": "www\.gofarther\.dev", "custom_domain": true/);
+});
+
+test("the app's own hosts reach the platform with every header, x-gf-* included", async () => {
+  for (const host of ["gofarther.dev", "www.gofarther.dev", "GoFarther.dev"]) {
+    let seen;
+    const env = { PLATFORM: { fetch: async (r) => { seen = r; return new Response("ok"); } } };
+    await front.fetch(new Request(`https://${host}/api/job/abc`, { method: "PUT", body: "x", headers: { "x-gf-if-match": "etag1", "x-gf-job": "id.secret", authorization: "Bearer t" } }), env);
+    assert.equal(seen.headers.get("x-gf-if-match"), "etag1", host);
+    assert.equal(seen.headers.get("x-gf-job"), "id.secret", host);
+    assert.equal(seen.headers.get("authorization"), "Bearer t", host);
+  }
+  assert.deepEqual([...APP_HOSTS].sort(), ["gofarther.dev", "www.gofarther.dev"]);
+  // And a customer domain is still cleaned.
+  let seen;
+  await front.fetch(new Request("https://test.isibi.ai/", { headers: { "x-gf-if-match": "e" } }), { PLATFORM: { fetch: async (r) => { seen = r; return new Response("ok"); } } });
+  assert.equal(seen.headers.get("x-gf-if-match"), null);
+});
+
+test("the job gateway's address is an app host the front door leaves alone", () => {
+  const W = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(W, /gateway: \{ url: "https:\/\/" \+ APP_ZONE \+ "\/api\/job\/"/);
+  assert.ok(APP_HOSTS.has("gofarther.dev"));
 });
