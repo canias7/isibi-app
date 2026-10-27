@@ -60,7 +60,9 @@ test("every visitor dispatch carries the limits; probes and confirmations do not
   const gets = W.split("\n").filter((l) => l.includes("env.SITE_WORKERS.get("));
   assert.ok(gets.length >= 8);
   const limited = gets.filter((g) => g.includes("siteLimits(env)"));
-  assert.equal(limited.length, 2);
+  // Three since 2026-10-27: the site's own data reads (`ownDataRead`) too.
+  assert.equal(limited.length, 3);
+  assert.ok(limited.some((g) => g.includes("get(name, {}, siteLimits(env)).fetch(fwd)")));
   assert.ok(limited.some((g) => g.includes("previewScriptName(pv.slug)")));
   assert.ok(limited.some((g) => g.includes("get(name, {}, siteLimits(env))")));
   for (const g of gets.filter((g) => !g.includes("siteLimits"))) assert.match(g, /stubFor/, g);
