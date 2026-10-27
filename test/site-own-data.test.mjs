@@ -140,13 +140,26 @@ test("the platform unlocks the site's own keys at publish and gives them to that
 // template folder so the copied modules resolve.
 import path from "node:path";
 async function loadTemplate(rel) {
+  // The file and every local TypeScript module it imports, transpiled beside
+  // the originals (so the copied .mjs modules resolve), then removed.
   const dir = new URL("../builder/lovable/template/src/", import.meta.url);
-  const src = fs.readFileSync(new URL(rel, dir), "utf8");
-  const js = ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
-    .replace(/from "(\.\/[^"]+?)(?<!\.mjs)"/g, 'from "$1.mjs"');
-  const out = new URL(rel.replace(/\.ts$/, `.__test${++loads}.mjs`), dir);
-  fs.writeFileSync(out, js);
-  try { return await import(out.href); } finally { fs.rmSync(out); }
+  const made = [];
+  const tag = ++loads;
+  const emit = (r) => {
+    const src = fs.readFileSync(new URL(r, dir), "utf8");
+    let js = ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
+    js = js.replace(/from "(\.\/[^"]+?)"/g, (m, spec) => {
+      if (spec.endsWith(".mjs")) return m;
+      const tsRel = new URL(spec + ".ts", new URL(r, dir)).href.slice(dir.href.length);
+      if (fs.existsSync(new URL(tsRel, dir))) { emit(tsRel); return `from "${spec}.__t${tag}.mjs"`; }
+      return `from "${spec}.mjs"`;
+    });
+    const out = new URL(r.replace(/\.ts$/, `.__t${tag}.mjs`), dir);
+    if (!made.includes(out.href)) { fs.writeFileSync(out, js); made.push(out.href); }
+    return out;
+  };
+  const top = emit(rel);
+  try { return await import(top.href); } finally { for (const f of made) fs.rmSync(new URL(f)); }
 }
 
 test("after a booking, the site emails its owner, confirms to the visitor and fires the webhook, with its own keys", async () => {
@@ -296,4 +309,78 @@ test("the platform asks the site first for its files and its visitors' uploads, 
   assert.match(files, /uploadHost === "\*" \|\| uploadHost === um\[1\]\.toLowerCase\(\)/);
   assert.match(files, /ownDataRead\(env, request, um\[1\]\.toLowerCase\(\)\)/);
   assert.match(W, /THE SITE TAKES ITS OWN VISITORS' FILES[\s\S]{0,200}ownDataRead\(env, request, vslug\)/);
+});
+
+// ── payments: checkout and Stripe's message, with the owner's own Stripe (2026-10-27) ──
+async function stripeSig(secret, raw, t = Math.floor(Date.now() / 1000)) {
+  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(t + "." + raw));
+  return "t=" + t + ",v1=" + [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+test("checkout prices from the site's own rows, writes the order as the site, and opens Stripe with the owner's key", async () => {
+  const { siteCheckout } = await loadTemplate("lib/site-pay.ts");
+  const sql = [], stripe = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (u, init = {}) => {
+    const url = String(u);
+    if (url.endsWith("/sql")) {
+      const q = JSON.parse(init.body).query;
+      sql.push(q);
+      if (/^SELECT id/.test(q)) return new Response(JSON.stringify({ rows: [{ id: 1, name: "Flat white", price: 3.5 }] }));
+      if (/^INSERT/.test(q)) return new Response(JSON.stringify({ rows: [{ id: 42 }] }));
+      return new Response(JSON.stringify({ rows: [] }));
+    }
+    if (url === "https://api.stripe.com/v1/checkout/sessions") {
+      stripe.push(init.headers.Authorization);
+      return new Response(JSON.stringify({ id: "cs_1", url: "https://checkout.stripe.com/c/cs_1" }));
+    }
+    return new Response("{}", { status: 404 });
+  };
+  try {
+    const tables = [{ name: "orders", columns: ["email"], payment: { from: "menu", name: "name", price: "price", currency: "gbp" } }, { name: "menu", access: "display" }];
+    const env = { APP_CONN: "postgresql://x_app:p@ep-1.neon.tech/db", SITE_TABLES: JSON.stringify(tables), STRIPE_SECRET_KEY: "sk_owner" };
+    const url = new URL("https://ember-cart.gofarther.app/api/db/ember-cart/checkout");
+    const r = await siteCheckout(new Request(url, { method: "POST", body: JSON.stringify({ table: "orders", items: [{ id: 1, qty: 2 }], fields: { email: "a@b.c" } }) }), env, url, "ember-cart");
+    const j = await r.json();
+    assert.equal(r.status, 200, JSON.stringify(j));
+    assert.deepEqual([j.url, j.orderId], ["https://checkout.stripe.com/c/cs_1", 42]);
+    assert.deepEqual(stripe, ["Bearer sk_owner"]);
+    assert.ok(sql.some((q) => /^INSERT INTO "orders"/.test(q)));
+    assert.equal(r.headers.get("x-site-data"), "own");
+    // Without the owner's key: refused, never another key.
+    const r2 = await siteCheckout(new Request(url, { method: "POST", body: JSON.stringify({ table: "orders", items: [{ id: 1, qty: 1 }] }) }), { ...env, STRIPE_SECRET_KEY: undefined }, url, "ember-cart");
+    assert.equal(r2.status, 503);
+  } finally { globalThis.fetch = real; }
+});
+
+test("Stripe's paid message is checked against the owner's secret, then the order is flipped by the site", async () => {
+  const { stripeSiteWebhook } = await loadTemplate("lib/site-pay.ts");
+  const sql = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (u, init = {}) => {
+    if (String(u).endsWith("/sql")) { sql.push(JSON.parse(init.body)); return new Response(JSON.stringify({ rows: [{ id: 42, payment_status: "paid" }] })); }
+    return new Response("{}");
+  };
+  try {
+    const tables = [{ name: "orders", payment: { from: "menu", name: "name", price: "price" } }];
+    const env = { APP_CONN: "postgresql://x_app:p@ep-1.neon.tech/db", SITE_TABLES: JSON.stringify(tables), STRIPE_WEBHOOK_SECRET: "whsec_owner" };
+    const event = { type: "checkout.session.completed", data: { object: { id: "cs_1", payment_status: "paid", client_reference_id: "ember-cart:orders:42", metadata: { slug: "ember-cart", table: "orders", order_id: "42" } } } };
+    const raw = JSON.stringify(event);
+    const url = new URL("https://gofarther.dev/api/stripe/site/ember-cart");
+    const forged = await stripeSiteWebhook(new Request(url, { method: "POST", headers: { "Stripe-Signature": await stripeSig("not-the-owners", raw) }, body: raw }), env, url, "ember-cart");
+    assert.equal(forged.status, 400);
+    assert.equal(sql.length, 0, "nothing written on a bad signature");
+    const ok = await stripeSiteWebhook(new Request(url, { method: "POST", headers: { "Stripe-Signature": await stripeSig("whsec_owner", raw) }, body: raw }), env, url, "ember-cart");
+    assert.equal(ok.status, 200, await ok.clone().text());
+    const flip = sql.find((q) => /SET payment_status='paid'/.test(q.query));
+    assert.ok(flip, "the order was flipped: " + JSON.stringify(sql));
+  } finally { globalThis.fetch = real; }
+});
+
+test("the platform asks the site first for checkout and for its Stripe messages", () => {
+  assert.match(W, /THE SITE TAKES ITS OWN PAYMENTS[\s\S]{0,200}ownDataRead\(env, request, cm\[1\]\.toLowerCase\(\)\)/);
+  assert.match(W, /THE SITE HEARS ITS OWN STRIPE MESSAGES[\s\S]{0,200}ownDataRead\(env, request, wslug\)/);
+  const v = W.slice(W.indexOf("async function siteReadVars("), W.indexOf("async function siteReadVars(") + 4000);
+  assert.match(v, /"STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"/);
 });

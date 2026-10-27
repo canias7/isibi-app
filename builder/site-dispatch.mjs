@@ -75,6 +75,7 @@ export const SITE_PLAIN = {
 };
 export const SITE_SECRET_NAMES = [
   "APP_CONN", "RESEND_KEY", "SENDGRID_KEY", "POSTMARK_KEY", "EMAIL_FROM",
+  "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET",
 ];
 /** A secret name a site may hold: the list above, the SMS names, or a WEBHOOK… name. */
 export function siteSecretAllowed(name, smsNames = []) {

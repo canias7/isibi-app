@@ -92,6 +92,13 @@ export async function runSiteEffects(env: EffectEnv, ctx: Ctx | undefined, { slu
     try { const j = JSON.parse(body); row = Array.isArray(j) ? j[0] : j; } catch { /* not json */ }
     if (!row) { try { row = JSON.parse(sent || "null"); } catch { row = null; } }
   }
+  return runEffectsFor(env, ctx, { slug, def, table, action, row: row || {}, submission: method === "POST" });
+}
+
+/** The follow-ups for one row change, given its table's settings and the row. */
+export function runEffectsFor(env: EffectEnv, ctx: Ctx | undefined, { slug, def, table, action, row, submission }:
+  { slug: string; def: Record<string, unknown>; table: string; action: string; row: unknown; submission: boolean }): string[] {
+  const conn = typeof env.APP_CONN === "string" ? env.APP_CONN : "";
   const later = (p: Promise<unknown>) => { const q = p.catch(() => {}); if (ctx) ctx.waitUntil(q); };
   const callFn = async (name: string, rowId: unknown) => {
     if (rowId == null || !conn || !/^[a-z][a-z0-9_]{0,40}$/.test(String(name))) return null;
@@ -152,5 +159,5 @@ export async function runSiteEffects(env: EffectEnv, ctx: Ctx | undefined, { slu
       tooMany: async () => false,
       post: (url: string, init: RequestInit) => fetch(url, { ...init, redirect: "manual" }),
     }, { slug, table, action: a, row: r, now: Date.now(), eventId: crypto.randomUUID() })),
-  }, { def, action, row: row || {}, submission: method === "POST" });
+  }, { def, action, row: row || {}, submission });
 }

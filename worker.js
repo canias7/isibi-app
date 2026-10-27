@@ -17308,6 +17308,17 @@ async function siteReadVars(env, slug) {
     const mail = await siteMailSecrets(env, db, slug)().catch(() => ({}));
     const sms = await siteSmsSecrets(env, db, slug)().catch(() => ({}));
     const hooks = await _webhookSecrets(slug, env, db).catch(() => ({}));
+    // The owner's own Stripe keys, for the site's checkout and its "paid" message.
+    const stripe = {};
+    for (const name of ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"]) {
+      try {
+        const v = await readSecret({ get: async (_s, n) => {
+          const rows = await sqlQuery(db, "SELECT cipher FROM _secrets WHERE name=?", [n]);
+          return (rows && rows[0] && rows[0].cipher) || null;
+        } }, env, { slug, name });
+        if (v) stripe[name] = v;
+      } catch { /* not set */ }
+    }
     return {
       vars: {
         DATA_API_BASE: data, AUTH_BASE: auth,
@@ -17315,7 +17326,7 @@ async function siteReadVars(env, slug) {
         ...(email ? { OWNER_EMAIL: email } : {}),
         NOTIFY: (await siteNotifyOn(env, slug)) ? "1" : "0",
       },
-      secrets: { ...(app ? { APP_CONN: app } : {}), ...mail, ...sms, ...hooks },
+      secrets: { ...(app ? { APP_CONN: app } : {}), ...mail, ...sms, ...hooks, ...stripe },
     };
   } catch (e) {
     console.error("own data: not given", slug, errorClassForLog(e));
@@ -32364,6 +32375,11 @@ async function handleRequest(request, env, ctx) {
       const wm = url.pathname.match(/^\/api\/stripe\/site\/([a-z0-9][a-z0-9-]{0,80})$/i);
       if (wm) {
         const wslug = wm[1].toLowerCase();
+        // THE SITE HEARS ITS OWN STRIPE MESSAGES when its script says so.
+        if (env.SITE_OWN_DATA === "1" && env.SITE_WORKERS) {
+          const own = await ownDataRead(env, request, wslug);
+          if (own) return own;
+        }
         const wconn = await siteRowConn(env, wslug);
         // 200 on an unknown slug, deliberately. Stripe retries a non-2xx for
         // days and disables an endpoint that keeps failing; a deleted site
@@ -34851,6 +34867,11 @@ async function handleRequest(request, env, ctx) {
     if (url.pathname.startsWith("/api/db/") && url.pathname.endsWith("/checkout")) {
       const cm = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/checkout$/i);
       if (cm) {
+        // THE SITE TAKES ITS OWN PAYMENTS when its script says so (2026-10-27).
+        if (env.SITE_OWN_DATA === "1" && env.SITE_WORKERS) {
+          const own = await ownDataRead(env, request, cm[1].toLowerCase());
+          if (own) return own;
+        }
         if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
         const cslug = cm[1].toLowerCase();
         // Before the body is read and before anything is looked up: this

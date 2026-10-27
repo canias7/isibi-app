@@ -165,3 +165,15 @@ stored under `vuploads/` in the site's bucket (the sync never touches it). The
 platform asks the site first, after its host tie. Not carried: the owner's
 Uploads panel lists the platform's copy, so visitors' files written by the site
 do not show there yet (backlog).
+
+## Payments in the site's own Worker (2026-10-27)
+
+`lib/site-pay.ts`: `POST /api/db/<slug>/checkout` prices the cart from the
+site's own rows (`site-payments.mjs` copied), writes the pending order as the
+site's limited login, opens a Stripe Checkout Session with the OWNER'S
+`STRIPE_SECRET_KEY` (6 a minute per visitor, the platform's own guard), and
+records the session id. `POST /api/stripe/site/<slug>` (still the address in
+the owner's Stripe dashboard; the platform passes it to the site) checks the
+OWNER'S `STRIPE_WEBHOOK_SECRET` (`stripe-webhook.mjs` copied), flips the order
+paid or lapsed, and runs the follow-ups (`runEffectsFor`). Both keys are
+unlocked at publish and given to that site only. 3 cases.
