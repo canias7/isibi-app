@@ -291,7 +291,10 @@ test("ONE reader decides whether the dispatch API is reachable", () => {
   // against its own files.
   // `= dispatchCreds(env)`, so the declaration is not counted as a reader.
   const creds = offsets(code, /=\s*dispatchCreds\(env\)/g);
-  assert.equal(creds.length, 2, "dispatchCreds should be read by putSiteWorker and dropSiteWorker and nowhere else");
+  // Three since 2026-10-27: the own-bucket paths read it through one helper,
+  // `ownBucketCreds`, rather than each deciding for itself.
+  assert.equal(creds.length, 3, "dispatchCreds should be read by the upload, dropSiteWorker and ownBucketCreds and nowhere else");
+  assert.match(code, /function ownBucketCreds\(env\) \{\n  const c = dispatchCreds\(env\);/);
   // And nothing else in the file may assemble the account/token pair by hand.
   const hand = code.match(/accountId:\s*env\./g) || [];
   assert.equal(hand.length, 0, "an account id is being read outside dispatchCreds — that is the second reader");

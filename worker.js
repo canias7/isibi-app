@@ -17227,7 +17227,7 @@ async function sealedBucketFor(env, slug, creds) {
  */
 async function ownBucketMarker(env, slug, how) {
   if (env.SITE_OWN_BUCKETS !== "1") return true;
-  const creds = dispatchCreds(env);
+  const creds = ownBucketCreds(env);
   const bucket = siteBucketName(slug);
   if (!creds || !bucket) return true;
   const dst = restBucket({ accountId: creds.accountId, apiToken: creds.apiToken, bucket });
@@ -17241,6 +17241,16 @@ async function ownBucketMarker(env, slug, how) {
     if (how !== "off") await markResync(env, slug);
     return false;
   }
+}
+
+/**
+ * The own-bucket paths reach Cloudflare with the same pair the uploads use,
+ * read through the one reader (`dispatchCreds`), so "configured" means one
+ * thing everywhere.
+ */
+function ownBucketCreds(env) {
+  const c = dispatchCreds(env);
+  return c ? { accountId: c.accountId, apiToken: c.apiToken } : null;
 }
 
 /** Remember a site whose own bucket is behind; the tick copies it again. */
@@ -17259,7 +17269,7 @@ async function markResync(env, slug) {
 const RESYNC_PER_TICK = 5;
 async function runOwnBucketResync(env) {
   if (env.SITE_OWN_BUCKETS !== "1" || !env.SITES_BUCKET) return { tried: 0, done: 0 };
-  const creds = dispatchCreds(env);
+  const creds = ownBucketCreds(env);
   if (!creds) return { tried: 0, done: 0 };
   const page = await env.SITES_BUCKET.list({ prefix: RESYNC_PREFIX, limit: RESYNC_PER_TICK });
   let done = 0;
@@ -21435,7 +21445,7 @@ async function deleteSiteFor(env, uid, dslug) {
     // now: a bucket made while it was on must not outlive its site. A bucket
     // that was never made is done. Never fatal, loud when left behind.
     {
-      const creds = dispatchCreds(env);
+      const creds = ownBucketCreds(env);
       const bucket = siteBucketName(dslug);
       if (creds && bucket) {
         const gone = await deleteSiteBucket({ accountId: creds.accountId, apiToken: creds.apiToken, bucket }).catch((e) => ({ ok: false, error: String((e && e.message) || e) }));
