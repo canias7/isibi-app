@@ -280,7 +280,7 @@ test("A38-7 (2026-10-23) EVERY SITE IS BACKED UP — the dump opens the database
   const d0 = deps.indexOf("dump: async (slug)");
   assert.ok(d0 > 0, "the dump landmark");
   const dump = deps.slice(d0);
-  assert.match(dump, /const conn = await ownerSiteConn\(env, slug\);/);
+  assert.match(dump, /const conn = await ownerRowConn\(env, slug\);/);
   assert.equal(/siteBackendBySlug\(/.test(deps), false, "the backup still opens the database with the fast lookup alone");
   assert.equal(/no backend connection/.test(deps), false, "a site with no database still fails every tick");
   assert.match(dump, /if \(!conn\) return dumpSite\(\{ loadSchema: async \(\) => null/);

@@ -109,7 +109,7 @@ export const RECOVER_QUERIES = {
     "FROM information_schema.column_privileges WHERE table_schema = 'public'",
   policies:
     "SELECT tablename AS t, cmd AS c, coalesce(qual,'') AS q, coalesce(with_check,'') AS w " +
-    "FROM pg_policies WHERE schemaname = 'public'",
+    "FROM pg_policies WHERE schemaname = 'public' AND policyname <> 'gf_app_rows'",
   // Triggers name the flags that leave no column of their own — `sync`'s
   // tombstone, `audit`'s three, `history`'s snapshot, `ordered`'s positioner.
   // `tgisinternal` excludes the ones Postgres writes for constraints.

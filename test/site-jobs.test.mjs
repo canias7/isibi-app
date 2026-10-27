@@ -850,8 +850,8 @@ test("THE RUNNER READS THE SITE'S CONNECTION, not its project row — and one se
   const shut = worker.indexOf("async function recordJobOutcome(env, row, out) {", open);
   assert.ok(open > 0 && shut > open, "jobDeps or recordJobOutcome is gone");
   const deps = worker.slice(open, shut);
-  const reads = deps.match(/const conn = await siteBackendBySlug\(env, row\.slug\);/g) || [];
-  assert.equal(reads.length, 3, "the three deps do not all read the connection through siteBackendBySlug: " + reads.length);
+  const reads = deps.match(/const conn = await siteRowConn\(env, row\.slug\);/g) || [];
+  assert.equal(reads.length, 3, "the three deps do not all read the connection through siteRowConn (the limited login): " + reads.length);
   assert.doesNotMatch(deps, /siteNeonProject\(/, "a dep still reads the project row where a connection is wanted");
   for (const dep of ["callFn:", "credentials:", "smsCredentials:", "stamp:", "send:", "sendSms:", "phone:", "recipient"]) assert.ok(deps.includes(dep), "jobDeps lost " + dep);
   // ⚠ THE CLAIM'S CONDITION IS ASKED OF `claimFilter`, NOT COMPOSED HERE, and

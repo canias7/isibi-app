@@ -157,7 +157,7 @@ function assertReadOnly(r, what) {
 /** Nothing about the database was read at all. */
 function assertNothingRead(r, what) {
   assert.deepEqual(r.seen.sql, [], what + ": the database was read");
-  assert.equal(r.seen.rest.filter((u) => u.includes("site_project")).length, 0, what + ": the project row was read");
+  assert.equal(r.seen.rest.filter((u) => u.includes("site_project") && !u.includes("select=app_conn")).length, 0, what + ": the project row was read");
 }
 
 test("the owner's own site: its tables reach the router by name, and nothing else of the database", async () => {
@@ -466,7 +466,7 @@ test("CONTROL: a KV hit is used as it always was, and logs nothing", async () =>
   const r = await route({ slug: "tables-kv-hit", wire: { kv } });
   assert.deepEqual(tablesTold(r), ["bookings", "lessons"]);
   assert.equal(calls.put.length, 0, "a hit was written back");
-  assert.equal(r.seen.rest.filter((u) => u.includes("site_project")).length, 0, "a hit still read the project row");
+  assert.equal(r.seen.rest.filter((u) => u.includes("site_project") && !u.includes("select=app_conn")).length, 0, "a hit still read the project row");
   assert.deepEqual(kvLines(r), []);
   assertNothingLeaked(r, "hit");
 });

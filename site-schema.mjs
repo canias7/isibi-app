@@ -20,6 +20,7 @@
 import { sqlQuery, sqlQuery as realSqlQuery, scrubSecrets } from "./site-db.mjs";
 import { policiesFor, grantsFor, writableColumns, publicViewSql, functionSql, fnLanguage, FN_LANGUAGES, FN_SEARCH_PATH, SESSION_JWT_EXT, SESSION_JWT_GRANTS, APP_TEAM_FN, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK } from "./site-rls.mjs";
 import { normalizePayment, PAYMENT_COLUMNS } from "./site-payments.mjs";
+import { appRowPolicySql } from "./site-app-login.mjs";
 
 /**
  * THE STORE EVERY SITE'S APPLICATION METADATA LIVES IN, spelled once.
@@ -1698,6 +1699,12 @@ export async function applySiteSchema(uuid, spec) {
       try { await sqlQuery(uuid, stmt); }
       catch (e) { console.error("rls failed:", t.name, stmt.slice(0, 80), e && (e.detail || e.message)); }
     }
+    // THE LIMITED LOGIN'S ROW POLICY (2026-10-26, `site-app-login.mjs`): the
+    // site's `<db>_app` login reads and writes this table's rows as the owner's
+    // connection did, under RLS rather than around it. A no-op until the site
+    // has that login.
+    try { await sqlQuery(uuid, appRowPolicySql(t.name)); }
+    catch (e) { console.error("limited login policy failed:", t.name, e && (e.detail || e.message)); }
 
     // DERIVED FROM THE NORMALISED TABLE, NOT RE-LISTED.
     //

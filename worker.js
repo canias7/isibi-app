@@ -24,6 +24,7 @@ import { Container, getContainer } from "@cloudflare/containers";
 import { makeCache, memoize } from "./ttl-cache.mjs";
 import { makeLimiter, bucketKey, tooMany, WINDOW_MS } from "./rate-limit.mjs";
 import { ensureSiteBackend as ensureSiteBackendPure } from "./site-provision.mjs";
+import { ensureAppLogin, backfillAppLogins, safeLoginError } from "./site-app-login.mjs";
 import { lookupRoute, saveRoute, dropRoute } from "./site-routing.mjs";
 // The four states "no database" used to mean, and the one place that decides
 // between them. See `site-backend-state.mjs` — run 47 is what the collapse cost.
@@ -2282,6 +2283,9 @@ export default {
     // A JOB PARKED WAITING FOR ITS MODEL IS SENT AGAIN EVERY 5 MINUTES
     // (owner, 2026-10-24), resuming from its saved steps, until it answers.
     ctx.waitUntil(runProviderWaits(env).catch((e) => console.error("provider waits failed", errorClassForLog(e))));
+    // EVERY OLDER SITE GETS ITS LIMITED LOGIN (2026-10-26): a few a tick,
+    // until none is left; inert until `site_app_conn.sql` is applied.
+    ctx.waitUntil(runAppLoginBackfill(env).catch((e) => console.error("limited login backfill failed", errorClassForLog(e))));
   },
   // ── THE BUILD QUEUE CONSUMER (see wrangler.jsonc for why this exists) ──────
   //
@@ -3065,7 +3069,7 @@ function backupDeps(env) {
       // ONLY STATE `none` IS TABLE-LESS (review of r2-combine): a database
       // that exists but derives no connection (its project row missing) is a
       // failure to retry, never an empty backup that blocks the day's real one.
-      const conn = await ownerSiteConn(env, slug);
+      const conn = await ownerRowConn(env, slug);
       if (!conn && (await siteBackendDetail(env, slug)).state !== "none") throw new Error("site database has no connection to back up");
       if (!conn) return dumpSite({ loadSchema: async () => null, readTable: async () => [], readMeta: async () => ({}) }, { slug, now: Date.now() });
       return dumpSite({
@@ -3342,7 +3346,7 @@ export function jobDeps(env, row) {
       // customer's address into last_result — a platform table (2026-08-13
       // audit). No error message from the parse ever leaves this function.
       callFn: async (fn) => {
-        const conn = await siteBackendBySlug(env, row.slug);
+        const conn = await siteRowConn(env, row.slug);
         if (!conn) return { jobsSkip: "the site's database is unreachable" };
         const spec = await loadSiteSchema(conn);
         const declared = (spec && Array.isArray(spec.jobs) ? spec.jobs : []).some((j) => j && j.name === row.name && j.fn === fn);
@@ -3361,7 +3365,7 @@ export function jobDeps(env, row) {
       // owner "no provider key in Secrets" while their confirmations sent
       // fine on the same key (2026-08-13 audit).
       credentials: async () => {
-        const conn = await siteBackendBySlug(env, row.slug);
+        const conn = await siteRowConn(env, row.slug);
         if (!conn) return null;
         const secrets = await siteMailSecrets(env, conn, row.slug)();
         const picked = pickProvider(secrets);
@@ -3386,7 +3390,7 @@ export function jobDeps(env, row) {
       // disagree about which key is live — the lesson `siteMailSecrets` already
       // carries, applied one channel over.
       smsCredentials: async () => {
-        const conn = await siteBackendBySlug(env, row.slug);
+        const conn = await siteRowConn(env, row.slug);
         if (!conn) return null;
         const secrets = await siteSmsSecrets(env, conn, row.slug)();
         const picked = pickSmsProvider(secrets);
@@ -8016,6 +8020,115 @@ async function ownerSiteConn(env, slug) {
 }
 
 /**
+ * THE LIMITED LOGIN (2026-10-26, `site-app-login.mjs`): every path that only
+ * reads and writes ROWS opens the site's database here, as `<db>_app`, which
+ * cannot create, alter or drop a table or change a permission. Schema and
+ * admin work (applying a schema, rules, grants, Neon Auth and the Data API,
+ * rehearsals, recovery's catalog reads, restores, the backfills) stays on the
+ * owner's login (`siteBackendBySlug`, `siteBackendDetail`, `ownerSiteConn`).
+ *
+ * FALLBACK ONLY WHEN THE SITE HAS NO LIMITED LOGIN YET: `site_project.app_conn`
+ * empty, or the column not there yet (`supabase/proposed/site_app_conn.sql`
+ * not applied). A lookup that FAILS is not "none" and throws, like every other
+ * backend lookup on these paths. The string is never logged or returned.
+ */
+const _appConnCache = makeCache({ ttlMs: SITE_CONN_TTL_MS, max: 500 });
+const APP_CONN_NONE = "";
+const _resolveAppConn = memoize(_appConnCache, async (slug, env) => {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/site_project?slug=eq.${encodeURIComponent(String(slug || "").toLowerCase())}&select=app_conn&limit=1`,
+    { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
+  if (!r.ok) {
+    const body = await r.text().catch(() => "");
+    // The column not there yet is "no limited login yet", and only that answer.
+    if (r.status === 400 && /app_conn/.test(body) && /42703|does not exist|PGRST204/.test(body)) return APP_CONN_NONE;
+    throw Object.assign(new Error("limited login lookup failed"), { name: "BackendUnreadable", detail: String(r.status) });
+  }
+  const rows = await r.json().catch(() => undefined);
+  if (!Array.isArray(rows)) throw Object.assign(new Error("limited login lookup failed"), { name: "BackendUnreadable", detail: "the answer could not be read" });
+  const c = rows[0] && typeof rows[0].app_conn === "string" ? rows[0].app_conn.trim() : "";
+  return /^postgres(?:ql)?:\/\//i.test(c) ? c : APP_CONN_NONE;
+});
+/** The site's limited login, or null when it has none yet. Throws when it cannot tell. */
+async function siteAppConn(env, slug) {
+  const c = await _resolveAppConn(String(slug || "").toLowerCase(), env);
+  return c || null;
+}
+/** ROW work: the limited login, or the owner's (fast reader) for a site that has none yet. */
+async function siteRowConn(env, slug) {
+  return (await siteAppConn(env, slug)) || siteBackendBySlug(env, slug);
+}
+/** ROW work for the owner's own panel: the limited login, or `ownerSiteConn`. */
+async function ownerRowConn(env, slug) {
+  return (await siteAppConn(env, slug)) || ownerSiteConn(env, slug);
+}
+/** Write `site_project.app_conn`. true when it landed. Never logs the value. */
+async function saveAppConn(env, slug, conn) {
+  const s = String(slug || "").toLowerCase();
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/site_project?slug=eq.${encodeURIComponent(s)}&select=slug`, {
+      method: "PATCH",
+      headers: svcHeaders(env, { "content-type": "application/json", Prefer: "return=representation" }),
+      body: JSON.stringify({ app_conn: conn }),
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!r.ok) return false;
+    const rows = await r.json().catch(() => undefined);
+    if (!Array.isArray(rows) || !rows.length) return false;
+    _appConnCache.delete(s);
+    return true;
+  } catch { return false; }
+}
+/** Make the site's limited login over the owner's connection and record it. Best-effort; true when recorded. */
+async function provisionAppLogin(env, slug, ownerConn) {
+  if (!ownerConn) return false;
+  try {
+    const made = await ensureAppLogin(ownerConn);
+    if (await saveAppConn(env, slug, made.conn)) return true;
+    console.error("limited login: could not record it for", slug);
+  } catch (e) {
+    console.error("limited login failed for", slug, (e && e.code) || "", safeLoginError(e));
+  }
+  return false;
+}
+/**
+ * THE BACKFILL TICK: `APP_LOGIN_PER_TICK` older sites a tick get their limited
+ * login (`backfillAppLogins` has the rules: bounded, retryable, idempotent).
+ * The cursor lives in R2; the column not there yet makes it a no-op.
+ */
+/** For the tests (`test/limited-login.test.mjs`): the resolvers and the tick, driven with a stubbed fetch. */
+export const appLoginApi = { siteAppConn, siteRowConn, ownerRowConn, saveAppConn, provisionAppLogin, runAppLoginBackfill: (env) => runAppLoginBackfill(env), forget: (s) => { _appConnCache.delete(s); _connCache.delete(s); } };
+const APP_LOGIN_PER_TICK = 3;
+const APP_LOGIN_CURSOR_KEY = "site-app-login/cursor.txt";
+async function runAppLoginBackfill(env) {
+  if (!env || !env.SUPABASE_SERVICE_KEY) return null;
+  return backfillAppLogins({
+    listMissing: async (after, limit) => {
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/site_project?select=slug&or=(app_conn.is.null,app_conn.eq.)` +
+        (after ? `&slug=gt.${encodeURIComponent(after)}` : "") + `&order=slug.asc&limit=${limit}`,
+        { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
+      if (!r.ok) {
+        const body = await r.text().catch(() => "");
+        if (r.status === 400 && /app_conn/.test(body)) return null;
+        throw new Error("limited login backfill: list " + r.status);
+      }
+      const rows = await r.json().catch(() => undefined);
+      if (!Array.isArray(rows)) throw new Error("limited login backfill: the list could not be read");
+      return rows.map((x) => String((x && x.slug) || "")).filter(Boolean);
+    },
+    ownerConnFor: async (slug) => {
+      const d = await siteBackendDetail(env, slug);
+      if (d.state === "unreadable") throw new Error("backend unreadable: " + d.why);
+      return d.conn || null;
+    },
+    ensure: (ownerConn) => ensureAppLogin(ownerConn),
+    save: (slug, conn) => saveAppConn(env, slug, conn),
+    readCursor: async () => { const o = env.SITES_BUCKET ? await env.SITES_BUCKET.get(APP_LOGIN_CURSOR_KEY) : null; return o ? o.text() : ""; },
+    writeCursor: async (s) => { if (env.SITES_BUCKET) await env.SITES_BUCKET.put(APP_LOGIN_CURSOR_KEY, String(s || "")); },
+    warn: (m) => console.error(m),
+  }, { limit: APP_LOGIN_PER_TICK });
+}
+
+/**
  * THE SITE'S OWN TABLE NAMES, FOR THE ROUTER, WHEN THE BROWSER SENT NONE
  * (Lane 1d, 2026-09-30).
  *
@@ -8055,7 +8168,7 @@ async function routeTableNames(env, uid, slug, owned = null) {
   // tables" and "we could not read them" were one value, and the route kept
   // the browser's names for both.
   if (!uid || !(owned === true || (await siteOwnerBySlug(slug, env)) === uid)) return null;
-  const conn = await ownerSiteConn(env, slug);
+  const conn = await ownerRowConn(env, slug);
   // NO DATABASE AT ALL IS AN ANSWER: the backend reader says so (`none`), and
   // it throws when it cannot tell (`unreadable`), which the caller's bound
   // turns into `null`.
@@ -8808,7 +8921,7 @@ function diagnoseTools(env, { id, slug, b }) {
       const ps = await pages();
       let tables = null;
       try {
-        const conn = await ownerSiteConn(env, slug);
+        const conn = await ownerRowConn(env, slug);
         if (!conn) tables = [];
         else {
           const st = await readStoredSpec(conn);
@@ -10472,7 +10585,7 @@ async function routeDigest(env, user, rb, { keepPages = false, words = true } = 
     // has made since cannot change what this call is shown.
     keepPages ? Promise.resolve(null) : owned.then((ok) => (ok === true ? withinMs(loadSiteSource(env, slug), ROUTE_PAGES_MS, "route pages:", slug) : null)),
     owned.then((ok) => (ok === true ? withinMs((async () => {
-      const conn = await ownerSiteConn(env, slug);
+      const conn = await ownerRowConn(env, slug);
       if (!conn) return { ok: true, spec: { tables: [] } };
       return readStoredSpec(conn);
     })(), ROUTE_TABLES_MS, "route spec:", slug) : null)),
@@ -10523,7 +10636,7 @@ async function readConverseContext(env, user, rb, digest) {
   const [src, spec, files] = await Promise.all([
     withinMs(loadSiteSource(env, slug), CONVERSE_READ_MS, "converse pages:", slug),
     withinMs((async () => {
-      const conn = await ownerSiteConn(env, slug);
+      const conn = await ownerRowConn(env, slug);
       if (!conn) return { ok: true, spec: { tables: [] } };
       return readStoredSpec(conn);
     })(), CONVERSE_READ_MS, "converse tables:", slug),
@@ -11374,6 +11487,11 @@ async function ensureSiteBackend(env, slug, uid, brief, mark, chatId = "") {
   // whether or not this lands. A failure logs; the next provision retries it,
   // and `scripts/backend-repair.mjs` closes the ones that never do.
   await healSiteBackendDb(env, slug, uid, dbNameFromConn(conn));
+  // THE LIMITED LOGIN FOR A NEW SITE (2026-10-26). Best-effort: a site
+  // without one keeps working on the owner's login, and the backfill tick
+  // makes it later (a container job cannot write `site_project`, so a site
+  // first provisioned there gets its login from the tick).
+  if (!(await siteAppConn(env, slug).catch(() => null))) await provisionAppLogin(env, slug, conn);
   return conn;
 }
 
@@ -11720,7 +11838,7 @@ function idemFor(env, slug, scope, key, fp = null) {
 }
 
 async function proxySiteService(env, request, url, slug, path, which, ctx) {
-  const db = await siteBackendBySlug(env, slug);
+  const db = await siteRowConn(env, slug);
   if (!db) return Response.json({ error: "no such site" }, { status: 404 });
   let base;
   try { base = which === "data" ? await siteDataBase(db) : await siteAuthBase(db); }
@@ -14214,7 +14332,7 @@ async function refreshSiteMap(env, slug, version = null, { save = true } = {}) {
       // covers everything): one count per table, at most 24, each failing
       // open to "not known" rather than to a number.
       (async () => {
-        const conn = await ownerSiteConn(env, slug);
+        const conn = await ownerRowConn(env, slug);
         if (!conn) return { spec: { tables: [] }, counts: {} };
         // THE COLUMNS THE TABLES REALLY HAVE: the add-on's own reader, so a
         // column declared and never made is in no map, and a table the stored
@@ -14228,7 +14346,7 @@ async function refreshSiteMap(env, slug, version = null, { save = true } = {}) {
         }));
         return { spec, counts };
       })().catch(() => null),
-      (async () => { const db = await siteBackendBySlug(env, slug); const c = await readSiteConfig(env, slug, db); return c.ok ? c.config : null; })().catch(() => null),
+      (async () => { const db = await siteRowConn(env, slug); const c = await readSiteConfig(env, slug, db); return c.ok ? c.config : null; })().catch(() => null),
       (async () => { const o = await env.SITES_BUCKET.get(siteMetaKey(slug)); return o ? JSON.parse(await o.text()) : null; })().catch(() => null),
     ]);
     let redirects = null;
@@ -16056,7 +16174,7 @@ async function previewFtsRows(env, ask, url, slug, path, table, merged, ops, fts
     const keep = new Set();
     if (held.length) {
       if (!exists) return null;
-      const conn = await siteBackendBySlug(env, slug);
+      const conn = await siteRowConn(env, slug);
       if (!conn) return null;
       const cat = await sqlReadOnly(conn, FTS_CATALOG_SQL, [table, fts.col]);
       if (!Array.isArray(cat) || cat.length !== 1) return null;
@@ -16683,7 +16801,7 @@ async function stampFences(env, slug, fence) {
     [POINTER_KEY(slug)]: async () => JSON.stringify(POINTER_NONE),
     [CONFIG_KEY(slug)]: async () => {
       let db = null;
-      try { db = await siteBackendBySlug(env, slug); }
+      try { db = await siteRowConn(env, slug); }
       catch (e) { throw new Error("fence stamp: the site's database could not be looked up for its config — " + errorClassForLog(e)); }
       const cur = await loadConfig(configDeps(env, slug, db), slug);
       if (!cur || !cur.ok) throw new Error("fence stamp: the config could not be read — " + String((cur && cur.why) || "store"));
@@ -20839,7 +20957,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         // would find R2 non-empty, stop falling back, and the site's whole look
         // would be unfindable. Skipping costs one re-translation next publish.
         let db2 = null, resolved = true;
-        try { db2 = await siteBackendBySlug(env, slug); }
+        try { db2 = await siteRowConn(env, slug); }
         catch (e) { resolved = false; console.error("lang cache write skipped, backend unreadable", slug, String((e && e.message) || e)); }
         if (resolved) {
           const w = await patchSiteConfig(env, slug, db2, { langStrings: langCache });
@@ -21358,6 +21476,7 @@ async function deleteSiteFor(env, uid, dslug) {
     // holding a string that points at a dropped database is worse than a slow
     // lookup: it answers reads with a connection error instead of a 404.
     _connCache.delete(dslug);
+    _appConnCache.delete(dslug);
     // AND THE CACHED OWNER, or the API cache key is wrong for exactly as long
     // as the slug takes to be re-claimed.
     //
@@ -24088,7 +24207,7 @@ export async function reconcileEditJob(env, id, hint = null) {
  */
 async function rowReviewFacts(env, row, key, { close = false } = {}) {
   let conn = null;
-  try { conn = (await siteBackendDetail(env, String(row.slug || ""))).conn || null; } catch { conn = null; }
+  try { conn = (await siteAppConn(env, String(row.slug || ""))) || (await siteBackendDetail(env, String(row.slug || ""))).conn || null; } catch { conn = null; }
   if (!conn) return { marker: { state: "no-db" } };
   const read = async () => {
     try {
@@ -32228,7 +32347,7 @@ async function handleRequest(request, env, ctx) {
       const wm = url.pathname.match(/^\/api\/stripe\/site\/([a-z0-9][a-z0-9-]{0,80})$/i);
       if (wm) {
         const wslug = wm[1].toLowerCase();
-        const wconn = await siteBackendBySlug(env, wslug);
+        const wconn = await siteRowConn(env, wslug);
         // 200 on an unknown slug, deliberately. Stripe retries a non-2xx for
         // days and disables an endpoint that keeps failing; a deleted site
         // whose owner left the endpoint registered would otherwise generate
@@ -34452,7 +34571,7 @@ async function handleRequest(request, env, ctx) {
           const t = tooMany(ahit);
           return Response.json(t.body, { status: t.status, headers: t.headers });
         }
-        const adb = await siteBackendBySlug(env, slug);
+        const adb = await siteRowConn(env, slug);
         if (!adb) return Response.json({ error: "no such connection" }, { status: 404 });
         const spec = await loadSiteSchema(adb).catch(() => null);
         const api = apiFor(spec, aname);
@@ -34515,7 +34634,7 @@ async function handleRequest(request, env, ctx) {
         if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
         const slug = hm[1].toLowerCase();
         const hname = hm[2].toLowerCase().replace(/-/g, "_");
-        const hdb = await siteBackendBySlug(env, slug);
+        const hdb = await siteRowConn(env, slug);
         if (!hdb) return Response.json({ error: "no such hook" }, { status: 404 });
         // READ THE RAW BYTES. An HMAC is over exactly what was sent, and
         // re-serialising a parse changes key order and whitespace — every real
@@ -34577,7 +34696,7 @@ async function handleRequest(request, env, ctx) {
         if (msg) {
           ctx.waitUntil((async () => {
             try {
-              const conn = await siteBackendBySlug(env, slug);
+              const conn = await siteRowConn(env, slug);
               if (!conn) return;
               const insert = () => sqlExec(conn,
                 "INSERT INTO _errors (at, message, stack, route, source) VALUES (to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS'), ?, ?, ?, ?)",
@@ -34611,7 +34730,11 @@ async function handleRequest(request, env, ctx) {
                 // database here to find that out on.
                 const miss = /does not exist/i.test(String((e && e.message) || "")) || (e && e.code) === "42P01";
                 if (!miss) throw e;
-                await sqlExec(conn, "CREATE TABLE IF NOT EXISTS _errors (id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, at TEXT, message TEXT, stack TEXT, route TEXT, source TEXT)");
+                // SCHEMA WORK, ON THE OWNER'S LOGIN (2026-10-26): the row
+                // login above cannot create a table; the insert stays on it.
+                const ownerConn = await siteBackendBySlug(env, slug);
+                if (!ownerConn) throw e;
+                await sqlExec(ownerConn, "CREATE TABLE IF NOT EXISTS _errors (id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, at TEXT, message TEXT, stack TEXT, route TEXT, source TEXT)");
                 await insert();
               }
               // Prune on the WRITE, roughly one in twenty, for the audit-log
@@ -34655,7 +34778,7 @@ async function handleRequest(request, env, ctx) {
           const t = tooMany(thit);
           return Response.json(t.body, { status: t.status, headers: t.headers });
         }
-        const tdb = await siteBackendBySlug(env, slug);
+        const tdb = await siteRowConn(env, slug);
         if (!tdb) return Response.json({}, { status: 404 });
         let key = "";
         try { key = (await turnstileConfig(slug, env, tdb, url.hostname)).siteKey || ""; } catch { /* unconfigured */ }
@@ -34710,7 +34833,7 @@ async function handleRequest(request, env, ctx) {
           CHECKOUT_PER_MIN,
         );
         if (!chit.ok) { const t = tooMany(chit); return Response.json(t.body, { status: t.status, headers: t.headers }); }
-        const cconn = await siteBackendBySlug(env, cslug);
+        const cconn = await siteRowConn(env, cslug);
         if (!cconn) return Response.json({ error: "no such site" }, { status: 404 });
         let cidem = null;
         try {
@@ -34762,7 +34885,7 @@ async function handleRequest(request, env, ctx) {
         if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
         if (!env.SITES_BUCKET) return Response.json({ error: "storage not configured" }, { status: 501 });
         const vslug = vm[1].toLowerCase();
-        const conn = await siteBackendBySlug(env, vslug);
+        const conn = await siteRowConn(env, vslug);
         if (!conn) return Response.json({ error: "no such site" }, { status: 404 });
         // Checked before the body is read: a flood should not get us to buffer
         // megabytes before being told no.
@@ -36808,7 +36931,7 @@ async function handleRequest(request, env, ctx) {
           // some earlier build left the connection in KV — so the owner's own
           // panel said "no such site" on a site whose database is real. READ
           // ONLY: nothing is written back (`ownerSiteConn`).
-          dbFor: (s2) => ownerSiteConn(env, s2),
+          dbFor: (s2) => ownerRowConn(env, s2),
           loadSchema: (conn) => loadSiteSchema(conn),
           query: (conn, sql, args) => sqlQuery(conn, sql, args),
           exec: (conn, sql, args) => sqlExec(conn, sql, args),
@@ -37447,7 +37570,7 @@ async function handleRequest(request, env, ctx) {
             // nothing-there, which is the rule `loadConfig` already keeps.
             let preEditConfig = null;
             try {
-              const snap = await readSiteConfig(env, ownerSlug, await siteBackendBySlug(env, ownerSlug));
+              const snap = await readSiteConfig(env, ownerSlug, await siteRowConn(env, ownerSlug));
               if (snap.ok) preEditConfig = { look: snap.config.look, css: snap.config.css };
             } catch { preEditConfig = null; }
             // ── AND IT GOES BACK ON EVERY WAY OUT THAT PUBLISHES NOTHING ────
@@ -37474,7 +37597,7 @@ async function handleRequest(request, env, ctx) {
               try {
                 if (!preEditConfig) throw new Error("no snapshot to restore from");
                 await mayWriteConfig(env, ownerSlug, eJob);
-                const back = await patchSiteConfig(env, ownerSlug, await siteBackendBySlug(env, ownerSlug), preEditConfig, jobFence(env, eJob));
+                const back = await patchSiteConfig(env, ownerSlug, await siteRowConn(env, ownerSlug), preEditConfig, jobFence(env, eJob));
                 if (!back.ok) throw new Error(back.error);
                 return true;
               } catch (e) {
@@ -38866,7 +38989,7 @@ async function handleRequest(request, env, ctx) {
               // THE TABLES READ FROM THE LIVE DATABASE: only a change to one of these can
               // be rehearsed there (a table held new is not live yet).
               const dLive = new Set();
-              let ddb = await siteBackendBySlug(env, ownerSlug);
+              let ddb = await siteRowConn(env, ownerSlug);
               let dResolved = false;
               if (!ddb) {
                 const dBack = await siteBackendDetail(env, ownerSlug);
@@ -40164,7 +40287,7 @@ async function handleRequest(request, env, ctx) {
               // connection is passed to `patchSiteConfig` and nowhere else in
               // this branch; `configDeps` guards it with `if (db)` and reads the
               // logo out of R2 regardless. There is no query here to need it.
-              const ldb = await siteBackendBySlug(env, ownerSlug);
+              const ldb = await siteRowConn(env, ownerSlug);
               // UP TO 3 ARRIVE (more were refused above), AND ONE IS A LOGO — a
               // business has one. This used to take the first and say nothing;
               // since 2026-10-03 the step refuses more than one, with the
@@ -40360,7 +40483,7 @@ async function handleRequest(request, env, ctx) {
               // primary wording matched nothing and the request quotes a
               // language's current wording (`eLangByWords`).
               const eLangRead = async () => {
-                const db = await siteBackendBySlug(env, ownerSlug);
+                const db = await siteRowConn(env, ownerSlug);
                 const c = await readSiteConfig(env, ownerSlug, db);
                 if (!c.ok) return null;
                 const look = c.config.look && typeof c.config.look === "object" ? c.config.look : {};
@@ -40555,7 +40678,7 @@ async function handleRequest(request, env, ctx) {
               // a real stylesheet is NOT escalated; no frontend-only site ever
               // reached that line to be saved by it. A guard watching the layer
               // below the break, which is this repo's own recorded trap.
-              const edb = await siteBackendBySlug(env, ownerSlug);
+              const edb = await siteRowConn(env, ownerSlug);
               let priorLook = null;
               // The stored config itself, for `markRemove` below (audit A26-2).
               let priorConfig = null;
@@ -41749,7 +41872,7 @@ async function handleRequest(request, env, ctx) {
               //    the provision that made the database records it
               //    (`healSiteBackendDb`, admitted by the job gateway since
               //    2026-10-18, audit A04-2/A09-1).
-              let eDb = await siteBackendBySlug(env, ownerSlug);
+              let eDb = await siteRowConn(env, ownerSlug);
               let eResolved = false;
               if (!eDb) {
                 const eBack = await siteBackendDetail(env, ownerSlug);
@@ -50268,7 +50391,7 @@ async function handleRequest(request, env, ctx) {
             // a backend lookup. Fails closed: without a connection we cannot say
             // what a site holds, and answering "no secrets" would read as an
             // empty vault and invite somebody to re-add a key they already have.
-            const sconn = await siteBackendBySlug(env, sslug);
+            const sconn = await siteRowConn(env, sslug);
             if (!sconn) return Response.json({ error: "publish the site first — then it can hold secrets" }, { status: 409 });
             const vault = {
               list: async () => {
@@ -50299,7 +50422,7 @@ async function handleRequest(request, env, ctx) {
                 // works. Additive: the panel reads `.secrets` and is untouched.
                 // Best-effort, because a missing note must not fail the listing.
                 try {
-                  const sdb = await siteBackendBySlug(env, sslug);
+                  const sdb = await siteRowConn(env, sslug);
                   if (sdb) {
                     const rows = await sqlQuery(sdb, "SELECT v FROM _meta WHERE k='webhook_last'", []);
                     const v = rows && rows[0] && rows[0].v;
@@ -50612,7 +50735,7 @@ async function handleRequest(request, env, ctx) {
             const gE = await assertOwner(ownerDeps, eslug, ou.id);
             if (gE.error) return Response.json(gE.error.body, { status: gE.error.status });
             if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
-            const econn = await siteBackendBySlug(env, eslug);
+            const econn = await siteRowConn(env, eslug);
             if (!econn) return Response.json({ ok: true, errors: [] });
             try {
               const rows = await sqlQuery(econn,
@@ -50633,7 +50756,7 @@ async function handleRequest(request, env, ctx) {
             if (request.method !== "GET" && request.method !== "POST") {
               return Response.json({ error: "method not allowed" }, { status: 405 });
             }
-            const vconn = await siteBackendBySlug(env, vslug);
+            const vconn = await siteRowConn(env, vslug);
             // CANNOT TELL IS NOT THE SAME AS NOT SET — the rule `assertOwner`
             // itself follows. Answering an empty object here would show the
             // owner a blank form and invite them to re-paste a token that is
@@ -50803,7 +50926,7 @@ async function handleRequest(request, env, ctx) {
             // before the scan, and the most the scan may charge.
             const scanInputs = async () => {
               let tbl = [];
-              const db0 = await siteBackendBySlug(env, scslug).catch(() => null);
+              const db0 = await siteRowConn(env, scslug).catch(() => null);
               if (db0) {
                 try {
                   const tr = await handleOwnerTables(ownerDeps, { slug: scslug, uid: ou.id });
@@ -50886,7 +51009,7 @@ async function handleRequest(request, env, ctx) {
             const checked = [];
             // THE TABLES, from the owner's own list (names, rules, columns).
             let tables = [];
-            const scdb = await siteBackendBySlug(env, scslug).catch(() => null);
+            const scdb = await siteRowConn(env, scslug).catch(() => null);
             if (scdb) {
               try {
                 const tr = await handleOwnerTables(ownerDeps, { slug: scslug, uid: ou.id });
@@ -51362,7 +51485,7 @@ async function handleRequest(request, env, ctx) {
             r = await handleOwnerAnalytics(ownerDeps, { slug: an[1].toLowerCase(), uid: ou.id });
           } else if (mm) {
             const [, mslug, mid] = mm;
-            r = await handleOwnerMembers(ownerDeps, {
+            r = await handleOwnerMembers({ ...ownerDeps, dbFor: (s2) => ownerSiteConn(env, s2) }, {
               slug: mslug.toLowerCase(), uid: ou.id, method: request.method,
               memberId: mid, params: Object.fromEntries(url.searchParams),
               // PATCH is the only way a role or a suspension is ever set.

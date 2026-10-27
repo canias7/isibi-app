@@ -1932,7 +1932,7 @@ test("THE PAGE BRANCH ACTUALLY MOVES THE PAGE, and spends no model call doing it
   // siteBackendBySlug`; when that line became `let eDb` the needle matched
   // nothing anywhere in the file, and this negative went on passing about a
   // string that no longer existed — the absence of an observer, read as a pass.
-  const next = "siteBackendBySlug(env, ownerSlug)";
+  const next = "siteRowConn(env, ownerSlug)";
   assert.ok(worker.indexOf(next, at) > at,
     "the backend read below the rename branch is gone, so the bound below proves nothing");
   assert.ok(!branch.includes(next),

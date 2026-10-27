@@ -651,7 +651,7 @@ test("the CSS and logo lanes serve a site with NO database — the default kind"
   // from the declarations rather than a list of today's variable names, so a
   // renamed connection cannot slip a new refusal past this.
   for (const v of ["edb", "ldb"]) {
-    assert.match(b, new RegExp("const " + v + " = await siteBackendBySlug"),
+    assert.match(b, new RegExp("const " + v + " = await (?:siteBackendBySlug|siteRowConn)"),
       "the " + v + " lane no longer reads the connection at all — this guard has lost its subject");
     assert.ok(!new RegExp("if \\(!" + v + "\\) return escalate").test(b),
       "the " + v + " lane refuses a site with no database again — that is most sites, at ~17 credits each");
@@ -795,7 +795,7 @@ test("nothing reads a property off siteBackendBySlug — it returns a STRING", (
     "lookupRoute no longer returns the KV value directly, so it may no longer be a string");
 
   // Every binding of its result, and what is done with that binding.
-  const binds = [...WORKER.matchAll(/(?:const|let)\s+(\w+)\s*=\s*await siteBackendBySlug\(/g)].map((m) => m[1]);
+  const binds = [...WORKER.matchAll(/(?:const|let)\s+(\w+)\s*=\s*await (?:siteBackendBySlug|siteRowConn)\(/g)].map((m) => m[1]);
   assert.ok(binds.length >= 8, "only found " + binds.length + " callers — the scan broke");
   const src = WORKER.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => " ".repeat(m.length));
   for (const name of new Set(binds)) {
