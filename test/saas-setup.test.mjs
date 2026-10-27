@@ -53,7 +53,9 @@ test("the wildcard route is LIVE — it is what makes a custom domain reach the 
   // Asserted on the ACTIVE lines only. The block above it explains the ordering
   // and quotes the pattern, so a search over the whole file would pass on a
   // route that had been commented back out.
-  const active = routes.split("\n").filter((l) => !l.trim().startsWith("//")).join("\n");
+  // ON THE FRONT DOOR since 2026-10-27: customer domains come through it.
+  const front = read("front/wrangler.jsonc");
+  const active = front.split("\n").filter((l) => !l.trim().startsWith("//")).join("\n");
   assert.ok(active.includes(WILDCARD), "the */* route is gone — every custom domain now answers 522");
 });
 
@@ -62,7 +64,7 @@ test("the config and the setup script agree on what to uncomment", () => {
   // the script, pastes something the config does not have, and the deploy fails
   // in the way this whole ordering exists to avoid.
   assert.ok(script.includes(WILDCARD), "saas-setup.mjs no longer prints the exact line to add");
-  assert.match(script, /wrangler\.jsonc/);
+  assert.match(script, /front\/wrangler\.jsonc/);
 });
 
 test("the route cannot be created out of band, so nothing may suggest it", () => {

@@ -43,8 +43,9 @@ test("the guard above can actually fail", () => {
   // Proving the matcher is not simply blind to the file. The app zone's route IS
   // uncommented today, so the same test applied to it must come out true — with
   // a broken matcher both answers would be false and the assertion above would
-  // pass forever.
-  const w = read("wrangler.jsonc");
+  // pass forever. Read from the front door's config since 2026-10-27: the app
+  // zone's `*/*` route (customer domains) moved there.
+  const w = read("front/wrangler.jsonc");
   const appLive = w.split("\n").some((l) => {
     const s = l.trim();
     return !s.startsWith("//") && s.includes('"zone_name": "' + APP_ZONE + '"');

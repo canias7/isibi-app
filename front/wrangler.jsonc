@@ -14,7 +14,11 @@
   "workers_dev": false,
   // The one binding: a private, fixed link to the platform Worker.
   "routes": [
-    { "pattern": "*.gofarther.app/*", "zone_name": "gofarther.app" }
+    { "pattern": "*.gofarther.app/*", "zone_name": "gofarther.app" },
+    // CUSTOMERS' OWN DOMAINS (2026-10-27): Cloudflare for SaaS hostnames enter
+    // gofarther.dev's zone and match this. gofarther.dev and www keep their
+    // exact custom_domain routes on the platform, which win over this.
+    { "pattern": "*/*", "zone_name": "gofarther.dev" }
   ],
   "services": [
     { "binding": "PLATFORM", "service": "isibi-app" }

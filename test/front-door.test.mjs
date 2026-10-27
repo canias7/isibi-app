@@ -44,7 +44,7 @@ test("the front door holds one binding, the platform, and every site address on 
   const j = JSON.parse(cfg);
   assert.deepEqual(j.services, [{ binding: "PLATFORM", service: "isibi-app" }]);
   for (const k of ["r2_buckets", "kv_namespaces", "d1_databases", "dispatch_namespaces", "vars", "route"]) assert.equal(j[k], undefined, k);
-  assert.deepEqual(j.routes, [{ pattern: "*.gofarther.app/*", zone_name: "gofarther.app" }]);
+  assert.deepEqual(j.routes, [{ pattern: "*.gofarther.app/*", zone_name: "gofarther.app" }, { pattern: "*/*", zone_name: "gofarther.dev" }]);
   const main = JSON.parse(fs.readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8").replace(/^\s*\/\/.*$/gm, "").replace(/,(\s*[}\]])/g, "$1"));
   assert.equal(j.compatibility_date, main.compatibility_date);
   // Deployed after the platform's own deploy and its gate, never before.
@@ -76,4 +76,11 @@ test("the limits default to the owner's numbers and take only positive whole ove
 
 test("the platform keeps its own gofarther.app route as the fallback", () => {
   assert.match(fs.readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"), /\{ "pattern": "\*\/\*", "zone_name": "gofarther\.app" \}/);
+});
+
+test("the platform no longer holds gofarther.dev's catch-all; the app keeps its exact routes", () => {
+  const w = fs.readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8").split("\n").filter((l) => !l.trim().startsWith("//")).join("\n");
+  assert.doesNotMatch(w, /"pattern": "\*\/\*", "zone_name": "gofarther\.dev"/);
+  assert.match(w, /"pattern": "gofarther\.dev", "custom_domain": true/);
+  assert.match(w, /"pattern": "www\.gofarther\.dev", "custom_domain": true/);
 });

@@ -66,3 +66,19 @@ screenshot of the bakery's home page matches the site. Not runtime-confirmed
 
 The front door's route becomes `*.gofarther.app/*`; the platform keeps its
 `*/*` on the zone as the fallback, so nothing is unrouted at any moment.
+
+## Customer domains through the front door (prepared, 2026-10-27)
+
+`test.isibi.ai` (owner's domain; the root and its mail untouched) was added to
+`ember-cart` through the app's own domains route, its three records written
+with a token the owner created for isibi.ai's DNS only (not stored). Live at
+21:34 UTC on the old path: 200, title "Ember Cart", certificate issued, no
+`x-served-by`.
+
+The `*/*` route on gofarther.dev's zone moves from `wrangler.jsonc` to
+`front/wrangler.jsonc`; `gofarther.dev` and `www` keep their exact
+`custom_domain` routes on the platform. The deploy removes the platform's
+route before the front door adds its own (about a minute with no Worker on
+customer hostnames; `site_domains` held no customer domain, only the test
+one). `saas-setup.mjs` now names the front door's config; `site-zone`'s
+control and `saas-setup`'s wildcard test read it there.

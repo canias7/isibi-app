@@ -73,7 +73,10 @@
     // script: wrangler publishes routes with a PUT that DELETES any it was not
     // told about, so an out-of-band route survives exactly until the next
     // deploy.
-    { "pattern": "*/*", "zone_name": "gofarther.dev" },
+    // CUSTOM DOMAINS MOVED TO THE FRONT DOOR (2026-10-27, owner's "merge and
+    // deploy" after test.isibi.ai went live on this route): the `*/*` route on
+    // gofarther.dev's zone now lives in front/wrangler.jsonc. The two exact
+    // custom_domain routes above keep the app here.
 
     // ── THE SITE ZONE, `gofarther.app` — LIVE 2026-08-09 ──────────────────────
     //

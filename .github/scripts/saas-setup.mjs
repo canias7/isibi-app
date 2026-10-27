@@ -239,10 +239,9 @@ if (routesRes.ok) {
     // the routes call is rejected and takes the whole deploy with it; that is
     // measured, not cautious.
     const ready = recordReady || fallbackReady;
-    (ready ? bad : say)(`  ${ready ? "TODO NOW" : "later "} add this line to "routes" in wrangler.jsonc and deploy:`);
+    (ready ? bad : say)(`  ${ready ? "TODO NOW" : "later "} add this line to "routes" in front/wrangler.jsonc (the front door) and deploy:`);
     say(`            ${WILDCARD_LINE}`);
-    say(`          It is already there, commented out, with the same text.`);
-    if (!ready) say(`          Do steps 1 and 2 first — a "*/*" route is refused on a zone with no`);
+        if (!ready) say(`          Do steps 1 and 2 first — a "*/*" route is refused on a zone with no`);
     if (!ready) say(`          Cloudflare for SaaS, and the refusal fails the deploy.`);
     say(`          Without it, every custom domain answers 522: a customer hostname`);
     say(`          matches no route and falls through to ${ORIGINLESS.content}.`);
