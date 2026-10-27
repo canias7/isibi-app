@@ -153,3 +153,12 @@ nothing.
   PUBLIC holds. Backlog.
 - A site's own `SECURITY INVOKER` function called by a scheduled job now runs
   as the limited login; one that does DDL would now be refused (intended).
+
+## Applied and merged (2026-10-27)
+
+On the owner's "Ok yes do it": `supabase/proposed/site_app_conn.sql` applied to
+Supabase (`alter table public.site_project add column if not exists app_conn
+text`), read back: `app_conn` text exists. Merged into
+`claude/nice-ramanujan-9ry8wy` (with the own-bucket and front-door work); full
+suite `12938 / 12935 / 1 / 2`, the one failure the stray `.claude/worktrees/`
+copies the site-secrets test reads (not code).
