@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { siteBucketName, isServingKey, headKeys, syncSiteBucket, ensureSiteBucket, restBucket } from "../builder/site-bucket.mjs";
+import { siteBucketName, isServingKey, headKeys, syncSiteBucket, ensureSiteBucket, restBucket, deleteSiteBucket, RESYNC_PREFIX } from "../builder/site-bucket.mjs";
 
 function store(objs = {}) {
   const m = new Map(Object.entries(objs).map(([k, v]) => [k, { body: v, etag: "e:" + v }]));
@@ -136,4 +136,42 @@ test("activateBuild calls afterLive only after its marker stands, and never fail
   const i = S.indexOf("if (!made) { liveMissing = true; uploadedOk = false; }"), j = S.indexOf("await afterLive()");
   assert.ok(i > 0 && j > i);
   assert.match(S.slice(j - 120, j + 120), /uploadedOk && typeof afterLive === "function"[\s\S]*try \{ await afterLive\(\); \} catch/);
+});
+
+test("deleting a bucket empties it first; a bucket never made is done; a stuck file is reported", async () => {
+  const args = { accountId: "acc", apiToken: "t", bucket: "gfs-b" };
+  const seen = [];
+  const ok = async (url, init = {}) => {
+    seen.push((init.method || "GET") + " " + url.replace("https://api.cloudflare.com/client/v4/accounts/acc/r2/buckets/", ""));
+    if (!init.method) return { ok: true, status: 200, json: async () => ({ result: [{ key: "a.js" }, { key: "sites/b/site.live" }], result_info: {} }) };
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+  assert.deepEqual(await deleteSiteBucket(args, { fetch: ok }), { ok: true, status: 200, removed: 2 });
+  assert.equal(seen.at(-1), "DELETE gfs-b");
+  assert.equal(seen.filter((x) => x.startsWith("DELETE gfs-b/objects/")).length, 2);
+  const none = async () => ({ ok: false, status: 404, json: async () => null });
+  assert.equal((await deleteSiteBucket(args, { fetch: none })).ok, true);
+  const stuck = async (url, init = {}) => init.method === "DELETE"
+    ? { ok: false, status: 500, json: async () => null }
+    : { ok: true, status: 200, json: async () => ({ result: [{ key: "a.js" }], result_info: {} }) };
+  const r = await deleteSiteBucket(args, { fetch: stuck });
+  assert.equal(r.ok, false);
+  assert.equal(r.removed, 0);
+});
+
+test("a site's delete drops its own bucket after its files, whatever the switch says", () => {
+  const d = between("const workerDrop = await dropSiteWorker(env, dslug);", "The archive goes too");
+  assert.ok(d.indexOf("deleteSitePrefix(env, dslug)") < d.indexOf("deleteSiteBucket("));
+  assert.doesNotMatch(d, /SITE_OWN_BUCKETS/);
+  assert.match(d, /RESYNC_PREFIX \+ dslug/);
+});
+
+test("an unfinished copy is remembered and the tick retries it, dropping the mark only when done", () => {
+  const f = between("async function sealedBucketFor(", "\n}\n");
+  assert.equal((f.match(/await markResync\(env, slug\)/g) || []).length, 2);
+  const t = between("async function runOwnBucketResync(", "\n}\n");
+  assert.match(t, /limit: RESYNC_PER_TICK/);
+  assert.match(t, /if \(r\.done\) \{ await env\.SITES_BUCKET\.delete\(o\.key\)/);
+  assert.match(W, /ctx\.waitUntil\(runOwnBucketResync\(env\)/);
+  assert.equal(RESYNC_PREFIX, "ownbucket-pending/");
 });

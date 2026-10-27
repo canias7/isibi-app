@@ -3278,5 +3278,5 @@ lacked fonts, decor and backdrops. Any change needs the owner's decision.
 
 ## Own buckets: owed before the switch goes on (2026-10-27)
 `docs/history/2026-10-27-own-bucket.md`. The Cloudflare token needs R2 edit; a
-rehearsal on a throwaway site; deleting a site must delete its `gfs-<slug>`
-bucket; a tick should re-sync sites whose copy failed.
+rehearsal on a throwaway site. (Bucket delete and the tick retry: built,
+same day.)

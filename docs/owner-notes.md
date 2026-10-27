@@ -3,7 +3,7 @@
 
 ## 2026-10-27 — Each site gets its own file bucket (built, switched off)
 
-Until now every site's Worker could read the whole shared file bucket, so one site's code could read another site's files. Now, when the switch `SITE_OWN_BUCKETS` is on, each site gets its own bucket (`gfs-<site>`), the platform copies in only that site's pages, details and "live" marker at each publish, and the site's Worker can see that bucket and nothing else. If the copy can't finish, the site is published the old way, so it never goes blank. Taking a site offline removes its marker from its own bucket first. The switch is off; turning it on needs the Cloudflare token to have R2 edit rights and a rehearsal on a test site. Branch `claude/nice-ramanujan-9ry8wy`, not merged. `docs/history/2026-10-27-own-bucket.md`.
+Until now every site's Worker could read the whole shared file bucket, so one site's code could read another site's files. Now, when the switch `SITE_OWN_BUCKETS` is on, each site gets its own bucket (`gfs-<site>`), the platform copies in only that site's pages, details and "live" marker at each publish, and the site's Worker can see that bucket and nothing else. If the copy can't finish, the site is published the old way, so it never goes blank. Taking a site offline removes its marker from its own bucket first. The switch is off; turning it on needs the Cloudflare token to have R2 edit rights and a rehearsal on a test site. Deleting a site now also deletes its bucket, and a site whose copy failed is retried in the background (5 sites per tick). Branch `claude/nice-ramanujan-9ry8wy`, not merged. `docs/history/2026-10-27-own-bucket.md`.
 
 ## 2026-10-26 — Questions no longer count as "in progress"; "Something else…" lights up
 

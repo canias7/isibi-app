@@ -108,7 +108,7 @@ import { securityOfferFacts, securityWorkingFacts, securityReportFacts, security
 import { OFFLINE_COLUMN, siteOffline, offlineStamp } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, STOPPED_FREE_MSG, STOPPED_SHORT_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE, carryPanelFields, keepPanelDescription } from "./site-meta.mjs";
-import { siteBucketName, ensureSiteBucket, syncSiteBucket, restBucket, bindingBucket } from "./builder/site-bucket.mjs";
+import { siteBucketName, ensureSiteBucket, syncSiteBucket, restBucket, bindingBucket, deleteSiteBucket, RESYNC_PREFIX } from "./builder/site-bucket.mjs";
 import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, MAX_NEW_SLUG, capNewSlug, rebuildGoesLive, PUBLISH_KEEP_BUILDS, publishKeeps, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, applyRowQuery, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec, previousSidecar, heldMediaSource, heldStandIns, previewServed, ftsFilterOf, FTS_CATALOG_SQL, ftsJudgeSql, ftsJudgeParams, heldChangedIds, deadNewFunctions, jobsWithoutDead } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
@@ -2272,6 +2272,7 @@ export default {
     // A DRAFT'S PREVIEW THAT DID NOT REACH ITS VERSION IS PUT THERE (2026-10-16):
     // a failed, lost or interrupted preview upload, with the browser closed.
     ctx.waitUntil(runPreviewRecovery(env).catch((e) => console.error("preview recovery failed", errorClassForLog(e))));
+    ctx.waitUntil(runOwnBucketResync(env).catch((e) => console.error("own bucket resync failed", errorClassForLog(e))));
     // A PUBLICATION THAT STOPPED AFTER ITS SWITCH IS FINISHED (draft-first):
     // the approved revision, from its journal; this never begins one.
     // WHATEVER THE SWITCH SAYS NOW (2026-10-16): a publication the owner
@@ -17210,10 +17211,11 @@ async function sealedBucketFor(env, slug, creds) {
     const made = await ensureSiteBucket({ accountId: creds.accountId, apiToken: creds.apiToken, bucket });
     if (!made.ok) { console.error("own bucket: not created", slug, made.status); return shared; }
     const r = await syncSiteBucket({ slug, src: bindingBucket(env.SITES_BUCKET), dst: restBucket({ accountId: creds.accountId, apiToken: creds.apiToken, bucket }) });
-    if (!r.done) { console.error("own bucket: copy unfinished", slug, r.copied, r.failed, r.left); return shared; }
+    if (!r.done) { console.error("own bucket: copy unfinished", slug, r.copied, r.failed, r.left); await markResync(env, slug); return shared; }
     return bucket;
   } catch (e) {
     console.error("own bucket: copy failed", slug, errorClassForLog(e));
+    await markResync(env, slug);
     return shared;
   }
 }
@@ -17232,12 +17234,45 @@ async function ownBucketMarker(env, slug, how) {
   try {
     if (how === "off") { await dst.del("sites/" + slug + "/" + SITE_LIVE_FILE); return true; }
     const r = await syncSiteBucket({ slug, src: bindingBucket(env.SITES_BUCKET), dst });
-    if (!r.done) console.error("own bucket: resync unfinished", slug, r.copied, r.failed, r.left);
+    if (!r.done) { console.error("own bucket: resync unfinished", slug, r.copied, r.failed, r.left); await markResync(env, slug); }
     return r.done;
   } catch (e) {
     console.error("own bucket: marker", how, slug, errorClassForLog(e));
+    if (how !== "off") await markResync(env, slug);
     return false;
   }
+}
+
+/** Remember a site whose own bucket is behind; the tick copies it again. */
+async function markResync(env, slug) {
+  try { await env.SITES_BUCKET.put(RESYNC_PREFIX + slug, String(Date.now())); }
+  catch (e) { console.error("own bucket: resync mark not kept", slug, errorClassForLog(e)); }
+}
+
+/**
+ * THE TICK'S RETRY: up to `RESYNC_PER_TICK` remembered sites, each copied
+ * again; the mark goes only when the copy finished. A site that no longer
+ * exists in the shared bucket is a copy that removes its files, which is right.
+ * The script stays bound to whatever its last upload chose: a site published
+ * against the shared bucket moves to its own at its next publish.
+ */
+const RESYNC_PER_TICK = 5;
+async function runOwnBucketResync(env) {
+  if (env.SITE_OWN_BUCKETS !== "1" || !env.SITES_BUCKET) return { tried: 0, done: 0 };
+  const creds = dispatchCreds(env);
+  if (!creds) return { tried: 0, done: 0 };
+  const page = await env.SITES_BUCKET.list({ prefix: RESYNC_PREFIX, limit: RESYNC_PER_TICK });
+  let done = 0;
+  for (const o of page.objects || []) {
+    const slug = o.key.slice(RESYNC_PREFIX.length);
+    const bucket = siteBucketName(slug);
+    if (!bucket) { await env.SITES_BUCKET.delete(o.key); continue; }
+    try {
+      const r = await syncSiteBucket({ slug, src: bindingBucket(env.SITES_BUCKET), dst: restBucket({ accountId: creds.accountId, apiToken: creds.apiToken, bucket }) });
+      if (r.done) { await env.SITES_BUCKET.delete(o.key); done++; }
+    } catch (e) { console.error("own bucket: tick resync", slug, errorClassForLog(e)); }
+  }
+  return { tried: (page.objects || []).length, done };
 }
 
 async function uploadScriptOnce(env, slug, worker, { preview = false, go = null } = {}) {
@@ -21394,6 +21429,19 @@ async function deleteSiteFor(env, uid, dslug) {
     } catch (e) {
       console.error("site files delete failed:", dslug, e && e.message);
       return Response.json({ ok: false, error: "couldn't remove the published files" }, { status: 502 });
+    }
+
+    // THE SITE'S OWN BUCKET GOES TOO (2026-10-27), whatever the switch says
+    // now: a bucket made while it was on must not outlive its site. A bucket
+    // that was never made is done. Never fatal, loud when left behind.
+    {
+      const creds = dispatchCreds(env);
+      const bucket = siteBucketName(dslug);
+      if (creds && bucket) {
+        const gone = await deleteSiteBucket({ accountId: creds.accountId, apiToken: creds.apiToken, bucket }).catch((e) => ({ ok: false, error: String((e && e.message) || e) }));
+        if (!gone.ok) console.error("OWN BUCKET NOT REMOVED:", dslug, bucket, gone.status, gone.error);
+        try { await env.SITES_BUCKET.delete(RESYNC_PREFIX + dslug); } catch { /* the tick finds nothing to copy */ }
+      }
     }
 
     // The archive goes too — the same leak `neon_teardown` exists to stop, one

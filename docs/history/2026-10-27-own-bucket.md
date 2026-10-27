@@ -45,6 +45,14 @@ budget and failure, REST, the wiring guards). Full suite: see the commit.
    the backlog), publish a throwaway site, and check its script's bindings list
    only `gfs-<slug>`, its pages and assets load, and Take offline / Back online
    work.
-3. Not done yet (backlog): deleting a site does not delete its bucket; no tick
-   re-syncs a site whose copy failed (the next publish, panel save or Back
-   online does); previews (`--draft-`) still sync through the same path.
+
+## Second round, the same day (owner: "ok build that")
+
+- Deleting a site deletes its own bucket (emptied first), after its files,
+  whatever the switch says now; a bucket never made is done; one left behind
+  is logged `OWN BUCKET NOT REMOVED`.
+- A copy that does not finish leaves `ownbucket-pending/<slug>` in the shared
+  bucket; the tick (`runOwnBucketResync`) copies up to 5 such sites and drops a
+  mark only when its copy finished. A site published against the shared bucket
+  moves to its own at its next publish.
+- Tests: 14 in `test/site-bucket.test.mjs`.

@@ -200,3 +200,30 @@ export function bindingBucket(b) {
     },
   };
 }
+
+/**
+ * Empty the site's bucket and delete it (a site deleted). A bucket that does
+ * not exist is done; anything left behind is reported, never hidden.
+ */
+export async function deleteSiteBucket({ accountId, apiToken, bucket }, deps = {}) {
+  const fetchImpl = deps.fetch || globalThis.fetch;
+  if (!accountId || !apiToken || !bucket) return { ok: false, status: 0, error: "missing accountId, apiToken or bucket" };
+  const b = restBucket({ accountId, apiToken, bucket }, { fetch: fetchImpl });
+  let keys;
+  try { keys = await b.list(""); }
+  catch (e) {
+    if (/answered 404/.test(String(e && e.message))) return { ok: true, status: 404, removed: 0 };
+    return { ok: false, status: 0, error: String((e && e.message) || e).slice(0, 300) };
+  }
+  let removed = 0;
+  for (const o of keys) {
+    try { await b.del(o.key); removed++; }
+    catch (e) { return { ok: false, status: 0, removed, error: String((e && e.message) || e).slice(0, 300) }; }
+  }
+  const r = await call(fetchImpl, base(accountId, bucket), { method: "DELETE", headers: { authorization: "Bearer " + apiToken } });
+  if (r.ok || r.status === 404) return { ok: true, status: r.status, removed };
+  return { ok: false, status: r.status, removed, error: r.error || ("delete bucket answered " + r.status) };
+}
+
+/** Where a site whose copy did not finish is remembered, for the tick. */
+export const RESYNC_PREFIX = "ownbucket-pending/";
