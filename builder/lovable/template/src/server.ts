@@ -61,7 +61,59 @@ const startFetch = createStartHandler(defaultStreamHandler);
 // answers. A narrower type is also a better one here, because it says exactly
 // what the entry is allowed to do with the bucket.
 type SiteObject = { body: ReadableStream | null; text(): Promise<string>; writeHttpMetadata(h: Headers): void };
-type Env = { SITES?: { get(key: string): Promise<SiteObject | null>; head(key: string): Promise<unknown> } };
+type Env = {
+  SITES?: { get(key: string): Promise<SiteObject | null>; head(key: string): Promise<unknown> };
+  // This site's own database addresses, both public (2026-10-27): the Data API
+  // and the auth server that mints a visitor token. Given at upload, never a key.
+  DATA_API_BASE?: string;
+  AUTH_BASE?: string;
+};
+
+// ── THIS SITE ANSWERS ITS OWN VISITORS' READS (2026-10-27) ──────────────────
+//
+// GET and HEAD on `/api/db/<this site>/data/…` go straight to this site's own
+// Data API, as the visitor (their own sign-in token) or as an anonymous
+// visitor (a short-lived token the auth server mints, no secret involved).
+// The database's row rules decide what anyone may read. Writes are not handled
+// here: the platform keeps them, with the spam gate and what follows a form.
+// Marked `x-site-data: own` so the platform knows the answer is this one.
+let anonTok = "";
+let anonAt = 0;
+async function anonToken(env: Env): Promise<string> {
+  if (anonTok && Date.now() - anonAt < 60_000) return anonTok;
+  const r = await fetch(env.AUTH_BASE + "/token/anonymous", { headers: { accept: "application/json" } });
+  if (!r.ok) return "";
+  const text = await r.text();
+  let tok = "";
+  try { const j = JSON.parse(text); tok = j.token || j.access_token || j.accessToken || j.jwt || ""; } catch { /* below */ }
+  if (!tok) { const m = /\b(ey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/.exec(text); tok = m ? m[1] : ""; }
+  if (tok) { anonTok = tok; anonAt = Date.now(); }
+  return tok;
+}
+
+export async function ownDataRead(request: Request, env: Env, url: URL): Promise<Response | null> {
+  if (request.method !== "GET" && request.method !== "HEAD") return null;
+  if (!env.DATA_API_BASE || !env.AUTH_BASE) return null;
+  const prefix = "/api/db/" + SITE_SLUG + "/data/";
+  if (!url.pathname.toLowerCase().startsWith(prefix)) return null;
+  const path = url.pathname.slice(prefix.length);
+  if (!/^[a-z0-9_][a-z0-9/._-]{0,79}$/i.test(path)) return null;
+  const h = new Headers();
+  for (const k of ["accept", "prefer", "authorization", "cookie"]) { const v = request.headers.get(k); if (v) h.set(k, v); }
+  try { h.set("origin", new URL(env.DATA_API_BASE).origin); } catch { /* a base we cannot parse answers below */ }
+  if (!h.has("authorization")) {
+    const tok = await anonToken(env).catch(() => "");
+    if (!tok) return null;
+    h.set("authorization", "Bearer " + tok);
+  }
+  let r: Response;
+  try { r = await fetch(env.DATA_API_BASE + "/" + path + url.search, { method: request.method, headers: h }); }
+  catch { return null; }
+  const out = new Headers({ "content-type": r.headers.get("content-type") || "application/json", "x-site-data": "own" });
+  const cr = r.headers.get("content-range");
+  if (cr) out.set("content-range", cr);
+  return new Response(request.method === "HEAD" ? null : await r.text(), { status: r.status, headers: out });
+}
 
 /** Is this a request for a file rather than a page?
  *
@@ -174,6 +226,9 @@ export default {
 const site = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+
+    const own = await ownDataRead(request, env, url);
+    if (own) return own;
 
     // ASSETS STAY ON R2, and this is a cost decision rather than a detail.
     // Putting a JavaScript bundle or a stylesheet through compute is paying per

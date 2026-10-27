@@ -95,3 +95,17 @@ front door stripped. No edit or build job ran between the deploy and the fix
 (`edit_jobs`: none in the 30 minutes). Fix: the front door passes the app's
 own hosts through untouched (`APP_HOSTS`, `isAppHost`); customer hosts are
 still cleaned. 2 new cases.
+
+## A site answers its own visitors' reads (2026-10-27)
+
+Point 2's first piece, on the owner's "start fixing". With `SITE_OWN_DATA`
+(default on), a site's script is uploaded with its database's two public
+addresses (`DATA_API_BASE`, `AUTH_BASE`; `SITE_VARS` in site-dispatch.mjs,
+https only, nothing else passes) and answers GET/HEAD on
+`/api/db/<slug>/data/…` itself (`ownDataRead` in the template's server.ts:
+the visitor's own token or an anonymous one minted by the auth server, no
+secret). The platform keeps its rate limit, then asks the script; an answer
+without `x-site-data: own` falls back to `proxySiteService`. Writes stay on
+the platform (spam gate, double-submit guard, row effects).
+`test/site-own-data.test.mjs`, 6 cases, the template handler run for real.
+Not yet proven live: needs a new site with a table.

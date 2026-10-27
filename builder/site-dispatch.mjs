@@ -53,7 +53,15 @@ export const DISPATCH_CALL_MS = 600000;
  * can reach the assets bucket and cannot reach the credit ledger, the secrets
  * key, or another customer's anything, because it was never handed them.
  */
-export async function uploadSiteWorker({ accountId, namespace, name, code, bucket, apiToken }, deps = {}) {
+/**
+ * The plain-text values a site's script may be given (2026-10-27): its own
+ * Data API and auth addresses, both public, so the script can serve its own
+ * visitors' reads. Anything else is dropped: a script gets only what is named
+ * here, never a key.
+ */
+export const SITE_VARS = ["DATA_API_BASE", "AUTH_BASE"];
+
+export async function uploadSiteWorker({ accountId, namespace, name, code, bucket, apiToken, vars = null }, deps = {}) {
   const fetchImpl = deps.fetch || globalThis.fetch;
   if (!accountId || !namespace || !name || !code) return { ok: false, status: 0, error: "missing accountId, namespace, name or code" };
   if (!apiToken) return { ok: false, status: 0, error: "no api token" };
@@ -71,7 +79,12 @@ export async function uploadSiteWorker({ accountId, namespace, name, code, bucke
     // never been enabled by a date alone, and a date that quietly started
     // implying it would be a behaviour change nobody asked for.
     compatibility_flags: ["nodejs_compat"],
-    bindings: bucket ? [{ type: "r2_bucket", name: "SITES", bucket_name: bucket }] : [],
+    bindings: [
+      ...(bucket ? [{ type: "r2_bucket", name: "SITES", bucket_name: bucket }] : []),
+      ...Object.entries(vars || {})
+        .filter(([k, v]) => SITE_VARS.includes(k) && typeof v === "string" && /^https:\/\/[^\s]+$/.test(v))
+        .map(([k, v]) => ({ type: "plain_text", name: k, text: v })),
+    ],
   };
 
   const form = new FormData();

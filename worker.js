@@ -17335,6 +17335,39 @@ export function siteLimits(env) {
   return { limits: { cpuMs: n(env && env.SITE_CPU_MS, SITE_CPU_MS), subRequests: n(env && env.SITE_SUBREQUESTS, SITE_SUBREQUESTS) } };
 }
 
+// ── A SITE SERVES ITS OWN VISITORS' READS (2026-10-27) ──────────────────────
+//
+// With `SITE_OWN_DATA` on, a site's script is uploaded with its database's two
+// public addresses (the Data API and the auth server that mints the visitor
+// token), and GET/HEAD on `/api/db/<slug>/data/…` is answered by the script
+// itself. Writes stay here: they carry the spam gate, the double-submit guard
+// and the effects (mail, webhooks) that follow a form. Off, or a site without
+// a database, uploads exactly as before.
+async function siteReadVars(env, slug) {
+  if (env.SITE_OWN_DATA !== "1") return null;
+  try {
+    const db = await siteRowConn(env, slug);
+    if (!db) return null;
+    const [data, auth] = await Promise.all([siteDataBase(db), siteAuthBase(db)]);
+    return data && auth ? { DATA_API_BASE: data, AUTH_BASE: auth } : null;
+  } catch (e) {
+    console.error("own data: addresses not read", slug, errorClassForLog(e));
+    return null;
+  }
+}
+
+/** Ask the site's own script to answer a visitor's read; null to fall back. */
+async function ownDataRead(env, request, slug) {
+  const name = scriptNameFor(slug);
+  if (!name) return null;
+  try {
+    const fwd = new Request(request.url, { method: request.method, headers: request.headers });
+    try { fwd.headers.delete(PREVIEW_HEADER); } catch { /* immutable: nothing of ours in it */ }
+    const res = await env.SITE_WORKERS.get(name, {}, siteLimits(env)).fetch(fwd);
+    return res.headers.get("x-site-data") === "own" ? res : null;
+  } catch { return null; }
+}
+
 async function sealedBucketFor(env, slug, creds) {
   const shared = env.SITES_BUCKET_NAME || "isibi-sites";
   if (env.SITE_OWN_BUCKETS !== "1" || !creds || !env.SITES_BUCKET) return shared;
@@ -17471,6 +17504,7 @@ async function uploadScriptOnce(env, slug, worker, { preview = false, go = null 
     // and naming nothing else is what keeps it away from the ledger, the
     // secrets key and every other site's anything.
     bucket: await sealedBucketFor(env, slug, creds),
+    vars: await siteReadVars(env, slug),
   }).catch((e) => ({ ok: false, status: 0, error: String((e && e.message) || e) }));
   if (!r.ok) {
     console.error("site worker upload failed:", slug, r.status, r.error);
@@ -34541,6 +34575,13 @@ async function handleRequest(request, env, ctx) {
         if (!hit.ok) {
           const t = tooMany(hit);
           return Response.json(t.body, { status: t.status, headers: t.headers });
+        }
+        // A READ THE SITE ANSWERS ITSELF, when its script says so
+        // (`x-site-data: own`); a script without the addresses answers
+        // without the mark and this falls through to the proxy below.
+        if ((request.method === "GET" || request.method === "HEAD") && env.SITE_OWN_DATA === "1" && env.SITE_WORKERS) {
+          const own = await ownDataRead(env, request, slug);
+          if (own) return own;
         }
         return proxySiteService(env, request, url, slug, dpath, "data", ctx);
       }

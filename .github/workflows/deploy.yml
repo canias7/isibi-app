@@ -230,6 +230,7 @@ jobs:
             PARALLEL_WRITES
             DRAFT_FIRST
             SITE_OWN_BUCKETS
+            SITE_OWN_DATA
             SITE_CPU_MS
             SITE_SUBREQUESTS
             ADDON_DRY_RUN
@@ -519,6 +520,10 @@ jobs:
           # token to have R2 edit. OFF BY DEFAULT. The limits are each
           # visitor call's CPU ms and outside calls; blank means 300 and 50.
           SITE_OWN_BUCKETS: ${{ secrets.SITE_OWN_BUCKETS || '0' }}
+          # `1` (the default): a site uploaded from now on answers its own
+          # visitors' reads (builder/lovable/template/src/server.ts
+          # `ownDataRead`); writes stay on the platform. `0` turns it off.
+          SITE_OWN_DATA: ${{ secrets.SITE_OWN_DATA || '1' }}
           SITE_CPU_MS: ${{ secrets.SITE_CPU_MS || '300' }}
           SITE_SUBREQUESTS: ${{ secrets.SITE_SUBREQUESTS || '50' }}
           # ── A HELD ADD-ON SCHEMA TRIED ON A COPY (2026-10-22) ─────────────
