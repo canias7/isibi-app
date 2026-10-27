@@ -1,10 +1,12 @@
 // gofarther-front — the front door for customer sites. Deployed by deploy.yml
 // after the platform (owner: "do all 4", 2026-10-27).
 //
-// THE REHEARSAL: one address only, the test bakery. A more specific route wins
-// over the platform's `*/*`, so only this host comes through here; every other
-// site is untouched. Moving `*/*` on `gofarther.app` and the custom-domain
-// fallback here is the next step, after this one reads right.
+// EVERY SITE ADDRESS ON gofarther.app (2026-10-27, after the rehearsal on the
+// test bakery read right: pages, assets, robots, sitemap, 404s, all marked).
+// `*.gofarther.app/*` is more specific than the platform's `*/*` on the same
+// zone, so it wins without the platform's route being removed: no moment with
+// no route, and the platform's stays as the fallback (the bare apex). Custom
+// domains (the `*/*` on gofarther.dev's zone) are a separate step.
 {
   "name": "gofarther-front",
   "main": "worker.mjs",
@@ -12,7 +14,7 @@
   "workers_dev": false,
   // The one binding: a private, fixed link to the platform Worker.
   "routes": [
-    { "pattern": "fold-lane-bakery.gofarther.app/*", "zone_name": "gofarther.app" }
+    { "pattern": "*.gofarther.app/*", "zone_name": "gofarther.app" }
   ],
   "services": [
     { "binding": "PLATFORM", "service": "isibi-app" }

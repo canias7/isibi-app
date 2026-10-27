@@ -39,12 +39,12 @@ test("no platform, or a platform that throws, is an honest 503/502 marked as the
   for (const r of [a, b]) assert.equal(r.headers.get("x-served-by"), SERVED_BY);
 });
 
-test("the front door holds one binding, the platform, and one rehearsal route", () => {
+test("the front door holds one binding, the platform, and every site address on gofarther.app", () => {
   const cfg = fs.readFileSync(new URL("../front/wrangler.jsonc", import.meta.url), "utf8").replace(/^\s*\/\/.*$/gm, "");
   const j = JSON.parse(cfg);
   assert.deepEqual(j.services, [{ binding: "PLATFORM", service: "isibi-app" }]);
   for (const k of ["r2_buckets", "kv_namespaces", "d1_databases", "dispatch_namespaces", "vars", "route"]) assert.equal(j[k], undefined, k);
-  assert.deepEqual(j.routes, [{ pattern: "fold-lane-bakery.gofarther.app/*", zone_name: "gofarther.app" }]);
+  assert.deepEqual(j.routes, [{ pattern: "*.gofarther.app/*", zone_name: "gofarther.app" }]);
   const main = JSON.parse(fs.readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8").replace(/^\s*\/\/.*$/gm, "").replace(/,(\s*[}\]])/g, "$1"));
   assert.equal(j.compatibility_date, main.compatibility_date);
   // Deployed after the platform's own deploy and its gate, never before.
@@ -72,4 +72,8 @@ test("the limits default to the owner's numbers and take only positive whole ove
   assert.deepEqual(mod.siteLimits({}), { limits: { cpuMs: 300, subRequests: 50 } });
   assert.deepEqual(mod.siteLimits({ SITE_CPU_MS: "500", SITE_SUBREQUESTS: "80" }), { limits: { cpuMs: 500, subRequests: 80 } });
   for (const bad of ["0", "-5", "1.5", "lots", ""]) assert.deepEqual(mod.siteLimits({ SITE_CPU_MS: bad }).limits.cpuMs, 300, bad);
+});
+
+test("the platform keeps its own gofarther.app route as the fallback", () => {
+  assert.match(fs.readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"), /\{ "pattern": "\*\/\*", "zone_name": "gofarther\.app" \}/);
 });

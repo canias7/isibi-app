@@ -51,3 +51,18 @@ front door exists now so the route swap is a routes change only.
   `*/*`; every other site is untouched.
 - `SITE_OWN_BUCKETS`, `SITE_CPU_MS`, `SITE_SUBREQUESTS` are optional GitHub
   secrets with defaults `0`, `300`, `50`.
+
+## Deploy 2278 and the rehearsal (17:22–17:40 UTC)
+
+`main` `8f29c37d3` → `91b7f1f00` on the owner's "merge and deploy"; run
+40549986932 green, front-door step included. Read free with curl: the test
+bakery answers through the front door (`x-served-by: gofarther-front`) on `/`,
+`/visit`, `/gallery`, `/robots.txt`, `/sitemap.xml`, both hashed assets (200,
+immutable) and 404s; `fretwork-1` has no such header (untouched). A headless
+screenshot of the bakery's home page matches the site. Not runtime-confirmed
+(no canary press yet).
+
+## Step 3: every gofarther.app address (prepared)
+
+The front door's route becomes `*.gofarther.app/*`; the platform keeps its
+`*/*` on the zone as the fallback, so nothing is unrouted at any moment.
