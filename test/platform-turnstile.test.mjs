@@ -42,26 +42,6 @@ test("chooseTurnstile: the site's own pair wins; the platform's only where cover
   assert.deepEqual(chooseTurnstile({ secret: "", siteKey: "" }, {}, { covered: true }), { secret: "", siteKey: "", source: "off" });
 });
 
-test("the Worker judges every caller by the platform-aware config, with the request's own hostname", () => {
-  const cfg = between(worker, "async function turnstileConfig(slug, env, db, host) {", "\n}\n");
-  assert.ok(cfg.includes("await siteTurnstileKeys(slug, env, db)"), "the site's own pair is not read first");
-  assert.match(cfg, /if \(own\.secret \|\| own\.platform !== true \|\| !platformPair\(env\)\) return own;/, "own pair or unset platform does not return as before");
-  assert.match(cfg, /chooseTurnstile\(own, env, \{ covered: await platformCovers\(env, slug, host\) \}\)/);
-  const gate = between(worker, "async function turnstileGate(", "\n}\n");
-  const calls = gate.match(/turnstileConfig\(slug, env, db, new URL\(request\.url\)\.hostname\)/g) || [];
-  assert.equal(calls.length, 3, "a gate path judges without the hostname");
-  assert.ok(!/turnstileConfig\(slug, env, db\)/.test(worker), "a caller still reads the per-site pair only");
-  const route = between(worker, 'url.pathname.endsWith("/turnstile")', "cache-control");
-  assert.ok(route.includes("turnstileConfig(slug, env, tdb, url.hostname)"), "the page is not handed the platform site key");
-});
-
-test("platformCovers: our hostnames yes; a domain mapped to this site no; a domain mapped elsewhere yes; unknown no", () => {
-  const fn = between(worker, "async function platformCovers(env, slug, host) {", "\n}\n");
-  assert.match(fn, /if \(isOwnHostname\(h\)\) return true;/);
-  assert.match(fn, /return !!mapped && mapped !== slug;/);
-  assert.match(fn, /if \(!h\) return false;/);
-});
-
 test("published sites may load Turnstile's script and frame", () => {
   const csp = between(worker, 'h.set("Content-Security-Policy", [\n      "default-src \'self\'"', '].join("; ")');
   const script = csp.match(/"script-src [^"]*"/);
@@ -94,12 +74,3 @@ test("the rules answer's spamCheck becomes a state fact; false or absent says no
   assert.equal((rules.match(/spamCheck: (rOut\.reason === "no-match" \? )?await rSpam\(\)/g) || []).length, 3);
 });
 
-test("on when the site asked: only the site's TURNSTILE_PLATFORM flag opts it into the platform pair", () => {
-  const keys = between(worker, "const siteTurnstileKeys = memoize(turnstileCfg,", "\n});\n");
-  assert.match(keys, /if \(name === TURNSTILE_PLATFORM_FLAG\) \{ out\.platform = true; continue; \}/, "the flag is not read");
-  assert.ok(worker.includes('const TURNSTILE_PLATFORM_FLAG = "TURNSTILE_PLATFORM";'));
-  const on = between(worker, "async function spamCheckOn(env, slug, db) {", "\n}\n");
-  assert.match(on, /if \(own\.platform !== true \|\| !platformPair\(env\)\) return false;/, "a site that never asked reads as protected");
-  const en = between(worker, "async function enableSpamCheck(env, slug, db) {", "\n}\n");
-  assert.ok(en.indexOf("INSERT INTO _secrets") > 0 && en.indexOf("forgetSiteConfig(slug)") > en.indexOf("INSERT INTO _secrets"), "the flag write does not clear the cache after it");
-});

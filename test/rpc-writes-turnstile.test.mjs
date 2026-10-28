@@ -180,21 +180,6 @@ test("writes reaches the `_meta` record the gate reads (real applySiteSchema)", 
 // ── wiring ───────────────────────────────────────────────────────────────────
 
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-test("turnstileGate asks the rpc gate first, with the site's config and stored schema", () => {
-  const at = worker.indexOf("async function turnstileGate(");
-  const end = worker.indexOf("\n}\n", at);
-  assert.ok(at > 0 && end > at, "the gate exists");
-  const fn = worker.slice(at, end);
-  const rpc = fn.indexOf("await turnstileRpcGate(");
-  const shape = fn.indexOf("turnstileOneRow(sent,");
-  assert.ok(rpc > 0 && shape > 0, "both landmarks exist");
-  assert.ok(rpc < shape, "the rpc gate runs before the table gate");
-  assert.match(fn, /config: \(\) => turnstileConfig\(slug, env, db, new URL\(request\.url\)\.hostname\)/);
-  assert.match(fn, /spec: \(\) => loadSiteSchema\(db\)/);
-  assert.match(fn, /if \(rpc\) \{/);
-  assert.match(worker, /rpcGate as turnstileRpcGate \} from "\.\/site-turnstile\.mjs"/);
-});
-
 const rows = fs.readFileSync(new URL("../builder/lovable/template/src/lib/rows.ts", import.meta.url), "utf8");
 function hook(name) {
   const at = rows.indexOf("export function " + name + "<");

@@ -191,6 +191,13 @@ export function restBucket({ accountId, apiToken, bucket }, deps = {}) {
       const r = await call(fetchImpl, objUrl(accountId, bucket, key), { method: "DELETE", headers: auth });
       if (!r.ok && r.status !== 404) throw new Error("delete answered " + r.status);
     },
+    /** One object's bytes, or null when it is not there. */
+    async get(key) {
+      const r = await call(fetchImpl, objUrl(accountId, bucket, key), { headers: auth });
+      if (r.status === 404) return null;
+      if (!r.ok) throw new Error("get answered " + r.status);
+      return { body: await r.arrayBuffer(), contentType: r.headers.get("content-type") || "" };
+    },
   };
 }
 
