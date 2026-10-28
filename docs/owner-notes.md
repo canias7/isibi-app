@@ -3,6 +3,21 @@
 
 
 
+## 2026-10-28 — The site agent: one big agent, behind a switch (not merged)
+
+- Built "one big full agent", as you chose. One AI model with tools takes your whole message: it reads files, writes pages, components and server code, builds with the real compiler, fixes what the build reports, and finishes. Both edits and additions go to it, with no router lanes.
+- Your cost rules are in:
+  - **1, a head start**: the site map and the likely files come in the first message.
+  - **3, clear the desk**: finished files become one-line notes once the conversation is big. The work is kept and can be read back.
+  - **4, the same opening every round**: the cheap cached price.
+- Hard limits: 14 steps, 60 credits (adjustable), 25 minutes. If it stops early, nothing is saved and nothing is charged.
+- **Off until you switch it on**, for every site or a list of sites (`SITE_AGENT`).
+- Not yet:
+  - it can't change the stylesheet, or add, change or delete rows;
+  - it can't remove a page or take a screenshot;
+  - the router still runs first.
+- No live run yet: a paid test comes with its message and estimate first. Record: `docs/history/2026-10-28-site-agent.md`.
+
 ## 2026-10-28 — The model can write the site's own server code (steps 1–3, not merged)
 
 - A new kind of file the model can write: server code for the site's own Worker (`server-<name>`), reached at `/api/db/<site>/fn/<name>`.

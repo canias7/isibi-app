@@ -1420,6 +1420,8 @@ export function addonReplyFacts(a, { routedCost = null, inRequest = false, partW
   if (a.ok === true && a.recovered === true) return recoveredFacts(a);
   if (typeof a.ok !== "boolean") return { skip: "unreadable", facts: [] };
   if (technicalAnswer(a)) return { skip: "technical", facts: [] };
+  // THE SITE AGENT'S ANSWER (2026-10-28) is the same on both routes: told as an edit's.
+  if (a.layer === "agent") return editReplyFacts(a, { routedCost, inRequest, partWords, carved });
   if (a.ok === false && a.refusal) { const R = factList(); if (refusalFacts(R, a.refusal)) return { skip: null, facts: R.out }; }
   const F = factList();
   if (a.ok === true) {

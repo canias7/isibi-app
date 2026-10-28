@@ -227,6 +227,7 @@ import { FOUNDATION_FILES } from "./builder/foundation-files.mjs";
 import { runNavEdit, applyAdditions, menuLinksKept } from "./builder/site-nav.mjs";
 import { runLogoEdit } from "./builder/site-logo.mjs";
 import { writtenFrame, ownPartsSite, runFrameEdit, addFrameLinks, FRAME_PARTS, frameTables } from "./builder/site-frame.mjs";
+import { runSiteAgent, agentOn, agentCap, stoppedFacts } from "./builder/site-agent.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
 import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings, canWriteAccess } from "./site-access.mjs";
@@ -17163,11 +17164,62 @@ function seamCompileRepair(env, { slug, touched = null, models = null, charge = 
   };
 }
 
-async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = null, devices = null, trace = null, job = null, parts = null, afterCompile = null, onCompileFail = null, models = null, charge = null, held = null, charges = null, liveWhenClean = false, touched = null, chargeRepair = null }) {
+/**
+ * THE SITE AGENT'S WHOLE CHANGE (2026-10-28, `builder/site-agent.mjs`), for
+ * the edit and add-on routes alike: the loop, with the real compile and server
+ * test run as its build tool (`compileOnly`), then one save through the same
+ * publish as every edit. Charged (`bill`, the model's calls) only when there is
+ * something to save, before the publish's gate; `billLang` is the translation
+ * funnel. Answers `{ status, body }` whose facts the reply writer tells.
+ */
+async function runAgentChange(env, { slug, words, pages, parts, job = null, picker = "", trace = null, bill, billLang, charges = null }) {
+  const tm = (phase, status, detail) => { try { if (trace) trace.mark(phase, status, detail); } catch { /* never */ } };
+  if (!Array.isArray(parts)) return { status: 503, body: { ok: false, error: "agent-unread", layer: "agent", cost: 0, msg: "The site's components could not be read, so the site agent did not start. Nothing was changed and nothing was charged." } };
+  tm("agent", "start", { pages: pages.length, parts: parts.length });
+  const models = modelsFor(picker);
+  let map = null;
+  try { map = await currentSiteMap(env, slug); } catch { map = null; }
+  let spec = null;
+  try { const back = await siteBackendDetail(env, slug); if (back && back.conn) { const rd = await specForAddon(back.conn); if (rd.ok) spec = rd.spec; } } catch { spec = null; }
+  const ag = await runSiteAgent({
+    send: jobSend(job, quickSend(env, "agent", job && job.budget)),
+    build: (w) => recompileAndPublish(env, { slug, pages: w.pages, parts: w.parts, label: "Agent build", job, compileOnly: true, charge: billLang, charges, trace }),
+    readTable: async (t, n) => {
+      const conn = await ownerRowConn(env, slug);
+      if (!conn) throw new Error("this site has no database");
+      return sqlQuery(conn, "select * from " + sqlIdent(t) + " limit " + (Number(n) || 20));
+    },
+    log: (e) => tm("agent:" + e.event, "ok", e),
+  }, {
+    request: words, pages, parts, map, spec,
+    ownParts: ownPartsSite(pages, parts), model: models.pages, creditCap: agentCap(env),
+  });
+  tm("agent", ag.ok ? "ok" : "fail", { rounds: ag.rounds, builds: ag.builds, credits: ag.credits, stopped: ag.stopped, changed: ag.changed.length });
+  const steps = { rounds: ag.rounds, builds: ag.builds, stopped: ag.stopped, changed: ag.changed };
+  if (!ag.ok || !ag.changed.length) {
+    return { status: 200, body: { ok: false, error: "agent-stopped", layer: "agent", cost: 0, agent: steps, deferred: [],
+      msg: ag.ok ? "The site agent finished without changing any file, so nothing was saved and nothing was charged." : stoppedFacts(ag) + " Nothing was charged." } };
+  }
+  const took = Number(await bill(ag.usage)) || 0;
+  const out = await recompileAndPublish(env, {
+    slug, pages: ag.pages, parts: ag.parts, label: "Changed by the site agent",
+    job, charge: billLang, charges, models, trace,
+    touched: ag.changed.filter((k) => !k.startsWith("-parts/")),
+  });
+  if (!out.ok) {
+    return { status: 422, body: { ok: false, error: lostOr(out, "compile"), layer: "agent", cost: took, agent: steps, deferred: [],
+      msg: compileMsg(out, "The site agent's change did not compile when it was saved, so the site is untouched."), detail: out.detail } };
+  }
+  return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg: ag.summary || "The change was made.",
+    files: out.files, render: out.render, renderNote: out.renderNote, checks: out.checks, draft: out.draft,
+    cost: took + (Number(out.langCharged) || 0), agent: steps } };
+}
+
+async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = null, devices = null, trace = null, job = null, parts = null, afterCompile = null, onCompileFail = null, models = null, charge = null, held = null, charges = null, liveWhenClean = false, touched = null, chargeRepair = null, compileOnly = false }) {
   // A JOB RUNNING BESIDE OTHERS OF ITS REQUEST publishes through the site's
   // turn and the rebase (`publishBeside`), which calls back in here with the
   // rebased pages; every other caller goes straight on, as before.
-  if (job && job.beside && !job.beside.inTurn && writesBeside(env) && env.SITES_BUCKET) {
+  if (!compileOnly && job && job.beside && !job.beside.inTurn && writesBeside(env) && env.SITES_BUCKET) {
     return publishBeside(env, { slug, pages, label, renamed, verifyCss, trace, job, parts, afterCompile, onCompileFail, models, charge, charges, held, touched, chargeRepair });
   }
   // ONE LOCAL, so the five call sites below read the same way whether or not
@@ -17883,6 +17935,20 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   if ((!built || built.ok !== true) && wasKilled(built && built.error)) {
     killed = true;
     built = await compile();
+  }
+  // THE AGENT'S BUILD TOOL (2026-10-28, `builder/site-agent.mjs`): the same
+  // compile and server test run, answered here — nothing staged, nothing
+  // published, no repair round (the agent fixes its own errors).
+  if (compileOnly) {
+    const okC = !!(built && built.ok === true && built.files);
+    tm("compile-only", okC ? "ok" : "fail", {});
+    return {
+      ok: okC, error: okC ? "" : String((built && built.error) || "the build did not answer"),
+      stage: String((built && built.stage) || ""), timedOut: !!(built && built.timedOut), room: (built && built.room) || null,
+      serverTests: built && built.serverTests && Array.isArray(built.serverTests.results) ? built.serverTests.results : [],
+      serverRefused: serverVet ? serverVet.failed.map((f) => ({ name: f.part.name, reasons: f.reasons })) : [],
+      langCharged,
+    };
   }
   // ── A COMPILE THAT FAILED ON THE CODE GETS ONE REPAIR ROUND (2026-10-23) ──
   //
@@ -33092,7 +33158,9 @@ async function handleRequest(request, env, ctx) {
       // it) is answered from what the first one accepted: no model is asked,
       // nothing is charged, and no question is closed or read again.
       const rKeySlug = typeof rb.slug === "string" && /^[a-z0-9][a-z0-9-]{0,80}$/.test(rb.slug) ? rb.slug : "";
-      const rKey = !rJob && requestFlowOn(env) && rb.hasSite === true && rb.firstBuild !== true && !!rKeySlug && !!env.SITES_BUCKET && isRequestKey(rb.idem) &&
+      // THE SITE AGENT TAKES THE WHOLE MESSAGE (2026-10-28): a site it serves is
+      // never split into a request of parts.
+      const rKey = !rJob && requestFlowOn(env) && rb.hasSite === true && rb.firstBuild !== true && !!rKeySlug && !agentOn(env, rKeySlug) && !!env.SITES_BUCKET && isRequestKey(rb.idem) &&
         editAsyncFor(env, { uid: ru.id, slug: rKeySlug }) ? rb.idem : "";
       if (rKey) {
         let prior = null;
@@ -36017,6 +36085,25 @@ async function handleRequest(request, env, ctx) {
                 kind: String((e && e.name) || "Error").slice(0, 40),
               }, { status: 503 });
             };
+
+            // ── THE SITE AGENT (2026-10-28, the owner: "one big full agent") ──
+            //
+            // Behind `SITE_AGENT` (off by default; "on", or a list of slugs).
+            // One model with tools takes the WHOLE message — no router, no
+            // lanes: it reads the site map and the files, writes pages,
+            // components and server code, builds with the real compiler and
+            // the server test run (`compileOnly`, nothing published), and
+            // finishes. Its work is saved through the same publish as every
+            // edit; it is charged only when that save landed. See
+            // `builder/site-agent.mjs`.
+            if (agentOn(env, ownerSlug) && !(eJob && eJob.prepare === true)) {
+              const agParts = await editParts();
+              const ag = await runAgentChange(env, {
+                slug: ownerSlug, words: eMessage, pages: eSrc, parts: agParts.ok ? agParts.parts : null, job: eJob, picker: eb && eb.picker, trace: editTrace,
+                bill: (usage) => eCharge(...usage), billLang: (usage) => eCharge({ langUsage: usage }), charges: eCharges,
+              });
+              return Response.json(ag.body, { status: ag.status });
+            }
 
             // ── THE SEVENTEEN LANES ARE THE FRONT DOOR ────────────────────
             //
@@ -42381,6 +42468,19 @@ async function handleRequest(request, env, ctx) {
               refused: () => (aJob && typeof aJob.refused === "function") ? aJob.refused() : 0,
               refusals: () => (aJob && typeof aJob.refusals === "function") ? aJob.refusals() : [],
             };
+
+            // ── THE SITE AGENT TAKES AN ADDITION TOO (2026-10-28) ─────────
+            // The same switch and the same run as the edit route
+            // (`runAgentChange`): with it on, nothing below runs.
+            if (agentOn(env, ownerSlug) && !(aJob && aJob.prepare === true)) {
+              let aAgSeq = 60;
+              const aAgParts = await readSiteParts(env, ownerSlug);
+              const ag = await runAgentChange(env, {
+                slug: ownerSlug, words: aAsked, pages: aSrc, parts: aAgParts.ok ? aAgParts.parts : null, job: aJob, picker: ab && ab.picker, trace: editTrace,
+                bill: (usage) => aCharge(pageCredits(...usage), ++aAgSeq), billLang: (usage) => (usage && usage.length ? aCharge(pageCredits(...usage), ++aAgSeq) : 0), charges: aCharges,
+              });
+              return Response.json(ag.body, { status: ag.status });
+            }
 
             // ── AN ENTRY THIS REQUEST HAS ALREADY SAVED (2026-10-01) ───────
             //

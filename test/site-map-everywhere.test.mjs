@@ -89,6 +89,7 @@ const EXEMPT = {
   writeTaskLines: "a progress line narrating the job's own facts",
   translateStrings: "translates the strings it is handed; no site in scope",
   runSiteBuild: "a first build's seed rows, written before the site's address is chosen",
+  runAgentChange: "the site agent: the map is in its own first message (site-agent.mjs firstMessage), kept identical every round for the cache",
   'handleRequest:quickSend(env, "converse")': "the conversation: handed the verified owner's key facts by readConverseContext, never another owner's site",
   "handleRequest:jobSend(rJob, quickSend(env))": "the router: its own budgeted inventory and key facts (route-inventory.mjs)",
 };
