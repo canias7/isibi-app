@@ -150,7 +150,7 @@ import { drainRebuild, BATCH as REBUILD_BATCH, BUSY_DEFER_SEC as REBUILD_BUSY_SE
 import { sweepJobObjects } from "./builder/job-retention.mjs";
 import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, sqlRehearse, sqlReadOnly, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite, projectNameForSite, findSiteProjects, siteProjectDetails, createRehearsalBranch, rehearsalConn, deleteRehearsalBranch, staleRehearsalBranches } from "./site-db.mjs";
 import { rehearseHeldSchema, heldFromRehearsal } from "./builder/addon-rehearse.mjs";
-import { applySiteSchema, loadSiteSchema, readSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, ERRORS_TABLE_SQL, HITS_TABLE_SQL, droppedFields, refusedFields, auditTier, withJobDeps, storedJobFns } from "./site-schema.mjs";
+import { applySiteSchema, loadSiteSchema, readSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, ERRORS_TABLE_SQL, HITS_TABLE_SQL, JOBS_TABLE_SQL, droppedFields, refusedFields, auditTier, withJobDeps, storedJobFns } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { pagesAgain as pagesAgainOf } from "./builder/page-gen.mjs";
@@ -2224,7 +2224,6 @@ export default {
   // every waitUntil below it would have stopped running, silently, on every
   // two-minute tick, and no customer-facing request would have failed.
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(runScheduledSiteJobs(env, ctx));
     // The nightly second copy of every site's customer data. A no-op outside
     // the night window, idempotent per day by the object key, and never allowed
     // to throw — see site-backup.mjs for every one of those decisions.
@@ -2905,93 +2904,25 @@ function logSiteHit(env, ctx, slug, path, request) {
 // Send an email through a provider (Resend/SendGrid/Postmark) — shared by the
 // `email` function action and password-reset. Key + recipient go only to the
 // provider; returns {ok, status}.
-// Register a site's scheduled jobs. Reuses the `site_functions` table, whose
-// shape (slug, name, spec, schedule_minutes, last_run) is exactly a schedule
-// registry — it was the eight-verb SPEC that was the wrong design, not the row.
-//
-// Upsert on (owner_id, slug, name); nothing is auto-deleted, so the runner
-// re-reads the site's schema and skips a job the spec no longer declares.
+// Register a site's scheduled jobs in its own `_jobs` table. Nothing is
+// auto-deleted; the site's runner skips a job its schema no longer declares.
 async function persistSiteJobs(env, ownerId, slug, jobs) {
-  if (!env.SUPABASE_SERVICE_KEY || !slug || !ownerId || !jobs.length) return;
-  const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, "Content-Type": "application/json" };
+  // INTO THE SITE'S OWN DATABASE (2026-10-27), as its owner's login (the
+  // limited one cannot create the table). The schedule is rewritten on every
+  // publish; `enabled`, `last_run` and `last_result` are the owner's and the
+  // runner's, so a republish never resumes a paused job or re-arms a done one.
+  if (!slug || !ownerId || !jobs.length) return;
+  const conn = await siteBackendBySlug(env, slug);
+  if (!conn) throw new Error("jobs: the site's database is unreachable");
+  await sqlExec(conn, JOBS_TABLE_SQL);
   const now = new Date().toISOString();
-
-  // ── A PAUSED JOB STAYS PAUSED ────────────────────────────────────────────
-  //
-  // Every row here hardcoded `enabled: true`, and this is a merge-duplicates
-  // upsert — PostgREST overwrites the columns it is given — so the owner's off
-  // switch was reset by the next publish of the site. `POST /jobs {enabled}` is
-  // described one screen down as "the one write that flag was waiting for", and
-  // this quietly took it back: the runner filters `enabled=is.true`, so the job
-  // resumed on the next two-minute tick.
-  //
-  // NOT A COSMETIC RESET. These jobs send on the owner's OWN Twilio or Resend
-  // key, so it spends their money and mails or texts their customers after they
-  // asked it to stop — and there is nothing on the site to tell them it started
-  // again.
-  //
-  // READ FIRST, and treat an unreadable answer as PAUSED for every name we
-  // cannot vouch for. The safe direction is unambiguous here: being wrong
-  // toward paused costs a job that does not fire until the next publish, and
-  // being wrong toward enabled sends messages somebody switched off. A row that
-  // does not exist yet is not in the set, so a genuinely new job still starts
-  // enabled — which is what a newly declared job means.
-  //
-  // AND OMITTING THE COLUMN IS WHAT MAKES THAT TRUE, which was MEASURED rather
-  // than assumed: `site_functions.enabled` is `boolean NOT NULL DEFAULT true`.
-  // So an absent `enabled` gives a NEW row `true` and leaves an EXISTING row
-  // exactly as the owner set it. Had the column been nullable with no default,
-  // this same omission would have written NULL and the runner's
-  // `enabled=is.true` would have filtered out every newly declared job —
-  // silently, and in the direction where the reminder never fires. If that
-  // default ever moves, this function has to send the column again.
-  const names = jobs.slice(0, 8).map((j) => j.name);
-  const paused = new Set();
-  try {
-    const q = new URLSearchParams({
-      select: "name,enabled",
-      owner_id: "eq." + ownerId,
-      slug: "eq." + slug,
-      name: "in.(" + names.map((n) => JSON.stringify(String(n))).join(",") + ")",
-    });
-    const pr = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?${q}`, { headers: svc, signal: AbortSignal.timeout(10000) });
-    if (!pr.ok) throw new Error("site_functions read " + pr.status);
-    for (const row of await pr.json()) if (row && row.enabled === false) paused.add(String(row.name));
-  } catch (e) {
-    // CANNOT TELL MEANS LEAVE THEM ALONE, and it is expressed by dropping the
-    // column entirely rather than by guessing a value: merge-duplicates only
-    // overwrites the columns present in the row, so an absent `enabled` leaves
-    // whatever is stored — new rows take the table's own default and existing
-    // ones keep the owner's choice, which is exactly the answer a failed read
-    // has no business overruling.
-    console.error("site_functions pause read failed:", slug, e && e.message);
-    paused.add(null); // sentinel: unknown for every name
+  for (const j of jobs.slice(0, 8)) {
+    const spec = { fn: j.fn, ...(j.at ? { at: j.at, ...(j.tz ? { tz: j.tz } : {}) } : {}), ...(j.on ? { on: j.on } : {}) };
+    await sqlExec(conn,
+      "INSERT INTO _jobs (name, spec, schedule_minutes, updated_at) VALUES (?, ?::jsonb, ?, ?) " +
+      "ON CONFLICT (name) DO UPDATE SET spec=excluded.spec, schedule_minutes=excluded.schedule_minutes, updated_at=excluded.updated_at",
+      [j.name, JSON.stringify(spec), j.everyMinutes, now]);
   }
-  const unknown = paused.has(null);
-  const rows = jobs.slice(0, 8).map((j) => ({
-    // THE CLOCK TIME RIDES THE SPEC (2026-09-03): `at` and the zone it is
-    // read in, beside the function — the runner's `dueJobs` reads them off
-    // the row, and a job without one is exactly the row it always was.
-    // `on` rides the spec beside `at`, and its PRESENCE is what makes this a
-    // one-time job — `dueJobs` asks for nothing else. `schedule_minutes` keeps
-    // an ordinary value deliberately: a 0 or a sentinel would be the
-    // structurally stronger marker, and this repository cannot read
-    // `site_functions`' CHECK constraints (the table was created by hand and
-    // no migration defines it), so writing an unusual value into a column
-    // whose constraints are unknown is the kind of assumption that costs a
-    // deploy. `normalizeJob` forces the interval to its ceiling instead, which
-    // is the fail-safe if `on` is ever lost.
-    owner_id: ownerId, slug, name: j.name, spec: { fn: j.fn, ...(j.at ? { at: j.at, ...(j.tz ? { tz: j.tz } : {}) } : {}), ...(j.on ? { on: j.on } : {}) },
-    ...(unknown || paused.has(String(j.name)) ? {} : { enabled: true }),
-    updated_at: now, schedule_minutes: j.everyMinutes,
-  }));
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?on_conflict=owner_id,slug,name`, {
-    method: "POST", headers: { ...svc, Prefer: "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify(rows), signal: AbortSignal.timeout(10000),
-  });
-  // Reported rather than swallowed: an unregistered job is a reminder that
-  // never fires, and the owner has no way to tell from the site.
-  if (!r.ok) throw new Error("site_functions upsert " + r.status);
 }
 // Drain the scheduled jobs that are due, on the existing 2-minute cron.
 //
@@ -3212,252 +3143,14 @@ async function runWebhookQueue(env) {
   }
 }
 
-// EXPORTED FOR THE GUARD, and this is the reason rather than a convenience.
-// The selector (`dueJobs`) and the atomic claim (`jobDeps().stamp`) are two
-// readers of one question — "may this job run now" — and for a year the only
-// thing asserting they agreed was a guard that read the claim's SPELLING. A
-// spelling is not an agreement: on 2026-09-19 the selector's daily rule moved
-// off elapsed time and the claim did not, so `dueJobs` selected a job at 22:00Z
-// and the claim refused it in the same tick, silently, with `runJob` making
-// zero function calls. Driving this function is what makes the disagreement
-// observable at all; nothing below it can be reached any other way.
-export async function runScheduledSiteJobs(env, ctx) {
-  if (!env.SUPABASE_SERVICE_KEY) return;
-  const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY };
-  let rows = [];
-  try {
-    // ORDERED, and the `limit` is why. Unordered, the 200 rows this fetches are
-    // whatever Postgres happens to return — so past 200 registered jobs across
-    // the platform, some are never even LOOKED at, and `dueJobs`'s cap then
-    // takes a fixed slice out of that arbitrary window. Stalest first (a
-    // never-run job ahead of everything) makes the window itself the 200 rows
-    // most in need of running, which is the same order `dueJobs` sorts by — so
-    // the read and the selection agree rather than fighting each other.
-    // `updated_at` IS PART OF THE ANSWER (2026-09-03): a clock-time job that
-    // has never run is due only once its time has passed SINCE IT WAS ADDED,
-    // and the registration stamp is the only record of when that was.
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?enabled=is.true&schedule_minutes=not.is.null&select=owner_id,slug,name,spec,schedule_minutes,last_run,updated_at&order=last_run.asc.nullsfirst&limit=200`, { headers: svc, signal: AbortSignal.timeout(10000) });
-    rows = await r.json().catch(() => []);
-  } catch { return; }
-  if (!Array.isArray(rows)) return;
-
-  for (const row of dueJobs(rows, Date.now())) {
-    const out = await runJobAnywhere(env, row);
-    await recordJobOutcome(env, row, out);
-  }
-}
-
-/**
- * ONE SET OF DEPS FOR A JOB RUN, shared by the cron and the owner's "run now"
- * (2026-09-03). The cron built these inline, and that is where the tier died:
- * three of them read `siteNeonProject(env, row.slug)` — the site's Neon
- * PROJECT ROW — where the DATABASE CONNECTION is wanted, so `loadSiteSchema`
- * and the vault reads were handed an object, the schema read as empty, and
- * every job ever registered wrote "this job is no longer part of the site".
- * Twenty-six registered, zero sends, and a green suite the whole time: a
- * chain test read the module and never ran the deps. `siteBackendBySlug` is
- * the slug-to-connection reader every data path uses.
- *
- * ⚠ `force` IS GONE (2026-09-19), AND IT IS DELETED RATHER THAN LEFT INERT.
- * It meant "drop the dueness clause, because the owner pressing Run now IS the
- * decision that the job is due" — an argument about DUENESS, and the claim is
- * no longer a dueness test. Under `claimFilter` a press asks only that nothing
- * ran in between, which is what the press meant, and a parameter that once
- * disabled a wall is the kind of thing a later session re-wires by mistake.
- * The one real difference between a press and a tick lives at the CALL SITE,
- * where the press skips `dueJobs` and the tick does not.
- */
-export function jobDeps(env, row) {
-  const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY };
-  return {
-      // Stamped FIRST, inside runJob, and that ordering is load-bearing: stamped
-      // after sending, a job that dies mid-batch is due again on the next tick
-      // and mails everyone it already reached. Losing a run is recoverable;
-      // sending a reminder four times is not.
-      // A CONDITIONAL CLAIM, exactly the notify-cooldown pattern: one caller
-      // wins the window, decided by the database rather than by two ticks
-      // agreeing not to overlap. OWNER-SCOPED like every filter on this table
-      // now: slug alone crosses tenants the day a freed slug is re-claimed and
-      // the model reuses a job name. And r.ok is CHECKED — the old write was
-      // not, so a Supabase in read-only mode (reads fine, writes 5xx) let the
-      // send proceed unstamped and re-mail the whole batch every tick until
-      // writes recovered. A claim that cannot be recorded is a claim lost.
-      //
-      // ⚠ THE CONDITION IS `claimFilter`'s AND IS NOT WRITTEN HERE (2026-09-19).
-      // It used to be composed inline from `schedule_minutes` — a second copy
-      // of the selector's dueness rule, in another module, with nothing
-      // comparing the two. `dueJobs` moved its daily rule onto the calendar
-      // occurrence on 2026-09-16 and this did not follow, so a nightly job was
-      // SELECTED and then REFUSED in the same tick, making zero function calls
-      // and leaving no trace. `site-jobs.mjs` owns both halves now and the
-      // claim asks the one question that cannot drift from any selector rule:
-      // is this still the row the selector looked at?
-      stamp: async (r2) => {
-        const dueness = claimFilter(r2);
-        try {
-          const r = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?owner_id=eq.${encodeURIComponent(r2.owner_id)}&slug=eq.${encodeURIComponent(r2.slug)}&name=eq.${encodeURIComponent(r2.name)}${dueness}`, {
-            method: "PATCH", headers: { ...svc, "Content-Type": "application/json", Prefer: "return=representation" },
-            body: JSON.stringify({ last_run: new Date().toISOString() }), signal: AbortSignal.timeout(8000),
-          });
-          if (!r.ok) return { won: false };
-          const got = await r.json().catch(() => null);
-          return { won: Array.isArray(got) && got.length > 0 };
-        } catch { return { won: false }; }
-      },
-      // Re-read the SITE'S OWN schema rather than trusting the registry row.
-      // Nothing auto-deletes a job, so a revise that drops one leaves the row
-      // behind; the schema is what the site actually declares today, and a job
-      // it no longer declares must stop running.
-      // NAMED CAUSES, never a bare null. Three different situations used to
-      // shape to null and all three wore the broken-SQL sentence in the
-      // owner's panel — "the function didn't return a list" said of a database
-      // that was unreachable, of a job a revise had dropped, and of a bad
-      // name. And the JSON parse is fenced with a FIXED sentence: V8's
-      // SyntaxError quotes ~26 characters of the input, so a malformed result
-      // beginning with recipient data would have put a fragment of a
-      // customer's address into last_result — a platform table (2026-08-13
-      // audit). No error message from the parse ever leaves this function.
-      callFn: async (fn) => {
-        const conn = await siteRowConn(env, row.slug);
-        if (!conn) return { jobsSkip: "the site's database is unreachable" };
-        const spec = await loadSiteSchema(conn);
-        const declared = (spec && Array.isArray(spec.jobs) ? spec.jobs : []).some((j) => j && j.name === row.name && j.fn === fn);
-        if (!declared) return { jobsSkip: "this job is no longer part of the site" };
-        if (!/^[a-z][a-z0-9_]{0,40}$/.test(String(fn))) return { jobsSkip: "the function has an unusable name" };
-        const got = await sqlQuery(conn, "SELECT " + sqlIdent(fn) + "() AS out");
-        const v = got && got[0] && got[0].out;
-        if (typeof v !== "string") return v;
-        try { return JSON.parse(v); } catch { return { jobsSkip: "the function returned text that is not valid JSON" }; }
-      },
-      // ONE VAULT READER, SHARED. This was a hand-rolled third copy of
-      // siteMailSecrets — same four names, same loop — and the shared
-      // function's own header says why that must not exist: two readers of one
-      // vault written out twice are two things that can disagree about which
-      // key is live. A provider added there and forgotten here would tell an
-      // owner "no provider key in Secrets" while their confirmations sent
-      // fine on the same key (2026-08-13 audit).
-      credentials: async () => {
-        const conn = await siteRowConn(env, row.slug);
-        if (!conn) return null;
-        const secrets = await siteMailSecrets(env, conn, row.slug)();
-        const picked = pickProvider(secrets);
-        // Bring-your-own: no key and no from address means no send, quietly.
-        // Our own sender is never substituted — see site-mail.mjs.
-        if (!picked) return null;
-        // A key without its from address is named as such (audit A12-4), so the
-        // job's outcome tells the owner which half to add.
-        if (!String(secrets.EMAIL_FROM || "").trim()) return { missing: "EMAIL_FROM" };
-        return { provider: picked.provider, key: picked.key, from: secrets.EMAIL_FROM };
-      },
-      send: ({ provider, key, from, to, subject, html }) => postProviderEmail(provider, key, from, to, subject, html),
-      // THE SECOND CHANNEL, and the one the jobs tool's own headline case wants.
-      // Its description opens with "reminding tomorrow's customers today, so
-      // they turn up" — which for a barber, a garage or a restaurant is a text,
-      // because a text is read and an email is not. The whole tier could only
-      // ever email until now: `send` was hardcoded to `postProviderEmail`, so
-      // `sendSms` existed one file over and no scheduled job could reach it.
-      //
-      // The SAME vault, the SAME provider picker and the SAME wire function the
-      // write path uses. A second reader of one vault is two things that can
-      // disagree about which key is live — the lesson `siteMailSecrets` already
-      // carries, applied one channel over.
-      smsCredentials: async () => {
-        const conn = await siteRowConn(env, row.slug);
-        if (!conn) return null;
-        const secrets = await siteSmsSecrets(env, conn, row.slug)();
-        const picked = pickSmsProvider(secrets);
-        const from = String((secrets && secrets.SMS_FROM) || "").trim();
-        if (!picked || !from) return null;
-        // The sender is validated HERE rather than per message: an alphanumeric
-        // id is legal where a plain number is, and a hundred reminders must not
-        // re-answer that question a hundred times.
-        const sender = toE164(from) || (/^[A-Za-z0-9 ]{1,11}$/.test(from) ? from : null);
-        if (!sender) return null;
-        return { provider: picked.provider, key: picked.key, secret: picked.secret, from: sender };
-      },
-      sendSms: ({ provider, key, secret, from, to, body }) => postProviderSms(provider, key, secret, from, to, body),
-      // The write path's own parser, so "07700 900000" out of model-written SQL
-      // is refused in exactly the same place and for exactly the same reason.
-      phone: (v) => toE164(v),
-      recipient,
-  };
-}
-
-// THE SITE DOES ITS OWN JOBS (2026-10-27). The platform keeps the clock and
-// the claim; the work (the site's database function, the owner's own mail and
-// SMS keys) runs in the site's Worker. The header is set here and nowhere
-// else, and stripped from every request forwarded to a site.
+// THE SITE KEEPS AND RUNS ITS OWN JOBS (2026-10-27): the list is `_jobs` in
+// its own database, and its Worker picks what is due, claims it and runs it
+// when the clock below wakes it (`runSiteTicks`). The platform reads that
+// table for the owner's panel and passes on "run now"; it runs nothing itself.
 const SITE_JOB_HEADER = "x-gf-site-job";
-// A run may send up to `MAX_MESSAGES_PER_RUN`, so it gets more outside calls
-// than a page view does.
+// A run may send up to `MAX_MESSAGES_PER_RUN`, so a wake gets more outside
+// calls than a page view does.
 const SITE_JOB_SUBREQUESTS = 250;
-
-/** Claim the run here, then let the site do it; the platform does it only for a script that cannot. */
-async function runJobAnywhere(env, row) {
-  if (env.SITE_OWN_DATA !== "1" || !env.SITE_WORKERS) return runJob(jobDeps(env, row), row);
-  const deps = jobDeps(env, row);
-  const fn = row && row.spec && typeof row.spec.fn === "string" ? row.spec.fn : null;
-  if (!fn || !/^[a-z][a-z0-9_]{0,40}$/.test(fn)) return { ok: false, name: row && row.name, reason: "no function" };
-  const claimed = await deps.stamp(row);
-  if (claimed && claimed.won === false) return { ok: true, name: row.name, skipped: true };
-  const mine = await siteRunJob(env, row);
-  return mine || runJob({ ...deps, stamp: async () => ({ won: true }) }, row);
-}
-
-async function siteRunJob(env, row) {
-  const name = scriptNameFor(row.slug);
-  if (!name) return null;
-  try {
-    const lim = siteLimits(env);
-    const res = await env.SITE_WORKERS.get(name, {}, { limits: { ...lim.limits, subRequests: SITE_JOB_SUBREQUESTS } }).fetch(
-      new Request("https://" + row.slug + ".gofarther.app/__gf/job", {
-        method: "POST", headers: { "content-type": "application/json", [SITE_JOB_HEADER]: "1" },
-        body: JSON.stringify({ name: row.name, spec: row.spec }),
-      }));
-    if (res.headers.get("x-site-data") !== "own") return null;
-    const out = await res.json();
-    return out && typeof out === "object" ? out : null;
-  } catch { return null; }
-}
-
-/**
- * What a run did, where it can be seen: the Worker log for us, and the
- * job's own `last_result` for the owner. Shared by the cron and "run now".
- */
-async function recordJobOutcome(env, row, out) {
-    const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY };
-    // It runs detached on a cron, so an unlogged failure is invisible forever.
-    // A job that sent nothing because nothing was due is not news; anything else
-    // is.
-    if (!out.ok || out.failed || out.overflow) {
-      console.error("job:", row.slug, out.name, JSON.stringify(out).slice(0, 300));
-    } else if (out.sent) {
-      console.log("job:", row.slug, out.name, "sent", out.sent);
-    }
-
-    // AND WHERE THE OWNER CAN SEE IT, which is the half that was missing. A
-    // Cloudflare log is not a surface a small business has; without this row the
-    // four outcomes `runJob` carefully separates are one silence, and a reminder
-    // that never arrives is invisible to the customer AND to the owner.
-    //
-    // A SECOND WRITE, after the run rather than folded into `stamp`. That one
-    // goes FIRST on purpose (see runJob) and must keep going first; losing this
-    // note costs a line of history, while moving the stamp costs somebody four
-    // copies of the same reminder. Best-effort for the same reason — the tick
-    // must not fail over a diagnostic.
-    // A LOST CLAIM WRITES NOTHING: the winning tick's outcome is the run's
-    // record, and overwriting it with "skipped" every overlap would bury the
-    // one line the owner reads. Owner-scoped like the stamp, or a freed slug
-    // re-claimed by another account gets its history written by a stranger's
-    // zombie row.
-    if (out.skipped) return;
-    try {
-      await fetch(`${SUPABASE_URL}/rest/v1/site_functions?owner_id=eq.${encodeURIComponent(row.owner_id)}&slug=eq.${encodeURIComponent(row.slug)}&name=eq.${encodeURIComponent(row.name)}`, {
-        method: "PATCH", headers: { ...svc, "Content-Type": "application/json", Prefer: "return=minimal" },
-        body: JSON.stringify({ last_result: jobOutcome(out).slice(0, 400) }), signal: AbortSignal.timeout(8000),
-      });
-    } catch (e) { console.error("job result write failed:", row.slug, out.name, e && e.message); }
-}
 
 // ── Website Builder: server-side image generation ──
 // The design pass emits <img data-gen="<photo prompt>" data-ar="16:9"> placeholders;
@@ -17406,7 +17099,7 @@ async function siteReadVars(env, slug) {
     // (the limited one cannot create): on a site built before they existed.
     if (app) {
       const ownerConn = await siteBackendBySlug(env, slug).catch(() => null);
-      if (ownerConn) for (const q of [ERRORS_TABLE_SQL, HITS_TABLE_SQL]) await sqlExec(ownerConn, q).catch(() => {});
+      if (ownerConn) for (const q of [ERRORS_TABLE_SQL, HITS_TABLE_SQL, JOBS_TABLE_SQL]) await sqlExec(ownerConn, q).catch(() => {});
     }
     // EVERY SECRET THE SITE HOLDS, unlocked here and given to it alone: the
     // owner's mail, SMS, webhook, Stripe and connection keys, whatever they
@@ -50861,57 +50554,38 @@ async function handleRequest(request, env, ctx) {
               // that nothing ran in between, which is why pressing twice
               // quickly sends one reminder rather than two, and why a press on
               // a one-time job that has already gone out is refused.
+              // RUN NOW: the site runs it, claimed in its own table.
               if (jbody && jbody.run === true) {
-                const jr = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?owner_id=eq.${encodeURIComponent(ou.id)}&slug=eq.${encodeURIComponent(jslug)}&name=eq.${encodeURIComponent(jname)}&schedule_minutes=not.is.null&select=owner_id,slug,name,spec,schedule_minutes,last_run,updated_at,enabled&limit=1`,
-                  { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });
-                if (!jr.ok) return Response.json({ error: "unavailable" }, { status: 503 });
-                const jrows = await jr.json().catch(() => null);
-                const jrow = Array.isArray(jrows) ? jrows[0] : null;
-                if (!jrow) return Response.json({ error: "no such job" }, { status: 404 });
-                const out = await runJobAnywhere(env, jrow);
-                await recordJobOutcome(env, jrow, out);
+                const name = scriptNameFor(jslug);
+                if (!name || !env.SITE_WORKERS) return Response.json({ error: "unavailable" }, { status: 503 });
+                let out;
+                try {
+                  const lim = siteLimits(env);
+                  const res = await env.SITE_WORKERS.get(name, {}, { limits: { ...lim.limits, subRequests: SITE_JOB_SUBREQUESTS } }).fetch(
+                    new Request("https://" + jslug + ".gofarther.app/__gf/job", { method: "POST", headers: { "content-type": "application/json", [SITE_JOB_HEADER]: "1" }, body: JSON.stringify({ name: jname }) }));
+                  if (res.headers.get("x-site-data") !== "own") return Response.json({ error: "republish the site to run its jobs" }, { status: 409 });
+                  if (res.status === 404) return Response.json({ error: "no such job" }, { status: 404 });
+                  out = await res.json();
+                } catch { return Response.json({ error: "unavailable" }, { status: 503 }); }
                 return Response.json({ ok: true, name: jname, ran: true, sent: Number(out && out.sent) || 0, result: jobOutcome(out) });
               }
-              // A REAL BOOLEAN, nothing merely truthy — `enabled: "false"`
-              // would switch a job ON while the owner was switching it off,
-              // the normalizeRole lesson on the field that sends mail.
               if (typeof (jbody && jbody.enabled) !== "boolean") return Response.json({ error: "bad enabled" }, { status: 400 });
-              const w = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?owner_id=eq.${encodeURIComponent(ou.id)}&slug=eq.${encodeURIComponent(jslug)}&name=eq.${encodeURIComponent(jname)}&schedule_minutes=not.is.null`, {
-                method: "PATCH", headers: svcHeaders(env, { "content-type": "application/json", Prefer: "return=representation" }),
-                body: JSON.stringify({ enabled: jbody.enabled }), signal: AbortSignal.timeout(10000),
-              });
-              if (!w.ok) return Response.json({ error: "unavailable" }, { status: 503 });
-              const wr = await w.json().catch(() => null);
-              // Zero rows matched = no such scheduled job on this site. Saying
-              // ok would be a toggle that reports success while switching
-              // nothing — this file's most-recorded failure, on the one
-              // control whose whole point is stopping mail.
+              const jconn = await siteRowConn(env, jslug);
+              if (!jconn) return Response.json({ error: "unavailable" }, { status: 503 });
+              let wr;
+              try { wr = await sqlQuery(jconn, "UPDATE _jobs SET enabled=? WHERE name=? AND schedule_minutes IS NOT NULL RETURNING name", [jbody.enabled === true, jname]); }
+              catch { return Response.json({ error: "unavailable" }, { status: 503 }); }
               if (!Array.isArray(wr) || !wr.length) return Response.json({ error: "no such job" }, { status: 404 });
               return Response.json({ ok: true, name: jname, enabled: jbody.enabled === true });
             }
             if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
-            const q = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?slug=eq.${encodeURIComponent(jslug)}&schedule_minutes=not.is.null&select=name,spec,schedule_minutes,enabled,last_run,last_result&order=name.asc&limit=20`,
-              { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });
-            // A READ THAT FAILED IS NOT "THIS SITE HAS NO JOBS", which is the
-            // one wrong answer here that matters: it reads as the feature not
-            // existing, and the owner stops looking. Same call `analytics`
-            // makes — never zeros on an unreadable ledger.
-            if (!q.ok) return Response.json({ error: "unavailable" }, { status: 503 });
-            const jrows = await q.json().catch(() => null);
-            if (!Array.isArray(jrows)) return Response.json({ error: "unavailable" }, { status: 503 });
-            // ⚠ THE ROW IS `jobPanelRow`'s, IN `site-jobs.mjs`, and lifting it
-            // there is a sweep survivor's doing: two of this projection's
-            // fields could be emptied with the whole suite green, because
-            // nothing anywhere drives this route's mapping — a fixture for it
-            // needs Supabase, the owner gate and a session. *A wall nobody can
-            // drive is a wall nobody is guarding*, and the answer is to make
-            // it drivable rather than to declare it unguardable.
-            //
-            // It belongs beside the scheduler anyway: every field here is the
-            // scheduler's own view of a row (`spec.fn` is what `runJob` calls,
-            // `onState` is what `dueJobs` will and will not select), so a
-            // second copy in the route is a second idea of what a job is.
-            return Response.json({ jobs: jrows.map(jobPanelRow) });
+            // THE SITE'S OWN LIST, from its own database.
+            const jconn = await siteRowConn(env, jslug);
+            if (!jconn) return Response.json({ jobs: [] });
+            let jrows;
+            try { jrows = await sqlQuery(jconn, "SELECT name, spec, schedule_minutes, enabled, last_run, last_result FROM _jobs WHERE schedule_minutes IS NOT NULL ORDER BY name LIMIT 20", []); }
+            catch { jrows = []; /* a site with no _jobs table has no jobs */ }
+            return Response.json({ jobs: (jrows || []).map((r) => jobPanelRow({ ...r, spec: typeof r.spec === "string" ? JSON.parse(r.spec) : r.spec })) });
           } else if (bk) {
             // THE NIGHTLY COPIES — list them, download one. Read-only by
             // design: a backup an owner could DELETE is a backup an attacker

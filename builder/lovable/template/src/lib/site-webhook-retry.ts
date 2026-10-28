@@ -7,6 +7,7 @@
 import { enqueueRow, drainQueue, queueFull, claimable, MAX_PENDING_PER_SITE, LEASE_MS } from "./effects/site-webhook-queue.mjs";
 import { deliverWebhook, signPayload, retryable } from "./effects/site-webhooks.mjs";
 import { blockedReason } from "./effects/site-ssrf.mjs";
+import { runDueJobs, type JobEnv } from "./site-jobs-run";
 
 type Obj = { text(): Promise<string>; etag?: string };
 type Listed = { objects: { key: string; uploaded?: Date }[]; truncated: boolean; cursor?: string };
@@ -109,6 +110,8 @@ export async function drainOwnQueue(env: RetryEnv, slug: string): Promise<Record
 /** `POST /__gf/tick`, sent only by the platform's clock. */
 export async function siteTick(request: Request, env: RetryEnv, url: URL, slug: string, header: string): Promise<Response | null> {
   if (url.pathname !== "/__gf/tick" || request.method !== "POST" || request.headers.get(header) !== "1") return null;
+  // The site's own scheduled jobs first: what is due, claimed in its own table.
+  const jobs = await runDueJobs(env as unknown as JobEnv).catch(() => ({ ran: 0 }));
   const webhooks = await drainOwnQueue(env, slug).catch((e) => ({ error: String((e && e.message) || e).slice(0, 200) }));
   // Dead deliveries older than 30 days go.
   try {
@@ -116,5 +119,5 @@ export async function siteTick(request: Request, env: RetryEnv, url: URL, slug: 
     const page = await env.SITES!.list({ prefix: DEAD_PREFIX, limit: 1000 });
     for (const o of page.objects) if (o.uploaded && o.uploaded.getTime() < cut) await env.SITES!.delete(o.key);
   } catch { /* next tick */ }
-  return Response.json({ ok: true, webhooks }, { headers: own });
+  return Response.json({ ok: true, jobs, webhooks }, { headers: own });
 }

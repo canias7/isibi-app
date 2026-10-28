@@ -1,39 +1,56 @@
-// THIS SITE'S SCHEDULED JOBS, RUN BY ITS OWN WORKER (2026-10-27). The platform
-// keeps only the clock: when a job is due it claims the run and asks this
-// Worker to do it. The site's own database function decides who to tell; the
-// owner's own mail and SMS keys send it. `runJob` is the platform's own
-// (`./effects/site-jobs.mjs`, copied byte for byte); the claim already
-// happened, so its stamp here always wins.
-import { runJob } from "./effects/site-jobs.mjs";
+// THIS SITE'S SCHEDULED JOBS, KEPT AND RUN BY ITS OWN WORKER (2026-10-27).
+//
+// The list lives in the site's own database (`_jobs`: what runs when, whether
+// the owner paused it, how its last run went). When the platform's clock wakes
+// the site, it picks what is due with the platform's own rules
+// (`./effects/site-jobs.mjs`, copied byte for byte), claims each run in its own
+// table so two wakes never send twice, runs the site's own function, sends with
+// its owner's own mail and SMS keys, and writes the result for the owner's
+// panel. `POST /__gf/job` is the owner's "run now", passed on by the platform.
+import { runJob, dueJobs, jobOutcome, MAX_JOBS_PER_TICK } from "./effects/site-jobs.mjs";
 import { recipient, pickProvider } from "./effects/site-mail.mjs";
 import { pickSmsProvider, toE164 } from "./effects/site-sms.mjs";
 import { postProviderEmail, postProviderSms } from "./effects/site-providers.mjs";
 import { siteSql } from "./site-effects";
 
 export type JobEnv = { APP_CONN?: string; SITE_SPEC?: string; [name: string]: unknown };
-/** Set only by the platform's own tick; stripped from every request it forwards. */
+/** Set only by the platform's own clock and panel; stripped from every request it forwards. */
 export const JOB_HEADER = "x-gf-site-job";
 const own = { "x-site-data": "own" };
+type Row = { name: string; spec: { fn?: string; on?: string } | string; schedule_minutes?: number | null; enabled?: boolean; last_run?: string | null; last_result?: string | null; updated_at?: string | null };
 
 function secrets(env: JobEnv): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(env)) if (/^[A-Z][A-Z0-9_]{0,63}$/.test(k) && typeof v === "string" && v) out[k] = v;
   return out;
 }
+const specOf = (r: Row) => (typeof r.spec === "string" ? (() => { try { return JSON.parse(r.spec as string); } catch { return {}; } })() : r.spec || {});
 
-export async function siteJob(request: Request, env: JobEnv, url: URL): Promise<Response | null> {
-  if (url.pathname !== "/__gf/job" || request.method !== "POST" || request.headers.get(JOB_HEADER) !== "1") return null;
-  if (!env.APP_CONN) return null;
-  const conn = env.APP_CONN as string;
-  let row: { name?: string; spec?: { fn?: string } };
-  try { row = (await request.json()) as typeof row; } catch { return Response.json({ ok: false, reason: "bad request" }, { status: 400, headers: own }); }
+/** The jobs the site holds, as the scheduler reads them. */
+export async function readJobs(conn: string): Promise<Row[]> {
+  const rows = (await siteSql(conn, "SELECT name, spec, schedule_minutes, enabled, last_run, last_result, updated_at FROM _jobs ORDER BY name", [])) as unknown as Row[];
+  return (rows || []).map((r) => ({ ...r, spec: specOf(r) }));
+}
+
+/** One run: claimed in the site's own table (nothing ran in between), then done, then written down. */
+export async function runOneJob(env: JobEnv, conn: string, row: Row) {
   const out = await runJob({
-    stamp: async () => ({ won: true }),
+    // THE CLAIM: the stamp moves only if nobody moved it since this row was read.
+    // A one-time job is claimed only while it has never run.
+    stamp: async (r: Row) => {
+      const once = typeof (specOf(r) as { on?: string }).on === "string";
+      const now = new Date().toISOString();
+      const got = once || r.last_run == null
+        ? await siteSql(conn, "UPDATE _jobs SET last_run=? WHERE name=? AND last_run IS NULL RETURNING name", [now, r.name])
+        : await siteSql(conn, "UPDATE _jobs SET last_run=? WHERE name=? AND last_run=? RETURNING name", [now, r.name, r.last_run]);
+      return { won: !!(got && got.length) };
+    },
     callFn: async (fn: string) => {
+      // A job the site no longer declares stays in the table (the owner's
+      // history) but never runs.
       let spec: { jobs?: { name?: string; fn?: string }[] } | null = null;
       try { spec = JSON.parse(String(env.SITE_SPEC || "null")); } catch { spec = null; }
-      const declared = (spec && Array.isArray(spec.jobs) ? spec.jobs : []).some((j) => j && j.name === row.name && j.fn === fn);
-      if (!declared) return { jobsSkip: "this job is no longer part of the site" };
+      if (spec && !(Array.isArray(spec.jobs) ? spec.jobs : []).some((j) => j && j.name === row.name && j.fn === fn)) return { jobsSkip: "this job is no longer part of the site" };
       if (!/^[a-z][a-z0-9_]{0,40}$/.test(String(fn))) return { jobsSkip: "the function has an unusable name" };
       const got = await siteSql(conn, `SELECT "${fn}"() AS out`, []);
       const v = got && got[0] && got[0].out;
@@ -61,5 +78,32 @@ export async function siteJob(request: Request, env: JobEnv, url: URL): Promise<
     phone: (v: unknown) => toE164(v),
     recipient,
   }, row);
-  return Response.json(out, { headers: own });
+  if (!out.skipped) await siteSql(conn, "UPDATE _jobs SET last_result=? WHERE name=?", [String(jobOutcome(out)).slice(0, 400), row.name]).catch(() => {});
+  return out;
+}
+
+/** Everything due now, at most the platform's per-tick number. */
+export async function runDueJobs(env: JobEnv): Promise<{ ran: number }> {
+  if (!env.APP_CONN) return { ran: 0 };
+  const conn = env.APP_CONN as string;
+  let rows: Row[] = [];
+  try { rows = await readJobs(conn); } catch { return { ran: 0 }; }
+  let ran = 0;
+  for (const row of dueJobs(rows.filter((r) => r.schedule_minutes != null), Date.now()).slice(0, MAX_JOBS_PER_TICK)) {
+    await runOneJob(env, conn, row);
+    ran++;
+  }
+  return { ran };
+}
+
+/** `POST /__gf/job {name}`: the owner's "run now", passed on by the platform. */
+export async function siteJob(request: Request, env: JobEnv, url: URL): Promise<Response | null> {
+  if (url.pathname !== "/__gf/job" || request.method !== "POST" || request.headers.get(JOB_HEADER) !== "1") return null;
+  if (!env.APP_CONN) return null;
+  const conn = env.APP_CONN as string;
+  let name = "";
+  try { name = String(((await request.json()) as { name?: string }).name || ""); } catch { name = ""; }
+  const row = (await readJobs(conn).catch(() => [] as Row[])).find((r) => r.name === name && r.schedule_minutes != null);
+  if (!row) return Response.json({ ok: false, reason: "no such job" }, { status: 404, headers: own });
+  return Response.json(await runOneJob(env, conn, row), { headers: own });
 }
