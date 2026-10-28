@@ -1746,6 +1746,13 @@ no edit job was open.
 - Served asset changed: `/chat.js`.
 - Run 40627724992, green, 03:37–03:40 UTC. Deployed, not runtime-confirmed;
   the image rolled, so wait 15–20 minutes before container work.
+- **Runtime-confirmed by canary run 170** (04:41 UTC, free, from `main`): both
+  readers answered `363b13aa9d9b`, a cold container got `51b82d120c34280c`, and
+  queued jobs and the runner were on; nothing was charged (balance 603). The
+  free inventory read `fretwork-1`'s three pages as 0 bytes with no version: it
+  was published before this change and has no Worker of its own, so it now
+  answers "this site needs to be published again" (no compatibility for old
+  sites, on the owner's word).
 
 ## Deploy 2263 — 2026-10-23 13:36 UTC (`091f153e1`)
 
