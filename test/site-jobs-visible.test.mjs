@@ -112,13 +112,11 @@ test("junk in cannot throw — this runs on a cron", () => {
 test("IT IS RECORDED WHERE THE OWNER CAN REACH IT, after the run", () => {
   // The stamp goes FIRST and must keep going first — stamped afterwards, a job
   // that dies mid-send is due again on the next tick and mails everyone it
-  // already reached. Losing this note costs a line of history; moving the stamp
-  // costs somebody four copies of the same reminder.
-  const at = worker.indexOf("async function runScheduledSiteJobs");
-  assert.ok(at > 0, "the cron moved — retarget this");
-  const block = worker.slice(at, worker.indexOf("\n}", worker.indexOf("jobOutcome(out)", at)));
-  const stamp = block.indexOf("last_run");
-  const note = block.indexOf("last_result");
+  // already reached. (2026-10-27: the site's own runner, its own `_jobs`.)
+  const r = fs.readFileSync(new URL("../builder/lovable/template/src/lib/site-jobs-run.ts", import.meta.url), "utf8");
+  const block = r.slice(r.indexOf("export async function runOneJob("), r.indexOf("export async function runDueJobs("));
+  const stamp = block.indexOf("UPDATE _jobs SET last_run");
+  const note = block.indexOf("UPDATE _jobs SET last_result");
   assert.ok(stamp > 0 && note > 0, "one of the two writes is gone");
   assert.ok(stamp < note, "the outcome is written before the stamp — that ordering re-sends reminders");
   assert.match(block, /jobOutcome\(out\)/, "the outcome is computed and discarded again");
@@ -159,7 +157,8 @@ test("AN UNREADABLE LIST IS NOT AN EMPTY ONE, at both ends", () => {
   // "No scheduled jobs" reads as the feature not existing and the owner stops
   // looking — the one wrong answer here that costs something.
   const h = jbBlock();
-  assert.match(h, /if \(!q\.ok\) return Response\.json\(\{ error: "unavailable" \}/);
+  // 2026-10-27: the list is the site's own `_jobs`; only a missing table is "none".
+  assert.ok(h.includes('if (!/_jobs" does not exist/.test(String((e && e.message) || ""))) return Response.json({ error: "unavailable" }, { status: 503 });'), "a failed read reads as zero jobs");
   assert.match(h, /if \(!Array\.isArray\(jrows\)\)/, "a non-array body reads as zero jobs");
   const c = chat.indexOf("async function siteFunctions(site)");
   assert.ok(c > 0, "the panel is gone");
@@ -195,12 +194,13 @@ test("THE OFF SWITCH: POST {name, enabled} exists, refuses junk, and cannot lie"
   assert.match(h, /typeof \(jbody && jbody\.enabled\) !== "boolean"/, "enabled is accepted truthy");
   // Owner-scoped AND schedule-scoped: slug alone crosses tenants the day a
   // freed slug is re-claimed, and a row with no schedule is not a job.
-  assert.match(h, /site_functions\?owner_id=eq\.[^`]*&name=eq\.[^`]*&schedule_minutes=not\.is\.null/,
+  // Site-scoped by the site's own database (2026-10-27), name-scoped, and a
+  // row with no schedule is not a job.
+  assert.match(h, /UPDATE _jobs SET enabled=\? WHERE name=\? AND schedule_minutes IS NOT NULL RETURNING name/,
     "the toggle's filter lost a scope");
   // Zero rows matched must be a 404, not an ok — a toggle that reports success
   // while switching nothing is this file's most-recorded failure, on the one
   // control whose whole point is stopping mail.
-  assert.match(h, /Prefer: "return=representation"/, "the PATCH cannot see whether it matched anything");
   assert.match(h, /if \(!Array\.isArray\(wr\) \|\| !wr\.length\) return Response\.json\(\{ error: "no such job" \}, \{ status: 404 \}\)/,
     "a name matching nothing reports success");
 

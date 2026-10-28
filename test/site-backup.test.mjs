@@ -189,7 +189,7 @@ test("the cron drives it and the worker supplies real deps", () => {
     "a call to a name that was never imported is a ReferenceError on the cron");
   const at = worker.indexOf("function backupDeps(env)");
   assert.ok(at > 0, "backupDeps is gone — rescope this");
-  const deps = worker.slice(at, worker.indexOf("async function runScheduledSiteJobs", at));
+  const deps = worker.slice(at, worker.indexOf("async function runWebhookQueue(env)", at));
   // The dump's SQL goes through the same hands as every other identifier, and
   // keeps the OLDEST rows when truncating — the newest are still visible in
   // the owner's panel; the oldest are the ones only a backup still has.
@@ -204,7 +204,7 @@ test("EVERY backups/ REFERENCE IN THE WORKER IS ONE OF THE THREE ALLOWED PLACES"
   // that keeps it so: a new `"backups/"` literal anywhere else — a public
   // route, a rewrite, anything — fails here and has to say what it is.
   const zones = [
-    ["function backupDeps(env)", "async function runScheduledSiteJobs"],
+    ["function backupDeps(env)", "async function runWebhookQueue(env)"],
     ["} else if (bk) {", "} else if (nt) {"],
     ["let backupsRemoved = 0;", "async function handleRequest"],
   ].map(([a, b]) => {
@@ -274,7 +274,7 @@ test("the panel shows the nightly copies, and an unreadable list is not an empty
 
 test("A38-7 (2026-10-23) EVERY SITE IS BACKED UP — the dump opens the database through the four-state reader (a blank link is not 'no backend'), a site with no database is written table-less instead of failing every tick, and the site list is paged in slug order past 200", () => {
   const at = worker.indexOf("function backupDeps(env)");
-  const end = worker.indexOf("async function runScheduledSiteJobs", at);
+  const end = worker.indexOf("async function runWebhookQueue(env)", at);
   assert.ok(at > 0 && end > at, "backupDeps landmarks");
   const deps = worker.slice(at, end);
   const d0 = deps.indexOf("dump: async (slug)");

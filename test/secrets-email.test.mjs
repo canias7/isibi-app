@@ -61,6 +61,7 @@ test("a job whose key is there and EMAIL_FROM is not names EMAIL_FROM", async ()
   }, JOB);
   assert.equal(out.sent, 0);
   assert.match(out.reason, /EMAIL_FROM/);
-  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(worker, /if \(!String\(secrets\.EMAIL_FROM \|\| ""\)\.trim\(\)\) return \{ missing: "EMAIL_FROM" \};/);
+  // 2026-10-27: the jobs runner is the site's own.
+  const runner = fs.readFileSync(new URL("../builder/lovable/template/src/lib/site-jobs-run.ts", import.meta.url), "utf8");
+  assert.match(runner, /if \(!String\(s\.EMAIL_FROM \|\| ""\)\.trim\(\)\) return \{ missing: "EMAIL_FROM" \};/);
 });

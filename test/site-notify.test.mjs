@@ -300,14 +300,12 @@ test("nothing on a published site's path can reach OUR sender", async () => {
   // RE-ANCHORED 2026-09-03: the deps live in `jobDeps` now — one builder
   // shared by the cron and the owner's run-now — so the window is that
   // function, to the next top-level declaration as before.
-  const rStart = worker.indexOf("function jobDeps(env, row");
-  assert.ok(rStart > 0, "jobDeps moved — rescope this");
-  const rTail = worker.slice(rStart + 10);
-  const rEnd = rTail.search(/\n(?:async )?function |\nconst [A-Z]/);
-  assert.ok(rEnd > 0, "no landmark after the runner — the window is unbounded");
-  const runner = worker.slice(rStart, rStart + 10 + rEnd);
-  assert.match(runner, /credentials: async \(\) => \{[^}]*siteMailSecrets\(/,
-    "the jobs runner's credentials dep must read the vault through the shared reader");
+  // 2026-10-27: the jobs runner is the SITE's (`lib/site-jobs-run.ts`); its
+  // mail goes through the owner's own provider, never ours.
+  const jr = fs.readFileSync(new URL("../builder/lovable/template/src/lib/site-jobs-run.ts", import.meta.url), "utf8");
+  assert.match(jr, /pickProvider\(s\)/);
+  assert.match(jr, /postProviderEmail\(/);
+  assert.doesNotMatch(jr, /sendMail|env\.EMAIL\b/);
 
   // The strongest form: the four vault names are enumerated ONCE in the whole
   // Worker — inside siteMailSecrets — so a fourth copy added anywhere fails

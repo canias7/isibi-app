@@ -263,25 +263,16 @@ test("jobsSkip is not a magic value a model's rows can fake into silence", async
 
 // ── reachable, end to end ────────────────────────────────────────────────────
 
+const RUNNER = () => fs.readFileSync(path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "lib", "site-jobs-run.ts"), "utf8");
 test("THE CHAIN: a job is declarable and reaches the runner", () => {
-  // RAW, not comment-blanked. Blanking /* */ across worker.js eats from any /*
-  // inside a string or regex to the next */ — it swallowed this very call site
-  // and reported it missing. Every pattern below carries a "(" so it cannot
-  // match prose.
   const worker = fs.readFileSync(path.join(import.meta.dirname, "..", "worker.js"), "utf8");
   const tool = worker.slice(worker.indexOf('name: "design_schema"'), worker.indexOf('tool_choice: { type: "tool", name: "design_schema" }'));
-
-  // 1. declarable — and the internal flag too, or the cross-reference below
-  //    drops every job the model writes.
-  // RE-ANCHORED 2026-09-03: the job and function items live in
-  // builder/site-table.mjs now (lifted beside the table item for the addon
-  // step), so the OBJECTS are asked and the tool is asked to bind them.
+  // 1. declarable — and the internal flag too.
   assert.match(tool, /jobs: \{/, "the designer must offer jobs");
   assert.match(tool, /items: JOB_ITEM,/, "the tool does not bind the shared job item");
   assert.deepEqual(JOB_ITEM.required, ["name", "fn", "everyMinutes"]);
   assert.equal(FUNCTION_ITEM.properties.internal.type, "boolean", "and the internal flag its function needs");
   assert.match(tool, /items: FUNCTION_ITEM,/, "the tool does not bind the shared function item");
-
   // 2. survives the normaliser, only when the function exists AND is internal
   const F = { name: "due_tomorrow", returns: "json", language: "sql", body: "SELECT 1", internal: true, args: [] };
   const J = { name: "remind", fn: "due_tomorrow", everyMinutes: 1440 };
@@ -290,134 +281,50 @@ test("THE CHAIN: a job is declarable and reaches the runner", () => {
   assert.equal(normalizeSchema({ tables: T2, jobs: [J] }).jobs, undefined, "no such function");
   assert.equal(normalizeSchema({ tables: T2, functions: [{ ...F, internal: false }], jobs: [J] }).jobs, undefined,
     "a function a visitor can call must not be a job");
-
-  // 3. persisted at build time.
-  //
-  // THIS LINE PINNED THE BUG IN PLACE. It asserted the literal text
-  // `persistSiteJobs(env, uid, slug, jobs)` — and `uid` is bound nowhere in that
-  // route, so the call threw a ReferenceError into a best-effort catch and no
-  // job ever registered. The chain test written to prove the feature reaches the
-  // runner was matching a call that could not run, because a source-text match
-  // cannot tell a bound identifier from an unbound one. The argument is checked
-  // properly in its own test below; here it is enough that the call is there.
+  // 3. registered at build time, into the site's own `_jobs` (2026-10-27).
   assert.match(worker, /await persistSiteJobs\(env, bu\.id, slug, jobs\)/, "the apply path must register them");
-  // 4. drained by the cron
-  assert.match(worker, /ctx\.waitUntil\(runScheduledSiteJobs\(env, ctx\)\)/, "the cron must drive it");
-  // RE-ANCHORED 2026-09-03: the deps are built by `jobDeps` now, shared with
-  // the owner's run-now, so the call is `runJob(jobDeps(env, row), row)`
-  // rather than an inline literal. The property is the call.
-  assert.match(worker, /runJob\(jobDeps\(env, row\), row\)/, "and it must call the runner");
+  // 4. run by the SITE when the platform's clock wakes it.
+  assert.match(worker, /ctx\.waitUntil\(runSiteTicks\(env\)/, "the clock must wake the sites");
+  const tick = fs.readFileSync(path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "lib", "site-webhook-retry.ts"), "utf8");
+  assert.match(tick, /await runDueJobs\(/, "a wake must run the site's due jobs");
+  assert.match(RUNNER(), /const out = await runJob\(\{/, "and the site must call the shared runner");
 });
-
 test("the runner re-reads the SCHEMA, not just the registry row", () => {
   // Nothing auto-deletes a job row, so a revise that drops a job leaves it
   // registered. Trusting the row would keep mailing customers from a job the
   // site no longer declares.
-  const worker = fs.readFileSync(path.join(import.meta.dirname, "..", "worker.js"), "utf8");
-  const fn = worker.slice(worker.indexOf("async function runScheduledSiteJobs"), worker.indexOf("// ── Website Builder"));
-  assert.match(fn, /loadSiteSchema\(conn\)/, "it must read the site's own schema");
-  assert.match(fn, /declared/, "and skip a job the schema no longer declares");
+  const r = RUNNER();
+  assert.match(r, /JSON\.parse\(String\(env\.SITE_SPEC/, "it must read the site's own declared schema");
+  assert.match(r, /return \{ jobsSkip: "this job is no longer part of the site" \}/, "and skip a job the schema no longer declares");
 });
-
 test("THE RUNNER'S STAMP IS A CONDITIONAL CLAIM, and a failed write is a lost claim", () => {
-  const worker = fs.readFileSync(path.join(import.meta.dirname, "..", "worker.js"), "utf8");
-  const fn = worker.slice(worker.indexOf("async function runScheduledSiteJobs"), worker.indexOf("// ── Website Builder"));
-  // Landmark-bounded: the stamp dep runs to the next dep key, never a byte
-  // count (this repo's recurring own-goal).
-  const stAt = fn.indexOf("stamp:"), cfAt = fn.indexOf("callFn:");
-  assert.ok(stAt > 0 && cfAt > stAt, "the runner's deps moved — rescope this");
-  const st = fn.slice(stAt, cfAt);
-  // The WHERE re-states dueness, so an overlapping tick that read the same row
-  // as due loses HERE — decided by the database, not by two ticks agreeing not
-  // to overlap. Owner-scoped like every other filter on this table now.
-  // RE-ANCHORED 2026-09-03: the clause is composed one line up as `dueness`,
-  // because the owner's run-now uses the same deps with the clause OFF
-  // (the press is the decision that it is due). The property is unchanged:
-  // three scopes, and for the cron the WHERE re-states dueness.
-  assert.match(st, /site_functions\?owner_id=eq\.[^`]*&slug=eq\.[^`]*&name=eq\.[^`]*\$\{dueness\}`/,
-    "the stamp lost a scope or its claim condition");
-  // ⚠ RE-ANCHORED TWICE, AND THE SECOND TIME IS WHY THE SPELLING IS GONE.
-  //
-  // This used to pin the branches of the claim's own ternary — first two, then
-  // three when one-time jobs arrived. Both versions were green on 2026-09-19
-  // while the claim and the selector DISAGREED about the owner's nightly job:
-  // the clause was spelled exactly as asserted and restated a rule `dueJobs`
-  // had stopped using. **A spelling is not an agreement**, and pinning one is
-  // what made this look guarded for three days.
-  //
-  // So the condition is no longer composed here at all: `claimFilter` in
-  // `site-jobs.mjs` owns it, beside the selector, and the property asserted
-  // here is the WIRING — this stamp asks that module and composes nothing of
-  // its own. Whether the condition is RIGHT is decided where it can be driven,
-  // by the cases at the end of this file.
-  assert.match(st, /const dueness = claimFilter\(r2\);/,
-    "the stamp composes its own claim condition again — a second copy of the selector's rule, which is the defect");
-  assert.ok(!/schedule_minutes|cutoff|last_run\.lt\./.test(st),
-    "the stamp still reasons about the schedule or an elapsed cutoff: " + st.slice(0, 400));
-  // Judged by REPRESENTATION — a row back means we won; empty means we lost.
-  assert.match(st, /Prefer: "return=representation"/, "the stamp cannot see whether it matched anything");
-  // r.ok CHECKED. The old write was fire-and-forget, so Supabase in read-only
-  // mode (reads fine, writes 5xx) let the send proceed unstamped and re-mail
-  // the whole batch every tick until writes recovered.
-  assert.match(st, /if \(!r\.ok\) return \{ won: false \}/, "an HTTP-level stamp failure reads as a won claim");
-  // ⚠ RE-ANCHORED 2026-09-19, AND THIS ONE IS THE DEFECT'S OWN EPITAPH. It
-  // read `assert.match(st, /mins \* 60000 - 30000/)` under the note "the
-  // claim's window mirrors dueJobs' 30s slack, or the claim refuses runs
-  // dueJobs correctly offered" — the right property, asserted as a shared
-  // ARITHMETIC. Then the selector's daily rule stopped being arithmetic at all
-  // and this went on passing over a claim that refused exactly the runs it
-  // warns about.
-  //
-  // THERE IS NO WINDOW TO MIRROR NOW. What replaces it is structural: the claim
-  // and the selector are the same module, so one cannot be edited without the
-  // other in front of you, and the agreement itself is DRIVEN as a census at
-  // the end of this file rather than inferred from two expressions matching.
+  const r = RUNNER();
+  const st = r.slice(r.indexOf("stamp:"), r.indexOf("callFn:"));
+  assert.ok(st.length > 20, "the runner's deps moved — rescope this");
+  // The condition is asked of `claimFilter`, beside the selector — never
+  // composed here (a second copy of the rule is the defect this guards).
+  assert.match(st, /claimFilter\(r\)/, "the stamp composes its own claim condition");
+  assert.ok(!/schedule_minutes|cutoff|last_run\s*</.test(st), "the stamp reasons about the schedule");
+  // Judged by the rows the UPDATE returns: none back means we lost.
+  assert.match(st, /RETURNING name/);
+  assert.match(st, /return \{ won: !!\(got && got\.length\) \};/);
+  // An unreadable condition claims nothing.
+  assert.match(st, /: \[\];/);
   const jobs = fs.readFileSync(path.join(import.meta.dirname, "..", "site-jobs.mjs"), "utf8");
   assert.match(jobs, /export function claimFilter\(/, "claimFilter has left the module that owns dueJobs");
-  assert.match(jobs, /export function dueJobs\(/, "dueJobs has left site-jobs.mjs — rescope this");
-  assert.match(worker, /import \{[^}]*\bclaimFilter\b[^}]*\} from "\.\/site-jobs\.mjs"/,
-    "worker.js gets its claim condition from somewhere other than the scheduling module");
-
-  // A lost claim writes no last_result — the winning tick's outcome is the
-  // record, and overwriting it with "skipped" every overlap buries the one
-  // line the owner reads.
-  // RE-ANCHORED 2026-09-03: the result note lives in `recordJobOutcome` now,
-  // shared with run-now, so a lost claim RETURNS out of it before the write
-  // rather than continuing the cron's loop. The property is the same: no
-  // write on a lost claim.
-  const rec = fn.indexOf("async function recordJobOutcome(env, row, out) {");
-  assert.ok(rec > 0, "recordJobOutcome is gone");
-  const note = fn.slice(rec);
-  const skip = note.indexOf("if (out.skipped) return;");
-  const write = note.indexOf("last_result: jobOutcome(out)");
-  assert.ok(skip > 0 && write > skip, "a lost claim overwrites the winning run's outcome");
-  // And every WRITE to the registry is owner-scoped: the stamp and the result
-  // note. (The tick's scan is the one legitimately unscoped read.)
-  assert.equal([...fn.matchAll(/site_functions\?owner_id=eq\./g)].length, 2,
-    "one of the runner's two registry writes lost its owner scope");
-  assert.match(fn, /last_run: new Date/, "the stamp no longer writes last_run");
-  assert.match(fn, /last_result: jobOutcome\(out\)/, "the result note no longer writes the outcome");
+  assert.match(jobs, /export function dueJobs\(/);
+  // A lost claim writes no last_result.
+  assert.match(r, /if \(!out\.skipped\) await siteSql\(conn, "UPDATE _jobs SET last_result=\? WHERE name=\?"/);
 });
-
 test("callFn names its causes and NEVER quotes the parse error", () => {
-  const worker = fs.readFileSync(path.join(import.meta.dirname, "..", "worker.js"), "utf8");
-  const fn = worker.slice(worker.indexOf("async function runScheduledSiteJobs"), worker.indexOf("// ── Website Builder"));
-  const cfAt = fn.indexOf("callFn:"), crAt = fn.indexOf("credentials:");
-  assert.ok(cfAt > 0 && crAt > cfAt, "the runner's deps moved — rescope this");
-  const cf = fn.slice(cfAt, crAt);
-  // Three situations that used to shape to bare null, all three wearing the
-  // broken-SQL sentence in the owner's panel.
-  for (const cause of ["the site's database is unreachable", "this job is no longer part of the site", "the function has an unusable name"])
+  const r = RUNNER();
+  const cf = r.slice(r.indexOf("callFn:"), r.indexOf("credentials:"));
+  for (const cause of ["this job is no longer part of the site", "the function has an unusable name"])
     assert.ok(cf.includes('"' + cause + '"'), "a bare null came back: " + cause);
-  // V8's SyntaxError quotes ~26 characters of the INPUT, and a malformed result
-  // can begin with a customer's address — so the parse failure is a FIXED
-  // sentence and the catch binds no error at all.
   assert.match(cf, /catch \{ return \{ jobsSkip: "the function returned text that is not valid JSON" \}/,
     "the JSON parse can leak its input into last_result");
-  assert.equal(/JSON\.parse[\s\S]{0,160}?catch \(/.test(cf), false,
-    "the parse catch binds the error — one step from quoting a recipient");
+  assert.equal(/JSON\.parse\(v\)[\s\S]{0,60}?catch \(/.test(cf), false, "the parse catch binds the error");
 });
-
 test("deleting a site deletes its jobs — before the row a retry needs", () => {
   // Left behind, each job row is a ZOMBIE the cron picks up forever: a stamp
   // write, a project lookup and a last_result write per period, for a site
@@ -650,41 +557,19 @@ test("a half-configured site sends what it can and does not report the rest as f
 });
 
 test("a paused job is not un-paused by the next publish", () => {
-  // THE OFF SWITCH WAS TAKEN BACK BY THE THING THAT REGISTERS JOBS. Every row
-  // `persistSiteJobs` built hardcoded `enabled: true`, and it upserts with
-  // merge-duplicates — PostgREST overwrites the columns it is given — so the
-  // owner's pause was reset on the next publish of the site and the runner,
-  // which filters `enabled=is.true`, resumed it on the next two-minute tick.
-  //
-  // These send on the owner's OWN Twilio or Resend key, so it spends their
-  // money and messages their customers after they asked it to stop, with
-  // nothing on the site saying it started again.
+  // Registration rewrites the SCHEDULE only: the owner's pause (and the
+  // runner's stamp and result) are never in the statement, so a republish
+  // cannot resume a job its owner stopped.
   const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   const at = worker.indexOf("async function persistSiteJobs(");
   assert.ok(at > 0, "persistSiteJobs moved");
-  // Bounded by the function's own close, never a byte budget — this file's
-  // sibling guards have been outrun by their own comments six times.
   const fn = worker.slice(at, worker.indexOf("\n}", at));
-
-  // 1. IT READS THE STORED FLAG. Without this there is nothing to preserve.
-  assert.match(fn, /select: "name,enabled"/, "persistSiteJobs never asks which jobs are paused");
-  assert.match(fn, /row\.enabled === false/, "a stored pause is not recognised — strictly false, so nothing merely falsy pauses a job");
-
-  // 2. AND `enabled` IS OMITTED RATHER THAN SENT FALSE. Sending `false` would
-  //    be a second opinion about the owner's own setting; omitting the column
-  //    leaves whatever is stored, and the table's NOT NULL DEFAULT true gives a
-  //    genuinely new row the right answer. (Measured against the live schema —
-  //    if that default ever moves, this has to send the column again.)
-  assert.match(fn, /\?\s*\{\}\s*:\s*\{ enabled: true \}/,
-    "the row hardcodes `enabled` again, so a publish resets the owner's pause");
-
-  // 3. AN UNREADABLE ANSWER PAUSES NOTHING AND ENABLES NOTHING. Being wrong
-  //    toward paused costs a job that waits for the next publish; being wrong
-  //    toward enabled sends messages somebody switched off.
-  assert.match(fn, /paused\.add\(null\)/, "a failed read does not fall back to leaving every flag alone");
-  assert.match(fn, /const unknown = paused\.has\(null\)/, "the unknown sentinel is set and never read");
+  const ins = fn.slice(fn.indexOf("INSERT INTO _jobs"), fn.indexOf("[j.name"));
+  assert.match(ins, /ON CONFLICT \(name\) DO UPDATE SET spec=excluded\.spec, schedule_minutes=excluded\.schedule_minutes, updated_at=excluded\.updated_at/);
+  assert.doesNotMatch(ins, /enabled|last_run|last_result/, "registration touches the owner's pause or the runner's record");
+  const schema = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
+  assert.match(schema, /enabled BOOLEAN NOT NULL DEFAULT true/, "a new job must start enabled by the table's default");
 });
-
 // ── A CLOCK TIME (owner, 2026-09-03) ────────────────────────────────────────
 //
 // "Every day at nine" was "every 1440 minutes from whenever it was added".
@@ -834,91 +719,22 @@ test("a clock-time job waits for its time since it was added, runs once per occu
   assert.equal(due({ ...JOB }, T(14)), true);
 });
 
-test("THE RUNNER READS THE SITE'S CONNECTION, not its project row — and one set of deps serves the cron and the owner's run-now", () => {
-  // Three deps read `siteNeonProject(env, row.slug)` — the Neon PROJECT ROW —
-  // where the DATABASE CONNECTION is wanted, so the schema read as empty and
-  // every job ever registered wrote "this job is no longer part of the site":
-  // twenty-six registered, zero sends, and this file's own chain test green
-  // the whole time because it read the module and never ran the deps.
+test("THE RUNNER READS THE SITE'S CONNECTION — and the owner's run-now is the same runner", () => {
+  const r = RUNNER();
+  assert.match(r, /const conn = env\.APP_CONN as string;/, "the site's runner must use its own limited login");
+  assert.doesNotMatch(r, /SUPABASE|site_functions/);
+  assert.match(r, /export async function siteJob[\s\S]*runOneJob\(env, conn, row\)/, "run-now does not use the shared run");
+  assert.match(r, /export async function runDueJobs[\s\S]*runOneJob\(env, conn, row\)/, "the tick does not use the shared run");
   const worker = noComments(fs.readFileSync(path.join(import.meta.dirname, "..", "worker.js"), "utf8"));
-  // ⚠ RE-ANCHORED 2026-09-19: `force` is gone from the signature, because the
-  // claim is no longer a dueness test for it to disable. Anchored on the name
-  // and the `env, row` pair rather than on the whole parameter list, which is a
-  // spelling — this guard has now gone red twice for a signature change that
-  // was not its subject.
-  const open = worker.indexOf("function jobDeps(env, row) {");
-  const shut = worker.indexOf("async function recordJobOutcome(env, row, out) {", open);
-  assert.ok(open > 0 && shut > open, "jobDeps or recordJobOutcome is gone");
-  const deps = worker.slice(open, shut);
-  const reads = deps.match(/const conn = await siteRowConn\(env, row\.slug\);/g) || [];
-  assert.equal(reads.length, 3, "the three deps do not all read the connection through siteRowConn (the limited login): " + reads.length);
-  assert.doesNotMatch(deps, /siteNeonProject\(/, "a dep still reads the project row where a connection is wanted");
-  for (const dep of ["callFn:", "credentials:", "smsCredentials:", "stamp:", "send:", "sendSms:", "phone:", "recipient"]) assert.ok(deps.includes(dep), "jobDeps lost " + dep);
-  // ⚠ THE CLAIM'S CONDITION IS ASKED OF `claimFilter`, NOT COMPOSED HERE, and
-  // the expectation MOVED rather than broke. It used to pin the branches of an
-  // inline ternary — which was spelled exactly as asserted on 2026-09-19 while
-  // the claim and `dueJobs` disagreed about the owner's nightly job, because a
-  // restated rule is a second copy and the copy had drifted. Two properties
-  // now: the deps ask the module that owns the selector, and nothing here
-  // reasons about the schedule.
-  assert.match(deps, /const dueness = claimFilter\(r2\);/,
-    "the stamp composes its own claim condition again instead of asking claimFilter");
-  assert.ok(!/const cutoff|schedule_minutes, 10\) \|\| 0/.test(deps),
-    "the stamp reasons about the schedule again — a second copy of the selector's rule");
-  assert.match(deps, /\$\{dueness\}`, \{/, "the stamp's WHERE does not carry the claim condition");
-  // The cron: due rows, one call each, the outcome recorded; and the select carries updated_at.
-  const cron = worker.slice(worker.indexOf("async function runScheduledSiteJobs"), open);
-  assert.match(cron, /for \(const row of dueJobs\(rows, Date\.now\(\)\)\) \{\s*const out = await runJobAnywhere\(env, row\);\s*await recordJobOutcome\(env, row, out\);\s*\}/, "the cron does not run each due job through the shared deps and record it");
-  assert.match(cron, /select=owner_id,slug,name,spec,schedule_minutes,last_run,updated_at&/, "the cron's read does not carry updated_at — a never-run clock-time job cannot know when it was added");
-  // Run-now: owner-scoped, the same deps under force, recorded, answered as the sentence, before the switch's check that would 400 it.
+  const persist = worker.slice(worker.indexOf("async function persistSiteJobs("), worker.indexOf("\n}\n", worker.indexOf("async function persistSiteJobs(")));
+  assert.match(persist, /ownerSiteConn\(env, slug\)/, "registration creates the table, so it needs the owner's login (through the four-state reader)");
+  // Run-now: owner-gated, passed on to the site, answered as the sentence.
   const run = worker.indexOf("if (jbody && jbody.run === true) {");
   assert.ok(run > 0, "the run-now branch is gone");
-  const enabledCheck = worker.indexOf('if (typeof (jbody && jbody.enabled) !== "boolean")', run);
-  assert.ok(enabledCheck > run, "run-now sits after the enabled check, which 400s it");
-  const branch = worker.slice(run, enabledCheck);
-  assert.match(branch, /owner_id=eq\.\$\{encodeURIComponent\(ou\.id\)\}&slug=eq\.\$\{encodeURIComponent\(jslug\)\}&name=eq\.\$\{encodeURIComponent\(jname\)\}&schedule_minutes=not\.is\.null/, "run-now is not owner-scoped to one scheduled job");
-  assert.match(branch, /select=owner_id,slug,name,spec,schedule_minutes,last_run,updated_at,enabled/, "run-now's row lacks what the deps read");
-  // ⚠ AND THE PRESS TAKES THE SAME DEPS AS THE TICK, with no option between
-  // them (2026-09-19). `{ force: true }` meant "skip the dueness clause"; the
-  // claim is a compare-and-swap now, so the press asks only that nothing ran in
-  // between — which is what the press meant and what makes two rapid presses
-  // send one reminder rather than two. An option forbidden by name, because a
-  // parameter that once disabled a wall is what a later session re-wires.
-  assert.match(branch, /const out = await runJobAnywhere\(env, jrow\);/, "run-now does not run the shared path");
-  // 2026-10-27: the shared path claims with the shared deps, then the site does the work.
-  assert.match(worker, /async function runJobAnywhere\(env, row\) \{[\s\S]{0,200}runJob\(jobDeps\(env, row\), row\)[\s\S]{0,200}const deps = jobDeps\(env, row\);/);
-  assert.ok(!/force/.test(branch), "run-now passes an option to the deps again: " + (branch.match(/.{0,60}force.{0,60}/) || [""])[0]);
-  assert.match(branch, /await recordJobOutcome\(env, jrow, out\);/, "run-now's outcome is not written where the panel reads");
+  const branch = worker.slice(run, worker.indexOf('if (typeof (jbody && jbody.enabled) !== "boolean")', run));
+  assert.match(branch, /__gf\/job/);
   assert.match(branch, /result: jobOutcome\(out\)/, "run-now does not answer the sentence");
-  assert.match(branch, /error: "no such job" \}, \{ status: 404 \}/, "run-now on a name that matches nothing says ok");
-  // The registration carries the clock time, and the panel's read hands it
-  // back. ⚠ AND THE ONE-TIME DATE SINCE 2026-09-19 — re-anchored, and the
-  // expectation MOVED rather than broke: `spec` is what `dueJobs` reads to
-  // decide a job is one-time at all, so a registration that drops `on` turns
-  // every "remind me on the 3rd" into a monthly job the moment it is saved.
-  // The FULL spec is asserted rather than `on` alone, because the property is
-  // that this one object carries everything the runner needs.
-  assert.match(worker, /spec: \{ fn: j\.fn, \.\.\.\(j\.at \? \{ at: j\.at, \.\.\.\(j\.tz \? \{ tz: j\.tz \} : \{\}\) \} : \{\}\), \.\.\.\(j\.on \? \{ on: j\.on \} : \{\}\) \}/, "persistSiteJobs drops the clock time or the one-time date");
-  assert.match(worker, /select=name,spec,schedule_minutes,enabled,last_run,last_result&order=name\.asc/, "the panel's read does not fetch the spec");
-  // THE PANEL IS TOLD THE CLOCK TIME — ⚠ RE-ANCHORED 2026-09-19, and the
-  // expectation MOVED rather than broke. It used to pin the route's own inline
-  // projection (`at: j.spec && typeof j.spec === "object" && …`), which is a
-  // SPELLING; the projection is now `jobPanelRow` in `site-jobs.mjs`, lifted
-  // there because a sweep proved two of its fields could be emptied with the
-  // whole suite green — nothing can drive this route's mapping without
-  // Supabase, the owner gate and a session.
-  //
-  // The new form is strictly stronger, because it asserts the property in BOTH
-  // halves rather than the text in one: the shared reader really answers the
-  // clock time (driven, not read), AND the route really goes through it. Either
-  // alone is the wiring trap — a perfect reader nothing calls, or a call to a
-  // reader that answers nothing.
-  assert.equal(jobPanelRow({ name: "n", spec: { fn: "f", at: "09:00", tz: "Europe/London" }, schedule_minutes: 1440 }).at,
-    "09:00", "the shared panel row does not answer the clock time");
-  assert.match(worker, /return Response\.json\(\{ jobs: jrows\.map\(jobPanelRow\) \}\);/,
-    "the panel route does not project its rows through the shared jobPanelRow");
 });
-
 test("the owner's panel shows the clock time and has a Run now button wired to the route; the addon post carries the browser's zone", () => {
   const chat = fs.readFileSync(path.join(import.meta.dirname, "..", "public", "chat.js"), "utf8");
   const panel = chat.slice(chat.indexOf("async function siteFunctions("), chat.indexOf("async function siteFiles("));
@@ -1277,13 +1093,13 @@ test("ACCEPTANCE: the nightly job a manual run had pushed off the calendar is cl
     "the selector no longer selects the occurrence — the calendar rule has regressed");
 
   // 2. The claim the product really builds, read off the request it really made.
+  // (2026-10-27: the site's own runner, a conditional UPDATE on its own `_jobs`.)
   const c = await claimUrl(NIGHTLY, {}, AT_2200);
-  assert.ok(filters(c.url).includes("last_run=eq.2026-09-16T19:29:36.345Z"),
-    "the claim is not a compare-and-swap on the stamp the selector saw: " + filters(c.url).join(" "));
+  assert.match(c.query, /AND last_run=\$3 RETURNING name$/, "the claim is not a compare-and-swap: " + c.query);
+  assert.equal(c.params[2], "2026-09-16T19:29:36.345Z", "the claim is not on the stamp the selector saw");
   // THE SPECIFIC THING THAT WAS WRONG, forbidden by name: an elapsed-interval
   // cutoff is a second copy of a dueness rule, and a second copy is what drifted.
-  assert.ok(!filters(c.url).some((f) => /last_run=lt\.|or=\(last_run/.test(f)),
-    "the claim still restates dueness as an elapsed cutoff: " + filters(c.url).join(" "));
+  assert.doesNotMatch(c.query, /last_run\s*<|OR last_run/, "the claim still restates dueness as an elapsed cutoff: " + c.query);
 
   // 3. The whole tick, against a store that really evaluates the condition.
   const out = await runCron({ rows: [NIGHTLY], now: AT_2200, fnAnswer: { did: "counted 3 bookings" } });

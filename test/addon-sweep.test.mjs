@@ -2128,6 +2128,7 @@ test("the owner's jobs route answers which function each job runs", async () => 
   assert.equal(jobPanelRow({ name: "n", spec: {}, schedule_minutes: 1440 }).fn, "",
     "an absent reference must read as empty, not undefined");
   const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(w, /return Response\.json\(\{ jobs: jrows\.map\(jobPanelRow\) \}\);/,
+  // 2026-10-27: the rows come from the site's own `_jobs`, whose `spec` may arrive as text.
+  assert.match(w, /return Response\.json\(\{ jobs: \(jrows \|\| \[\]\)\.map\(\(r\) => jobPanelRow\(\{ \.\.\.r, spec: typeof r\.spec === "string" \? JSON\.parse\(r\.spec\) : r\.spec \}\)\) \}\);/,
     "the jobs route does not project its rows through the shared jobPanelRow");
 });

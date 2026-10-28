@@ -176,16 +176,14 @@ test("a never-run job goes to the front", () => {
   assert.deepEqual(due.map((r) => r.name), ["fresh", "older", "old"]);
 });
 
-test("the registry read is ordered too, or the window itself is arbitrary", () => {
-  // `limit=200` unordered means that past 200 registered jobs some are never
-  // LOOKED at, and the cap then slices an arbitrary window. The read's order and
-  // the module's must agree rather than fight.
-  const w = read("../worker.js");
-  const at = w.indexOf("site_functions?enabled=is.true");
-  assert.ok(at > 0, "the drain's registry read moved — rescope this");
-  const q = w.slice(at, w.indexOf("`", at));
-  assert.match(q, /order=last_run\.asc\.nullsfirst/, "the drain reads an arbitrary 200 rows");
-  assert.match(q, /limit=200/, "the ceiling is gone — check the ordering argument still holds");
+test("the registry read is whole and ordered, or the window itself is arbitrary", () => {
+  // 2026-10-27: the list is the site's own `_jobs`, read whole by its Worker
+  // (no LIMIT: a site holds at most eight), and `dueJobs` orders what is due.
+  const src = read("../builder/lovable/template/src/lib/site-jobs-run.ts");
+  const at = src.indexOf("FROM _jobs ORDER BY name");
+  assert.ok(at > 0, "the site's registry read moved — rescope this");
+  assert.doesNotMatch(src.slice(at, src.indexOf("\n", at)), /LIMIT/, "the site reads only part of its own list");
+  assert.match(src, /dueJobs\(rows\.filter\(\(r\) => r\.schedule_minutes != null\), Date\.now\(\)\)\.slice\(0, MAX_JOBS_PER_TICK\)/);
 });
 
 // ── 6 & 7. the render check's stub and its sandbox ──────────────────────────

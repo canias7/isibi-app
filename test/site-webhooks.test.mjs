@@ -460,7 +460,7 @@ test("A MISS IS NEVER CACHED, and a write invalidates", () => {
   // each of two write paths is how one of them gets forgotten). Pinning the
   // literal `webhookCfg.delete(sslug)` here went red on that refactor while the
   // behaviour was intact — a guard reporting a change rather than a break.
-  assert.match(code, /addSecret\([\s\S]{0,900}?if \(r && r\.ok\) forgetSiteConfig\(sslug\)/,
+  assert.match(code, /saveSiteKey\([\s\S]{0,900}?if \(r && r\.ok\) forgetSiteConfig\(sslug\)/,
     "adding a secret must invalidate the cached configuration, and only on success");
   assert.match(code, /function forgetSiteConfig\(slug\) \{[\s\S]{0,200}?webhookCfg\.delete\(slug\)/,
     "…and what it invalidates must include this cache");

@@ -499,6 +499,16 @@ function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null,
       let q = "", params = [];
       try { const b = JSON.parse(String((init && init.body) || "{}")); q = b.query || ""; params = Array.isArray(b.params) ? b.params : []; } catch { q = ""; }
       sql.push(String(q));
+      // ── THE SITE'S OWN JOB LIST (2026-10-27): `persistSiteJobs` registers into
+      // the site's `_jobs` table, so `registered` reads those inserts (and
+      // `jobsFail` refuses them, as it refused the old upsert).
+      if (/INSERT INTO _jobs/i.test(q)) {
+        if (jobsFail) return new Response('{"message":"the schedule could not be saved"}', { status: 500, headers: { "content-type": "application/json" } });
+        let spec = params[1];
+        try { spec = JSON.parse(params[1]); } catch { /* kept as sent */ }
+        registered.push({ name: params[0], spec, schedule_minutes: params[2], updated_at: params[3] });
+        return new Response(JSON.stringify({ command: "INSERT", rowCount: 1, rows: [], fields: [] }), { status: 200, headers: { "content-type": "application/json" } });
+      }
       // ── A DATABASE WITH ROWS IN IT, WHEN A CASE HANDS ONE IN (2026-10-01) ─
       //
       // `db` is `rows-db.mjs`: tables that already hold entries, answering the

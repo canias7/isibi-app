@@ -350,7 +350,6 @@ test("row paths open the limited login", () => {
     ['url.pathname.startsWith("/api/db/") && url.pathname.endsWith("/uploads")', "\n    }\n", "siteRowConn(env, vslug)"],
     ['url.pathname.startsWith("/api/stripe/site/")', "\n      }\n", "siteRowConn(env, wslug)"],
     ["async function proxySiteService(", "\n}\n", "siteRowConn(env, slug)"],
-    ["export function jobDeps(env, row)", "\n}\n", "siteRowConn(env, row.slug)"],
     ["async function routeTableNames(", "\n}\n", "ownerRowConn(env, slug)"],
     ["async function routeDigest(", "\n}\n", "ownerRowConn(env, slug)"],
     ["async function readConverseContext(", "\n}\n", "ownerRowConn(env, slug)"],

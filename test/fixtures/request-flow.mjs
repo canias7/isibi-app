@@ -764,6 +764,13 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     // queue, the rebuild queue — so a tick asks for nothing unexpected.
     if (method === "GET" && /\/rest\/v1\/(site_functions|site_domains|webhook_queue|site_rebuild)\?/.test(url)) return resp([]);
     if (method === "DELETE" && /\/rest\/v1\/webhook_queue\?/.test(url)) return new Response(null, { status: 204 });
+    // …now in the site's own `_jobs` (2026-10-27).
+    if (url.includes("neon.tech/sql") && /^INSERT INTO _jobs/i.test(String(args.query || ""))) {
+      const p = Array.isArray(args.params) ? args.params : [];
+      let spec = p[1]; try { spec = JSON.parse(p[1]); } catch { /* as sent */ }
+      jobsRegistered.push({ name: p[0], spec, schedule_minutes: p[2], updated_at: p[3] });
+      return resp({ command: "INSERT", rowCount: 1, rows: [], fields: [] });
+    }
     if (db && url.includes("neon.tech/sql")) {
       const own = db.answer(String(args.query || ""), Array.isArray(args.params) ? args.params : []);
       return own || resp({ command: "SELECT", rowCount: 0, rows: [], fields: [] });

@@ -7,11 +7,11 @@
 // table so two wakes never send twice, runs the site's own function, sends with
 // its owner's own mail and SMS keys, and writes the result for the owner's
 // panel. `POST /__gf/job` is the owner's "run now", passed on by the platform.
-import { runJob, dueJobs, jobOutcome, MAX_JOBS_PER_TICK } from "./effects/site-jobs.mjs";
+import { runJob, dueJobs, jobOutcome, claimFilter, MAX_JOBS_PER_TICK } from "./effects/site-jobs.mjs";
 import { recipient, pickProvider } from "./effects/site-mail.mjs";
 import { pickSmsProvider, toE164 } from "./effects/site-sms.mjs";
 import { postProviderEmail, postProviderSms } from "./effects/site-providers.mjs";
-import { siteSql } from "./site-effects";
+import { siteSql } from "./site-sql";
 
 export type JobEnv = { APP_CONN?: string; SITE_SPEC?: string; [name: string]: unknown };
 /** Set only by the platform's own clock and panel; stripped from every request it forwards. */
@@ -38,11 +38,16 @@ export async function runOneJob(env: JobEnv, conn: string, row: Row) {
     // THE CLAIM: the stamp moves only if nobody moved it since this row was read.
     // A one-time job is claimed only while it has never run.
     stamp: async (r: Row) => {
-      const once = typeof (specOf(r) as { on?: string }).on === "string";
+      // `claimFilter` is the platform's one statement of the condition (the
+      // selector and the claim must agree on it): `last_run=is.null` or
+      // `last_run=eq.<the stamp this row was read with>`.
+      const cond = new URLSearchParams(String(claimFilter(r)).replace(/^&/, "")).get("last_run") || "";
       const now = new Date().toISOString();
-      const got = once || r.last_run == null
+      const got = cond === "is.null"
         ? await siteSql(conn, "UPDATE _jobs SET last_run=? WHERE name=? AND last_run IS NULL RETURNING name", [now, r.name])
-        : await siteSql(conn, "UPDATE _jobs SET last_run=? WHERE name=? AND last_run=? RETURNING name", [now, r.name, r.last_run]);
+        : cond.startsWith("eq.")
+          ? await siteSql(conn, "UPDATE _jobs SET last_run=? WHERE name=? AND last_run=? RETURNING name", [now, r.name, cond.slice(3)])
+          : [];
       return { won: !!(got && got.length) };
     },
     callFn: async (fn: string) => {

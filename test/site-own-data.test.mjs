@@ -141,28 +141,7 @@ test("the platform unlocks the site's own keys at publish and gives them to that
 // The template's own save and follow-ups, run for real: transpiled into the
 // template folder so the copied modules resolve.
 import path from "node:path";
-async function loadTemplate(rel) {
-  // The file and every local TypeScript module it imports, transpiled beside
-  // the originals (so the copied .mjs modules resolve), then removed.
-  const dir = new URL("../builder/lovable/template/src/", import.meta.url);
-  const made = [];
-  const tag = ++loads;
-  const emit = (r) => {
-    const src = fs.readFileSync(new URL(r, dir), "utf8");
-    let js = ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
-    js = js.replace(/from "(\.\/[^"]+?)"/g, (m, spec) => {
-      if (spec.endsWith(".mjs")) return m;
-      const tsRel = new URL(spec + ".ts", new URL(r, dir)).href.slice(dir.href.length);
-      if (fs.existsSync(new URL(tsRel, dir))) { emit(tsRel); return `from "${spec}.__t${tag}.mjs"`; }
-      return `from "${spec}.mjs"`;
-    });
-    const out = new URL(r.replace(/\.ts$/, `.__t${tag}.mjs`), dir);
-    if (!made.includes(out.href)) { fs.writeFileSync(out, js); made.push(out.href); }
-    return out;
-  };
-  const top = emit(rel);
-  try { return await import(top.href); } finally { for (const f of made) fs.rmSync(new URL(f)); }
-}
+import { loadTemplate } from "./fixtures/template-ts.mjs";
 
 test("after a booking, the site emails its owner, confirms to the visitor and fires the webhook, with its own keys", async () => {
   const { runSiteEffects, toPg } = await loadTemplate("lib/site-effects.ts");
@@ -467,7 +446,7 @@ test("the site stores its own error reports and counts its own visits, in its ow
 test("the platform asks the site first for reports, makes the two tables, and adds the site's own visits", () => {
   const at = W.indexOf("const slug = erm[1].toLowerCase();");
   assert.match(W.slice(at, at + 300), /SITE_OWN_DATA === "1"\) \{ const mine = await ownDataRead\(env, request, slug\)/);
-  assert.match(between("async function siteReadVars(", "\n}\n"), /for \(const q of \[ERRORS_TABLE_SQL, HITS_TABLE_SQL\]\)/);
+  assert.match(between("async function siteReadVars(", "\n}\n"), /for \(const q of \[ERRORS_TABLE_SQL, HITS_TABLE_SQL, JOBS_TABLE_SQL\]\)/);
   assert.match(W, /return addHits\(older, mine\);/);
   const addHits = new Function("return " + between("function addHits(a, b) {", "\n}\n") + "\n}")();
   assert.deepEqual(addHits({ views: 2, visitors: 1, views7: 1, visitors7: 1, series: [{ day: "2026-10-26", views: 1 }] },
@@ -522,40 +501,52 @@ test("a failed webhook is kept in the site's own bucket and retried on the platf
   } finally { globalThis.fetch = realFetch; }
 });
 
-test("a scheduled job runs in the site, with its own function and its owner's own mail key, only when the platform asks", async () => {
-  const { siteJob } = await loadTemplate("lib/site-jobs-run.ts");
+test("a scheduled job is kept, claimed and run by the site, with its own function and its owner's own mail key", async () => {
+  const { siteJob, runDueJobs } = await loadTemplate("lib/site-jobs-run.ts");
   const realFetch = globalThis.fetch;
   const calls = [];
+  const jobs = [{ name: "remind", spec: { fn: "job_remind" }, schedule_minutes: 60, enabled: true, last_run: null, last_result: null, updated_at: "x" }];
   globalThis.fetch = async (u, init) => {
-    calls.push({ u: String(u), body: init && init.body });
-    if (String(u).endsWith("/sql")) return Response.json({ rows: [{ out: JSON.stringify([{ to: "a@b.co", subject: "Hi", body: "x" }]) }] });
-    return Response.json({ id: "m1" });
+    const q = String(u).endsWith("/sql") ? JSON.parse(init.body) : null;
+    calls.push({ u: String(u), q });
+    if (!q) return Response.json({ id: "m1" });
+    if (/^SELECT name, spec/.test(q.query)) return Response.json({ rows: jobs });
+    if (/^UPDATE _jobs SET last_run=\$1 WHERE name=\$2 AND last_run IS NULL/.test(q.query)) {
+      const j = jobs.find((x) => x.name === q.params[1] && x.last_run == null);
+      if (!j) return Response.json({ rows: [] });
+      j.last_run = q.params[0];
+      return Response.json({ rows: [{ name: j.name }] });
+    }
+    if (/^SELECT "job_remind"\(\)/.test(q.query)) return Response.json({ rows: [{ out: JSON.stringify([{ to: "a@b.co", subject: "Hi", body: "x" }]) }] });
+    if (/^UPDATE _jobs SET last_result/.test(q.query)) { jobs[0].last_result = q.params[0]; return Response.json({ rows: [] }); }
+    return Response.json({ rows: [] });
   };
   try {
     const env = { APP_CONN: "postgresql://x_app:p@ep-1.neon.tech/x", RESEND_KEY: "re_k", EMAIL_FROM: "shop@x.co", SITE_SPEC: JSON.stringify({ jobs: [{ name: "remind", fn: "job_remind" }] }) };
+    assert.deepEqual(await runDueJobs(env), { ran: 1 });
+    assert.ok(calls.some((c) => /resend/.test(c.u)), "sent with the owner's own key");
+    assert.ok(jobs[0].last_run && jobs[0].last_result, "claimed and recorded in the site's own table");
+    // A second wake right after: not due, and the claim would refuse anyway.
+    assert.deepEqual(await runDueJobs(env), { ran: 0 });
     const u = new URL("https://x.gofarther.app/__gf/job");
-    const body = JSON.stringify({ name: "remind", spec: { fn: "job_remind" } });
-    assert.equal(await siteJob(new Request(u, { method: "POST", body }), env, u), null, "a visitor cannot run it");
-    const r = await siteJob(new Request(u, { method: "POST", body, headers: { "x-gf-site-job": "1" } }), env, u);
-    assert.equal(r.headers.get("x-site-data"), "own");
-    const out = await r.json();
-    assert.equal(out.sent, 1, JSON.stringify(out));
-    assert.match(JSON.parse(calls[0].body).query, /SELECT "job_remind"\(\) AS out/);
-    assert.match(calls[1].u, /resend/);
-    const gone = await siteJob(new Request(u, { method: "POST", body: JSON.stringify({ name: "old", spec: { fn: "job_old" } }), headers: { "x-gf-site-job": "1" } }), env, u);
-    assert.match((await gone.json()).reason, /no longer part of the site/);
+    assert.equal(await siteJob(new Request(u, { method: "POST", body: '{"name":"remind"}' }), env, u), null, "a visitor cannot run it");
+    const nope = await siteJob(new Request(u, { method: "POST", body: '{"name":"other"}', headers: { "x-gf-site-job": "1" } }), env, u);
+    assert.equal(nope.status, 404);
+    assert.equal(nope.headers.get("x-site-data"), "own");
   } finally { globalThis.fetch = realFetch; }
 });
 
-test("the platform keeps the clock and the claim, strips its job header from everything it forwards, and wakes sites", () => {
+test("the platform keeps only the clock: it registers jobs in the site's database, shows that table, and passes on run-now", () => {
   assert.equal((W.match(/fwd\.headers\.delete\(SITE_JOB_HEADER\)/g) || []).length, 3);
   assert.match(W, /fwd\.headers\.set\(PREVIEW_HEADER, "1"\); fwd\.headers\.delete\(SITE_JOB_HEADER\)/);
-  const run = between("async function runJobAnywhere(env, row) {", "\n}\n");
-  assert.ok(run.indexOf("deps.stamp(row)") < run.indexOf("siteRunJob(env, row)"), "claimed before the site is asked");
-  assert.match(run, /mine \|\| runJob\(\{ \.\.\.deps, stamp: async \(\) => \(\{ won: true \}\) \}, row\)/);
-  assert.doesNotMatch(W, /await runJob\(jobDeps\(env, (row|jrow)\), (row|jrow)\);/);
+  for (const gone of ["runScheduledSiteJobs", "function jobDeps", "runJobAnywhere", "recordJobOutcome", "runJob("]) assert.ok(!W.includes(gone), gone);
+  const persist = between("async function persistSiteJobs(env, ownerId, slug, jobs) {", "\n}\n");
+  assert.match(persist, /INSERT INTO _jobs/);
+  assert.doesNotMatch(persist, /site_functions|enabled=/);
+  assert.match(W, /SELECT name, spec, schedule_minutes, enabled, last_run, last_result FROM _jobs/);
+  assert.match(W, /UPDATE _jobs SET enabled=\? WHERE name=\?/);
+  assert.match(W, /\/__gf\/job", \{ method: "POST"/);
   assert.match(W, /ctx\.waitUntil\(runSiteTicks\(env\)/);
-  assert.match(between("async function siteReadVars(", "\n}\n"), /jobs: spec\.jobs \|\| \[\]/);
 });
 
 test("a key the owner saves or removes reaches the site's script at once, and a platform name never does", async () => {

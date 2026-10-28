@@ -549,8 +549,6 @@ const JOB_PATH_TABLES = [
   ["async function aliasRowFor(", "site_aliases", "GET"],
   ["async function publicNameFor(", "site_aliases", "GET"],
   ["async function formerNamesFor(", "site_aliases", "GET"],
-  ["async function persistSiteJobs(", "site_functions", "GET"],
-  ["async function persistSiteJobs(", "site_functions", "POST"],
   ["async function readCreditsFor(", "credits", "GET"],
   ["async function writeBuildRecord(", "site_builds", "POST"],
   // THE PROVISIONING HELPERS (2026-10-23, audit A09-8): each runs inside a

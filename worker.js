@@ -2720,7 +2720,7 @@ async function runSiteRebuild(env) {
         return ((await g.json()) || []).length > 0;
       },
       // CLAIM THE ROW ATOMICALLY, so an overlapping tick cannot start a second
-      // container run for the same site. `runScheduledSiteJobs` closed exactly
+      // container run for the same site. the site jobs runner closed exactly
       // this hole and this is its mechanism: the WHERE RE-STATES DUENESS, so the
       // first PATCH matches and moves `next_try_at` forward and the second finds
       // nothing. `return=representation` is what makes the answer readable — a
@@ -2912,7 +2912,7 @@ async function persistSiteJobs(env, ownerId, slug, jobs) {
   // publish; `enabled`, `last_run` and `last_result` are the owner's and the
   // runner's, so a republish never resumes a paused job or re-arms a done one.
   if (!slug || !ownerId || !jobs.length) return;
-  const conn = await siteBackendBySlug(env, slug);
+  const conn = await ownerSiteConn(env, slug);
   if (!conn) throw new Error("jobs: the site's database is unreachable");
   await sqlExec(conn, JOBS_TABLE_SQL);
   const now = new Date().toISOString();
@@ -2924,14 +2924,6 @@ async function persistSiteJobs(env, ownerId, slug, jobs) {
       [j.name, JSON.stringify(spec), j.everyMinutes, now]);
   }
 }
-// Drain the scheduled jobs that are due, on the existing 2-minute cron.
-//
-// A job is a SCHEDULE plus one model-written function returning the messages to
-// send. That is the whole vocabulary — there is nothing here to extend when
-// somebody wants a different kind of scheduled work, because they write
-// different SQL. It replaces the eight-verb runner (`read save fetch ai email
-// notify checkout respond`), which is deleted: a fixed menu means the model can
-// only ever do what was imagined in advance.
 // The real store and database behind the nightly backups. All the decisions —
 // the night window, the per-tick bound, idempotency by key, retention only
 // after a successful put — live in site-backup.mjs where they are tested with
@@ -50584,7 +50576,13 @@ async function handleRequest(request, env, ctx) {
             if (!jconn) return Response.json({ jobs: [] });
             let jrows;
             try { jrows = await sqlQuery(jconn, "SELECT name, spec, schedule_minutes, enabled, last_run, last_result FROM _jobs WHERE schedule_minutes IS NOT NULL ORDER BY name LIMIT 20", []); }
-            catch { jrows = []; /* a site with no _jobs table has no jobs */ }
+            catch (e) {
+              // A site built before `_jobs` has none; anything else is unreadable,
+              // never an empty schedule.
+              if (!/_jobs" does not exist/.test(String((e && e.message) || ""))) return Response.json({ error: "unavailable" }, { status: 503 });
+              jrows = [];
+            }
+            if (!Array.isArray(jrows)) return Response.json({ error: "unavailable" }, { status: 503 });
             return Response.json({ jobs: (jrows || []).map((r) => jobPanelRow({ ...r, spec: typeof r.spec === "string" ? JSON.parse(r.spec) : r.spec })) });
           } else if (bk) {
             // THE NIGHTLY COPIES — list them, download one. Read-only by
