@@ -197,11 +197,16 @@ test("SA11 read_table goes through the caller's reader; tool results pair with t
 
 // ── THE SWITCH AND THE WIRING (2026-10-28) ──────────────────────────────────
 import { readFileSync } from "node:fs";
-import { agentCap, stoppedFacts, AGENT_TAKES_ALL, roundFacts, fileName, CSS_KEY } from "../builder/site-agent.mjs";
+import { agentCap, stoppedFacts, AGENT_TAKES_ALL, agentTakes, roundFacts, fileName, CSS_KEY } from "../builder/site-agent.mjs";
 import { jobSecrets } from "../builder/edit-job.mjs";
 
 test("SA12 no switch: the agent takes every site; the cap from env or 60", () => {
   assert.equal(AGENT_TAKES_ALL, true);
+  const was = process.env.GF_OLD_LANES;
+  try {
+    delete process.env.GF_OLD_LANES; assert.equal(agentTakes(), true);
+    process.env.GF_OLD_LANES = "1"; assert.equal(agentTakes(), false);
+  } finally { if (was === undefined) delete process.env.GF_OLD_LANES; else process.env.GF_OLD_LANES = was; }
   assert.equal(agentCap({}), 60);
   assert.equal(agentCap({ SITE_AGENT_CAP: "25" }), 25);
   assert.equal(agentCap({ SITE_AGENT_CAP: "x" }), 60);
@@ -213,13 +218,13 @@ const between = (a, b) => { const i = W.indexOf(a); assert.ok(i >= 0, "landmark:
 
 test("SA13 both routes hand the whole message to the agent when it is on, before any lane", () => {
   const edit = between("// ── THE SITE AGENT (2026-10-28", "// ── THE SEVENTEEN LANES ARE THE FRONT DOOR");
-  assert.match(edit, /if \(!\(eJob && eJob\.prepare === true\)\) \{\n\s+const agParts/);
+  assert.match(edit, /if \(agentTakes\(\) && !\(eJob && eJob\.prepare === true\)\) \{\n\s+const agParts/);
   assert.match(edit, /runAgentChange\(env, \{[^]*words: eMessage/);
   const add = between("// ── THE SITE AGENT TAKES AN ADDITION TOO", "// ── AN ENTRY THIS REQUEST HAS ALREADY SAVED");
-  assert.match(add, /if \(!\(aJob && aJob\.prepare === true\)\) \{/);
+  assert.match(add, /if \(agentTakes\(\) && !\(aJob && aJob\.prepare === true\)\) \{/);
   assert.match(add, /runAgentChange\(env, \{[^]*words: aAsked/);
   // and the router never splits such a site's message into parts
-  assert.match(W, /const rKey = AGENT_TAKES_ALL \? "" : /);
+  assert.match(W, /const rKey = agentTakes\(\) \? "" : /);
 });
 
 test("SA14 the build tool compiles only: answered before the repair, the staging and the publish", () => {

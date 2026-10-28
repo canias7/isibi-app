@@ -304,7 +304,7 @@ async function runTool(use, st, deps) {
       return { text: "The build failed:\n" + String((r && r.error) || "no reason given").slice(0, 6000) };
     }
     case "finish": {
-      if (st.dirty || (st.written.size && !st.built)) return { error: "build first: files were written since the last build that passed" };
+      if (st.dirty) return { error: "build first: files were written since the last build that passed" };
       st.done = true;
       st.summary = typeof input.summary === "string" ? input.summary.slice(0, 4000) : "";
       return { text: "Done." };
@@ -431,6 +431,17 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, ma
 
 /** The agent takes every site's edit and addition whole (2026-10-28, the owner: no switch). */
 export const AGENT_TAKES_ALL = true;
+
+/**
+ * Whether it takes this request: always, except under the unit suite's
+ * `GF_OLD_LANES=1` (package.json's test script), which keeps the older
+ * steps' tests running against the save, draft and publish code they share
+ * with the agent. Never a deploy setting: a Worker has no such variable.
+ */
+export function agentTakes() {
+  const p = globalThis.process;
+  return !(AGENT_TAKES_ALL !== true || (p && p.env && p.env.GF_OLD_LANES === "1"));
+}
 
 /** The credit cap for one job: `SITE_AGENT_CAP` when it is a positive number, else the default. */
 export function agentCap(env) {

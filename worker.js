@@ -227,7 +227,7 @@ import { FOUNDATION_FILES } from "./builder/foundation-files.mjs";
 import { runNavEdit, applyAdditions, menuLinksKept } from "./builder/site-nav.mjs";
 import { runLogoEdit } from "./builder/site-logo.mjs";
 import { writtenFrame, ownPartsSite, runFrameEdit, addFrameLinks, FRAME_PARTS, frameTables } from "./builder/site-frame.mjs";
-import { runSiteAgent, agentCap, stoppedFacts, AGENT_TAKES_ALL } from "./builder/site-agent.mjs";
+import { runSiteAgent, agentCap, stoppedFacts, agentTakes } from "./builder/site-agent.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
 import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings, canWriteAccess } from "./site-access.mjs";
@@ -33217,7 +33217,7 @@ async function handleRequest(request, env, ctx) {
       // THE SITE AGENT TAKES THE WHOLE MESSAGE (2026-10-28, the owner: "just
       // have it on … is the way we gonna do things now"): a site's message is
       // never split into a request of parts, so this flow no longer starts.
-      const rKey = AGENT_TAKES_ALL ? "" : !rJob && requestFlowOn(env) && rb.hasSite === true && rb.firstBuild !== true && !!rKeySlug && !!env.SITES_BUCKET && isRequestKey(rb.idem) &&
+      const rKey = agentTakes() ? "" : !rJob && requestFlowOn(env) && rb.hasSite === true && rb.firstBuild !== true && !!rKeySlug && !!env.SITES_BUCKET && isRequestKey(rb.idem) &&
         editAsyncFor(env, { uid: ru.id, slug: rKeySlug }) ? rb.idem : "";
       if (rKey) {
         let prior = null;
@@ -36153,7 +36153,7 @@ async function handleRequest(request, env, ctx) {
             // finishes. Its work is saved through the same publish as every
             // edit; it is charged only when that save landed. See
             // `builder/site-agent.mjs`.
-            if (!(eJob && eJob.prepare === true)) {
+            if (agentTakes() && !(eJob && eJob.prepare === true)) {
               const agParts = await editParts();
               const ag = await runAgentChange(env, {
                 slug: ownerSlug, words: eMessage, pages: eSrc, parts: agParts.ok ? agParts.parts : null, job: eJob, picker: eb && eb.picker, trace: editTrace,
@@ -42529,7 +42529,7 @@ async function handleRequest(request, env, ctx) {
             // ── THE SITE AGENT TAKES AN ADDITION TOO (2026-10-28) ─────────
             // The same run as the edit route (`runAgentChange`); the steps
             // below it no longer run for a site's message.
-            if (!(aJob && aJob.prepare === true)) {
+            if (agentTakes() && !(aJob && aJob.prepare === true)) {
               let aAgSeq = 60;
               const aAgParts = await readSiteParts(env, ownerSlug);
               const ag = await runAgentChange(env, {

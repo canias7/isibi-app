@@ -3,6 +3,18 @@
 
 
 
+## 2026-10-28 — The site agent is always on now (not merged)
+
+- No switch, as you said: every edit and addition on every site goes to the agent.
+- What it couldn't do is now covered:
+  - **the stylesheet**: it can change the CSS;
+  - **table entries**: it can add, change and remove them;
+  - **removing a page**: the old address sends people home.
+- **Live progress lines**: each step reports what it actually did, and the model writes the updates from that.
+- The old router steps no longer run. Their code and tests stay for now and only run inside our test suite. Deleting them is a later cleanup.
+- Tested through the real edit and add-on routes, with scripted answers: it saves and charges once, and a stop saves and charges nothing.
+- No live run yet; that needs a merge and deploy.
+
 ## 2026-10-28 — The site agent: one big agent, behind a switch (not merged)
 
 - Built "one big full agent", as you chose. One AI model with tools takes your whole message: it reads files, writes pages, components and server code, builds with the real compiler, fixes what the build reports, and finishes. Both edits and additions go to it, with no router lanes.

@@ -1,4 +1,4 @@
-# 2026-10-28 — The site agent (one big agent), behind a switch
+# 2026-10-28 — The site agent (one big agent), always on
 
 ## What the owner asked
 
@@ -106,3 +106,57 @@ agent with tools for big ones"*). After the cost discussion the owner chose
   the router.
 - **No live run yet.** A paid side-by-side test is proposed with its exact
   message and estimate first.
+
+## Later the same day: always on, and the gaps closed
+
+**The owner: no switch.** *"Just have it on, there doesn't need to be a
+switch, is the way we gonna do things now"*, then *"there's no real customers
+… just make it work"*.
+
+- **Always on.** `SITE_AGENT` is gone (deploy.yml, the job's env). Every
+  site's edit and addition goes to the agent, and the router never starts the
+  request-of-parts flow (`rKey`). `SITE_AGENT_CAP` stays (default 60).
+- **The older steps stand aside.** The router's lanes, the rungs and the
+  add-on's writers no longer run for a site's message. Their code and their
+  ~2,000 tests are kept for now: the unit run sets `GF_OLD_LANES=1`
+  (package.json's `test` script only; a Worker has no such variable), so
+  those tests still exercise the save, draft, turn and publish code they share
+  with the agent. Deleting them is a later cleanup.
+- **The gaps that made "always on" worse are closed.** New tools:
+  - **`styles.css`**: the stylesheet is a file in the workspace. The build tool
+    compiles it unstored (`cssOverride`, compile-only). The save stores it
+    before the publish, as the look step does, and puts it back if the publish
+    fails.
+  - **`delete_file`**: a page or component. Never the home page or the sheet.
+    A build is needed after it, and a removed address answers 301 home through
+    the publish's own redirect merge.
+  - **`change_rows`**: add, update by id, remove by id, checked against the
+    site's real tables and columns. The rows are queued and written to the live
+    database after the save, as the data step does; each outcome is a fact for
+    the reply. Finishing with only rows needs no build.
+- **The live progress lines.** Each round's facts come from its tools'
+  outcomes (`roundFacts`: read, looked at, wrote, removed, lined up,
+  built cleanly or failed and fixing), and are marked on the job's progress
+  record (`agent`). The model-written progress lines tell them.
+- **Tests.**
+  - `test/site-agent.test.mjs`: 22 cases.
+  - `test/site-agent-route.test.mjs`: 5 cases through the real `/edit` and
+    `/addon` routes, synchronous and queued, with supplied agent answers:
+    - the whole message reaches the agent and no other model call is made;
+    - two compiles, the build's and the save's;
+    - the page and the stylesheet are stored and the other page is untouched;
+    - one charge equal to the four rounds;
+    - a stop stores nothing, compiles nothing and charges nothing.
+- **Sweep** (from green):
+  - 12 mutants: the home-page and stylesheet delete guards, the column and
+    table checks, the sheet kept out of the pages, the progress facts, the
+    test-only stand-aside, compile-only's sheet, the sheet stored before the
+    save, the stop check, and the router's split.
+  - 11 were killed. The survivor was a redundant clause in `finish`'s check (a
+    write always leaves the workspace unbuilt until a build passes), so the
+    clause was removed. The comment-only control survived.
+- **Full suite** (`npm test`, as CI runs it): 13,019 tests, 3 failing.
+  - The two known environment failures: the worktree-leftover secrets check
+    and the site sign-in test.
+  - `build-reply-bubble`, a browser case that timed out under the full run's
+    load and passes alone (5/5).
