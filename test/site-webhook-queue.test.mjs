@@ -513,7 +513,7 @@ test("the Worker enqueues only retryable failures, and drains on the cron", asyn
   // The key is the event id, so a redelivery of a queued event is a no-op
   // rather than an error or a second row.
   const { queueFailed, siteTick } = await loadTemplate("lib/site-webhook-retry.ts");
-  const again = await queueFailed({ SITES: down.bucket }, { slug: "barber", table: "bookings", action: "created",
+  const again = await queueFailed({ OWN_BUCKET: "1", SITES: down.bucket }, { slug: "barber", table: "bookings", action: "created",
     out: { sent: false, body: row.body, status: 503, eventId: row.event_id } });
   assert.equal(typeof again, "string");
   assert.equal([...down.bucket.map.keys()].filter((k) => k.startsWith("webhooks/q/")).length, 1);
@@ -521,14 +521,14 @@ test("the Worker enqueues only retryable failures, and drains on the cron", asyn
   down.bucket.map.get(keys[0]).v = JSON.stringify({ ...row, next_attempt_at: new Date(Date.now() - 1000).toISOString() });
   const tick = await withFetch({ answer: () => new Response("ok", { status: 200 }) }, () =>
     siteTick(new Request("https://barber.example/__gf/tick", { method: "POST", headers: { "x-gf-site-job": "1" } }),
-      { ...env, SITES: down.bucket }, new URL("https://barber.example/__gf/tick"), "barber", "x-gf-site-job"));
+      { ...env, OWN_BUCKET: "1", SITES: down.bucket }, new URL("https://barber.example/__gf/tick"), "barber", "x-gf-site-job"));
   assert.equal(tick.out.status, 200);
   const sent = tick.calls.filter((c) => c.url.startsWith("https://hooks.example.com/"));
   assert.equal(sent.length, 1, "the tick must drain the queue");
   assert.equal(sent[0].init.body, row.body);
   assert.equal(down.bucket.map.has(keys[0]), false, "a delivered row leaves the queue");
   // Only the clock's own wake drains: anything else is not this route.
-  assert.equal(await siteTick(new Request("https://barber.example/__gf/tick", { method: "POST" }), { SITES: down.bucket },
+  assert.equal(await siteTick(new Request("https://barber.example/__gf/tick", { method: "POST" }), { OWN_BUCKET: "1", SITES: down.bucket },
     new URL("https://barber.example/__gf/tick"), "barber", "x-gf-site-job"), null);
 });
 
@@ -543,13 +543,13 @@ test("the enqueue resolves the owner, and reports which of the three things happ
   const { queueFailed } = await loadTemplate("lib/site-webhook-retry.ts");
   const out = (id) => ({ sent: false, body: '{"id":"' + id + '"}', status: 503, eventId: id });
   const B = memBucket();
-  assert.equal(await queueFailed({ SITES: B }, { slug: "s", table: "t", action: "created", out: out("a1") }), "queued for retry");
+  assert.equal(await queueFailed({ OWN_BUCKET: "1", SITES: B }, { slug: "s", table: "t", action: "created", out: out("a1") }), "queued for retry");
   // Not worth retrying, or nothing sent: nothing written, nothing claimed.
-  assert.equal(await queueFailed({ SITES: B }, { slug: "s", table: "t", action: "created", out: { ...out("a2"), status: 404 } }), null);
-  assert.equal(await queueFailed({ SITES: B }, { slug: "s", table: "t", action: "created", out: { ...out("a3"), sent: true } }), null);
+  assert.equal(await queueFailed({ OWN_BUCKET: "1", SITES: B }, { slug: "s", table: "t", action: "created", out: { ...out("a2"), status: 404 } }), null);
+  assert.equal(await queueFailed({ OWN_BUCKET: "1", SITES: B }, { slug: "s", table: "t", action: "created", out: { ...out("a3"), sent: true } }), null);
   // At the cap: refused BEFORE the write, and it says so.
   const full = memBucket(Object.fromEntries(Array.from({ length: MAX_PENDING_PER_SITE }, (_, i) => ["webhooks/q/p" + i + ".json", "{}"])));
-  const said = await queueFailed({ SITES: full }, { slug: "s", table: "t", action: "created", out: out("z9") });
+  const said = await queueFailed({ OWN_BUCKET: "1", SITES: full }, { slug: "s", table: "t", action: "created", out: out("z9") });
   assert.match(String(said), /not queued/);
   assert.equal(full.map.has("webhooks/q/z9.json"), false, "the per-site cap is applied before the write");
   // The queued row carries the failure the drain reads.

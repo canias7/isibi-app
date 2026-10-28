@@ -48,7 +48,7 @@ test("the platform passes a visitor's call to the site, and without the mark say
   assert.match(between("async function uploadScriptOnce(", "\n}\n"), /const given = await siteReadVars\(env, slug\)/);
   // Reads, writes, sign-in, connections, hooks, reports, checkout, uploads and
   // the anti-spam check: one route, to the site.
-  const route = between("A VISITOR'S CALL TO A SITE IS THE SITE'S", "if (vm) return siteAnswers(env, request, vm[1].toLowerCase());");
+  const route = between("A VISITOR'S CALL TO A SITE IS THE SITE'S", "return siteAnswers(env, request, vslug);");
   for (const part of ["data\\/", "api\\/", "hook\\/", "auth\\/", "error", "checkout", "uploads", "turnstile"]) assert.ok(route.includes(part), part);
 });
 
@@ -154,7 +154,7 @@ test("the platform unlocks the site's own keys at publish and gives them to that
   const v = between("async function siteReadVars(", "\n}\n");
   for (const re of [/SELECT name, cipher FROM _secrets/, /TURNSTILE_PLATFORM_FLAG/, /SITE_SPEC: JSON\.stringify/, /siteAppConn\(env, slug\)/, /ownerEmail\(env, owner\.uid\)/, /siteNotifyOn\(env, slug\)/, /SITE_TABLES: JSON\.stringify\(spec\.tables\)/]) assert.match(v, re);
   assert.doesNotMatch(v, /SITE_SECRETS_KEY|SUPABASE_SERVICE_KEY|gatewaySecretOf/);
-  assert.match(between("async function uploadScriptOnce(", "\n}\n"), /secrets: given \? given\.secrets : null \}/);
+  assert.match(between("async function uploadScriptOnce(", "\n}\n"), /if \(preview\) return \{ bucket, vars, secrets: null \};[\s\S]*return \{ bucket, vars, secrets \};/);
   assert.doesNotMatch(W, /\/api\/site-effect/);
 });
 
@@ -248,7 +248,7 @@ test("the site signs its visitors in with its own auth server, and keeps the ses
 });
 
 test("a visitor's sign-in is the site's too (2026-10-28: the site's own Worker)", () => {
-  const route = between("A VISITOR'S CALL TO A SITE IS THE SITE'S", "if (vm) return siteAnswers(env, request, vm[1].toLowerCase());");
+  const route = between("A VISITOR'S CALL TO A SITE IS THE SITE'S", "return siteAnswers(env, request, vslug);");
   assert.ok(route.includes("auth\\/"));
   assert.doesNotMatch(W, /return proxySiteService\(env, request, url, slug, apath, "auth"\);/);
 });
@@ -311,7 +311,7 @@ test("on the site's own address its files are the site's, after the host tie; th
   const files = W.slice(W.indexOf("// THE SITE SERVES ITS OWN FILES"), W.indexOf("// THE SITE SERVES ITS OWN FILES") + 800);
   assert.match(files, /um && uploadHost !== "\*" && uploadHost === um\[1\]\.toLowerCase\(\)\) return siteAnswers\(env, request, uploadHost\)/);
   // A visitor's upload goes through the one visitor route.
-  assert.match(between("A VISITOR'S CALL TO A SITE IS THE SITE'S", "if (vm) return siteAnswers"), /uploads/);
+  assert.match(between("A VISITOR'S CALL TO A SITE IS THE SITE'S", "return siteAnswers(env, request, vslug)"), /uploads/);
 });
 
 // ── payments: checkout and Stripe's message, with the owner's own Stripe (2026-10-27) ──
@@ -382,7 +382,7 @@ test("Stripe's paid message is checked against the owner's secret, then the orde
 });
 
 test("checkout and the site's Stripe messages are passed to the site (2026-10-28)", () => {
-  assert.match(between("A VISITOR'S CALL TO A SITE IS THE SITE'S", "if (vm) return siteAnswers"), /checkout/);
+  assert.match(between("A VISITOR'S CALL TO A SITE IS THE SITE'S", "return siteAnswers(env, request, vslug)"), /checkout/);
   assert.match(W, /A SITE'S OWN STRIPE MESSAGES[\s\S]{0,600}const own = await ownDataRead\(env, request, wm\[1\]\.toLowerCase\(\)\);/);
   const v = W.slice(W.indexOf("async function siteReadVars("), W.indexOf("async function siteReadVars(") + 4000);
   assert.match(v, /SELECT name, cipher FROM _secrets/); // every key the site holds, Stripe's included
@@ -395,7 +395,7 @@ test("the site's own connections and hooks are answered by its Worker first", ()
   const S = fs.readFileSync(new URL("../builder/lovable/template/src/server.ts", import.meta.url), "utf8");
   assert.match(S, /siteApi\(request[^)]*\)\)[\s|]*\(await siteHook\(/);
   // 2026-10-28: the site's own Worker answers them only; the platform passes them on.
-  const route = between("A VISITOR'S CALL TO A SITE IS THE SITE'S", "if (vm) return siteAnswers");
+  const route = between("A VISITOR'S CALL TO A SITE IS THE SITE'S", "return siteAnswers(env, request, vslug)");
   assert.ok(route.includes("api\\/"));
   assert.ok(route.includes("hook\\/"));
 });
@@ -465,7 +465,7 @@ test("the site stores its own error reports and counts its own visits, in its ow
 });
 
 test("reports go to the site, the platform makes the two tables, and the stats read the site's own visits (2026-10-28)", () => {
-  assert.match(between("A VISITOR'S CALL TO A SITE IS THE SITE'S", "if (vm) return siteAnswers"), /\|error\|/);
+  assert.match(between("A VISITOR'S CALL TO A SITE IS THE SITE'S", "return siteAnswers(env, request, vslug)"), /\|error\|/);
   assert.match(between("async function siteReadVars(", "\n}\n"), /for \(const q of \[ERRORS_TABLE_SQL, HITS_TABLE_SQL, JOBS_TABLE_SQL\]\)/);
   assert.match(W, /try \{ return await readOwnHits\(conn\); \}/);
   assert.match(between("async function readOwnHits(", "\n}\n"), /FROM _hits/);
@@ -493,7 +493,7 @@ function fakeBucket() {
 test("a failed webhook is kept in the site's own bucket and retried on the platform's wake, with the owner's own secret", async () => {
   const { queueFailed, drainOwnQueue, siteTick } = await loadTemplate("lib/site-webhook-retry.ts");
   const B = fakeBucket();
-  const env = { SITES: B, WEBHOOK_URL: "https://hooks.example.com/in", WEBHOOK_SECRET: "s" };
+  const env = { OWN_BUCKET: "1", SITES: B, WEBHOOK_URL: "https://hooks.example.com/in", WEBHOOK_SECRET: "s" };
   assert.equal(await queueFailed(env, { slug: "x", table: "orders", action: "created", out: { sent: false, status: 404, body: "{}", eventId: "e1" } }), null, "a 4xx is not retried");
   assert.equal(await queueFailed(env, { slug: "x", table: "orders", action: "created", out: { sent: false, status: 503, body: '{"a":1}', eventId: "e1", attempts: 3 } }), "queued for retry");
   const row = JSON.parse(B.m.get("webhooks/q/e1.json").v);
@@ -608,5 +608,5 @@ test("the platform no longer encrypts a new key, and forgets an old one once the
   assert.doesNotMatch(W, /addSecret\(/);
   assert.match(W, /saveSiteKey\(vault, \{ slug: sslug, name: sb\.name, value: sb\.value, push: \(n, v\) => pushSiteSecret\(env, sslug, n, v\) \}\)/);
   assert.match(between("async function siteReadVars(", "\n}\n"), /r\.cipher === WORKER_HELD\) continue;/);
-  assert.match(W, /if \(r\.ok && legacyKeys\.length\) await forgetLegacyKeys\(env, slug, legacyKeys\);/);
+  assert.match(W, /if \(r\.ok && !preview && legacyKeys\.length\) await forgetLegacyKeys\(env, slug, legacyKeys\);/);
 });

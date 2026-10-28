@@ -367,7 +367,7 @@ const VISITOR_DISPATCH = /url\.pathname\.match\(\/\^\\\/api\\\/db\\\//;
 function visitorDispatch() {
   const i = LINES.findIndex((l) => VISITOR_DISPATCH.test(l));
   if (i < 0) return null;
-  return { line: i, block: LINES.slice(i, i + 3).join("\n") };
+  return { line: i, block: LINES.slice(i, i + 12).join("\n") };
 }
 
 test("a published site's API gates on a site session, not an isibi one", async () => {
@@ -379,7 +379,7 @@ test("a published site's API gates on a site session, not an isibi one", async (
   // slug only; the database's row rules decide access.
   const d = visitorDispatch();
   assert.ok(d, "no /api/db dispatch found at all");
-  assert.match(d.block, /return siteAnswers\(env, request, vm\[1\]\.toLowerCase\(\)\)/,
+  assert.match(d.block, /return siteAnswers\(env, request, vslug\)/,
     "every public /api/db dispatch must go to the site's own Worker (worker.js:" + (d.line + 1) + ")");
   assert.equal(LINES.filter((l) => VISITOR_DISPATCH.test(l)).length, 1, "a second /api/db dispatch is not covered here");
   // The slug resolves to a real site's script, or nothing of it is done.
