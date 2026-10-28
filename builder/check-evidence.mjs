@@ -39,6 +39,8 @@ const LOOKS_FOR = Object.keys(FINDING_SAID).filter((k) => k !== "unmet" && k !==
 export const MAX_CHECK_FINDINGS = 12;
 const ROUTE = /^\/[^\s]{0,200}$/;
 const VERSION = /^[A-Za-z0-9._-]{1,80}$/;
+
+import { serverFacts } from "./server-code.mjs";
 const plain = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 const count = (n, one) => n + " " + one + (n === 1 ? "" : "s");
 function listOf(xs) {
@@ -102,7 +104,7 @@ function browserOf(r) {
  * drops), the version it activated, whether activation answered ok, and how
  * many of the change's style rules were checked. Never throws.
  */
-export function checksOf({ render = null, version = "", published = false, cssChecked = 0, draft = false, revision = 0, preview = null, typeErrors = "" } = {}) {
+export function checksOf({ render = null, version = "", published = false, cssChecked = 0, draft = false, revision = 0, preview = null, typeErrors = "", server = null } = {}) {
   const css = Number.isInteger(cssChecked) && cssChecked > 0 ? cssChecked : 0;
   const saved = draft === true && published !== true;
   const types = typesOf(typeErrors);
@@ -112,6 +114,8 @@ export function checksOf({ render = null, version = "", published = false, cssCh
     // mistakes in these files. Kiln Lane's reply said "compiled without errors"
     // beside a note that a part did not typecheck; the fact was never told.
     ...(types ? { types } : {}),
+    // THE SITE'S OWN SERVER CODE (2026-10-28): `serverEvidence`, said as facts.
+    ...(readServer(server) ? { server: readServer(server) } : {}),
     browser: browserOf(render),
     ...(css ? { css } : {}),
     published: published === true,
@@ -128,6 +132,12 @@ export function checksOf({ render = null, version = "", published = false, cssCh
 }
 
 const posInt = (n) => Number.isInteger(n) && n > 0;
+/** Server evidence as `serverEvidence` makes it, read strictly; null otherwise. */
+export function readServer(v) {
+  if (!plain(v) || !Array.isArray(v.functions) || !Array.isArray(v.keys) || !Array.isArray(v.missing) || !Array.isArray(v.refused)) return null;
+  if (!v.functions.every((f) => plain(f) && typeof f.name === "string" && Array.isArray(f.hooks) && Array.isArray(f.keys) && typeof f.test === "string")) return null;
+  return v;
+}
 const MAX_TYPE_FILES = 6;
 const TYPE_FILE = /^[a-z0-9][a-z0-9._-]{0,80}$/i;
 /** The files `tsc` named, by base name, from its own output; null when it found nothing. */
@@ -159,6 +169,7 @@ export function readChecks(v) {
     if (Object.keys(b).length !== 1) return null;
   } else return null;
   if (v.types !== undefined && !(plain(v.types) && v.types.ok === false && Array.isArray(v.types.files) && v.types.files.length <= MAX_TYPE_FILES && v.types.files.every((f) => typeof f === "string" && TYPE_FILE.test(f)))) return null;
+  if (v.server !== undefined && !readServer(v.server)) return null;
   if (v.css !== undefined && !posInt(v.css)) return null;
   if (v.draft !== undefined && !(v.draft === true && v.published === false)) return null;
   if (v.revision !== undefined && !(v.draft === true && posInt(v.revision))) return null;
@@ -219,6 +230,7 @@ export function checkFacts(checks, { scope = "", nth = 0 } = {}) {
   const add = (text) => out.push({ kind: "check", text: at + text });
   add(c.types ? typesSaid(c.types) : COMPILED_SAID);
   add(browserSaid(c.browser));
+  for (const f of serverFacts(c.server)) add(f.text);
   if (c.css) add(cssSaid(c.css));
   add(c.published
     ? "Published: the new version is now the one the site's address is set to serve. Nobody opened the live address afterwards to confirm it."

@@ -167,6 +167,19 @@ export function leaksKey(text: string, env: FnEnv): boolean {
   return false;
 }
 
+// A FAILURE ON THE LIVE SITE IS WRITTEN DOWN (2026-10-28), in the site's own
+// error log (`_errors`, source `server`), so the owner — and the builder on their
+// next request — can see what went wrong. A key's value is never written.
+export async function logFnError(env: FnEnv, name: string, what: string, message: string): Promise<void> {
+  if (!env.APP_CONN) return;
+  let msg = String(message || "").slice(0, 300);
+  for (const v of Object.values(ownerKeys(env))) if (v.length >= 8) msg = msg.split(v).join("[key]");
+  try {
+    await siteSql(String(env.APP_CONN), "INSERT INTO _errors (at, message, stack, route, source) VALUES (to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS'), ?, ?, ?, ?)",
+      ["server code `" + name + "` failed " + what + ": " + msg, null, "fn/" + name, "server"]);
+  } catch { /* the log is best effort */ }
+}
+
 const own = { "x-site-data": "own" };
 const fail = (status: number, error: string) => Response.json({ error }, { status, headers: own });
 
@@ -186,6 +199,7 @@ export async function siteFunction(request: Request, env: FnEnv, url: URL, slug:
     res = await (mod.default as (r: Request, s: Site) => unknown)(request, makeSite(env, slug, declaredHosts(mod)));
   } catch (e) {
     const msg = String((e as Error)?.message || e).slice(0, 300);
+    await logFnError(env, m[2], "answering a visitor", msg);
     return fail(500, leaksKey(msg, env) ? "the function failed" : "the function failed: " + msg);
   }
   if (!(res instanceof Response)) return fail(500, "the function did not answer with a Response");
@@ -223,6 +237,11 @@ export async function siteFunction(request: Request, env: FnEnv, url: URL, slug:
 export const MAX_HOOKS = 5;
 const HOOK = /^(?:(?:created|updated|deleted|paid):[a-z][a-z0-9_]{0,62}|tick|cron:.{9,80})$/;
 
+function nameOf(m: Module, mods: Record<string, Module>): string {
+  for (const [file, x] of Object.entries(mods)) if (x === m) return file.replace(/^.*\/server-/, "").replace(/\.tsx$/, "");
+  return "unknown";
+}
+
 export function hooksOf(m: Module | null): string[] {
   const on = m && Array.isArray(m.on) ? m.on : [];
   return on.filter((x): x is string => typeof x === "string" && HOOK.test(x));
@@ -239,7 +258,7 @@ export async function fireHooks(env: FnEnv, slug: string, event: string, data: {
         body: JSON.stringify({ event, table: data.table || null, row: data.row ?? null }),
       });
       await (m.default as (r: Request, s: Site) => unknown)(req, makeSite(env, slug, declaredHosts(m)));
-    } catch { /* a hook's failure is its own */ }
+    } catch (e) { await logFnError(env, nameOf(m, mods), "on " + event, String((e as Error)?.message || e)); }
   }));
   return due.length;
 }
@@ -316,7 +335,7 @@ export async function fireSchedules(env: FnEnv, slug: string, now = Date.now(), 
       try {
         const req = new Request("https://" + slug + ".hook/__gf/hook", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ event: hook, table: null, row: null }) });
         await (m.default as (r: Request, s: Site) => unknown)(req, makeSite(env, slug, declaredHosts(m)));
-      } catch { /* a schedule's failure is its own */ }
+      } catch (e) { await logFnError(env, nameOf(m, mods), "on its schedule", String((e as Error)?.message || e)); }
     }
   }
   return fired;

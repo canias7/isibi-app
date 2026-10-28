@@ -66,3 +66,32 @@ SF8–SF12: hooks fire on their event only and a hooked function refuses
 visitors unless allowed; the wiring (writes, payments, tick); the checker's hook
 lists; the model's `server` field; the fix loop's shape (charged only when it
 then passes).
+
+## The server writer's own checks (the owner: "1, 2, 3, 4, 5 … make sure messages are the model talking")
+
+1. **A sandboxed test run** (`builder/server-dryrun.mjs`, child
+   `server-dryrun-child.mjs`): after a good build the container runs each
+   server part once — a request for a visitor-callable function, the sample event
+   for each hook — against a fake `site` (outside calls answered in the child,
+   no key, no rows, files in memory). The child has no environment, Node's
+   permission model (no files beyond itself, no child processes) and, from root,
+   an unprivileged user; 30 s cap. Returned as `serverTests`. A fault in the code
+   (`kind: "code"`) goes back to the model once in `publishPages`, recompiled and
+   charged only when the build then compiles; a stop that may be our sample input
+   (`"input"`) is said, not repaired.
+2. **Wiring**: pages and components that call `/fn/<name>` with no such function,
+   and functions nothing calls (no hook either), are found.
+3. **Keys**: the names each function asks for (`site.key` / `site.hasKey`).
+4. **Never a stand-in**: salvage leaves a broken server part out instead of
+   stubbing it.
+5. **Live error log**: a function or hook failing on the live site is written
+   to the site's own `_errors` (source `server`), key values replaced.
+
+Everything the owner hears goes through `serverEvidence` → `checksOf({ server })`
+→ `checkFacts`, as facts the reply writer words; the vetting refusals no longer
+go out as fixed lint lines. The check also refuses `.constructor`, `__proto__`,
+`Reflect` and `Proxy`. Tests: `test/server-code-checks.test.mjs` (SC1–SC8, incl.
+the sandbox probe: no env, no file read, no exec).
+
+Not yet: whether a key is already SET (the publish does not read the site's key
+names), so the fact says "if not added yet".

@@ -39,6 +39,9 @@ import path from "node:path";
 // What it is FOR: this container executes model-written code (the render check
 // runs the site's own server bundle in a child), and both spawn paths hand that
 // child the whole environment. See the file for the measurement.
+import { createRequire } from "node:module";
+import { dryRunServerParts } from "./server-dryrun.mjs";
+import { isServerPart } from "./server-code.mjs";
 import { BUILD_KEYS } from "./build-keys.mjs";
 import { callBuilderModel, keysFrom, BUILDER_CALL_MS, CONTAINER_CALL_CAP_MS, STREAM_IDLE_MS, patientCall } from "./build-call.mjs";
 import { longPost } from "./long-post.mjs";
@@ -2790,7 +2793,18 @@ const server = http.createServer((req, res) => {
         const k = siteKitFiles();
         kitOut = { kit: k.files, ...(k.missing.length ? { kitMissing: k.missing } : {}), ...(k.capped ? { kitCapped: true } : {}) };
       } catch (e) { kitOut = { kitError: String((e && e.message) || e).slice(0, 300) }; }
-      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, ...(typeErrors ? { typeErrors } : {}), fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, pageTokens: pageTokensUsed, brand: brandUsed, render, ...(shots.length ? { shots } : {}), ...(layout.length ? { layout } : {}), worker, card: cardMade, touchIcon: touchMade, ...(cssUsed.applied ? { css: cssUsed } : {}), ...(ssr.unprivileged ? {} : { ssrUnprivileged: false }), ...kitOut });
+      // THE SITE'S OWN SERVER CODE, RUN ONCE IN ITS SANDBOX (2026-10-28): the
+      // server's counterpart of the render check. Evidence, never a refusal here.
+      let serverTests = null;
+      try {
+        const sp = (Array.isArray(payload.parts) ? payload.parts : []).filter(isServerPart);
+        if (sp.length) {
+          let tsc = null;
+          try { tsc = createRequire(path.join(APP, "package.json"))("typescript"); } catch { tsc = null; }
+          serverTests = await dryRunServerParts(sp, tsc ? { ts: tsc } : {});
+        }
+      } catch (e) { serverTests = { ran: false, why: String((e && e.message) || e).slice(0, 120), results: [] }; }
+      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, ...(typeErrors ? { typeErrors } : {}), ...(serverTests ? { serverTests } : {}), fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, pageTokens: pageTokensUsed, brand: brandUsed, render, ...(shots.length ? { shots } : {}), ...(layout.length ? { layout } : {}), worker, card: cardMade, touchIcon: touchMade, ...(cssUsed.applied ? { css: cssUsed } : {}), ...(ssr.unprivileged ? {} : { ssrUnprivileged: false }), ...kitOut });
     } catch (e) {
       return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0, ...times });
     }

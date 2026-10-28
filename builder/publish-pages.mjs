@@ -14,7 +14,7 @@
 // functions, so the real decision logic can be driven against fakes with no
 // model call, no container and no R2.
 
-import { vetServerCode, checkServerPart, SERVER_REPAIR_RULES } from "./server-code.mjs";
+import { vetServerCode, checkServerPart, SERVER_REPAIR_RULES, SERVER_PREFIX, serverEvidence } from "./server-code.mjs";
 import { runTweak } from "./site-tweak.mjs";
 import { validatePages, lintPages, repairImports, mergeParts, reviseSent } from "./page-gen.mjs";
 import { addUsages } from "./retry-reason.mjs";
@@ -1570,7 +1570,8 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
   }
   v.parts = vetted.parts;
   sitePartsForBuild = v.parts;
-  const problems = v.problems.concat(vetted.problems, lintPages(v.pages, spec));
+  // Server-code refusals are said through the reply's facts (`out.server`), not as fixed lines here.
+  const problems = v.problems.concat(lintPages(v.pages, spec));
 
   /**
    * Buy the photographs the pages asked for — or leave them as placeholders.
@@ -1835,6 +1836,52 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
     if (compileFix) { delete compileFix.touched; out.compileRepair = compileFix; }
   }
 
+  // SERVER CODE THE TEST RUN CAUGHT (2026-10-28): the container ran each
+  // `server-<name>` part once in its sandbox (`built.serverTests`). A fault in
+  // the code itself (a name that does not exist, a host it never listed) goes
+  // back to the model once with the error; the fixed part is kept, recompiled
+  // and charged only when the build then compiles. A stop that may only be our
+  // sample input is said, not repaired.
+  const serverRepairedNow = [];
+  const serverDropped = [];
+  if (built && built.ok && built.serverTests && built.serverTests.ran && typeof deps.compileRepair === "function") {
+    const bad = (built.serverTests.results || []).filter((r) => r && !r.ok && r.kind === "code");
+    let room = true;
+    try { room = typeof deps.compileRepairRoom === "function" ? !!deps.compileRepairRoom() : true; } catch { room = false; }
+    if (bad.length && room) {
+      const before = sitePartsForBuild;
+      const pendingUsage = [];
+      const fixed = new Map();
+      for (const r of bad) {
+        const part = (sitePartsForBuild || []).find((q) => q && q.name === "server-" + r.name);
+        if (!part) continue;
+        let res = null;
+        try {
+          res = await runTweak({
+            instruction: "This is the site's own server code. It was test-run once in a sandbox (outside services faked) and failed with: " + String(r.error || "an error") + ". Fix the cause.",
+            path: "src/routes/-parts/" + part.name + ".tsx", source: String(part.source || ""), send: deps.compileRepair,
+            inPart: true, rules: SERVER_REPAIR_RULES, heading: "WHY THE SERVER CODE FAILED ITS TEST RUN",
+            ...(deps.compileRepairModel ? { model: deps.compileRepairModel } : {}),
+          });
+        } catch { res = null; }
+        if (res && res.usage) pendingUsage.push(res.usage);
+        const next = res && res.ok && typeof res.source === "string" ? { ...part, source: res.source } : null;
+        if (next && checkServerPart(next).ok) fixed.set(part.name, next);
+      }
+      if (fixed.size) {
+        sitePartsForBuild = (sitePartsForBuild || []).map((q) => fixed.get(q.name) || q);
+        let second = null;
+        try { second = await compileWithRetry(pages); } catch { second = null; }
+        if (second && second.ok) {
+          built = second;
+          v.parts = sitePartsForBuild;
+          for (const u of pendingUsage) repairUsage.push(u);
+          serverRepairedNow.push(...fixed.keys());
+        } else sitePartsForBuild = before;
+      }
+    }
+  }
+
   if (salvageable(built)) {
     const plan = salvagePlan(built.error, pages, livePages, sitePartsForBuild);
     const badParts = new Set(plan.parts || []);
@@ -1851,7 +1898,11 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
       const patched = pages.map((p) => (bad.has(p.path) ? { ...p, source: stubPage(p.path) } : p));
       // A PART STUBBED IS A SECTION THAT DRAWS NOTHING, its import still valid.
       const partsBefore = sitePartsForBuild;
-      if (badParts.size) sitePartsForBuild = sitePartsForBuild.map((p) => (badParts.has(p.name) ? { ...p, source: partStandIn(p.source), stub: true } : p));
+      // SERVER CODE IS NEVER STUBBED (2026-10-28): an empty stand-in would turn
+      // the feature into nothing in silence. It is left out, and said.
+      const serverBad = [...badParts].filter((n) => String(n).startsWith(SERVER_PREFIX));
+      if (serverBad.length) { serverDropped.push(...serverBad); sitePartsForBuild = sitePartsForBuild.filter((p) => !serverBad.includes(p.name)); }
+      if (badParts.size) sitePartsForBuild = sitePartsForBuild.map((p) => (badParts.has(p.name) && !String(p.name).startsWith(SERVER_PREFIX) ? { ...p, source: partStandIn(p.source), stub: true } : p));
       // THE RETRY WRAPPER, not the bare compile. A container drained mid-build
       // is the exact race `compileWithRetry` exists for — measured live twice —
       // and this call had no second attempt, so unlucky rollout timing turned a
@@ -2055,6 +2106,10 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
   // person reading a compiler. `tsc` echoes one mistake through the tree, so the
   // head is the cause and the tail is noise; the full text stays on the response
   // for anyone diagnosing.
+  // THE SITE'S SERVER CODE AS THIS PUBLISH LEFT IT (2026-10-28): evidence for
+  // the reply writer (`checksOf({ server })`), never a sentence of ours.
+  out.server = serverEvidence({ pages, parts: sitePartsForBuild, tests: built && built.serverTests, refused: vetted.failed || [], leaking: vetted.leaking || [],
+    repaired: (out.serverRepaired || []).concat(serverRepairedNow), dropped: serverDropped });
   if (built && built.ok && built.typeErrors) {
     const first = String(built.typeErrors).split("\n").find((l) => /error TS/.test(l)) || "";
     out.typeErrors = String(built.typeErrors).slice(0, 2000);

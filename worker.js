@@ -324,7 +324,7 @@ import { requirementRetryRound, judgedNeeds } from "./builder/requirement-retry.
 import { exerciseTables } from "./builder/requirement-exercise.mjs";
 import { renderedTexts } from "./builder/content-evidence.mjs";
 import { noteFor, pickAdds, designWaits, ADD_KINDS, mergePageBatches, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, frameToMissing, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, qrShownSources, qrDestinationCheck, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowRequired, requiredColumns, rowMarkerKey, duplicateRows, duplicateAsk, duplicateAnswer, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
-import { vetServerCode, isServerPart } from "./builder/server-code.mjs";
+import { vetServerCode, isServerPart, serverEvidence } from "./builder/server-code.mjs";
 import { compileRepairRound, compileRepairRounds, writtenPaths, withParts, splitParts } from "./builder/compile-repair.mjs";
 import { salvageRound, anythingLanded, MAX_SALVAGE_ROUNDS, landedBill, partKey, writtenPartKeys } from "./builder/change-salvage.mjs";
 import { wantsFirstBuildBackend, featuresNeedingData, firstBuildBackendTool, firstBuildBackendBrief, mergeFirstBuildBackend, FIRST_BUILD_BACKEND_RULES } from "./builder/first-build-db.mjs";
@@ -8055,8 +8055,8 @@ export function buildChecks(pages) {
   // A BUILD SAVED AS A DRAFT IS NOT PUBLISHED (2026-10-16): said as its
   // draft, with its revision and its preview as far as they are known.
   const d = pages.draft && typeof pages.draft === "object" ? pages.draft : null;
-  if (d) return checksOf({ render: pages.render, version: typeof pages.version === "string" ? pages.version : "", published: false, draft: true, revision: Number(d.revision) || 0, preview: d.previewUploaded === true ? "ready" : d.previewPending === true ? "pending" : null , typeErrors: pages.typeErrors});
-  return checksOf({ render: pages.render, version: typeof pages.version === "string" ? pages.version : "", published: true, typeErrors: pages.typeErrors });
+  if (d) return checksOf({ render: pages.render, version: typeof pages.version === "string" ? pages.version : "", published: false, draft: true, revision: Number(d.revision) || 0, preview: d.previewUploaded === true ? "ready" : d.previewPending === true ? "pending" : null , typeErrors: pages.typeErrors, server: pages.server});
+  return checksOf({ render: pages.render, version: typeof pages.version === "string" ? pages.version : "", published: true, typeErrors: pages.typeErrors, server: pages.server });
 }
 
 function inlineFailure(pages, { cost = 0, short = false } = {}) {
@@ -17363,8 +17363,10 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // page rung and the add-on step write it too and publish here, not through
   // `publishPages`. A refused part keeps the site's stored copy when it has
   // one (an edit never makes working server code worse); otherwise it is left out.
+  let serverVet = null;
   if (Array.isArray(parts) && parts.some(isServerPart)) {
     const vet = vetServerCode({ pages: Array.isArray(pages) ? pages : [], parts });
+    serverVet = vet;
     if (vet.failed.length) {
       let stored = [];
       try { const sp = await loadSiteParts(env, slug); stored = Array.isArray(sp) ? sp : []; } catch { stored = []; }
@@ -18567,7 +18569,8 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // AND WHAT THIS PUBLISH CHECKED (2026-10-14), always — a clean render
     // report included, which `render` above leaves off the wire — so every
     // final reply reads the checks from the answer, whatever the narration did.
-    checks: checksOf({ render: built.render, version, published: act.draft !== true, draft: act.draft === true, cssChecked: verifyOnly ? verifyOnly.size : 0, revision: act.draft === true ? act.revision : 0, preview: act.draft === true && act.previewed ? (act.previewed.ok === true ? "ready" : "pending") : null, typeErrors: built.typeErrors }),
+    checks: checksOf({ render: built.render, version, published: act.draft !== true, draft: act.draft === true, cssChecked: verifyOnly ? verifyOnly.size : 0, revision: act.draft === true ? act.revision : 0, preview: act.draft === true && act.previewed ? (act.previewed.ok === true ? "ready" : "pending") : null, typeErrors: built.typeErrors,
+      server: serverEvidence({ pages: Array.isArray(pages) ? pages : [], parts: Array.isArray(siteParts) ? siteParts : [], tests: built.serverTests, refused: serverVet ? serverVet.failed : [], leaking: serverVet ? serverVet.leaking : [] }) }),
     // SAVED, NOT PUBLISHED (draft-first): the version is the site's draft,
     // seen at its preview, live only when the owner presses Publish.
     draft: act.draft === true ? draftFacts(slug, version, act) : undefined,
