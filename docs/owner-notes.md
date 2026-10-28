@@ -1,6 +1,15 @@
 # Owner Notes
 
 
+
+## 2026-10-28 — Kiln Lane Pottery: the first build on the new setup
+
+- Built from the app (Grok 4.7, Low): Home, Classes and a Book a class form with a £15 deposit. Published at kiln-lane-pottery.gofarther.app.
+- Every page and every visitor call was answered by **the site's own Worker** (the `own` mark on each answer).
+- Pay £15 deposit went to the site's own checkout, which said "this shop hasn't finished setting up payments yet". That's right: the site has no Stripe key. No payment, no booking row, no email.
+- **Cost 65 credits** (172 → 107 on the A account), above the 11–45 measured before. Publishing was free.
+- Next: add a Stripe key (test mode) in Kiln Lane's Payments panel, and I'll show the whole paid booking path. Record: `docs/history/2026-10-28-kiln-lane-pottery.md`.
+
 ## 2026-10-28 — the front door sends visitors straight to each site's Worker
 
 The front door now looks up which site an address belongs to (asking us once, then remembering for a minute) and calls that site's own Worker directly. Visitors to a published site never pass through our main Worker. Only the app, draft previews and sites that don't have a Worker yet come to us.
