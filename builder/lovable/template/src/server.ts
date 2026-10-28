@@ -359,6 +359,8 @@ const site = {
       || (await siteCheckout(request, env as unknown as PayEnv, url, SITE_SLUG, ctx)) || (await stripeSiteWebhook(request, env as unknown as PayEnv, url, SITE_SLUG, ctx))
       || (await siteApi(request, env as unknown as ConnectEnv, url, SITE_SLUG)) || (await siteHook(request, env as unknown as ConnectEnv, url, SITE_SLUG))
       || (await siteError(request, env as unknown as TelemetryEnv, url, SITE_SLUG, ctx))
+      // Spam protection is off for now (owner, 2026-10-27): the widget asks, and is told none.
+      || (url.pathname.toLowerCase() === "/api/db/" + SITE_SLUG + "/turnstile" ? Response.json({}, { headers: { "x-site-data": "own", "cache-control": "public, max-age=60" } }) : null)
       || (await siteJob(request, env as unknown as JobEnv, url))
       || (await siteTick(request, env as unknown as RetryEnv, url, SITE_SLUG, JOB_HEADER));
     if (own) return own;

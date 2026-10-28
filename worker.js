@@ -1,13 +1,7 @@
-import { sendConfirmation, recipient, pickProvider } from "./site-mail.mjs";
-import { sendSms, pickSmsProvider, toE164, SMS_SECRET_NAMES } from "./site-sms.mjs";
-import { dueJobs, runJob, jobOutcome, normalizeJob, validTimeZone, jobPanelRow, claimFilter } from "./site-jobs.mjs";
-import { hostIsBlocked, blockedReason, resolvesBlocked } from "./site-ssrf.mjs";
-import { runRowEffects, resolveCreatedRow } from "./site-row-effects.mjs";
-import { deliverWebhook, firesFor, signPayload, retryable as webhookRetryable, MAX_PER_MINUTE as WEBHOOK_PER_MIN } from "./site-webhooks.mjs";
-import { drainQueue, enqueueRow, sameOwner, queueFull, retentionCutoffs, LEASE_MS as WEBHOOK_LEASE_MS, MAX_PENDING_PER_SITE } from "./site-webhook-queue.mjs";
-import { takeToken, verify as turnstileVerify, oneRow as turnstileOneRow, TOKEN_FIELD as TURNSTILE_FIELD, rpcGate as turnstileRpcGate } from "./site-turnstile.mjs";
+import { recipient } from "./site-mail.mjs";
+import { dueJobs, runJob, jobOutcome, normalizeJob, validTimeZone, jobPanelRow } from "./site-jobs.mjs";
+import { hostIsBlocked, resolvesBlocked } from "./site-ssrf.mjs";
 import { platformPair, chooseTurnstile } from "./site-turnstile.mjs";
-import { handleInbound, MAX_BODY as INBOUND_MAX_BODY, MAX_PER_MINUTE as INBOUND_PER_MIN } from "./site-inbound.mjs";
 // `OWN_ZONES` is imported because `cfZoneId` reads it — it was not, and that is
 // a ReferenceError on the FIRST line of that function, outside every try, so
 // every Cloudflare custom-hostname call the platform made threw before it could
@@ -18,8 +12,8 @@ import { OWN_ZONES, APP_ZONE, SITE_ZONE, normalizeHostname, isOwnHostname, isApp
 import { checkDns, dnsSentence } from "./site-dns.mjs";
 import { detectProvider, providerSentence } from "./site-registrar.mjs";
 import { offerFor as dcOfferFor, applyUrl as dcApplyUrl, signQuery as dcSign, rsaSigner as dcSigner } from "./site-domain-connect.mjs";
-import { callApi, apiFor, secretsNeeded, takeParams, MAX_PER_MINUTE as SITE_API_PER_MIN, MAX_TTL as SITE_API_MAX_TTL , kvKeyFor, kvEligible, KV_MIN_TTL } from "./site-apis.mjs";
-import { missingRequired, credentialNote } from "./site-api-shape.mjs";
+import { secretsNeeded, MAX_TTL as SITE_API_MAX_TTL } from "./site-apis.mjs";
+import { credentialNote } from "./site-api-shape.mjs";
 import { Container, getContainer } from "@cloudflare/containers";
 import { makeCache, memoize } from "./ttl-cache.mjs";
 import { makeLimiter, bucketKey, tooMany, WINDOW_MS } from "./rate-limit.mjs";
@@ -37,13 +31,13 @@ import { readSchemaState, reconcileSpec, RECOVER_QUERIES, liveDeclared } from ".
 import { policiesFor, grantsFor } from "./site-rls.mjs";
 import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerImport, handleOwnerMembers, handleOwnerAnalytics, assertOwner, editGateRefusal } from "./site-owner.mjs";
 import { MAX_IMPORT_BYTES } from "./site-csv.mjs";
-import { takeIdemKey, makeIdem, replayHeaders, idemFingerprint } from "./site-idem.mjs";
+import { makeIdem } from "./site-idem.mjs";
 import { placeAttachedPhotos, attachedFilesNote, ownPhotoFacts, ownPhotoSentence, storeAttachedPhotos, attachedFirst, placeAttachedLogo, ownLogoSentence } from "./builder/attached-photos.mjs";
 import { importSite, importBriefBlock, readImportSite, placeImportedPhotos, publicUrl as importPublicUrl } from "./builder/site-import.mjs";
-import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_MODEL_BYTES, MAX_VISITOR_UPLOAD_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName, dispositionFor, readDownloadName, DOWNLOAD_NAME_KEY, uploadIsImage, uploadKind, UPLOAD_URL_PATH } from "./site-uploads.mjs";
+import { handleUpload, handleUploadList, handleUploadDelete, MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_MODEL_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName, dispositionFor, readDownloadName, DOWNLOAD_NAME_KEY, uploadIsImage, uploadKind, UPLOAD_URL_PATH } from "./site-uploads.mjs";
 import { MEDIA_PART_BYTES, MEDIA_DRAFT_MS, MEDIA_SESSION_MS, MEDIA_CACHE, MEDIA_FORMATS, mediaDesignNote, mediaErrorNote, mediaLimits, mediaKindOf, isMediaName, draftKey, siteScope, draftScope, readStoredMeta, parseRange, mediaHeaders, etagMatches, ifRangeHolds, handleMediaStart, handleMediaPart, handleMediaComplete, handleMediaAbort, handleMediaStatus, handleMediaDelete, holdMedia, releaseMedia, abortProven, pagesUsing, mediaBlock, mediaForModel } from "./site-media.mjs";
 import { handleOwnerExport } from "./site-export.mjs";
-import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
+import { COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
 import { makeRecorder, BUILD_RECORD_TABLE } from "./builder/build-record.mjs";
 import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CONTAINER_CALL_MS, CONTAINER_BUILD_BUDGET_MS } from "./builder/build-budget.mjs";
@@ -109,7 +103,6 @@ import { securityOfferFacts, securityWorkingFacts, securityReportFacts, security
 import { OFFLINE_COLUMN, siteOffline, offlineStamp } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, STOPPED_FREE_MSG, STOPPED_SHORT_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE, carryPanelFields, keepPanelDescription } from "./site-meta.mjs";
-import { postProviderEmail, postProviderSms } from "./site-providers.mjs";
 import { siteBucketName, ensureSiteBucket, syncSiteBucket, restBucket, bindingBucket, deleteSiteBucket, RESYNC_PREFIX } from "./builder/site-bucket.mjs";
 import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, MAX_NEW_SLUG, capNewSlug, rebuildGoesLive, PUBLISH_KEEP_BUILDS, publishKeeps, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, applyRowQuery, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec, previousSidecar, heldMediaSource, heldStandIns, previewServed, ftsFilterOf, FTS_CATALOG_SQL, ftsJudgeSql, ftsJudgeParams, heldChangedIds, deadNewFunctions, jobsWithoutDead } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
@@ -142,7 +135,6 @@ function agentQueueRing(env) {
   return (runId) => q.send({ runId });
 }
 import { cleanHeadDescription, pickableImages, headAnswer } from "./site-head-edit.mjs";
-import { normalizePayment, parseCart, priceCart, checkoutSessionArgs, formEncode, paidFromEvent, failedFromEvent } from "./site-payments.mjs";
 import { rescopeCookie } from "./site-cookie.mjs";
 import { drainTeardown } from "./site-teardown.mjs";
 import { drainRebuild, BATCH as REBUILD_BATCH, BUSY_DEFER_SEC as REBUILD_BUSY_SEC, REBUILD_OP, REBUILD_START_DELAY_S, rebuildIdem } from "./site-rebuild.mjs";
@@ -2236,12 +2228,6 @@ export default {
     // tick; the only side that can, since Cloudflare's certificate status is an
     // API call and nothing else in the system polls it.
     ctx.waitUntil(runDomainWatch(env));
-    // Finish outbound webhooks the in-request ladder could not. The ladder runs
-    // inside the waitUntil of the write that produced the event, so an evicted
-    // isolate or a receiver down for minutes loses it outright; this side is the
-    // only one that can pick that up, for the same reason the teardown queue
-    // above is drained here.
-    ctx.waitUntil(runWebhookQueue(env));
     // Republish one queued site. INERT UNLESS SOMEBODY ENQUEUED — the queue is
     // written by an operator sweep, never by the platform itself, so on an
     // ordinary tick this is one Supabase read that comes back empty.
@@ -2988,152 +2974,6 @@ function backupDeps(env) {
   };
 }
 
-/**
- * Drain the outbound-webhook queue.
- *
- * Every decision — backoff, jitter, dead-lettering, whether a claim is stale —
- * lives in site-webhook-queue.mjs where it is tested with no database and no
- * clock. This supplies nothing but the four side effects.
- */
-async function runWebhookQueue(env) {
-  if (!env.SUPABASE_SERVICE_KEY) return;
-  const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY };
-  const json = { ...svc, "Content-Type": "application/json" };
-  const iso = (ms) => new Date(ms).toISOString();
-
-  const out = await drainQueue({
-    // DUE MEANS EITHER WAY IN: a pending row whose time has come, or a
-    // `delivering` row whose claim went stale because the worker holding it
-    // died. Ordered oldest-first so a burst cannot starve the rows behind it —
-    // the same reason the jobs query orders by last_run.
-    due: async (now, max) => {
-      const stale = iso(now - WEBHOOK_LEASE_MS);
-      const url = `${SUPABASE_URL}/rest/v1/webhook_queue`
-        + `?or=(and(status.eq.pending,next_attempt_at.lte.${encodeURIComponent(iso(now))})`
-        + `,and(status.eq.delivering,claimed_at.lt.${encodeURIComponent(stale)}))`
-        // `owner_id` IS SELECTED, not merely stored. It is what every write
-        // below is scoped on and what `sameOwner` checks before a byte goes
-        // anywhere; a row read without it arrives unable to prove who it
-        // belongs to, and `fairSlice` would file two accounts' rows on one
-        // slug as a single site.
-        + `&select=event_id,owner_id,slug,table_name,action,body,status,attempts,next_attempt_at,claimed_at`
-        // `max` ARRIVES ALREADY WIDENED by DUE_READ_MULTIPLE — the drain asks for
-        // more than it will process so the fairness pass has other sites' rows
-        // to interleave. Limiting to the tick's budget here would quietly undo
-        // it: one site with a backlog would own every row returned.
-        + `&order=next_attempt_at.asc&limit=${Math.max(1, max)}`;
-      const r = await fetch(url, { headers: svc, signal: AbortSignal.timeout(10000) });
-      if (!r.ok) throw new Error("queue read " + r.status);
-      const rows = await r.json().catch(() => []);
-      return Array.isArray(rows) ? rows : [];
-    },
-    // THE ATOMIC CLAIM, and it is the only thing between two overlapping cron
-    // ticks and a double delivery. The WHERE re-states the state this tick
-    // believes the row is in, so of two ticks that both read it as due exactly
-    // one gets a representation back. `!r.ok` and a throw both read as LOST —
-    // a claim that cannot be recorded is a claim lost, the jobs-runner rule.
-    claim: async (row, now) => {
-      const stale = iso(now - WEBHOOK_LEASE_MS);
-      const url = `${SUPABASE_URL}/rest/v1/webhook_queue`
-        + `?event_id=eq.${encodeURIComponent(row.event_id)}`
-        // OWNER- AND SLUG-SCOPED, exactly like the jobs runner's claim, and for
-        // the same reason: every write to this table names the tenant it
-        // believes it is acting for, so a row that has somehow moved between
-        // the read and the write is not silently updated by the wrong drain.
-        // The event id is the primary key and would match alone; that is what
-        // makes this cheap to keep and worthless to leave out.
-        + `&owner_id=eq.${encodeURIComponent(row.owner_id || "")}`
-        + `&slug=eq.${encodeURIComponent(row.slug || "")}`
-        + `&or=(status.eq.pending,and(status.eq.delivering,claimed_at.lt.${encodeURIComponent(stale)}))`;
-      const r = await fetch(url, {
-        method: "PATCH", headers: { ...json, Prefer: "return=representation" },
-        body: JSON.stringify({ status: "delivering", claimed_at: iso(now), updated_at: iso(now) }),
-        signal: AbortSignal.timeout(8000),
-      });
-      if (!r.ok) return false;
-      const got = await r.json().catch(() => null);
-      return Array.isArray(got) && got.length > 0;
-    },
-    // The stored bytes, re-signed with a fresh timestamp. `body` is passed
-    // through so nothing is rebuilt — see deliverWebhook.
-    deliver: async (row) => {
-      // FRESH, AND KEEPING THE OWNER. `siteBackendBySlug` caches for five
-      // minutes and answers a connection string alone, which cannot answer the
-      // only question that matters here. This is a cron draining at most a
-      // handful of rows, so the uncached lookup costs nothing worth having.
-      //
-      // It THROWS when the lookup itself fails, which is the right direction:
-      // "Supabase is down" becomes a retryable delivery failure rather than
-      // either "nobody owns this" (dead-letter, event lost) or "the owner
-      // matches" (delivered to whoever holds the slug now).
-      const site = await siteBackendRowFresh(env, row.slug);
-      // A site that has gone leaves rows nothing can deliver. Reported as a
-      // permanent refusal so it dead-letters rather than retrying for a day.
-      if (!site || !site.conn) return { sent: false, status: 410, error: "site no longer exists" };
-      // THE CROSS-TENANT CHECK, AND IT COMES BEFORE THE VAULT IS OPENED.
-      //
-      // A slug is freed by a delete and claimable by anyone. Both the
-      // destination URL and the signing secret below are read out of whichever
-      // site holds the slug NOW — so without this line a row queued by one
-      // account is eventually POSTed, correctly signed, to a different
-      // account's endpoint. Permanent (410): the site this row was addressed
-      // to does not exist any more, and no number of retries changes that.
-      if (!sameOwner(row, site.uid)) {
-        return { sent: false, status: 410, error: "slug now belongs to another account" };
-      }
-      const db = site.conn;
-      return deliverWebhook({
-        firesFor: () => true,           // it fired once already; that is settled
-        loadSecrets: () => webhookSecrets(row.slug, env, db),
-        blockedReason: (u) => blockedReason(u),
-        sign: (secret, body, ts) => signPayload(secret, body, ts),
-        post: (url, init) => fetch(url, { ...init, redirect: "manual", signal: AbortSignal.timeout(5000) }),
-      }, {
-        slug: row.slug, table: row.table_name, action: row.action,
-        row: null, now: Date.now(), eventId: row.event_id, body: row.body,
-      });
-    },
-    finish: async (row, patch) => {
-      const url = `${SUPABASE_URL}/rest/v1/webhook_queue`
-        + `?event_id=eq.${encodeURIComponent(row.event_id)}`
-        + `&owner_id=eq.${encodeURIComponent(row.owner_id || "")}`
-        + `&slug=eq.${encodeURIComponent(row.slug || "")}`;
-      const r = await fetch(url, {
-        method: "PATCH", headers: { ...json, Prefer: "return=minimal" },
-        body: JSON.stringify({ ...patch, claimed_at: null, updated_at: new Date().toISOString() }),
-        signal: AbortSignal.timeout(8000),
-      });
-      if (!r.ok) throw new Error("queue write " + r.status);
-    },
-    retryable: (status) => webhookRetryable(status),
-  }, { now: Date.now() });
-
-  // RETENTION, on the same tick and after the drain.
-  //
-  // ONE REQUEST WITH TWO CUTOFFS rather than two requests, mirroring the `due`
-  // query's own shape — `done` receipts go after three days, `dead` rows after
-  // thirty, for the reason stated on the two constants. Both statuses are
-  // terminal, so nothing eligible here is still owed to anybody: the partial
-  // index `webhook_queue_settled` is on exactly this pair of conditions.
-  //
-  // AFTER the drain and in its own try, deliberately. A sweep that throws must
-  // not cost the deliveries this tick already made, and it is the lower-value
-  // half of the two by a long way.
-  try {
-    const cut = retentionCutoffs(Date.now());
-    const url = `${SUPABASE_URL}/rest/v1/webhook_queue`
-      + `?or=(and(status.eq.done,updated_at.lt.${encodeURIComponent(cut.done)})`
-      + `,and(status.eq.dead,updated_at.lt.${encodeURIComponent(cut.dead)}))`;
-    const r = await fetch(url, { method: "DELETE", headers: { ...json, Prefer: "return=minimal" }, signal: AbortSignal.timeout(10000) });
-    if (!r.ok) out.sweepFailed = r.status;
-  } catch (e) {
-    out.sweepFailed = String((e && e.message) || e).slice(0, 120);
-  }
-
-  if (out.delivered || out.dead || out.retried || out.error || out.sweepFailed) {
-    console.log("webhook queue:", JSON.stringify(out).slice(0, 300));
-  }
-}
 
 // THE SITE KEEPS AND RUNS ITS OWN JOBS (2026-10-27): the list is `_jobs` in
 // its own database, and its Worker picks what is due, claims it and runs it
@@ -11303,172 +11143,6 @@ async function siteServiceBase(db, key) {
   return url ? String(url).replace(/\/+$/, "") : null;
 }
 
-/**
- * The published site's sign-in, PROXIED through this Worker rather than called
- * directly from the page.
- *
- * Three things fall out of proxying, and each is why it is done this way:
- *
- *   - the page never learns the auth endpoint or any key, so nothing has to be
- *     decided about what is safe to publish into a static bundle;
- *   - it is SAME-ORIGIN. A published site is served from gofarther.dev, so a direct
- *     call would need CORS on Neon's side and a cross-site cookie in the browser,
- *     which is the configuration most likely to work in development and fail in
- *     Safari;
- *   - the URL the client uses is unchanged (`/api/db/<slug>/auth/...`), so the
- *     generated pages do not have to know that identity moved at all.
- *
- * The response is passed through as-is. Whatever Better Auth answers is what the
- * client sees, including its errors — a proxy that reinterprets them is a second
- * place where "wrong password" has to be spelled, and the two drift.
- */
-/**
- * A visitor paying by card, with the SITE OWNER'S own Stripe key.
- *
- * The order of operations is the security model, so it is worth stating:
- *
- *   1. the table must DECLARE `payment` — otherwise this endpoint is a way to
- *      insert into any collect table while bypassing its rate limit
- *   2. the basket is reduced to {id, qty} and NOTHING else the client sent
- *   3. the total is computed from the site's OWN rows
- *   4. the row is written with that total, at status `pending`
- *   5. only then is Stripe called
- *
- * The row exists BEFORE the customer reaches Stripe on purpose. Written on the
- * webhook instead, a customer who paid while the callback was lost would have
- * no order at all and the owner would hold money with nothing to ship against.
- * A pending row that never completes is the recoverable direction.
- */
-async function handleCheckout({ env, conn, slug, body, origin, schema, ctx = null }) {
-  const tables = (schema && Array.isArray(schema.tables) ? schema.tables : []);
-  const table = tables.find((t) => t && String(t.name).toLowerCase() === String(body.table || "").toLowerCase());
-  // 404 rather than 400 for a table that is not payable: whether a given table
-  // takes card payments is not something this endpoint should confirm to
-  // somebody enumerating names.
-  const payment = table && normalizePayment(table);
-  if (!table || !payment) return Response.json({ error: "that isn't something you can pay for here" }, { status: 404 });
-
-  const cart = parseCart(body);
-  if (!cart.ok) return Response.json({ error: cart.error }, { status: 400 });
-
-  const priced = await priceCart({
-    readRows: async (from, ids) => {
-      // `from` and the two column names came through normalizePayment's
-      // identifier check, and `from` is additionally required to be a table
-      // this site DECLARED — a payment block naming `_secrets` would otherwise
-      // read the vault. The ids are bound parameters.
-      if (!tables.some((t) => String(t.name).toLowerCase() === from)) {
-        throw Object.assign(new Error("payment.from names no declared table"), { detail: from });
-      }
-      const ph = ids.map(() => "?").join(",");
-      return sqlQuery(conn, `SELECT id, ${sqlIdent(payment.name)}, ${sqlIdent(payment.price)} FROM ${sqlIdent(from)} WHERE id IN (${ph})`, ids);
-    },
-  }, { payment, items: cart.items });
-  if (!priced.ok) return Response.json({ error: priced.error }, { status: priced.status || 409 });
-
-  // The owner's key. Absent is the ordinary case for a site whose owner has not
-  // set payments up yet, and it deserves a plain answer rather than a 500.
-  let key = null;
-  try {
-    key = await readSecret({ get: async (_s, name) => {
-      const rows = await sqlQuery(conn, "SELECT cipher FROM _secrets WHERE name=?", [name]);
-      return (rows && rows[0] && rows[0].cipher) || null;
-    } }, env, { slug, name: "STRIPE_SECRET_KEY" });
-  } catch (e) {
-    // A key that will not decrypt is NOT the same as no key, and must not read
-    // as one: calling Stripe with an empty key tells a customer with a good
-    // card that their payment failed.
-    console.error("checkout key:", slug, e && e.message);
-    return Response.json({ error: "payments are not available on this site right now" }, { status: 503 });
-  }
-  if (!key) return Response.json({ error: "this shop hasn't finished setting up payments yet" }, { status: 503 });
-
-  // The customer's own fields — name, address, notes — filtered to the columns
-  // this table DECLARED, the way the data API does. The payment columns are not
-  // in that list (the schema engine strips them), so a body claiming
-  // payment_status cannot reach the row.
-  const declared = new Set((table.columns || []).map((c) => String(typeof c === "string" ? c : c.name).toLowerCase()));
-  const fields = {};
-  for (const [k, v] of Object.entries(body.fields || {})) {
-    const low = String(k).toLowerCase();
-    if (declared.has(low) && v != null && typeof v !== "object") fields[low] = String(v).slice(0, 2000);
-  }
-
-  const cols = ["payment_status", "amount_total", "currency", ...Object.keys(fields)];
-  const vals = ["pending", priced.total, priced.currency, ...Object.values(fields)];
-  const ins = await sqlQuery(
-    conn,
-    `INSERT INTO ${sqlIdent(table.name)} (${cols.map(sqlIdent).join(",")}) VALUES (${cols.map(() => "?").join(",")}) RETURNING id`,
-    vals,
-  );
-  const orderId = ins && ins[0] && ins[0].id;
-  if (!orderId) throw new Error("order row was not created");
-  // THE ORDER EXISTS, PENDING (audit A12-1): a declared webhook hears
-  // `created` now. Not a submission yet — the receipt, the owner's email and
-  // the text wait for the paid flip in the site's Stripe webhook, because a
-  // customer on their way to Stripe may never pay.
-  try {
-    siteRowEffects(env, ctx, { slug, db: conn, def: table, table: String(table.name).toLowerCase(), action: "created", submission: false,
-      row: { id: orderId, payment_status: "pending", amount_total: priced.total, currency: priced.currency, ...fields } });
-  } catch (e) { console.error("checkout effects:", slug, e && e.message); }
-
-  // Both URLs are built HERE from the site's own origin and never taken from
-  // the body. A caller-supplied success_url is an open redirect on our domain,
-  // and the obvious use of one is a payment page that returns the customer to
-  // somewhere that looks like the shop and asks for the card again.
-  //
-  // WHERE THE SITE IS MOUNTED ON THE ORIGIN THE CUSTOMER CAME FROM, which is not
-  // always `/s/<slug>/`. On the site zone and on a custom domain the site IS the
-  // root, so the old line built `<slug>.gofarther.app/s/<slug>/` — a path that is
-  // then prefixed again by the hostname rewrite and 404s. Somebody would have
-  // paid and been returned to a not-found page, which is the worst place on the
-  // platform for this bug to be.
-  //
-  // A CUSTOM DOMAIN RETURNS TO ITSELF. An owner who paid for their own domain
-  // must not have a paying customer bounced onto ours at the one moment they are
-  // deciding whether the shop is real.
-  // THE PUBLIC ADDRESS (2026-09-02): a renamed shop returns its customer to
-  // the name on the van, not to a storage name that 301s them onward with the
-  // payment marker in the query.
-  const base = isAppHostname(new URL(origin).hostname)
-    ? await publicUrlFor(env, slug)
-    : origin.replace(/\/+$/, "") + "/";
-  const args = checkoutSessionArgs({
-    slug, table: table.name, orderId,
-    lines: priced.lines, currency: priced.currency,
-    successUrl: `${base}?paid=${orderId}`,
-    cancelUrl: `${base}?cancelled=${orderId}`,
-    email: fields.email || fields.customer_email || null,
-  });
-
-  const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-      // Stripe replays a retried request rather than charging twice. Keyed on
-      // the order row, which is unique per attempt.
-      "Idempotency-Key": `isibi-${slug}-${table.name}-${orderId}`,
-    },
-    body: formEncode(args),
-    signal: AbortSignal.timeout(15000),
-  });
-  const out = await res.json().catch(() => ({}));
-  if (!res.ok || !out.url) {
-    // The owner's problem, not the customer's: log what Stripe said, tell the
-    // customer something true and useless to an attacker. The order row stays,
-    // pending, so the owner can see the attempt.
-    console.error("stripe checkout:", slug, res.status, out && out.error && out.error.message);
-    return Response.json({ error: "we couldn't start that payment — please try again" }, { status: 502 });
-  }
-  // Best-effort: the customer is already on their way to Stripe and must not be
-  // blocked by our bookkeeping. Without it the webhook still finds the row, by
-  // the id in client_reference_id.
-  try { await sqlExec(conn, `UPDATE ${sqlIdent(table.name)} SET payment_ref=? WHERE id=?`, [String(out.id || ""), orderId]); }
-  catch (e) { console.error("checkout ref:", slug, e && e.message); }
-
-  return Response.json({ ok: true, url: out.url, orderId });
-}
 
 /**
  * The idempotency store for this isolate, bound to the request's KV.
@@ -11522,14 +11196,6 @@ async function keepRouteAnswer(env, slug, key, uid, digest, res, now = Date.now(
 }
 
 const SITE_IDEM = makeIdem();
-function idemFor(env, slug, scope, key, fp = null) {
-  const kv = env && env.SITE_API_CACHE;
-  return SITE_IDEM.for(slug, scope, key, {
-    fp,
-    get: kv ? (id) => kv.get(id, { type: "json" }) : null,
-    put: kv ? (id, v, ttl) => kv.put(id, JSON.stringify(v), { expirationTtl: ttl }) : null,
-  });
-}
 
 async function proxySiteService(env, request, url, slug, path, which, ctx) {
   const db = await siteRowConn(env, slug);
@@ -11608,50 +11274,10 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
   }
   // Read once and keep it: the notify below needs the row that was submitted,
   // and a Request body can only be consumed a single time.
-  let sent = request.method === "GET" || request.method === "HEAD" ? undefined : await request.text();
-
-  // ONE SUBMISSION, ONCE (owner, 2026-09-03 — the backend services round).
-  //
-  // A page that sends an `Idempotency-Key` gets the answer it already got for
-  // that key, for ten minutes, without the row being written twice: the
-  // double-click, the phone that lost signal after the POST left. Read before
-  // the upstream write, because a replay is exactly the request that must not
-  // reach Postgres, and BEFORE THE SPAM GATE (audit A30-4): a double-click
-  // sends the same single-use token twice, so verifying first refused the
-  // second press as a bot instead of handing it the first one's answer. Only
-  // a 2xx is ever remembered (`idemStorable`), so a refused submission
-  // retried with the field fixed — same key, by design — still goes through;
-  // and only a request with the same contents is replayed (`fp`, audit A30-5).
-  // The layers and their limits are written up in `site-idem.mjs`.
-  let idem = null;
-  if (which === "data" && request.method === "POST") {
-    const key = takeIdemKey(request.headers);
-    if (key) {
-      idem = idemFor(env, slug, "data/" + String(path).split("/")[0].toLowerCase(), key, await idemFingerprint(sent));
-      const prior = await idem.read();
-      if (prior) return new Response(prior.body, { status: prior.status, headers: replayHeaders(prior) });
-    }
-  }
-
-  // KEEPING BOTS OUT, BEFORE THE ROW EXISTS.
-  //
-  // Verified after the insert is a spam filter that files the spam first, so
-  // this sits ahead of the upstream write and can refuse it outright. It is the
-  // only thing on this path that can — everything else here (notify, confirm,
-  // webhook) runs after the row is safe.
-  if (which === "data" && request.method === "POST") {
-    // A gate that throws must not leave the key claimed for the press behind it.
-    const gate = await turnstileGate(env, request, { slug, db, path, sent }).catch((e) => { if (idem) idem.release(); throw e; });
-    if (gate.refused) {
-      if (idem) idem.release();
-      // `message`, not `error`: that is the field `rows.ts` reads to show a
-      // visitor what went wrong, so a refusal says something rather than
-      // rendering "request failed (403)". The `code` is ours and unknown to
-      // `humanPgError`, which falls through to the message by design.
-      return Response.json({ message: gate.refused, code: "turnstile" }, { status: 403 });
-    }
-    if (gate.sent !== undefined) sent = gate.sent;
-  }
+  // READS ONLY (2026-10-28). A visitor's write is the site's own Worker's;
+  // this proxy now serves only the builder's draft preview, which reads.
+  if (request.method !== "GET" && request.method !== "HEAD") return Response.json({ error: "method not allowed" }, { status: 405 });
+  const sent = undefined;
   try {
     const r = await fetch(target, {
       method: request.method,
@@ -11669,52 +11295,6 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
     // finds the answer already there. Off the customer's wait when the
     // runtime allows it; a store that cannot be written is a possible
     // duplicate, never a lost submission.
-    if (idem) {
-      const w = idem.write({ status: r.status, body, ct: r.headers.get("content-type") || "application/json" });
-      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(w); else await w;
-    }
-
-    // AFTER THE ROW IS WRITTEN: THE OWNER'S EMAIL, THE SUBMITTER'S CONFIRMATION
-    // AND TEXT, AND THE WEBHOOK — ONE SHARED STEP (audit A12-1, 2026-10-22).
-    //
-    // `notifyOwnerOfSubmission` lost its trigger point when `site-data.mjs` was
-    // deleted on 2026-07-30; this proxy is where a published site's writes pass,
-    // so the hook sits here. It is no longer the ONLY caller: a checkout's
-    // insert and the Stripe paid flip run the same `siteRowEffects`, because an
-    // order never passes through this proxy.
-    //
-    // A POST is a submission (the three person-facing effects, each with its
-    // own `collect`-only rule and the owner's own keys). Every write is a
-    // webhook action: `created`, `updated`, `deleted`. On DELETE there is no
-    // row — PostgREST names it in the QUERY STRING — so the filter is sent as
-    // `filter`, never dressed up as `data`. Fire-and-forget under waitUntil:
-    // the row is already in Postgres and a broken mailer must not look like a
-    // broken form.
-    if (which === "data" && r.status >= 200 && r.status < 300) {
-      const action = request.method === "POST" ? "created"
-        : request.method === "PATCH" || request.method === "PUT" ? "updated"
-        : request.method === "DELETE" ? "deleted" : null;
-      if (action) {
-        try {
-          const table = String(path).split("/")[0].toLowerCase();
-          const spec = await loadSiteSchema(db);
-          const def = (spec && spec.tables || []).find((t) => String(t.name).toLowerCase() === table);
-          if (def) {
-            let row = null;
-            if (action === "deleted") {
-              row = { filter: String(url.search || "").replace(/^\?/, "").slice(0, 500) };
-            } else if (action === "created") {
-              row = await resolveCreatedRow({ def, body, sent, lookup: (q, p) => sqlQuery(db, q, p) });
-            } else {
-              try { const j = JSON.parse(body); row = Array.isArray(j) ? j[0] : j; } catch { /* not json */ }
-              if (!row) { try { row = JSON.parse(sent || "null"); } catch { row = null; } }
-            }
-            siteRowEffects(env, ctx, { slug, db, def, table, action, row: row || {}, submission: request.method === "POST" });
-          }
-        } catch (e) { console.error("row effects:", slug, e && e.message); }
-      }
-    }
-
     return new Response(body, {
       status: r.status,
       headers: {
@@ -12515,81 +12095,7 @@ const confirmSeen = new Map();
 // for the same person — shared, an emailed confirmation would suppress the text
 // that was the whole reason for declaring both.
 const smsSeen = new Map();
-// The site's webhook configuration, decrypted, cached ~60s per isolate.
-//
-// WHY THIS EXISTS AT ALL. Every emitting insert used to cost TWO sequential
-// Postgres round trips plus two key derivations and two AES-GCM decrypts, on the
-// write path, per event — and per-table routing would have made that four. That
-// is the wrong direction for the one feature whose cost scales with a site's
-// traffic rather than with its size.
-//
-// ONE query for the whole set rather than one per name, which is also what makes
-// caching possible: per-name reads cannot be memoized as a unit, and the routing
-// fallback needs to see which names exist before it can choose between them.
-//
-// The staleness is REAL and bounded: an owner who repoints their webhook waits up
-// to a minute. That is the same trade `loadSiteSchema` already makes at 15s, and
-// the cheaper direction — a booking delivered to the old destination for one
-// minute is recoverable, while a round trip per booking forever is not.
-// 15s, MATCHING `loadSiteSchema`, and the reason is the one that file already
-// gives: invalidation here is ISOLATE-LOCAL, so every other isolate heals only
-// by expiry, and the TTL is therefore the real worst case for a configuration
-// change — not the explicit delete, which only helps the isolate that happened
-// to serve the write.
-//
-// Measured: at 60s a run repointed the destination and the next booking landed
-// on a different isolate, which served the previous URL and reported it refused.
-// An owner changing their webhook hits exactly that, and "I changed it and it
-// still goes to the old place" is the kind of thing that gets reported as data
-// loss rather than as staleness.
-//
-// The cost of the shorter window is one extra query per site per 15s under
-// sustained traffic, which is nothing against the four round trips per event
-// this cache exists to remove.
-const webhookCfg = makeCache({ ttlMs: 15_000, max: 500 });
-// SLUG FIRST, and that ordering is load-bearing rather than style. `memoize`
-// keys on the FIRST argument, so `(env, db, slug)` would key every site on the
-// same `env` object and serve one site's destination and signing secret to every
-// other one. Every other memoized caller here puts the identity-bearing argument
-// first for exactly this reason.
-const _webhookSecrets = memoize(webhookCfg, async (slug, env, db) => {
-  const map = {};
-  let rows = [];
-  // LIKE on the name, so a site with twelve destinations is still one read.
-  try { rows = await sqlQuery(db, "SELECT name, cipher FROM _secrets WHERE name LIKE 'WEBHOOK%'", []); } catch { return map; }
-  for (const r of (rows || []).slice(0, 32)) {
-    const name = r && r.name;
-    if (!name) continue;
-    // One unreadable row must not stop the others being found — the same call
-    // `confirmSubmitter` makes for its four names.
-    try {
-      const v = await readSecret({ get: async () => r.cipher }, env, { slug, name });
-      if (v) map[name] = v;
-    } catch { /* skip */ }
-  }
-  return map;
-});
 
-/**
- * NEVER CACHE A MISS, which is the rule `siteBackendBySlug` already follows —
- * "a slug that does not resolve is usually one whose build is still finishing".
- *
- * Measured, not theorised: a run submitted three bookings before the owner had
- * stored a destination, which cached `{}` for sixty seconds; the secret was then
- * stored and the next booking read the cached empty set and reported "no
- * WEBHOOK_URL in Secrets". For an owner that is worse than a test failure — they
- * paste a URL, submit their own form to check, and see nothing happen, which is
- * exactly the moment they conclude the feature is broken.
- *
- * So a configuration with no destination is dropped from the cache immediately.
- * It costs one read per event only on sites that never configured one, and those
- * sites do not reach here at all — `firesFor` refuses first.
- */
-async function webhookSecrets(slug, env, db) {
-  const map = await _webhookSecrets(slug, env, db);
-  if (!map || !Object.keys(map).some((k) => k.startsWith("WEBHOOK_URL"))) webhookCfg.delete(slug);
-  return map;
-}
 
 // One site's outbound deliveries per minute, per isolate. Bounded and cleared
 // wholesale rather than kept as a cache: this only has to stop the cheap flood.
@@ -12613,46 +12119,6 @@ const turnstileCfg = makeCache({ ttlMs: 15_000, max: 500 });
 // The per-site flag that opts a site into the platform's Turnstile pair.
 const TURNSTILE_PLATFORM_FLAG = "TURNSTILE_PLATFORM";
 
-/**
- * The real side effects for an inbound webhook, supplied to `site-inbound.mjs`
- * the way `publish-pages.mjs` and `site-provision.mjs` take theirs.
- *
- * ON THE OWNER CONNECTION, and that is what makes a hook function safe to leave
- * ungranted. It is declared `internal`, so `functionSql` REVOKEs EXECUTE from
- * PUBLIC and hands it to neither Data API role — meaning the ONLY way to reach
- * it is this route, behind the shared secret. The owner connection bypasses
- * grants, so the function loses nothing by having none.
- */
-function inboundDeps(env, slug, db) {
-  return {
-    loadSchema: () => loadSiteSchema(db),
-    loadSecrets: async (names) => {
-      const map = {};
-      for (const name of names) {
-        try {
-          const rows = await sqlQuery(db, "SELECT cipher FROM _secrets WHERE name=?", [name]);
-          const cipher = rows && rows[0] && rows[0].cipher;
-          if (!cipher) continue;
-          // One unreadable row must not stop the other being found — the same
-          // call `confirmSubmitter` makes for its four names.
-          const v = await readSecret({ get: async () => cipher }, env, { slug, name });
-          if (v) map[name] = v;
-        } catch { /* absent */ }
-      }
-      return map;
-    },
-    // The name is re-checked against the schema by `functionFor` before it gets
-    // here, and quoted on the way in regardless: a stored schema is only as
-    // good as whatever last wrote it, and this is the boundary.
-    callFn: async (name, payload) => {
-      const rows = await sqlQuery(db, "SELECT " + sqlIdent(name) + "(?::jsonb) AS out", [JSON.stringify(payload)]);
-      const out = rows && rows[0] && rows[0].out;
-      return typeof out === "string" ? JSON.parse(out) : (out ?? null);
-    },
-    throttle: async (key) => _dataLimiter.hit("inbound|" + key, INBOUND_PER_MIN),
-    log: (...a) => console.error(...a),
-  };
-}
 
 // One cache for every site's third-party reads. Per isolate, so a busy site on
 // a busy PoP is well served and a quiet one still pays the owner's quota now and
@@ -12666,84 +12132,6 @@ function inboundDeps(env, slug, db) {
 // would be quietly ignored and the owner's quota spent sixty times over.
 const siteApiCache = makeCache({ ttlMs: SITE_API_MAX_TTL * 1000, max: 2000 });
 
-/**
- * The real side effects for a third-party read.
- *
- * ONLY THE SECRETS THIS DECLARATION NAMES are decrypted — the rest of the vault
- * is never touched, which is the same discipline `confirmSubmitter` follows for
- * its four names, and it matters more here because the answer travels out to a
- * third party.
- */
-async function siteApiDeps(env, slug, db, api) {
-  const secrets = {};
-  for (const name of secretsNeeded(api)) {
-    try {
-      const rows = await sqlQuery(db, "SELECT cipher FROM _secrets WHERE name=?", [name]);
-      const cipher = rows && rows[0] && rows[0].cipher;
-      if (!cipher) continue;
-      const v = await readSecret({ get: async () => cipher }, env, { slug, name });
-      if (v) secrets[name] = v;
-    } catch { /* absent — `callApi` refuses rather than sending an empty one */ }
-  }
-  return {
-    secrets,
-    fetch: (u, init) => fetch(u, init),
-    blockedReason: (u) => blockedReason(u),
-    // TWO LAYERS, AND THE SECOND IS THE POINT.
-    //
-    // This was the per-isolate cache alone, which meant a declared
-    // `cacheSeconds: 3600` was honoured PER ISOLATE. Cloudflare runs many per
-    // PoP and evicts idle ones, so a low-traffic site was close to uncached and
-    // the owner's third-party quota was spent once per isolate per window
-    // instead of once per window — the same measurement that moved slug lookups
-    // to KV (median 1.05s, 3 of 12 requests warm).
-    //
-    // MEMORY FIRST, THEN KV. Memory is free and correct for whatever this
-    // isolate has already fetched; KV is the shared layer and costs a read. A KV
-    // hit warms memory on the way back, so a busy isolate asks once.
-    //
-    // KV IS OPTIONAL AND ITS ABSENCE IS SILENT. The namespace was created and
-    // bound on 2026-08-16; before that every branch below degraded to exactly
-    // the behaviour that shipped without it, which is what made this safe to
-    // land first. The fallback stays for the same reason it was written: an
-    // unbound binding, a namespace deleted by hand, or a KV outage costs the
-    // owner an upstream call and never a broken page.
-    cacheGet: async (k) => {
-      const e = siteApiCache.get(k);
-      if (e && e.until > Date.now()) return e.v;
-      const kv = env.SITE_API_CACHE;
-      if (!kv) return null;
-      try {
-        const id = await kvKeyFor(k);
-        if (!id) return null;
-        // `cacheTtl` lets the edge hold it too; 60 is KV's own floor.
-        const raw = await kv.get(id, { type: "json", cacheTtl: 60 });
-        if (!raw) return null;
-        // Warm the isolate so the next read on this one costs nothing. The
-        // remaining window is unknown here, so it is capped at KV's floor
-        // rather than guessed at — a wrong guess would hold an answer past the
-        // window the declaration asked for.
-        siteApiCache.set(k, { v: raw, until: Date.now() + KV_MIN_TTL * 1000 });
-        return raw;
-      } catch { return null; }
-    },
-    // The declaration's TTL, not the cache's: a rate that is good for an hour
-    // and a stock level that is good for ten seconds are the same feature, and
-    // only the declaration knows which this is.
-    cacheSet: async (k, v, ms) => {
-      siteApiCache.set(k, { v, until: Date.now() + ms });
-      const kv = env.SITE_API_CACHE;
-      const ttl = Math.floor(ms / 1000);
-      // Under KV's 60s floor this stays in memory alone, where the exact window
-      // can actually be honoured — see KV_MIN_TTL.
-      if (!kv || !kvEligible(ttl)) return;
-      try {
-        const id = await kvKeyFor(k);
-        if (id) await kv.put(id, JSON.stringify(v), { expirationTtl: ttl });
-      } catch { /* a cache that cannot be written is still a working read */ }
-    },
-  };
-}
 
 // ── Cloudflare for SaaS: the provider half of custom domains ────────────────
 //
@@ -13025,7 +12413,6 @@ async function siteForHostname(env, hostname) {
  * other PoPs heal by expiry.
  */
 function forgetSiteConfig(slug) {
-  webhookCfg.delete(slug);
   turnstileCfg.delete(slug);
 }
 // SLUG FIRST — `memoize` keys on the first argument, so `(env, db, slug)` keys
@@ -13128,506 +12515,13 @@ async function spamCheckOn(env, slug, db) {
   } catch { return null; }
 }
 
-/**
- * Decide whether this submission may reach Postgres, and hand back the body
- * with the challenge token removed.
- *
- * SCOPED TO `collect`, deliberately. A `user`/`feed` write comes from a member
- * who is already signed in, through `rows.ts`, which sends no token — so
- * applying this there would refuse every member write on the site the moment
- * the owner switched it on. `collect` is the public form, which is the thing
- * that gets spammed and the thing the widget is on.
- */
-async function turnstileGate(env, request, { slug, db, path, sent }) {
-  // A DATABASE-FUNCTION CALL (`rpc/<fn>`) IS JUDGED BY ITS DECLARATION
-  // (decision 2a, 2026-10-22): a function declared `writes: true` needs the
-  // token exactly as a `collect` insert does; a read, or a function declared
-  // before the field existed, passes as before. Every RPC is a POST, reads
-  // included, so the method cannot tell them apart and the declaration does.
-  const rpc = await turnstileRpcGate({
-    config: () => turnstileConfig(slug, env, db, new URL(request.url).hostname),
-    spec: () => loadSiteSchema(db),
-    post: (u, form) => fetch(u, { method: "POST", body: form, signal: AbortSignal.timeout(5000) }),
-  }, { path, sent, contentType: request.headers.get("content-type"), ip: request.headers.get("CF-Connecting-IP") || "" });
-  if (rpc) {
-    const { verdict, ...decided } = rpc;
-    if (verdict && (!verdict.ok || verdict.state === "unknown")) console.error("turnstile:", slug, verdict.state, verdict.reason);
-    return decided;
-  }
-  // ONE ROW PER SUBMISSION WHERE THE CHECK IS ON (audit A30-2). A body that is
-  // not one JSON object is passed through untouched on an unprotected table,
-  // as before, and refused below on a protected one, before the token is read.
-  const shape = turnstileOneRow(sent, request.headers.get("content-type"));
-  const body = shape.row || null;
-  if (!body) {
-    const { secret } = await turnstileConfig(slug, env, db, new URL(request.url).hostname);
-    if (!secret) return {};
-    const t = String(path).split("/")[0].toLowerCase();
-    let d = null;
-    try {
-      const spec = await loadSiteSchema(db);
-      d = (spec && spec.tables || []).find((x) => String(x.name).toLowerCase() === t) || null;
-    } catch { return {}; }
-    if (!d || !canWriteAccess(d)) return {};
-    return { refused: "Please send one submission at a time." };
-  }
-  const had = TURNSTILE_FIELD in body;
-  const { token, row } = takeToken(body);
-  // STRIPPED WHETHER OR NOT THIS SITE IS CONFIGURED, and on every table. The
-  // field can never be a real column — the schema engine's column names cannot
-  // contain a hyphen — so removing it is always safe, and leaving it in makes
-  // PostgREST refuse the insert for an unknown column. A page that still has
-  // the widget after the owner deleted the secret would otherwise have every
-  // submission fail.
-  const out = had ? { sent: JSON.stringify(row) } : {};
 
-  // THE TOGGLE IS ASKED FIRST, on purpose. It is absent for almost every site,
-  // so on a cold isolate an unprotected form pays one lookup here rather than a
-  // schema read as well.
-  const { secret } = await turnstileConfig(slug, env, db, new URL(request.url).hostname);
-  if (!secret) return out;
 
-  const table = String(path).split("/")[0].toLowerCase();
-  let def = null;
-  try {
-    const spec = await loadSiteSchema(db);
-    def = (spec && spec.tables || []).find((t) => String(t.name).toLowerCase() === table) || null;
-  } catch { return out; }
-  // ANYONE MAY WRITE IT, asked of the pair (audit A30-6): never the stored
-  // preset name, which a pair-declared table carries as `collect` regardless.
-  if (!def || !canWriteAccess(def)) return out;
 
-  const verdict = await turnstileVerify({
-    post: (u, form) => fetch(u, {
-      method: "POST",
-      body: form,
-      // A third party on the path a customer waits on. Bounded, and an
-      // expiry reads as "unknown", which lets the booking through.
-      signal: AbortSignal.timeout(5000),
-    }),
-  }, {
-    secret,
-    token,
-    // CF-Connecting-IP ONLY. The `X-Forwarded-For` fallback used elsewhere in
-    // this file is client-settable, and here that would let a caller choose the
-    // reputation Cloudflare scores their token against.
-    ip: request.headers.get("CF-Connecting-IP") || "",
-  });
-  // EVERY VERDICT THAT IS NOT A PASS IS SAID (audit A30-7): a refusal used to
-  // leave no trace, so an owner whose visitors were all refused could not see it.
-  if (!verdict.ok || verdict.state === "unknown") console.error("turnstile:", slug, verdict.state, verdict.reason);
-  if (verdict.ok) return out;
-  return { ...out, refused: "That didn't look like it came from a person. Please try again." };
-}
 
-/**
- * How many deliveries one site already has waiting.
- *
- * `count=exact` with `limit=1` — PostgREST reports the total in `content-range`
- * and the body is one row, so this costs a single index probe rather than
- * fetching five hundred ids to measure their length. Scoped on
- * `(owner_id, slug, status)`, which is exactly the `webhook_queue_site` index.
- *
- * `pending` AND `delivering`: a row being attempted this second is still owed,
- * and counting only `pending` would let a stuck delivery slip past the cap.
- *
- * ANSWERS `null` RATHER THAN A NUMBER when it cannot tell, so `queueFull` sees
- * an unreadable count and fails open. A guess in either direction is worse than
- * an honest absence: too high drops a customer's event on a blip, too low
- * defeats the cap.
- *
- * That `null` is INERT AGAINST TODAY'S ONLY READER and is kept anyway: `queueFull`
- * answers false for `null` and for `0` alike, so a mutation returning `0` here
- * changes nothing observable — measured, not assumed. It stays because the two
- * values mean different things ("we could not look" against "there is nothing
- * waiting") and the next reader of this number may be one that can tell them
- * apart, at which point `0` would be a lie rather than a shortcut.
- */
-async function pendingWebhooks(env, ownerId, slug) {
-  try {
-    const url = `${SUPABASE_URL}/rest/v1/webhook_queue`
-      + `?owner_id=eq.${encodeURIComponent(ownerId)}`
-      + `&slug=eq.${encodeURIComponent(slug)}`
-      + `&status=in.(pending,delivering)&select=event_id&limit=1`;
-    const r = await fetch(url, { headers: { ...svcHeaders(env), Prefer: "count=exact" }, signal: AbortSignal.timeout(8000) });
-    if (!r.ok) return null;
-    // "0-0/512", or "*/0" when nothing matched.
-    const total = parseInt(String(r.headers.get("content-range") || "").split("/")[1], 10);
-    return Number.isFinite(total) ? total : null;
-  } catch { return null; }
-}
 
-/**
- * THE SHARED "ROW CREATED / UPDATED" STEP (audit A12-1). The data proxy, the
- * checkout insert and the Stripe paid flip all call this; `runRowEffects`
- * decides which of the four fire, and each sender keeps its own rules and the
- * OWNER'S OWN keys from the site's Secrets. Never `env.EMAIL`.
- */
-function siteRowEffects(env, ctx, { slug, db, def, table, action, row, submission }) {
-  return runRowEffects({
-    notify: (r) => notifyOwnerOfSubmission(env, ctx, { slug, db, table, access: def, method: "POST", row: r }),
-    confirm: (r) => confirmSubmitter(env, ctx, { slug, db, def, row: r }),
-    sms: (r) => smsSubmitter(env, ctx, { slug, db, def, row: r }),
-    webhook: (a, r) => emitWebhook(env, ctx, { slug, db, def, table, action: a, row: r }),
-  }, { def, action, row, submission });
-}
 
-/**
- * Fire the site's declared webhook. Detached, never awaited by the response —
- * a receiver being slow must not be something a customer waits on.
- *
- * The destination and signing secret come from the SITE'S OWN Neon vault, the
- * same door the Stripe key and the mail key come through. Two names, decrypted
- * lazily and never returned to a caller.
- */
-function emitWebhook(env, ctx, { slug, db, def, table, action, row }) {
-  const p = (async () => {
-    const out = await deliverWebhook({
-      firesFor: (a) => firesFor(def, a),
-      loadSecrets: () => webhookSecrets(slug, env, db),
-      blockedReason: (u) => blockedReason(u),
-      sign: (secret, body, ts) => signPayload(secret, body, ts),
-      tooMany: async (s) => {
-        const now = Date.now();
-        const b = webhookHits.get(s);
-        if (!b || now >= b.resetAt) { webhookHits.set(s, { n: 1, resetAt: now + 60000 }); return false; }
-        // The expiry is FIXED at the first hit and never re-stamped — the bug
-        // `authThrottle` had, where a blocked caller extended their own window
-        // and never recovered.
-        b.n++;
-        if (webhookHits.size > 5000) webhookHits.clear();
-        return b.n > WEBHOOK_PER_MIN;
-      },
-      // `redirect: "manual"` so a 3xx is a result rather than another hop —
-      // following one would reopen the host question after it was answered.
-      post: (url, init) => fetch(url, { ...init, redirect: "manual", signal: AbortSignal.timeout(5000) }),
-      // THE STABLE ID, minted once here and never again. It goes inside the
-      // signed body, into the header, and — if this fails retryably — becomes
-      // the queue's primary key, so every later attempt carries the same value
-      // and a receiver deduplicating on it is safe to accept at-least-once
-      // delivery. Minted before the attempt rather than at enqueue time, or the
-      // body the first attempt sent and the body the queue stores would differ
-      // by exactly this field and the signature would not match.
-    }, { slug, table, action, row, now: Date.now(), eventId: crypto.randomUUID() });
-    // RECORDED, not only logged.
-    //
-    // Everything about a webhook is invisible from outside: it runs detached, so
-    // the caller gets no answer, and its only other trace was a console.error
-    // nobody can read — not the owner whose integration silently stopped, and
-    // not a test trying to establish whether it works. Debugging something that
-    // reports nothing is how this feature stayed unfalsifiable through three
-    // rounds; the owner's version of that is worse, because they find out from a
-    // customer.
-    //
-    // One row in the site's own `_meta`, overwritten each time. Not a log: a log
-    // needs pruning, and the question an owner actually has is "is it working
-    // right now", which the last attempt answers completely.
-    //
-    // Skipped for the two quiet outcomes — no URL, and a table that does not
-    // emit — because those are the resting state of most sites and writing them
-    // would put a database round trip on every insert on the platform to record
-    // that nothing happened.
-    // RECORDED FOR EVERY OUTCOME ONCE THE TABLE EMITS. The first version also
-    // skipped "no WEBHOOK_URL", on the reasoning that an unconfigured site is
-    // the common case — and that is true, but it made the single most useful
-    // diagnostic invisible: a site that HAS a destination and cannot read it
-    // looks identical to one that never set one. Only "this table does not emit"
-    // is skipped now, which is the genuine resting state of the platform and the
-    // one that would put a write on every insert everywhere.
-    // WRITTEN DOWN IF IT COULD STILL SUCCEED. The ladder above has already
-    // spent its three attempts inside this request; a receiver that is merely
-    // slow to come back needs somebody to try later, and nothing in a request
-    // that is about to end can be that somebody.
-    //
-    // ONLY A RETRYABLE FAILURE IS QUEUED. A 404 or a 401 is the receiver
-    // refusing this delivery for good, and a queue full of rows that can never
-    // succeed is a queue nobody reads. "No WEBHOOK_URL" is not queued either —
-    // there is nothing to retry against.
-    let queued = null;
-    if (!out.sent && out.body && webhookRetryable(out.status)) {
-      try {
-        // THE OWNER, RESOLVED HERE AND NOWHERE EARLIER.
-        //
-        // This request has the slug and the connection and never needed the
-        // account behind them, and adding a lookup to the write path of every
-        // published site to serve the rare branch below would be paying on
-        // every insert on the platform for something that happens when a
-        // receiver is down. So it is resolved lazily, on the enqueue branch
-        // only, out of the same fresh row every write path uses.
-        const owner = (await siteBackendRowFresh(env, slug).catch(() => null)) || {};
-        // NO OWNER, NO ROW. A queued delivery is addressed to an account, and
-        // `sameOwner` refuses an empty one at delivery time by design — so
-        // writing the row anyway would produce something that can only ever
-        // dead-letter, while looking to anybody reading the table like a
-        // delivery still in flight. The event is lost either way; this way it
-        // says so.
-        //
-        // BELT AND BRACES, AND IT SAYS SO RATHER THAN LOOKING LOAD-BEARING: a
-        // mutation to `if (false)` survives the suite, because `enqueueRow`
-        // throws on an owner-less call and the catch below reports it as not
-        // queued either way. What this branch buys is the two things that
-        // refusal cannot — it names the actual cause instead of an internal
-        // invariant, and it skips a Supabase count keyed on `undefined`, which
-        // is a 400 against a uuid column. It holds by a property of a function
-        // one edit away from changing, which is exactly when a stated guard
-        // beats an implied one.
-        if (!owner.uid) {
-          queued = "not queued: could not establish the site's owner";
-        } else if (queueFull(await pendingWebhooks(env, owner.uid, slug))) {
-          // THE CAP, AND IT IS REPORTED RATHER THAN SILENT. A busy form
-          // pointed at a dead endpoint queues a row per submission for as long
-          // as the endpoint stays dead; past the cap the event is dropped, and
-          // the owner's one window into webhooks says which of the two
-          // happened. Counted over `pending` AND `delivering` — a row being
-          // attempted right now is still owed.
-          queued = "not queued: this site already has " + MAX_PENDING_PER_SITE + " deliveries waiting";
-          console.error("webhook queue full:", slug, table);
-        } else {
-          // The EXACT bytes the ladder sent, and the id that is inside them.
-          const row = enqueueRow({
-            ownerId: owner.uid, eventId: out.eventId, slug, table, action, body: out.body,
-            status: out.status, error: out.error || out.reason, attempts: out.attempts || 1,
-            now: Date.now(),
-          });
-          // `ignore-duplicates`: the id is the primary key, so a redelivery of an
-          // event already queued is a no-op rather than an error.
-          const w = await fetch(`${SUPABASE_URL}/rest/v1/webhook_queue`, {
-            method: "POST",
-            headers: { ...svcHeaders(env), "Content-Type": "application/json", Prefer: "resolution=ignore-duplicates,return=minimal" },
-            body: JSON.stringify(row), signal: AbortSignal.timeout(8000),
-          });
-          queued = w.ok ? "queued for retry" : "not queued: queue write " + w.status;
-        }
-      } catch (e) {
-        // The delivery already failed; failing to write it down must not become
-        // a second failure on the customer's write path.
-        queued = "not queued: " + String((e && e.message) || e).slice(0, 120);
-        console.error("webhook queue write:", slug, table, e && e.message);
-      }
-    }
 
-    if (out.reason !== "table does not emit this action") {
-      if (!out.sent) console.error("webhook:", slug, table, action, out.reason || "", out.status || "");
-      // Best-effort, and it must not throw: the delivery already happened or
-      // already failed, and losing the note is strictly better than turning it
-      // into a second failure.
-      try {
-        await sqlQuery(db, "INSERT INTO _meta (k,v) VALUES ('webhook_last', ?) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v",
-          [JSON.stringify({
-            at: new Date().toISOString(), table, action,
-            ok: !!out.sent, status: out.status || 0,
-            reason: out.reason || null, signed: !!out.signed,
-            // HOW MANY TIMES WE HAD TO ASK. A receiver that answers on the third
-            // attempt and one that answers first time are the same green tick
-            // without this, and "your integration is flapping" is a thing an
-            // owner can only act on if somebody counted. It is also the only way
-            // to tell a retry ladder that is working from one that is not
-            // running at all.
-            attempts: out.attempts || 0,
-            // WHAT HAPPENED TO THE EVENT AFTER THE LADDER GAVE UP, which is the
-            // one thing an owner cannot infer from anything else here. "Failed
-            // with a 502 and is being retried" and "failed with a 502 and was
-            // dropped because your queue is full" are the same red line without
-            // it, and only the second is something they can act on. `null` on
-            // every delivery that succeeded or was refused permanently — there
-            // was nothing to queue.
-            queued,
-            // Which WEBHOOK* names the vault returned — the difference between
-            // "never configured", "read came back empty" and "would not decrypt".
-            found: out.found || null,
-          })]);
-      } catch (e) { console.error("webhook note:", slug, e && e.message); }
-    }
-  })();
-  if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(p); else p.catch(() => {});
-}
-
-function confirmSubmitter(env, ctx, { slug, db, def, row }) {
-  const p = (async () => {
-    const out = await sendConfirmation({
-      // From the SITE'S OWN Neon vault, the same door the checkout key comes
-      // through — and the SAME reader the owner notification uses, so the two
-      // cannot disagree about which key is live.
-      loadSecrets: siteMailSecrets(env, db, slug),
-      send: ({ provider, key, from, to, subject, html }) => postProviderEmail(provider, key, from, to, subject, html),
-      recentlySent: async (s2, to) => {
-        const k = s2 + "|" + to, now = Date.now();
-        const at = confirmSeen.get(k);
-        if (at && now - at < 600000) return true;          // 10 minutes
-        if (confirmSeen.size > 5000) confirmSeen.clear();  // bounded, not a cache
-        return false;
-      },
-      markSent: async (s2, to) => { confirmSeen.set(s2 + "|" + to, Date.now()); },
-      // Run the model's own confirmation builder. It gets the row id and returns
-      // {to, subject, body} as json, computed from anything on the site — so the
-      // MESSAGE is model-written per site, and the platform still owns only the
-      // key and the connection.
-      //
-      // Called on the OWNER connection, which is why the function needs no
-      // EXECUTE grant and must not have one: granted to `anonymous` it reads any
-      // customer's confirmation by guessing a row id.
-      callFn: async (name, rowId) => {
-        if (rowId == null) return null;
-        // The name reaches SQL, so it is re-checked here rather than trusted
-        // from `_meta` — a stored schema is only as good as whatever last wrote
-        // it, and this is the boundary.
-        if (!/^[a-z][a-z0-9_]{0,40}$/.test(String(name))) return null;
-        const rows = await sqlQuery(db, "SELECT " + sqlIdent(name) + "(?) AS out", [rowId]);
-        const out = rows && rows[0] && rows[0].out;
-        return typeof out === "string" ? JSON.parse(out) : out;
-      },
-    }, { def, row, slug });
-    // It runs detached, so nothing else would ever see why it did not send. The
-    // uninteresting reasons — no key, nothing declared — stay quiet.
-    if (!out.sent && !["no confirm declared", "no provider key in Secrets", "not a collect table"].includes(out.reason)) {
-      console.error("confirm:", slug, out.reason, out.error || out.status || "");
-    }
-  })();
-  if (ctx && ctx.waitUntil) ctx.waitUntil(p); else p.catch(() => {});
-}
-
-/**
- * …and by text message, on the owner's own SMS account.
- *
- * A SEPARATE CALL rather than a channel inside `confirmSubmitter`, because a
- * site may want either or both — an emailed receipt AND a texted reminder — and
- * because folding them together means one provider being down or misconfigured
- * silently takes the other with it. They are independent failures and they
- * report independently.
- *
- * Same never-throws contract: the booking already succeeded.
- */
-function smsSubmitter(env, ctx, { slug, db, def, row }) {
-  const p = (async () => {
-    const out = await sendSms({
-      // Only the names this channel needs, decrypted lazily and never returned
-      // to a caller — the same door the mail key and the Stripe key come
-      // through.
-      loadSecrets: siteSmsSecrets(env, db, slug),
-      send: ({ provider, key, secret, from, to, body }) => postProviderSms(provider, key, secret, from, to, body),
-      // A SEPARATE COOLDOWN LEDGER from the mail one, and deliberately: they are
-      // keyed by recipient, and an address and a phone number are different
-      // recipients even for the same person. Sharing the map would let an email
-      // confirmation suppress the text that was the point of declaring both.
-      recentlySent: async (s2, to) => {
-        const k = s2 + "|" + to, now = Date.now();
-        const at = smsSeen.get(k);
-        if (at && now - at < 600000) return true;      // 10 minutes
-        if (smsSeen.size > 5000) smsSeen.clear();      // bounded, not a cache
-        return false;
-      },
-      markSent: async (s2, to) => { smsSeen.set(s2 + "|" + to, Date.now()); },
-      // The model's own builder, on the OWNER connection — which is why the
-      // function needs no EXECUTE grant and must not have one: granted to
-      // `anonymous` it reads any customer's phone number by guessing a row id.
-      callFn: async (name, rowId) => {
-        if (rowId == null) return null;
-        if (!/^[a-z][a-z0-9_]{0,40}$/.test(String(name))) return null;
-        const rows = await sqlQuery(db, "SELECT " + sqlIdent(name) + "(?) AS out", [rowId]);
-        const out2 = rows && rows[0] && rows[0].out;
-        return typeof out2 === "string" ? JSON.parse(out2) : out2;
-      },
-    }, { def, row, slug });
-    if (!out.sent && !["no sms declared", "no provider key in Secrets", "not a collect table"].includes(out.reason)) {
-      console.error("sms:", slug, out.reason);
-    }
-  })();
-  if (ctx && ctx.waitUntil) ctx.waitUntil(p); else p.catch(() => {});
-}
-// THE SITE'S OWN MAIL PROVIDER, OUT OF THE SITE'S OWN VAULT.
-//
-// ONE copy, shared by the owner notification and the visitor confirmation. Two
-// readers of one vault written out twice are two things that can disagree about
-// which key is live, which is this codebase's most repeated failure.
-//
-// Only the four names that matter are decrypted; the rest of the vault is never
-// touched. A key that will not decrypt is skipped rather than thrown on — one
-// unreadable row must not stop the others being found.
-// The SMS half of the same door, and ONE reader like its sibling.
-//
-// `smsSubmitter` hand-rolled this list inline and the jobs runner needed the
-// same six names — which is exactly how `siteMailSecrets` came to exist: two
-// copies of one vault read are two things that can disagree about which key is
-// live, and the failure is an owner told "no provider key in Secrets" while
-// their booking confirmations text fine on the same key. The names come from
-// `SMS_SECRET_NAMES`, derived from the provider table, so a fourth provider is
-// read by both callers without anybody editing this.
-function siteSmsSecrets(env, db, slug) {
-  return async () => {
-    const get = async (_s, name) => {
-      const rows = await sqlQuery(db, "SELECT cipher FROM _secrets WHERE name=?", [name]);
-      return (rows && rows[0] && rows[0].cipher) || null;
-    };
-    const map = {};
-    for (const name of SMS_SECRET_NAMES) {
-      try { const v = await readSecret({ get }, env, { slug, name }); if (v) map[name] = v; } catch { /* skip */ }
-    }
-    return map;
-  };
-}
-
-function siteMailSecrets(env, db, slug) {
-  return async () => {
-    const get = async (_s, name) => {
-      const rows = await sqlQuery(db, "SELECT cipher FROM _secrets WHERE name=?", [name]);
-      return (rows && rows[0] && rows[0].cipher) || null;
-    };
-    const map = {};
-    for (const name of ["RESEND_KEY", "SENDGRID_KEY", "POSTMARK_KEY", "EMAIL_FROM"]) {
-      try { const v = await readSecret({ get }, env, { slug, name }); if (v) map[name] = v; } catch { /* skip */ }
-    }
-    return map;
-  };
-}
-
-// Tell the site's owner a submission arrived — ON THE OWNER'S OWN KEY.
-//
-// THE BOUNDARY, AND IT HAS NO EXCEPTION (owner's call 2026-08-09): our
-// Cloudflare sender is for Supabase login and nothing else. Everything a
-// published site sends — the confirmation to the visitor, the SMS, and this
-// notification to the owner — goes out on the key that site's owner pasted into
-// Secrets, on their own domain.
-//
-// It used to send on `env.EMAIL`, so every booking on every published site spent
-// our own 200/day quota — the quota the login code depends on. One busy site
-// could have stopped people signing in to the platform. That is gone: the only
-// thing on our sender now is the login code, so the cap is a platform concern
-// with a platform-sized denominator instead of one that scales with customers.
-//
-// A site with no mail key configured therefore gets no notification. That is the
-// same condition the visitor confirmation one branch over already lives under,
-// which is the point — one rule, not two — and the owner still sees every
-// submission in the Data panel.
-function notifyOwnerOfSubmission(env, ctx, payload) {
-  if (!env.SUPABASE_SERVICE_KEY || !payload || !payload.db) return;
-  const p = (async () => {
-    const out = await notifyOwner({
-      claim: (s2) => claimNotify(env, s2),
-      unclaim: (s2, c) => unclaimNotify(env, s2, c),
-      missed: notifyMissed(env),
-      // Supabase, because this is looking up WHO to write to — our own record of
-      // our own customer's address. It says nothing about which sender is used.
-      emailOf: (uid) => ownerEmail(env, uid),
-      // READ BY THE CLAIM'S WINNER, and a missing key hands the window back
-      // (`unclaim`, audit A12-9): it used to spend the five minutes on nothing.
-      ready: async () => {
-        const secrets = await siteMailSecrets(env, payload.db, payload.slug)();
-        const picked = pickProvider(secrets);
-        const from = String(secrets.EMAIL_FROM || "").trim();
-        // NAMED, NOT SWALLOWED. `notifyOwner` turns a throw into a reason and the
-        // caller logs it, so an owner who has pasted no key can be told which
-        // half is missing instead of wondering why nothing arrives.
-        if (!picked) throw new Error("no mail provider key in this site's Secrets");
-        if (!from) throw new Error("no EMAIL_FROM in this site's Secrets");
-        return { picked, from };
-      },
-      send: async ({ to, subject, html }, { picked, from }) => postProviderEmail(picked.provider, picked.key, from, to, subject, html),
-    }, payload);
-    // It runs detached, so nothing else would ever see why it did not send.
-    if (!out.sent && out.error) console.error("submission notify:", payload.slug, out.reason, out.error);
-  })();
-  if (ctx && ctx.waitUntil) ctx.waitUntil(p); else p.catch(() => {});
-}
 
 // Content-type for a served R2 object by its extension (React dist assets + pages).
 const R2_MIME = { js: "text/javascript", mjs: "text/javascript", css: "text/css", svg: "image/svg+xml", json: "application/json", map: "application/json", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", ico: "image/x-icon", woff: "font/woff", woff2: "font/woff2", ttf: "font/ttf", txt: "text/plain", xml: "application/xml", webmanifest: "application/manifest+json", html: "text/html; charset=utf-8" };
@@ -17131,6 +16025,13 @@ async function siteReadVars(env, slug) {
 }
 
 /** Ask the site's own script to answer a visitor's read or write; null to fall back. */
+/** The site's own answer, or "republish" — never the platform doing the site's work. */
+async function siteAnswers(env, request, slug) {
+  const own = await ownDataRead(env, request, slug);
+  if (own) return own;
+  return Response.json({ error: "this site needs to be published again before it can do that" }, { status: 503 });
+}
+
 async function ownDataRead(env, request, slug) {
   const name = scriptNameFor(slug);
   if (!name) return null;
@@ -19892,37 +18793,6 @@ function sidecarOf(text) {
   return isHeldBody(v) ? {} : v;
 }
 
-/**
- * Where a renamed or deleted address goes now, or null.
- *
- * READS THE SIDECAR, which is where the publish has written the manifest since
- * Start — `parseSiteManifest`'s only caller still reads `sites/<slug>/index.html`
- * and Start publishes no HTML, so on every site built since, the redirect map
- * was computed on every publish and read by nothing. See `manifestFromCsv`.
- *
- * NULL IS "NO OPINION", NEVER "NO SUCH PAGE", and every failure answers it: no
- * bucket, no sidecar, unreadable JSON, no manifest in it, or a path that simply
- * is not in the map. The caller's fallback is the answer it already had — the
- * script's own branded 404 — so being wrong here costs a redirect that does not
- * happen, never a working address turned into a 301 to nowhere.
- *
- * `decideFallback` DOES THE DECIDING, not this. One reading of "what does this
- * address mean", shared with the static path that still serves pre-Start sites,
- * or the two disagree about where a visitor goes depending on which era their
- * site was built in.
- */
-async function siteRedirectFor(env, slug, path) {
-  try {
-    if (!env.SITES_BUCKET) return null;
-    const obj = await env.SITES_BUCKET.get(siteMetaKey(slug));
-    if (!obj) return null;
-    const side = JSON.parse(await obj.text());
-    if (isHeldBody(side)) return null;
-    const manifest = manifestFromCsv(side && side.routesCsv, side && side.redirectsCsv);
-    const verdict = decideFallback(manifest, path);
-    return verdict.kind === "redirect" ? verdict.to : null;
-  } catch (e) { console.error("site redirect lookup failed:", slug, e && e.message); return null; }
-}
 
 async function siteOgImage(env, slug, dist) {
   // THE COMPOSED CARD, AS THE FLOOR (2026-08-28, owner's call). `dist` is the
@@ -31617,106 +30487,10 @@ async function handleRequest(request, env, ctx) {
               // An older script would serve these two straight off storage,
               // placeholder origin and all: this side's static path answers.
               if (rest === "robots.txt" || rest === "sitemap.xml") throw new Error("not found: an older script fills no origin");
-              const ct = res.headers.get("content-type") || "";
-              const html = /text\/html/i.test(ct);
-
-              // ── AN UNKNOWN ADDRESS FALLS BACK TO THE STATIC PATH ──────────
-              //
-              // Not a retry: the script answers 404 for an address the site
-              // does not have, and everything that decides what an address
-              // like that SHOULD get lives below — the redirect map, which a
-              // publish writes into `index.html`'s head, and the shell the
-              // branded 404 renders into.
-              //
-              // Dispatching in front of it made every renamed or deleted page
-              // a hard 404, so an owner who renamed a page broke every link
-              // Google had indexed and every share already sent, silently, on
-              // the exact feature written to stop that.
-              //
-              // FALLING THROUGH RATHER THAN COPYING THE RULE HERE. The
-              // alternative is the script parsing the manifest itself, which
-              // means a second copy of `decideFallback` inside every customer's
-              // bundle. Extensionless only, so a genuinely missing chunk still
-              // 404s rather than being handed HTML — the same restriction the
-              // SPA fallback below already lives under, and for the same
-              // reason. It costs one wasted script call on an address nobody
-              // has.
-              const lastSeg = rest.split("/").pop() || "";
-              const unknownAddress = res.status === 404 && html && !/\.[a-z0-9]{1,8}$/i.test(lastSeg);
-              // ── AND A RENAMED PAGE STILL GOES WHERE IT WENT ────────────────
-              //
-              // The manifest is read HERE, off the sidecar, and it was not read
-              // anywhere. The publish diffs the previous route list, builds the
-              // redirect map — including the explicit `{from,to}` a rename
-              // threads all the way through `renameRoute` → the spine → the
-              // publish — and writes both into `siteMetaKey(slug)`. The only
-              // reader was the SPA fallback below, which parses them out of
-              // `sites/<slug>/index.html`, and Start publishes no HTML: the
-              // manifest moved out of the document and the reader stayed.
-              //
-              // So every link a customer had already sent and every URL Google
-              // had indexed broke silently the moment a page was renamed or
-              // deleted — on the feature written to stop exactly that.
-              //
-              // ONLY ON AN UNKNOWN ADDRESS, so it costs one R2 get on a path
-              // that has already spent a script call and is about to 404
-              // anyway. Every request to a real page is untouched.
-              //
-              // THE `notfound` VERDICT NEEDS NOTHING FROM US: the script has
-              // already rendered the branded 404 with a 404 status, which is
-              // exactly what that verdict asks for. `ok` cannot arrive here (a
-              // real route would not have 404'd). So the redirect is the whole
-              // job, and an unreadable sidecar simply leaves the script's own
-              // answer standing — the state every site was in before this.
-              if (unknownAddress) {
-                const to = await siteRedirectFor(env, slug, "/" + rest);
-                if (to) {
-                  const mount = isAppHostname(url.hostname) ? "/s/" + slug : "";
-                  // 301 WITH AN EXPLICIT LIFETIME, for the reason the static
-                  // path's twin states at length: `Response.redirect` sends
-                  // `location` and nothing else, and a 301 with no freshness is
-                  // heuristically cached by browsers effectively forever — so a
-                  // page put BACK would stay unreachable to everyone who had
-                  // followed the old address once, defeating `mergeRedirects`'
-                  // deliberate rule that a re-added page must serve itself.
-                  // BYTE-IDENTICAL TO THE STATIC PATH'S TWIN, deliberately —
-                  // `url.origin + mount + to + url.search`. A relative
-                  // `location` resolves the same way in a browser and NOT the
-                  // same way anywhere else that reads one, and the query string
-                  // is the half that is easy to lose: a link carrying `?ref=` or
-                  // a UTM tag would arrive stripped, so the owner's own campaign
-                  // reporting would go quiet on exactly the addresses that moved.
-                  // Two spellings of one answer is how the pre-Start era and
-                  // this one come to disagree about where a visitor goes.
-                  return new Response(null, {
-                    status: 301,
-                    headers: { location: url.origin + mount + to + url.search, "cache-control": "public, max-age=600" },
-                  });
-                }
-              }
-              if (!unknownAddress) {
-                if (!html) return res;
-                // ASSET REFERENCES ARE MADE ABSOLUTE HERE, not in the script.
-                // Vite writes them `./assets/…`, which a browser resolves
-                // against the DIRECTORY of the URL it was served at — correct
-                // only at the mount root, so `/book/` asked for
-                // `/book/assets/…` and rendered nothing. The static path below
-                // has always rewritten them; the script served its document
-                // verbatim and put the bug back. It belongs on this side
-                // because the mount depends on which of three addresses the
-                // request came in on, which is a question only this side can
-                // answer.
-                //
-                // A FRESH `Headers`, because the old one carries the script's
-                // `content-length` and the body it describes has just changed
-                // length.
-                const out = new Headers(res.headers);
-                out.delete("content-length");
-                return new Response(
-                  absolutizeAssets(await res.text(), mountRootFor(url.hostname, slug)),
-                  { status: res.status, headers: out },
-                );
-              }
+              // A script that does not answer for its own addresses (one
+              // published before it could) is served exactly as it answered:
+              // no redirect, link fix or page of ours is added (2026-10-28).
+              return res;
             } catch (e) {
               // TWO OUTCOMES, TOLD APART. "Worker not found" is the ordinary
               // state of every site on the platform right now and must be
@@ -31969,10 +30743,11 @@ async function handleRequest(request, env, ctx) {
       const um = url.pathname.match(UPLOAD_URL_PATH);
       // THE SITE SERVES ITS OWN FILES when its script says so (2026-10-27).
       // The host tie holds first: a site's files answer only on its own address.
-      if (um && env.SITE_OWN_DATA === "1" && env.SITE_WORKERS && (uploadHost === "*" || uploadHost === um[1].toLowerCase())) {
-        const own = await ownDataRead(env, request, um[1].toLowerCase());
-        if (own) return own;
-      }
+      // ON THE SITE'S OWN ADDRESS ITS FILES ARE ITS OWN (2026-10-28): served
+      // by its Worker from its own bucket, never by us. The app's address
+      // (`*`) keeps serving them here for the builder, before a site has a
+      // Worker at all — that is building.
+      if (um && uploadHost !== "*" && uploadHost === um[1].toLowerCase()) return siteAnswers(env, request, uploadHost);
       if (um && env.SITES_BUCKET && request.method !== "GET" && request.method !== "HEAD") {
         return new Response("Method not allowed", { status: 405, headers: { allow: "GET, HEAD" } });
       }
@@ -32211,98 +30986,12 @@ async function handleRequest(request, env, ctx) {
     // cannot hold a session. What authenticates it is the HMAC over the raw
     // body, verified against THIS SITE'S OWN webhook secret, which the owner
     // pasted in. So a signature valid for one shop proves nothing about another.
+    // A SITE'S OWN STRIPE MESSAGES are the site's (2026-10-28): checked
+    // against its owner's own webhook secret and recorded in its own database
+    // by its own Worker. Passed on, never handled here.
     if (url.pathname.startsWith("/api/stripe/site/") && request.method === "POST") {
       const wm = url.pathname.match(/^\/api\/stripe\/site\/([a-z0-9][a-z0-9-]{0,80})$/i);
-      if (wm) {
-        const wslug = wm[1].toLowerCase();
-        // THE SITE HEARS ITS OWN STRIPE MESSAGES when its script says so.
-        if (env.SITE_OWN_DATA === "1" && env.SITE_WORKERS) {
-          const own = await ownDataRead(env, request, wslug);
-          if (own) return own;
-        }
-        const wconn = await siteRowConn(env, wslug);
-        // 200 on an unknown slug, deliberately. Stripe retries a non-2xx for
-        // days and disables an endpoint that keeps failing; a deleted site
-        // whose owner left the endpoint registered would otherwise generate
-        // retries forever. There is nothing to do and nothing was lost.
-        if (!wconn) return Response.json({ ok: true, ignored: "no such site" });
-        // The RAW body, not a parsed one: the signature is over exact bytes and
-        // re-serialising JSON changes them.
-        const raw = await request.text();
-        let secret = null;
-        try {
-          secret = await readSecret({ get: async (_s, name) => {
-            const rows = await sqlQuery(wconn, "SELECT cipher FROM _secrets WHERE name=?", [name]);
-            return (rows && rows[0] && rows[0].cipher) || null;
-          } }, env, { slug: wslug, name: "STRIPE_WEBHOOK_SECRET" });
-        } catch (e) { console.error("wh secret:", wslug, e && e.message); }
-        // FAILS CLOSED. Without the secret we cannot tell Stripe from anyone
-        // else who found the URL, and this endpoint's whole job is to mark
-        // things as paid.
-        if (!secret) return Response.json({ error: "not configured" }, { status: 503 });
-        const ver = await verifyStripeSignature({
-          header: request.headers.get("Stripe-Signature") || "",
-          raw, secrets: [secret], nowMs: Date.now(),
-        });
-        if (!ver.ok) return Response.json({ error: "bad signature" }, { status: 400 });
-        let event = null;
-        try { event = JSON.parse(raw); } catch { return Response.json({ error: "bad body" }, { status: 400 }); }
-        const paid = paidFromEvent(event);
-        // EXPIRED OR FAILED (audit A12-6): an abandoned session or a bank debit
-        // that did not settle. Only a still-pending order moves, so a late or
-        // repeated event never unmarks one already paid.
-        const lapsed = paid ? null : failedFromEvent(event);
-        if (lapsed && lapsed.slug === wslug) {
-          try {
-            const sch = await loadSiteSchema(wconn);
-            const t = (sch && Array.isArray(sch.tables) ? sch.tables : []).find((x) => String(x.name).toLowerCase() === lapsed.table && normalizePayment(x));
-            if (!t) return Response.json({ ok: true, ignored: "not a payable table" });
-            await sqlQuery(wconn, `UPDATE ${sqlIdent(t.name)} SET payment_status=?, payment_ref=? WHERE id=? AND payment_status='pending'`, [lapsed.status, lapsed.ref, lapsed.orderId]);
-          } catch (e) {
-            console.error("wh lapse:", wslug, e && (e.detail || e.message));
-            return Response.json({ error: "could not record that checkout" }, { status: 500 });
-          }
-          return Response.json({ ok: true });
-        }
-        if (!paid) return Response.json({ ok: true, ignored: true });
-        // The event names its own slug, and it must be THIS one. The signature
-        // already proves the sender holds this site's secret, so this is belt
-        // and braces — but the alternative is a slug from a request body
-        // reaching a connection lookup, and that is never worth leaving open.
-        if (paid.slug !== wslug) return Response.json({ ok: true, ignored: "slug mismatch" });
-        try {
-          const sch = await loadSiteSchema(wconn);
-          const t = (sch && Array.isArray(sch.tables) ? sch.tables : []).find((x) => String(x.name).toLowerCase() === paid.table && normalizePayment(x));
-          if (!t) return Response.json({ ok: true, ignored: "not a payable table" });
-          // Idempotent, and that is required rather than tidy: Stripe delivers
-          // at least once and retries anything it does not get a 2xx for, so the
-          // same event arrives more than once as a matter of course. The WHERE
-          // makes a second delivery a no-op instead of a second `paid_at`.
-          // RETURNING the stored row: it comes back only from the delivery that
-          // made the flip, so a repeated event fires nothing a second time.
-          const flipped = await sqlQuery(
-            wconn,
-            `UPDATE ${sqlIdent(t.name)} SET payment_status='paid', payment_ref=?, paid_at=to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') WHERE id=? AND payment_status<>'paid' RETURNING *`,
-            [paid.ref, paid.orderId],
-          );
-          // THE ORDER IS PAID (audit A12-1, A30-3): this is the submission — the
-          // owner's email, the customer's receipt or text — and the webhook's
-          // `updated`, all from the row as stored. Detached; the 200 to Stripe
-          // does not wait on a mailer.
-          const stored = flipped && flipped[0];
-          if (stored) {
-            try {
-              siteRowEffects(env, ctx, { slug: wslug, db: wconn, def: t, table: String(t.name).toLowerCase(), action: "updated", submission: true, row: stored });
-            } catch (e) { console.error("wh effects:", wslug, e && e.message); }
-          }
-        } catch (e) {
-          // A 500 here makes Stripe retry, which is what we want: the money is
-          // real and the row must eventually catch up.
-          console.error("wh apply:", wslug, e && (e.detail || e.message));
-          return Response.json({ error: "could not record that payment" }, { status: 500 });
-        }
-        return Response.json({ ok: true });
-      }
+      if (wm) return siteAnswers(env, request, wm[1].toLowerCase());
     }
 
     if (url.pathname === "/api/stripe/webhook" && request.method === "POST") {
@@ -34376,450 +33065,16 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
-    // Visitor accounts for a published site. These live in the SITE's own Neon
-    // database, not in Supabase: the schema engine stamps `owner_id INTEGER` on
-    // every `user`/`feed` table, so an account id has to be an integer from that
-    // same database — and it keeps Supabase off the visitor path entirely, which
-    // is the whole point of the routing work. Deleting a site takes its members
-    // with it, because they were never anywhere else.
-
-    // A visitor attaching a photo to a form. Unauthenticated for the same reason
-    // the rest of /api/db is: a customer booking a haircut has no account.
+    // ── A VISITOR'S CALL TO A SITE IS THE SITE'S (2026-10-28) ────────────────
     //
-    // Which makes this a public endpoint that accepts arbitrary bytes and serves
-    // them back from gofarther.dev, so the answer to "may I?" is narrow: the table
-    // must be one a visitor can WRITE and must DECLARE somewhere to put a
-    // picture. A barber shop whose booking form is six text fields accepts
-    // nothing, which is the answer for most sites — and is what keeps this from
-    // being open image hosting for anyone who knows a slug.
-    // A published site's DATA, forwarded to its Neon Data API.
-    //
-    // Our own row routes were deleted 2026-07-30 (owner's call: Neon only, not
-    // both). What is left is transport — this forwards and nothing else. There is
-    // no access logic here, no schema allow-list and no scoping: the site's RLS
-    // policies decide every one of those, which is the whole point of the move.
-    //
-    // Proxied rather than called from the page for the same three reasons the auth
-    // proxy is: the bundle holds no URL and no key, it is same-origin so there is
-    // no CORS and no cross-site cookie, and a generated page's URLs do not change.
-    if (url.pathname.startsWith("/api/db/") && url.pathname.includes("/data/")) {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/data\/([a-z0-9_][a-z0-9/._-]{0,79})$/i);
-      if (dm) {
-        const [, dslug2, dpath] = dm;
-        const slug = dslug2.toLowerCase();
-        const hit = _dataLimiter.hit(
-          bucketKey({ ip: request.headers.get("CF-Connecting-IP") || "", slug, table: "data", method: request.method }),
-          DATA_PROXY_PER_MIN,
-        );
-        if (!hit.ok) {
-          const t = tooMany(hit);
-          return Response.json(t.body, { status: t.status, headers: t.headers });
-        }
-        // A READ THE SITE ANSWERS ITSELF, when its script says so
-        // (`x-site-data: own`); a script without the addresses answers
-        // without the mark and this falls through to the proxy below.
-        // Reads, and since phase A writes too: the site answers when it can.
-        if (env.SITE_OWN_DATA === "1" && env.SITE_WORKERS) {
-          const own = await ownDataRead(env, request, slug);
-          if (own) return own;
-        }
-        return proxySiteService(env, request, url, slug, dpath, "data", ctx);
-      }
-    }
-
-    // A PUBLISHED SITE READING SOMEBODY ELSE'S API.
-    //
-    // Live delivery slots, today's exchange rate, a supplier's stock level, the
-    // weather for an outdoor venue. Here for the usual two reasons: the key
-    // cannot be in a public bundle and Postgres has no HTTP client.
-    //
-    // ONE PRIMITIVE, NOT A LIST OF INTEGRATIONS. The site declares the whole
-    // request with `{{SECRET}}` placeholders; the Worker substitutes them out of
-    // the site's own vault. A courier and a currency feed are the same feature.
-    if (url.pathname.startsWith("/api/db/") && url.pathname.includes("/api/")) {
-      const am2 = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/api\/([a-z][a-z0-9_-]{0,40})$/i);
-      if (am2) {
-        if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
-        const slug = am2[1].toLowerCase();
-        // THE SITE'S OWN WORKER ANSWERS FIRST, with its owner's keys.
-        if (env.SITE_OWN_DATA === "1") { const mine = await ownDataRead(env, request, slug); if (mine) return mine; }
-        const aname = am2[2].toLowerCase().replace(/-/g, "_");
-        // THIS SPENDS THE OWNER'S THIRD-PARTY QUOTA on behalf of anyone who
-        // finds the URL, so the limit is not a formality. Before any lookup.
-        const ahit = _dataLimiter.hit(
-          bucketKey({ ip: request.headers.get("CF-Connecting-IP") || "", slug, table: "extapi", method: "GET" }),
-          SITE_API_PER_MIN,
-        );
-        if (!ahit.ok) {
-          const t = tooMany(ahit);
-          return Response.json(t.body, { status: t.status, headers: t.headers });
-        }
-        const adb = await siteRowConn(env, slug);
-        if (!adb) return Response.json({ error: "no such connection" }, { status: 404 });
-        const spec = await loadSiteSchema(adb).catch(() => null);
-        const api = apiFor(spec, aname);
-        if (!api) return Response.json({ error: "no such connection" }, { status: 404 });
-        const params = takeParams(api, url.searchParams);
-        // A REQUIRED BLANK THE CALLER DID NOT FILL IS REFUSED BEFORE THE CALL
-        // (2026-09-19), and the point is what does NOT happen: no upstream
-        // request, so none of the owner's third-party quota is spent on one
-        // that could never work. Without it `fill` substitutes the blank as an
-        // empty string and plenty of services answer 200 to that with a default
-        // or a degraded answer — the page then renders something plausible and
-        // wrong, which is the same failure the missing-secret refusal exists to
-        // prevent, one blank over.
-        //
-        // NAMES THEM, because the caller is this site's own page and a
-        // parameter name is already in its bundle — there is nothing here a
-        // visitor could not read off the page that made the request, and the
-        // name is the whole of what a developer needs to fix it.
-        //
-        // A connection that declared no parameter metadata requires nothing and
-        // reaches `callApi` exactly as it always has.
-        const amiss = missingRequired(api, params);
-        if (amiss.length) {
-          return Response.json({ error: "this connection needs " + amiss.join(", "), missing: amiss }, { status: 400 });
-        }
-        // THE OWNER IS PART OF THE CACHE KEY, not part of the authorisation —
-        // this route is public by design. A slug is re-claimable, so without it
-        // an answer fetched with one account's API key is served to whoever
-        // takes the slug next. Memoized, so it is one Supabase read per slug per
-        // five minutes on a path that then makes a third-party call anyway; a
-        // failure answers null and `callApi` simply does not cache.
-        const aowner = await siteOwnerBySlug(slug, env);
-        const out = await callApi(await siteApiDeps(env, slug, adb, api), { ownerId: aowner, slug, api, params });
-        // The owner's half of the story goes to the log, never to the visitor:
-        // `missing` names a secret and `refused` names a destination.
-        if (out.missing || out.refused) console.error("site api:", slug, aname, out.missing || out.refused);
-        // ONLY status and body. `out` also carries those two fields, and
-        // returning the whole object would put the name of the site's own
-        // credential into a public response.
-        return Response.json(out.body, { status: out.status });
-      }
-    }
-
-    // SOMEBODY ELSE'S SYSTEM PUSHING DATA INTO A PUBLISHED SITE.
-    //
-    // The mirror of the outbound webhook: that one told the world something
-    // happened here, this one lets the world tell the site. It exists in the
-    // platform for the same two reasons everything else on this list does — it
-    // needs an HTTP endpoint, which Postgres cannot serve, and it needs a shared
-    // secret, which a public bundle cannot hold.
-    //
-    // What it does with the payload is NOT the platform's business: it is handed
-    // to `hook_<name>(payload jsonb)`, a function the model wrote at build time.
-    // No field mapping here, no menu of verbs.
-    if (url.pathname.startsWith("/api/db/") && url.pathname.includes("/hook/")) {
-      const hm = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/hook\/([a-z][a-z0-9_-]{0,40})$/i);
-      if (hm) {
-        // POST only, and 405 rather than 404: a sender misconfigured to GET
-        // should learn that, where a stranger guessing names should not.
-        if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
-        const slug = hm[1].toLowerCase();
-        if (env.SITE_OWN_DATA === "1") { const mine = await ownDataRead(env, request, slug); if (mine) return mine; }
-        const hname = hm[2].toLowerCase().replace(/-/g, "_");
-        const hdb = await siteRowConn(env, slug);
-        if (!hdb) return Response.json({ error: "no such hook" }, { status: 404 });
-        // READ THE RAW BYTES. An HMAC is over exactly what was sent, and
-        // re-serialising a parse changes key order and whitespace — every real
-        // signature would fail while every hand-built test payload passed.
-        const raw = await request.text();
-        const out = await handleInbound(inboundDeps(env, slug, hdb), {
-          slug, name: hname, headers: request.headers, body: raw,
-          // CF-Connecting-IP only: the `X-Forwarded-For` fallback used
-          // elsewhere is client-settable, so a caller varying it mints a fresh
-          // rate-limit bucket per request.
-          ip: request.headers.get("CF-Connecting-IP") || "",
-        });
-        return Response.json(out.body, {
-          status: out.status,
-          headers: out.retryAfter ? { "retry-after": String(out.retryAfter) } : undefined,
-        });
-      }
-    }
-
-    // A PUBLISHED PAGE TELLING US IT BROKE, so the owner can be told.
-    //
-    // The template has captured and packaged runtime errors since the preview
-    // shell existed, and on a live site they went to the visitor's console and
-    // died (2026-08-14 audit) — the owner learned their booking form was dead
-    // when customers stopped coming. This is the delivery half: the page POSTs
-    // the report same-origin, it lands in the site's own `_errors` table
-    // (created by every build beside `_secrets`, reachable by no Data API
-    // role), and the owner reads it in Cloud → Errors.
-    //
-    // ALWAYS 204, whatever happened. The sender is fire-and-forget telemetry —
-    // an error response would only produce a second console error about
-    // reporting the first — and a distinct status for "no such site" or "table
-    // missing" would let a stranger probe which slugs exist through an
-    // unauthenticated endpoint. The write itself rides `ctx.waitUntil` (the
-    // audit-log lesson: a detached promise nobody holds is cancelled with the
-    // request), so the visitor's tab never waits on Postgres.
-    if (url.pathname.startsWith("/api/db/") && url.pathname.endsWith("/error")) {
-      const erm = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/error$/i);
-      if (erm) {
-        if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
-        const slug = erm[1].toLowerCase();
-        // The site's own Worker stores its own reports (2026-10-27).
-        if (env.SITE_OWN_DATA === "1") { const mine = await ownDataRead(env, request, slug); if (mine) return mine; }
-        // Rate limit BEFORE any lookup, CF-Connecting-IP only — the
-        // X-Forwarded-For fallback is client-settable and would mint a fresh
-        // bucket per request. A limited caller still gets 204: dropping is the
-        // behaviour, not a negotiation.
-        const ehit = _dataLimiter.hit(
-          bucketKey({ ip: request.headers.get("CF-Connecting-IP") || "", slug, table: "err", method: "POST" }),
-          SITE_ERROR_PER_MIN,
-        );
-        if (!ehit.ok) return new Response(null, { status: 204 });
-        const eb = await readJsonBody(request, { max: 16 * 1024 });
-        const body = (eb && eb.ok && eb.body) || {};
-        // An allow-list of the reporter's own shape, clipped server-side even
-        // though the sender clips too — the sender is anyone with curl.
-        const msg = String(body.message || "").slice(0, 300).trim();
-        const src = ["error_boundary", "onerror", "unhandledrejection"].includes(body.source) ? body.source : "onerror";
-        const stack = typeof body.stack === "string" ? body.stack.slice(0, 2000) : null;
-        const route = String(body.route || "").slice(0, 200);
-        if (msg) {
-          ctx.waitUntil((async () => {
-            try {
-              const conn = await siteRowConn(env, slug);
-              if (!conn) return;
-              const insert = () => sqlExec(conn,
-                "INSERT INTO _errors (at, message, stack, route, source) VALUES (to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS'), ?, ?, ?, ?)",
-                [msg, stack, route, src]);
-              try {
-                await insert();
-              } catch (e) {
-                // THE TABLE HEALS ITSELF ON FIRST USE, and without this the
-                // feature is dead on every site that already exists.
-                //
-                // `_errors` is created by `applySiteSchema`, which only the
-                // build, addon and rules lanes run — the cheap edit lanes
-                // (text, look, picture, logo, data) publish through
-                // `recompileAndPublish` and never apply a schema. So an owner
-                // who has only ever changed wording and colours never gets the
-                // table, every report throws `relation "_errors" does not
-                // exist` into this catch, and the panel tells them **"Nothing
-                // has gone wrong"** — the exact failure this feature exists to
-                // prevent, wearing a reassuring sentence. The `_sessions`
-                // lesson: a table must exist wherever the feature fires.
-                //
-                // Create-and-retry rather than create-first, so the ordinary
-                // path stays ONE statement and the extra round trip is paid
-                // only once per site, ever.
-                // THE SQLSTATE AS WELL AS THE WORDS. `42P01` is
-                // undefined_table and is the thing Postgres actually promises;
-                // the message is English and could be localised or reworded by
-                // a driver upgrade. Matching only the prose would leave the
-                // heal silently dead on every existing site — which is exactly
-                // the state this branch exists to end — and there is no live
-                // database here to find that out on.
-                const miss = /does not exist/i.test(String((e && e.message) || "")) || (e && e.code) === "42P01";
-                if (!miss) throw e;
-                // SCHEMA WORK, ON THE OWNER'S LOGIN (2026-10-26): the row
-                // login above cannot create a table; the insert stays on it.
-                const ownerConn = await siteBackendBySlug(env, slug);
-                if (!ownerConn) throw e;
-                await sqlExec(ownerConn, "CREATE TABLE IF NOT EXISTS _errors (id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, at TEXT, message TEXT, stack TEXT, route TEXT, source TEXT)");
-                await insert();
-              }
-              // Prune on the WRITE, roughly one in twenty, for the audit-log
-              // reason: a table only trimmed when somebody opens the panel
-              // grows without bound on every site nobody looks at.
-              if (Math.random() < 0.05) {
-                await sqlExec(conn, "DELETE FROM _errors WHERE id NOT IN (SELECT id FROM _errors ORDER BY id DESC LIMIT 500)");
-              }
-            } catch (e) { console.error("site error store failed:", slug, e && e.message); }
-          })());
-        }
-        return new Response(null, { status: 204 });
-      }
-    }
-
-    // THE ONE PART OF SPAM PROTECTION THAT IS MEANT TO BE PUBLIC.
-    //
-    // Turnstile's SITE key belongs in the page — that is how the widget is
-    // designed, and it is why only half of this is ours. Serving it from here
-    // rather than baking it into the bundle means switching protection on takes
-    // effect on the next page load instead of needing a rebuild, which costs a
-    // model call and credits.
-    //
-    // It answers `{}` for the overwhelming majority of sites, which is what
-    // makes the widget inert until an owner configures one. The SECRET is never
-    // returned and is never even asked for on this path.
-    if (url.pathname.startsWith("/api/db/") && url.pathname.endsWith("/turnstile")) {
-      const tm = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/turnstile$/i);
-      if (tm) {
-        if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
-        const slug = tm[1].toLowerCase();
-        // Rate limited like every other public /api/db dispatch. A cache miss
-        // here is a SQL read plus a decrypt, so "it is only a public key" is not
-        // a reason to leave it unbounded. Shares the read budget, since that
-        // budget exists to protect Neon compute.
-        const thit = _dataLimiter.hit(
-          bucketKey({ ip: request.headers.get("CF-Connecting-IP") || "", slug, table: "turnstile", method: "GET" }),
-          DATA_PROXY_PER_MIN,
-        );
-        if (!thit.ok) {
-          const t = tooMany(thit);
-          return Response.json(t.body, { status: t.status, headers: t.headers });
-        }
-        const tdb = await siteRowConn(env, slug);
-        if (!tdb) return Response.json({}, { status: 404 });
-        let key = "";
-        try { key = (await turnstileConfig(slug, env, tdb, url.hostname)).siteKey || ""; } catch { /* unconfigured */ }
-        // Cached at the edge as well: it changes about once in the life of a
-        // site, and every visitor to every page asks for it.
-        return Response.json(key ? { siteKey: key } : {}, { headers: { "cache-control": "public, max-age=60" } });
-      }
-    }
-
-    // A published site's sign-in. Public by the same reasoning as the rest of
-    // /api/db — a customer booking a haircut has no Go Farther account — and gated by
-    // a per-source rate limit, because it is an unauthenticated endpoint that
-    // reaches a third party and costs a password hash on their side.
-    if (url.pathname.startsWith("/api/db/") && url.pathname.includes("/auth/")) {
-      const am = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/auth\/([a-z0-9][a-z0-9/._-]{0,79})$/i);
-      if (am) {
-        const [, aslug, apath] = am;
-        const slug = aslug.toLowerCase();
-        // CF-Connecting-IP only. The X-Forwarded-For fallback the rest of this
-        // file uses is client-settable, so honouring it lets one caller mint a
-        // fresh bucket per request and defeats the limit entirely.
-        const hit = _dataLimiter.hit(
-          bucketKey({ ip: request.headers.get("CF-Connecting-IP") || "", slug, table: "auth", method: "POST" }),
-          AUTH_PROXY_PER_MIN,
-        );
-        if (!hit.ok) {
-          const t = tooMany(hit);
-          return Response.json(t.body, { status: t.status, headers: t.headers });
-        }
-        // THE SITE SIGNS ITS OWN VISITORS IN when its script says so.
-        if (env.SITE_OWN_DATA === "1" && env.SITE_WORKERS) {
-          const own = await ownDataRead(env, request, slug);
-          if (own) return own;
-        }
-        return proxySiteService(env, request, url, slug, apath, "auth");
-      }
-    }
-
-    // A visitor paying by card. Public and unauthenticated for the same reason
-    // the rest of /api/db is: somebody buying a knife has no account here.
-    //
-    // This is the ONLY way a row in a payable table can be created — grantsFor
-    // gives such a table no public INSERT — so everything that decides what is
-    // owed happens on this side of the wire.
-    if (url.pathname.startsWith("/api/db/") && url.pathname.endsWith("/checkout")) {
-      const cm = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/checkout$/i);
-      if (cm) {
-        // THE SITE TAKES ITS OWN PAYMENTS when its script says so (2026-10-27).
-        if (env.SITE_OWN_DATA === "1" && env.SITE_WORKERS) {
-          const own = await ownDataRead(env, request, cm[1].toLowerCase());
-          if (own) return own;
-        }
-        if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
-        const cslug = cm[1].toLowerCase();
-        // Before the body is read and before anything is looked up: this
-        // endpoint reaches Stripe, so an unlimited one spends someone else's
-        // rate budget from our origin. CF-Connecting-IP only — the
-        // X-Forwarded-For fallback used elsewhere is client-settable and would
-        // let one caller mint a fresh bucket per request.
-        const chit = _dataLimiter.hit(
-          bucketKey({ ip: request.headers.get("CF-Connecting-IP") || "", slug: cslug, table: "checkout", method: "POST" }),
-          CHECKOUT_PER_MIN,
-        );
-        if (!chit.ok) { const t = tooMany(chit); return Response.json(t.body, { status: t.status, headers: t.headers }); }
-        const cconn = await siteRowConn(env, cslug);
-        if (!cconn) return Response.json({ error: "no such site" }, { status: 404 });
-        let cidem = null;
-        try {
-          // "PAY" PRESSED TWICE IS ONE CHECKOUT. The same key the data proxy
-          // honours: a repeat within ten minutes gets the session it already
-          // opened, not a second one. Stripe would tolerate two sessions —
-          // only one gets paid — but the customer sees the first tab's session
-          // expire under them, and a `pending` row per press on a table that
-          // records the attempt is two rows for one basket.
-          // The same basket only (audit A30-5): another basket under the same
-          // key is a new checkout, never the earlier session.
-          const ckey = takeIdemKey(request.headers);
-          const craw = await request.text().catch(() => "");
-          cidem = ckey ? idemFor(env, cslug, "checkout", ckey, await idemFingerprint(craw)) : null;
-          const prior = cidem ? await cidem.read() : null;
-          if (prior) return new Response(prior.body, { status: prior.status, headers: replayHeaders(prior) });
-          let cbody = {};
-          try { cbody = JSON.parse(craw); } catch { cbody = {}; }
-          const cres = await handleCheckout({
-            env, conn: cconn, slug: cslug,
-            body: cbody,
-            origin: url.origin,
-            schema: await loadSiteSchema(cconn),
-            ctx,
-          });
-          if (cidem) {
-            // Cloned: the body can only be read once, and the customer's copy
-            // is the one that redirects them to the till.
-            const ctext = await cres.clone().text();
-            const w = cidem.write({ status: cres.status, body: ctext, ct: cres.headers.get("content-type") || "application/json" });
-            if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(w); else await w;
-          }
-          return cres;
-        } catch (e) {
-          // Never echoed: a Stripe error can quote the request, and the request
-          // carries the site's own line items; a Postgres error quotes the
-          // statement. Logged so a failing shop is diagnosable from our side.
-          console.error("checkout:", cslug, e && (e.detail || e.message));
-          return Response.json({ error: "we couldn't start that payment — please try again" }, { status: 502 });
-        } finally {
-          if (cidem) cidem.release();
-        }
-      }
-    }
-
-    if (url.pathname.startsWith("/api/db/") && url.pathname.endsWith("/uploads")) {
-      const vm = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/uploads$/i);
-      if (vm) {
-        if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
-        if (!env.SITES_BUCKET) return Response.json({ error: "storage not configured" }, { status: 501 });
-        const vslug = vm[1].toLowerCase();
-        // THE SITE TAKES ITS OWN VISITORS' FILES when its script says so.
-        if (env.SITE_OWN_DATA === "1" && env.SITE_WORKERS) {
-          const own = await ownDataRead(env, request, vslug);
-          if (own) return own;
-        }
-        const conn = await siteRowConn(env, vslug);
-        if (!conn) return Response.json({ error: "no such site" }, { status: 404 });
-        // Checked before the body is read: a flood should not get us to buffer
-        // megabytes before being told no.
-        const cl = Number(request.headers.get("content-length") || 0);
-        if (cl && cl > MAX_VISITOR_UPLOAD_BYTES) return Response.json({ error: "that image is too big — keep it under 2 MB", code: "too_big" }, { status: 413 });
-        try {
-          const vr = await handleVisitorUpload({
-            tableFor: async (s2, t) => {
-              const spec = await loadSiteSchema(conn);
-              return (spec && Array.isArray(spec.tables) ? spec.tables : [])
-                .find((x) => x && String(x.name).toLowerCase() === String(t || "").toLowerCase()) || null;
-            },
-            throttle: async (key) => _dataLimiter.hit(key, VISITOR_UPLOADS_PER_MIN),
-            hash: async (bytes) => {
-              const d = await crypto.subtle.digest("SHA-256", bytes);
-              return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
-            },
-            list: (s2) => siteUploadList(env, s2),
-            put: (key, bytes, ct, meta) => env.SITES_BUCKET.put(key, bytes, { httpMetadata: { contentType: ct }, ...(meta ? { customMetadata: meta } : {}) }),
-          }, {
-            slug: vslug,
-            table: url.searchParams.get("table"),
-            // CF-Connecting-IP only — X-Forwarded-For is client-settable, so
-            // honouring it would let one caller mint a fresh bucket per request.
-            ip: request.headers.get("CF-Connecting-IP") || "",
-            bytes: new Uint8Array(await request.arrayBuffer()),
-          });
-          return Response.json(vr.body, { status: vr.status });
-        } catch (e) {
-          console.error("visitor upload failed:", vslug, (e && (e.stack || e.message)) || e);
-          return Response.json({ error: "couldn't store that just now" }, { status: 500 });
-        }
-      }
+    // Its data, its sign-in, its connections and hooks, its error reports, its
+    // checkout and its visitors' uploads: all answered by the site's own Worker
+    // with its own database login and its owner's own keys. The platform only
+    // passes the call on. A site whose script cannot answer (one published
+    // before it could) is told to republish; nothing of it is done here.
+    {
+      const vm = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/(?:data\/[a-z0-9_][a-z0-9\/._-]{0,79}|api\/[a-z][a-z0-9_-]{0,40}|hook\/[a-z][a-z0-9_-]{0,40}|auth\/[a-z0-9][a-z0-9\/._-]{0,79}|error|checkout|uploads|turnstile)$/i);
+      if (vm) return siteAnswers(env, request, vm[1].toLowerCase());
     }
 
 
