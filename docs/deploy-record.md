@@ -1738,7 +1738,9 @@ A fast-forward of 1 commit from `d3af83ffa`. Required CI green on the candidate
 nothing in flight. Image predicted: SiteBuildContainer `51b82d120c34280c` →
 `054fb4d51c826ecc` (250 inputs), AppBuildContainer `65022ce71e3d7274`
 unchanged. Run 40749068840 green, 18:52–18:55 UTC; the image step took 2 min 16 s
-(a build). Deployed, not runtime-confirmed.
+(a build). **Runtime-confirmed by canary run 171** (19:02 UTC, free, from `main`):
+every preflight check passed with the expected deploy `4a36d69fe` and image
+`054fb4d51c826ecc` required; nothing charged (balance 603).
 
 ## Deploy 2283 — 2026-10-28 03:37 UTC (`363b13aa9`)
 
