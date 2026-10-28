@@ -8,6 +8,7 @@
 - Every page and every visitor call was answered by **the site's own Worker** (the `own` mark on each answer).
 - Pay £15 deposit went to the site's own checkout, which said "this shop hasn't finished setting up payments yet". That's right: the site has no Stripe key. No payment, no booking row, no email.
 - **Cost 65 credits** (172 → 107 on the A account), above the 11–45 measured before. Publishing was free.
+- **You accepted it** (2026-10-28: "everything worked fine").
 - Next: add a Stripe key (test mode) in Kiln Lane's Payments panel, and I'll show the whole paid booking path. Record: `docs/history/2026-10-28-kiln-lane-pottery.md`.
 
 ## 2026-10-28 — the front door sends visitors straight to each site's Worker
