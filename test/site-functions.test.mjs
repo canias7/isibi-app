@@ -49,9 +49,14 @@ test("SF4 the route runs the module, marks it own, and withholds an answer carry
   const ok = await siteFunction(req("ask"), env, url("ask"), "kiln", mods);
   assert.equal(ok.status, 200);
   assert.equal(ok.headers.get("x-site-data"), "own");
+  // A text answer is streamed and stopped at the key; never delivered.
   const leak = await siteFunction(req("leak"), env, url("leak"), "kiln", mods);
-  assert.equal(leak.status, 500);
-  assert.ok(!(await leak.text()).includes(KEY));
+  let leaked = "";
+  try { leaked = await leak.text(); } catch { /* stopped */ }
+  assert.ok(!leaked.includes(KEY));
+  const binLeak = { "/src/routes/-parts/server-bin.tsx": { hosts: [], default: async () => new Response(new TextEncoder().encode(KEY), { headers: { "content-type": "application/octet-stream" } }) } };
+  const bin = await siteFunction(req("bin"), env, url("bin"), "kiln", binLeak);
+  assert.equal(bin.status, 500, "anything not text is read whole and withheld");
   const boom = await siteFunction(req("boom"), env, url("boom"), "kiln", mods);
   assert.ok(!(await boom.text()).includes(KEY));
   assert.equal((await siteFunction(req("none"), env, url("none"), "kiln", mods)).status, 404);
@@ -141,4 +146,72 @@ test("SF12 the fix loop: a refused part goes back once, kept and charged only if
   assert.match(body, /send: deps\.compileRepair/);
   assert.match(body, /if \(next && checkServerPart\(next\)\.ok\) \{ fixedParts\.push\(next\); if \(res\.usage\) repairUsage\.push\(res\.usage\); \}/);
   assert.match(body, /deps\.compileRepairRoom/);
+});
+
+function memBucket() {
+  const m = new Map();
+  return {
+    m,
+    async get(k) { const v = m.get(k); return v ? { body: new Response(v.body).body, httpMetadata: v.meta, size: String(v.body).length } : null; },
+    async put(k, body, o = {}) { m.set(k, { body: typeof body === "string" ? body : new TextDecoder().decode(body), meta: o.httpMetadata }); },
+    async delete(k) { m.delete(k); },
+    async list({ prefix }) { return { objects: [...m.keys()].filter((k) => k.startsWith(prefix)).map((key) => ({ key, size: 1 })), truncated: false }; },
+  };
+}
+
+test("SF13 a text answer streams, and stops at a key even split across pieces", async () => {
+  const { siteFunction } = await loadTemplate("lib/site-functions.ts");
+  const stream = (pieces) => new ReadableStream({ start(c) { for (const p of pieces) c.enqueue(new TextEncoder().encode(p)); c.close(); } });
+  const mods = {
+    "/src/routes/-parts/server-chat.tsx": { hosts: [], default: async () => new Response(stream(["Hello, ", "the class ", "is at 10."]), { headers: { "content-type": "text/event-stream" } }) },
+    "/src/routes/-parts/server-sneak.tsx": { hosts: [], default: async () => new Response(stream(["ok ", KEY.slice(0, 9), KEY.slice(9), " bye"]), { headers: { "content-type": "text/plain" } }) },
+  };
+  const ok = await siteFunction(req("chat"), env, url("chat"), "kiln", mods);
+  assert.equal(ok.headers.get("x-site-data"), "own");
+  assert.equal(await ok.text(), "Hello, the class is at 10.");
+  const sneak = await siteFunction(req("sneak"), env, url("sneak"), "kiln", mods);
+  let got = "";
+  try { const r = sneak.body.getReader(); for (;;) { const { done, value } = await r.read(); if (done) break; got += new TextDecoder().decode(value); } } catch { /* stopped */ }
+  assert.ok(!got.includes(KEY), "the key never reached the visitor");
+});
+
+test("SF14 the site's own files: put, get, list, delete, under fn-files/ only; bad names refused", async () => {
+  const { makeSite } = await loadTemplate("lib/site-functions.ts");
+  const B = memBucket();
+  const site = makeSite({ ...env, OWN_BUCKET: "1", SITES: B }, "kiln", []);
+  await site.files.put("invoices/7.txt", "Invoice 7", "text/plain");
+  assert.deepEqual([...B.m.keys()], ["fn-files/invoices/7.txt"]);
+  const r = await site.files.get("invoices/7.txt");
+  assert.equal(r.headers.get("content-type"), "text/plain");
+  assert.equal(await r.text(), "Invoice 7");
+  assert.deepEqual(await site.files.list("invoices"), [{ name: "invoices/7.txt", size: 1 }]);
+  await site.files.delete("invoices/7.txt");
+  assert.equal(await site.files.get("invoices/7.txt"), null);
+  await assert.rejects(site.files.put("../x", "a"), /file name/);
+  await assert.rejects(site.files.put("/etc/x", "a"), /file name/);
+  await assert.rejects(makeSite(env, "kiln", []).files.put("a.txt", "a"), /no file storage/);
+});
+
+test("SF15 exact schedules: once per due time, caught up once, first wake only starts the count", async () => {
+  const { parseCron, cronMatches, cronDue, fireSchedules } = await loadTemplate("lib/site-functions.ts");
+  const mon9 = parseCron("cron:TZ=Europe/London 0 9 * * 1");
+  assert.ok(mon9);
+  assert.equal(cronMatches(mon9, Date.parse("2026-11-02T09:00:00Z")), true, "Monday 9:00 London is 9:00 UTC in November");
+  assert.equal(cronMatches(mon9, Date.parse("2026-10-19T08:00:00Z")), true, "8:00 UTC while London is on summer time");
+  assert.equal(cronMatches(mon9, Date.parse("2026-11-02T08:00:00Z")), false);
+  assert.equal(cronMatches(parseCron("cron:0 9,17 * * *"), Date.parse("2026-11-02T17:00:00Z")), true);
+  assert.equal(cronMatches(parseCron("cron:*/15 * * * *"), Date.parse("2026-11-02T17:30:00Z")), true);
+  assert.equal(cronMatches(parseCron("cron:*/15 * * * *"), Date.parse("2026-11-02T17:31:00Z")), false);
+  assert.equal(parseCron("cron:hello"), null);
+  assert.equal(cronDue(mon9, Date.parse("2026-11-02T08:55:00Z"), Date.parse("2026-11-02T09:04:00Z")), true);
+  assert.equal(cronDue(mon9, Date.parse("2026-11-02T09:01:00Z"), Date.parse("2026-11-02T09:06:00Z")), false);
+  const ran = [];
+  const B = memBucket();
+  const e = { ...env, OWN_BUCKET: "1", SITES: B };
+  const mods = { "/src/routes/-parts/server-weekly.tsx": { hosts: [], on: ["cron:0 9 * * 1"], default: async (r) => { ran.push((await r.json()).event); return new Response(""); } } };
+  assert.equal(await fireSchedules(e, "kiln", Date.parse("2026-11-02T08:50:00Z"), mods), 0, "first wake starts the count");
+  assert.equal(await fireSchedules(e, "kiln", Date.parse("2026-11-02T08:58:00Z"), mods), 0);
+  assert.equal(await fireSchedules(e, "kiln", Date.parse("2026-11-02T09:02:00Z"), mods), 1, "due");
+  assert.equal(await fireSchedules(e, "kiln", Date.parse("2026-11-02T09:04:00Z"), mods), 0, "never twice");
+  assert.deepEqual(ran, ["cron:0 9 * * 1"]);
 });

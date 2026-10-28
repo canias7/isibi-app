@@ -53,8 +53,11 @@ export function checkServerPart(part) {
   }
   const onDecl = src.match(/export\s+const\s+on\s*(?::[^=]+)?=\s*\[([^\]]*)\]/);
   if (onDecl) {
-    for (const it of onDecl[1].split(",").map((x) => x.trim()).filter(Boolean)) {
-      if (!/^["'](?:(?:created|updated|deleted|paid):[a-z][a-z0-9_]{0,62}|tick)["']$/.test(it)) reasons.push("hooks an event that does not exist: " + it.slice(0, 60) + " (use created:<table>, updated:<table>, deleted:<table>, paid:<table> or tick)");
+    // QUOTED ITEMS, read as quoted (a schedule like "cron:0 9,17 * * *" has commas).
+    const inner = onDecl[1];
+    if (inner.replace(/(["'])[^"']*\1/g, "").replace(/[\s,]/g, "")) reasons.push("declares `on` with something other than quoted events");
+    for (const it of inner.match(/(["'])[^"']*\1/g) || []) {
+      if (!/^["'](?:(?:created|updated|deleted|paid):[a-z][a-z0-9_]{0,62}|tick|cron:(?:TZ=[A-Za-z_]+(?:\/[A-Za-z_+-]+){0,2}\s+)?[0-9*,/-]+(?:\s+[0-9*,/-]+){4})["']$/.test(it)) reasons.push("hooks an event that does not exist: " + it.slice(0, 60) + " (use created:<table>, updated:<table>, deleted:<table>, paid:<table>, tick, or cron:<minute> <hour> <day> <month> <weekday>)");
     }
   } else if (/export\s+const\s+on\b/.test(code)) reasons.push("declares `on` as something other than a plain list of events");
   for (const m of code.matchAll(/^\s*import\s+(?!type\b)[^;]*?from\s*["'][^"']*["']/gm)) reasons.push("imports code (`" + m[0].trim().slice(0, 60) + "`); server code imports nothing but types");

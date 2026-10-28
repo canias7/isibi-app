@@ -1959,7 +1959,14 @@ export const SITE_PAGES_TOOL = {
           "\"paid:<table>\" (a payment for that row went through) or \"tick\" (every few minutes). It then receives a " +
           "POST whose JSON is { event, table, row }, and visitors cannot call it (add `export const visitors = true` " +
           "only if a page must also call it). E.g. text the owner on each booking: on = [\"created:bookings\"], " +
-          "hosts = [\"api.twilio.com\"].\n" +
+          "hosts = [\"api.twilio.com\"]. AT AN EXACT TIME: \"cron:<minute> <hour> <day> <month> <weekday>\", optionally " +
+          "with a zone, e.g. \"cron:TZ=Europe/London 0 9 * * 1\" (Mondays at 9:00 London); it runs within a few minutes of it.\n" +
+          "LIVE ANSWERS: return a streaming text Response (e.g. pass through the AI's own stream with stream: true, or " +
+          "new Response(readable, { headers: { \"content-type\": \"text/event-stream\" } })) and the visitor sees it as it " +
+          "is written; the page reads it with response.body.getReader().\n" +
+          "FILES: site.files.put(name, body, contentType), site.files.get(name) (a Response, or null), " +
+          "site.files.list(prefix), site.files.delete(name) — the site's own storage, up to 25 MB a file " +
+          "(e.g. save a generated invoice, then return site.files.get(name) to download it).\n" +
           "Leave this out when the site needs no server code, which is most sites.",
       },
       remove: {

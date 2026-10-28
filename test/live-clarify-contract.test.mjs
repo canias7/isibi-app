@@ -720,8 +720,9 @@ test("THE FIRST BUILD'S PAGE WRITER IS UNCHANGED, BYTE FOR BYTE — and so is a 
   // the font, prose and checklist work all move the page writer's request.
   // RE-PINNED 2026-10-28 (owner: "the model should be able to write everything"): the
   // page writer's tool gained the `server` field (the site's own server code, its
-  // rules, a chatbot example and the hooks); nothing else in the request moved.
-  const pinned = { build: "bd2cb19d652a5800", revise: "8714931426edde70", addon: "82b30987b76eedf8" };
+  // rules, a chatbot example and the hooks; then live answers, files and exact
+  // schedules); nothing else in the request moved.
+  const pinned = { build: "f03d9495a9a3f90c", revise: "99437c2195fb1745", addon: "90bdcee6534d6cc6" };
   assert.equal(h16(pagesRequest({ brief: "A bakery in Leeds", spec: SPEC, brand: "Fold Lane", model: "test-model" })), pinned.build, "the first build's page request changed");
   assert.equal(h16(pagesRequest({ brief: "Make it warmer", spec: SPEC, brand: "Fold Lane", model: "test-model", priorPages: prior, mode: "revise" })), pinned.revise, "a revise's page request changed");
   // THE ADD-ON'S WRITER MAY ASK (2026-10-11, the generality round: the last
