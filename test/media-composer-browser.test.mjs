@@ -28,6 +28,7 @@ import path from "node:path";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { withWire, envFor } from "./fixtures/live-ask.mjs";
 import { mediaBucket } from "./fixtures/r2-media.mjs";
+import { siteWorkersServingFiles } from "./fixtures/site-own-files.mjs";
 
 const PUB = new URL("../public/", import.meta.url).pathname;
 const EXE = "/opt/pw-browsers/chromium";
@@ -271,7 +272,10 @@ test("DFU5 UNDER DRAFT-FIRST, IN THE PAGE: a video attached in the composer; in 
   const store = mediaBucket();
   // A LIVE SITE: its pointer, so library changes are held.
   await store.put("current/" + SLUG + ".json", JSON.stringify({ version: "01790000000001-aaaaaa", build: "b0", parent: "", job: null, activatedAt: "2026-10-15T00:00:00.000Z" }));
-  const env = { ...envFor(store), DRAFT_FIRST: "on" };
+  // THE LIVE ADDRESS'S FILES ARE THE SITE'S OWN WORKER'S (2026-10-28: the
+  // site's own Worker): the live script stand-in serves them from the site's
+  // bucket through the template's real handler.
+  const env = { ...envFor(store), DRAFT_FIRST: "on", SITE_WORKERS: await siteWorkersServingFiles(store) };
   const seen = [];
   const gate = { loseComplete: 0, darkStatus: false, onPart: null };
   const site = { id: SITE_ID, slug: SLUG, react: true, name: "Media Bakery", url: "https://" + SLUG + ".gofarther.app/", pages: [{ path: "/", name: "Home" }], msgs: [], updatedAt: Date.now(), createdAt: Date.now() };

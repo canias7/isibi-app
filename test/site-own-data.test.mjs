@@ -175,9 +175,10 @@ test("after a booking, the site emails its owner, confirms to the visitor and fi
     return new Response("{}", { status: 200 });
   };
   const store = new Map();
-  const bucket = { get: async (k) => (store.has(k) ? { text: async () => store.get(k) } : null), put: async (k, v) => { store.set(k, v); }, delete: async (k) => { store.delete(k); } };
+  const { memBucket } = await import("./fixtures/site-effects-drive.mjs");
+  const bucket = memBucket();
   const tables = [{ name: "bookings", access: "collect", notify: true, confirm: { to: "email", subject: "Thanks {name}", body: "See you soon" }, webhooks: ["created"] }];
-  const env = { APP_CONN: "postgresql://x_app:p@ep-1.neon.tech/db", OWNER_EMAIL: "owner@example.com", NOTIFY: "1", SITE_TABLES: JSON.stringify(tables), SITES: bucket,
+  const env = { APP_CONN: "postgresql://x_app:p@ep-1.neon.tech/db", OWNER_EMAIL: "owner@example.com", NOTIFY: "1", SITE_TABLES: JSON.stringify(tables), SITES: bucket, OWN_BUCKET: "1",
     RESEND_KEY: "re_owner", EMAIL_FROM: "hello@site.com", WEBHOOK_URL: "https://hooks.example/x", WEBHOOK_SECRET: "whs" };
   const waits = [];
   try {
@@ -194,7 +195,7 @@ test("after a booking, the site emails its owner, confirms to the visitor and fi
     waits.length = 0;
     await runSiteEffects(env, { waitUntil: (p) => waits.push(p) }, { slug: "ember-cart", method: "POST", path: "bookings", search: "", sent: '{"name":"Bo"}', body: "" });
     await Promise.all(waits);
-    assert.ok(store.has("effects/notify/ember-cart"));
+    assert.ok(bucket.map.has("effects/notify/ember-cart"));
     assert.ok(calls.filter(([u]) => u.includes("resend")).length - before <= 1, "at most the confirmation, not a second owner email");
   } finally { globalThis.fetch = real; }
 });
@@ -220,7 +221,8 @@ test("the site signs its visitors in with its own auth server, and keeps the ses
     const src = fs.readFileSync(new URL("../builder/lovable/template/src/server.ts", import.meta.url), "utf8");
     const a = src.indexOf("export async function ownAuth"), b = src.indexOf("\n}\n", a) + 3;
     const cookie = fs.readFileSync(new URL("../site-cookie.mjs", import.meta.url), "utf8");
-    const body = cookie + "\nconst SITE_SLUG = 'ember-cart';\n" + src.slice(a, b);
+    const lim = fs.readFileSync(new URL("../builder/lovable/template/src/lib/site-limit.ts", import.meta.url), "utf8").replace(/^export /gm, "");
+    const body = cookie + "\n" + lim + "\nconst SITE_SLUG = 'ember-cart';\n" + src.slice(a, b);
     const js = ts.transpileModule(body, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
     return import("data:text/javascript," + encodeURIComponent(js + "\n// a" + ++loads));
   });
@@ -381,7 +383,7 @@ test("Stripe's paid message is checked against the owner's secret, then the orde
 
 test("checkout and the site's Stripe messages are passed to the site (2026-10-28)", () => {
   assert.match(between("A VISITOR'S CALL TO A SITE IS THE SITE'S", "if (vm) return siteAnswers"), /checkout/);
-  assert.match(W, /A SITE'S OWN STRIPE MESSAGES[\s\S]{0,400}if \(wm\) return siteAnswers\(env, request, wm\[1\]\.toLowerCase\(\)\)/);
+  assert.match(W, /A SITE'S OWN STRIPE MESSAGES[\s\S]{0,600}const own = await ownDataRead\(env, request, wm\[1\]\.toLowerCase\(\)\);/);
   const v = W.slice(W.indexOf("async function siteReadVars("), W.indexOf("async function siteReadVars(") + 4000);
   assert.match(v, /SELECT name, cipher FROM _secrets/); // every key the site holds, Stripe's included
 });

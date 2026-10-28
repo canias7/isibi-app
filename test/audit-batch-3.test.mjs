@@ -8,6 +8,7 @@ import { saveDraftRecord, previousSidecar, heldMediaSource, heldStandIns, DRAFT_
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { withWire, envFor } from "./fixtures/live-ask.mjs";
 import { mediaBucket } from "./fixtures/r2-media.mjs";
+import { siteWorkersServingFiles } from "./fixtures/site-own-files.mjs";
 import { blockNetwork } from "./fixtures/no-network.mjs";
 import { MEDIA_PART_BYTES } from "../site-media.mjs";
 import { MANIFEST_FILE, SERVER_FILE } from "../site-builds.mjs";
@@ -171,7 +172,10 @@ test("B3-7 A10-2 THROUGH THE REAL MEDIA ROUTES — a held replacement's stand-in
   const wk = await loadWorker();
   const slug = "b3-standin";
   const store = mediaBucket();
-  const env = { ...envFor(store), SITE_WORKERS: { get: () => ({ fetch: async () => new Response("page") }) } };
+  // THE LIVE SITE'S FILES ARE ITS OWN WORKER'S (2026-10-28: the site's own
+  // Worker): the live script stand-in serves them from the site's bucket
+  // through the template's real handler.
+  const env = { ...envFor(store), SITE_WORKERS: await siteWorkersServingFiles(store) };
   await withWire({}, async () => {
     const one = fixture("tone.mp3"); const two = take(one, 0x5a); const three = take(one, 0x33);
     const first = await upload(wk, env, slug, one, "Welcome.mp3", { meta: { duration: 2 } });

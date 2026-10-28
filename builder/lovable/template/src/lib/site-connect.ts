@@ -11,6 +11,7 @@ import { missingRequired } from "./effects/site-api-shape.mjs";
 import { handleInbound } from "./effects/site-inbound.mjs";
 import { blockedReason } from "./effects/site-ssrf.mjs";
 import { siteSql } from "./site-effects";
+import { ownerKeys } from "./owner-keys";
 
 export type ConnectEnv = { APP_CONN?: string; SITE_TABLES?: string; SITE_SPEC?: string; [name: string]: unknown };
 const own = { "x-site-data": "own" };
@@ -19,11 +20,6 @@ const answer = (body: unknown, status = 200, extra: Record<string, string> = {})
 /** The site's schema as given at publish: its tables, its connections and its hooks. */
 function specOf(env: ConnectEnv): Record<string, unknown> | null {
   try { return JSON.parse(String(env.SITE_SPEC || "null")); } catch { return null; }
-}
-function secretsOf(env: ConnectEnv, names: string[]): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const n of names) { const v = env[n]; if (typeof v === "string" && v) out[n] = v; }
-  return out;
 }
 
 // Per-isolate guards and cache: the platform's own limits, kept here.
@@ -48,10 +44,9 @@ export async function siteApi(request: Request, env: ConnectEnv, url: URL, slug:
   const params = takeParams(api, url.searchParams);
   const miss = missingRequired(api, params);
   if (miss.length) return answer({ error: "this connection needs " + miss.join(", "), missing: miss }, 400);
-  const names: string[] = [];
-  for (const k of Object.keys(env)) if (/^[A-Z][A-Z0-9_]{0,63}$/.test(k)) names.push(k);
   const out = await callApi({
-    secrets: secretsOf(env, names),
+    // The OWNER's keys only: never the site's database login or its addresses.
+    secrets: ownerKeys(env),
     fetch: (u: string, init: RequestInit) => fetch(u, init),
     blockedReason: (u: string) => blockedReason(u),
     cacheGet: async (k: string) => { const e = cache.get(k); return e && e.until > Date.now() ? e.v : null; },
@@ -67,7 +62,7 @@ export async function siteHook(request: Request, env: ConnectEnv, url: URL, slug
   const conn = env.APP_CONN as string;
   const out = await handleInbound({
     loadSchema: async () => specOf(env),
-    loadSecrets: async (names: string[]) => secretsOf(env, names),
+    loadSecrets: async (names: string[]) => ownerKeys(env, names),
     callFn: async (name: string, payload: unknown) => {
       if (!/^[a-z][a-z0-9_]{0,40}$/.test(String(name))) return null;
       const rows = await siteSql(conn, `SELECT "${name}"(?::jsonb) AS out`, [JSON.stringify(payload)]);

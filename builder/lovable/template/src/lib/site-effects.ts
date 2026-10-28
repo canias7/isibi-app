@@ -23,13 +23,13 @@ import { blockedReason } from "./effects/site-ssrf.mjs";
 import { postProviderEmail, postProviderSms } from "./effects/site-providers.mjs";
 import { queueFailed, type RetryEnv } from "./site-webhook-retry";
 
-type Obj = { text(): Promise<string> };
+type Obj = { text(): Promise<string>; etag?: string };
 export type EffectEnv = {
   APP_CONN?: string;
   OWNER_EMAIL?: string;
   NOTIFY?: string;
   SITE_TABLES?: string;
-  SITES?: { get(k: string): Promise<Obj | null>; put(k: string, v: string): Promise<unknown>; delete?(k: string): Promise<unknown> };
+  SITES?: { get(k: string): Promise<Obj | null>; put(k: string, v: string, o?: unknown): Promise<unknown>; delete?(k: string): Promise<unknown> };
   [name: string]: unknown;
 };
 type Ctx = { waitUntil(p: Promise<unknown>): void };
@@ -79,6 +79,8 @@ export async function runSiteEffects(env: EffectEnv, ctx: Ctx | undefined, { slu
 export function runEffectsFor(env: EffectEnv, ctx: Ctx | undefined, { slug, def, table, action, row, submission }:
   { slug: string; def: Record<string, unknown>; table: string; action: string; row: unknown; submission: boolean }): string[] {
   const conn = typeof env.APP_CONN === "string" ? env.APP_CONN : "";
+  // The site's own bucket only: a script on the shared one keeps no memory.
+  const B = env.OWN_BUCKET === "1" ? env.SITES : undefined;
   const later = (p: Promise<unknown>) => { const q = p.catch(() => {}); if (ctx) ctx.waitUntil(q); };
   const callFn = async (name: string, rowId: unknown) => {
     if (rowId == null || !conn || !/^[a-z][a-z0-9_]{0,40}$/.test(String(name))) return null;
@@ -89,24 +91,60 @@ export function runEffectsFor(env: EffectEnv, ctx: Ctx | undefined, { slug, def,
   // Ten-minute "already told this address" memory, in the site's own bucket.
   const seen = (kind: string) => ({
     recentlySent: async (s: string, to: string) => {
-      try { const o = await env.SITES?.get("effects/" + kind + "/" + s + "/" + to); return !!o && Date.now() - Number(await o.text()) < 600_000; } catch { return false; }
+      try { const o = await B?.get("effects/" + kind + "/" + s + "/" + to); return !!o && Date.now() - Number(await o.text()) < 600_000; } catch { return false; }
     },
-    markSent: async (s: string, to: string) => { try { await env.SITES?.put("effects/" + kind + "/" + s + "/" + to, String(Date.now())); } catch { /* best effort */ } },
+    markSent: async (s: string, to: string) => { try { await B?.put("effects/" + kind + "/" + s + "/" + to, String(Date.now())); } catch { /* best effort */ } },
   });
 
   return runRowEffects({
     notify: (r: unknown) => later(notifyOwner({
-      // The cooldown: one email per five minutes, remembered in the site's own bucket.
+      // THE COOLDOWN: one email per five minutes, claimed ATOMICALLY in the
+      // site's own bucket — a conditional write, so two submissions at once
+      // send one email, not two. The release removes only its own stamp.
       claim: async (s: string) => {
-        if (env.NOTIFY !== "1") return { ok: false };
+        if (env.NOTIFY !== "1" || !B) return { ok: false };
         const key = "effects/notify/" + s;
-        const prior = await env.SITES?.get(key).catch(() => null);
-        if (prior && Date.now() - Number(await prior.text()) < COOLDOWN_MS) return { ok: false };
         const at = String(Date.now());
-        await env.SITES?.put(key, at);
-        return { ok: true, owner_uid: "owner", at };
+        const prior = await B.get(key).catch(() => null);
+        if (prior) {
+          if (Date.now() - Number(await prior.text()) < COOLDOWN_MS) return { ok: false };
+          const won = prior.etag ? await B.put(key, at, { onlyIf: { etagMatches: prior.etag } }).catch(() => null) : null;
+          return won ? { ok: true, owner_uid: "owner", at } : { ok: false };
+        }
+        const won = await B.put(key, at, { onlyIf: { etagDoesNotMatch: "*" } }).catch(() => null);
+        return won ? { ok: true, owner_uid: "owner", at } : { ok: false };
       },
-      unclaim: async (s: string) => { try { await env.SITES?.delete?.("effects/notify/" + s); } catch { /* lapses */ } },
+      unclaim: async (s: string, claimed?: { at?: string }) => {
+        try {
+          const key = "effects/notify/" + s;
+          const cur = await B?.get(key);
+          const at = claimed && claimed.at;
+          if (cur && at && (await cur.text()) === String(at)) await B?.delete?.(key);
+        } catch { /* lapses */ }
+      },
+      // THE MISSED-NOTIFICATION COUNT (owner, 2026-10-23, A12-9): a notification
+      // that could not go is counted, and the next one that does says how many.
+      missed: {
+        add: async (s: string, n: number) => {
+          const key = "effects/missed/" + s;
+          for (let i = 0; i < 3; i++) {
+            const cur = await B?.get(key).catch(() => null);
+            const next = String((Number(cur ? await cur.text() : 0) || 0) + n);
+            const ok = cur && cur.etag
+              ? await B?.put(key, next, { onlyIf: { etagMatches: cur.etag } }).catch(() => null)
+              : await B?.put(key, next, { onlyIf: { etagDoesNotMatch: "*" } }).catch(() => null);
+            if (ok) return;
+          }
+        },
+        take: async (s: string) => {
+          const key = "effects/missed/" + s;
+          const cur = await B?.get(key).catch(() => null);
+          if (!cur) return 0;
+          const n = Number(await cur.text()) || 0;
+          const gone = cur.etag ? await B?.put(key, "0", { onlyIf: { etagMatches: cur.etag } }).catch(() => null) : null;
+          return gone ? n : 0;
+        },
+      },
       emailOf: async () => (typeof env.OWNER_EMAIL === "string" && env.OWNER_EMAIL) || null,
       ready: async () => {
         const secrets = secretsOf(env, MAIL_NAMES);

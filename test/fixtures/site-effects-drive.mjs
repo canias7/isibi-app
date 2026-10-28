@@ -67,7 +67,8 @@ export const APP_CONN = "postgresql://site_app:pw@ep-1.neon.tech/db";
 export async function driveWrite({ tables, env = {}, method = "POST", path, sent = "", body = "", search = "", sql, answer, slug = "barber" }) {
   const { runSiteEffects } = await loadTemplate("lib/site-effects.ts");
   const bucket = env.SITES || memBucket();
-  const e = { APP_CONN, SITE_TABLES: JSON.stringify(tables), SITES: bucket, ...env };
+  // A site on its own bucket (the only place it keeps its cooldowns).
+  const e = { APP_CONN, SITE_TABLES: JSON.stringify(tables), SITES: bucket, OWN_BUCKET: "1", ...env };
   const c = heldCtx();
   const r = await withFetch({ sql, answer }, async () => {
     const fired = await runSiteEffects(e, c.ctx, { slug, method, path: path || tables[0].name, search, sent, body });

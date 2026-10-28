@@ -12,6 +12,7 @@ import { recipient, pickProvider } from "./effects/site-mail.mjs";
 import { pickSmsProvider, toE164 } from "./effects/site-sms.mjs";
 import { postProviderEmail, postProviderSms } from "./effects/site-providers.mjs";
 import { siteSql } from "./site-sql";
+import { ownerKeys } from "./owner-keys";
 
 export type JobEnv = { APP_CONN?: string; SITE_SPEC?: string; [name: string]: unknown };
 /** Set only by the platform's own clock and panel; stripped from every request it forwards. */
@@ -19,11 +20,7 @@ export const JOB_HEADER = "x-gf-site-job";
 const own = { "x-site-data": "own" };
 type Row = { name: string; spec: { fn?: string; on?: string } | string; schedule_minutes?: number | null; enabled?: boolean; last_run?: string | null; last_result?: string | null; updated_at?: string | null };
 
-function secrets(env: JobEnv): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(env)) if (/^[A-Z][A-Z0-9_]{0,63}$/.test(k) && typeof v === "string" && v) out[k] = v;
-  return out;
-}
+const secrets = (env: JobEnv) => ownerKeys(env);
 const specOf = (r: Row) => (typeof r.spec === "string" ? (() => { try { return JSON.parse(r.spec as string); } catch { return {}; } })() : r.spec || {});
 
 /** The jobs the site holds, as the scheduler reads them. */

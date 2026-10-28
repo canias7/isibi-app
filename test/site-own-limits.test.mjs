@@ -67,3 +67,50 @@ test("Stripe is told 200 when a site cannot take its message, never a 5xx it wou
   assert.match(block, /return own \|\| Response\.json\(\{ ok: true, ignored:/);
   assert.doesNotMatch(block, /siteAnswers\(/);
 });
+
+test("a site's connection is filled from the OWNER's keys only — never its database login or addresses", async () => {
+  const { ownerKeys, PLATFORM_GIVEN } = await loadTemplate("lib/owner-keys.ts");
+  const env = { APP_CONN: "postgresql://x_app:SECRET@ep/db", DATA_API_BASE: "https://d", SITE_SPEC: "{}", WEATHER_KEY: "wk", lower: "x" };
+  assert.deepEqual(ownerKeys(env), { WEATHER_KEY: "wk" });
+  assert.deepEqual(ownerKeys(env, ["APP_CONN", "WEATHER_KEY"]), { WEATHER_KEY: "wk" });
+  for (const k of ["APP_CONN", "DATA_API_BASE", "AUTH_BASE", "SITE_TABLES", "SITE_SPEC", "OWNER_EMAIL"]) assert.ok(PLATFORM_GIVEN.has(k), k);
+  // Driven: a connection that asks for {{APP_CONN}} never sends it.
+  const { siteApi } = await loadTemplate("lib/site-connect.ts");
+  const real = globalThis.fetch;
+  const asked = [];
+  globalThis.fetch = async (u) => { asked.push(String(u)); return Response.json({ ok: 1 }); };
+  try {
+    const spec = { apis: [{ name: "leak", url: "https://api.example.com/?c={{APP_CONN}}", method: "GET" }] };
+    const u = new URL("https://x.gofarther.app/api/db/x/api/leak");
+    await siteApi(new Request(u), { ...env, SITE_SPEC: JSON.stringify(spec) }, u, "x");
+    assert.ok(asked.every((a) => !a.includes("SECRET")), "the site's database login was sent out: " + asked.join(" "));
+  } finally { globalThis.fetch = real; }
+});
+
+test("two submissions at once send ONE owner email; a missed one is counted and told next time", async () => {
+  const { driveWrite, memBucket } = await import("./fixtures/site-effects-drive.mjs");
+  const tables = [{ name: "bookings", access: "collect", notify: true }];
+  const B = memBucket();
+  const env = { OWNER_EMAIL: "owner@x.co", NOTIFY: "1", RESEND_KEY: "re_k", EMAIL_FROM: "shop@x.co", SITES: B };
+  const sends = (r) => r.calls.filter((c) => /resend/.test(c.url)).length;
+  const a = await driveWrite({ tables, env, sent: '{"name":"A"}', body: '[{"id":1,"name":"A"}]' });
+  const b = await driveWrite({ tables, env, sent: '{"name":"B"}', body: '[{"id":2,"name":"B"}]' });
+  assert.equal(sends(a) + sends(b), 1, "two emails for one cooldown window");
+  // THE CLAIM IS A CONDITIONAL WRITE: of two claimers that both read "nothing
+  // there", the bucket lets exactly one write.
+  const C = memBucket();
+  const tries = await Promise.all([1, 2].map(() => C.put("effects/notify/x", "1", { onlyIf: { etagDoesNotMatch: "*" } })));
+  assert.equal(tries.filter(Boolean).length, 1);
+  const effects = fs.readFileSync(new URL("../builder/lovable/template/src/lib/site-effects.ts", import.meta.url), "utf8");
+  assert.match(effects, /B\.put\(key, at, \{ onlyIf: \{ etagDoesNotMatch: "\*" \} \}\)/, "the claim is not conditional");
+  // The one held back by the window is counted (the next email says so)…
+  assert.equal(B.map.get("effects/missed/barber").v, "1", "the held-back submission was not counted");
+  // …and so is one that cannot go (no key), in the site's own bucket…
+  B.map.delete("effects/notify/barber");
+  await driveWrite({ tables, env: { ...env, RESEND_KEY: "" }, sent: '{"name":"C"}', body: '[{"id":3,"name":"C"}]' });
+  assert.equal(B.map.get("effects/missed/barber").v, "2", "a missed notification was not counted");
+  // …and the next one that goes takes the count.
+  B.map.delete("effects/notify/barber");
+  await driveWrite({ tables, env, sent: '{"name":"D"}', body: '[{"id":4,"name":"D"}]' });
+  assert.equal(B.map.get("effects/missed/barber").v, "0", "the count was not taken by the next email");
+});
