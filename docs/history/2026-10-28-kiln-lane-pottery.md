@@ -69,6 +69,11 @@ Publishing and the visitor test cost nothing.
   whole path.
 - The two pages without their own `head`, and the part's type error, go to the
   backlog.
+- **The type error is the model's, not ours** (read from the published source):
+  `band-5-two`'s placeholder rows give `id` but omit `created_at`, which the
+  kit's `Row` type (`src/lib/rows.ts`) requires. It shows only before the real
+  rows load, so visitors are unaffected. The owner: "If the ai made the mistake
+  is fine" (2026-10-28).
 
 ## Video
 
