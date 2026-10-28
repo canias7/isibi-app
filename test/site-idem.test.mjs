@@ -153,7 +153,9 @@ async function loadOwnDataWrite() {
   const src = fs.readFileSync(new URL("../builder/lovable/template/src/server.ts", import.meta.url), "utf8");
   const part = between(src, "let anonTok = \"\";", "\n// ── THIS SITE SIGNS ITS OWN VISITORS IN", "ownDataWrite and its helpers");
   assert.match(part, /export async function ownDataWrite\(/);
-  const body = "const SITE_SLUG = 'ember-cart';\nconst runSiteEffects = (...a) => globalThis.__siteEffects(...a);\n" + part;
+  // The site's own limiter (lib/site-limit.ts), real, beside it.
+  const lim = fs.readFileSync(new URL("../builder/lovable/template/src/lib/site-limit.ts", import.meta.url), "utf8").replace(/^export /gm, "");
+  const body = "const SITE_SLUG = 'ember-cart';\nconst runSiteEffects = (...a) => globalThis.__siteEffects(...a);\n" + lim + "\n" + part;
   const js = ts.transpileModule(body, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
   return (await import("data:text/javascript," + encodeURIComponent(js + "\n// " + ++serverLoads))).ownDataWrite;
 }

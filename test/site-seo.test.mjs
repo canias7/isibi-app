@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 // The search-engine surface: sitemap, robots, the route manifest, redirects,
 // and the honest 404 (site-seo.mjs + the Worker's publish and serve wiring).
 //
@@ -511,8 +512,9 @@ test("THE MANIFEST CAN NEVER BE NARROWER THAN THE APP'S OWN ROUTES", () => {
 
 test("the 404 never counts as a page view", () => {
   // Junk addresses counted as traffic is the analytics half of the soft-404.
-  assert.match(worker, /request\.method === "GET" && status === 200 && ctype\.startsWith\("text\/html"\)\) logSiteHit/,
-    "the hit log records 404s as page views again");
+  // (2026-10-28: the site's own Worker counts its visits, `countVisit`.)
+  const tel = readFileSync(new URL("../builder/lovable/template/src/lib/site-telemetry.ts", import.meta.url), "utf8");
+  assert.match(tel, /request\.method !== "GET" \|\| res\.status !== 200\) return;/, "the hit log records 404s as page views again");
 });
 
 // ── The template's branded 404 ──────────────────────────────────────────────

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 // Published versions, and rolling one back.
 //
 // Every side effect is injected, so all of this runs with no R2 and no Worker.
@@ -795,8 +796,9 @@ test("an extensionless path falls back to the app shell, and an asset never does
   // asserts (the repo's own recurring window bug).
   const servedAt = w.indexOf("let served = obj.body", miss);
   assert.ok(servedAt > miss, "the response assembly moved — the log window has no end");
-  assert.match(w.slice(miss, servedAt), /logSiteHit\(env, ctx, slug, "\/" \+ rest, request\)/,
-    "the hit log stopped recording the path it was served");
+  // (2026-10-28: the site's own Worker counts the path it served, `countVisit`.)
+  const tel = readFileSync(new URL("../builder/lovable/template/src/lib/site-telemetry.ts", import.meta.url), "utf8");
+  assert.match(tel, /\(url\.pathname \|\| "\/"\)\.slice\(0, 200\)/, "the hit log stopped recording the path it was served");
 });
 
 /* ── the script that serves a version ───────────────────────────────────── */
