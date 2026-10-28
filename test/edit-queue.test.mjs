@@ -332,7 +332,7 @@ test("the consumer cannot throw out of the queue handler", () => {
 
 test("the publish gate precedes every R2 write in the spine", () => {
   const spine = CODE.slice(at(CODE, "async function recompileAndPublish", "spine"),
-                           at(CODE, "async function siteRedirectFor", "spine end"));
+                           at(CODE, "async function siteOgImage", "spine end"));
   const gate = spine.indexOf("edit_may_publish");
   const stage = spine.indexOf("stageBuild(buildDeps(env), {");
   const activate = spine.indexOf("activateBuild(adeps, {");
@@ -453,7 +453,7 @@ test("every async mechanism is reached only through a job that may be null", () 
   // call had not moved, it had simply become unreachable. So the condition
   // itself is read, and a disabled branch is what this catches.
   const spine = CODE.slice(at(CODE, "async function recompileAndPublish", "spine"),
-                           at(CODE, "async function siteRedirectFor", "spine end"));
+                           at(CODE, "async function siteOgImage", "spine end"));
   const rpcs = [...spine.matchAll(/editRpc\(env, "edit_/g)].map((m) => m.index);
   assert.ok(rpcs.length >= 3, `only ${rpcs.length} async mechanisms found in the spine`);
   for (const i of rpcs) {
@@ -522,7 +522,7 @@ test("an ok answer that published nothing is finalized, not left to be lost", ()
 // just compiled. The customer was told it had not compiled.
 test("a rung that reserved nothing is marked exempt before the gate, and the gate still runs", () => {
   const spine = CODE.slice(at(CODE, "async function recompileAndPublish", "spine"),
-                           at(CODE, "async function siteRedirectFor", "spine end"));
+                           at(CODE, "async function siteOgImage", "spine end"));
   const exempt = spine.indexOf("edit_exempt");
   const gate = spine.indexOf("edit_may_publish");
   assert.ok(exempt > 0, "the spine never exempts a free rung");

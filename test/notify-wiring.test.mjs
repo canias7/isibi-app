@@ -1,92 +1,44 @@
 // Does anything actually CALL the thing that emails the owner?
 //
-// WHY THIS EXISTS. `site-notify.mjs` is 18 tests of correct logic — the cooldown
-// claimed atomically in the database so many isolates send one email, the escaped
-// HTML, the `collect`-only rule — and after `site-data.mjs` was deleted on
-// 2026-07-30 it had **zero callers**. Every test passed. A barber shop took a
-// booking and nobody was told.
+// WHY THIS EXISTS. `site-notify.mjs` had correct logic and, after
+// `site-data.mjs` was deleted on 2026-07-30, zero callers: every test passed and
+// a barber shop took a booking nobody was told about. So the assertion is
+// REACHABILITY, not behaviour.
 //
-// That is this repo's signature failure, and its own note about the fix was
-// wrong in an instructive way: it said re-wiring needed "a Postgres trigger
-// writing to a queue table plus the existing 2-minute cron, because there is no
-// `http` extension to call out from Neon". That assumed the Worker had left the
-// write path. It had not — `proxySiteService` forwards every insert a published
-// site makes, so the hook is one branch.
-//
-// So the assertion is REACHABILITY, not behaviour: the behaviour was never the
-// problem.
+// 2026-10-28: the write path is the SITE's own Worker. A visitor's save goes
+// through `ownDataWrite` in the site template, which runs the follow-ups
+// (`runSiteEffects` → `runEffectsFor` → `notifyOwner`) after a successful
+// write, detached, from the table's own settings. The platform's copy is gone.
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { shouldNotify } from "../site-notify.mjs";
 
+const T = (p) => fs.readFileSync(new URL("../builder/lovable/template/src/" + p, import.meta.url), "utf8");
+const server = T("server.ts");
+const effects = T("lib/site-effects.ts");
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 
-/** The body of a named function, by brace matching. Comments are NOT stripped here. */
-function fnBody(src, decl) {
-  const at = src.indexOf(decl);
-  assert.ok(at > 0, decl + " is gone — retarget this test");
-  const open = src.indexOf("{", at);
-  let depth = 0;
-  for (let i = open; i < src.length; i++) {
-    if (src[i] === "{") depth++;
-    else if (src[i] === "}") { depth--; if (!depth) return src.slice(at, i + 1); }
-  }
-  assert.fail("unbalanced");
-}
-
-test("something calls notifyOwnerOfSubmission", () => {
-  // The whole bug, in one line. It is defined and exported-in-spirit and was
-  // called by nothing at all.
-  const calls = worker.split("notifyOwnerOfSubmission(").length - 1;
-  assert.ok(calls >= 2,
-    `notifyOwnerOfSubmission appears ${calls} time(s) — its definition and no caller, ` +
-    "so a booking arrives and the owner is never told");
-});
-
-test("the caller is the data proxy, on a write", () => {
-  const body = fnBody(worker, "async function proxySiteService(");
-  // Since audit A12-1 (2026-10-22) the proxy calls the shared row step, which
-  // calls notifyOwnerOfSubmission (test/site-row-effects.test.mjs holds that).
-  assert.match(body, /siteRowEffects\(env, ctx, \{/,
-    "the hook is not in the proxy, which is where a published site's insert passes through");
-  // Gated on a WRITE that SUCCEEDED. Without the status check a refused booking —
-  // a duplicate slot, a failed constraint — mails the owner about a row that does
-  // not exist.
-  assert.match(body, /request\.method === "POST"/, "the hook must be write-only");
-  assert.match(body, /r\.status >= 200 && r\.status < 300/,
-    "a refused insert must not email the owner about a booking that did not happen");
-});
-
-test("the request body is read ONCE, or the proxy forwards nothing", () => {
-  // The hook needs the submitted row, and a Request body can only be consumed
-  // once. Calling `request.text()` again inside the hook returns empty — or
-  // worse, reading it there first sends an empty body upstream and every
-  // submission on the platform silently writes a blank row.
-  const body = fnBody(worker, "async function proxySiteService(");
-  const reads = body.split("request.text()").length - 1;
-  assert.equal(reads, 1, `request.text() is called ${reads} times; it may only be called once`);
-  assert.match(body, /body: sent,/, "the forwarded body must be the text that was read");
+test("the site's own save runs the follow-ups, only after the write succeeded", () => {
+  const at = server.indexOf("async function ownDataWrite(");
+  assert.ok(at > 0, "ownDataWrite is gone — retarget this test");
+  const fn = server.slice(at, server.indexOf("\n}\n", at));
+  const ok = fn.indexOf("if (r.status >= 200 && r.status < 300)");
+  const run = fn.indexOf("runSiteEffects(");
+  assert.ok(ok > 0 && run > ok, "the follow-ups do not run, or run before the write is known to have landed");
 });
 
 test("it runs detached and cannot fail the submission", () => {
-  const body = fnBody(worker, "function notifyOwnerOfSubmission(");
-  assert.match(body, /ctx\.waitUntil/,
-    "a Worker tears the request context down once the response is returned, so an " +
-    "un-held promise is cancelled mid-flight — the audit log lost most of its rows to exactly this");
-  // And the proxy's own call must be inside a try, since it does a schema read.
-  const proxy = fnBody(worker, "async function proxySiteService(");
-  const at = proxy.indexOf("notifyOwnerOfSubmission(");
-  assert.match(proxy.slice(Math.max(0, at - 800), at), /try \{/,
-    "an exception in the hook would turn a successful booking into a 503");
+  const at = server.indexOf("async function ownDataWrite(");
+  const fn = server.slice(at, server.indexOf("\n}\n", at));
+  assert.match(fn, /runSiteEffects\([^;]*\)\.catch\(\(\) => \[\]\)/, "a follow-up failure can fail the visitor's save");
+  assert.match(fn, /ctx\.waitUntil\(follow\)/, "the follow-ups are not held past the response");
 });
 
-test("ctx reaches the proxy, or waitUntil is silently a no-op", () => {
-  // `notifyOwnerOfSubmission` falls back to `p.catch(() => {})` when ctx is
-  // missing — which does not throw and does not send. The dispatch has to hand
-  // it over, and only the DATA proxy needs it.
-  assert.match(worker, /proxySiteService\(env, request, url, slug, dpath, "data", ctx\)/,
-    "the data dispatch does not pass ctx, so every notify is cancelled when the response returns");
+test("the follow-ups reach the owner's notification", () => {
+  assert.match(effects, /import \{ notifyOwner, COOLDOWN_MS \} from "\.\/effects\/site-notify\.mjs";/);
+  assert.match(effects, /notify: \(r: unknown\) => later\(notifyOwner\(/, "nothing calls notifyOwner");
+  assert.match(effects, /export async function runSiteEffects[\s\S]*return runEffectsFor\(/, "the save's follow-ups do not reach the runner");
 });
 
 test("only a collect POST notifies — the rule the module already owned", () => {
@@ -97,11 +49,11 @@ test("only a collect POST notifies — the rule the module already owned", () =>
   assert.equal(shouldNotify({ access: "display", method: "POST" }), false);
 });
 
-test("the access level comes from the SCHEMA, never from the request", () => {
-  // If the table's access were taken from anything the caller controls, a
-  // stranger could make any write look like a submission and mail the owner on
-  // demand — the mail bomb the cooldown exists to prevent, aimed by hand.
-  const body = fnBody(worker, "async function proxySiteService(");
-  assert.match(body, /loadSiteSchema\(db\)/, "the hook must read the site's own schema");
-  assert.match(worker.slice(worker.indexOf("function siteRowEffects("), worker.indexOf("function siteRowEffects(") + 900), /access: def,/, "the access level must come from the schema entry, its pair included (audit A30-6)");
+test("the access level comes from the SCHEMA the site was given, never from the request", () => {
+  assert.match(effects, /const def = action \? tableDef\(env, table\) : null;/);
+  assert.match(effects, /access: def, method: "POST"/);
+});
+
+test("the platform no longer emails anyone about a site's booking", () => {
+  assert.ok(!worker.includes("function notifyOwnerOfSubmission("), "the platform's own copy is back");
 });

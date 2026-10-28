@@ -304,7 +304,7 @@ test("both compile call sites fetch INSIDE the room loop, with the compile's flo
 test("the spine names a room failure as ours, and the build path as a free build-stage failure", () => {
   // The spine: the loop's answer is returned with `room`, and the failure shape
   // marks `ours` on it — the gate `compileMsg` opens with.
-  const spine = CODE.slice(CODE.indexOf("async function recompileAndPublish"), CODE.indexOf("async function siteRedirectFor"));
+  const spine = CODE.slice(CODE.indexOf("async function recompileAndPublish"), CODE.indexOf("async function siteOgImage"));
   assert.ok(spine.length > 1000, "the spine moved");
   assert.match(spine, /if \(cRoom\) \{[\s\S]{0,600}return \{ ok: false, error: "the build service had no room: " \+ cRoom\.kind, room: cRoom\.kind \};/);
   assert.match(spine, /ours: \(killed && wasKilled\(built && built\.error\)\) \|\| timedOut \|\| !!room, timedOut, room,/,

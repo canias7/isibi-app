@@ -370,7 +370,7 @@ test("both publish paths mint the version before the compile, send it in the pay
   const w = blank(WORKER);
   // The spine.
   const spineAt = w.indexOf("async function recompileAndPublish(");
-  const spineEnd = w.indexOf("\nasync function siteRedirectFor(", spineAt);
+  const spineEnd = w.indexOf("\nasync function siteOgImage(", spineAt);
   assert.ok(spineAt > 0 && spineEnd > spineAt, "the spine moved — rescope this");
   const spine = w.slice(spineAt, spineEnd);
   // RE-ANCHORED 2026-10-16: under draft-first the version is minted after the draft's (`mintForDraft`).

@@ -127,7 +127,7 @@ test("PPM1 A RECORDING REPLACED UNDER DRAFT-FIRST, THROUGH THE REAL MEDIA ROUTES
     assert.ok(Number.isSafeInteger(d.draft.revision) && d.draft.revision > 0, "no draft revision was named");
 
     // THE LIVE SITE, UNCHANGED: whole, and a seek.
-    for (const host of ["gofarther.dev", slug + ".gofarther.app"]) {
+    for (const host of ["gofarther.dev", "gofarther.dev"]) {
       const whole = await hit(worker, env, "GET", host, url);
       assert.equal(whole.status, 200, host);
       assert.deepEqual(whole.bytes, old, host + ": the live address played the replacement before Publish");
@@ -158,9 +158,9 @@ test("PPM1 A RECORDING REPLACED UNDER DRAFT-FIRST, THROUGH THE REAL MEDIA ROUTES
     assert.equal(shown.body.revision, d.draft.revision);
     const pub = await app(worker, env, "POST", "/api/site/" + slug + "/publish", { json: { revision: shown.body.revision, version: shown.body.draft } });
     assert.equal(pub.status, 200, JSON.stringify(pub.body));
-    const live = await hit(worker, env, "GET", slug + ".gofarther.app", url);
+    const live = await hit(worker, env, "GET", "gofarther.dev", url);
     assert.deepEqual(live.bytes, neu, "Publish did not put the replacement at the address");
-    const lseek = await hit(worker, env, "GET", slug + ".gofarther.app", url, { headers: { range: "bytes=0-99" } });
+    const lseek = await hit(worker, env, "GET", "gofarther.dev", url, { headers: { range: "bytes=0-99" } });
     assert.deepEqual([lseek.status, [...lseek.bytes]], [206, [...neu.subarray(0, 100)]]);
     assert.equal(await store.head("uploads/" + slug + "/" + d.name), null, "the stand-in name was left in the library after Publish");
     // A DUPLICATE CLICK REDOES NOTHING.
@@ -184,7 +184,7 @@ test("PPM1c CONTROL — the switch off: the same replacement lands at the live a
     assert.equal(rep.st.body.name, name, "with the switch off a replacement keeps its address");
     assert.ok(rep.done.status < 300, JSON.stringify(rep.done.body));
     assert.notEqual(rep.done.body.held, true);
-    const live = await hit(worker, env, "GET", slug + ".gofarther.app", first.done.body.url);
+    const live = await hit(worker, env, "GET", "gofarther.dev", first.done.body.url);
     assert.deepEqual(live.bytes, neu, "with the switch off the replacement did not land at once");
     assert.equal(await store.get(DRAFT_KEY(slug)), null, "a draft was saved with the switch off");
   });

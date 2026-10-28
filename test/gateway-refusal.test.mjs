@@ -94,7 +94,7 @@ test("a forbidden write is named as ours, with the key; a transient one keeps to
 test("the spine's stage and activation catches carry the typed refusal's code and key onto the wire", () => {
   const w = blank(WORKER);
   const at = w.indexOf("async function recompileAndPublish(");
-  const spine = w.slice(at, w.indexOf("\nasync function siteRedirectFor(", at));
+  const spine = w.slice(at, w.indexOf("\nasync function siteOgImage(", at));
   assert.ok(spine.length > 20_000, "the spine moved — rescope this");
   // The stage: a throw is caught with its code and key, and the refusal carries both.
   assert.match(spine, /\} catch \(e\) \{ staged = \{ ok: false, error: String\(\(e && e\.message\) \|\| e\), code: \(e && e\.code\) \|\| undefined, key: \(e && e\.key\) \|\| undefined \}; \}/,

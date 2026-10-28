@@ -1,7 +1,6 @@
 import { recipient } from "./site-mail.mjs";
 import { dueJobs, runJob, jobOutcome, normalizeJob, validTimeZone, jobPanelRow } from "./site-jobs.mjs";
 import { hostIsBlocked, resolvesBlocked } from "./site-ssrf.mjs";
-import { platformPair, chooseTurnstile } from "./site-turnstile.mjs";
 // `OWN_ZONES` is imported because `cfZoneId` reads it — it was not, and that is
 // a ReferenceError on the FIRST line of that function, outside every try, so
 // every Cloudflare custom-hostname call the platform made threw before it could
@@ -2852,40 +2851,7 @@ async function readOwnHits(conn) {
   return { ...((t && t[0]) || {}), series: series || [] };
 }
 
-/** Two counts added: totals summed, the week summed by day. Visitors may count one person twice across the two. */
-function addHits(a, b) {
-  if (!b) return a;
-  const n = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
-  const days = new Map();
-  for (const s of [...((a && a.series) || []), ...((b && b.series) || [])]) {
-    const d = String((s && s.day) || "");
-    if (d) days.set(d, (days.get(d) || 0) + n(s.views));
-  }
-  return {
-    views: n(a && a.views) + n(b.views), visitors: n(a && a.visitors) + n(b.visitors),
-    views7: n(a && a.views7) + n(b.views7), visitors7: n(a && a.visitors7) + n(b.visitors7),
-    series: [...days.entries()].sort((x, y) => (x[0] < y[0] ? -1 : 1)).map(([day, views]) => ({ day, views })),
-  };
-}
 
-function logSiteHit(env, ctx, slug, path, request) {
-  if (!env.SUPABASE_SERVICE_KEY) return;
-  const ua = request.headers.get("User-Agent") || "";
-  if (/bot|crawl|spider|slurp|facebookexternalhit|bingpreview|headless|monitor|uptime|curl|wget/i.test(ua)) return;
-  const ip = request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "0";
-  const p = (async () => {
-    try {
-      const ipHash = (await sha256hex(ip + "|" + slug + "|isibi-analytics-v1")).slice(0, 32);
-      await fetch(`${SUPABASE_URL}/rest/v1/site_hits`, {
-        method: "POST",
-        headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, "Content-Type": "application/json", Prefer: "return=minimal" },
-        body: JSON.stringify({ slug, ip_hash: ipHash, path: (path || "/").slice(0, 200) }),
-        signal: AbortSignal.timeout(8000),
-      });
-    } catch {}
-  })();
-  if (ctx && ctx.waitUntil) ctx.waitUntil(p);
-}
 
 // Send an email through a provider (Resend/SendGrid/Postmark) — shared by the
 // `email` function action and password-reset. Key + recipient go only to the
@@ -11064,16 +11030,6 @@ const SITE_ERROR_PER_MIN = 6;
 // for ninety days and altering it would silently void every one already sent.
 
 
-
-
-
-
-
-
-
-
-
-
 /**
  * Where this site's Neon Auth server lives.
  *
@@ -11366,19 +11322,8 @@ async function proxySiteService(env, request, url, slug, path, which, ctx) {
   } catch (e) {
     console.error("site " + which + " proxy failed:", slug, path, e && e.message);
     return Response.json({ error: "couldn't reach that just now" }, { status: 503 });
-  } finally {
-    // A press that never stored an answer lets the one waiting behind it through.
-    if (idem) idem.release();
   }
 }
-
-
-
-
-
-
-
-
 
 
 // Everything stored under a site's upload prefix, with WHO put it there.
@@ -12101,21 +12046,6 @@ const smsSeen = new Map();
 // wholesale rather than kept as a cache: this only has to stop the cheap flood.
 const webhookHits = new Map();
 
-// The site's Turnstile secret, if it has one.
-//
-// THIS ONE CACHES THE MISS, WHICH IS THE OPPOSITE OF THE RULE ABOVE, and the
-// difference is worth stating. `webhookSecrets` is reached only by a site that
-// DECLARED webhooks, so re-reading on a miss costs those few sites one query.
-// This gate has no declaration in front of it — it is an owner toggle, not a
-// schema flag — so every form submission on every site would pay a SQL round
-// trip forever to be told the overwhelmingly common answer: not configured.
-//
-// The staleness that buys is bounded at 15 seconds and invalidated on the write
-// that changes it, and it fails in the harmless direction on both edges: for 15
-// seconds after switching ON, spam is accepted (which is the status quo), and
-// after switching OFF, real submissions are refused — which is why the delete
-// path clears this cache as well as the webhook one.
-const turnstileCfg = makeCache({ ttlMs: 15_000, max: 500 });
 // The per-site flag that opts a site into the platform's Turnstile pair.
 const TURNSTILE_PLATFORM_FLAG = "TURNSTILE_PLATFORM";
 
@@ -12403,124 +12333,12 @@ async function siteForHostname(env, hostname) {
   return slug;
 }
 
-/**
- * Forget everything this isolate remembers about a site's Secrets.
- *
- * ONE function rather than two `.delete` calls at each of the two write paths,
- * because the failure mode is a third cache added later and wired into the save
- * path but not the delete one — which is invisible until somebody removes a
- * secret and it keeps working. Isolate-local, like every invalidation here;
- * other PoPs heal by expiry.
- */
-function forgetSiteConfig(slug) {
-  turnstileCfg.delete(slug);
-}
-// SLUG FIRST — `memoize` keys on the first argument, so `(env, db, slug)` keys
-// every site on one `env` object and hands one site's secret to another.
-//
-// BOTH NAMES IN ONE READ, and they are a pair rather than two features: the
-// SITE key is public and has to reach the page for a widget to exist at all,
-// and the SECRET verifies what that widget produced. Read separately they would
-// be two queries and two caches that can disagree about whether this site is
-// protected.
-const siteTurnstileKeys = memoize(turnstileCfg, async (slug, env, db) => {
-  const out = { secret: "", siteKey: "" };
-  let rows = [];
-  try { rows = await sqlQuery(db, "SELECT name, cipher FROM _secrets WHERE name LIKE 'TURNSTILE%'", []); }
-  catch { return out; }
-  for (const r of (rows || []).slice(0, 6)) {
-    const name = r && r.name;
-    // THE SITE ASKED FOR THE PLATFORM'S CHECK (2026-10-25, owner: on when a
-    // customer asks, not by default): presence of the row is the flag; its
-    // value is never read. Deleting it in the Secrets panel switches it off.
-    if (name === TURNSTILE_PLATFORM_FLAG) { out.platform = true; continue; }
-    const field = name === "TURNSTILE_SECRET" ? "secret" : name === "TURNSTILE_SITE_KEY" ? "siteKey" : null;
-    if (!field) continue;
-    // A value that will not decrypt reads as absent, which fails OPEN — the
-    // same direction `site-turnstile.mjs` takes for a broken secret, and for
-    // the same reason: the owner's mistake must not close their contact form.
-    try { out[field] = (await readSecret({ get: async () => r.cipher }, env, { slug, name })) || ""; }
-    catch { /* absent */ }
-  }
-  // HALF A PAIR IS OFF (audit A30-7). With the secret and no site key no
-  // widget can render, so no token can exist and every submission would be
-  // refused, for good and in silence. Off, said in the log, like a secret
-  // that will not decrypt.
-  if (out.secret && !out.siteKey) {
-    console.error("turnstile:", slug, "TURNSTILE_SECRET is set without TURNSTILE_SITE_KEY: the check stays off");
-    out.secret = "";
-  }
-  return out;
-});
-
-/**
- * THE PAIR A REQUEST IS JUDGED BY (2026-10-25, owner: the platform provides
- * spam protection, on by default): the site's own pair when it has one, else
- * the platform's (`TURNSTILE_SECRET` / `TURNSTILE_SITE_KEY` on the Worker) —
- * only where the platform widget can render. `host` is the hostname the
- * request arrived on: one of our own zones is covered; a customer's own domain
- * mapped to THIS site is not (the widget cannot run there, so it stays off
- * without the site's own pair); a domain mapped to another site is covered (a
- * foreign host is no way round the check); a host that maps to nothing, or a
- * lookup that fails, is not (fails open, the direction this gate always
- * takes). With the platform pair unset nothing here is asked: as before.
- */
-async function turnstileConfig(slug, env, db, host) {
-  const own = await siteTurnstileKeys(slug, env, db);
-  if (own.secret || own.platform !== true || !platformPair(env)) return own;
-  return chooseTurnstile(own, env, { covered: await platformCovers(env, slug, host) });
-}
-async function platformCovers(env, slug, host) {
-  const h = normalizeHostname(host);
-  if (!h) return false;
-  if (isOwnHostname(h)) return true;
-  const mapped = await siteForHostname(env, h).catch(() => null);
-  return !!mapped && mapped !== slug;
-}
-
-/**
- * IS EVERY VISITOR FORM CHECKED, for the owner's facts (the security check,
- * the rules reply): true with the site's own pair, or with the platform's and
- * no live custom domain (where the site is served, the platform widget runs);
- * false otherwise; null when it cannot be told.
- */
-/**
- * SWITCH THE PLATFORM'S CHECK ON FOR ONE SITE (the owner's ask, 2026-10-25):
- * the flag row, through the site's own `_secrets` table, then the isolate's
- * cache forgotten. Not a secret: the value is a marker and is never read.
- * Answers true when written, false when it could not be. Called from the
- * request flow once a structured outcome asks for protection (not yet wired:
- * no step's answer carries such a field today).
- */
-async function enableSpamCheck(env, slug, db) {
-  try {
-    await sqlExec(db, "INSERT INTO _secrets (name, cipher, hint) VALUES (?,?,?) ON CONFLICT (name) DO NOTHING", [TURNSTILE_PLATFORM_FLAG, "flag", JSON.stringify({ platform: true })]);
-  } catch { return false; }
-  forgetSiteConfig(slug);
-  return true;
-}
-
-async function spamCheckOn(env, slug, db) {
-  const own = await siteTurnstileKeys(slug, env, db);
-  if (own.secret) return true;
-  if (own.platform !== true || !platformPair(env)) return false;
-  if (!env.SUPABASE_SERVICE_KEY) return null;
-  try {
-    const r = await fetch(
-      `${SUPABASE_URL}/rest/v1/site_domains?slug=eq.${encodeURIComponent(slug)}&status=eq.live&select=hostname&limit=1`,
-      { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY }, signal: AbortSignal.timeout(5000) });
-    if (!r.ok) return null;
-    const rows = await r.json();
-    return Array.isArray(rows) ? rows.length === 0 : null;
-  } catch { return null; }
-}
 
 
 
-
-
-
-
+// SPAM PROTECTION IS OFF FOR NOW (owner, 2026-10-27: "a future addition").
+// The owner's facts say so plainly rather than guessing.
+async function spamCheckOn() { return false; }
 
 
 // Content-type for a served R2 object by its extension (React dist assets + pages).
@@ -30595,7 +30413,6 @@ async function handleRequest(request, env, ctx) {
         // first time — the analytics panel needed no change, it was being fed one
         // value forever. A 404 is deliberately NOT a page view: junk addresses
         // counted as traffic is the analytics half of the soft-404 bug.
-        if (request.method === "GET" && status === 200 && ctype.startsWith("text/html")) logSiteHit(env, ctx, slug, "/" + rest, request); // count real page views (not assets)
 
         // ── WHERE THE APP'S ASSETS REALLY ARE ────────────────────────────────
         //
@@ -35097,21 +34914,13 @@ async function handleRequest(request, env, ctx) {
           // is an RPC because count-distinct and a seven-day generate_series are
           // not things a REST filter can express; it is service_role-only, and
           // the caller was authorised above.
+          // THE SITE'S OWN VISIT COUNT (2026-10-28), from its own `_hits`; a
+          // site with no such table yet has had no counted visits.
           readAnalytics: async (s2) => {
-            const g = await fetch(`${SUPABASE_URL}/rest/v1/rpc/site_analytics`, {
-              method: "POST",
-              headers: svcHeaders(env, { "content-type": "application/json" }),
-              body: JSON.stringify({ p_slug: s2 }),
-              signal: AbortSignal.timeout(12000),
-            });
-            if (!g.ok) throw new Error("analytics rpc " + g.status);
-            const older = await g.json();
-            // VISITS COUNTED BY THE SITE ITSELF (2026-10-27), in its own
-            // `_hits`, added to what the platform counted before. A site with
-            // no such table yet reads as nothing extra.
-            const conn = await ownerRowConn(env, s2).catch(() => null);
-            const mine = conn ? await readOwnHits(conn).catch(() => null) : null;
-            return addHits(older, mine);
+            const conn = await ownerRowConn(env, s2);
+            if (!conn) return { views: 0, visitors: 0, views7: 0, visitors7: 0, series: [] };
+            try { return await readOwnHits(conn); }
+            catch (e) { if (/_hits" does not exist/.test(String((e && e.message) || ""))) return { views: 0, visitors: 0, views7: 0, visitors7: 0, series: [] }; throw e; }
           },
         };
         // Anything thrown below reaches the owner as a bare Cloudflare 1101 with
@@ -48598,7 +48407,6 @@ async function handleRequest(request, env, ctx) {
                 // THE KEY GOES TO THE SITE'S OWN WORKER (2026-10-27); only its
                 // name and hint are written here, never the value.
                 const r = await saveSiteKey(vault, { slug: sslug, name: sb.name, value: sb.value, push: (n, v) => pushSiteSecret(env, sslug, n, v) });
-                if (r && r.ok) forgetSiteConfig(sslug);
                 return Response.json(r.ok ? { ok: true, name: r.name, replaced: r.replaced } : { ok: false, error: r.error }, { status: r.ok ? 200 : (r.status || 400) });
               }
               if (request.method === "DELETE") {
@@ -48609,7 +48417,6 @@ async function handleRequest(request, env, ctx) {
                 // REMOVING a secret is the direction that matters more than
                 // adding one: a cached Turnstile secret outliving its deletion
                 // refuses real submissions on a form whose widget has gone.
-                if (d && d.ok) forgetSiteConfig(sslug);
                 if (d && d.ok) ctx.waitUntil(pushSiteSecret(env, sslug, sk[2], null));
                 return Response.json(d);
               }

@@ -178,7 +178,7 @@ test("the page rung tells the model what the site already has: its components, m
 
 // ── THE SPINE SENDS AND THEN STORES THEM ──────────────────────────────────
 test("the spine prefers the parts it was handed and stores them only after the source, on a real publish", () => {
-  const spine = CODE.slice(at(CODE, "async function recompileAndPublish", "spine"), at(CODE, "async function siteRedirectFor", "spine end"));
+  const spine = CODE.slice(at(CODE, "async function recompileAndPublish", "spine"), at(CODE, "async function siteOgImage", "spine end"));
   // RE-ANCHORED 2026-09-04: `parts` stopped being the LAST parameter when the
   // repair round's `repair = null` joined the signature. The property is that
   // the spine takes `parts`, defaulting to none — not where it sits.

@@ -328,7 +328,7 @@ test("the job context exposes the refusals beside the reserves", () => {
 });
 
 test("the spine asks `unbilled` three times: before the translations, before the compile, before the free-rung step and the gate", () => {
-  const spine = blankComments(CODE.slice(at(CODE, "async function recompileAndPublish", "spine"), at(CODE, "async function siteRedirectFor", "spine end")));
+  const spine = blankComments(CODE.slice(at(CODE, "async function recompileAndPublish", "spine"), at(CODE, "async function siteOgImage", "spine end")));
   const def = at(spine, "const unbilled = () =>", "the helper");
   // THE HELPER REFUSES ON THE COUNT, never on the reserves — a refused reserve
   // and a landed one are different zeros, which is the whole change.

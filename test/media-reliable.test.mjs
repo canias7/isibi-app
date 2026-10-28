@@ -99,13 +99,13 @@ test("MR1 A DELETE STOPPED BETWEEN ITS RECORD AND THE OBJECT — the address ans
     const del = await app(worker, env, "DELETE", "/api/site/" + slug + "/uploads/" + a.done.body.name + "?force=1");
     assert.equal(del.status, 502, "the stopped delete was not said as stopped: " + JSON.stringify(del.body));
     assert.ok(await store.head("uploads/" + slug + "/" + a.done.body.name), "the case did not leave the object behind — it tests nothing");
-    for (const host of ["gofarther.dev", slug + ".gofarther.app"]) {
+    for (const host of ["gofarther.dev", "gofarther.dev"]) {
       const g = await hit(worker, env, "GET", host, a.done.body.url);
       assert.equal(g.status, 404, host + ": a file deleted by its record still played: " + g.status);
     }
     assert.equal(await store.head("uploads/" + slug + "/" + a.done.body.name), null, "the read did not finish the stopped delete");
     // CONTROL: the other file plays and seeks.
-    const kept = await hit(worker, env, "GET", slug + ".gofarther.app", b.done.body.url, { headers: { range: "bytes=0-99" } });
+    const kept = await hit(worker, env, "GET", "gofarther.dev", b.done.body.url, { headers: { range: "bytes=0-99" } });
     assert.deepEqual([kept.status, kept.bytes.length], [206, 100]);
   });
 });
@@ -164,7 +164,7 @@ test("MR2 ABANDONED UPLOADS RECLAIMED BY THE TICK — an expired open upload abo
     assert.deepEqual(await allKeys(store, "media-parts/"), [], "a part record was left");
     // NO FILE DELETED: B and C play.
     assert.deepEqual(await allKeys(store, "uploads/"), files0, "the sweep touched a file");
-    for (const f of [b, c]) assert.equal((await hit(worker, env, "GET", slug + ".gofarther.app", f.done.body.url)).status, 200);
+    for (const f of [b, c]) assert.equal((await hit(worker, env, "GET", "gofarther.dev", f.done.body.url)).status, 200);
     assert.equal(total.drafts, 1, "the old pre-site draft was not removed");
 
     // AN UNEXPIRED UPLOAD IS UNTOUCHED, ITS PARTS TOO.
@@ -238,7 +238,7 @@ test("MR4 REPLACEMENT, REMOVAL, SEEKING AND PREVIEW-VERSUS-LIVE TOGETHER — hel
     assert.equal(del.body && del.body.held, true, "the removal was not held: " + JSON.stringify(del.body));
     const tail = (b) => [...b.subarray(b.length - 64)];
     // LIVE: as published.
-    const L = slug + ".gofarther.app";
+    const L = "gofarther.dev";
     assert.deepEqual(tail((await hit(worker, env, "GET", L, a.done.body.url, { headers: { range: "bytes=" + (song.length - 64) + "-" } })).bytes), tail(song), "live seeked into the replacement before Publish");
     assert.equal((await hit(worker, env, "GET", L, v.done.body.url)).status, 200, "live lost the video before Publish");
     // PREVIEW: as the draft has it.

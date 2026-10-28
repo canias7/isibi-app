@@ -88,7 +88,7 @@ async function witnesses(worker, env, slug) {
 }
 async function witnessesStand(worker, env, store, slug, w, fresh) {
   assert.ok(await store.head("uploads/" + slug + "/" + w.done.done.body.name), "a completed file was deleted");
-  assert.equal((await hit(worker, env, "GET", slug + ".gofarther.app", w.done.done.body.url)).status, 200, "a completed file no longer plays");
+  assert.equal((await hit(worker, env, "GET", "gofarther.dev", w.done.done.body.url)).status, 200, "a completed file no longer plays");
   if (fresh) {
     assert.ok(await store.head(sessKey(slug, fresh)), "an active upload's session was reclaimed");
     assert.equal(fresh && [...store.uploads.values()].some((u) => !u.done), true, "an active upload's multipart upload was stopped");
