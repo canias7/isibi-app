@@ -162,7 +162,8 @@ test("SA9 write_file: keys checked, server code checked at once, empty refused",
   await runSiteAgent({ send: s2.send, build: okBuild }, { request: "r", pages: PAGES, maxRounds: 1 });
   const s3 = scripted([answer(use("finish", { summary: "" }))]);
   const r3 = await runSiteAgent({ send: s3.send, build: okBuild }, { request: "r", pages: PAGES, maxRounds: 2 });
-  assert.equal(r3.ok, false);
+  assert.equal(r3.ok, true); // nothing written: finishing needs no build, and nothing is saved
+  assert.deepEqual(r3.changed, []);
   const s4 = scripted([
     answer(use("write_file", { file: "-parts/server-chat", source: "export default async function(){ return fetch('https://x.com') }" }), use("write_file", { file: "index.tsx", source: "  " })),
     answer(use("finish", { summary: "" })),
@@ -196,15 +197,11 @@ test("SA11 read_table goes through the caller's reader; tool results pair with t
 
 // ── THE SWITCH AND THE WIRING (2026-10-28) ──────────────────────────────────
 import { readFileSync } from "node:fs";
-import { agentOn, agentCap, stoppedFacts } from "../builder/site-agent.mjs";
+import { agentCap, stoppedFacts, AGENT_TAKES_ALL, roundFacts, fileName, CSS_KEY } from "../builder/site-agent.mjs";
 import { jobSecrets } from "../builder/edit-job.mjs";
 
-test("SA12 the switch: off unless on or listed; the cap from env or 60", () => {
-  assert.equal(agentOn({}, "a"), false);
-  assert.equal(agentOn({ SITE_AGENT: "off" }, "off"), false);
-  assert.equal(agentOn({ SITE_AGENT: "on" }, "any"), true);
-  assert.equal(agentOn({ SITE_AGENT: "kiln-lane, fretwork-1" }, "fretwork-1"), true);
-  assert.equal(agentOn({ SITE_AGENT: "kiln-lane" }, "fretwork-1"), false);
+test("SA12 no switch: the agent takes every site; the cap from env or 60", () => {
+  assert.equal(AGENT_TAKES_ALL, true);
   assert.equal(agentCap({}), 60);
   assert.equal(agentCap({ SITE_AGENT_CAP: "25" }), 25);
   assert.equal(agentCap({ SITE_AGENT_CAP: "x" }), 60);
@@ -216,20 +213,20 @@ const between = (a, b) => { const i = W.indexOf(a); assert.ok(i >= 0, "landmark:
 
 test("SA13 both routes hand the whole message to the agent when it is on, before any lane", () => {
   const edit = between("// ── THE SITE AGENT (2026-10-28", "// ── THE SEVENTEEN LANES ARE THE FRONT DOOR");
-  assert.match(edit, /agentOn\(env, ownerSlug\)/);
+  assert.match(edit, /if \(!\(eJob && eJob\.prepare === true\)\) \{\n\s+const agParts/);
   assert.match(edit, /runAgentChange\(env, \{[^]*words: eMessage/);
   const add = between("// ── THE SITE AGENT TAKES AN ADDITION TOO", "// ── AN ENTRY THIS REQUEST HAS ALREADY SAVED");
-  assert.match(add, /agentOn\(env, ownerSlug\)/);
+  assert.match(add, /if \(!\(aJob && aJob\.prepare === true\)\) \{/);
   assert.match(add, /runAgentChange\(env, \{[^]*words: aAsked/);
   // and the router never splits such a site's message into parts
-  assert.match(W, /const rKey = [^\n]*!agentOn\(env, rKeySlug\)/);
+  assert.match(W, /const rKey = AGENT_TAKES_ALL \? "" : /);
 });
 
 test("SA14 the build tool compiles only: answered before the repair, the staging and the publish", () => {
   const fn = between("async function runAgentChange(", "async function recompileAndPublish(env, {");
   assert.match(fn, /build: \(w\) => recompileAndPublish\(env, \{[^}]*compileOnly: true/);
   // charged only when there is something to save, before the save
-  const bill = fn.indexOf("await bill(ag.usage)"), save = fn.indexOf('label: "Changed by the site agent"'), stop = fn.indexOf("if (!ag.ok || !ag.changed.length)");
+  const bill = fn.indexOf("await bill(ag.usage)"), save = fn.indexOf('label: "Changed by the site agent"'), stop = fn.indexOf("if (!ag.ok || (!ag.changed.length && !ag.rows.length))");
   assert.ok(stop > 0 && bill > stop && save > bill);
   const spine = between("async function recompileAndPublish(env, {", "\n}\n");
   assert.match(spine, /if \(!compileOnly && job && job\.beside/);
@@ -238,23 +235,23 @@ test("SA14 the build tool compiles only: answered before the repair, the staging
   assert.ok(first > 0 && only > first && hook > only && gate > only, "the compile-only answer comes straight after the compile");
 });
 
-test("SA15 the container job is handed the switch; the deploy delivers it off by default", () => {
-  assert.deepEqual(jobSecrets({ SITE_AGENT: "on", SITE_AGENT_CAP: "30", OTHER: "x" }), { SITE_AGENT: "on", SITE_AGENT_CAP: "30" });
+test("SA15 the container job is handed the cap; there is no switch", () => {
+  assert.deepEqual(jobSecrets({ SITE_AGENT_CAP: "30", OTHER: "x" }), { SITE_AGENT_CAP: "30" });
   const D = readFileSync(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8");
-  assert.match(D, /SITE_AGENT: \$\{\{ secrets\.SITE_AGENT \|\| 'off' \}\}/);
-  assert.match(D, /\n {12}SITE_AGENT\n/);
+  assert.match(D, /SITE_AGENT_CAP: \$\{\{ secrets\.SITE_AGENT_CAP \|\| '60' \}\}/);
+  assert.doesNotMatch(D, /SITE_AGENT:/);
   const K = readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
   assert.match(K, /builder\/site-agent\.mjs \.\/worker\/builder\//);
 });
 
 test("SA16 a failed build never opens finish", async () => {
-  const s = scripted([answer(use("build", {})), answer(use("finish", { summary: "s" }))]);
-  const r = await runSiteAgent({ send: s.send, build: async () => ({ ok: false, error: "TS1005" }) }, { request: "r", pages: PAGES, maxRounds: 2 });
+  const s = scripted([answer(use("write_file", { file: "index.tsx", source: "x" })), answer(use("build", {})), answer(use("finish", { summary: "s" }))]);
+  const r = await runSiteAgent({ send: s.send, build: async () => ({ ok: false, error: "TS1005" }) }, { request: "r", pages: PAGES, maxRounds: 3 });
   assert.equal(r.ok, false);
   assert.equal(r.lastBuild, "fail");
   const res = s.sent.at(-1).messages.at(-1).content;
   assert.equal(res.length, 1);
-  const r2 = await runSiteAgent({ send: scripted([answer(use("build", {})), answer(use("finish", { summary: "s" }))]).send, build: async () => ({ ok: false, error: "x" }) }, { request: "r", pages: PAGES, maxRounds: 3 });
+  const r2 = await runSiteAgent({ send: scripted([answer(use("write_file", { file: "index.tsx", source: "x" }), use("build", {})), answer(use("finish", { summary: "s" }))]).send, build: async () => ({ ok: false, error: "x" }) }, { request: "r", pages: PAGES, maxRounds: 3 });
   assert.equal(r2.ok, false);
   assert.equal(r2.summary, "");
 });
@@ -270,4 +267,94 @@ test("SA17 compact keeps exactly the latest `keep` rounds whole, however many th
   assert.deepEqual(src.slice(3), ["SRC3", "SRC4"]);
   assert.ok(src.slice(0, 3).every((x) => x.startsWith("[written: 4 chars]")));
   assert.equal(c.cleared, 3);
+});
+
+test("SA18 the stylesheet is a file the agent may write; the build is handed it; untouched it is not changed", async () => {
+  const builds = [];
+  const s = scripted([
+    answer(use("read_files", { files: [CSS_KEY] })),
+    answer(use("write_file", { file: CSS_KEY, source: ":root{--brand:red}" })),
+    answer(use("build", {})),
+    answer(use("finish", { summary: "red" })),
+  ]);
+  const r = await runSiteAgent({ send: s.send, build: async (w) => { builds.push(w.css); return { ok: true }; } }, { request: "r", pages: PAGES, css: ":root{--brand:blue}" });
+  assert.equal(r.ok, true);
+  assert.deepEqual(builds, [":root{--brand:red}"]);
+  assert.equal(r.cssChanged, true);
+  assert.equal(r.css, ":root{--brand:red}");
+  assert.ok(!r.pages.some((p) => p.path === CSS_KEY), "the sheet is never sent as a page");
+  assert.match(s.sent[1].messages.at(-1).content[0].content, /blue/);
+  const r2 = await runSiteAgent({ send: scripted([answer(use("write_file", { file: CSS_KEY, source: "x" }))]).send, build: okBuild }, { request: "r", pages: PAGES, css: null, maxRounds: 1 });
+  assert.equal(r2.cssChanged, false);
+  assert.equal(r2.css, null);
+});
+
+test("SA19 delete_file removes a page or component, never the home page or the sheet, and needs a build", async () => {
+  const s = scripted([
+    answer(use("delete_file", { file: "index.tsx" }), use("delete_file", { file: CSS_KEY }), use("delete_file", { file: "visit.tsx" })),
+    answer(use("finish", { summary: "s" })),
+    answer(use("build", {})),
+    answer(use("finish", { summary: "Removed /visit." })),
+  ]);
+  const r = await runSiteAgent({ send: s.send, build: okBuild }, { request: "r", pages: PAGES, parts: PARTS, css: "" });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.removed, ["visit.tsx"]);
+  assert.ok(r.changed.includes("visit.tsx"));
+  assert.ok(!r.pages.some((p) => p.path === "visit.tsx"));
+  const first = s.sent[1].messages.at(-1).content;
+  assert.equal(first[0].is_error, true); assert.equal(first[1].is_error, true); assert.ok(!first[2].is_error);
+  assert.equal(s.sent[2].messages.at(-1).content[0].is_error, true, "finish refused before a build");
+});
+
+test("SA20 change_rows queues only real columns of real tables, by id; finishing with only rows needs no build", async () => {
+  const spec = { tables: [{ name: "menu", columns: [{ name: "id" }, { name: "name" }, { name: "price" }] }] };
+  const s = scripted([
+    answer(use("change_rows", { table: "menu", update: [{ id: 4, set: { price: 42 } }], add: [{ name: "Rye", price: 5 }], remove: [7] }),
+      use("change_rows", { table: "menu", add: [{ colour: "x" }] }),
+      use("change_rows", { table: "secrets", add: [{ a: 1 }] }),
+      use("change_rows", { table: "menu", update: [{ id: "1; drop", set: { price: 1 } }] })),
+    answer(use("finish", { summary: "Price 42." })),
+  ]);
+  let built = 0;
+  const r = await runSiteAgent({ send: s.send, build: async () => { built++; return { ok: true }; } }, { request: "r", pages: PAGES, spec });
+  assert.equal(r.ok, true);
+  assert.equal(built, 0);
+  assert.deepEqual(r.rows, [{ table: "menu", add: [{ name: "Rye", price: 5 }], update: [{ id: 4, set: { price: 42 } }], remove: [7] }]);
+  const res = s.sent[1].messages.at(-1).content;
+  assert.ok(!res[0].is_error);
+  assert.match(res[1].content, /not columns of menu.*add: colour/);
+  assert.match(res[2].content, /no such table; the site's tables are menu/);
+  assert.match(res[3].content, /update: a row id/);
+});
+
+test("SA21 each round's facts come from the tools' outcomes, for the live progress lines", async () => {
+  assert.equal(fileName("index.tsx"), "the home page");
+  assert.equal(fileName("about.tsx"), "the /about page");
+  assert.equal(fileName("-parts/server-chat"), 'the server function "chat"');
+  assert.equal(fileName("-parts/site-footer"), 'the "site-footer" component');
+  assert.equal(fileName(CSS_KEY), "the stylesheet");
+  const f = roundFacts([
+    { use: use("read_files", { files: ["index.tsx"] }), r: { text: "…", reads: ["index.tsx", "about.tsx"] } },
+    { use: use("write_file", { file: "about.tsx" }), r: { text: "Saved" } },
+    { use: use("write_file", { file: "bad" }), r: { error: "no" } },
+    { use: use("build", {}), r: { text: "The build failed:\nx" } },
+  ]);
+  assert.deepEqual(f, [
+    { state: "prepared", text: "Read the home page and the /about page." },
+    { state: "doing", text: "Built the site; the compiler found errors, fixing them." },
+    { state: "applied", text: "Wrote the /about page." },
+  ]);
+  const marks = [];
+  const s = scripted([answer(use("write_file", { file: "about.tsx", source: "x" })), answer(use("build", {})), answer(use("finish", { summary: "s" }))]);
+  await runSiteAgent({ send: s.send, build: okBuild, progress: (st, facts) => marks.push([st, facts.map((x) => x.text)]) }, { request: "r", pages: PAGES });
+  assert.deepEqual(marks, [["agent", ["Wrote the /about page."]], ["agent", ["Built the site; it compiled cleanly."]]]);
+});
+
+test("SA22 the save: stylesheet stored before the publish and put back if it fails; rows written after; only real compile-only css", () => {
+  const fn = between("async function runAgentChange(", "async function recompileAndPublish(env, {");
+  const store = fn.indexOf("patchSiteConfig(env, slug, cfgDb, { css: ag.css }"), pub = fn.indexOf('label: "Changed by the site agent"'), back = fn.indexOf("{ css: cssBefore }"), rows = fn.indexOf("THE TABLE ENTRIES");
+  assert.ok(store > 0 && pub > store && back > pub && rows > back);
+  assert.match(fn, /cssOverride: typeof w\.css === "string" \? w\.css : null/);
+  assert.match(fn, /progress: \(stage, facts\) => \{ if \(talk\) job\.progress\.mark\(stage, facts\); \}/);
+  assert.match(W, /if \(compileOnly && typeof cssOverride === "string"\) css = cssOverride;/);
 });

@@ -227,7 +227,7 @@ import { FOUNDATION_FILES } from "./builder/foundation-files.mjs";
 import { runNavEdit, applyAdditions, menuLinksKept } from "./builder/site-nav.mjs";
 import { runLogoEdit } from "./builder/site-logo.mjs";
 import { writtenFrame, ownPartsSite, runFrameEdit, addFrameLinks, FRAME_PARTS, frameTables } from "./builder/site-frame.mjs";
-import { runSiteAgent, agentOn, agentCap, stoppedFacts } from "./builder/site-agent.mjs";
+import { runSiteAgent, agentCap, stoppedFacts, AGENT_TAKES_ALL } from "./builder/site-agent.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
 import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings, canWriteAccess } from "./site-access.mjs";
@@ -17167,55 +17167,109 @@ function seamCompileRepair(env, { slug, touched = null, models = null, charge = 
 /**
  * THE SITE AGENT'S WHOLE CHANGE (2026-10-28, `builder/site-agent.mjs`), for
  * the edit and add-on routes alike: the loop, with the real compile and server
- * test run as its build tool (`compileOnly`), then one save through the same
- * publish as every edit. Charged (`bill`, the model's calls) only when there is
- * something to save, before the publish's gate; `billLang` is the translation
- * funnel. Answers `{ status, body }` whose facts the reply writer tells.
+ * test run as its build tool (`compileOnly`, its stylesheet unstored), then
+ * the save: the stylesheet stored, the files through the same publish as every
+ * edit (the stylesheet put back if that fails), then the queued table entries
+ * written to the live database. Charged (`bill`, the model's calls) only when
+ * there is something to save, before the publish's gate; `billLang` is the
+ * translation funnel. Each round's facts go to the live progress lines.
+ * Answers `{ status, body }` whose facts the reply writer tells.
  */
 async function runAgentChange(env, { slug, words, pages, parts, job = null, picker = "", trace = null, bill, billLang, charges = null }) {
   const tm = (phase, status, detail) => { try { if (trace) trace.mark(phase, status, detail); } catch { /* never */ } };
-  if (!Array.isArray(parts)) return { status: 503, body: { ok: false, error: "agent-unread", layer: "agent", cost: 0, msg: "The site's components could not be read, so the site agent did not start. Nothing was changed and nothing was charged." } };
+  if (!Array.isArray(parts)) return { status: 503, body: { ok: false, error: "agent-unread", layer: "agent", cost: 0, deferred: [], msg: "The site's components could not be read, so the site agent did not start. Nothing was changed and nothing was charged." } };
   tm("agent", "start", { pages: pages.length, parts: parts.length });
   const models = modelsFor(picker);
   let map = null;
   try { map = await currentSiteMap(env, slug); } catch { map = null; }
-  let spec = null;
-  try { const back = await siteBackendDetail(env, slug); if (back && back.conn) { const rd = await specForAddon(back.conn); if (rd.ok) spec = rd.spec; } } catch { spec = null; }
+  let spec = null, conn = null;
+  try { const back = await siteBackendDetail(env, slug); conn = back && back.conn ? back.conn : null; if (conn) { const rd = await specForAddon(conn); if (rd.ok) spec = rd.spec; } } catch { spec = null; }
+  // THE STYLESHEET, or null when the config cannot be read (then not offered).
+  let css = null, cfgDb = null;
+  try { cfgDb = await siteBackendBySlug(env, slug); const cfg = await readSiteConfig(env, slug, cfgDb); if (cfg.ok) css = typeof cfg.config.css === "string" ? cfg.config.css : ""; } catch { css = null; }
+  const talk = !!(job && job.progress && job.progress.talk);
   const ag = await runSiteAgent({
     send: jobSend(job, quickSend(env, "agent", job && job.budget)),
-    build: (w) => recompileAndPublish(env, { slug, pages: w.pages, parts: w.parts, label: "Agent build", job, compileOnly: true, charge: billLang, charges, trace }),
+    build: (w) => recompileAndPublish(env, { slug, pages: w.pages, parts: w.parts, label: "Agent build", job, compileOnly: true, cssOverride: typeof w.css === "string" ? w.css : null, charge: billLang, charges, trace }),
     readTable: async (t, n) => {
-      const conn = await ownerRowConn(env, slug);
-      if (!conn) throw new Error("this site has no database");
-      return sqlQuery(conn, "select * from " + sqlIdent(t) + " limit " + (Number(n) || 20));
+      const c = await ownerRowConn(env, slug);
+      if (!c) throw new Error("this site has no database");
+      return sqlQuery(c, "select * from " + sqlIdent(t) + " limit " + (Number(n) || 20));
     },
+    progress: (stage, facts) => { if (talk) job.progress.mark(stage, facts); },
     log: (e) => tm("agent:" + e.event, "ok", e),
   }, {
-    request: words, pages, parts, map, spec,
+    request: words, pages, parts, css, map, spec,
     ownParts: ownPartsSite(pages, parts), model: models.pages, creditCap: agentCap(env),
   });
-  tm("agent", ag.ok ? "ok" : "fail", { rounds: ag.rounds, builds: ag.builds, credits: ag.credits, stopped: ag.stopped, changed: ag.changed.length });
-  const steps = { rounds: ag.rounds, builds: ag.builds, stopped: ag.stopped, changed: ag.changed };
-  if (!ag.ok || !ag.changed.length) {
+  tm("agent", ag.ok ? "ok" : "fail", { rounds: ag.rounds, builds: ag.builds, credits: ag.credits, stopped: ag.stopped, changed: ag.changed.length, rows: ag.rows.length });
+  const steps = { rounds: ag.rounds, builds: ag.builds, stopped: ag.stopped, changed: ag.changed, removed: ag.removed };
+  const files = ag.changed.filter((k) => k !== "styles.css");
+  if (!ag.ok || (!ag.changed.length && !ag.rows.length)) {
     return { status: 200, body: { ok: false, error: "agent-stopped", layer: "agent", cost: 0, agent: steps, deferred: [],
-      msg: ag.ok ? "The site agent finished without changing any file, so nothing was saved and nothing was charged." : stoppedFacts(ag) + " Nothing was charged." } };
+      msg: ag.ok ? "The site agent finished without changing anything, so nothing was saved and nothing was charged." : stoppedFacts(ag) + " Nothing was charged." } };
   }
   const took = Number(await bill(ag.usage)) || 0;
-  const out = await recompileAndPublish(env, {
-    slug, pages: ag.pages, parts: ag.parts, label: "Changed by the site agent",
-    job, charge: billLang, charges, models, trace,
-    touched: ag.changed.filter((k) => !k.startsWith("-parts/")),
-  });
-  if (!out.ok) {
-    return { status: 422, body: { ok: false, error: lostOr(out, "compile"), layer: "agent", cost: took, agent: steps, deferred: [],
-      msg: compileMsg(out, "The site agent's change did not compile when it was saved, so the site is untouched."), detail: out.detail } };
+  let out = null;
+  if (ag.changed.length) {
+    // THE STYLESHEET FIRST, as the look step stores it: the publish reads it from the config.
+    let cssBefore = null;
+    if (ag.cssChanged) {
+      try {
+        await mayWriteConfig(env, slug, job);
+        cssBefore = css;
+        const w = await patchSiteConfig(env, slug, cfgDb, { css: ag.css }, jobFence(env, job));
+        if (!w.ok) throw new Error(w.error);
+      } catch (e) {
+        return { status: 503, body: { ok: false, error: "agent-css", ours: true, layer: "agent", cost: took, agent: steps, deferred: [],
+          msg: "The site agent's stylesheet could not be stored, so nothing was saved." } };
+      }
+    }
+    out = await recompileAndPublish(env, {
+      slug, pages: ag.pages, parts: ag.parts, label: "Changed by the site agent",
+      job, charge: billLang, charges, models, trace,
+      touched: files.filter((k) => !k.startsWith("-parts/")),
+    });
+    if (!out.ok) {
+      if (cssBefore !== null) { try { await patchSiteConfig(env, slug, cfgDb, { css: cssBefore }, jobFence(env, job)); } catch { /* the stored sheet stays the agent's; told below */ } }
+      return { status: 422, body: { ok: false, error: lostOr(out, "compile"), layer: "agent", cost: took, agent: steps, deferred: [],
+        msg: compileMsg(out, "The site agent's change did not compile when it was saved, so the site is untouched."), detail: out.detail } };
+    }
   }
-  return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg: ag.summary || "The change was made.",
-    files: out.files, render: out.render, renderNote: out.renderNote, checks: out.checks, draft: out.draft,
-    cost: took + (Number(out.langCharged) || 0), agent: steps } };
+  // THE TABLE ENTRIES, written last and to the live database, as the data step does.
+  const rowFacts = [];
+  if (ag.rows.length) {
+    const c = await ownerRowConn(env, slug).catch(() => null);
+    for (const op of ag.rows) {
+      const T = sqlIdent(op.table);
+      let added = 0, changed = 0, removed = 0, failed = 0;
+      if (!c) { failed = op.add.length + op.update.length + op.remove.length; }
+      else {
+        for (const row of op.add) {
+          const ks = Object.keys(row);
+          try { await sqlExec(c, "insert into " + T + " (" + ks.map(sqlIdent).join(", ") + ") values (" + ks.map(() => "?").join(", ") + ")", ks.map((k) => row[k])); added++; } catch { failed++; }
+        }
+        for (const u of op.update) {
+          const ks = Object.keys(u.set);
+          try { const r = await sqlExec(c, "update " + T + " set " + ks.map((k) => sqlIdent(k) + " = ?").join(", ") + " where id = ?", [...ks.map((k) => u.set[k]), u.id]); if (r.changes) changed++; else failed++; } catch { failed++; }
+        }
+        for (const id of op.remove) {
+          try { const r = await sqlExec(c, "delete from " + T + " where id = ?", [id]); if (r.changes) removed++; else failed++; } catch { failed++; }
+        }
+      }
+      const did = [added && "added " + added, changed && "changed " + changed, removed && "removed " + removed].filter(Boolean);
+      if (did.length) rowFacts.push("In the " + op.table + " table it " + did.join(", ") + (did.length === 1 && (added + changed + removed) === 1 ? " entry" : " entries") + ".");
+      if (failed) rowFacts.push(failed + (failed === 1 ? " entry" : " entries") + " in the " + op.table + " table could not be saved.");
+    }
+    tm("agent:rows", "ok", { facts: rowFacts.length });
+  }
+  const msg = [ag.summary || "The change was made.", ...rowFacts].join(" ");
+  return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg,
+    ...(out ? { files: out.files, render: out.render, renderNote: out.renderNote, checks: out.checks, draft: out.draft } : {}),
+    cost: took + (out ? Number(out.langCharged) || 0 : 0), agent: steps } };
 }
 
-async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = null, devices = null, trace = null, job = null, parts = null, afterCompile = null, onCompileFail = null, models = null, charge = null, held = null, charges = null, liveWhenClean = false, touched = null, chargeRepair = null, compileOnly = false }) {
+async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = null, devices = null, trace = null, job = null, parts = null, afterCompile = null, onCompileFail = null, models = null, charge = null, held = null, charges = null, liveWhenClean = false, touched = null, chargeRepair = null, compileOnly = false, cssOverride = null }) {
   // A JOB RUNNING BESIDE OTHERS OF ITS REQUEST publishes through the site's
   // turn and the rebase (`publishBeside`), which calls back in here with the
   // rebased pages; every other caller goes straight on, as before.
@@ -17348,6 +17402,8 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // so the refusal is explicit here.
     if (!cfg.ok) throw new Error(cfg.why + ": " + cfg.error);
     ({ look, css, verify, langStrings } = cfg.config);
+    // THE AGENT'S BUILD TOOL (2026-10-28) compiles its workspace's stylesheet, unstored.
+    if (compileOnly && typeof cssOverride === "string") css = cssOverride;
     cfgNow = cfg.config;
     langOverrides = cfg.config.langOverrides; // the owner's own translated wording (#196)
     // ONE MARK, SEVERAL FORMS (2026-09-07) — the four wire fields off the one
@@ -33158,9 +33214,10 @@ async function handleRequest(request, env, ctx) {
       // it) is answered from what the first one accepted: no model is asked,
       // nothing is charged, and no question is closed or read again.
       const rKeySlug = typeof rb.slug === "string" && /^[a-z0-9][a-z0-9-]{0,80}$/.test(rb.slug) ? rb.slug : "";
-      // THE SITE AGENT TAKES THE WHOLE MESSAGE (2026-10-28): a site it serves is
-      // never split into a request of parts.
-      const rKey = !rJob && requestFlowOn(env) && rb.hasSite === true && rb.firstBuild !== true && !!rKeySlug && !agentOn(env, rKeySlug) && !!env.SITES_BUCKET && isRequestKey(rb.idem) &&
+      // THE SITE AGENT TAKES THE WHOLE MESSAGE (2026-10-28, the owner: "just
+      // have it on … is the way we gonna do things now"): a site's message is
+      // never split into a request of parts, so this flow no longer starts.
+      const rKey = AGENT_TAKES_ALL ? "" : !rJob && requestFlowOn(env) && rb.hasSite === true && rb.firstBuild !== true && !!rKeySlug && !!env.SITES_BUCKET && isRequestKey(rb.idem) &&
         editAsyncFor(env, { uid: ru.id, slug: rKeySlug }) ? rb.idem : "";
       if (rKey) {
         let prior = null;
@@ -36088,7 +36145,7 @@ async function handleRequest(request, env, ctx) {
 
             // ── THE SITE AGENT (2026-10-28, the owner: "one big full agent") ──
             //
-            // Behind `SITE_AGENT` (off by default; "on", or a list of slugs).
+            // Always on (the owner: "there doesn't need to be a switch").
             // One model with tools takes the WHOLE message — no router, no
             // lanes: it reads the site map and the files, writes pages,
             // components and server code, builds with the real compiler and
@@ -36096,7 +36153,7 @@ async function handleRequest(request, env, ctx) {
             // finishes. Its work is saved through the same publish as every
             // edit; it is charged only when that save landed. See
             // `builder/site-agent.mjs`.
-            if (agentOn(env, ownerSlug) && !(eJob && eJob.prepare === true)) {
+            if (!(eJob && eJob.prepare === true)) {
               const agParts = await editParts();
               const ag = await runAgentChange(env, {
                 slug: ownerSlug, words: eMessage, pages: eSrc, parts: agParts.ok ? agParts.parts : null, job: eJob, picker: eb && eb.picker, trace: editTrace,
@@ -42470,9 +42527,9 @@ async function handleRequest(request, env, ctx) {
             };
 
             // ── THE SITE AGENT TAKES AN ADDITION TOO (2026-10-28) ─────────
-            // The same switch and the same run as the edit route
-            // (`runAgentChange`): with it on, nothing below runs.
-            if (agentOn(env, ownerSlug) && !(aJob && aJob.prepare === true)) {
+            // The same run as the edit route (`runAgentChange`); the steps
+            // below it no longer run for a site's message.
+            if (!(aJob && aJob.prepare === true)) {
               let aAgSeq = 60;
               const aAgParts = await readSiteParts(env, ownerSlug);
               const ag = await runAgentChange(env, {

@@ -236,7 +236,6 @@ jobs:
             ADDON_DRY_RUN
             TURNSTILE_SITE_KEY
             TURNSTILE_SECRET
-            SITE_AGENT
             SITE_AGENT_CAP
         env:
           DEPLOY_ID: ${{ github.sha }}
@@ -480,13 +479,10 @@ jobs:
           # page then drives its steps exactly as before, which is what the UI
           # canary checks. Set the secret to `on` and redeploy to switch it on.
           REQUEST_FLOW: ${{ secrets.REQUEST_FLOW || 'on' }}
-          # ── THE SITE AGENT (2026-10-28, builder/site-agent.mjs) ──────────────
+          # ── THE SITE AGENT'S CREDIT CAP (2026-10-28, builder/site-agent.mjs) ──
           #
-          # One model with tools takes a site's whole message (edits and
-          # additions) instead of the router's lanes. OFF BY DEFAULT: `on` for
-          # every site, or a comma list of slugs. SITE_AGENT_CAP is the most
+          # The agent takes every site's edit and addition; this is the most
           # credits one change may spend (default 60).
-          SITE_AGENT: ${{ secrets.SITE_AGENT || 'off' }}
           SITE_AGENT_CAP: ${{ secrets.SITE_AGENT_CAP || '60' }}
           # ── THE VISUAL REVIEW, FRONT-END CHANGES ONLY (2026-10-24, owner) ──
           #
