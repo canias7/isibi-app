@@ -102,11 +102,16 @@ function browserOf(r) {
  * drops), the version it activated, whether activation answered ok, and how
  * many of the change's style rules were checked. Never throws.
  */
-export function checksOf({ render = null, version = "", published = false, cssChecked = 0, draft = false, revision = 0, preview = null } = {}) {
+export function checksOf({ render = null, version = "", published = false, cssChecked = 0, draft = false, revision = 0, preview = null, typeErrors = "" } = {}) {
   const css = Number.isInteger(cssChecked) && cssChecked > 0 ? cssChecked : 0;
   const saved = draft === true && published !== true;
+  const types = typesOf(typeErrors);
   return {
     compiled: true,
+    // THE TYPECHECK'S VERDICT (2026-10-28): the bundle built, but `tsc` found
+    // mistakes in these files. Kiln Lane's reply said "compiled without errors"
+    // beside a note that a part did not typecheck; the fact was never told.
+    ...(types ? { types } : {}),
     browser: browserOf(render),
     ...(css ? { css } : {}),
     published: published === true,
@@ -123,6 +128,18 @@ export function checksOf({ render = null, version = "", published = false, cssCh
 }
 
 const posInt = (n) => Number.isInteger(n) && n > 0;
+const MAX_TYPE_FILES = 6;
+const TYPE_FILE = /^[a-z0-9][a-z0-9._-]{0,80}$/i;
+/** The files `tsc` named, by base name, from its own output; null when it found nothing. */
+export function typesOf(typeErrors) {
+  if (typeof typeErrors !== "string" || !typeErrors.trim()) return null;
+  const files = [];
+  for (const m of typeErrors.matchAll(/([A-Za-z0-9._\/-]+)\.tsx?\(\d+,\d+\): error TS/g)) {
+    const base = m[1].split("/").pop();
+    if (TYPE_FILE.test(base) && !files.includes(base)) files.push(base);
+  }
+  return { ok: false, files: files.slice(0, MAX_TYPE_FILES) };
+}
 /**
  * THE EVIDENCE AS AN ANSWER CARRIES IT, read strictly: anything that is not
  * exactly this shape is null — cannot-tell is never read as a check that ran,
@@ -141,6 +158,7 @@ export function readChecks(v) {
   } else if (b.ran === false || b.ran === null) {
     if (Object.keys(b).length !== 1) return null;
   } else return null;
+  if (v.types !== undefined && !(plain(v.types) && v.types.ok === false && Array.isArray(v.types.files) && v.types.files.length <= MAX_TYPE_FILES && v.types.files.every((f) => typeof f === "string" && TYPE_FILE.test(f)))) return null;
   if (v.css !== undefined && !posInt(v.css)) return null;
   if (v.draft !== undefined && !(v.draft === true && v.published === false)) return null;
   if (v.revision !== undefined && !(v.draft === true && posInt(v.revision))) return null;
@@ -199,7 +217,7 @@ export function checkFacts(checks, { scope = "", nth = 0 } = {}) {
   const at = scope ? "For " + scope + (which ? " (its " + which + ")" : "") + ": " : which ? "For its " + which + ": " : "";
   const out = [];
   const add = (text) => out.push({ kind: "check", text: at + text });
-  add(COMPILED_SAID);
+  add(c.types ? typesSaid(c.types) : COMPILED_SAID);
   add(browserSaid(c.browser));
   if (c.css) add(cssSaid(c.css));
   add(c.published
@@ -216,6 +234,11 @@ export const DRAFT_PENDING_SAID = "Saved as a draft: the change is in the site's
 export function draftSaid(c) {
   const base = c && c.preview === "pending" ? DRAFT_PENDING_SAID : DRAFT_SAID;
   return c && posInt(c.revision) ? base.replace("Saved as a draft:", "Saved as draft revision " + c.revision + ":") : base;
+}
+/** The site was bundled, but the typecheck found mistakes: never "without errors". */
+export function typesSaid(t) {
+  const where = t.files.length === 1 ? "one part of the code (" + t.files[0] + ")" : t.files.length ? t.files.length + " parts of the code (" + t.files.join(", ") + ")" : "part of the code";
+  return "The site was built, but the type check found a mistake in " + where + ". The builder still shipped it; the browser check below says whether any page showed a problem.";
 }
 export const COMPILED_SAID = "The site's code compiled without errors. Compiling checks that the code fits together; it is not a look at any page.";
 export const cssSaid = (n) => (n === 1 ? "The one style rule" : "Each of the " + n + " style rules") + " this change wrote was checked to match something on the page.";

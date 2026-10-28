@@ -8054,8 +8054,8 @@ export function buildChecks(pages) {
   // A BUILD SAVED AS A DRAFT IS NOT PUBLISHED (2026-10-16): said as its
   // draft, with its revision and its preview as far as they are known.
   const d = pages.draft && typeof pages.draft === "object" ? pages.draft : null;
-  if (d) return checksOf({ render: pages.render, version: typeof pages.version === "string" ? pages.version : "", published: false, draft: true, revision: Number(d.revision) || 0, preview: d.previewUploaded === true ? "ready" : d.previewPending === true ? "pending" : null });
-  return checksOf({ render: pages.render, version: typeof pages.version === "string" ? pages.version : "", published: true });
+  if (d) return checksOf({ render: pages.render, version: typeof pages.version === "string" ? pages.version : "", published: false, draft: true, revision: Number(d.revision) || 0, preview: d.previewUploaded === true ? "ready" : d.previewPending === true ? "pending" : null , typeErrors: pages.typeErrors});
+  return checksOf({ render: pages.render, version: typeof pages.version === "string" ? pages.version : "", published: true, typeErrors: pages.typeErrors });
 }
 
 function inlineFailure(pages, { cost = 0, short = false } = {}) {
@@ -18551,7 +18551,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // AND WHAT THIS PUBLISH CHECKED (2026-10-14), always — a clean render
     // report included, which `render` above leaves off the wire — so every
     // final reply reads the checks from the answer, whatever the narration did.
-    checks: checksOf({ render: built.render, version, published: act.draft !== true, draft: act.draft === true, cssChecked: verifyOnly ? verifyOnly.size : 0, revision: act.draft === true ? act.revision : 0, preview: act.draft === true && act.previewed ? (act.previewed.ok === true ? "ready" : "pending") : null }),
+    checks: checksOf({ render: built.render, version, published: act.draft !== true, draft: act.draft === true, cssChecked: verifyOnly ? verifyOnly.size : 0, revision: act.draft === true ? act.revision : 0, preview: act.draft === true && act.previewed ? (act.previewed.ok === true ? "ready" : "pending") : null, typeErrors: built.typeErrors }),
     // SAVED, NOT PUBLISHED (draft-first): the version is the site's draft,
     // seen at its preview, live only when the owner presses Publish.
     draft: act.draft === true ? draftFacts(slug, version, act) : undefined,
