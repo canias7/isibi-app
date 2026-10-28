@@ -1,6 +1,10 @@
 # Owner Notes
 
 
+## 2026-10-28 — everything the live site does is the site's; ours is building
+
+Keys now live only on the site's Worker (we keep the name and last four characters). Jobs are a table in the site's own database. Every visitor call goes to the site's Worker, and the copies of that work in our Worker (about 1,800 lines: checkout, Stripe, emails, texts, webhooks and their retry queue, connections, hooks, error reports) are deleted. A site that can't answer is told to republish. Spam check is off for now. Visits and backups are the site's own. On the way, fixed: checkout return on the workspace address, a double "Pay" making two orders, a connection that could have sent the site's database login out, and the owner-email cooldown. Not merged or deployed. `docs/history/2026-10-28-site-owns-its-work.md`.
+
 ## 2026-10-27 — the site runs its own jobs, webhook retries and key changes
 
 Scheduled jobs now run in the site's own Worker with the owner's own keys; we only keep the clock that says when. A webhook that failed is kept in the site's own storage and retried from there. A key the owner saves or deletes reaches their site at once, without a republish.

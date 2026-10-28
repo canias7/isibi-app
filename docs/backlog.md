@@ -3313,3 +3313,6 @@ default), verified in the site's Worker for public-form tables only.
   them.
 - **A job whose site call is lost after sending** is run again by the platform's
   own fallback in the same claim (duplicate messages possible, rare).
+- **Site-owned work, not shown live (2026-10-28)**: the site Worker's checkout,
+  jobs, webhook retries, backups and key push are tested offline only; a test
+  site with a booking form and a payment is owed after the deploy.
