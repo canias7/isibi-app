@@ -1729,6 +1729,20 @@ missing site gets. The practical answer is unchanged — a session holding NO
 Supabase token reads neither — but *"owner-gated"* was wrong about the first
 and names the wrong person to go and ask.
 
+## Deploy 2285 — 2026-10-28 21:49 UTC (`fdfd1970b`)
+
+The model writes the site's own server code, on the owner's word "merge and
+deploy": the place, the key-safe `site` helper, the publish check and its fix
+loop, hooks, streamed answers, the site's own files, exact schedules, every
+path (build, add-on, page edit) checked, routing, and the server writer's
+checks (sandboxed test run, wiring, keys, never stubbed, live error log).
+Record: `docs/history/2026-10-28-site-server-code.md`. A fast-forward from
+`8035fc104`; required CI green on the candidate (unit tests run 40772481294,
+site build run 40772481400); rollback verified; nothing in flight. Image
+predicted: SiteBuildContainer `054fb4d51c826ecc` → `7a577bf068bd9734` (254
+inputs), AppBuildContainer `65022ce71e3d7274` unchanged. Run 40775161625 green,
+21:49–21:53 UTC. Deployed, not runtime-confirmed.
+
 ## Deploy 2284 — 2026-10-28 18:52 UTC (`4a36d69fe`)
 
 The reply's facts carry the typecheck's verdict (after Kiln Lane's "compiled
