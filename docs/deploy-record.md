@@ -1729,6 +1729,24 @@ missing site gets. The practical answer is unchanged — a session holding NO
 Supabase token reads neither — but *"owner-gated"* was wrong about the first
 and names the wrong person to go and ask.
 
+## Deploy 2283 — 2026-10-28 03:37 UTC (`363b13aa9`)
+
+The site owns its work: a fast-forward of 30 commits from `2f8006efa`, on the
+owner's word "merge and deploy". Required CI green on the candidate (unit tests
+run 40626625875, site build run 40626625866). The rollback (`git revert
+--no-commit 2f8006efa..363b13aa9`) was verified to give back main's tree, and
+no edit job was open.
+
+- SiteBuildContainer `d798304cc28b0e10` → `51b82d120c34280c` (250 inputs),
+  built, as predicted.
+- AppBuildContainer `65022ce71e3d7274`: no change, as predicted.
+- Platform bindings include `SITE_WORKERS (gofarther-sites)`. The front door
+  `gofarther-front` was deployed with `PLATFORM (isibi-app)` and `SITES
+  (gofarther-sites)`, on `*.gofarther.app/*` and `*/*` on gofarther.dev.
+- Served asset changed: `/chat.js`.
+- Run 40627724992, green, 03:37–03:40 UTC. Deployed, not runtime-confirmed;
+  the image rolled, so wait 15–20 minutes before container work.
+
 ## Deploy 2263 — 2026-10-23 13:36 UTC (`091f153e1`)
 
 Round 2 of the owner's scheduled audit work (findings 201–264, the end of the list), merged on the owner's advance word. Six fix branches (r2-g1 … r2-g6) combined as `r2-combine`; one conflict (the restore sidecar line, fixed from two sides); an independent review with no high findings and three small fixes (backup only table-less for state `none`, nested dark high-contrast, fresh share host) (`docs/history/2026-10-23-r2-combine.md`). Full suite `12155 / 12151 / 1 / 3` (the one is the local node_modules link). Unit CI 39959485628 and site build 39959485695 green on `091f153`. Deploy run 39962631259 green (13:36–13:40 UTC); the image rolls (worker.js and the kit stylesheet). **Deployed, not runtime-confirmed.** Deploy 2262 (round 1) was not yet runtime-confirmed either; one canary press confirms both.
