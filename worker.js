@@ -184,7 +184,7 @@ import { readDevices, readDeviceHint, readLayout, compareLayouts, deviceRefusal,
 // WHAT A PUBLISH REALLY CHECKED, kept on its answer for every final reply (2026-10-14).
 import { checksOf, readChecks, DRAFT_SAID } from "./builder/check-evidence.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
-import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker, DISPATCH_CALL_MS, setSiteSecret } from "./builder/site-dispatch.mjs";
+import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker, DISPATCH_CALL_MS, setSiteSecret, bindableSecret } from "./builder/site-dispatch.mjs";
 import { reconcileVerdict, draftVerdict, reconcileReply, storedAnswer, publicFacts, findMine, RECONCILE_RETRY_MAX } from "./builder/site-reconcile.mjs";
 import { MIGRATIONS_KEY, readMigrations, newMigration, withApplied, upsertMigration, markMigration, pendingMigration, jobMigration, reconciledMigration, migrationNote, migrationSummary } from "./builder/site-migrations.mjs";
 // ── THE LOOK IS THE STYLESHEET, AND ONE NAME SURVIVES THE ENGINE ────────────
@@ -15641,7 +15641,8 @@ async function pushSiteSecret(env, slug, secret, text) {
   const c = dispatchCreds(env);
   if (!c) return 0;
   let took = 0;
-  for (const name of [scriptNameFor(slug), previewScriptName(slug)]) {
+  // THE LIVE SCRIPT ONLY: a draft's preview holds no owner keys (2026-10-28).
+  for (const name of [scriptNameFor(slug)]) {
     if (!name) continue;
     try {
       const r = await setSiteSecret({ ...c, name, secret, text });
@@ -15914,16 +15915,37 @@ const RESYNC_PER_TICK = 5;
 // retries in its own bucket; this wakes each site that runs its own data, a
 // slice per tick, and the site does the work. Nothing of the site's is read.
 const SITE_TICKS_PER_TICK = 40;
+const SITE_TICK_EVERY_MS = 120_000;
+/**
+ * WHICH SITES THIS TICK WAKES: the next `per`, by TICK NUMBER (the cron runs
+ * every two minutes, so a minute-based start only ever took even values and
+ * could skip half the sites for good). Every site is reached within
+ * ceil(n / per) ticks, whatever n is.
+ */
+export function siteTickSlice(slugs, tick, per) {
+  const n = slugs.length;
+  if (!n) return [];
+  const start = ((tick * per) % n + n) % n;
+  const out = [];
+  for (let i = 0; i < Math.min(per, n); i++) out.push(slugs[(start + i) % n]);
+  return out;
+}
 async function runSiteTicks(env) {
   if (env.SITE_OWN_DATA !== "1" || !env.SITE_WORKERS || !env.SUPABASE_SERVICE_KEY) return { woke: 0 };
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/site_project?select=slug&app_conn=not.is.null&order=slug.asc&limit=1000`,
-    { headers: svcHeaders(env), signal: AbortSignal.timeout(8000) });
-  if (!r.ok) return { woke: 0 };
-  const slugs = ((await r.json().catch(() => [])) || []).map((x) => x && x.slug).filter(Boolean);
+  // EVERY SITE, paged past a thousand.
+  const slugs = [];
+  let after = "";
+  for (let page = 0; page < 50; page++) {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/site_project?select=slug&app_conn=not.is.null&order=slug.asc&limit=1000` + (after ? "&slug=gt." + encodeURIComponent(after) : ""),
+      { headers: svcHeaders(env), signal: AbortSignal.timeout(8000) });
+    if (!r.ok) break;
+    const rows = ((await r.json().catch(() => [])) || []).map((x) => x && x.slug).filter(Boolean);
+    slugs.push(...rows);
+    if (rows.length < 1000) break;
+    after = rows[rows.length - 1];
+  }
   if (!slugs.length) return { woke: 0 };
-  const start = (Math.floor(Date.now() / 60_000) * SITE_TICKS_PER_TICK) % slugs.length;
-  const slice = [];
-  for (let i = 0; i < Math.min(SITE_TICKS_PER_TICK, slugs.length); i++) slice.push(slugs[(start + i) % slugs.length]);
+  const slice = siteTickSlice(slugs, Math.floor(Date.now() / SITE_TICK_EVERY_MS), SITE_TICKS_PER_TICK);
   let woke = 0;
   await Promise.all(slice.map(async (slug) => {
     const name = scriptNameFor(slug);
@@ -16017,12 +16039,18 @@ async function uploadScriptOnce(env, slug, worker, { preview = false, go = null 
       // double-submit and follow-up memory there; on the shared bucket it
       // never writes, and never saves a row itself.
       const vars = given ? (bucket === siteBucketName(slug) ? { ...given.vars, OWN_BUCKET: "1" } : given.vars) : null;
-      legacyKeys = given && given.legacy ? given.legacy : [];
-      return { bucket, vars, secrets: given ? given.secrets : null };
+      // A DRAFT'S PREVIEW GETS NO KEYS AND NO DATABASE LOGIN (2026-10-28):
+      // unpublished code must not open real payments, write real orders or
+      // send real mail. And our old copies of the owner's keys are forgotten
+      // only after a LIVE upload, and only those the script really took.
+      if (preview) return { bucket, vars, secrets: null };
+      const secrets = given ? given.secrets : null;
+      legacyKeys = (given && given.legacy ? given.legacy : []).filter((n) => secrets && bindableSecret(n, secrets[n]));
+      return { bucket, vars, secrets };
     })()),
   }).catch((e) => ({ ok: false, status: 0, error: String((e && e.message) || e) }));
   // The script holds them now: our copies go.
-  if (r.ok && legacyKeys.length) await forgetLegacyKeys(env, slug, legacyKeys);
+  if (r.ok && !preview && legacyKeys.length) await forgetLegacyKeys(env, slug, legacyKeys);
   if (!r.ok) {
     console.error("site worker upload failed:", slug, r.status, r.error);
     return r;
@@ -30106,6 +30134,16 @@ async function handleRequest(request, env, ctx) {
     // records) and keeps the answer for a minute. Nothing of a site's is
     // read or returned: a slug, a redirect, gone, or "the platform's".
     if (url.pathname === "/__gf/route" && request.method === "GET" && isAppHostname(url.hostname)) {
+      // Public by nature (visiting an address shows which site it is), but each
+      // answer may cost a lookup: limited per caller. The front door asks at
+      // most once a minute per address, far under this.
+      // (The front door's own calls arrive over the service binding with no
+      // visitor address, and are not limited.)
+      const rip = request.headers.get("CF-Connecting-IP");
+      if (rip) {
+        const rhit = _dataLimiter.hit(bucketKey({ ip: rip, slug: "_route", table: "route", method: "GET" }), 60);
+        if (!rhit.ok) { const t = tooMany(rhit); return Response.json(t.body, { status: t.status, headers: t.headers }); }
+      }
       const r = await routeForHost(env, url.searchParams.get("host") || "").catch(() => ({ to: "platform" }));
       return Response.json(r, { headers: { "cache-control": "no-store" } });
     }
@@ -32863,7 +32901,17 @@ async function handleRequest(request, env, ctx) {
     // before it could) is told to republish; nothing of it is done here.
     {
       const vm = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/(?:data\/[a-z0-9_][a-z0-9\/._-]{0,79}|api\/[a-z][a-z0-9_-]{0,40}|hook\/[a-z][a-z0-9_-]{0,40}|auth\/[a-z0-9][a-z0-9\/._-]{0,79}|error|checkout|uploads|turnstile)$/i);
-      if (vm) return siteAnswers(env, request, vm[1].toLowerCase());
+      if (vm) {
+        const vslug = vm[1].toLowerCase();
+        // ON THE APP'S OWN ADDRESS, ONLY FOR A SITE THAT HAS NO ADDRESS OF ITS
+        // OWN (2026-10-28): a site's visitors reach it through the front door
+        // at its own address; the app keeps no visitor traffic, and no site's
+        // sign-in cookie is ever set on gofarther.dev.
+        if (isAppHostname(url.hostname) && siteHostFor(vslug)) {
+          return Response.json({ error: "this site answers at its own address", at: "https://" + siteHostFor(vslug) }, { status: 404 });
+        }
+        return siteAnswers(env, request, vslug);
+      }
     }
 
 

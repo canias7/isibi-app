@@ -65,6 +65,8 @@ export const DISPATCH_CALL_MS = 600000;
  */
 const HTTPS = (v) => /^https:\/\/[^\s]+$/.test(v);
 const ONE_LINE = (v) => v.length > 0 && v.length <= 4096 && !/[\r\n]/.test(v);
+/** Would this secret really be bound to the script? (The upload drops any other silently.) */
+export const bindableSecret = (name, value) => siteSecretAllowed(name) && typeof value === "string" && ONE_LINE(value);
 export const SITE_PLAIN = {
   DATA_API_BASE: HTTPS,
   AUTH_BASE: HTTPS,

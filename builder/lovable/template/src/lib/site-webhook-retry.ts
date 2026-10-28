@@ -17,7 +17,7 @@ export type QueueBucket = {
   delete(k: string): Promise<unknown>;
   list(o: { prefix: string; cursor?: string; limit?: number }): Promise<Listed>;
 };
-export type RetryEnv = { SITES?: QueueBucket; [name: string]: unknown };
+export type RetryEnv = { SITES?: QueueBucket; OWN_BUCKET?: string; [name: string]: unknown };
 type Row = Record<string, unknown> & { event_id: string; status: string; attempts: number; body: string; table_name: string; action: string };
 const PREFIX = "webhooks/q/";
 const DEAD_PREFIX = "webhooks/dead/";
@@ -50,7 +50,9 @@ async function listRows(B: QueueBucket, max: number): Promise<{ row: Row; etag?:
 /** Keep a failed delivery for later, if it is worth retrying and the queue has room. */
 export async function queueFailed(env: RetryEnv, { slug, table, action, out }:
   { slug: string; table: string; action: string; out: { sent?: boolean; body?: string; status?: number | null; error?: string; reason?: string; attempts?: number; eventId?: string } }): Promise<string | null> {
-  const B = env.SITES;
+  // THE SITE'S OWN BUCKET ONLY: on the shared one another site would drain
+  // this queue and send it to its own endpoint with its own secret.
+  const B = env.OWN_BUCKET === "1" ? env.SITES : undefined;
   if (!B || !out || out.sent || !out.body || !out.eventId || !retryable(out.status ?? null)) return null;
   let pending = 0;
   let cursor: string | undefined;
@@ -69,7 +71,7 @@ export async function queueFailed(env: RetryEnv, { slug, table, action, out }:
 
 /** Try every due delivery once; a delivered one is removed, a dead one kept 30 days for the owner. */
 export async function drainOwnQueue(env: RetryEnv, slug: string): Promise<Record<string, unknown>> {
-  const B = env.SITES;
+  const B = env.OWN_BUCKET === "1" ? env.SITES : undefined;
   if (!B) return { skipped: "no bucket" };
   const etags = new Map<string, string | undefined>();
   return drainQueue({
@@ -113,8 +115,8 @@ export async function siteTick(request: Request, env: RetryEnv, url: URL, slug: 
   // The site's own scheduled jobs first: what is due, claimed in its own table.
   const jobs = await runDueJobs(env as unknown as JobEnv).catch(() => ({ ran: 0 }));
   const webhooks = await drainOwnQueue(env, slug).catch((e) => ({ error: String((e && e.message) || e).slice(0, 200) }));
-  // Dead deliveries older than 30 days go.
-  try {
+  // Dead deliveries older than 30 days go — from the site's own bucket only.
+  if (env.OWN_BUCKET === "1") try {
     const cut = Date.now() - 30 * 24 * 60 * 60 * 1000;
     const page = await env.SITES!.list({ prefix: DEAD_PREFIX, limit: 1000 });
     for (const o of page.objects) if (o.uploaded && o.uploaded.getTime() < cut) await env.SITES!.delete(o.key);

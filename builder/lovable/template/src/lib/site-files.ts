@@ -61,6 +61,25 @@ export async function serveUpload(request: Request, env: FilesEnv, url: URL, slu
   return new Response(obj.body, { status: range ? 206 : 200, headers: { ...mediaHeaders({ ...base, range }), ...own } });
 }
 
+/** The body, or null as soon as it passes `max` bytes. */
+async function readCapped(request: Request, max: number): Promise<Uint8Array | null> {
+  if (!request.body) return new Uint8Array(0);
+  const reader = request.body.getReader();
+  const parts: Uint8Array[] = [];
+  let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    n += value.byteLength;
+    if (n > max) { try { await reader.cancel(); } catch { /* gone */ } return null; }
+    parts.push(value);
+  }
+  const out = new Uint8Array(n);
+  let at = 0;
+  for (const p of parts) { out.set(p, at); at += p.byteLength; }
+  return out;
+}
+
 // Uploads per visitor per minute, per isolate: the platform's own guard, kept here.
 const VISITOR_UPLOADS_PER_MIN = 10;
 const hits = new Map<string, { n: number; until: number }>();
@@ -72,6 +91,10 @@ export async function visitorUpload(request: Request, env: FilesEnv, url: URL, s
   if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405, headers: own });
   const cl = Number(request.headers.get("content-length") || 0);
   if (cl && cl > MAX_VISITOR_UPLOAD_BYTES) return Response.json({ error: "that image is too big — keep it under 2 MB", code: "too_big" }, { status: 413, headers: own });
+  // READ WITH A CAP, not whole: a chunked upload carries no length to refuse
+  // up front, so the bytes are counted as they arrive (2026-10-28).
+  const bytes = await readCapped(request, MAX_VISITOR_UPLOAD_BYTES);
+  if (!bytes) return Response.json({ error: "that image is too big — keep it under 2 MB", code: "too_big" }, { status: 413, headers: own });
   const B = env.SITES;
   // The platform's rule writes `uploads/<slug>/…`; a visitor's file lives
   // under `vuploads/` in this bucket, so the owner's copies never touch it.
@@ -111,7 +134,7 @@ export async function visitorUpload(request: Request, env: FilesEnv, url: URL, s
     slug,
     table: url.searchParams.get("table"),
     ip: request.headers.get("CF-Connecting-IP") || "",
-    bytes: new Uint8Array(await request.arrayBuffer()),
+    bytes,
   });
   return Response.json(vr.body, { status: vr.status, headers: own });
 }

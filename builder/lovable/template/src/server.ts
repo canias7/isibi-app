@@ -144,7 +144,9 @@ export async function ownDataWrite(request: Request, env: Env, url: URL, ctx?: C
   const prefix = "/api/db/" + SITE_SLUG + "/data/";
   if (!url.pathname.toLowerCase().startsWith(prefix)) return null;
   const path = url.pathname.slice(prefix.length);
-  if (!/^[a-z0-9_][a-z0-9/._-]{0,79}$/i.test(path)) return null;
+  // No `.` or `..` segment: the Data API would resolve it to ANOTHER table
+  // than the one whose settings run (2026-10-28, independent review).
+  if (!/^[a-z0-9_][a-z0-9/._-]{0,79}$/i.test(path) || path.split("/").some((seg) => seg === "." || seg === "..")) return null;
   // Writes per visitor per minute — the platform's old ceiling, kept here.
   const wait = tooMany("write|" + visitorIp(request), 60);
   if (wait) return limited(wait);
@@ -233,7 +235,9 @@ export async function ownDataRead(request: Request, env: Env, url: URL): Promise
   const prefix = "/api/db/" + SITE_SLUG + "/data/";
   if (!url.pathname.toLowerCase().startsWith(prefix)) return null;
   const path = url.pathname.slice(prefix.length);
-  if (!/^[a-z0-9_][a-z0-9/._-]{0,79}$/i.test(path)) return null;
+  // No `.` or `..` segment: the Data API would resolve it to ANOTHER table
+  // than the one whose settings run (2026-10-28, independent review).
+  if (!/^[a-z0-9_][a-z0-9/._-]{0,79}$/i.test(path) || path.split("/").some((seg) => seg === "." || seg === "..")) return null;
   const h = new Headers();
   for (const k of ["accept", "prefer", "authorization", "cookie"]) { const v = request.headers.get(k); if (v) h.set(k, v); }
   try { h.set("origin", new URL(env.DATA_API_BASE).origin); } catch { /* a base we cannot parse answers below */ }
