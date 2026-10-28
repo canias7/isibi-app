@@ -718,7 +718,10 @@ test("THE FIRST BUILD'S PAGE WRITER IS UNCHANGED, BYTE FOR BYTE — and so is a 
   // effects. The build, revise and add-on requests all carry these rules, so all three hashes moved.
   // RE-PINNED 2026-10-22 at the combine (then again for the Meshy 3D sentence): the design rules, the 3D component and
   // the font, prose and checklist work all move the page writer's request.
-  const pinned = { build: "12cd1168dad8ee16", revise: "7cd8efcb68e34000", addon: "677b14498b2220ce" };
+  // RE-PINNED 2026-10-28 (owner: "the model should be able to write everything"): the
+  // page writer's tool gained the `server` field (the site's own server code, its
+  // rules, a chatbot example and the hooks); nothing else in the request moved.
+  const pinned = { build: "bd2cb19d652a5800", revise: "8714931426edde70", addon: "82b30987b76eedf8" };
   assert.equal(h16(pagesRequest({ brief: "A bakery in Leeds", spec: SPEC, brand: "Fold Lane", model: "test-model" })), pinned.build, "the first build's page request changed");
   assert.equal(h16(pagesRequest({ brief: "Make it warmer", spec: SPEC, brand: "Fold Lane", model: "test-model", priorPages: prior, mode: "revise" })), pinned.revise, "a revise's page request changed");
   // THE ADD-ON'S WRITER MAY ASK (2026-10-11, the generality round: the last
