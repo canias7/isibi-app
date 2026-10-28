@@ -275,7 +275,9 @@ export const ASK_TOOL = {
           "\"addon\" — ADDING SOMETHING THE SITE DOES NOT HAVE YET. A page it has no page for, a table it needs to STORE " +
           "something it has no table for, or a section, a QR code, a 3D scene, a form or a map on a page. The page " +
           "existing does not make it an edit: \"Add a testimonials section to the home page\" is an addon, because the " +
-          "section does not exist yet.\n" +
+          "section does not exist yet. SOMETHING THE SITE DOES that it does not do yet is an addition too — text the " +
+          "owner when someone books, a chatbot on the owner's AI key, payments through PayPal, a daily reminder, a " +
+          "limit on bookings: the site's own server code is written for it.\n" +
           // ── THE FRAME, A LINE OF WORDS AND A PHOTOGRAPH ARE ADDITIONS TOO (2026-10-02) ──
           //
           // Run 90 (A1–A5): a footer link, a menu link, a header button, a line

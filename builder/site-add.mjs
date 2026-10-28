@@ -771,7 +771,7 @@ const ADDS = {
     },
   },
   api: {
-    hint: "An OUTSIDE service a page reads live — today's exchange rate, a courier's slots, a supplier's stock, the weather — with the owner's own key kept server-side. Not for anything a table can hold.",
+    hint: "An OUTSIDE service a page reads live — today's exchange rate, a courier's slots, a supplier's stock, the weather — with the owner's own key kept server-side. Not for anything a table can hold. Not for anything that DOES something or answers back (a text message, a chatbot, a payment provider, an email through the owner's provider, a rule the server enforces, something on a schedule): that is the site's own server code, which `component` (or `page` when it needs a page of its own) writes beside the section that uses it.",
     // THE COVERAGE LIST RIDES THIS KIND TOO (2026-09-14). It was on `table`
     // alone, so five of the six steps that design something had no way to say
     // what they could not deliver — and the one thing the customer most needs
@@ -962,7 +962,7 @@ const ADDS = {
   // build's own) — and where on which page it goes. The step that writes
   // pages puts it in the tsx; a part written for this site lands in `parts`.
   component: {
-    hint: "A NEW COMPONENT on a page the site already has — what a customer calls a section, a band or a block: testimonials, a form, a map, an FAQ, opening hours, a price list, a gallery strip, a countdown. From the kit, or written for this site when the kit has not got it. The page existing does not make it an edit; the component is not on it yet. And a section LIKE it already being on the page does not either: that is a SECOND one, added after the first, which stays exactly as it is — and built from the SAME component the first is built from, laid out the same way.",
+    hint: "A NEW COMPONENT on a page the site already has — what a customer calls a section, a band or a block: testimonials, a form, a map, an FAQ, opening hours, a price list, a gallery strip, a countdown, a chat box. From the kit, or written for this site when the kit has not got it, WITH the site's own server code when it needs one (an outside service on the owner's key, a text or email when something happens, a rule the server enforces, something on a schedule). The page existing does not make it an edit; the component is not on it yet. And a section LIKE it already being on the page does not either: that is a SECOND one, added after the first, which stays exactly as it is — and built from the SAME component the first is built from, laid out the same way.",
     // THE COVERAGE LIST RIDES THIS KIND TOO (2026-09-14). It was on `table`
     // alone, so five of the six steps that design something had no way to say
     // what they could not deliver — and the one thing the customer most needs

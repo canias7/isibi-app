@@ -324,6 +324,7 @@ import { requirementRetryRound, judgedNeeds } from "./builder/requirement-retry.
 import { exerciseTables } from "./builder/requirement-exercise.mjs";
 import { renderedTexts } from "./builder/content-evidence.mjs";
 import { noteFor, pickAdds, designWaits, ADD_KINDS, mergePageBatches, runAdd, addRequest, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, frameToMissing, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, qrShownSources, qrDestinationCheck, missingPopulation, readTables, populationNote, seedSkipNote, refusedNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowRequired, requiredColumns, rowMarkerKey, duplicateRows, duplicateAsk, duplicateAnswer, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
+import { vetServerCode, isServerPart } from "./builder/server-code.mjs";
 import { compileRepairRound, compileRepairRounds, writtenPaths, withParts, splitParts } from "./builder/compile-repair.mjs";
 import { salvageRound, anythingLanded, MAX_SALVAGE_ROUNDS, landedBill, partKey, writtenPartKeys } from "./builder/change-salvage.mjs";
 import { wantsFirstBuildBackend, featuresNeedingData, firstBuildBackendTool, firstBuildBackendBrief, mergeFirstBuildBackend, FIRST_BUILD_BACKEND_RULES } from "./builder/first-build-db.mjs";
@@ -17358,6 +17359,21 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // the publish has landed. Without this the page imports a component the
   // container never receives — the lane sweep's `tsx` failure, 2026-09-01.
   let siteParts = Array.isArray(parts) ? parts : await loadSiteParts(env, slug);
+  // THE SITE'S OWN SERVER CODE IS CHECKED ON EVERY PUBLISH (2026-10-28): the
+  // page rung and the add-on step write it too and publish here, not through
+  // `publishPages`. A refused part keeps the site's stored copy when it has
+  // one (an edit never makes working server code worse); otherwise it is left out.
+  if (Array.isArray(parts) && parts.some(isServerPart)) {
+    const vet = vetServerCode({ pages: Array.isArray(pages) ? pages : [], parts });
+    if (vet.failed.length) {
+      let stored = [];
+      try { const sp = await loadSiteParts(env, slug); stored = Array.isArray(sp) ? sp : []; } catch { stored = []; }
+      const keep = new Map(stored.filter(isServerPart).map((q) => [q.name, q]));
+      siteParts = vet.parts.concat(vet.failed.map((f) => keep.get(f.part.name)).filter(Boolean));
+      tm("server-check", "refused", { parts: vet.failed.map((f) => f.part.name), reasons: vet.failed.map((f) => f.reasons.join("; ").slice(0, 200)) });
+    }
+    if (vet.leaking.length) tm("server-check", "leaking", { files: vet.leaking });
+  }
   // A PART THE COMPILE REPAIR FIXED (2026-10-24) is stored beside the pages
   // even when the caller handed none: the band the error cited is the file
   // that changed. See `partsRepaired` at the compile below.

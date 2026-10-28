@@ -215,3 +215,20 @@ test("SF15 exact schedules: once per due time, caught up once, first wake only s
   assert.equal(await fireSchedules(e, "kiln", Date.parse("2026-11-02T09:04:00Z"), mods), 0, "never twice");
   assert.deepEqual(ran, ["cron:0 9 * * 1"]);
 });
+
+test("SF16 every path's publish checks server code: a refused rewrite keeps the stored copy", () => {
+  const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const a = w.indexOf("let siteParts = Array.isArray(parts) ? parts : await loadSiteParts(env, slug);");
+  assert.ok(a > 0 && a > w.indexOf("async function recompileAndPublish("));
+  const block = w.slice(a, w.indexOf("// A PART THE COMPILE REPAIR FIXED", a));
+  assert.match(block, /vetServerCode\(\{ pages: Array\.isArray\(pages\) \? pages : \[\], parts \}\)/);
+  assert.match(block, /siteParts = vet\.parts\.concat\(vet\.failed\.map\(\(f\) => keep\.get\(f\.part\.name\)\)\.filter\(Boolean\)\)/);
+});
+
+test("SF17 the router and the add-on step send 'the site should DO something' to the writer with server code", async () => {
+  const { ASK_TOOL } = await import("../builder/site-ask.mjs");
+  assert.match(JSON.stringify(ASK_TOOL), /SOMETHING THE SITE DOES that it does not do yet is an addition too/);
+  const add = readFileSync(new URL("../builder/site-add.mjs", import.meta.url), "utf8");
+  assert.match(add, /Not for anything that DOES something or answers back/);
+  assert.match(add, /WITH the site's own server code when it needs one/);
+});
