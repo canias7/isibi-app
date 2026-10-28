@@ -114,7 +114,7 @@ export async function visitorUpload(request: Request, env: FilesEnv, url: URL, s
       return b.n > VISITOR_UPLOADS_PER_MIN ? { ok: false, retryAfter: Math.ceil((b.until - now) / 1000) } : { ok: true };
     },
     hash: async (bytes: Uint8Array) => {
-      const d = await crypto.subtle.digest("SHA-256", bytes);
+      const d = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes));
       return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
     },
     list: async (s: string) => {
