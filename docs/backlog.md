@@ -3316,3 +3316,12 @@ default), verified in the site's Worker for public-form tables only.
 - **Site-owned work, not shown live (2026-10-28)**: the site Worker's checkout,
   jobs, webhook retries, backups and key push are tested offline only; a test
   site with a booking form and a payment is owed after the deploy.
+
+
+## Kiln Lane Pottery: the paid booking path (2026-10-28, noted for later by the owner)
+
+Add a Stripe test key in Kiln Lane's Payments panel, then press the deposit as a
+visitor and check: the site's own checkout, Stripe's message to the site's
+Worker, the booking row in the site's own table, the owner's email. Also from
+that build: the 6-places-per-class limit was not built (ask for it as an
+addition); two pages have no `head`.
