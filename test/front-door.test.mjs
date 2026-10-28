@@ -39,11 +39,14 @@ test("no platform, or a platform that throws, is an honest 503/502 marked as the
   for (const r of [a, b]) assert.equal(r.headers.get("x-served-by"), SERVED_BY);
 });
 
-test("the front door holds one binding, the platform, and every site address on gofarther.app", () => {
+test("the front door holds two bindings, the platform and the sites' namespace, and every site address on gofarther.app", () => {
   const cfg = fs.readFileSync(new URL("../front/wrangler.jsonc", import.meta.url), "utf8").replace(/^\s*\/\/.*$/gm, "");
   const j = JSON.parse(cfg);
   assert.deepEqual(j.services, [{ binding: "PLATFORM", service: "isibi-app" }]);
-  for (const k of ["r2_buckets", "kv_namespaces", "d1_databases", "dispatch_namespaces", "vars", "route"]) assert.equal(j[k], undefined, k);
+  // 2026-10-28: and each site's own Worker, called directly. Still no bucket,
+  // no KV, no database and no secret: it cannot read a site's files or data.
+  assert.deepEqual(j.dispatch_namespaces, [{ binding: "SITES", namespace: "gofarther-sites" }]);
+  for (const k of ["r2_buckets", "kv_namespaces", "d1_databases", "vars", "route"]) assert.equal(j[k], undefined, k);
   assert.deepEqual(j.routes, [{ pattern: "*.gofarther.app/*", zone_name: "gofarther.app" }, { pattern: "*/*", zone_name: "gofarther.dev" }]);
   const main = JSON.parse(fs.readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8").replace(/^\s*\/\/.*$/gm, "").replace(/,(\s*[}\]])/g, "$1"));
   assert.equal(j.compatibility_date, main.compatibility_date);
@@ -110,4 +113,66 @@ test("the job gateway's address is an app host the front door leaves alone", () 
   const W = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(W, /gateway: \{ url: "https:\/\/" \+ APP_ZONE \+ "\/api\/job\/"/);
   assert.ok(APP_HOSTS.has("gofarther.dev"));
+});
+
+// ── the front door calls each site's own Worker (2026-10-28) ────────────────
+test("a site's visit goes straight to that site's Worker; the app, previews and unknown addresses to the platform", async () => {
+  const { handle } = await import("../front/worker.mjs");
+  const plat = [], sites = [];
+  const routes = {
+    "ember-cart.gofarther.app": { slug: "ember-cart" },
+    "test.isibi.ai": { slug: "ember-cart" },
+    "old-name.gofarther.app": { redirect: "new-name.gofarther.app" },
+    "gone.gofarther.app": { gone: true },
+    "fresh.gofarther.app": { slug: "fresh" },
+  };
+  const env = {
+    PLATFORM: { fetch: async (req) => {
+      const u = new URL(req.url);
+      if (u.pathname === "/__gf/route") { plat.push("route:" + u.searchParams.get("host")); return Response.json(routes[u.searchParams.get("host")] || { to: "platform" }); }
+      plat.push(u.host + u.pathname); return new Response("platform");
+    } },
+    SITES: { get: (name, _a, opts) => ({ fetch: async (req) => {
+      if (name === "site-fresh") throw new Error("Worker not found.");
+      sites.push([name, new URL(req.url).host, req.headers.get("x-gf-replay"), opts && opts.limits]);
+      return new Response("<p>site</p>", { headers: { "content-type": "text/html", "x-frame-options": "DENY" } });
+    } }) },
+  };
+  const store = new Map();
+  const cache = { match: async (k) => (store.has(k.url) ? new Response(store.get(k.url)) : undefined), put: async (k, r) => { store.set(k.url, await r.text()); } };
+  const go = (u, h = {}) => handle(new Request(u, { headers: h }), env, { cache });
+
+  const a = await go("https://ember-cart.gofarther.app/menu", { "x-gf-replay": "forged" });
+  assert.equal(await a.text(), "<p>site</p>");
+  assert.deepEqual(sites[0].slice(0, 3), ["site-ember-cart", "ember-cart.gofarther.app", null], "the site was not called directly, or a platform header got through");
+  assert.deepEqual(sites[0][3], { cpuMs: 300, subRequests: 50 }, "the site's limits were not applied");
+  assert.match(a.headers.get("content-security-policy"), /frame-ancestors 'self' https:\/\/gofarther\.dev/);
+  assert.equal(a.headers.get("x-frame-options"), null);
+  assert.ok(!plat.includes("ember-cart.gofarther.app/menu"), "the visit went through the platform");
+  // The answer is kept: a second visit asks nothing of the platform.
+  await go("https://ember-cart.gofarther.app/about");
+  assert.equal(plat.filter((p) => p === "route:ember-cart.gofarther.app").length, 1, "the route was asked twice");
+  // A custom domain, the same way.
+  await go("https://test.isibi.ai/");
+  assert.equal(sites.at(-1)[0], "site-ember-cart");
+  // A renamed site and a dropped name.
+  const r = await go("https://old-name.gofarther.app/menu?x=1");
+  assert.equal(r.status, 301);
+  assert.equal(r.headers.get("location"), "https://new-name.gofarther.app/menu?x=1");
+  assert.equal((await go("https://gone.gofarther.app/")).status, 404);
+  // No script yet (building, coming soon) → the platform.
+  assert.equal(await (await go("https://fresh.gofarther.app/")).text(), "platform");
+  // The app and an unknown address → the platform, untouched.
+  assert.equal(await (await go("https://gofarther.dev/api/sites")).text(), "platform");
+  assert.equal(await (await go("https://ember-cart--draft-abc.gofarther.app/")).text(), "platform");
+});
+
+test("the platform answers what an address is, and nothing of the site's", () => {
+  const at = W.indexOf('url.pathname === "/__gf/route"');
+  assert.ok(at > 0, "the route lookup is gone");
+  assert.match(W.slice(at, at + 400), /isAppHostname\(url\.hostname\)/, "the lookup answers on a site's own address");
+  const fn = W.slice(W.indexOf("async function routeForHost("), W.indexOf("async function siteForHostname("));
+  assert.match(fn, /if \(previewOf\(label\)\) return \{ to: "platform" \};/, "a draft preview is sent to a site's live Worker");
+  assert.match(fn, /resolveAlias\(label, seen, now\)/);
+  assert.match(fn, /siteForHostname\(env, host\)/);
 });

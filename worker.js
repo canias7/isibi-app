@@ -102,6 +102,7 @@ import { securityOfferFacts, securityWorkingFacts, securityReportFacts, security
 import { OFFLINE_COLUMN, siteOffline, offlineStamp } from "./builder/site-offline.mjs";
 import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, lostBuildVerdict, lostBuildMessage, CANCELLED_MSG, STOPPED_FREE_MSG, STOPPED_SHORT_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE, carryPanelFields, keepPanelDescription } from "./site-meta.mjs";
+import { publishedSiteCsp } from "./site-headers.mjs";
 import { siteBucketName, ensureSiteBucket, syncSiteBucket, restBucket, bindingBucket, deleteSiteBucket, RESYNC_PREFIX } from "./builder/site-bucket.mjs";
 import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, MAX_NEW_SLUG, capNewSlug, rebuildGoesLive, PUBLISH_KEEP_BUILDS, publishKeeps, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, applyRowQuery, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec, previousSidecar, heldMediaSource, heldStandIns, previewServed, ftsFilterOf, FTS_CATALOG_SQL, ftsJudgeSql, ftsJudgeParams, heldChangedIds, deadNewFunctions, jobsWithoutDead } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
@@ -2026,63 +2027,7 @@ function harden(res, request) {
   const publishedSite = isPublishedSiteRequest(hostname, pathname);
   h.set("X-Content-Type-Options", "nosniff");
   if (publishedSite) {
-    h.set("Content-Security-Policy", [
-      "default-src 'self'",
-      // CLOUDFLARE INJECTS ITS OWN BEACON ON THIS ZONE AND WE CANNOT STOP IT.
-      //
-      // Measured live 2026-08-15 on a real customer site: `forno-and-co` serves
-      // `<script src="https://static.cloudflareinsights.com/beacon.min.js/…">`
-      // with a site token, injected at the edge AFTER this Worker responds — so
-      // there is nothing here to strip. `gofarther.dev` serves none, which is
-      // what proves it is a property of the `.app` zone rather than of us.
-      //
-      // THE DASHBOARD HAS NO SWITCH FOR IT. The zone's Web Analytics page reads
-      // "No data available — Enable RUM for free", i.e. it is offering to turn
-      // RUM ON; it is not on. So the beacon is not something anybody configured
-      // and not something anybody can un-configure, and refusing it bought
-      // exactly one thing: a console error on EVERY page view of EVERY
-      // published site, found by `build smoke`'s browser step.
-      //
-      // NAMING IT IS THEREFORE NOT A DECISION ABOUT A CUSTOMER'S DATA. With RUM
-      // off nothing is collected either way — the only difference is whether
-      // the browser complains about a script Cloudflare inserts regardless.
-      // Should RUM ever be enabled deliberately, that is the moment to weigh
-      // it, and this line will already be right.
-      //
-      // BOTH DIRECTIVES OR NEITHER. The beacon loads a script and then POSTs
-      // its measurements back to a DIFFERENT host (`cloudflareinsights.com`,
-      // no `static.`), so allowing only the script moves the error rather than
-      // removing it — the load succeeds and the send is refused. Same class as
-      // the map/video `frame-src` fix below, where one of two hosts on the list
-      // would have left `VideoEmbed` rendering nothing.
-      // SPAM PROTECTION (2026-10-25): Turnstile's script and its challenge
-      // frame both come from challenges.cloudflare.com; without these the
-      // widget never rendered, so no visitor could get a token.
-      "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com https://challenges.cloudflare.com",
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-      "font-src 'self' https://fonts.gstatic.com https://fonts.googleapis.com",
-      "img-src 'self' data: blob: https://*.supabase.co",
-      "connect-src 'self' https://cloudflareinsights.com",
-      // Live map embeds (OpenStreetMap / Google Maps) — no API key, real interactive
-      // maps. Without this, default-src 'self' would block the map iframe on publish.
-      // Maps AND video. `VideoEmbed` is in the generator's component list and has
-      // a documented signature, so the model is actively told to use it — and it
-      // emits an iframe at youtube-nocookie / player.vimeo, neither of which was
-      // on this list. It typechecked, bundled, published and rendered NOTHING:
-      // this repo's signature failure shape, sitting live. Both are the
-      // privacy-preserving hosts the component deliberately chose (no cookie on
-      // a visitor who never pressed play), which is why they are safe to name.
-      "frame-src 'self' https://www.openstreetmap.org https://www.google.com https://maps.google.com https://www.youtube-nocookie.com https://player.vimeo.com https://challenges.cloudflare.com",
-      "base-uri 'self'",
-      // THE BUILDER'S PREVIEW IS NOW CROSS-ORIGIN, which `'self'` alone cannot
-      // express. It was written when a site was served from `gofarther.dev/s/…`,
-      // same-origin with the workspace framing it; a site lives on its own
-      // registrable domain now, so `'self'` means only the site may frame the
-      // site and the preview pane renders Chrome's "This content is blocked".
-      // The platform is named explicitly rather than opened up — a customer's
-      // site stays unframable by anybody else, which is the clickjacking answer.
-      "frame-ancestors 'self' https://" + APP_ZONE + " https://www." + APP_ZONE,
-    ].join("; "));
+    h.set("Content-Security-Policy", publishedSiteCsp(APP_ZONE));
     // AND NO `X-Frame-Options` AT ALL, deliberately. It has no syntax for "self
     // plus one other origin" — `ALLOW-FROM` is dead in every current browser —
     // so any value here either blocks the preview or is ignored. `frame-ancestors`
@@ -12326,6 +12271,27 @@ function forgetAlias(slug, ...labels) {
  * about it — but it must not be written into the cache as though it were an
  * answer, so the miss rule covers both.
  */
+/** What an address is: `{slug}`, `{redirect: host}`, `{gone: true}`, or `{to: "platform"}`. */
+async function routeForHost(env, hostname) {
+  const host = normalizeHostname(hostname);
+  if (!host || isAppHostname(host)) return { to: "platform" };
+  const label = siteHostSlug(host);
+  if (label) {
+    // Draft previews are the builder's: served here.
+    if (previewOf(label)) return { to: "platform" };
+    const row = await aliasRowFor(env, label);
+    const seen = row === NO_ALIAS ? null : row;
+    const now = seen ? (!seen.current ? await publicNameFor(env, seen.slug) : null) : await publicNameFor(env, label);
+    const out = resolveAlias(label, seen, now);
+    if (out.gone) return { gone: true };
+    if (out.redirect) { const to = siteHostFor(out.redirect); return to ? { redirect: to } : { to: "platform" }; }
+    return { slug: out.slug || label };
+  }
+  if (isOwnHostname(host)) return { to: "platform" };
+  const mapped = await siteForHostname(env, host);
+  return mapped ? { slug: mapped } : { to: "platform" };
+}
+
 async function siteForHostname(env, hostname) {
   const host = normalizeHostname(hostname);
   if (!host || isOwnHostname(host)) return null;
@@ -30131,6 +30097,17 @@ async function handleRequest(request, env, ctx) {
       // has shown only the pretty address since the zone went live — the callers
       // still using `/s/` are ours.
       if (pretty) return Response.redirect("https://" + pretty + (sm2[2] || "/") + url.search, 301);
+    }
+
+    // ── WHICH SITE AN ADDRESS IS, FOR THE FRONT DOOR (2026-10-28) ──────────
+    //
+    // The front door calls each site's Worker itself; it asks here only what
+    // an address means (names, renames, custom domains are the platform's
+    // records) and keeps the answer for five minutes. Nothing of a site's is
+    // read or returned: a slug, a redirect, gone, or "the platform's".
+    if (url.pathname === "/__gf/route" && request.method === "GET" && isAppHostname(url.hostname)) {
+      const r = await routeForHost(env, url.searchParams.get("host") || "").catch(() => ({ to: "platform" }));
+      return Response.json(r, { headers: { "cache-control": "no-store" } });
     }
 
     // A DRAFT'S PREVIEW (draft-first, 2026-10-15): `<slug>--draft-<token>`

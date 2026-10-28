@@ -546,8 +546,9 @@ test("the edge-injected analytics beacon is allowed, both halves of it", () => {
   // "No data available — Enable RUM for free", i.e. it offers to turn RUM ON.
   // Refusing it in the CSP therefore bought nothing except a console error on
   // every page view of every published site.
-  const w = read("worker.js");
-  const at = w.indexOf('h.set("Content-Security-Policy", [\n      "default-src \'self\'"');
+  // (2026-10-28: one module, used by the front door and the platform alike.)
+  const w = read("site-headers.mjs");
+  const at = w.indexOf('export function publishedSiteCsp(');
   assert.ok(at > 0, "the published-site CSP block moved — rescope this");
   const block = w.slice(at, w.indexOf('"base-uri', at));
   assert.ok(block.length > 200, "the CSP window is empty — rescope this");
@@ -576,10 +577,12 @@ test("a customer's site can be framed by the builder and by nobody else", () => 
   // no syntax for "self plus one other origin" (`ALLOW-FROM` is dead), so any
   // value there either blocks the preview or is ignored.
   const w = read("worker.js");
-  const at = w.indexOf('"base-uri \'self\'",\n      // THE BUILDER\'S PREVIEW IS NOW CROSS-ORIGIN');
+  const hdr = read("site-headers.mjs");
+  const at = hdr.indexOf("// THE BUILDER'S PREVIEW IS NOW CROSS-ORIGIN");
   assert.ok(at > 0, "the published-site CSP block moved");
-  const block = w.slice(at, at + 1600);
-  assert.match(block, /"frame-ancestors 'self' https:\/\/" \+ APP_ZONE \+ " https:\/\/www\." \+ APP_ZONE/,
+  const block = hdr.slice(at);
+  assert.match(w, /h\.set\("Content-Security-Policy", publishedSiteCsp\(APP_ZONE\)\);[\s\S]{0,900}?h\.delete\("X-Frame-Options"\)/, "the platform's site pages lost the shared policy");
+  assert.match(block, /"frame-ancestors 'self' https:\/\/" \+ appZone \+ " https:\/\/www\." \+ appZone/,
     "the platform is no longer allowed to frame a published site, so the preview stays blocked");
   assert.match(block, /h\.delete\("X-Frame-Options"\)/,
     "X-Frame-Options must be DELETED on a published site, not merely left unset — an upstream one would survive");
@@ -606,9 +609,10 @@ test("the preview needs BOTH policies, so both are asserted together", () => {
     "the workspace's own CSP does not allow it to frame the site zone — every preview is blocked at the parent");
   assert.doesNotMatch(w, /"frame-src 'self' blob:",/,
     "frame-src is back to same-origin only, which cannot load a site on its own domain");
-  const at = w.indexOf("// THE BUILDER'S PREVIEW IS NOW CROSS-ORIGIN");
+  const hdr = read("site-headers.mjs");
+  const at = hdr.indexOf("// THE BUILDER'S PREVIEW IS NOW CROSS-ORIGIN");
   assert.ok(at > 0, "the published-site frame-ancestors comment moved");
-  assert.match(w.slice(at, at + 900), /"frame-ancestors 'self' https:\/\/" \+ APP_ZONE/,
+  assert.match(hdr.slice(at, at + 900), /"frame-ancestors 'self' https:\/\/" \+ appZone/,
     "the site no longer lets the workspace frame it — the other half of the same failure");
   // Both are derived from the zone constants rather than spelled out, so a zone
   // rename cannot leave one of them naming a domain that no longer exists.

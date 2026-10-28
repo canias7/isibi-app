@@ -22,5 +22,10 @@
   ],
   "services": [
     { "binding": "PLATFORM", "service": "isibi-app" }
+  ],
+  // EACH SITE'S OWN WORKER, called directly (2026-10-28): the same namespace
+  // the platform uploads every site's script into.
+  "dispatch_namespaces": [
+    { "binding": "SITES", "namespace": "gofarther-sites" }
   ]
 }
