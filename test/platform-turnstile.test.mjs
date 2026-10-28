@@ -48,7 +48,9 @@ test("chooseTurnstile: the site's own pair wins; the platform's only where cover
 });
 
 test("published sites may load Turnstile's script and frame", () => {
-  const csp = between(worker, 'h.set("Content-Security-Policy", [\n      "default-src \'self\'"', '].join("; ")');
+  // (2026-10-28: the site policy lives in site-headers.mjs, shared with the front door.)
+  const hdr = readFileSync(new URL("../site-headers.mjs", import.meta.url), "utf8");
+  const csp = between(hdr, "export function publishedSiteCsp(", '].join("; ")');
   const script = csp.match(/"script-src [^"]*"/);
   const frame = csp.match(/"frame-src [^"]*"/);
   assert.ok(script && script[0].includes("https://challenges.cloudflare.com"), "the widget script is refused");

@@ -283,7 +283,7 @@ test("A PUBLISHED SITE MAY FRAME THE VIDEO HOSTS ITS OWN COMPONENT USES", () => 
   // signature, so the model is actively told to use it — and it emits an iframe
   // at these two hosts. Without them the page typechecks, bundles, publishes and
   // renders NOTHING, which is this repo's signature failure shape.
-  const m = /"frame-src ([^"]+)"/.exec(WORKER.slice(WORKER.indexOf("const publishedSite =")));
+  const m = /"frame-src ([^"]+)"/.exec(fs.readFileSync(new URL("../site-headers.mjs", import.meta.url), "utf8")) /* 2026-10-28: one shared module */;
   assert.ok(m, "the published-site frame-src is gone");
   const policy = m[1];
   for (const host of ["https://www.youtube-nocookie.com", "https://player.vimeo.com"]) {
@@ -301,7 +301,7 @@ test("the video hosts are the PRIVACY-PRESERVING ones the component chose", () =
   // deliberately, so a small business's site does not drop a tracking cookie on
   // somebody who never pressed play. Naming plain youtube.com here would widen
   // the policy past what the component needs AND undo that.
-  const m = /"frame-src ([^"]+)"/.exec(WORKER.slice(WORKER.indexOf("const publishedSite =")));
+  const m = /"frame-src ([^"]+)"/.exec(fs.readFileSync(new URL("../site-headers.mjs", import.meta.url), "utf8")) /* 2026-10-28: one shared module */;
   assert.ok(!/https:\/\/www\.youtube\.com/.test(m[1]), "the cookie-setting YouTube host is on the policy");
   const embed = fs.readFileSync(new URL("../builder/lovable/template/src/components/ui/video-embed.tsx", import.meta.url), "utf8");
   assert.match(embed, /youtube-nocookie\.com/, "the component no longer uses the host the policy allows");
