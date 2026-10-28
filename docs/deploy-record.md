@@ -1729,6 +1729,17 @@ missing site gets. The practical answer is unchanged — a session holding NO
 Supabase token reads neither — but *"owner-gated"* was wrong about the first
 and names the wrong person to go and ask.
 
+## Deploy 2284 — 2026-10-28 18:52 UTC (`4a36d69fe`)
+
+The reply's facts carry the typecheck's verdict (after Kiln Lane's "compiled
+without errors" beside a type error), on the owner's word "merge and deploy".
+A fast-forward of 1 commit from `d3af83ffa`. Required CI green on the candidate
+(unit tests run 40746793766, site build run 40746793797); rollback verified;
+nothing in flight. Image predicted: SiteBuildContainer `51b82d120c34280c` →
+`054fb4d51c826ecc` (250 inputs), AppBuildContainer `65022ce71e3d7274`
+unchanged. Run 40749068840 green, 18:52–18:55 UTC; the image step took 2 min 16 s
+(a build). Deployed, not runtime-confirmed.
+
 ## Deploy 2283 — 2026-10-28 03:37 UTC (`363b13aa9`)
 
 The site owns its work: a fast-forward of 30 commits from `2f8006efa`, on the
