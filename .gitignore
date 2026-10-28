@@ -20,3 +20,6 @@ build-as-owner-log.md
 backend-repair.log
 repairbench-count-fix.log
 *.sweepbak
+
+# temporary transpiles made by test/fixtures/template-ts.mjs
+builder/lovable/template/src/**/*.__t*.mjs
