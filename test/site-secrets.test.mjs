@@ -332,8 +332,9 @@ test("the route NEVER calls readSecret — nothing owner-facing may decrypt", ()
 });
 
 test("the route only ever hands the three value-free vault functions to the client", () => {
-  const called = [...secretsBranch.matchAll(/\b(listSecrets|addSecret|deleteSecret|readSecret|decryptSecret)\s*\(/g)].map((m) => m[1]);
-  assert.deepEqual([...new Set(called)].sort(), ["addSecret", "deleteSecret", "listSecrets"]);
+  const called = [...secretsBranch.matchAll(/\b(listSecrets|addSecret|saveSiteKey|deleteSecret|readSecret|decryptSecret)\s*\(/g)].map((m) => m[1]);
+  // 2026-10-27: a new key goes to the site's Worker (`saveSiteKey`), never encrypted here.
+  assert.deepEqual([...new Set(called)].sort(), ["deleteSecret", "listSecrets", "saveSiteKey"]);
 });
 
 test("the SELECT for listing does not read the cipher column", () => {

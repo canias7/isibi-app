@@ -116,7 +116,7 @@ import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verifi
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
 import { handleAgentApi, makeAgentStore, AGENT_ROUTES, AGENT_POST_ROUTES, agentBodyMax } from "./agent-store.mjs";
-import { listSecrets, addSecret, deleteSecret, readSecret, checkSecretValue } from "./site-secrets.mjs";
+import { listSecrets, deleteSecret, readSecret, saveSiteKey, WORKER_HELD } from "./site-secrets.mjs";
 
 /**
  * THE DOORBELL ON THE AGENT ENGINE'S QUEUE.
@@ -17259,16 +17259,20 @@ async function noteBase(env, slug, job, pages) {
  * straight from the owner's request to their own script; nothing keeps it.
  */
 async function pushSiteSecret(env, slug, secret, text) {
-  if (env.SITE_OWN_DATA !== "1") return;
+  if (env.SITE_OWN_DATA !== "1") return 0;
   const c = dispatchCreds(env);
-  if (!c) return;
+  if (!c) return 0;
+  let took = 0;
   for (const name of [scriptNameFor(slug), previewScriptName(slug)]) {
     if (!name) continue;
     try {
       const r = await setSiteSecret({ ...c, name, secret, text });
-      if (!r.ok && r.status !== 404) console.error("site secret not pushed:", slug, secret, r.status);
+      if (r.status === 0 && /not a name a site may hold/.test(String(r.error || ""))) return "refused";
+      if (r.ok && r.status !== 404) took++;
+      else if (r.status !== 404) console.error("site secret not pushed:", slug, secret, r.status);
     } catch (e) { console.error("site secret not pushed:", slug, secret, errorClassForLog(e)); }
   }
+  return took;
 }
 
 function dispatchCreds(env) {
@@ -17375,6 +17379,15 @@ async function siteNotifyOn(env, slug) {
   } catch { return false; }
 }
 
+/** Keys the site's script now holds: our encrypted copies are replaced by the marker. */
+async function forgetLegacyKeys(env, slug, names) {
+  try {
+    const db = await siteRowConn(env, slug);
+    if (!db) return;
+    for (const n of names) await sqlExec(db, "UPDATE _secrets SET cipher=? WHERE name=?", [WORKER_HELD, n]);
+  } catch (e) { console.error("legacy keys not forgotten:", slug, errorClassForLog(e)); }
+}
+
 async function siteReadVars(env, slug) {
   if (env.SITE_OWN_DATA !== "1") return null;
   try {
@@ -17398,13 +17411,18 @@ async function siteReadVars(env, slug) {
     // EVERY SECRET THE SITE HOLDS, unlocked here and given to it alone: the
     // owner's mail, SMS, webhook, Stripe and connection keys, whatever they
     // named them. The platform's own marker rows are not secrets and stay.
+    // A KEY SAVED BEFORE KEYS LIVED ON THE SCRIPT (2026-10-27) is unlocked
+    // once, given to the script, and then forgotten here (`legacy`, marked
+    // `WORKER_HELD` after the upload lands). Every later key is set on the
+    // script directly and kept by it across publishes; we hold none.
     const owned = {};
+    const legacy = [];
     try {
       const rows = await sqlQuery(db, "SELECT name, cipher FROM _secrets", []);
       for (const r of (rows || []).slice(0, 64)) {
         const name = r && String(r.name || "");
-        if (!name || name === TURNSTILE_PLATFORM_FLAG) continue;
-        try { const v = await readSecret({ get: async () => r.cipher }, env, { slug, name }); if (v) owned[name] = v; } catch { /* unreadable: skipped */ }
+        if (!name || name === TURNSTILE_PLATFORM_FLAG || r.cipher === WORKER_HELD) continue;
+        try { const v = await readSecret({ get: async () => r.cipher }, env, { slug, name }); if (v) { owned[name] = v; legacy.push(name); } } catch { /* unreadable: skipped */ }
       }
     } catch { /* no secrets table: none */ }
     return {
@@ -17419,6 +17437,7 @@ async function siteReadVars(env, slug) {
         NOTIFY: (await siteNotifyOn(env, slug)) ? "1" : "0",
       },
       secrets: { ...owned, ...(app ? { APP_CONN: app } : {}) },
+      legacy,
     };
   } catch (e) {
     console.error("own data: not given", slug, errorClassForLog(e));
@@ -17597,6 +17616,7 @@ async function uploadScriptOnce(env, slug, worker, { preview = false, go = null 
   // the writer's claim keeps meaning "nothing of mine can land after
   // claim + PREVIEW_LAND_MS" (`convergePreview`, site-draft.mjs).
   if (typeof go === "function" && !go()) return { ok: false, status: 0, error: "past the preview's upload window" };
+  let legacyKeys = [];
   const r = await uploadSiteWorker({
     ...creds,
     name,
@@ -17612,9 +17632,12 @@ async function uploadScriptOnce(env, slug, worker, { preview = false, go = null 
       // double-submit and follow-up memory there; on the shared bucket it
       // never writes, and never saves a row itself.
       const vars = given ? (bucket === siteBucketName(slug) ? { ...given.vars, OWN_BUCKET: "1" } : given.vars) : null;
+      legacyKeys = given && given.legacy ? given.legacy : [];
       return { bucket, vars, secrets: given ? given.secrets : null };
     })()),
   }).catch((e) => ({ ok: false, status: 0, error: String((e && e.message) || e) }));
+  // The script holds them now: our copies go.
+  if (r.ok && legacyKeys.length) await forgetLegacyKeys(env, slug, legacyKeys);
   if (!r.ok) {
     console.error("site worker upload failed:", slug, r.status, r.error);
     return r;
@@ -50632,15 +50655,10 @@ async function handleRequest(request, env, ctx) {
               }
               if (request.method === "POST") {
                 const sb = await request.json().catch(() => ({}));
-                const r = await addSecret(vault, env, { slug: sslug, name: sb.name, value: sb.value });
-                // The owner just changed the configuration, so anything this
-                // isolate remembered is wrong. Without this they wait out the TTL
-                // — and the moment they are most likely to submit their own form
-                // to check is the sixty seconds immediately after saving.
-                // Isolate-local, like every other invalidation here: other PoPs
-                // heal by expiry.
+                // THE KEY GOES TO THE SITE'S OWN WORKER (2026-10-27); only its
+                // name and hint are written here, never the value.
+                const r = await saveSiteKey(vault, { slug: sslug, name: sb.name, value: sb.value, push: (n, v) => pushSiteSecret(env, sslug, n, v) });
                 if (r && r.ok) forgetSiteConfig(sslug);
-                if (r && r.ok) { const cv = checkSecretValue(sb.value); if (cv && cv.ok !== false && typeof cv.value === "string") ctx.waitUntil(pushSiteSecret(env, sslug, r.name, cv.value)); }
                 return Response.json(r.ok ? { ok: true, name: r.name, replaced: r.replaced } : { ok: false, error: r.error }, { status: r.ok ? 200 : (r.status || 400) });
               }
               if (request.method === "DELETE") {

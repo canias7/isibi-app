@@ -107,6 +107,10 @@ export async function uploadSiteWorker({ accountId, namespace, name, code, bucke
     // never been enabled by a date alone, and a date that quietly started
     // implying it would be a behaviour change nobody asked for.
     compatibility_flags: ["nodejs_compat"],
+    // THE OWNER'S KEYS STAY ON THE SCRIPT (2026-10-27). They are set on it
+    // directly when the owner saves one (`setSiteSecret`) and the platform
+    // keeps no copy, so a republish must keep what the script already holds.
+    keep_bindings: ["secret_text"],
     bindings: [
       ...(bucket ? [{ type: "r2_bucket", name: "SITES", bucket_name: bucket }] : []),
       ...Object.entries(vars || {})

@@ -301,3 +301,29 @@ export async function readSecret(deps, env, { slug, name }) {
   if (!cipher) return null;
   return decryptSecret(env, cipher);
 }
+
+/**
+ * THE OWNER'S KEY GOES TO THEIR SITE'S WORKER, NOT TO US (2026-10-27).
+ *
+ * `push(name, value)` sets it on the site's own script(s) and answers how many
+ * took it; only then is the NAME and its hint recorded (`deps.put`, with the
+ * marker `WORKER_HELD` where a ciphertext used to be). Nothing here encrypts
+ * or keeps the value. A site whose script does not exist yet cannot hold one.
+ */
+export const WORKER_HELD = "worker";
+export async function saveSiteKey(deps, { slug, name, value, push }) {
+  const n = normalizeSecretName(name);
+  if (!n) return { ok: false, status: 400, error: "name must start with a letter and use A-Z, 0-9 and _" };
+  const v = checkSecretValue(value);
+  if (!v.ok) return { ok: false, status: 400, error: v.error };
+  const existing = (await deps.list(slug)) || [];
+  const replacing = existing.some((r) => r.name === n);
+  if (!replacing && existing.length >= MAX_SECRETS_PER_SITE) {
+    return { ok: false, status: 400, error: `a site can hold ${MAX_SECRETS_PER_SITE} secrets` };
+  }
+  const took = await push(n, v.value);
+  if (took === "refused") return { ok: false, status: 400, error: "that name is kept for the platform — choose another" };
+  if (!took) return { ok: false, status: 409, error: "publish the site first — then it can hold secrets" };
+  await deps.put(slug, n, WORKER_HELD, secretHint(v.value));
+  return { ok: true, name: n, replaced: replacing };
+}

@@ -572,7 +572,33 @@ test("a key the owner saves or removes reaches the site's script at once, and a 
   assert.match(seen[1].u, /\/secrets\/RESEND_KEY$/);
   assert.equal((await setSiteSecret({ ...c, secret: "SUPABASE_SERVICE_KEY", text: "x" }, { fetch })).ok, false);
   assert.equal(seen.length, 2);
-  const post = W.slice(W.indexOf("const r = await addSecret(vault, env"), W.indexOf("const d = await deleteSecret(vault"));
-  assert.match(post, /pushSiteSecret\(env, sslug, r\.name, cv\.value\)/);
   assert.match(W, /if \(d && d\.ok\) ctx\.waitUntil\(pushSiteSecret\(env, sslug, sk\[2\], null\)\)/);
+});
+
+test("an owner's key goes to their site's Worker; we keep only its name and hint, and republishing keeps it", async () => {
+  const { saveSiteKey, WORKER_HELD } = await import("../site-secrets.mjs");
+  const rows = [];
+  const deps = { list: async () => rows, put: async (_s, name, cipher, hint) => rows.push({ name, cipher, hint }) };
+  const pushed = [];
+  const ok = await saveSiteKey(deps, { slug: "x", name: "resend key", value: " re_abcdef1234 ", push: async (n, v) => { pushed.push([n, v]); return 1; } });
+  assert.deepEqual(ok, { ok: true, name: "RESEND_KEY", replaced: false });
+  assert.deepEqual(pushed, [["RESEND_KEY", "re_abcdef1234"]]);
+  assert.equal(rows[0].cipher, WORKER_HELD, "no ciphertext, no value");
+  assert.equal(rows[0].hint.last4, "1234");
+  const none = await saveSiteKey({ list: async () => [], put: async () => assert.fail("stored without a script") }, { slug: "x", name: "K", value: "v", push: async () => 0 });
+  assert.equal(none.status, 409);
+  const refused = await saveSiteKey({ list: async () => [], put: async () => assert.fail("stored a platform name") }, { slug: "x", name: "SUPABASE_SERVICE_KEY", value: "v", push: async () => "refused" });
+  assert.equal(refused.ok, false);
+  const m = await metaOf({});
+  assert.deepEqual(m.keep_bindings, ["secret_text"]);
+  const S = fs.readFileSync(new URL("../site-secrets.mjs", import.meta.url), "utf8");
+  const save = S.slice(S.indexOf("export async function saveSiteKey"));
+  assert.doesNotMatch(save, /encryptSecret/);
+});
+
+test("the platform no longer encrypts a new key, and forgets an old one once the script holds it", () => {
+  assert.doesNotMatch(W, /addSecret\(/);
+  assert.match(W, /saveSiteKey\(vault, \{ slug: sslug, name: sb\.name, value: sb\.value, push: \(n, v\) => pushSiteSecret\(env, sslug, n, v\) \}\)/);
+  assert.match(between("async function siteReadVars(", "\n}\n"), /r\.cipher === WORKER_HELD\) continue;/);
+  assert.match(W, /if \(r\.ok && legacyKeys\.length\) await forgetLegacyKeys\(env, slug, legacyKeys\);/);
 });
