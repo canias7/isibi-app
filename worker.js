@@ -30509,32 +30509,6 @@ async function handleRequest(request, env, ctx) {
       if (sm) return new Response("Not found", { status: 404 });
     }
 
-    // Serve a PUBLISHED game from R2: gofarther.dev/g/<slug>/… — the compiled kaplay
-    // dist (index.html + assets/*). Root/no-extension → index.html; a path with an
-    // extension → that exact asset. Mirrors the /s/ React-site branch.
-    {
-      const gm = url.pathname.match(/^\/g\/([a-z0-9][a-z0-9-]{0,80})(?:\/(.*))?$/i);
-      if (gm && env.SITES_BUCKET) {
-        const slug = gm[1].toLowerCase();
-        const rest = (gm[2] || "").replace(/\/+$/, "");
-        const last = rest.split("/").pop() || "";
-        const ext = (last.match(/\.([a-z0-9]{1,8})$/i) || [])[1];
-        let key, ctype, immutable = false;
-        if (rest === "") { key = "games/" + slug + "/index.html"; ctype = "text/html; charset=utf-8"; }
-        else if (ext) { key = "games/" + slug + "/" + rest.replace(/[^a-z0-9/._-]/gi, "-"); ctype = R2_MIME[ext.toLowerCase()] || "application/octet-stream"; immutable = ext.toLowerCase() !== "html"; }
-        else { key = "games/" + slug + "/index.html"; ctype = "text/html; charset=utf-8"; }
-        const obj = await env.SITES_BUCKET.get(key);
-        if (!obj) return new Response("Not found", { status: 404 });
-        return new Response(obj.body, {
-          headers: {
-            "content-type": ctype,
-            "cache-control": immutable ? "public, max-age=31536000, immutable" : "public, max-age=60",
-            "x-content-type-options": "nosniff",
-          },
-        });
-      }
-      if (gm) return new Response("Not found", { status: 404 });
-    }
 
     // Serve a builder DRAFT preview: gofarther.dev/preview/<uid>/<nonce>. The workspace
     // iframe loads this (not a blob) so the generated page runs its OWN inline
