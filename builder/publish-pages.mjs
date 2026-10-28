@@ -14,6 +14,7 @@
 // functions, so the real decision logic can be driven against fakes with no
 // model call, no container and no R2.
 
+import { vetServerCode } from "./server-code.mjs";
 import { validatePages, lintPages, repairImports, mergeParts, reviseSent } from "./page-gen.mjs";
 import { addUsages } from "./retry-reason.mjs";
 import { withParts, splitParts, isKitFile } from "./compile-repair.mjs";
@@ -1534,7 +1535,12 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
   const allFixed = rep.fixed.concat(repParts.fixed);
   if (allFixed.length) out.repaired = allFixed;
 
-  const problems = v.problems.concat(lintPages(v.pages, spec));
+  // THE SITE'S OWN SERVER CODE (2026-10-28): what reaches around the `site`
+  // helper is left out, and a browser file importing server code is named.
+  const vetted = vetServerCode({ pages: v.pages, parts: v.parts });
+  v.parts = vetted.parts;
+  sitePartsForBuild = v.parts;
+  const problems = v.problems.concat(vetted.problems, lintPages(v.pages, spec));
 
   /**
    * Buy the photographs the pages asked for — or leave them as placeholders.

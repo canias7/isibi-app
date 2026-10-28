@@ -35,6 +35,7 @@ import { siteError, countVisit, type TelemetryEnv } from "./lib/site-telemetry";
 import { tooMany, visitorIp, limited } from "./lib/site-limit";
 import { siteJob, JOB_HEADER, type JobEnv } from "./lib/site-jobs-run";
 import { siteTick, type RetryEnv } from "./lib/site-webhook-retry";
+import { siteFunction, type FnEnv } from "./lib/site-functions";
 
 // ── THIS SCRIPT READS ITS OWN PREFIX (stage 7, 2026-09-05) ────────────────────
 //
@@ -371,6 +372,7 @@ const site = {
       || (await serveUpload(request, env as unknown as FilesEnv, url, SITE_SLUG)) || (await visitorUpload(request, env as unknown as FilesEnv, url, SITE_SLUG))
       || (await siteCheckout(request, env as unknown as PayEnv, url, SITE_SLUG, ctx)) || (await stripeSiteWebhook(request, env as unknown as PayEnv, url, SITE_SLUG, ctx))
       || (await siteApi(request, env as unknown as ConnectEnv, url, SITE_SLUG)) || (await siteHook(request, env as unknown as ConnectEnv, url, SITE_SLUG))
+      || (await siteFunction(request, env as unknown as FnEnv, url, SITE_SLUG))
       || (await siteError(request, env as unknown as TelemetryEnv, url, SITE_SLUG, ctx))
       // Spam protection is off for now (owner, 2026-10-27): the widget asks, and is told none.
       || (url.pathname.toLowerCase() === "/api/db/" + SITE_SLUG + "/turnstile" ? Response.json({}, { headers: { "x-site-data": "own", "cache-control": "public, max-age=60" } }) : null)

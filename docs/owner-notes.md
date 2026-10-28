@@ -2,6 +2,14 @@
 
 
 
+
+## 2026-10-28 — The model can write the site's own server code (steps 1–3, not merged)
+
+- A new kind of file the model can write: server code for the site's own Worker (`server-<name>`), reached at `/api/db/<site>/fn/<name>`.
+- It uses your customer's keys through a helper that attaches them on the way out, so the code never sees or prints a key. It can only call the addresses it lists, with a cap on calls and time, and an answer containing a key is withheld.
+- A check before publishing leaves out server code that tries to get around the helper, and names any page that imports it.
+- Not yet: telling the model it can do this (so no build writes it yet), hooks (on a form, a payment, a schedule), and live proof builds. Record: `docs/history/2026-10-28-site-server-code.md`.
+
 ## 2026-10-28 — Kiln Lane Pottery: the first build on the new setup
 
 - Built from the app (Grok 4.7, Low): Home, Classes and a Book a class form with a £15 deposit. Published at kiln-lane-pottery.gofarther.app.
