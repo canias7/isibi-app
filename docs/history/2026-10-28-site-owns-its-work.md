@@ -55,3 +55,15 @@ versions (the history the owner can restore), draft previews, security-scan
 reports, edit jobs, credits, routing (names, custom domains, ownership), the
 coming-soon page, and the app's own access to the site's database for the
 owner's panels.
+
+## The front door routes sites itself (2026-10-28)
+
+`gofarther-front` now calls each site's own Worker directly (it binds the
+`gofarther-sites` dispatch namespace, with each site's limits) and applies the
+site page headers (`site-headers.mjs`, shared with the platform). It asks the
+platform only what an address is (`GET /__gf/route?host=` → a slug, a
+redirect, gone, or "the platform's") and keeps that answer in the edge cache
+for five minutes, so a renamed site or a new custom domain takes up to five
+minutes to switch. The app, draft previews, and a site with no Worker yet (the
+coming-soon page) go to the platform. A visitor to a published site no longer
+passes through the platform Worker at all.

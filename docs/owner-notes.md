@@ -1,6 +1,10 @@
 # Owner Notes
 
 
+## 2026-10-28 — the front door sends visitors straight to each site's Worker
+
+The front door now looks up which site an address belongs to (asking us once, then remembering for five minutes) and calls that site's own Worker directly. Visitors to a published site never pass through our main Worker. Only the app, draft previews and sites that don't have a Worker yet come to us.
+
 ## 2026-10-28 — everything the live site does is the site's; ours is building
 
 Keys now live only on the site's Worker (we keep the name and last four characters). Jobs are a table in the site's own database. Every visitor call goes to the site's Worker, and the copies of that work in our Worker (about 1,800 lines: checkout, Stripe, emails, texts, webhooks and their retry queue, connections, hooks, error reports) are deleted. A site that can't answer is told to republish. Spam check is off for now. Visits and backups are the site's own. On the way, fixed: checkout return on the workspace address, a double "Pay" making two orders, a connection that could have sent the site's database login out, and the owner-email cooldown. Not merged or deployed. `docs/history/2026-10-28-site-owns-its-work.md`.
