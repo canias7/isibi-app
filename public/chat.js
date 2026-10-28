@@ -18604,7 +18604,11 @@ function sitePayments(site) {
   // literally and copyable, because it is the one value they have to move by
   // hand and a typo produces a shop that takes money and never marks an order
   // paid — which looks like our bug and is silent for days.
-  const hookUrl = location.origin + '/api/stripe/site/' + slug;
+  // ON THE SITE'S OWN ADDRESS (2026-10-28): Stripe's message goes straight to
+  // the site's own Worker through the front door, never through the app. Only
+  // a site served under the workspace path (no address of its own) uses ours.
+  const siteOrigin = (() => { try { const u = new URL(String(site.liveUrl || '')); return /(^|\.)gofarther\.dev$/i.test(u.hostname) ? '' : u.origin; } catch (e) { return ''; } })();
+  const hookUrl = (siteOrigin || location.origin) + '/api/stripe/site/' + slug;
   box.innerHTML = '<div class="si-card"><div class="si-head"><b>Payments</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body">' +
     '<p class="sp-intro">Take payments with <b>your own</b> Stripe account. Money goes straight to you — Go Farther never touches it and takes no cut.</p>' +
     '<div id="payState">Checking…</div>' +

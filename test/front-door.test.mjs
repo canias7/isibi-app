@@ -176,3 +176,25 @@ test("the platform answers what an address is, and nothing of the site's", () =>
   assert.match(fn, /resolveAlias\(label, seen, now\)/);
   assert.match(fn, /siteForHostname\(env, host\)/);
 });
+
+test("the Stripe address the owner registers is the SITE's own, so payments never pass through the app", () => {
+  const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  const at = chat.indexOf("function sitePayments(site)");
+  const fn = chat.slice(at, chat.indexOf("box.innerHTML", at));
+  assert.match(fn, /const hookUrl = \(siteOrigin \|\| location\.origin\) \+ '\/api\/stripe\/site\/' \+ slug;/);
+  const pick = new Function("site", fn.slice(fn.indexOf("const siteOrigin"), fn.indexOf("const hookUrl")) + "return siteOrigin;");
+  assert.equal(pick({ liveUrl: "https://ember-cart.gofarther.app/" }), "https://ember-cart.gofarther.app");
+  assert.equal(pick({ liveUrl: "https://test.isibi.ai/" }), "https://test.isibi.ai");
+  assert.equal(pick({ liveUrl: "https://gofarther.dev/s/x/" }), "", "the workspace path is not a site address");
+  assert.equal(pick({}), "");
+});
+
+test("every platform-only path a visitor could aim at a site's address is refused by the site, not served", () => {
+  // The front door strips `x-gf-*` and the preview header from every site
+  // request, so the site's `/__gf/job` and `/__gf/tick` (which need the
+  // platform's header) answer nothing to a visitor, and `/__gf/route` is only
+  // answered on the app's own address.
+  assert.ok(isPlatformHeader("x-gf-site-job"));
+  assert.ok(isPlatformHeader(PREVIEW_HEADER));
+  assert.match(W, /url\.pathname === "\/__gf\/route" && request\.method === "GET" && isAppHostname\(url\.hostname\)/);
+});
