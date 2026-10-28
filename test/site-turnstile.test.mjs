@@ -179,15 +179,7 @@ test("a missing error-codes array is a plain refusal, not a crash", async () => 
   }
 });
 
-// ------------------------------------------------------------------- wiring
-//
-// worker.js is searched RAW. Blanking its comments eats from any `/*` inside a
-// string literal to the next `*/` and reports present code as missing, which
-// has bitten this repo twice; the patterns below carry a `(` so they cannot
-// match prose.
-
-const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-// `assert.match` prints the whole subject on failure, which for a 7,000-line
-// file buries the assertion that failed in the file itself.
-const has = (re, why) => assert.ok(re.test(worker), why);
-
+// The platform wiring that called these (turnstileGate and its config) was
+// deleted on 2026-10-28: spam protection is off by the owner's decision, and
+// visitor writes go to the site's own Worker. The pure module stays, tested
+// above; `test/platform-turnstile.test.mjs` asserts the check reads as off.

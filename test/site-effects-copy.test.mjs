@@ -23,7 +23,15 @@ test("the copied modules import only each other", () => {
   }
 });
 
-test("the platform sends with the same module the site carries", () => {
-  assert.match(read("worker.js"), /import \{ postProviderEmail, postProviderSms \} from "\.\/site-providers\.mjs";/);
+// 2026-10-28: the site's own Worker. The platform no longer sends a visitor's
+// mail or texts at all; the site does, with the copied module. So the property
+// moved: the site's senders import the copy, and neither the platform nor the
+// site keeps a second hand-written sender.
+test("the site sends with the copied module, and nobody keeps a second sender", () => {
+  for (const f of ["builder/lovable/template/src/lib/site-effects.ts", "builder/lovable/template/src/lib/site-jobs-run.ts"]) {
+    const src = read(f);
+    assert.match(src, /import \{ postProviderEmail, postProviderSms \} from "\.\/effects\/site-providers\.mjs";/, f);
+    assert.doesNotMatch(src, /function postProviderEmail\(/, f);
+  }
   assert.doesNotMatch(read("worker.js"), /async function postProviderEmail\(/);
 });

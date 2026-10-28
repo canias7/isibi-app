@@ -5,6 +5,8 @@ import {
   handleInbound, authorize, functionFor, secretNames, sameSecret,
   normalizeSignature, hmacHex, PREFIX, MAX_BODY, MAX_PER_MINUTE,
 } from "../site-inbound.mjs";
+import { loadTemplate } from "./fixtures/template-ts.mjs";
+import { withFetch, APP_CONN } from "./fixtures/site-effects-drive.mjs";
 
 const SECRET = "whsec_a_real_shared_secret";
 const BODY = JSON.stringify({ event: "stock.updated", sku: "AB-1", qty: 4 });
@@ -291,24 +293,44 @@ test("authorize refuses when there is no stored secret, whatever is presented", 
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const has = (re, why) => assert.ok(re.test(worker), why);
 
-test("the route exists, is matched strictly and is POST only", () => {
-  has(/handleInbound\(inboundDeps\(/, "the decision module is called with the real side effects");
-  has(/\/api\\\/db\\\/\(\[a-z0-9\]\[a-z0-9-\]\{0,80\}\)\\\/hook\\\//, "the slug and name are matched, not split off a path");
-  const i = worker.indexOf('url.pathname.includes("/hook/")');
-  assert.ok(i > 0, "the dispatch exists");
-  assert.ok(/method !== "POST"/.test(worker.slice(i, i + 900)), "POST only");
+test("the route exists, is matched strictly and is POST only", async () => {
+  // (2026-10-28: the site's own Worker — `siteHook`, driven.)
+  const { siteHook } = await loadTemplate("lib/site-connect.ts");
+  const env = { APP_CONN, SITE_SPEC: JSON.stringify(SPEC), HOOK_SECRET_STOCK: SECRET };
+  const go = (p, init = {}) => siteHook(new Request("https://barber.example" + p, init), env, new URL("https://barber.example" + p), "barber");
+  // The slug and name are matched, not split off a path: siblings and other
+  // sites are not this route.
+  for (const p of ["/api/db/barber/hook/stock/x", "/api/db/other/hook/stock", "/api/db/barber/data/hook/stock", "/api/db/barber/hook/"]) {
+    assert.equal(await go(p, { method: "POST", body: BODY }), null, p + " was answered by the hook route");
+  }
+  const get = await go("/api/db/barber/hook/stock");
+  assert.equal(get.status, 405, "POST only");
+  // The decision module is called with the real side effects.
+  const r = await withFetch({ sql: () => [{ out: { received: true } }] }, () =>
+    go("/api/db/barber/hook/stock", { method: "POST", headers: { authorization: "Bearer " + SECRET }, body: BODY }));
+  assert.equal(r.out.status, 200);
+  assert.deepEqual(await r.out.json(), { received: true });
+  assert.equal(r.queries.length, 1);
 });
 
-test("the function is called on the OWNER connection, never granted out", () => {
-  // A hook function is `internal`, so it has no EXECUTE grant — which is the
-  // whole reason it cannot be reached through the Data API instead.
-  const i = worker.indexOf("function inboundDeps(");
-  assert.ok(i > 0, "the deps factory exists");
-  const fn = worker.slice(i, i + 2200);
-  assert.ok(/sqlQuery\(db,/.test(fn), "it runs SQL on the site's own connection");
-  assert.ok(/sqlIdent\(name\)/.test(fn), "and quotes the name it was given");
-  // The payload is BOUND, not interpolated: it is a stranger's JSON.
-  assert.ok(/\(\?::jsonb\)/.test(fn), "the payload is a bound parameter");
+test("the function is called on the OWNER connection, never granted out", async () => {
+  // A hook function is `internal`, so it has no grant to the Data API roles —
+  // which is the whole reason it cannot be reached through the Data API instead.
+  // (2026-10-28: the site's own Worker runs it as the site's own limited
+  // login, `APP_CONN`, which holds EXECUTE on the site's functions and is no
+  // Data API role.)
+  const { siteHook } = await loadTemplate("lib/site-connect.ts");
+  const env = { APP_CONN, SITE_SPEC: JSON.stringify(SPEC), HOOK_SECRET_STOCK: SECRET };
+  const p = "/api/db/barber/hook/stock";
+  const r = await withFetch({ sql: () => [{ out: null }] }, () =>
+    siteHook(new Request("https://barber.example" + p, { method: "POST", headers: { authorization: "Bearer " + SECRET }, body: BODY }), env, new URL("https://barber.example" + p), "barber"));
+  assert.equal(r.queries.length, 1, "it runs SQL on the site's own connection");
+  assert.equal(r.queries[0].conn, APP_CONN);
+  assert.equal(r.calls.length, 0, "and nothing else: no Data API call");
+  // The name is quoted, and the payload is BOUND, not interpolated: it is a
+  // stranger's JSON.
+  assert.equal(r.queries[0].query, 'SELECT "hook_stock"($1::jsonb) AS out');
+  assert.deepEqual(r.queries[0].params, [JSON.stringify(JSON.parse(BODY))]);
 });
 
 test("the DESIGNER can declare one, or nothing ever reaches this route", () => {
@@ -367,8 +389,16 @@ test("`internal` survives into _meta, which is the only copy this route sees", (
   assert.ok(/internal: !!f\.internal/.test(writer), "…and the writer records it");
 });
 
-test("the raw body is what is verified", () => {
-  const i = worker.indexOf("handleInbound(");
-  const block = worker.slice(Math.max(0, i - 1200), i + 400);
-  assert.ok(/await request\.text\(\)/.test(block), "the bytes, not a re-serialised parse");
+test("the raw body is what is verified", async () => {
+  // (2026-10-28: the site's own Worker.) The bytes, not a re-serialised parse:
+  // an HMAC over the exact bytes passes, and the same JSON re-spaced does not.
+  const { siteHook } = await loadTemplate("lib/site-connect.ts");
+  const env = { APP_CONN, SITE_SPEC: JSON.stringify(SPEC), HOOK_SECRET_STOCK: SECRET };
+  const p = "/api/db/barber/hook/stock";
+  const raw = '{ "event":"stock.updated",  "sku":"AB-1", "qty":4 }';
+  const sig = await hmacHex(SECRET, raw);
+  const send = (body) => withFetch({ sql: () => [{ out: null }] }, () =>
+    siteHook(new Request("https://barber.example" + p, { method: "POST", headers: { "x-signature": sig }, body }), env, new URL("https://barber.example" + p), "barber"));
+  assert.equal((await send(raw)).out.status, 200, "the exact bytes verify");
+  assert.equal((await send(JSON.stringify(JSON.parse(raw)))).out.status, 401, "a re-serialised body does not");
 });

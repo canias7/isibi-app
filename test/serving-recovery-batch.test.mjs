@@ -36,6 +36,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { loadWorker, loadWorkerModule, makeCtx } from "./fixtures/worker-harness.mjs";
 import { mediaBucket } from "./fixtures/r2-media.mjs";
+import { loadTemplate } from "./fixtures/template-ts.mjs";
 import { envFor } from "./fixtures/live-ask.mjs";
 import { mediaMetadata, ifRangeHolds, MEDIA_DRAFT_MS } from "../site-media.mjs";
 import { buildBucket, BUILD_USER } from "./fixtures/build-route.mjs";
@@ -138,8 +139,23 @@ test("SRB4 /u/ IS TIED TO ITS HOST — a site's label, its current name and its 
     return json([]);
   };
   try {
-    // THE PREVIEW NEEDS THE SITE-SCRIPTS BINDING PRESENT (its `/u/` never calls it).
-    const env = { SITES_BUCKET: store, SUPABASE_SERVICE_KEY: "svc", SITE_WORKERS: { get: () => ({ fetch: async () => new Response("script") }) } };
+    // ON A SITE'S OWN ADDRESS ITS FILES ARE ITS WORKER'S (2026-10-28: the
+    // site's own Worker): each site's script is the template's real
+    // `serveUpload`, over its own slug and its own bucket. The host tie stays
+    // the platform's (another site's file is refused before any script is
+    // asked); the app's host and the preview keep the platform's own route.
+    const { serveUpload } = await loadTemplate("lib/site-files.ts");
+    const asked = [];
+    const scripts = {
+      get: (name) => ({
+        fetch: async (req) => {
+          const slug = String(name).replace(/^site-/, "");
+          asked.push(slug);
+          return (await serveUpload(req, { OWN_BUCKET: "1", SITES: store }, new URL(req.url), slug)) || new Response("script");
+        },
+      }),
+    };
+    const env = { SITES_BUCKET: store, SUPABASE_SERVICE_KEY: "svc", SITE_WORKERS: scripts };
     const own = (host, slug) => get(worker, env, host, "/u/" + slug + "/" + NAME);
     assert.equal((await own(Bs + ".gofarther.app", Bs)).status, 200, "a site's own label does not serve its own upload");
     assert.equal((await own(Bs + ".gofarther.app", A)).status, 404, "another site's upload was served on a site's label");
@@ -150,6 +166,8 @@ test("SRB4 /u/ IS TIED TO ITS HOST — a site's label, its current name and its 
     assert.equal((await own("shop.example.com", A)).status, 200, "a custom domain does not serve its site's upload");
     assert.equal((await own("shop.example.com", Bs)).status, 404, "a custom domain served another site's upload");
     assert.equal((await own("nobody.example.org", A)).status, 404, "an unmapped domain served an upload");
+    // The site-host answers came from the sites' own scripts, never another's.
+    assert.ok(asked.length >= 3 && asked.every((x) => x === A || x === Bs), "the site's own script was not the one asked: " + asked.join(","));
     // THE PREVIEW: its own site's file through the platform route, never another's.
     const token = [...crypto.getRandomValues(new Uint8Array(6))].map((x) => x.toString(16).padStart(2, "0")).join("");
     await store.put(DRAFT_KEY(A), JSON.stringify({ v: 2, version: "01790000000001-aaaaaa", build: "", base: "", job: null, at: new Date().toISOString(), history: [], preview: token, rev: 1, revs: [{ n: 1, version: "01790000000001-aaaaaa", at: "x", job: null }], applied: 0, refs: {} }));

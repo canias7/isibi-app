@@ -5,6 +5,8 @@ import {
   normalizeApi, secretsNeeded, fill, takeParams, cacheKey, callApi, apiFor,
   MAX_RESPONSE, MAX_PER_MINUTE, TIMEOUT_MS, MAX_TTL, kvKeyFor, kvEligible, KV_MIN_TTL,
 } from "../site-apis.mjs";
+import { loadTemplate } from "./fixtures/template-ts.mjs";
+import { withFetch } from "./fixtures/site-effects-drive.mjs";
 
 const DECL = {
   name: "rates",
@@ -270,34 +272,38 @@ test("apiFor resolves only what the site declared", () => {
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const has = (re, why) => assert.ok(re.test(worker), why);
 
-test("the route exists and reads the site's own vault", () => {
-  has(/callApi\(/, "the module is called");
-  const i = worker.indexOf("async function siteApiDeps(");
-  assert.ok(i > 0, "the deps factory exists");
-  const fn = worker.slice(i, i + 2200);
-  assert.ok(/FROM _secrets WHERE name=\?/.test(fn), "secrets come from the site's own database");
-  assert.ok(/readSecret\(/.test(fn), "and are decrypted, not read raw");
+test("the route exists and reads the site's own vault", async () => {
+  // (2026-10-28: the site's own Worker — `siteApi`. The owner's keys are this
+  // site's own Worker secrets, given to it alone at publish; nothing is read
+  // from a platform table.)
+  const { siteApi } = await loadTemplate("lib/site-connect.ts");
+  const env = { SITE_SPEC: JSON.stringify({ apis: [DECL] }), ...SECRETS };
+  const p = "/api/db/barber/api/rates?base=EUR";
+  const r = await withFetch({ answer: () => Response.json({ usd: 1.09 }) }, () =>
+    siteApi(new Request("https://barber.example" + p), env, new URL("https://barber.example" + p), "barber"));
+  assert.equal(r.out.status, 200, "the module is called");
+  assert.equal(r.calls.length, 1);
+  assert.match(r.calls[0].url, /key=sk_live_rates_key/, "the owner's key is filled from the site's own secrets");
+  // Another site's path is not this route.
+  assert.equal(await siteApi(new Request("https://barber.example/api/db/other/api/rates"), env, new URL("https://barber.example/api/db/other/api/rates"), "barber"), null);
 });
 
-test("the SECRETS never reach the response", () => {
-  const i = worker.indexOf('url.pathname.includes("/api/")');
-  assert.ok(i > 0, "the dispatch exists");
-  // ⚠ RE-ANCHORED, NOT APPEASED (2026-09-19). This was `worker.slice(i, i +
-  // 2500)` — a BYTE WINDOW, the trap this repository has recorded ten times —
-  // and it went red on a change that added a comment ABOVE the line it asserts:
-  // the required-parameter refusal and its reasoning pushed `Response.json(
-  // out.body` past 2,500 characters, so the guard reported the secret wall as
-  // gone on code where it is exactly where it was.
-  //
-  // Landmark to landmark now, with BOTH ends asserted — `indexOf` answering -1
-  // gives `slice(-1, -1)` and everything inside an empty string passes.
-  const end = worker.indexOf("SOMEBODY ELSE'S SYSTEM PUSHING DATA INTO A PUBLISHED SITE", i);
-  assert.ok(end > i, "the next sibling block is where it was — re-anchor this window rather than widening it");
-  const block = worker.slice(i, end);
+test("the SECRETS never reach the response", async () => {
   // `out` carries `missing` and `refused` for the owner's log; only status and
-  // body may be sent back.
-  assert.ok(/Response\.json\(out\.body/.test(block), "only the body is returned");
-  assert.ok(!/Response\.json\(out\)/.test(block), "never the whole decision object");
+  // body may be sent back. (2026-10-28: the site's own Worker, driven.)
+  const { siteApi } = await loadTemplate("lib/site-connect.ts");
+  const go = (env, p) => withFetch({ answer: () => Response.json({ usd: 1.09 }) }, () =>
+    siteApi(new Request("https://barber.example" + p), env, new URL("https://barber.example" + p), "barber"));
+  const ok = await go({ SITE_SPEC: JSON.stringify({ apis: [DECL] }), ...SECRETS }, "/api/db/barber/api/rates?base=EUR");
+  const text = await ok.out.text();
+  assert.deepEqual(JSON.parse(text), { usd: 1.09 }, "only the body is returned");
+  assert.equal(text.includes(SECRETS.RATES_KEY), false);
+  // A missing key: the owner's log may name it; the visitor's answer never does.
+  const miss = await go({ SITE_SPEC: JSON.stringify({ apis: [DECL] }) }, "/api/db/barber/api/rates?base=JPY");
+  assert.equal(miss.out.status, 503);
+  const body = await miss.out.json();
+  assert.deepEqual(Object.keys(body), ["error"], "never the whole decision object");
+  assert.equal(JSON.stringify(body).includes("RATES_KEY"), false);
 });
 
 test("the DESIGNER can declare one, or nothing ever reaches this route", () => {
@@ -645,34 +651,25 @@ test("a MISSING SECRET is never cached, and never becomes a sticky refusal", asy
   assert.equal((await go(fixed)).status, 200, "and the fix takes effect immediately");
 });
 
-test("the WIRING: the route resolves an owner and hands it over, and KV keys are hashed", () => {
+test("the WIRING: the route resolves an owner and hands it over, and KV keys are hashed", async () => {
   // Every one of these survived the first mutation sweep, because a module test
   // cannot see the layer that supplies its arguments — the shape this codebase
   // has recorded a dozen times. `cacheKey` can be perfect and the route can pass
   // nothing, at which point the whole feature is off and every unit test still
   // passes.
-  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-
-  const at = w.indexOf("const out = await callApi(");
-  assert.ok(at > 0, "the API route's callApi moved — retarget this test");
-  const block = w.slice(w.lastIndexOf("const params = takeParams(", at), at + 300);
-
-  // RESOLVED, and from the lookup — not hardcoded to null, which is the
-  // fail-safe and would silently disable caching for every site on the platform.
-  assert.match(block, /const aowner = await siteOwnerBySlug\(slug, env\)/,
-    "the route must look the owner up");
-  assert.match(block, /callApi\([^)]*\), \{ ownerId: aowner,/,
-    "and hand it to callApi — computed and dropped is the same as never computed");
-
-  // KV KEYS ARE HASHED. cacheKey is now ~150 characters before parameters and
-  // KV's key limit is 512 bytes, where an over-long key does not error — the
-  // write simply fails and the cache silently never works.
-  const put = w.slice(w.indexOf("cacheSet: async (k, v, ms)"), w.indexOf("cacheSet: async (k, v, ms)") + 700);
-  assert.match(put, /const id = await kvKeyFor\(k\)/, "the KV write must hash the key");
-  assert.match(put, /kv\.put\(id,/, "and put under the hash, not the raw key");
-  const get = w.slice(w.indexOf("cacheGet: async (k)"), w.indexOf("cacheGet: async (k)") + 700);
-  assert.match(get, /const id = await kvKeyFor\(k\)/, "and the read must hash it the same way");
-  assert.match(get, /kv\.get\(id,/);
+  // (2026-10-28: the site's own Worker. Its cache is its own isolate's, so the
+  // identity it hands over is the site itself and there is no KV key to hash;
+  // what remains is that the route hands an identity over, so the cache works.)
+  const { siteApi } = await loadTemplate("lib/site-connect.ts");
+  const env = { SITE_SPEC: JSON.stringify({ apis: [{ ...DECL, name: "wired" }] }), ...SECRETS };
+  const p = "/api/db/barber/api/wired?base=GBP";
+  const r = await withFetch({ answer: () => Response.json({ usd: 1.2 }) }, async () => {
+    const a = await siteApi(new Request("https://barber.example" + p), env, new URL("https://barber.example" + p), "barber");
+    const b = await siteApi(new Request("https://barber.example" + p), env, new URL("https://barber.example" + p), "barber");
+    return [await a.json(), await b.json()];
+  });
+  assert.deepEqual(r.out, [{ usd: 1.2 }, { usd: 1.2 }]);
+  assert.equal(r.calls.length, 1, "the second read must come from the cache — an identity computed and dropped is the same as never computed");
 });
 
 test("deleting a site forgets its cached OWNER, not just its connection", () => {

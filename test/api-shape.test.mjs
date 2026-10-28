@@ -456,42 +456,34 @@ test("the three ride the stored declaration, and a connection without them is by
 });
 
 /**
- * The PUBLIC serving route, driven through the real Worker.
+ * The PUBLIC serving route, driven through the site's own Worker
+ * (2026-10-28: the site's own Worker — `siteApi` in
+ * builder/lovable/template/src/lib/site-connect.ts; the platform only passes
+ * the call on).
  *
  * `missingRequired` is proved at the module above; what only a drive can
  * establish is the ORDER — that the refusal happens before anything reaches
  * the third party, which is the whole point of it. `upstream` counts every
- * request that is not this platform's own, so "nothing was called" is an
- * assertion rather than a hope.
+ * request that leaves the site, so "nothing was called" is an assertion rather
+ * than a hope.
  */
-// ⚠ EACH CALL NEEDS ITS OWN SLUG. `siteBackendBySlug` is memoized per slug for
-// five minutes and the schema read is cached beside it, so two calls under one
-// name answer from the FIRST one's spec — measured: the third case here, on a
-// connection declaring no required parameter at all, came back "this connection
-// needs city" from the case above it. A cache shared between cases makes every
-// case after the first a test of the first one's data.
+// ⚠ EACH CALL GETS ITS OWN COPY OF THE MODULE. Its answer cache and its limiter
+// live at module scope, per isolate, so two calls sharing one copy would let the
+// first one's answer stand in for the second's. A cache shared between cases
+// makes every case after the first a test of the first one's data.
 let served = 0;
-
-/**
- * ONE PLATFORM STUB, SHARED WITH THE RENDER. `platformFetch` answers Supabase,
- * Neon and the service; this adds nothing to it but the request. Two copies of
- * that stub is how a case here and a case there start disagreeing about what a
- * site's own row looks like.
- */
 async function serve(query, { api, secrets = { W_KEY: "real-key" }, answer = { temp_c: 18.5 } } = {}) {
   const slug = "fw-serve-" + (++served);
-  const { platformFetch, makeVault } = await import("./fixtures/site-render.mjs");
-  const { hit } = await import("./fixtures/worker-harness.mjs");
-  const vault = await makeVault(secrets);
-  const plat = await platformFetch({ slug, api, vault,
-    service: () => new Response(JSON.stringify(answer), { status: 200, headers: { "content-type": "application/json" } }) });
+  const { loadTemplate } = await import("./fixtures/template-ts.mjs");
+  const { siteApi } = await loadTemplate("lib/site-connect.ts");
+  const upstream = [];
   const real = globalThis.fetch;
-  globalThis.fetch = plat.fetch;
+  globalThis.fetch = async (u) => { upstream.push(String(u)); return new Response(JSON.stringify(answer), { status: 200, headers: { "content-type": "application/json" } }); };
   try {
-    const r = await hit("/api/db/" + slug + "/api/weather" + query, {
-      env: { SITE_SECRETS_KEY: vault.key, SUPABASE_SERVICE_KEY: "k", SUPABASE_ANON_KEY: "a" },
-    });
-    return { ...r, upstream: plat.upstream };
+    const url = new URL("https://" + slug + ".gofarther.app/api/db/" + slug + "/api/weather" + query);
+    const env = { SITE_SPEC: JSON.stringify({ apis: [api] }), ...secrets };
+    const r = await siteApi(new Request(url), env, url, slug);
+    return { status: r.status, text: await r.text(), upstream };
   } finally { globalThis.fetch = real; }
 }
 
@@ -511,7 +503,7 @@ test("a required blank stops the request BEFORE the service is called", async ()
   assert.equal(full.status, 200, full.text);
   assert.equal(full.upstream.length, 1, "the supplied parameter did not reach the service: " + JSON.stringify(full.upstream));
   assert.match(full.upstream[0], /c=Leeds/, full.upstream[0]);
-  assert.match(full.upstream[0], /k=real-key/, "the platform substitutes the key; the page never sees it");
+  assert.match(full.upstream[0], /k=real-key/, "the site substitutes the key; the page never sees it");
 
   // AND A CONNECTION THAT DECLARED NO METADATA REQUIRES NOTHING — every
   // connection on the platform today, and it must go on being called.

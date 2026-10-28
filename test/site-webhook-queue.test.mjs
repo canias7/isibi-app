@@ -15,6 +15,8 @@ import {
   RETAIN_DONE_MS, RETAIN_DEAD_MS,
 } from "../site-webhook-queue.mjs";
 import { retryable } from "../site-webhooks.mjs";
+import { loadTemplate } from "./fixtures/template-ts.mjs";
+import { driveWrite, withFetch, memBucket } from "./fixtures/site-effects-drive.mjs";
 
 /**
  * A store that enforces the ONE property the queue depends on: a claim is a
@@ -486,143 +488,72 @@ test("an owner-less row is REFUSED rather than written", () => {
 
 // ── the wiring, which no module test can see ───────────────────────────────
 
-test("the Worker enqueues only retryable failures, and drains on the cron", () => {
-  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+test("the Worker enqueues only retryable failures, and drains on the cron", async () => {
+  // (2026-10-28: the site's own Worker — its bucket under `webhooks/q/`, drained
+  // on the platform clock's wake, `POST /__gf/tick`.)
+  const tables = [{ name: "bookings", access: "collect", columns: ["who"], webhooks: true }];
+  const env = { WEBHOOK_URL: "https://hooks.example.com/x" };
   // A 404 queued is a row that can never succeed, in a queue nobody reads.
-  assert.match(w, /if \(!out\.sent && out\.body && webhookRetryable\(out\.status\)\)/,
+  const refused = await driveWrite({ tables, env, sent: '{"who":"Ada"}', body: '[{"id":4,"who":"Ada"}]',
+    answer: () => new Response("no", { status: 404 }) });
+  assert.equal(refused.calls.length, 1, "a refusal is not retried in line");
+  assert.equal([...refused.bucket.map.keys()].filter((k) => k.startsWith("webhooks/q/")).length, 0,
     "the enqueue must be gated on the same classification the ladder uses");
-  // The id must be minted BEFORE the attempt, or the body the first attempt
-  // sent and the body the queue stores differ by exactly that field.
-  assert.match(w, /eventId: crypto\.randomUUID\(\)/, "the stable id is minted at the call site");
-  assert.match(w, /ctx\.waitUntil\(runWebhookQueue\(env\)\)/, "and the cron drains it");
-  // The primary key is the event id, so a redelivery of a queued event is a
-  // no-op rather than an error.
-  assert.match(w, /resolution=ignore-duplicates[\s\S]{0,200}?webhook_queue|webhook_queue[\s\S]{0,400}?resolution=ignore-duplicates/,
-    "the insert must tolerate an id already queued");
+  // A receiver that is down is kept, with the EXACT bytes first sent — the id
+  // is minted BEFORE the attempt, or the body the first attempt sent and the
+  // body the queue stores differ by exactly that field.
+  const down = await driveWrite({ tables, env, sent: '{"who":"Ada"}', body: '[{"id":4,"who":"Ada"}]',
+    answer: () => new Response("down", { status: 503 }) });
+  const keys = [...down.bucket.map.keys()].filter((k) => k.startsWith("webhooks/q/"));
+  assert.equal(keys.length, 1, "a retryable failure must be queued");
+  const row = JSON.parse(down.bucket.map.get(keys[0]).v);
+  assert.equal(row.body, down.calls[0].init.body, "the stored bytes are the bytes first sent");
+  assert.equal(JSON.parse(row.body).id, row.event_id, "the id inside the bytes is the queue's key");
+  assert.equal(keys[0], "webhooks/q/" + row.event_id + ".json");
+  // The key is the event id, so a redelivery of a queued event is a no-op
+  // rather than an error or a second row.
+  const { queueFailed, siteTick } = await loadTemplate("lib/site-webhook-retry.ts");
+  const again = await queueFailed({ SITES: down.bucket }, { slug: "barber", table: "bookings", action: "created",
+    out: { sent: false, body: row.body, status: 503, eventId: row.event_id } });
+  assert.equal(typeof again, "string");
+  assert.equal([...down.bucket.map.keys()].filter((k) => k.startsWith("webhooks/q/")).length, 1);
+  // And the clock drains it: due now, delivered with the stored bytes, removed.
+  down.bucket.map.get(keys[0]).v = JSON.stringify({ ...row, next_attempt_at: new Date(Date.now() - 1000).toISOString() });
+  const tick = await withFetch({ answer: () => new Response("ok", { status: 200 }) }, () =>
+    siteTick(new Request("https://barber.example/__gf/tick", { method: "POST", headers: { "x-gf-site-job": "1" } }),
+      { ...env, SITES: down.bucket }, new URL("https://barber.example/__gf/tick"), "barber", "x-gf-site-job"));
+  assert.equal(tick.out.status, 200);
+  const sent = tick.calls.filter((c) => c.url.startsWith("https://hooks.example.com/"));
+  assert.equal(sent.length, 1, "the tick must drain the queue");
+  assert.equal(sent[0].init.body, row.body);
+  assert.equal(down.bucket.map.has(keys[0]), false, "a delivered row leaves the queue");
+  // Only the clock's own wake drains: anything else is not this route.
+  assert.equal(await siteTick(new Request("https://barber.example/__gf/tick", { method: "POST" }), { SITES: down.bucket },
+    new URL("https://barber.example/__gf/tick"), "barber", "x-gf-site-job"), null);
 });
 
-test("EVERY webhook_queue query can say which tenant its rows belong to", () => {
-  // DERIVED, not a list of the five that exist today. `owner_id` buys nothing
-  // unless every query either scopes on it or carries it — and one query keyed
-  // on the event id alone reopens the whole cross-tenant question silently,
-  // because the event id is the primary key so such a query WORKS.
-  //
-  // THE RULE IS NOT "EVERYTHING IS OWNER-SCOPED", and this test said so in its
-  // first draft and was wrong: the `due` read is platform-wide by definition —
-  // a drain serves every site, so there is no single owner to scope it to. What
-  // it must do instead is SELECT the column, so each row it hands on can prove
-  // who it belongs to. Both shapes are honest; a query that is neither is the
-  // failure.
-  const raw = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  // COMMENTS BLANKED FIRST, and the first draft did not do it. The URL and the
-  // fetch that sends it are two statements, so the window was cut at the next
-  // `;` — which landed in the PROSE explaining the query, truncating three of
-  // the five chunks before the `method:` that classifies them. Every one then
-  // fell into the wrong bucket and the test reported a fault in correct code.
-  // Blanked to SPACES and line-comments only: a whole-file block blanker cannot
-  // be used on worker.js (a `/*` inside a string eats 46% of it, measured), and
-  // anchoring on start-of-line means the `//` in an `https://` literal is safe.
-  const w = raw.replace(/^([ \t]*)\/\/.*$/gm, (s) => " ".repeat(s.length));
 
-  // Each query spans a URL expression and the fetch beneath it, so the unit
-  // runs from the table name to the START OF THE NEXT ONE — self-bounding, so
-  // no chunk can reach into another query and answer for it.
-  const at = [];
-  const re = /rest\/v1\/webhook_queue/g;
-  let m;
-  while ((m = re.exec(w))) at.push(m.index);
-  const chunks = at.map((i, n) => w.slice(i, Math.min(n + 1 < at.length ? at[n + 1] : w.length, i + 900)));
-  assert.ok(chunks.length >= 4,
-    "the scan must still find the queries — it found " + chunks.length + ", and a scan that stops matching reports a clean file");
 
-  const seen = { read: 0, write: 0, insert: 0, sweep: 0 };
-  for (const c of chunks) {
-    const head = c.slice(0, 240);
-    if (c.includes('method: "POST"')) {
-      // The INSERT names no filters at all: the tenancy is in the BODY, which
-      // `enqueueRow` throws rather than build without.
-      seen.insert++;
-      continue;
-    }
-    if (c.includes('method: "DELETE"')) {
-      // Platform-wide on purpose, and safe only because of what it is bounded
-      // to: rows that are already terminal, older than a retention cutoff.
-      seen.sweep++;
-      assert.match(c, /status\.eq\.done/, "the sweep must name the settled statuses…");
-      assert.match(c, /status\.eq\.dead/, "…both of them — an unbounded delete here empties the queue");
-      // PER BRANCH, and the first draft was not. `assert.match(c, /updated_at\.lt\./)`
-      // is satisfied by EITHER half, so a mutation removing the age bound from
-      // the `done` branch alone survived: every successfully delivered row
-      // would have been deleted the instant it settled, with the assertion
-      // still green because the `dead` branch's bound was untouched. The
-      // neighbouring-branch failure this repo has recorded before.
-      assert.equal((c.match(/updated_at\.lt\./g) || []).length, 2,
-        "each settled status needs its OWN age bound, or one half deletes on sight");
-      assert.match(c, /cut\.done/, "and each must use its own cutoff");
-      assert.match(c, /cut\.dead/);
-      continue;
-    }
-    if (c.includes('method: "PATCH"')) {
-      // A write names ONE row, so it must name the tenant it believes owns it.
-      seen.write++;
-      assert.match(c, /owner_id=eq\./, "a webhook_queue write must be owner-scoped:\n" + head);
-      assert.match(c, /slug=eq\./, "and slug-scoped:\n" + head);
-      continue;
-    }
-    // A read: scoped to one tenant, or carrying the column so the caller can be.
-    seen.read++;
-    assert.ok(/owner_id=eq\./.test(c) || /select=[^`'"]*owner_id/.test(c),
-      "a webhook_queue read must either scope on owner_id or select it:\n" + head);
-  }
-  // The classification itself must still be finding all four kinds — a scan
-  // where every chunk fell into one bucket would pass every assertion above
-  // while checking almost nothing.
-  assert.ok(seen.read >= 2 && seen.write >= 2 && seen.insert >= 1 && seen.sweep >= 1,
-    "the scan must still see reads, writes, the insert and the sweep: " + JSON.stringify(seen));
-});
-
-test("the drain proves who a row belongs to BEFORE it opens that site's vault", () => {
-  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const from = w.indexOf("deliver: async (row) => {");
-  assert.ok(from > 0, "the drain's deliver dep must still be findable");
-  const block = w.slice(from, w.indexOf("finish: async (row, patch)", from));
-  assert.ok(block.length > 200 && block.length < 4000, "and the window must actually bound it, not the rest of the file");
-
-  // FRESH AND OWNER-BEARING. `siteBackendBySlug` caches for five minutes and
-  // answers a connection string alone, which cannot answer this question at all.
-  assert.match(block, /siteBackendRowFresh\(env, row\.slug\)/,
-    "the drain must resolve the OWNER of the slug, not just a connection to it");
-
-  const check = block.indexOf("sameOwner(");
-  const vault = block.indexOf("webhookSecrets(");
-  const post = block.indexOf("deliverWebhook(");
-  // Both anchors proved present first: `indexOf(a) < indexOf(b)` passes
-  // vacuously when `a` is the thing that was deleted, which is how a mutation
-  // removing the check survives an ordering assertion.
-  assert.ok(check > 0, "the cross-tenant check must exist");
-  assert.ok(vault > 0 && post > 0, "and so must the things it guards");
-  assert.ok(check < post, "the owner is proved before anything is sent");
-  assert.ok(check < vault, "and before the site's signing secret is decrypted");
-});
-
-test("the enqueue resolves the owner, and reports which of the three things happened", () => {
-  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const from = w.indexOf("if (!out.sent && out.body && webhookRetryable(out.status))");
-  assert.ok(from > 0);
-  const block = w.slice(from, w.indexOf("if (out.reason !== ", from));
-  assert.ok(block.length > 400, "the window must reach the whole enqueue branch");
-
-  // LAZILY, on this branch only — a lookup hoisted above it would put a
-  // Supabase round trip on the write path of every published site to serve the
-  // rare case of a receiver being down.
-  assert.match(block, /siteBackendRowFresh\(env, slug\)/, "the owner is resolved here");
-  assert.match(block, /owner\.uid/);
-  assert.match(block, /queueFull\(/, "and the per-site cap is applied before the write");
-  assert.match(block, /pendingWebhooks\(env, owner\.uid, slug\)/, "counted for THIS owner's copy of the slug");
-  // Three outcomes, three sentences: queued, dropped for want of an owner, and
-  // dropped because the site is at its cap. Without them a full queue and a
-  // pending retry are the same red line in the owner's only window.
-  const says = (block.match(/queued = /g) || []).length;
-  assert.ok(says >= 4, "each outcome must say which it was — found " + says);
-  assert.match(w, /queued,/, "and the note the owner reads must carry it");
+test("the enqueue resolves the owner, and reports which of the three things happened", async () => {
+  // (2026-10-28: the site's own Worker. The bucket IS the tenant now — one
+  // site's own R2 — so there is no owner to resolve; what remains is the
+  // per-site cap, applied before the write, and saying which outcome it was.)
+  // Without the sentences a full queue and a pending retry are the same red
+  // line in the owner's only window.
+  const { queueFailed } = await loadTemplate("lib/site-webhook-retry.ts");
+  const out = (id) => ({ sent: false, body: '{"id":"' + id + '"}', status: 503, eventId: id });
+  const B = memBucket();
+  assert.equal(await queueFailed({ SITES: B }, { slug: "s", table: "t", action: "created", out: out("a1") }), "queued for retry");
+  // Not worth retrying, or nothing sent: nothing written, nothing claimed.
+  assert.equal(await queueFailed({ SITES: B }, { slug: "s", table: "t", action: "created", out: { ...out("a2"), status: 404 } }), null);
+  assert.equal(await queueFailed({ SITES: B }, { slug: "s", table: "t", action: "created", out: { ...out("a3"), sent: true } }), null);
+  // At the cap: refused BEFORE the write, and it says so.
+  const full = memBucket(Object.fromEntries(Array.from({ length: MAX_PENDING_PER_SITE }, (_, i) => ["webhooks/q/p" + i + ".json", "{}"])));
+  const said = await queueFailed({ SITES: full }, { slug: "s", table: "t", action: "created", out: out("z9") });
+  assert.match(String(said), /not queued/);
+  assert.equal(full.map.has("webhooks/q/z9.json"), false, "the per-site cap is applied before the write");
+  // The queued row carries the failure the drain reads.
+  const row = JSON.parse(B.map.get("webhooks/q/a1.json").v);
+  assert.equal(row.status, STATUS.pending);
+  assert.equal(row.last_status, 503);
 });

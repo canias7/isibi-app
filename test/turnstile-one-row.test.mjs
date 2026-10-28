@@ -42,9 +42,5 @@ test("a body not sent as application/json is refused, even if it parses", () => 
   assert.equal(oneRow("{\"a\":1}", null).bad, "content-type");
 });
 
-// ----- wiring in worker.js (read raw; patterns carry `(` so prose cannot match)
-const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-const gateAt = worker.indexOf("async function turnstileGate(");
-const gateEnd = worker.indexOf("\n}\n", gateAt);
-const fn = worker.slice(gateAt, gateEnd);
-
+// The platform gate that called oneRow was deleted on 2026-10-28 (spam
+// protection off; visitor writes go to the site's own Worker).

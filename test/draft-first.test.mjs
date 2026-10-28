@@ -304,10 +304,18 @@ test("DFB5 THE PREVIEW SHOWS THE DRAFT AND CHANGES NOTHING — its row read carr
   assert.equal(pv.json.find((r) => r.id === 2).price, 5.6, "the preview showed the live price");
   assert.deepEqual(pv.json.filter((r) => r.name === "Spelt").map((r) => [r.price, r.id < 0]), [[6.2, true]], "the preview did not show the held new loaf");
   assert.equal(pv.headers.get("cache-control"), "no-store");
-  const live = await hitWith(site, slug + ".gofarther.app", "/api/db/" + slug + "/data/loaves?select=*");
-  assert.equal(live.status, 200, live.text.slice(0, 300));
-  assert.equal(Number(live.json.find((r) => r.id === 2).price), 5.2, "the live address showed the draft's price");
-  assert.equal(live.json.some((r) => r.name === "Spelt"), false, "the live address showed a held row");
+  // THE LIVE ADDRESS (2026-10-28: the site's own Worker). A visitor's read on
+  // the live address is the live site's own script's to answer, never the
+  // platform's and never the draft's: it is passed to the live script with no
+  // preview mark, and the live rows it would read are the live price, with no
+  // held row among them.
+  const sentBefore = site.dispatched.length;
+  const upBefore = site.upstream.length;
+  await hitWith(site, slug + ".gofarther.app", "/api/db/" + slug + "/data/loaves?select=*");
+  assert.deepEqual(site.dispatched.slice(sentBefore), [{ name: "site-" + slug, path: "/api/db/" + slug + "/data/loaves", preview: null }], "the live read did not go to the live site's own script, unmarked");
+  assert.equal(site.upstream.length, upBefore, "the platform read the data service for the live address itself");
+  assert.equal(Number(site.db.rows("loaves").find((r) => r.id === 2).price), 5.2, "the live database carries the draft's price");
+  assert.equal(site.db.rows("loaves").some((r) => r.name === "Spelt"), false, "the live database carries a held row");
   const before = site.upstream.length;
   const writesBefore = site.db.writes().length;
   for (const [method, path] of [
@@ -363,9 +371,11 @@ test("DFB6 THE LIBRARY UNDER A DRAFT — a picture taken off and a recording rep
     const sealed = await draftFirstApi.sealHeld(site.env, slug, w, {});
     assert.equal(sealed.ok, true);
   } finally { globalThis.fetch = real; }
-  // THE LIVE ADDRESS, AS IT WAS.
-  assert.equal((await hitWith(site, slug + ".gofarther.app", "/u/" + slug + "/" + PICTURE)).text, "a picture", "the live picture went before Publish");
-  assert.equal((await hitWith(site, slug + ".gofarther.app", "/u/" + slug + "/" + SONG)).text, "the old recording", "the live recording changed before Publish");
+  // THE LIVE LIBRARY, AS IT WAS. (2026-10-28: the site's own Worker serves
+  // `/u/` on the site's own address from its own bucket; the platform still
+  // serves the shared library on the app's address, so that is where it is read.)
+  assert.equal((await hitWith(site, "gofarther.dev", "/u/" + slug + "/" + PICTURE)).text, "a picture", "the live picture went before Publish");
+  assert.equal((await hitWith(site, "gofarther.dev", "/u/" + slug + "/" + SONG)).text, "the old recording", "the live recording changed before Publish");
   // THE PREVIEW, AS THE DRAFT HAS IT.
   const host = slug + "--draft-" + TOKEN12 + ".gofarther.app";
   assert.equal((await hitWith(site, host, "/u/" + slug + "/" + PICTURE)).status, 404, "the preview still served a picture the draft takes off");

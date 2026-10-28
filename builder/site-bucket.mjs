@@ -173,7 +173,7 @@ export function restBucket({ accountId, apiToken, bucket }, deps = {}) {
         const r = await call(fetchImpl, base(accountId, bucket) + "/objects?" + q, { headers: auth });
         if (!r.ok) throw new Error("list answered " + r.status);
         const j = await r.json();
-        for (const o of (j && j.result) || []) all.push({ key: o.key, etag: o.etag });
+        for (const o of (j && j.result) || []) all.push({ key: o.key, etag: o.etag, size: o.size });
         cursor = (j && j.result_info && j.result_info.cursor) || "";
         if (!(j && j.result_info && j.result_info.is_truncated) || !cursor) return all;
       }

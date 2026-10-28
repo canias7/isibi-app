@@ -6,12 +6,11 @@
 // time ("no row id to build from") and a webhook's data never carried the id.
 import test from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
 import { resolveCreatedRow, storedRowQuery, sanitizeMailHtml, runRowEffects } from "../site-row-effects.mjs";
 import { sendConfirmation } from "../site-mail.mjs";
 import { sendSms } from "../site-sms.mjs";
+import { loadTemplate } from "./fixtures/template-ts.mjs";
 
-const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const DEF = { name: "bookings", access: "collect", columns: ["who", "email", { name: "slot" }, "mobile"],
   confirm: { fn: "confirm_booking" }, sms: { fn: "text_booking" }, webhooks: ["created"] };
 
@@ -67,10 +66,37 @@ test("a lookup that fails or finds nothing falls back to what was sent", async (
   assert.deepEqual(await resolveCreatedRow({ def: DEF, body: '[{"id":3,"who":"Ada"}]', sent, lookup: async () => assert.fail("no lookup needed") }), { id: 3, who: "Ada" });
 });
 
-test("the proxy resolves a created row on the owner connection", () => {
-  const at = worker.indexOf("async function proxySiteService(");
-  const proxy = worker.slice(at, worker.indexOf("\n// ── Cloudflare for SaaS", at));
-  assert.match(proxy, /action === "created"\) \{[\s\S]{0,600}?row = await resolveCreatedRow\(\{ def, body, sent, lookup: \(q, p\) => sqlQuery\(db, q, p\) \}\);/);
+test("the site resolves a created row on its own connection", async () => {
+  // The platform proxy did this with the owner connection; a visitor's write and
+  // its follow-ups now run in the site's own Worker, which looks the stored row
+  // up on the site's own database. (2026-10-28: the site's own Worker)
+  const { runSiteEffects } = await loadTemplate("lib/site-effects.ts");
+  const stored = { id: 91, who: "Ada", email: "ada@example.com", slot: "s1", mobile: "+447700900123", status: "new" };
+  const sqls = [], hookBodies = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (u, init = {}) => {
+    const url = String(u);
+    if (url.endsWith("/sql")) {
+      const q = JSON.parse(init.body);
+      sqls.push({ q, conn: init.headers["Neon-Connection-String"] });
+      return new Response(JSON.stringify({ rows: /^SELECT \* FROM "bookings"/.test(q.query) ? [stored] : [] }));
+    }
+    if (url === "https://hooks.example/x") hookBodies.push(String(init.body));
+    return new Response("{}", { status: 200 });
+  };
+  const env = { APP_CONN: "postgresql://x_app:p@ep-1.neon.tech/db", SITE_TABLES: JSON.stringify([{ ...DEF, confirm: undefined, sms: undefined }]),
+    WEBHOOK_URL: "https://hooks.example/x", WEBHOOK_SECRET: "whs" };
+  const waits = [];
+  try {
+    await runSiteEffects(env, { waitUntil: (p) => waits.push(p) }, { slug: "s", method: "POST", path: "bookings", search: "", body: "",
+      sent: JSON.stringify({ who: "Ada", email: "ada@example.com", slot: "s1", mobile: "+447700900123" }) });
+    await Promise.all(waits);
+    const look = sqls.find(({ q }) => /^SELECT \* FROM "bookings" WHERE /.test(q.query));
+    assert.ok(look, "the created row was looked up: " + JSON.stringify(sqls));
+    assert.equal(look.conn, env.APP_CONN, "on the site's own connection");
+    assert.equal(hookBodies.length, 1, "the webhook fired");
+    assert.match(hookBodies[0], /"id":91/, "the webhook's data carries the stored row's id");
+  } finally { globalThis.fetch = real; }
 });
 
 test("a function-form body is sanitised: no scripts, attributes or links", async () => {

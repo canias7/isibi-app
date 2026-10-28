@@ -3,6 +3,11 @@
 // on by default for every visitor form on our own hostnames; a site's own pair
 // still wins; unset is off exactly as before; a customer's own domain is not
 // covered by the platform pair.
+//
+// 2026-10-28: the platform's Turnstile wiring (turnstileConfig, platformCovers,
+// siteTurnstileKeys, enableSpamCheck) was deleted; spam protection is off by
+// the owner's decision and `spamCheckOn` answers false (asserted in
+// test/turnstile-half-pair.test.mjs). The pure choice functions stay, below.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

@@ -28,6 +28,7 @@ import assert from "node:assert/strict";
 import { renderKit } from "./fixtures/site-render.mjs";
 import { addon, promptFor, pagePrompt, storedAnswer, writtenPage, storedPage, addedTo, compiledPages, STORED_SCHEMA } from "./fixtures/addon-route.mjs";
 import { renderRouteSource } from "./fixtures/site-render.mjs";
+import { siteApiFetch } from "./fixtures/site-api-fetch.mjs";
 // THE BOUND THE PARTS WALL RESTS ON, taken from the product rather than typed:
 // a case that hardcoded "12001 characters is too big" would be a second copy of
 // `MAX_PART_CHARS` and would pass silently the day the real one moved.
@@ -7804,8 +7805,11 @@ test("ACCEPTANCE: the page the addon route produced renders the service's answer
   //
   // So: the page goes through the REAL addon route, the source is read back
   // OUT OF THE STORE, and that exact string is rendered with the kit's own
-  // `useApi` against `worker.js`'s own `/api/db/<slug>/api/<name>`. The only
-  // stub left is the third-party service.
+  // `useApi` against the route that answers `/api/db/<slug>/api/<name>`. The
+  // only stub left is the third-party service. (2026-10-28: the site's own
+  // Worker. That route is the site template's `siteApi`, with the owner's key
+  // as the site's own variable; the platform only passes the call on, so the
+  // render goes through the template's handler, not `worker.js`.)
   const FORECAST = typeFromShape(SHAPE);
   const WRITTEN = [{
     path: "src/routes/index.tsx",
@@ -7851,7 +7855,7 @@ test("ACCEPTANCE: the page the addon route produced renders the service's answer
   const REAL = { current: { temp_c: 18.5, condition: { text: "Light rain" } }, forecast: [{ day: "Sat", high: 21 }] };
   const answers = (v, status = 200) => () => new Response(JSON.stringify(v), { status, headers: { "content-type": "application/json" } });
 
-  const good = await renderRouteSource(src, { slug: "fw-live-ok", api, secrets: { W_KEY: "real-key" }, service: answers(REAL) });
+  const good = await renderRouteSource(src, { slug: "fw-live-ok", api, secrets: { W_KEY: "real-key" }, fetch: await siteApiFetch({ slug: "fw-live-ok", api, secrets: { W_KEY: "real-key" }, service: answers(REAL) }) });
   assert.match(good.html, /18\.5°C, Light rain/, "the declared field names did not reach the page: " + good.html);
   assert.match(good.html, /<li>Sat: 21<\/li>/, good.html);
   assert.match(good.html, /Words for index\./, "the page lost the words it was built on: " + good.html);
@@ -7860,7 +7864,7 @@ test("ACCEPTANCE: the page the addon route produced renders the service's answer
     "the hook built a different url from the parameters the page gave it: " + JSON.stringify(good.routed));
   assert.equal(good.upstream.length, 1, JSON.stringify(good.upstream));
   assert.match(good.upstream[0], /c=Leeds/, good.upstream[0]);
-  assert.match(good.upstream[0], /key=real-key/, "the platform did not substitute the key; the page must never see it");
+  assert.match(good.upstream[0], /key=real-key/, "the site did not substitute the key; the page must never see it");
 
   // ── 4. LOADING. Not a stub answering `{isLoading:true}` — a server render
   // runs no effects, so this IS the hook's own pending state.
@@ -7869,7 +7873,7 @@ test("ACCEPTANCE: the page the addon route produced renders the service's answer
 
   // ── 5. MISSING CREDENTIALS. The vault holds nothing, `fill` refuses, and
   // the page draws its error branch instead of a plausible wrong answer.
-  const nokey = await renderRouteSource(src, { slug: "fw-live-nokey", api, secrets: {}, service: answers(REAL) });
+  const nokey = await renderRouteSource(src, { slug: "fw-live-nokey", api, secrets: {}, fetch: await siteApiFetch({ slug: "fw-live-nokey", api, secrets: {}, service: answers(REAL) }) });
   assert.match(nokey.html, /not available right now/, nokey.html);
   assert.doesNotMatch(nokey.html, /18\.5/, nokey.html);
   assert.deepEqual(nokey.upstream, [], "a request went out with the key blank");
@@ -7880,7 +7884,7 @@ test("ACCEPTANCE: the page the addon route produced renders the service's answer
   // ── 6. UPSTREAM FAILURE. The service answers and the answer is a failure,
   // which is a different thing from the platform refusing before the call.
   const down = await renderRouteSource(src, { slug: "fw-live-down", api, secrets: { W_KEY: "real-key" },
-    service: answers({ error: "gateway" }, 502) });
+    fetch: await siteApiFetch({ slug: "fw-live-down", api, secrets: { W_KEY: "real-key" }, service: answers({ error: "gateway" }, 502) }) });
   assert.match(down.html, /not available right now/, down.html);
   assert.doesNotMatch(down.html, /18\.5/, down.html);
   assert.equal(down.upstream.length, 1, "the service was never called, so this is not the upstream case");

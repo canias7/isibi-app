@@ -2880,6 +2880,19 @@ async function persistSiteJobs(env, ownerId, slug, jobs) {
 // the night window, the per-tick bound, idempotency by key, retention only
 // after a successful put — live in site-backup.mjs where they are tested with
 // no R2 and no Neon; this supplies nothing but the wiring.
+/** The site's own bucket for a `backups/<slug>/…` key; made first when asked (a site never republished since). */
+async function siteBackupBucket(env, key, ensure = false) {
+  const slug = (String(key).match(/^backups\/([a-z0-9][a-z0-9-]{0,80})\//) || [])[1];
+  const c = ownBucketCreds(env);
+  const bucket = slug && siteBucketName(slug);
+  if (!c || !bucket) throw new Error("backups: no own bucket for " + String(key).slice(0, 120));
+  if (ensure) {
+    const made = await ensureSiteBucket({ accountId: c.accountId, apiToken: c.apiToken, bucket });
+    if (!made.ok) throw new Error("backups: own bucket not made (" + made.status + ")");
+  }
+  return restBucket({ accountId: c.accountId, apiToken: c.apiToken, bucket });
+}
+
 function backupDeps(env) {
   return {
     hour: () => new Date().getUTCHours(),
@@ -2900,13 +2913,15 @@ function backupDeps(env) {
       }
       return out;
     },
-    exists: async (key) => !!(await env.SITES_BUCKET.head(key)),
-    put: (key, json) => env.SITES_BUCKET.put(key, json, { httpMetadata: { contentType: "application/json" } }),
-    list: async (prefix) => {
-      const got = await env.SITES_BUCKET.list({ prefix, limit: 100 });
-      return ((got && got.objects) || []).map((o) => o.key);
+    // A SITE'S BACKUPS ARE KEPT IN ITS OWN BUCKET (2026-10-28), never ours:
+    // every key is `backups/<slug>/<day>.json`, so the key names the bucket.
+    exists: async (key) => {
+      const b = await siteBackupBucket(env, key, true);
+      return (await b.list(key)).some((o) => o.key === key);
     },
-    remove: (key) => env.SITES_BUCKET.delete(key),
+    put: async (key, json) => (await siteBackupBucket(env, key)).put(key, json, "application/json"),
+    list: async (prefix) => (await (await siteBackupBucket(env, prefix)).list(prefix)).map((o) => o.key),
+    remove: async (key) => (await siteBackupBucket(env, key)).del(key),
     dump: async (slug) => {
       // THE FOUR-STATE READER (2026-10-23, audit A38-7): the fast lookup alone
       // answers null for a blank `neon_db`, so such a site was never backed
@@ -48658,11 +48673,14 @@ async function handleRequest(request, env, ctx) {
             const gB = await assertOwner(ownerDeps, bslug, ou.id);
             if (gB.error) return Response.json(gB.error.body, { status: gB.error.status });
             if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
-            if (!env.SITES_BUCKET) return Response.json({ error: "unavailable" }, { status: 501 });
+            // From the site's own bucket (2026-10-28).
+            let bB;
+            try { bB = await siteBackupBucket(env, "backups/" + bslug + "/"); }
+            catch { return Response.json({ error: "unavailable" }, { status: 501 }); }
             if (bk[2]) {
               const bDay = backupDayParam(bk[2]);
               if (!bDay) return Response.json({ error: "bad day" }, { status: 400 });
-              const obj = await env.SITES_BUCKET.get(backupKey(bslug, bDay));
+              const obj = await bB.get(backupKey(bslug, bDay)).catch(() => null);
               if (!obj) return Response.json({ error: "no such backup" }, { status: 404 });
               // ATTACHMENT, never inline — this is a file of customer data the
               // owner saves, and the export route's own rule applies: owner-
@@ -48674,8 +48692,10 @@ async function handleRequest(request, env, ctx) {
                 },
               });
             }
-            const gotB = await env.SITES_BUCKET.list({ prefix: "backups/" + bslug + "/", limit: 100 });
-            return Response.json({ backups: backupListing((gotB && gotB.objects) || []) });
+            let gotB = [];
+            try { gotB = await bB.list("backups/" + bslug + "/"); }
+            catch { return Response.json({ error: "couldn't read your backups just now" }, { status: 503 }); }
+            return Response.json({ backups: backupListing(gotB) });
           } else if (er) {
             // WHAT BROKE IN VISITORS' BROWSERS — the read half of the runtime
             // error reports the published page POSTs to /api/db/<slug>/error.

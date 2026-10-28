@@ -28,6 +28,9 @@
 // site's own script is a stand-in answering as the real one does — its routes
 // read off the page source the platform stored, its not-found an HTML document
 // with a 404 status, a missing file a plain 404, every answer stamped.
+// Since 2026-10-28 the redirect a visitor gets is the site's own: the stand-in
+// asks the template's real `siteRedirect` (lib/site-addresses.ts) on a 404,
+// as `server.ts` does, over the sidecar the real publish wrote.
 import test from "node:test";
 import { tweakInput, asEdits } from "./fixtures/tweak-edits.mjs";
 import assert from "node:assert/strict";
@@ -39,6 +42,9 @@ import { packEditJob, EDIT_JOB_PREFIX, EDIT_JOB_KIND } from "../builder/edit-job
 import { TWEAK_TOOL } from "../builder/site-tweak.mjs";
 import { siteRoutes } from "../site-seo.mjs";
 import { POINTER_KEY } from "../site-builds.mjs";
+import { loadTemplate } from "./fixtures/template-ts.mjs";
+
+const { siteRedirect } = await loadTemplate("lib/site-addresses.ts");
 
 const USER = { id: "u-redir-1", email: "owner@example.com" };
 
@@ -141,12 +147,19 @@ function script(b, slug) {
         if ((p.split("/").pop() || "").includes(".")) return new Response("Not found", { status: 404, headers: stamp });
         const pages = JSON.parse(await (await b.get("source/" + slug + "/pages.json")).text());
         const routes = siteRoutes(pages).routes;
-        const html = { ...stamp, "content-type": "text/html; charset=utf-8" };
+        const html = { ...stamp, "content-type": "text/html; charset=utf-8", "x-site-data": "own" };
         const at = p.toLowerCase().replace(/\/+$/, "") || "/";
         if (routes.includes(at)) return new Response("<!doctype html><html><body><div id=\"root\">page " + at + "</div></body></html>", { status: 200, headers: html });
-        // AN ADDRESS THE SITE DOES NOT HAVE: the branded not-found, a whole
-        // document with a 404 status — what the container harness measured the
-        // real script answering (`site-build.mjs`, "an undeclared route").
+        // AN ADDRESS THE SITE DOES NOT HAVE: a moved or deleted page goes
+        // where it went, answered by the site's OWN redirect reader over its
+        // own live sidecar — the template's real `siteRedirect`, as
+        // `server.ts` asks it on a 404 (2026-10-28: the site's own Worker; the
+        // platform no longer adds redirects to a script's answer).
+        const moved = await siteRedirect({ SITES: b }, new URL(req.url), slug);
+        if (moved) { for (const [k, v] of Object.entries(stamp)) moved.headers.set(k, v); return moved; }
+        // Otherwise the branded not-found, a whole document with a 404 status
+        // — what the container harness measured the real script answering
+        // (`site-build.mjs`, "an undeclared route").
         return new Response("<!doctype html><html><body><div id=\"root\">That page isn't here.</div></body></html>", { status: 404, headers: html });
       },
     }),

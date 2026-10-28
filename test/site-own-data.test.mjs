@@ -30,9 +30,14 @@ test("the upload gives a script only the named public addresses, never anything 
 const W = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const between = (a, b) => { const i = W.indexOf(a), j = W.indexOf(b, i + 1); assert.ok(i >= 0 && j > i, a); return W.slice(i, j); };
 
-test("the platform asks the site only for reads, only with the switch on, and falls back without the mark", () => {
-  const r = between("// A READ THE SITE ANSWERS ITSELF", 'return proxySiteService(env, request, url, slug, dpath, "data", ctx);');
-  assert.match(r, /env\.SITE_OWN_DATA === "1"/);
+// 2026-10-28: the site's own Worker. The platform no longer asks "first" and
+// falls back: every visitor call is the site's, and a site whose script cannot
+// answer (no script, or no `own` mark) is told to republish, nothing done here.
+test("the platform passes a visitor's call to the site, and without the mark says republish", () => {
+  const sa = between("async function siteAnswers(", "\n}\n");
+  assert.match(sa, /const own = await ownDataRead\(env, request, slug\);\s*if \(own\) return own;/);
+  assert.match(sa, /status: 503/);
+  assert.match(sa, /published again/);
   const f = between("async function ownDataRead(", "\n}\n");
   assert.match(f, /x-site-data"\) === "own" \? res : null/);
   assert.match(f, /siteLimits\(env\)/);
@@ -41,9 +46,24 @@ test("the platform asks the site only for reads, only with the switch on, and fa
   const v = between("async function siteReadVars(", "\n}\n");
   assert.match(v, /env\.SITE_OWN_DATA !== "1"\) return null/);
   assert.match(between("async function uploadScriptOnce(", "\n}\n"), /const given = await siteReadVars\(env, slug\)/);
-  // The rate limit runs first, as before.
-  const route = W.slice(W.indexOf('const dm = url.pathname.match(/^\\/api\\/db\\/'), W.indexOf("// A READ THE SITE ANSWERS ITSELF"));
-  assert.match(route, /_dataLimiter\.hit/);
+  // Reads, writes, sign-in, connections, hooks, reports, checkout, uploads and
+  // the anti-spam check: one route, to the site.
+  const route = between("A VISITOR'S CALL TO A SITE IS THE SITE'S", "if (vm) return siteAnswers(env, request, vm[1].toLowerCase());");
+  for (const part of ["data\\/", "api\\/", "hook\\/", "auth\\/", "error", "checkout", "uploads", "turnstile"]) assert.ok(route.includes(part), part);
+});
+
+// The behaviour of that route, run: the site's own answer passes through;
+// none (or an unmarked one) is the 503, and nothing else is consulted.
+test("siteAnswers, run: the site's marked answer, else 503 republish", async () => {
+  const body = between("async function siteAnswers(", "\n}\n") + "\n}\n" + between("async function ownDataRead(", "\n}\n") + "\n}\n";
+  const mk = new Function("scriptNameFor", "siteLimits", "PREVIEW_HEADER", "SITE_JOB_HEADER", body + "return siteAnswers;");
+  const run = (answer) => mk((s) => "site-" + s, () => ({}), "x-preview", "x-job")(
+    { SITE_WORKERS: { get: () => ({ fetch: async () => answer }) } }, new Request("https://a.gofarther.app/api/db/a/data/menu"), "a");
+  const own = new Response("[]", { headers: { "x-site-data": "own" } });
+  assert.equal(await run(own), own);
+  const r = await run(new Response("[]"));
+  assert.equal(r.status, 503);
+  assert.match((await r.json()).error, /published again/);
 });
 
 // ── the template's own handler, run for real ─────────────────────────────────
@@ -225,10 +245,10 @@ test("the site signs its visitors in with its own auth server, and keeps the ses
   } finally { globalThis.fetch = real; }
 });
 
-test("the platform asks the site first for logins too, with the switch on", () => {
-  const at = W.indexOf('return proxySiteService(env, request, url, slug, apath, "auth");');
-  const before = W.slice(at - 400, at);
-  assert.match(before, /env\.SITE_OWN_DATA === "1" && env\.SITE_WORKERS[\s\S]*ownDataRead\(env, request, slug\)/);
+test("a visitor's sign-in is the site's too (2026-10-28: the site's own Worker)", () => {
+  const route = between("A VISITOR'S CALL TO A SITE IS THE SITE'S", "if (vm) return siteAnswers(env, request, vm[1].toLowerCase());");
+  assert.ok(route.includes("auth\\/"));
+  assert.doesNotMatch(W, /return proxySiteService\(env, request, url, slug, apath, "auth"\);/);
 });
 
 // ── files: the owner's uploads, hosted media and visitors' uploads (2026-10-27) ──
@@ -285,11 +305,11 @@ test("a visitor's image goes into the site's own bucket under vuploads/, checked
   assert.equal((await visitorUpload(...post("applications", new Uint8Array([1, 2, 3])))).status, 415, "not an image");
 });
 
-test("the platform asks the site first for its files and its visitors' uploads, after the host tie", () => {
-  const files = W.slice(W.indexOf("// THE SITE SERVES ITS OWN FILES"), W.indexOf("// THE SITE SERVES ITS OWN FILES") + 500);
-  assert.match(files, /uploadHost === "\*" \|\| uploadHost === um\[1\]\.toLowerCase\(\)/);
-  assert.match(files, /ownDataRead\(env, request, um\[1\]\.toLowerCase\(\)\)/);
-  assert.match(W, /THE SITE TAKES ITS OWN VISITORS' FILES[\s\S]{0,200}ownDataRead\(env, request, vslug\)/);
+test("on the site's own address its files are the site's, after the host tie; the app's address keeps the builder's (2026-10-28)", () => {
+  const files = W.slice(W.indexOf("// THE SITE SERVES ITS OWN FILES"), W.indexOf("// THE SITE SERVES ITS OWN FILES") + 800);
+  assert.match(files, /um && uploadHost !== "\*" && uploadHost === um\[1\]\.toLowerCase\(\)\) return siteAnswers\(env, request, uploadHost\)/);
+  // A visitor's upload goes through the one visitor route.
+  assert.match(between("A VISITOR'S CALL TO A SITE IS THE SITE'S", "if (vm) return siteAnswers"), /uploads/);
 });
 
 // ── payments: checkout and Stripe's message, with the owner's own Stripe (2026-10-27) ──
@@ -359,9 +379,9 @@ test("Stripe's paid message is checked against the owner's secret, then the orde
   } finally { globalThis.fetch = real; }
 });
 
-test("the platform asks the site first for checkout and for its Stripe messages", () => {
-  assert.match(W, /THE SITE TAKES ITS OWN PAYMENTS[\s\S]{0,200}ownDataRead\(env, request, cm\[1\]\.toLowerCase\(\)\)/);
-  assert.match(W, /THE SITE HEARS ITS OWN STRIPE MESSAGES[\s\S]{0,200}ownDataRead\(env, request, wslug\)/);
+test("checkout and the site's Stripe messages are passed to the site (2026-10-28)", () => {
+  assert.match(between("A VISITOR'S CALL TO A SITE IS THE SITE'S", "if (vm) return siteAnswers"), /checkout/);
+  assert.match(W, /A SITE'S OWN STRIPE MESSAGES[\s\S]{0,400}if \(wm\) return siteAnswers\(env, request, wm\[1\]\.toLowerCase\(\)\)/);
   const v = W.slice(W.indexOf("async function siteReadVars("), W.indexOf("async function siteReadVars(") + 4000);
   assert.match(v, /SELECT name, cipher FROM _secrets/); // every key the site holds, Stripe's included
 });
@@ -372,11 +392,10 @@ test("the site's own connections and hooks are answered by its Worker first", ()
   assert.doesNotMatch(C, /SUPABASE|SITE_SECRETS_KEY|gofarther/);
   const S = fs.readFileSync(new URL("../builder/lovable/template/src/server.ts", import.meta.url), "utf8");
   assert.match(S, /siteApi\(request[^)]*\)\)[\s|]*\(await siteHook\(/);
-  for (const head of ["const aname = am2[2]", "const hname = hm[2]"]) {
-    const at = W.indexOf(head);
-    assert.ok(at > 0, head);
-    assert.match(W.slice(at - 400, at), /SITE_OWN_DATA === "1"\) \{ const mine = await ownDataRead\(env, request, slug\)/);
-  }
+  // 2026-10-28: the site's own Worker answers them only; the platform passes them on.
+  const route = between("A VISITOR'S CALL TO A SITE IS THE SITE'S", "if (vm) return siteAnswers");
+  assert.ok(route.includes("api\\/"));
+  assert.ok(route.includes("hook\\/"));
 });
 
 test("the site serves its own robots, sitemap and redirects, with its own origin", async () => {
@@ -443,15 +462,11 @@ test("the site stores its own error reports and counts its own visits, in its ow
   } finally { globalThis.fetch = realFetch; }
 });
 
-test("the platform asks the site first for reports, makes the two tables, and adds the site's own visits", () => {
-  const at = W.indexOf("const slug = erm[1].toLowerCase();");
-  assert.match(W.slice(at, at + 300), /SITE_OWN_DATA === "1"\) \{ const mine = await ownDataRead\(env, request, slug\)/);
+test("reports go to the site, the platform makes the two tables, and the stats read the site's own visits (2026-10-28)", () => {
+  assert.match(between("A VISITOR'S CALL TO A SITE IS THE SITE'S", "if (vm) return siteAnswers"), /\|error\|/);
   assert.match(between("async function siteReadVars(", "\n}\n"), /for \(const q of \[ERRORS_TABLE_SQL, HITS_TABLE_SQL, JOBS_TABLE_SQL\]\)/);
-  assert.match(W, /return addHits\(older, mine\);/);
-  const addHits = new Function("return " + between("function addHits(a, b) {", "\n}\n") + "\n}")();
-  assert.deepEqual(addHits({ views: 2, visitors: 1, views7: 1, visitors7: 1, series: [{ day: "2026-10-26", views: 1 }] },
-    { views: 3, visitors: 2, views7: 3, visitors7: 2, series: [{ day: "2026-10-26", views: 2 }, { day: "2026-10-27", views: 1 }] }),
-    { views: 5, visitors: 3, views7: 4, visitors7: 3, series: [{ day: "2026-10-26", views: 3 }, { day: "2026-10-27", views: 1 }] });
+  assert.match(W, /try \{ return await readOwnHits\(conn\); \}/);
+  assert.match(between("async function readOwnHits(", "\n}\n"), /FROM _hits/);
 });
 
 function fakeBucket() {

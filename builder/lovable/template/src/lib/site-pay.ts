@@ -11,6 +11,7 @@
 import { normalizePayment, parseCart, priceCart, checkoutSessionArgs, formEncode, paidFromEvent, failedFromEvent } from "./effects/site-payments.mjs";
 import { verifyStripeSignature } from "./effects/stripe-webhook.mjs";
 import { siteSql, runEffectsFor, type EffectEnv } from "./site-effects";
+import { isAppHostname } from "./effects/site-domains.mjs";
 
 type Ctx = { waitUntil(p: Promise<unknown>): void };
 type Table = { name: string; columns?: (string | { name: string })[] } & Record<string, unknown>;
@@ -81,7 +82,8 @@ export async function siteCheckout(request: Request, env: PayEnv, url: URL, slug
   runEffectsFor(env, ctx, { slug, def: table, table: String(table.name).toLowerCase(), action: "created", submission: false,
     row: { id: orderId, payment_status: "pending", amount_total: priced.total, currency: priced.currency, ...fields } });
 
-  const base = url.origin + "/";
+  // Back to the SITE: on the workspace address it lives under `/s/<slug>/`.
+  const base = url.origin + (isAppHostname(url.hostname) ? "/s/" + slug + "/" : "/");
   const args = checkoutSessionArgs({
     slug, table: table.name, orderId, lines: priced.lines, currency: priced.currency,
     successUrl: `${base}?paid=${orderId}`, cancelUrl: `${base}?cancelled=${orderId}`,

@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { firesFor, shapePayload, signPayload, deliverWebhook, retryable, MAX_ATTEMPTS, RETRY_BACKOFF_MS, MAX_FIELDS, MAX_VALUE_CHARS, MAX_PER_MINUTE } from "../site-webhooks.mjs";
 import { hostIsBlocked, blockedReason } from "../site-ssrf.mjs";
+import { driveWrite } from "./fixtures/site-effects-drive.mjs";
 
 const NOW = 1786070000000;
 const okRes = { status: 200 };
@@ -238,55 +239,33 @@ test("worker.js keeps NO second copy of the host guard", () => {
   assert.match(worker, /hostIsBlocked\(/, "safeFetch must still call it");
 });
 
-test("the Worker wires the webhook to the same branch as the confirmation", () => {
+test("the Worker wires the webhook to the same branch as the confirmation", async () => {
   // Reachability, asserted as a chain, because this repo has shipped a feature
   // dead at one layer with the other five correct more than once.
-  const worker = fs.readFileSync(path.join(import.meta.dirname, "..", "worker.js"), "utf8");
+  // (2026-10-28: the site's own Worker — driven through `runSiteEffects`.)
   // 1. declarable — the schema already parsed `webhooks` before any of this existed
   const schema = fs.readFileSync(path.join(import.meta.dirname, "..", "site-schema.mjs"), "utf8");
   assert.match(schema, /webhooks:/, "the normaliser must keep the declaration");
-  // 2. called on a successful write, with the action MAPPED from the method.
-  //
-  // This asserted `action: "created"` as a literal, which pinned the narrowness
-  // it was meant to guard — the same way the jobs chain test pinned an unbound
-  // `uid` while claiming to prove the feature reached the runner. A test that
-  // spells out today's behaviour cannot notice that today's behaviour is too
-  // small; the derived check below is what actually holds this.
-  assert.match(worker, /emitWebhook\(env, ctx, \{[^}]*action,/);
-  // 3. the helper exists and is not merely referenced
-  assert.match(worker, /function emitWebhook\(/);
-  // 4. the destination comes from the VAULT and never from the schema or body —
-  //    a URL a model can choose is a request generator aimed by whoever wrote
-  //    the brief.
-  // From the CACHE, not from `emitWebhook` — the vault read lives in
-  // `webhookSecrets` above it now, so a slice starting at the handler misses the
-  // very thing this asserts. Anchored on the earlier of the two so the region
-  // covers the whole feature rather than whichever half moved last.
-  const raw = worker.slice(worker.indexOf("const webhookCfg = "), worker.indexOf("function confirmSubmitter("));
-  assert.ok(raw.length > 500, "the webhook helpers must sit before confirmSubmitter, or this slice is empty");
-  // COMMENTS BLANKED, NOT REMOVED, so offsets stay valid — and because these are
-  // claims about CODE. Caught by mutation: the helper explains `redirect:
-  // "manual"` in prose directly above the line that sets it, so switching the
-  // real one to "follow" left the sentence behind and this test still passed.
-  // That is the third guard in this repo to fire on a comment instead of code.
-  const helper = raw
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
-    .replace(/(^|[^:])\/\/[^\n]*/g, (m, p1) => p1 + " ".repeat(m.length - p1.length));
-  // The Worker fetches the WEBHOOK-prefixed set and `site-webhooks.mjs` picks
-  // between them, so the specific name lives in the module now. Asserted as the
-  // PREFIX here and as the name there, which is what each file is responsible
-  // for — pinning `WEBHOOK_URL` in both places would just be one fact twice.
-  assert.match(helper, /WEBHOOK%/, "it must read the webhook configuration");
-  assert.match(helper, /_secrets/, "from the site's own vault");
-  assert.equal(/body\.(webhook|url)/i.test(helper), false, "never from the request");
+  // 2. called on a successful write, beside the confirmation, with the row.
+  const tables = [{ name: "bookings", access: "collect", columns: ["who", "email"], webhooks: true,
+    confirm: { to: "email", subject: "Booked", body: "<p>Hi {who}</p>" } }];
+  const run = await driveWrite({ tables, path: "bookings", sent: '{"who":"Ada","email":"ada@example.com"}', body: '[{"id":4,"who":"Ada","email":"ada@example.com","webhook":"https://evil.example.com/"}]',
+    env: { RESEND_KEY: "re_k", EMAIL_FROM: "shop@example.com", WEBHOOK_URL: "https://hooks.example.com/x" } });
+  assert.ok(run.fired.includes("confirm") && run.fired.includes("webhook"), "both fire on the same write: " + run.fired);
+  // 3. the helper really posts, and only once
+  const hook = run.calls.filter((c) => c.url.startsWith("https://hooks.example.com/"));
+  assert.equal(hook.length, 1, "the webhook was declared and never sent");
+  // 4. the destination comes from the site's SECRETS and never from the schema
+  //    or body — a URL a model can choose is a request generator aimed by
+  //    whoever wrote the brief.
+  assert.equal(run.calls.some((c) => c.url.includes("evil.example.com")), false, "never from the request");
   // 5. detached, so a slow receiver is not something a customer waits on
-  assert.match(helper, /ctx\.waitUntil\(/);
+  assert.ok(run.waited >= 2, "the senders must ride waitUntil, not the visitor's answer");
   // 6. redirects are NOT followed — that would reopen the host question a hop later
-  assert.match(helper, /redirect: "manual"/);
-  assert.equal(/redirect: "follow"/.test(helper), false);
+  assert.equal(hook[0].init.redirect, "manual");
 });
 
-test("EVERY declarable action is actually emitted — derived, not listed", () => {
+test("EVERY declarable action is actually emitted — derived, not listed", async () => {
   // THE BUG THIS EXISTS FOR, and it was mine. The schema has always let a table
   // declare created/updated/deleted, `firesFor` honours all three, and the first
   // cut of the wiring emitted `created` and nothing else — so a site setting
@@ -296,31 +275,25 @@ test("EVERY declarable action is actually emitted — derived, not listed", () =
   //
   // Derived at BOTH ends rather than pinned to a list: the actions come out of
   // the schema's own declaration allow-list, so adding a fourth there fails this
-  // until the Worker emits it too. A hardcoded triple would pass forever on a
-  // vocabulary that had grown.
+  // until the Worker emits it too.
+  // (2026-10-28: the site's own Worker — each method driven through `runSiteEffects`.)
   const schema = fs.readFileSync(path.join(import.meta.dirname, "..", "site-schema.mjs"), "utf8");
   const m = schema.match(/\["created", "updated", "deleted"\]/);
   assert.ok(m, "the declaration allow-list must still be findable");
   const declarable = JSON.parse(m[0]);
   assert.ok(declarable.length >= 3);
 
-  const worker = fs.readFileSync(path.join(import.meta.dirname, "..", "worker.js"), "utf8");
-  // Comments blanked — this file explains the three actions in prose right above
-  // the code that maps them, which is exactly how the redirect guard passed on a
-  // sentence instead of a line.
-  const code = worker
-    .replace(/\/\*[\s\S]*?\*\//g, (x) => x.replace(/[^\n]/g, " "))
-    .replace(/(^|[^:])\/\/[^\n]*/g, (x, p1) => p1 + " ".repeat(x.length - p1.length));
-
-  for (const action of declarable) {
-    assert.ok(code.includes('"' + action + '"'),
-      `the Worker never emits "${action}" — it is declarable and dead`);
-  }
-  // And each is reached by a real method, or all three could be present as dead
+  // Each reached by a real method, or all three could be present as dead
   // string literals in one unreachable branch.
-  for (const method of ["POST", "PATCH", "DELETE"]) {
-    assert.ok(code.includes('request.method === "' + method + '"'),
-      `nothing maps ${method} to an action`);
+  const methodFor = { created: "POST", updated: "PATCH", deleted: "DELETE" };
+  for (const action of declarable) {
+    assert.ok(methodFor[action], `nothing maps a method to "${action}"`);
+    const run = await driveWrite({ tables: [{ name: "bookings", access: "collect", columns: ["who"], webhooks: true }],
+      method: methodFor[action], path: "bookings", search: "?id=eq.4", sent: '{"who":"Ada"}', body: '[{"id":4,"who":"Ada"}]',
+      env: { WEBHOOK_URL: "https://hooks.example.com/x" } });
+    const hook = run.calls.filter((c) => c.url.startsWith("https://hooks.example.com/"));
+    assert.equal(hook.length, 1, `the Worker never emits "${action}" — it is declarable and dead`);
+    assert.equal(JSON.parse(hook[0].init.body).action, action);
   }
   // firesFor must agree with the schema, or a declaration survives normalisation
   // and is then refused at the gate.
@@ -393,82 +366,7 @@ test("the secret set is fetched ONCE per event, not once per name", async () => 
   assert.equal(n, 1, "one call for the whole configuration");
 });
 
-test("THE CACHE IS KEYED ON THE SITE, or one site's destination serves them all", () => {
-  // `memoize` keys on its FIRST argument. Written `(env, db, slug)` every site
-  // keys on the same `env` object, and the first site to fire would hand its
-  // destination AND its signing secret to every other site on the platform.
-  // Caught before it shipped; asserted because the failure is invisible in
-  // testing (one site behaves perfectly) and total in production.
-  const worker = fs.readFileSync(path.join(import.meta.dirname, "..", "worker.js"), "utf8");
-  const def = worker.match(/memoize\(webhookCfg, async \(([^)]*)\)/);
-  assert.ok(def, "the webhook config must still be memoized");
-  assert.equal(def[1].split(",")[0].trim(), "slug", "the cache key must be the site");
-  // EVERY CALL SITE, and the PROPERTY rather than the spelling. This read
-  // `worker.match(...)` — the FIRST occurrence — and asserted the literal
-  // `slug`, which was exact and correct while there was one caller. The queue
-  // drain added a second that passes `row.slug`: the same site identity, a
-  // different set of characters, and the guard went red on correct code. The
-  // durable invariant is that no caller keys the cache on something that is not
-  // a site, and `env` is the way that goes wrong.
-  const calls = [...worker.matchAll(/webhookSecrets\(([^)]*)\)/g)];
-  assert.ok(calls.length >= 2, "the scan must still find every caller, or this passes vacuously");
-  for (const c of calls) {
-    const first = c[1].split(",")[0].trim();
-    assert.match(first, /slug/, "every call must key on a site: " + c[0]);
-    assert.notEqual(first, "env", "and never on env: " + c[0]);
-  }
 
-  // Derived rather than special-cased: EVERY memoized helper here takes an
-  // identity-bearing first argument, and `env` is never one.
-  for (const m of worker.matchAll(/= memoize\([A-Za-z_$][\w$]*, async \(([^)]*)\)/g)) {
-    assert.notEqual(m[1].split(",")[0].trim(), "env", "no memoized helper may key on env: " + m[0]);
-  }
-});
-
-test("A MISS IS NEVER CACHED, and a write invalidates", () => {
-  // MEASURED, not theorised. A run submitted three bookings before the owner had
-  // stored a destination, which cached `{}` for sixty seconds; the secret was
-  // then stored and the next booking read the cached empty set and reported "no
-  // WEBHOOK_URL in Secrets". For an owner that is worse than a failing test —
-  // they paste a URL, submit their own form to check, and see nothing, which is
-  // the moment they decide the feature does not work.
-  //
-  // The rule already existed in this repo for `siteBackendBySlug`: never cache
-  // null, because an absent answer is usually a state that is about to change.
-  const worker = fs.readFileSync(path.join(import.meta.dirname, "..", "worker.js"), "utf8");
-  const code = worker
-    .replace(/\/\*[\s\S]*?\*\//g, (x) => x.replace(/[^\n]/g, " "))
-    .replace(/(^|[^:])\/\/[^\n]*/g, (x, p1) => p1 + " ".repeat(x.length - p1.length));
-
-  // 1. an unconfigured result is dropped rather than kept
-  assert.match(code, /webhookCfg\.delete\(slug\)/, "a configuration with no destination must not stick");
-  // 2. …and that check is on the URL specifically, not merely on emptiness — a
-  //    site with only WEBHOOK_SECRET set is still unconfigured.
-  assert.match(code, /startsWith\("WEBHOOK_URL"\)/);
-  // 3. storing a secret invalidates, or the owner waits out the TTL at exactly
-  //    the moment they are testing it.
-  // The window is generous because comment-blanking PRESERVES length: the
-  // explanation between these two statements becomes ~250 characters of spaces,
-  // so a tight bound fails on correct code for a reason that has nothing to do
-  // with the property.
-  // THE CONDITION IS PART OF THE ASSERTION. Matching only the call let a mutant
-  // wrapping it in `if (false)` survive — the text was still there and the
-  // behaviour was gone, which is the same "matches prose, not code" family as
-  // the redirect guard, one level in.
-  // Asserted as a CHAIN, because the invalidation is behind one function now
-  // (there is a second cache on the same secrets, and two `.delete` calls at
-  // each of two write paths is how one of them gets forgotten). Pinning the
-  // literal `webhookCfg.delete(sslug)` here went red on that refactor while the
-  // behaviour was intact — a guard reporting a change rather than a break.
-  assert.match(code, /saveSiteKey\([\s\S]{0,900}?if \(r && r\.ok\) forgetSiteConfig\(sslug\)/,
-    "adding a secret must invalidate the cached configuration, and only on success");
-  assert.match(code, /function forgetSiteConfig\(slug\) \{[\s\S]{0,200}?webhookCfg\.delete\(slug\)/,
-    "…and what it invalidates must include this cache");
-  // The other half of the same seam: removing a secret must forget it too, or a
-  // deleted destination keeps receiving until the TTL runs out.
-  assert.match(code, /deleteSecret\([\s\S]{0,600}?if \(d && d\.ok\) forgetSiteConfig\(sslug\)/,
-    "deleting a secret must invalidate as well");
-});
 
 // ── DECLARABLE AT LAST ─────────────────────────────────────────────────────
 //

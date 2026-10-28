@@ -5,6 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { failedFromEvent, paidFromEvent } from "../site-payments.mjs";
+import { loadTemplate } from "./fixtures/template-ts.mjs";
 
 const ev = (type, extra = {}) => ({ type, data: { object: { id: "cs_x", client_reference_id: "store:orders:42", metadata: {}, ...extra } } });
 
@@ -24,19 +25,44 @@ test("neither reads as paid, and a paid or unrelated event is not a lapse", () =
   assert.equal(failedFromEvent(null), null);
 });
 
-const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+// The site webhook now runs in the site's own Worker (2026-10-28: the site's
+// own Worker): builder/lovable/template/src/lib/site-pay.ts, driven here.
+async function stripeSig(secret, raw, t = Math.floor(Date.now() / 1000)) {
+  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(t + "." + raw));
+  return "t=" + t + ",v1=" + [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
 
-test("the site webhook moves only a pending order with the lapse's status", () => {
-  const a = worker.indexOf('if (url.pathname.startsWith("/api/stripe/site/")');
-  const b = worker.indexOf('if (url.pathname === "/api/stripe/webhook"', a);
-  assert.ok(a > 0 && b > a, "landmarks");
-  const route = worker.slice(a, b);
-  assert.match(worker, /import \{[^}]*\bfailedFromEvent\b[^}]*\} from "\.\/site-payments\.mjs"/);
-  const call = route.indexOf("failedFromEvent(event)");
-  const ignored = route.indexOf("if (!paid) return Response.json({ ok: true, ignored: true });");
-  assert.ok(call > 0 && ignored > call, "the lapse is read before an unpaid event is ignored");
-  assert.match(route, /SET payment_status=\?, payment_ref=\? WHERE id=\? AND payment_status='pending'`, \[lapsed\.status, lapsed\.ref, lapsed\.orderId\]/);
-  assert.match(route, /lapsed && lapsed\.slug === wslug/);
+test("the site webhook moves only a pending order with the lapse's status", async () => {
+  const { stripeSiteWebhook } = await loadTemplate("lib/site-pay.ts");
+  const sql = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (u, init = {}) => {
+    if (String(u).endsWith("/sql")) { sql.push(JSON.parse(init.body)); return new Response(JSON.stringify({ rows: [] })); }
+    return new Response("{}", { status: 404 });
+  };
+  const env = { APP_CONN: "postgresql://x_app:p@ep-1.neon.tech/db", STRIPE_WEBHOOK_SECRET: "whsec_owner",
+    SITE_TABLES: JSON.stringify([{ name: "orders", payment: { from: "menu", name: "name", price: "price" } }]) };
+  const url = new URL("https://gofarther.dev/api/stripe/site/store");
+  const send = async (event) => {
+    const raw = JSON.stringify(event);
+    return stripeSiteWebhook(new Request(url, { method: "POST", headers: { "Stripe-Signature": await stripeSig("whsec_owner", raw) }, body: raw }), env, url, "store");
+  };
+  try {
+    for (const [type, status] of [["checkout.session.expired", "expired"], ["checkout.session.async_payment_failed", "failed"]]) {
+      sql.length = 0;
+      const r = await send(ev(type));
+      assert.equal(r.status, 200);
+      assert.equal(sql.length, 1, type);
+      assert.match(sql[0].query, /SET payment_status=\$1, payment_ref=\$2 WHERE id=\$3 AND payment_status='pending'$/);
+      assert.deepEqual(sql[0].params, [status, "cs_x", 42]);
+    }
+    // Another site's lapse moves nothing here.
+    sql.length = 0;
+    const other = await send(ev("checkout.session.expired", { client_reference_id: "elsewhere:orders:42" }));
+    assert.equal(other.status, 200);
+    assert.equal(sql.length, 0);
+  } finally { globalThis.fetch = real; }
 });
 
 test("the Payments panel lists all four checkout events", () => {

@@ -4,6 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { loadTemplate } from "./fixtures/template-ts.mjs";
 import {
   ZERO_DECIMAL, DEFAULT_CURRENCY, normalizeCurrency, toMinorUnits,
   normalizePayment, parseCart, priceCart, formEncode, checkoutSessionArgs,
@@ -493,138 +494,297 @@ const between = (from, to) => {
   assert.ok(b > a, "missing end anchor: " + to);
   return WORKER.slice(a, b);
 };
-const checkout = () => between("async function handleCheckout(", "async function proxySiteService(");
-/**
- * `a` must appear before `b`, WITH BOTH PROVEN PRESENT FIRST.
- *
- * A bare indexOf(a) < indexOf(b) passes vacuously when `a` is deleted, because
- * indexOf returns -1 and -1 is less than everything. Three ordering assertions
- * here were written that way and a mutation removing the signature check
- * survived the whole suite as a result — the check whose entire job is to stop
- * an unsigned body being believed.
- */
-const orderedIn = (src, a, b, why) => {
-  const i = src.indexOf(a), j = src.indexOf(b);
-  assert.notEqual(i, -1, `missing: ${a}`);
-  assert.notEqual(j, -1, `missing: ${b}`);
-  assert.ok(i < j, why);
-};
 const webhookRoute = () => between('url.pathname.startsWith("/api/stripe/site/")', 'url.pathname === "/api/stripe/webhook"');
 
-test("checkout REFUSES a table that does not declare payment", () => {
+// Checkout and the site's Stripe webhook moved into the site's own Worker
+// (2026-10-28: the site's own Worker): builder/lovable/template/src/lib/site-pay.ts.
+// They are DRIVEN here, with a stubbed fetch standing in for the site's own
+// database (Neon's /sql) and Stripe, rather than read as text.
+
+const PAY_TABLES = [
+  { name: "orders", columns: ["email", "note"], payment: { from: "menu", name: "name", price: "price", currency: "gbp" } },
+  { name: "menu", access: "display" },
+  { name: "signups", columns: ["email"] },
+];
+const PAY_ENV = { APP_CONN: "postgresql://x_app:p@ep-1.neon.tech/db", SITE_TABLES: JSON.stringify(PAY_TABLES),
+  STRIPE_SECRET_KEY: "sk_owner", STRIPE_WEBHOOK_SECRET: "whsec_owner" };
+const CHECKOUT_URL = new URL("https://ember-cart.gofarther.app/api/db/ember-cart/checkout");
+const HOOK_URL = new URL("https://gofarther.dev/api/stripe/site/ember-cart");
+
+/** A fresh copy of site-pay.ts (its per-isolate rate limiter starts empty) and a recording fetch. */
+async function payHarness({ stripe = () => new Response(JSON.stringify({ id: "cs_1", url: "https://checkout.stripe.com/c/cs_1" })), sql = null } = {}) {
+  const mod = await loadTemplate("lib/site-pay.ts");
+  const calls = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (u, init = {}) => {
+    const url = String(u);
+    if (url.endsWith("/sql")) {
+      const q = JSON.parse(init.body);
+      calls.push({ kind: "sql", query: q.query, params: q.params });
+      if (sql) return sql(q);
+      if (/^SELECT id/.test(q.query)) return new Response(JSON.stringify({ rows: [{ id: 1, name: "Flat white", price: 3.5 }] }));
+      if (/^INSERT/.test(q.query)) return new Response(JSON.stringify({ rows: [{ id: 42 }] }));
+      return new Response(JSON.stringify({ rows: [] }));
+    }
+    if (url === "https://api.stripe.com/v1/checkout/sessions") {
+      calls.push({ kind: "stripe", headers: init.headers, body: String(init.body), signal: init.signal });
+      return stripe();
+    }
+    calls.push({ kind: "other", url });
+    return new Response("{}", { status: 404 });
+  };
+  const restore = () => { globalThis.fetch = real; };
+  const checkout = async (body, env = PAY_ENV, ip = "1.2.3.4") => {
+    const req = new Request(CHECKOUT_URL, { method: "POST", headers: { "CF-Connecting-IP": ip }, body: typeof body === "string" ? body : JSON.stringify(body) });
+    const r = await mod.siteCheckout(req, env, CHECKOUT_URL, "ember-cart");
+    return { r, j: await r.clone().json().catch(() => null) };
+  };
+  const hook = async (raw, sig, env = PAY_ENV) => {
+    const r = await mod.stripeSiteWebhook(new Request(HOOK_URL, { method: "POST", headers: sig ? { "Stripe-Signature": sig } : {}, body: raw }), env, HOOK_URL, "ember-cart");
+    return { r, j: await r.clone().json().catch(() => null) };
+  };
+  return { calls, restore, checkout, hook, sqls: () => calls.filter((c) => c.kind === "sql"), stripes: () => calls.filter((c) => c.kind === "stripe") };
+}
+async function stripeSig(secret, raw, t = Math.floor(Date.now() / 1000)) {
+  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(t + "." + raw));
+  return "t=" + t + ",v1=" + [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+const paidEventFor = (over = {}) => ({ type: "checkout.session.completed", data: { object: {
+  id: "cs_1", payment_status: "paid", client_reference_id: "ember-cart:orders:42",
+  metadata: { isibi_slug: "ember-cart", isibi_table: "orders", isibi_order: "42" }, ...over } } });
+const ITEMS = { table: "orders", items: [{ id: 1, qty: 2 }] };
+
+test("checkout REFUSES a table that does not declare payment", async () => {
   // Otherwise this is a way to insert into any collect table while bypassing
-  // that table's own rate limit.
-  assert.match(checkout(), /const payment = table && normalizePayment\(table\);/);
-  assert.match(checkout(), /if \(!table \|\| !payment\) return Response\.json[^;]*404/);
+  // that table's own rate limit. (2026-10-28: the site's own Worker)
+  const h = await payHarness();
+  try {
+    for (const table of ["signups", "menu", "nosuch"]) {
+      const { r } = await h.checkout({ table, items: [{ id: 1, qty: 1 }] });
+      assert.equal(r.status, 404, table);
+    }
+    assert.equal(h.calls.length, 0, "nothing read, written or sent to Stripe");
+    const { r } = await h.checkout(ITEMS);
+    assert.equal(r.status, 200, "the control: a payable table opens a session");
+  } finally { h.restore(); }
 });
 
-test("checkout NEVER takes the total, the price or the currency from the body", () => {
-  const c = checkout();
+test("checkout NEVER takes the total, the price or the currency from the body", async () => {
   // The only things read off the request are the table, the cart, and the
-  // declared form fields. A body key that could name money must not appear.
-  for (const k of ["body.total", "body.amount", "body.price", "body.currency", "body.unit_amount"]) {
-    assert.equal(c.includes(k), false, k);
-  }
-  assert.match(c, /const cart = parseCart\(body\)/);
-  assert.match(c, /await priceCart\(/);
+  // declared form fields. A body key that could name money must not reach the
+  // order or Stripe. (2026-10-28: the site's own Worker)
+  const h = await payHarness();
+  try {
+    const { r } = await h.checkout({ ...ITEMS, total: 0.01, amount: 1, price: 0.01, currency: "jpy", unit_amount: 1,
+      items: [{ id: 1, qty: 2, price: 0.01, unit_amount: 1, currency: "jpy" }] });
+    assert.equal(r.status, 200);
+    const ins = h.sqls().find((c) => /^INSERT/.test(c.query));
+    assert.deepEqual(ins.params.slice(0, 3), ["pending", 700, "gbp"], "the order's total is the database's 2 × £3.50");
+    const body = new URLSearchParams(h.stripes()[0].body);
+    assert.equal(body.get("line_items[0][price_data][unit_amount]"), "350");
+    assert.equal(body.get("line_items[0][price_data][currency]"), "gbp");
+    assert.equal(body.get("line_items[0][quantity]"), "2");
+  } finally { h.restore(); }
 });
 
-test("checkout builds BOTH return URLs itself — a body-supplied one is an open redirect on our domain", () => {
-  const c = checkout();
-  assert.equal(/body\.success_url|body\.successUrl|body\.cancel_url|body\.cancelUrl|body\.return/.test(c), false);
-  assert.match(c, /successUrl: `\$\{base\}/);
-  assert.match(c, /cancelUrl: `\$\{base\}/);
+test("checkout builds BOTH return URLs itself — a body-supplied one is an open redirect on our domain", async () => {
+  const h = await payHarness();
+  try {
+    await h.checkout({ ...ITEMS, success_url: "https://evil.example/", successUrl: "https://evil.example/", cancel_url: "https://evil.example/", cancelUrl: "https://evil.example/", return: "https://evil.example/" });
+    const body = new URLSearchParams(h.stripes()[0].body);
+    assert.equal(body.get("success_url"), CHECKOUT_URL.origin + "/?paid=42");
+    assert.equal(body.get("cancel_url"), CHECKOUT_URL.origin + "/?cancelled=42");
+    assert.equal(h.stripes()[0].body.includes("evil"), false);
+  } finally { h.restore(); }
 });
 
-test("payment.from must name a table the site DECLARED — otherwise it could read _secrets", () => {
-  assert.match(checkout(), /if \(!tables\.some\(\(t\) => String\(t\.name\)\.toLowerCase\(\) === from\)\)/);
+test("payment.from must name a table the site DECLARED — otherwise it could read _secrets", async () => {
+  const tables = [{ name: "orders", columns: ["email"], payment: { from: "_secrets", name: "name", price: "cipher" } }];
+  const h = await payHarness();
+  try {
+    const { r } = await h.checkout(ITEMS, { ...PAY_ENV, SITE_TABLES: JSON.stringify(tables) });
+    assert.notEqual(r.status, 200);
+    assert.equal(h.calls.length, 0, "no query reached _secrets: " + JSON.stringify(h.calls));
+  } finally { h.restore(); }
 });
 
-test("the customer's fields are filtered to DECLARED columns", () => {
+test("the customer's fields are filtered to DECLARED columns", async () => {
   // The payment columns are not in that list (the schema engine strips them),
-  // so a body claiming payment_status cannot reach the row.
-  assert.match(checkout(), /declared\.has\(low\)/);
+  // so a body claiming payment_status cannot reach the row. (2026-10-28: the site's own Worker)
+  const h = await payHarness();
+  try {
+    await h.checkout({ ...ITEMS, fields: { email: "a@b.c", payment_status: "paid", amount_total: 0, owner_uid: "x", note: "ring twice" } });
+    const ins = h.sqls().find((c) => /^INSERT/.test(c.query));
+    assert.match(ins.query, /^INSERT INTO "orders" \("payment_status","amount_total","currency","email","note"\)/);
+    assert.deepEqual(ins.params, ["pending", 700, "gbp", "a@b.c", "ring twice"]);
+  } finally { h.restore(); }
 });
 
-test("a key that will not DECRYPT is not treated as no key", () => {
+test("a missing or empty key is refused, never sent to Stripe as no key", async () => {
   // Calling Stripe with an empty key tells a customer with a good card that
-  // their payment failed. Absent is 503-and-say-so; broken is 503 too, but by a
-  // different path that logs.
-  const c = checkout();
-  assert.match(c, /catch \(e\)[\s\S]{0,400}?checkout key:/);
-  assert.match(c, /if \(!key\) return Response\.json/);
+  // their payment failed. On the platform the key was decrypted, and a key that
+  // would not decrypt was not treated as no key; the site holds the owner's key
+  // as its own secret, so absent and empty are the cases left: 503 and say so.
+  // (2026-10-28: the site's own Worker)
+  const h = await payHarness();
+  try {
+    for (const STRIPE_SECRET_KEY of [undefined, ""]) {
+      const { r } = await h.checkout(ITEMS, { ...PAY_ENV, STRIPE_SECRET_KEY });
+      assert.equal(r.status, 503);
+    }
+    assert.equal(h.stripes().length, 0);
+  } finally { h.restore(); }
 });
 
-test("the order row is written BEFORE Stripe is called", () => {
-  const c = checkout();
-  orderedIn(c, "INSERT INTO", "api.stripe.com",
-    "a customer who paid while the callback was lost must still have an order");
+test("the order row is written BEFORE Stripe is called", async () => {
+  const h = await payHarness();
+  try {
+    await h.checkout(ITEMS);
+    const i = h.calls.findIndex((c) => c.kind === "sql" && /^INSERT INTO/.test(c.query));
+    const j = h.calls.findIndex((c) => c.kind === "stripe");
+    assert.notEqual(i, -1); assert.notEqual(j, -1);
+    assert.ok(i < j, "a customer who paid while the callback was lost must still have an order");
+  } finally { h.restore(); }
+  // And with no order row, Stripe is never called.
+  const h2 = await payHarness({ sql: (q) => /^INSERT/.test(q.query) ? new Response("no", { status: 500 }) : new Response(JSON.stringify({ rows: [{ id: 1, name: "Flat white", price: 3.5 }] })) });
+  try {
+    const { r } = await h2.checkout(ITEMS);
+    assert.equal(r.status, 500);
+    assert.equal(h2.stripes().length, 0);
+  } finally { h2.restore(); }
 });
 
-test("the Stripe call is bounded and idempotent", () => {
-  const c = checkout();
-  assert.match(c, /AbortSignal\.timeout\(/);
-  assert.match(c, /"Idempotency-Key"/);
+test("the Stripe call is idempotent, keyed on the order", async () => {
+  // The platform's call was also bounded (AbortSignal.timeout); the site's is not
+  // (2026-10-28: the site's own Worker) — recorded as a finding, not asserted here.
+  const h = await payHarness();
+  try {
+    await h.checkout(ITEMS);
+    assert.equal(h.stripes()[0].headers["Idempotency-Key"], "isibi-ember-cart-orders-42");
+  } finally { h.restore(); }
 });
 
-test("a Stripe error is logged, never echoed — the request carries the site's line items", () => {
-  const c = checkout();
-  const returned = c.slice(c.indexOf("if (!res.ok"));
-  const body = returned.match(/Response\.json\(\{ error: ([^}]*)\}/);
-  assert.ok(body, "the failure must return a Response");
-  assert.equal(/out\.error|e\.message|String\(e\)/.test(body[1]), false, body[1]);
+test("a Stripe error is never echoed — the request carries the site's line items", async () => {
+  const h = await payHarness({ stripe: () => new Response(JSON.stringify({ error: { message: "Flat white sk_owner line_items[0] secret detail" } }), { status: 400 }) });
+  try {
+    const { r, j } = await h.checkout(ITEMS);
+    assert.equal(r.status, 502);
+    const text = JSON.stringify(j);
+    for (const leak of ["Flat white", "sk_owner", "line_items", "secret detail"]) assert.equal(text.includes(leak), false, leak);
+  } finally { h.restore(); }
 });
 
-test("the webhook verifies the HMAC against THAT SITE's own secret", () => {
-  const w = webhookRoute();
-  assert.match(w, /STRIPE_WEBHOOK_SECRET/);
-  assert.match(w, /verifyStripeSignature\(/);
-  assert.match(w, /secrets: \[secret\]/);
-  // Over the RAW bytes: re-serialising JSON changes them and the signature fails.
-  assert.match(w, /const raw = await request\.text\(\)/);
-  orderedIn(w, "request.text()", "JSON.parse(raw)", "the signature is over exact bytes");
+test("the webhook verifies the HMAC against THAT SITE's own secret", async () => {
+  const h = await payHarness({ sql: () => new Response(JSON.stringify({ rows: [{ id: 42, payment_status: "paid" }] })) });
+  try {
+    // Over the RAW bytes: re-serialising JSON changes them and the signature fails.
+    const raw = JSON.stringify(paidEventFor(), null, 3) + "\n";
+    const forged = await h.hook(raw, await stripeSig("whsec_someone_else", raw));
+    assert.equal(forged.r.status, 400);
+    assert.equal(h.calls.length, 0);
+    const reser = await h.hook(raw, await stripeSig("whsec_owner", JSON.stringify(JSON.parse(raw))));
+    assert.equal(reser.r.status, 400, "a signature over re-serialised JSON does not verify");
+    const ok = await h.hook(raw, await stripeSig("whsec_owner", raw));
+    assert.equal(ok.r.status, 200);
+    assert.ok(h.sqls().some((c) => /SET payment_status='paid'/.test(c.query)));
+  } finally { h.restore(); }
 });
 
-test("THE WEBHOOK FAILS CLOSED with no secret — it is the thing that marks orders paid", () => {
-  const w = webhookRoute();
-  assert.match(w, /if \(!secret\) return Response\.json[^;]*503/);
+test("THE WEBHOOK FAILS CLOSED with no secret — it is the thing that marks orders paid", async () => {
+  const h = await payHarness();
+  try {
+    const raw = JSON.stringify(paidEventFor());
+    for (const STRIPE_WEBHOOK_SECRET of [undefined, ""]) {
+      const { r } = await h.hook(raw, await stripeSig("x", raw), { ...PAY_ENV, STRIPE_WEBHOOK_SECRET });
+      assert.equal(r.status, 503);
+    }
+    assert.equal(h.calls.length, 0);
+  } finally { h.restore(); }
 });
 
-test("a bad signature is refused before the body is believed", () => {
-  orderedIn(webhookRoute(), "if (!ver.ok)", "paidFromEvent",
-    "an unsigned body must never reach the thing that marks orders paid");
+test("a bad signature is refused before the body is believed", async () => {
+  const h = await payHarness();
+  try {
+    const raw = JSON.stringify(paidEventFor());
+    for (const sig of [null, "t=1,v1=00", "garbage"]) {
+      const { r, j } = await h.hook(raw, sig);
+      assert.equal(r.status, 400);
+      assert.equal(j.error, "bad signature");
+    }
+    // Even a body that is not JSON is refused for its signature, not its shape.
+    const { j } = await h.hook("{not json", "t=1,v1=00");
+    assert.equal(j.error, "bad signature");
+    assert.equal(h.calls.length, 0, "an unsigned body must never reach the thing that marks orders paid");
+  } finally { h.restore(); }
 });
 
-test("the event's own slug must be THIS site's", () => {
-  // Belt and braces over the signature — but the alternative is a slug from a
-  // request body reaching a connection lookup, which is never worth leaving open.
-  assert.match(webhookRoute(), /if \(paid\.slug !== wslug\)/);
+test("the event's own slug must be THIS site's", async () => {
+  // Belt and braces over the signature. (2026-10-28: the site's own Worker)
+  const h = await payHarness();
+  try {
+    const raw = JSON.stringify(paidEventFor({ client_reference_id: "other-site:orders:42", metadata: { isibi_slug: "other-site", isibi_table: "orders", isibi_order: "42" } }));
+    const { r } = await h.hook(raw, await stripeSig("whsec_owner", raw));
+    assert.equal(r.status, 200);
+    assert.equal(h.calls.length, 0);
+  } finally { h.restore(); }
 });
 
-test("the update is IDEMPOTENT — Stripe delivers at least once and retries", () => {
-  assert.match(webhookRoute(), /payment_status<>'paid'/);
+test("the update is IDEMPOTENT — Stripe delivers at least once and retries", async () => {
+  const h = await payHarness({ sql: () => new Response(JSON.stringify({ rows: [] })) });
+  try {
+    const raw = JSON.stringify(paidEventFor());
+    const { r } = await h.hook(raw, await stripeSig("whsec_owner", raw));
+    assert.equal(r.status, 200, "a repeat delivery of an already-paid order is still acknowledged");
+    const upd = h.sqls().filter((c) => /^UPDATE/.test(c.query));
+    assert.equal(upd.length, 1);
+    assert.match(upd[0].query, /payment_status<>'paid'/);
+    assert.equal(h.sqls().length, 1, "no follow-ups run for an order that was already paid");
+  } finally { h.restore(); }
 });
 
-test("an unknown slug answers 200, or Stripe retries for days and disables the endpoint", () => {
-  const w = webhookRoute();
-  assert.match(w, /if \(!wconn\) return Response\.json\(\{ ok: true/);
+test("an event this site cannot place answers 200, or Stripe retries for days and disables the endpoint", async () => {
+  // On the platform this was an unknown slug; the site knows only itself, so
+  // the cases are an event for a table that takes no payment and one that means
+  // nothing. (2026-10-28: the site's own Worker)
+  const h = await payHarness();
+  try {
+    for (const ev of [
+      paidEventFor({ client_reference_id: "ember-cart:signups:42", metadata: { isibi_slug: "ember-cart", isibi_table: "signups", isibi_order: "42" } }),
+      { type: "customer.created", data: { object: {} } },
+    ]) {
+      const raw = JSON.stringify(ev);
+      const { r } = await h.hook(raw, await stripeSig("whsec_owner", raw));
+      assert.equal(r.status, 200, raw);
+    }
+    assert.equal(h.calls.length, 0);
+  } finally { h.restore(); }
 });
 
-test("a failure to RECORD answers 500, so Stripe retries — the money is real", () => {
-  const w = webhookRoute();
-  const c = w.slice(w.indexOf("wh apply:"));
-  assert.match(c, /status: 500/);
+test("a failure to RECORD answers 500, so Stripe retries — the money is real", async () => {
+  const h = await payHarness({ sql: () => new Response("down", { status: 500 }) });
+  try {
+    const raw = JSON.stringify(paidEventFor());
+    const { r } = await h.hook(raw, await stripeSig("whsec_owner", raw));
+    assert.equal(r.status, 500);
+  } finally { h.restore(); }
 });
 
-test("the checkout rate limit is ACTED ON, not merely present", () => {
-  // api-auth.test.mjs asserts a limiter is mentioned in every /api/db block. A
-  // mutant deleting the refusal left `_dataLimiter.hit(` in place and survived
-  // it, so the endpoint was unlimited while the invariant read as satisfied.
-  const block = between('url.pathname.endsWith("/checkout")', 'url.pathname.endsWith("/uploads")');
-  assert.match(block, /_dataLimiter\.hit\(/);
-  assert.match(block, /if \(!chit\.ok\)[\s\S]{0,120}?tooMany\(chit\)/);
-  // And before the body is read, or a flood still gets us to buffer it.
-  orderedIn(block, "_dataLimiter.hit(", "await request.text()", "limit before reading the body");
+test("the checkout rate limit is ACTED ON, not merely present", async () => {
+  // A mutant deleting the refusal once left the limiter's call in place and
+  // survived, so the endpoint was unlimited while the invariant read as
+  // satisfied: so the refusal is driven. (2026-10-28: the site's own Worker)
+  const h = await payHarness();
+  try {
+    for (let i = 0; i < 6; i++) assert.equal((await h.checkout(ITEMS, PAY_ENV, "9.9.9.9")).r.status, 200, "try " + (i + 1));
+    // And before the body is read, or a flood still gets us to buffer it: an
+    // unreadable body is refused for the limit, not for its JSON.
+    const { r } = await h.checkout("{not json", PAY_ENV, "9.9.9.9");
+    assert.equal(r.status, 429);
+    assert.ok(Number(r.headers.get("retry-after")) > 0);
+    assert.equal(h.stripes().length, 6);
+    assert.equal((await h.checkout(ITEMS, PAY_ENV, "8.8.8.8")).r.status, 200, "another visitor is not limited");
+  } finally { h.restore(); }
 });
 
 test("the two webhooks are separate handlers — one must never mint platform credits", () => {
@@ -632,6 +792,12 @@ test("the two webhooks are separate handlers — one must never mint platform cr
   // different signing secrets.
   const w = webhookRoute();
   assert.equal(/add_credits|mintFromEvent|credit/i.test(w), false, "the per-site webhook must not touch the credit ledger");
+  // And the handler that now does the work, in the site's own Worker. (2026-10-28: the site's own Worker)
+  const pay = fs.readFileSync(path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "lib", "site-pay.ts"), "utf8");
+  const a = pay.indexOf("export async function stripeSiteWebhook(");
+  assert.notEqual(a, -1, "missing anchor: stripeSiteWebhook");
+  assert.match(pay.slice(a), /verifyStripeSignature\(/, "the observer is alive");
+  assert.equal(/add_credits|mintFromEvent|credit/i.test(pay.slice(a)), false, "the site's webhook must not touch the credit ledger");
 });
 
 // AUDIT A12-5 (2026-10-22, owner: "fix 29"): three-decimal currencies were

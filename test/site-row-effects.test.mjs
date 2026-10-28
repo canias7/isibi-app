@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { runRowEffects } from "../site-row-effects.mjs";
 import { tableParts, PART_SAYS } from "../builder/site-add.mjs";
+import { driveWrite } from "./fixtures/site-effects-drive.mjs";
 
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 
@@ -60,31 +61,48 @@ test("one sender throwing does not stop the others", () => {
   assert.deepEqual(fired, ["confirm", "sms", "webhook"]);
 });
 
-test("the proxy, the checkout insert and the Stripe paid flip all run the shared step", () => {
-  const proxy = code(fnBody(worker, "async function proxySiteService("));
-  assert.match(proxy, /siteRowEffects\(env, ctx, \{[\s\S]{0,200}?submission: request\.method === "POST"/);
-  const checkout = code(fnBody(worker, "async function handleCheckout("));
+test("the proxy, the checkout insert and the Stripe paid flip all run the shared step", async () => {
+  // (2026-10-28: the site's own Worker — `server.ts`, `lib/site-effects.ts`,
+  // `lib/site-pay.ts`. The proxy's half is driven; the two payment halves are
+  // read landmark to landmark.)
+  const T = (p) => fs.readFileSync(new URL("../builder/lovable/template/src/" + p, import.meta.url), "utf8");
+  const tables = [{ name: "bookings", access: "collect", columns: ["who"], notify: true, webhooks: true }];
+  const post = await driveWrite({ tables, sent: '{"who":"Ada"}', body: '[{"id":1,"who":"Ada"}]' });
+  assert.deepEqual(post.fired, ["notify", "confirm", "sms", "webhook"], "a POST is a submission");
+  const patch = await driveWrite({ tables, method: "PATCH", sent: '{"who":"Ada"}', body: '[{"id":1,"who":"Ada"}]' });
+  assert.deepEqual(patch.fired, ["webhook"], "a PATCH is not");
+  const server = code(T("server.ts"));
+  const write = fnBody(server, "export async function ownDataWrite(");
+  const ok = write.indexOf("if (r.status >= 200 && r.status < 300)");
+  assert.ok(ok > 0 && write.indexOf("runSiteEffects(", ok) > ok, "the proxy runs the step on a saved write only");
+
+  const pay = code(T("lib/site-pay.ts"));
+  const checkout = fnBody(pay, "export async function siteCheckout(");
   const ins = checkout.indexOf("RETURNING id");
-  const eff = checkout.indexOf("siteRowEffects(");
-  assert.ok(ins > 0 && eff > ins, "handleCheckout must run the row step after its INSERT");
+  const eff = checkout.indexOf("runEffectsFor(");
+  assert.ok(ins > 0 && eff > ins, "the checkout must run the row step after its INSERT");
   assert.match(checkout.slice(eff, eff + 300), /action: "created", submission: false/);
-  const at = worker.indexOf('url.pathname.startsWith("/api/stripe/site/")');
-  assert.ok(at > 0);
-  const route = code(worker.slice(at, worker.indexOf('url.pathname === "/api/stripe/webhook"', at)));
+  const route = fnBody(pay, "export async function stripeSiteWebhook(");
   assert.match(route, /payment_status<>'paid' RETURNING \*/, "the paid flip must read the stored row back");
-  assert.match(route, /siteRowEffects\(env, ctx, \{[\s\S]{0,200}?action: "updated", submission: true, row: stored/);
-  assert.match(worker, /handleCheckout\(\{[\s\S]{0,300}?\n\s*ctx,\n/, "the checkout route hands ctx to handleCheckout");
+  assert.match(route, /runEffectsFor\(env, ctx, \{[\s\S]{0,200}?action: "updated", submission: true, row: stored/);
+  assert.match(server, /siteCheckout\(request, [^)]*, ctx\)/, "the checkout route hands ctx to the checkout");
+  assert.match(server, /stripeSiteWebhook\(request, [^)]*, ctx\)/);
 });
 
 test("only the shared step calls the four senders", () => {
-  const src = code(worker);
-  const body = fnBody(src, "function siteRowEffects(");
-  for (const f of ["notifyOwnerOfSubmission(", "confirmSubmitter(", "smsSubmitter(", "emitWebhook("]) {
-    assert.ok(body.includes(f), "siteRowEffects must call " + f);
-    const n = src.split(f).length - 1;
-    assert.equal(n, 2, `${f} appears ${n} times; its definition and the shared step only`);
+  // (2026-10-28: the site's own Worker. The one other caller is the retry
+  // queue, which re-sends a webhook already decided by the shared step.)
+  const dir = new URL("../builder/lovable/template/src/", import.meta.url);
+  const files = ["server.ts", ...fs.readdirSync(new URL("lib/", dir)).filter((f) => f.endsWith(".ts")).map((f) => "lib/" + f)];
+  const src = Object.fromEntries(files.map((f) => [f, code(fs.readFileSync(new URL(f, dir), "utf8"))]));
+  assert.ok(src["lib/site-effects.ts"], "the shared step is gone — retarget this test");
+  for (const f of ["notifyOwner(", "sendConfirmation(", "sendSms(", "deliverWebhook("]) {
+    const where = files.filter((n) => src[n].includes(f));
+    const allowed = f === "deliverWebhook(" ? ["lib/site-effects.ts", "lib/site-webhook-retry.ts"] : ["lib/site-effects.ts"];
+    assert.deepEqual(where, allowed, `${f} is called from ${where.join(", ")}`);
+    assert.equal(src["lib/site-effects.ts"].split(f).length - 1, 1, f + " once in the shared step");
   }
-  assert.doesNotMatch(body, /env\.EMAIL/, "a site's mail is never the platform's sender");
+  assert.doesNotMatch(src["lib/site-effects.ts"], /env\.EMAIL\b/, "a site's mail is never the platform's sender");
 });
 
 test("tableParts claims nothing a function-only table cannot do, and a paid table's notify", () => {

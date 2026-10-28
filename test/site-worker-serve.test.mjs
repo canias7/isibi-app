@@ -12,11 +12,17 @@
 // perfectly correct in isolation — and invisible to a source-read, which is what
 // guarded this layer for the twelve features that shipped dead. So: real router,
 // fake bindings, and assertions on what a visitor would actually receive.
+//
+// 2026-10-28: the site's own Worker does its own absolutizing, redirects and
+// robots/sitemap on its hosts, marking its answer `x-site-data: own`; the
+// platform returns a script's answer as it came (marked or not). The rewrite
+// and redirect cases drive the template's `lib/site-addresses.ts` for real.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { hit } from "./fixtures/worker-harness.mjs";
 import { SITE_ORIGIN_TOKEN, routesContent, redirectsContent } from "../site-seo.mjs";
 import { injectMeta } from "../site-meta.mjs";
+import { loadTemplate } from "./fixtures/template-ts.mjs";
 
 // DRIVEN ON THE SITE ZONE, because that is the public mount: `/s/<slug>/` on
 // the platform 301s to the subdomain (the one-public-address rule), so a test
@@ -81,12 +87,15 @@ function bucket(extra = {}) {
  * `seen` records what it was ASKED for, which is how the "these two files never
  * reach it" assertion is made about behaviour rather than about a code path.
  */
-function dispatch(seen) {
+function dispatch(seen, opt = {}) {
   return {
     get: () => ({
       fetch: async (req) => {
         const p = new URL(req.url).pathname;
         seen.push(p);
+        // A current script marks its answer its own (2026-10-28).
+        if (opt.answer) return opt.answer;
+        if (opt.mark) return new Response(opt.body, { status: 200, headers: { "content-type": "text/html; charset=utf-8", "x-site-data": "own" } });
         if (/\.[a-z0-9]{1,8}$/i.test(p.split("/").pop() || "")) {
           // A SCRIPT IS ENTITLED TO REFUSE AN ASSET THE BUCKET STILL HAS, and it
           // may do so with an HTML body — a custom not-found page is the obvious
@@ -118,27 +127,49 @@ test("a script's page comes back with ABSOLUTE asset references", async () => {
   // happens to be right; at `/menu/` it asks for `/menu/assets/…` and the page
   // is blank. The static path has always rewritten these and the script served
   // its document verbatim.
+  //
+  // (2026-10-28: the site's own Worker.) The platform no longer rewrites a
+  // script's page: the site absolutizes its own (`absolutized`, marking the
+  // answer `x-site-data: own`), and the platform returns any script's answer as
+  // it came. Both halves are driven: the template's rewrite for real, and the
+  // platform passing the marked and the unmarked page through unchanged.
+  const { absolutized } = await loadTemplate("lib/site-addresses.ts");
+  const a = await absolutized(new Response(DOC, { headers: { "content-type": "text/html; charset=utf-8" } }), new URL(SITE + "/menu"), SLUG);
+  const text = await a.text();
+  assert.ok(!/="\.\//.test(text), "a relative reference survived: " + text.slice(0, 300));
+  assert.match(text, /src="\/assets\/index-BZW04i8N\.js"/, "the site zone serves at the root");
+  assert.match(text, /Wick Lane/, "…and it is still the rendered page, not the shell");
+  assert.equal(a.headers.get("x-site-data"), "own");
+
+  // The platform: a marked page is untouched, byte for byte.
+  const marked = { SITE_WORKERS: dispatch([], { mark: true, body: text }), SITES_BUCKET: bucket() };
+  const m = await hit("/menu", { env: marked, origin: SITE });
+  assert.equal(m.status, 200);
+  assert.equal(m.text, text);
+  // An unmarked (older) script's page is returned as it answered: no rescue.
   const seen = [];
   const r = await hit("/menu", { env: env(seen), origin: SITE });
   assert.equal(r.status, 200, r.text.slice(0, 200));
-  assert.ok(!/="\.\//.test(r.text), "a relative reference survived: " + r.text.slice(0, 300));
-  assert.match(r.text, /src="\/assets\/index-BZW04i8N\.js"/, "the site zone serves at the root");
-  assert.match(r.text, /Wick Lane/, "…and it is still the rendered page, not the shell");
+  assert.equal(r.text, DOC, "the platform rewrote an unmarked script's page");
 });
 
 test("…and the prefix follows the MOUNT, not the code", async () => {
   // The same bytes serve at three addresses. A prefix baked anywhere is wrong
   // on two of them, and on a custom domain it puts OUR path in the owner's page.
-  // A CUSTOM DOMAIN IS NOT DRIVEN HERE, deliberately: resolving one to a slug
-  // is a Supabase lookup, which an empty env cannot do, and supplying a fake
-  // for it would be testing the fake. `mountRootFor` is asserted against that
-  // case directly in `site-domains.test.mjs`.
+  // (2026-10-28: the site's own Worker.) The site absolutizes for the address
+  // it was served at: the workspace mount keeps `/s/<slug>/`, which the
+  // builder's own preview uses; a custom domain is the root.
+  const { absolutized } = await loadTemplate("lib/site-addresses.ts");
+  const html = { headers: { "content-type": "text/html; charset=utf-8" } };
+  const ws = await absolutized(new Response(DOC, html), new URL(`https://gofarther.dev/s/${WSLUG}/menu`), WSLUG);
+  assert.match(await ws.text(), new RegExp('src="/s/' + WSLUG + '/assets/index-BZW04i8N\\.js"'));
+  const dom = await absolutized(new Response(DOC, html), new URL("https://shop.example.com/menu"), SLUG);
+  assert.match(await dom.text(), /src="\/assets\/index-BZW04i8N\.js"/);
+  // The platform's workspace mount passes an unmarked script's page as it came.
   const seen = [];
-  // The workspace serves the site under a path, and the prefix has to come with it or
-  // the bundle 404s on the one mount the builder's own preview uses.
-  const ws = await hit(`/s/${WSLUG}/menu`, { env: env(seen) });
-  assert.equal(ws.status, 200, ws.text.slice(0, 200));
-  assert.match(ws.text, new RegExp('src="/s/' + WSLUG + '/assets/index-BZW04i8N\\.js"'));
+  const r = await hit(`/s/${WSLUG}/menu`, { env: env(seen) });
+  assert.equal(r.status, 200, r.text.slice(0, 200));
+  assert.equal(r.text, DOC);
 });
 
 test("an asset from the script is passed through untouched", async () => {
@@ -178,57 +209,52 @@ test("…and the substituted origin follows the mount too", async () => {
 // ── an address the site does not have ────────────────────────────────────────
 
 test("a RENAMED page still redirects, rather than becoming a hard 404", async () => {
-  // The redirect map lives in `index.html`'s head and the static path has read
-  // it since the SEO tier shipped. Dispatching in front of it turned every
-  // renamed or deleted page into a 404 — so an owner renaming a page broke
-  // every link already indexed and every share already sent, silently.
+  // Dispatching in front of the redirect map once turned every renamed or
+  // deleted page into a 404 — so an owner renaming a page broke every link
+  // already indexed and every share already sent, silently.
+  //
+  // (2026-10-28: the site's own Worker.) The site answers its own redirects
+  // from its own sidecar (`siteRedirect`), marked `x-site-data: own`; the
+  // platform no longer adds one to a script's answer. The platform half: a
+  // marked 301 is returned untouched, and an unmarked script's 404 is returned
+  // as it answered (an older script is not rescued).
+  const sent = new Response(null, { status: 301, headers: { "x-site-data": "own", location: `${SITE}/menu`, "cache-control": "public, max-age=600" } });
+  const marked = { SITE_WORKERS: dispatch([], { mark: true, answer: sent }), SITES_BUCKET: bucket() };
+  const m = await hit("/coffee", { env: marked, origin: SITE });
+  assert.equal(m.status, 301);
+  assert.equal(m.headers.get("location"), `${SITE}/menu`);
   const seen = [];
   const r = await hit("/coffee", { env: env(seen), origin: SITE });
-  assert.equal(r.status, 301, r.text.slice(0, 200));
-  // Absolute, and on the site's OWN address — a redirect that bounced a
-  // visitor onto the platform's hostname would undo the whole `.dev`/`.app`
-  // split, and on a custom domain it would take somebody off the domain they
-  // paid for at the moment they clicked a link to it.
-  assert.equal(r.headers.get("location"), `${SITE}/menu`);
-  // A 301 with no freshness is cached by browsers effectively forever, so a
-  // page that comes back is unreachable to exactly the visitors it came back for.
-  assert.match(r.headers.get("cache-control") || "", /max-age=\d+/);
+  assert.equal(r.status, 404, "the platform invented a redirect for an unmarked script");
+  assert.equal(r.headers.get("location"), null);
 });
 
 test("…and it STILL redirects on a Start site, which publishes no index.html", async () => {
-  // THE MANIFEST MOVED AND THE READER DID NOT. The test above passes because
-  // its bucket holds a pre-Start `index.html` with the map in its head. Start
-  // renders the document per request and publishes NO HTML — measured, the
-  // client dist is `assets/`, `favicon.svg`, `robots.txt` — so `obj` is null,
-  // the whole fallback branch is unreachable, and the map the publish still
-  // writes (into the SIDECAR now) was read by nothing.
+  // THE MANIFEST MOVED AND THE READER DID NOT, once: Start publishes no HTML,
+  // so a reader of `index.html`'s head found nothing and every renamed page on
+  // every site built since Start became a hard 404.
   //
-  // Which is every site built since Start: rename a page, and every link the
-  // customer had sent and every URL Google had indexed became a hard 404,
-  // silently, on the feature that returns an explicit {from,to} to prevent it.
-  const seen = [];
-  const start = {
-    SITE_WORKERS: dispatch(seen),
-    // A REAL START BUCKET: no index.html, no per-page html, and the sidecar the
-    // publish path really writes (`sitemeta/<slug>.json`, outside the served
-    // prefix). Built through `redirectsContent` rather than hand-written, for
-    // the reason the SHELL fixture above records: two fixtures that agree with
-    // each other and with neither end prove nothing.
-    SITES_BUCKET: (() => {
-      const objs = {
-        [`sitemeta/${SLUG}.json`]: JSON.stringify({
-          routesCsv: routesContent({ routes: ["/", "/menu"] }),
-          redirectsCsv: redirectsContent({ "/coffee": "/menu" }),
-        }),
-        [`sites/${SLUG}/assets/app.js`]: "console.log(1)",
-      };
-      return { get: async (k) => (k in objs ? { text: async () => objs[k], body: objs[k], writeHttpMetadata() {}, httpMetadata: {} } : null) };
-    })(),
+  // (2026-10-28: the site's own Worker.) The reader is the site's own
+  // `siteRedirect`, over the SIDECAR the publish really writes
+  // (`sitemeta/<slug>.json`), built through `redirectsContent`.
+  const { siteRedirect } = await loadTemplate("lib/site-addresses.ts");
+  const objs = {
+    [`sitemeta/${SLUG}.json`]: JSON.stringify({
+      routesCsv: routesContent({ routes: ["/", "/menu"] }),
+      redirectsCsv: redirectsContent({ "/coffee": "/menu" }),
+    }),
   };
-  const r = await hit("/coffee", { env: start, origin: SITE });
-  assert.equal(r.status, 301, "a Start site's renamed page: " + r.status + " " + r.text.slice(0, 160));
+  const start = { SITES: { get: async (k) => (k in objs ? { text: async () => objs[k] } : null) } };
+  const r = await siteRedirect(start, new URL(SITE + "/coffee"), SLUG);
+  assert.ok(r, "a Start site's renamed page did not redirect");
+  assert.equal(r.status, 301);
+  // Absolute, and on the site's OWN address.
   assert.equal(r.headers.get("location"), `${SITE}/menu`);
+  // A 301 with no freshness is cached by browsers effectively forever.
   assert.match(r.headers.get("cache-control") || "", /max-age=\d+/);
+  assert.equal(r.headers.get("x-site-data"), "own");
+  // An address in no map is no redirect.
+  assert.equal(await siteRedirect(start, new URL(SITE + "/nowhere"), SLUG), null);
 });
 
 test("…and an unknown address on a Start site keeps the script's own branded 404", async () => {

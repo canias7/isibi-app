@@ -189,7 +189,12 @@ test("the cron drives it and the worker supplies real deps", () => {
     "a call to a name that was never imported is a ReferenceError on the cron");
   const at = worker.indexOf("function backupDeps(env)");
   assert.ok(at > 0, "backupDeps is gone — rescope this");
-  const deps = worker.slice(at, worker.indexOf("async function runWebhookQueue(env)", at));
+  // END LANDMARK: the function after backupDeps. It was runWebhookQueue until
+  // 2026-10-28, when the platform webhook queue was deleted (the site's own
+  // Worker retries its own); a missing end slices to the file's end.
+  const depsEnd = worker.indexOf("async function askSitePhoto(env, prompt)", at);
+  assert.ok(depsEnd > at, "backupDeps' end landmark moved — rescope this");
+  const deps = worker.slice(at, depsEnd);
   // The dump's SQL goes through the same hands as every other identifier, and
   // keeps the OLDEST rows when truncating — the newest are still visible in
   // the owner's panel; the oldest are the ones only a backup still has.
@@ -204,7 +209,7 @@ test("EVERY backups/ REFERENCE IN THE WORKER IS ONE OF THE THREE ALLOWED PLACES"
   // that keeps it so: a new `"backups/"` literal anywhere else — a public
   // route, a rewrite, anything — fails here and has to say what it is.
   const zones = [
-    ["function backupDeps(env)", "async function runWebhookQueue(env)"],
+    ["function backupDeps(env)", "async function askSitePhoto(env, prompt)"],
     ["} else if (bk) {", "} else if (nt) {"],
     ["let backupsRemoved = 0;", "async function handleRequest"],
   ].map(([a, b]) => {
@@ -274,7 +279,7 @@ test("the panel shows the nightly copies, and an unreadable list is not an empty
 
 test("A38-7 (2026-10-23) EVERY SITE IS BACKED UP — the dump opens the database through the four-state reader (a blank link is not 'no backend'), a site with no database is written table-less instead of failing every tick, and the site list is paged in slug order past 200", () => {
   const at = worker.indexOf("function backupDeps(env)");
-  const end = worker.indexOf("async function runWebhookQueue(env)", at);
+  const end = worker.indexOf("async function askSitePhoto(env, prompt)", at);
   assert.ok(at > 0 && end > at, "backupDeps landmarks");
   const deps = worker.slice(at, end);
   const d0 = deps.indexOf("dump: async (slug)");
@@ -299,4 +304,20 @@ test("A38-7 (2026-10-23) EVERY SITE IS BACKED UP — the dump opens the database
 test("A38-7 a site with no database dumps as a table-less backup (dumpSite with a null schema)", async () => {
   const d = await dumpSite({ loadSchema: async () => null, readTable: async () => [], readMeta: async () => ({}) }, { slug: "plain-1", now: Date.UTC(2026, 9, 23) });
   assert.deepEqual(d, { v: 1, slug: "plain-1", at: "2026-10-23T00:00:00.000Z", tables: {}, meta: {} });
+});
+
+test("a site's backups are kept in its OWN bucket, never the platform's (2026-10-28)", () => {
+  const at = worker.indexOf("function backupDeps(env)");
+  const deps = worker.slice(at, worker.indexOf("\n}\n", at));
+  for (const k of ["exists:", "put:", "list:", "remove:"]) {
+    const line = deps.slice(deps.indexOf(k), deps.indexOf("\n", deps.indexOf(k)));
+    assert.ok(deps.includes(k), k + " is gone");
+    assert.doesNotMatch(line + deps.slice(deps.indexOf(k), deps.indexOf(k) + 200), /SITES_BUCKET/, k + " still writes the platform's bucket");
+  }
+  const helper = worker.slice(worker.indexOf("async function siteBackupBucket("), worker.indexOf("function backupDeps(env)"));
+  assert.match(helper, /siteBucketName\(slug\)/);
+  assert.match(helper, /restBucket\(\{ accountId: c\.accountId, apiToken: c\.apiToken, bucket \}\)/);
+  const route = worker.slice(worker.indexOf("} else if (bk) {"), worker.indexOf("} else if (er) {"));
+  assert.match(route, /siteBackupBucket\(env, "backups\/" \+ bslug \+ "\/"\)/, "the owner's backups are not read from the site's bucket");
+  assert.doesNotMatch(route, /SITES_BUCKET/);
 });

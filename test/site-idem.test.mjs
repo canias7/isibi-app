@@ -9,6 +9,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import ts from "typescript";
 import {
   takeIdemKey, idemId, idemStorable, replayHeaders, makeIdem,
   IDEM_HEADER, IDEM_TTL_S, IDEM_MAX_BODY, IDEM_REPLAY_HEADER,
@@ -131,7 +132,6 @@ test("memory is bounded: expired entries go first, then the oldest", async () =>
 
 // ── the wire ─────────────────────────────────────────────────────────────────
 
-const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const rows = fs.readFileSync(new URL("../builder/lovable/template/src/lib/rows.ts", import.meta.url), "utf8");
 
 function between(src, from, to, what) {
@@ -142,56 +142,113 @@ function between(src, from, to, what) {
   return src.slice(a, b);
 }
 
-test("the Worker's store is ONE, at module scope, bound to the request's KV per call", () => {
-  assert.match(worker, /\nconst SITE_IDEM = makeIdem\(\);/, "a store made per request forgets the first press before the second arrives");
-  const fn = between(worker, "function idemFor(env, slug, scope, key, fp = null) {", "\nasync function proxySiteService(");
-  assert.match(fn, /env && env\.SITE_API_CACHE/, "the KV namespace is not read");
-  assert.match(fn, /SITE_IDEM\.for\(slug, scope, key, \{\n    fp,/, "the submission's digest is not handed to the store (audit A30-5)");
-  assert.match(fn, /kv\.get\(id, \{ type: "json" \}\)/);
-  assert.match(fn, /kv\.put\(id, JSON\.stringify\(v\), \{ expirationTtl: ttl \}\)/);
-  assert.match(fn, /get: kv \? .* : null/, "without KV the get must be null, not a call on undefined");
+// The replay store moved into the site's own Worker (2026-10-28: the site's own
+// Worker): `ownDataWrite` in builder/lovable/template/src/server.ts keeps the
+// first 2xx answer in the site's own bucket at `idem/<table>/<key>`. server.ts
+// imports TanStack Start, which is not installed here, so the handler and the
+// helpers above it are cut out by landmark, transpiled and run for real; the
+// follow-ups (`runSiteEffects`) are counted by a stand-in.
+let serverLoads = 0;
+async function loadOwnDataWrite() {
+  const src = fs.readFileSync(new URL("../builder/lovable/template/src/server.ts", import.meta.url), "utf8");
+  const part = between(src, "let anonTok = \"\";", "\n// ── THIS SITE SIGNS ITS OWN VISITORS IN", "ownDataWrite and its helpers");
+  assert.match(part, /export async function ownDataWrite\(/);
+  const body = "const SITE_SLUG = 'ember-cart';\nconst runSiteEffects = (...a) => globalThis.__siteEffects(...a);\n" + part;
+  const js = ts.transpileModule(body, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
+  return (await import("data:text/javascript," + encodeURIComponent(js + "\n// " + ++serverLoads))).ownDataWrite;
+}
+function ownSite({ upstream = () => new Response('[{"id":1}]', { status: 201, headers: { "content-type": "application/json" } }), failGet = false } = {}) {
+  const store = new Map();
+  const bucket = {
+    get: async (k) => { if (failGet) throw new Error("down"); return store.has(k) ? { text: async () => store.get(k) } : null; },
+    put: async (k, v) => { store.set(k, v); },
+  };
+  const env = { DATA_API_BASE: "https://ep-1.data.neon.tech/rest", AUTH_BASE: "https://ep-1.auth.neon.tech/auth", SITE_TABLES: "[]", OWN_BUCKET: "1", SITES: bucket };
+  const ups = [], effects = [];
+  return { store, env, ups, effects, upstream,
+    install() {
+      const real = globalThis.fetch;
+      globalThis.__siteEffects = async (...a) => { effects.push(a); return []; };
+      globalThis.fetch = async (u, init = {}) => { ups.push([String(u), init.method, String(init.body)]); return upstream(); };
+      return () => { globalThis.fetch = real; delete globalThis.__siteEffects; };
+    } };
+}
+const press = (write, site, { method = "POST", key = KEY, body = '{"name":"Ada"}', table = "bookings" } = {}) => {
+  const url = new URL(`https://ember-cart.gofarther.app/api/db/ember-cart/data/${table}`);
+  const headers = { "content-type": "application/json", authorization: "Bearer visitor" };
+  if (key) headers["Idempotency-Key"] = key;
+  return write(new Request(url, { method, headers, body }), site.env, url);
+};
+
+test("the site's store is its own bucket, keyed by table and key, and outlives the request", async () => {
+  // A store made per request forgets the first press before the second arrives;
+  // the bucket is the site's own, so it is shared by every isolate.
+  const write = await loadOwnDataWrite();
+  const site = ownSite();
+  const restore = site.install();
+  try {
+    const first = await press(write, site);
+    assert.equal(first.status, 201);
+    assert.deepEqual([...site.store.keys()], ["idem/bookings/" + KEY]);
+    const kept = JSON.parse(site.store.get("idem/bookings/" + KEY));
+    assert.deepEqual([kept.status, kept.body], [201, '[{"id":1}]']);
+    // A fresh copy of the handler (another isolate) still replays from the bucket.
+    const again = await press(await loadOwnDataWrite(), site);
+    assert.equal(again.status, 201);
+    assert.equal(again.headers.get("x-idempotent-replay"), "1");
+    assert.equal(await again.text(), '[{"id":1}]');
+    assert.equal(site.ups.length, 1, "the second press never reached the database");
+    // The scope is the table: the same key on another table is another press.
+    await press(write, site, { table: "orders" });
+    assert.equal(site.ups.length, 2);
+    // A read failure of the memory is no memory: the press goes through.
+    const down = ownSite({ failGet: true });
+    const r2 = down.install();
+    try { assert.equal((await press(write, down)).status, 201); assert.equal(down.ups.length, 1); } finally { r2(); }
+  } finally { restore(); }
 });
 
-test("the data proxy reads the key BEFORE the spam gate (audit A30-4) and BEFORE the upstream write, and stores only what came back", () => {
-  const proxy = between(worker, "async function proxySiteService(", "\n// ── Cloudflare for SaaS");
-  const gate = proxy.indexOf("const gate = await turnstileGate(");
-  const read = proxy.indexOf("const prior = await idem.read();");
-  const upstream = proxy.indexOf("const r = await fetch(target, {");
-  const write = proxy.indexOf("idem.write({ status: r.status, body, ct:");
-  const notify = proxy.indexOf("siteRowEffects(env, ctx, {");
-  for (const [n, i] of Object.entries({ gate, read, upstream, write, notify })) assert.ok(i > 0, `landmark missing: ${n}`);
-  // A double-click sends one single-use token twice: verified first, the
-  // second press was refused as a bot instead of replayed (audit A30-4). The
-  // digest strips the token itself (`idemFingerprint`).
-  assert.ok(read < gate, "the replay must be looked for before the token is spent");
-  assert.match(proxy, /if \(gate\.refused\) \{\n      if \(idem\) idem\.release\(\);/, "a refused press keeps the key claimed");
-  assert.match(proxy, /turnstileGate\(env, request, \{ slug, db, path, sent \}\)\.catch\(\(e\) => \{ if \(idem\) idem\.release\(\); throw e; \}\)/, "a gate that throws keeps the key claimed");
-  assert.match(proxy, /\} finally \{\n    \/\/ A press that never stored an answer lets the one waiting behind it through\.\n    if \(idem\) idem\.release\(\);/);
-  assert.ok(read < upstream, "a replay that still reaches Postgres is the bug");
-  assert.ok(upstream < write && write < notify, "the answer is remembered after the upstream and before the slow hooks");
-  // Scoped to a data POST and to the table, never to a read or a member edit.
-  const scope = between(proxy, "let idem = null;", "const prior = await idem.read();");
-  assert.match(scope, /which === "data" && request\.method === "POST"/);
-  assert.match(scope, /takeIdemKey\(request\.headers\)/);
-  assert.match(scope, /"data\/" \+ String\(path\)\.split\("\/"\)\[0\]\.toLowerCase\(\), key, await idemFingerprint\(sent\)\)/, "the scope is not the table, or the contents are not compared");
-  assert.match(proxy, /if \(prior\) return new Response\(prior\.body, \{ status: prior\.status, headers: replayHeaders\(prior\) \}\);/);
-  // Off the customer's wait when the runtime allows it.
-  const after = between(proxy, "idem.write({ status: r.status, body, ct:", "// AFTER THE ROW IS WRITTEN:");
-  assert.match(after, /ctx\.waitUntil\(w\); else await w;/);
-});
+test("the site reads the key BEFORE the upstream write, compares the contents, and stores only what came back", async () => {
+  const write = await loadOwnDataWrite();
+  const site = ownSite();
+  const restore = site.install();
+  try {
+    await press(write, site, { body: '{"name":"Ada","cf-turnstile-response":"tok-1"}' });
+    // A double-click sends one single-use spam token twice (audit A30-4); the
+    // token is dropped before the contents are compared, so the second press
+    // is replayed, not refused or written again.
+    const second = await press(write, site, { body: '{"name":"Ada","cf-turnstile-response":"tok-2"}' });
+    assert.equal(second.headers.get("x-idempotent-replay"), "1");
+    assert.equal(site.ups.length, 1, "a replay that still reaches Postgres is the bug");
+    assert.equal(site.ups[0][2], '{"name":"Ada"}', "the token never reaches the database");
+    assert.equal(site.effects.length, 1, "the follow-ups ran once, for the write, never for the replay");
+    // Another submission under the same key is not replayed (audit A30-5).
+    const other = await press(write, site, { body: '{"name":"Bo"}' });
+    assert.equal(other.headers.get("x-idempotent-replay"), null);
+    assert.equal(site.ups.length, 2);
+  } finally { restore(); }
 
-test("checkout honours the same key, cloning the answer so the customer still gets theirs", () => {
-  const route = between(worker, 'url.pathname.endsWith("/checkout")', 'url.pathname.endsWith("/uploads")');
-  const key = route.indexOf("const ckey = takeIdemKey(request.headers);");
-  const read = route.indexOf("const prior = cidem ? await cidem.read() : null;");
-  const call = route.indexOf("const cres = await handleCheckout({");
-  const clone = route.indexOf("await cres.clone().text()");
-  const write = route.indexOf("cidem.write({ status: cres.status, body: ctext,");
-  for (const [n, i] of Object.entries({ key, read, call, clone, write })) assert.ok(i > 0, `landmark missing: ${n}`);
-  assert.ok(key < read && read < call && call < clone && clone < write);
-  assert.match(route, /idemFor\(env, cslug, "checkout", ckey, await idemFingerprint\(craw\)\)/, "another basket under the same key is replayed (audit A30-5)");
-  assert.match(route, /\} finally \{\n          if \(cidem\) cidem\.release\(\);/);
-  assert.match(route, /return cres;/);
+  // A refusal is not remembered: the retry goes through.
+  let n = 0;
+  const flaky = ownSite({ upstream: () => (++n === 1 ? new Response('{"message":"no"}', { status: 409 }) : new Response("[]", { status: 201 })) });
+  const r2 = flaky.install();
+  try {
+    assert.equal((await press(write, flaky)).status, 409);
+    assert.equal(flaky.store.size, 0);
+    assert.equal(flaky.effects.length, 0);
+    assert.equal((await press(write, flaky)).status, 201);
+    assert.equal(flaky.ups.length, 2);
+  } finally { r2(); }
+
+  // Scoped to a data POST: a PATCH with a key is not remembered.
+  const patch = ownSite();
+  const r3 = patch.install();
+  try {
+    await press(write, patch, { method: "PATCH" });
+    await press(write, patch, { method: "PATCH" });
+    assert.equal(patch.store.size, 0);
+    assert.equal(patch.ups.length, 2);
+  } finally { r3(); }
 });
 
 test("the kit sends the header on every submission and checkout, and renews the key ONLY after a success", () => {

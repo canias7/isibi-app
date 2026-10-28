@@ -77,7 +77,7 @@ const PUBLIC = {
   // DISAPPEARANCE as interesting, which is exactly right, and this says which
   // of the three reasons it was.)
   "/api/stripe/site/*": "A SITE OWNER's own Stripe telling us one of their orders was paid. Separate from /api/stripe/webhook, which is isibi's own billing — different account, different signing secret, and one handler deciding whether an event mints platform credits or marks a barber shop's order is not a thing to build. Stripe cannot hold a session; what authenticates it is the HMAC over the raw body verified against THAT SITE's own webhook secret, so a signature valid for one shop proves nothing about another.",
-  "/api/db/*": "A published site's own API. Its visitors are not isibi users — a customer booking a haircut has no account here. As of 2026-07-30 it is TRANSPORT ONLY: the row routes were deleted and these paths forward to the site's Neon Data API and Neon Auth, where the site's own RLS policies decide every access question. What is enforced here is a per-source rate limit and that the slug resolves to a real site.",
+  "/api/db/*": "A published site's own API. Its visitors are not isibi users — a customer booking a haircut has no account here. As of 2026-07-30 it is TRANSPORT ONLY: the row routes were deleted and these paths forward to the site's Neon Data API and Neon Auth, where the site's own RLS policies decide every access question. What is enforced here is a per-source rate limit and that the slug resolves to a real site. Since 2026-10-28 (the site's own Worker) the platform only passes these calls to the site's own script, which answers for its own slug only, or answers 503 (republish).",
   "/api/site/genresult": "THE BUILD CONTAINER handing back the generation it was fired. It holds no Supabase session and never will — it is our own compute, reached over the queue, not a person. What authenticates it is a 128-bit token minted for ONE generation at fire time and stored in that build's resume record, travelling in a HEADER rather than the path so it stays out of logs and proxies. Knowing it authorises writing exactly one build's answer to one R2 key and nothing else; it is the same shape as a site's inbound webhook secret. An unrecognised token is 404, not 401, because the route's existence is not worth confirming to somebody probing it and a container that got the token wrong has no recovery either way.",
   "/api/site/gencode": "THE BUILD CONTAINER sending the code it is writing, while it writes it (2026-09-07). The same caller, the same credential and the same binding as genbeat one entry up — the report token in a header, the job and the generation in the body matched against the resume record — and the narrowest authority of the three: it writes a bounded tail of the generation's own output to one R2 key under `jobs/`, which the retention sweep already owns. Nothing reads that key but the build poll, and only for the record's own uid. A body that does not bind is 404, as the report and the beat are, and writes nothing.",
   "/api/site/genbeat": "THE BUILD CONTAINER renewing its build row's lease while it generates (stage 2c). The same caller as genresult with the same credential — the report token in a header — and a narrower authority: the job id and the generation id in the body are matched against the resume record the Worker wrote for that job (the token AND the generation it carries), and only then is `edit_beat` asked, under the container's own lease name, which the RPC refuses for anyone but the holder. A beat that does not bind is 404, as the report is, and writes nothing.",
@@ -336,6 +336,11 @@ test("the public allow-list is exactly what we think it is", () => {
   // A route silently DROPPING off the list is as interesting as one being added:
   // it means the endpoint moved, was renamed, or was deleted.
   const names = [...routes().keys()];
+  // `/api/db/*` is dispatched by ONE path pattern handing the call to the site's
+  // own Worker, not by a `url.pathname ===` or `.startsWith(` line, so the
+  // census cannot see it; it is found by its own dispatch. (2026-10-28: the
+  // site's own Worker)
+  if (visitorDispatch()) names.push("/api/db/*");
   for (const p of Object.keys(PUBLIC)) {
     assert.ok(names.includes(p), `${p} is allow-listed as public but no longer exists — remove it from PUBLIC`);
   }
@@ -356,29 +361,61 @@ test("the unauthenticated webhook verifies a signature instead", () => {
   assert.match(block, /STRIPE_WEBHOOK_SECRET/);
 });
 
-test("a published site's API gates on a site session, not an isibi one", () => {
+// THE ONE PLATFORM DISPATCH OF A VISITOR'S CALL (2026-10-28: the site's own
+// Worker): a `url.pathname.match(/^\/api\/db\/…/)` handed to `siteAnswers`.
+const VISITOR_DISPATCH = /url\.pathname\.match\(\/\^\\\/api\\\/db\\\//;
+function visitorDispatch() {
+  const i = LINES.findIndex((l) => VISITOR_DISPATCH.test(l));
+  if (i < 0) return null;
+  return { line: i, block: LINES.slice(i, i + 3).join("\n") };
+}
+
+test("a published site's API gates on a site session, not an isibi one", async () => {
   // It is allow-listed as public because its visitors are not isibi users. That
-  // is only acceptable while it still checks something: the site's own schema
-  // for access level, and a site session for member-scoped tables.
-  // Checked across EVERY /api/db dispatch rather than the first one. It used to
-  // read only the first, which made the assertion depend on route ORDER — and
-  // when the auth block above it was deleted the first dispatch became visitor
-  // uploads and this went red for a reason that had nothing to do with gating.
-  const hits = [...routes()].filter(([p2]) => p2.startsWith("/api/db"));
-  assert.ok(hits.length, "no /api/db dispatch found at all");
-  for (const [, line] of hits) {
-    // Each name here is a function that establishes WHAT the request is for
-    // before anything happens: it resolves the slug to a real site, or applies
-    // the schema's access rules, or both. A dispatch that matches none of them is
-    // acting on a caller-supplied slug it never checked.
-    assert.match(blockOf(line), /handleVisitorUpload|loadSiteSchema|siteBackendBySlug|proxySiteService/,
-      "every public /api/db dispatch must resolve the site and its access rules (worker.js:" + (line + 1) + ")");
-    // And every one is rate limited. These are unauthenticated endpoints; two of
-    // them reach a third party (Neon, and Better Auth through the proxy), so an
-    // unlimited one is a way to spend somebody else's budget from our origin.
-    assert.match(blockOf(line), /_dataLimiter|limitFor/,
-      "every public /api/db dispatch must be rate limited (worker.js:" + (line + 1) + ")");
-  }
+  // is only acceptable while it still checks something: that the call is for a
+  // real site, the site's own access rules, and a per-source limit. Since
+  // 2026-10-28 (the site's own Worker) the platform only passes the call on to
+  // the site's OWN script, and the site's own handlers answer for their own
+  // slug only; the database's row rules decide access.
+  const d = visitorDispatch();
+  assert.ok(d, "no /api/db dispatch found at all");
+  assert.match(d.block, /return siteAnswers\(env, request, vm\[1\]\.toLowerCase\(\)\)/,
+    "every public /api/db dispatch must go to the site's own Worker (worker.js:" + (d.line + 1) + ")");
+  assert.equal(LINES.filter((l) => VISITOR_DISPATCH.test(l)).length, 1, "a second /api/db dispatch is not covered here");
+  // The slug resolves to a real site's script, or nothing of it is done.
+  const answers = topLevel(SRC, "async function siteAnswers(");
+  assert.match(answers, /const own = await ownDataRead\(env, request, slug\);\s*if \(own\) return own;\s*return Response\.json\([^;]*status: 503/);
+  const read = topLevel(SRC, "async function ownDataRead(");
+  assert.match(read, /const name = scriptNameFor\(slug\);\s*if \(!name\) return null;/);
+  assert.match(read, /res\.headers\.get\("x-site-data"\) === "own" \? res : null/);
+
+  // The site's own handlers answer only for their own slug: a call naming
+  // another site is not theirs (null), never acted on.
+  const { loadTemplate } = await import("./fixtures/template-ts.mjs");
+  const pay = await loadTemplate("lib/site-pay.ts");
+  const connect = await loadTemplate("lib/site-connect.ts");
+  const tele = await loadTemplate("lib/site-telemetry.ts");
+  const files = await loadTemplate("lib/site-files.ts");
+  const env = { APP_CONN: "postgresql://x_app:p@ep-1.neon.tech/db", SITE_TABLES: "[]", SITE_SPEC: "{}", OWN_BUCKET: "1", SITES: {}, STRIPE_SECRET_KEY: "sk", STRIPE_WEBHOOK_SECRET: "wh" };
+  const real = globalThis.fetch;
+  globalThis.fetch = async () => assert.fail("a call for another site reached the network");
+  try {
+    for (const [fn, p] of [[pay.siteCheckout, "checkout"], [connect.siteApi, "api/menu"], [connect.siteHook, "hook/menu"], [tele.siteError, "error"], [files.visitorUpload, "uploads"]]) {
+      const url = new URL("https://own.gofarther.app/api/db/other-site/" + p);
+      assert.equal(await fn(new Request(url, { method: "POST", body: "{}" }), env, url, "own"), null, p);
+      const mine = new URL("https://own.gofarther.app/api/db/own/" + p);
+      assert.notEqual(await fn(new Request(mine, { method: "POST", body: "{}" }), env, mine, "own").catch(() => "threw"), null, "the control: " + p + " answers for its own slug");
+    }
+  } finally { globalThis.fetch = real; }
+
+  // And the site's limits on what reaches a third party (Stripe, an outside
+  // API, the database's functions) and on error reports: each acted on, not
+  // merely present.
+  const T = (f) => fs.readFileSync(path.join(ROOT, "builder", "lovable", "template", "src", "lib", f), "utf8");
+  assert.match(T("site-pay.ts"), /const wait = tooMany\([^;]*\);\s*if \(wait\) return Response\.json\([^;]*status: 429/);
+  assert.match(T("site-connect.ts"), /if \(!hit\("api\|"[^;]*\.ok\) return answer\([^;]*429\)/);
+  assert.match(T("site-connect.ts"), /throttle: async \(key: string\) => hit\("inbound\|" \+ key, INBOUND_PER_MIN\)/);
+  assert.match(T("site-telemetry.ts"), /if \(limited\(request\.headers\.get\("CF-Connecting-IP"\) \|\| ""\)\) return done;/);
 });
 
 test("the window cannot be widened into the next route's gate", () => {

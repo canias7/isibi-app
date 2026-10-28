@@ -342,13 +342,6 @@ function block(from, to, start = 0) {
 
 test("row paths open the limited login", () => {
   const rows = [
-    ['url.pathname.startsWith("/api/db/") && url.pathname.includes("/api/")', 'url.pathname.startsWith("/api/db/") && url.pathname.includes("/hook/")', "siteRowConn(env, slug)"],
-    ['url.pathname.startsWith("/api/db/") && url.pathname.includes("/hook/")', 'url.pathname.startsWith("/api/db/") && url.pathname.endsWith("/error")', "siteRowConn(env, slug)"],
-    ['url.pathname.startsWith("/api/db/") && url.pathname.endsWith("/error")', 'url.pathname.startsWith("/api/db/") && url.pathname.endsWith("/turnstile")', "const conn = await siteRowConn(env, slug)"],
-    ['url.pathname.startsWith("/api/db/") && url.pathname.endsWith("/turnstile")', 'url.pathname.startsWith("/api/db/") && url.pathname.includes("/auth/")', "siteRowConn(env, slug)"],
-    ['url.pathname.startsWith("/api/db/") && url.pathname.endsWith("/checkout")', 'url.pathname.startsWith("/api/db/") && url.pathname.endsWith("/uploads")', "siteRowConn(env, cslug)"],
-    ['url.pathname.startsWith("/api/db/") && url.pathname.endsWith("/uploads")', "\n    }\n", "siteRowConn(env, vslug)"],
-    ['url.pathname.startsWith("/api/stripe/site/")', "\n      }\n", "siteRowConn(env, wslug)"],
     ["async function proxySiteService(", "\n}\n", "siteRowConn(env, slug)"],
     ["async function routeTableNames(", "\n}\n", "ownerRowConn(env, slug)"],
     ["async function routeDigest(", "\n}\n", "ownerRowConn(env, slug)"],
@@ -370,13 +363,41 @@ test("row paths open the limited login", () => {
   assert.ok(SRC.includes("let ddb = await siteRowConn(env, ownerSlug);"));
 });
 
+test("visitor row paths run in the site's own Worker, on the limited login only (2026-10-28: the site's own Worker)", () => {
+  // The platform's visitor handlers (api, hook, error, turnstile, checkout,
+  // uploads, the site's Stripe message) were deleted: each now goes to the
+  // site's Worker, which holds exactly one database login — the limited one.
+  const vm = SRC.match(/const vm = url\.pathname\.match\(\/\^\\\/api\\\/db\\\/[^\n]*\)\$\/i\);/);
+  assert.ok(vm, "the visitor-route pattern");
+  for (const p of ["data\\/", "api\\/", "hook\\/", "auth\\/", "|error|", "|checkout|", "|uploads|", "|turnstile)"]) assert.ok(vm[0].includes(p), "visitor route " + p);
+  assert.match(block('url.pathname.startsWith("/api/stripe/site/")', "\n    }\n"), /return siteAnswers\(env, request, wm\[1\]\.toLowerCase\(\)\)/);
+  // What the site's Worker is given: the limited login as APP_CONN, never the owner's.
+  const given = block("const app = await siteAppConn(env, slug)", "legacy,\n");
+  assert.match(given, /secrets: \{ \.\.\.owned, \.\.\.\(app \? \{ APP_CONN: app \} : \{\}\) \}/);
+  // The owner's login appears here only to CREATE the tables the site writes
+  // into (the limited one cannot create); it is never put in what is handed over.
+  const handed = given.slice(given.indexOf("return {"));
+  assert.ok(handed.length > 0 && !/ownerConn|siteBackendBySlug\(|ownerSiteConn\(/.test(handed), "the owner's login is handed to the site");
+  assert.match(given, /for \(const q of \[ERRORS_TABLE_SQL, HITS_TABLE_SQL, JOBS_TABLE_SQL\]\) await sqlExec\(ownerConn, q\)/);
+  // And the site's own writers open that one login.
+  const T = (f) => readFileSync(new URL("../builder/lovable/template/src/lib/" + f, import.meta.url), "utf8");
+  assert.match(T("site-pay.ts"), /if \(!env\.APP_CONN \|\| !env\.SITE_TABLES\) return null;/);
+  assert.match(T("site-telemetry.ts"), /const conn = env\.APP_CONN as string;/);
+});
+
 test("schema and admin paths stay on the owner's login", () => {
   // The schema apply, the publication that adds tables, metrics' CREATE, the error table's CREATE.
   assert.ok(block("async function flushSiteMetrics(", "\n}\n").includes("siteBackendBySlug(env, slug)"));
   assert.ok(block("async function siteDbFor(", "\n}\n").includes("siteBackendBySlug(env, slug)"));
   assert.ok(block("async function frameTablesOf(", "\n}\n").includes("siteBackendBySlug(env, slug)"), "recovery's catalog reads need the owner's view of grants");
-  const err = block('url.pathname.startsWith("/api/db/") && url.pathname.endsWith("/error")', 'url.pathname.startsWith("/api/db/") && url.pathname.endsWith("/turnstile")');
-  assert.match(err, /const ownerConn = await siteBackendBySlug\(env, slug\);[\s\S]*sqlExec\(ownerConn, "CREATE TABLE IF NOT EXISTS _errors/);
+  // The error table's CREATE (2026-10-28: the site's own Worker stores reports
+  // on the limited login, so the table is made by the schema apply, on the
+  // owner's login, never on the visitor's path).
+  // On a site built before the site's Worker wrote it, the platform makes it on the owner's login before handing the limited one over.
+  assert.match(block("async function siteReadVars(env, slug)", "\n}\n"), /const ownerConn = await siteBackendBySlug\(env, slug\)[\s\S]*ERRORS_TABLE_SQL[\s\S]*sqlExec\(ownerConn, q\)/);
+  const schema = readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
+  assert.match(schema, /await sqlQuery\(uuid, "CREATE TABLE IF NOT EXISTS _errors /);
+  assert.ok(!/CREATE TABLE/.test(readFileSync(new URL("../builder/lovable/template/src/lib/site-telemetry.ts", import.meta.url), "utf8")), "the visitor's path creates tables");
   // Provisioning makes the login on the owner's connection, after the database is recorded.
   const prov = block("async function ensureSiteBackend(env, slug, uid, brief, mark", "\n}\n");
   assert.match(prov, /await healSiteBackendDb\([\s\S]*provisionAppLogin\(env, slug, conn\)/);

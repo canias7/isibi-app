@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { normalizeSms, toE164, fillSms, pickSmsProvider, sendSms, SMS_PROVIDERS, MAX_BODY } from "../site-sms.mjs";
+import { driveWrite, memBucket } from "./fixtures/site-effects-drive.mjs";
 
 const TABLE = {
   access: "collect",
@@ -236,25 +237,47 @@ const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8")
 const schema = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
 const has = (src, re, why) => assert.ok(re.test(src), why);
 
-test("it is on the insert path, beside the email", () => {
-  has(worker, /smsSubmitter\(env, ctx, \{ slug, db, def, row/, "called on a successful POST");
-  has(worker, /function smsSubmitter\(/, "and defined");
+test("it is on the insert path, beside the email", async () => {
+  // (2026-10-28: the site's own Worker — a POST driven through `runSiteEffects`.)
   // Independent of the mail: one provider being misconfigured must not take the
   // other with it.
-  const i = worker.indexOf("confirmSubmitter(env, ctx, { slug, db, def, row");
-  const j = worker.indexOf("smsSubmitter(env, ctx, { slug, db, def, row");
-  assert.ok(i > 0 && j > i, "both fire, in that order");
+  const tables = [{ ...TABLE, name: "bookings", columns: ["who", "mobile", "slot", "email"],
+    confirm: { to: "email", subject: "Booked", body: "<p>Hi {who}</p>" } }];
+  const sent = JSON.stringify({ who: "Ada", mobile: "+44 7700 900123", slot: "14:00", email: "ada@example.com" });
+  const both = await driveWrite({ tables, sent, body: "[" + JSON.stringify({ id: 4, ...JSON.parse(sent) }) + "]",
+    env: { ...KEYS, RESEND_KEY: "re_k", EMAIL_FROM: "shop@example.com" } });
+  assert.deepEqual(both.fired.filter((f) => f === "confirm" || f === "sms"), ["confirm", "sms"], "both fire, in that order");
+  assert.equal(both.calls.filter((c) => c.url.includes("api.twilio.com")).length, 1, "called on a successful POST");
+  // No mail key at all: the text still goes.
+  const smsOnly = await driveWrite({ tables, sent, body: "[" + JSON.stringify({ id: 4, ...JSON.parse(sent) }) + "]", env: { ...KEYS } });
+  assert.equal(smsOnly.calls.filter((c) => c.url.includes("api.twilio.com")).length, 1, "a missing mail key took the text with it");
+  // Not a submission: no text.
+  const patch = await driveWrite({ tables, method: "PATCH", sent, body: "[" + JSON.stringify({ id: 4, ...JSON.parse(sent) }) + "]", env: { ...KEYS } });
+  assert.equal(patch.calls.filter((c) => c.url.includes("api.twilio.com")).length, 0);
 });
 
-test("the cooldown ledgers are SEPARATE", () => {
+test("the cooldown ledgers are SEPARATE", async () => {
   // Keyed by recipient — and an address and a phone number are different
   // recipients even for the same person. Shared, an emailed confirmation would
   // suppress the text that was the reason for declaring both.
-  has(worker, /const smsSeen = new Map\(\)/, "its own map");
-  const i = worker.indexOf("function smsSubmitter(");
-  const fn = worker.slice(i, i + 3000);
-  assert.ok(/smsSeen\.get\(k\)/.test(fn), "and the sms path uses it");
-  assert.ok(!/confirmSeen/.test(fn), "never the mail one");
+  // (2026-10-28: the site's own Worker keeps them in its own bucket.)
+  const tables = [{ ...TABLE, name: "bookings", columns: ["who", "mobile", "slot", "email"],
+    confirm: { to: "email", subject: "Booked", body: "<p>Hi {who}</p>" } }];
+  const row = { who: "Ada", mobile: "+44 7700 900123", slot: "14:00", email: "ada@example.com" };
+  const env = { ...KEYS, RESEND_KEY: "re_k", EMAIL_FROM: "shop@example.com" };
+  const first = await driveWrite({ tables, sent: JSON.stringify(row), body: "[" + JSON.stringify({ id: 4, ...row }) + "]", env });
+  assert.equal(first.calls.filter((c) => c.url.includes("resend")).length, 1, "the observer is alive: the first mail went");
+  const keys = [...first.bucket.map.keys()];
+  assert.ok(keys.some((k) => k.startsWith("effects/sms/")), "its own ledger: " + keys);
+  assert.ok(keys.some((k) => k.startsWith("effects/confirm/")), "beside the mail one: " + keys);
+  // The mail ledger full for this person does not hold the text back…
+  const mailOnly = memBucket(Object.fromEntries(keys.filter((k) => k.startsWith("effects/confirm/")).map((k) => [k, String(Date.now())])));
+  const second = await driveWrite({ tables, sent: JSON.stringify(row), body: "[" + JSON.stringify({ id: 5, ...row }) + "]", env: { ...env, SITES: mailOnly } });
+  assert.equal(second.calls.filter((c) => c.url.includes("api.twilio.com")).length, 1, "the sms path read the mail ledger");
+  assert.equal(second.calls.filter((c) => c.url.includes("resend")).length, 0, "and the mail ledger still holds the mail");
+  // …and its own ledger does.
+  const third = await driveWrite({ tables, sent: JSON.stringify(row), body: "[" + JSON.stringify({ id: 6, ...row }) + "]", env: { ...env, SITES: first.bucket } });
+  assert.equal(third.calls.filter((c) => c.url.includes("api.twilio.com")).length, 0, "the sms path uses its own ledger");
 });
 
 test("the DESIGNER can declare it, or nothing ever sends", () => {

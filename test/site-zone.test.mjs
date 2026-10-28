@@ -433,27 +433,57 @@ test("a shared link's preview image is on the SITE's domain, not the platform's"
     "a publish path or the share picker no longer asks for a preview image");
 });
 
-test("a paying customer is returned to the site, not to a 404", () => {
+test("a paying customer is returned to the site, not to a 404", async () => {
   // `${origin}/s/<slug>/` is right on the platform and wrong everywhere else: on
   // the site zone and on a custom domain the site IS the root, so that built
   // `<slug>.gofarther.app/s/<slug>/`, which the hostname rewrite prefixes AGAIN
   // and 404s. Somebody would have paid and landed on a not-found page.
-  const w = read("worker.js");
-  assert.doesNotMatch(w, /const base = `\$\{origin\}\/s\/\$\{encodeURIComponent\(slug\)\}\/`/,
-    "the checkout return URL is back to assuming the platform mount");
-  const at = w.indexOf("const base = isAppHostname(new URL(origin).hostname)");
-  assert.ok(at > 0, "the checkout return URL no longer asks where the site is mounted");
-  // Landmark to landmark rather than a byte window: the block grew a comment
-  // when it moved to the public name, and a fixed 200 bytes stopped short of
-  // the line it was written to check.
-  const close = w.indexOf(";", w.indexOf("origin.replace(", at));
-  assert.ok(close > at, "the custom-domain half of the return address is gone");
-  const block = w.slice(at, close);
-  // THE PUBLIC NAME, since 2026-09-02 — `siteUrlFor(slug, origin)` was the
-  // storage slug, which after a rename 301s a paying customer onward with the
-  // payment marker in the query.
-  assert.match(block, /await publicUrlFor\(env, slug\)/, "the platform case must resolve to the site's real, public address");
-  assert.match(block, /origin\.replace\(/, "a custom domain must return to ITSELF, not to ours");
+  //
+  // (2026-10-28: the site's own Worker.) Checkout is the site's own
+  // (`siteCheckout`, lib/site-pay.ts); the platform's return-address code is
+  // gone. Driven for real: the return addresses Stripe is handed are the
+  // address the visitor paid on — its root — on the site zone and on a custom
+  // domain alike, never a `/s/<slug>/` mount.
+  const { loadTemplate } = await import("./fixtures/template-ts.mjs");
+  const { siteCheckout } = await loadTemplate("lib/site-pay.ts");
+  const real = globalThis.fetch;
+  const bodies = [];
+  globalThis.fetch = async (u, init = {}) => {
+    const url = String(u);
+    if (url.endsWith("/sql")) {
+      const q = JSON.parse(init.body).query;
+      if (/^SELECT id/.test(q)) return new Response(JSON.stringify({ rows: [{ id: 1, name: "Flat white", price: 3.5 }] }));
+      if (/^INSERT/.test(q)) return new Response(JSON.stringify({ rows: [{ id: 42 }] }));
+      return new Response(JSON.stringify({ rows: [] }));
+    }
+    if (url === "https://api.stripe.com/v1/checkout/sessions") {
+      bodies.push(new URLSearchParams(String(init.body)));
+      return new Response(JSON.stringify({ id: "cs_1", url: "https://checkout.stripe.com/c/cs_1" }));
+    }
+    return new Response("{}", { status: 404 });
+  };
+  try {
+    const tables = [{ name: "orders", columns: ["email"], payment: { from: "menu", name: "name", price: "price", currency: "gbp" } }, { name: "menu", access: "display" }];
+    const env = { APP_CONN: "postgresql://x_app:p@ep-1.neon.tech/db", SITE_TABLES: JSON.stringify(tables), STRIPE_SECRET_KEY: "sk_owner" };
+    for (const origin of ["https://ember-cart.gofarther.app", "https://shop.example.com"]) {
+      const url = new URL(origin + "/api/db/ember-cart/checkout");
+      const r = await siteCheckout(new Request(url, { method: "POST", body: JSON.stringify({ table: "orders", items: [{ id: 1, qty: 1 }] }) }), env, url, "ember-cart");
+      assert.equal(r.status, 200, origin);
+      const sent = bodies.pop();
+      assert.ok(sent, "Stripe was never asked (" + origin + ")");
+      assert.equal(sent.get("success_url"), origin + "/?paid=42", "the paid return is not the site's own root on " + origin);
+      assert.equal(sent.get("cancel_url"), origin + "/?cancelled=42");
+      assert.doesNotMatch(sent.get("success_url"), /\/s\//, "the return assumes the platform mount");
+    }
+    // …AND ON THE WORKSPACE ADDRESS the site lives under `/s/<slug>/`, so the
+    // return goes there, never to the app's own front page.
+    const ws = new URL("https://gofarther.dev/api/db/ember-cart/checkout");
+    const rw = await siteCheckout(new Request(ws, { method: "POST", body: JSON.stringify({ table: "orders", items: [{ id: 1, qty: 1 }] }) }), env, ws, "ember-cart");
+    assert.equal(rw.status, 200);
+    const sw = bodies.pop();
+    assert.equal(sw.get("success_url"), "https://gofarther.dev/s/ember-cart/?paid=42", "a workspace checkout returns to the app, not the site");
+    assert.equal(sw.get("cancel_url"), "https://gofarther.dev/s/ember-cart/?cancelled=42");
+  } finally { globalThis.fetch = real; }
 });
 
 test("a published site is recognised by its MOUNT, not by its raw path", () => {
