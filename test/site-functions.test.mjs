@@ -91,5 +91,54 @@ test("SF7 wiring: the site's Worker routes functions; publish vets parts before 
   const pub = readFileSync(new URL("../builder/publish-pages.mjs", import.meta.url), "utf8");
   const at = pub.indexOf("vetServerCode({ pages: v.pages, parts: v.parts })");
   assert.ok(at > 0 && at < pub.indexOf("deps.images(v.pages"), "vetted before photographs and the compile");
-  assert.match(pub.slice(at, at + 300), /sitePartsForBuild = v\.parts/);
+  assert.match(pub.slice(at, pub.indexOf("lintPages(v.pages, spec)", at)), /v\.parts = vetted\.parts;\n\s*sitePartsForBuild = v\.parts;/);
+});
+
+test("SF8 hooks run on their event only, never for a visitor unless allowed", async () => {
+  const { fireHooks, siteFunction } = await loadTemplate("lib/site-functions.ts");
+  const got = [];
+  const mods = {
+    "/src/routes/-parts/server-text-owner.tsx": { hosts: [], on: ["created:bookings"], default: async (r) => { got.push(await r.json()); return new Response(""); } },
+    "/src/routes/-parts/server-receipt.tsx": { hosts: [], on: ["paid:bookings"], visitors: true, default: async () => new Response("ok") },
+  };
+  assert.equal(await fireHooks(env, "kiln", "created:bookings", { table: "bookings", row: { id: 7 } }, mods), 1);
+  assert.deepEqual(got, [{ event: "created:bookings", table: "bookings", row: { id: 7 } }]);
+  assert.equal(await fireHooks(env, "kiln", "created:orders", {}, mods), 0);
+  assert.equal((await siteFunction(req("text-owner"), env, url("text-owner"), "kiln", mods)).status, 404, "a hook is not callable from outside");
+  assert.equal((await siteFunction(req("receipt"), env, url("receipt"), "kiln", mods)).status, 200, "unless it says visitors = true");
+  const boom = { "/src/routes/-parts/server-x.tsx": { on: ["tick"], default: async () => { throw new Error("x"); } } };
+  assert.equal(await fireHooks(env, "kiln", "tick", {}, boom), 1, "a failing hook never throws");
+});
+
+test("SF9 the hooks are wired: a write or payment (paid:<table>) and the clock", () => {
+  const eff = readFileSync(new URL("../builder/lovable/template/src/lib/site-effects.ts", import.meta.url), "utf8");
+  assert.match(eff, /r0\.payment_status === "paid" \? "paid" : action\) \+ ":" \+ table/);
+  assert.match(eff, /later\(fireHooks\(env as unknown as FnEnv, slug, event, \{ table, row \}\)\)/);
+  const tick = readFileSync(new URL("../builder/lovable/template/src/lib/site-webhook-retry.ts", import.meta.url), "utf8");
+  assert.match(tick, /fireHooks\(env as unknown as FnEnv, slug, "tick"\)/);
+});
+
+test("SF10 the checker reads hook lists", () => {
+  const base = (on) => checkServerPart({ name: "server-x", source: `export const hosts = [];\nexport const on = ${on};\nexport default async function () { return new Response("") }` });
+  assert.equal(base('["created:bookings", "paid:orders", "tick"]').ok, true);
+  assert.equal(base('["whenever"]').ok, false);
+  assert.equal(base("events()").ok, false);
+});
+
+test("SF11 the model's `server` field becomes server parts", async () => {
+  const { validatePages } = await import("../builder/page-gen.mjs");
+  const r = validatePages({ pages: [], server: [{ name: "chat", source: "x" }, { name: "server-chat", source: "y" }, { name: "Bad Name", source: "z" }, { name: "empty", source: " " }] }, { partial: true });
+  assert.deepEqual(r.parts, [{ name: "server-chat", source: "x" }]);
+  assert.equal(r.problems.length, 3);
+});
+
+test("SF12 the fix loop: a refused part goes back once, kept and charged only if it then passes", () => {
+  const pub = readFileSync(new URL("../builder/publish-pages.mjs", import.meta.url), "utf8");
+  const a = pub.indexOf("let vetted = vetServerCode(");
+  const b = pub.indexOf("v.parts = vetted.parts;", a);
+  assert.ok(a > 0 && b > a);
+  const body = pub.slice(a, b);
+  assert.match(body, /send: deps\.compileRepair/);
+  assert.match(body, /if \(next && checkServerPart\(next\)\.ok\) \{ fixedParts\.push\(next\); if \(res\.usage\) repairUsage\.push\(res\.usage\); \}/);
+  assert.match(body, /deps\.compileRepairRoom/);
 });

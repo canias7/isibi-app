@@ -4,6 +4,7 @@
 // (`./effects/site-webhook-queue.mjs`, copied byte for byte), the exact bytes
 // first sent. The platform's clock wakes the site (`/__gf/tick`); the site does
 // the rest with its owner's own secret.
+import { fireHooks, type FnEnv } from "./site-functions";
 import { enqueueRow, drainQueue, queueFull, claimable, MAX_PENDING_PER_SITE, LEASE_MS } from "./effects/site-webhook-queue.mjs";
 import { deliverWebhook, signPayload, retryable } from "./effects/site-webhooks.mjs";
 import { blockedReason } from "./effects/site-ssrf.mjs";
@@ -115,11 +116,13 @@ export async function siteTick(request: Request, env: RetryEnv, url: URL, slug: 
   // The site's own scheduled jobs first: what is due, claimed in its own table.
   const jobs = await runDueJobs(env as unknown as JobEnv).catch(() => ({ ran: 0 }));
   const webhooks = await drainOwnQueue(env, slug).catch((e) => ({ error: String((e && e.message) || e).slice(0, 200) }));
+  // The site's own server code hooked to the clock (2026-10-28).
+  const hooks = await fireHooks(env as unknown as FnEnv, slug, "tick").catch(() => 0);
   // Dead deliveries older than 30 days go — from the site's own bucket only.
   if (env.OWN_BUCKET === "1") try {
     const cut = Date.now() - 30 * 24 * 60 * 60 * 1000;
     const page = await env.SITES!.list({ prefix: DEAD_PREFIX, limit: 1000 });
     for (const o of page.objects) if (o.uploaded && o.uploaded.getTime() < cut) await env.SITES!.delete(o.key);
   } catch { /* next tick */ }
-  return Response.json({ ok: true, jobs, webhooks }, { headers: own });
+  return Response.json({ ok: true, jobs, webhooks, hooks }, { headers: own });
 }

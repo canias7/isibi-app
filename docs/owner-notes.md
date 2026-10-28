@@ -8,7 +8,8 @@
 - A new kind of file the model can write: server code for the site's own Worker (`server-<name>`), reached at `/api/db/<site>/fn/<name>`.
 - It uses your customer's keys through a helper that attaches them on the way out, so the code never sees or prints a key. It can only call the addresses it lists, with a cap on calls and time, and an answer containing a key is withheld.
 - A check before publishing leaves out server code that tries to get around the helper, and names any page that imports it.
-- Not yet: telling the model it can do this (so no build writes it yet), hooks (on a form, a payment, a schedule), and live proof builds. Record: `docs/history/2026-10-28-site-server-code.md`.
+- Then (your "ok go"): **the model is told** (a new `server` field in its page-writing tool, with a chatbot example), **a fix loop** (refused server code goes back to the model once, kept and charged only if it then passes), and **hooks** (run on a new row, a payment, or every few minutes; visitors can't trigger a hook).
+- Not yet: live proof builds (they cost credits; I'll show you first), and the add-on path offering the same field. Record: `docs/history/2026-10-28-site-server-code.md`.
 
 ## 2026-10-28 — Kiln Lane Pottery: the first build on the new setup
 

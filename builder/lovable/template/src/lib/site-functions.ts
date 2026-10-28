@@ -29,7 +29,7 @@ import { blockedReason } from "./effects/site-ssrf.mjs";
 import { tooMany, visitorIp, limited } from "./site-limit";
 
 export type FnEnv = { APP_CONN?: string; [name: string]: unknown };
-type Module = { default?: unknown; hosts?: unknown };
+type Module = { default?: unknown; hosts?: unknown; on?: unknown; visitors?: unknown };
 
 export const CALLS_PER_REQUEST = 10;
 export const CALL_TIMEOUT_MS = 30_000;
@@ -111,6 +111,10 @@ export async function siteFunction(request: Request, env: FnEnv, url: URL, slug:
   if (!m || m[1] !== slug) return null;
   const mod = moduleFor(m[2], mods);
   if (!mod || typeof mod.default !== "function") return fail(404, "no such function");
+  // A HOOK IS NOT A VISITOR'S TO CALL: a function that runs on an event (a paid
+  // booking, a new row, the clock) is reachable from outside only when it also
+  // says `export const visitors = true`, so nobody can fake the event.
+  if (hooksOf(mod).length && mod.visitors !== true) return fail(404, "no such function");
   const wait = tooMany("fn|" + m[2] + "|" + visitorIp(request), PER_MIN);
   if (wait) return limited(wait);
   let res: unknown;
@@ -130,4 +134,35 @@ export async function siteFunction(request: Request, env: FnEnv, url: URL, slug:
   headers.set("x-site-data", "own");
   headers.delete("set-cookie");
   return new Response(buf, { status: res.status, headers });
+}
+
+// HOOKS (2026-10-28): server code that runs when something happens, declared
+// `export const on = ["created:bookings", "paid:orders", "tick"]`.
+//   created:<table> / updated:<table> / deleted:<table>  a visitor's write
+//   paid:<table>                                         a payment recorded
+//   tick                                                 the site's clock (every few minutes)
+// The function gets a POST whose JSON body is { event, table, row }; its answer
+// is not shown to anyone. At most MAX_HOOKS run for one event.
+export const MAX_HOOKS = 5;
+const HOOK = /^(?:(?:created|updated|deleted|paid):[a-z][a-z0-9_]{0,62}|tick)$/;
+
+export function hooksOf(m: Module | null): string[] {
+  const on = m && Array.isArray(m.on) ? m.on : [];
+  return on.filter((x): x is string => typeof x === "string" && HOOK.test(x));
+}
+
+/** Run every function hooked to this event; never throws, answers how many ran. */
+export async function fireHooks(env: FnEnv, slug: string, event: string, data: { table?: string; row?: unknown } = {},
+  mods: Record<string, Module> = MODULES): Promise<number> {
+  const due = Object.values(mods).filter((m) => typeof m.default === "function" && hooksOf(m).includes(event)).slice(0, MAX_HOOKS);
+  await Promise.all(due.map(async (m) => {
+    try {
+      const req = new Request("https://" + slug + ".hook/__gf/hook", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ event, table: data.table || null, row: data.row ?? null }),
+      });
+      await (m.default as (r: Request, s: Site) => unknown)(req, makeSite(env, slug, declaredHosts(m)));
+    } catch { /* a hook's failure is its own */ }
+  }));
+  return due.length;
 }

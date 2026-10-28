@@ -51,6 +51,12 @@ export function checkServerPart(part) {
     const items = hostsDecl[1].split(",").map((s) => s.trim()).filter(Boolean);
     for (const it of items) if (!/^["'][a-z0-9.-]+\.[a-z]{2,}["']$/i.test(it)) reasons.push("lists a host that is not a plain address: " + it.slice(0, 60));
   }
+  const onDecl = src.match(/export\s+const\s+on\s*(?::[^=]+)?=\s*\[([^\]]*)\]/);
+  if (onDecl) {
+    for (const it of onDecl[1].split(",").map((x) => x.trim()).filter(Boolean)) {
+      if (!/^["'](?:(?:created|updated|deleted|paid):[a-z][a-z0-9_]{0,62}|tick)["']$/.test(it)) reasons.push("hooks an event that does not exist: " + it.slice(0, 60) + " (use created:<table>, updated:<table>, deleted:<table>, paid:<table> or tick)");
+    }
+  } else if (/export\s+const\s+on\b/.test(code)) reasons.push("declares `on` as something other than a plain list of events");
   for (const m of code.matchAll(/^\s*import\s+(?!type\b)[^;]*?from\s*["'][^"']*["']/gm)) reasons.push("imports code (`" + m[0].trim().slice(0, 60) + "`); server code imports nothing but types");
   if (/^\s*import\s*["']/m.test(code)) reasons.push("imports code for its side effects");
   for (const [re, why] of FORBIDDEN) if (re.test(code)) reasons.push(why);
@@ -70,14 +76,23 @@ export function importsServer(source) {
 export function vetServerCode({ pages = [], parts = [] } = {}) {
   const problems = [];
   const kept = [];
+  const failed = [];
   for (const p of parts) {
     if (!isServerPart(p)) { kept.push(p); continue; }
     const r = checkServerPart(p);
     if (r.ok) kept.push(p);
-    else problems.push("the site's server code `" + p.name + "` was left out: it " + r.reasons.join("; it ") + ".");
+    else failed.push({ part: p, reasons: r.reasons }), problems.push("the site's server code `" + p.name + "` was left out: it " + r.reasons.join("; it ") + ".");
   }
   const browserFiles = pages.map((p) => [p.path, p.source]).concat(kept.filter((p) => !isServerPart(p)).map((p) => [p.name, p.source]));
   const leaking = browserFiles.filter(([, s]) => importsServer(s)).map(([n]) => n);
   for (const n of leaking) problems.push("`" + n + "` imports the site's server code into the visitor's browser; it must call it at /api/db/<site>/fn/<name> instead.");
-  return { parts: kept, problems, leaking };
+  return { parts: kept, problems, leaking, failed };
 }
+
+/** What the repair call is told, beside the check's own reasons. */
+export const SERVER_REPAIR_RULES = [
+  "Keep exactly this shape: `export const hosts = [\"…\"]` (plain addresses it calls) and `export default async function (request: Request, site: any): Promise<Response>`.",
+  "Import nothing. Never read env, process, globalThis, window or self; never call fetch directly; never eval, new Function or import().",
+  "Every outside call is site.fetch(url, init) to a host in `hosts`; an owner's key goes in only as site.key(\"NAME\"); the database is site.sql(text, params).",
+  "Change only what the check refused; keep everything the function does.",
+].join("\n");

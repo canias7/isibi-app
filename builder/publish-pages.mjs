@@ -14,7 +14,8 @@
 // functions, so the real decision logic can be driven against fakes with no
 // model call, no container and no R2.
 
-import { vetServerCode } from "./server-code.mjs";
+import { vetServerCode, checkServerPart, SERVER_REPAIR_RULES } from "./server-code.mjs";
+import { runTweak } from "./site-tweak.mjs";
 import { validatePages, lintPages, repairImports, mergeParts, reviseSent } from "./page-gen.mjs";
 import { addUsages } from "./retry-reason.mjs";
 import { withParts, splitParts, isKitFile } from "./compile-repair.mjs";
@@ -1537,7 +1538,36 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
 
   // THE SITE'S OWN SERVER CODE (2026-10-28): what reaches around the `site`
   // helper is left out, and a browser file importing server code is named.
-  const vetted = vetServerCode({ pages: v.pages, parts: v.parts });
+  // A PART THAT FAILS IS SENT BACK ONCE, with the check's reasons, on the same
+  // model and send as the compile repair; kept only if it then passes, and
+  // charged only then (the compile repair's rule).
+  let vetted = vetServerCode({ pages: v.pages, parts: v.parts });
+  const failing = vetted.failed || [];
+  if (failing.length && typeof deps.compileRepair === "function") {
+    let room = true;
+    try { room = typeof deps.compileRepairRoom === "function" ? !!deps.compileRepairRoom() : true; } catch { room = false; }
+    if (room) {
+      const fixedParts = [];
+      for (const f of failing) {
+        let res = null;
+        try {
+          res = await runTweak({
+            instruction: "This is the site's own server code, and the safety check refused it because it " + f.reasons.join("; it ") + ".",
+            path: "src/routes/-parts/" + f.part.name + ".tsx", source: String(f.part.source || ""), send: deps.compileRepair,
+            inPart: true, rules: SERVER_REPAIR_RULES, heading: "WHY THE SERVER CODE WAS REFUSED",
+            ...(deps.compileRepairModel ? { model: deps.compileRepairModel } : {}),
+          });
+        } catch { res = null; }
+        const next = res && res.ok && typeof res.source === "string" ? { ...f.part, source: res.source } : null;
+        if (next && checkServerPart(next).ok) { fixedParts.push(next); if (res.usage) repairUsage.push(res.usage); }
+      }
+      if (fixedParts.length) {
+        const byName = new Map(fixedParts.map((q) => [q.name, q]));
+        vetted = vetServerCode({ pages: v.pages, parts: v.parts.map((q) => byName.get(q.name) || q) });
+        out.serverRepaired = fixedParts.map((q) => q.name);
+      }
+    }
+  }
   v.parts = vetted.parts;
   sitePartsForBuild = v.parts;
   const problems = v.problems.concat(vetted.problems, lintPages(v.pages, spec));

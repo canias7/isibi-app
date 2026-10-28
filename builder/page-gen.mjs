@@ -1909,6 +1909,59 @@ export const SITE_PAGES_TOOL = {
           "thought of yourself; a component nothing imports is dead weight in the bundle.\n" +
           "Leave this out entirely when nothing was asked for, which is nearly every build.",
       },
+      // THE SITE'S OWN SERVER CODE (2026-10-28, owner: "the model should be able
+      // to write everything"). Run by the site's own Worker through the `site`
+      // helper (template `src/lib/site-functions.ts`), checked before publishing
+      // (`builder/server-code.mjs`). Saved as the part `server-<name>`.
+      server: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            name: {
+              type: "string",
+              description: "kebab-case name; the function is reached at /api/db/<site>/fn/<name> (the page uses `/api/db/${SITE_SLUG}/fn/<name>`, with SITE_SLUG from \"@/site-brand\").",
+            },
+            source: {
+              type: "string",
+              description:
+                "The complete TypeScript for the function. Exactly this shape, importing nothing:\n" +
+                "export const hosts = [\"api.example.com\"];   // every outside address it calls; [] when none\n" +
+                "export default async function (request: Request, site: any): Promise<Response> { … }\n" +
+                "Use only the `site` helper: site.fetch(url, init) for every outside call (only to the hosts listed), " +
+                "site.key(\"NAME\") where an owner's key belongs (a header or body value — it is filled in on the way out, " +
+                "never readable), site.hasKey(\"NAME\") to tell the visitor the feature is not set up yet, " +
+                "site.sql(text, params) for the site's own database (`?` placeholders). Never read env, process or " +
+                "globals, never call fetch directly, never put a key in the answer. Return a Response (Response.json(...)).",
+            },
+          },
+          required: ["name", "source"],
+        },
+        description:
+          "CODE THAT RUNS ON THE SITE'S OWN SERVER, for what a page cannot do safely: anything needing one of the " +
+          "owner's keys or an outside service (an AI chatbot on their AI key, a payment provider other than the " +
+          "built-in Stripe checkout, sending a text, syncing a sheet), or a rule the server must enforce (stop a " +
+          "booking when a class is full). The page calls it with fetch(`/api/db/${SITE_SLUG}/fn/<name>`, …). " +
+          "Name the key the owner must add (UPPER_SNAKE, e.g. OPENAI_KEY) in your notes so they can set it. " +
+          "Example — a chatbot:\n" +
+          "export const hosts = [\"api.openai.com\"];\n" +
+          "export default async function (request: Request, site: any) {\n" +
+          "  if (!site.hasKey(\"OPENAI_KEY\")) return Response.json({ reply: \"The chat is not set up yet.\" }, { status: 503 });\n" +
+          "  const { messages } = await request.json();\n" +
+          "  const r = await site.fetch(\"https://api.openai.com/v1/chat/completions\", { method: \"POST\",\n" +
+          "    headers: { authorization: \"Bearer \" + site.key(\"OPENAI_KEY\"), \"content-type\": \"application/json\" },\n" +
+          "    body: JSON.stringify({ model: \"gpt-4o-mini\", messages: (messages || []).slice(-20) }) });\n" +
+          "  const j = await r.json();\n" +
+          "  return Response.json({ reply: j.choices?.[0]?.message?.content || \"\" });\n" +
+          "}\n" +
+          "TO RUN WHEN SOMETHING HAPPENS instead of when a page calls it, add `export const on = [...]` with any of " +
+          "\"created:<table>\" (a visitor's form saved a row), \"updated:<table>\", \"deleted:<table>\", " +
+          "\"paid:<table>\" (a payment for that row went through) or \"tick\" (every few minutes). It then receives a " +
+          "POST whose JSON is { event, table, row }, and visitors cannot call it (add `export const visitors = true` " +
+          "only if a page must also call it). E.g. text the owner on each booking: on = [\"created:bookings\"], " +
+          "hosts = [\"api.twilio.com\"].\n" +
+          "Leave this out when the site needs no server code, which is most sites.",
+      },
       remove: {
         type: "array",
         items: { type: "string" },
@@ -3653,6 +3706,20 @@ export function validatePages(input, { partial = false, knownRoutes = null } = {
     // and the error names the component — a file the customer never asked for
     // and cannot see.
     parts.push({ name, source: undupe(source, 'the component "' + name + '"') });
+  }
+  // THE SITE'S OWN SERVER CODE becomes the part `server-<name>` (2026-10-28).
+  for (const t of (input && Array.isArray(input.server)) ? input.server : []) {
+    const base = t && typeof t.name === "string" ? t.name.trim().toLowerCase().replace(/^server-/, "") : "";
+    const source = t && typeof t.source === "string" ? t.source : "";
+    const name = "server-" + base;
+    if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(base)) {
+      problems.push('"' + String((t && t.name) || "?").slice(0, 60) + '" is not a usable server function name, so it was not written.');
+      continue;
+    }
+    if (!source.trim()) { problems.push('The server function "' + base + '" was written with no code in it.'); continue; }
+    if (partSeen.has(name)) { problems.push('The server function "' + base + '" was written twice; the second was ignored.'); continue; }
+    partSeen.add(name);
+    parts.push({ name, source });
   }
   return { pages, notes, problems, parts };
 }

@@ -14,6 +14,7 @@
 //
 // Nothing here holds a key of the platform's. Every sender's failure is its
 // own: the visitor's submission has already been saved either way.
+import { fireHooks, type FnEnv } from "./site-functions";
 import { runRowEffects, resolveCreatedRow } from "./effects/site-row-effects.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./effects/site-notify.mjs";
 import { sendConfirmation, pickProvider } from "./effects/site-mail.mjs";
@@ -82,6 +83,11 @@ export function runEffectsFor(env: EffectEnv, ctx: Ctx | undefined, { slug, def,
   // The site's own bucket only: a script on the shared one keeps no memory.
   const B = env.OWN_BUCKET === "1" ? env.SITES : undefined;
   const later = (p: Promise<unknown>) => { const q = p.catch(() => {}); if (ctx) ctx.waitUntil(q); };
+  // THE SITE'S OWN SERVER CODE HOOKED TO THIS (2026-10-28): a payment recorded
+  // is `paid:<table>`; anything else is `<action>:<table>`.
+  const r0 = row && typeof row === "object" ? (row as Record<string, unknown>) : {};
+  const event = (action === "updated" && r0.payment_status === "paid" ? "paid" : action) + ":" + table;
+  later(fireHooks(env as unknown as FnEnv, slug, event, { table, row }));
   const callFn = async (name: string, rowId: unknown) => {
     if (rowId == null || !conn || !/^[a-z][a-z0-9_]{0,40}$/.test(String(name))) return null;
     const rows = await siteSql(conn, `SELECT "${name}"(?) AS out`, [rowId]);
