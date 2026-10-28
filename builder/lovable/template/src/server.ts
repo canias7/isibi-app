@@ -32,6 +32,7 @@ import { siteCheckout, stripeSiteWebhook, type PayEnv } from "./lib/site-pay";
 import { siteApi, siteHook, type ConnectEnv } from "./lib/site-connect";
 import { siteSeoFile, siteRedirect, absolutized, type AddressEnv } from "./lib/site-addresses";
 import { siteError, countVisit, type TelemetryEnv } from "./lib/site-telemetry";
+import { tooMany, visitorIp, limited } from "./lib/site-limit";
 import { siteJob, JOB_HEADER, type JobEnv } from "./lib/site-jobs-run";
 import { siteTick, type RetryEnv } from "./lib/site-webhook-retry";
 
@@ -144,6 +145,9 @@ export async function ownDataWrite(request: Request, env: Env, url: URL, ctx?: C
   if (!url.pathname.toLowerCase().startsWith(prefix)) return null;
   const path = url.pathname.slice(prefix.length);
   if (!/^[a-z0-9_][a-z0-9/._-]{0,79}$/i.test(path)) return null;
+  // Writes per visitor per minute — the platform's old ceiling, kept here.
+  const wait = tooMany("write|" + visitorIp(request), 60);
+  if (wait) return limited(wait);
   const bucket = env.SITES as unknown as Bucket;
   const sent = dropChallenge(await request.text());
 
@@ -203,7 +207,12 @@ export async function ownAuth(request: Request, env: Env, url: URL): Promise<Res
   const prefix = "/api/db/" + SITE_SLUG + "/auth/";
   if (!url.pathname.toLowerCase().startsWith(prefix)) return null;
   const path = url.pathname.slice(prefix.length);
-  if (!/^[a-z0-9][a-z0-9/._-]{0,79}$/i.test(path)) return null;
+  if (!/^[a-z0-9][a-z0-9/._-]{0,79}$/i.test(path) || path.split("/").includes("..")) return null;
+  // Sign-in, sign-up and reset tries per visitor per minute; reads are free.
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    const wait = tooMany("auth|" + visitorIp(request), 20);
+    if (wait) return limited(wait);
+  }
   const h = new Headers();
   for (const k of ["content-type", "authorization", "accept", "prefer", "cookie"]) { const v = request.headers.get(k); if (v) h.set(k, v); }
   try { h.set("origin", new URL(env.AUTH_BASE).origin); } catch { /* answered below */ }

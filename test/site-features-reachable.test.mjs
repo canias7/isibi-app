@@ -17,6 +17,8 @@ import { normalizeSchema } from "../site-schema.mjs";
 import { normalizeConfirm } from "../site-mail.mjs";
 import { normalizeSms } from "../site-sms.mjs";
 import { normalizePayment } from "../site-payments.mjs";
+import { loadTemplate } from "./fixtures/template-ts.mjs";
+import { driveWrite, withFetch, APP_CONN } from "./fixtures/site-effects-drive.mjs";
 
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const schema = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
@@ -99,34 +101,46 @@ test("_meta stores WHOLE table objects, so nothing has to be listed to survive",
 
 /* ── link 4: the request path reads them back and acts ───────────────────── */
 
-test("the write path calls the confirmation and the text message", () => {
-  // Read off the real source: both are fired on a successful insert, from the
-  // table def loaded out of _meta. Either call missing is a site that looks like
-  // it confirms and does not.
-  // ANCHORED ON WHAT ONLY A CALL HAS. Written to match `…{ slug, db, def, row`,
-  // both of these matched the function's own DECLARATION — so a mutation
-  // deleting the call site outright survived. The declaration takes `row }`; the
-  // call passes `row: row || {}`. Same failure this codebase already recorded
-  // for `buildEffortHTML()` matching its own definition.
-  for (const fn of ["confirmSubmitter", "smsSubmitter"]) {
-    // Since audit A12-1 the call lives in the shared row step, `row: r`.
-    const calls = worker.match(new RegExp(fn + "\\(env, ctx, \\{ slug, db, def, row: r\\b", "g")) || [];
+test("the write path calls the confirmation and the text message", async () => {
+  // Both are fired on a successful insert, from the table def the site was
+  // given out of the stored schema. Either call missing is a site that looks
+  // like it confirms and does not.
+  // (2026-10-28: the site's own Worker — the publish hands it the stored
+  // schema's tables as `SITE_TABLES`, and its write path is driven here.)
+  assert.match(worker, /const spec = await loadSiteSchema\(db\)/,
+    "the publish no longer loads the stored schema");
+  assert.match(worker, /SITE_TABLES: JSON\.stringify\(spec\.tables\)/,
+    "the table defs no longer come from the stored schema");
+  const tables = normalizeSchema(SPEC).tables;
+  const run = await driveWrite({ tables, path: "bookings", sent: '{"customer_email":"ada@example.com","slot":"9"}',
+    body: '[{"id":3,"customer_email":"ada@example.com","slot":"9"}]',
+    env: { RESEND_KEY: "re_k", EMAIL_FROM: "shop@example.com", TWILIO_SID: "AC1", TWILIO_TOKEN: "t", SMS_FROM: "+15005550006" },
+    sql: (q) => (/confirm_booking/.test(q) ? [{ out: { to: "ada@example.com", subject: "Booked", body: "<p>Yes</p>" } }]
+      : /sms_booking/.test(q) ? [{ out: { to: "+447700900123", body: "Booked" } }] : []) });
+  for (const fn of ["confirm_booking", "sms_booking"]) {
+    const calls = run.queries.filter((q) => q.query.includes('"' + fn + '"'));
     assert.equal(calls.length, 1, `${fn} is called ${calls.length} times on the write path — expected exactly once`);
   }
-  // `def` is the table read back from _meta, not something rebuilt.
-  assert.match(worker, /const def = \(spec && spec\.tables \|\| \[\]\)\.find/,
-    "the table def no longer comes from the stored schema");
-  assert.match(worker, /const spec = await loadSiteSchema\(db\)/,
-    "the write path no longer loads the stored schema");
+  assert.equal(run.calls.filter((c) => c.url === "https://api.resend.com/emails").length, 1, "the confirmation was built and never sent");
+  assert.equal(run.calls.filter((c) => c.url.includes("api.twilio.com")).length, 1, "the text was built and never sent");
 });
 
-test("the checkout route resolves payment from the stored schema", () => {
-  const at = worker.indexOf("async function handleCheckout(");
-  assert.ok(at > 0, "the checkout handler is gone");
-  const fn = worker.slice(at, at + 900);
-  assert.match(fn, /schema && Array\.isArray\(schema\.tables\)/, "checkout no longer reads the stored tables");
-  assert.match(fn, /normalizePayment\(table\)/, "checkout no longer resolves the table's payment declaration");
-  assert.match(worker, /await handleCheckout\(\{/, "the checkout handler has no caller");
+test("the checkout route resolves payment from the stored schema", async () => {
+  // (2026-10-28: the site's own Worker — `siteCheckout`, driven with the
+  // stored schema's tables as the publish hands them over.)
+  const { siteCheckout } = await loadTemplate("lib/site-pay.ts");
+  const env = { APP_CONN, SITE_TABLES: JSON.stringify(normalizeSchema(SPEC).tables) };
+  const url = new URL("https://shop.example/api/db/shop/checkout");
+  const go = (body, ip) => withFetch({ sql: (q) => (/FROM "products"/.test(q) ? [{ id: 1, name: "Loaf", price: 400 }] : []) }, () =>
+    siteCheckout(new Request(url, { method: "POST", headers: { "CF-Connecting-IP": ip }, body: JSON.stringify(body) }), env, url, "shop"));
+  // A table with no payment declaration is not something to pay for.
+  const none = await go({ table: "products", items: [{ id: 1 }] }, "1.1.1.1");
+  assert.equal(none.out.status, 404, "checkout no longer resolves the table's payment declaration");
+  // A payable one is priced from the table its declaration names.
+  const paid = await go({ table: "orders", items: [{ id: 1, qty: 2 }] }, "1.1.1.2");
+  assert.ok(paid.queries.some((q) => /FROM "products" WHERE id IN/.test(q.query)), "checkout no longer reads the stored tables");
+  assert.equal(paid.out.status, 503, "priced, then refused for want of the owner's own Stripe key");
+  assert.match((await paid.out.json()).error, /setting up payments/);
 });
 
 /* ── the readers agree with what the normaliser stored ───────────────────── */

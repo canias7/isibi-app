@@ -20,6 +20,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { withWire, envFor } from "./fixtures/live-ask.mjs";
 import { mediaBucket } from "./fixtures/r2-media.mjs";
+import { siteWorkersServingFiles } from "./fixtures/site-own-files.mjs";
 import { sniffMedia } from "../site-media.mjs";
 import {
   run, judgeDeleteVsClose, composerAllows, FOLLOW_UP_THREADS, caseHistory, CONVERSE_CASES, wavOf, GUARDED_SITES, ESTIMATES, BROWSER_EXPECT, UNAVAILABLE, MODES,
@@ -188,7 +189,10 @@ test("THE GATES: a guarded site, a mutating mode without mutate=yes, and a paid 
 test("THE STORAGE MODE, END TO END against the real Worker: every check passes, every race ends consistent, and the library ends as it was found", { timeout: 600000 }, async () => {
   const worker = await loadWorker();
   const bucket = mediaBucket({ lag: true });
-  const env = envFor(bucket);
+  // THE SITE ORIGIN'S FILES ARE ITS OWN WORKER'S (2026-10-28: the site's own
+  // Worker): the live script stand-in serves them from the site's bucket
+  // through the template's real handler; the app's address is still ours.
+  const env = { ...envFor(bucket), SITE_WORKERS: await siteWorkersServingFiles(bucket) };
   await withWire({}, async (seen) => {
     const lines = [];
     const r = await run({ fetch: wired(worker, env, seen), base: "https://gofarther.dev", token: "t", fixtures: FIX, mode: "storage", slug: "verify-store", mutate: "yes", repeat: 2, log: (l) => lines.push(l) });

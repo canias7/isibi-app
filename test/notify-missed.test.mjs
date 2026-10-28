@@ -77,20 +77,6 @@ test("fails open: a broken counter (no column) changes nothing about the email",
 });
 
 const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-test("the Worker wires the counter through two RPCs that fail open", () => {
-  const a = w.indexOf("function notifyOwnerOfSubmission(");
-  const b = w.indexOf("\n}\n", a);
-  assert.ok(a > 0 && b > a, "landmarks");
-  assert.match(w.slice(a, b), /missed: notifyMissed\(env\)/);
-  const r = w.indexOf("async function notifyMissedRpc(");
-  const re = w.indexOf("\n}\n", r);
-  assert.ok(r > 0 && re > r, "rpc landmarks");
-  const body = w.slice(r, re);
-  assert.match(body, /if \(!r\.ok\) return null;/);
-  assert.match(body, /catch \{ return null; \}/);
-  assert.match(w, /"site_notify_missed_take"/);
-  assert.match(w, /"site_notify_missed_add"/);
-});
 
 test("the proposed SQL adds the column and both functions, service-role only", () => {
   const sql = readFileSync(new URL("../supabase/proposed/notify_missed.sql", import.meta.url), "utf8");

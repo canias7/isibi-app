@@ -30,6 +30,7 @@ import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { page as pageSrc, withWire, envFor } from "./fixtures/live-ask.mjs";
 import { rowsDb, BAKERY_LOAVES, LOAF_COLUMNS } from "./fixtures/rows-db.mjs";
 import { mediaBucket } from "./fixtures/r2-media.mjs";
+import { siteWorkersServingFiles } from "./fixtures/site-own-files.mjs";
 import { buildPrefix, MANIFEST_FILE, SERVER_FILE } from "../site-builds.mjs";
 import { readBoxes, unmetFor, runDraftVerify, moneyCheck, finish } from "../scripts/draft-verify.mjs";
 
@@ -154,7 +155,10 @@ test("DV4 MEDIA — a recording replaced under draft-first through the real rout
   const worker = await loadWorker();
   const slug = "dv-media";
   const store = mediaBucket();
-  const env = { ...envFor(store), DRAFT_FIRST: "on", IMAGE_PURCHASES: "off", SITE_WORKERS: { get: () => ({ fetch: async () => new Response("page") }) } };
+  // THE LIVE ADDRESS'S FILES ARE THE SITE'S OWN WORKER'S (2026-10-28: the
+  // site's own Worker), so the live script stand-in serves them, from the
+  // site's bucket, through the template's real handler.
+  const env = { ...envFor(store), DRAFT_FIRST: "on", IMAGE_PURCHASES: "off", SITE_WORKERS: await siteWorkersServingFiles(store) };
   const pre = buildPrefix(slug, "01790500000000-aaaaaa");
   await store.put(pre + MANIFEST_FILE, JSON.stringify({ files: ["index.html"], worker: true, build: "b0" }));
   await store.put(pre + SERVER_FILE, "export default {}");
@@ -191,7 +195,8 @@ test("DV6 THE LIVE BATCH'S MEDIA — media-setup uploads the video, audio and di
   const worker = await loadWorker();
   const slug = "dv-media-batch";
   const store = mediaBucket();
-  const env = { ...envFor(store), DRAFT_FIRST: "on", IMAGE_PURCHASES: "off", SITE_WORKERS: { get: () => ({ fetch: async () => new Response("page", { headers: { "x-site-version": "01790500000000-aaaaaa" } }) }) } };
+  const env = { ...envFor(store), DRAFT_FIRST: "on", IMAGE_PURCHASES: "off", SITE_WORKERS: await siteWorkersServingFiles(store, { version: "01790500000000-aaaaaa" }) };
+  // (2026-10-28: the site's own Worker serves the live address's files; see DV4.)
   const pre = buildPrefix(slug, "01790500000000-aaaaaa");
   await store.put(pre + MANIFEST_FILE, JSON.stringify({ files: ["index.html"], worker: true, build: "b0" }));
   await store.put(pre + SERVER_FILE, "export default {}");

@@ -96,7 +96,9 @@ test("the auth proxy admits the plugin's slashed paths, and nothing wider", asyn
   const a = src.indexOf("export async function ownAuth("), b = src.indexOf("\n}\n", a) + 3;
   assert.ok(a > 0 && b > a, "ownAuth moved");
   const cookie = fs.readFileSync(new URL("../site-cookie.mjs", import.meta.url), "utf8");
-  const js = ts.transpileModule(cookie + "\nconst SITE_SLUG = 'cafe-1';\n" + src.slice(a, b),
+  // The site's own limiter (lib/site-limit.ts), real, beside it.
+  const lim = fs.readFileSync(new URL("../builder/lovable/template/src/lib/site-limit.ts", import.meta.url), "utf8").replace(/^export /gm, "");
+  const js = ts.transpileModule(cookie + "\n" + lim + "\nconst SITE_SLUG = 'cafe-1';\n" + src.slice(a, b),
     { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
   const { ownAuth } = await import("data:text/javascript," + encodeURIComponent(js));
   const seen = [];

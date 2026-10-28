@@ -13,6 +13,22 @@ import fs from "node:fs";
 
 import { hit } from "./fixtures/worker-harness.mjs";
 import { PAGE_RULES, RULE_CITED_COMPONENTS } from "../builder/page-gen.mjs";
+import { ERRORS_TABLE_SQL } from "../site-schema.mjs";
+import { loadTemplate } from "./fixtures/template-ts.mjs";
+import { withFetch, heldCtx, APP_CONN } from "./fixtures/site-effects-drive.mjs";
+
+/** One request to the site's own error route (2026-10-28: the site's own Worker). */
+async function err(p, init = {}, { sql } = {}) {
+  const { siteError } = await loadTemplate("lib/site-telemetry.ts");
+  const url = new URL("https://some-site.example" + p);
+  const c = heldCtx();
+  const r = await withFetch({ sql }, async () => {
+    const res = await siteError(new Request(url, init), { APP_CONN }, url, "some-site", c.ctx);
+    await c.settle();
+    return res;
+  });
+  return { res: r.out, status: r.out && r.out.status, text: r.out ? await r.out.text() : "", queries: r.queries };
+}
 
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const schema = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
@@ -25,47 +41,37 @@ test("POST /api/db/<slug>/error answers 204 whatever happened", async () => {
   // Fire-and-forget telemetry: an error response would only produce a second
   // console error about reporting the first, and a distinct status for "no
   // such site" would let a stranger probe slugs through an unauthenticated
-  // endpoint. With an empty env the store step can only fail — and the caller
-  // must still get 204.
-  const r = await hit("/api/db/some-site/error", {
+  // endpoint. With a database that refuses, the store step can only fail —
+  // and the caller must still get 204.
+  // (2026-10-28: the site's own Worker — `siteError`, driven.)
+  const r = await err("/api/db/some-site/error", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ message: "boom", route: "/book", source: "onerror" }),
-  });
+  }, { sql: () => new Error("relation \"_errors\" does not exist") });
   assert.equal(r.status, 204);
   assert.equal(r.text, "");
 });
 
 test("the error route refuses GET and junk bodies stay 204", async () => {
-  const g = await hit("/api/db/some-site/error", { method: "GET" });
+  // (2026-10-28: the site's own Worker.)
+  const g = await err("/api/db/some-site/error", { method: "GET" });
   assert.equal(g.status, 405, "a misconfigured sender should learn its verb is wrong");
-  const junk = await hit("/api/db/some-site/error", { method: "POST", body: "not json at all" });
+  const junk = await err("/api/db/some-site/error", { method: "POST", body: "not json at all" });
   assert.equal(junk.status, 204, "a junk body is dropped, never negotiated with");
+  assert.equal(junk.queries.length, 0);
 });
 
 test("THE ERROR ROUTE SWALLOWS NO SIBLING under the shared /api/db/ prefix", async () => {
-  // Its outer guard is `endsWith("/error")` inside a block full of sibling
-  // routes, and it sits ABOVE auth, turnstile, checkout and uploads. So
-  // `/api/db/x/auth/error` enters this branch first, and only the inner regex —
-  // slug immediately followed by `/error` — stops it being answered here and
-  // never reaching the auth proxy. Adding an endsWith route to a shared prefix
-  // block is exactly how a sibling gets swallowed, so it is proven rather than
-  // reasoned: the real router, one request each.
-  const mine = await hit("/api/db/x/error", { method: "POST", body: "{}" });
+  // Adding an endsWith route to a shared prefix block is exactly how a sibling
+  // gets swallowed, so it is proven rather than reasoned: one request each.
+  // (2026-10-28: the site's own Worker — `siteError` answers only its own
+  // exact path, and hands everything else on as `null`.)
+  const mine = await err("/api/db/some-site/error", { method: "POST", body: "{}" });
   assert.equal(mine.status, 204, "the exact shape no longer reaches the error route");
-
-  for (const p of ["/api/db/x/auth/error", "/api/db/x/data/error", "/api/db/x/hook/error"]) {
-    let reached = "error-route";
-    try {
-      const r = await hit(p, { method: "POST", body: "{}" });
-      // 204 with an empty body is THIS route's answer and nothing else's here.
-      reached = (r.status === 204 && r.text === "") ? "error-route" : "elsewhere";
-    } catch {
-      // Its own handler tried to reach a binding the harness does not supply,
-      // which is proof it got there — this route needs no binding to answer.
-      reached = "elsewhere";
-    }
-    assert.equal(reached, "elsewhere", p + " was swallowed by the error route");
+  for (const p of ["/api/db/some-site/auth/error", "/api/db/some-site/data/error", "/api/db/some-site/hook/error", "/api/db/other-site/error"]) {
+    const r = await err(p, { method: "POST", body: "{}" });
+    assert.equal(r.res, null, p + " was swallowed by the error route");
   }
 });
 
@@ -78,31 +84,46 @@ test("GET /api/site/<slug>/errors exists and refuses an unauthenticated caller",
 
 // ── The write path's discipline (source-reads) ──────────────────────────────
 
-test("the rate limit fires BEFORE the body is read, and the write rides waitUntil", () => {
-  const at = worker.indexOf('url.pathname.endsWith("/error")');
-  assert.ok(at > 0, "the error route is gone");
-  const block = worker.slice(at, worker.indexOf("/turnstile", at));
-  const limit = block.indexOf("_dataLimiter.hit(");
-  const read = block.indexOf("readJsonBody(request");
-  assert.ok(limit > 0 && read > limit, "the body is buffered before the rate limit — a flood costs us the read");
-  // AND THE ANSWER IS ACTED ON. Calling the limiter and ignoring it passes the
-  // ordering check perfectly — a mutant deleting the refusal survived the whole
-  // suite, leaving a flood free to buffer bodies and wake the site's database on
-  // every request. Ordering is worthless without the refusal it orders.
-  const refuse = block.indexOf("if (!ehit.ok)");
-  assert.ok(refuse > limit && refuse < read,
-    "the rate limit's verdict is computed and discarded — it bounds nothing");
+test("the rate limit fires BEFORE the body is read, and the write rides waitUntil", async () => {
+  // (2026-10-28: the site's own Worker — `siteError`, driven.)
+  const { siteError } = await loadTemplate("lib/site-telemetry.ts");
+  const env = { APP_CONN };
+  const url = new URL("https://some-site.example/api/db/some-site/error");
+  let reads = 0;
+  const req = (body, ip = "9.9.9.9") => {
+    const r = new Request(url, { method: "POST", headers: { "CF-Connecting-IP": ip }, body });
+    const text = r.text.bind(r);
+    r.text = () => { reads++; return text(); };
+    return r;
+  };
+  const c = heldCtx();
+  const run = await withFetch({}, async () => {
+    const out = [];
+    for (let i = 0; i < 8; i++) out.push((await siteError(req(JSON.stringify({ message: "m" + i, source: i ? "onerror" : "<b>evil</b>" })), env, url, "some-site", c.ctx)).status);
+    await c.settle();
+    return out;
+  });
+  // AND THE ANSWER IS ACTED ON: past the limit the body is never read and
+  // nothing is written. A flood costs no read and wakes no database.
+  assert.deepEqual(run.out, [204, 204, 204, 204, 204, 204, 204, 204]);
+  assert.equal(reads, 6, "the body is buffered before the rate limit — a flood costs the read");
+  const inserts = run.queries.filter((q) => /^INSERT INTO _errors/.test(q.query));
+  assert.equal(inserts.length, 6);
   // The audit-log lesson: a detached promise nobody holds is cancelled with
   // the request, and a log that keeps a random subset is worse than none.
-  const wait = block.indexOf("ctx.waitUntil(");
-  const insert = block.indexOf("INSERT INTO _errors");
-  assert.ok(wait > 0 && insert > wait, "the store write is not held by waitUntil — reports vanish mid-flight");
+  assert.equal(c.seen.n, 6, "the store write is not held by waitUntil — reports vanish mid-flight");
   // The source field is an allow-list of the reporter's own three values, so a
   // stranger cannot write arbitrary strings into the owner's panel labels.
-  assert.match(block, /\["error_boundary", "onerror", "unhandledrejection"\]\.includes\(body\.source\)/);
+  assert.equal(inserts[0].params[3], "onerror");
   // Prune on the WRITE — a table only trimmed when the panel opens grows
   // without bound on every site nobody looks at.
-  assert.match(block, /DELETE FROM _errors WHERE id NOT IN \(SELECT id FROM _errors ORDER BY id DESC LIMIT 500\)/);
+  const rnd = Math.random;
+  Math.random = () => 0;
+  try {
+    const c2 = heldCtx();
+    const pr = await withFetch({}, async () => { await siteError(req('{"message":"x"}', "8.8.8.8"), env, url, "some-site", c2.ctx); await c2.settle(); });
+    assert.ok(pr.queries.some((q) => q.query === "DELETE FROM _errors WHERE id NOT IN (SELECT id FROM _errors ORDER BY id DESC LIMIT 500)"));
+  } finally { Math.random = rnd; }
 });
 
 test("A SITE THAT NEVER RUNS A FULL BUILD STILL GETS ITS ERRORS RECORDED", () => {
@@ -113,39 +134,25 @@ test("A SITE THAT NEVER RUNS A FULL BUILD STILL GETS ITS ERRORS RECORDED", () =>
   // table: every report throws `relation "_errors" does not exist` into a
   // swallowing catch, and the panel says **"Nothing has gone wrong"** — the
   // exact failure this feature exists to prevent, wearing a reassuring
-  // sentence. The write path heals it on first use.
-  const at = worker.indexOf('url.pathname.endsWith("/error")');
-  const block = worker.slice(at, worker.indexOf("THE ONE PART OF SPAM PROTECTION", at));
-  // Anchored on the PROPERTY — a missing table is detected, and anything else
-  // rethrows — rather than on the spelling of the condition, which this test
-  // pinned in a first draft and then failed on a correct change of my own.
-  assert.match(block, /does not exist/i,
-    "a missing table is not detected — reports are dropped on every pre-existing site");
-  assert.match(block, /if \(!\w+\) throw e;|throw e;/,
-    "a failure that is NOT a missing table is swallowed instead of surfacing");
-  assert.match(block, /CREATE TABLE IF NOT EXISTS _errors/,
-    "nothing creates the table on the write path — it heals nowhere");
-  // THE SQLSTATE TOO, on both the write heal and the owner read. `42P01` is
-  // undefined_table and is what Postgres actually promises; the message is
-  // English prose a driver upgrade could reword, and matching only that would
-  // leave the heal dead on every existing site — the precise state it exists to
-  // end — with no live database here to discover it on.
-  assert.match(block, /\(e && e\.code\) === "42P01"/,
-    "the write heal matches the message only — a reworded driver error kills it silently");
+  // sentence.
+  // (2026-10-28: the site's own Worker writes as its limited login, which
+  // cannot create a table, so the heal moved to the publish: every publish
+  // that gives a site its limited login repeats the DDL on the owner's login.)
+  assert.equal(ERRORS_TABLE_SQL, "CREATE TABLE IF NOT EXISTS _errors (id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, at TEXT, message TEXT, stack TEXT, route TEXT, source TEXT)");
+  assert.match(schema, /await sqlQuery\(uuid, "CREATE TABLE IF NOT EXISTS _errors \(id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, at TEXT, message TEXT, stack TEXT, route TEXT, source TEXT\)"\)/,
+    "the publish's DDL and the build's must be the same table");
+  const at = worker.indexOf("const app = await siteAppConn(env, slug)");
+  assert.ok(at > 0, "the publish's limited-login step moved — retarget this test");
+  const block = worker.slice(at, worker.indexOf("const owned = {};", at));
+  assert.ok(block.length > 100, "landmarks");
+  assert.match(block, /if \(app\) \{[\s\S]*?siteBackendBySlug\(env, slug\)[\s\S]*?for \(const q of \[ERRORS_TABLE_SQL, HITS_TABLE_SQL, JOBS_TABLE_SQL\]\) await sqlExec\(ownerConn, q\)/,
+    "nothing creates the table on the publish — it heals nowhere");
+  // THE SQLSTATE on the owner read too. `42P01` is undefined_table and is what
+  // Postgres actually promises; a pre-table site must read empty, not 503.
   const ownerAt = worker.indexOf("} else if (er) {");
   const ownerBlock = worker.slice(ownerAt, worker.indexOf("} else if (", ownerAt + 10));
   assert.match(ownerBlock, /\(e && e\.code\) === "42P01"/,
     "the owner read matches the message only — a pre-table site would 503 instead of reading empty");
-  // CREATE-AND-RETRY, not create-first: the ordinary path must stay ONE
-  // statement, so the extra round trip is paid once per site rather than on
-  // every report a busy site sends.
-  const firstInsert = block.indexOf("await insert();");
-  const create = block.indexOf("CREATE TABLE IF NOT EXISTS _errors");
-  assert.ok(firstInsert > 0 && create > firstInsert,
-    "the table is created BEFORE the insert — every report pays a DDL round trip");
-  // And a failure that is NOT a missing table still surfaces rather than being
-  // silently retried into the same wall.
-  assert.match(block, /throw e;/);
 });
 
 test("_errors is created by every build, beside _secrets, and granted to nobody", () => {

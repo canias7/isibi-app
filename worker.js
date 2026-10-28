@@ -30823,7 +30823,13 @@ async function handleRequest(request, env, ctx) {
     // by its own Worker. Passed on, never handled here.
     if (url.pathname.startsWith("/api/stripe/site/") && request.method === "POST") {
       const wm = url.pathname.match(/^\/api\/stripe\/site\/([a-z0-9][a-z0-9-]{0,80})$/i);
-      if (wm) return siteAnswers(env, request, wm[1].toLowerCase());
+      if (wm) {
+        const own = await ownDataRead(env, request, wm[1].toLowerCase());
+        // A site that cannot take Stripe's message is told to Stripe as done
+        // (200), as before: a 5xx would be retried for days and then switch the
+        // owner's endpoint off.
+        return own || Response.json({ ok: true, ignored: "this site cannot take payments messages" });
+      }
     }
 
     if (url.pathname === "/api/stripe/webhook" && request.method === "POST") {

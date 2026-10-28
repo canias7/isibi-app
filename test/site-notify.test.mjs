@@ -266,30 +266,29 @@ test("nothing on a published site's path can reach OUR sender", async () => {
     "if it is reachable from a published site it must use that site's own key");
 
   // And the notification specifically: it goes out on the SITE's provider.
-  const i = worker.indexOf("function notifyOwnerOfSubmission(");
-  assert.ok(i > 0, "notifyOwnerOfSubmission moved — rescope this");
-  const body = worker.slice(i, worker.indexOf("\n}", worker.indexOf("waitUntil(p)", i)));
-  assert.ok(!/env\.EMAIL|sendMail\(/.test(body),
-    "the owner notification is back on our sender — every booking on every site " +
-    "would spend the quota the login code needs");
-  assert.match(body, /pickProvider\(/, "it must choose the site owner's own provider");
-  assert.match(body, /postProviderEmail\(/, "…and post through it");
+  // (2026-10-28: the site's own Worker, driven through `runSiteEffects`; the
+  // platform's `EMAIL` binding is present and must not be touched.)
+  const { driveWrite } = await import("./fixtures/site-effects-drive.mjs");
+  const tables = [{ name: "bookings", access: "collect", columns: ["who"], notify: true }];
+  const go = (env) => driveWrite({ tables, sent: '{"who":"Ada"}', body: '[{"id":1,"who":"Ada"}]',
+    env: { NOTIFY: "1", OWNER_EMAIL: "owner@example.com", EMAIL: { send: () => { throw new Error("our sender was used"); } }, ...env } });
+  const sent = await go({ RESEND_KEY: "re_owner", EMAIL_FROM: "shop@example.com" });
+  const mail = sent.calls.filter((c) => c.url === "https://api.resend.com/emails");
+  assert.equal(mail.length, 1, "it must choose the site owner's own provider, and post through it");
+  assert.equal(mail[0].init.headers.Authorization, "Bearer re_owner");
+  assert.equal(JSON.parse(mail[0].init.body).to, "owner@example.com");
 
   // AND IT MUST SAY WHICH HALF IS MISSING. Without these, a site with no key
   // still fails — on `picked.provider` — but the reason logged is "Cannot read
   // properties of null", so an owner who pasted a key and forgot EMAIL_FROM
-  // cannot be told which one. Anchored on the CONDITION, not the message: a
-  // mutation to `if (false)` leaves every one of those strings in place, which
-  // is how it survived the first sweep.
-  assert.match(body, /if \(!picked\) throw/, "a missing provider key must be named, not hit as a null read");
-  assert.match(body, /if \(!from\) throw/, "a missing EMAIL_FROM must be named too — it is the commoner mistake");
-  // The vault is read through ONE function, shared with the visitor confirmation:
-  // two readers of one vault are two things that can disagree about which key is
-  // live, which is this codebase's most repeated failure.
-  assert.match(body, /siteMailSecrets\(/, "it must read the site's vault through the shared reader");
-  const conf = worker.slice(worker.indexOf("function confirmSubmitter("), worker.indexOf("function confirmSubmitter(") + 1200);
-  assert.match(conf, /loadSecrets: siteMailSecrets\(/,
-    "the confirmation stopped using the shared vault reader — now there are two");
+  // cannot be told which one. Driven at the `ready` the site hands notifyOwner.
+  const src = fs.readFileSync(new URL("../builder/lovable/template/src/lib/site-effects.ts", import.meta.url), "utf8");
+  assert.match(src, /if \(!picked\) throw new Error\("no mail provider key/, "a missing provider key must be named, not hit as a null read");
+  assert.match(src, /if \(!from\) throw new Error\("no EMAIL_FROM/, "a missing EMAIL_FROM must be named too — it is the commoner mistake");
+  for (const env of [{}, { RESEND_KEY: "re_owner" }]) {
+    const none = await go(env);
+    assert.equal(none.calls.length, 0, "nothing is sent without the owner's own key and address: " + JSON.stringify(env));
+  }
 
   // AND THE JOBS RUNNER, which was the hand-rolled THIRD copy (2026-08-13
   // audit): same four names, same loop, one provider away from telling an
@@ -307,16 +306,16 @@ test("nothing on a published site's path can reach OUR sender", async () => {
   assert.match(jr, /postProviderEmail\(/);
   assert.doesNotMatch(jr, /sendMail|env\.EMAIL\b/);
 
-  // The strongest form: the four vault names are enumerated ONCE in the whole
-  // Worker — inside siteMailSecrets — so a fourth copy added anywhere fails
-  // here whatever the function around it is called.
-  const enumerations = [...worker.matchAll(/"RESEND_KEY"/g)];
-  assert.equal(enumerations.length, 1,
-    "the mail-vault names are enumerated more than once in worker.js — a second reader has appeared");
-  const readerAt = worker.indexOf("function siteMailSecrets(");
-  assert.ok(readerAt > 0, "siteMailSecrets moved — rescope this");
-  assert.ok(enumerations[0].index > readerAt && enumerations[0].index < readerAt + 2000,
-    "the one enumeration of the vault names is not inside siteMailSecrets");
+  // The strongest form: the four vault names are enumerated ONCE — in the
+  // site's own Worker, inside the shared step (2026-10-28) — so a fourth copy
+  // added anywhere fails here whatever the function around it is called.
+  // worker.js keeps no reader of a site's mail vault at all now.
+  assert.equal([...worker.matchAll(/"RESEND_KEY"/g)].length, 0, "worker.js reads a site's mail vault again");
+  const dir = new URL("../builder/lovable/template/src/lib/", import.meta.url);
+  const where = fs.readdirSync(dir).filter((f) => f.endsWith(".ts")).flatMap((f) =>
+    [...fs.readFileSync(new URL(f, dir), "utf8").matchAll(/"RESEND_KEY"/g)].map(() => f));
+  assert.deepEqual(where, ["site-effects.ts"],
+    "the mail-vault names are enumerated more than once in the site's Worker — a second reader has appeared");
 });
 
 test("wrangler declares the binding the Worker calls", async () => {

@@ -370,7 +370,7 @@ test("visitor row paths run in the site's own Worker, on the limited login only 
   const vm = SRC.match(/const vm = url\.pathname\.match\(\/\^\\\/api\\\/db\\\/[^\n]*\)\$\/i\);/);
   assert.ok(vm, "the visitor-route pattern");
   for (const p of ["data\\/", "api\\/", "hook\\/", "auth\\/", "|error|", "|checkout|", "|uploads|", "|turnstile)"]) assert.ok(vm[0].includes(p), "visitor route " + p);
-  assert.match(block('url.pathname.startsWith("/api/stripe/site/")', "\n    }\n"), /return siteAnswers\(env, request, wm\[1\]\.toLowerCase\(\)\)/);
+  assert.match(block('url.pathname.startsWith("/api/stripe/site/")', "\n    }\n"), /const own = await ownDataRead\(env, request, wm\[1\]\.toLowerCase\(\)\)/);
   // What the site's Worker is given: the limited login as APP_CONN, never the owner's.
   const given = block("const app = await siteAppConn(env, slug)", "legacy,\n");
   assert.match(given, /secrets: \{ \.\.\.owned, \.\.\.\(app \? \{ APP_CONN: app \} : \{\}\) \}/);

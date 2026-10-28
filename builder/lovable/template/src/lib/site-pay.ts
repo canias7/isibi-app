@@ -52,6 +52,21 @@ export async function siteCheckout(request: Request, env: PayEnv, url: URL, slug
   if (!table || !payment) return answer({ error: "that isn't something you can pay for here" }, 404);
   const cart = parseCart(body);
   if (!cart.ok) return answer({ error: cart.error }, 400);
+
+  // "PAY" PRESSED TWICE IS ONE CHECKOUT: the kit sends an Idempotency-Key, and a
+  // repeat within ten minutes gets the session the first press opened — no
+  // second order, no second Stripe session. Kept in the site's own bucket.
+  const idem = request.headers.get("idempotency-key") || "";
+  const idemKey = /^[A-Za-z0-9_-]{8,128}$/.test(idem) && env.SITES && env.OWN_BUCKET === "1" ? "idem/checkout/" + idem : "";
+  if (idemKey) {
+    try {
+      const prior = await env.SITES!.get(idemKey);
+      if (prior) {
+        const p = JSON.parse(await prior.text()) as { at: number; url: string; orderId: unknown };
+        if (Date.now() - Number(p.at) < 600_000 && p.url) return answer({ ok: true, url: p.url, orderId: p.orderId, replay: true });
+      }
+    } catch { /* unreadable: this press goes through */ }
+  }
   let priced;
   try {
     priced = await priceCart({
@@ -89,15 +104,28 @@ export async function siteCheckout(request: Request, env: PayEnv, url: URL, slug
     successUrl: `${base}?paid=${orderId}`, cancelUrl: `${base}?cancelled=${orderId}`,
     email: fields.email || fields.customer_email || null,
   });
-  const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/x-www-form-urlencoded", "Idempotency-Key": `isibi-${slug}-${table.name}-${orderId}` },
-    body: formEncode(args),
-  });
+  let res: Response;
+  try {
+    res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/x-www-form-urlencoded", "Idempotency-Key": `isibi-${slug}-${table.name}-${orderId}` },
+      body: formEncode(args),
+      // BOUNDED: a Stripe that hangs must not hold the visitor's press open.
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch {
+    console.error("checkout: stripe unreachable", slug);
+    return answer({ error: "we couldn't start that payment — please try again" }, 502);
+  }
   const out = (await res.json().catch(() => ({}))) as { url?: string; id?: string };
-  if (!res.ok || !out.url) return answer({ error: "we couldn't start that payment — please try again" }, 502);
+  // LOGGED, NEVER ECHOED: the status for the owner's log, nothing of Stripe's to the visitor.
+  if (!res.ok || !out.url) { console.error("checkout: stripe refused", slug, res.status); return answer({ error: "we couldn't start that payment — please try again" }, 502); }
   const ref = siteSql(conn, `UPDATE ${ident(table.name)} SET payment_ref=? WHERE id=?`, [String(out.id || ""), orderId]).catch(() => []);
   if (ctx) ctx.waitUntil(ref); else await ref;
+  if (idemKey) {
+    const keep = env.SITES!.put(idemKey, JSON.stringify({ at: Date.now(), url: out.url, orderId })).catch(() => {});
+    if (ctx) ctx.waitUntil(keep); else await keep;
+  }
   return answer({ ok: true, url: out.url, orderId });
 }
 

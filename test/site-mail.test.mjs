@@ -14,6 +14,7 @@ import { normalizeConfirm, fill, esc, recipient, pickProvider, sendConfirmation,
 import { normalizeSchema } from "../site-schema.mjs";
 import { resolveCreatedRow } from "../site-row-effects.mjs";
 import { TABLE_ITEM, FUNCTION_ITEM } from "../builder/site-table.mjs";
+import { driveWrite } from "./fixtures/site-effects-drive.mjs";
 
 
 // Blank comments rather than removing them, so every index still lines up with
@@ -177,7 +178,7 @@ test("the same address is not mailed twice in a row", async () => {
 
 // ── reachable, end to end ────────────────────────────────────────────────────
 
-test("THE CHAIN: declare it, and it survives every layer to the send", () => {
+test("THE CHAIN: declare it, and it survives every layer to the send", async () => {
   // Asserted as a chain because this repo has shipped a declarable feature that
   // did nothing FIVE times — teamScope was dead at five separate layers, and
   // four of the five links were fine each time.
@@ -204,17 +205,19 @@ test("THE CHAIN: declare it, and it survives every layer to the send", () => {
   assert.ok(norm.confirm, "the normalised table must keep confirm");
   assert.equal(norm.confirm.to, "customer_email");
 
-  // 3. something on the write path calls it
-  assert.match(worker, /confirmSubmitter\(env, ctx, \{/, "the write path must invoke it");
-  assert.match(worker, /function confirmSubmitter/, "and it must be defined");
+  // 3. something on the write path calls it — (2026-10-28: the site's own
+  //    Worker, driven through `runSiteEffects` with the normalised table)
+  const run = await driveWrite({ tables: [norm], sent: JSON.stringify(ROW), body: "[" + JSON.stringify({ id: 7, ...ROW }) + "]",
+    env: { RESEND_KEY: "re_site", EMAIL_FROM: "shop@example.com", EMAIL: "platform-binding" } });
+  const mail = run.calls.filter((c) => c.url === "https://api.resend.com/emails");
+  assert.equal(mail.length, 1, "the write path must invoke it");
+  assert.equal(JSON.parse(mail[0].init.body).to, "ada@example.com");
 
-  // 4. it reads the SITE'S OWN vault, not the D1-era central table
-  const fn = noComments(worker.slice(worker.indexOf("function confirmSubmitter"), worker.indexOf("function notifyOwnerOfSubmission")));
-  assert.match(fn, /FROM _secrets WHERE name=\?/, "secrets come from the site's own Neon vault");
-  assert.equal(/loadSiteSecrets/.test(fn), false, "loadSiteSecrets reads a central Supabase table from the D1 era");
+  // 4. it reads the SITE'S OWN keys, not a central table or our sender
+  assert.equal(mail[0].init.headers.Authorization, "Bearer re_site", "the key is the site owner's own");
 
   // 5. it is detached, so a slow provider cannot delay the visitor's response
-  assert.match(fn, /ctx\.waitUntil/, "must run under waitUntil like the owner notification");
+  assert.ok(run.waited >= 1, "must run under waitUntil like the owner notification");
 });
 
 test("it is NOT a new verb runner — the deleted eight-verb menu stays deleted", () => {
@@ -343,7 +346,7 @@ test("confirm.fn is dropped when the function is missing or callable", () => {
     "a function a visitor can call must not be a confirmation builder");
 });
 
-test("THE CHAIN, function form: declarable end to end", () => {
+test("THE CHAIN, function form: declarable end to end", async () => {
   const worker = noComments(fs.readFileSync(path.join(import.meta.dirname, "..", "worker.js"), "utf8"));
   const tool = worker.slice(worker.indexOf('name: "design_schema"'), worker.indexOf('tool_choice: { type: "tool", name: "design_schema" }'));
   // Without BOTH of these the function form is unreachable — the model cannot
@@ -357,5 +360,14 @@ test("THE CHAIN, function form: declarable end to end", () => {
   assert.equal(FUNCTION_ITEM.properties.internal.type, "boolean", "and must be able to mark it internal");
   assert.match(tool, /items: TABLE_ITEM,/, "the tool does not bind the table item");
   assert.match(tool, /items: FUNCTION_ITEM,/, "the tool does not bind the function item");
-  assert.match(worker, /callFn: async \(name, rowId\)/, "the Worker must supply the runner");
+  // (2026-10-28: the site's own Worker supplies the runner — driven: the
+  // function is called by name with the row id, bound, and its answer sent.)
+  const run = await driveWrite({ tables: [{ name: "bookings", access: "collect", columns: ["customer_name", "customer_email"], confirm: { fn: "confirm_booking" } }],
+    sent: JSON.stringify(ROW), body: "[" + JSON.stringify({ id: 9, ...ROW }) + "]", env: { RESEND_KEY: "re_site", EMAIL_FROM: "shop@example.com" },
+    sql: (q) => (/confirm_booking/.test(q) ? [{ out: { to: "ada@example.com", subject: "Booked", body: "<p>See you</p>" } }] : []) });
+  const fnq = run.queries.filter((q) => /confirm_booking/.test(q.query));
+  assert.equal(fnq.length, 1, "the Worker must supply the runner");
+  assert.equal(fnq[0].query, 'SELECT "confirm_booking"($1) AS out');
+  assert.deepEqual(fnq[0].params, [9]);
+  assert.equal(run.calls.filter((c) => c.url === "https://api.resend.com/emails").length, 1);
 });
