@@ -30103,7 +30103,7 @@ async function handleRequest(request, env, ctx) {
     //
     // The front door calls each site's Worker itself; it asks here only what
     // an address means (names, renames, custom domains are the platform's
-    // records) and keeps the answer for five minutes. Nothing of a site's is
+    // records) and keeps the answer for a minute. Nothing of a site's is
     // read or returned: a slug, a redirect, gone, or "the platform's".
     if (url.pathname === "/__gf/route" && request.method === "GET" && isAppHostname(url.hostname)) {
       const r = await routeForHost(env, url.searchParams.get("host") || "").catch(() => ({ to: "platform" }));

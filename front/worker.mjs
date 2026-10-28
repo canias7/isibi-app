@@ -58,16 +58,16 @@ function mark(res) {
 // platform Worker is for building. So the door asks what an address is (the
 // platform keeps the names, renames and custom domains, and answers
 // `/__gf/route` with a slug, a redirect or "gone"), keeps that answer in the
-// edge cache for five minutes, and calls the site's Worker DIRECTLY through
+// edge cache for a minute, and calls the site's Worker DIRECTLY through
 // the dispatch namespace, with each site's limits. The app, draft previews and
 // anything without a site of its own go to the platform as before.
-export const ROUTE_TTL_S = 300;
+export const ROUTE_TTL_S = 60;
 export const SITE_CPU_MS = 300;
 export const SITE_SUBREQUESTS = 50;
 import { setPublishedSiteHeaders } from "../site-headers.mjs";
 export const APP_ZONE = "gofarther.dev";
 
-/** What an address is, from the edge cache or (once per five minutes) the platform. */
+/** What an address is, from the edge cache or (once a minute) the platform. */
 export async function routeFor(env, host, deps = {}) {
   const cache = deps.cache !== undefined ? deps.cache : (typeof caches !== "undefined" ? caches.default : null);
   const key = new Request("https://route.gofarther.internal/" + encodeURIComponent(host));

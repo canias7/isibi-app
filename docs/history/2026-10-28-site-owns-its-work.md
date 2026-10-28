@@ -63,7 +63,7 @@ owner's panels.
 site page headers (`site-headers.mjs`, shared with the platform). It asks the
 platform only what an address is (`GET /__gf/route?host=` → a slug, a
 redirect, gone, or "the platform's") and keeps that answer in the edge cache
-for five minutes, so a renamed site or a new custom domain takes up to five
-minutes to switch. The app, draft previews, and a site with no Worker yet (the
+for a minute, so a renamed site or a new custom domain takes up to a minute
+to switch. The app, draft previews, and a site with no Worker yet (the
 coming-soon page) go to the platform. A visitor to a published site no longer
 passes through the platform Worker at all.

@@ -3,7 +3,7 @@
 
 ## 2026-10-28 — the front door sends visitors straight to each site's Worker
 
-The front door now looks up which site an address belongs to (asking us once, then remembering for five minutes) and calls that site's own Worker directly. Visitors to a published site never pass through our main Worker. Only the app, draft previews and sites that don't have a Worker yet come to us.
+The front door now looks up which site an address belongs to (asking us once, then remembering for a minute) and calls that site's own Worker directly. Visitors to a published site never pass through our main Worker. Only the app, draft previews and sites that don't have a Worker yet come to us.
 
 ## 2026-10-28 — everything the live site does is the site's; ours is building
 
