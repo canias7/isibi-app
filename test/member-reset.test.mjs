@@ -9,6 +9,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import ts from "typescript";
 import { PAGE_RULES } from "../builder/page-gen.mjs";
 
 const rows = fs.readFileSync(new URL("../builder/lovable/template/src/lib/rows.ts", import.meta.url), "utf8");
@@ -73,19 +74,47 @@ test("verification is a CODE — the email-OTP plugin's two endpoints, with the 
   assert.match(verify, /keepAuthHeaders\(r\)/);
 });
 
-test("the auth proxy admits the plugin's slashed paths, and nothing wider", () => {
-  // The literal spells the path `\/auth\/`, and `am` names a second matcher
-  // (`/a/<slug>/<file>`) higher up, so it is found by both.
-  const line = worker.split("\n").find((l) => l.includes("const am = url.pathname.match(") && l.includes("auth"));
-  assert.ok(line, "the auth proxy matcher moved");
+test("the auth proxy admits the plugin's slashed paths, and nothing wider", async () => {
+  // (2026-10-28: the site's own Worker) The platform's one visitor matcher hands
+  // `/api/db/<slug>/auth/…` to the site, and the site's own `ownAuth` forwards
+  // it to its auth server. Both are held to the plugin's slashed paths.
+  const line = worker.split("\n").find((l) => l.includes("const vm = url.pathname.match(") && l.includes("auth"));
+  assert.ok(line, "the visitor matcher moved");
   const lit = line.match(/match\((\/.*\/i)\);/);
   assert.ok(lit, "the matcher is no longer a literal");
   const re = new RegExp(lit[1].slice(1, -2), "i");
-  for (const p of ["reset-password", "email-otp/send-verification-otp", "email-otp/verify-email", "forget-password", "get-session"]) {
+  const PATHS = ["reset-password", "email-otp/send-verification-otp", "email-otp/verify-email", "forget-password", "get-session"];
+  for (const p of PATHS) {
     const m = `/api/db/cafe-1/auth/${p}`.match(re);
-    assert.ok(m && m[2] === p, p);
+    assert.ok(m && m[1] === "cafe-1", p);
   }
   assert.equal("/api/db/cafe-1/auth/../data/x".match(re), null, "a path that climbs is refused");
+
+  // The site's own handler, cut out by landmark (server.ts imports Start, which
+  // is not installed here) and run for real.
+  const src = fs.readFileSync(new URL("../builder/lovable/template/src/server.ts", import.meta.url), "utf8");
+  const a = src.indexOf("export async function ownAuth("), b = src.indexOf("\n}\n", a) + 3;
+  assert.ok(a > 0 && b > a, "ownAuth moved");
+  const cookie = fs.readFileSync(new URL("../site-cookie.mjs", import.meta.url), "utf8");
+  const js = ts.transpileModule(cookie + "\nconst SITE_SLUG = 'cafe-1';\n" + src.slice(a, b),
+    { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
+  const { ownAuth } = await import("data:text/javascript," + encodeURIComponent(js));
+  const seen = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (u) => { seen.push(String(u)); return new Response("{}", { status: 200 }); };
+  try {
+    const env = { AUTH_BASE: "https://ep-1.auth.neon.tech/auth", SITE_TABLES: "[]" };
+    for (const p of PATHS) {
+      const url = new URL(`https://cafe-1.gofarther.app/api/db/cafe-1/auth/${p}`);
+      const r = await ownAuth(new Request(url, { method: "POST", body: "{}" }), env, url);
+      assert.equal(r && r.status, 200, p);
+      assert.equal(seen.at(-1), env.AUTH_BASE + "/" + p, p);
+    }
+    // A URL normalises `..` away, so the climb is handed over as a raw path.
+    const climb = { pathname: "/api/db/cafe-1/auth/../data/x", search: "" };
+    assert.equal(await ownAuth(new Request("https://cafe-1.gofarther.app/x", { method: "POST", body: "{}" }), env, climb), null, "a path that climbs is refused");
+    assert.equal(seen.length, PATHS.length, "the climb reached the auth server");
+  } finally { globalThis.fetch = real; }
 });
 
 test("every endpoint the kit cites is one the free smoke drives", () => {
