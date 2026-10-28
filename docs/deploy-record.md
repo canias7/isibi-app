@@ -1749,10 +1749,10 @@ no edit job was open.
 - **Runtime-confirmed by canary run 170** (04:41 UTC, free, from `main`): both
   readers answered `363b13aa9d9b`, a cold container got `51b82d120c34280c`, and
   queued jobs and the runner were on; nothing was charged (balance 603). The
-  free inventory read `fretwork-1`'s three pages as 0 bytes with no version: it
-  was published before this change and has no Worker of its own, so it now
-  answers "this site needs to be published again" (no compatibility for old
-  sites, on the owner's word).
+  free inventory read `fretwork-1`'s three pages as 0 bytes with no version
+  (its stored source read whole). Not yet traced; the likely cause is that it
+  was published before this change, so its pages now come from a Worker it
+  may not have. Old sites get no compatibility work, on the owner's word.
 
 ## Deploy 2263 — 2026-10-23 13:36 UTC (`091f153e1`)
 
