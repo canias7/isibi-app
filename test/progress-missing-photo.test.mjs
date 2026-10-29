@@ -286,7 +286,7 @@ test("MPH 9 — THE WIRING: the Worker's writer hands the record it claimed (wit
   // THE PAGES MILESTONE IS TOLD THE PHOTOGRAPHS TO MAKE.
   assert.match(src, /addonPagesFacts\(\{ added: aWorkAdded, changed: aWorkChanged, linked: .*, photos: aFold\.photos \}\)/);
   // THE BUILD: from the purchase's own result, before the photo task's join.
-  const step = between("const bought = withPictureFacts(buySitePhotos(env, {", "compile: async (pages, builtParts) => {");
+  const step = between("const bought = withPictureFacts(buySitePhotos(env, {", "compile: async (pages, builtParts, cOpts = null) => {");
   assert.match(step, /const step = buildPhotoOutcome\(pictures, \{ stored \}\);\s*if \(step\) try \{ mark\?\.\("photos-missing", step\); \}/);
   // BOTH ENDINGS: the answer's pictures, and the error's with what the photo task saved.
   assert.match(step, /return bought\.then\(\(r\) => \{ sayPhotos\(r && r\.pictures, \[\]\); return r; \}, async \(e\) => \{/);

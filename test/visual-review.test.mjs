@@ -216,7 +216,8 @@ test("the progress line says it is checking how it looks", () => {
 test("the Worker wires it behind the switch, first builds and revises, and the image carries the module", () => {
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(w, /const visualOn = visualReviewOn\(env\);/);
-  assert.match(w, /shots: visualOn \|\| undefined,/);
+  // the agent's `look` may name its own routes (2026-10-29); otherwise the review's
+  assert.match(w, /shots: \(cOpts && Array\.isArray\(cOpts\.shots\) && cOpts\.shots\.length \? cOpts\.shots : visualOn\) \|\| undefined,/);
   assert.match(w, /visualReview: visualOn \? /);
   assert.match(w, /visualModel: models\.pages,/);
   const d = fs.readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
