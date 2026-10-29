@@ -17191,6 +17191,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   const ag = await runSiteAgent({
     send: jobSend(job, quickSend(env, "agent", job && job.budget)),
     build: (w) => recompileAndPublish(env, { slug, pages: w.pages, parts: w.parts, label: "Agent build", job, compileOnly: true, cssOverride: typeof w.css === "string" ? w.css : null, charge: billLang, charges, trace }),
+    look: (w, route) => recompileAndPublish(env, { slug, pages: w.pages, parts: w.parts, label: "Agent look", job, compileOnly: true, cssOverride: typeof w.css === "string" ? w.css : null, shotRoutes: [route], charge: billLang, charges, trace }),
     readTable: async (t, n) => {
       const c = await ownerRowConn(env, slug);
       if (!c) throw new Error("this site has no database");
@@ -17205,11 +17206,15 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   tm("agent", ag.ok ? "ok" : "fail", { rounds: ag.rounds, builds: ag.builds, credits: ag.credits, stopped: ag.stopped, changed: ag.changed.length, rows: ag.rows.length });
   const steps = { rounds: ag.rounds, builds: ag.builds, stopped: ag.stopped, changed: ag.changed, removed: ag.removed };
   const files = ag.changed.filter((k) => k !== "styles.css");
-  if (!ag.ok || (!ag.changed.length && !ag.rows.length)) {
+  if (!ag.ok) {
     return { status: 200, body: { ok: false, error: "agent-stopped", layer: "agent", cost: 0, agent: steps, deferred: [],
-      msg: ag.ok ? "The site agent finished without changing anything, so nothing was saved and nothing was charged." : stoppedFacts(ag) + " Nothing was charged." } };
+      msg: stoppedFacts(ag) + " Nothing was charged." } };
   }
   const took = Number(await bill(ag.usage)) || 0;
+  // A QUESTION, OR NOTHING TO CHANGE: the agent's own answer, nothing saved.
+  if (!ag.changed.length && !ag.rows.length) {
+    return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg: (ag.summary || "Nothing needed changing.") + " Nothing on the site was changed.", cost: took, agent: steps } };
+  }
   let out = null;
   if (ag.changed.length) {
     // THE STYLESHEET FIRST, as the look step stores it: the publish reads it from the config.
@@ -17269,7 +17274,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     cost: took + (out ? Number(out.langCharged) || 0 : 0), agent: steps } };
 }
 
-async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = null, devices = null, trace = null, job = null, parts = null, afterCompile = null, onCompileFail = null, models = null, charge = null, held = null, charges = null, liveWhenClean = false, touched = null, chargeRepair = null, compileOnly = false, cssOverride = null }) {
+async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = null, devices = null, trace = null, job = null, parts = null, afterCompile = null, onCompileFail = null, models = null, charge = null, held = null, charges = null, liveWhenClean = false, touched = null, chargeRepair = null, compileOnly = false, cssOverride = null, shotRoutes = null }) {
   // A JOB RUNNING BESIDE OTHERS OF ITS REQUEST publishes through the site's
   // turn and the rebase (`publishBeside`), which calls back in here with the
   // rebased pages; every other caller goes straight on, as before.
@@ -17869,7 +17874,8 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
           // "before", and compared below when this one is scoped.
           layout: true,
           // THE VISUAL REVIEW'S SCREENSHOTS, the changed routes first (2026-10-24).
-          shots: vrShots || undefined,
+          // AND THE AGENT'S `look` TOOL (2026-10-28): the routes it asked to see, compile-only.
+          shots: (compileOnly && Array.isArray(shotRoutes) && shotRoutes.length ? shotRoutes : vrShots) || undefined,
           // THE SCRIPT IS REPACKAGED ON EVERY CHEAP EDIT, and it has to be.
           // The script bakes in the shell — which names this build's
           // content-hashed assets — so a text fix that republished the files
@@ -18002,6 +18008,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       ok: okC, error: okC ? "" : String((built && built.error) || "the build did not answer"),
       stage: String((built && built.stage) || ""), timedOut: !!(built && built.timedOut), room: (built && built.room) || null,
       serverTests: built && built.serverTests && Array.isArray(built.serverTests.results) ? built.serverTests.results : [],
+      shots: built && Array.isArray(built.shots) ? built.shots : [],
       serverRefused: serverVet ? serverVet.failed.map((f) => ({ name: f.part.name, reasons: f.reasons })) : [],
       langCharged,
     };
@@ -33214,6 +33221,14 @@ async function handleRequest(request, env, ctx) {
       // it) is answered from what the first one accepted: no model is asked,
       // nothing is charged, and no question is closed or read again.
       const rKeySlug = typeof rb.slug === "string" && /^[a-z0-9][a-z0-9-]{0,80}$/.test(rb.slug) ? rb.slug : "";
+      // NO ROUTER FOR A SITE'S MESSAGE (2026-10-28, the site agent): the agent
+      // reads the whole message and the site itself, so the page is sent
+      // straight to the edit route, with no routing call and nothing charged.
+      // A first build, and an answer to a question the router asked, still
+      // go through the router.
+      if (agentTakes() && !rJob && ru && rb.hasSite === true && rb.firstBuild !== true && rKeySlug && !rb.ask && rb.answering !== true) {
+        return Response.json({ ok: true, intent: "edit", layer: "page", page: "/", cost: 0, agent: true });
+      }
       // THE SITE AGENT TAKES THE WHOLE MESSAGE (2026-10-28, the owner: "just
       // have it on … is the way we gonna do things now"): a site's message is
       // never split into a request of parts, so this flow no longer starts.

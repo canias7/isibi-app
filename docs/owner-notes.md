@@ -3,6 +3,13 @@
 
 
 
+## 2026-10-28 — The agent can look at pages, and the router is skipped
+
+- **It can look**: it builds the site and takes phone and desktop screenshots of a page, then fixes what looks wrong before finishing.
+- **No router**: a message on a site goes straight to the agent. That's no routing call and no 1–2 credits for one. (First builds still use the router.)
+- **Questions**: if you ask something rather than ask for a change, the agent reads the site and answers. Nothing is changed.
+- Tested; not merged.
+
 ## 2026-10-28 — The site agent is always on now (not merged)
 
 - No switch, as you said: every edit and addition on every site goes to the agent.

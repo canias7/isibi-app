@@ -20,7 +20,7 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
-- **The site agent, left open (2026-10-28, `builder/site-agent.mjs`, always on)**: no screenshot tool (the save's visual review still runs once); the router still runs (and charges) first; the older steps' code and ~2,000 tests kept (run only under `GF_OLD_LANES=1`) for a later deletion; no live run yet. `docs/history/2026-10-28-site-agent.md`.
+- **The site agent, left open (2026-10-28, `builder/site-agent.mjs`, always on)**: the older steps' code and ~2,000 tests kept (run only under `GF_OLD_LANES=1`) for a later deletion; no live run yet. `docs/history/2026-10-28-site-agent.md`.
 - **Limited login, left open (2026-10-26, `limited-login`, not merged)**: `site_app_conn.sql` unapplied (the feature is inert until then); not run on Neon; in an older shared project PUBLIC's default CONNECT lets a site's limited login connect to a sibling database (it holds only PUBLIC's rights there); `flushSiteMetrics` and the publish spine (`recompileAndPublish`, `runPublication`) still on the owner's login. `docs/history/2026-10-26-limited-login.md`.
 - **Feature checks not exercised (2026-10-25, `feature-verify`)**: a row cap, one-per-person and no-overlap stay declared facts (per-owner counting and the Worker's own insert are not judged by a test write from here); a page/table/column missing after an add-on is told not done without a redesign round. `docs/history/2026-10-25-feature-verify.md`.
 - **Failure diagnosis step: phase 1 (shadow) on `diagnose-step`, not merged (2026-10-24)**: turn on `DIAGNOSE_FAILURES`, rerun Driftwood, compare; phase 2 next. `docs/history/2026-10-24-diagnose-step.md`.

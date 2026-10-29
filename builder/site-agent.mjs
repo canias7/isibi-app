@@ -48,6 +48,7 @@ export const KEEP_RECENT = 2;
 const CREDIT_USD = 0.008;
 const MAX_READ = 8;
 const MAX_FILE_CHARS = 120000;
+const MAX_SHOTS = 2;
 const PAGE_KEY = /^[a-z0-9][a-z0-9._$-]*(?:\/[a-z0-9._$-]+)*\.tsx$/i;
 const PART_KEY = /^-parts\/[a-z0-9][a-z0-9-]{0,62}$/i;
 const TABLE = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
@@ -94,6 +95,11 @@ export const AGENT_TOOLS = Object.freeze([
     input_schema: { type: "object", properties: {} },
   },
   {
+    name: "look",
+    description: "Build the site as your workspace holds it and look at one page: screenshots at phone and desktop width. Use it to check how a change really looks before you finish.",
+    input_schema: { type: "object", properties: { page: { type: "string", description: "The page's address, e.g. \"/\" or \"/about\"." } }, required: ["page"] },
+  },
+  {
     name: "finish",
     description: "You are done. If you wrote or removed any file, only after a build that passed with nothing written since. `summary`: what you changed, as plain facts for the reply to the customer.",
     input_schema: { type: "object", properties: { summary: { type: "string" } }, required: ["summary"] },
@@ -112,6 +118,7 @@ You change an existing website for its owner, with tools. Work like an engineer:
 - Make every change the owner asked for, and nothing else. Keep everything else on every page exactly as it is.
 - write_file takes a whole file. To change one line, write the file with that line changed and every other line as it was.
 - Plan first: work out every change, then write all the files, then build once. Fix what the build reports and build again.
+- When the look of a page changed, look at it once the build passes, and fix anything that looks wrong.
 - When the build passes and every change is made, call finish with what you changed, as plain facts.
 - If a change cannot be done, make the rest, and say in finish what was not done and why.
 
@@ -213,6 +220,10 @@ export function compact(messages, { keep = KEEP_RECENT } = {}) {
         cleared++;
         return { ...b, input: { file: b.input.file, source: "[written: " + b.input.source.length + " chars] " + NOTE } };
       }
+      if (b && b.type === "image") {
+        cleared++;
+        return { type: "text", text: "[a screenshot, cleared from this conversation to save space; look again if you need it]" };
+      }
       if (b && b.type === "tool_result" && b.reads && typeof b.content === "string" && b.content !== NOTE) {
         cleared++;
         return { ...b, content: "[read: " + b.reads.join(", ") + "] " + NOTE };
@@ -303,6 +314,18 @@ async function runTool(use, st, deps) {
       if (r && r.ok === true) return { text: "The build passed, but server code failed its test run: " + tests.map((t) => t.name + ": " + t.error).join("; ") };
       return { text: "The build failed:\n" + String((r && r.error) || "no reason given").slice(0, 6000) };
     }
+    case "look": {
+      const route = typeof input.page === "string" ? input.page.trim() : "";
+      if (!/^\/[a-z0-9/_-]*$/i.test(route)) return { error: "a page address starts with / (\"/\", \"/about\")" };
+      if (typeof deps.look !== "function") return { error: "pages cannot be looked at here" };
+      let r;
+      try { r = await deps.look({ pages: st.ws.pages(), parts: st.ws.parts(), css: st.ws.css() }, route); }
+      catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+      if (!r || r.ok !== true) return { error: "the site did not build, so there is nothing to look at:\n" + String((r && r.error) || "no reason given").slice(0, 4000) };
+      const shots = (Array.isArray(r.shots) ? r.shots : []).filter((x) => x && x.route === route && typeof x.png === "string" && x.png).slice(0, MAX_SHOTS);
+      if (!shots.length) return { error: "no screenshot of " + route + " came back (is that a page of this site?)" };
+      return { text: "Screenshots of " + route + " follow: " + shots.map((x) => x.viewport + " width").join(", ") + ".", images: shots.map((x) => ({ label: route + " at " + x.viewport + " width", png: x.png })) };
+    }
     case "finish": {
       if (st.dirty) return { error: "build first: files were written since the last build that passed" };
       st.done = true;
@@ -321,6 +344,7 @@ const usageOf = (j, model) => {
 // ── WHAT EACH ROUND DID, FOR THE LIVE PROGRESS LINES ─────────────────────────
 // Facts from the tools' own outcomes (never the model's words); the progress
 // writer turns them into the customer's live updates.
+const routeFile = (r) => (r === "/" ? "index.tsx" : r.replace(/^\//, "").replace(/\/$/, "") + ".tsx");
 export function fileName(k) {
   if (k === CSS_KEY) return "the stylesheet";
   if (k.startsWith("-parts/" + SERVER_PREFIX)) return "the server function \"" + k.slice(7 + SERVER_PREFIX.length) + "\"";
@@ -340,6 +364,7 @@ export function roundFacts(outcomes) {
     else if (use.name === "write_file") wrote.push(fileName(String(i.file).trim()));
     else if (use.name === "delete_file") gone.push(fileName(String(i.file).trim()));
     else if (use.name === "read_table") looked.push("the " + i.table + " table");
+    else if (use.name === "look") looked.push(fileName(routeFile(String(i.page || "/"))) + " in a browser");
     else if (use.name === "change_rows") queued.push("the " + i.table + " entries");
     else if (use.name === "build") out.push(/^The build passed\.$/.test(r.text) ? fact("applied", "Built the site; it compiled cleanly.") : /^The build passed/.test(r.text) ? fact("doing", "Built the site; its server code failed a test run, fixing it.") : fact("doing", "Built the site; the compiler found errors, fixing them."));
   }
@@ -403,6 +428,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, ma
     messages.push({ role: "assistant", content: content.map((b) => (b && b.type === "tool_use" ? { ...b, id: ids[uses.indexOf(b)] } : b)) });
     const results = [];
     const outcomes = [];
+    const images = [];
     for (let i = 0; i < uses.length; i++) {
       const r = await runTool(uses[i], st, deps);
       const block = { type: "tool_result", tool_use_id: ids[i], content: r.error ? r.error : r.text };
@@ -410,8 +436,12 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, ma
       if (r.reads) Object.defineProperty(block, "reads", { value: r.reads, enumerable: false });
       results.push(block);
       outcomes.push({ use: uses[i], r });
+      for (const im of Array.isArray(r.images) ? r.images : []) {
+        images.push({ type: "text", text: "SCREENSHOT: " + im.label });
+        images.push({ type: "image", source: { type: "base64", media_type: "image/png", data: im.png } });
+      }
     }
-    messages.push({ role: "user", content: results });
+    messages.push({ role: "user", content: [...results, ...images] });
     try { const f = roundFacts(outcomes.splice(0)); if (f.length) progress("agent", f); } catch { /* the record never costs the change */ }
   }
 

@@ -160,3 +160,35 @@ switch, is the way we gonna do things now"*, then *"there's no real customers
     and the site sign-in test.
   - `build-reply-bubble`, a browser case that timed out under the full run's
     load and passes alone (5/5).
+
+## Then: the two still missing (owner: "fix the still missing thing")
+
+- **`look`**: the agent can see a page.
+  - It builds its workspace (compile-only, with `shotRoutes: [route]`, the same
+    screenshots the visual review uses) and hands back that page's phone and
+    desktop screenshots.
+  - The screenshots go as images after the tool results, in the same user
+    message, so Grok receives them too: the xAI translation carries a tool
+    result's text only, and images beside it.
+  - Clearing the desk replaces old screenshots with a note.
+  - The rules tell it to look at a page whose appearance changed before it
+    finishes.
+- **No router for a site's message.** `/api/site/route` answers `{ ok,
+  intent: "edit", layer: "page", page: "/", cost: 0, agent: true }` straight
+  away: no routing call and no charge, so the page posts the message to the
+  edit route and the agent.
+  - A first build still goes through the router, and so does an answer to a
+    question the router asked.
+- **A question** (nothing to change) is answered by the agent: its rounds are
+  charged, nothing is saved, and the reply is told from its answer.
+- **Tests**:
+  - SA23 (look: the workspace's own write, the asked page only, images after
+    the results, cleared later), SA24 (the fact), SA25 (wiring);
+  - SAR4 (a question through the real route);
+  - SAR5 (the real routing route answers with no model call and no charge).
+- **Sweep**: 7 of 7 killed (the page filter, the address check, clearing old
+  screenshots, images after the results, the router skip, compile-only's
+  screenshots, the question path). The comment-only control survived.
+- **Full suite** (`npm test`): 13,024 tests, 3 failing, all known: REOPEN 1
+  (browser), the site sign-in test and the worktree-leftover check
+  (environment).

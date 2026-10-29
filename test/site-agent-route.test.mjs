@@ -186,3 +186,31 @@ test("SAR3 the add-on route hands an addition to the same agent", async () => {
   assert.deepEqual(r.seen.other, []);
   assert.equal(r.home, HOME);
 });
+
+test("SAR4 a question: the agent answers, nothing is saved, the rounds are charged", async () => {
+  const r = await drive({ ask: "What are my opening hours?", rounds: [[use("read_files", { files: ["index.tsx"] })], [use("finish", { summary: "Your home page says you open 7am to 4pm." })]] });
+  assert.equal(r.reply.ok, true);
+  assert.match(r.reply.msg, /7am to 4pm\. Nothing on the site was changed\./);
+  assert.equal(r.compiles.length, 0);
+  assert.equal(r.home, HOME);
+  assert.equal(r.reply.cost, pageCredits(...Array.from({ length: 2 }, () => ({ in: ROUND.input_tokens, out: ROUND.output_tokens, cacheRead: ROUND.cache_read_input_tokens, cacheWrite: 0, model: MODEL }))));
+});
+
+test("SAR5 the routing route answers a site's message with the agent's door: no model call, nothing charged", async () => {
+  const real = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (input) => {
+    const u = String((input && input.url) || input || "");
+    calls.push(u);
+    if (u.includes("/auth/v1/user")) return json(USER);
+    return new Response("unavailable", { status: 503 });
+  };
+  try {
+    const worker = await loadWorker();
+    const res = await worker.fetch(new Request("https://gofarther.dev/api/site/route", { method: "POST", headers: { "content-type": "application/json", Authorization: "Bearer t" },
+      body: JSON.stringify({ message: "Make the hours 8 to 5", slug: "agent-route-1", hasSite: true, firstBuild: false, picker: "sonnet" }) }), { SUPABASE_SERVICE_KEY: "svc" }, makeCtx());
+    const d = await res.json();
+    assert.deepEqual(d, { ok: true, intent: "edit", layer: "page", page: "/", cost: 0, agent: true });
+    assert.ok(!calls.some((u) => u.includes("/v1/messages") || u.includes("x.ai") || u.includes("use_credits")), "no model call, no charge: " + calls.join(", "));
+  } finally { globalThis.fetch = real; }
+});

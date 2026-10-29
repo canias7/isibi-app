@@ -231,7 +231,7 @@ test("SA14 the build tool compiles only: answered before the repair, the staging
   const fn = between("async function runAgentChange(", "async function recompileAndPublish(env, {");
   assert.match(fn, /build: \(w\) => recompileAndPublish\(env, \{[^}]*compileOnly: true/);
   // charged only when there is something to save, before the save
-  const bill = fn.indexOf("await bill(ag.usage)"), save = fn.indexOf('label: "Changed by the site agent"'), stop = fn.indexOf("if (!ag.ok || (!ag.changed.length && !ag.rows.length))");
+  const bill = fn.indexOf("await bill(ag.usage)"), save = fn.indexOf('label: "Changed by the site agent"'), stop = fn.indexOf("if (!ag.ok) {");
   assert.ok(stop > 0 && bill > stop && save > bill);
   const spine = between("async function recompileAndPublish(env, {", "\n}\n");
   assert.match(spine, /if \(!compileOnly && job && job\.beside/);
@@ -362,4 +362,42 @@ test("SA22 the save: stylesheet stored before the publish and put back if it fai
   assert.match(fn, /cssOverride: typeof w\.css === "string" \? w\.css : null/);
   assert.match(fn, /progress: \(stage, facts\) => \{ if \(talk\) job\.progress\.mark\(stage, facts\); \}/);
   assert.match(W, /if \(compileOnly && typeof cssOverride === "string"\) css = cssOverride;/);
+});
+
+test("SA23 look: builds the workspace, hands back only the asked page's screenshots as images after the tool results; old ones are cleared", async () => {
+  const PNG = "iVBORw0KGgo" + "A".repeat(70000);
+  const looks = [];
+  const s = scripted([
+    answer(use("write_file", { file: "visit.tsx", source: "v2" }), use("look", { page: "/visit" })),
+    answer(use("look", { page: "nope" })),
+    answer(use("build", {})),
+    answer(use("read_files", { files: ["index.tsx"] })),
+    answer(use("finish", { summary: "s" })),
+  ]);
+  const r = await runSiteAgent({ send: s.send, build: okBuild, look: async (w, route) => {
+    looks.push([route, w.pages.find((p) => p.path === "visit.tsx").source]);
+    return { ok: true, shots: [{ route: "/", viewport: "phone", png: PNG }, { route, viewport: "phone", png: PNG }, { route, viewport: "desktop", png: PNG }] };
+  } }, { request: "r", pages: PAGES });
+  assert.equal(r.ok, true);
+  assert.deepEqual(looks, [["/visit", "v2"]], "the look saw the workspace's own write; a bad address never reached it");
+  const after = s.sent[1].messages.at(-1).content;
+  assert.equal(after[0].type, "tool_result"); assert.equal(after[1].type, "tool_result");
+  assert.match(after[1].content, /Screenshots of \/visit follow: phone width, desktop width/);
+  assert.deepEqual(after.slice(2).map((b) => b.type), ["text", "image", "text", "image"], "two images, the home page's left out");
+  assert.equal(s.sent[2].messages.at(-1).content[0].is_error, true);
+  // by the last round the screenshots are cleared from the pile (rule 3)
+  assert.ok(!JSON.stringify(s.sent.at(-1).messages).includes(PNG), "old screenshots cleared");
+});
+
+test("SA24 look's facts for the progress lines", () => {
+  assert.deepEqual(roundFacts([{ use: use("look", { page: "/about" }), r: { text: "…" } }]), [{ state: "prepared", text: "Looked at the /about page in a browser." }]);
+});
+
+test("SA25 the router is skipped for a site's message; the look tool is wired to compile-only screenshots", () => {
+  const route = between('if (url.pathname === "/api/site/route" && request.method === "POST") {', "const rKey = ");
+  assert.match(route, /if \(agentTakes\(\) && !rJob && ru && rb\.hasSite === true && rb\.firstBuild !== true && rKeySlug && !rb\.ask && rb\.answering !== true\) \{\n\s+return Response\.json\(\{ ok: true, intent: "edit", layer: "page", page: "\/", cost: 0, agent: true \}\);/);
+  const fn = between("async function runAgentChange(", "async function recompileAndPublish(env, {");
+  assert.match(fn, /look: \(w, route\) => recompileAndPublish\(env, \{[^}]*compileOnly: true[^}]*shotRoutes: \[route\]/);
+  assert.match(W, /shots: \(compileOnly && Array\.isArray\(shotRoutes\) && shotRoutes\.length \? shotRoutes : vrShots\) \|\| undefined,/);
+  assert.match(W, /shots: built && Array\.isArray\(built\.shots\) \? built\.shots : \[\],/);
 });
