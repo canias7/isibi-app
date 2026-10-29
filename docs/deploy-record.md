@@ -2171,3 +2171,15 @@ in flight. Image predicted: SiteBuildContainer `7a577bf068bd9734` →
 `a1f126d49bbe9fe8` (256 inputs), AppBuildContainer `65022ce71e3d7274`
 unchanged. Run 40805423501 green, 02:17–02:20 UTC; the log's image pair is
 as predicted. Deployed, not runtime-confirmed.
+
+## Deploy 2287 — 2026-10-29 03:33 UTC (`0299f6126`)
+
+The site agent's cost fixes after its first live build (clear only when it
+saves 15,000 characters, several tools per round, each round logged as
+numbers, trace room 140), on the owner's "merge and deploy". A fast-forward
+from `736379436`; required CI green (unit tests run 40811324380, site build run
+40811324374); rollback verified; nothing in flight. Image predicted:
+SiteBuildContainer `a1f126d49bbe9fe8` → `98e49766f0f461b8` (256 inputs),
+AppBuildContainer `65022ce71e3d7274` unchanged. Run 40812828450 green,
+03:33–03:37 UTC; the log's image pair is as predicted. Deployed, not
+runtime-confirmed.
