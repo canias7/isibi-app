@@ -1482,3 +1482,8 @@ When a model's answer fails a check, retry once with the reason, on the **same m
   model written replies pls": every customer reply is written by the model;
   our code only hands it facts (such as the check facts in
   `builder/check-evidence.mjs`), never a sentence shown as it is.
+
+- **The builder never invents anything (2026-10-29).** "dont invent anything":
+  no hours, prices, dates, contact details, names, numbers, reviews or
+  policies the owner did not give; a missing fact is a clearly marked
+  placeholder, named in the reply.

@@ -18344,7 +18344,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // whose record is not conversational records nothing here.
   try {
     if (job && job.progress && job.progress.talk) {
-      job.progress.mark("checked", spineCheckFacts({ render: built.render, cssChecked: verifyOnly ? verifyOnly.size : 0 }));
+      job.progress.mark("checked", spineCheckFacts({ render: built.render, cssChecked: verifyOnly ? verifyOnly.size : 0, draft: !draftFirst(env) ? false : liveWhenClean === true ? null : true }));
     }
   } catch { /* the record never costs the publish */ }
 

@@ -650,3 +650,10 @@ test("SA42 the rules ask for one command per look; each command is logged by wha
   assert.ok(numbers.every(([, v]) => typeof v === "number"), "the trace keeps these: numbers only");
   assert.doesNotMatch(JSON.stringify(numbers), /hunter2|secret-dir/);
 });
+
+test("SA43 the rules forbid inventing anything: facts come from the owner, the site or its tables; a missing one is a marked placeholder named in finish", () => {
+  const sys = agentSystem(null, "");
+  assert.match(sys, /NEVER INVENT ANYTHING\./);
+  for (const k of ["opening hours", "prices", "phone numbers", "addresses", "reviews", "testimonials", "policies"]) assert.ok(sys.includes(k), k);
+  assert.match(sys, /clearly marked placeholder where it goes \(for example "\[Opening hours\]"\) and say in finish exactly what is missing/);
+});

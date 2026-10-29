@@ -1391,7 +1391,7 @@ export function addressFacts(slug) {
  *     on the page, only when that check was asked for and passed.
  * A check that could not run is said as not done, so it is never read as passed.
  */
-export function spineCheckFacts({ render = null, cssChecked = 0 } = {}) {
+export function spineCheckFacts({ render = null, cssChecked = 0, draft = false } = {}) {
   // THE SAME READING AS THE FINAL REPLY'S (2026-10-14, Codex at 8a000d1f):
   // the browser check's sentence is `browserSaid` over `checksOf`, so a
   // report with findings nobody could read is never "flagged none" here and
@@ -1401,7 +1401,10 @@ export function spineCheckFacts({ render = null, cssChecked = 0 } = {}) {
   const out = [fact("checked", "The site built without errors.")];
   out.push(fact(c.browser.ran === true ? "checked" : "notdone", browserSaid(c.browser)));
   if (c.css) out.push(fact("checked", cssSaid(c.css)));
-  out.push(fact("doing", "Publishing the site now."));
+  // DRAFT OR LIVE, AS IT WILL BE (2026-10-29): a change saved to the draft
+  // was said as "Publishing the site now" on kiln-lane-3's edit.
+  // `null`: not known yet (a rebuild decides later whether it goes live).
+  out.push(fact("doing", draft === true ? "Saving it to the site's draft now; the live site stays as it is until the owner presses Publish." : draft === null ? "Saving the change now." : "Publishing the site now."));
   return out;
 }
 

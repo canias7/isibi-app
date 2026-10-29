@@ -147,3 +147,21 @@ The third build spent rounds 1–10 on one command each, learning the project
    never kept.
 Tests SA41, SA42; sweep 6 of 6 killed, the comment control survived. The
 saving is not measured until a live build.
+
+## The parallel tests (08:11 UTC, after deploy 2289) and two fixes
+Three at once on the A account (balance 65 → 165, owner-approved top-up,
+ledger 862):
+- **Question** on `kiln-lane-2` ("What pages does my site have…"): failed, no
+  charge. The agent answered in plain text, and the loop reads an answer with
+  no tool as `stopped: no-tool`, so the answer was dropped. Open (owner to say).
+- **Edit** on `kiln-lane-3` ("Hand-thrown in Bristol" and opening hours): done,
+  3 rounds, 1 build, 4 pages checked clean, draft revision 2, 12 credits. It
+  **invented the opening hours** (Tue–Sat 10–6…), and one progress line said
+  "Publishing the site now" though it was saved to the draft.
+- **Build** `kiln-lane-4`: running at the time of writing.
+Fixed (offline): the agent's rules now forbid inventing anything — every fact
+comes from the owner, the site or its tables; a missing one is a clearly
+marked placeholder named in finish (owner: "dont invent anything", universal);
+the progress line after the checks says "Saving it to the site's draft now…"
+under draft-first, "Saving the change now." when a rebuild may yet go live.
+Tests SA43, SD1–SD2; sweep 3 of 3 killed, the comment control survived.
