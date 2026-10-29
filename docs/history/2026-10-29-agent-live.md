@@ -165,3 +165,14 @@ marked placeholder named in finish (owner: "dont invent anything", universal);
 the progress line after the checks says "Saving it to the site's draft now…"
 under draft-first, "Saving the change now." when a rebuild may yet go live.
 Tests SA43, SD1–SD2; sweep 3 of 3 killed, the comment control survived.
+
+## The fourth build (`kiln-lane-4`) and the page that gave up
+The build saved as a draft after 22½ minutes (ok, ledger 863, 864 and 867:
+2 + 12 + 76 = **90**), but the page said "That didn't come together" at about
+20 minutes: `BUILD_FOLLOW_MS` was 20 minutes, from the page writer's day, and
+the agent may run 40. Now 50 minutes (test BF1 keeps it at least the agent's
+limit plus eight; the old value fails it). Why the page showed an error rather
+than its "still being written" sentence is not yet reproduced.
+The map at the door worked (the looking around took 2 rounds, not 10); the
+rest of the cost was a failed first build, five looks after a held finish,
+and the clearing triggered by each look's screenshots (open).

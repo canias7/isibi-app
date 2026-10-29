@@ -16123,9 +16123,13 @@ function buildDownMsg(d) {
 // the sentence is true again — but it is true because ONE function makes both,
 // not because the replay is faithful, and that distinction is the bug.
 const BUILD_POLL_MS = 6000;
-// Past the Worker's own 16-minute queue wait plus the container's tail. A build
-// still unanswered here has not failed — it is told honestly and left running.
-const BUILD_FOLLOW_MS = 20 * 60 * 1000;
+// Past the longest a build may run: the site agent's own 40 minutes
+// (AGENT_MAX_MS) plus the compile, the checks and the save after it. It was 20
+// minutes, from the page writer's day, and the fourth live agent build
+// (2026-10-29, kiln-lane-4) ran 22½ minutes: the page gave up and said it had
+// not come together while the server was still writing a site that then saved.
+// A build still unanswered here has not failed — it is told honestly and left running.
+const BUILD_FOLLOW_MS = 50 * 60 * 1000;
 /**
  * THE BUILD'S TALK, PUSHED (2026-10-19, owner: "do it now"): one open
  * connection to `/api/site/build/<id>/stream`, read with the page's own
