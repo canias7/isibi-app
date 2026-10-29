@@ -605,7 +605,15 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     const content = Array.isArray(j && j.content) ? j.content : [];
     const uses = content.filter((b) => b && b.type === "tool_use");
     log({ event: "round", round: rounds, tools: uses.map((b) => b.name), ...toolCounts(uses), inTok: u.in, cached: u.cacheRead, outTok: u.out, credits: Math.round(spent() * 10) / 10 });
-    if (!uses.length) { stopped = j && j.stop_reason === "max_tokens" ? "too-long" : "no-tool"; break; }
+    // AN ANSWER IN PLAIN WORDS IS AN ANSWER (2026-10-29): a question ("What
+    // pages does my site have?") was answered in text, without `finish`, and
+    // the answer was thrown away as "no-tool". When nothing has been written or
+    // changed, the text is the agent's answer; otherwise it stopped mid-work.
+    if (!uses.length) {
+      const said = content.filter((b) => b && b.type === "text" && typeof b.text === "string").map((b) => b.text.trim()).filter(Boolean).join("\n\n");
+      if (said && j && j.stop_reason !== "max_tokens" && !st.written.size && !st.dirty && !st.rows.length) { st.done = true; st.summary = said.slice(0, 4000); break; }
+      stopped = j && j.stop_reason === "max_tokens" ? "too-long" : "no-tool"; break;
+    }
     const ids = uses.map((b, i) => (typeof b.id === "string" && b.id ? b.id : "t" + rounds + "_" + i));
     messages.push({ role: "assistant", content: content.map((b) => (b && b.type === "tool_use" ? { ...b, id: ids[uses.indexOf(b)] } : b)) });
     const results = [];

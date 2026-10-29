@@ -176,7 +176,8 @@ test("SA9 write_file: keys checked, server code checked at once, empty refused",
 });
 
 test("SA10 no tool call, or a send that throws, stops the loop without throwing", async () => {
-  const r = await runSiteAgent({ send: async () => ({ content: [{ type: "text", text: "hi" }], usage: {} }), build: okBuild }, { request: "r", pages: PAGES });
+  // an empty answer (plain words are an answer since 2026-10-29: SA46)
+  const r = await runSiteAgent({ send: async () => ({ content: [], usage: {} }), build: okBuild }, { request: "r", pages: PAGES });
   assert.equal(r.stopped, "no-tool");
   const r2 = await runSiteAgent({ send: async () => { throw new Error("down"); }, build: okBuild }, { request: "r", pages: PAGES });
   assert.equal(r2.stopped, "send");
@@ -682,4 +683,20 @@ test("SA45 the pile is measured without screenshots", () => {
   const text = [{ role: "user", content: [{ type: "text", text: "x".repeat(100) }] }];
   const withShot = [{ role: "user", content: [{ type: "text", text: "x".repeat(100) }, { type: "image", source: { type: "base64", data: "A".repeat(200000) } }] }];
   assert.equal(pileSize(withShot), pileSize(text));
+});
+
+test("SA46 a question answered in plain words is the answer; plain words after a change are still a stop mid-work", async () => {
+  const text = (t) => ({ content: [{ type: "text", text: t }], usage: { input_tokens: 10, output_tokens: 5 }, stop_reason: "end_turn" });
+  const s1 = scripted([text("Your site has four pages: Home, Classes, Shop and Contact.")]);
+  const r1 = await runSiteAgent({ send: s1.send, build: okBuild }, { request: "What pages does my site have?", pages: PAGES });
+  assert.equal(r1.ok, true); assert.equal(r1.stopped, "");
+  assert.equal(r1.summary, "Your site has four pages: Home, Classes, Shop and Contact.");
+  assert.deepEqual(r1.changed, []);
+  const s2 = scripted([answer(use("write_file", { file: "visit.tsx", source: "x" })), text("I changed it.")]);
+  const r2 = await runSiteAgent({ send: s2.send, build: okBuild }, { request: "r", pages: PAGES });
+  assert.equal(r2.ok, false); assert.equal(r2.stopped, "no-tool");
+  const s3 = scripted([{ content: [{ type: "text", text: "half an answ" }], usage: { input_tokens: 1, output_tokens: 1 }, stop_reason: "max_tokens" }]);
+  assert.equal((await runSiteAgent({ send: s3.send, build: okBuild }, { request: "r", pages: PAGES })).stopped, "too-long");
+  const s4 = scripted([text("   ")]);
+  assert.equal((await runSiteAgent({ send: s4.send, build: okBuild }, { request: "r", pages: PAGES })).stopped, "no-tool");
 });

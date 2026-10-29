@@ -187,3 +187,12 @@ longer count towards the pile (`pileSize`). Tests SA44, SA45; sweep 4 of 4
 killed (the first sweep's surviving mutant, the pile counting screenshots,
 was killed by SA45), the comment control survived; the 52 agent-related tests
 pass. The saving is not measured until a live build.
+
+## A question answered in plain words (fixed offline)
+The parallel test's question ("What pages does my site have…", `kiln-lane-2`)
+was answered in text without `finish`; the loop read that as `no-tool` and
+the reply said it could not answer. Now, when nothing was written or changed,
+the agent's plain words are its answer; after a change, plain words are still
+a stop mid-work, and a cut-off answer is still `too-long`. Tests SA46 (SA10
+now uses an empty answer); sweep 3 of 3 killed, the comment control survived;
+the 54 agent-related tests pass.
