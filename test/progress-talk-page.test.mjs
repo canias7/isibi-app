@@ -22,6 +22,8 @@ const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 const draw = (lines, live = false, done = false) => {
   const ctx = vm.createContext({ esc });
   vm.runInContext(cut("function progressListHTML("), ctx);
+  // every line drawn here has settled (2026-10-29: a line just in stands alone first)
+  ctx.progressListHTML.seen = new Map(lines.map((l) => [l && l.text, 0]));
   return ctx.progressListHTML(lines, live, done);
 };
 

@@ -12742,12 +12742,29 @@ function siteSaidFor(said, which) {
 // label, closed until opened — never a stream of thoughts, and absent when no
 // line carries one.
 function progressListHTML(lines, live, done) {
+  // NOT WHILE IT IS TALKING (2026-10-29, the owner: "if the model is talking
+  // back, dont put it, just put it when it resumes" — "Working…", "Thinking",
+  // any of those signs): a line that has just come in is read on its own for
+  // TALK_MS; the sign comes back once it has settled, and the thread is drawn
+  // again then. Kept on the function so it travels with it.
+  const TALK_MS = 4000;
+  const seen = progressListHTML.seen || (progressListHTML.seen = new Map());
+  const talking = (text) => {
+    const now = Date.now();
+    if (!seen.has(text)) { seen.set(text, now); if (seen.size > 200) seen.delete(seen.keys().next().value); }
+    const left = seen.get(text) + TALK_MS - now;
+    if (left <= 0) return false;
+    if (!progressListHTML.timer && typeof setTimeout === 'function') {
+      progressListHTML.timer = setTimeout(() => { progressListHTML.timer = 0; try { if (typeof renderSites === 'function') renderSites(); } catch { /* the next update draws it */ } }, left + 50);
+    }
+    return true;
+  };
   const list = Array.isArray(lines) ? lines.filter((l) => l && typeof l.text === 'string' && l.text) : [];
   // A SIGN IT IS STILL WORKING (2026-10-21, owner: "when an addition or
   // anything else thats not build, we need a sign that its working on
   // something"): under every running list, and alone before its first line,
   // the shimmering word the thread already uses.
-  const working = live ? '<div class="st-think st-working">Working\u2026</div>' : '';
+  const working = live && !(list.length && talking(list[list.length - 1].text)) ? '<div class="st-think st-working">Working\u2026</div>' : '';
   if (!list.length) return working;
   const why = list.map((l) => (typeof l.explain === 'string' ? l.explain.trim() : '')).filter(Boolean);
   // A LATE LINE IS NEVER THE LIVE ONE (2026-10-15): it was written after its

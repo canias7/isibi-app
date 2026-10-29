@@ -3,6 +3,13 @@
 
 
 
+## 2026-10-29 — "Working…" steps aside while a new line is read
+
+On the owner's word: when the builder says a new progress line, the waiting
+sign ("Working…", "Thinking" and the like) is not shown under it; it comes
+back after 4 seconds, until the next line. `public/chat.js`
+(`progressListHTML`), test `test/progress-talking.test.mjs`. Not deployed.
+
 ## 2026-10-29 — The agent can see what the checks find
 
 The second build showed the agent working blind: in a new site it had no way to

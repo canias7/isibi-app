@@ -194,7 +194,8 @@ test("WATCH — the page-driven watch: each running poll's newest line is painte
 test("BUBBLE — every line so far stacks where \"Thinking\" was, escaped, in the card's own list, the newest live; a waiting sentence still comes first; with no line, \"Thinking\" as before", () => {
   const draw = (sb) => {
     const ctx = vm.createContext({ siteBuild: sb, stBuildRunning: () => false, esc: (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") });
-    vm.runInContext(cut("function progressListHTML(") + "\n" + cut("function reactLiveStepsHTML("), ctx);
+    // the newest line has settled (2026-10-29: a line just in stands alone, "Working…" returns after)
+    vm.runInContext(cut("function progressListHTML(") + "\n" + cut("function reactLiveStepsHTML(") + ";progressListHTML.seen = new Map([['Publishing.', 0], ['Found it.', 0]]);", ctx);
     return ctx.reactLiveStepsHTML();
   };
   // EVERY LINE, NOT ONLY THE NEWEST (the owner, 2026-10-13).
