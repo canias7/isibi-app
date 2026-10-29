@@ -54,11 +54,21 @@ function loadScript(): Promise<void> {
   return loading;
 }
 
+/**
+ * THE SPAM CHECK IS OFF (2026-10-28, the site owns its work: "spam check is off
+ * for now"). While it is, the page never asks for a key: the question answered
+ * nothing on a published site, and on a draft preview — which refuses every
+ * visitor call — it was a 403 the browser check reported as a page error
+ * (kiln-lane-5's Enquire page, 2026-10-29). Turn it back on here.
+ */
+export const SPAM_CHECK_ON = false;
+
 export function SpamGuard() {
   const box = useRef<HTMLDivElement | null>(null);
   const [siteKey, setKey] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!SPAM_CHECK_ON) return;
     let live = true;
     // One small same-origin GET, cached for a minute by the Worker's own
     // `cache-control`. It answers `{}` for every site with no protection, which

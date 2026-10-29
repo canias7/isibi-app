@@ -220,3 +220,12 @@ Balance 63 → 163 (owner-approved top-up, ledger 868) → 86.
   and **no clearing at all**; the finish was not held. The reply names an
   error written while the Enquire page loads, found by the browser check
   after the agent had finished.
+
+## The Enquire page "error" (fixed offline)
+kiln-lane-5's reply named an error while its Enquire (contact) page loads. It
+was the page asking for the spam check's key (`/api/db/<slug>/turnstile`): the
+draft preview refuses every visitor call (403, "This is a preview…"), and the
+browser check reported the refusal as a page error. The spam check has been
+off since 2026-10-28, so the page now never asks while it is
+(`SPAM_CHECK_ON = false` in the kit's `spam-guard.tsx`). Test SO1; the old
+behaviour fails it.
