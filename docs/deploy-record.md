@@ -2159,3 +2159,15 @@ read); `wassup` and `helm` do not yet. `ember-cart` (no database) and
   predicted `aa188622d81478a6` → `d798304cc28b0e10`. Read free 23:1x:
   `test.isibi.ai`, `gofarther.dev`, `ember-cart`, fretwork-1's data route 200.
   Not runtime-confirmed by a canary press; not yet proven on a new site.
+
+## Deploy 2286 — 2026-10-29 02:17 UTC (`736379436`)
+
+The site agent (one model with tools takes every message; no router, no cap;
+cost rules 1, 3 and 4) and its shell commands with no internet, on the
+owner's word "merge and deploy". Record: `docs/history/2026-10-28-site-agent.md`.
+A fast-forward from `fcc8c056d`; required CI green on the candidate (unit
+tests run 40804499999, site build run 40804499983); rollback verified; nothing
+in flight. Image predicted: SiteBuildContainer `7a577bf068bd9734` →
+`a1f126d49bbe9fe8` (256 inputs), AppBuildContainer `65022ce71e3d7274`
+unchanged. Run 40805423501 green, 02:17–02:20 UTC; the log's image pair is
+as predicted. Deployed, not runtime-confirmed.
