@@ -106,7 +106,6 @@ export const FOUNDATION_PATHS = [
   "src/lib/utils.ts",
   "src/lib/error-page.tsx",
   "src/lib/error-reporting.ts",
-  "src/lib/spam-guard.tsx",
   "src/hooks/use-mobile.tsx",
   // THE PROJECT ROOT, WHOLE — all twelve, in the order a reader wants them:
   // what this is, what it needs, how it builds, how it is checked, and the

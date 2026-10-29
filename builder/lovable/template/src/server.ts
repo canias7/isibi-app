@@ -25,17 +25,13 @@
 import { createStartHandler, defaultStreamHandler } from "@tanstack/react-start/server";
 import { SITE_BUILD, SITE_SLUG, SITE_VERSION, SITE_PARENT } from "./site-brand";
 import { setSiteMeta, type SiteMeta } from "./site-runtime";
-import { runSiteEffects, type EffectEnv } from "./lib/site-effects";
 import { rescopeCookie } from "./lib/effects/site-cookie.mjs";
 import { serveUpload, visitorUpload, type FilesEnv } from "./lib/site-files";
-import { siteCheckout, stripeSiteWebhook, type PayEnv } from "./lib/site-pay";
-import { siteApi, siteHook, type ConnectEnv } from "./lib/site-connect";
 import { siteSeoFile, siteRedirect, absolutized, type AddressEnv } from "./lib/site-addresses";
 import { siteError, countVisit, type TelemetryEnv } from "./lib/site-telemetry";
 import { tooMany, visitorIp, limited } from "./lib/site-limit";
-import { siteJob, JOB_HEADER, type JobEnv } from "./lib/site-jobs-run";
-import { siteTick, type RetryEnv } from "./lib/site-webhook-retry";
 import { siteFunction, type FnEnv } from "./lib/site-functions";
+import { rowHooks, siteTick, TICK_HEADER } from "./lib/site-row-hooks";
 
 // ── THIS SCRIPT READS ITS OWN PREFIX (stage 7, 2026-09-05) ────────────────────
 //
@@ -128,16 +124,6 @@ async function hmacHex(key: string, text: string): Promise<string> {
   const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   return hexOf(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(text)));
 }
-function dropChallenge(text: string): string {
-  try {
-    const o = JSON.parse(text);
-    if (o && typeof o === "object" && !Array.isArray(o) && Object.prototype.hasOwnProperty.call(o, "cf-turnstile-response")) {
-      delete o["cf-turnstile-response"];
-      return JSON.stringify(o);
-    }
-  } catch { /* not JSON: as sent */ }
-  return text;
-}
 
 export async function ownDataWrite(request: Request, env: Env, url: URL, ctx?: Ctx): Promise<Response | null> {
   if (!WRITE.has(request.method)) return null;
@@ -152,7 +138,7 @@ export async function ownDataWrite(request: Request, env: Env, url: URL, ctx?: C
   const wait = tooMany("write|" + visitorIp(request), 60);
   if (wait) return limited(wait);
   const bucket = env.SITES as unknown as Bucket;
-  const sent = dropChallenge(await request.text());
+  const sent = await request.text();
 
   const key = request.method === "POST" ? request.headers.get("idempotency-key") : null;
   const idemKey = key && IDEM_RE.test(key) ? "idem/" + path.split("/")[0].toLowerCase() + "/" + key : "";
@@ -188,10 +174,10 @@ export async function ownDataWrite(request: Request, env: Env, url: URL, ctx?: C
       const keep = bucket.put(idemKey, JSON.stringify({ at: Date.now(), fp, status: r.status, body, ct })).catch(() => {});
       if (ctx) ctx.waitUntil(keep); else await keep;
     }
-    // WHAT FOLLOWS, run here: the owner's email, the confirmation, the text,
-    // the webhook — with this site's own keys (lib/site-effects.ts).
-    const follow = runSiteEffects(env as unknown as EffectEnv, ctx, { slug: SITE_SLUG, method: request.method, path, search: url.search || "", sent, body }).catch(() => []);
-    if (ctx) ctx.waitUntil(follow); else await follow;
+    // WHAT FOLLOWS is the model's own server code hooked to this write
+    // (lib/site-row-hooks.ts); nothing prebuilt runs here any more.
+    const follow = rowHooks(env as unknown as FnEnv, ctx, { slug: SITE_SLUG, method: request.method, path, search: url.search || "", sent, body });
+    if (!ctx) await follow;
   }
   const out = new Headers({ "content-type": ct, "x-site-data": "own" });
   const cr = r.headers.get("content-range");
@@ -370,14 +356,9 @@ const site = {
 
     const own = (await ownDataRead(request, env, url)) || (await ownDataWrite(request, env, url, ctx)) || (await ownAuth(request, env, url))
       || (await serveUpload(request, env as unknown as FilesEnv, url, SITE_SLUG)) || (await visitorUpload(request, env as unknown as FilesEnv, url, SITE_SLUG))
-      || (await siteCheckout(request, env as unknown as PayEnv, url, SITE_SLUG, ctx)) || (await stripeSiteWebhook(request, env as unknown as PayEnv, url, SITE_SLUG, ctx))
-      || (await siteApi(request, env as unknown as ConnectEnv, url, SITE_SLUG)) || (await siteHook(request, env as unknown as ConnectEnv, url, SITE_SLUG))
       || (await siteFunction(request, env as unknown as FnEnv, url, SITE_SLUG))
       || (await siteError(request, env as unknown as TelemetryEnv, url, SITE_SLUG, ctx))
-      // Spam protection is off for now (owner, 2026-10-27): the widget asks, and is told none.
-      || (url.pathname.toLowerCase() === "/api/db/" + SITE_SLUG + "/turnstile" ? Response.json({}, { headers: { "x-site-data": "own", "cache-control": "public, max-age=60" } }) : null)
-      || (await siteJob(request, env as unknown as JobEnv, url))
-      || (await siteTick(request, env as unknown as RetryEnv, url, SITE_SLUG, JOB_HEADER));
+      || (await siteTick(request, env as unknown as FnEnv, url, SITE_SLUG, TICK_HEADER));
     if (own) return own;
 
     // ASSETS STAY ON R2, and this is a cost decision rather than a detail.

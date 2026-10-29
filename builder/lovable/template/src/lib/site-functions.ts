@@ -188,8 +188,8 @@ export async function siteFunction(request: Request, env: FnEnv, url: URL, slug:
   if (!m || m[1] !== slug) return null;
   const mod = moduleFor(m[2], mods);
   if (!mod || typeof mod.default !== "function") return fail(404, "no such function");
-  // A HOOK IS NOT A VISITOR'S TO CALL: a function that runs on an event (a paid
-  // booking, a new row, the clock) is reachable from outside only when it also
+  // A HOOK IS NOT A VISITOR'S TO CALL: a function that runs on an event (a new
+  // row, the clock) is reachable from outside only when it also
   // says `export const visitors = true`, so nobody can fake the event.
   if (hooksOf(mod).length && mod.visitors !== true) return fail(404, "no such function");
   const wait = tooMany("fn|" + m[2] + "|" + visitorIp(request), PER_MIN);
@@ -228,14 +228,13 @@ export async function siteFunction(request: Request, env: FnEnv, url: URL, slug:
 }
 
 // HOOKS (2026-10-28): server code that runs when something happens, declared
-// `export const on = ["created:bookings", "paid:orders", "tick"]`.
+// `export const on = ["created:bookings", "tick"]`.
 //   created:<table> / updated:<table> / deleted:<table>  a visitor's write
-//   paid:<table>                                         a payment recorded
 //   tick                                                 the site's clock (every few minutes)
 // The function gets a POST whose JSON body is { event, table, row }; its answer
 // is not shown to anyone. At most MAX_HOOKS run for one event.
 export const MAX_HOOKS = 5;
-const HOOK = /^(?:(?:created|updated|deleted|paid):[a-z][a-z0-9_]{0,62}|tick|cron:.{9,80})$/;
+const HOOK = /^(?:(?:created|updated|deleted):[a-z][a-z0-9_]{0,62}|tick|cron:.{9,80})$/;
 
 function nameOf(m: Module, mods: Record<string, Module>): string {
   for (const [file, x] of Object.entries(mods)) if (x === m) return file.replace(/^.*\/server-/, "").replace(/\.tsx$/, "");

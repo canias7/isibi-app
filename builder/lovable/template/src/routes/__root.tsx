@@ -20,7 +20,6 @@ import {
 } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
-import { SpamGuard } from "@/lib/spam-guard";
 import { SITE_LANG, SITE_DIR, SITE_LANGS, SITE_ICON, SITE_ICON_TYPE, SITE_NAME, SITE_SLUG, SITE_THEME_COLOR, SITE_TOUCH_ICON } from "@/site-brand";
 import { siteMeta } from "@/site-runtime";
 // The stylesheet and the site's typeface, imported here rather than in a client
@@ -176,11 +175,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 // container that has to exist somewhere in the tree. Every generated form
 // reports success and failure through it, so without this the submit button
 // works and the visitor is told nothing.
-//
-// <SpamGuard /> is mounted here rather than offered to the generator as a
-// component, so a form cannot be built without it. It renders NOTHING and
-// fetches no third-party script on a site whose owner has not configured
-// Turnstile, which is almost all of them.
+
 /**
  * WHICH PAGE THIS IS, as an attribute a stylesheet can select on.
  *
@@ -277,7 +272,6 @@ function RootDocument() {
       <body data-page={active.path}>
         <Outlet />
         <Toaster />
-        <SpamGuard />
         <Scripts />
       </body>
     </html>

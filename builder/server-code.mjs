@@ -58,7 +58,7 @@ export function checkServerPart(part) {
     const inner = onDecl[1];
     if (inner.replace(/(["'])[^"']*\1/g, "").replace(/[\s,]/g, "")) reasons.push("declares `on` with something other than quoted events");
     for (const it of inner.match(/(["'])[^"']*\1/g) || []) {
-      if (!/^["'](?:(?:created|updated|deleted|paid):[a-z][a-z0-9_]{0,62}|tick|cron:(?:TZ=[A-Za-z_]+(?:\/[A-Za-z_+-]+){0,2}\s+)?[0-9*,/-]+(?:\s+[0-9*,/-]+){4})["']$/.test(it)) reasons.push("hooks an event that does not exist: " + it.slice(0, 60) + " (use created:<table>, updated:<table>, deleted:<table>, paid:<table>, tick, or cron:<minute> <hour> <day> <month> <weekday>)");
+      if (!/^["'](?:(?:created|updated|deleted):[a-z][a-z0-9_]{0,62}|tick|cron:(?:TZ=[A-Za-z_]+(?:\/[A-Za-z_+-]+){0,2}\s+)?[0-9*,/-]+(?:\s+[0-9*,/-]+){4})["']$/.test(it)) reasons.push("hooks an event that does not exist: " + it.slice(0, 60) + " (use created:<table>, updated:<table>, deleted:<table>, tick, or cron:<minute> <hour> <day> <month> <weekday>)");
     }
   } else if (/export\s+const\s+on\b/.test(code)) reasons.push("declares `on` as something other than a plain list of events");
   for (const m of code.matchAll(/^\s*import\s+(?!type\b)[^;]*?from\s*["'][^"']*["']/gm)) reasons.push("imports code (`" + m[0].trim().slice(0, 60) + "`); server code imports nothing but types");
@@ -190,8 +190,8 @@ export function serverFacts(e) {
 }
 
 function hookSaid(h) {
-  const m = /^(created|updated|deleted|paid):(\w+)$/.exec(h);
-  if (m) return ({ created: "a new entry is saved in ", updated: "an entry is changed in ", deleted: "an entry is removed from ", paid: "a payment goes through for " })[m[1]] + "\"" + m[2] + "\"";
+  const m = /^(created|updated|deleted):(\w+)$/.exec(h);
+  if (m) return ({ created: "a new entry is saved in ", updated: "an entry is changed in ", deleted: "an entry is removed from " })[m[1]] + "\"" + m[2] + "\"";
   if (h === "tick") return "the site's clock ticks (every few minutes)";
   if (h.startsWith("cron:")) return "its schedule comes round (" + h.slice(5) + ")";
   return h;

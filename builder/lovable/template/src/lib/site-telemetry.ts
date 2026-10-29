@@ -1,7 +1,7 @@
 // THIS SITE'S OWN ERROR REPORTS AND VISIT COUNT (2026-10-27), written into its
 // own database by its own Worker as its limited login. The owner reads both in
 // their panel; nothing passes through the platform.
-import { siteSql } from "./site-effects";
+import { siteSql } from "./site-sql";
 
 type Ctx = { waitUntil(p: Promise<unknown>): void };
 export type TelemetryEnv = { APP_CONN?: string; [name: string]: unknown };

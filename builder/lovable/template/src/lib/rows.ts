@@ -187,56 +187,6 @@ export function siteSlug(): string {
 
 const base = (table: string) => `/api/db/${siteSlug()}/data/${table}`;
 
-/**
- * The spam-challenge field, attached to a submission when there is one.
- *
- * THE GENERATOR NEVER WRITES THIS AND NEVER SEES IT. A page renders
- * `<SpamGuard />` inside its form and calls `useCreateRow` exactly as it always
- * has; the token is picked up here. Written the other way round — as an
- * argument the page has to pass — every form the model has already produced
- * would submit without one and be refused the day an owner switched protection
- * on.
- *
- * The field name is Turnstile's own. The Worker STRIPS it before the row
- * reaches Postgres, because it is not a column any site declared.
- */
-const CHALLENGE_FIELD = "cf-turnstile-response";
-type TurnstileApi = {
-  getResponse: (id?: string) => string | undefined;
-  reset: (id?: string) => void;
-  execute: (id?: string) => void;
-};
-const turnstileApi = () => (window as unknown as { turnstile?: TurnstileApi }).turnstile;
-
-function challenged(values: Record<string, unknown>): Record<string, unknown> {
-  // Absent on every site with no protection configured, which is why this can
-  // sit on the write path of every form without changing any of them.
-  let token: string | undefined;
-  // `getResponse` throws when no widget has been rendered — which is the
-  // ordinary case on a page that has the script but no guard.
-  try { token = turnstileApi()?.getResponse(); } catch { token = undefined; }
-  return token ? { ...values, [CHALLENGE_FIELD]: token } : values;
-}
-
-/**
- * Spend the token and start earning the next one.
- *
- * A TOKEN IS SINGLE-USE, so without this the SECOND submission from one visitor
- * is refused with `timeout-or-duplicate` — somebody booking two haircuts, or
- * anybody whose first attempt failed validation and who fixes it and tries
- * again. That second case is the common one and it looks exactly like the site
- * being broken.
- *
- * Run whether the write succeeded or not: the token is spent at Cloudflare
- * before Postgres ever sees the row, so a refused insert has consumed it just
- * the same.
- */
-function resetChallenge(): void {
-  const t = turnstileApi();
-  if (!t) return;
-  try { t.reset(); t.execute(); } catch { /* no widget rendered */ }
-}
-
 // ── One submission, once ────────────────────────────────────────────────────
 //
 // A visitor double-clicks "Book", or their phone loses signal after the POST
@@ -525,291 +475,20 @@ export function useCreateRow<T = Row>(table: string) {
         await send<unknown>(base(table), {
           method: "POST",
           headers: idem.header(),
-          body: JSON.stringify(challenged(values)),
+          body: JSON.stringify(values),
         });
         // Only after a success: a refused submission retried with the field
         // fixed carries the SAME key, and the platform never remembers a
         // refusal, so the corrected one reaches the database.
         idem.renew();
       } finally {
-        resetChallenge();
+        // (the spam check is gone; nothing to reset)
       }
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["rows", siteSlug(), table] }); },
   });
 }
 
-/** One line of a basket. The ONLY two things a page may decide about money. */
-export type CartLine = { id: RowId; qty?: number };
-
-// ── A basket that survives leaving the page ─────────────────────────────────
-//
-// WHAT WAS MISSING. A basket was `useState` on one page, so "add to basket
-// here, check out over there" could not be built at all — measured over the
-// corpus the generator learns from: 0 of 324 exemplars hold any state across
-// routes. On a platform that takes card payments, a shop that only works if
-// the whole purchase happens on a single screen is a real limit rather than a
-// stylistic one.
-//
-// NO DEPENDENCY. React's own `useSyncExternalStore` is exactly the primitive
-// this needs — one store per site+table, every component reading it live —
-// so this is about thirty lines rather than a state library the generator
-// would have to be taught.
-//
-// THERE IS NOWHERE IN HERE TO PUT A PRICE, and that is deliberate rather than
-// an omission. `parseCart` on the server DROPS any price, total or currency a
-// browser sends and reads them out of the site's own catalogue instead; a
-// basket that carried prices would be inviting a page to send them. A line is
-// which row and how many, and nothing else.
-
-/** Caps mirrored from `site-payments.mjs`. A basket the server will refuse is a
- *  checkout that fails at the till, after the customer has filled it. */
-const MAX_CART_LINES = 50;
-const MAX_LINE_QTY = 999;
-
-const CART_KEY = (table: string) => `site_cart_${siteSlug()}_${table}`;
-
-/** What is safe to believe from storage.
- *
- *  This value is editable by hand and survives across deploys, so it is parsed
- *  defensively: a corrupt one must degrade to an empty basket rather than
- *  throwing on render, which would break the shop for that visitor permanently
- *  with nothing they could do about it. */
-function readCart(table: string): CartLine[] {
-  let raw: unknown;
-  try { raw = JSON.parse(localStorage.getItem(CART_KEY(table)) || "[]"); } catch { return []; }
-  if (!Array.isArray(raw)) return [];
-  const out: CartLine[] = [];
-  for (const it of raw) {
-    if (!it || typeof it !== "object") continue;
-    const { id, qty } = it as { id?: unknown; qty?: unknown };
-    if (typeof id !== "string" && typeof id !== "number") continue;
-    if (id === "") continue;
-    const n = Math.floor(Number(qty));
-    if (!Number.isFinite(n) || n < 1) continue;
-    out.push({ id: id as RowId, qty: Math.min(n, MAX_LINE_QTY) });
-    if (out.length >= MAX_CART_LINES) break;
-  }
-  return out;
-}
-
-function writeCart(table: string, lines: CartLine[]) {
-  try { localStorage.setItem(CART_KEY(table), JSON.stringify(lines)); } catch { /* private mode */ }
-}
-
-// ONE STORE PER SITE+TABLE, so two payable tables on one site are two baskets
-// and two sites open in one browser never share one. Cached by key because
-// every component reading the same basket must read the SAME store, or adding
-// an item in the header would not move the number in the basket page.
-type CartStore = {
-  table: string;
-  lines: CartLine[];
-  subs: Set<() => void>;
-  subscribe: (fn: () => void) => () => void;
-  get: () => CartLine[];
-  set: (next: CartLine[]) => void;
-};
-const cartStores = new Map<string, CartStore>();
-
-// SHARED BY EVERY STORE, and registered once. A `storage` event fires in the
-// OTHER tabs, so a basket filled in one and paid for in another does not
-// disagree with itself — which looks exactly like the shop losing an order.
-let storageWired = false;
-
-function cartStore(table: string): CartStore {
-  const key = CART_KEY(table);
-  let store = cartStores.get(key);
-  if (store) return store;
-
-  store = {
-    table,
-    lines: readCart(table),
-    subs: new Set<() => void>(),
-    subscribe(fn) { store!.subs.add(fn); return () => { store!.subs.delete(fn); }; },
-    get() { return store!.lines; },
-    set(next) {
-      store!.lines = next;
-      writeCart(table, next);
-      store!.subs.forEach((fn) => fn());
-    },
-  };
-  cartStores.set(key, store);
-
-  if (!storageWired && typeof window !== "undefined") {
-    storageWired = true;
-    window.addEventListener("storage", (e) => {
-      if (!e.key) return;
-      const s = cartStores.get(e.key);
-      if (!s) return;
-      // Re-read rather than trusting the event's newValue: it goes through the
-      // same sanitiser as everything else, because another tab is not a more
-      // trustworthy source than the storage it wrote to. The table comes off
-      // the store rather than being sliced back out of the key, which would
-      // silently produce nonsense the day the key format changes.
-      s.lines = readCart(s.table);
-      s.subs.forEach((fn) => fn());
-    });
-  }
-  return store;
-}
-
-/** The server renders with no storage at all, so it renders an EMPTY basket.
- *
- *  THE HYDRATION SAFETY IS `getServerSnapshot`, NOT `ready`, and this note said
- *  otherwise until a mutation proved it: React calls `getServerSnapshot` for the
- *  CLIENT's hydration render as well, so the first paint matches the markup
- *  whether or not anything gates it, and removing the gate produced no mismatch
- *  at all. Corrected rather than left, because a comment crediting a line with
- *  something it does not do is what gets believed when somebody deletes it.
- *
- *  `ready` still earns its place for two smaller things — see the return value. */
-const EMPTY_LINES: CartLine[] = [];
-
-/**
- * A basket for a payable table, kept across pages and across a reload.
- *
- * ```tsx
- * const cart = useCart("orders")
- * const { data: products = [] } = useRows<Product>("products")
- * const checkout = useCheckout("orders")
- * …
- * <Button onClick={() => cart.add(p.id)}>Add</Button>
- * <BusyButton busy={checkout.isPending}
- *   onClick={() => checkout.mutate({ items: cart.lines, fields: { email } })}>
- *   Pay
- * </BusyButton>
- * ```
- *
- * IT EMPTIES ITSELF WHEN THE CUSTOMER COMES BACK PAID. Checkout leaves the site
- * for Stripe and returns to `?paid=<orderId>`; without this the basket they
- * just bought is still sitting there, which invites paying for it twice. Doing
- * it here rather than asking the page to remember is the same rule as the
- * debounce above.
- */
-export function useCart(table: string) {
-  const store = cartStore(table);
-  const [ready, setReady] = React.useState(false);
-
-  const lines = React.useSyncExternalStore(
-    store.subscribe,
-    () => (ready ? store.get() : EMPTY_LINES),
-    () => EMPTY_LINES,
-  );
-
-  React.useEffect(() => {
-    // ?paid= IS NOT PROOF OF PAYMENT and is not treated as any — the order is
-    // marked paid by Stripe calling the platform. It is only ever read as "this
-    // browser has been through checkout", which is reason enough to let go of a
-    // basket and is harmless if somebody types it.
-    let params: URLSearchParams | null = null;
-    try { params = new URLSearchParams(window.location.search); } catch { /* no window */ }
-    if (params && params.get("paid")) {
-      store.set([]);
-      try { localStorage.removeItem(CART_KEY(table)); } catch { /* private mode */ }
-    }
-    setReady(true);
-  }, [store, table]);
-
-  // EVERY MUTATOR READS THE STORE, NEVER THE RENDERED `lines`, and that is a
-  // correctness point rather than a style one. The rendered value is a snapshot
-  // of the last paint, so two calls in one tick — a double-clicked "Add", or a
-  // page adding several items in a loop — would each start from the same
-  // snapshot and the last write would erase the others. Reading the store means
-  // each call starts from what the one before it actually left.
-  const edit = React.useCallback(
-    (fn: (prev: CartLine[]) => CartLine[]) => store.set(fn(store.get()).slice(0, MAX_CART_LINES)),
-    [store],
-  );
-  // An id off a route param is a string and a row's id is a number, so every
-  // comparison here goes through String() — the mismatch that made a manage
-  // page answer "not found" for every real row.
-  const same = (a: RowId, b: RowId) => String(a) === String(b);
-  const clamp = (n: number) => Math.min(Math.max(1, Math.floor(n)), MAX_LINE_QTY);
-
-  return {
-    lines,
-    /** Whether the stored basket has been settled yet. False for the first
-     *  paint, and it does two things:
-     *
-     *  a page can hold its "your basket is empty" message back rather than
-     *  flashing it at somebody whose basket is full — and the `?paid=` clear
-     *  below happens in an effect, so without this a customer returning from
-     *  Stripe would see the basket they just bought for one frame before it
-     *  emptied. */
-    ready,
-    /** Total items, not lines — the number a basket badge should show. */
-    count: lines.reduce((n, l) => n + (l.qty ?? 1), 0),
-    qtyOf: (id: RowId) => lines.find((l) => same(l.id, id))?.qty ?? 0,
-    add: (id: RowId, qty = 1) => edit((prev) => {
-      const at = prev.findIndex((l) => same(l.id, id));
-      if (at < 0) return [...prev, { id, qty: clamp(qty) }];
-      const next = prev.slice();
-      next[at] = { id: prev[at].id, qty: clamp((prev[at].qty ?? 1) + Math.floor(qty)) };
-      return next;
-    }),
-    /** A quantity of zero or less REMOVES the line, which is what a stepper
-     *  clicked down to nothing means. */
-    setQty: (id: RowId, qty: number) => edit((prev) => (
-      Number.isFinite(qty) && Math.floor(qty) >= 1
-        ? prev.map((l) => (same(l.id, id) ? { id: l.id, qty: clamp(qty) } : l))
-        : prev.filter((l) => !same(l.id, id))
-    )),
-    remove: (id: RowId) => edit((prev) => prev.filter((l) => !same(l.id, id))),
-    clear: () => edit(() => []),
-  };
-}
-
-/**
- * Send the visitor to Stripe to pay for a basket.
- *
- * The page NEVER sends a price, a total or a currency, and there is nowhere in
- * this type to put one. The server reads the prices out of the site's own
- * catalogue table and computes the total there, so a basket edited in the
- * browser cannot change what is charged.
- *
- * `fields` is the customer's own details — name, email, address — and only the
- * columns the table declared are kept. The payment columns are not among them.
- *
- * On success this REDIRECTS to Stripe, so nothing after `mutate` runs. Success
- * and cancel both come back to the site's own root with `?paid=` or
- * `?cancelled=` and the order id, which is what a thank-you page should read.
- * That id is NOT proof of payment — anyone can type it — so a page must never
- * treat it as more than "show a friendly message"; the order is marked paid by
- * the shop's Stripe calling the platform, not by the browser coming back.
- */
-export function useCheckout(table: string) {
-  const idem = useIdemKey();
-  return useMutation({
-    mutationFn: async (input: { items: CartLine[]; fields?: Record<string, string> }): Promise<void> => {
-      const res = await fetch(`/api/db/${siteSlug()}/checkout`, {
-        method: "POST",
-        // "Pay" pressed twice is one checkout: a repeat within ten minutes
-        // gets the session the first press opened, not a second one.
-        headers: { "content-type": "application/json", ...idem.header() },
-        body: JSON.stringify({ table, items: input.items, fields: input.fields ?? {} }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok || !data?.url) {
-        // The server's sentence is written for the customer ("this shop hasn't
-        // finished setting up payments yet"), so it is shown rather than
-        // replaced with a generic one.
-        throw new Error(data?.error || "We couldn't start that payment.");
-      }
-      idem.renew();
-      window.location.href = data.url as string;
-    },
-  });
-}
-
-/**
- * What `useUpdateRow` accepts: the columns bare, or nested under `values`.
- *
- * `Omit<Partial<T>, "id">` is still required in both branches with T
- * unconstrained: whenever T DOES carry an id — the `Row` default, and any row
- * type a page writes — `Partial<T>` carries `id?: number` and intersecting
- * narrows RowId straight back to number, which is the third of the three errors
- * that made every edit page a placeholder on 2026-07-29.
- */
 export type UpdateArg<T> = { id: RowId } & (Omit<Partial<T>, "id"> | { values: Omit<Partial<T>, "id"> });
 
 /** Edit a row. Only reaches rows the site's policies let this member reach. */
@@ -882,56 +561,18 @@ export function useRpc<T = unknown>(fn: string, args?: Record<string, unknown>) 
   });
 }
 
-/**
- * The same, as an action rather than a read.
- *
- * CARRIES THE SPAM-CHECK TOKEN, as `useCreateRow` does (decision 2a,
- * 2026-10-22): a function declared `writes: true` is refused without one on a
- * site whose owner turned the check on. `challenged` is a no-op where there is
- * no widget, and the Worker strips the field before the call reaches Postgres,
- * so a function that is not declared a write is called exactly as before.
- */
+/** The same, as an action rather than a read. */
 export function useRpcAction<T = unknown>(fn: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (args?: Record<string, unknown>): Promise<T> => {
       try {
-        return await send<T>(`/api/db/${siteSlug()}/data/rpc/${fn}`, { method: "POST", body: JSON.stringify(challenged(args ?? {})) });
+        return await send<T>(`/api/db/${siteSlug()}/data/rpc/${fn}`, { method: "POST", body: JSON.stringify(args ?? {}) });
       } finally {
-        resetChallenge();
+        // (the spam check is gone; nothing to reset)
       }
     },
     onSuccess: () => { qc.invalidateQueries(); },
-  });
-}
-
-/**
- * Read a third-party API the site declared.
- *
- * Live data that is not in this site's database and is not fixed at build time:
- * today's exchange rate, a courier's delivery slots, a supplier's stock level.
- * The request itself — url, headers, which secret goes where — is declared in
- * the schema and performed by the platform, because the key cannot be in this
- * bundle: these files are public on a CDN.
- *
- * So the answer comes back EXACTLY as that service sent it. There is no
- * envelope of ours around it and no shape imposed on it; write the page against
- * the service's real response.
- *
- * `params` are only the names the declaration listed. Anything else is dropped
- * rather than forwarded — a page may change the postcode, never the host.
- */
-export function useApi<T = unknown>(name: string, params?: Record<string, string | number | undefined>) {
-  const qs = new URLSearchParams();
-  for (const [k, v] of Object.entries(params ?? {})) if (v != null) qs.set(k, String(v));
-  const suffix = qs.toString() ? `?${qs}` : "";
-  return useQuery<T>({
-    queryKey: ["api", siteSlug(), name, params ?? {}],
-    queryFn: () => send<T>(`/api/db/${siteSlug()}/api/${name}${suffix}`),
-    // The platform already caches by the window the declaration asked for, so a
-    // second identical read here costs nothing upstream either way. This just
-    // stops a remount refetching something the page already has.
-    staleTime: 30_000,
   });
 }
 
@@ -1359,9 +1000,9 @@ export function useCancelClaim(fn: string) {
     // the check is on. The claim token still proves WHO; this proves a person.
     mutationFn: async ({ claim }: { claim: string }) => {
       try {
-        return await send<unknown>(`/api/db/${siteSlug()}/data/rpc/${fn}`, { method: "POST", body: JSON.stringify(challenged({ tok: claim })) });
+        return await send<unknown>(`/api/db/${siteSlug()}/data/rpc/${fn}`, { method: "POST", body: JSON.stringify({ tok: claim }) });
       } finally {
-        resetChallenge();
+        // (the spam check is gone; nothing to reset)
       }
     },
     onSuccess: () => { qc.invalidateQueries(); },
@@ -1397,12 +1038,10 @@ export function useAmendClaim(fn: string) {
           // later property wins in an object literal, so `values` carrying its own
           // `tok` cannot overwrite the one that proves who is asking. Written the
           // other way round it reads as protection and is the opposite.
-          // `challenged` adds only the spam-check field (decision 2a) and
-          // keeps `tok` as written.
-          body: JSON.stringify(challenged({ ...values, tok: claim })),
+          body: JSON.stringify({ ...values, tok: claim }),
         });
       } finally {
-        resetChallenge();
+        // (the spam check is gone; nothing to reset)
       }
     },
     onSuccess: () => { qc.invalidateQueries(); },

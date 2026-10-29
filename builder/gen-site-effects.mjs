@@ -12,15 +12,11 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const EFFECT_MODULES = [
-  "site-access.mjs", "site-row-effects.mjs", "site-notify.mjs", "site-mail.mjs",
-  "site-sms.mjs", "site-webhooks.mjs", "site-ssrf.mjs", "site-providers.mjs", "site-cookie.mjs", "site-media.mjs", "site-uploads.mjs", "site-payments.mjs", "stripe-webhook.mjs", "site-apis.mjs", "site-api-shape.mjs", "site-inbound.mjs",
+  "site-access.mjs",
+  "site-ssrf.mjs", "site-cookie.mjs", "site-media.mjs", "site-uploads.mjs",
   // The address rules: robots, sitemap, redirects, mount. site-seo imports
   // `./builder/site-addon.mjs`, so that copy keeps its folder.
   "site-seo.mjs", "site-domains.mjs", "builder/site-addon.mjs",
-  // The owner's scheduled jobs: the platform keeps the clock, the site does the work.
-  "site-jobs.mjs",
-  // Webhook retries, queued in the site's own bucket.
-  "site-webhook-queue.mjs",
 ];
 export const EFFECTS_DIR = "builder/lovable/template/src/lib/effects";
 
