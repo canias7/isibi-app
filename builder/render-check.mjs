@@ -35,11 +35,13 @@ const ONE_PIXEL = Buffer.from(
   "base64",
 );
 
-// The whole check, worst case. A build is 20-40s and this normally costs ~6, but
-// one page that never settles must not be able to double the wait a customer is
-// sitting through — so the loop stops and reports what it has rather than
-// running to completion.
-const TOTAL_MS = 25000;
+// NO LIMIT ON THE WHOLE CHECK (2026-10-29, the owner: "no cap"): it used to
+// stop at 25 s, and on the site container (half a core) four pages at two
+// widths take ~30 s, so being cut short was the ordinary outcome and the
+// desktop pages went unchecked on both live agent builds. Every page is now
+// checked at every width. What still bounds it is per page: NAV_MS to open
+// (a page that never settles is `slow` and the check moves on) and the
+// job's own deadline.
 const NAV_MS = 6000;
 // A model refuses an image above 5MB of base64; a PNG this size is ~4.9MB of it.
 const MAX_SHOT_BYTES = 3_600_000;
@@ -493,20 +495,12 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
     const { chromium } = await import("playwright-core");
     browser = (await launchChromium(chromium)).browser;
 
-    const until = Date.now() + TOTAL_MS;
     for (const vp of VIEWPORTS) {
       const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 1 });
       try {
         for (const route of list) {
-          // OUT OF TIME IS RECORDED, NOT JUST OBEYED. Without `cut`, a run that
-          // stopped at the budget produced findings from the pages it reached
-          // and a report byte-identical to one that looked at everything and
-          // found nothing — "we checked and it was fine" said about pages
-          // nobody opened. Live renderMs sits at ~30s against a 25s loop
-          // budget, so real multi-page sites reach this: it is the ordinary
-          // path, not the edge. Phone runs first, so what truncation costs is
-          // desktop coverage first, and the report says so.
-          if (Date.now() > until) { cut = true; break; }
+          // EVERY PAGE, EVERY WIDTH: no whole-check limit (see NAV_MS). `cut`
+          // stays in the report and is false, so its readers are unchanged.
           const page = await ctx.newPage();
           const pageErrors = [], consoleErrors = [], unmet = [];
           // THE SAME EVENTS, KEPT AS DATA TOO (2026-10-22, idea #12): kind,
@@ -684,7 +678,6 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
       const ctx = await browser.newContext({ viewport: { width: t.width, height: t.height }, deviceScaleFactor: 1 });
       try {
         for (const route of list) {
-          if (Date.now() > until) break;
           const page = await ctx.newPage();
           try {
             const r = await page.goto(`http://127.0.0.1:${port}${route}`, { waitUntil: "load", timeout: NAV_MS });

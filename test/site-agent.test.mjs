@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   runSiteAgent, compact, headStart, firstMessage, makeWorkspace, writableKey,
-  AGENT_TOOLS, agentSystem, COMPACT_AT, COMPACT_MIN_SAVE, toolCounts,
+  AGENT_TOOLS, agentSystem, COMPACT_AT, COMPACT_MIN_SAVE, toolCounts, toolsFor, checkNotes,
 } from "../builder/site-agent.mjs";
 
 const PAGES = [
@@ -427,7 +427,8 @@ test("SA26 the conversation, one bill for many rounds, and the workspace as the 
 test("SA27 the build hands the page writer's place to the agent, building with the build's own compile", () => {
   const gen = between("    agentWrite: agentTakes()", "    generate: async () => {");
   assert.match(gen, /agentWrite: agentTakes\(\) && !resumeCall && !\(spec && spec\.surface === "app"\) \? async \(\{ compile \}\) => \{/);
-  assert.match(gen, /build: async \(w\) => \{\n\s+const r = await compile\(w\.pages, w\.parts\);/);
+  assert.match(gen, /build: async \(w\) => agentBuildAnswer\(await compile\(w\.pages, w\.parts\)\),/);
+  assert.match(gen, /look: async \(w, route\) => agentBuildAnswer\(await compile\(w\.pages, w\.parts, \{ shots: \[route\] \}\)\),/);
   assert.match(gen, /request: briefWithLayout\(\{ brief, plan, tsx, gif, qr, three, images: imgBrief, media, devices: deviceWishes \}\)/);
   assert.match(gen, /return asWriterAnswer\(ag, agModel\);/);
   const P = readFileSync(new URL("../builder/publish-pages.mjs", import.meta.url), "utf8");
@@ -542,4 +543,52 @@ test("SA34 a clearing that would save little is not made: over the pile limit, s
     assert.equal(JSON.stringify(s.sent[i].messages.slice(0, prev.length)), JSON.stringify(prev));
   }
   assert.ok(COMPACT_MIN_SAVE >= 10000);
+});
+
+// ── 2026-10-29: the tools offered are the tools wired; the checks reach the agent ──
+test("SA35 a tool with nothing behind it is never offered; the request carries exactly the wired ones", async () => {
+  assert.deepEqual(toolsFor({}).map((t) => t.name).filter((n) => ["look", "run", "read_table"].includes(n)), []);
+  const all = { look: async () => ({}), run: async () => ({}), readTable: async () => ({}) };
+  assert.deepEqual(toolsFor(all).map((t) => t.name), AGENT_TOOLS.map((t) => t.name));
+  const s = scripted([answer(use("finish", { summary: "s" }))]);
+  await runSiteAgent({ send: s.send, build: okBuild, look: all.look }, { request: "r", pages: PAGES });
+  const names = s.sent[0].tools.map((t) => t.name);
+  assert.ok(names.includes("look") && !names.includes("run") && !names.includes("read_table"), names.join(","));
+});
+
+test("SA36 build names the browser check's findings and the type errors that did not stop it", async () => {
+  const s = scripted([answer(use("build", {})), answer(use("finish", { summary: "s" })), answer(use("finish", { summary: "s" }))]);
+  const build = async () => ({ ok: true, render: { findings: [{ route: "/", viewport: "phone", kind: "contrast", detail: "Book a class" }, { route: "/a", viewport: "desktop", kind: "image", detail: "x.png" }] }, typeErrors: "src/routes/-parts/site-header.tsx(4,7): error TS2322: wrong\nnoise" });
+  await runSiteAgent({ send: s.send, build }, { request: "r", pages: PAGES });
+  const t = JSON.stringify(s.sent[1].messages.at(-1).content);
+  assert.match(t, /The build passed\./);
+  assert.match(t, /\/ at phone width: text that is nearly invisible.*Book a class.*FIX THIS/);
+  assert.match(t, /\/a at desktop width: an image did not load/);
+  assert.doesNotMatch(t, /did not load \(x\.png\) — FIX THIS/, "an image is shown, not made a must-fix");
+  assert.match(t, /site-header\.tsx\(4,7\): error TS2322/);
+  assert.equal(checkNotes({ ok: true }), "", "nothing found, nothing added");
+});
+
+test("SA37 a must-fix finding holds the finish once; a clean build is never held; a second finish is let go", async () => {
+  const bad = async () => ({ ok: true, render: { findings: [{ route: "/", viewport: "phone", kind: "blank" }] } });
+  const s1 = scripted([answer(use("build", {})), answer(use("finish", { summary: "a" })), answer(use("finish", { summary: "b" }))]);
+  const r1 = await runSiteAgent({ send: s1.send, build: bad }, { request: "r", pages: PAGES });
+  assert.equal(s1.sent.length, 3); assert.equal(r1.summary, "b");
+  assert.match(JSON.stringify(s1.sent[2].messages.at(-1).content), /finish again/);
+  const s2 = scripted([answer(use("build", {})), answer(use("finish", { summary: "a" }))]);
+  const r2 = await runSiteAgent({ send: s2.send, build: okBuild }, { request: "r", pages: PAGES });
+  assert.equal(s2.sent.length, 2); assert.equal(r2.summary, "a");
+});
+
+test("SA38 an edit's build and look carry the check's findings to the agent; the browser check has no whole-check limit", () => {
+  const W = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const a = W.indexOf("  if (compileOnly) {"), b = W.indexOf("  }", W.indexOf("langCharged,", a));
+  assert.ok(a > 0 && b > a, "landmarks");
+  const ret = W.slice(a, b);
+  assert.match(ret, /render: built && built\.render && typeof built\.render === "object" \? built\.render : null,/);
+  assert.match(ret, /typeErrors: built && typeof built\.typeErrors === "string" \? built\.typeErrors : "",/);
+  const R = readFileSync(new URL("../builder/render-check.mjs", import.meta.url), "utf8");
+  assert.match(R, /const NAV_MS = 6000;/, "the per-page limit stays");
+  assert.doesNotMatch(R, /TOTAL_MS/);
+  assert.doesNotMatch(R, /cut = true/);
 });

@@ -3,6 +3,15 @@
 
 
 
+## 2026-10-29 — The agent can see what the checks find
+
+The second build showed the agent working blind: in a new site it had no way to
+look at a page, and where it could look it only got a picture, not what the
+browser check found. Fixed on the branch (not deployed): the agent can look in
+every build, it is told the problems in words (and type errors), it is sent
+back once to fix a serious one before finishing, and the browser check now has
+no overall time limit (owner's word), only 6 seconds per page.
+
 ## 2026-10-29 — The agent's first live build, and three cost fixes
 
 Deploy 2286 is runtime-confirmed (canary run 40807883968), and the live

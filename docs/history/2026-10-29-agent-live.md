@@ -76,3 +76,28 @@ draft (not published), build 12.1 min.
 - **What is left**: each round re-reads the whole conversation; at $0.50 per
   million cached tokens 38k tokens is ~2.4 credits a round even when the
   round does almost nothing. The twelve one-command rounds cost about 24.
+
+## After the second build: the agent works blind (fixed offline, same day)
+The second build's record showed round 17 calling `look` and being refused, and
+its final reply flagged nearly invisible text the agent never heard about.
+Traced to three gaps and a limit, all fixed on the branch (not deployed):
+1. **A first build never wired `look`.** The agent is one, but it is plugged in
+   at two places (the first-build writer's slot and the edit route), each
+   handing it its own tools; the build slot passed no `look`. Now it does (the
+   same compile, asked for the one page's screenshots), and the agent is only
+   ever offered tools that are wired (`toolsFor`).
+2. **Look returned only screenshots.** The browser check's findings were
+   dropped before they reached the agent (edit path `compileOnly`, and the build
+   slot). Now `build` and `look` answer with them in words, by page and width
+   (`checkNotes`), and with the type checker's errors that did not stop the
+   build (the "mistake in the header").
+3. **Finishing with a serious finding open.** Unreadable text, a blank or
+   crashing page, sideways scrolling or a see-through menu are marked FIX
+   THIS; the first `finish` while one is open is sent back once, the second
+   is let go (the final reply still says what the check found).
+4. **The browser check had a 25 s limit for the whole site** and was cut short
+   on both live builds. On the owner's word ("no cap") it now checks every
+   page at every width; each page still has its 6 s to open.
+Tests: SA35–SA38 and SAB2 (a real first build through the route: `look`
+offered, screenshots back, the contrast finding named, the finish held once);
+sweep 10 of 10 killed, the comment control survived.

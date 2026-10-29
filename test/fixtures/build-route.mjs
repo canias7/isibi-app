@@ -79,7 +79,7 @@ export function buildBucket(entries = {}, hooks = {}, entriesMeta = {}) {
 // `pages` (2026-10-24, build questions) answers the page writers' calls
 // (`write_pages`, `write_band`) with a supplied answer: `(body) => ({ input })`;
 // left out, they answer 503 as before.
-export async function driveBuild({ design, pages = null, body, ledger = {}, usage = { input_tokens: 100, output_tokens: 50 }, env: extraEnv = {}, onFetch = null, stored = {}, storedMeta = {} } = {}) {
+export async function driveBuild({ design, pages = null, body, ledger = {}, usage = { input_tokens: 100, output_tokens: 50 }, env: extraEnv = {}, onFetch = null, stored = {}, storedMeta = {}, compiler = null } = {}) {
   const seen = { tools: [], designer: [], rpc: [], neon: 0 };
   let claimed = false;
   globalThis.fetch = async (input, init) => {
@@ -141,7 +141,7 @@ export async function driveBuild({ design, pages = null, body, ledger = {}, usag
     noteUnexpected(method, url, "build-route");
     return new Response("not stubbed", { status: 503 });
   };
-  const c = installCompiler();
+  const c = installCompiler(compiler || {});
   const store = buildBucket(stored, {}, storedMeta);
   try {
     const worker = await loadWorker();

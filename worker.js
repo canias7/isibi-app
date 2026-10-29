@@ -17181,6 +17181,17 @@ function seamCompileRepair(env, { slug, touched = null, models = null, charge = 
  * command sent with the workspace's files and answered with what it printed
  * and the files as it left them. Never throws.
  */
+/** A first build's compile as the site agent's build and look tools read it: pass or fail, the server tests, the screenshots and what the checks found. */
+function agentBuildAnswer(r) {
+  return {
+    ok: !!(r && r.ok === true && r.files), error: r && r.error,
+    serverTests: r && r.serverTests && Array.isArray(r.serverTests.results) ? r.serverTests.results : [],
+    shots: r && Array.isArray(r.shots) ? r.shots : [],
+    render: r && r.render && typeof r.render === "object" ? r.render : null,
+    typeErrors: r && typeof r.typeErrors === "string" ? r.typeErrors : "",
+  };
+}
+
 function agentShell(env, slug) {
   const session = [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, "0")).join("");
   return async (files, command) => {
@@ -18036,6 +18047,12 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       stage: String((built && built.stage) || ""), timedOut: !!(built && built.timedOut), room: (built && built.room) || null,
       serverTests: built && built.serverTests && Array.isArray(built.serverTests.results) ? built.serverTests.results : [],
       shots: built && Array.isArray(built.shots) ? built.shots : [],
+      // WHAT THE CHECKS FOUND, for the agent (2026-10-29): the browser check's
+      // report and the type checker's notes on a build that passed. They used
+      // to stop here, so the agent saw a screenshot and "passed" while the
+      // check had flagged text nobody could read.
+      render: built && built.render && typeof built.render === "object" ? built.render : null,
+      typeErrors: built && typeof built.typeErrors === "string" ? built.typeErrors : "",
       serverRefused: serverVet ? serverVet.failed.map((f) => ({ name: f.part.name, reasons: f.reasons })) : [],
       langCharged,
     };
@@ -19184,10 +19201,11 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       const agModel = model || (models && models.pages) || modelsFor(picker || undefined).pages;
       const ag = await runSiteAgent({
         send: quickSend(env, "agent", budget),
-        build: async (w) => {
-          const r = await compile(w.pages, w.parts);
-          return { ok: !!(r && r.ok === true && r.files), error: r && r.error, serverTests: r && r.serverTests && Array.isArray(r.serverTests.results) ? r.serverTests.results : [] };
-        },
+        build: async (w) => agentBuildAnswer(await compile(w.pages, w.parts)),
+        // THE AGENT LOOKS IN A FIRST BUILD TOO (2026-10-29): the same compile,
+        // asked for the screenshots of the one page. It had no `look` here, and
+        // the second live build tried it, was refused, and finished unseen.
+        look: async (w, route) => agentBuildAnswer(await compile(w.pages, w.parts, { shots: [route] })),
         run: agentShell(env, slug),
         progress: (stage, facts) => { try { if (typeof say === "function") say(stage, facts); } catch { /* the talk never costs the build */ } },
         log: (e) => { try { mark?.("agent:" + e.event, e); } catch { /* a trace must never break a build */ } },
@@ -19615,7 +19633,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         throw e;
       });
     },
-    compile: async (pages, builtParts) => {
+    compile: async (pages, builtParts, cOpts = null) => {
       // THE FONTS, JOINED HERE (round 5): fetched beside the photographs, or
       // now when the image step did not run.
       const fontFiles = await fontsFor();
@@ -19729,8 +19747,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       // NAMED, so its steps can be watched while it runs (2026-10-19).
       const bStageId = crypto.randomUUID();
       const bPayload = JSON.stringify({ stageId: bStageId, files, slug, title: brand,
-          // SCREENSHOTS FOR THE VISUAL REVIEW, asked only when it will run.
-          shots: visualOn || undefined,
+          // SCREENSHOTS FOR THE VISUAL REVIEW, asked only when it will run;
+          // or the routes the site agent's `look` asked to see (2026-10-29).
+          shots: (cOpts && Array.isArray(cOpts.shots) && cOpts.shots.length ? cOpts.shots : visualOn) || undefined,
           // THE LAYOUT AT THE THREE DEVICE WIDTHS (2026-10-24, device-scope-build),
           // stored after a successful build or revise so a site's FIRST per-size
           // edit has its "before" and is compared, not refused.

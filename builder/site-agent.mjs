@@ -246,6 +246,44 @@ export function compact(messages, { keep = KEEP_RECENT } = {}) {
   return { messages: out, cleared };
 }
 
+// ── THE TOOLS A CALLER HAS WIRED ────────────────────────────────────────────
+/** Which tool needs which dependency; a tool whose dependency is missing is never offered. */
+export const TOOL_NEEDS = Object.freeze({ look: "look", run: "run", read_table: "readTable" });
+export function toolsFor(deps) {
+  const d = deps || {};
+  return AGENT_TOOLS.filter((t) => !Object.hasOwn(TOOL_NEEDS, t.name) || typeof d[TOOL_NEEDS[t.name]] === "function");
+}
+
+// ── WHAT THE CHECKS FOUND, IN WORDS ──────────────────────────────────────────
+// The browser check and the type checker run on every build and look, and
+// their findings used to stop at the caller: the agent saw "The build passed."
+// and a screenshot while the check had flagged text nobody could read (live,
+// 2026-10-29). Now each finding reaches it, by page and width, in words.
+const FINDING_WORDS = Object.freeze({
+  threw: "the page stops with an error", logged: "an error is written while the page loads", blank: "the page shows nothing",
+  slow: "the page took longer to open than the check waits", image: "an image did not load", overflow: "the page scrolls sideways",
+  contrast: "text that is nearly invisible against its background", seethrough: "a menu or dialog is see-through",
+});
+/** The kinds that must be fixed before finishing. */
+export const MUST_FIX = Object.freeze(["threw", "blank", "contrast", "overflow", "seethrough"]);
+const MAX_FINDING_LINES = 12;
+export function checkNotes(r) {
+  const lines = [];
+  const render = r && r.render && typeof r.render === "object" ? r.render : null;
+  const findings = render && Array.isArray(render.findings) ? render.findings : [];
+  for (const f of findings.slice(0, MAX_FINDING_LINES)) {
+    if (!f || typeof f.kind !== "string" || !Object.hasOwn(FINDING_WORDS, f.kind)) continue;
+    const detail = typeof f.detail === "string" && f.detail ? " (" + f.detail.slice(0, 200) + ")" : "";
+    lines.push("- " + String(f.route || "/") + " at " + String(f.viewport || "?") + " width: " + FINDING_WORDS[f.kind] + detail + (MUST_FIX.includes(f.kind) ? " — FIX THIS before finishing" : ""));
+  }
+  if (findings.length > MAX_FINDING_LINES) lines.push("- and " + (findings.length - MAX_FINDING_LINES) + " more of the same kinds");
+  if (render && render.partial === true) lines.push("- the browser check did not reach every page");
+  const tsc = r && typeof r.typeErrors === "string" ? r.typeErrors.split("\n").filter((l) => /error TS\d+/.test(l)).slice(0, 8) : [];
+  if (tsc.length) lines.push("Type errors that did not stop the build (fix them):", ...tsc.map((l) => "- " + l.slice(0, 300)));
+  return lines.length ? "\nThe checks found:\n" + lines.join("\n") : "";
+}
+const mustFix = (r) => !!(r && r.render && Array.isArray(r.render.findings) && r.render.findings.some((f) => f && MUST_FIX.includes(f.kind)));
+
 // ── WHAT A ROUND DID, AS NUMBERS ─────────────────────────────────────────────
 /** Each tool's uses in one round, as counts: the build trace keeps numbers only. */
 const TOOL_COUNT_KEYS = { write_file: "writes", read_files: "reads", delete_file: "deletes", change_rows: "rowChanges", read_table: "tableReads", run: "commands", look: "looks", build: "builds", finish: "finish" };
@@ -351,10 +389,11 @@ async function runTool(use, st, deps) {
       try { r = await deps.build({ pages: st.ws.pages(), parts: st.ws.parts(), css: st.ws.css() }); }
       catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
       st.lastBuild = r && r.ok === true ? "ok" : "fail";
-      if (r && r.ok === true) { st.dirty = false; st.built = true; }
+      if (r && r.ok === true) { st.dirty = false; st.built = true; st.mustFix = mustFix(r); }
       const tests = r && Array.isArray(r.serverTests) ? r.serverTests.filter((t) => t && t.ok === false && t.kind === "code") : [];
-      if (r && r.ok === true && !tests.length) return { text: "The build passed." };
-      if (r && r.ok === true) return { text: "The build passed, but server code failed its test run: " + tests.map((t) => t.name + ": " + t.error).join("; ") };
+      const notes = r && r.ok === true ? checkNotes(r) : "";
+      if (r && r.ok === true && !tests.length) return { text: "The build passed." + notes };
+      if (r && r.ok === true) return { text: "The build passed, but server code failed its test run: " + tests.map((t) => t.name + ": " + t.error).join("; ") + notes };
       return { text: "The build failed:\n" + String((r && r.error) || "no reason given").slice(0, 6000) };
     }
     case "run": {
@@ -380,10 +419,15 @@ async function runTool(use, st, deps) {
       if (!r || r.ok !== true) return { error: "the site did not build, so there is nothing to look at:\n" + String((r && r.error) || "no reason given").slice(0, 4000) };
       const shots = (Array.isArray(r.shots) ? r.shots : []).filter((x) => x && x.route === route && typeof x.png === "string" && x.png).slice(0, MAX_SHOTS);
       if (!shots.length) return { error: "no screenshot of " + route + " came back (is that a page of this site?)" };
-      return { text: "Screenshots of " + route + " follow: " + shots.map((x) => x.viewport + " width").join(", ") + ".", images: shots.map((x) => ({ label: route + " at " + x.viewport + " width", png: x.png })) };
+      st.mustFix = mustFix(r);
+      return { text: "Screenshots of " + route + " follow: " + shots.map((x) => x.viewport + " width").join(", ") + "." + checkNotes(r), images: shots.map((x) => ({ label: route + " at " + x.viewport + " width", png: x.png })) };
     }
     case "finish": {
       if (st.dirty) return { error: "build first: files were written since the last build that passed" };
+      // A FINDING THAT MUST BE FIXED HOLDS THE FINISH ONCE: the agent is sent
+      // back to fix it; if it finishes again it is let go (it may not be able to),
+      // and the final reply says what the check still found.
+      if (st.mustFix && !st.heldOnce) { st.heldOnce = true; return { error: "the last check still found something marked FIX THIS: fix it, build, and finish again" }; }
       st.done = true;
       st.summary = typeof input.summary === "string" ? input.summary.slice(0, 4000) : "";
       return { text: "Done." };
@@ -454,6 +498,11 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
   const st = { ws, tables, rows: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "" };
   const shown = headStart({ pages, parts, targets, picked });
   const system = [{ type: "text", text: agentSystem(spec, kind, { ownParts }), cache_control: { type: "ephemeral" } }];
+  // THE TOOLS OFFERED ARE THE TOOLS WIRED (2026-10-29, the second live build:
+  // a first build was offered `look` with nothing behind it, tried it, was told
+  // "pages cannot be looked at here", and finished without ever seeing a page).
+  // Fixed per caller, so the opening is still the same every round (rule 4).
+  const tools = toolsFor(deps);
   let messages = [{ role: "user", content: [{ type: "text", text: firstMessage({ request, map, ws, shown, history }), cache_control: { type: "ephemeral" } }] }];
   const usage = [];
   const spent = () => usage.reduce((n, u) => n + pageCost(u), 0) / CREDIT_USD;
@@ -481,7 +530,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     rounds++;
     let j;
     try {
-      j = await deps.send({ model, max_tokens: AGENT_MAX_TOKENS, system, tools: AGENT_TOOLS, cacheKey: "site-agent", messages });
+      j = await deps.send({ model, max_tokens: AGENT_MAX_TOKENS, system, tools, cacheKey: "site-agent", messages });
     } catch (e) { stopped = "send"; log({ event: "send-failed", why: String((e && e.message) || e).slice(0, 200) }); break; }
     const u = usageOf(j, model);
     usage.push(u);

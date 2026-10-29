@@ -45,3 +45,39 @@ test("SAB1 a first build: the agent writes the site from the brief, builds, and 
   assert.ok(pages.some((p) => p.path === "index.tsx" && p.source.includes("Order loaves for collection.")), "the agent's home page is the stored one");
   assert.equal(r.reply && r.reply.page, "app", "the site went up, not the placeholder: " + JSON.stringify(r.reply).slice(0, 300));
 });
+
+test("SAB2 a first build gives the agent `look`: it sees the page and, in words, what the browser check found", async () => {
+  const agent = [];
+  const rounds = [
+    [use("write_file", { file: "index.tsx", source: HOME }, "a1"), use("write_file", { file: "-parts/site-header", source: HEADER }, "a2"), use("write_file", { file: "-parts/site-footer", source: FOOTER }, "a3")],
+    [use("build", {}, "b1")],
+    [use("look", { page: "/" }, "l1")],
+    [use("finish", { summary: "Built the home page." }, "f1")],
+    [use("finish", { summary: "Built the home page; the contrast flag was checked." }, "f2")],
+  ];
+  const PNG = "iVBORw0KGgo" + "A".repeat(100);
+  const r = await driveBuild({
+    design: { input: GOOD_DESIGN },
+    body: { brief: BRIEF },
+    compiler: {
+      render: { ok: true, checked: 2, findings: [{ route: "/", viewport: "desktop", kind: "contrast", detail: "Order loaves" }] },
+      shots: (body) => (Array.isArray(body.shots) ? body.shots : []).map((route) => ({ route, viewport: "desktop", height: 800, png: PNG })),
+    },
+    onFetch: async (url, init) => {
+      if (!url.includes("/v1/messages")) return null;
+      const b = JSON.parse(String((init && init.body) || "{}"));
+      if (!(Array.isArray(b.tools) && b.tools.some((t) => t.name === "finish"))) return null;
+      agent.push(b);
+      const c = rounds[Math.min(agent.length - 1, rounds.length - 1)];
+      return new Response(JSON.stringify({ stop_reason: "tool_use", content: c, usage: { input_tokens: 2000, output_tokens: 900 } }), { headers: { "content-type": "application/json" } });
+    },
+  });
+  assert.ok(agent.length >= 4, "rounds: " + agent.length + " " + JSON.stringify(r.reply).slice(0, 300));
+  assert.ok(agent[0].tools.some((t) => t.name === "look"), "look is offered in a first build");
+  const res = (i) => JSON.stringify(agent[i].messages.at(-1).content);
+  assert.match(res(2), /nearly invisible/, "the build tool's answer names the finding");
+  assert.match(res(3), /Screenshots of \//, "look answered with screenshots, not 'cannot be looked at here'");
+  assert.doesNotMatch(res(3), /cannot be looked at here/);
+  assert.match(res(3), /FIX THIS/);
+  assert.match(res(4), /FIX THIS.*finish again|fix it, build, and finish again/, "the first finish is held once");
+});
