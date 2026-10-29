@@ -48,7 +48,6 @@ import { qrList } from "./site-qr-list.mjs";
 // Reachable only this way — the model has no filesystem, and importing a demo
 // is the defect the lint refuses.
 import { CHART_USAGE } from "./chart-usage.mjs";
-import { normalizePayment } from "../site-payments.mjs";
 import { withQuestion, askOf } from "./clarify.mjs";
 import { retryRequest } from "./retry-reason.mjs";
 import { deviceWishesNote } from "./device-scope.mjs";
@@ -910,7 +909,6 @@ import { MANAGED_COLUMNS, canReadAccess, canWriteAccess, whyNotReadable, needsMe
 // this file would drift into a digest promising an upload the route refuses.
 // site-uploads.mjs imports only site-access.mjs, so this stays dependency-free.
 import { acceptsVisitorUploads } from "../site-uploads.mjs";
-import { apiDetailLines } from "../site-api-shape.mjs";
 
 // DELIBERATELY NOT CUT WITH THE PLAN'S CAP (2026-08-28, when site-plan's
 // MAX_PAGES fell 5 -> 1). This one bounds what the WRITER returns, and a full
@@ -1274,37 +1272,16 @@ or an access level — anything not in the schema below does not exist.
     so \`useRow(TABLE, id)\` with the string straight off the URL is correct. Do not wrap it
     in \`Number()\`.
 
-14. A TABLE MARKED \`PAID: YES\` IS BOUGHT, NOT SUBMITTED. The digest says so per table.
-    \`useCreateRow\` on one returns 403 — a paid table has no public insert at all, which is
-    exactly what stops a price being forged — so use \`useCheckout\` and let the server price it.
-    THE BASKET IS \`useCart\`, NOT \`useState\`: it is kept across pages and across a reload, so
-    a shop can add on one page and check out on another, and it empties itself when the
-    customer comes back from Stripe. \`useState\` loses it the moment they navigate.
-      const cart = useCart("orders")            // the PAID table's own basket
-      const checkout = useCheckout("orders")
-      const { data: products = [] } = useRows<Product>("products")
-      ...
-      <Button onClick={() => cart.add(p.id)}>Add</Button>
-      <span>{cart.count} in your basket</span>
-      <BusyButton
-        busy={checkout.isPending}
-        onClick={() => checkout.mutate({ items: cart.lines, fields: { customer_name: name, email } })}
-      >Pay <Money amount={total} currency="GBP" /></BusyButton>
-    \`cart.lines\` is already the \`{ id, qty }\` shape \`useCheckout\` wants. Also
-    \`cart.qtyOf(id)\`, \`cart.setQty(id, n)\` (0 removes), \`cart.remove(id)\`, \`cart.clear()\`,
-    and \`cart.ready\` — false until the stored basket has been read, so gate an "your basket
-    is empty" message on it rather than flashing it at somebody whose basket is full.
-    Send \`{ id, qty }\` and NOTHING else per line — no price, no total, no currency. The
-    server reads the prices out of the catalogue table itself, so a total computed in the
-    page is for DISPLAY only and is never sent. \`fields\` carries the customer's own
-    details and only declared columns survive; never put \`payment_status\` or
-    \`amount_total\` on a form, they are the platform's.
-    \`mutate\` REDIRECTS to Stripe, so nothing after it runs — no toast, no navigate. The
-    customer returns to \`/?paid=<id>\` or \`/?cancelled=<id>\`; read it with
-    \`Route.useSearch()\` to say thank you. That id is NOT proof of payment, so never show
-    an order's contents from it — the shop's own Stripe tells the platform when it is paid.
-    Show the error \`checkout.error\` carries rather than a generic one: it is written for
-    the customer, and says so when the shop has not finished setting payments up.
+14. WHAT THE SITE HAS, AND NOTHING ELSE PREBUILT. The site's own database (tables you
+    read and write with the hooks from "@/lib/rows", and visitor sign-in), its own files
+    (uploads), and its own server — code you write as a part named "-parts/server-<name>",
+    reached at \`/api/db/\${SITE_SLUG}/fn/<name>\`, which can call outside services with the
+    owner's own keys (\`site.fetch\`, \`site.key\`), use the database (\`site.sql\`), run when an
+    entry is saved (\`created:<table>\`) or on a schedule (\`cron:\`), and receive messages from
+    outside (Stripe, a form service) at its own address. There is NO ready-made checkout,
+    email, text message, outside-data reader or scheduled job: when the owner asks for a
+    payment, an email, a text, an outside service or something on a timer, write it there
+    yourself — and only when they ask.
 
 15. SIDES ARE LOGICAL, NEVER LEFT AND RIGHT. Write \`ms-\`/\`me-\`, \`ps-\`/\`pe-\`,
     \`start-\`/\`end-\`, \`text-start\`/\`text-end\`, \`border-s\`/\`border-e\` and
@@ -1567,8 +1544,7 @@ export function siteHasTables(spec) {
 export function siteHasBackend(spec) {
   if (siteHasTables(spec)) return true;
   const fns = (spec && Array.isArray(spec.functions) ? spec.functions : []).filter((f) => f && f.name && !f.internal);
-  const apis = (spec && Array.isArray(spec.apis) ? spec.apis : []).filter((a) => a && a.name);
-  return !!(fns.length || apis.length);
+  return !!fns.length;
 }
 
 /**
@@ -1939,8 +1915,8 @@ export const SITE_PAGES_TOOL = {
         },
         description:
           "CODE THAT RUNS ON THE SITE'S OWN SERVER, for what a page cannot do safely: anything needing one of the " +
-          "owner's keys or an outside service (an AI chatbot on their AI key, a payment provider other than the " +
-          "built-in Stripe checkout, sending a text, syncing a sheet), or a rule the server must enforce (stop a " +
+          "owner's keys or an outside service (an AI chatbot on their AI key, payments through their own Stripe key, " +
+          "an email or a text through their own provider, syncing a sheet), or a rule the server must enforce (stop a " +
           "booking when a class is full). The page calls it with fetch(`/api/db/${SITE_SLUG}/fn/<name>`, …). " +
           "Name the key the owner must add (UPPER_SNAKE, e.g. OPENAI_KEY) in your notes so they can set it. " +
           "Example — a chatbot:\n" +
@@ -1956,7 +1932,7 @@ export const SITE_PAGES_TOOL = {
           "}\n" +
           "TO RUN WHEN SOMETHING HAPPENS instead of when a page calls it, add `export const on = [...]` with any of " +
           "\"created:<table>\" (a visitor's form saved a row), \"updated:<table>\", \"deleted:<table>\", " +
-          "\"paid:<table>\" (a payment for that row went through) or \"tick\" (every few minutes). It then receives a " +
+          "or \"tick\" (every few minutes). It then receives a " +
           "POST whose JSON is { event, table, row }, and visitors cannot call it (add `export const visitors = true` " +
           "only if a page must also call it). E.g. text the owner on each booking: on = [\"created:bookings\"], " +
           "hosts = [\"api.twilio.com\"]. AT AN EXACT TIME: \"cron:<minute> <hour> <day> <month> <weekday>\", optionally " +
@@ -2108,52 +2084,9 @@ export function schemaDigest(spec) {
         return "  " + f.name + "(" + args + ") -> " + (f.returns || "void");
       }).join("\n")
     : "";
-  // THIRD-PARTY READS, which the model was never told about at all. `useApi` is
-  // the one hook in `@/lib/rows` no rule and no digest ever mentioned, so a site
-  // could declare an api, the platform would serve it, and no generated page
-  // could ever call it — the whole tier reachable by nothing, which is this
-  // repo's signature failure and the reason `apis` is stated here beside the
-  // functions rather than left for the model to discover.
-  const apis = (spec && Array.isArray(spec.apis) ? spec.apis : []).filter((a) => a && a.name);
-  // WHAT EACH ONE ANSWERS, which is the half a page cannot be written without
-  // (2026-09-19). Naming the connection made the tier reachable; it did not
-  // make it renderable — `useApi<T = unknown>` means a page reading a field
-  // invents both the type and the field names from one guess, so the type
-  // agrees with the wrong name and the compiler is silent. `apiDetailLines` is
-  // the one definition of those facts, shared with the addon directive, and it
-  // answers NOTHING for a connection that declared none of them: every
-  // connection stored before today prints exactly the line it printed before.
-  const apiLines = apis.length
-    ? "\n\nOUTSIDE DATA this site can read — call these by NAME with useApi(name, { params }), and NO others:\n" +
-      apis.map((a) => {
-        const ps = (Array.isArray(a.params) ? a.params : []).join(", ");
-        const detail = apiDetailLines(a).map((l) => "\n      " + l).join("");
-        return "  " + a.name + "(" + ps + ")" +
-          " — the platform holds the key and does the call; the page only gets the answer back as JSON." + detail;
-      }).join("\n") +
-      // A THIRD-PARTY READ IS SLOW, CAN BE UNCONFIGURED AND CAN FAIL, and no
-      // rule anywhere said so — measured, the word "loading" did not occur in
-      // this file at all. This one crosses the internet, answers 503 until the
-      // owner's key is in the vault, and answers 502/504 when the service is
-      // down. A page with no branch for those renders a blank where the data
-      // should be and gives the visitor nothing to read.
-      //
-      // ⚠ AND "A DATABASE READ IS LOCAL, SO IGNORING THE WAIT LOOKS FINE" —
-      // which this comment used to say — IS FALSE FOR A COUNT (run 21,
-      // 2026-09-22). A page that ignores the wait on `useRpc` does not render a
-      // blank: it renders `Number(count ?? 0)` as a real answer, so a booking
-      // box read "6 places left" while loading, after every failure and on an
-      // empty answer — measured live, all of them. The single-value rule is in
-      // RULE 11 of `PAGE_RULES`, not here, because this digest lists functions
-      // only when the stored spec declares them, and the rule must hold for a
-      // function the page calls either way.
-      "\n  EVERY ONE OF THESE HAS THREE STATES AND THE PAGE MUST DRAW ALL THREE: `isLoading` while it waits, " +
-      "`error` when the service is unreachable or this site's key is not in the vault yet, and the answer itself. " +
-      "Say something human in the first two — never a blank space where the data goes."
-    : "";
   // NOW the table half may be empty, and it is said plainly with whatever the
   // other two tiers came to — never silently instead of them.
-  if (!tables.length) return "(the schema declares no tables)" + fnLines + apiLines;
+  if (!tables.length) return "(the schema declares no tables)" + fnLines;
   const tableLines = tables.map((t) => {
     // THE STAMPED NAME IS NOT BOUND HERE AT ALL, and that is the fix rather than
     // a tidy-up. `const access = String(t.access || "collect")` sat in this scope
@@ -2249,22 +2182,6 @@ export function schemaDigest(spec) {
     // exact failure that made a whole site come out as the placeholder when
     // `publicView` was declarable, enforced, and never mentioned here.
     //
-    // GATED ON THE RESOLVED PAIR, not the raw preset string (2026-08-14 audit,
-    // confirmed by executing this function). `normalizeSchema` stamps
-    // access:"collect" on every pair-declared table, so `access === "collect"`
-    // printed "PAID: NO — submit it with useCreateRow" for a {read:"public",
-    // write:"none"} menu, DIRECTLY UNDER the pair note saying nobody writes to
-    // it — a prompt that both forbids and prescribes the form. And a payable
-    // table gets its do-NOT-useCreateRow warning whatever access it wears:
-    // the payment is the fact that decides, not the preset name.
-    const pay = normalizePayment(t);
-    if (pay) {
-      lines.push("  PAID: YES — the visitor pays by card. Do NOT call useCreateRow on this table; it has no public insert and would 403. "
-        + "Use useCheckout(\"" + t.name + "\") with the rows they chose from " + pay.from + ", priced in " + pay.currency.toUpperCase() + ". "
-        + "The page sends only { id, qty } per line — never a price, total or currency — plus the customer's own declared fields.");
-    } else if (canWriteAccess(t)) {
-      lines.push("  PAID: NO — this is an ordinary form. Submit it with useCreateRow; there is no payment on this table.");
-    }
     // WHETHER THE FORM MAY TAKE A FILE — the third instance of a rule conditioned
     // on a fact this digest never stated, after `publicView` twice.
     //
@@ -2301,20 +2218,6 @@ export function schemaDigest(spec) {
       lines.push("  FILE UPLOAD: NO — this table declares no picture column, so useUploadFile on it is a 403. " +
         "Build the form without an attach control.");
     }
-    // STATED ONLY WHEN IT IS ON, unlike `usePublicRows` directly above. That one
-    // prints YES *and* NO because a page has to DECIDE something and an absent
-    // line would read as an omission rather than an answer. Nothing on a page
-    // changes because a table emits webhooks — the platform fires them on the
-    // data path, after the write — so the line exists to stop the model
-    // hand-rolling a notification that already exists, and a "WEBHOOKS: NO" on
-    // every table of every site would be ~30 tokens of cached prompt saying
-    // nothing anybody acts on.
-    const fires = t.webhooks === true ? ["created", "updated", "deleted"]
-      : (Array.isArray(t.webhooks) ? t.webhooks : []);
-    if (fires.length) {
-      lines.push("  SENDS ELSEWHERE: this table already posts to the owner's own system on " + fires.join(", ")
-        + ". The platform does it after the write — do not build any notification, polling or forwarding for it.");
-    }
     return lines.join("\n");
   }).join("\n\n");
   // THE AGGREGATE, WHICH NO PER-TABLE LINE CAN STATE.
@@ -2340,7 +2243,7 @@ export function schemaDigest(spec) {
       "401 for everybody who is not signed in. Build a home page that says what the site is and offers a " +
       "sign-in, and put every list behind it.\n"
     : "";
-  return tableLines + shut + fnLines + apiLines;
+  return tableLines + shut + fnLines;
 }
 
 /**
@@ -3764,8 +3667,6 @@ export function lintPages(pages, spec) {
   const allFns = (spec && Array.isArray(spec.functions) ? spec.functions : []).filter((f) => f && f.name);
   const fns = new Set(allFns.filter((f) => !f.internal).map((f) => String(f.name).toLowerCase()));
   const internalFns = new Set(allFns.filter((f) => f.internal).map((f) => String(f.name).toLowerCase()));
-  const declaredApis = new Set((spec && Array.isArray(spec.apis) ? spec.apis : [])
-    .map((a) => String((a && a.name) || "").toLowerCase()).filter(Boolean));
   // A RETIRED TABLE IS NOT IN `tables`, AND THAT IS THE SAME FILTER `schemaDigest`
   // APPLIES 670 LINES ABOVE.
   //
@@ -3984,37 +3885,6 @@ export function lintPages(pages, spec) {
         say(path, 'edits "' + m[1] + '", which is access "' + accessLabel(t) + '" — PATCH and DELETE on it return 403. Only `user` and `feed` rows have an owner who may change them.');
       } else if (!/\buseMember\b/.test(code)) {
         say(path, 'edits "' + m[1] + '" without useMember(). Only a signed-in member can change a row, and only their own — put the edit UI behind a sign-in.');
-      }
-    }
-    // PAYING IS CHECKED PER TABLE, for the same reason editing is.
-    //
-    // This is the class of failure this lint exists for: it typechecks, it
-    // bundles, and it 403s at a real customer. A payable table has NO public
-    // INSERT — that missing grant is the whole reason a price cannot be forged
-    // — so useCreateRow on one is refused by Postgres at the moment somebody
-    // tries to buy something.
-    for (const m of code.matchAll(/\buseCreateRow\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
-      const t = tables.get(m[1].toLowerCase());
-      if (t && normalizePayment(t)) {
-        say(path, 'submits "' + m[1] + '" with useCreateRow, but that table is PAID — it has no public insert and the write returns 403. Use useCheckout("' + m[1] + '") instead, sending { id, qty } for each item.');
-      }
-    }
-    // And the other way round: checkout on a table that takes no payment. The
-    // route answers 404 for it, so the button would simply never work.
-    //
-    // CHECKOUT RESOLVES A RETIRED TABLE TOO, and that is measured rather than
-    // tidy. Every other hook here goes to `/api/db/<slug>/data/…`, the Neon Data
-    // API, whose grants `retired` revokes — so those really do 403. `useCheckout`
-    // posts to `/api/db/<slug>/checkout`, and `handleCheckout` prices the cart and
-    // INSERTs the order with `sqlQuery(conn, …)` on the site's own owner
-    // connection, which bypasses grants entirely. So checkout on a retired table
-    // still works, and reporting it as closed would be a false alarm on correct
-    // code — which this file rates strictly worse than the miss.
-    for (const m of code.matchAll(/\buseCheckout\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
-      const t = tables.get(m[1].toLowerCase()) || closedTables.get(m[1].toLowerCase());
-      if (!t) { say(path, 'takes payment for table "' + m[1] + '", which the schema does not declare.'); continue; }
-      if (!normalizePayment(t)) {
-        say(path, 'calls useCheckout("' + m[1] + '"), but that table declares no payment — checkout answers 404 for it. Submit it with useCreateRow.');
       }
     }
     // The table name is not always a literal. Keep the blunt checks for the calls
@@ -4305,17 +4175,6 @@ export function lintPages(pages, spec) {
               : "That module exports: " + names.join(", ") + "."));
         }
       }
-    }
-
-    // `useApi` FOR A NAME THE SCHEMA NEVER DECLARED. Same class as the useRpc
-    // check: the call compiles, the page publishes, and the route answers 404 to
-    // every visitor. The hook was invisible to the model until the digest started
-    // naming the declared apis, so this is the other half of making it usable —
-    // being told what exists, and being told when a name is not one of them.
-    for (const m of code.matchAll(/\buseApi\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
-      if (declaredApis.has(m[1].toLowerCase())) continue;
-      say(path, 'calls useApi("' + m[1] + '"), which the schema does not declare. ' +
-        (declaredApis.size ? "Declared: " + [...declaredApis].join(", ") + "." : "This schema declares no outside data sources at all."));
     }
 
     // A PHOTOGRAPH TOKEN SOMEWHERE AN UNBOUGHT PICTURE WOULD BREAK.

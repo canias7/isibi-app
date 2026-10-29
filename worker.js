@@ -1,5 +1,5 @@
 import { recipient } from "./site-mail.mjs";
-import { dueJobs, runJob, jobOutcome, normalizeJob, validTimeZone, jobPanelRow } from "./site-jobs.mjs";
+import { normalizeJob, validTimeZone } from "./site-jobs.mjs";
 import { hostIsBlocked, resolvesBlocked } from "./site-ssrf.mjs";
 // `OWN_ZONES` is imported because `cfZoneId` reads it — it was not, and that is
 // a ReferenceError on the FIRST line of that function, outside every try, so
@@ -359,7 +359,7 @@ import { qrList, qrFile, patchQr, qrRefusal, qrUnplaced, foldQr, qrCodesOnHost, 
 // THE ONE SHAPE OF A TABLE (2026-09-02), lifted out of `design_schema` so the
 // ADD step can ask for a table without the build's designer — see the header
 // of that file. The build's `tables` array keeps its own framing around it.
-import { TABLE_ITEM, FUNCTION_ITEM, API_ITEM, JOB_ITEM } from "./builder/site-table.mjs";
+import { TABLE_ITEM, FUNCTION_ITEM } from "./builder/site-table.mjs";
 // THE 500 THEMES, BACK IN THE PRODUCT (2026-08-27, owner's call). The tool's
 // enum is `THEME_SHORTLIST` — 100 of the 500, the owner's second call the same
 // day ("do only 100 and keep the otherones there") — `themeFontPair` is where
@@ -4049,39 +4049,9 @@ const SITE_SCHEMA_TOOL = {
         type: "object",
         description:
           "THE SITE'S BACKEND: what it remembers, what is in it on day one, and anything that acts on it. " +
-          "Answer `tables` and `seed` always. The other three are for the sites that need them and are " +
-          "left out entirely otherwise — most sites need none of them.",
+          "Answer `tables` and `seed` always. `functions` is for the sites that need it and is " +
+          "left out entirely otherwise — most sites need none.",
         properties: {
-          jobs: {
-            type: "array",
-            description:
-              "OPTIONAL scheduled work — the site doing something on a timer, with nobody there. THE CASE THIS EXISTS FOR: reminding tomorrow's " +
-              "customers today, so they turn up. Also a weekly digest to the owner, or chasing an unpaid invoice. Skip it entirely for a site " +
-              "that only takes enquiries. " +
-              "Each job names a function you ALSO declare in `functions` with `internal: true`, taking NO arguments and returning `json` — an ARRAY of " +
-              "{to, subject, body}, one per message to send. Return an empty array when there is nothing to do, which is most runs. " +
-              "The function is ordinary SQL, so decide whatever you like inside it: who is due, what it says, joined to anything on the site. " +
-              "EACH MESSAGE MAY BE AN EMAIL OR A TEXT: add \"channel\":\"sms\" to one and give it `to` (a full international number, +44…) and `body` and NO subject. " +
-              "A text is what gets read for a day-before reminder from a barber, a garage or a restaurant; an email is right for a digest or anything long. Leave `channel` out for email. " +
-              "The site owner pastes their own provider key in Settings — an email one, an SMS one, or both; until they do, that channel sends nothing and the other still goes. " +
-              "Minimum interval is 15 minutes and anything shorter is rounded up to it — for a day-before reminder use 1440.",
-            items: JOB_ITEM,
-          },
-          apis: {
-            type: "array",
-            description:
-              "OPTIONAL third-party APIs this site reads at request time. Use one ONLY when the brief needs live data that is " +
-              "not in this site's own database and is not fixed at build time: today's exchange rate, a courier's delivery " +
-              "slots, a supplier's stock level, the weather for an outdoor venue. Do NOT use it for anything a table can hold.\n\n" +
-              "Write the WHOLE request and put `{{SECRET_NAME}}` wherever a credential belongs — the site OWNER stores that " +
-              "value in Secrets and it is substituted server-side, so no key is ever in the page. Name the secret after the " +
-              "service, e.g. `{{WEATHER_KEY}}`. Anything a page needs to vary goes in `params` and is written `{{param.x}}`; " +
-              "values are URL-encoded, and a parameter not listed is ignored. A page then calls `useApi(\"<name>\", {x})`. " +
-              "The response comes back exactly as the service sent it, so write the page against that service's real shape. " +
-              "Set `cacheSeconds` to how long the answer stays good — an exchange rate is 3600, a stock level maybe 30 — " +
-              "because every uncached read spends the owner's own quota.",
-            items: API_ITEM,
-          },
           functions: {
             type: "array",
             description:
@@ -4120,16 +4090,7 @@ const SITE_SCHEMA_TOOL = {
               "makes it true — without it two people both see the last place and both get it, which is the double " +
               "booking this is here to stop. Put the capacity where the brief puts it: a number on the class row when " +
               "each class has its own, or a literal when the whole business has one number. " +
-              "A row the function inserts sends NO owner email, confirmation, text or webhook (those fire only on a " +
-              "direct insert and on a paid order), so do not declare `confirm`, `sms` or `webhooks` on that table " +
-              "expecting them to fire for its bookings.\n\n" +
-              "RECEIVING DATA FROM ANOTHER SYSTEM. A function named `hook_<something>` taking exactly one jsonb argument and " +
-              "marked internal:true is reachable at POST /api/db/<slug>/hook/<something>, behind a shared secret the OWNER " +
-              "stores. Use it when the brief says another system sends this site data — a supplier's stock feed, a booking " +
-              "platform syncing appointments, an order marked shipped, a form service like Typeform or Zapier. The body does " +
-              "whatever the payload means: INSERT, UPDATE, or nothing. Make it IDEMPOTENT — senders retry, so declare a unique " +
-              "column for the sender's own event/order id and use ON CONFLICT DO NOTHING, or the same delivery lands twice. " +
-              "The `hook_` prefix is what makes it reachable; without it the function stays private to the platform.",
+              "",
             items: FUNCTION_ITEM,
           },
           tables: {
@@ -12008,8 +11969,6 @@ const smsSeen = new Map();
 // wholesale rather than kept as a cache: this only has to stop the cheap flood.
 const webhookHits = new Map();
 
-// The per-site flag that opts a site into the platform's Turnstile pair.
-const TURNSTILE_PLATFORM_FLAG = "TURNSTILE_PLATFORM";
 
 
 // One cache for every site's third-party reads. Per isolate, so a busy site on
@@ -15750,16 +15709,6 @@ export function siteLimits(env) {
 // itself. Writes stay here: they carry the spam gate, the double-submit guard
 // and the effects (mail, webhooks) that follow a form. Off, or a site without
 // a database, uploads exactly as before.
-/** Did the owner ask to be emailed about submissions? false when it cannot be told. */
-async function siteNotifyOn(env, slug) {
-  try {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=notify`, { headers: svcHeaders(env), signal: AbortSignal.timeout(8000) });
-    if (!r.ok) return false;
-    const rows = await r.json();
-    return Array.isArray(rows) && rows[0] && rows[0].notify === true;
-  } catch { return false; }
-}
-
 /** Keys the site's script now holds: our encrypted copies are replaced by the marker. */
 async function forgetLegacyKeys(env, slug, names) {
   try {
@@ -15802,7 +15751,7 @@ async function siteReadVars(env, slug) {
       const rows = await sqlQuery(db, "SELECT name, cipher FROM _secrets", []);
       for (const r of (rows || []).slice(0, 64)) {
         const name = r && String(r.name || "");
-        if (!name || name === TURNSTILE_PLATFORM_FLAG || r.cipher === WORKER_HELD) continue;
+        if (!name || r.cipher === WORKER_HELD) continue;
         try { const v = await readSecret({ get: async () => r.cipher }, env, { slug, name }); if (v) { owned[name] = v; legacy.push(name); } } catch { /* unreadable: skipped */ }
       }
     } catch { /* no secrets table: none */ }
@@ -15810,12 +15759,7 @@ async function siteReadVars(env, slug) {
       vars: {
         DATA_API_BASE: data, AUTH_BASE: auth,
         ...(spec && Array.isArray(spec.tables) ? { SITE_TABLES: JSON.stringify(spec.tables) } : {}),
-        // The site's own connections and hooks: what it may call out to, and
-        // which of its database functions an outside post may reach.
-        ...(spec && (Array.isArray(spec.apis) || Array.isArray(spec.functions) || Array.isArray(spec.jobs))
-          ? { SITE_SPEC: JSON.stringify({ apis: spec.apis || [], functions: spec.functions || [], jobs: spec.jobs || [] }) } : {}),
         ...(email ? { OWNER_EMAIL: email } : {}),
-        NOTIFY: (await siteNotifyOn(env, slug)) ? "1" : "0",
       },
       secrets: { ...owned, ...(app ? { APP_CONN: app } : {}) },
       legacy,
@@ -31026,29 +30970,6 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
-    // A SITE's own Stripe telling us one of its orders was paid. Separate from
-    // /api/stripe/webhook, which is Go Farther's own billing: different account,
-    // different signing secret, and mixing them would mean one handler deciding
-    // whether an event mints platform credits or marks a barber shop's order.
-    //
-    // Unauthenticated, like the platform one and for the same reason — Stripe
-    // cannot hold a session. What authenticates it is the HMAC over the raw
-    // body, verified against THIS SITE'S OWN webhook secret, which the owner
-    // pasted in. So a signature valid for one shop proves nothing about another.
-    // A SITE'S OWN STRIPE MESSAGES are the site's (2026-10-28): checked
-    // against its owner's own webhook secret and recorded in its own database
-    // by its own Worker. Passed on, never handled here.
-    if (url.pathname.startsWith("/api/stripe/site/") && request.method === "POST") {
-      const wm = url.pathname.match(/^\/api\/stripe\/site\/([a-z0-9][a-z0-9-]{0,80})$/i);
-      if (wm) {
-        const own = await ownDataRead(env, request, wm[1].toLowerCase());
-        // A site that cannot take Stripe's message is told to Stripe as done
-        // (200), as before: a 5xx would be retried for days and then switch the
-        // owner's endpoint off.
-        return own || Response.json({ ok: true, ignored: "this site cannot take payments messages" });
-      }
-    }
-
     if (url.pathname === "/api/stripe/webhook" && request.method === "POST") {
       // add_credits is now REVOKEd from anon/authenticated, so the webhook must
       // call it with the service_role key — require that secret too.
@@ -33133,7 +33054,7 @@ async function handleRequest(request, env, ctx) {
     // passes the call on. A site whose script cannot answer (one published
     // before it could) is told to republish; nothing of it is done here.
     {
-      const vm = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/(?:data\/[a-z0-9_][a-z0-9\/._-]{0,79}|api\/[a-z][a-z0-9_-]{0,40}|hook\/[a-z][a-z0-9_-]{0,40}|auth\/[a-z0-9][a-z0-9\/._-]{0,79}|error|checkout|uploads|turnstile)$/i);
+      const vm = url.pathname.match(/^\/api\/db\/([a-z0-9][a-z0-9-]{0,80})\/(?:data\/[a-z0-9_][a-z0-9\/._-]{0,79}|auth\/[a-z0-9][a-z0-9\/._-]{0,79}|error|uploads)$/i);
       if (vm) {
         const vslug = vm[1].toLowerCase();
         // ON THE APP'S OWN ADDRESS, ONLY FOR A SITE THAT HAS NO ADDRESS OF ITS
@@ -35074,15 +34995,6 @@ async function handleRequest(request, env, ctx) {
       // does. Its own route for the same reason the edit lane has one: what a
       // rung may touch is worth being a property of the code path.
       const ad = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/addon$/i);
-      // WHAT THE SITE'S SCHEDULED WORK HAS ACTUALLY BEEN DOING.
-      //
-      // `runJob` has always computed an honest four-way outcome and every caller
-      // put it in a Cloudflare log, which is not a surface a small business has.
-      // So "sent 14 reminders", "your SQL is broken", "you never pasted a mail
-      // key" and "nothing was due" were one silence — and for a reminder that is
-      // the worst possible failure, because the customer does not know they were
-      // meant to get one either.
-      const jb = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/jobs$/i);
       // THE NIGHTLY COPIES. List, and download one day — read-only, and the
       // day in the path is matched with the exact shape the backup key mints,
       // so nothing else can even reach the handler.
@@ -35138,10 +35050,10 @@ async function handleRequest(request, env, ctx) {
       // so from outside the two are indistinguishable — which is how this
       // survived a live probe until the dispatch was read.
       // `test/api-auth.test.mjs` holds the list against the matchers now.
-      if (om || im || mm || an || uf || mdr || mad || xp || nt || lv || sk || dm2 || vr || pb || sa || dd || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || sc || qu || m3d) {
+      if (om || im || mm || an || uf || mdr || mad || xp || nt || lv || sk || dm2 || vr || pb || sa || dd || dr || tx || ed || ad || rb || bk || er || sv || sh || sq || sc || qu || m3d) {
         // THE SLUG IS RESOLVED FIRST, because the replay identity below is scoped
         // to it. Nothing about deriving it depends on who is asking.
-        const ownerSlug = (om || im || mm || an || uf || mdr || mad || xp || nt || lv || sk || dm2 || vr || pb || sa || dd || dr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || sc || qu || m3d)[1].toLowerCase();
+        const ownerSlug = (om || im || mm || an || uf || mdr || mad || xp || nt || lv || sk || dm2 || vr || pb || sa || dd || dr || tx || ed || ad || rb || bk || er || sv || sh || sq || sc || qu || m3d)[1].toLowerCase();
         // ── A QUEUED EDIT'S OWN REPLAY HAS NO BEARER TOKEN ──────────────────
         //
         // The consumer replays the customer's request minutes after they made
@@ -48883,77 +48795,6 @@ async function handleRequest(request, env, ctx) {
             // day before — never worse than not having tried.
             if (out.ok) await markSiteOffline(env, lslug, ou.id, lb.on !== false);
             return Response.json(out, { status: out.ok ? 200 : (out.reason === "no-way-back" ? 409 : 503) });
-          } else if (jb) {
-            // WHAT THE SCHEDULED WORK HAS BEEN DOING — and the OFF SWITCH.
-            // This used to be read-only, its comment claiming "turning one off
-            // is a revise"; the 2026-08-13 audit proved no revise can do it:
-            // _meta.jobs is a union-merge nothing ever removes an entry from,
-            // the rules lane's CLEARABLE is exactly confirm/sms, and nothing
-            // anywhere wrote enabled:false — so an owner asking "stop the
-            // weekly digest" had NO path that did not also kill their booking
-            // confirmations or the whole site. The runner has filtered
-            // `enabled=is.true` all along; this is the one write that flag was
-            // waiting for. POST {name, enabled} — owner-gated, owner-scoped,
-            // and honest about a name that matches nothing.
-            const jslug = jb[1].toLowerCase();
-            const g = await assertOwner(ownerDeps, jslug, ou.id);
-            if (g.error) return Response.json(g.error.body, { status: g.error.status });
-            if (request.method === "POST") {
-              let jbody = {};
-              try { jbody = await request.json(); } catch { jbody = {}; }
-              const jname = String((jbody && jbody.name) || "");
-              if (!/^[a-z][a-z0-9_]{0,60}$/i.test(jname)) return Response.json({ error: "bad name" }, { status: 400 });
-              // RUN IT NOW (owner, 2026-09-03): the one way to see a job work
-              // without waiting a day. Owner-scoped like the switch, the SAME
-              // deps the cron uses (so what the button sends is what the
-              // schedule would send, on the owner's own key), the outcome
-              // written where the panel reads it and answered as the sentence,
-              // so the owner sees it at once.
-              //
-              // THE PRESS'S ONE DIFFERENCE FROM A TICK IS HERE AND NOWHERE
-              // ELSE: it reads the row itself instead of asking `dueJobs`. The
-              // claim below is the same claim the tick makes — a press asks
-              // that nothing ran in between, which is why pressing twice
-              // quickly sends one reminder rather than two, and why a press on
-              // a one-time job that has already gone out is refused.
-              // RUN NOW: the site runs it, claimed in its own table.
-              if (jbody && jbody.run === true) {
-                const name = scriptNameFor(jslug);
-                if (!name || !env.SITE_WORKERS) return Response.json({ error: "unavailable" }, { status: 503 });
-                let out;
-                try {
-                  const lim = siteLimits(env);
-                  const res = await env.SITE_WORKERS.get(name, {}, { limits: { ...lim.limits, subRequests: SITE_JOB_SUBREQUESTS } }).fetch(
-                    new Request("https://" + jslug + ".gofarther.app/__gf/job", { method: "POST", headers: { "content-type": "application/json", [SITE_JOB_HEADER]: "1" }, body: JSON.stringify({ name: jname }) }));
-                  if (res.headers.get("x-site-data") !== "own") return Response.json({ error: "republish the site to run its jobs" }, { status: 409 });
-                  if (res.status === 404) return Response.json({ error: "no such job" }, { status: 404 });
-                  out = await res.json();
-                } catch { return Response.json({ error: "unavailable" }, { status: 503 }); }
-                return Response.json({ ok: true, name: jname, ran: true, sent: Number(out && out.sent) || 0, result: jobOutcome(out) });
-              }
-              if (typeof (jbody && jbody.enabled) !== "boolean") return Response.json({ error: "bad enabled" }, { status: 400 });
-              const jconn = await siteRowConn(env, jslug);
-              if (!jconn) return Response.json({ error: "unavailable" }, { status: 503 });
-              let wr;
-              try { wr = await sqlQuery(jconn, "UPDATE _jobs SET enabled=? WHERE name=? AND schedule_minutes IS NOT NULL RETURNING name", [jbody.enabled === true, jname]); }
-              catch { return Response.json({ error: "unavailable" }, { status: 503 }); }
-              if (!Array.isArray(wr) || !wr.length) return Response.json({ error: "no such job" }, { status: 404 });
-              return Response.json({ ok: true, name: jname, enabled: jbody.enabled === true });
-            }
-            if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
-            // THE SITE'S OWN LIST, from its own database.
-            const jconn = await siteRowConn(env, jslug);
-            if (!jconn) return Response.json({ jobs: [] });
-            let jrows;
-            try { jrows = await sqlQuery(jconn, "SELECT name, spec, schedule_minutes, enabled, last_run, last_result FROM _jobs WHERE schedule_minutes IS NOT NULL ORDER BY name LIMIT 20", []); }
-            catch (e) {
-              // A site built before `_jobs` has none; anything else is unreadable,
-              // never an empty schedule.
-              if (!/_jobs" does not exist/.test(String((e && e.message) || ""))) return Response.json({ error: "unavailable" }, { status: 503 });
-              jrows = [];
-            }
-            if (!Array.isArray(jrows)) return Response.json({ error: "unavailable" }, { status: 503 });
-            return Response.json({ jobs: (jrows || []).map((r) => jobPanelRow({ ...r, spec: typeof r.spec === "string" ? JSON.parse(r.spec) : r.spec })) });
           } else if (bk) {
             // THE NIGHTLY COPIES — list them, download one. Read-only by
             // design: a backup an owner could DELETE is a backup an attacker
