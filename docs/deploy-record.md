@@ -2211,3 +2211,17 @@ SiteBuildContainer `4f44a4a20b33575c` → `48012fa293d01605`, AppBuildContainer
 unchanged. Runtime: the session's own authenticated `build-health` read at
 08:04 answered `490d29b44…` and image `48012fa293d01605`, `agentNet` blocked;
 **Runtime-confirmed by the owner's canary run 40839692424** (08:06 UTC): both readers `490d29b445a3`, a cold container `48012fa293d01605`; the run is marked failed only because its image box held the previous id `4f44a4a20b33575c` (the session's hand-over named it first by mistake); every other free check passed, nothing charged.
+
+## Deploy 2290 — 2026-10-29 18:50 UTC (`cdb365078`)
+
+Never invent facts; the post-check line says draft; the page follows a build
+for 50 minutes; screenshots leave after one round and do not count towards the
+pile; a question answered in plain words is the answer; a held finish records
+its must-fix kinds; on the owner's "merge and deploy". A fast-forward from
+`490d29b44`; required CI green (unit tests run 40933042494, site build run
+40933042854); rollback verified; nothing in flight. Image predicted:
+SiteBuildContainer `48012fa293d01605` → `79a3905080404d4a`, AppBuildContainer
+unchanged. Run 40934562675 green, 18:50–18:53 UTC. The session's own
+authenticated `build-health` read at 18:58 still answered the previous image;
+at 19:10 it answered `cdb365078…` and `79a3905080404d4a`, `agentNet` blocked.
+The owner's canary press is still to come.
