@@ -234,7 +234,26 @@ export function firstMessage({ request, map = null, ws, shown = [], history = ""
 
 // ── RULE 3: CLEARING THE DESK ────────────────────────────────────────────────
 const NOTE = "[cleared from this conversation to save space; the workspace keeps the current version — read_files it again if you need it]";
-const pileSize = (messages) => messages.reduce((n, m) => n + JSON.stringify(m.content).length, 0);
+// A SCREENSHOT DOES NOT COUNT TOWARDS THE PILE (2026-10-29): one is ~100,000
+// characters of base64, so every look pushed the pile over COMPACT_AT and the
+// next round rewrote older rounds (kiln-lane-4: seven clearings, each read again
+// at full price). Screenshots leave on their own, after the round that saw them.
+export const pileSize = (messages) => messages.reduce((n, m) => n + JSON.stringify(Array.isArray(m.content) ? m.content.filter((b) => !(b && b.type === "image")) : m.content).length, 0);
+const SHOT_SEEN = "[a screenshot you have seen; it was taken out to save space — look again if you need it]";
+/**
+ * THE SCREENSHOTS LEAVE AFTER ONE ROUND: every image in a message older than
+ * the newest becomes a one-line note. Only the message just before the newest
+ * can still hold one, so the rewrite sits at the tail and everything before it
+ * is still read from the cache (rule 4). Pure; answers new messages and a count.
+ */
+export function dropSeenShots(messages) {
+  let dropped = 0;
+  const out = messages.map((m, i) => {
+    if (i === messages.length - 1 || !Array.isArray(m.content) || !m.content.some((b) => b && b.type === "image")) return m;
+    return { ...m, content: m.content.map((b) => (b && b.type === "image" ? (dropped++, { type: "text", text: SHOT_SEEN }) : b)) };
+  });
+  return { messages: out, dropped };
+}
 
 /**
  * Older rounds' file bodies become one-line notes: the answers of
@@ -560,6 +579,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     if (rounds >= maxRounds) { stopped = "rounds"; break; }
     if (now() - started > maxMs) { stopped = "time"; break; }
     if (spent() + lastCost > creditCap) { stopped = "credits"; break; }
+    { const d = dropSeenShots(messages); if (d.dropped) { messages = d.messages; log({ event: "shots-out", dropped: d.dropped }); } }
     if (pileSize(messages) > COMPACT_AT) {
       // ONLY A SWEEP WORTH ITS REWRITE IS MADE. Clearing rewrites an older
       // round, and every byte after the first rewritten one is read at full

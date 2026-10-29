@@ -176,3 +176,14 @@ than its "still being written" sentence is not yet reproduced.
 The map at the door worked (the looking around took 2 rounds, not 10); the
 rest of the cost was a failed first build, five looks after a held finish,
 and the clearing triggered by each look's screenshots (open).
+
+## Screenshots leave after one round (fixed offline)
+kiln-lane-4's later rounds cost 3–7 credits each: every look added ~100,000
+characters of screenshots, pushed the pile over COMPACT_AT, and the next round
+rewrote older rounds (seven clearings). Now a screenshot is seen for one round
+and then becomes a one-line note (`dropSeenShots`; only the message just before
+the newest changes, so everything before it stays cached), and screenshots no
+longer count towards the pile (`pileSize`). Tests SA44, SA45; sweep 4 of 4
+killed (the first sweep's surviving mutant, the pile counting screenshots,
+was killed by SA45), the comment control survived; the 52 agent-related tests
+pass. The saving is not measured until a live build.

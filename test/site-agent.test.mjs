@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   runSiteAgent, compact, headStart, firstMessage, makeWorkspace, writableKey,
-  AGENT_TOOLS, agentSystem, COMPACT_AT, COMPACT_MIN_SAVE, toolCounts, toolsFor, checkNotes, buildFailKind, commandKinds, projectOverview,
+  AGENT_TOOLS, agentSystem, COMPACT_AT, COMPACT_MIN_SAVE, toolCounts, toolsFor, checkNotes, buildFailKind, commandKinds, projectOverview, dropSeenShots, pileSize,
 } from "../builder/site-agent.mjs";
 
 const PAGES = [
@@ -656,4 +656,30 @@ test("SA43 the rules forbid inventing anything: facts come from the owner, the s
   assert.match(sys, /NEVER INVENT ANYTHING\./);
   for (const k of ["opening hours", "prices", "phone numbers", "addresses", "reviews", "testimonials", "policies"]) assert.ok(sys.includes(k), k);
   assert.match(sys, /clearly marked placeholder where it goes \(for example "\[Opening hours\]"\) and say in finish exactly what is missing/);
+});
+
+test("SA44 a screenshot is seen for one round, then becomes a note; screenshots never trigger a clearing; the rest of the conversation is untouched", async () => {
+  const PNG = "iVBORw0KGgo" + "B".repeat(150000);
+  const look = async (w, route) => ({ ok: true, shots: [{ route, viewport: "desktop", png: PNG }] });
+  const s = scripted([answer(use("look", { page: "/" })), answer(use("look", { page: "/visit" })), answer(use("read_files", { files: ["index.tsx"] })), answer(use("finish", { summary: "s" }))]);
+  const events = [];
+  await runSiteAgent({ send: s.send, build: okBuild, look, log: (e) => events.push(e) }, { request: "r", pages: PAGES });
+  const imgs = (q) => JSON.stringify(q.messages).split('"type":"image"').length - 1;
+  assert.equal(imgs(s.sent[1]), 1, "round 2 sees the screenshot just taken");
+  assert.equal(imgs(s.sent[2]), 1, "round 3 sees only the newest one; the first became a note");
+  assert.equal(imgs(s.sent[3]), 0);
+  assert.match(JSON.stringify(s.sent[3].messages), /a screenshot you have seen/);
+  assert.equal(events.filter((e) => e.event === "compact").length, 0, "a screenshot is not counted towards the pile");
+  assert.ok(events.some((e) => e.event === "shots-out" && e.dropped === 1));
+  // everything before the rewritten message is byte-for-byte as the round before sent it
+  const before = s.sent[1].messages, after = s.sent[2].messages;
+  assert.equal(JSON.stringify(after.slice(0, before.length - 1)), JSON.stringify(before.slice(0, before.length - 1)));
+  const d = dropSeenShots([{ role: "user", content: [{ type: "image" }] }]);
+  assert.equal(d.dropped, 0, "the newest message keeps its screenshots");
+});
+
+test("SA45 the pile is measured without screenshots", () => {
+  const text = [{ role: "user", content: [{ type: "text", text: "x".repeat(100) }] }];
+  const withShot = [{ role: "user", content: [{ type: "text", text: "x".repeat(100) }, { type: "image", source: { type: "base64", data: "A".repeat(200000) } }] }];
+  assert.equal(pileSize(withShot), pileSize(text));
 });
