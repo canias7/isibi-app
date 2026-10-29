@@ -2210,4 +2210,4 @@ green on the candidate (unit tests run 40837452316, site build run
 SiteBuildContainer `4f44a4a20b33575c` → `48012fa293d01605`, AppBuildContainer
 unchanged. Runtime: the session's own authenticated `build-health` read at
 08:04 answered `490d29b44…` and image `48012fa293d01605`, `agentNet` blocked;
-the owner's canary press is still to come.
+**Runtime-confirmed by the owner's canary run 40839692424** (08:06 UTC): both readers `490d29b445a3`, a cold container `48012fa293d01605`; the run is marked failed only because its image box held the previous id `4f44a4a20b33575c` (the session's hand-over named it first by mistake); every other free check passed, nothing charged.
