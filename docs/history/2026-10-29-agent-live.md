@@ -101,3 +101,22 @@ Traced to three gaps and a limit, all fixed on the branch (not deployed):
 Tests: SA35–SA38 and SAB2 (a real first build through the route: `look`
 offered, screenshots back, the contrast finding named, the finish held once);
 sweep 10 of 10 killed, the comment control survived.
+
+## The third build, after deploy 2288 (agent sees the checks; no whole-check limit)
+Same message, sent 06:20:53 UTC, site `kiln-lane-3`, saved as a draft (not
+published), about 17.5 min. Balance 38 → 138 (owner-approved top-up, ledger
+858) → 65.
+- **22 rounds**: 10 one-command rounds looking around; 6 files then 2 written
+  at once; a first build failed (its reason is not recorded: the trace keeps
+  numbers only), two commands fixed it, the second build passed; **then it
+  looked: 1 page, then 3** (the look tool working in a first build); finished
+  first time (nothing must-fix open).
+- **The browser check opened all four pages** ("not cut short" this time) and
+  flagged nothing; the final reply and the progress lines agree; the photo
+  reason is the one true one.
+- **Money**: ledger 859–861: deposit 2, settle 12, pages 59 → **73** (the
+  second build 68). The last round re-read the screenshots uncached (38,799
+  fresh tokens, about 10 credits).
+- Still open: the ten one-command rounds (about 18 credits); the reply says
+  "That is not a look at any page" although the agent looked; a failed
+  build's reason is not kept in the record.
