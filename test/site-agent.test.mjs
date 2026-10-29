@@ -433,3 +433,52 @@ test("SA27 the build hands the page writer's place to the agent, building with t
   const P = readFileSync(new URL("../builder/publish-pages.mjs", import.meta.url), "utf8");
   assert.match(P, /let gen = typeof deps\.agentWrite === "function" \? await deps\.agentWrite\(\{ compile: deps\.compile \}\) : await deps\.generate\(\);/);
 });
+
+test("SA28 run: the command and the workspace go to the container; what it changed comes back, unbuilt", async () => {
+  const seen = [];
+  const s = scripted([
+    answer(use("run", { command: "grep -rn Open src/routes" })),
+    answer(use("run", { command: "sed -i s/9-5/8-6/ src/routes/visit.tsx" })),
+    answer(use("finish", { summary: "s" })),
+    answer(use("build", {})),
+    answer(use("finish", { summary: "Hours 8-6." })),
+  ]);
+  let n = 0;
+  const r = await runSiteAgent({ send: s.send, build: okBuild, run: async (w, cmd) => {
+    seen.push([cmd, w.pages.map((p) => p.path).sort()]);
+    n++;
+    if (n === 1) return { ok: true, code: 0, output: "src/routes/visit.tsx:1:Open 9-5", files: { pages: w.pages, parts: w.parts, css: w.css } };
+    return { ok: true, code: 0, output: "", files: { pages: [w.pages[0], { path: "visit.tsx", source: "Open 8-6" }], parts: [], css: null } };
+  } }, { request: "r", pages: PAGES });
+  assert.equal(r.ok, true);
+  assert.deepEqual(seen, [["grep -rn Open src/routes", ["index.tsx", "visit.tsx"]], ["sed -i s/9-5/8-6/ src/routes/visit.tsx", ["index.tsx", "visit.tsx"]]]);
+  assert.equal(r.pages.find((p) => p.path === "visit.tsx").source, "Open 8-6");
+  const res = s.sent[1].messages.at(-1).content[0].content;
+  assert.match(res, /^exit code 0\nsrc\/routes\/visit\.tsx:1:Open 9-5$/);
+  assert.match(s.sent[2].messages.at(-1).content[0].content, /^exit code 0; files changed: visit\.tsx/);
+  assert.equal(s.sent[3].messages.at(-1).content[0].is_error, true, "a command's change needs a build before finishing");
+});
+
+test("SA29 the container is wired: a work folder per agent run, in the site's lane; both agents get it", () => {
+  const fn = between("function agentShell(env, slug) {", "async function runAgentChange(");
+  assert.match(fn, /getContainer\(env\.SITE_BUILD_CONTAINER, laneName\(slug\)\)/);
+  assert.match(fn, /new Request\("http:\/\/build\/agent-run"/);
+  assert.match(fn, /body: JSON\.stringify\(\{ session, command, files \}\)/);
+  assert.match(between("async function runAgentChange(", "async function recompileAndPublish(env, {"), /run: agentShell\(env, slug\),/);
+  assert.match(between("    agentWrite: agentTakes()", "    generate: async () => {"), /run: agentShell\(env, slug\),/);
+  const B = readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
+  const route = B.slice(B.indexOf('req.url === "/agent-run"'), B.indexOf('req.url === "/model"'));
+  assert.ok(route.length > 200, "the container's route is there");
+  assert.match(route, /const as = renderAs\(\);/);
+  assert.match(route, /runCommand\(dir, p\.command, \{ as \}\)/);
+  assert.match(route, /readSiteFiles\(dir/);
+});
+
+test("SA30 a page a command removed is removed from the workspace too; the stylesheet stays unless changed", async () => {
+  const s = scripted([answer(use("run", { command: "rm src/routes/visit.tsx" })), answer(use("build", {})), answer(use("finish", { summary: "Removed /visit." }))]);
+  const r = await runSiteAgent({ send: s.send, build: okBuild, run: async (w) => ({ ok: true, code: 0, output: "", files: { pages: w.pages.filter((p) => p.path !== "visit.tsx"), parts: w.parts, css: w.css } }) }, { request: "r", pages: PAGES, parts: PARTS, css: "a{}" });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.removed, ["visit.tsx"]);
+  assert.equal(r.cssChanged, false);
+  assert.match(s.sent[1].messages.at(-1).content[0].content, /files changed: visit\.tsx/);
+});

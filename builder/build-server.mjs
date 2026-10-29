@@ -42,6 +42,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { BUILD_KEYS } from "./build-keys.mjs";
 import { dryRunServerParts } from "./server-dryrun.mjs";
+import { sessionDir, prepareSandbox, writeSiteFiles, readSiteFiles, runCommand, sweepSessions } from "./agent-shell.mjs";
 import { isServerPart } from "./server-code.mjs";
 import { callBuilderModel, keysFrom, BUILDER_CALL_MS, CONTAINER_CALL_CAP_MS, STREAM_IDLE_MS, patientCall } from "./build-call.mjs";
 import { longPost } from "./long-post.mjs";
@@ -68,7 +69,7 @@ import { langLabel, resolveLangs, langPrefix } from "./site-langs.mjs";
 import { checkOrder } from "./site-render.mjs";
 import { exitReason } from "./exit-reason.mjs";
 import { runStep } from "./run-step.mjs";
-import { startSiteServer } from "./site-ssr.mjs";
+import { startSiteServer, renderAs } from "./site-ssr.mjs";
 import { spawn } from "node:child_process";
 import { readLaunch } from "./container-job.mjs";
 import { readDeadline, makeTerminator, JOB_STOP_GRACE_MS } from "./job-clock.mjs";
@@ -86,6 +87,8 @@ const ROUTES_BASE = path.join(APP, ".routes-base");
 const STYLES_BASE = path.join(APP, ".styles-base.css");
 const STYLES = path.join(APP, "src", "styles.css");
 const DIST = path.join(APP, "dist");
+// The site agent's work folders (2026-10-29), apart from the build's `/app`.
+const AGENT_ROOT = process.env.AGENT_RUN_DIR || "/tmp/agent-runs";
 // START EMITS TWO HALVES. `dist/client` is what a visitor downloads and is the
 // only half published to R2; `dist/server/server.js` is the module uploaded as
 // the site's Worker. Publishing `dist` wholesale would put every asset one
@@ -2322,6 +2325,32 @@ const server = http.createServer((req, res) => {
         }
       } catch (e) { return send(res, 200, { ok: false, error: "threw", kind: String((e && e.name) || "Error") }); }
       return send(res, 400, { ok: false, error: "bad request" });
+    });
+    return;
+  }
+  // THE SITE AGENT'S COMMAND LINE (2026-10-29, `agent-shell.mjs`): one shell
+  // command in the agent run's own work folder, as the unprivileged user, with
+  // a clean environment and a time limit; the site's files are written in
+  // before and read back after. Never the build's `/app`.
+  if (req.method === "POST" && req.url === "/agent-run") {
+    let aBody = "", aTooBig = false;
+    req.on("data", (c) => { aBody += c; if (aBody.length > MAX_BODY) { aTooBig = true; req.destroy(); } });
+    req.on("end", async () => {
+      if (aTooBig) return send(res, 413, { ok: false, error: "too large" });
+      let p; try { p = JSON.parse(aBody); } catch { return send(res, 400, { ok: false, error: "invalid json" }); }
+      const dir = sessionDir(AGENT_ROOT, p && p.session);
+      if (!dir || typeof p.command !== "string" || !p.command.trim()) return send(res, 400, { ok: false, error: "a session and a command" });
+      try {
+        fs.mkdirSync(AGENT_ROOT, { recursive: true, mode: 0o755 });
+        sweepSessions(AGENT_ROOT);
+        const as = renderAs();
+        prepareSandbox(dir, { app: APP, routesBase: ROUTES_BASE, owner: as });
+        writeSiteFiles(dir, p.files || {}, { routesBase: ROUTES_BASE, stylesBase: STYLES_BASE, owner: as });
+        const r = await runCommand(dir, p.command, { as });
+        return send(res, 200, { ok: true, code: r.code, output: r.output, timedOut: r.timedOut, asUser: !!as, files: readSiteFiles(dir, { routesBase: ROUTES_BASE }) });
+      } catch (e) {
+        return send(res, 200, { ok: false, error: String((e && e.message) || e).slice(0, 300) });
+      }
     });
     return;
   }

@@ -17175,6 +17175,28 @@ function seamCompileRepair(env, { slug, touched = null, models = null, charge = 
  * translation funnel. Each round's facts go to the live progress lines.
  * Answers `{ status, body }` whose facts the reply writer tells.
  */
+/**
+ * THE AGENT'S COMMAND LINE (2026-10-29, `builder/agent-shell.mjs`): one work
+ * folder per agent run in the site's own build container (its lane), each
+ * command sent with the workspace's files and answered with what it printed
+ * and the files as it left them. Never throws.
+ */
+function agentShell(env, slug) {
+  const session = [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return async (files, command) => {
+    if (!env.SITE_BUILD_CONTAINER) return { ok: false, error: "no build container" };
+    try {
+      const c = getContainer(env.SITE_BUILD_CONTAINER, laneName(slug));
+      const r = await c.fetch(new Request("http://build/agent-run", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ session, command, files }), signal: AbortSignal.timeout(150000),
+      }));
+      const j = await r.json().catch(() => null);
+      return j && typeof j === "object" ? j : { ok: false, error: "the container answered " + r.status };
+    } catch (e) { return { ok: false, error: String((e && e.message) || e).slice(0, 200) }; }
+  };
+}
+
 async function runAgentChange(env, { slug, words, pages, parts, job = null, picker = "", trace = null, bill, billLang, charges = null, uid = "", chat = "" }) {
   const tm = (phase, status, detail) => { try { if (trace) trace.mark(phase, status, detail); } catch { /* never */ } };
   if (!Array.isArray(parts)) return { status: 503, body: { ok: false, error: "agent-unread", layer: "agent", cost: 0, deferred: [], msg: "The site's components could not be read, so the site agent did not start. Nothing was changed and nothing was charged." } };
@@ -17195,6 +17217,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   const ag = await runSiteAgent({
     send: jobSend(job, quickSend(env, "agent", job && job.budget)),
     build: (w) => recompileAndPublish(env, { slug, pages: w.pages, parts: w.parts, label: "Agent build", job, compileOnly: true, cssOverride: typeof w.css === "string" ? w.css : null, charge: billLang, charges, trace }),
+    run: agentShell(env, slug),
     look: (w, route) => recompileAndPublish(env, { slug, pages: w.pages, parts: w.parts, label: "Agent look", job, compileOnly: true, cssOverride: typeof w.css === "string" ? w.css : null, shotRoutes: [route], charge: billLang, charges, trace }),
     readTable: async (t, n) => {
       const c = await ownerRowConn(env, slug);
@@ -19165,6 +19188,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
           const r = await compile(w.pages, w.parts);
           return { ok: !!(r && r.ok === true && r.files), error: r && r.error, serverTests: r && r.serverTests && Array.isArray(r.serverTests.results) ? r.serverTests.results : [] };
         },
+        run: agentShell(env, slug),
         progress: (stage, facts) => { try { if (typeof say === "function") say(stage, facts); } catch { /* the talk never costs the build */ } },
         log: (e) => { try { mark?.("agent:" + e.event, e); } catch { /* a trace must never break a build */ } },
       }, {

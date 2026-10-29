@@ -97,6 +97,11 @@ export const AGENT_TOOLS = Object.freeze([
     input_schema: { type: "object", properties: {} },
   },
   {
+    name: "run",
+    description: "Run one shell command in a copy of this site's project (Linux, Node 22), and read what it printed. The site's pages are in src/routes/, its components and server code in src/routes/-parts/, its stylesheet is src/styles.css; the template's packages are installed (read only: installing more is not possible here). E.g. grep -rn \"Opening\" src/routes, cat src/routes/index.tsx, npx tsc --noEmit, sed -i 's/old/new/' src/routes/about.tsx, node -e \"…\". Files a command changes come back into your workspace. No keys or secrets; 90 seconds a command; output cut at 30,000 characters.",
+    input_schema: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
+  },
+  {
     name: "look",
     description: "Build the site as your workspace holds it and look at one page: screenshots at phone and desktop width. Use it to check how a change really looks before you finish.",
     input_schema: { type: "object", properties: { page: { type: "string", description: "The page's address, e.g. \"/\" or \"/about\"." } }, required: ["page"] },
@@ -119,6 +124,7 @@ You change an existing website for its owner, with tools. Work like an engineer:
 - The site map and the files most likely needed are in the first message. Read any other file you need with read_files before changing it; never guess what a file holds.
 - Make every change the owner asked for, and nothing else. Keep everything else on every page exactly as it is.
 - write_file takes a whole file. To change one line, write the file with that line changed and every other line as it was.
+- You have a command line (run): use it like an engineer would — grep to find where something is written, cat to read, npx tsc --noEmit to check types, sed or a script for a mechanical change across files.
 - Plan first: work out every change, then write all the files, then build once. Fix what the build reports and build again.
 - When the look of a page changed, look at it once the build passes, and fix anything that looks wrong.
 - When the build passes and every change is made, call finish with what you changed, as plain facts.
@@ -237,6 +243,25 @@ export function compact(messages, { keep = KEEP_RECENT } = {}) {
   return { messages: out, cleared };
 }
 
+// ── WHAT A COMMAND CHANGED COMES BACK ────────────────────────────────────────
+/**
+ * The site's files as a command left them, folded into the workspace: a page or
+ * component changed, added or removed, and the stylesheet when the workspace
+ * holds one. Answers the keys that moved; marks the workspace unbuilt when any did.
+ */
+export function syncFromRun(st, files) {
+  if (!files || !Array.isArray(files.pages) || !Array.isArray(files.parts)) return [];
+  const ws = st.ws, moved = [];
+  const now = new Map();
+  for (const p of files.pages) if (p && typeof p.path === "string" && typeof p.source === "string" && writableKey(p.path).ok) now.set(p.path, p.source);
+  for (const p of files.parts) if (p && typeof p.name === "string" && typeof p.source === "string" && writableKey(partKey(p.name)).ok) now.set(partKey(p.name), p.source);
+  for (const [k, v] of now) if (ws.get(k) !== v) { ws.set(k, v); moved.push(k); }
+  for (const k of ws.keys()) if (k !== CSS_KEY && !now.has(k)) { ws.delete(k); moved.push(k); }
+  if (ws.has(CSS_KEY) && typeof files.css === "string" && files.css !== ws.get(CSS_KEY)) { ws.set(CSS_KEY, files.css); moved.push(CSS_KEY); }
+  if (moved.length) { st.dirty = true; for (const k of moved) st.written.add(k); }
+  return moved;
+}
+
 // ── THE TOOLS, RUN ───────────────────────────────────────────────────────────
 async function runTool(use, st, deps) {
   const input = use.input && typeof use.input === "object" ? use.input : {};
@@ -317,6 +342,19 @@ async function runTool(use, st, deps) {
       if (r && r.ok === true) return { text: "The build passed, but server code failed its test run: " + tests.map((t) => t.name + ": " + t.error).join("; ") };
       return { text: "The build failed:\n" + String((r && r.error) || "no reason given").slice(0, 6000) };
     }
+    case "run": {
+      const cmd = typeof input.command === "string" ? input.command.trim() : "";
+      if (!cmd) return { error: "name a command" };
+      if (cmd.length > 4000) return { error: "the command is over 4,000 characters" };
+      if (typeof deps.run !== "function") return { error: "commands cannot be run here" };
+      let r;
+      try { r = await deps.run({ pages: st.ws.pages(), parts: st.ws.parts(), css: st.ws.css() }, cmd); }
+      catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+      if (!r || r.ok !== true) return { error: "the command could not be run: " + String((r && r.error) || "no answer").slice(0, 300) };
+      const moved = syncFromRun(st, r.files);
+      const head = (r.timedOut ? "stopped at the time limit" : "exit code " + r.code) + (moved.length ? "; files changed: " + moved.join(", ") : "");
+      return { text: head + "\n" + String(r.output || "(no output)") };
+    }
     case "look": {
       const route = typeof input.page === "string" ? input.page.trim() : "";
       if (!/^\/[a-z0-9/_-]*$/i.test(route)) return { error: "a page address starts with / (\"/\", \"/about\")" };
@@ -359,7 +397,7 @@ const fact = (state, text) => ({ state, text });
 const listed = (xs) => (xs.length <= 1 ? xs.join("") : xs.slice(0, -1).join(", ") + " and " + xs[xs.length - 1]);
 export function roundFacts(outcomes) {
   const out = [];
-  const reads = [], wrote = [], gone = [], looked = [], queued = [];
+  const reads = [], wrote = [], gone = [], looked = [], queued = [], ran = [];
   for (const { use, r } of Array.isArray(outcomes) ? outcomes : []) {
     if (!use || !r || r.error) continue;
     const i = use.input || {};
@@ -367,12 +405,14 @@ export function roundFacts(outcomes) {
     else if (use.name === "write_file") wrote.push(fileName(String(i.file).trim()));
     else if (use.name === "delete_file") gone.push(fileName(String(i.file).trim()));
     else if (use.name === "read_table") looked.push("the " + i.table + " table");
+    else if (use.name === "run") ran.push("`" + String(i.command || "").trim().slice(0, 80) + "`");
     else if (use.name === "look") looked.push(fileName(routeFile(String(i.page || "/"))) + " in a browser");
     else if (use.name === "change_rows") queued.push("the " + i.table + " entries");
     else if (use.name === "build") out.push(/^The build passed\.$/.test(r.text) ? fact("applied", "Built the site; it compiled cleanly.") : /^The build passed/.test(r.text) ? fact("doing", "Built the site; its server code failed a test run, fixing it.") : fact("doing", "Built the site; the compiler found errors, fixing them."));
   }
   if (reads.length) out.unshift(fact("prepared", "Read " + listed([...new Set(reads)]) + "."));
   if (looked.length) out.unshift(fact("prepared", "Looked at " + listed([...new Set(looked)]) + "."));
+  if (ran.length) out.push(fact("doing", "Ran " + listed(ran) + " in the site's project."));
   if (wrote.length) out.push(fact("applied", "Wrote " + listed([...new Set(wrote)]) + "."));
   if (gone.length) out.push(fact("applied", "Removed " + listed([...new Set(gone)]) + "."));
   if (queued.length) out.push(fact("prepared", "Lined up changes to " + listed([...new Set(queued)]) + ", saved at the end."));

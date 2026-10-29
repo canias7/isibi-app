@@ -248,3 +248,57 @@ question it asked earlier."*
     SA26 now proves its pages are never published.
 - **Full suite** (`npm test`): 13,028 tests, 3 failing, the known three (REOPEN
   1, site sign-in, worktree leftovers).
+
+## Then: commands (owner, 2026-10-29: "can we try it with commands?")
+
+The Claude Code way: the agent types shell commands, not only our tools.
+
+- **`run`** (agent tool): one shell command in a copy of the site's project.
+  The workspace's files are sent with it. What the command printed comes back
+  (exit code, output cut at 30,000 characters), and every page, component or
+  stylesheet change it made is folded back into the workspace (`syncFromRun`).
+  The workspace is then unbuilt, so a build is needed before finishing.
+- **In the container** (`builder/agent-shell.mjs`, the build service's
+  `POST /agent-run`):
+  - **The folder.** Each agent run gets its own work folder under
+    `/tmp/agent-runs/<session>`, never the build's `/app`. It holds a copy of
+    the template with the site's files written in and the packages linked
+    (read only).
+  - **The user.** Commands run as the unprivileged user the render check uses
+    (`renderAs`).
+  - **The environment** is clean (PATH, HOME, LANG, CI): no key of ours.
+  - **The limits.** 90 seconds per command, the whole process group stopped at
+    the limit. Folders older than two hours are swept.
+- **Known limits**:
+  - installing packages is not possible: `node_modules` is the image's, read
+    only;
+  - outside addresses are not blocked (nothing secret is in reach);
+  - two runs on one lane use the same unprivileged user, so one could read the
+    other's work folder (site source, which is published anyway).
+- **Tests**:
+  - `test/agent-shell.test.mjs` AS1–AS5, real commands in a real folder: the
+    copy and the reset, grep, an edit by `sed` read back, the exit code, no
+    secret in `env`, the time limit, the output cut, the sweep.
+  - AS5 (needs root and a `node` user, as the container has): commands run as
+    that user and cannot change the template. It was run here with a
+    temporary `node` user, then the user was removed; without one it is
+    skipped.
+  - SA28 (the tool, the files back, a build before finishing) and SA29 (the
+    wiring: the site's lane, a folder per run, both agents, the container
+    route).
+- **Sweep** (from green):
+  - 10 of 10 killed: the clean environment, the user drop, the base files
+    kept out, the page-name check, the output cut, the group kill at the
+    limit, the sweep's age, a removed page synced back, the workspace marked
+    unbuilt, and the sync itself. The comment-only control survived.
+  - The first pass let three survive, and each was closed:
+    - the user drop is only testable with a `node` user (re-run with a
+      temporary one, then removed);
+    - the time-limit test did not time the stop (AS3 now asserts under 3
+      seconds);
+    - no test removed a page by command (SA30).
+  - A field named `unprivileged` on the new route collided with a guard over
+    the build's own `*Unprivileged` fields, so it was renamed `asUser`.
+- **Full suite** (`npm test`): 13,035 tests, 5 failing before the rename and
+  the commit. Two were this change's: the image-input check, which needs the
+  new file committed, and the field name. The other three are the known ones.

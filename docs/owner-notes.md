@@ -3,6 +3,17 @@
 
 
 
+## 2026-10-29 — The agent can type commands (Claude Code style)
+
+- New `run` tool: the agent types real Linux commands in a copy of the site's project, like `grep` to find text, `cat` to read, `npx tsc` to check, or `sed` to edit across files. Changes those commands make come back into its work.
+- Safety walls:
+  - commands run as a restricted user, with none of our keys;
+  - 90 seconds per command;
+  - each run gets its own folder;
+  - the real build folder is never touched.
+- Can't install new packages yet (the installed ones are read-only).
+- Tested with real commands. Not merged.
+
 ## 2026-10-29 — The agent builds new sites too; no router anywhere; no cap
 
 - **New sites**: the agent writes the whole site from your description. It writes every page, the header and the footer, builds, and fixes errors. Then the usual checks, photos and publish run on what it wrote.
