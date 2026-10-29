@@ -60,3 +60,19 @@ Three findings, fixed on the branch (not deployed):
    answer. They now say so: every known file in one answer, reads together.
 Tests SA31–SA34 and a trace-room case; sweep 6 of 6 killed, the comment
 control survived. The saving is not measured until a live build.
+
+## The second build, after the fixes (deploy 2287, runtime-confirmed)
+`build-health` read by the session at 03:45: `0299f6126`, image
+`98e49766f0f461b8`, `agentNet` blocked (the owner's canary run 40813864022
+pressed too). Same message, sent 03:53:28 UTC, site `kiln-lane-2`, saved as a
+draft (not published), build 12.1 min.
+- **18 rounds** (the first build: about 36). Rounds 1–12 each ran ONE command
+  (looking around); round 13 wrote 6 files at once and round 14 two; one
+  build (passed), one look, finish.
+- **The cache now holds**: from round 3 most of each request was read cached
+  (16k → 38k tokens); one clearing (6 items) at round 15.
+- **Money**: ledger 855–857: deposit 2, settle 12, pages 54 → **68** (the first
+  build: 101; pages 88 → 54). Balance 106 → 38.
+- **What is left**: each round re-reads the whole conversation; at $0.50 per
+  million cached tokens 38k tokens is ~2.4 credits a round even when the
+  round does almost nothing. The twelve one-command rounds cost about 24.
