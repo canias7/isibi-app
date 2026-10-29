@@ -196,3 +196,10 @@ the agent's plain words are its answer; after a change, plain words are still
 a stop mid-work, and a cut-off answer is still `too-long`. Tests SA46 (SA10
 now uses an empty answer); sweep 3 of 3 killed, the comment control survived;
 the 54 agent-related tests pass.
+
+## Why a finish was sent back (fixed offline)
+kiln-lane-4's agent was sent back once, and the record said only that. Now the
+hold is logged with the must-fix kinds the last check found, as counts
+(`agent:held`, e.g. `contrast: 2`): a label in our build record, never a
+message to the customer, never the finding's text. Test SA47; sweep 2 of 2
+killed, the comment control survived.

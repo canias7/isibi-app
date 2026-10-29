@@ -325,6 +325,12 @@ export function checkNotes(r) {
   return lines.length ? "\nThe checks found:\n" + lines.join("\n") : "";
 }
 const mustFix = (r) => !!(r && r.render && Array.isArray(r.render.findings) && r.render.findings.some((f) => f && MUST_FIX.includes(f.kind)));
+/** The must-fix findings of a check, counted by kind, for the record (numbers only, never text). */
+export function mustFixKinds(r) {
+  const out = {};
+  for (const f of r && r.render && Array.isArray(r.render.findings) ? r.render.findings : []) if (f && MUST_FIX.includes(f.kind)) out[f.kind] = (out[f.kind] || 0) + 1;
+  return out;
+}
 
 // ── WHY A BUILD FAILED, AS A KIND ───────────────────────────────────────────
 /** One of a fixed set of kinds for a failed build, read from what it answered; never its text. */
@@ -451,7 +457,7 @@ async function runTool(use, st, deps) {
       try { r = await deps.build({ pages: st.ws.pages(), parts: st.ws.parts(), css: st.ws.css() }); }
       catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
       st.lastBuild = r && r.ok === true ? "ok" : "fail";
-      if (r && r.ok === true) { st.dirty = false; st.built = true; st.mustFix = mustFix(r); }
+      if (r && r.ok === true) { st.dirty = false; st.built = true; st.mustFix = mustFix(r); st.mustFixKinds = mustFixKinds(r); }
       const tests = r && Array.isArray(r.serverTests) ? r.serverTests.filter((t) => t && t.ok === false && t.kind === "code") : [];
       const notes = r && r.ok === true ? checkNotes(r) : "";
       if (r && r.ok === true && !tests.length) return { text: "The build passed." + notes };
@@ -485,6 +491,7 @@ async function runTool(use, st, deps) {
       const shots = (Array.isArray(r.shots) ? r.shots : []).filter((x) => x && x.route === route && typeof x.png === "string" && x.png).slice(0, MAX_SHOTS);
       if (!shots.length) return { error: "no screenshot of " + route + " came back (is that a page of this site?)" };
       st.mustFix = mustFix(r);
+      st.mustFixKinds = mustFixKinds(r);
       st.looked.add(route);
       return { text: "Screenshots of " + route + " follow: " + shots.map((x) => x.viewport + " width").join(", ") + "." + checkNotes(r), images: shots.map((x) => ({ label: route + " at " + x.viewport + " width", png: x.png })) };
     }
@@ -493,7 +500,9 @@ async function runTool(use, st, deps) {
       // A FINDING THAT MUST BE FIXED HOLDS THE FINISH ONCE: the agent is sent
       // back to fix it; if it finishes again it is let go (it may not be able to),
       // and the final reply says what the check still found.
-      if (st.mustFix && !st.heldOnce) { st.heldOnce = true; return { error: "the last check still found something marked FIX THIS: fix it, build, and finish again" }; }
+      // WHY IT WAS SENT BACK, for the record (2026-10-29): which kinds of
+      // finding, as counts; a label for us, never a message to the customer.
+      if (st.mustFix && !st.heldOnce) { st.heldOnce = true; try { st.log({ event: "held", ...(st.mustFixKinds || {}) }); } catch { /* the record never costs the change */ } return { error: "the last check still found something marked FIX THIS: fix it, build, and finish again" }; }
       st.done = true;
       st.summary = typeof input.summary === "string" ? input.summary.slice(0, 4000) : "";
       return { text: "Done." };

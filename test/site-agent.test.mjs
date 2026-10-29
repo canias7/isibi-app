@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   runSiteAgent, compact, headStart, firstMessage, makeWorkspace, writableKey,
-  AGENT_TOOLS, agentSystem, COMPACT_AT, COMPACT_MIN_SAVE, toolCounts, toolsFor, checkNotes, buildFailKind, commandKinds, projectOverview, dropSeenShots, pileSize,
+  AGENT_TOOLS, agentSystem, COMPACT_AT, COMPACT_MIN_SAVE, toolCounts, toolsFor, checkNotes, buildFailKind, commandKinds, projectOverview, dropSeenShots, pileSize, mustFixKinds,
 } from "../builder/site-agent.mjs";
 
 const PAGES = [
@@ -699,4 +699,15 @@ test("SA46 a question answered in plain words is the answer; plain words after a
   assert.equal((await runSiteAgent({ send: s3.send, build: okBuild }, { request: "r", pages: PAGES })).stopped, "too-long");
   const s4 = scripted([text("   ")]);
   assert.equal((await runSiteAgent({ send: s4.send, build: okBuild }, { request: "r", pages: PAGES })).stopped, "no-tool");
+});
+
+test("SA47 a finish sent back is recorded with why: the must-fix kinds as counts, never their text", async () => {
+  const build = async () => ({ ok: true, render: { findings: [{ route: "/", viewport: "phone", kind: "contrast", detail: "secret words" }, { route: "/a", viewport: "desktop", kind: "contrast" }, { route: "/b", viewport: "phone", kind: "image" }] } });
+  const events = [];
+  const s = scripted([answer(use("build", {})), answer(use("finish", { summary: "a" })), answer(use("finish", { summary: "b" }))]);
+  await runSiteAgent({ send: s.send, build, log: (e) => events.push(e) }, { request: "r", pages: PAGES });
+  assert.deepEqual(events.find((e) => e.event === "held"), { event: "held", contrast: 2 });
+  assert.doesNotMatch(JSON.stringify(events), /secret words/);
+  assert.deepEqual(mustFixKinds({ render: { findings: [{ kind: "blank" }, { kind: "slow" }] } }), { blank: 1 });
+  assert.deepEqual(mustFixKinds(null), {});
 });
