@@ -130,34 +130,60 @@ export function readSiteFiles(dir, { routesBase } = {}) {
   return { pages, parts, css };
 }
 
-/** The sandbox's no-internet wrapper: a command in a network namespace of its own. */
+/**
+ * THE NO-INTERNET WRAPPERS, tried in order (2026-10-29). Two ways, because a
+ * kernel may forbid the first (Ubuntu's AppArmor setting blocks unprivileged
+ * user namespaces: GitHub's runners do; measured on unit CI run 40801011715):
+ *   "userns" — `unshare --net --map-root-user`, started as the unprivileged
+ *              user: no privilege needed at all;
+ *   "root"   — when this process is root (the build service is): `unshare
+ *              --net` as root, then `setpriv` drops to the unprivileged user
+ *              before the command starts.
+ * Either way the command lands in a network with nothing in it.
+ */
 export const NET_CUT = ["unshare", "--net", "--map-root-user"];
 export const NO_NET_MSG = "Commands are switched off here: this container cannot cut a command off from the internet, and none runs with it.";
 
+/** The program and arguments that run `inner` (an argv) with no internet, in `mode`. */
+export function netWrap(mode, as, inner) {
+  if (mode === "userns") return { argv: [...NET_CUT, ...inner], opts: as ? { uid: as.uid, gid: as.gid } : {} };
+  if (mode === "root" && as) return { argv: ["unshare", "--net", "setpriv", "--reuid=" + as.uid, "--regid=" + as.gid, "--clear-groups", "--", ...inner], opts: {} };
+  return null;
+}
+
+const isRoot = () => { try { return typeof process.getuid === "function" && process.getuid() === 0; } catch { return false; } };
+const trySync = (w) => spawnSync(w.argv[0], w.argv.slice(1), { timeout: 10000, ...w.opts });
+
 let netChecked = null;
 /**
- * Can a command be cut off from the internet here, as this user? Asked once
- * per process (the answer is the container's), by running the wrapper itself.
+ * Which wrapper works here, as this user: "userns", "root", or false (none —
+ * then no command runs). Asked once per process (the answer is the
+ * container's), by running each wrapper itself around `true`.
  */
-export function netCut(as = null, { check = (a) => spawnSync(NET_CUT[0], [...NET_CUT.slice(1), "true"], { timeout: 10000, ...(a ? { uid: a.uid, gid: a.gid } : {}) }) } = {}) {
+export function netCut(as = null, { check = trySync, root = isRoot() } = {}) {
   if (netChecked !== null) return netChecked;
-  try { const r = check(as); netChecked = !!(r && r.status === 0); } catch { netChecked = false; }
+  netChecked = false;
+  for (const mode of ["userns", ...(root && as ? ["root"] : [])]) {
+    try { const r = check(netWrap(mode, as, ["true"]), mode); if (r && r.status === 0) { netChecked = mode; break; } } catch { /* the next */ }
+  }
   return netChecked;
 }
 export function _resetNetCut() { netChecked = null; }
 
 /** Run one command in the work folder, with no internet. Never throws; answers `{ code, output, timedOut }`. */
 export function runCommand(dir, command, { as = null, timeoutMs = RUN_TIMEOUT_MS, spawnFn = spawn, cut = netCut } = {}) {
-  if (!cut(as)) return Promise.resolve({ code: 126, output: NO_NET_MSG, timedOut: false, refused: "no-net-cut" });
+  const mode = cut(as);
+  const wrap = mode ? netWrap(mode, as, ["/bin/sh", "-c", String(command)]) : null;
+  if (!wrap) return Promise.resolve({ code: 126, output: NO_NET_MSG, timedOut: false, refused: "no-net-cut" });
   return new Promise((resolve) => {
     let out = "", cut = false, done = false, timedOut = false;
     const finish = (code) => { if (!done) { done = true; resolve({ code, output: out + (cut ? "\n… (output cut at " + MAX_OUTPUT + " characters)" : ""), timedOut }); } };
     let child;
     try {
-      child = spawnFn(NET_CUT[0], [...NET_CUT.slice(1), "/bin/sh", "-c", String(command)], {
+      child = spawnFn(wrap.argv[0], wrap.argv.slice(1), {
         cwd: dir, detached: true, stdio: ["ignore", "pipe", "pipe"],
         env: { PATH: "/usr/local/bin:/usr/bin:/bin:" + path.join(dir, "node_modules", ".bin"), HOME: dir, LANG: "C.UTF-8", CI: "1", NO_COLOR: "1" },
-        ...(as ? { uid: as.uid, gid: as.gid } : {}),
+        ...wrap.opts,
       });
     } catch (e) { out = "could not start: " + String((e && e.message) || e); return finish(127); }
     const take = (d) => { if (out.length < MAX_OUTPUT) { out += d; if (out.length > MAX_OUTPUT) { out = out.slice(0, MAX_OUTPUT); cut = true; } } else cut = true; };

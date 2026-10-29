@@ -5,7 +5,16 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { sessionDir, prepareSandbox, writeSiteFiles, readSiteFiles, runCommand, sweepSessions, MAX_OUTPUT, SESSION_TTL_MS } from "../builder/agent-shell.mjs";
+import { sessionDir, prepareSandbox, writeSiteFiles, readSiteFiles, runCommand, sweepSessions, MAX_OUTPUT, SESSION_TTL_MS, netCut as canCut, _resetNetCut as resetCut } from "../builder/agent-shell.mjs";
+import { renderAs as renderAsTop } from "../builder/site-ssr.mjs";
+// A MACHINE THAT CANNOT CUT A COMMAND OFF FROM THE INTERNET RUNS NONE (the
+// wall fails closed), so the cases that need a command to RUN are skipped
+// there, saying so: GitHub's runners block both ways (no root, and Ubuntu's
+// AppArmor forbids unprivileged user namespaces). AS7 proves the refusal
+// everywhere; the build service's own reading is the live proof.
+const RUNS = canCut(renderAsTop());
+resetCut();
+const NEEDS = RUNS ? {} : { skip: "this machine cannot cut a command off from the internet, so no command runs here (AS7 covers the refusal)" };
 
 function template() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-shell-"));
@@ -38,7 +47,7 @@ test("AS1 a work folder: the template copied, packages linked, the site's files 
   assert.equal(back.css, "base css");
 });
 
-test("AS2 commands run in the work folder; an edit a command makes is read back", async () => {
+test("AS2 commands run in the work folder; an edit a command makes is read back", NEEDS, async () => {
   const t = template();
   const dir = sessionDir(t.runs, "b".repeat(24));
   prepareSandbox(dir, { app: t.app, routesBase: t.base });
@@ -54,7 +63,7 @@ test("AS2 commands run in the work folder; an edit a command makes is read back"
   assert.equal(bad.code, 3);
 });
 
-test("AS3 no secret of ours reaches a command; the time limit and the output cut hold", async () => {
+test("AS3 no secret of ours reaches a command; the time limit and the output cut hold", NEEDS, async () => {
   const t = template();
   const dir = sessionDir(t.runs, "c".repeat(24));
   prepareSandbox(dir, { app: t.app, routesBase: t.base });
@@ -86,7 +95,7 @@ test("AS4 old work folders are swept; a folder that is not one is left alone", (
 });
 
 import { renderAs } from "../builder/site-ssr.mjs";
-test("AS5 as the unprivileged user: not root, and the image's own files cannot be changed", { skip: !renderAs() && "needs root and a `node` user (the container has both)" }, async () => {
+test("AS5 as the unprivileged user: not root, and the image's own files cannot be changed", { skip: (!renderAs() && "needs root and a `node` user (the container has both)") || (!RUNS && NEEDS.skip) }, async () => {
   const t = template();
   const as = renderAs();
   const dir = sessionDir(t.runs, "f".repeat(24));
@@ -107,8 +116,8 @@ test("AS5 as the unprivileged user: not root, and the image's own files cannot b
 });
 
 import http from "node:http";
-import { netCut, _resetNetCut, NO_NET_MSG } from "../builder/agent-shell.mjs";
-test("AS6 no internet: a command cannot reach an address outside, even one on this machine's own network; ordinary commands still run", async () => {
+import { netCut, _resetNetCut, NO_NET_MSG, netWrap } from "../builder/agent-shell.mjs";
+test("AS6 no internet: a command cannot reach an address outside, even one on this machine's own network; ordinary commands still run", NEEDS, async () => {
   const t = template();
   const dir = sessionDir(t.runs, "9".repeat(24));
   prepareSandbox(dir, { app: t.app, routesBase: t.base });
@@ -145,7 +154,7 @@ test("AS7 a container that cannot cut the internet off runs no command at all", 
 });
 
 import { netProbe } from "../builder/agent-shell.mjs";
-test("AS8 the live probe: a real command tries an outside address and a name lookup; blocked only when both are", async () => {
+test("AS8 the live probe: a real command tries an outside address and a name lookup; blocked only when both are", NEEDS, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-netprobe-"));
   const real = await netProbe(dir);
   assert.equal(real.blocked, true, real.output);
@@ -168,4 +177,37 @@ test("AS9 the free build-health press carries the container's own reading", () =
   assert.match(probe, /const cut = netCut\(as\);/);
   assert.match(probe, /probe = await netProbe\(d, \{ as \}\)/);
   assert.match(probe, /send\(res, 200, \{ ok: true, netCut: cut, asUser: !!as, blocked, probe \}\)/);
+});
+
+test("AS10 the second way: when the first is blocked and this is root, the network is cut as root and the command dropped to the user", () => {
+  _resetNetCut();
+  try {
+    const tried = [];
+    const as = { uid: 1234, gid: 1234 };
+    const mode = netCut(as, { root: true, check: (w, m) => { tried.push(m); return { status: m === "userns" ? 1 : 0 }; } });
+    assert.equal(mode, "root");
+    assert.deepEqual(tried, ["userns", "root"]);
+    assert.deepEqual(netWrap("root", as, ["/bin/sh", "-c", "x"]).argv, ["unshare", "--net", "setpriv", "--reuid=1234", "--regid=1234", "--clear-groups", "--", "/bin/sh", "-c", "x"]);
+    assert.deepEqual(netWrap("root", as, ["x"]).opts, {}, "root starts it, setpriv drops it");
+    assert.deepEqual(netWrap("userns", as, ["x"]).opts, { uid: 1234, gid: 1234 });
+    assert.equal(netWrap("root", null, ["x"]), null, "never as root with no user to drop to");
+    _resetNetCut();
+    assert.equal(netCut(as, { root: false, check: (w, m) => ({ status: m === "userns" ? 1 : 0 }) }), false, "not root: the second way is not tried");
+    _resetNetCut();
+    assert.equal(netCut(null, { root: true, check: () => ({ status: 1 }) }), false, "no user to drop to: no second way");
+  } finally { _resetNetCut(); }
+});
+
+test("AS11 the second way for real (root and a `node` user): no internet, the user's own files, the image's refused", { skip: !(renderAs() && process.getuid && process.getuid() === 0) && "needs root and a `node` user (the container has both)" }, async () => {
+  const t = template();
+  const as = renderAs();
+  const dir = sessionDir(t.runs, "7".repeat(24));
+  fs.chmodSync(t.root, 0o755);
+  prepareSandbox(dir, { app: t.app, routesBase: t.base, owner: as });
+  const forced = () => "root";
+  const r = await runCommand(dir, "touch src/by-root-way; node -e \"require('net').connect(80,'1.1.1.1').on('error',e=>console.log('BLOCKED',e.code)).on('connect',()=>console.log('REACHED'))\"; echo y > " + JSON.stringify(path.join(t.app, "package.json")) + " || echo DENIED", { as, cut: forced });
+  assert.match(r.output, /BLOCKED/, r.output);
+  assert.doesNotMatch(r.output, /REACHED/);
+  assert.match(r.output, /DENIED/);
+  assert.equal(fs.statSync(path.join(dir, "src", "by-root-way")).uid, as.uid);
 });

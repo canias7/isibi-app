@@ -350,3 +350,34 @@ The Claude Code way: the agent types shell commands, not only our tools.
     each not proof.
   - AS9: the press carries the container's reading.
   - The eight test files that read build-health stay green (138/138).
+
+## Before the merge: unit CI was red, and why (2026-10-29)
+
+- **Unit CI** on `c74f5bf9c` and `d781d8cf6` (runs 40800017622 and
+  40801011715): `13040 / 12964 / 4 / 72`. The four failures were the command
+  tests. GitHub's runners are not root, and Ubuntu's AppArmor setting forbids
+  unprivileged user namespaces, so the no-internet wrapper could not start.
+  The wall failed closed and ran no command, as built, and the tests that
+  need a command to run failed. The run before it (`b2000b2df`, no wrapper)
+  was green.
+- **What it showed**: some kernels forbid the first way, and Cloudflare's
+  might.
+- **A second way** (`netWrap`, `netCut` now answers which way works):
+  - when this process is root (the build service is), `unshare --net` as
+    root, then `setpriv --reuid --regid --clear-groups` drops to the
+    unprivileged user before the command starts;
+  - tried after the first, once per container;
+  - neither works → no command runs.
+- **Measured here**, the second way for real (with a temporary `node` user,
+  then removed): blocked from 1.1.1.1, the template's file refused, and the
+  command's file owned by the user.
+- **The tests**: the ones that need a command to run are skipped, saying why,
+  on a machine that cannot cut a command off (GitHub's). AS7 (the refusal)
+  and AS10 (the choice between the two ways) run everywhere. AS11 runs the
+  second way for real. Here: 11 of 11 with a `node` user, 9 pass and 2
+  skipped without.
+- **Sweep**: 5 of 5 killed (the second way not tried, `--clear-groups`,
+  `--net`, root mode with no user, a failed check read as working). The
+  control survived.
+- **The live reading** (`agentNet.netCut`) now names the way: `"userns"`,
+  `"root"`, or `false`.
