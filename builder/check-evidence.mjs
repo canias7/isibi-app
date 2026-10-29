@@ -104,7 +104,7 @@ function browserOf(r) {
  * drops), the version it activated, whether activation answered ok, and how
  * many of the change's style rules were checked. Never throws.
  */
-export function checksOf({ render = null, version = "", published = false, cssChecked = 0, draft = false, revision = 0, preview = null, typeErrors = "", server = null } = {}) {
+export function checksOf({ render = null, version = "", published = false, cssChecked = 0, draft = false, revision = 0, preview = null, typeErrors = "", server = null, looked = null } = {}) {
   const css = Number.isInteger(cssChecked) && cssChecked > 0 ? cssChecked : 0;
   const saved = draft === true && published !== true;
   const types = typesOf(typeErrors);
@@ -117,6 +117,9 @@ export function checksOf({ render = null, version = "", published = false, cssCh
     // THE SITE'S OWN SERVER CODE (2026-10-28): `serverEvidence`, said as facts.
     ...(readServer(server) ? { server: readServer(server) } : {}),
     browser: browserOf(render),
+    // THE PAGES THE BUILDER LOOKED AT (2026-10-29): the site agent saw their
+    // screenshots, so the reply says so instead of "nobody looked".
+    ...(lookedOf(looked) ? { looked: lookedOf(looked) } : {}),
     ...(css ? { css } : {}),
     published: published === true,
     // SAVED AS THE SITE'S DRAFT (draft-first, 2026-10-15): not published, by
@@ -132,6 +135,13 @@ export function checksOf({ render = null, version = "", published = false, cssCh
 }
 
 const posInt = (n) => Number.isInteger(n) && n > 0;
+const MAX_LOOKED = 12;
+/** The routes the builder looked at, read strictly; null when none. */
+function lookedOf(v) {
+  if (!Array.isArray(v)) return null;
+  const out = [...new Set(v.filter((r) => typeof r === "string" && ROUTE.test(r)))].slice(0, MAX_LOOKED);
+  return out.length ? out : null;
+}
 /** Server evidence as `serverEvidence` makes it, read strictly; null otherwise. */
 export function readServer(v) {
   if (!plain(v) || !Array.isArray(v.functions) || !Array.isArray(v.keys) || !Array.isArray(v.missing) || !Array.isArray(v.refused)) return null;
@@ -170,6 +180,7 @@ export function readChecks(v) {
   } else return null;
   if (v.types !== undefined && !(plain(v.types) && v.types.ok === false && Array.isArray(v.types.files) && v.types.files.length <= MAX_TYPE_FILES && v.types.files.every((f) => typeof f === "string" && TYPE_FILE.test(f)))) return null;
   if (v.server !== undefined && !readServer(v.server)) return null;
+  if (v.looked !== undefined && !(Array.isArray(v.looked) && v.looked.length && v.looked.length <= MAX_LOOKED && v.looked.every((r) => typeof r === "string" && ROUTE.test(r)))) return null;
   if (v.css !== undefined && !posInt(v.css)) return null;
   if (v.draft !== undefined && !(v.draft === true && v.published === false)) return null;
   if (v.revision !== undefined && !(v.draft === true && posInt(v.revision))) return null;
@@ -228,8 +239,8 @@ export function checkFacts(checks, { scope = "", nth = 0 } = {}) {
   const at = scope ? "For " + scope + (which ? " (its " + which + ")" : "") + ": " : which ? "For its " + which + ": " : "";
   const out = [];
   const add = (text) => out.push({ kind: "check", text: at + text });
-  add(c.types ? typesSaid(c.types) : COMPILED_SAID);
-  add(browserSaid(c.browser));
+  add(c.types ? typesSaid(c.types) : c.looked ? COMPILED_LOOKED_SAID : COMPILED_SAID);
+  add(c.looked ? lookedSaid(browserSaid(c.browser), c.looked) : browserSaid(c.browser));
   for (const f of serverFacts(c.server)) add(f.text);
   if (c.css) add(cssSaid(c.css));
   add(c.published
@@ -251,6 +262,12 @@ export function draftSaid(c) {
 export function typesSaid(t) {
   const where = t.files.length === 1 ? "one part of the code (" + t.files[0] + ")" : t.files.length ? t.files.length + " parts of the code (" + t.files.join(", ") + ")" : "part of the code";
   return "The site was built, but the type check found a mistake in " + where + ". The builder still shipped it; the browser check below says whether any page showed a problem.";
+}
+export const COMPILED_LOOKED_SAID = "The site's code compiled without errors.";
+/** The browser check's sentence, and the pages the builder looked at itself in place of "nobody looked". */
+export function lookedSaid(said, looked) {
+  const pages = looked.length === 1 ? "the " + looked[0] + " page" : looked.length + " pages (" + looked.join(", ") + ")";
+  return said.replace(/ It is automated: nobody looked at the design\.$/, " It is automated.") + " The builder also looked at screenshots of " + pages + " itself before finishing.";
 }
 export const COMPILED_SAID = "The site's code compiled without errors. Compiling checks that the code fits together; it is not a look at any page.";
 export const cssSaid = (n) => (n === 1 ? "The one style rule" : "Each of the " + n + " style rules") + " this change wrote was checked to match something on the page.";

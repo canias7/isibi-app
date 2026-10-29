@@ -8056,8 +8056,8 @@ export function buildChecks(pages) {
   // A BUILD SAVED AS A DRAFT IS NOT PUBLISHED (2026-10-16): said as its
   // draft, with its revision and its preview as far as they are known.
   const d = pages.draft && typeof pages.draft === "object" ? pages.draft : null;
-  if (d) return checksOf({ render: pages.render, version: typeof pages.version === "string" ? pages.version : "", published: false, draft: true, revision: Number(d.revision) || 0, preview: d.previewUploaded === true ? "ready" : d.previewPending === true ? "pending" : null , typeErrors: pages.typeErrors, server: pages.server});
-  return checksOf({ render: pages.render, version: typeof pages.version === "string" ? pages.version : "", published: true, typeErrors: pages.typeErrors, server: pages.server });
+  if (d) return checksOf({ render: pages.render, version: typeof pages.version === "string" ? pages.version : "", published: false, draft: true, revision: Number(d.revision) || 0, preview: d.previewUploaded === true ? "ready" : d.previewPending === true ? "pending" : null , typeErrors: pages.typeErrors, server: pages.server, looked: pages.looked });
+  return checksOf({ render: pages.render, version: typeof pages.version === "string" ? pages.version : "", published: true, typeErrors: pages.typeErrors, server: pages.server, looked: pages.looked });
 }
 
 function inlineFailure(pages, { cost = 0, short = false } = {}) {
@@ -17308,7 +17308,8 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   }
   const msg = [ag.summary || "The change was made.", ...rowFacts].join(" ");
   return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg,
-    ...(out ? { files: out.files, render: out.render, renderNote: out.renderNote, checks: out.checks, draft: out.draft } : {}),
+    // THE PAGES THE AGENT LOOKED AT (2026-10-29), so the reply says it looked.
+    ...(out ? { files: out.files, render: out.render, renderNote: out.renderNote, checks: out.checks && ag.looked.length ? { ...out.checks, looked: ag.looked.slice(0, 12) } : out.checks, draft: out.draft } : {}),
     cost: took + (out ? Number(out.langCharged) || 0 : 0), agent: steps } };
 }
 

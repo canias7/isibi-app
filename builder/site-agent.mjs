@@ -284,6 +284,19 @@ export function checkNotes(r) {
 }
 const mustFix = (r) => !!(r && r.render && Array.isArray(r.render.findings) && r.render.findings.some((f) => f && MUST_FIX.includes(f.kind)));
 
+// ── WHY A BUILD FAILED, AS A KIND ───────────────────────────────────────────
+/** One of a fixed set of kinds for a failed build, read from what it answered; never its text. */
+export const BUILD_FAIL_KINDS = Object.freeze(["timeout", "types", "missing", "serverTest", "crash", "other"]);
+export function buildFailKind(r) {
+  const e = String((r && r.error) || "");
+  if (r && r.timedOut === true || /timed out|time limit|deadline/i.test(e)) return "timeout";
+  if (/error TS\d+/.test(e)) return "types";
+  if (/Could not resolve|Cannot find module|failed to resolve import|ENOENT|not found/i.test(e)) return "missing";
+  if (/server (code|test)|failed its test/i.test(e)) return "serverTest";
+  if (/SyntaxError|Unexpected token|Transform failed|Parse error|ReferenceError|TypeError/i.test(e)) return "crash";
+  return "other";
+}
+
 // ── WHAT A ROUND DID, AS NUMBERS ─────────────────────────────────────────────
 /** Each tool's uses in one round, as counts: the build trace keeps numbers only. */
 const TOOL_COUNT_KEYS = { write_file: "writes", read_files: "reads", delete_file: "deletes", change_rows: "rowChanges", read_table: "tableReads", run: "commands", look: "looks", build: "builds", finish: "finish" };
@@ -394,6 +407,9 @@ async function runTool(use, st, deps) {
       const notes = r && r.ok === true ? checkNotes(r) : "";
       if (r && r.ok === true && !tests.length) return { text: "The build passed." + notes };
       if (r && r.ok === true) return { text: "The build passed, but server code failed its test run: " + tests.map((t) => t.name + ": " + t.error).join("; ") + notes };
+      // WHY IT FAILED, AS A KIND (2026-10-29): the trace keeps numbers only,
+      // so the reason is kept as which kind it was, never its text.
+      try { st.log({ event: "build-fail", [buildFailKind(r)]: 1 }); } catch { /* the record never costs the build */ }
       return { text: "The build failed:\n" + String((r && r.error) || "no reason given").slice(0, 6000) };
     }
     case "run": {
@@ -420,6 +436,7 @@ async function runTool(use, st, deps) {
       const shots = (Array.isArray(r.shots) ? r.shots : []).filter((x) => x && x.route === route && typeof x.png === "string" && x.png).slice(0, MAX_SHOTS);
       if (!shots.length) return { error: "no screenshot of " + route + " came back (is that a page of this site?)" };
       st.mustFix = mustFix(r);
+      st.looked.add(route);
       return { text: "Screenshots of " + route + " follow: " + shots.map((x) => x.viewport + " width").join(", ") + "." + checkNotes(r), images: shots.map((x) => ({ label: route + " at " + x.viewport + " width", png: x.png })) };
     }
     case "finish": {
@@ -495,7 +512,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     ? spec.tables.filter((t) => t && typeof t.name === "string" && Array.isArray(t.columns))
       .map((t) => ({ name: t.name, columns: t.columns.map((c) => (c && typeof c.name === "string" ? c.name : typeof c === "string" ? c : "")).filter(Boolean) }))
     : [];
-  const st = { ws, tables, rows: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "" };
+  const st = { ws, tables, rows: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log };
   const shown = headStart({ pages, parts, targets, picked });
   const system = [{ type: "text", text: agentSystem(spec, kind, { ownParts }), cache_control: { type: "ephemeral" } }];
   // THE TOOLS OFFERED ARE THE TOOLS WIRED (2026-10-29, the second live build:
@@ -568,6 +585,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     css: ws.css(), cssChanged: ws.cssChanged(),
     changed: ws.changed(), removed: ws.removed(),
     rows: st.rows,
+    looked: [...st.looked],
     summary: st.summary,
     lastBuild: st.lastBuild,
     usage, credits, rounds, builds: st.builds,
@@ -636,6 +654,6 @@ export function asWriterAnswer(r, model) {
       notes: r.summary || "",
     },
     usage,
-    agent: { rounds: r.rounds, builds: r.builds },
+    agent: { rounds: r.rounds, builds: r.builds, looked: Array.isArray(r.looked) ? r.looked : [] },
   };
 }

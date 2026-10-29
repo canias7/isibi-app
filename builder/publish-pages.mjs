@@ -2113,6 +2113,9 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
   // the reply writer (`checksOf({ server })`), never a sentence of ours.
   out.server = serverEvidence({ pages, parts: sitePartsForBuild, tests: built && built.serverTests, refused: vetted.failed || [], leaking: vetted.leaking || [],
     repaired: (out.serverRepaired || []).concat(serverRepairedNow), dropped: serverDropped });
+  // THE PAGES THE SITE AGENT LOOKED AT (2026-10-29), for the reply: it saw
+  // their screenshots, so "nobody looked" is no longer said of them.
+  if (gen && gen.agent && Array.isArray(gen.agent.looked) && gen.agent.looked.length) out.looked = gen.agent.looked.slice(0, 12);
   if (built && built.ok && built.typeErrors) {
     const first = String(built.typeErrors).split("\n").find((l) => /error TS/.test(l)) || "";
     out.typeErrors = String(built.typeErrors).slice(0, 2000);

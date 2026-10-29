@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   runSiteAgent, compact, headStart, firstMessage, makeWorkspace, writableKey,
-  AGENT_TOOLS, agentSystem, COMPACT_AT, COMPACT_MIN_SAVE, toolCounts, toolsFor, checkNotes,
+  AGENT_TOOLS, agentSystem, COMPACT_AT, COMPACT_MIN_SAVE, toolCounts, toolsFor, checkNotes, buildFailKind,
 } from "../builder/site-agent.mjs";
 
 const PAGES = [
@@ -591,4 +591,31 @@ test("SA38 an edit's build and look carry the check's findings to the agent; the
   assert.match(R, /const NAV_MS = 6000;/, "the per-page limit stays");
   assert.doesNotMatch(R, /TOTAL_MS/);
   assert.doesNotMatch(R, /cut = true/);
+});
+
+// ── 2026-10-29: why a build failed (as a kind) and which pages the agent looked at ──
+test("SA39 a failed build is logged as its kind, never its text; the kinds are a fixed set", async () => {
+  assert.equal(buildFailKind({ error: "src/routes/index.tsx(3,1): error TS2322: x" }), "types");
+  assert.equal(buildFailKind({ error: "Could not resolve './-parts/hero'" }), "missing");
+  assert.equal(buildFailKind({ error: "anything", timedOut: true }), "timeout");
+  assert.equal(buildFailKind({ error: "server code failed its test run" }), "serverTest");
+  assert.equal(buildFailKind({ error: "SyntaxError: Unexpected token <" }), "crash");
+  assert.equal(buildFailKind({ error: "who knows" }), "other");
+  assert.equal(buildFailKind(null), "other");
+  const events = [];
+  const s = scripted([answer(use("build", {})), answer(use("finish", { summary: "s" }))]);
+  await runSiteAgent({ send: s.send, build: async () => ({ ok: false, error: "secret-ish text error TS2322" }), log: (e) => events.push(e) }, { request: "r", pages: PAGES });
+  const f = events.find((e) => e.event === "build-fail");
+  assert.deepEqual(f, { event: "build-fail", types: 1 });
+  assert.doesNotMatch(JSON.stringify(events), /secret-ish/, "the error's text is never logged");
+});
+
+test("SA40 the pages the agent looked at come back, once each, and travel on the writer's answer", async () => {
+  const PNG = "iVBORw0KGgo";
+  const look = async (w, route) => ({ ok: true, shots: [{ route, viewport: "desktop", png: PNG }] });
+  const s = scripted([answer(use("look", { page: "/" }), use("look", { page: "/visit" })), answer(use("look", { page: "/" })), answer(use("finish", { summary: "s" }))]);
+  const r = await runSiteAgent({ send: s.send, build: okBuild, look }, { request: "r", pages: PAGES });
+  assert.deepEqual(r.looked, ["/", "/visit"]);
+  const r2 = { ...r, ok: true, pages: PAGES, parts: [] };
+  assert.deepEqual(asWriterAnswer(r2, "m").agent.looked, ["/", "/visit"]);
 });

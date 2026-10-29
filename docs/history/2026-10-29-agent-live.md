@@ -120,3 +120,15 @@ published), about 17.5 min. Balance 38 → 138 (owner-approved top-up, ledger
 - Still open: the ten one-command rounds (about 18 credits); the reply says
   "That is not a look at any page" although the agent looked; a failed
   build's reason is not kept in the record.
+
+## After the third build: the reply knows the agent looked; a failed build's kind is kept
+1. The reply said "it is not a look at any page" and "nobody looked at the
+   design" though the agent had looked at all four pages. The pages it looked
+   at now travel to the checks (`looked`, build and edit), and the reply says
+   "The builder also looked at screenshots of 4 pages (…) itself before
+   finishing"; without them the sentences are as before.
+2. A failed build's reason was lost (the trace keeps numbers only). Its kind
+   is now logged as a count: `timeout`, `types`, `missing`, `serverTest`,
+   `crash` or `other` (`agent:build-fail`), never its text.
+Tests SA39, SA40, CL1–CL4; sweep 7 of 7 killed, the comment control survived;
+1,608 related tests pass.
