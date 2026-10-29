@@ -2183,3 +2183,18 @@ SiteBuildContainer `a1f126d49bbe9fe8` → `98e49766f0f461b8` (256 inputs),
 AppBuildContainer `65022ce71e3d7274` unchanged. Run 40812828450 green,
 03:33–03:37 UTC; the log's image pair is as predicted. Deployed, not
 runtime-confirmed.
+
+## Deploy 2288 — 2026-10-29 05:41 UTC (`e3348172b`)
+
+The site agent sees what the checks find (look wired in first builds, the
+browser check's findings and type errors in its build/look answers, a must-fix
+finding holds the first finish once) and the browser check without a
+whole-site time limit, on the owner's "merge and deploy". A fast-forward from
+`0299f6126`; required CI green (unit tests run 40823672393 on `e3348172b`, site
+build run 40822496447 on `10f92f8e3`, the code; the later commit is tests
+only); rollback verified; nothing in flight. Image predicted:
+SiteBuildContainer `98e49766f0f461b8` → `4f44a4a20b33575c` (256 inputs),
+AppBuildContainer unchanged. Run 40824851436 green, 05:41–05:44 UTC.
+Runtime: the session's own authenticated `build-health` read at 05:49 answered
+`e3348172b…` and image `4f44a4a20b33575c`, `agentNet` blocked; a canary press
+is still the owner's.
