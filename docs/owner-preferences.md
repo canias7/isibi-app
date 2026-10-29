@@ -1477,3 +1477,8 @@ When a model's answer fails a check, retry once with the reason, on the **same m
 
 - **The model writes everything, server code included** (owner, 2026-10-28): *"yeah the model should be able to write everything"*. Not only pages, components and CSS: the code that runs on the site's own Worker too (a chatbot with the owner's AI key, PayPal or any other payment provider, texts, any outside service). The platform builds only the rails the model's code runs on: key storage the code can use but never read or print, per-site limits, and a check before publishing that no key reaches the browser. Recorded; not yet built.
 - **One big agent for everything, cheap by construction** (owner, 2026-10-28): *"lets just have one big full agent"* rather than splitting small edits from big ones. Built with **1** (a head start: the site map and the likely files in the first message), **3** (clear the desk: finished files become notes, never lost) and **4** (the same opening every round, for the cache price). **2** (plan first, write once) is *"optional, we can talk about it later"*.
+
+- **Replies stay model-written (restated 2026-10-29).** "remember its gotta be
+  model written replies pls": every customer reply is written by the model;
+  our code only hands it facts (such as the check facts in
+  `builder/check-evidence.mjs`), never a sentence shown as it is.
