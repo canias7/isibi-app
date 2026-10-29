@@ -132,3 +132,18 @@ published), about 17.5 min. Balance 38 → 138 (owner-approved top-up, ledger
    `crash` or `other` (`agent:build-fail`), never its text.
 Tests SA39, SA40, CL1–CL4; sweep 7 of 7 killed, the comment control survived;
 1,608 related tests pass.
+
+## The look-around rounds (fixed offline, same day)
+The third build spent rounds 1–10 on one command each, learning the project
+(about 18 credits). Now:
+1. **A map at the door**: a new site's first message carries THE PROJECT —
+   where pages and shared parts go, that a first build writes its own parts
+   (no kit to look through), that the rules already say how data is read, and
+   the site's tables with their columns — and says to start writing.
+2. **One command per look**: the rules ask for everything to be looked at in
+   ONE command (joined with `;`), never one look per round.
+3. **What each command did, as kinds**: each round logs `cmdList`, `cmdRead`,
+   `cmdSearch`, `cmdCheck`, `cmdEdit`, `cmdOther` counts; the command's text is
+   never kept.
+Tests SA41, SA42; sweep 6 of 6 killed, the comment control survived. The
+saving is not measured until a live build.

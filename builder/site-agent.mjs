@@ -127,6 +127,7 @@ You change an existing website for its owner, with tools. Work like an engineer:
 - Make every change the owner asked for, and nothing else. Keep everything else on every page exactly as it is.
 - write_file takes a whole file. To change one line, write the file with that line changed and every other line as it was.
 - You have a command line (run): use it like an engineer would — grep to find where something is written, cat to read, npx tsc --noEmit to check types, sed or a script for a mechanical change across files.
+- Every command is a round, and every round costs the owner money: put everything you want to look at in ONE command (join them with ;), never one look per round.
 - Plan first: work out every change, then write all the files, then build once. Fix what the build reports and build again.
 - Every round costs the owner money, so do as much as you can in each one: call several tools in the same answer. Write every file you already know in ONE answer (several write_file calls side by side), read every file you need in one read_files call, and never spend a round on one small file when more are ready.
 - When the look of a page changed, look at it once the build passes, and fix anything that looks wrong.
@@ -197,7 +198,27 @@ export function headStart({ pages = [], parts = [], targets = [], picked = null 
 const fileBlock = (k, src) => "=== " + k + " ===\n" + src;
 
 /** The first message: the request, the map, the index of every file, the head-start files. */
-export function firstMessage({ request, map = null, ws, shown = [], history = "" }) {
+/**
+ * THE MAP AT THE DOOR (2026-10-29): what a new site's agent spent ten rounds
+ * finding out with one command each (the third live build): where files go,
+ * the site's tables and their columns, and that the rules already say how a
+ * page reads them. Only for a site with no files yet.
+ */
+export function projectOverview(tables = [], { ownParts = false } = {}) {
+  const t = (Array.isArray(tables) ? tables : []).filter((x) => x && typeof x.name === "string");
+  return [
+    "THE PROJECT (you do not need to look around to learn this)",
+    "- Pages: one file per page, by its address: \"index.tsx\" is /, \"classes.tsx\" is /classes. Write them with write_file.",
+    "- Shared parts (header, footer, a form…): \"-parts/<name>\", imported by a page as './-parts/<name>'.",
+    ownParts
+      ? "- This site writes its own parts: there is no kit to use, so there is nothing under @/components to look through."
+      : "- The ready-made kit lives under @/components (ui, charts): use it as the rules above say; do not list or read its files.",
+    "- The stylesheet is \"styles.css\". Data is read and written with useRows / useCreateRow from \"@/lib/rows\", as the rules above say; do not open @/lib.",
+    t.length ? "- The site's tables, already created: " + t.map((x) => x.name + " (" + (x.columns || []).join(", ") + ")").join("; ") + "." : "- The site has no tables.",
+    "Start writing. Use commands only for what this does not tell you.",
+  ].join("\n");
+}
+export function firstMessage({ request, map = null, ws, shown = [], history = "", tables = null, ownParts = false }) {
   const index = !ws.keys().length ? "(none yet — this is a new site; write every page and the site's header and footer)" : ws.keys().map((k) => "- " + k + " (" + ws.get(k).length + " chars)" + (shown.includes(k) ? " [below]" : "")).join("\n");
   const mapText = map ? siteSlice(map, "site", { budget: 8000 }) : "";
   return [
@@ -205,6 +226,7 @@ export function firstMessage({ request, map = null, ws, shown = [], history = ""
     "THE OWNER'S REQUEST\n" + String(request || ""),
     mapText,
     "EVERY FILE OF THE SITE\n" + index,
+    !ws.keys().length ? projectOverview(tables || [], { ownParts }) : "",
     shown.length ? "THE FILES MOST LIKELY NEEDED, AS THEY ARE NOW\n" + shown.map((k) => fileBlock(k, ws.get(k))).join("\n\n") : "",
   ].filter(Boolean).join("\n\n");
 }
@@ -305,8 +327,15 @@ export function toolCounts(uses) {
   for (const b of Array.isArray(uses) ? uses : []) {
     const k = b && Object.hasOwn(TOOL_COUNT_KEYS, b.name) ? TOOL_COUNT_KEYS[b.name] : "other";
     out[k] = (out[k] || 0) + 1;
+    if (b && b.name === "run") for (const kind of commandKinds(b.input && b.input.command)) out[kind] = (out[kind] || 0) + 1;
   }
   return out;
+}
+/** What a command line did, as kinds (one per part joined by ; && | ||): its text is never kept. */
+const COMMAND_KINDS = [["cmdList", /^(ls|find|tree|du)\b/], ["cmdRead", /^(cat|head|tail|less|wc|sed\s+-n)\b/], ["cmdSearch", /^(grep|rg|egrep|ag)\b/], ["cmdCheck", /^(npx\s+tsc|tsc|node|npm\s+(run|test))\b/], ["cmdEdit", /^(sed\s+-i|perl|mv|cp|rm|mkdir|touch|echo|printf|tee)\b/]];
+export function commandKinds(command) {
+  if (typeof command !== "string") return [];
+  return command.split(/;|&&|\|\||\|/).map((p) => p.trim()).filter(Boolean).map((p) => (COMMAND_KINDS.find(([, re]) => re.test(p)) || ["cmdOther"])[0]);
 }
 
 // ── WHAT A COMMAND CHANGED COMES BACK ────────────────────────────────────────
@@ -520,7 +549,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
   // "pages cannot be looked at here", and finished without ever seeing a page).
   // Fixed per caller, so the opening is still the same every round (rule 4).
   const tools = toolsFor(deps);
-  let messages = [{ role: "user", content: [{ type: "text", text: firstMessage({ request, map, ws, shown, history }), cache_control: { type: "ephemeral" } }] }];
+  let messages = [{ role: "user", content: [{ type: "text", text: firstMessage({ request, map, ws, shown, history, tables, ownParts }), cache_control: { type: "ephemeral" } }] }];
   const usage = [];
   const spent = () => usage.reduce((n, u) => n + pageCost(u), 0) / CREDIT_USD;
   let stopped = "";

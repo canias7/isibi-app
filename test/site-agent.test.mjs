@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   runSiteAgent, compact, headStart, firstMessage, makeWorkspace, writableKey,
-  AGENT_TOOLS, agentSystem, COMPACT_AT, COMPACT_MIN_SAVE, toolCounts, toolsFor, checkNotes, buildFailKind,
+  AGENT_TOOLS, agentSystem, COMPACT_AT, COMPACT_MIN_SAVE, toolCounts, toolsFor, checkNotes, buildFailKind, commandKinds, projectOverview,
 } from "../builder/site-agent.mjs";
 
 const PAGES = [
@@ -618,4 +618,35 @@ test("SA40 the pages the agent looked at come back, once each, and travel on the
   assert.deepEqual(r.looked, ["/", "/visit"]);
   const r2 = { ...r, ok: true, pages: PAGES, parts: [] };
   assert.deepEqual(asWriterAnswer(r2, "m").agent.looked, ["/", "/visit"]);
+});
+
+// ── 2026-10-29: the map at the door; looks batched; what each command did, as kinds ──
+test("SA41 a new site's first message carries the project map with its tables; a site with files does not", async () => {
+  const spec = { tables: [{ name: "classes", columns: [{ name: "title" }, { name: "day" }] }, { name: "enquiries", columns: ["name", "email"] }] };
+  const s1 = scripted([answer(use("finish", { summary: "s" }))]);
+  await runSiteAgent({ send: s1.send, build: okBuild }, { request: "r", pages: [], parts: [], spec, ownParts: true });
+  const first = s1.sent[0].messages[0].content[0].text;
+  assert.match(first, /THE PROJECT \(you do not need to look around to learn this\)/);
+  assert.match(first, /classes \(title, day\); enquiries \(name, email\)/);
+  assert.match(first, /writes its own parts: there is no kit/);
+  assert.doesNotMatch(first, /do not list or read its files/);
+  const s2 = scripted([answer(use("finish", { summary: "s" }))]);
+  await runSiteAgent({ send: s2.send, build: okBuild }, { request: "r", pages: PAGES, parts: PARTS, spec });
+  assert.doesNotMatch(s2.sent[0].messages[0].content[0].text, /THE PROJECT/);
+  assert.match(projectOverview([]), /The site has no tables\./);
+  assert.match(projectOverview([], { ownParts: false }), /ready-made kit lives under @\/components/);
+});
+
+test("SA42 the rules ask for one command per look; each command is logged by what it did, never its text", async () => {
+  assert.match(agentSystem(null, ""), /put everything you want to look at in ONE command/);
+  assert.deepEqual(commandKinds("ls src; cat a.tsx && grep -rn x src | wc -l; npx tsc --noEmit; sed -i s/a/b/ f; whoami"), ["cmdList", "cmdRead", "cmdSearch", "cmdRead", "cmdCheck", "cmdEdit", "cmdOther"]);
+  assert.deepEqual(commandKinds(null), []);
+  const events = [];
+  const s = scripted([answer(use("run", { command: "ls secret-dir; grep -rn hunter2 src" })), answer(use("finish", { summary: "s" }))]);
+  await runSiteAgent({ send: s.send, build: okBuild, run: async () => ({ ok: true, code: 0, output: "" }), log: (e) => events.push(e) }, { request: "r", pages: PAGES });
+  const r1 = events.find((e) => e.event === "round" && e.round === 1);
+  assert.equal(r1.commands, 1); assert.equal(r1.cmdList, 1); assert.equal(r1.cmdSearch, 1);
+  const numbers = Object.entries(r1).filter(([k]) => k !== "event" && k !== "tools");
+  assert.ok(numbers.every(([, v]) => typeof v === "number"), "the trace keeps these: numbers only");
+  assert.doesNotMatch(JSON.stringify(numbers), /hunter2|secret-dir/);
 });
