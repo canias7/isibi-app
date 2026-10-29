@@ -119,6 +119,24 @@ const SERVER_HOW = (() => {
   try { return String(SITE_PAGES_TOOL.input_schema.properties.server.description || ""); } catch { return ""; }
 })();
 
+// ── WORKERS BEST PRACTICES, ADAPTED (2026-10-29, the owner: "lets use the
+// workers best practices") ────────────────────────────────────────────────────
+// From Cloudflare's `workers-best-practices` skill (github.com/cloudflare/skills,
+// Apache License 2.0, © Cloudflare, Inc.), cut to what holds for a site's own
+// server code here and rewritten for its rails (site.fetch/key/sql/verify). The
+// deployment, configuration and logging parts are the platform's, not the
+// agent's, and are left out.
+const SERVER_PRACTICES = `
+
+WRITING SERVER CODE THAT HOLDS UP (adapted from Cloudflare's Workers best practices):
+- Await every outside call (site.fetch, site.sql) before you answer. There is no "later": work you do not await may never happen — an email unsent, a payment unrecorded.
+- Keep nothing about a visitor in a variable outside the function: the same code serves the next visitor, who would see it. Everything about this request lives inside the call.
+- Codes, tokens and references a visitor could guess come from crypto.randomUUID() or crypto.getRandomValues(), never Math.random().
+- A message from an outside service (Stripe's "paid", a form service) is trusted only after site.verify("KEY_NAME", signedText, signature) answers true — it checks the sender's signature with the owner's key without the key reaching your code (Stripe signs "<t>.<raw body>" and sends v1 as hex). Never compare a secret or a signature with ===. Read the raw body once (await request.text()) and parse it after checking.
+- Do not hold a large or unbounded answer in memory, and keep each request's work small: the server has strict time and memory limits.
+- Catch what can fail and answer with a clear status and a short message; never send a visitor an error's details or anything from the owner's keys.
+- Never record something as paid, booked or sent until the outside service has confirmed it.`;
+
 const AGENT_RULES = `
 
 ━━━ YOU ARE THE SITE'S AGENT — THESE RULES WIN OVER ANYTHING ABOVE ━━━
@@ -136,7 +154,7 @@ You change an existing website for its owner, with tools. Work like an engineer:
 - If a change cannot be done, make the rest, and say in finish what was not done and why.
 
 SERVER CODE is a component named "-parts/server-<name>":
-` + SERVER_HOW;
+` + SERVER_HOW + SERVER_PRACTICES;
 
 /** The rules every round opens with, the same for every site of a kind (rule 4). */
 export function agentSystem(spec = null, kind = "", { ownParts = false } = {}) {

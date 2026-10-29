@@ -93,6 +93,27 @@ export function makeSite(env: FnEnv, slug: string, hosts: string[], fetcher: typ
     },
     /** Whether the owner has set a key, without its value. */
     hasKey(name: string): boolean { return Object.hasOwn(keys, String(name)); },
+    /**
+     * WHETHER A SIGNATURE IS GENUINE, without the key ever reaching this code
+     * (2026-10-29): an outside service (Stripe's "paid", a form service) signs
+     * what it sends with a secret the owner holds. HMAC of `payload` with the
+     * owner's key `name`, compared in constant time with `signature` (hex or
+     * base64). Answers only true or false.
+     */
+    async verify(name: string, payload: string, signature: string, { algo = "SHA-256", encoding = "hex" }: { algo?: "SHA-256" | "SHA-1" | "SHA-512"; encoding?: "hex" | "base64" } = {}): Promise<boolean> {
+      const secret = Object.hasOwn(keys, String(name)) ? keys[String(name)] : "";
+      if (!secret || typeof payload !== "string" || typeof signature !== "string" || !signature) return false;
+      const enc = new TextEncoder();
+      const k = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: algo }, false, ["sign"]);
+      const mac = new Uint8Array(await crypto.subtle.sign("HMAC", k, enc.encode(payload)));
+      const want = encoding === "base64" ? btoa(String.fromCharCode(...mac)) : Array.from(mac, (b) => b.toString(16).padStart(2, "0")).join("");
+      // Constant time, both sides hashed to one length first (no length leak).
+      const [a, b] = await Promise.all([crypto.subtle.digest("SHA-256", enc.encode(want)), crypto.subtle.digest("SHA-256", enc.encode(signature.trim()))]);
+      const x = new Uint8Array(a), y = new Uint8Array(b);
+      let diff = 0;
+      for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
+      return diff === 0;
+    },
     async fetch(url: string, init: RequestInit = {}): Promise<Response> {
       if (++calls > CALLS_PER_REQUEST) throw new Error("too many outside calls in one request");
       const blocked = blockedReason(url);

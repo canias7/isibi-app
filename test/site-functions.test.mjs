@@ -232,3 +232,29 @@ test("SF17 the router and the add-on step send 'the site should DO something' to
   assert.match(add, /Not for anything that DOES something or answers back/);
   assert.match(add, /WITH the site's own server code when it needs one/);
 });
+
+test("SF-verify site.verify checks an outside service's signature with the owner's key, never showing it; constant-time; false when the key is unset", async () => {
+  const { makeSite } = await loadTemplate("lib/site-functions.ts");
+  const { createHmac } = await import("node:crypto");
+  const secret = "whsec_test_123";
+  const site = makeSite({ OWNER_KEYS: JSON.stringify(["STRIPE_WEBHOOK_SECRET"]), STRIPE_WEBHOOK_SECRET: secret }, "s", []);
+  const signed = "1700000000.{\"id\":\"evt_1\"}";
+  const hex = createHmac("sha256", secret).update(signed).digest("hex");
+  assert.equal(await site.verify("STRIPE_WEBHOOK_SECRET", signed, hex), true);
+  assert.equal(await site.verify("STRIPE_WEBHOOK_SECRET", signed + "x", hex), false, "a changed body fails");
+  assert.equal(await site.verify("STRIPE_WEBHOOK_SECRET", signed, hex.slice(0, -1) + (hex.endsWith("0") ? "1" : "0")), false);
+  assert.equal(await site.verify("STRIPE_WEBHOOK_SECRET", signed, createHmac("sha256", secret).update(signed).digest("base64"), { encoding: "base64" }), true);
+  assert.equal(await site.verify("NOT_SET", signed, hex), false);
+  assert.equal(await site.verify("STRIPE_WEBHOOK_SECRET", signed, ""), false);
+});
+
+test("SF-practices the agent is told the Workers practices, credited, with site.verify", async () => {
+  const { agentSystem } = await import("../builder/site-agent.mjs");
+  const sys = agentSystem(null, "");
+  assert.match(sys, /adapted from Cloudflare's Workers best practices/);
+  assert.match(sys, /site\.verify\("KEY_NAME", signedText, signature\)/);
+  assert.match(sys, /never Math\.random\(\)/);
+  assert.match(sys, /Await every outside call/);
+  const src = readFileSync(new URL("../builder/site-agent.mjs", import.meta.url), "utf8");
+  assert.match(src, /Apache License 2\.0, © Cloudflare, Inc\./);
+});
