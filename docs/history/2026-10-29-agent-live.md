@@ -203,3 +203,20 @@ hold is logged with the must-fix kinds the last check found, as counts
 (`agent:held`, e.g. `contrast: 2`): a label in our build record, never a
 message to the customer, never the finding's text. Test SA47; sweep 2 of 2
 killed, the comment control survived.
+
+## The second parallel tests (19:59 UTC, after deploy 2290)
+Balance 63 → 163 (owner-approved top-up, ledger 868) → 86.
+- **Question** on `kiln-lane-2`: **answered** (the plain-words fix), four
+  pages described, nothing changed, 5 credits (ledger 869).
+- **Edit** on `kiln-lane-4`, "Add our opening hours to the contact page." (no
+  hours given): done, 3 rounds, 1 build, draft revision 2, 14 credits (872,
+  873). It took the hours the site already states and left out Sunday and
+  Monday "because the site does not state those hours" — no invention. The
+  session's recording browser crashed mid-run (three at once); the server's
+  job was unaffected.
+- **Build** `kiln-lane-5`: saved as a draft, 12.2 min, 18 rounds, **58 credits**
+  (2 + 11 + 45; the earlier builds 101, 68, 73, 90). The looking around took 4
+  rounds; two failed builds (`missing`, `other`); one look; one `shots-out`
+  and **no clearing at all**; the finish was not held. The reply names an
+  error written while the Enquire page loads, found by the browser check
+  after the agent had finished.
