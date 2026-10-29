@@ -3,6 +3,12 @@
 
 
 
+## 2026-10-29 — Commands have no internet now
+
+- Every command the agent types runs cut off from the internet. It can't reach websites, our own services, or even look up an address. Tested: blocked.
+- If a container can't cut the internet off, commands don't run at all, rather than running with it.
+- Still to check live: whether Cloudflare's containers allow it. If not, commands will be refused and I'll need another way.
+
 ## 2026-10-29 — The agent can type commands (Claude Code style)
 
 - New `run` tool: the agent types real Linux commands in a copy of the site's project, like `grep` to find text, `cat` to read, `npx tsc` to check, or `sed` to edit across files. Changes those commands make come back into its work.

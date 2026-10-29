@@ -12,13 +12,17 @@
 //     token or secret of ours is in it (build-keys.mjs keeps them out of this
 //     process's environment too, and a child of another user cannot read the
 //     job runner's memory);
+//   - has NO INTERNET (2026-10-29, the owner: "fix this"): it runs in a network
+//     of its own with nothing in it (`unshare --net`, inside a user namespace
+//     so no privilege is needed). A container that cannot do that runs no
+//     command at all — never one with the internet (`netCut`);
 //   - is stopped at its time limit, with its whole process group;
 //   - has its output cut at `MAX_OUTPUT` characters.
 // After each command the site's files are read back, so an edit a command
 // made (`sed -i`, a script) reaches the agent's workspace.
 import fs from "node:fs";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 
 export const RUN_TIMEOUT_MS = 90_000;
 export const MAX_OUTPUT = 30_000;
@@ -126,14 +130,31 @@ export function readSiteFiles(dir, { routesBase } = {}) {
   return { pages, parts, css };
 }
 
-/** Run one command in the work folder. Never throws; answers `{ code, output, timedOut }`. */
-export function runCommand(dir, command, { as = null, timeoutMs = RUN_TIMEOUT_MS, spawnFn = spawn } = {}) {
+/** The sandbox's no-internet wrapper: a command in a network namespace of its own. */
+export const NET_CUT = ["unshare", "--net", "--map-root-user"];
+export const NO_NET_MSG = "Commands are switched off here: this container cannot cut a command off from the internet, and none runs with it.";
+
+let netChecked = null;
+/**
+ * Can a command be cut off from the internet here, as this user? Asked once
+ * per process (the answer is the container's), by running the wrapper itself.
+ */
+export function netCut(as = null, { check = (a) => spawnSync(NET_CUT[0], [...NET_CUT.slice(1), "true"], { timeout: 10000, ...(a ? { uid: a.uid, gid: a.gid } : {}) }) } = {}) {
+  if (netChecked !== null) return netChecked;
+  try { const r = check(as); netChecked = !!(r && r.status === 0); } catch { netChecked = false; }
+  return netChecked;
+}
+export function _resetNetCut() { netChecked = null; }
+
+/** Run one command in the work folder, with no internet. Never throws; answers `{ code, output, timedOut }`. */
+export function runCommand(dir, command, { as = null, timeoutMs = RUN_TIMEOUT_MS, spawnFn = spawn, cut = netCut } = {}) {
+  if (!cut(as)) return Promise.resolve({ code: 126, output: NO_NET_MSG, timedOut: false, refused: "no-net-cut" });
   return new Promise((resolve) => {
     let out = "", cut = false, done = false, timedOut = false;
     const finish = (code) => { if (!done) { done = true; resolve({ code, output: out + (cut ? "\n… (output cut at " + MAX_OUTPUT + " characters)" : ""), timedOut }); } };
     let child;
     try {
-      child = spawnFn("/bin/sh", ["-c", String(command)], {
+      child = spawnFn(NET_CUT[0], [...NET_CUT.slice(1), "/bin/sh", "-c", String(command)], {
         cwd: dir, detached: true, stdio: ["ignore", "pipe", "pipe"],
         env: { PATH: "/usr/local/bin:/usr/bin:/bin:" + path.join(dir, "node_modules", ".bin"), HOME: dir, LANG: "C.UTF-8", CI: "1", NO_COLOR: "1" },
         ...(as ? { uid: as.uid, gid: as.gid } : {}),

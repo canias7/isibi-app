@@ -302,3 +302,31 @@ The Claude Code way: the agent types shell commands, not only our tools.
 - **Full suite** (`npm test`): 13,035 tests, 5 failing before the rename and
   the commit. Two were this change's: the image-input check, which needs the
   new file committed, and the field name. The other three are the known ones.
+
+## Then: no internet for commands (owner, 2026-10-29: "fix this")
+
+- **Each command runs in a network of its own with nothing in it**:
+  `unshare --net --map-root-user` (a user namespace, so no privilege is
+  needed), started as the unprivileged user.
+  - It blocks other machines, this machine's own services and name lookups.
+  - Inside, the command sees itself as user 0. On the machine it is the
+    unprivileged user, which is what owns the files it makes and is refused
+    on the image's files.
+- **It fails closed** (`netCut`): the wrapper is tried once per container,
+  as that user. If it cannot work, no command runs at all: the agent is
+  answered "commands are switched off here …" (code 126), never a command
+  with the internet.
+- **Measured here** (root, then a temporary `node` user, removed afterwards):
+  - outside, a server on this machine answers;
+  - inside: `BLOCKED ENETUNREACH`, no DNS (`NO-DNS`), and
+    `/etc/agent-test: Permission denied`.
+- **Tests** (all 7 pass with the `node` user; without one AS5 is skipped):
+  - AS6: a server on this machine reached from outside and not from a
+    command, no DNS, and ordinary commands still run;
+  - AS7: a container that cannot cut it runs nothing;
+  - AS5 now checks the owner of a file the command made.
+- **Sweep**: 5 of 5 killed (the wrapper, `--net`, the refusal, the check's
+  answer, its failure read as no). The comment-only control survived.
+- **Still to see live**: whether Cloudflare's containers allow a user
+  namespace. If they do not, commands are refused (closed), and another way
+  is needed. That is the first thing the live run reads.

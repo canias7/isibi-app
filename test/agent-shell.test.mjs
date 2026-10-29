@@ -93,12 +93,53 @@ test("AS5 as the unprivileged user: not root, and the image's own files cannot b
   fs.chmodSync(t.root, 0o755);
   prepareSandbox(dir, { app: t.app, routesBase: t.base, owner: as });
   writeSiteFiles(dir, { pages: [{ path: "index.tsx", source: "x" }] }, { routesBase: t.base, owner: as });
-  const who = await runCommand(dir, "id -u", { as });
-  assert.equal(who.output.trim(), String(as.uid));
-  assert.notEqual(who.output.trim(), "0");
+  // Inside its own namespace a command SEES itself as 0 (`--map-root-user`);
+  // on the machine it is the unprivileged user, which is what owns its files.
+  const made = await runCommand(dir, "touch src/made-by-command", { as });
+  assert.equal(made.code, 0, made.output);
+  assert.equal(fs.statSync(path.join(dir, "src", "made-by-command")).uid, as.uid);
+  assert.notEqual(as.uid, 0);
   const w = await runCommand(dir, "echo y > src/routes/index.tsx && echo ok", { as });
   assert.match(w.output, /ok/, "its own work folder is writable: " + w.output);
   const root = await runCommand(dir, "echo hacked > " + JSON.stringify(path.join(t.app, "package.json")) + " ; echo done", { as });
   assert.match(root.output, /Permission denied/);
   assert.equal(fs.readFileSync(path.join(t.app, "package.json"), "utf8"), "{}", "the template is untouched");
+});
+
+import http from "node:http";
+import { netCut, _resetNetCut, NO_NET_MSG } from "../builder/agent-shell.mjs";
+test("AS6 no internet: a command cannot reach an address outside, even one on this machine's own network; ordinary commands still run", async () => {
+  const t = template();
+  const dir = sessionDir(t.runs, "9".repeat(24));
+  prepareSandbox(dir, { app: t.app, routesBase: t.base });
+  // A server ON THIS MACHINE, which an ordinary process reaches: the observer is alive.
+  const srv = http.createServer((q, s) => s.end("reached")).listen(0, "127.0.0.1");
+  await new Promise((r) => srv.once("listening", r));
+  const port = srv.address().port;
+  try {
+    const host = await new Promise((r) => http.get("http://127.0.0.1:" + port, (res) => { let b = ""; res.on("data", (d) => (b += d)); res.on("end", () => r(b)); }));
+    assert.equal(host, "reached", "outside the sandbox the server answers");
+    const inside = await runCommand(dir, "node -e \"require('http').get('http://127.0.0.1:" + port + "',r=>{console.log('REACHED')}).on('error',e=>{console.log('BLOCKED '+e.code)})\"");
+    assert.match(inside.output, /BLOCKED/, inside.output);
+    assert.doesNotMatch(inside.output, /REACHED/);
+    const dns = await runCommand(dir, "node -e \"require('dns').lookup('example.com',(e,a)=>console.log(e?'NO-DNS':'DNS '+a))\"");
+    assert.match(dns.output, /NO-DNS/, dns.output);
+    const ok = await runCommand(dir, "echo fine && ls");
+    assert.equal(ok.code, 0);
+    assert.match(ok.output, /fine/);
+  } finally { srv.close(); }
+});
+
+test("AS7 a container that cannot cut the internet off runs no command at all", async () => {
+  _resetNetCut();
+  try {
+    assert.equal(netCut(null, { check: () => ({ status: 1 }) }), false);
+    let spawned = 0;
+    const r = await runCommand("/tmp", "echo hi", { spawnFn: () => { spawned++; throw new Error("never"); } });
+    assert.equal(r.code, 126);
+    assert.equal(r.output, NO_NET_MSG);
+    assert.equal(spawned, 0, "nothing was started");
+    _resetNetCut();
+    assert.equal(netCut(null, { check: () => { throw new Error("no unshare"); } }), false);
+  } finally { _resetNetCut(); }
 });
