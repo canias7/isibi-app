@@ -2197,4 +2197,4 @@ SiteBuildContainer `98e49766f0f461b8` → `4f44a4a20b33575c` (256 inputs),
 AppBuildContainer unchanged. Run 40824851436 green, 05:41–05:44 UTC.
 Runtime: the session's own authenticated `build-health` read at 05:49 answered
 `e3348172b…` and image `4f44a4a20b33575c`, `agentNet` blocked; a canary press
-is still the owner's.
+is still the owner's. **Runtime-confirmed by the owner's canary run 40828442157** (06:19 UTC: both expected boxes set, all free checks passed, nothing charged).
