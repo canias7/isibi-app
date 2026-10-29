@@ -436,3 +436,8 @@ test("the build reports WHICH template the container used", () => {
   assert.match(smoke, /d\.templateId === wantId/, "the smoke test does not compare digests");
   assert.ok(!/js\.includes\(marker\)/.test(smoke), "the old approximate marker check is still there");
 });
+
+test("the trace has room for a whole agent run: ~33 build steps and two per round for 40 rounds", async () => {
+  const { MAX_STEPS: cap } = await import("../builder/trace.mjs");
+  assert.ok(cap >= 33 + 2 * 40 + 1, "cap " + cap);
+});

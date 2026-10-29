@@ -21,8 +21,9 @@
 //   - it must never carry a secret. Callers pass a step NAME and small numbers;
 //     there is deliberately no way to attach a free-text payload.
 
-/** How many steps are kept. A build has ~33; the cap is for a runaway loop. */
-export const MAX_STEPS = 60;
+/** How many steps are kept. A build has ~33 plus two per agent round (up to 40
+ * rounds and their clearings); the cap is for a runaway loop. */
+export const MAX_STEPS = 140;
 
 /**
  * A recorder.

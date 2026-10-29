@@ -42,3 +42,21 @@ The approved edit ("Make the hero headline say 'Hand-thrown in Bristol' and
 add opening hours to the contact page") was **not sent**: the build already
 spent more than estimated, and a balance of 6 may not cover it. Waiting on the
 owner.
+
+## The three findings and their fixes (offline, same day)
+The build's own record (`site_builds`, `kiln-lane`) showed our agent ran: an
+`agent` mark and 26 logged rounds before the trace's 60-step cap cut it off.
+Three findings, fixed on the branch (not deployed):
+1. **What each round did was dropped.** The trace keeps numbers only, and the
+   round's tool names were a list. Each round now logs counts (`writes`,
+   `reads`, `commands`, `looks`, `builds`, …) and its tokens (`inTok`,
+   `cached`, `outTok`); the trace holds 140 steps, enough for 40 rounds.
+2. **Clearing the desk spent the cache.** Above 60,000 characters it rewrote
+   older rounds every round (rounds 24–26 cleared 6–8 items each), so every
+   byte after the rewrite was billed at full price again. Now a clearing is
+   made only when it saves at least 15,000 characters
+   (`COMPACT_MIN_SAVE`); otherwise the pile stays byte-for-byte as it was.
+3. **One file per round.** The rules never said several tools may go in one
+   answer. They now say so: every known file in one answer, reads together.
+Tests SA31–SA34 and a trace-room case; sweep 6 of 6 killed, the comment
+control survived. The saving is not measured until a live build.

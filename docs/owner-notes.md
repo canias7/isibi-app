@@ -3,6 +3,17 @@
 
 
 
+## 2026-10-29 — The agent's first live build, and three cost fixes
+
+Deploy 2286 is runtime-confirmed (canary run 40807883968), and the live
+container's commands have no internet. The new agent built Kiln Lane from one
+message in about 10 minutes (4 pages, 3 tables, saved as a draft) but cost 101
+credits. The build record showed why: each round cost about 2 credits, the
+desk was cleared a little every round (which threw the price discount away),
+and it wrote one file per round. Fixed on the branch, not deployed: clearing
+only when it saves a lot, the agent told to do several things per round, and
+every round logged with what it did. Record: `docs/history/2026-10-29-agent-live.md`.
+
 ## 2026-10-29 — A free check of the no-internet wall on the live container
 
 - Cloudflare's docs say each container is its own little virtual machine with its own Linux kernel, but they don't say whether this kind of network cut-off is allowed. Only the real container can tell.

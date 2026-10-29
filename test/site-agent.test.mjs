@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   runSiteAgent, compact, headStart, firstMessage, makeWorkspace, writableKey,
-  AGENT_TOOLS, agentSystem, COMPACT_AT,
+  AGENT_TOOLS, agentSystem, COMPACT_AT, COMPACT_MIN_SAVE, toolCounts,
 } from "../builder/site-agent.mjs";
 
 const PAGES = [
@@ -125,7 +125,7 @@ test("SA7 rule 3: compact clears older file bodies, keeps the first message and 
   assert.equal(r.pages.find((p) => p.path === "visit.tsx").source, big); // the work is kept
   assert.ok(events.some((e) => e.event === "compact" && e.cleared >= 1));
   const later = JSON.stringify(s.sent.at(-1).messages);
-  assert.ok(later.length < big.length * 2, "the big write is no longer re-sent in full every round");
+  assert.ok(later.split(big).length - 1 <= 1, "the big write is no longer re-sent in full every round (only the later read of it remains, until the next sweep)");
   assert.match(later, /\[written: 60000 chars\]/);
   // read_files after clearing still hands back the current version
   assert.ok(JSON.stringify(s.sent[3].messages).includes(big.slice(0, 100)));
@@ -481,4 +481,65 @@ test("SA30 a page a command removed is removed from the workspace too; the style
   assert.deepEqual(r.removed, ["visit.tsx"]);
   assert.equal(r.cssChanged, false);
   assert.match(s.sent[1].messages.at(-1).content[0].content, /files changed: visit\.tsx/);
+});
+
+// ── 2026-10-29, after the first live build (101 credits, 26+ rounds) ─────────
+test("SA31 rule 3 sweeps once, then leaves earlier rounds byte-for-byte alone", async () => {
+  const big = "B".repeat(COMPACT_AT);
+  const rounds = [answer(use("write_file", { file: "visit.tsx", source: big }))];
+  for (let i = 0; i < 6; i++) rounds.push(answer(use("read_files", { files: ["index.tsx"] })));
+  rounds.push(answer(use("build", {})), answer(use("finish", { summary: "s" })));
+  const s = scripted(rounds);
+  const events = [];
+  const r = await runSiteAgent({ send: s.send, build: okBuild, log: (e) => events.push(e) }, { request: "r", pages: PAGES, parts: PARTS });
+  assert.equal(r.ok, true);
+  const sweeps = events.filter((e) => e.event === "compact");
+  assert.equal(sweeps.length, 1, "one sweep, not one per round: " + sweeps.length);
+  // after the sweep, each request's earlier messages are the same bytes as the one before (the cache's prefix holds)
+  const at = s.sent.findIndex((q) => JSON.stringify(q.messages).includes("[written: "));
+  assert.ok(at > 0 && at < s.sent.length - 2);
+  for (let i = at + 1; i < s.sent.length; i++) {
+    const prev = s.sent[i - 1].messages, cur = s.sent[i].messages;
+    assert.equal(JSON.stringify(cur.slice(0, prev.length)), JSON.stringify(prev), "round " + (i + 1) + " rewrote an earlier message");
+  }
+});
+
+test("SA32 each round is logged with what it did, as numbers the build trace keeps", async () => {
+  const s = scripted([
+    answer(use("write_file", { file: "a.tsx", source: "export default function A(){return <p>a</p>}" }), use("write_file", { file: "b.tsx", source: "export default function B(){return <p>b</p>}" }), use("read_files", { files: ["index.tsx"] })),
+    answer(use("build", {})),
+    answer(use("finish", { summary: "s" })),
+  ]);
+  const events = [];
+  await runSiteAgent({ send: s.send, build: okBuild, log: (e) => events.push(e) }, { request: "r", pages: PAGES, parts: PARTS });
+  const r1 = events.find((e) => e.event === "round" && e.round === 1);
+  assert.equal(r1.writes, 2); assert.equal(r1.reads, 1);
+  assert.equal(r1.inTok, 1000); assert.equal(r1.cached, 5000); assert.equal(r1.outTok, 200);
+  assert.deepEqual(toolCounts([use("run", {}), use("run", {}), use("nope", {})]), { commands: 2, other: 1 });
+  assert.deepEqual(toolCounts(null), {});
+});
+
+test("SA33 the rules tell the agent to do several things in one round", () => {
+  const sys = agentSystem(null, "");
+  assert.match(sys, /several tools in the same answer/);
+  assert.match(sys, /Write every file you already know in ONE answer/);
+});
+
+test("SA34 a clearing that would save little is not made: over the pile limit, small old reads stay as they were", async () => {
+  // a big page shown in the first message (never cleared) puts the pile over the limit; the old rounds hold only small reads
+  const bigPage = { path: "index.tsx", source: "export default function H(){return <p>" + "C".repeat(COMPACT_AT) + "</p>}" };
+  const rounds = [];
+  for (let i = 0; i < 5; i++) rounds.push(answer(use("read_files", { files: ["visit.tsx"] })));
+  rounds.push(answer(use("build", {})), answer(use("finish", { summary: "s" })));
+  const s = scripted(rounds);
+  const events = [];
+  const r = await runSiteAgent({ send: s.send, build: okBuild, log: (e) => events.push(e) }, { request: "r", pages: [bigPage, PAGES[1]], parts: PARTS, targets: ["index.tsx"] });
+  assert.equal(r.ok, true);
+  assert.ok(JSON.stringify(s.sent[0].messages).length > COMPACT_AT, "the pile really is over the limit");
+  assert.equal(events.filter((e) => e.event === "compact").length, 0, "small clearings (< COMPACT_MIN_SAVE) were skipped");
+  for (let i = 1; i < s.sent.length; i++) {
+    const prev = s.sent[i - 1].messages;
+    assert.equal(JSON.stringify(s.sent[i].messages.slice(0, prev.length)), JSON.stringify(prev));
+  }
+  assert.ok(COMPACT_MIN_SAVE >= 10000);
 });

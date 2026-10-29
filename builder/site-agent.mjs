@@ -45,6 +45,8 @@ export const AGENT_CREDIT_CAP = Infinity;
 export const AGENT_MAX_MS = 40 * 60 * 1000;
 /** The pile, in characters, above which finished files become notes. */
 export const COMPACT_AT = 60000;
+/** The fewest characters a clearing must save to be worth rewriting older rounds. */
+export const COMPACT_MIN_SAVE = 15000;
 /** How many of the latest rounds are never compacted. */
 export const KEEP_RECENT = 2;
 const CREDIT_USD = 0.008;
@@ -126,6 +128,7 @@ You change an existing website for its owner, with tools. Work like an engineer:
 - write_file takes a whole file. To change one line, write the file with that line changed and every other line as it was.
 - You have a command line (run): use it like an engineer would — grep to find where something is written, cat to read, npx tsc --noEmit to check types, sed or a script for a mechanical change across files.
 - Plan first: work out every change, then write all the files, then build once. Fix what the build reports and build again.
+- Every round costs the owner money, so do as much as you can in each one: call several tools in the same answer. Write every file you already know in ONE answer (several write_file calls side by side), read every file you need in one read_files call, and never spend a round on one small file when more are ready.
 - When the look of a page changed, look at it once the build passes, and fix anything that looks wrong.
 - When the build passes and every change is made, call finish with what you changed, as plain facts.
 - If a change cannot be done, make the rest, and say in finish what was not done and why.
@@ -241,6 +244,18 @@ export function compact(messages, { keep = KEEP_RECENT } = {}) {
     });
   }
   return { messages: out, cleared };
+}
+
+// ── WHAT A ROUND DID, AS NUMBERS ─────────────────────────────────────────────
+/** Each tool's uses in one round, as counts: the build trace keeps numbers only. */
+const TOOL_COUNT_KEYS = { write_file: "writes", read_files: "reads", delete_file: "deletes", change_rows: "rowChanges", read_table: "tableReads", run: "commands", look: "looks", build: "builds", finish: "finish" };
+export function toolCounts(uses) {
+  const out = {};
+  for (const b of Array.isArray(uses) ? uses : []) {
+    const k = b && Object.hasOwn(TOOL_COUNT_KEYS, b.name) ? TOOL_COUNT_KEYS[b.name] : "other";
+    out[k] = (out[k] || 0) + 1;
+  }
+  return out;
 }
 
 // ── WHAT A COMMAND CHANGED COMES BACK ────────────────────────────────────────
@@ -445,15 +460,23 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
   let stopped = "";
   let rounds = 0;
   let lastCost = 0;
-
   while (!st.done) {
     if (rounds >= maxRounds) { stopped = "rounds"; break; }
     if (now() - started > maxMs) { stopped = "time"; break; }
     if (spent() + lastCost > creditCap) { stopped = "credits"; break; }
     if (pileSize(messages) > COMPACT_AT) {
+      // ONLY A SWEEP WORTH ITS REWRITE IS MADE. Clearing rewrites an older
+      // round, and every byte after the first rewritten one is read at full
+      // price again; clearing a little every round (live, 2026-10-29: rounds
+      // 24-26 each cleared 6-8 items) kept the cache from ever holding. So the
+      // pile is rewritten only when that saves COMPACT_MIN_SAVE characters, and
+      // left byte-for-byte as it was otherwise (tried again next round).
+      const before = pileSize(messages);
       const c = compact(messages);
-      messages = c.messages;
-      log({ event: "compact", cleared: c.cleared });
+      if (c.cleared && before - pileSize(c.messages) >= COMPACT_MIN_SAVE) {
+        messages = c.messages;
+        log({ event: "compact", cleared: c.cleared });
+      }
     }
     rounds++;
     let j;
@@ -465,7 +488,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     lastCost = pageCost(u) / CREDIT_USD;
     const content = Array.isArray(j && j.content) ? j.content : [];
     const uses = content.filter((b) => b && b.type === "tool_use");
-    log({ event: "round", round: rounds, tools: uses.map((b) => b.name), credits: Math.round(spent() * 10) / 10 });
+    log({ event: "round", round: rounds, tools: uses.map((b) => b.name), ...toolCounts(uses), inTok: u.in, cached: u.cacheRead, outTok: u.out, credits: Math.round(spent() * 10) / 10 });
     if (!uses.length) { stopped = j && j.stop_reason === "max_tokens" ? "too-long" : "no-tool"; break; }
     const ids = uses.map((b, i) => (typeof b.id === "string" && b.id ? b.id : "t" + rounds + "_" + i));
     messages.push({ role: "assistant", content: content.map((b) => (b && b.type === "tool_use" ? { ...b, id: ids[uses.indexOf(b)] } : b)) });
