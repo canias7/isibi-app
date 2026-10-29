@@ -2198,3 +2198,16 @@ AppBuildContainer unchanged. Run 40824851436 green, 05:41–05:44 UTC.
 Runtime: the session's own authenticated `build-health` read at 05:49 answered
 `e3348172b…` and image `4f44a4a20b33575c`, `agentNet` blocked; a canary press
 is still the owner's. **Runtime-confirmed by the owner's canary run 40828442157** (06:19 UTC: both expected boxes set, all free checks passed, nothing charged).
+
+## Deploy 2289 — 2026-10-29 07:56 UTC (`490d29b44`)
+
+The new site's project map at the door, looks batched into one command,
+commands logged by kind; the reply saying the agent looked at its pages; a
+failed build's kind kept; "Working…" stepping aside while a new line is read;
+on the owner's "merge and deploy". A fast-forward from `e3348172b`; required CI
+green on the candidate (unit tests run 40837452316, site build run
+40837452279); rollback verified; nothing in flight. Image predicted:
+SiteBuildContainer `4f44a4a20b33575c` → `48012fa293d01605`, AppBuildContainer
+unchanged. Runtime: the session's own authenticated `build-health` read at
+08:04 answered `490d29b44…` and image `48012fa293d01605`, `agentNet` blocked;
+the owner's canary press is still to come.
