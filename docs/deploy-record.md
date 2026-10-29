@@ -2224,4 +2224,4 @@ SiteBuildContainer `48012fa293d01605` → `79a3905080404d4a`, AppBuildContainer
 unchanged. Run 40934562675 green, 18:50–18:53 UTC. The session's own
 authenticated `build-health` read at 18:58 still answered the previous image;
 at 19:10 it answered `cdb365078…` and `79a3905080404d4a`, `agentNet` blocked.
-The owner's canary press is still to come.
+**Runtime-confirmed by the owner's canary run 40941964163** (19:39 UTC, green: both expected boxes set, all free checks passed, nothing charged).
