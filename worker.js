@@ -227,7 +227,7 @@ import { FOUNDATION_FILES } from "./builder/foundation-files.mjs";
 import { runNavEdit, applyAdditions, menuLinksKept } from "./builder/site-nav.mjs";
 import { runLogoEdit } from "./builder/site-logo.mjs";
 import { writtenFrame, ownPartsSite, runFrameEdit, addFrameLinks, FRAME_PARTS, frameTables } from "./builder/site-frame.mjs";
-import { runSiteAgent, agentCap, stoppedFacts, agentTakes } from "./builder/site-agent.mjs";
+import { runSiteAgent, stoppedFacts, agentTakes, historyText, asWriterAnswer } from "./builder/site-agent.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
 import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings, canWriteAccess } from "./site-access.mjs";
@@ -17175,7 +17175,7 @@ function seamCompileRepair(env, { slug, touched = null, models = null, charge = 
  * translation funnel. Each round's facts go to the live progress lines.
  * Answers `{ status, body }` whose facts the reply writer tells.
  */
-async function runAgentChange(env, { slug, words, pages, parts, job = null, picker = "", trace = null, bill, billLang, charges = null }) {
+async function runAgentChange(env, { slug, words, pages, parts, job = null, picker = "", trace = null, bill, billLang, charges = null, uid = "", chat = "" }) {
   const tm = (phase, status, detail) => { try { if (trace) trace.mark(phase, status, detail); } catch { /* never */ } };
   if (!Array.isArray(parts)) return { status: 503, body: { ok: false, error: "agent-unread", layer: "agent", cost: 0, deferred: [], msg: "The site's components could not be read, so the site agent did not start. Nothing was changed and nothing was charged." } };
   tm("agent", "start", { pages: pages.length, parts: parts.length });
@@ -17188,6 +17188,10 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   let css = null, cfgDb = null;
   try { cfgDb = await siteBackendBySlug(env, slug); const cfg = await readSiteConfig(env, slug, cfgDb); if (cfg.ok) css = typeof cfg.config.css === "string" ? cfg.config.css : ""; } catch { css = null; }
   const talk = !!(job && job.progress && job.progress.talk);
+  // WHAT WAS SAID BEFORE (2026-10-28): the chat's recent messages, so "make it
+  // bigger" and the answer to an earlier question mean what they meant.
+  let history = "";
+  try { const c = cleanChatId(chat); if (uid && c) { const cur = await chatStoreRead(env, chatStoreKey(uid, c)); if (cur.read && cur.chat) history = historyText(cur.chat.msgs); } } catch { history = ""; }
   const ag = await runSiteAgent({
     send: jobSend(job, quickSend(env, "agent", job && job.budget)),
     build: (w) => recompileAndPublish(env, { slug, pages: w.pages, parts: w.parts, label: "Agent build", job, compileOnly: true, cssOverride: typeof w.css === "string" ? w.css : null, charge: billLang, charges, trace }),
@@ -17200,8 +17204,8 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     progress: (stage, facts) => { if (talk) job.progress.mark(stage, facts); },
     log: (e) => tm("agent:" + e.event, "ok", e),
   }, {
-    request: words, pages, parts, css, map, spec,
-    ownParts: ownPartsSite(pages, parts), model: models.pages, creditCap: agentCap(env),
+    request: words, pages, parts, css, history, map, spec,
+    ownParts: ownPartsSite(pages, parts), model: models.pages,
   });
   tm("agent", ag.ok ? "ok" : "fail", { rounds: ag.rounds, builds: ag.builds, credits: ag.credits, stopped: ag.stopped, changed: ag.changed.length, rows: ag.rows.length });
   const steps = { rounds: ag.rounds, builds: ag.builds, stopped: ag.stopped, changed: ag.changed, removed: ag.removed };
@@ -19140,6 +19144,38 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
     parser: tweakParser,
     // Throws on failure, and the route logs it. There is no second attempt to
     // swallow one, so nothing needs logging here.
+    // ── THE SITE AGENT WRITES THE SITE (2026-10-28) — see the comment inside.
+    // `publishPages` asks it in `generate`'s place, handing it the build's own
+    // compile. A phone app and a resumed build keep the writer (`generate`).
+    agentWrite: agentTakes() && !resumeCall && !(spec && spec.surface === "app") ? async ({ compile }) => {
+      // ── THE SITE AGENT WRITES THE SITE (2026-10-28, the owner: "do the first
+      // build") ──────────────────────────────────────────────────────────────
+      // In the page writer's place: from the empty template (a first build) or
+      // the stored pages (a rebuild), with the brief and the plan the writer
+      // would have been given, building with this build's own compile as it
+      // goes. Its finished workspace is handed back as the writer's answer
+      // (`asWriterAnswer`), so validation, the photographs, the final compile,
+      // salvage, the publish and the one bill run exactly as before. A phone
+      // app and a resumed build keep the writer.
+      try { mark?.("agent"); } catch { /* a trace must never break a build */ }
+      const agModel = model || (models && models.pages) || modelsFor(picker || undefined).pages;
+      const ag = await runSiteAgent({
+        send: quickSend(env, "agent", budget),
+        build: async (w) => {
+          const r = await compile(w.pages, w.parts);
+          return { ok: !!(r && r.ok === true && r.files), error: r && r.error, serverTests: r && r.serverTests && Array.isArray(r.serverTests.results) ? r.serverTests.results : [] };
+        },
+        progress: (stage, facts) => { try { if (typeof say === "function") say(stage, facts); } catch { /* the talk never costs the build */ } },
+        log: (e) => { try { mark?.("agent:" + e.event, e); } catch { /* a trace must never break a build */ } },
+      }, {
+        request: briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief, media, devices: deviceWishes }),
+        pages: revise && Array.isArray(priorPages) ? priorPages : [],
+        parts: priorParts && Array.isArray(priorParts.parts) ? priorParts.parts : [],
+        spec, kind: plan && plan.kind, ownParts: !revise && !priorPages, model: agModel,
+      });
+      try { mark?.("agent", { ok: ag.ok, rounds: ag.rounds, builds: ag.builds, stopped: ag.stopped }); } catch { /* a trace must never break a build */ }
+      return asWriterAnswer(ag, agModel);
+    } : null,
     generate: async () => {
       // THE MODEL CALL IS STARTING, and this mark is the reason a hung build can
       // now name itself. Between `fonts` and `container` there was NOTHING —
@@ -33221,13 +33257,23 @@ async function handleRequest(request, env, ctx) {
       // it) is answered from what the first one accepted: no model is asked,
       // nothing is charged, and no question is closed or read again.
       const rKeySlug = typeof rb.slug === "string" && /^[a-z0-9][a-z0-9-]{0,80}$/.test(rb.slug) ? rb.slug : "";
-      // NO ROUTER FOR A SITE'S MESSAGE (2026-10-28, the site agent): the agent
-      // reads the whole message and the site itself, so the page is sent
-      // straight to the edit route, with no routing call and nothing charged.
-      // A first build, and an answer to a question the router asked, still
-      // go through the router.
-      if (agentTakes() && !rJob && ru && rb.hasSite === true && rb.firstBuild !== true && rKeySlug && !rb.ask && rb.answering !== true) {
-        return Response.json({ ok: true, intent: "edit", layer: "page", page: "/", cost: 0, agent: true });
+      // NO ROUTER AT ALL (2026-10-28, the site agent; the owner: "do the first
+      // build and also the answer to a question it asked earlier"). The agent
+      // reads the whole message, the conversation and the site itself, so:
+      //   - a first build goes straight to the build, where the agent writes it;
+      //   - a site's message goes straight to the edit route and the agent;
+      //   - an answer to a question the router asked earlier is settled here
+      //     (the card comes off) and sent on as the message it is — the agent
+      //     reads the question and the answer in the conversation.
+      // No routing call and nothing charged.
+      if (agentTakes() && !rJob && ru) {
+        if (rb.firstBuild === true) return Response.json({ ok: true, intent: "build", cost: 0, agent: true });
+        if (rb.hasSite === true && rKeySlug) {
+          const words = String(rb.message || "").trim();
+          const answered = !!(rb.ask && typeof rb.ask === "object");
+          return Response.json({ ok: true, intent: "edit", layer: "page", page: "/", cost: 0, agent: true,
+            ...(answered ? { ask: { answered: true, round: 1, putOff: [], context: [] }, instruction: words } : {}) });
+        }
       }
       // THE SITE AGENT TAKES THE WHOLE MESSAGE (2026-10-28, the owner: "just
       // have it on … is the way we gonna do things now"): a site's message is
@@ -36172,6 +36218,7 @@ async function handleRequest(request, env, ctx) {
               const agParts = await editParts();
               const ag = await runAgentChange(env, {
                 slug: ownerSlug, words: eMessage, pages: eSrc, parts: agParts.ok ? agParts.parts : null, job: eJob, picker: eb && eb.picker, trace: editTrace,
+                uid: ou && typeof ou.id === "string" ? ou.id : "", chat: eb && eb.chat,
                 bill: (usage) => eCharge(...usage), billLang: (usage) => eCharge({ langUsage: usage }), charges: eCharges,
               });
               return Response.json(ag.body, { status: ag.status });
@@ -42549,6 +42596,7 @@ async function handleRequest(request, env, ctx) {
               const aAgParts = await readSiteParts(env, ownerSlug);
               const ag = await runAgentChange(env, {
                 slug: ownerSlug, words: aAsked, pages: aSrc, parts: aAgParts.ok ? aAgParts.parts : null, job: aJob, picker: ab && ab.picker, trace: editTrace,
+                uid: ou && typeof ou.id === "string" ? ou.id : "", chat: ab && ab.chat,
                 bill: (usage) => aCharge(pageCredits(...usage), ++aAgSeq), billLang: (usage) => (usage && usage.length ? aCharge(pageCredits(...usage), ++aAgSeq) : 0), charges: aCharges,
               });
               return Response.json(ag.body, { status: ag.status });

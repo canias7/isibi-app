@@ -1149,7 +1149,10 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
   // puts, so "the build took four minutes" could not be attributed to any of
   // them. `buildMs` already splits out the compile; these split out the rest.
   const tGen = Date.now();
-  let gen = await deps.generate();
+  // THE SITE AGENT IN THE WRITER'S PLACE (2026-10-28, `site-agent.mjs`): when
+  // the caller offers it, it writes the site with this build's own compile and
+  // answers as the writer would; everything below reads its answer unchanged.
+  let gen = typeof deps.agentWrite === "function" ? await deps.agentWrite({ compile: deps.compile }) : await deps.generate();
 
   // ── FIRED, NOT FINISHED ─────────────────────────────────────────────────────
   //

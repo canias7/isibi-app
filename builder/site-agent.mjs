@@ -36,11 +36,13 @@ import { checkServerPart, SERVER_PREFIX } from "./server-code.mjs";
 import { pageCost } from "./publish-pages.mjs";
 import { requiredFiles, partKey, overThreshold } from "./file-picker.mjs";
 
-export const AGENT_MAX_ROUNDS = 14;
+/** A guard against a loop, not a spending limit: a first build writes many files. */
+export const AGENT_MAX_ROUNDS = 40;
 export const AGENT_MAX_TOKENS = 32000;
-/** Credits the loop may spend before it stops (1 credit is $0.008). */
-export const AGENT_CREDIT_CAP = 60;
-export const AGENT_MAX_MS = 25 * 60 * 1000;
+/** No spending limit (the owner, 2026-10-28: "no cap at all"); a caller may still pass one. */
+export const AGENT_CREDIT_CAP = Infinity;
+/** Inside the job's own 50-minute deadline, with room left to save. */
+export const AGENT_MAX_MS = 40 * 60 * 1000;
 /** The pile, in characters, above which finished files become notes. */
 export const COMPACT_AT = 60000;
 /** How many of the latest rounds are never compacted. */
@@ -186,10 +188,11 @@ export function headStart({ pages = [], parts = [], targets = [], picked = null 
 const fileBlock = (k, src) => "=== " + k + " ===\n" + src;
 
 /** The first message: the request, the map, the index of every file, the head-start files. */
-export function firstMessage({ request, map = null, ws, shown = [] }) {
-  const index = ws.keys().map((k) => "- " + k + " (" + ws.get(k).length + " chars)" + (shown.includes(k) ? " [below]" : "")).join("\n");
+export function firstMessage({ request, map = null, ws, shown = [], history = "" }) {
+  const index = !ws.keys().length ? "(none yet — this is a new site; write every page and the site's header and footer)" : ws.keys().map((k) => "- " + k + " (" + ws.get(k).length + " chars)" + (shown.includes(k) ? " [below]" : "")).join("\n");
   const mapText = map ? siteSlice(map, "site", { budget: 8000 }) : "";
   return [
+    history ? "THE CONVERSATION SO FAR (for what the request refers to)\n" + history : "",
     "THE OWNER'S REQUEST\n" + String(request || ""),
     mapText,
     "EVERY FILE OF THE SITE\n" + index,
@@ -383,7 +386,7 @@ export function roundFacts(outcomes) {
  * `{ ok, stopped, pages, parts, changed, summary, usage, credits, rounds, builds }`.
  * `ok` is true only when the agent finished on a passing build.
  */
-export async function runSiteAgent(deps, { request, pages, parts, css = null, map = null, spec = null, kind = "", ownParts = false, targets = [], picked = null, model, maxRounds = AGENT_MAX_ROUNDS, creditCap = AGENT_CREDIT_CAP, maxMs = AGENT_MAX_MS } = {}) {
+export async function runSiteAgent(deps, { request, pages, parts, css = null, history = "", map = null, spec = null, kind = "", ownParts = false, targets = [], picked = null, model, maxRounds = AGENT_MAX_ROUNDS, creditCap = AGENT_CREDIT_CAP, maxMs = AGENT_MAX_MS } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const log = typeof deps.log === "function" ? deps.log : () => {};
   const progress = typeof deps.progress === "function" ? deps.progress : () => {};
@@ -396,7 +399,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, ma
   const st = { ws, tables, rows: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "" };
   const shown = headStart({ pages, parts, targets, picked });
   const system = [{ type: "text", text: agentSystem(spec, kind, { ownParts }), cache_control: { type: "ephemeral" } }];
-  let messages = [{ role: "user", content: [{ type: "text", text: firstMessage({ request, map, ws, shown }), cache_control: { type: "ephemeral" } }] }];
+  let messages = [{ role: "user", content: [{ type: "text", text: firstMessage({ request, map, ws, shown, history }), cache_control: { type: "ephemeral" } }] }];
   const usage = [];
   const spent = () => usage.reduce((n, u) => n + pageCost(u), 0) / CREDIT_USD;
   let stopped = "";
@@ -473,11 +476,6 @@ export function agentTakes() {
   return !(AGENT_TAKES_ALL !== true || (p && p.env && p.env.GF_OLD_LANES === "1"));
 }
 
-/** The credit cap for one job: `SITE_AGENT_CAP` when it is a positive number, else the default. */
-export function agentCap(env) {
-  const n = Number(env && env.SITE_AGENT_CAP);
-  return Number.isFinite(n) && n > 0 ? n : AGENT_CREDIT_CAP;
-}
 
 /** What the reply writer is told when the agent stopped short: facts, never a sentence for the customer. */
 export function stoppedFacts(r) {
@@ -491,4 +489,41 @@ export function stoppedFacts(r) {
   }[r && r.stopped] || "it did not finish";
   return "The site agent stopped: " + why + ". Nothing on the site was changed" +
     (r && r.lastBuild === "fail" ? "; its last build had errors" : "") + ".";
+}
+
+/** The conversation's recent messages, as the agent's first message carries them. */
+export function historyText(msgs, { max = 12, chars = 600 } = {}) {
+  const list = (Array.isArray(msgs) ? msgs : []).filter((m) => m && (m.r === "u" || m.r === "a") && typeof m.t === "string" && m.t.trim());
+  return list.slice(-max).map((m) => (m.r === "u" ? "Owner: " : "You: ") + (m.t.length > chars ? m.t.slice(0, chars - 1) + "…" : m.t).replace(/\s+/g, " ").trim()).join("\n");
+}
+
+/** Several rounds on one model as ONE usage object (one bill, one rounding). */
+export function sumUsage(usage, model) {
+  const u = { in: 0, out: 0, cacheRead: 0, cacheWrite: 0, model };
+  for (const x of Array.isArray(usage) ? usage : []) { u.in += x.in || 0; u.out += x.out || 0; u.cacheRead += x.cacheRead || 0; u.cacheWrite += x.cacheWrite || 0; }
+  return u;
+}
+
+/**
+ * A FIRST BUILD (or a rebuild) BY THE AGENT, in the page writer's place
+ * (2026-10-28): the agent's finished workspace as the writer's tool answer
+ * (`write_pages`: pages under src/routes/, parts, server code, notes), so the
+ * build's own validation, compile, salvage, photographs, publish and bill
+ * run on it unchanged. A stop is no answer: the build's own no-pages path.
+ */
+export function asWriterAnswer(r, model) {
+  const usage = sumUsage(r && r.usage, model);
+  if (!r || r.ok !== true || !r.pages.length) return { input: null, usage, agent: r ? { stopped: r.stopped, rounds: r.rounds } : null };
+  const server = r.parts.filter((p) => p.name.startsWith(SERVER_PREFIX)).map((p) => ({ name: p.name.slice(SERVER_PREFIX.length), source: p.source }));
+  const parts = r.parts.filter((p) => !p.name.startsWith(SERVER_PREFIX));
+  return {
+    input: {
+      pages: r.pages.map((p) => ({ path: "src/routes/" + p.path, source: p.source })),
+      ...(parts.length ? { parts } : {}),
+      ...(server.length ? { server } : {}),
+      notes: r.summary || "",
+    },
+    usage,
+    agent: { rounds: r.rounds, builds: r.builds },
+  };
 }

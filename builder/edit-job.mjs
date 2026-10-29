@@ -1082,9 +1082,6 @@ export const JOB_ENV_NAMES = [
   "DESIGN_SPLIT_CANARY", "DESIGN_SPLIT_EVERYONE",
   "DESIGN_GRAPH_CANARY", "DESIGN_GRAPH_EVERYONE",
   "BAND_SPLIT_CANARY", "BAND_SPLIT_EVERYONE",
-  // THE SITE AGENT'S CREDIT CAP (2026-10-28): an edit or addition runs in the
-  // container, so the job must read it as the Worker does.
-  "SITE_AGENT_CAP",
 ];
 
 /** The subset of `env` a job is handed: the names above, strings only. */

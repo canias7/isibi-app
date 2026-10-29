@@ -192,3 +192,59 @@ switch, is the way we gonna do things now"*, then *"there's no real customers
 - **Full suite** (`npm test`): 13,024 tests, 3 failing, all known: REOPEN 1
   (browser), the site sign-in test and the worktree-leftover check
   (environment).
+
+## Then: first builds, earlier questions, and no cap (owner, 2026-10-29)
+
+*"No cap at all please and yea do the first build and also the answer to a
+question it asked earlier."*
+
+- **No cap.**
+  - `AGENT_CREDIT_CAP` is `Infinity`, and `SITE_AGENT_CAP` is gone from
+    deploy.yml and the job's env.
+  - What stays is a guard against a loop: 40 rounds (a first build writes many
+    files) and 40 minutes, inside the job's own 50-minute deadline.
+- **First builds.**
+  - `/api/site/route` answers a first build `{ ok, intent: "build", cost: 0,
+    agent: true }` with no routing call.
+  - In the build, the agent takes the page writer's place (`generate`). It
+    starts from the empty template (or the stored pages on a rebuild), with
+    the brief and plan the writer would have had (`briefWithLayout`), and
+    builds with the build's own compile (`pDeps.compile`).
+  - Its finished workspace is handed back as the writer's `write_pages`
+    answer (`asWriterAnswer`: pages under `src/routes/`, parts, server code,
+    notes, one usage object). So validation, the photographs, the final
+    compile, salvage, the publish and the single bill run as before. A stop is
+    no answer: the build's own no-pages path, uncharged.
+  - The design call (brand, theme, tables) still runs before it, and a phone
+    app and a resumed build keep the writer.
+- **An answer to a question the router asked earlier** is settled at the
+  route (the card comes off) and sent on as the message it is.
+- **The agent reads the conversation**: the chat's last 12 messages
+  (`historyText`, from the stored chat) are in its first message. That is how
+  an answer like "the home page" means what it meant.
+- **Tests**:
+  - SA26 (history, one bill, the writer's answer, a stop gives no answer);
+  - SA27 (the build's wiring);
+  - SAR5 extended (a first build and an earlier question answered by the
+    route, no model call);
+  - SAR6 (the conversation reaches the agent);
+  - `test/site-agent-build.test.mjs` SAB1: a real first build through
+    `/api/site/react-build` with a supplied design. Three agent rounds, no
+    page-writer call, and the agent's home page stored and published (`page:
+    "app"`).
+- **The build's wiring**: `publishPages` asks `deps.agentWrite({ compile })` in
+  `generate`'s place when the caller offers it, so the build hands the agent
+  its own compile and the call site's shape is unchanged. Four guards learned
+  the agent:
+  - the `agent` mark is the `generate` stage;
+  - a third `briefWithLayout` reader;
+  - a seventh `cleanChatId` reader;
+  - the build's agent send, named in the map exemptions.
+- **Sweep**:
+  - 8 of 8 killed: the writer's place, the build's door, the earlier answer,
+    the history read, the history in the first message, the stop check, the
+    `src/routes/` paths, and no cap. The control survived.
+  - The stop check first survived: a half-written stopped agent was untested.
+    SA26 now proves its pages are never published.
+- **Full suite** (`npm test`): 13,028 tests, 3 failing, the known three (REOPEN
+  1, site sign-in, worktree leftovers).

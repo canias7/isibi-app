@@ -52,12 +52,13 @@ function bucket(slug) {
 const use = (name, input) => ({ type: "tool_use", id: "t" + hex(3), name, input });
 
 /** One message through a route; `rounds` are the agent's answers, in order. */
-async function drive({ mode = "sync", route = "edit", ask, rounds }) {
+async function drive({ mode = "sync", route = "edit", ask, rounds, chat = null }) {
   const slug = "agent-" + mode + "-" + hex(4);
   const b = bucket(slug);
   const id = hex(16), secret = hex(16);
   const url = "https://gofarther.dev/api/site/" + slug + "/" + route;
-  const reqBody = JSON.stringify({ layer: "page", page: "/", instruction: ask, picker: "sonnet", idem: "idem" + hex(8) });
+  const reqBody = JSON.stringify({ layer: "page", page: "/", instruction: ask, picker: "sonnet", idem: "idem" + hex(8), ...(chat ? { chat: chat.key } : {}) });
+  if (chat) b.store.set("chat/" + USER.id + "/" + chat.key + ".json", JSON.stringify({ v: 1, rev: 1, msgs: chat.msgs }));
   if (mode === "job") b.store.set(EDIT_JOB_PREFIX + id, JSON.stringify(packEditJob({ url, body: reqBody, uid: USER.id, slug, secret, at: Date.now() })));
   const seen = { agent: [], other: [], debits: [], rpc: [] };
   let reserved = 0, n = 0;
@@ -211,6 +212,17 @@ test("SAR5 the routing route answers a site's message with the agent's door: no 
       body: JSON.stringify({ message: "Make the hours 8 to 5", slug: "agent-route-1", hasSite: true, firstBuild: false, picker: "sonnet" }) }), { SUPABASE_SERVICE_KEY: "svc" }, makeCtx());
     const d = await res.json();
     assert.deepEqual(d, { ok: true, intent: "edit", layer: "page", page: "/", cost: 0, agent: true });
+    const ask = async (body) => (await (await worker.fetch(new Request("https://gofarther.dev/api/site/route", { method: "POST", headers: { "content-type": "application/json", Authorization: "Bearer t" }, body: JSON.stringify(body) }), { SUPABASE_SERVICE_KEY: "svc" }, makeCtx())).json());
+    assert.deepEqual(await ask({ message: "A bakery called Harbour Loaf", firstBuild: true, picker: "sonnet" }), { ok: true, intent: "build", cost: 0, agent: true });
+    assert.deepEqual(await ask({ message: "the home page", slug: "agent-route-1", hasSite: true, firstBuild: false, ask: { id: "q1", chosen: false } }),
+      { ok: true, intent: "edit", layer: "page", page: "/", cost: 0, agent: true, ask: { answered: true, round: 1, putOff: [], context: [] }, instruction: "the home page" });
     assert.ok(!calls.some((u) => u.includes("/v1/messages") || u.includes("x.ai") || u.includes("use_credits")), "no model call, no charge: " + calls.join(", "));
   } finally { globalThis.fetch = real; }
+});
+
+test("SAR6 the agent reads the conversation: an answer to an earlier question means what it meant", async () => {
+  const r = await drive({ ask: "the home page", chat: { key: "chat-abc1", msgs: [{ r: "u", t: "Make the hero blue" }, { r: "a", t: "Which page's hero — home or menu?" }, { r: "u", t: "the home page" }] },
+    rounds: [[use("finish", { summary: "Nothing to change yet." })]] });
+  const first = r.seen.agent[0].messages[0].content[0].text;
+  assert.match(first, /THE CONVERSATION SO FAR \(for what the request refers to\)\nOwner: Make the hero blue\nYou: Which page's hero — home or menu\?\nOwner: the home page\n\nTHE OWNER'S REQUEST\nthe home page/);
 });

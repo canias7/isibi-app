@@ -3,6 +3,14 @@
 
 
 
+## 2026-10-29 — The agent builds new sites too; no router anywhere; no cap
+
+- **New sites**: the agent writes the whole site from your description. It writes every page, the header and the footer, builds, and fixes errors. Then the usual checks, photos and publish run on what it wrote.
+- **No router at all**: first builds, edits, additions, questions, and your answer to an older question all go straight to the agent.
+- **It reads the conversation**, so short replies like "the home page" make sense to it.
+- **No credit cap**, as you said. The only limits left stop a runaway loop: 40 steps, 40 minutes.
+- Tested with a real build through the build route (scripted answers): the agent's site was published. Not merged.
+
 ## 2026-10-28 — The agent can look at pages, and the router is skipped
 
 - **It can look**: it builds the site and takes phone and desktop screenshots of a page, then fixes what looks wrong before finishing.

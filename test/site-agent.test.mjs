@@ -197,19 +197,17 @@ test("SA11 read_table goes through the caller's reader; tool results pair with t
 
 // ── THE SWITCH AND THE WIRING (2026-10-28) ──────────────────────────────────
 import { readFileSync } from "node:fs";
-import { agentCap, stoppedFacts, AGENT_TAKES_ALL, agentTakes, roundFacts, fileName, CSS_KEY } from "../builder/site-agent.mjs";
+import { stoppedFacts, AGENT_TAKES_ALL, AGENT_CREDIT_CAP, historyText, sumUsage, asWriterAnswer, agentTakes, roundFacts, fileName, CSS_KEY } from "../builder/site-agent.mjs";
 import { jobSecrets } from "../builder/edit-job.mjs";
 
-test("SA12 no switch: the agent takes every site; the cap from env or 60", () => {
+test("SA12 no switch and no spending limit", () => {
   assert.equal(AGENT_TAKES_ALL, true);
   const was = process.env.GF_OLD_LANES;
   try {
     delete process.env.GF_OLD_LANES; assert.equal(agentTakes(), true);
     process.env.GF_OLD_LANES = "1"; assert.equal(agentTakes(), false);
   } finally { if (was === undefined) delete process.env.GF_OLD_LANES; else process.env.GF_OLD_LANES = was; }
-  assert.equal(agentCap({}), 60);
-  assert.equal(agentCap({ SITE_AGENT_CAP: "25" }), 25);
-  assert.equal(agentCap({ SITE_AGENT_CAP: "x" }), 60);
+  assert.equal(AGENT_CREDIT_CAP, Infinity, "no spending limit");
   assert.match(stoppedFacts({ stopped: "credits", lastBuild: "fail" }), /spending limit.*Nothing on the site was changed; its last build had errors\./);
 });
 
@@ -240,11 +238,10 @@ test("SA14 the build tool compiles only: answered before the repair, the staging
   assert.ok(first > 0 && only > first && hook > only && gate > only, "the compile-only answer comes straight after the compile");
 });
 
-test("SA15 the container job is handed the cap; there is no switch", () => {
-  assert.deepEqual(jobSecrets({ SITE_AGENT_CAP: "30", OTHER: "x" }), { SITE_AGENT_CAP: "30" });
+test("SA15 no switch and no cap reach the deploy or the job", () => {
+  assert.deepEqual(jobSecrets({ SITE_AGENT: "on", SITE_AGENT_CAP: "30" }), {});
   const D = readFileSync(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8");
-  assert.match(D, /SITE_AGENT_CAP: \$\{\{ secrets\.SITE_AGENT_CAP \|\| '60' \}\}/);
-  assert.doesNotMatch(D, /SITE_AGENT:/);
+  assert.doesNotMatch(D, /SITE_AGENT/);
   const K = readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
   assert.match(K, /builder\/site-agent\.mjs \.\/worker\/builder\//);
 });
@@ -395,9 +392,44 @@ test("SA24 look's facts for the progress lines", () => {
 
 test("SA25 the router is skipped for a site's message; the look tool is wired to compile-only screenshots", () => {
   const route = between('if (url.pathname === "/api/site/route" && request.method === "POST") {', "const rKey = ");
-  assert.match(route, /if \(agentTakes\(\) && !rJob && ru && rb\.hasSite === true && rb\.firstBuild !== true && rKeySlug && !rb\.ask && rb\.answering !== true\) \{\n\s+return Response\.json\(\{ ok: true, intent: "edit", layer: "page", page: "\/", cost: 0, agent: true \}\);/);
+  assert.match(route, /if \(agentTakes\(\) && !rJob && ru\) \{\n\s+if \(rb\.firstBuild === true\) return Response\.json\(\{ ok: true, intent: "build", cost: 0, agent: true \}\);/);
   const fn = between("async function runAgentChange(", "async function recompileAndPublish(env, {");
   assert.match(fn, /look: \(w, route\) => recompileAndPublish\(env, \{[^}]*compileOnly: true[^}]*shotRoutes: \[route\]/);
   assert.match(W, /shots: \(compileOnly && Array\.isArray\(shotRoutes\) && shotRoutes\.length \? shotRoutes : vrShots\) \|\| undefined,/);
   assert.match(W, /shots: built && Array\.isArray\(built\.shots\) \? built\.shots : \[\],/);
+});
+
+test("SA26 the conversation, one bill for many rounds, and the workspace as the page writer's answer", async () => {
+  assert.equal(historyText([{ r: "u", t: "Make the hero blue" }, { r: "a", t: "Which hero — home or menu?" }, { r: "x", t: "card" }, { r: "u", t: "home" }]),
+    "Owner: Make the hero blue\nYou: Which hero — home or menu?\nOwner: home");
+  assert.equal(historyText([]), "");
+  assert.deepEqual(sumUsage([{ in: 1, out: 2, cacheRead: 3 }, { in: 10, out: 20, cacheWrite: 5 }], "m"), { in: 11, out: 22, cacheRead: 3, cacheWrite: 5, model: "m" });
+  const s = scripted([
+    answer(use("write_file", { file: "index.tsx", source: "home" }), use("write_file", { file: "-parts/site-header", source: "h" }), use("write_file", { file: "-parts/server-chat", source: "export const hosts = [];\nexport default async function (request, site) { return Response.json({}); }" })),
+    answer(use("build", {})),
+    answer(use("finish", { summary: "Built Home." })),
+  ]);
+  const r = await runSiteAgent({ send: s.send, build: okBuild }, { request: "A bakery", pages: [], parts: [], model: "grok-4.7" });
+  assert.match(s.sent[0].messages[0].content[0].text, /\(none yet — this is a new site/);
+  const a = asWriterAnswer(r, "grok-4.7");
+  assert.deepEqual(a.input.pages, [{ path: "src/routes/index.tsx", source: "home" }]);
+  assert.deepEqual(a.input.parts, [{ name: "site-header", source: "h" }]);
+  assert.equal(a.input.server[0].name, "chat");
+  assert.equal(a.input.notes, "Built Home.");
+  assert.equal(a.usage.model, "grok-4.7");
+  assert.equal(a.usage.in, 3000);
+  const stopped = asWriterAnswer({ ok: false, pages: [], parts: [], usage: [], stopped: "rounds", rounds: 40 }, "m");
+  assert.equal(stopped.input, null, "a stop is no answer: the build's own no-pages path");
+  const halfDone = asWriterAnswer({ ok: false, pages: [{ path: "index.tsx", source: "half" }], parts: [], usage: [], stopped: "time", rounds: 9 }, "m");
+  assert.equal(halfDone.input, null, "pages written by an agent that never finished are never published");
+});
+
+test("SA27 the build hands the page writer's place to the agent, building with the build's own compile", () => {
+  const gen = between("    agentWrite: agentTakes()", "    generate: async () => {");
+  assert.match(gen, /agentWrite: agentTakes\(\) && !resumeCall && !\(spec && spec\.surface === "app"\) \? async \(\{ compile \}\) => \{/);
+  assert.match(gen, /build: async \(w\) => \{\n\s+const r = await compile\(w\.pages, w\.parts\);/);
+  assert.match(gen, /request: briefWithLayout\(\{ brief, plan, tsx, gif, qr, three, images: imgBrief, media, devices: deviceWishes \}\)/);
+  assert.match(gen, /return asWriterAnswer\(ag, agModel\);/);
+  const P = readFileSync(new URL("../builder/publish-pages.mjs", import.meta.url), "utf8");
+  assert.match(P, /let gen = typeof deps\.agentWrite === "function" \? await deps\.agentWrite\(\{ compile: deps\.compile \}\) : await deps\.generate\(\);/);
 });

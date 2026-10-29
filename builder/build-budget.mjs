@@ -281,7 +281,7 @@ export function budgetStage(steps) {
     design: "provision", seedrows: "provision", owner: "provision",
     normalize: "provision", provision: "provision",
     schema: "generate", jobs: "generate", seed: "generate", look: "generate",
-    merge: "generate", "app-write": "generate", research: "generate", fonts: "generate", gen: "generate",
+    merge: "generate", "app-write": "generate", research: "generate", fonts: "generate", gen: "generate", agent: "generate",
     // `ownphotos` is the customer's own photographs stored, beside the look
     // merge; `attachments` is a refire reading the attached files back, just
     // before it writes the pages again (2026-10-08, the first-Build audit's

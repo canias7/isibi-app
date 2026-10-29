@@ -194,7 +194,7 @@ test("the wishes reader: proper subsets only, canonical order, junk and all-thre
 
 test("the wishes reach the build only through the design answer, and only a live build's facts carry them", () => {
   assert.match(W, /deviceWishes: readDeviceWishes\(designed && designed\.devices\) \|\| undefined,/);
-  assert.equal((W.match(/briefWithLayout\(\{ brief, plan, tsx, gif, qr, three, images: imgBrief, media, devices: deviceWishes \}\)/g) || []).length, 2, "the band writers and the single call are not both told");
+  assert.equal((W.match(/briefWithLayout\(\{ brief, plan, tsx, gif, qr, three, images: imgBrief, media, devices: deviceWishes \}\)/g) || []).length, 3, "the band writers, the single call and the site agent are not all told");
   assert.match(W, /devices: pages && pages\.page === "app" \? design\.deviceWishes : null/);
   assert.match(W, /devices: pages && pages\.page === "app" && buildArgs \? buildArgs\.deviceWishes : null/);
 });
