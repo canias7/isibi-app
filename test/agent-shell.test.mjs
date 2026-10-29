@@ -143,3 +143,29 @@ test("AS7 a container that cannot cut the internet off runs no command at all", 
     assert.equal(netCut(null, { check: () => { throw new Error("no unshare"); } }), false);
   } finally { _resetNetCut(); }
 });
+
+import { netProbe } from "../builder/agent-shell.mjs";
+test("AS8 the live probe: a real command tries an outside address and a name lookup; blocked only when both are", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-netprobe-"));
+  const real = await netProbe(dir);
+  assert.equal(real.blocked, true, real.output);
+  assert.match(real.output, /NET-BLOCKED/); assert.match(real.output, /DNS-BLOCKED/);
+  const leak = await netProbe(dir, { run: async () => ({ code: 0, output: "NET-REACHED\nDNS-BLOCKED" }) });
+  assert.equal(leak.blocked, false);
+  const silent = await netProbe(dir, { run: async () => ({ code: 126, output: "Commands are switched off here" }) });
+  assert.equal(silent.blocked, false, "no answer is not proof");
+});
+
+test("AS9 the free build-health press carries the container's own reading", () => {
+  const W = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = W.indexOf('url.pathname === "/api/site/build-health"');
+  assert.ok(at > 0);
+  const route = W.slice(at, W.indexOf("\n    }\n", at));
+  assert.match(route, /c\.fetch\(new Request\("http:\/\/build\/agent-net"/);
+  assert.match(route, /ms: Date\.now\(\) - t0, agentNet \}\)/);
+  const B = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
+  const probe = B.slice(B.indexOf('req.url === "/agent-net"'), B.indexOf('req.url === "/agent-run"'));
+  assert.match(probe, /const cut = netCut\(as\);/);
+  assert.match(probe, /probe = await netProbe\(d, \{ as \}\)/);
+  assert.match(probe, /send\(res, 200, \{ ok: true, netCut: cut, asUser: !!as, blocked, probe \}\)/);
+});

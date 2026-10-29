@@ -183,3 +183,19 @@ export function sweepSessions(root, now = Date.now()) {
   }
   return n;
 }
+
+/**
+ * ONE REAL COMMAND THAT TRIES TO GET OUT (2026-10-29, the build-health press):
+ * an outside address by IP and a name lookup. `blocked` only when both say
+ * blocked and nothing said reached; anything else (no answer, a refusal) is
+ * not proof.
+ */
+export const NET_PROBE = "node -e \"const n=require('net');const s=n.connect(80,'1.1.1.1');s.setTimeout(4000);" +
+  "s.on('connect',()=>{console.log('NET-REACHED');s.destroy()});s.on('error',e=>console.log('NET-BLOCKED '+e.code));" +
+  "s.on('timeout',()=>{console.log('NET-BLOCKED timeout');s.destroy()});" +
+  "require('dns').lookup('example.com',e=>console.log(e?'DNS-BLOCKED':'DNS-REACHED'))\"";
+export async function netProbe(dir, { as = null, run = runCommand } = {}) {
+  const r = await run(dir, NET_PROBE, { as, timeoutMs: 15000 });
+  const out = String((r && r.output) || "");
+  return { code: r && r.code, output: out.slice(0, 300), blocked: /NET-BLOCKED/.test(out) && /DNS-BLOCKED/.test(out) && !/REACHED/.test(out) };
+}

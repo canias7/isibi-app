@@ -3,6 +3,11 @@
 
 
 
+## 2026-10-29 — A free check of the no-internet wall on the live container
+
+- Cloudflare's docs say each container is its own little virtual machine with its own Linux kernel, but they don't say whether this kind of network cut-off is allowed. Only the real container can tell.
+- So the free health press now also asks the container: "can you cut a command off from the internet?" and runs one real command that tries to get out. After the deploy, the canary press shows the answer (`agentNet` → `blocked: true` is the good answer). No credits.
+
 ## 2026-10-29 — Commands have no internet now
 
 - Every command the agent types runs cut off from the internet. It can't reach websites, our own services, or even look up an address. Tested: blocked.

@@ -42,7 +42,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { BUILD_KEYS } from "./build-keys.mjs";
 import { dryRunServerParts } from "./server-dryrun.mjs";
-import { sessionDir, prepareSandbox, writeSiteFiles, readSiteFiles, runCommand, sweepSessions } from "./agent-shell.mjs";
+import { sessionDir, prepareSandbox, writeSiteFiles, readSiteFiles, runCommand, sweepSessions, netCut, netProbe } from "./agent-shell.mjs";
 import { isServerPart } from "./server-code.mjs";
 import { callBuilderModel, keysFrom, BUILDER_CALL_MS, CONTAINER_CALL_CAP_MS, STREAM_IDLE_MS, patientCall } from "./build-call.mjs";
 import { longPost } from "./long-post.mjs";
@@ -2332,6 +2332,25 @@ const server = http.createServer((req, res) => {
   // command in the agent run's own work folder, as the unprivileged user, with
   // a clean environment and a time limit; the site's files are written in
   // before and read back after. Never the build's `/app`.
+  // CAN A COMMAND BE CUT OFF FROM THE INTERNET HERE? (2026-10-29) Read by the
+  // free build-health press: the wrapper's own answer, then one real command
+  // that tries an outside address and a name lookup. Free, nothing kept.
+  if (req.method === "GET" && req.url === "/agent-net") {
+    (async () => {
+      const as = renderAs();
+      const cut = netCut(as);
+      let probe = null;
+      if (cut) {
+        fs.mkdirSync(AGENT_ROOT, { recursive: true, mode: 0o755 });
+        const d = fs.mkdtempSync(path.join(AGENT_ROOT, "net-"));
+        try { fs.chmodSync(d, 0o777); probe = await netProbe(d, { as }); }
+        finally { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* temp */ } }
+      }
+      const blocked = !!(probe && probe.blocked);
+      return send(res, 200, { ok: true, netCut: cut, asUser: !!as, blocked, probe });
+    })().catch((e) => send(res, 200, { ok: false, error: String((e && e.message) || e).slice(0, 200) }));
+    return;
+  }
   if (req.method === "POST" && req.url === "/agent-run") {
     let aBody = "", aTooBig = false;
     req.on("data", (c) => { aBody += c; if (aBody.length > MAX_BODY) { aTooBig = true; req.destroy(); } });

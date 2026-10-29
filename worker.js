@@ -31190,7 +31190,12 @@ async function handleRequest(request, env, ctx) {
         const c = getContainer(env.SITE_BUILD_CONTAINER, laneName(HEALTH_LANE));
         const r = await c.fetch(new Request("http://build/health", { method: "GET", signal: AbortSignal.timeout(20000) }));
         const body = (await r.text()).slice(0, 200);
-        return Response.json({ ok: r.ok, status: r.status, body, image: healthImage(body), deploy: deployIdOf(env), lane: HEALTH_LANE, ms: Date.now() - t0 });
+        // AND WHETHER THE SITE AGENT'S COMMANDS CAN BE CUT OFF FROM THE INTERNET
+        // ON THIS CONTAINER (2026-10-29): the container's own reading, free.
+        let agentNet = null;
+        try { const an = await c.fetch(new Request("http://build/agent-net", { method: "GET", signal: AbortSignal.timeout(30000) })); agentNet = await an.json().catch(() => ({ ok: false, status: an.status })); }
+        catch (e) { agentNet = { ok: false, error: String((e && e.name) || e) }; }
+        return Response.json({ ok: r.ok, status: r.status, body, image: healthImage(body), deploy: deployIdOf(env), lane: HEALTH_LANE, ms: Date.now() - t0, agentNet });
       } catch (e) {
         return Response.json({ ok: false, error: String((e && e.message) || e).slice(0, 300), ms: Date.now() - t0 }, { status: 502 });
       }

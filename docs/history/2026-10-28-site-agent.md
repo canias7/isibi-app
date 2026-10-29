@@ -330,3 +330,23 @@ The Claude Code way: the agent types shell commands, not only our tools.
 - **Still to see live**: whether Cloudflare's containers allow a user
   namespace. If they do not, commands are refused (closed), and another way
   is needed. That is the first thing the live run reads.
+
+## Checking it live, for free (owner, 2026-10-29: "check")
+
+- **What Cloudflare documents**: each container instance runs in a Firecracker
+  microVM with its own kernel and network. Whether user namespaces or
+  `unshare` are allowed is not documented
+  (developers.cloudflare.com/containers/platform-details/architecture/), so
+  only the live container can answer.
+- **The free reading**: the build service's `GET /agent-net` runs the
+  wrapper's own check (`netCut`), then one real command (`netProbe`). The
+  command tries an outside address by IP (1.1.1.1:80) and a name lookup.
+  `blocked` is set only when both say blocked and nothing reached. The
+  existing free build-health press (`/api/site/build-health`) now carries it
+  as `agentNet`, so the owner's free canary press reads it after the deploy
+  with no paid call.
+- **Tests**:
+  - AS8: the probe for real, blocked; a reached answer and a refusal are
+    each not proof.
+  - AS9: the press carries the container's reading.
+  - The eight test files that read build-health stay green (138/138).
