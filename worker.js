@@ -1,5 +1,3 @@
-import { recipient } from "./site-mail.mjs";
-import { normalizeJob, validTimeZone } from "./site-jobs.mjs";
 import { hostIsBlocked, resolvesBlocked } from "./site-ssrf.mjs";
 // `OWN_ZONES` is imported because `cfZoneId` reads it — it was not, and that is
 // a ReferenceError on the FIRST line of that function, outside every try, so
@@ -11,8 +9,6 @@ import { OWN_ZONES, APP_ZONE, SITE_ZONE, normalizeHostname, isOwnHostname, isApp
 import { checkDns, dnsSentence } from "./site-dns.mjs";
 import { detectProvider, providerSentence } from "./site-registrar.mjs";
 import { offerFor as dcOfferFor, applyUrl as dcApplyUrl, signQuery as dcSign, rsaSigner as dcSigner } from "./site-domain-connect.mjs";
-import { secretsNeeded, MAX_TTL as SITE_API_MAX_TTL } from "./site-apis.mjs";
-import { credentialNote } from "./site-api-shape.mjs";
 import { Container, getContainer } from "@cloudflare/containers";
 import { makeCache, memoize } from "./ttl-cache.mjs";
 import { makeLimiter, bucketKey, tooMany, WINDOW_MS } from "./rate-limit.mjs";
@@ -36,7 +32,6 @@ import { importSite, importBriefBlock, readImportSite, placeImportedPhotos, publ
 import { handleUpload, handleUploadList, handleUploadDelete, MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_MODEL_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName, dispositionFor, readDownloadName, DOWNLOAD_NAME_KEY, uploadIsImage, uploadKind, UPLOAD_URL_PATH } from "./site-uploads.mjs";
 import { MEDIA_PART_BYTES, MEDIA_DRAFT_MS, MEDIA_SESSION_MS, MEDIA_CACHE, MEDIA_FORMATS, mediaDesignNote, mediaErrorNote, mediaLimits, mediaKindOf, isMediaName, draftKey, siteScope, draftScope, readStoredMeta, parseRange, mediaHeaders, etagMatches, ifRangeHolds, handleMediaStart, handleMediaPart, handleMediaComplete, handleMediaAbort, handleMediaStatus, handleMediaDelete, holdMedia, releaseMedia, abortProven, pagesUsing, mediaBlock, mediaForModel } from "./site-media.mjs";
 import { handleOwnerExport } from "./site-export.mjs";
-import { COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
 import { makeRecorder, BUILD_RECORD_TABLE } from "./builder/build-record.mjs";
 import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CONTAINER_CALL_MS, CONTAINER_BUILD_BUDGET_MS } from "./builder/build-budget.mjs";
@@ -104,7 +99,7 @@ import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_
 import { siteMetaKey, SITE_LIVE_FILE, carryPanelFields, keepPanelDescription } from "./site-meta.mjs";
 import { publishedSiteCsp } from "./site-headers.mjs";
 import { siteBucketName, ensureSiteBucket, syncSiteBucket, restBucket, bindingBucket, deleteSiteBucket, RESYNC_PREFIX } from "./builder/site-bucket.mjs";
-import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, MAX_NEW_SLUG, capNewSlug, rebuildGoesLive, PUBLISH_KEEP_BUILDS, publishKeeps, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, applyRowQuery, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec, previousSidecar, heldMediaSource, heldStandIns, previewServed, ftsFilterOf, FTS_CATALOG_SQL, ftsJudgeSql, ftsJudgeParams, heldChangedIds, deadNewFunctions, jobsWithoutDead } from "./site-draft.mjs";
+import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, MAX_NEW_SLUG, capNewSlug, rebuildGoesLive, PUBLISH_KEEP_BUILDS, publishKeeps, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, applyRowQuery, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec, previousSidecar, heldMediaSource, heldStandIns, previewServed, ftsFilterOf, FTS_CATALOG_SQL, ftsJudgeSql, ftsJudgeParams, heldChangedIds, deadNewFunctions } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
@@ -142,7 +137,7 @@ import { drainRebuild, BATCH as REBUILD_BATCH, BUSY_DEFER_SEC as REBUILD_BUSY_SE
 import { sweepJobObjects } from "./builder/job-retention.mjs";
 import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, sqlRehearse, sqlReadOnly, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite, projectNameForSite, findSiteProjects, siteProjectDetails, createRehearsalBranch, rehearsalConn, deleteRehearsalBranch, staleRehearsalBranches } from "./site-db.mjs";
 import { rehearseHeldSchema, heldFromRehearsal } from "./builder/addon-rehearse.mjs";
-import { applySiteSchema, loadSiteSchema, readSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, ERRORS_TABLE_SQL, HITS_TABLE_SQL, JOBS_TABLE_SQL, droppedFields, refusedFields, auditTier, withJobDeps, storedJobFns } from "./site-schema.mjs";
+import { applySiteSchema, loadSiteSchema, readSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, ERRORS_TABLE_SQL, HITS_TABLE_SQL, droppedFields, refusedFields, auditTier, withJobDeps, storedJobFns } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { pagesAgain as pagesAgainOf } from "./builder/page-gen.mjs";
@@ -2803,26 +2798,6 @@ async function readOwnHits(conn) {
 // Send an email through a provider (Resend/SendGrid/Postmark) — shared by the
 // `email` function action and password-reset. Key + recipient go only to the
 // provider; returns {ok, status}.
-// Register a site's scheduled jobs in its own `_jobs` table. Nothing is
-// auto-deleted; the site's runner skips a job its schema no longer declares.
-async function persistSiteJobs(env, ownerId, slug, jobs) {
-  // INTO THE SITE'S OWN DATABASE (2026-10-27), as its owner's login (the
-  // limited one cannot create the table). The schedule is rewritten on every
-  // publish; `enabled`, `last_run` and `last_result` are the owner's and the
-  // runner's, so a republish never resumes a paused job or re-arms a done one.
-  if (!slug || !ownerId || !jobs.length) return;
-  const conn = await ownerSiteConn(env, slug);
-  if (!conn) throw new Error("jobs: the site's database is unreachable");
-  await sqlExec(conn, JOBS_TABLE_SQL);
-  const now = new Date().toISOString();
-  for (const j of jobs.slice(0, 8)) {
-    const spec = { fn: j.fn, ...(j.at ? { at: j.at, ...(j.tz ? { tz: j.tz } : {}) } : {}), ...(j.on ? { on: j.on } : {}) };
-    await sqlExec(conn,
-      "INSERT INTO _jobs (name, spec, schedule_minutes, updated_at) VALUES (?, ?::jsonb, ?, ?) " +
-      "ON CONFLICT (name) DO UPDATE SET spec=excluded.spec, schedule_minutes=excluded.schedule_minutes, updated_at=excluded.updated_at",
-      [j.name, JSON.stringify(spec), j.everyMinutes, now]);
-  }
-}
 // The real store and database behind the nightly backups. All the decisions —
 // the night window, the per-tick bound, idempotency by key, retention only
 // after a successful put — live in site-backup.mjs where they are tested with
@@ -11851,70 +11826,6 @@ async function siteUploadExists(env, slug, url) {
   try { return !!(await b.head(key)); } catch { return null; }
 }
 
-// Tell the owner a booking arrived. Detached — the submission already succeeded.
-//
-// The cooldown is claimed in the DATABASE, not in an isolate: Cloudflare runs
-// many isolates per colo, and a per-isolate memory would let a hammered form
-// send one email from each of them. This is a single conditional UPDATE, so
-// exactly one caller wins a window and everyone else in it does nothing.
-async function claimNotify(env, slug) {
-  const cutoff = new Date(Date.now() - COOLDOWN_MS).toISOString();
-  const q = `slug=eq.${encodeURIComponent(slug)}&notify=is.true&or=(notified_at.is.null,notified_at.lt.${cutoff})`;
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?${q}&select=uid,notified_at`, {
-    method: "PATCH",
-    headers: svcHeaders(env, { "content-type": "application/json", Prefer: "return=representation" }),
-    body: JSON.stringify({ notified_at: new Date().toISOString() }),
-    signal: AbortSignal.timeout(10000),
-  });
-  if (!r.ok) throw new Error("claim " + r.status);
-  const rows = await r.json().catch(() => []);
-  const row = Array.isArray(rows) && rows[0];
-  // No row means either notifications are off or another isolate got there
-  // first. Both are "do nothing", and neither is an error.
-  return row ? { ok: true, owner_uid: row.uid, at: row.notified_at } : { ok: false };
-}
-
-// THE WINDOW HANDED BACK (audit A12-9): the claim's winner found no mail key,
-// so nothing was sent and the next submission may try. Only this claim's own
-// stamp is cleared; a later winner's is never touched.
-async function unclaimNotify(env, slug, claim) {
-  const at = claim && typeof claim.at === "string" ? claim.at : "";
-  if (!at) return;
-  const q = `slug=eq.${encodeURIComponent(slug)}&notified_at=eq.${encodeURIComponent(at)}`;
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?${q}`, {
-    method: "PATCH",
-    headers: svcHeaders(env, { "content-type": "application/json", Prefer: "return=minimal" }),
-    body: JSON.stringify({ notified_at: null }),
-    signal: AbortSignal.timeout(10000),
-  });
-  if (!r.ok) throw new Error("unclaim " + r.status);
-}
-
-// THE MISSED-NOTIFICATION COUNTER (audit A12-9, owner's choice 2026-10-23;
-// `supabase/proposed/notify_missed.sql`, not applied). FAILS OPEN: until the
-// column and its two functions exist the RPC answers 404, take reads 0 and add
-// does nothing, so notifications go out exactly as before.
-async function notifyMissedRpc(env, fn, args) {
-  try {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
-      method: "POST",
-      headers: svcHeaders(env, { "content-type": "application/json" }),
-      body: JSON.stringify(args),
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!r.ok) return null;
-    return await r.json().catch(() => null);
-  } catch { return null; }
-}
-const notifyMissed = (env) => ({
-  take: async (slug) => {
-    const v = await notifyMissedRpc(env, "site_notify_missed_take", { p_slug: slug });
-    const n = Array.isArray(v) ? v[0] : v;
-    return Number.isInteger(n) && n > 0 ? n : 0;
-  },
-  add: async (slug, n) => { await notifyMissedRpc(env, "site_notify_missed_add", { p_slug: slug, p_n: n }); },
-});
-
 // The Go Farther account that owns the site. auth.users is not reachable through
 // PostgREST, so this is the GoTrue admin endpoint with the service key.
 async function ownerEmail(env, uid) {
@@ -11948,41 +11859,6 @@ async function sendMail(env, { to, subject, html, text }) {
     text: text || String(html || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 4000),
   });
 }
-
-// Email the submitter their confirmation, using the SITE OWNER'S provider key
-// out of that site's own vault. Fire-and-forget under `waitUntil`, exactly like
-// the owner notification beside it: the booking already succeeded, and a broken
-// mailer must never be indistinguishable from a broken form.
-//
-// `recentlySent` is per-isolate and SAID to be best-effort — the real control on
-// this path is the write rate limit, since reaching this code at all costs an
-// insert into the owner's own table, which they can see.
-const confirmSeen = new Map();
-// The same, for text messages, and deliberately a SEPARATE map. Both are keyed
-// by recipient, and an address and a phone number are different recipients even
-// for the same person — shared, an emailed confirmation would suppress the text
-// that was the whole reason for declaring both.
-const smsSeen = new Map();
-
-
-// One site's outbound deliveries per minute, per isolate. Bounded and cleared
-// wholesale rather than kept as a cache: this only has to stop the cheap flood.
-const webhookHits = new Map();
-
-
-
-// One cache for every site's third-party reads. Per isolate, so a busy site on
-// a busy PoP is well served and a quiet one still pays the owner's quota now and
-// then — the honest description, and it is the same limitation `ttl-cache`
-// carries everywhere else here. The declaration's own TTL decides how long an
-// entry lives, so this only bounds how MANY are kept.
-// The OUTER window is the longest a declaration may ask for, so it bounds
-// memory and never silently shortens a declared hour to a minute; the entry
-// carries its own `until`, which is what actually decides. Written the other way
-// round — a 60s cache under a `cacheSeconds: 3600` declaration — the declaration
-// would be quietly ignored and the owner's quota spent sixty times over.
-const siteApiCache = makeCache({ ttlMs: SITE_API_MAX_TTL * 1000, max: 2000 });
-
 
 // ── Cloudflare for SaaS: the provider half of custom domains ────────────────
 //
@@ -13402,10 +13278,6 @@ async function backendWriter(env, slug, { rehearse = null } = {}) {
       }
       return applySiteSchema(conn, schemaSpec);
     },
-    async jobs(uid, jobs) {
-      if (on) { hold.add({ kind: "jobs", jobs: Array.isArray(jobs) ? jobs : [] }); return { held: true }; }
-      return persistSiteJobs(env, uid, slug, jobs);
-    },
     async seed(conn, schemaSpec, seed) {
       if (holding) {
         hold.add({ kind: "seed", spec: schemaSpec, seed: seed && typeof seed === "object" ? seed : {} });
@@ -13433,7 +13305,6 @@ async function backendWriter(env, slug, { rehearse = null } = {}) {
   w.calls = {
     applySiteSchema: (conn, schemaSpec) => w.schema(conn, schemaSpec),
     seedSiteRows: (conn, schemaSpec, seed) => w.seed(conn, schemaSpec, seed),
-    persistSiteJobs: (_env, uid, _slug, jobs) => w.jobs(uid, jobs),
   };
   return w;
 }
@@ -14108,12 +13979,6 @@ async function runPublication(env, slug, j, etag, say = null) {
         }
         await mark("schema", dead.length ? { deadFns: dead } : {});
         if (plan.spec && !skipped.some((x) => x.stage === "schema")) tell("schema");
-      }
-      if (!did("jobs")) {
-        const sorted = jobsWithoutDead(plan.jobs, j.deadFns);
-        for (const b of sorted.blocked) skipped.push({ stage: "jobs", name: b.name, why: "the function it runs, " + b.fn + ", could not be created" });
-        if (sorted.jobs.length) { try { await live.persistSiteJobs(env, j.uid, slug, sorted.jobs); } catch (e) { if (asideOk(e)) aside("jobs", e); else return keep("jobs", errorClassForLog(e), "switched", e); } }
-        await mark("jobs");
       }
       if (!did("seeds")) {
         for (const sd of plan.seeds) { try { await live.seedSiteRows(db, sd.spec || plan.spec || {}, sd.seed); } catch (e) { if (asideOk(e)) aside("seeds", e); else return keep("seeds", errorClassForLog(e), "switched", e); } }
@@ -15736,7 +15601,7 @@ async function siteReadVars(env, slug) {
     // (the limited one cannot create): on a site built before they existed.
     if (app) {
       const ownerConn = await siteBackendBySlug(env, slug).catch(() => null);
-      if (ownerConn) for (const q of [ERRORS_TABLE_SQL, HITS_TABLE_SQL, JOBS_TABLE_SQL]) await sqlExec(ownerConn, q).catch(() => {});
+      if (ownerConn) for (const q of [ERRORS_TABLE_SQL, HITS_TABLE_SQL]) await sqlExec(ownerConn, q).catch(() => {});
     }
     // EVERY SECRET THE SITE HOLDS, unlocked here and given to it alone: the
     // owner's mail, SMS, webhook, Stripe and connection keys, whatever they
@@ -28668,7 +28533,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // otherwise start running before anything is published.
       const bWriter = await backendWriter(env, slug);
       // THIS BUILD'S BACKEND WRITES GO THROUGH ITS WRITER: the same names, the same arguments.
-      const { applySiteSchema, seedSiteRows, persistSiteJobs } = bWriter.calls;
+      const { applySiteSchema, seedSiteRows } = bWriter.calls;
       let made = null;
       try {
         // A HELD REVISE HOLDS THE MERGED SPEC, OR NOTHING (2026-10-18, A06-3
@@ -28706,25 +28571,6 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           ...back,
         }, { status: 502 });
       }
-
-      // Register the site's scheduled jobs. Best-effort and non-fatal for the
-      // same reason seeding is: a site whose reminders are not registered still
-      // works, and failing the build here would throw away a live database over
-      // background work. Declared jobs OVERWRITE by (slug, name); none are
-      // auto-deleted, so a revise that drops a job leaves it registered — which
-      // is why the runner re-reads the schema and skips a job the spec no longer
-      // declares, rather than trusting the row.
-      try {
-        const jobs = Array.isArray(spec.jobs) ? spec.jobs : [];
-        if (jobs.length) {
-          // `bu.id`, NOT `uid` — which was never bound in this scope and threw a
-          // ReferenceError straight into the catch below, so NOT ONE JOB HAS
-          // EVER REGISTERED. Dead at the last link with every layer above it
-          // correct, and silent because this block is best-effort by design.
-          await persistSiteJobs(env, bu.id, slug, jobs);
-          tr.at("jobs", { n: jobs.length });
-        }
-      } catch (e) { console.error("jobs persist:", slug, e && e.message); }
 
       // Starter content for the display tables. Best-effort and non-fatal: a site
       // with a live database and an empty menu is still a site, but one WITH the
@@ -42026,16 +41872,16 @@ async function handleRequest(request, env, ctx) {
             aAskOut.attached = !!(ab && ab.attached === true);
             aHeldOut.earlier = heldList(ab && ab.putOff) || [];
             aHeldOut.parts = aLater.held.slice();
-            // THE OWNER'S ZONE, for a job's clock time (2026-09-03): asked of
-            // Intl, so an unknown name is nothing rather than a throw at the
-            // cron; nothing means UTC, which the runner reads absent as.
-            const aTz = validTimeZone(ab && ab.tz);
+            // THE OWNER'S ZONE (2026-09-03): asked of Intl, so an unknown name
+            // is nothing rather than a throw.
+            const aTz = (() => {
+              const z = ab && typeof ab.tz === "string" ? ab.tz.trim() : "";
+              if (!z || z.length > 64) return null;
+              try { new Intl.DateTimeFormat("en-US", { timeZone: z }); return z; } catch { return null; }
+            })();
             // ── TODAY, IN THE SITE'S OWN ZONE (2026-09-19) ─────────────────
             //
-            // For the one-time job's past-date refusal, and read through the
-            // same `Intl` the scheduler reads its occurrences through — so
-            // "already gone" means the same thing to the designer's cleaner
-            // and to `dueJobs`. `en-CA` is not a locale choice, it is the one
+            // For a cleaner's past-date check. `en-CA` is not a locale choice, it is the one
             // that formats a date as `YYYY-MM-DD`; asking for the parts and
             // joining them by hand would be a second date formatter.
             //
@@ -42157,7 +42003,7 @@ async function handleRequest(request, env, ctx) {
               ...(r.made ? { functionErrors: r.made.functionErrors.length, refusedRules: r.made.refusedRules.length } : {}) }) } });
             // THIS TASK'S BACKEND WRITES GO THROUGH ITS WRITER: the names below
             // are the writer's, with the same arguments.
-            const { applySiteSchema, seedSiteRows, persistSiteJobs } = aWriter.calls;
+            const { applySiteSchema, seedSiteRows } = aWriter.calls;
             let aPagelessRevision = 0;
             let aDraftView = null;
             if (aWriter.on) {
@@ -42288,12 +42134,7 @@ async function handleRequest(request, env, ctx) {
             // the loop folds into the whole site, `aSiteFor` into a designer's
             // own view of it, in the same order (`aFolded`).
             const aFolded = [];
-            // A JOB ANSWER'S OWN FUNCTIONS (owner, 2026-10-22, option B),
-            // keyed by the cleaned job list: every fold of that list folds
-            // them first, so a designer shown the job is shown its function.
-            const aJobFns = new WeakMap();
             const aFoldInto = (st, k, value) => {
-              if (k === "job" && value && aJobFns.has(value)) aFoldInto(st, "function", aJobFns.get(value));
               const tier = SPEC_OF_KIND[k];
               if (tier) {
                 st.spec = proposedSpec(st.spec, k, value);
@@ -43100,8 +42941,6 @@ async function handleRequest(request, env, ctx) {
             const aDeclined = [];
             // KINDS REFUSED BY THEIR OWN CLEANER AFTER ONE CORRECTION (2026-10-22).
             const aKindRefused = [];
-            // A JOB'S ASKED INTERVAL, BY NAME (2026-10-03): see where it is read.
-            const aAskedEvery = new Map();
             // AN ENTRY LEFT OUT OF A LIST IS SAID (owner: no low limits, so a
             // page, component or table answer is a list; one bad entry must
             // not throw the good ones away, and must not vanish either).
@@ -44057,7 +43896,6 @@ async function handleRequest(request, env, ctx) {
                 const clean = cleanAdd(j, ran.value, { ...site, today: aToday });
                 // REFUSED BY ITS OWN CLEANER: never ready, and never reused.
                 if (!clean || !clean.ok) { if (!clean || clean.why !== "nothing") rejectReply(ran.raw, "add:" + ((clean && clean.why) || "unclean")); return; }
-                if (j === "job" && Array.isArray(clean.functions) && clean.functions.length) aJobFns.set(clean.value, clean.functions);
                 aReady.set(j, aChanges(j) ? clean.value : undefined);
                 aStartReady();
               } catch { /* its turn decides it */ }
@@ -44301,17 +44139,6 @@ async function handleRequest(request, env, ctx) {
               // were made without the answer, and are made again with it, once.
               if (ran.ask) { aStepAsk = { kind: k, ask: ran.ask }; break; }
               if (ran.value === undefined) { aDeclined.push(k); continue; }
-              // WHAT EACH JOB ASKED TO RUN EVERY, from the designer's OWN answer
-              // (2026-10-03, the mixed-work audit's MW7): the cleaner and the
-              // engine both raise an interval faster than the platform runs, and
-              // the reply then stated the raised number as if it were asked.
-              // Read off `ran.value`, never the cleaned one, by name.
-              if (k === "job") {
-                for (const j of Array.isArray(ran.value) ? ran.value : [ran.value]) {
-                  const n = j && typeof j === "object" ? Number(j.everyMinutes) : NaN;
-                  if (j && typeof j.name === "string" && Number.isFinite(n)) aAskedEvery.set(j.name.trim().toLowerCase(), Math.round(n));
-                }
-              }
               // `today` IS THE SITE'S OWN LOCAL DATE, not ours, and it is
               // stamped HERE rather than inside `siteFacts` for one reason:
               // `aSite` is rebuilt from the proposal after every kind, so a
@@ -44488,14 +44315,6 @@ async function handleRequest(request, env, ctx) {
                 if (d && typeof d === "object") aDropped.set(String(d.what) + ":" + String(d.name), d);
               }
               for (const sk of Array.isArray(clean.skipped) ? clean.skipped : []) aNotAdded.push({ kind: k, ...sk, msg: addRefusal(sk.why, k) });
-              // A JOB'S OWN FUNCTIONS ARE THE ADDITION'S FUNCTIONS (owner,
-              // 2026-10-22, option B): one more `function` answer, before the
-              // job, so the fold, the schema, the reply and the draft all carry
-              // them exactly as a separately designed function.
-              if (k === "job" && Array.isArray(clean.functions) && clean.functions.length) {
-                aAnswers.push({ kind: "function", value: clean.functions, requirements: [] });
-                aJobFns.set(clean.value, clean.functions);
-              }
               aAnswers.push({ kind: k, value: clean.value, requirements: ran.requirements });
               // THE DESIGN, AS A MILESTONE: what this kind will be, from the
               // cleaned answer itself, and what is designed or built next.
@@ -44539,13 +44358,6 @@ async function handleRequest(request, env, ctx) {
                 aFoldInto({ spec: aProposed, names: aNewNames, pages: aNewPages }, k, clean.value);
                 aFolded.push({ kind: k, value: clean.value });
                 aSite = siteFacts(aProposed);
-              }
-              // A CLOCK TIME IS READ IN THE OWNER'S ZONE (2026-09-03): the
-              // browser sends its zone with the addon, and a job with a time
-              // of day is stamped with it here — the model never answers a
-              // zone, and a job with no `at` carries none.
-              if (k === "job" && aTz) {
-                for (const j of Array.isArray(clean.value) ? clean.value : []) if (j && j.at) j.tz = aTz;
               }
             }
             } finally { aLoopDone = true; if (aStepAsk && ADD_KINDS.includes(aStepAsk.kind)) aAskedBy = aStepAsk.kind; }
@@ -44823,27 +44635,6 @@ async function handleRequest(request, env, ctx) {
               aAltered = folded.altered;
               aAccessDesigned = aDesigned;
               const merged = normalizeSchema(folded.spec);
-              // A JOB THAT RUNS A FUNCTION THE SITE ALREADY HAS (2026-09-03).
-              // `normalizeSchema` keeps a job only when its function is
-              // declared IN THE SAME SPEC and internal — right for a build,
-              // where the spec is the whole backend, and a silent drop here,
-              // where the spec is only what this message designed and a
-              // stored function has no body to re-send (re-sending one would
-              // CREATE OR REPLACE the live function with nothing). `cleanAdd`
-              // admitted the job against the stored internal names, so it is
-              // re-attached here through the engine's own reader, and only
-              // when the stored function really is internal.
-              // `storedJobFns` IS THAT READER AND THE AUDIT ASKS IT TOO
-              // (2026-09-19). This was an inline filter, and the audit a
-              // thousand lines above had no equivalent at all — so the two
-              // answered differently about the same job and run 52 registered
-              // one the customer was told could not be created.
-              const aJobFns = storedJobFns(aSpec);
-              for (const raw of Array.isArray(folded.spec.jobs) ? folded.spec.jobs : []) {
-                const j = normalizeJob(raw);
-                if (!j || (merged.jobs || []).some((x) => x.name === j.name)) continue;
-                if (aJobFns.has(j.fn)) merged.jobs = [...(merged.jobs || []), j];
-              }
               // THE SEED NET, on the lane that ADDS display tables to LIVE
               // sites. The build path grew this on 2026-08-12 (the designer
               // omits its own required `seed` — measured twice) and this lane
@@ -44954,77 +44745,6 @@ async function handleRequest(request, env, ctx) {
                 aFunctions = aNamed("functions").filter((n) => aMadeFns.includes(n));
                 aFnErrors = Array.isArray(aMade && aMade.functionErrors) ? aMade.functionErrors.slice() : [];
                 aRefused = Array.isArray(aMade && aMade.refusedRules) ? aMade.refusedRules.slice() : [];
-                aApis = (merged.apis || []).map((a) => a.name).filter((n) => aNamed("apis").includes(n));
-                // AND WHAT IT ASKED FOR, WHEN THE PLATFORM RUNS SOMETHING ELSE
-                // (2026-10-03, MW7): the applied interval is the engine's own,
-                // and `askedEveryMinutes` rides beside it only when the two
-                // differ — never on a job that runs once, whose interval is not
-                // a schedule anybody asked for.
-                aJobs = (merged.jobs || []).filter((j) => aNamed("jobs").includes(j.name)).map((j) => {
-                  const asked = aAskedEvery.get(String(j.name || "").toLowerCase());
-                  return { name: j.name, fn: j.fn, everyMinutes: j.everyMinutes,
-                    ...(Number.isFinite(asked) && asked !== j.everyMinutes && !j.on ? { askedEveryMinutes: asked } : {}),
-                    ...(j.at ? { at: j.at, tz: j.tz || null } : {}), ...(j.on ? { on: j.on } : {}) };
-                });
-                aSecrets = [...new Set((merged.apis || []).filter((a) => aApis.includes(a.name)).flatMap((a) => secretsNeeded(a)))];
-                // REGISTER THE JOBS — the build route's own call, still
-                // non-fatal (the database is live and the rest of the change
-                // stands), but NO LONGER SILENT (2026-09-14).
-                //
-                // The catch logged to the console and left `aJobs` exactly as
-                // it was, so the reply told the customer their reminder was
-                // scheduled while nothing anywhere would ever run it. The old
-                // comment said "a job that did not register is a job the next
-                // publish registers" — `persistSiteJobs` has two call sites and
-                // the other is the BUILD route, so on this path that is a full
-                // rebuild, not the next publish. The claim outlived its layer.
-                //
-                // `jobErrors` beside `functionErrors`, exactly as a function
-                // that failed to CREATE is reported, and `aJobs` is cleared so
-                // nothing downstream can claim what did not happen.
-                // ── A JOB WHOSE NEW FUNCTION FAILED IS NOT REGISTERED ────
-                //
-                // Owner, 2026-09-14: *"When a required new function fails, do
-                // not register its dependent new jobs. Name the failed
-                // dependency and remove those jobs from the scheduled-success
-                // list."*
-                //
-                // The first pass at this only took such a job out of the
-                // EVIDENCE — so the reply stopped calling the requirement
-                // delivered and went on registering a timer against a function
-                // that does not exist. Every firing of it would write "this job
-                // is no longer part of the site", for ever, on a schedule the
-                // customer was told was set up.
-                //
-                // THE DEPENDENCY IS NAMED, because "couldn't be set up" gives
-                // nobody anything to do: the function is what failed and the
-                // function is what they can ask for again. A job on a function
-                // the apply never touched is untouched here.
-                const aDeadFns = new Set(aFnErrors.map((e) => String((e && e.name) || "").toLowerCase()).filter(Boolean));
-                const aBlocked = aDeadFns.size ? aJobs.filter((j) => aDeadFns.has(String(j.fn || "").toLowerCase())) : [];
-                if (aBlocked.length) {
-                  const blockedNames = new Set(aBlocked.map((j) => String(j.name || "").toLowerCase()));
-                  aJobErrors = [...aJobErrors, ...aBlocked.map((j) => ({ name: j.name, error: "the function it runs, " + j.fn + ", could not be created" }))];
-                  aJobs = aJobs.filter((j) => !blockedNames.has(String(j.name || "").toLowerCase()));
-                  aFailedKinds.add("job");
-                  aMark("jobs", "blocked", { n: aBlocked.length });
-                  // AND THE REGISTRATION ITSELF NEVER SEES THEM. `merged.jobs`
-                  // carries the site's stored jobs too, so the filter is by
-                  // NAME rather than a wholesale skip: a job that was already
-                  // running is not taken off the site by an unrelated failure.
-                  merged.jobs = (merged.jobs || []).filter((j) => !blockedNames.has(String((j && j.name) || "").toLowerCase()));
-                }
-                if (aJobs.length) {
-                  try { await persistSiteJobs(env, ou.id, ownerSlug, merged.jobs); aMark("jobs", "ok", { n: aJobs.length }); }
-                  catch (e) {
-                    const why = (e && e.message ? String(e.message) : "could not be scheduled").slice(0, 200);
-                    console.error("addon jobs persist:", ownerSlug, why);
-                    aJobErrors = aJobs.map((j) => ({ name: j.name, error: why }));
-                    aJobs = [];
-                    aFailedKinds.add("job");
-                    aMark("jobs", "fail", { n: aJobErrors.length });
-                  }
-                }
                 // A FUNCTION THAT FAILED TO CREATE IS THE SAME KIND OF FACT and
                 // was already reported — it just never reached the coverage,
                 // so a requirement handed to the `function` step still read as
@@ -47837,37 +47557,6 @@ async function handleRequest(request, env, ctx) {
               // scheduled and nothing anywhere would ever run it.
               jobErrors: aJobErrors.length ? aJobErrors : undefined,
               needsSecrets: aSecrets.length ? aSecrets : undefined,
-              // WHERE THE KEY COMES FROM, beside the sentence that already says
-              // where it GOES (2026-09-19). `needsSecrets` names the secret and
-              // the browser says "add RATES_KEY under Cloud → Secrets", which
-              // is a destination with no provenance: nothing anywhere said
-              // which service `RATES_KEY` is a key for or which page to sign up
-              // on. Composed HERE and printed verbatim, the way `pictureNote`
-              // and `coverNote` are, because a second composer in the browser
-              // is how a customer starts being told about keys nobody asked
-              // for.
-              //
-              // DERIVED PER CONNECTION FROM ITS OWN DECLARATION, never from the
-              // model's claim and never from the change-wide secrets list. A
-              // flat list answers "does this CHANGE need a key", which is a
-              // different question from "does THIS connection need one" the
-              // moment a request carries both kinds — measured, a keyless
-              // connection beside a keyed one was handed the keyed one's
-              // go-and-sign-up sentence, and a keyless one alone was told it
-              // was "answering already" about a service nobody had called.
-              // `credentialNote` asks `secretsNeeded` itself now, so this call
-              // site cannot hand it the wrong question.
-              // READ OFF `aSpec`, the post-apply spec, exactly as `appliedFacts`
-              // reads its own api facts — and not off `merged`, which is the
-              // apply block's own local and is out of scope here. A first draft
-              // reached for it and the route threw `ReferenceError: merged is
-              // not defined` on every connection: caught by driving the route,
-              // which `node --check` and every source guard pass.
-              credentialNote: aApis.length
-                ? (credentialNote(
-                    ((aSpec && Array.isArray(aSpec.apis) ? aSpec.apis : []))
-                      .filter((a) => a && aApis.includes(a.name))) || undefined)
-                : undefined,
               provisioned: aProvisioned || undefined,
               // THE MIGRATION RECORD (stage 8): which job made what, and that
               // the page it was made for is live. Absent when the addon
@@ -48607,19 +48296,6 @@ async function handleRequest(request, env, ctx) {
             try {
               if (request.method === "GET") {
                 const listed = await listSecrets(vault, { slug: sslug });
-                // The last webhook attempt rides along with the names, because
-                // this route IS the webhook configuration surface — an owner
-                // looking at WEBHOOK_URL is exactly the person asking whether it
-                // works. Additive: the panel reads `.secrets` and is untouched.
-                // Best-effort, because a missing note must not fail the listing.
-                try {
-                  const sdb = await siteRowConn(env, sslug);
-                  if (sdb) {
-                    const rows = await sqlQuery(sdb, "SELECT v FROM _meta WHERE k='webhook_last'", []);
-                    const v = rows && rows[0] && rows[0].v;
-                    if (v) listed.webhook = typeof v === "string" ? JSON.parse(v) : v;
-                  }
-                } catch { /* the names are the answer either way */ }
                 return Response.json(listed);
               }
               if (request.method === "POST") {

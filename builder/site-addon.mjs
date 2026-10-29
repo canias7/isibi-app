@@ -93,16 +93,18 @@ export function addonFailure(reason, { reconstruct = false, layer, kind, problem
 /**
  * WHAT AN ADDON MAY CHANGE ABOUT A TABLE THE SITE ALREADY HAS.
  *
- * Exactly the two features that need a PAGE as well as a schema change, which is
- * what makes them this lane's and not the `rules` layer's:
+ * Exactly the feature that needs a PAGE as well as a schema change, which is
+ * what makes it this lane's and not the `rules` layer's:
  *
- *   payment    — a table becomes payable, and a page needs a Buy button.
  *   publicView — a read-only projection, and a page needs `usePublicRows`.
+ *
+ * (`payment` was the other until 2026-10-29: a card payment is the site's own
+ * server code now, written when the owner asks.)
  *
  * Everything else about an existing table belongs to `rules`, which publishes
  * nothing. Two lanes able to change one thing is two answers that can disagree.
  */
-export const ADDON_TABLE_FIELDS = ["payment", "publicView"];
+export const ADDON_TABLE_FIELDS = ["publicView"];
 
 /**
  * Fold a designed schema over the site's stored one.
@@ -139,9 +141,11 @@ export const ADDON_TABLE_FIELDS = ["payment", "publicView"];
  * column hides it from every read while the values sit in Postgres.
  */
 /**
- * The spec-level tiers an addon may declare, beyond its tables.
+ * The spec-level tiers an addon may declare, beyond its tables: its functions
+ * (outside connections and scheduled jobs went on 2026-10-29; they are the
+ * site's own server code now).
  *
- * ALL THREE WERE DROPPED ON THIS PATH, measured: the route passed
+ * THEY WERE ALL DROPPED ON THIS PATH, measured: the route passed
  * `{ tables: … }` and nothing else, so `normalizeSchema` never saw them. That
  * is the entire "the model writes the backend" tier — an inbound webhook
  * handler, a confirmation computed by SQL, a third-party read — unreachable on
@@ -153,7 +157,7 @@ export const ADDON_TABLE_FIELDS = ["payment", "publicView"];
  * `CREATE OR REPLACE`d. Rate limits are deliberately NOT here — an addon does
  * not ask for them, and the erase semantics are a separate question.
  */
-export const ADDON_SPEC_FIELDS = ["functions", "apis", "jobs"];
+export const ADDON_SPEC_FIELDS = ["functions"];
 
 export function mergeAddonSchema(prior, designed) {
   const priorTables = Array.isArray(prior) ? prior : (prior && Array.isArray(prior.tables) ? prior.tables : []);

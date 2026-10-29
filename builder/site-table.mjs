@@ -24,12 +24,6 @@
 //
 // EVERY COMMENT BELOW IS THE BUILD TOOL'S OWN, moved with the text it explains.
 //
-// THE ONE IMPORT, and it is here for the same reason the file exists: `SHAPE_TOP`
-// is what the cleaner accepts at the root of an answer sketch, and `API_ITEM`
-// declares the same thing to the model. Written out here it was a second copy,
-// and it had already drifted — the tool said object-only while the cleaner walked
-// a top-level list. `site-api-shape.mjs` imports nothing, so this stays a leaf.
-import { SHAPE_TOP } from "../site-api-shape.mjs";
 // The languages the schema engine really supports, from the module that emits
 // the `LANGUAGE` clause — so the tool cannot offer one `functionSql` will not
 // write, and a language added there reaches the designer by existing.
@@ -323,182 +317,6 @@ description:
   required: ["name", "columns"],
 };
 
-// ── THE OTHER THREE SHAPES OF THE BACKEND (2026-09-03) ──────────────────────
-//
-// The build's `backend` has four tiers — tables, functions, apis, jobs — and a
-// first build sends none of them (owner, 2026-09-03: "the build step doesnt
-// have backend, so its gonna be on the addon step if needed"). So the ADD step
-// has to be able to ask for all four, and the same rule that lifted
-// `TABLE_ITEM` above applies to the other three: one shape, two framings, in
-// the module both paths may read. These are `design_schema`'s
-// `backend.functions.items`, `backend.apis.items` and `backend.jobs.items`,
-// moved with their own comments, and bound in worker.js by identity.
-
-export const JOB_ITEM = {
-  type: "object",
-  required: ["name", "fn", "everyMinutes"],
-  properties: {
-    name: { type: "string", description: "lowercase identifier, e.g. remind_tomorrow" },
-    fn: { type: "string", description: "The internal function returning the messages, e.g. bookings_due_tomorrow" },
-    everyMinutes: { type: "integer", description: "How often to run. 1440 = daily, 60 = hourly. Minimum 15." },
-    // A CLOCK TIME (owner, 2026-09-03). Without it "every day at nine" ran
-    // every 1440 minutes from whenever the job was added. The zone is not the
-    // model's to answer: the owner's browser supplies it when the job is added.
-    at: { type: "string", description:
-      "For a job that runs once a day or less often: the time of day it runs, \"HH:MM\" on a 24-hour clock in the " +
-      "site's own local time — \"09:00\" for a morning reminder, \"18:30\" for an end-of-day summary. Leave it out " +
-      "for a job on a plain interval (hourly, every 15 minutes)." },
-    // ── A JOB THAT RUNS ONCE (2026-09-19) ──────────────────────────────────
-    //
-    // Owner: *"A request to run once must never silently become a recurring
-    // job."* Until today there was no run-once field at all, so "remind me on
-    // the 3rd" became a reminder that fires every day for ever — a missing
-    // FIELD rather than a missing capability, and its failure mode is silent
-    // AND repeating, which is the worst pair available: nobody notices the
-    // first wrong send, and every send after it is another one.
-    //
-    // THE DATE ALONE, because the time of day is `at`'s job already and a
-    // second time field here would be two copies of one thing that can
-    // disagree. `on` REQUIRES `at` and `normalizeJob` refuses the pair
-    // outright without it: a reminder is a message going out at a moment
-    // somebody chose, and "midnight, presumably" is a guess about what they
-    // meant — made once, and then made for ever, since there is no second
-    // occurrence to correct it at.
-    on: { type: "string", description:
-      "For a job that runs ONCE and then never again: the single date it runs, \"YYYY-MM-DD\" in the site's own " +
-      "local time. You MUST also give `at` — say what time of day as well, because a one-time reminder has no " +
-      "second chance to be at the right time. Leave `on` out for anything that repeats, however rarely. Never " +
-      "give a date that has already passed." },
-  },
-};
-
-export const API_ITEM = {
-  type: "object",
-  required: ["name", "url"],
-  properties: {
-    name: { type: "string", description: "lowercase identifier the page calls by, e.g. exchange_rates" },
-    url: { type: "string", description: "https only. e.g. https://api.example.com/v1/latest?base={{param.base}}&key={{RATES_KEY}}" },
-    // A POST HERE IS STILL A READ, and the caching is why that has to
-    // be said. `normalizeApi` gives every declaration a 60-second
-    // window by default and `cacheKey` is slug|name|params — no method,
-    // no body — so a declared POST is sent ONCE and then answered from
-    // the store for a minute without contacting the service at all.
-    //
-    // Right for what this exists for: plenty of read endpoints require
-    // POST (GraphQL, some search and pricing APIs), and caching them is
-    // the whole point, since every uncached read spends the OWNER's own
-    // quota. Wrong the moment the POST does something — the first call
-    // lands, the next few silently do not, and it starts working again
-    // a minute later, which reads as the third party being flaky rather
-    // than as us not calling them.
-    //
-    // Not fixed by refusing to cache POSTs: that breaks the legitimate
-    // case and puts the owner's quota back on every page view. Fixed by
-    // saying the thing the model cannot infer from "POST only".
-    method: { type: "string", enum: ["GET", "POST"],
-      description: "GET unless the service's READ endpoint requires POST (GraphQL, some search and pricing APIs). " +
-        "NEVER use this to make something happen on the other side — send a message, place an order, reserve a slot. " +
-        "Every answer here is cached, so the request is made once and then answered from the store until the window " +
-        "expires: an action would run sometimes and not others. Outbound actions belong in a database function." },
-    headers: { type: "object", description: "e.g. {\"Authorization\":\"Bearer {{RATES_KEY}}\"}" },
-    body: { type: "string", description: "POST only. The request body, with the same {{SECRET}} and {{param.x}} placeholders." },
-    // WHAT EACH BLANK IS, not merely what it is called. `params` was an array
-    // of bare strings, so the catalogue the page writer reads said
-    // `weather(city)` and nothing about whether `city` may be left out, what
-    // kind of value it takes, or what it means. A page that omits a parameter
-    // the service requires used to send the request anyway with the blank
-    // substituted empty — and plenty of services answer 200 to that with a
-    // default, so the page renders something plausible and wrong.
-    //
-    // A BARE STRING IS STILL ACCEPTED, because every connection stored before
-    // today is a list of them and they go on working exactly as they did.
-    params: {
-      type: "array",
-      description: "Every blank a page may fill in — each {{param.x}} in the url or body. A plain string still works " +
-        "and says only the name; an object says what the page must know. Anything a page sends that is not named here is dropped.",
-      items: {
-        type: "object",
-        required: ["name"],
-        properties: {
-          name: { type: "string", description: "lowercase, matching the {{param.x}} it fills, e.g. city" },
-          type: { type: "string", enum: ["string", "number", "boolean"], description: "What kind of value the service expects." },
-          required: { type: "boolean", description:
-            "true when the service cannot answer without it. A page that leaves a required one out is refused BEFORE the call, " +
-            "so the owner is not billed for a request that could never work. Leave it out for a parameter that is optional." },
-          description: { type: "string", description: "One line: what it is, in the words a page would use. e.g. the town or postcode to look up" },
-        },
-      },
-    },
-    // WHAT THE ANSWER LOOKS LIKE — the largest gap in this tier and the reason
-    // the whole thing could be applied, stored, reported as added and still
-    // render nothing. The page's hook is `useApi<T = unknown>`, so without this
-    // the page writer invents both the type AND the field names it reads, from
-    // the same guess — which means the type agrees with the wrong field name
-    // and the compiler says nothing. Measured: such a page typechecks clean and
-    // renders an empty string.
-    // ⚠ THE TYPE IS DERIVED FROM `SHAPE_TOP`, never written out here. It said
-    // `"object"` while the cleaner walked a top-level ARRAY perfectly happily,
-    // so a service whose whole answer is a list — which is most list endpoints —
-    // could be described by the pipeline and not by the tool. Two copies of one
-    // rule, drifted; one definition now, and widening either end is widening
-    // both.
-    //
-    // ⚠ AND THE ARBITRARY FIELD NAMES ARE PERMITTED IN AS MANY WORDS, because
-    // a schema that declares an object and says nothing about its keys is
-    // CLOSED under xAI's documented tool-schema rules — `additionalProperties`
-    // defaults to false there. A sketch is nothing BUT arbitrary field names:
-    // they are the service's own, unknowable when this tool is written, and a
-    // closed object admits none of them. So the one thing this field exists to
-    // carry was the one thing the outgoing schema did not permit.
-    //
-    // THE PERMISSION SITS WHERE A TYPE IS DECLARED, AND THAT IS ONE PLACE.
-    // Only a declared object schema can be closed, and this schema declares a
-    // type exactly once — here, at the root. The ARRAY branch declares no
-    // `items`, so its entries are unconstrained and there is no object schema
-    // for the rule to close; below the root nothing declares a type either,
-    // because `additionalProperties: true` is "any value" rather than a
-    // further schema. A belt at either of those would be a keyword that
-    // constrains nothing, and the risk of one is asymmetric: it cannot widen
-    // what is already unconstrained, and it is one more thing a strict
-    // validator can have an opinion about.
-    //
-    // LOCAL VALIDATION IS NOT PROVIDER ACCEPTANCE, and `test/api-shape.test.mjs`
-    // keeps the two apart. What is established: this is standard JSON Schema,
-    // it is the form this very file already uses for an open-key map
-    // (`searchWeights`, `computed`), and a checker implementing the documented
-    // closed-by-default rule admits a real object sketch and a real top-level
-    // list against the schema as `toXaiRequest` really sends it. What is NOT
-    // established is that xAI accepts it — that needs one paid call, which is
-    // the owner's. Both this and the type union above are in ONE place for the
-    // reason `toXaiRequest`'s own header gives about the nested tool form: a
-    // live 400 is a one-line flip rather than a hunt.
-    returns: { type: SHAPE_TOP.slice(), additionalProperties: true, description:
-      "OPTIONAL but write it whenever you know the service's answer: a SKETCH of the JSON it sends back, with the same keys " +
-      "nested the same way, and every leaf replaced by what KIND of value it is — \"string\", \"number\", \"boolean\", or " +
-      "\"unknown\" when you genuinely do not know. A list is written as a one-entry array of the entry's own sketch — and when " +
-      "the WHOLE answer is a list, that one-entry array is the whole sketch, e.g. [{\"id\":\"number\",\"title\":\"string\"}]. " +
-      "e.g. {\"current\":{\"temp_c\":\"number\",\"condition\":{\"text\":\"string\"}},\"forecast\":[{\"day\":\"string\",\"high\":\"number\"}]}. " +
-      "NEVER put a real value in it (\"21.5\", \"sunny\") — that is a sample, and a page written against a sample hardcodes today's " +
-      "answer, and NEVER write a sentence here. This is what lets the page read the right field names; leave it out only if you " +
-      "truly cannot say." },
-    // WHERE THE KEY COMES FROM. The platform already tells the owner where to
-    // PUT it — the reply names the secret and says Cloud → Secrets — and
-    // nothing anywhere said which service it belongs to or where to sign up, so
-    // a bare `RATES_KEY` arrived with no way to act on it.
-    credential: { type: "object", description:
-      "Where the owner gets the key, when the url or headers carry a {{SECRET}}. LEAVE IT OUT ENTIRELY for a service that " +
-      "needs no key — plenty of public endpoints do not, and the platform works that out from the declaration itself rather " +
-      "than from this field, so an empty one costs nothing and a wrong one would send somebody to sign up for nothing.",
-      properties: {
-        service: { type: "string", description: "The service's own name, as the owner would recognise it. e.g. WeatherAPI" },
-        url: { type: "string", description: "https only. The page the owner signs up or finds the key on." },
-        note: { type: "string", description: "One line about the plan, if it matters. e.g. the free tier covers 1,000 calls a month" },
-      },
-    },
-    cacheSeconds: { type: "integer", description: "0-3600. How long one answer stays good. Every uncached read costs the owner." },
-  },
-};
-
 export const FUNCTION_ITEM = {
   type: "object",
   required: ["name", "returns", "body"],
@@ -572,19 +390,15 @@ export const FUNCTION_ITEM = {
       "Declaring 'plpgsql' for a body that is a single SELECT still works but is slower for no reason; declaring 'sql' for a body " +
       "that needs plpgsql is a syntax error and the function will not be created at all." },
     internal: { type: "boolean", description:
-      "Set true when the function is for the PLATFORM to call, never a page — a `confirm: {fn}` message builder, or a `hook_*` inbound webhook handler. " +
-      "An internal function gets no EXECUTE grant, so no visitor can call it. That matters: it takes a row id and returns somebody's " +
-      "email address and message, so left callable a stranger reads any customer's confirmation by guessing a number. " +
+      "Set true when the function is for the site's own server code to call, never a page. " +
+      "An internal function gets no EXECUTE grant, so no visitor can call it. " +
       "Leave it off for anything a page calls by name, like a claim lookup." },
     // DECISION 2a (owner, 2026-10-22). Every database-function call is a POST,
-    // reads included, so the Worker cannot tell a read from a write by the
-    // request; this declaration is what it reads. `true` puts the site's spam
-    // check (Turnstile, when the owner turned it on) in front of the call,
-    // exactly as a public insert has it. Absent means a read and stays ungated.
+    // reads included, so a read cannot be told from a write by the request;
+    // this declaration says which it is. Absent means a read.
     writes: { type: "boolean", description:
       "Set true when the function INSERTS, UPDATES or DELETES rows — a booking made through a function, a cancel, an amend, a sign-up, a vote. " +
       "Leave it off for a function that only reads (a claim lookup, a slot count, a report). " +
-      "On a site whose owner turned the spam check on, a visitor's call to a `writes` function must pass that check, as a public form submission does; " +
-      "a page calls it with useRpcAction (or useCancelClaim / useAmendClaim), never useRpc." },
+      "A page calls it with useRpcAction (or useCancelClaim / useAmendClaim), never useRpc." },
   },
 };

@@ -48,7 +48,7 @@ export const COVERAGE = ["covered", "elsewhere", "unsupported"];
  * passed along. `edit` is here because "they can change the wording later" is a
  * real and correct answer that no add kind owns.
  */
-export const COVERAGE_STEPS = ["table", "function", "api", "job", "page", "component", "qr", "three", "photo", "edit"];
+export const COVERAGE_STEPS = ["table", "function", "page", "component", "qr", "three", "photo", "edit"];
 
 /**
  * ── WHETHER A SITE CAN ALREADY HOLD ONE, AND WHETHER ANYONE CAN LOOK ────────
@@ -86,7 +86,7 @@ export const COVERAGE_STEPS = ["table", "function", "api", "job", "page", "compo
  * `COVERAGE_STEPS` in both directions, so a step added next month must be
  * placed deliberately rather than falling into whichever branch it lands in.
  */
-export const SITE_KINDS = ["table", "function", "api", "job", "page", "qr", "three", "photo"];
+export const SITE_KINDS = ["table", "function", "page", "qr", "three", "photo"];
 export const OPAQUE_KINDS = ["component"];
 
 /**
@@ -864,15 +864,13 @@ export const FOLLOWS = Object.freeze(["asked", "needed", "optional", "unrelated"
 export const KEPT_FOLLOWS = Object.freeze(["asked", "needed"]);
 export const CARRIED = Object.freeze(["yes", "no", "unsure"]);
 /**
- * THE PARTS OF A TABLE THAT DO SOMETHING, each one checkable on the table as it
- * was applied: the owner's email about each new row (sent for every `collect`
- * table — `shouldNotify` in `site-notify.mjs`), the submitter's emailed
- * confirmation (`confirm`), their text (`sms`), another system told
- * (`webhooks`), a card payment (`payment`). A table that exists without the
- * part does not do that thing, which is the owner's rule kept: the table is
- * not the behaviour.
+ * THE PARTS OF A TABLE THAT DO SOMETHING beyond holding rows. None since
+ * 2026-10-29 (the owner: "delete it, let the model just make it when asked"):
+ * an email, a text, a payment or another system told is the site's own server
+ * code now, never a part of a table. The vocabulary stays so a judgment naming
+ * one is refused rather than believed.
  */
-export const TABLE_PARTS = Object.freeze(["notify", "confirm", "sms", "webhooks", "payment"]);
+export const TABLE_PARTS = Object.freeze([]);
 /**
  * ── EACH SETTING AND EACH COLUMN OF A TABLE IS ITS OWN CARRIER (2026-10-07) ──
  *
@@ -891,7 +889,7 @@ export const TABLE_PARTS = Object.freeze(["notify", "confirm", "sms", "webhooks"
  */
 export const TABLE_SETTING_KEYS = Object.freeze([
   "oncePerUser", "enforceRefs", "expires", "scheduled", "timestamps", "fts", "unique", "uniqueCI", "maxRows",
-  "teamScope", "publicView", "noOverlap", "confirm", "sms", "payment", "webhooks", "searchWeights", "defaultSort",
+  "teamScope", "publicView", "noOverlap", "searchWeights", "defaultSort",
   "checks", "computed", "transitions",
 ]);
 export const TABLE_SETTINGS = Object.freeze(TABLE_SETTING_KEYS.map((k) => k.toLowerCase()));
@@ -901,8 +899,7 @@ export const SETTING_SAYS = Object.freeze({
   expires: "entries that expire", scheduled: "entries that appear at a set time", timestamps: "when each entry was last changed",
   fts: "searching its entries by their words", unique: "no two entries the same", uniqueci: "no two entries the same, whatever the capitals",
   maxrows: "a limit on how many entries it keeps", teamscope: "entries shared within a team", publicview: "a public view of some of its entries",
-  nooverlap: "no two entries overlapping in time", confirm: "emailing the person who adds an entry", sms: "texting the person who adds an entry",
-  payment: "a card payment with each entry", webhooks: "telling another system about its entries", searchweights: "how its search results are ranked",
+  nooverlap: "no two entries overlapping in time", searchweights: "how its search results are ranked",
   defaultsort: "the order its entries come out in", checks: "checks on what an entry may hold", computed: "values worked out from its other columns",
   transitions: "the order an entry's status may move in",
 });
@@ -2380,7 +2377,7 @@ export function reconcileHandoffs(outcomes) {
  * change, and nothing here checked it; nothing here could see whether it is
  * there.
  */
-export const TOLD = Object.freeze(["unsupported", "still-to-do", "blocked", "checked", "set-up", "shown", "behind", "in-code", "scheduled", "already-there", "unseen", "not-tracked"]);
+export const TOLD = Object.freeze(["unsupported", "still-to-do", "blocked", "checked", "set-up", "shown", "behind", "in-code", "already-there", "unseen", "not-tracked"]);
 
 /**
  * WHAT A STEP WROTE DOWN PAST WHAT ONE STEP USED TO KEEP TRACK OF (2026-10-07).
@@ -2471,15 +2468,6 @@ export function requirementReport(list, { told = [], invalid = [], failed = [], 
   // count_existing_bookings"* about a function that was live and answering. It
   // is reached now only from `missing` (this layer looked and the thing is not
   // there) and from a `covered` claim whose own step failed.
-  // ── A SCHEDULED THING HAS ITS OWN UNVERIFIED HALF, AND IT IS NAMEABLE ────
-  //
-  // (owner, 2026-09-16: the intended meaning is *"Scheduled nightly at 23:00
-  // Europe/London. Automatic execution has not yet been verified."*) For every
-  // other kind, "I can't confirm" is a general limit — nothing on this path
-  // exercises behaviour. For a JOB it is one specific thing: the schedule is
-  // written down and readable, and what nobody has watched is it firing on its
-  // own.
-  const jobKind = (r) => r.reconciledKind === "job" || (r.status === "covered" && r.kind === "job");
   const out = [];
   const said = new Set();
   const tell = (r, as, withWhy) => {
@@ -2523,8 +2511,7 @@ export function requirementReport(list, { told = [], invalid = [], failed = [], 
   // the record has kept this distinction since 2026-09-15; the sentence did
   // not.
   const before = (r) => r.foundIn === "existing";
-  for (const r of unsure.filter((x) => !before(x) && !jobKind(x))) tell(r, shownTold(r) || "set-up", false);
-  for (const r of unsure.filter((x) => !before(x) && jobKind(x))) tell(r, "scheduled", false);
+  for (const r of unsure.filter((x) => !before(x))) tell(r, shownTold(r) || "set-up", false);
   for (const r of unsure.filter(before)) tell(r, "already-there", false);
   // …AND WHAT THE SITE WAS SEEN TO HAVE IS SAID AS A FACT (2026-10-25,
   // row-hedge). Live on driftwood-and-daughters-5 every "already there" need —
@@ -2632,15 +2619,6 @@ export function toldNote(told) {
   const inCode = of("in-code");
   if (inCode.length) {
     parts.push("I've added something for this to the page's code, but I couldn't read the built page to see it, and I haven't checked that what it says is what you asked for: " + inCode.map((r) => r.need).join("; ") + " — have a look.");
-  }
-  // THE ZONE IS NOT QUOTED, because nothing here can see it: a job's applied
-  // facts carry `everyMinutes` and `at` and no timezone. The reply's own
-  // `jobs` list names the schedule; inventing it here is how a clause comes to
-  // state a fact nothing checked.
-  const scheduled = of("scheduled");
-  if (scheduled.length) {
-    parts.push("Scheduled as you asked: " + scheduled.map((r) => r.need).join("; ")
-      + ". Automatic running hasn't been verified from here yet, so have a look after the first one is due.");
   }
   // THE SITE ALREADY HAD IT (2026-10-06): the set-up sentence's own words,
   // without the claim that this change did the setting up.

@@ -1559,29 +1559,10 @@ export const CASES = [
   // ── THE OTHER THREE TIERS OF THE BACKEND (owner, 2026-09-03) ──────────
   //
   // Each judged by `blindBackend`. The function is one a page calls, so a
-  // page must have changed; the connection needs no key (Frankfurter is an
-  // open rates API), so the page can read it the moment it is published; the
-  // job's builder is designed beside it — the picker names `function` too —
-  // and the route answers without a compile, so the build must stay put. The
-  // registered job fires on the runner's tick against the owner's own (unset)
-  // mail key, so it sends nothing until a key is pasted in.
+  // page must have changed.
   { name: "function", kinds: ["function", "component", "page"],
     ask: "Add a lookup so a student can check whether a day still has space: a function that counts the bookings on a given preferred day, shown on the home page",
     check: (b, a, r) => blindBackend(b, a, r, "functions", true) },
-  // THE HOST MOVED (run 34, 2026-09-04): `api.frankfurter.app/latest` answers
-  // a 301 to `api.frankfurter.dev/v1/latest`, and a connection deliberately
-  // does not follow a redirect (`site-apis.mjs`: a third-party read that
-  // redirects is a misconfigured endpoint, said to the owner rather than
-  // chased). So run 34's page read a 502 — "that service redirected, which
-  // this connection does not follow" — and, by its own code, showed nothing.
-  // The ask names the host that answers; the refusal is the product's, and
-  // the stale address was this file's.
-  { name: "api", kinds: ["api", "component", "page"],
-    ask: "Show today's GBP to EUR exchange rate on the prices page, read live from https://api.frankfurter.dev/v1/latest?from=GBP&to=EUR (no key needed)",
-    check: (b, a, r) => blindBackend(b, a, r, "apis", true) },
-  { name: "job", kinds: ["job", "function"], pageless: true,
-    ask: "Every day, email each student a reminder the day before their lesson",
-    check: (b, a, r) => blindBackend(b, a, r, "jobs", false) },
   // A SECOND CODE IS AN ADDITION (2026-09-03): the site's first code rings the
   // number, this one opens a page, and each has its own file — `qr.svg`, then
   // `qr-<name>.svg` — so the count of distinct code files on the page is what

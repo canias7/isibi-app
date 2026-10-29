@@ -6,14 +6,12 @@ import { withReasonRetry, addUsages } from "./retry-reason.mjs";
 // with `normalizeSchema`, whose rule is "first declaration wins, and later ones
 // contribute any COLUMNS the first did not have" — so a table on a live site
 // could gain a column and NOTHING else, ever, and a designer that tried to turn
-// on confirmations had them dropped SILENTLY. Driven through the real
-// normaliser: `confirm DROPPED · payment DROPPED · noOverlap DROPPED`.
+// on a no-overlap rule had it dropped SILENTLY. Driven through the real
+// normaliser: `noOverlap DROPPED`.
 //
 // What that made impossible on a site that already exists — every one of these
 // is a thing a real business asks for in its first week:
 //
-//   "email the customer when they book"        confirm
-//   "text me when someone books"               sms
 //   "stop taking two bookings for one slot"    unique / noOverlap
 //   "let people browse without signing in"     the read/write pair
 //   "one entry per person"                     oncePerUser
@@ -73,34 +71,10 @@ export const RULES_MAX_TOKENS = 1400;
 // the one bound left is the answer itself, and an answer cut off at it is
 // refused whole (`runRulesEdit`).
 
-/**
- * WHAT CAN BE SWITCHED OFF AGAIN, AND WHY IT IS NOT EVERYTHING.
- *
- * `confirm` and `sms` are read out of `_meta` on the write path, so removing the
- * declaration really does stop the sending. `retired` is re-emitted as a REVOKE
- * on every apply, so it flips both ways on its own.
- *
- * The constraints are DDL. `applySiteSchema` is additive — every statement is
- * `IF NOT EXISTS` — so dropping `unique` from the spec leaves the index standing
- * in Postgres while `_meta` says it is gone. Offering that as a `clear` would be
- * a rule reported as removed that still refuses the customer's second booking,
- * which is the worst shape a failure can take here. It is refused with a reason
- * instead, and dropping them properly is its own piece of work.
- */
-// `webhooks` joins them for exactly the same reason and no other: it is read out
-// of `_meta` on the write path by `firesFor`, so dropping the declaration really
-// does stop the sending. Nothing in Postgres holds it, so there is no additive
-// DDL to leave standing behind a rule reported as removed.
-export const CLEARABLE = ["confirm", "sms", "webhooks"];
-
-/** Named so the refusal can say WHICH rule it could not take away. */
-export const NOT_CLEARABLE = ["unique", "uniqueci", "nooverlap", "onceperuser", "maxrows"];
-
 export const RULES_TOOL = {
   name: "write_table_rules",
   description:
-    "Change what one of this site's tables DOES — who may read or write it, whether it emails or texts on a new " +
-    "entry, and what it refuses. Never what any page looks like.",
+    "Change what one of this site's tables DOES — who may read or write it, and what it refuses. Never what any page looks like.",
   input_schema: {
     type: "object",
     properties: {
@@ -141,28 +115,6 @@ export const RULES_TOOL = {
                 "in. \"own\" means a signed-in member creating rows of their own. \"none\" means nobody through the " +
                 "site — the owner still edits it in their panel, which is what a menu or a price list wants.\n" +
                 "LEAVE IT OUT unless they are changing who can add to this.",
-            },
-            confirm: {
-              type: "object",
-              description:
-                "EMAIL THE PERSON WHO FILLED THE FORM IN, as soon as they submit. Only when they asked for that.\n" +
-                "The owner needs their own email key saved in Secrets for anything to send; that is their side and " +
-                "not a reason to leave this out.",
-              properties: {
-                to: { type: "string", description: "The column holding the address, exactly as listed below. It must be a column this table really has." },
-                subject: { type: "string", description: "The subject line. Write it as the business would." },
-                body: { type: "string", description: "The message. `{column}` is filled in from the entry — \"Thanks {name}, we'll see you at {slot}.\"" },
-              },
-              required: ["to", "subject", "body"],
-            },
-            sms: {
-              type: "object",
-              description: "TEXT them instead of, or as well as, emailing. Only when they asked for a text message.",
-              properties: {
-                to: { type: "string", description: "The column holding the phone number, exactly as listed below." },
-                body: { type: "string", description: "The message. `{column}` is filled in from the entry. Keep it to one or two sentences." },
-              },
-              required: ["to", "body"],
             },
             unique: {
               type: "array",
@@ -207,29 +159,6 @@ export const RULES_TOOL = {
                 "\"we're fully booked\", \"close the form\".\n" +
                 "FALSE reopens one that was closed.",
             },
-            // THE RIGHT LANE FOR THIS, and the addon lane is deliberately not.
-            // That one may touch an existing table for exactly two things —
-            // payments and a public view — because both need a PAGE as well as a
-            // schema change. A webhook needs no page at all: it fires on the data
-            // path when a row moves. So it belongs where the other no-page rules
-            // live, which is also the lane that can turn it off again.
-            webhooks: {
-              type: "array",
-              items: { type: "string", enum: ["created", "updated", "deleted"] },
-              description:
-                "SEND THIS TABLE'S ENTRIES TO ANOTHER SYSTEM as they happen — a CRM, a warehouse, a Slack channel. " +
-                "List which events should fire: [\"created\"] for new entries only, or all three to include edits and " +
-                "deletions. The owner sets the destination in Secrets as WEBHOOK_URL; until they do, nothing is sent. " +
-                "Use \"clear\" with \"webhooks\" to stop them.",
-            },
-            clear: {
-              type: "array",
-              items: { type: "string", enum: CLEARABLE },
-              description:
-                "TURN A RULE OFF: \"confirm\" stops the email to the customer, \"sms\" stops the text, \"webhooks\" stops " +
-                "sending entries to the other system. Only these can be switched off; anything else is left alone and " +
-                "they are told so.",
-            },
           },
           required: ["table"],
         },
@@ -266,7 +195,7 @@ const RULES_SYSTEM =
  *
  * WHAT IS ALREADY ON IS STATED for the same reason `schemaDigest` states what
  * the schema permits: absent-means-unchanged is only usable by a model that can
- * see what "unchanged" currently is, and "turn the confirmation off" is not
+ * see what "unchanged" currently is, and "close the form" is not
  * answerable without it.
  */
 export function rulesDigest(tables) {
@@ -282,9 +211,6 @@ export function rulesDigest(tables) {
     out.push("  columns: " + (cols.map((c) => c.name + " (" + String(c.type || "text").toLowerCase() + ")").join(", ") || "(none declared)"));
     out.push("  read: " + pair.read + "   write: " + pair.write);
     const on = [];
-    if (t.confirm) on.push(t.confirm.fn ? "confirm (site's own function)" : "confirm → emails " + t.confirm.to);
-    if (t.sms) on.push(t.sms.fn ? "sms (site's own function)" : "sms → texts " + t.sms.to);
-    if (t.webhooks) on.push("webhooks on " + (t.webhooks === true ? "created + updated + deleted" : [].concat(t.webhooks).join(" + ")));
     // THE DESIGNER'S GROUPS ARE OBJECTS (`{columns, where}`, 2026-10-23, audit
     // A29-7): joined as they were, every one read "[object Object]".
     if (t.unique) on.push("unique on " + groupsSaid(t.unique));
@@ -422,26 +348,6 @@ export function readRules(reply, tables) {
     }
     if (typeof c.write === "string" && WRITE_LEVELS.includes(c.write.toLowerCase())) { change.write = c.write.toLowerCase(); touched = true; }
 
-    // CONFIRM AND SMS ARE VALIDATED BY THE MODULES THAT SEND THEM, not here.
-    // Two readers of one declaration is how a table ends up looking as though it
-    // confirms and does not; these carry the raw shape through and the schema
-    // engine's own `normalizeConfirm`/`normalizeSms` decide, against the same
-    // columns, on the merged table.
-    if (c.confirm && typeof c.confirm === "object" && !Array.isArray(c.confirm)) {
-      const to = String(c.confirm.to || "").toLowerCase();
-      if (cols.has(to) && String(c.confirm.subject || "").trim() && String(c.confirm.body || "").trim()) {
-        change.confirm = { to, subject: String(c.confirm.subject).trim(), body: String(c.confirm.body).trim() };
-        touched = true;
-      } else refused.push({ table: prior.name, rule: "confirm", why: "no-column" });
-    }
-    if (c.sms && typeof c.sms === "object" && !Array.isArray(c.sms)) {
-      const to = String(c.sms.to || "").toLowerCase();
-      if (cols.has(to) && String(c.sms.body || "").trim()) {
-        change.sms = { to, body: String(c.sms.body).trim() };
-        touched = true;
-      } else refused.push({ table: prior.name, rule: "sms", why: "no-column" });
-    }
-
     const uniq = pickCols(c.unique, cols, 6);
     if (uniq.length) { change.unique = uniq; touched = true; }
     const once = pickCols(c.oncePerUser, cols, 6);
@@ -474,24 +380,6 @@ export function readRules(reply, tables) {
     const max = Math.floor(Number(c.maxRows));
     if (Number.isFinite(max) && max > 0) { change.maxRows = Math.min(max, 10000000); touched = true; }
     if (c.retired === true || c.retired === false) { change.retired = c.retired; touched = true; }
-    // WEBHOOKS (2026-10-23, audit A29-6): offered by the tool and merged
-    // below, but never read here — turning them on was a billed no-match.
-    if (c.webhooks === true) { change.webhooks = true; touched = true; }
-    else if (Array.isArray(c.webhooks)) {
-      const acts = [...new Set(c.webhooks.map((a) => String(a).toLowerCase()).filter((a) => ["created", "updated", "deleted"].includes(a)))];
-      if (acts.length) { change.webhooks = acts; touched = true; }
-    }
-
-    // CLEARING. The enum bounds it to what really goes away; anything else is
-    // reported rather than dropped, because a rule the customer believes is off
-    // and is not is worse than one they know we could not take off.
-    const clear = (Array.isArray(c.clear) ? c.clear : [])
-      .map((x) => String(x).toLowerCase())
-      .filter((x, i, a) => a.indexOf(x) === i);
-    const okClear = clear.filter((x) => CLEARABLE.includes(x));
-    for (const bad of clear.filter((x) => NOT_CLEARABLE.includes(x))) refused.push({ table: prior.name, rule: bad, why: "cannot-clear" });
-    if (okClear.length) { change.clear = okClear; touched = true; }
-
     if (touched) out.push(change);
   }
   return { changes: out, refused };
@@ -499,7 +387,7 @@ export function readRules(reply, tables) {
 
 /**
  * The stored spec with the changes applied — named fields override, absent means
- * unchanged, `clear` removes.
+ * unchanged.
  *
  * THIS IS NOT `normalizeSchema`'S MERGE AND MUST NOT BECOME IT. That one is on
  * the BUILD path, where two tables of one name is a model mistake and first-wins
@@ -521,7 +409,7 @@ export function mergeRules(spec, changes) {
     const t = byName.get(String(c && c.table || "").toLowerCase());
     if (!t) continue;
     const fields = [];
-    for (const k of ["read", "write", "confirm", "sms", "webhooks", "unique", "oncePerUser", "noOverlap", "maxRows", "retired"]) {
+    for (const k of ["read", "write", "unique", "oncePerUser", "noOverlap", "maxRows", "retired"]) {
       if (c[k] === undefined) continue;
       t[k] = c[k];
       if (Array.isArray(t.cleared)) t.cleared = t.cleared.filter((x) => x !== k);
@@ -534,15 +422,6 @@ export function mergeRules(spec, changes) {
     // and is the same answer, until `access` is ever changed independently, at
     // which point the copy is a second opinion about a question `site-access.mjs`
     // exists to answer once.
-    for (const k of Array.isArray(c.clear) ? c.clear : []) {
-      if (!CLEARABLE.includes(k)) continue;
-      if (t[k] === undefined || t[k] === null) continue;
-      t[k] = null;
-      // SAID, NOT IMPLIED (2026-10-22, audit A29-1): null alone reads as "not
-      // mentioned" to the engine, which fills it back from the stored schema.
-      t.cleared = [...new Set([...(Array.isArray(t.cleared) ? t.cleared : []), k])];
-      fields.push("cleared " + k);
-    }
     if (fields.length) applied.push({ table: t.name, fields });
   }
   return { spec: { ...(spec || {}), tables }, applied };
@@ -551,23 +430,15 @@ export function mergeRules(spec, changes) {
 const SAYS = {
   read: "who can see it",
   write: "who can add to it",
-  confirm: "the confirmation email",
-  sms: "the text message",
   unique: "the no-duplicates rule",
   oncePerUser: "the one-per-customer rule",
   noOverlap: "the no-double-booking rule",
   maxRows: "the limit on how many",
   retired: "whether it's open",
-  webhooks: "sending entries to your other system",
-  "cleared confirm": "the confirmation email, now off",
-  "cleared sms": "the text message, now off",
-  "cleared webhooks": "sending entries to your other system, now off",
 };
 
 const WHY = {
   "not-integers": "that table has no whole-number start and end times to compare, so a no-overlap rule there wouldn't actually stop anything — a plain no-duplicates rule on the date and time would",
-  "no-column": "that table has no column holding the address to send to",
-  "cannot-clear": "that one can't be taken off again yet",
   "db-refused": "the database refused that rule, usually because entries already there break it",
 };
 
@@ -708,10 +579,6 @@ export function splitAlready(changes, tables) {
       if (k === "table" || k === "readWords") continue;
       if (k === "read" || k === "write") {
         if (resolveAccess({ ...prior, [k]: c[k] })[k] === now[k]) was.push(k); else rest[k] = c[k];
-      } else if (k === "clear") {
-        const left = (Array.isArray(c.clear) ? c.clear : []).filter((x) => prior[x] !== undefined && prior[x] !== null);
-        for (const x of c.clear) if (!left.includes(x)) was.push("cleared " + x);
-        if (left.length) rest.clear = left;
       } else if (same(prior[k], c[k])) was.push(k);
       else rest[k] = c[k];
     }

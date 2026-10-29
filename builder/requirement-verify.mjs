@@ -49,12 +49,12 @@ import { TABLE_SETTINGS, TABLE_PARTS, tableSettings, pieceSaid } from "./site-re
  */
 export function declaredPart(part) {
   const p = String(part || "").toLowerCase();
-  return TABLE_SETTINGS.includes(p) && !TABLE_PARTS.includes(p) && !["confirm", "sms", "payment", "webhooks"].includes(p);
+  return TABLE_SETTINGS.includes(p) && !TABLE_PARTS.includes(p);
 }
 
 export const VERIFY_STATES = Object.freeze(["present", "missing", "unverifiable"]);
 
-const WRITE_HOOKS = ["useCreateRow", "useUpdateRow", "useUploadFile", "useCart", "useCheckout", "useDeleteRow"];
+const WRITE_HOOKS = ["useCreateRow", "useUpdateRow", "useUploadFile", "useDeleteRow"];
 const READ_HOOKS = ["useRows", "useRow", "usePublicRows"];
 const RPC_HOOKS = ["useRpc", "useRpcAction", "useClaimedRow"];
 const hookRe = (names) => new RegExp("\\b(" + names.join("|") + ")\\s*(?:<[^>()]*>)?\\s*\\(\\s*([\"'`])([A-Za-z0-9_]{1,63})\\2", "g");

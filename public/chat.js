@@ -8098,8 +8098,6 @@ function moreCloud(site) {
     ['download', 'Backups & export', dataLive ? 'A nightly copy of your data, kept 7 days — download any day' : (isReact ? 'Add data to enable backups' : 'Publish to enable backups'), dataLive, 'backups'],
     ['history', 'Versions', (isReact && !!site.slug) ? 'Roll back to a previous build' : (isReact ? 'Publish to enable versions' : 'React sites only'), (isReact && !!site.slug), 'versions'],
     ['key', 'Secrets', isReact ? 'API keys for payments, email + integrations (kept server-side)' : 'Encrypted keys for server-side features', fnLive, 'secrets'],
-    ['history', 'Scheduled jobs', dataLive ? 'What your site does on a timer, and what it did' : (isReact ? 'Add data to your app to enable scheduled work' : 'Publish to enable scheduled work'), dataLive, 'functions'],
-    ['card', 'Payments', dataLive ? 'Sell with your own Stripe' : (isReact ? 'Publish your app to take payments' : 'Publish to take payments'), fnLive, 'payments'],
     ['image', 'Files', 'Pictures and documents \u2014 add a PDF to hand out', dataLive, 'files'],
     ['alert', 'Errors', dataLive ? 'Problems visitors hit on your live site' : (isReact ? 'Add data to enable error reports' : 'Publish to enable error reports'), dataLive, 'errors'],
     // OFF THE WEB AND BACK, AND THIS CARD IS THE ONLY DOOR TO IT (owner,
@@ -9527,9 +9525,7 @@ function renderSiteWorkspace(view, site) {
     else if (b.dataset.cloud === 'errors') siteErrors(site);
     else if (b.dataset.cloud === 'versions') siteVersions(site);
     else if (b.dataset.cloud === 'secrets') siteSecrets(site);
-    else if (b.dataset.cloud === 'functions') siteFunctions(site);
     else if (b.dataset.cloud === 'files') siteFiles(site);
-    else if (b.dataset.cloud === 'payments') sitePayments(site);
     else if (b.dataset.cloud === 'domains') siteDomains(site);
     // The door that was missing. Everything behind it already worked.
     else if (b.dataset.cloud === 'visibility') sitePublishPanel(site);
@@ -14707,7 +14703,6 @@ function sitePathOf(file) {
 // What the addon did, naming the pages — including the one they did not ask
 // about. The nav link is a page this lane touches on its own, and not saying so
 // is how a legitimate change reads as the site being altered behind them.
-/** A scheduled job as a customer reads it: its name and how often it runs. */
 // What an import did, as one sentence — the reply's counts and its first
 // named problem, because "Imported 118 of 120" without WHICH two is a number
 // the owner cannot act on.
@@ -14725,200 +14720,7 @@ function importWords(d) {
   if (d && d.stopped) bits.push('Stopped at line ' + d.stopped + ' — try again from there.');
   return bits.join(' ');
 }
-/**
- * WHEN A ONE-TIME JOB RUNS, in words: "3 October 2026 at 09:00 (Europe/London)".
- * Empty when the date or the time cannot be read, which every caller treats as
- * "this is not a one-time job I can describe" rather than inventing a date.
- *
- * ⚠ THE DEFECT THIS EXISTS TO END, measured 2026-09-19 on a job really stored
- * with `on: "2026-10-03"`: the reply said **"scheduled remind_once (every 31
- * days at 09:00 (Europe/London))"** and the Jobs panel said **"Every 31 days at
- * 09:00 (Europe/London)"**. Both are reading `everyMinutes`, which for a
- * one-time job is `MAX_EVERY_MINUTES` — a forced ceiling the scheduler never
- * consults and the only number these two composers knew about. The customer
- * asked for one reminder on the 3rd and was told they had signed up for a
- * monthly one.
- *
- * ONE FUNCTION FOR BOTH SURFACES, because they were two copies of the interval
- * wording already (`jobWords` says "every day", the panel says "Daily") and
- * this half has no register to differ on — a date is a date. The caller
- * supplies the lead-in.
- *
- * SPLIT FROM THE STRING, NEVER PARSED AS A DATE. `new Date("2026-10-03")` is
- * UTC midnight, and rendering that in a zone behind UTC prints the 2nd — a
- * reminder one day out, from a formatter that looks obviously right. The three
- * parts are the stored wall-clock date and are printed as they stand.
- */
-function onceWhen(j) {
-  // The month table lives INSIDE, not beside: everything these composers touch
-  // has to be cut out of this file by name for the reply harness, and a `const`
-  // at file scope is not a `function` — it would be missing there and throw
-  // `ReferenceError` on the first reply that reached it. The recorded trap.
-  const months = ['January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'];
-  // ⚠ `typeof`, NOT `String(...)` — caught by the guard that drives this.
-  // `String(["2026-10-03"])` is `"2026-10-03"`, so a one-element array would
-  // have printed a perfectly confident date. This repository's most-repeated
-  // coercion bug, in a reader written the same day it was recorded again.
-  const m = typeof (j && j.on) === 'string' ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(j.on) : null;
-  if (!m) return '';
-  const mo = Number(m[2]);
-  if (!(mo >= 1 && mo <= 12)) return '';
-  const at = typeof j.at === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(j.at) ? j.at : '';
-  if (!at) return '';
-  return Number(m[3]) + ' ' + months[mo - 1] + ' ' + m[1] + ' at ' + at + jobZone(j);
-}
-
-/** The job's zone, said only when it is not this browser's own — one rule, two readers. */
-function jobZone(j) {
-  return typeof j.tz === 'string' && j.tz && j.tz !== browserTimeZone() ? ' (' + j.tz + ')' : '';
-}
-
-function jobWords(j) {
-  if (!j || typeof j !== 'object' || !j.name) return '';
-  // A ONE-TIME JOB IS ANSWERED FIRST AND COMPLETELY. Its `everyMinutes` is a
-  // ceiling with no meaning — `dueJobs` asks `spec.on` before it looks at the
-  // interval at all — so falling through to the interval wording below is how
-  // "once on the 3rd" became "every 31 days".
-  const once = onceWhen(j);
-  if (once) return j.name + ' (once on ' + once + ')';
-  const m = Number(j.everyMinutes);
-  const every = !Number.isFinite(m) || m <= 0 ? ''
-    : m % 10080 === 0 ? (m === 10080 ? 'every week' : 'every ' + (m / 10080) + ' weeks')
-    : m % 1440 === 0 ? (m === 1440 ? 'every day' : 'every ' + (m / 1440) + ' days')
-    : m % 60 === 0 ? (m === 60 ? 'every hour' : 'every ' + (m / 60) + ' hours')
-    : 'every ' + m + ' minutes';
-  // A CLOCK TIME (2026-09-03): "every day at 09:00", in the zone the job was
-  // added from — the owner's own, so it is said only when it differs from
-  // the browser's now.
-  const at = typeof j.at === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(j.at)
-    ? ' at ' + j.at + jobZone(j)
-    : '';
-  return j.name + (every ? ' (' + every + at + ')' : '');
-}
-
-/**
- * The sentence a one-time job earns in the addon reply, after the job list.
- *
- * TWO FACTS THE INTERVAL WORDING NEVER HAD TO CARRY (owner, 2026-09-19): that
- * the job stops after its one run, and that **Run now uses that run up**. The
- * second is the one nobody would guess — the button sits in the panel beside a
- * job that has not fired yet, and pressing it consumes the occurrence so the
- * scheduled tick afterwards finds the stamp set and skips. That is the claim
- * working as designed, and it is a very unpleasant surprise if nothing said so.
- */
-/** The Jobs panel's interval chip: "Daily", "Every 3 days", "Every 45m". */
-function jobEvery(m) {
-  return m === 60 ? 'Hourly' : m === 1440 ? 'Daily' : m >= 1440 ? 'Every ' + Math.round(m / 1440) + ' days' : m >= 60 ? 'Every ' + Math.round(m / 60) + 'h' : 'Every ' + m + 'm';
-}
-
-/**
- * ONE ROW OF THE JOBS PANEL.
- *
- * ⚠ LIFTED OUT OF THE PANEL'S CLOSURE (2026-09-19), and there are two reasons.
- *
- * The first is that nothing could drive it. The panel builds its markup inside
- * `load()` inside the opener, so every assertion about what an owner SEES here
- * had to be a source read — and this round is about exactly that kind of
- * assertion passing over a screen that said the wrong thing. A wall nobody can
- * drive is a wall nobody is guarding.
- *
- * The second was found by reading the first draft of the one-time fix: adding
- * `const when = onceWhen(j)` inside the map callback SHADOWED the closure's
- * `when(iso)` — the "ran 3 hours ago" formatter — and `const ran = ... when(...)`
- * sits above it in the same block, so every row threw `ReferenceError: Cannot
- * access 'when' before initialization`. The temporal dead zone, in a screen a
- * paying customer opens. Out here there is no closure to shadow and `ran` is a
- * parameter.
- */
-function jobRowHtml(j, ran) {
-  // NEVER RUN AND RAN-WITH-NOTHING-TO-DO ARE DIFFERENT FACTS. Inventing a
-  // cheerful line for the first is how a brand-new site reads as working
-  // before it ever has.
-  // ⚠ AND "HASN'T RUN YET" IS SUPPRESSED FOR A ONE-TIME JOB THAT SAYS MORE.
-  // On a MISSED job it contradicts the line above it — "yet" promises a run
-  // that will never come — and on a scheduled one it repeats it. The one-time
-  // sentence below is the fuller fact, so it stands alone until there is a real
-  // result to show.
-  const result = j.lastResult
-    ? '<div class="fn-flow"><span class="fn-step">' + esc(j.lastResult) + '</span></div>'
-    : j.onState != null
-      ? ''
-      : '<div class="fn-flow"><span class="fn-step">Hasn\u2019t run yet.</span></div>';
-  // THE CLOCK TIME, when the job has one (2026-09-03): "Daily at 09:00",
-  // with the zone only when it is not the browser's own.
-  const at = typeof j.at === 'string' && j.at ? ' at ' + j.at + jobZone(j) : '';
-  // ⚠ A ONE-TIME JOB IS DESCRIBED BY ITS DATE, NOT BY `everyMinutes`
-  // (2026-09-19). This panel read the interval and nothing else, so a reminder
-  // stored for 3 October 2026 sat here labelled "Every 31 days at 09:00" — the
-  // same defect the addon reply had, in the one screen an owner opens when they
-  // want to check what is scheduled.
-  //
-  // THE FOUR STATES GET FOUR DIFFERENT SENTENCES, because they need four
-  // different things doing: wait, look at the result, ask again with a new
-  // date, say it again readably. `attempted` is deliberately NOT "sent" —
-  // `last_run` is stamped BEFORE the first message goes out, so what it records
-  // is that the one run was used up; whether anything arrived is the result
-  // line below, and nowhere else.
-  //
-  // ⚠ AND `onState` IS THE DISCRIMINATOR, NOT `onceWhen` — found by driving
-  // this composer rather than by reading it. `onceWhen` answers '' for a date
-  // it cannot parse, so keying the chip on it sent the `unreadable` state
-  // straight back to the interval wording: the row said **"Every 31 days at
-  // 09:00"** directly above a line explaining that the date could not be read
-  // and the job would never run. The chip and the sentence contradicting each
-  // other is worse than either alone. `jobPanelRow` answers `onState: null`
-  // for a recurring job and one of the four words otherwise, so it is the one
-  // thing that knows WHICH KIND of job this is.
-  const once = onceWhen(j);
-  const sch = j.onState != null
-    ? (!once ? 'Once \u2014 date unreadable'
-      : j.onState === 'attempted' ? 'Ran once on ' + once
-        : j.onState === 'missed' ? 'Was due ' + once
-          : 'Once on ' + once)
-    : jobEvery(Number(j.everyMinutes) || 0) + at;
-  const onceLine = j.onState == null || !once ? ''
-    : j.onState === 'missed'
-      ? '<div class="fn-flow"><span class="fn-step">Its moment passed without it running \u2014 ask for it again with a new date.</span></div>'
-      : j.onState === 'attempted'
-        ? '<div class="fn-flow"><span class="fn-step">That was its one run \u2014 what happened is below.</span></div>'
-        : '<div class="fn-flow"><span class="fn-step">It runs once and then stops. Run now uses up that one run.</span></div>';
-  // …AND A JOB WHOSE DATE CANNOT BE READ WILL NEVER FIRE, whatever the clock
-  // does, so it is said rather than left looking scheduled.
-  const badDate = j.onState === 'unreadable'
-    ? '<div class="fn-flow"><span class="fn-step">The date on this one can\u2019t be read, so it will never run \u2014 say it again with a date like 3 October 2026.</span></div>'
-    : '';
-  // RUN NOW ON A SPENT ONE-TIME JOB IS REFUSED BY THE CLAIM ANYWAY, so the
-  // button says why instead of offering a press that comes back "Skipped".
-  const spent = j.onState === 'attempted' || j.onState === 'unreadable';
-  return '<div class="fn-item"><div class="fn-top"><span class="fn-ic">' + ic('history', 15) + '</span><b class="fn-name">' + esc(j.name) + '</b>' +
-    '<span class="fn-sch">' + esc(sch) + '</span>' +
-    (ran ? '<span class="fn-trig">ran ' + esc(ran) + '</span>' : '') +
-    // THE BADGE IS THE OFF SWITCH now, not a label. It reads the state
-    // ("On"/"Paused") and clicking it flips it — the one write this panel has,
-    // wired to POST /jobs {name, enabled}. Before this the only path to "stop
-    // the weekly digest" was asking the builder, which has no lane that can do
-    // it (the 2026-08-13 audit).
-    (j.enabled === false
-      ? '<button type="button" class="fn-tgl fn-off" data-job="' + esc(j.name) + '" data-on="" title="Paused \u2014 click to resume">Paused</button>'
-      : '<button type="button" class="fn-tgl" data-job="' + esc(j.name) + '" data-on="1" title="Running on schedule \u2014 click to pause">On</button>') +
-    // RUN NOW (owner, 2026-09-03): the one way to see a job work without
-    // waiting a day. It sends for real, on the owner's own key, and the
-    // sentence that comes back is the same one the schedule writes.
-    (spent
-      ? '<button type="button" class="fn-tgl fn-run" disabled title="' + (j.onState === 'attempted' ? 'Already used its one run' : 'Its date can\u2019t be read, so there is nothing to run') + '">Run now</button>'
-      : '<button type="button" class="fn-tgl fn-run" data-run="' + esc(j.name) + '" title="' + (j.onState != null ? 'Run it now \u2014 sends for real, on your own key, and uses up this job\u2019s one run' : 'Run it now \u2014 sends for real, on your own key') + '">Run now</button>') +
-    '</div>' + badDate + onceLine + result + '</div>';
-}
-
-function jobOnceNote(jobs) {
-  const once = (Array.isArray(jobs) ? jobs : []).filter((j) => j && j.name && onceWhen(j));
-  if (!once.length) return '';
-  const names = once.map((j) => j.name);
-  return ' ' + (names.length === 1 ? names[0] + ' runs once and then stops' : names.join(', ') + ' each run once and then stop') +
-    ' — pressing Run now in Cloud → Schedule uses up that one run.';
-}
-/** The browser's IANA zone, or '' where it cannot say. Sent with an addon so a job's clock time is the owner's. */
+/** The browser's IANA zone, or '' where it cannot say. Sent with an addon. */
 function browserTimeZone() {
   try { return String(Intl.DateTimeFormat().resolvedOptions().timeZone || ''); } catch (e) { return ''; }
 }
@@ -14952,12 +14754,9 @@ function addonReplyText(a) {
   if (changed.length) bits.push('updated ' + changed.join(', '));
   if (Array.isArray(a.tables) && a.tables.length) bits.push('now storing ' + a.tables.join(', '));
   // THE OTHER THREE TIERS OF THE BACKEND (2026-09-03): what the engine
-  // really made, by name — a function a page can call, an outside service
-  // the platform reads for it, a job on a timer — and, once, that the site
-  // got its own database for it.
+  // really made, by name — a function a page can call — and, once, that the
+  // site got its own database for it.
   if (Array.isArray(a.functions) && a.functions.length) bits.push('added the function' + (a.functions.length > 1 ? 's ' : ' ') + a.functions.join(', '));
-  if (Array.isArray(a.apis) && a.apis.length) bits.push('connected ' + a.apis.join(', '));
-  if (Array.isArray(a.jobs) && a.jobs.length) bits.push('scheduled ' + a.jobs.map(jobWords).filter(Boolean).join(', '));
   // ENTRIES ADDED TO A LIST THE SITE ALREADY STORES (2026-10-01), said from
   // what the database saved — the entry's own words, its list and the number
   // the database gave it — never from the request's wording.
@@ -14987,22 +14786,6 @@ function addonReplyText(a) {
   const scene = a.scene && typeof a.scene === 'object' ? a.scene : null;
   if (scene && shownOn(scene).length) bits.push('added a 3D scene on ' + shownOn(scene).join(', '));
   let out = bits.length ? 'Done — ' + bits.join(', ') + '.' : 'Done.';
-  // WHAT A ONE-TIME JOB DOES NEXT, said right after the schedule it belongs to
-  // and before anything about the database or the pictures.
-  out += jobOnceNote(a.jobs);
-  // A SCHEDULE THE PLATFORM RUNS ON ANOTHER INTERVAL THAN ASKED (2026-10-03,
-  // MW7), said beside the one it really runs on.
-  const everyWords = (m) => (!Number.isFinite(m) || m <= 0 ? ''
-    : m === 1 ? 'every minute'
-    : m % 10080 === 0 ? (m === 10080 ? 'every week' : 'every ' + (m / 10080) + ' weeks')
-    : m % 1440 === 0 ? (m === 1440 ? 'every day' : 'every ' + (m / 1440) + ' days')
-    : m % 60 === 0 ? (m === 60 ? 'every hour' : 'every ' + (m / 60) + ' hours')
-    : 'every ' + m + ' minutes');
-  for (const j of (Array.isArray(a.jobs) ? a.jobs : [])) {
-    if (!j || !j.name || !Number.isFinite(Number(j.askedEveryMinutes))) continue;
-    out += ' You asked for ' + j.name + ' to run ' + everyWords(Number(j.askedEveryMinutes)) +
-      ', which the platform doesn’t do, so it runs ' + everyWords(Number(j.everyMinutes)) + ' — the nearest it allows.';
-  }
   // A CODE OR A SCENE SAVED THAT NO PAGE SHOWS, said as not done, with where it
   // was asked for — or, when only a section a page may draw carries it, that
   // nothing confirmed it.
@@ -15033,28 +14816,6 @@ function addonReplyText(a) {
     if (!fe || !fe.name) continue;
     out += ' The function ' + fe.name + ' couldn’t be created' + (fe.error ? ' — ' + String(fe.error).slice(0, 140) : '') + '.';
   }
-  // AND A JOB THAT WOULD NOT REGISTER, the same way (2026-09-14). The server
-  // used to log that failure to a console nobody reads and leave the job on
-  // `jobs`, so this line said "scheduled a reminder every day at 09:00" about
-  // something that will never run. It names it in `jobErrors` now and takes it
-  // off `jobs`, so the two lines can never both be about the same job.
-  for (const je of (Array.isArray(a.jobErrors) ? a.jobErrors : [])) {
-    if (!je || !je.name) continue;
-    out += ' The scheduled job ' + je.name + ' couldn’t be set up' + (je.error ? ' — ' + String(je.error).slice(0, 140) : '') + ', so it won’t run yet.';
-  }
-  // A CONNECTION WITH A KEY TO PASTE IS SAID, and where: it answers nothing
-  // until the owner's own key is in the vault.
-  if (Array.isArray(a.needsSecrets) && a.needsSecrets.length) {
-    out += ' To switch it on, add ' + a.needsSecrets.join(', ') + ' under Cloud → Secrets.';
-  }
-  // AND WHERE THAT KEY COMES FROM, which the line above never said: it gives a
-  // destination and a bare name, so the owner is told to paste RATES_KEY
-  // somewhere with no way to find out what it is a key for. Printed VERBATIM —
-  // `credentialNote` is the server's own composer and it reads the declaration
-  // itself, so a connection needing no key says so and one that does names the
-  // service. A second composition here is how this line starts describing keys
-  // the connection never declared.
-  if (a.credentialNote) out += ' ' + a.credentialNote;
   // WHAT THIS CHANGE BOUGHT, IN THE SERVER'S OWN WORDS, BEFORE the sentence
   // about what is still empty — they are two different facts and the one the
   // customer asked for comes first. Printed VERBATIM: `imageNote` is the build
@@ -17991,24 +17752,6 @@ async function siteDatabase(site) {
   } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn’t load collections just now — try again.</div>'; }
 }
 
-// EMAIL, WHERE ITS KEYS ARE ENTERED (audit A12-4; owner 2026-10-22: "all the
-// keys go into the secrets, so you can delete the emails box"). The names are
-// exactly what the site's senders read (`MAIL_PROVIDERS` in site-mail.mjs) plus
-// EMAIL_FROM, without which every sender refuses. Judged from the secret NAMES
-// only, never a value.
-const MAIL_KEY_NAMES = ['RESEND_KEY', 'SENDGRID_KEY', 'POSTMARK_KEY'];
-function mailLine(names) {
-  const has = (n) => names.includes(n);
-  const key = MAIL_KEY_NAMES.find(has) || null;
-  const from = has('EMAIL_FROM');
-  const how = 'To send email, add your provider\u2019s key named exactly <code>RESEND_KEY</code>, <code>SENDGRID_KEY</code> or <code>POSTMARK_KEY</code>, ' +
-    'and <code>EMAIL_FROM</code>: the address your site sends from, on a domain verified with that provider. Both are needed.';
-  if (key && from) return '<div class="pay-ok">Email is set up: <code>' + key + '</code> and <code>EMAIL_FROM</code>.</div>';
-  if (key) return '<div class="pay-warn">Email is not sent yet: <code>' + key + '</code> is here but <code>EMAIL_FROM</code> is missing. ' + how + '</div>';
-  if (from) return '<div class="pay-warn">Email is not sent yet: <code>EMAIL_FROM</code> is here but no provider key is. ' + how + '</div>';
-  return '<p class="sp-intro sk-mail">' + how + '</p>';
-}
-
 // Secrets — encrypted per-site vault. Values are never shown back (rotate = re-add,
 // or delete). Owner-only, RLS-scoped.
 async function siteSecrets(site) {
@@ -18022,7 +17765,6 @@ async function siteSecrets(site) {
   box.innerHTML = '<div class="si-card"><div class="si-head"><b>Secrets</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body"><p class="sp-intro">Store API keys and tokens encrypted. Values are never shown again — rotate by re-adding, or delete.</p>' +
     '<div class="sk-add"><input class="st-in" id="skName" placeholder="NAME (e.g. STRIPE_KEY)" autocomplete="off"><input class="st-in" id="skVal" type="password" placeholder="Value" autocomplete="off"><button type="button" class="st-publish" id="skAdd">Add</button></div>' +
     '<div class="si-count" id="skErr" style="display:none"></div>' +
-    '<div id="skMail"></div>' +
     '<div id="skList">Loading…</div></div></div>';
   document.body.appendChild(box);
   const close = () => box.remove();
@@ -18030,14 +17772,12 @@ async function siteSecrets(site) {
   box.addEventListener('click', (e) => { if (e.target === box) close(); });
   const listEl = box.querySelector('#skList');
   const errEl = box.querySelector('#skErr');
-  const mailEl = box.querySelector('#skMail');
   const fmt = (t) => { try { return new Date(t).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); } catch (e) { return ''; } };
   const load = async () => {
     try {
       const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/secrets');
       const d = await r.json().catch(() => ({ secrets: [] }));
       const secs = Array.isArray(d.secrets) ? d.secrets : [];
-      mailEl.innerHTML = r.ok ? mailLine(secs.map((x) => x && String(x.name || ''))) : '';
       if (!secs.length) { listEl.innerHTML = '<div class="si-empty">No secrets yet.</div>'; return; }
       // The hint, never the value. `sk_live` against `sk_test` is the difference
       // between a shop that takes money and one that quietly does not, and it is
@@ -18274,111 +18014,6 @@ async function siteDomains(site) {
   loadVerify();
 }
 
-// Edge functions — server-side logic the builder DECLARES from chat (call a
-// third-party API with a saved secret, aggregate collection data, multi-step
-// flows). Read-only list + delete here; you add/change them by asking in the
-// builder. Owner-only, RLS-scoped.
-// Scheduled jobs — what the site does on a timer, and what it ACTUALLY DID.
-//
-// REWRITTEN 2026-08-13. The old panel rendered `spec.steps` from the eight-verb
-// runner (`read save fetch ai email notify checkout respond`), which was deleted
-// with the D1 runtime — so it described a feature that no longer exists, against
-// a route (`/api/site/functions`) that no longer exists, from a card forced Off
-// in DEAD_PANELS. Three layers of dead, and the comment above DEAD_PANELS warns
-// about exactly this: `versions` sat Off for four days after its route shipped.
-//
-// THE POINT OF THIS PANEL IS THE LAST LINE OF EACH ROW. `runJob` has always
-// computed an honest four-way outcome and every caller threw it into a
-// Cloudflare log, which is not a surface a small business has — so "sent 14
-// reminders", "your SQL is broken", "you never pasted a mail key" and "nothing
-// was due" were one silence. For a REMINDER that is the worst failure there is:
-// the customer does not know they were meant to get one either, and the only
-// symptom is a no-show months later that looks like ordinary business.
-async function siteFunctions(site) {
-  const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
-  if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then its scheduled jobs show up here.'); return; }
-  let box = document.getElementById('siteFnModal');
-  if (box) box.remove();
-  box = document.createElement('div');
-  box.id = 'siteFnModal';
-  box.className = 'si-modal';
-  box.innerHTML = '<div class="si-card"><div class="si-head"><b>Scheduled jobs</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body"><p class="sp-intro">Work your site does on a timer with nobody there — reminding tomorrow\u2019s customers, a weekly summary. Ask in the builder to add or change one.</p><div id="fnList">Loading…</div></div></div>';
-  document.body.appendChild(box);
-  const close = () => box.remove();
-  box.querySelector('.si-x').onclick = close;
-  box.addEventListener('click', (e) => { if (e.target === box) close(); });
-  const listEl = box.querySelector('#fnList');
-  const when = (iso) => {
-    const t = Date.parse(iso || '');
-    if (!Number.isFinite(t)) return '';
-    const mins = Math.round((Date.now() - t) / 60000);
-    if (mins < 2) return 'just now';
-    if (mins < 60) return mins + ' minutes ago';
-    if (mins < 48 * 60) return Math.round(mins / 60) + ' hours ago';
-    return Math.round(mins / 1440) + ' days ago';
-  };
-  const load = async () => {
-    try {
-      const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/jobs');
-      // AN UNREADABLE LIST IS NOT AN EMPTY ONE. "No scheduled jobs" reads as the
-      // feature not existing and the owner stops looking, which is the one wrong
-      // answer here that costs something.
-      if (!r.ok) { listEl.innerHTML = '<div class="si-empty">Couldn\u2019t load the schedule — try again.</div>'; return; }
-      const d = await r.json().catch(() => null);
-      const jobs = d && Array.isArray(d.jobs) ? d.jobs : null;
-      if (!jobs) { listEl.innerHTML = '<div class="si-empty">Couldn\u2019t load the schedule — try again.</div>'; return; }
-      if (!jobs.length) { listEl.innerHTML = '<div class="si-empty">No scheduled jobs. In the builder, say what you want to happen on a timer — e.g. “email people the day before their appointment”.</div>'; return; }
-      listEl.innerHTML = jobs.map((j) => jobRowHtml(j, j.lastRun ? when(j.lastRun) : '')).join('');
-      // ── BOUND BY WHAT EACH HANDLER READS, NEVER BY THE LOOK ──────────────
-      //
-      // ⚠ REPRODUCED 2026-09-19, and it had been live since Run now shipped
-      // (2026-09-03): both selectors were CLASSES, and Run now carries
-      // `class="fn-tgl fn-run"` because `fn-tgl` is its LOOK — so `.fn-tgl`
-      // matched it too and the second assignment overwrote the first. Clicking
-      // Run now ran the pause/resume handler, which reads `b.dataset.job` (the
-      // Run now button has `data-run`, not `data-job`) and posted
-      // `{"enabled": true}` — no name, no `run: true`, `JSON.stringify`
-      // dropping the undefined key. **Run now has never worked in a browser**;
-      // every guard read the markup, the CSS or the endpoint, and none of them
-      // built the DOM and clicked.
-      //
-      // THE DATASET IS THE DISCRIMINATOR AND IT ALWAYS WAS: these are the two
-      // fields the two handlers read. Binding on them makes "which handler is
-      // this button bound to" and "which field does that handler read" one
-      // fact instead of two that can disagree — a class can be shared for its
-      // appearance and a third button carrying both looks is bound by neither.
-      // The disabled Run now (a spent one-time job) carries neither and so gets
-      // no handler at all, which is the belt beside `disabled`.
-      listEl.querySelectorAll('[data-run]').forEach((b) => b.onclick = async () => {
-        b.disabled = true;
-        try {
-          const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: b.dataset.run, run: true }) });
-          const d = await r.json().catch(() => ({}));
-          if (!r.ok) { if (typeof sbToast === 'function') sbToast(d.error === 'no such job' ? 'That job isn’t on the schedule any more.' : 'Couldn’t run it — try again.'); return; }
-          if (typeof sbToast === 'function') sbToast(d.result || 'Ran.');
-          load();
-        } catch (e) { if (typeof sbToast === 'function') sbToast('Couldn’t run it — check your connection.'); }
-        finally { b.disabled = false; }
-      });
-      listEl.querySelectorAll('[data-job]').forEach((b) => b.onclick = async () => {
-        // The next state is the opposite of what the server last said, read
-        // off the button — the notify toggle's idiom, including repainting
-        // from the server's stored answer (a reload) rather than optimism.
-        const next = b.dataset.on !== '1';
-        b.disabled = true;
-        try {
-          const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: b.dataset.job, enabled: next }) });
-          const d = await r.json().catch(() => ({}));
-          if (!r.ok) { if (typeof sbToast === 'function') sbToast(d.error === 'no such job' ? 'That job isn’t on the schedule any more.' : 'Couldn’t change that — try again.'); return; }
-          load();
-        } catch (e) { if (typeof sbToast === 'function') sbToast('Couldn’t change that — check your connection.'); }
-        finally { b.disabled = false; }
-      });
-    } catch (e) { listEl.innerHTML = '<div class="si-empty">Couldn\u2019t load the schedule — try again.</div>'; }
-  };
-  load();
-}
-
 // Files — the images/PDFs visitors uploaded to this site (R2). Owner can view +
 // delete. Owner-only (ownership proven server-side via the site's RLS row).
 // ONE VIDEO OR RECORDING INTO A SITE'S LIBRARY, or over one already there
@@ -18611,101 +18246,6 @@ async function siteFiles(site) {
   list();
 }
 
-// Payments — sell through the owner's OWN Stripe. Setup guide (the checkout +
-// order-webhook are wired by the builder as edge-function steps).
-function sitePayments(site) {
-  const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
-  if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then you can wire up payments.'); return; }
-  let box = document.getElementById('sitePayModal');
-  if (box) box.remove();
-  box = document.createElement('div');
-  box.id = 'sitePayModal';
-  box.className = 'si-modal';
-  // The webhook URL the owner registers in THEIR Stripe dashboard. Shown
-  // literally and copyable, because it is the one value they have to move by
-  // hand and a typo produces a shop that takes money and never marks an order
-  // paid — which looks like our bug and is silent for days.
-  // ON THE SITE'S OWN ADDRESS (2026-10-28): Stripe's message goes straight to
-  // the site's own Worker through the front door, never through the app. Only
-  // a site served under the workspace path (no address of its own) uses ours.
-  const siteOrigin = (() => { try { const u = new URL(String(site.liveUrl || '')); return /(^|\.)gofarther\.dev$/i.test(u.hostname) ? '' : u.origin; } catch (e) { return ''; } })();
-  const hookUrl = (siteOrigin || location.origin) + '/api/stripe/site/' + slug;
-  box.innerHTML = '<div class="si-card"><div class="si-head"><b>Payments</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body">' +
-    '<p class="sp-intro">Take payments with <b>your own</b> Stripe account. Money goes straight to you — Go Farther never touches it and takes no cut.</p>' +
-    '<div id="payState">Checking…</div>' +
-  '</div></div>';
-  document.body.appendChild(box);
-  const close = () => box.remove();
-  box.querySelector('.si-x').onclick = close;
-  box.addEventListener('click', (e) => { if (e.target === box) close(); });
-  const host = box.querySelector('#payState');
-
-  const step = (n, done, title, body) =>
-    '<div class="em-step' + (done ? ' em-done' : '') + '"><span class="em-n">' + (done ? '&#10003;' : n) + '</span><div><b>' + title + '</b><span>' + body + '</span></div></div>';
-
-  (async () => {
-    let secrets = [], tables = [], failed = false;
-    try {
-      const [sr, tr] = await Promise.all([
-        apiFetch('/api/site/' + encodeURIComponent(slug) + '/secrets'),
-        apiFetch('/api/site/' + encodeURIComponent(slug) + '/rows'),
-      ]);
-      const sd = await sr.json().catch(() => ({}));
-      const td = await tr.json().catch(() => ({}));
-      secrets = Array.isArray(sd.secrets) ? sd.secrets : [];
-      tables = Array.isArray(td.tables) ? td.tables : [];
-      if (!sr.ok) failed = true;
-    } catch (e) { failed = true; }
-    // Fails LOUD rather than showing an empty checklist: "no keys yet" and
-    // "we could not look" are very different things to tell someone whose shop
-    // may or may not be taking money right now.
-    if (failed) { host.innerHTML = '<div class="si-empty">Couldn\u2019t check your payment setup just now \u2014 try again.</div>'; return; }
-
-    const byName = (n) => secrets.find((x) => x.name === n) || null;
-    const key = byName('STRIPE_SECRET_KEY');
-    const hook = byName('STRIPE_WEBHOOK_SECRET');
-    const paidTables = tables.filter((t) => t && t.paid);
-
-    const keyLine = key
-      ? 'Added' + (key.mode ? ' \u2014 <b>' + esc(key.mode) + ' mode</b>' : '') + (key.last4 ? ' (\u00b7\u00b7\u00b7\u00b7 ' + esc(key.last4) + ')' : '') + '.'
-      : 'In Stripe go to <b>Developers \u2192 API keys</b>, copy your <b>secret</b> key, and add it in <b>Cloud \u2192 Secrets</b> as <code>STRIPE_SECRET_KEY</code>.';
-    const hookLine = hook
-      ? 'Added.'
-      : 'In Stripe go to <b>Developers \u2192 Webhooks</b>, add the URL below for the <code>checkout.session.completed</code>, <code>checkout.session.async_payment_succeeded</code>, <code>checkout.session.async_payment_failed</code> and <code>checkout.session.expired</code> events, then paste the signing secret into Secrets as <code>STRIPE_WEBHOOK_SECRET</code>.';
-
-    host.innerHTML =
-      // The one thing that decides whether real money can move, said first and
-      // said plainly. A test key looks identical everywhere else in Stripe.
-      (key && key.mode === 'test'
-        ? '<div class="pay-warn">Your key is a <b>test</b> key \u2014 real cards will be declined. Swap it for the live one when you are ready to sell.</div>'
-        : '') +
-      // NOT shown on a test key, even though all three steps are done. It said
-      // "Ready" directly under "real cards will be declined", which is the
-      // panel contradicting itself about the only question that matters.
-      (key && key.mode !== 'test' && hook && paidTables.length
-        ? '<div class="pay-ok">Ready \u2014 ' + paidTables.map((t) => '<code>' + esc(t.name) + '</code>').join(', ') + ' ' + (paidTables.length === 1 ? 'takes' : 'take') + ' card payments.</div>'
-        : '') +
-      '<div class="em-steps">' +
-        step(1, !!key, 'Your Stripe secret key', keyLine) +
-        step(2, !!hook, 'Tell Stripe where to confirm payments', hookLine) +
-        step(3, paidTables.length > 0,
-          'Ask the builder to sell something',
-          paidTables.length
-            ? 'Selling from ' + paidTables.map((t) => '<code>' + esc(t.name) + '</code>').join(', ') + '.'
-            : '\u201cLet customers buy the products online\u201d. Until you ask, nothing on the site charges a card.') +
-      '</div>' +
-      '<div class="pay-hook"><label>Your webhook URL</label><div class="pay-hook-row"><code id="payHook">' + esc(hookUrl) + '</code><button type="button" class="st-publish" id="payCopy">Copy</button></div></div>' +
-      // Said out loud because it is the question every owner asks and the
-      // answer is the reason to paste a live key into somebody else\u2019s box.
-      '<p class="sp-intro" style="margin-top:1rem">Your key is encrypted and only ever used on our server \u2014 it is never sent to the page, and never shown back to you. Prices always come from your own data, so a customer cannot change what they are charged.</p>';
-
-    const cp = host.querySelector('#payCopy');
-    if (cp) cp.onclick = () => {
-      try { navigator.clipboard.writeText(hookUrl); } catch (e) {}
-      if (typeof sbToast === 'function') sbToast('Webhook URL copied');
-    };
-  })();
-}
 
 function sbToast(text) {
   let t = document.getElementById('sbToast');

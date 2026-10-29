@@ -26,8 +26,11 @@
 
 import crypto from "node:crypto";
 import { ACCESS_PRESETS, READ_LEVELS, WRITE_LEVELS } from "../site-access.mjs";
-import { MAIL_PROVIDERS } from "../site-mail.mjs";
-import { SMS_PROVIDERS } from "../site-sms.mjs";
+// THE PROVIDER SECRET NAMES, kept here since the platform's own senders went
+// (2026-10-29): a site's own server code may still read these names, so the
+// gate still asks about them before a paid press.
+const MAIL_PROVIDERS = [{ secret: "RESEND_KEY" }, { secret: "SENDGRID_KEY" }, { secret: "POSTMARK_KEY" }];
+const SMS_PROVIDERS = [{ secret: "TWILIO_SID", also: "TWILIO_TOKEN" }, { secret: "MESSAGEBIRD_KEY" }, { secret: "VONAGE_KEY", also: "VONAGE_SECRET" }];
 import { readRowList, decimalOf } from "./canary-rows.mjs";
 
 /** Said wherever a result is: what a pass on this test does and does not show. */

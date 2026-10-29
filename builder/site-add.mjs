@@ -70,63 +70,7 @@ import { TSX_ITEM, MAX_TSX, COMPONENT_MENU, TOOL_DIRECTIVE } from "./site-plan.m
 // on the same day, and one removed stops being both at once.
 const KIT_COMPONENTS = new Set(COMPONENT_MENU.map((n) => String(n).toLowerCase()));
 
-/**
- * WHAT A JOB'S FUNCTION MAY RETURN, IN THE RUNTIME'S OWN TERMS.
- *
- * Owner, 2026-09-14: *"Document the existing SMS contract in both function and
- * job instructions. Explain the channel, recipient, and message fields the
- * runtime accepts, including email defaults."*
- *
- * **THIS DESCRIBES WHAT ALREADY WORKS.** `shapeMessages` has read `channel`
- * since the day texts were wired: it resolves the SMS credential separately,
- * parses the number through the same `toE164` the write path uses, sends
- * through `deps.sendSms`, and counts a message whose channel has no key as
- * `unsent` rather than failed. Every hop is live. What was missing is this
- * paragraph: MEASURED across all six add tools, the word `channel` appeared
- * **0 times** in the `function` tool and **0 times** in the `job` tool, while
- * the job rule told the owner to paste an SMS key in Settings. A model could
- * still write one from its own knowledge of the field name — so the accurate
- * statement is that the capability was UNDOCUMENTED to the designer, not that
- * it was unreachable.
- *
- * ONE STRING, SENT TO BOTH TOOLS. The function step writes the SQL that
- * produces the messages and the job step decides what is being sent and how
- * often; each needs the same contract, and two copies of it would drift.
- * The guard asserts both carry this exact sentence.
- */
-export const MESSAGE_CONTRACT =
-  "EACH MESSAGE IS {channel, to, subject, body}. `channel` is \"email\" or \"sms\" and it is the FIELD that decides, " +
-  "never the shape: leave it out and the message is EMAILED, and anything that is not \"sms\" is emailed too — " +
-  "email is the default because it costs the owner nothing per send. " +
-  "An EMAIL needs all three of `to` (an address), `subject` and `body`, and is dropped if any is missing or empty. " +
-  "An SMS needs `to` (a phone number in FULL INTERNATIONAL form with its leading + — \"+44 7700 900000\"; a local " +
-  "number such as \"07700 900000\" cannot be sent and the message is dropped) " +
-  "and `body`; it takes NO `subject`, because a text has none. " +
-  "Return \"sms\" only where the message really wants to be a text — a same-day reminder, a ready-to-collect — " +
-  "and email for anything with a subject line to it. The owner pastes an email key and an SMS key separately in " +
-  "Settings; a message whose channel has no key yet is SKIPPED, not held or sent later, and the owner is told " +
-  "which key is missing.";
-import { TABLE_ITEM, FUNCTION_ITEM, API_ITEM, JOB_ITEM } from "./site-table.mjs";
-// ── A JOB MAY WRITE ITS OWN FUNCTION (owner, 2026-10-22, option B) ────────
-//
-// Live: the job designer named a counting function nobody wrote and the job
-// was refused `no-job-fn`. The add step's job tool now carries an optional
-// `function`, the SAME item a `function` answer is, so one call writes both
-// and the name always exists. `cleanAdd("job")` sends it through
-// `cleanAdd("function")` — the one cleaner — before the job is cleaned. The
-// build's `JOB_ITEM` (design_schema) is left as it is.
-export const ADD_JOB_ITEM = Object.freeze({
-  ...JOB_ITEM,
-  properties: {
-    ...JOB_ITEM.properties,
-    function: {
-      ...FUNCTION_ITEM,
-      description:
-        "ONLY when no function on the list a scheduled job may run fits: the internal function this job runs, " +
-        "written here exactly as a function is (`internal: true`, no arguments, returns json). `fn` must be its name.",
-    },
-  },
-});
+import { TABLE_ITEM, FUNCTION_ITEM } from "./site-table.mjs";
 // A LEAF MODULE WITH NO IMPORTS OF ITS OWN, so this adds no cycle — the same
 // reasoning `builder/page-gen.mjs` records for importing it. `accessLabel`
 // resolves the read/write PAIR rather than believing the stored `access`
@@ -199,8 +143,6 @@ import { FN_LANGUAGES } from "../site-rls.mjs";
 // enforces, and `resolveAccess` is the one reader of that pair (five separate
 // bugs have been paid for reading the preset name instead).
 import { resolveAccess, ACCESS_PRESETS, READ_LEVELS, WRITE_LEVELS } from "../site-access.mjs";
-import { MAX_API_BODY } from "../site-apis.mjs";
-import { cleanShape, cleanParams, cleanCredential, apiDetailLines } from "../site-api-shape.mjs";
 import { modelsFor } from "./build-models.mjs";
 
 /** The picked model, never a hardcoded one — the rule `site-lanes.mjs` states at length. */
@@ -335,73 +277,13 @@ export const MAX_ADD_ROWS = UNCAPPED;
  * touches it then neon db is created."
  *
  * A first build sends none of the four backend tiers, so every function a page
- * calls, every outside service a page reads and every job that runs on a timer
- * is added HERE, after the build — and the first of any of them on a site with
+ * calls is added HERE, after the build — and the first of any of them on a site with
  * no database is what makes the database (the route provisions before it
  * applies). The three shapes below are the build's own items, lifted into
  * `site-table.mjs` beside the table's for the same reason.
  */
 /** Functions one message may add: no limit (owner, 2026-10-24). */
 export const MAX_ADD_FUNCTIONS = UNCAPPED;
-
-/** Outside connections one message may add. */
-export const MAX_ADD_APIS = UNCAPPED;
-
-/** Scheduled jobs one message may add: no limit (owner, 2026-10-24). */
-export const MAX_ADD_JOBS = UNCAPPED;
-
-/**
- * The shortest interval a job may run at. `site-jobs.mjs` (`MIN_EVERY_MINUTES`)
- * is the authority and rounds anything shorter up; this module may not import
- * from the root, so the number is repeated here and a test holds the two
- * together.
- */
-export const MIN_JOB_MINUTES = 15;
-
-/**
- * A job's clock time, "HH:MM" on a 24-hour clock — the shape `site-jobs.mjs`
- * keeps under the same name; this module may not import from the root, so
- * the twin is held together by a test.
- */
-export const AT_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
-
-/**
- * The longest interval a job may run at, and the value a ONE-TIME job's
- * interval is forced to. `site-jobs.mjs` (`MAX_EVERY_MINUTES`) is the
- * authority; this module may not import from the root, so the number is
- * repeated here and a test holds the two together — and the test matters more
- * than usual for this one, because the forcing is a FAIL-SAFE: if the two ever
- * drift apart, a one-time job whose `on` is lost degrades to whatever number
- * THIS file happens to hold.
- */
-export const MAX_JOB_MINUTES = 60 * 24 * 31;
-
-/**
- * The single date a one-time job runs, "YYYY-MM-DD" — the shape
- * `site-jobs.mjs` keeps under the same name; the twin is held by a test.
- */
-export const ON_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
-
-/**
- * That date as a comparable number (`20261003`), or null if it is not a real
- * calendar day — `ON_RE` admits `2026-13-45`, so the shape is not the answer.
- *
- * A NUMBER RATHER THAN A `Date`, because the only thing anything here does
- * with it is compare it against today in the site's own zone, and `YYYYMMDD`
- * orders exactly as the calendar does. Going through `Date` would drag a zone
- * into a comparison between two dates that are both already IN that zone —
- * and `Date.UTC(1, 0, 1)` silently means 1901, which is how a well-formed
- * early year gets reported as invalid.
- */
-export function onceDay(s) {
-  const m = ON_RE.exec(String(s || ""));
-  if (!m) return null;
-  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
-  if (mo < 1 || mo > 12 || d < 1) return null;
-  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
-  const len = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mo - 1];
-  return d <= len ? y * 10000 + mo * 100 + d : null;
-}
 
 /** Bands a page may have: no limit (owner, 2026-10-24). */
 export const MAX_SECTIONS = UNCAPPED;
@@ -416,7 +298,7 @@ export const MAX_ADD_SEED_ROWS = MAX_SEED_ROWS;
 const seedTried = (rows) => (Array.isArray(rows) ? rows.slice(0, MAX_ADD_SEED_ROWS).filter((r) => r && typeof r === "object" && !Array.isArray(r)).length : 0);
 
 /** The kinds whose answer is a LIST of additions rather than one. */
-export const LIST_ADDS = ["table", "row", "function", "api", "job", "page", "component", "words", "photo"];
+export const LIST_ADDS = ["table", "row", "function", "page", "component", "words", "photo"];
 
 /** Lines of words one message may add, across its pages. */
 export const MAX_ADD_WORDS = UNCAPPED;
@@ -428,7 +310,7 @@ export const MAX_WORDS_CHARS = 600;
 export const MAX_OWN_PHOTOS = UNCAPPED;
 
 /** The kinds that live in the site's DATABASE — the ones whose first addition makes one. */
-export const BACKEND_ADDS = ["table", "function", "api", "job"];
+export const BACKEND_ADDS = ["table", "function"];
 
 /** The keys those kinds fold to on the designed spec — derived, so the two lists cannot drift. */
 export const BACKEND_KEYS = BACKEND_ADDS.map((k) => k + "s");
@@ -462,8 +344,6 @@ export function unionSpec(stored, merged) {
     ...s,
     tables: Array.isArray(m.tables) ? m.tables : (Array.isArray(s.tables) ? s.tables : []),
     functions: union(m.functions, s.functions),
-    apis: union(m.apis, s.apis),
-    jobs: union(m.jobs, s.jobs),
   };
 }
 
@@ -492,7 +372,6 @@ export function pageless(answers) {
   const list = Array.isArray(answers) ? answers.filter((a) => a && typeof a === "object" && a.kind) : [];
   if (!list.length) return false;
   return list.every((a) => {
-    if (a.kind === "job") return true;
     if (a.kind === "table") {
       const ts = Array.isArray(a.value) ? a.value : [];
       return ts.length > 0 && ts.every((t) => {
@@ -638,10 +517,10 @@ const ADDS = {
         "Then answer the tables that carry all four: what each is called, its columns, who may read and write it, " +
         "and the guarantees the database keeps for it. One entry per table.",
       yours:
-        "EVERY TABLE IS YOURS TO DESIGN: its columns, its access, a unique slot, a confirmation email, " +
-        "payment, a public view — every guarantee the shape offers is available, and you may ALSO name a " +
-        "table the site already has to give it a new column, PAYMENT or a public view. On a table that " +
-        "already exists only those three are taken; its access, read and write levels are the site's own and " +
+        "EVERY TABLE IS YOURS TO DESIGN: its columns, its access, a unique slot, a public view — every " +
+        "guarantee the shape offers is available, and you may ALSO name a " +
+        "table the site already has to give it a new column or a public view. On a table that " +
+        "already exists only those two are taken; its access, read and write levels are the site's own and " +
         "an answer for them is discarded.",
       // THE SMALLEST COMPLETE DATA MODEL, NOT A COUNT OF WHAT THEY SAID
       // (owner, 2026-09-13). The old ceiling was "as many tables as the things
@@ -736,7 +615,7 @@ const ADDS = {
   // run after `table` and before `page` because a page calls a function or
   // reads a connection that has to exist first, exactly as it shows a table.
   function: {
-    hint: "Something the DATABASE has to do for a page that a table's access alone cannot: look a booking up by its claim link, cancel or move one, take a booking into a slot that holds N people, receive data another system POSTs in (a `hook_` function — the platform checks the sender's signature before it runs), or housekeeping a job runs on a timer (clear out rows older than thirty days). SQL the site's own database runs.",
+    hint: "Something the DATABASE has to do for a page that a table's access alone cannot: look a booking up by its claim link, cancel or move one, take a booking into a slot that holds N people, or housekeeping (clear out rows older than thirty days). SQL the site's own database runs.",
     // THE COVERAGE LIST RIDES THIS KIND TOO (2026-09-14). It was on `table`
     // alone, so five of the six steps that design something had no way to say
     // what they could not deliver — and the one thing the customer most needs
@@ -749,16 +628,10 @@ const ADDS = {
     add: {
       is: "The Postgres functions this change needs — each with its name, its arguments matched to the columns they are compared against, what it returns, and its SQL body over the site's own tables.",
       yours:
-        "EVERY FUNCTION IS YOURS TO WRITE: a claim lookup, a cancel, an amend, a capacity-locked booking, a " +
-        "`hook_` receiver for another system, an `internal` builder a job calls. Its arguments are typed as the " +
+        "EVERY FUNCTION IS YOURS TO WRITE: a claim lookup, a cancel, an amend, a capacity-locked booking. " +
+        "Its arguments are typed as the " +
         "COLUMNS they meet — text for a date, a time, a token; integer for a count — and its body is plain SQL " +
-        "over the columns the site's tables are listed with. A scheduled job's builder is `internal: true`, takes " +
-        "no arguments and returns json: an array of messages, empty when nothing is due. " +
-        MESSAGE_CONTRACT +
-        " A job's " +
-        "HOUSEKEEPING function — clear out rows older than thirty days, drop expired holds, close stale carts — is " +
-        "`internal: true` too, does its DELETE or UPDATE, and returns json {\"did\": \"what it did\"} " +
-        "(\"cleared 12 expired holds\"), so the owner's panel can say so.",
+        "over the columns the site's tables are listed with.",
       wide:
         "AS MANY FUNCTIONS AS THEY ASKED FOR — what the change needs — AND NOT ONE MORE. A lookup by claim link is one function; " +
         "\"and let them cancel or move it\" is three. Never a function for something a table's read level " +
@@ -768,70 +641,6 @@ const ADDS = {
         "NOTHING ELSE ABOUT THE SITE MOVES. This is the functions; the table they read is the site's own or " +
         "designed beside them, and the page that calls them is written by the next step. If the change needs " +
         "no function — a page can do it with the hooks it already has — answer nothing here.",
-    },
-  },
-  api: {
-    hint: "An OUTSIDE service a page reads live — today's exchange rate, a courier's slots, a supplier's stock, the weather — with the owner's own key kept server-side. Not for anything a table can hold. Not for anything that DOES something or answers back (a text message, a chatbot, a payment provider, an email through the owner's provider, a rule the server enforces, something on a schedule): that is the site's own server code, which `component` (or `page` when it needs a page of its own) writes beside the section that uses it.",
-    // THE COVERAGE LIST RIDES THIS KIND TOO (2026-09-14). It was on `table`
-    // alone, so five of the six steps that design something had no way to say
-    // what they could not deliver — and the one thing the customer most needs
-    // to hear is the thing the step could not express.
-    requirements: true,
-    shape: {
-      type: "array",
-      items: API_ITEM,
-    },
-    add: {
-      is: "The outside connections this change needs — each with the name a page calls it by, the whole request with `{{SECRET}}` where the owner's key goes and `{{param.x}}` where a page varies it, and how long one answer stays good.",
-      yours:
-        "EVERY CONNECTION IS YOURS TO WRITE, against the service's real request shape: the URL, the method a " +
-        "READ needs, the headers, the parameters a page may pass, the cache window. The owner pastes the key " +
-        "into Secrets; the platform makes the call and hands the page the answer as JSON.",
-      wide:
-        "AS MANY CONNECTIONS AS THE THINGS THEY NAMED, AND NOT ONE MORE. One outside service is one " +
-        "connection. NEVER one for data the site holds or could hold in a table, and never one that DOES " +
-        "something on the other side — an order, a message, a reservation — every answer here is cached and " +
-        "would run sometimes and not others.",
-      keep:
-        "NOTHING ELSE ABOUT THE SITE MOVES. This is the connections; the page that reads them is written by " +
-        "the next step. If the change needs no outside data — it is words, a table, a component — answer " +
-        "nothing here.",
-    },
-  },
-  job: {
-    hint: "Something the site does ON A TIMER with nobody there — a reminder text the day before, a weekly digest to the owner, chasing an unpaid invoice, clearing out records older than thirty days. A job runs an internal database function that returns the messages to send (or, for housekeeping, {\"did\": …} saying what it did), so a job is a `job` AND a `function` unless the site already lists one that does it.",
-    // THE COVERAGE LIST RIDES THIS KIND TOO (2026-09-14). It was on `table`
-    // alone, so five of the six steps that design something had no way to say
-    // what they could not deliver — and the one thing the customer most needs
-    // to hear is the thing the step could not express.
-    requirements: true,
-    shape: {
-      type: "array",
-      items: ADD_JOB_ITEM,
-    },
-    add: {
-      is: "The scheduled jobs this change needs — each with its name, the internal function that returns its messages, how often it runs in minutes, and for a daily or slower job the time of day it runs.",
-      yours:
-        "EVERY JOB IS YOURS TO SET: what it is for, which function decides who is due and what it says, and " +
-        "how often — 1440 for a daily reminder, 10080 for a weekly digest — with `at` for the time of day a daily " +
-        "or slower job runs (\"09:00\" for a morning reminder). The function it names must already be on the " +
-        "list of functions a scheduled job may run — that list includes the ones this same change declared a " +
-        "step earlier, and when no such list is printed there is none. When none on that list fits, WRITE IT HERE, " +
-        "in this same answer: give the job a `function` — name, returns, body, and `internal: true`, exactly as a " +
-        "function is written — and set `fn` to that function's name. Never name a function that is neither on " +
-        "that list nor written in this answer, however plainly the request implies it, and never write one here " +
-        "under a name the site already lists. Such a function takes no " +
-        "arguments and returns json — an array of messages, empty when nothing is due; or, for a " +
-        "job that does work rather than sending (clearing out old rows), {\"did\": \"what it did\"}. " +
-        MESSAGE_CONTRACT,
-      wide:
-        "AS MANY JOBS AS THEY ASKED FOR — the things that happen on a timer — AND NOT ONE MORE. A day-before reminder " +
-        "is one job. Never one for a site that only takes enquiries, and never more often than the message " +
-        "needs — the platform will not run one under 15 minutes.",
-      keep:
-        "NOTHING ELSE ABOUT THE SITE MOVES. A job changes no page; the owner adds their email or SMS key in " +
-        "Settings and it starts sending. If the change is not something that happens on a timer, answer " +
-        "nothing here.",
     },
   },
   page: {
@@ -2266,12 +2075,11 @@ export function siteNote(site) {
     ? (tables.length
       ? (anyDetail ? "It stores:\n- " + tables.join("\n- ") : "It stores: " + tables.join(", ") + ".")
       : "It has a database with no tables yet.")
-    : "It has NO database yet: nothing on it is stored. The first table, function, outside connection or scheduled job you design for it creates one.");
-  // AND THE REST OF ITS BACKEND BY NAME (2026-09-03), so a designer adding a
-  // function, a connection or a job names a new one and a job can name a
-  // function the site has.
+    : "It has NO database yet: nothing on it is stored. The first table or function you design for it creates one.");
+  // AND ITS FUNCTIONS BY NAME (2026-09-03), so a designer adding one names a
+  // new one.
   const namesOf = (k) => (Array.isArray(s[k]) ? s[k] : []).filter((x) => typeof x === "string" && x.trim()).slice(0, 24).map(mark(k));
-  const fns = namesOf("functions"), apis = namesOf("apis"), jobs = namesOf("jobs"), jobFns = namesOf("jobFns");
+  const fns = namesOf("functions");
   // A FUNCTION IS RE-DECLARED BY NAME, so one that is not ordinary SQL says so
   // (2026-09-19). `fnLangs` is non-default only and the marker rides the name
   // it belongs to, so a site with no such function prints the line it always
@@ -2285,11 +2093,6 @@ export function siteNote(site) {
     return typeof l === "string" && l.trim() ? n + " (written in " + l.trim() + ", so re-declaring it needs that language again)" : n;
   };
   if (fns.length) lines.push("Its database functions are: " + fns.map(fnLang).join(", ") + ".");
-  // THE ONES A JOB MAY RUN, said apart: a job names an internal function
-  // (no arguments, returns the messages), and `cleanAdd` refuses any other.
-  if (jobFns.length) lines.push("The functions a scheduled job may run are: " + jobFns.join(", ") + ".");
-  if (apis.length) lines.push("Its outside connections are: " + apis.join(", ") + ".");
-  if (jobs.length) lines.push("Its scheduled jobs are: " + jobs.join(", ") + ".");
   const has = [];
   // EVERY CODE BY NAME (2026-09-03), so a designer adding one can pick a name
   // the site does not use and a destination none of them already carries.
@@ -2365,7 +2168,7 @@ export function siteNote(site) {
 const NOT_A_GUARANTEE_HERE = new Set(["name", "columns", "access", "read", "write", "retired"]);
 
 /** Which spec list each backend kind's cleaned answer belongs in. */
-export const SPEC_OF_KIND = Object.freeze({ table: "tables", function: "functions", api: "apis", job: "jobs" });
+export const SPEC_OF_KIND = Object.freeze({ table: "tables", function: "functions" });
 
 /**
  * THE BASELINE AND THE PROPOSAL ARE TWO SPECS, AND THIS MAKES THE SECOND.
@@ -2476,7 +2279,7 @@ export function tableFacts(spec) {
 // from — inputs it never uses, and the ones a page or a picture changed beside
 // it changes: shown them, its request differed from the one prepared beside
 // that work, and it was asked again for nothing.
-const SCHEMA_KINDS = new Set(["table", "row", "function", "api", "job"]);
+const SCHEMA_KINDS = new Set(["table", "row", "function"]);
 // …AND THE SITE'S PHOTOGRAPHS ARE SHOWN ONLY TO THE PHOTOGRAPH DESIGNER
 // (2026-10-11, round 10): its `src` may be one of them, and its cleaner is the
 // one that checks it. A page or section designer never names a photograph's
@@ -2653,13 +2456,7 @@ const MAX_JUDGE_ITEMS = 400;
 const MAX_ITEM_TEXT = 240;
 
 /** What each part of a table does, as the platform does it. One line per `TABLE_PARTS` entry. */
-export const PART_SAYS = Object.freeze({
-  notify: "the owner is emailed about each new row (on a card-paid table, each paid order), only once they have pasted their own email key and EMAIL_FROM in Secrets",
-  confirm: "the person who adds a row is emailed (on a card-paid table, once the order is paid)",
-  sms: "the person who adds a row is sent a text message (on a card-paid table, once the order is paid)",
-  webhooks: "another system is told about its rows",
-  payment: "the visitor pays by card",
-});
+export const PART_SAYS = Object.freeze({});
 
 const JUDGE_SYSTEM =
   "You check the requirements the designers of an addition to a small business's website wrote down, against " +
@@ -2679,8 +2476,7 @@ const JUDGE_SYSTEM =
   "Then `carried` says whether something listed under \"What this request designed, and what the site already " +
   "has\" does it:\n" +
   "- \"yes\": put in `by` the id of each listed thing that does the work, copied exactly as it is listed. When " +
-  "the work is what a part of a table does, name that part (an id like `table:bookings:confirm`), not only the " +
-  "table. When it rests on one setting or one column of a table, name that setting or column (ids like " +
+  "it rests on one setting or one column of a table, name that setting or column (ids like " +
   "`table:bookings:nooverlap` or `table:dishes.allergens`), not only the table.\n" +
   "- \"no\": nothing listed does it.\n" +
   "- \"unsure\": you cannot tell from what you were shown.\n" +
@@ -2785,15 +2581,9 @@ export function judgeItems({ answers = [], existing = null, spec = null, refs = 
       } else if (a.kind === "function") {
         const args = (Array.isArray(v.args) ? v.args : []).map((x) => flat(x && x.name)).filter(Boolean).join(", ");
         push("function:" + nameOf(v), "a database function, " + (v.exists ? "replaced" : "added") + " by this request — " +
-          (v.internal ? "run only by the platform (a scheduled job or a table's part)" : "called from a page") +
+          (v.internal ? "run only by the site's own server code" : "called from a page") +
           (args ? "; it takes " + args : "") + (v.returns ? "; it returns " + flat(v.returns) : "") +
           (typeof v.body === "string" && v.body ? "; its SQL: " + flat(v.body) : ""));
-      } else if (a.kind === "api") {
-        let host = "";
-        try { host = new URL(String(v.url || "")).hostname; } catch { host = ""; }
-        push("api:" + nameOf(v), "a connection to an outside service, " + ADDED + (host ? " — it calls " + host : ""));
-      } else if (a.kind === "job") {
-        push("job:" + nameOf(v), "a scheduled job, " + ADDED + " — it runs " + flat(v.fn) + " " + jobEvery(v) + " and sends what that returns");
       } else if (a.kind === "page") {
         push("page:" + flat(v.path), "a page, " + ADDED + " — " + flat(v.path) + (v.name ? ", called \"" + flat(v.name) + "\"" : "") + (v.purpose ? ": " + flat(v.purpose) : ""));
         // …AND THE MENU LINK TO IT, when it is planned to be put in a menu
@@ -2821,7 +2611,7 @@ export function judgeItems({ answers = [], existing = null, spec = null, refs = 
   }
   const tables = spec && Array.isArray(spec.tables) ? spec.tables : [];
   const THERE = "already on the site";
-  const WORD = { table: "a table", function: "a database function", api: "a connection to an outside service", job: "a scheduled job", page: "a page", component: "a component", qr: "a QR code", three: "a 3D scene", photo: "a photograph" };
+  const WORD = { table: "a table", function: "a database function", page: "a page", component: "a component", qr: "a QR code", three: "a 3D scene", photo: "a photograph" };
   for (const it of existing && Array.isArray(existing.items) ? existing.items : []) {
     if (!it || typeof it !== "object") continue;
     const n = flat(it.name);
@@ -3065,7 +2855,7 @@ function freshCtx() {
   // designer IN THE SAME MESSAGE said the site stores less than was asked for.
   // `unknownKit` was the one field of this shape that already existed; this is
   // its generalisation rather than a fourth key beside it.
-  return { paths: [], tables: [], functions: [], apis: [], jobs: [], photos: [], unknownKit: [], dropped: [] };
+  return { paths: [], tables: [], functions: [], photos: [], unknownKit: [], dropped: [] };
 }
 
 const str = (v, n) => (typeof v === "string" ? v.trim().slice(0, n) : "");
@@ -3985,10 +3775,10 @@ export function cleanAdd(kind, value, site) {
           ctx.dropped.push({ what: "column", name: shown });
         }
         // A TABLE WITH NOTHING IN IT IS NOTHING — unless it names one the site
-        // has, to give it payment or a public view; `mergeAddonSchema` keeps
+        // has, to give it a public view; `mergeAddonSchema` keeps
         // exactly those on an existing table and the engine refuses the rest.
         const exists = (Array.isArray(s.tables) ? s.tables : []).map((x) => str(x, 63).toLowerCase()).includes(name);
-        if (!columns.length && !(exists && (t.payment || t.publicView))) return { ok: false, why: "no-columns" };
+        if (!columns.length && !(exists && t.publicView)) return { ok: false, why: "no-columns" };
         // THE DESIGN'S ROWS RIDE THROUGH AS DESIGNED (2026-10-07, Codex's
         // review). This filtered out rows that were not objects and cut the
         // list at `MAX_ADD_SEED_ROWS` before the engine saw it, so a fifteenth
@@ -4062,8 +3852,8 @@ export function cleanAdd(kind, value, site) {
         // about the body from an item that should not be built at all.
         if (v.internal !== undefined && typeof v.internal !== "boolean") return { ok: false, why: "bad-internal" };
         if (v.definer === false) return { ok: false, why: "no-invoker" };
-        // `writes` (decision 2a, 2026-10-22) decides whether the spam check
-        // guards the call. Cannot-tell must not read as "a read" — the
+        // `writes` (decision 2a, 2026-10-22) says whether the call changes rows.
+        // Cannot-tell must not read as "a read" — the
         // permissive answer — so a non-boolean is refused like `internal`.
         if (v.writes !== undefined && typeof v.writes !== "boolean") return { ok: false, why: "bad-writes" };
         // ── THE LANGUAGE IS CARRIED, AND AN UNKNOWN ONE IS REFUSED ──────────
@@ -4115,103 +3905,6 @@ export function cleanAdd(kind, value, site) {
         // default lives in ONE place — `fnLanguage` — rather than a second
         // copy here that could drift from it.
         return { ok: true, value: { name, args, returns, body, internal: v.internal === true, ...(language === undefined ? {} : { language }), ...(v.writes === true ? { writes: true } : {}), exists } };
-      }
-      case "api": {
-        const name = str(v.name, 63).toLowerCase();
-        if (!TABLE_NAME.test(name) || ctx.apis.includes(name)) return { ok: false, why: "no-api" };
-        const url = str(v.url, 2000);
-        if (!/^https:\/\/[^\s/]+/i.test(url)) return { ok: false, why: "bad-url" };
-        const method = str(v.method, 4).toUpperCase() === "POST" ? "POST" : "GET";
-        const headers = v.headers && typeof v.headers === "object" && !Array.isArray(v.headers)
-          ? Object.fromEntries(Object.entries(v.headers).filter(([k, x]) => typeof k === "string" && typeof x === "string").slice(0, 12)) : undefined;
-        // THE SAME WALK THE ENGINE DOES, so the names this refusal reasons
-        // about and the names `normalizeApi` will store cannot differ. It took
-        // strings only, which quietly dropped every parameter a designer
-        // described rather than named — the metadata arriving and being binned
-        // one hop after it was written, which is this repository's own
-        // `readAddAnswer` finding in the tier below it.
-        const pinfo = cleanParams(v.params, v.paramInfo);
-        const params = pinfo.names;
-        // A SKETCH THAT CANNOT BE READ REFUSES THE CONNECTION, where the engine
-        // merely drops it. The difference is who is listening: here a person
-        // asked for this in this message and can be told to say it again, and
-        // the alternative is a page written blind against a service nobody
-        // described — which is the exact defect this field exists to close. A
-        // connection that declares NO sketch is not refused: that is every
-        // connection made before today and an honest answer for a service the
-        // designer does not know.
-        const shape = cleanShape(v.returns);
-        if (shape && !shape.ok) return { ok: false, why: shape.why };
-        const cred = cleanCredential(v.credential);
-        if (cred && !cred.ok) return { ok: false, why: cred.why };
-        const cacheSeconds = Number.isFinite(Number(v.cacheSeconds)) ? Math.max(0, Math.min(3600, Math.round(Number(v.cacheSeconds)))) : undefined;
-        // THE SAME SILENT SLICE, ONE TIER OVER, AND A GET CANNOT SEE IT.
-        // `normalizeApi` cuts a POST body at `MAX_API_BODY` and a GET's body
-        // normalises to `""` WHATEVER it declared — so an oversized body is
-        // invisible to every fixture that does not send a real POST. Measured
-        // through a POST: 5,000 in, 4,000 out. Refused here rather than cut,
-        // because a connection that POSTs half a request to somebody else's
-        // server is a failure the customer can neither see nor act on.
-        const rawBody = method === "POST" && typeof v.body === "string" ? v.body.trim() : "";
-        if (rawBody.length > MAX_API_BODY) return { ok: false, why: "body-too-long" };
-        const exists = (Array.isArray(s.apis) ? s.apis : []).map((x) => str(x, 63).toLowerCase()).includes(name);
-        ctx.apis.push(name);
-        return { ok: true, value: { name, url, method, ...(headers ? { headers } : {}), ...(rawBody ? { body: rawBody } : {}), params,
-          ...(pinfo.info ? { paramInfo: pinfo.info } : {}),
-          ...(shape && shape.ok ? { returns: shape.shape } : {}),
-          ...(cred && cred.ok ? { credential: cred.credential } : {}),
-          ...(cacheSeconds !== undefined ? { cacheSeconds } : {}), exists } };
-      }
-      case "job": {
-        const name = str(v.name, 63).toLowerCase();
-        if (!TABLE_NAME.test(name) || ctx.jobs.includes(name)) return { ok: false, why: "no-job" };
-        const fn = str(v.fn, 63).toLowerCase();
-        // THE FUNCTION MUST EXIST AND BE INTERNAL — `site.jobFns` is that
-        // list: the site's stored internal functions plus the ones the
-        // `function` designer declared a call earlier in this same message
-        // (the route appends them as they are cleaned, because each kind is
-        // its own call and `ctx` never crosses one). The engine drops a job
-        // naming any other function, silently; this is the sentence for it.
-        const known = (Array.isArray(s.jobFns) ? s.jobFns : []).map((x) => str(x, 63).toLowerCase());
-        if (!TABLE_NAME.test(fn) || !known.includes(fn)) return { ok: false, why: "no-job-fn" };
-        const everyAsked = Number.isFinite(Number(v.everyMinutes)) ? Math.max(MIN_JOB_MINUTES, Math.round(Number(v.everyMinutes))) : MIN_JOB_MINUTES;
-        // A CLOCK TIME (owner, 2026-09-03) belongs to a daily-or-slower job
-        // and is refused by name otherwise — the engine would drop the time
-        // and keep the interval, which is a job that runs at the wrong hour
-        // reported as the one they asked for. The zone is stamped by the
-        // route from the owner's browser; this module never knows it.
-        const at = str(v.at, 5);
-        // ── A JOB THAT RUNS ONCE (2026-09-19) ────────────────────────────
-        //
-        // The interval is forced BEFORE the clock-time test, for the reason
-        // `normalizeJob` forces it: `at` belongs to a daily-or-slower job, and
-        // a model writing `{on, at, everyMinutes: 60}` — thinking about a date
-        // rather than an interval, which is exactly what a one-time job is —
-        // would otherwise be refused `bad-time` for a combination that is
-        // perfectly sensible.
-        const on = str(v.on, 10);
-        const once = on ? onceDay(on) : null;
-        if (on && !once) return { ok: false, why: "bad-date" };
-        const every = once ? MAX_JOB_MINUTES : everyAsked;
-        if (at && (!AT_RE.test(at) || every < 1440)) return { ok: false, why: "bad-time" };
-        // A DATE WITH NO TIME IS REFUSED HERE, where there is somebody to tell
-        // — `normalizeJob` refuses it too, one layer down, but silently.
-        if (once && !at) return { ok: false, why: "no-time" };
-        // …AND A DATE ALREADY GONE, which is the one refusal only THIS layer
-        // can make well. The designer knows today's date; the scheduler only
-        // ever sees a job that will never be selected, and says nothing to
-        // anybody. Telling the customer now beats a reminder about a thing
-        // that has already happened — which is to say, beats silence.
-        // `s.today` is the site's OWN local date, stamped by the route from the
-        // browser's zone — the same zone `at` is read in. Absent, the check
-        // stands down rather than guessing: comparing a local date against UTC
-        // would refuse a perfectly good "today" for anybody west of Greenwich
-        // for most of their working day, which is a worse failure than the one
-        // it prevents.
-        if (once && s.today && once < onceDay(s.today)) return { ok: false, why: "past-date" };
-        const exists = (Array.isArray(s.jobs) ? s.jobs : []).map((x) => str(x, 63).toLowerCase()).includes(name);
-        ctx.jobs.push(name);
-        return { ok: true, value: { name, fn, everyMinutes: every, ...(at ? { at } : {}), ...(once ? { on } : {}), exists } };
       }
       case "qr": {
         let points = str(v.points, 1000);
@@ -4296,43 +3989,6 @@ export function cleanAdd(kind, value, site) {
     }
   };
   const isObj = (x) => x && typeof x === "object" && !Array.isArray(x);
-  // ── A JOB THAT WRITES ITS OWN FUNCTION (owner, 2026-10-22, option B) ────
-  //
-  // Each declared function goes through `cleanAdd("function")` — the same
-  // cleaner and checks a `function` answer gets, never a second path — and
-  // must be internal and named by the job's `fn`. The ones kept are returned
-  // as `functions` (the route adds them to the addition's functions) and
-  // joined to `jobFns` before the jobs are cleaned. A refused function
-  // refuses ITS job, by name, with its own reason; a function whose job is
-  // then refused by the job cleaner is dropped with it (it would be dead).
-  if (kind === "job") {
-    const raw = Array.isArray(value) ? value : (isObj(value) ? [value] : []);
-    if (raw.some((v) => isObj(v) && Object.hasOwn(v, "function"))) {
-      const listed = (Array.isArray(s.functions) ? s.functions : []).map((x) => str(x, 63).toLowerCase());
-      const declared = [], refused = [], left = [];
-      for (const v of raw) {
-        if (!isObj(v) || !Object.hasOwn(v, "function")) { left.push(v); continue; }
-        const { function: f, ...job } = v;
-        const jname = str(job.name, 120);
-        if (!isObj(f)) { refused.push({ why: "no-function", name: jname }); continue; }
-        const fc = cleanAdd("function", [f], s);
-        const fv = fc && fc.ok && Array.isArray(fc.value) ? fc.value[0] : null;
-        if (!fv) { refused.push({ why: (fc && (fc.why || (fc.skipped && fc.skipped[0] && fc.skipped[0].why))) || "no-function", name: jname }); continue; }
-        if (fv.internal !== true) { refused.push({ why: "job-fn-public", name: jname }); continue; }
-        if (listed.includes(fv.name) || declared.some((d) => d.name === fv.name)) { refused.push({ why: "job-fn-exists", name: jname }); continue; }
-        const fn = str(job.fn, 63).toLowerCase();
-        if (fn && fn !== fv.name) { refused.push({ why: "no-job-fn", name: jname }); continue; }
-        declared.push(fv);
-        left.push({ ...job, fn: fv.name });
-      }
-      if (!left.length) return { ok: false, why: refused.length ? refused[0].why : "nothing" };
-      const known = Array.isArray(s.jobFns) ? s.jobFns : [];
-      const r = cleanAdd("job", left, { ...s, jobFns: [...known, ...declared.map((d) => d.name)] });
-      if (!r.ok) return r;
-      const ran = new Set(r.value.map((j) => j.fn));
-      return { ...r, functions: declared.filter((d) => ran.has(d.name)), skipped: [...refused, ...(Array.isArray(r.skipped) ? r.skipped : [])] };
-    }
-  }
   // ── A LIST KIND: every usable item is kept, the rest are named ──────────
   //
   // No low limits (owner): a message may add several pages, components or
@@ -4428,22 +4084,6 @@ export function cleanAdd(kind, value, site) {
  * can drive every token to a sentence and the route cannot fall through to a
  * blank one.
  */
-/**
- * How often a job runs, in words — "every day at 09:00", "every week",
- * "every 30 minutes". Shared by the directive and the note; the browser's
- * `jobWords` says the same thing to the customer and cannot import this.
- */
-export function jobEvery(j) {
-  const m = Number(j && j.everyMinutes);
-  const every = !Number.isFinite(m) || m <= 0 ? ""
-    : m % 10080 === 0 ? (m === 10080 ? "every week" : "every " + (m / 10080) + " weeks")
-    : m % 1440 === 0 ? (m === 1440 ? "every day" : "every " + (m / 1440) + " days")
-    : m % 60 === 0 ? (m === 60 ? "every hour" : "every " + (m / 60) + " hours")
-    : "every " + m + " minutes";
-  const at = j && typeof j.at === "string" && AT_RE.test(j.at) ? " at " + j.at + (typeof j.tz === "string" && j.tz ? " (" + j.tz + ")" : "") : "";
-  return every + at;
-}
-
 export function addRefusal(why, kind) {
   switch (why) {
     case "page-exists": return "This site already has that page — ask me to change it instead.";
@@ -4464,35 +4104,6 @@ export function addRefusal(why, kind) {
     case "row-no-values": return "I couldn't tell what that entry should say — give its details, like a name and a price, and I'll add it.";
     case "row-alone": return "A new entry for one of the site's lists is a step of its own — ask for it in a message of its own and I'll add it.";
     case "no-function": return "I couldn't turn that into a database function — say what it should look up, change or receive, and I'll write it.";
-    case "no-api": return "I couldn't tell which outside service to connect to — name the service and what the page should read from it.";
-    case "bad-url": return "An outside connection has to be an https address — that one isn't. Nothing was changed.";
-    // A SKETCH THAT CANNOT BE READ IS REFUSED RATHER THAN DROPPED, and the
-    // sentence says what to do about it. The alternative — keep the connection
-    // and lose the description — is a page written blind against a service
-    // nobody described, which is the defect this field exists to close.
-    //
-    // ONE SENTENCE FOR THE MALFORMED-SKETCH CASES, deliberately. They are
-    // one mistake from where the customer stands ("the answer wasn't described
-    // in a way I could use") and a sentence each about nesting depth, array
-    // arity and what may sit at the root would be this platform explaining its
-    // own parser. The
-    // developer record keeps the reason; the customer gets the action.
-    case "shape-leaf": case "shape-array": case "shape-empty": case "shape-key":
-    case "shape-too-big": case "shape-too-deep": case "shape-top":
-      return "I couldn't read the description of what that service sends back, so I've left the site as it was — ask again and say roughly what the answer looks like, or just name the service and I'll connect it without it.";
-    case "credential-url": return "The sign-up page for that service has to be an https address — that one wasn't. Nothing was changed.";
-    case "credential-shape": return "I couldn't read where the key for that service comes from — ask again and name the service, or leave it out and I'll connect it anyway.";
-    case "no-job": return "I couldn't tell what should happen on a timer — say what to send, to whom, and how often.";
-    case "job-fn-public": return "A scheduled job's function has to be private to the site (internal), and the one written for that job wasn't, so the job was left out — ask again and I'll write it privately.";
-    case "job-fn-exists": return "That scheduled job tried to write a function under a name the site already has, so the job was left out — ask again and it can use the existing one or a new name.";
-    case "no-job-fn": return "That scheduled job names a function this site doesn't have — describe what it should send and I'll write both together.";
-    case "bad-time": return "A time of day only fits a job that runs once a day or less often — say how often it should run, or drop the time and it runs on the interval. Nothing was changed.";
-    // THREE SENTENCES FOR THREE REFUSALS, because they need three different
-    // things done about them and a shared one would send the customer looking
-    // in the wrong place. Each says what to do rather than what went wrong.
-    case "bad-date": return "I couldn't read the date that job should run on — give it as a day, a month and a year, like 3 October 2026. Nothing was changed.";
-    case "no-time": return "A job that runs once needs a time of day as well as a date — say what time it should go out, because there's no second chance for it to be right. Nothing was changed.";
-    case "past-date": return "That date has already gone, so the job would never run. Give a date in the future and I'll set it up. Nothing was changed.";
     case "no-destination": return "A QR code needs a real destination — a link, a phone number, a wifi network — and that wasn't in the message. Nothing was changed.";
     case "bad-destination": return "A QR code can carry a link, a phone number, an email address, a wifi network or plain text — not that. Nothing was changed.";
     case "no-such-page": return "That code would open a page this site doesn't have. Name one of its pages, or a link, a number or an address — nothing was changed.";
@@ -4524,7 +4135,7 @@ export function addRefusal(why, kind) {
     // first is a value nobody could read; the second is a real request this
     // step cannot carry, so it says which step can.
     case "bad-internal": return "I couldn't tell whether that should be private to the site or callable from a page, so I didn't create it — nothing is worse than getting that one wrong. Say who should be able to use it and I'll add it.";
-    case "bad-writes": return "I couldn't tell whether that one changes your records or only reads them, so I didn't create it — that decides whether the spam check guards it. Say what it should do and I'll add it.";
+    case "bad-writes": return "I couldn't tell whether that one changes your records or only reads them, so I didn't create it. Say what it should do and I'll add it.";
     case "no-invoker": return "That one asked to run with reduced database permissions, which I can't set up from here — so I didn't create it rather than quietly giving it more access than was asked for. Nothing was changed.";
     // NAMED, because the alternative is the failure this refusal exists to
     // stop: a body written for one language, created as another, failing at
@@ -4636,30 +4247,8 @@ export function addDirective(kind, value, site) {
       out.push("## The function this change " + (v.exists ? "replaces" : "adds"));
       out.push("- `" + v.name + "(" + args + ") -> " + v.returns + "` is live in the site's database" +
         (v.internal
-          ? ", INTERNAL — the platform calls it (a job's message builder, a `hook_` receiver); no page calls it, and nothing on any page changes for it."
+          ? ", INTERNAL — no page calls it (the site's own server code may), and nothing on any page changes for it."
           : ". Call it by NAME from the page that needs it — useRpc / useRpcAction / useClaimedRow / useCancelClaim / useAmendClaim, as the rules describe — and nothing else on that page moves."));
-      break;
-    }
-    case "api": {
-      const params = (Array.isArray(v.params) ? v.params : []).join(", ");
-      out.push("## The outside connection this change " + (v.exists ? "replaces" : "adds"));
-      out.push("- `" + v.name + "(" + params + ")` is served by the platform, which holds the key and makes the call. " +
-        "Read it from the page that needs it with `useApi(\"" + v.name + "\", { " + params + " })` and write the page against " +
-        "the service's real answer shape; nothing else on that page moves.");
-      // THE SAME FACTS THE PAGE CATALOGUE PRINTS, from the same function. The
-      // sentence above told the page writer to write against "the service's
-      // real answer shape" and then described that shape nowhere — an
-      // instruction it had no way to follow. Empty for a connection that
-      // declared none of it, so a directive for a connection made the old way
-      // is byte for byte what it was.
-      for (const line of apiDetailLines(v)) out.push("  - " + line);
-      out.push("  - It crosses the internet, so draw all three states: waiting, unreachable-or-not-configured-yet, and the answer.");
-      break;
-    }
-    case "job": {
-      out.push("## The scheduled job this change " + (v.exists ? "replaces" : "adds"));
-      out.push("- `" + v.name + "` runs `" + v.fn + "()` " + jobEvery(v) + " and sends whatever it returns. " +
-        "It changes NO page: return nothing for it unless another addition in this change needs a page.");
       break;
     }
     case "qr": {
@@ -4738,7 +4327,7 @@ export function foldAdds(answers, priorLook, site) {
   const tsx = (Array.isArray(prior.tsx) ? prior.tsx : []).filter((t) => t && typeof t === "object" && typeof t.name === "string").map((t) => ({ ...t }));
   const tables = [];
   const seed = {};
-  const functions = [], apis = [], jobs = [];
+  const functions = [];
   // ── THE SHOT LIST, OUT ON ITS OWN AND NOT ON `designed` (2026-09-17) ──────
   //
   // `designed` is what `mergeLook` folds into the site's STORED look, and a
@@ -4833,17 +4422,6 @@ export function foldAdds(answers, priorLook, site) {
       const { exists, ...fn } = v;
       functions.push(fn);
     }
-    if (a.kind === "api" && v.name) {
-      const { exists, ...api } = v;
-      apis.push(api);
-    }
-    // ⚠ THE FOLD REBUILDS A JOB KEY BY KEY, so a field added to `cleanAdd` and
-    // not to this line is CLEANED, VALIDATED, and then dropped one hop later —
-    // this repository's most-recorded defect, and the one-time date walked
-    // straight into it: the cleaner kept `on`, the reply lost it, and from the
-    // outside that is indistinguishable from a model that never said it.
-    // MEASURED: `{on: "2026-10-03"}` in, `undefined` out of `foldAdds`.
-    if (a.kind === "job" && v.name) jobs.push({ name: v.name, fn: v.fn, everyMinutes: v.everyMinutes, ...(v.at ? { at: v.at, ...(v.tz ? { tz: v.tz } : {}) } : {}), ...(v.on ? { on: v.on } : {}) });
     // APPENDED TO THE STORED LIST BY NAME (2026-09-03), never replacing it —
     // the `tsx` rule one loop up, for the same reason: a site with a code that
     // gets another must keep the first.
@@ -4856,8 +4434,6 @@ export function foldAdds(answers, priorLook, site) {
   }
   if (tables.length) { designed.tables = tables; designed.seed = seed; }
   if (functions.length) designed.functions = functions;
-  if (apis.length) designed.apis = apis;
-  if (jobs.length) designed.jobs = jobs;
   // ONLY WHEN SOMETHING WAS DECLARED: an absent `tsx` means unchanged to the
   // merge, and re-sending the stored list unchanged is a no-op either way —
   // but a site with none and an answer with none must not store `[]`.
@@ -4923,7 +4499,7 @@ export function mergePageBatches(got) {
 }
 
 /** Kinds every batch is shown (what the pages use), never written by a batch itself. */
-const SHARED_BLOCK_KINDS = new Set(["table", "function", "api", "job"]);
+const SHARED_BLOCK_KINDS = new Set(["table", "function"]);
 
 /**
  * The directive of each batch, or [] when one writer writes them all. Each
@@ -6915,7 +6491,6 @@ export function missingPopulation({ spec = null, seed = null, readers = [] } = {
   const written = new Set();
   const bodies = [];
   for (const f of Array.isArray(s.functions) ? s.functions : []) if (f && typeof f.body === "string") bodies.push(f.body);
-  for (const j of Array.isArray(s.jobs) ? s.jobs : []) if (j && typeof j.body === "string") bodies.push(j.body);
   for (const b of bodies) {
     for (const m of b.matchAll(/\b(?:insert\s+into|update|copy)\s+"?([a-z_][a-z0-9_]*)"?/gi)) {
       written.add(String(m[1]).toLowerCase());
@@ -7345,38 +6920,12 @@ export function addRepairNote(round) {
 }
 
 /**
- * THE PARTS OF A TABLE THAT DO SOMETHING, read off the table as stored
- * (2026-10-05): `notify` — the owner is emailed about each new row, which the
- * platform does for a `collect` table and nothing else (`shouldNotify`);
- * `confirm` and `sms` — the person who submitted is emailed or texted, kept by
- * `normalizeSchema` only where the sender can act on it (`normalizeConfirm`,
- * `normalizeSms`); `webhooks` — another system is told; `payment` — the
- * visitor pays by card. One reader for the record of what ran, what the site
- * already has, and what the judgment is shown, so the three cannot disagree
- * about what a table does. `TABLE_PARTS` is the vocabulary.
+ * THE PARTS OF A TABLE THAT DO SOMETHING, read off the table as stored. None
+ * since 2026-10-29 (`TABLE_PARTS` is empty): what a table's rows set off is the
+ * site's own server code. Kept as the one reader so the callers stay one shape.
  */
 export function tableParts(t) {
-  if (!t || typeof t !== "object") return [];
-  const obj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
-  const out = [];
-  // A `collect` table whose stored rule still lets a visitor add a row: the
-  // email is sent from that POST (`shouldNotify`), so a rule that refuses it
-  // sends nothing.
-  // A card-paid table gets no visitor write grant at all; its rows come from
-  // the checkout, and the owner's email is sent when one is PAID (audit A12-1:
-  // the Stripe webhook runs the same row step as the proxy).
-  if (String(t.access || "").toLowerCase() === "collect" && (obj(t.payment) || resolveAccess(t).write !== "none")) out.push("notify");
-  // A table nobody may write to directly (`write: "none"`, filled by a
-  // function) never reaches the row step: a function's insert is invisible
-  // to it (audit A12-1, still open), so its confirm, text and webhook are not
-  // claimed. A card-paid table is the exception — the checkout and the paid
-  // flip run the step.
-  const reached = obj(t.payment) || resolveAccess(t).write !== "none";
-  if (reached && obj(t.confirm)) out.push("confirm");
-  if (reached && obj(t.sms)) out.push("sms");
-  if (reached && (t.webhooks === true || (Array.isArray(t.webhooks) && t.webhooks.length))) out.push("webhooks");
-  if (obj(t.payment)) out.push("payment");
-  return out.filter((x) => TABLE_PARTS.includes(x));
+  return [];
 }
 
 /**
@@ -7425,7 +6974,7 @@ export function existingFacts({ spec = null, pages = null, look = null, sources 
     .map((x) => String((x && x.name) || "").trim()).filter(Boolean);
   const speaks = (k) => { if (SITE_KINDS.includes(k) && !kinds.includes(k)) kinds.push(k); };
   if (spec && typeof spec === "object") {
-    for (const [kind, key] of [["table", "tables"], ["function", "functions"], ["api", "apis"], ["job", "jobs"]]) {
+    for (const [kind, key] of [["table", "tables"], ["function", "functions"]]) {
       speaks(kind);
       for (const n of names(spec[key])) {
         // A TABLE WITH WHAT IT DOES (2026-10-05), read off the stored spec it came from.
@@ -7542,8 +7091,6 @@ export function shownSchema(site) {
     columns: Object.fromEntries(names(s.tables).slice(0, MAX_SHOWN_TABLES)
       .map((t) => [t, names(cols[t]).slice(0, MAX_SHOWN_COLUMNS)])),
     functions: names(s.functions).slice(0, MAX_SHOWN_TABLES),
-    apis: names(s.apis).slice(0, MAX_SHOWN_TABLES),
-    jobs: names(s.jobs).slice(0, MAX_SHOWN_TABLES),
     // A BOOLEAN, because `hasDatabase: false` beside a non-empty `tables` is a
     // contradiction worth being able to read back — and it is the one field
     // whose false value is the whole of run 47's defect.
@@ -7594,7 +7141,7 @@ export function shownSchema(site) {
  * route carries that per-kind readiness, so a coverage composed on a refusal
  * path still answers `unknown` for them rather than `absent`.
  */
-export const APPLIED_KINDS = Object.freeze(["table", "function", "api", "job", "page", "qr", "three", "photo"]);
+export const APPLIED_KINDS = Object.freeze(["table", "function", "page", "qr", "three", "photo"]);
 
 /**
  * WHAT A CHANGE REALLY APPLIED, AND WHAT EACH ITEM REALLY GUARANTEES.
@@ -7694,7 +7241,7 @@ export const APPLIED_KINDS = Object.freeze(["table", "function", "api", "job", "
  * answered with a syntax error, the job registered against it all the same, and
  * a claim naming the job's real 09:00 schedule read `delivered`.
  */
-export function appliedFacts({ spec = null, tables = [], altered = [], functions = [], apis = [], jobs = [], pages = [], fnErrors = [], qrs = [], three = false, threeOn = [], threeUnsure = false, photos = [], shots = [], refused = [] } = {}) {
+export function appliedFacts({ spec = null, tables = [], altered = [], functions = [], pages = [], fnErrors = [], qrs = [], three = false, threeOn = [], threeUnsure = false, photos = [], shots = [], refused = [] } = {}) {
   const levels = [...new Set([...Object.keys(ACCESS_PRESETS), ...READ_LEVELS, ...WRITE_LEVELS])];
   const list = (spec && Array.isArray(spec.tables)) ? spec.tables : [];
   // WHAT THE DATABASE REFUSED OF EACH TABLE (2026-10-07, the engine's
@@ -7755,51 +7302,6 @@ export function appliedFacts({ spec = null, tables = [], altered = [], functions
     if (typeof f.returns === "string" && f.returns) holds.push(...String(f.returns).toLowerCase().split(/[^a-z0-9_]+/).filter((w) => w.length >= 3));
     for (const a of (Array.isArray(f.args) ? f.args : [])) if (a && a.name) holds.push(String(a.name).toLowerCase());
     out.push({ kind: "function", name: n, holds, fails, checked: [] });
-  }
-  // ── A CONNECTION PROVES CONFIGURATION, NEVER BEHAVIOUR ───────────────────
-  //
-  // Owner, 2026-09-14: *"A stored connection proves configuration exists; it
-  // does not prove credentials work or the external service answers."* An api
-  // is not DDL — it lives in `_meta.schema`, so "applied" here means STORED,
-  // and storing a declaration is the entire extent of what this layer did.
-  // Nothing has called the service, nothing has checked the key.
-  //
-  // So the tokens are CONFIGURATION ONLY — the host it points at, the verb, the
-  // parameters it accepts, the cache window — and deliberately carry no word
-  // about what the page will see. A claim about behaviour ("customers see the
-  // live forecast") names none of them and stays `unverified`, which is the
-  // honest answer until somebody checks the credential against the service.
-  const apiList = (spec && Array.isArray(spec.apis)) ? spec.apis : [];
-  for (const n of (Array.isArray(apis) ? apis : [])) {
-    const a = apiList.find((x) => x && String(x.name || "").toLowerCase() === String(n).toLowerCase());
-    if (!a) { out.push({ kind: "api", name: n, holds: [], fails: [], checked: [] }); continue; }
-    const holds = [], fails = [];
-    let host = "";
-    try { host = new URL(String(a.url || "")).hostname.toLowerCase(); } catch { host = ""; }
-    if (host) holds.push(host);
-    const method = String(a.method || "GET").toUpperCase() === "POST" ? "post" : "get";
-    holds.push(method);
-    fails.push(method === "post" ? "get" : "post");
-    for (const p of (Array.isArray(a.params) ? a.params : [])) if (p) holds.push(String(p).toLowerCase());
-    if (Number(a.ttl) > 0) holds.push(String(a.ttl));
-    out.push({ kind: "api", name: n, holds, fails, checked: [] });
-  }
-  // ── THE SECOND WALL, AND THE REDUNDANCY IS DELIBERATE ────────────────────
-  //
-  // Since 2026-09-14 the addon route BLOCKS a job whose new function failed —
-  // it is never registered and never reaches `jobs` here, so this skip fires on
-  // nothing on that path. It stays because the two walls answer different
-  // questions and a sweep cannot say so: the route's is about what the site
-  // really runs, this one is about what may be quoted back as evidence, and
-  // `appliedFacts` has other callers' shapes to survive (a job list assembled
-  // anywhere that does not know about `fnErrors`). Deleting it would make the
-  // evidence reader depend on a caller keeping a rule it does not state.
-  const dead = new Set((Array.isArray(fnErrors) ? fnErrors : [])
-    .map((e) => String((e && e.name) || "").toLowerCase()).filter(Boolean));
-  for (const j of (Array.isArray(jobs) ? jobs : [])) {
-    if (!j || !j.name) continue;
-    if (dead.has(String(j.fn || "").toLowerCase())) continue;
-    out.push({ kind: "job", name: j.name, holds: [String(j.everyMinutes || ""), String(j.at || "")].filter(Boolean), fails: [], checked: [] });
   }
   // A PUBLISHED ROUTE, AND DELIBERATELY WITH AN EMPTY VOCABULARY. See the head
   // of this function: existence is the entire claim, so there is nothing here
