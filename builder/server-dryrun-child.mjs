@@ -63,7 +63,7 @@ function fakeSite(hosts, rec) {
 
 const SAMPLE_ROW = { id: 1, name: "Test Visitor", customer_name: "Test Visitor", email: "test@example.com", phone: "+440000000000", created_at: "2026-01-01 10:00:00", payment_status: "paid", amount: 15, total: 15, quantity: 1, places: 1 };
 
-async function runOne({ name, js, hooks }) {
+async function runOne({ name, js, hooks, request = null }) {
   const rec = { keys: new Set(), calls: [], sql: [] };
   const out = { name, ok: false, ran: [] };
   let mod;
@@ -71,6 +71,9 @@ async function runOne({ name, js, hooks }) {
   catch (e) { return { ...out, error: "it does not load: " + String((e && e.message) || e).slice(0, 200), kind: "load" }; }
   if (typeof mod.default !== "function") return { ...out, error: "it has no function as its default export", kind: "shape" };
   const hosts = Array.isArray(mod.hosts) ? mod.hosts.filter((h) => typeof h === "string").map((h) => h.toLowerCase()) : [];
+  // ONE CALL WITH THE AGENT'S OWN SAMPLE (2026-10-30, `call_function`): the
+  // same fake site, the request it asked for, and the answer handed back.
+  if (request && typeof request === "object") return callOne(out, mod, hosts, rec, request);
   const events = Array.isArray(hooks) && hooks.length ? hooks : [null];
   for (const event of events) {
     const body = event
@@ -94,6 +97,28 @@ async function runOne({ name, js, hooks }) {
     }
   }
   return { ...out, ok: true, keys: [...rec.keys], calls: rec.calls };
+}
+
+async function callOne(out, mod, hosts, rec, request) {
+  const u = new URL("https://test-site.example/api/db/test-site/fn/" + out.name);
+  for (const [k, v] of Object.entries(request.query || {})) u.searchParams.set(String(k), String(v));
+  const method = String(request.method || "POST").toUpperCase();
+  const init = { method, headers: { "content-type": request.json === false ? "text/plain" : "application/json", "cf-connecting-ip": "203.0.113.7" } };
+  if (method !== "GET" && method !== "HEAD" && typeof request.body === "string") init.body = request.body;
+  const facts = () => ({ keys: [...rec.keys], calls: rec.calls, sql: rec.sql });
+  try {
+    const res = await Promise.race([
+      mod.default(new Request(u, init), fakeSite(hosts, rec)),
+      new Promise((_, no) => setTimeout(() => no(new Error("it did not answer within 8 seconds")), 8000)),
+    ]);
+    if (!(res instanceof Response)) return { ...out, error: "it answered with something other than a Response", kind: "shape", ...facts() };
+    const body = (await res.text()).slice(0, 8000);
+    return { ...out, ok: true, ran: ["request"], status: res.status, contentType: res.headers.get("content-type") || "", body, ...facts() };
+  } catch (e) {
+    const msg = String((e && e.message) || e).slice(0, 200);
+    const code = e instanceof ReferenceError || e instanceof TypeError || /did not declare|called fetch directly|not https|too many outside calls/.test(msg);
+    return { ...out, error: msg, kind: code ? "code" : "input", ...facts() };
+  }
 }
 
 let input = "";
