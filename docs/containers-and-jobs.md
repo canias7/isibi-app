@@ -17,7 +17,20 @@
 The full law is `docs/containers-and-jobs.md`. **Every rung runs in the site's
 own container, and the container has no clock**: `CONTAINER_*_BUDGET_MS` is
 `Infinity`; the lease (`LEASE_TTL_S` 90, `HEARTBEAT_S` 30) is a liveness check
-and never a cap. **One setting, `builder/job-duration.mjs`**: a job's deadline
+and never a cap. **No fixed deadline since 2026-10-30 (the owner: "no limit"
+on how long a task runs)**: the build service stops a job child only after
+**`NO_PROGRESS_MS` (15 minutes, `builder/job-clock.mjs`) with no progress**
+(`makeWatchdog`), never while it progresses. Progress is every line the child
+writes (the site agent writes one per round or tool, at most every 30 s,
+`builder/job-progress.mjs`), every model answer, stream piece and provider-wait
+notice the service hands a job. `/busy` reports `idleMs`, and `holdDecision`
+holds a busy container while it progresses (`MAX_QUIET_HOLD_MS`, 17.5 minutes
+of quiet); an older image without `idleMs` keeps the old hold. The launch's
+token and `deadlineAt` take `JOB_CREDENTIAL_MS` (24 hours, the credential's
+horizon) unless `JOB_MAX_MINUTES` is set. The site agent has no round or time
+cap (`AGENT_MAX_ROUNDS`, `AGENT_MAX_MS`, `HELPER_ROUNDS` are `Infinity`); the
+page follows a running build and edit with no fixed cutoff. **Before that:**
+one setting, `builder/job-duration.mjs`: a job's deadline
 is **50 minutes** (`JOB_MAX_MS`), and the SIGTERM, the SIGKILL and the busy
 hold (**52.5 minutes**, `MAX_BUSY_HOLD_MS`) are derived from it under
 `edit_handoff`'s 3,600-second limit; `JOB_MAX_MINUTES` may only shorten it. The

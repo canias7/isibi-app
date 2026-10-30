@@ -39,16 +39,22 @@ import { keyAsk } from "./key-card.mjs";
 import { SERVER_TOOLS, readDocs, errorLines, errorsLimit, keyNames, schemaChange, callRequest, callAnswer } from "./agent-server-tools.mjs";
 import { attachments as sortAttachments } from "./site-context.mjs";
 import { readImportSite, importBriefBlock, IMPORT_LOGO_ID } from "./site-import.mjs";
+import { noteProgress } from "./job-progress.mjs";
 import { readSettingsInput, readLogoInput, readLanguagesInput, readRulesInput, readRenameInput, readAskInput, readQrInput } from "./agent-steps.mjs";
 import { applySort, sortColumns, sortRefusal, SORT_DIRS } from "./site-order.mjs";
 
-/** A guard against a loop, not a spending limit: a first build writes many files. */
-export const AGENT_MAX_ROUNDS = 40;
+/**
+ * NO ROUND LIMIT (the owner, 2026-10-30: "no limit" on how long a task runs).
+ * A caller or a test may still pass `maxRounds`; a run that stops making
+ * progress is ended by the job's no-progress watchdog (`NO_PROGRESS_MS` in
+ * `job-clock.mjs`), never by a count.
+ */
+export const AGENT_MAX_ROUNDS = Infinity;
 export const AGENT_MAX_TOKENS = 32000;
 /** No spending limit (the owner, 2026-10-28: "no cap at all"); a caller may still pass one. */
 export const AGENT_CREDIT_CAP = Infinity;
-/** Inside the job's own 50-minute deadline, with room left to save. */
-export const AGENT_MAX_MS = 40 * 60 * 1000;
+/** NO TIME LIMIT (the owner, 2026-10-30); a caller or a test may still pass `maxMs`. */
+export const AGENT_MAX_MS = Infinity;
 /** The pile, in characters, above which finished files become notes. */
 export const COMPACT_AT = 60000;
 /** The fewest characters a clearing must save to be worth rewriting older rounds. */
@@ -59,9 +65,11 @@ const CREDIT_USD = 0.008;
 const MAX_READ = 8;
 const MAX_FILE_CHARS = 120000;
 const MAX_SHOTS = 2;
-/** Pages handed to helpers in one call, and the rounds each helper may take. */
+/** Pages handed to helpers in one call, and the rounds each helper may take
+ *  (no limit since 2026-10-30: helpers run in parallel on copies and write
+ *  only their own page, so a count adds no safety the watchdog lacks). */
 export const MAX_HELPERS = 6;
-export const HELPER_ROUNDS = 15;
+export const HELPER_ROUNDS = Infinity;
 const PAGE_KEY = /^[a-z0-9][a-z0-9._$-]*(?:\/[a-z0-9._$-]+)*\.tsx$/i;
 const PART_KEY = /^-parts\/[a-z0-9][a-z0-9-]{0,62}$/i;
 const TABLE = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
@@ -1051,6 +1059,9 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const log = typeof deps.log === "function" ? deps.log : () => {};
   const progress = typeof deps.progress === "function" ? deps.progress : () => {};
+  // EVERY ROUND AND EVERY TOOL RESULT IS PROGRESS (2026-10-30): the job's
+  // watchdog stops a job only after NO_PROGRESS_MS without any.
+  const alive = (what) => { try { noteProgress(what); if (typeof deps.alive === "function") deps.alive(what); } catch { /* never costs the run */ } };
   const started = now();
   const ws = makeWorkspace(pages, parts, css);
   const tables = spec && Array.isArray(spec.tables)
@@ -1076,7 +1087,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     deps = { ...deps, helpers: (tasks, cur) => Promise.all(tasks.map(async (t) => {
       try {
         const left = Math.max(60000, maxMs - (now() - started));
-        const r = await runSiteAgent({ send: deps.send, now: deps.now, readTable: deps.readTable, stopped: deps.stopped, log: (e) => log({ ...e, helper: 1 }) }, {
+        const r = await runSiteAgent({ send: deps.send, now: deps.now, readTable: deps.readTable, stopped: deps.stopped, alive: deps.alive, log: (e) => log({ ...e, helper: 1 }) }, {
           request: "YOU ARE A HELPER. Another agent is building this site and has handed you ONE page to write: " + t.file + ". Write that page, complete, with write_file, and nothing else (you cannot build; the other agent builds after you). Read the shared files you use first. Then finish with one line on what the page holds.\n\nYOUR PAGE'S BRIEF\n" + t.brief + "\n\nTHE OWNER'S REQUEST FOR THE WHOLE SITE\n" + String(request || ""),
           pages: cur.pages(), parts: cur.parts(), css: cur.css(), map, spec, kind, ownParts, model, maxRounds: HELPER_ROUNDS, maxMs: left, onlyWrite: t.file,
         });
@@ -1135,6 +1146,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
       if (e && e.name === "AgentStopped") { stopped = "cancelled"; break; }
       stopped = "send"; log({ event: "send-failed", why: String((e && e.message) || e).slice(0, 200) }); break;
     }
+    alive("round");
     const u = usageOf(j, model);
     usage.push(u);
     lastCost = pageCost(u) / CREDIT_USD;
@@ -1159,6 +1171,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     const images = [];
     for (let i = 0; i < uses.length; i++) {
       const r = await runTool(uses[i], st, deps);
+      alive("tool");
       const block = { type: "tool_result", tool_use_id: ids[i], content: r.error ? r.error : r.text };
       if (r.error) block.is_error = true;
       if (r.reads) Object.defineProperty(block, "reads", { value: r.reads, enumerable: false });

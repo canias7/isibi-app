@@ -53,7 +53,8 @@
 // is the whole point — a number typed here beside `BUILD_JOB_MS` drifts the next
 // time either moves, which is exactly how the two came to be equal at thirty
 // minutes. Both are Worker-side modules this one already ships beside.
-import { jobDurationPlan } from "./job-duration.mjs";
+import { jobDurationPlan, HOLD_SLACK_MS } from "./job-duration.mjs";
+import { NO_PROGRESS_MS } from "./job-clock.mjs";
 
 import { BUILD_JOB_MS } from "./build-job.mjs";
 import { JOB_KILL_GRACE_MS, JOB_TERM_GRACE_MS } from "./job-clock.mjs";
@@ -88,6 +89,13 @@ import { JOB_KILL_GRACE_MS, JOB_TERM_GRACE_MS } from "./job-clock.mjs";
 // being held at once and the ceiling is only ever reached by a job still
 // working — or wedged, which is what the deadline below it ends.
 export const MAX_BUSY_HOLD_MS = jobDurationPlan().holdMs;
+
+// NO FIXED DEADLINE (the owner, 2026-10-30). A container that reports
+// `idleMs` (the time since its last job progress, an image from 2026-10-30
+// on) is held while it is busy AND progressing, however long it has been
+// busy; it is let go once it has been quiet past the watchdog's stop and both
+// graces. An older image that reports no `idleMs` keeps `MAX_BUSY_HOLD_MS`.
+export const MAX_QUIET_HOLD_MS = NO_PROGRESS_MS + JOB_KILL_GRACE_MS + JOB_TERM_GRACE_MS + HOLD_SLACK_MS;
 
 // HOW LONG TO WAIT FOR THE CONTAINER TO SAY WHETHER IT IS BUSY. Generous on
 // purpose: a healthy build spends nearly all its time awaiting a subprocess or a
@@ -151,6 +159,14 @@ export function holdDecision(state, { maxHoldMs = MAX_BUSY_HOLD_MS } = {}) {
   const since = state.sinceMs;
   if (typeof since !== "number" || !Number.isFinite(since) || since < 0) {
     return { hold: false, why: "unreadable" };
+  }
+
+  // PROGRESS, NOT AGE (2026-10-30): a container that says how long it has
+  // been quiet is held while it progresses, and let go once it has been quiet
+  // past the watchdog's stop and its graces.
+  const idle = state.idleMs;
+  if (typeof idle === "number" && Number.isFinite(idle) && idle >= 0) {
+    return idle > MAX_QUIET_HOLD_MS ? { hold: false, why: "stuck" } : { hold: true, why: "busy" };
   }
 
   // BUSY FOR LONGER THAN ANY REAL BUILD → STOP. This is the backstop above: the

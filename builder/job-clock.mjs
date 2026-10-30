@@ -130,3 +130,42 @@ export function makeTerminator({ kill, setTimeout: st = setTimeout, clearTimeout
     },
   };
 }
+
+// ── NO FIXED DEADLINE: A NO-PROGRESS WATCHDOG (the owner, 2026-10-30) ───────
+//
+// "No limit" on how long a task runs. The service no longer stops a child at
+// its launch's deadline; it stops one that has made NO PROGRESS (no line
+// written, no model answer or stream, no provider-wait notice) for
+// `NO_PROGRESS_MS`, and never one that is still progressing. The two-signal
+// stop is the same terminator (`stop("no-progress")`). The 90-second lease
+// and its heartbeat are crash detection, not a time limit, and are unchanged.
+
+/** THE ONE SETTING: how long a job may go without any progress before it is stopped. */
+export const NO_PROGRESS_MS = 15 * 60_000;
+
+/**
+ * `touch()` records progress; `onIdle()` is called once when `idleMs` passes
+ * with none. Driven with the timers handed in (fakes in tests). One pending
+ * timer at a time: when it fires early (a touch moved the line) it re-arms for
+ * what is left, so a touch costs nothing but a clock read.
+ */
+export function makeWatchdog({ onIdle, idleMs = NO_PROGRESS_MS, setTimeout: st = setTimeout, clearTimeout: ct = clearTimeout, now = () => Date.now() } = {}) {
+  let last = now();
+  let timer = null;
+  let fired = false;
+  const check = () => {
+    timer = null;
+    const quiet = now() - last;
+    if (quiet >= idleMs) { fired = true; try { onIdle && onIdle(quiet); } catch { /* the stop is the caller's */ } return; }
+    timer = st(check, idleMs - quiet);
+    if (timer && typeof timer.unref === "function") timer.unref();
+  };
+  timer = st(check, idleMs);
+  if (timer && typeof timer.unref === "function") timer.unref();
+  return {
+    touch() { if (!fired) last = now(); },
+    idleFor: () => now() - last,
+    fired: () => fired,
+    clear() { if (timer) { ct(timer); timer = null; } },
+  };
+}

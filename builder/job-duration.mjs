@@ -157,3 +157,15 @@ export function assertJobDuration(maxMs = JOB_MAX_MS) {
   }
   return p;
 }
+
+/**
+ * NO FIXED DEADLINE (the owner, 2026-10-30: "no limit" on how long a task
+ * runs). A container job is stopped by the no-progress watchdog
+ * (`NO_PROGRESS_MS`, `job-clock.mjs`), not at `JOB_MAX_MS`. What still needs a
+ * horizon is the job's CREDENTIAL — its gateway token's expiry and the
+ * launch's `deadlineAt` — and this is it: a day, far past any job that is
+ * still progressing. `JOB_MAX_MS` above stays what the first handoff's TTL,
+ * the busy hold's fallback and the site-busy cadence are derived from; the
+ * lease is renewed by the job's beats, so none of them ends a working job.
+ */
+export const JOB_CREDENTIAL_MS = 24 * 60 * 60_000;

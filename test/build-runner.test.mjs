@@ -20,6 +20,7 @@
 //                  service next door and the job waits for it
 //   the gate       the build's own clock reads the stop signal, so a stopped
 //                  build refuses its next stage instead of dying mid-flight
+import { JOB_CREDENTIAL_MS } from "../builder/job-duration.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -431,14 +432,15 @@ test("A REVISE OF THE CANARY'S SITE IS FIRED AT ITS LANE: the launch says build,
   assert.equal(launch.gateway.url, "https://" + APP_ZONE + "/api/job/" + ID);
   assert.equal(launch.sb.url, SB);
   assert.equal("SUPABASE_SERVICE_KEY" in launch.secrets, false);
-  assert.ok(launch.deadlineAt >= Date.now() + BUILD_JOB_MS - 60_000 && launch.deadlineAt <= Date.now() + BUILD_JOB_MS, "the deadline is not a build's: " + launch.deadlineAt);
+  // NO FIXED DEADLINE (2026-10-30): the credential's horizon, not a build's 50 minutes.
+  assert.ok(launch.deadlineAt >= Date.now() + JOB_CREDENTIAL_MS - 60_000 && launch.deadlineAt <= Date.now() + JOB_CREDENTIAL_MS, "the deadline is not the credential's horizon: " + launch.deadlineAt);
   const who = await verifyJobToken(launch.gateway.token, await gatewayKey("platform-secret"), Date.now());
   assert.ok(who, "the token does not verify");
   assert.equal(who.slug, slug);
   assert.equal(who.uid, UID);
   assert.equal(Object.hasOwn(who, "pre"), false);
   assert.ok(who.exp * 1000 > Date.now() + BUILD_JOB_MS, "the token expires before a build's clock does");
-  assert.ok(who.exp * 1000 <= Date.now() + BUILD_JOB_MS + JOB_TOKEN_GRACE_S * 1000 + 5000, "the token outlives the build by more than its grace");
+  assert.ok(who.exp * 1000 <= Date.now() + JOB_CREDENTIAL_MS + JOB_TOKEN_GRACE_S * 1000 + 5000, "the token outlives the build by more than its grace");
   // The consumer: one claim, the owner read, and nothing else — no build, no
   // result, no close; the object waits for the runner.
   assert.deepEqual(d.rpcs, ["edit_claim"], "the consumer did more than claim before firing: " + d.rpcs.join(","));
@@ -652,7 +654,7 @@ test("the fire, read off the Worker: a build's clock and token expiry, the place
   // reader that nothing called would be a setting in name only.
   assert.match(fire, /kind === "build" \? BUILD_JOB_MS : CONTAINER_EDIT_JOB_MS/, "the launch's clock is not the kind's");
   assert.match(fire, /readJobMaxMs\(env, kindMs\)/, "the deploy's setting is not read, or not with the kind's clock as its fallback");
-  assert.match(fire, /const budgetMs = setting\.ms;/, "the launch's clock is no longer the setting's answer");
+  assert.match(fire, /const budgetMs = setting\.from === "env" \? setting\.ms : JOB_CREDENTIAL_MS;/, "the launch's clock is no longer the setting's answer or the credential horizon");
   assert.doesNotMatch(fire, /:\s*EDIT_JOB_MS\b/, "the fire mints a Worker isolate's clock for a job that runs in a container");
   assert.match(fire, /deadlineAt: Date\.now\(\) \+ budgetMs,/);
   assert.match(fire, /exp: Math\.floor\(\(Date\.now\(\) \+ budgetMs\) \/ 1000\) \+ JOB_TOKEN_GRACE_S/, "the token's expiry is not the kind's clock plus the grace");

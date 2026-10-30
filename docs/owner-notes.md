@@ -1,5 +1,16 @@
 # Owner Notes
 
+## 2026-10-30 — The final combination before deploy (branch `final-combine`, not merged, not deployed, nothing paid)
+
+**What it is:** `key-card` (which already holds `agent-fix-all` and `combine-agent-server`) with `no-time-limit` merged on top. Everything from each branch is kept:
+- **From fix-all and key-card:** Stop works mid-run; the balance is checked before the first round and every 5 rounds; charged only for a change that saved; honest replies; table entries, sorting, media, renames; the key card (keys collected in the chat, never seen by the model).
+- **From no-time-limit:** no round, time or helper-round limit on the site agent; a job is stopped only after 15 minutes with no progress (the agent pings progress each round); the container stays up while its job works; the job's sign-in pass lasts 24 hours; the page follows a long job.
+- **What stops a runaway run now:** your Stop, the 15-minute no-progress watchdog, and the credit check every 5 rounds (a run whose spend is no longer covered by your balance stops and waits for a top-up). A balance that cannot be read does not stop the run.
+
+**One fix on top:** the cheap wording path in front of the site agent charged before saving. It now follows the same rule as the agent: under a queued job the charge is the job's reserve (the publish needs it) and a job that ships nothing is refunded whole at its end; without a job the charge is taken only after the save lands, so a failed save costs nothing. The guard "the charge comes after the publish, on every layer" passes again.
+
+**Conflicts resolved:** the Dockerfile's module list (now has `agent-outcome.mjs`, `key-card.mjs` and `job-progress.mjs`), the site agent's helper call (passes both Stop and the progress ping) and its model call (stoppable, then a progress ping), and these notes. **Changes the container image.**
+
 ## 2026-10-30 — The key card: keys collected in the chat, never seen by the model (branch `key-card`, from `agent-fix-all` `21816fe67`; not merged, not deployed)
 
 **Your words:** "when the model says add key, in the chat I want a server thing that pulls up and collects the key, WITHOUT THE MODEL TOUCHING IT."
@@ -32,6 +43,16 @@
 **Tests:** `test/agent-fixall.test.mjs` (19 cases, most through the real edit route with supplied answers; 13 fail on the old code, and the rest test the new modules). Three guards were updated for the intended changes: the charge order and rows-before-save in `test/site-agent.test.mjs`, and the count of address writers in `test/audit-r2-g3.test.mjs`.
 
 **Nothing spent, no model calls, no live writes.**
+
+## 2026-10-30 — No limit on how long a task runs (branch `no-time-limit`, not merged, nothing live or paid)
+
+You asked for "no limit" on how long a task runs. Now:
+
+- The site agent no longer stops at 40 rounds or 40 minutes, and its helpers no longer stop at 15 rounds.
+- A job in the container is no longer stopped at 50 minutes. It is stopped only if it has done nothing for 15 minutes in a row (no agent step, no tool result, no model answer, no build step). A job that keeps working is never stopped.
+- The container stays up while its job keeps working, however long.
+- The page keeps following a build or an edit for as long as the server says it is still running.
+- What still has an end: each single model call keeps its own timeout (10 minutes per call, 5 minutes with no streamed words, up to 40 minutes while waiting for a provider that is down), and the job's sign-in pass lasts 24 hours.
 
 ## 2026-10-30 — Seven branches combined into one (`combine-agent-server`, not merged, not deployed)
 
