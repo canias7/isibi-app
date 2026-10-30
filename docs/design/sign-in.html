@@ -1,0 +1,109 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in · Go Farther</title>
+<style>
+:root{--paper:#fbfaf8;--ink:#0d1b2a;--muted:#55606d;--line:#e6e2db;--card:#fff;--coral:#e2583e;--display:"Geist",ui-sans-serif,system-ui,sans-serif;--mono:"Geist Mono",ui-monospace,Menlo,monospace;color-scheme:light}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:var(--paper);color:var(--ink);font:400 16px/1.55 var(--display);-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;overflow-x:hidden;position:relative;isolation:isolate}
+.bl{position:fixed;border-radius:50%;filter:blur(80px);opacity:.7;z-index:-1}
+.b1{width:46vw;height:46vw;left:-10vw;top:-6vw;background:radial-gradient(circle,#bcd7f5,transparent 70%);animation:d1 40s ease-in-out infinite alternate}
+.b2{width:40vw;height:40vw;right:-8vw;bottom:-8vw;background:radial-gradient(circle,#f6d9c4,transparent 70%);animation:d2 46s ease-in-out infinite alternate}
+@keyframes d1{to{transform:translate(12vw,8vh)}}@keyframes d2{to{transform:translate(-10vw,-8vh)}}
+@media (prefers-reduced-motion:reduce){.bl{animation:none}}
+header{max-width:1240px;width:100%;margin:0 auto;padding:20px 24px;display:flex;justify-content:space-between;align-items:center}
+.brand{display:flex;gap:10px;align-items:center;font-weight:600;font-size:18px;letter-spacing:-.01em;color:var(--ink);text-decoration:none}
+.back{font-size:14.5px;color:var(--muted);text-decoration:none}.back:hover{color:var(--ink)}
+main{flex:1;display:grid;place-items:center;padding:24px 16px 64px}
+.card{width:100%;max-width:420px;background:var(--card);border-radius:20px;padding:36px 32px 28px;box-shadow:0 40px 80px -36px rgba(13,27,42,.35),0 0 0 1px rgba(13,27,42,.07)}
+h1{font:700 28px/1.15 var(--display);letter-spacing:-.03em;margin:0}
+.sub{color:var(--muted);margin:8px 0 24px;font-size:15px}
+form{display:grid;gap:12px}
+label{display:grid;gap:6px;font-size:13px;font-weight:500;color:var(--ink)}
+input{font:inherit;font-size:15px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--ink);outline:none;transition:border-color .15s,box-shadow .15s}
+input:focus{border-color:var(--ink);box-shadow:0 0 0 3px rgba(13,27,42,.08)}
+.code{letter-spacing:.5em;text-align:center;font:500 20px var(--mono)}
+.row{display:flex;justify-content:space-between;align-items:center;font-size:13px}
+.btn{margin-top:6px;background:var(--ink);color:#fff;border:0;border-radius:999px;padding:13px;font:600 15px var(--display);cursor:pointer;transition:transform .15s,box-shadow .15s}
+.btn:hover{transform:translateY(-1px);box-shadow:0 8px 20px -8px var(--ink)}
+a.l,button.l{color:var(--ink);font:600 13.5px var(--display);text-decoration:none;background:none;border:0;padding:0;cursor:pointer}a.l:hover,button.l:hover{color:var(--coral)}
+.alt{margin-top:22px;padding-top:18px;border-top:1px solid var(--line);text-align:center;font-size:14px;color:var(--muted)}
+.note{font-size:13px;color:var(--muted);margin:0}
+.view{display:none}.view.on{display:block}
+footer{text-align:center;padding:20px;font:400 12px var(--mono);color:var(--muted)}footer a{color:inherit}
+
+/* A: split — brand panel left, form right */
+body.vA main{display:grid;grid-template-columns:1fr 1fr;place-items:stretch;padding:0 24px 24px;gap:24px;max-width:1240px;margin:0 auto;width:100%}
+body.vA .side{display:flex!important;flex-direction:column;justify-content:space-between;background:#0d1b2a;color:#c9d3dd;border-radius:24px;padding:48px;position:relative;overflow:hidden}
+body.vA .side .mk{width:96px;height:96px;color:#fff;filter:drop-shadow(0 20px 30px rgba(0,0,0,.4))}
+body.vA .side h2{font:700 44px/1.05 var(--display);letter-spacing:-.04em;color:#fff;margin:0 0 12px}
+body.vA .side p{margin:0;font-size:16px;max-width:30ch}
+body.vA .side:after{content:"";position:absolute;width:520px;height:520px;right:-180px;bottom:-200px;border-radius:50%;background:radial-gradient(circle,rgba(91,140,255,.35),transparent 65%);animation:d2 30s ease-in-out infinite alternate}
+body.vA .card{box-shadow:none;background:transparent;align-self:center;justify-self:center}
+body.vA .bl{display:none}
+@media (max-width:860px){body.vA main{grid-template-columns:1fr}body.vA .side{display:none!important}}
+body.vA .side .mk svg{color:#fff!important}
+/* B: dark page */
+body.vB{--paper:#0b0f17;--ink:#f3f5f8;--muted:#98a2ae;--line:#222a36;--card:#121823;color-scheme:dark}
+body.vB .card{background:rgba(18,24,35,.75);backdrop-filter:blur(18px);box-shadow:0 40px 90px -30px rgba(0,0,0,.8),0 0 0 1px rgba(255,255,255,.07)}
+body.vB input{background:#0b0f17;color:#f3f5f8;border-color:#273041}body.vB input:focus{border-color:#7aa2ff;box-shadow:0 0 0 3px rgba(122,162,255,.18)}
+body.vB .btn{background:#fff;color:#0b0f17}body.vB .brand svg{color:#fff!important}
+body.vB .b1{background:radial-gradient(circle,rgba(70,110,255,.45),transparent 70%)}body.vB .b2{background:radial-gradient(circle,rgba(255,120,80,.30),transparent 70%)}
+/* C: no card, big type, left-aligned */
+body.vC .card{background:none;box-shadow:none;max-width:460px;padding:0}
+body.vC h1{font-size:56px;letter-spacing:-.05em;line-height:1}
+body.vC .sub{font-size:17px;margin:14px 0 32px}
+body.vC input{border:0;border-bottom:1.5px solid var(--line);border-radius:0;padding:12px 2px;background:transparent}body.vC input:focus{box-shadow:none;border-color:var(--ink)}
+body.vC .alt{border:0;text-align:left;padding-top:8px}
+body.vC .bl{opacity:.45}
+body.vA .side .eyb{font:500 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:#7f93a8;margin-bottom:22px}
+body.vA .can{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+body.vA .can li{display:flex;gap:14px;align-items:flex-start;padding:12px 14px;border-radius:14px;transition:background .5s;animation:hl 21s infinite}
+body.vA .can li b{display:block;color:#fff;font-weight:600;font-size:16.5px;letter-spacing:-.01em}body.vA .can li small{display:block;color:#93a3b4;font-size:14px;margin-top:2px}
+body.vA .ck{flex:none;width:22px;height:22px;border-radius:50%;margin-top:1px;background:rgba(52,213,154,.15);box-shadow:inset 0 0 0 1.5px #34d59a;position:relative}
+body.vA .ck:after{content:"";position:absolute;left:7px;top:4px;width:5px;height:9px;border:solid #34d59a;border-width:0 2px 2px 0;transform:rotate(45deg)}
+body.vA .can li:nth-child(1){animation-delay:0s}body.vA .can li:nth-child(2){animation-delay:3s}body.vA .can li:nth-child(3){animation-delay:6s}body.vA .can li:nth-child(4){animation-delay:9s}body.vA .can li:nth-child(5){animation-delay:12s}body.vA .can li:nth-child(6){animation-delay:15s}body.vA .can li:nth-child(7){animation-delay:18s}
+@keyframes hl{0%,14%{background:rgba(255,255,255,.07)}15%,100%{background:transparent}}
+body.vA .side .foot{color:#7f93a8;font-size:13.5px;margin:0}
+@media (prefers-reduced-motion:reduce){body.vA .can li{animation:none}}
+body.vA .side{background:#fff!important;box-shadow:0 40px 80px -40px rgba(13,27,42,.25),0 0 0 1px rgba(13,27,42,.07)}body.vA .side:after{display:none}
+body.vA .side{align-items:center;justify-content:center!important}
+.gfa-wrap{position:relative;width:min(260px,55%);aspect-ratio:1;animation:gfbob 6s ease-in-out infinite}
+.gfa{width:100%;height:100%;display:block;overflow:visible;filter:drop-shadow(0 30px 34px rgba(13,27,42,.28))}
+.gfa-sh{position:absolute;left:18%;right:18%;bottom:-22%;height:9%;border-radius:50%;background:rgba(13,27,42,.16);filter:blur(8px);animation:gfsh 6s ease-in-out infinite}
+.gfa .tile{transform-origin:50px 50px;animation:gftile 6s cubic-bezier(.2,.8,.2,1) infinite}
+.gfa path{stroke-dasharray:1;stroke-dashoffset:1}
+.gfa .g{animation:gfd 6s infinite;--s:.10;--e:.33}
+.gfa .f1{animation:gfd1 6s infinite}.gfa .f2{animation:gfd2 6s infinite}.gfa .ar{animation:gfd3 6s infinite}
+@keyframes gftile{0%{transform:scale(.6);opacity:0}8%{transform:scale(1.04);opacity:1}12%,86%{transform:scale(1);opacity:1}96%,100%{transform:scale(.9);opacity:0}}
+@keyframes gfd{0%,12%{stroke-dashoffset:1;opacity:0}12.5%{opacity:1}34%,86%{stroke-dashoffset:0;opacity:1}96%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes gfd1{0%,26%{stroke-dashoffset:1;opacity:0}26.5%{opacity:1}44%,86%{stroke-dashoffset:0;opacity:1}96%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes gfd2{0%,38%{stroke-dashoffset:1;opacity:0}38.5%{opacity:1}48%,86%{stroke-dashoffset:0;opacity:1}96%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes gfd3{0%,48%{stroke-dashoffset:1;opacity:0}48.5%{opacity:1}56%,86%{stroke-dashoffset:0;opacity:1}96%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes gfbob{0%,56%{transform:translateY(0)}70%{transform:translateY(-10px)}86%,100%{transform:translateY(0)}}
+@keyframes gfsh{0%,56%{opacity:1;transform:scale(1)}70%{opacity:.6;transform:scale(.85)}86%,100%{opacity:1;transform:scale(1)}}
+@media (prefers-reduced-motion:reduce){.gfa *,.gfa-wrap,.gfa-sh{animation:none!important}.gfa path{stroke-dashoffset:0}}
+body.vA main{grid-template-columns:1fr}
+</style></head><body><span class="bl b1"></span><span class="bl b2"></span>
+<header><a class="brand" href="#"><svg width="28" height="28" aria-hidden="true" style="color:var(--ink);display:block" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Go Farther"><title>Go Farther</title><defs><mask id="gfCut" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100"><rect width="100" height="100" fill="#fff" /><g transform="translate(49 50) skewX(-12) scale(.749) translate(-17 3.5)" fill="none" stroke-linecap="round" stroke-linejoin="round"><g stroke="#000" stroke-width="10.5"><path d="M14.85 -18.35A21 21 0 1 0 21 -3.5H5" /><path d="M33 22V-22H55" /><path d="M33 0H49" /><path d="M48 -29L55 -22L48 -15" /></g><g stroke="#fff" stroke-width="3"><path d="M14.85 -18.35A21 21 0 1 0 21 -3.5H5" /><path d="M33 22V-22H55" /><path d="M33 0H49" /><path d="M48 -29L55 -22L48 -15" /></g></g></mask></defs><rect x="4" y="4" width="92" height="92" rx="24" fill="currentColor" mask="url(#gfCut)" /></svg>Go Farther</a><a class="back" href="#">← Back to home</a></header>
+<main>
+<section class="card view" id="signin"><h1>Sign in</h1><p class="sub">Welcome back. Pick up where you left off.</p>
+<form onsubmit="return false"><label>Email<input type="email" autocomplete="email" placeholder="you@business.com"></label><label>Password<input type="password" autocomplete="current-password" placeholder="••••••••"></label>
+<div class="row"><span></span><a class="l" href="#forgot">Forgot password?</a></div><button class="btn">Sign in</button></form>
+<div class="alt">New here? <a class="l" href="#signup">Create an account</a></div></section>
+
+<section class="card view" id="signup"><h1>Create your account</h1><p class="sub">Describe a business, get a website and app.</p>
+<form onsubmit="location.hash='verify';return false"><label>Email<input type="email" autocomplete="email" placeholder="you@business.com"></label><label>Password<input type="password" autocomplete="new-password" placeholder="At least 8 characters"></label><button class="btn">Create account</button></form>
+<div class="alt">Already have an account? <a class="l" href="#signin">Sign in</a></div></section>
+
+<section class="card view" id="verify"><h1>Check your email</h1><p class="sub">We sent a code to <b>you@business.com</b>. Enter it to finish creating your account.</p>
+<form onsubmit="return false"><label>Verification code<input class="code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="000000"></label><button class="btn">Verify</button></form>
+<div class="alt">Didn’t get it? <button class="l" type="button">Resend code</button></div></section>
+
+<section class="card view" id="forgot"><h1>Reset your password</h1><p class="sub">Enter your email and we’ll send you a code.</p>
+<form onsubmit="location.hash='reset';return false"><label>Email<input type="email" autocomplete="email" placeholder="you@business.com"></label><button class="btn">Send code</button></form>
+<div class="alt"><a class="l" href="#signin">← Back to sign in</a></div></section>
+
+<section class="card view" id="reset"><h1>Choose a new password</h1><p class="sub">Enter the code we emailed you and a new password.</p>
+<form onsubmit="return false"><label>Code<input class="code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="000000"></label><label>New password<input type="password" autocomplete="new-password" placeholder="At least 8 characters"></label><button class="btn">Update password</button></form>
+<div class="alt">Didn’t get it? <button class="l" type="button">Resend code</button></div></section>
+</main>
+<footer><a href="/privacy.html">Privacy</a> · <a href="/terms.html">Terms</a></footer>
+<script>(function(){const v=new URLSearchParams(location.search).get("v");if(v)document.body.classList.add("v"+v)})();function go(){const h=(location.hash||"#signin").slice(1);document.querySelectorAll(".view").forEach(v=>v.classList.toggle("on",v.id===h));if(!document.querySelector(".view.on"))document.getElementById("signin").classList.add("on")}addEventListener("hashchange",go);go()</script>
+</body></html>

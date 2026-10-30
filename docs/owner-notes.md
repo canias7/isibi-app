@@ -1,5 +1,26 @@
 # Owner Notes
 
+## 2026-10-30 — Landing page and sign-in page designs (mockups, not live)
+
+**What you asked:** a new landing page and a sign-in page, designed in chat
+round by round. Saved as design files only; the live site is unchanged.
+
+- `docs/design/landing.html` — the landing: only the sites-screen chatbox,
+  centred; "Your framework", a slowly turning ring of the providers a site
+  runs on (Neon, Cloudflare, React, TypeScript, Tailwind, TanStack, Vite,
+  Chromium, xAI, Anthropic, Nano Banana Pro, Expo) around the GF mark, with a
+  business-card panel on the right (Go Farther's card by default, a logo's
+  card on click, "See more" for the full detail) over a soft moving
+  background; and a footer. Expo and Nano Banana Pro are labelled planned /
+  paused, as they are.
+- `docs/design/sign-in.html` — sign in, create account, the email code,
+  forgot password and new password as a page instead of the popup (open it
+  with `?v=A`, the look you picked, then `#signup`, `#verify`, `#forgot`,
+  `#reset`).
+
+On branch `chris-testing-no-ai`; not wired into `public/`, not merged or
+deployed.
+
 ## 2026-10-20 — New logo: a leaning "GF" in a black rounded square (V1)
 
 **What you asked:** a new logo. We went through eight rounds of options: the
