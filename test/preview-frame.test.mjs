@@ -188,5 +188,8 @@ test("THE THUMBNAILS ARE LEFT TIGHT ON PURPOSE, and the observer proves it is aw
   assert.ok(card.length > 40, "the thumbnail markup window is empty");
   assert.ok(!/allow-same-origin/.test(card),
     "the thumbnails must stay cheap: one frame per site, 51 on the owner's account, and each would start a whole app");
-  assert.match(card, /'allow-scripts' : ''/, "the thumbnail's own flags moved");
+  // NO FLAGS AT ALL (2026-10-30): `allow-scripts` without same-origin let a
+  // React site's script start and fail; the server-rendered HTML is the picture.
+  assert.match(card, /<iframe sandbox=""/, "the thumbnail's own flags moved");
+  assert.ok(!/allow-scripts/.test(card), "the thumbnails run scripts again");
 });

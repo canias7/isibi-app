@@ -6108,7 +6108,7 @@ function renderSites() {
   // fetch is fire-and-forget and re-renders when it lands, so the first paint
   // is still the local list and nothing waits on the network.
   sitesFetchRemote();
-  const sites = SiteList.merge(sitesLoad(), sitesRemote, sitesRemote !== null);
+  const sites = SiteList.merge(sitesLoad(), sitesRemote, sitesRemote !== null, sitesDeletedSlugs);
   view.innerHTML =
     '<div class="st-page">' +
       '<div class="st-hero">' +
@@ -6128,10 +6128,11 @@ function renderSites() {
         '</div>' +
       '</div></div>' +
       (sites.length
-        // THE THUMBNAILS KEEP THE TIGHT SANDBOX, DELIBERATELY, and it is worth
-        // saying because they carry the same defect as the workspace preview
-        // did: no `allow-same-origin`, so the site's own scripts never load and
-        // the picture is its server-rendered HTML. That is the RIGHT trade
+        // THE THUMBNAILS KEEP THE TIGHT SANDBOX, DELIBERATELY: `sandbox=""`, no
+        // flags at all (2026-10-30: it said `allow-scripts` for a React site,
+        // which with no `allow-same-origin` let a script start and fail
+        // instead of leaving the server-rendered HTML alone), so the site's own
+        // scripts never run and the picture is its server-rendered HTML. That is the RIGHT trade
         // here and the wrong one there. This screen draws one frame per site —
         // 51 on the owner's own account — and letting each run its whole app
         // would start fifty-one React bundles to paint fifty-one postage
@@ -6150,7 +6151,12 @@ function renderSites() {
             '<div class="st-pair">' +
               siteDbIcon(s) +
               '<div class="st-card" data-open="' + esc(s.id) + '" role="button" tabindex="0">' +
-                '<div class="st-card-prev"><iframe sandbox="' + (s.react && s.url ? 'allow-scripts' : '') + '" loading="lazy" title="' + esc(s.name) + '"></iframe></div>' +
+                // A CARD WITH NOTHING TO SHOW SAYS SO (2026-10-30): an unfinished
+                // build with no address and no stored page drew an empty white
+                // frame; it now names itself in the card's own words.
+                (!s.slug && SiteList.cardThumb(s, '', (() => { const h = siteActivePage(s) || sitePages(s)[0]; return h && h.html; })()).kind === 'empty'
+                  ? '<div class="st-card-prev"><div class="st-card-names" style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:12px"><span class="st-card-name">' + esc(s.name || 'Untitled') + '</span><span class="st-card-sub">Not finished</span></div></div>'
+                  : '<div class="st-card-prev"><iframe sandbox="" loading="lazy" title="' + esc(s.name) + '"' + (s.slug ? ' data-thumb="' + esc(s.slug) + '"' : '') + '></iframe></div>') +
                 '<div class="st-card-meta">' +
                   '<div class="st-card-names"><span class="st-card-name">' + esc(s.name) + '</span>' +
                     // NOT FINISHED (2026-10-21): a card with no address is a build
@@ -6206,11 +6212,19 @@ function renderSites() {
     const s = cardEntry(card.dataset.open);
     const fr = card.querySelector('iframe');
     const home = s && (siteActivePage(s) || sitePages(s)[0]);
-    if (fr && s && s.react && s.url) fr.src = s.url; // compiled React thumbnail
+    // ONE RULE FOR WHAT THE FRAME SHOWS (`SiteList.cardThumb`), read on EVERY
+    // render (2026-10-30): a draft preview already read ready is applied again
+    // here, where it used to be applied only by the first fetch — into a frame
+    // a re-render had already replaced.
+    if (fr && s) {
+      const t = SiteList.cardThumb(s, s.slug ? cardThumbSeen.get(s.slug) : '', home && home.html);
+      if (t.kind === 'src') fr.src = t.value;
+      else if (t.kind === 'srcdoc') fr.srcdoc = t.value;
+    }
     // AN UNPUBLISHED SITE'S THUMBNAIL IS ITS DRAFT (2026-10-21): its live
-    // address shows only the placeholder. Asked for the first cards on screen.
-    if (fr && s && s.react && s.slug && cardThumbAsked < 12 && !cardThumbSeen.has(s.slug)) { cardThumbAsked++; cardThumbDraft(fr, s.slug); }
-    else if (fr && home && home.html) fr.srcdoc = home.html;
+    // address shows only the placeholder. At most twelve NEW asks per render;
+    // an answer lands on whichever frame shows that slug when it arrives.
+    if (fr && s && s.react && s.slug && cardThumbAsked < 12 && cardThumbDue(s.slug)) { cardThumbAsked++; cardThumbDraft(s.slug); }
     // EVERY BUTTON ON THE CARD, not a list of them. This read `[data-del]` when
     // the delete was the only control here; the action buttons arrived beside it
     // and would each have opened the workspace as well as doing their own job.
@@ -6282,7 +6296,13 @@ function renderSites() {
     // Adopted first for the same reason: the delete below is a REAL server-side
     // delete keyed on `s.slug`, and a remote card with no local record would
     // have fallen through it silently, leaving the live site running.
-    const s = siteAdopt(cardEntry(id));
+    const entry = cardEntry(id);
+    const s = siteAdopt(entry);
+    // AN UNFINISHED SITE IS ASKED ABOUT TOO (2026-10-30): it went at one
+    // press, with no way back.
+    if (entry && !entry.slug) {
+      if (!(await goConfirm('This unfinished site and its chat will be removed from this device.', { title: 'Delete \u201c' + (entry.name || 'Untitled') + '\u201d?', ok: 'Delete', danger: true }))) return;
+    }
     // A published/React site has a live page + (maybe) its own database — deleting
     // it is permanent, so confirm, then wipe it server-side before removing locally.
     if (s && s.slug) {
@@ -6311,26 +6331,37 @@ function renderSites() {
       // quietly, because "we took your site down" and "there was nothing of it
       // left" are different facts and the customer is entitled to which one.
       if (dr && dr.status === 404) {
-        alert("That site was already gone on our side, so I've taken it off your list.");
+        if (typeof sbToast === 'function') sbToast("That site was already gone on our side, so it's off your list now.");
       } else if (dr && dr.status === 403) {
         // Not yours. The local card is wrong either way, but this is the one
         // status that means somebody ELSE's site is at that slug, and quietly
         // clearing it would hide an ownership bug rather than report one.
-        alert("That site belongs to another account, so it can't be removed from here.");
+        if (typeof sbToast === 'function') sbToast("That site belongs to another account, so it can't be removed from here.");
+        return;
+      } else if (dr && dr.status === 409) {
+        // STILL BEING BUILT OR EDITED (2026-10-30): the server refuses rather
+        // than let the job claim the site back after it is gone.
+        if (typeof sbToast === 'function') sbToast("That site is still being built or edited — delete it once that finishes.");
         return;
       } else if (!dr || !dr.ok) {
-        alert("Couldn't take that site down just now — it's still live. Try again in a moment.");
+        // THE SERVER'S OWN WORDS when it said why (a record left behind is
+        // not "still live"), else the general line. The card stays to retry.
+        const why = dr ? await dr.json().then((d) => d && typeof d.error === 'string' ? d.error : '').catch(() => '') : '';
+        if (typeof sbToast === 'function') sbToast(why ? "Couldn't delete that site: " + why + '.' : "Couldn't take that site down just now — it's still live. Try again in a moment.");
         return;
       }
     }
     // AND ITS CHAT ON THE SERVER (2026-10-20), so no other device keeps showing it.
-    try { const gone = sitesLoad().find((x) => x.id === id); if (gone) chatDelete(gone); } catch (e) { /* the chat is the server's to clear */ }
+    // FOUND BY SLUG TOO (2026-10-30): a card the server named carries
+    // `srv_<slug>`, which no local record has, so the chat was never cleared.
+    const goneSlug = (s && s.slug) || (entry && entry.slug) || '';
+    if (goneSlug) sitesDeletedSlugs.add(goneSlug);
+    try { const gone = sitesLoad().find((x) => x.id === id) || (goneSlug ? sitesLoad().find((x) => x.slug === goneSlug) : null); if (gone) chatDelete(gone); } catch (e) { /* the chat is the server's to clear */ }
     // OFF THE SCREEN TOO (2026-10-21, owner: "after i click ok it stays
     // there"): the card is drawn from the server's list as last fetched, and a
     // card the server named has its own id (`srv_<slug>`), so dropping only the
     // local record by that id left it drawn until the next fetch. Both lists
     // lose the site, by slug.
-    const goneSlug = s && s.slug;
     sitesCache = sitesLoad().filter((x) => x.id !== id && !(goneSlug && x.slug === goneSlug));
     if (goneSlug && Array.isArray(sitesRemote)) sitesRemote = sitesRemote.filter((r) => !(r && r.slug === goneSlug));
     sitesSave(); renderSites();
@@ -6346,6 +6377,9 @@ function renderSites() {
 // the local list untouched". An empty array is a real answer meaning this
 // account owns nothing, and the two must not be spelled the same way.
 let sitesRemote = null;
+// SLUGS DELETED IN THIS PAGE'S LIFE (2026-10-30), kept out of every merge so a
+// list fetched before the delete landed cannot draw the card again.
+const sitesDeletedSlugs = new Set();
 let sitesRemoteAt = 0;
 let sitesRemoteBusy = false;
 const SITES_REMOTE_TTL = 60_000;
@@ -6379,18 +6413,33 @@ async function sitesFetchRemote(force) {
 // THE DRAFT PREVIEW FOR A CARD'S THUMBNAIL, when its draft is ahead of live
 // (a site never published included); remembered per slug for this page.
 const cardThumbSeen = new Map();
-function cardThumbDraft(fr, slug) {
-  const put = (u) => { if (u && fr.isConnected) fr.src = u; };
-  if (cardThumbSeen.has(slug)) { put(cardThumbSeen.get(slug)); return; }
-  cardThumbSeen.set(slug, '');
+// NOT READY IS NOT FINAL (2026-10-30): a draft whose preview was not ready yet
+// is asked again after a minute, and one ask at a time per slug.
+const cardThumbAskedAt = new Map();
+const cardThumbBusy = new Set();
+const CARD_THUMB_RETRY = 60_000;
+function cardThumbDue(slug) {
+  if (cardThumbBusy.has(slug) || cardThumbSeen.get(slug)) return false;
+  const at = cardThumbAskedAt.get(slug);
+  return !at || Date.now() - at >= CARD_THUMB_RETRY;
+}
+function cardThumbDraft(slug) {
+  // THE FRAME IS FOUND WHEN THE ANSWER LANDS, not held from the render that
+  // asked: the list's own fetch re-renders the grid in between.
+  const put = (u) => {
+    if (!u) return;
+    document.querySelectorAll('#viewSites iframe[data-thumb]').forEach((fr) => { if (fr.dataset.thumb === slug && fr.src !== u) fr.src = u; });
+  };
+  cardThumbBusy.add(slug);
+  cardThumbAskedAt.set(slug, Date.now());
   apiFetch('/api/site/' + encodeURIComponent(slug) + '/draft').then((r) => r.json().catch(() => null)).then((d) => {
     // THE FRAME'S OWN RULE (`siteDraftFrame`): the draft is ahead and its
     // preview is on the platform's draft host.
     // (and only once its preview has been read ready: audit A07-5).
     const u = d && d.ok && d.enabled === true && d.unpublished === true && typeof d.preview === 'string' && SITE_DRAFT_HOST.test(d.preview) && (siteDraftPreviewState(d) === 'ready' || (d.previewServed === true && d.previewState !== 'unknown') || (siteDraftFrame.seen && siteDraftFrame.seen.has(d.preview))) ? d.preview : '';
-    cardThumbSeen.set(slug, u);
+    if (u) cardThumbSeen.set(slug, u);
     put(u);
-  }).catch(() => {});
+  }).catch(() => {}).finally(() => cardThumbBusy.delete(slug));
 }
 function siteAdopt(entry) {
   if (!entry || !entry.slug) return entry && entry.id ? siteById(entry.id) : null;

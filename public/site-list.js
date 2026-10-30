@@ -129,10 +129,18 @@
    *
    * Returns newest first, by whatever the entry knows about when it last moved.
    */
-  function merge(local, server, ok) {
-    var mine = Array.isArray(local) ? local.slice() : [];
+  function merge(local, server, ok, gone) {
+    // DELETED THIS SESSION (2026-10-30): a slug the owner has just deleted is
+    // never drawn again from a list read before the delete landed — an
+    // in-flight fetch or a cached answer cannot bring the card back.
+    var isGone = function (slug) {
+      var c = cleanSlug(slug);
+      if (!c || !gone) return false;
+      return typeof gone.has === "function" ? gone.has(c) : (Array.isArray(gone) && gone.indexOf(c) !== -1);
+    };
+    var mine = (Array.isArray(local) ? local.slice() : []).filter(function (m) { return !isGone(m && m.slug); });
     if (!ok) return mine;                       // the whole safety argument, above
-    var rows = Array.isArray(server) ? server : [];
+    var rows = (Array.isArray(server) ? server : []).filter(function (r) { return !(r && isGone(r.slug)); });
 
     var bySlug = Object.create(null);
     // AND BY THE CHAT THAT BUILT IT. A local record's `id` IS the chat id —
@@ -148,13 +156,33 @@
       if (c && !byChat[c]) byChat[c] = mine[i];
     }
 
-    var out = [];
+    // ONE LOCAL RECORD, ONE SERVER ROW (2026-10-30, the projects page's
+    // audit). Two rows carrying the same chat both matched its record and both
+    // kept its `id`, so two cards shared one id — and the page finds every
+    // thumbnail, open and delete by id, so pressing one acted on the other.
+    // The slug matches are settled FIRST, over every row, so a record whose
+    // own slug is listed is never taken by an earlier chat-only row; a chat
+    // match then takes only a record nobody has adopted, and a row that finds
+    // none stands as itself (`srv_<slug>`).
+    var made0 = [];
     var seen = Object.create(null);
+    for (var j0 = 0; j0 < rows.length; j0++) {
+      var m0 = fromRow(rows[j0]);
+      if (!m0 || seen[m0.slug]) continue;
+      seen[m0.slug] = true;
+      made0.push(m0);
+    }
+    var taken = new Set();
+    var slugHave = made0.map(function (m) {
+      var h = bySlug[m.slug] || null;
+      if (h) taken.add(h);
+      return h;
+    });
+
+    var out = [];
     var adopted = Object.create(null);
-    for (var j = 0; j < rows.length; j++) {
-      var made = fromRow(rows[j]);
-      if (!made || seen[made.slug]) continue;
-      seen[made.slug] = true;
+    for (var j = 0; j < made0.length; j++) {
+      var made = made0[j];
       // SLUG FIRST, THEN THE CHAT. The slug is the stronger match: it is what
       // the two records are actually about, and a workspace whose record
       // already carries it needs nothing else.
@@ -172,7 +200,11 @@
       // stands, driven both ways rather than assumed. Said out loud instead of
       // pretending a guard covers it: what it costs is nothing, and what it buys
       // is that the read stays right if the store's rule ever loosens.
-      var have = bySlug[made.slug] || (made.chat ? byChat[made.chat] : null);
+      var have = slugHave[j];
+      if (!have && made.chat && byChat[made.chat] && !taken.has(byChat[made.chat])) {
+        have = byChat[made.chat];
+        taken.add(have);
+      }
       // The local record WINS on everything it alone knows — the thread, the
       // name the customer typed, the stored pages — and the server wins on
       // existence and on the address, which only it can be right about.
@@ -314,7 +346,24 @@
     });
   }
 
+  /**
+   * WHAT A CARD'S THUMBNAIL SHOWS (2026-10-30), in one place so a re-render
+   * and the first paint cannot disagree. `draft` is the draft preview's
+   * address when one has been read ready ("" or absent when not), `home` the
+   * stored page's HTML. A draft that is ahead wins; then the live address;
+   * then the stored HTML; and a card with none of them is `empty` — drawn as
+   * a placeholder rather than a blank white frame.
+   */
+  function cardThumb(site, draft, home) {
+    if (!site || typeof site !== "object") return { kind: "empty" };
+    if (typeof draft === "string" && draft && site.slug) return { kind: "src", value: draft };
+    if (site.react && typeof site.url === "string" && site.url) return { kind: "src", value: site.url };
+    if (typeof home === "string" && home) return { kind: "srcdoc", value: home };
+    return { kind: "empty" };
+  }
+
   var api = {
+    cardThumb: cardThumb,
     merge: merge, fromRow: fromRow, cleanSlug: cleanSlug, SITE_HOST: SITE_HOST, readDb: readDb,
     offlineNow: offlineNow, offlineFor: offlineFor, markOffline: markOffline,
   };
