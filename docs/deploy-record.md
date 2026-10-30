@@ -1729,6 +1729,14 @@ missing site gets. The practical answer is unchanged — a session holding NO
 Supabase token reads neither — but *"owner-gated"* was wrong about the first
 and names the wrong person to go and ask.
 
+## Deploy 2292 — 2026-10-30 08:15 UTC (`be6770957`)
+
+A fast-forward from `bdbcc53e4`, on the owner's word ("Merge and deploy"): parallel parts with the site agent (the router splits a site message again; each part is the agent with its own words), helper agents on new sites, sign-in never starts a build (the landing brief waits in the start box), the signed-in landing hides the new nav, "Your app framework". Unit CI green on `be6770957` (41023005813). One deploy run (41024385364), green, 08:07–08:16 UTC.
+
+- **SiteBuildContainer: built** `e411d1ad7226792b` (246 inputs; computed from the commit with `containerInputs`/`imageId`, matching the log's masked `e4***d***ad7226792b`).
+- **AppBuildContainer: reused** `65022ce71e3d7274`.
+- **Deployed, not runtime-confirmed.** Owed: the owner's free canary press.
+
 ## Deploy 2291 — 2026-10-30 06:33 UTC (`bdbcc53e4`)
 
 A fast-forward of 27 commits from `cdb365078`, on the owner's word ("merge it to main"): the prebuilt site features removed (payments, row effects, outside connections, scheduled jobs, the site spam check) and their leftovers; the owner's `chris-testing-no-ai` (logo, landing, sign-in, legal pages, pricing) and `claude/nifty-hamilton-m8dnzw` (four server-code fixes). Required CI green on `bdbcc53e4` (unit 41013225565) and site build green on `816a58896` (41010407500; documents only since). One deploy run (41014430840), green, 06:30–06:33 UTC.
