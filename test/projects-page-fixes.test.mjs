@@ -177,3 +177,104 @@ test("a running build or edit is refused before anything is torn down", async ()
   assert.equal(u.status, 503, "a job count that cannot be read reads as nothing running");
   assert.equal(u.sent.filter((l) => l.startsWith("DELETE ")).length, 0);
 });
+
+// ── ROUND 2 (2026-10-30): A SHARED CHAT, AND A BUILD WITH NO JOB ROW ────────
+
+const CHAT_ID = "site_shared_1";
+/**
+ * The same delete, with a bucket: `shared` is what the "another site of this
+ * owner carries this chat" read answers (true / false / "fail"), and `mark` is
+ * the build-running mark's age in ms (undefined: none; "bad": the read throws).
+ */
+async function delB(slug, { shared = false, mark, running = 0 } = {}) {
+  const worker = await loadWorker();
+  const sent = [];
+  const objects = new Map([["chat/" + UID + "/" + CHAT_ID + ".json", "{}"]]);
+  if (typeof mark === "number") objects.set("build-running/" + slug + ".json", JSON.stringify({ uid: UID, at: Date.now() - mark, token: "t" }));
+  const bucket = {
+    async get(k) {
+      if (mark === "bad" && k.startsWith("build-running/")) throw new Error("r2 down");
+      return objects.has(k) ? { text: async () => objects.get(k), json: async () => JSON.parse(objects.get(k)) } : null;
+    },
+    async put(k, v) { objects.set(k, String(v)); },
+    async delete(k) { sent.push("R2DELETE " + k); objects.delete(k); },
+    async list() { return { objects: [], truncated: false }; },
+    async head(k) { return objects.has(k) ? {} : null; },
+  };
+  const real = globalThis.fetch;
+  globalThis.fetch = async (input, init = {}) => {
+    const url = String(input && input.url ? input.url : input);
+    const method = String(init.method || (input && input.method) || "GET").toUpperCase();
+    sent.push(method + " " + url);
+    const json = (b, status = 200) => new Response(JSON.stringify(b), { status, headers: { "content-type": "application/json" } });
+    if (url.includes("/auth/v1/user")) return json({ id: UID });
+    if (url.includes("/rest/v1/edit_jobs")) return json(Array.from({ length: running }, (_, i) => ({ id: "j" + i, state: "running" })));
+    if (method === "DELETE") return new Response(null, { status: 204 });
+    if (url.includes("/rest/v1/site_backends") && url.includes("slug=neq.")) {
+      if (shared === "fail") return json({ message: "down" }, 503);
+      if (shared === "garbled") return new Response("<html>", { status: 200 });
+      return json(shared ? [{ slug: "other-1" }] : []);
+    }
+    if (url.includes("/rest/v1/site_backends")) return json([{ uid: UID, chat_id: CHAT_ID }]);
+    if (url.includes("/rest/v1/")) return json([]);
+    return new Response("{}", { status: 404 });
+  };
+  try {
+    const res = await worker.fetch(new Request("https://gofarther.dev/api/site/" + slug, { method: "DELETE", headers: { Authorization: "Bearer t" } }),
+      { SUPABASE_SERVICE_KEY: "svc", SITES_BUCKET: bucket }, makeCtx());
+    return { status: res.status, body: await res.json().catch(() => null), sent, objects };
+  } finally { globalThis.fetch = real; }
+}
+const chatKey = "chat/" + UID + "/" + CHAT_ID + ".json";
+
+test("CONTROL: a chat no other site carries goes with its site", async () => {
+  const r = await delB("pp-chat-1");
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.ok(r.sent.some((l) => l.includes("slug=neq.pp-chat-1")), "the sharing check never ran: " + r.sent.join("\n"));
+  assert.equal(r.objects.has(chatKey), false, "the site's own chat survived");
+});
+
+test("a chat another of the owner's sites carries is kept", async () => {
+  const r = await delB("pp-chat-2", { shared: true });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.objects.has(chatKey), true, "deleting one site wiped the other's conversation");
+  assert.ok(!r.sent.includes("R2DELETE " + chatKey));
+});
+
+test("a sharing check that cannot be read keeps the chat", async () => {
+  const r = await delB("pp-chat-3", { shared: "fail" });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.objects.has(chatKey), true, "'cannot tell' read as 'no other site'");
+  const g = await delB("pp-chat-4", { shared: "garbled" });
+  assert.equal(g.status, 200, JSON.stringify(g.body));
+  assert.equal(g.objects.has(chatKey), true, "an unreadable answer read as 'no other site'");
+});
+
+test("a build running in a Worker (its mark, no job row) refuses the delete with the job refusal", async () => {
+  const r = await delB("pp-mark-1", { mark: 60_000 });
+  assert.equal(r.status, 409, JSON.stringify(r.body));
+  assert.match(r.body.error, /still being built or edited/);
+  assert.equal(r.sent.filter((l) => l.startsWith("DELETE ") || l.startsWith("R2DELETE ")).length, 0, "something was torn down under a running build");
+  assert.equal(r.objects.has(chatKey), true);
+});
+
+test("a stale mark (a build that died without clearing it) does not block the delete", async () => {
+  const r = await delB("pp-mark-2", { mark: 31 * 60_000 });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+});
+
+test("a mark that cannot be read refuses with 503, not a delete", async () => {
+  const r = await delB("pp-mark-3", { mark: "bad" });
+  assert.equal(r.status, 503, JSON.stringify(r.body));
+  assert.equal(r.sent.filter((l) => l.startsWith("DELETE ")).length, 0);
+});
+
+test("runSiteBuild writes the mark when its slug is decided and clears its own when it ends", () => {
+  const W = code(fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8"));
+  const at = W.indexOf("async function runSiteBuild(");
+  const end = W.indexOf("\nasync function ", at + 10);
+  assert.ok(at > 0 && end > at, "runSiteBuild moved");
+  const fn = W.slice(at, end);
+  assert.match(fn, /rec\.identify\(slug, bu\.id\);\s*if \(!\(env\.SITE_BUILD_CONTAINER && env\.SITE_BUILD_CONTAINER\.local === true\)\) bMark\.slug = slug;\s*if \(bMark\.slug\) await writeBuildMark\(env, slug, bu\.id, bMark\.token\);/);
+  assert.match(fn, /\}\)\(\)\.finally\(\(\) => clearBuildMark\(env, bMark\.slug, bMark\.token\)\), bHeld\.parts\);/);
+});

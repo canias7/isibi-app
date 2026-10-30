@@ -20024,6 +20024,55 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
  * Returns a Response, so the single-site route stays a one-liner and the
  * bulk path can read the status without a second copy of any of this.
  */
+// Does another of this owner's sites carry `chatId`? true, false, or true when
+// the answer cannot be read (the caller keeps the chat then).
+async function chatSharedElsewhere(env, uid, chatId, dslug) {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?uid=eq.${encodeURIComponent(uid)}&${CHAT_COLUMN}=eq.${encodeURIComponent(chatId)}&slug=neq.${encodeURIComponent(dslug)}&select=slug&limit=1`,
+      { headers: svcHeaders(env), signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return true;
+    const rows = await r.json();
+    if (!Array.isArray(rows)) return true;
+    return rows.length > 0;
+  } catch { return true; }
+}
+
+// A BUILD RUNNING INSIDE A WORKER (inline, or the queue consumer) HAS NO JOB
+// ROW, so `runningForSite` cannot see it (2026-10-30, projects page round 2).
+// `runSiteBuild` writes this mark the moment its slug is decided and removes
+// it when the build ends, however it ends. A mark older than
+// BUILD_MARK_STALE_MS is a build that died without clearing it, and is
+// ignored, so a crash cannot block a delete for ever.
+const BUILD_MARK_STALE_MS = 30 * 60_000;
+const buildMarkKey = (slug) => "build-running/" + slug + ".json";
+async function writeBuildMark(env, slug, uid, token) {
+  try { if (env && env.SITES_BUCKET && slug) await env.SITES_BUCKET.put(buildMarkKey(slug), JSON.stringify({ uid: uid || null, at: Date.now(), token })); }
+  catch (e) { console.error("build mark write failed:", slug, e && e.message); }
+}
+async function clearBuildMark(env, slug, token) {
+  try {
+    if (!env || !env.SITES_BUCKET || !slug) return;
+    const o = await env.SITES_BUCKET.get(buildMarkKey(slug));
+    if (!o) return;
+    const m = JSON.parse(await o.text());
+    // Only our own: a later build on the same slug keeps its mark.
+    if (m && m.token === token) await env.SITES_BUCKET.delete(buildMarkKey(slug));
+  } catch (e) { console.error("build mark clear failed:", slug, e && e.message); }
+}
+// true: a build is running; false: none; null: cannot tell.
+async function buildMarkRunning(env, slug) {
+  if (!env || !env.SITES_BUCKET) return false;
+  try {
+    const o = await env.SITES_BUCKET.get(buildMarkKey(slug));
+    if (!o) return false;
+    let m = null;
+    try { m = JSON.parse(await o.text()); } catch { return true; }
+    const at = Number(m && m.at);
+    if (!Number.isFinite(at)) return true;
+    return Date.now() - at < BUILD_MARK_STALE_MS;
+  } catch { return null; }
+}
+
 async function deleteSiteFor(env, uid, dslug) {
   if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false, error: "service key not configured" }, { status: 501 });
   if (!dslug) return Response.json({ ok: false, error: "no slug" }, { status: 400 });
@@ -20059,7 +20108,12 @@ async function deleteSiteFor(env, uid, dslug) {
     // is torn down, so the site is untouched and the delete can be pressed
     // again once the job ends. A count that cannot be read is refused too:
     // "cannot tell" must not read as "nothing running".
-    const runningJobs = await runningForSite(env, uid, dslug);
+    let runningJobs = await runningForSite(env, uid, dslug);
+    // AND A BUILD RUNNING IN A WORKER, which has no job row (its mark).
+    if (runningJobs !== null) {
+      const marked = await buildMarkRunning(env, dslug);
+      runningJobs = marked === null ? null : runningJobs + (marked ? 1 : 0);
+    }
     if (runningJobs === null) return Response.json({ ok: false, error: "couldn't check this site's running work — try again in a moment" }, { status: 503 });
     if (runningJobs > 0) return Response.json({ ok: false, running: runningJobs, error: "this site is still being built or edited — delete it once that finishes" }, { status: 409 });
 
@@ -20307,8 +20361,13 @@ async function deleteSiteFor(env, uid, dslug) {
           }
         }
         // AND THE CHAT THAT BUILT IT, kept under the account (`chatStoreKey`).
+        // BUT ONLY WHEN NO OTHER SITE OF THIS OWNER CARRIES THE SAME CHAT
+        // (2026-10-30, projects page round 2): two rows can share one chat id,
+        // and deleting one site used to wipe the other's conversation. A check
+        // that cannot be read keeps the chat: a stray chat is harmless, a lost
+        // one is not.
         const chatId = cleanChatId(srow && srow[CHAT_COLUMN]);
-        if (chatId) await env.SITES_BUCKET.delete(chatStoreKey(uid, chatId));
+        if (chatId && !(await chatSharedElsewhere(env, uid, chatId, dslug))) await env.SITES_BUCKET.delete(chatStoreKey(uid, chatId));
         for (const key of ["media-ledger/" + scope + ".json", "publish-turn/" + dslug + ".json", "preview-up/" + dslug + ".json", "preview-state/" + dslug + ".json"]) {
           await env.SITES_BUCKET.delete(key);
         }
@@ -27028,6 +27087,8 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // exit is a `return` inside it and the last is an unconditional reply.
       const bHeld = { parts: [] };
       if (budget && typeof budget === "object") BUILD_HELD.set(budget, bHeld);
+      // THE RUNNING MARK (see `writeBuildMark`), cleared however the build ends.
+      const bMark = { slug: null, token: crypto.randomUUID() };
       return heldReport(await (async () => {
       // `lease` (stage 2c): the queue consumer's own name on the build's row,
       // handed to the container at fire time. Null on the inline path and on
@@ -28275,6 +28336,12 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // down. A build that dies BEFORE this leaves no row, which is honest: it
       // never got as far as being a site.
       rec.identify(slug, bu.id);
+      // NOT IN THE SITE'S CONTAINER: there the build is its job, whose row the
+      // scope op names with this slug (and the gateway keeps it to its own
+      // keys). Only a build run in a Worker, inline or by the queue consumer,
+      // needs the mark.
+      if (!(env.SITE_BUILD_CONTAINER && env.SITE_BUILD_CONTAINER.local === true)) bMark.slug = slug;
+      if (bMark.slug) await writeBuildMark(env, slug, bu.id, bMark.token);
       rec.step(tr.done(), { stage: "design", picker: String(body.picker || "").slice(0, 24) || null });
 
       // A site's slug is claimed by whoever built it first; a second user cannot
@@ -30077,7 +30144,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         designRecovery: designRecovery || undefined,
         backendDesign: firstBuildBackend || undefined,
       }, { picker: models.picker, request: brief, name: brand, slug, uid: bu && bu.id, chat: chatId }));
-      })(), bHeld.parts);
+      })().finally(() => clearBuildMark(env, bMark.slug, bMark.token)), bHeld.parts);
 }
 
 async function handleRequest(request, env, ctx) {

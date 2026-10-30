@@ -1,5 +1,15 @@
 # Owner Notes
 
+## 2026-10-30 — Deleting a site: a shared chat is kept, and a build running in the Worker blocks the delete (projects page, round 2)
+
+**What was wrong:** (1) two sites can carry the same chat; deleting one deleted that chat, so the other site lost its conversation. (2) The delete's "is something still running?" check only saw queued jobs. A build that runs inside the Worker itself has no job row, so a delete during it went through and the build then put the site back.
+
+**What changed:**
+- The chat is deleted only when no other of your sites carries it. If that check cannot be read, the chat is kept (a spare chat is harmless; a lost one is not).
+- Every build now leaves a small "building" mark under its site name (`build-running/<slug>.json` in storage) the moment the name is decided, and removes its own mark when it ends, however it ends. The delete refuses while a mark is fresh, with the same message as for a running job ("delete it once that finishes"), and answers "try again" when the mark cannot be read. A mark older than 30 minutes (a build that died without clearing it) is ignored, so a crash cannot block deletes for ever. A build inside the site's container writes no mark: it already has a job row the check sees. Chosen over making the build's last save refuse a deleted site: the build saves in many places, so refusing up front is one check and nothing is torn down.
+
+**Tests:** 7 new cases in `test/projects-page-fixes.test.mjs` through the real Worker's delete route (6 fail on the old code). One older guard (`test/site-delete-everything.test.mjs`) now hands its extracted step the new sharing check. Mutation sweep: 10 of 10 killed, the comment-only control survived.
+
 ## 2026-10-30 — The landing's look across the whole signed-in app (you: "u see how with the new design colors looks better, please put this design in the entire platform please")
 
 **What changed:** the app now wears the signed-out landing's colours and type: warm paper (#fbfaf8) instead of plain white, navy ink (#0d1b2a) instead of black, soft beige lines (#e6e2db), white cards, and the Geist / Geist Mono faces (added to the app's Google Fonts link; the landing named Geist but the page never loaded it). The palette tokens at the top of `public/styles.css` hold the landing's values, the landing's own token names (`--ink`, `--card`, `--coral`, `--ok`, `--display`, `--mono`) are on `:root`, and one block at the end re-points the rules that wrote colours, faces or heavy black shadows out by hand: the header and credits pill, the start box, site cards, chat bubbles, the composer and send button, Share / device buttons, the profile menu, the slash and context pop-ups, the "are you sure?" dialog (its danger button is now a darker coral, #c4462e, white text 4.9:1), and the out-of-credits bar. Layout, sizes, wording and behaviour are unchanged; published customer sites are untouched.
