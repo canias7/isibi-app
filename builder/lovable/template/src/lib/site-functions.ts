@@ -157,6 +157,17 @@ export function makeSite(env: FnEnv, slug: string, hosts: string[], fetcher: typ
 }
 export type Site = ReturnType<typeof makeSite>;
 
+// THE `site` HELPER'S TYPE, FOR THE SERVER CODE THE MODEL WRITES (2026-10-30).
+// A server part writes `export default async function (request: Request, site:
+// SiteHelper)` and imports nothing: the name is declared globally here, in the
+// one file every site's program holds (`server.ts` imports it), so `tsc` sees a
+// wrong method or a wrong argument as an error instead of reading `any`. It is
+// exactly what the route hands the code: `makeSite`'s own return type.
+export type SiteHelper = Site;
+declare global {
+  type SiteHelper = Site;
+}
+
 /** A text stream that stops at the first owner's key it meets, even split across pieces. */
 export function keyGuard(env: FnEnv): TransformStream<Uint8Array, Uint8Array> {
   const keys = Object.values(ownerKeys(env)).filter((v) => v.length >= 8);

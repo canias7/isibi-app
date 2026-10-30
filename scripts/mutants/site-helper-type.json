@@ -1,0 +1,39 @@
+[
+  {
+    "label": "CONTROL: a comment only, above the helper's type",
+    "control": true,
+    "files": ["builder/lovable/template/src/lib/site-functions.ts"],
+    "from": "// THE `site` HELPER'S TYPE, FOR THE SERVER CODE THE MODEL WRITES (2026-10-30).",
+    "to": "// THE `site` HELPER'S TYPE, FOR SERVER CODE THE MODEL WRITES (2026-10-30)."
+  },
+  {
+    "label": "THE GLOBAL NAME IS NOT DECLARED (a part's SiteHelper names nothing)",
+    "files": ["builder/lovable/template/src/lib/site-functions.ts"],
+    "from": "declare global {\n  type SiteHelper = Site;\n}\n",
+    "to": ""
+  },
+  {
+    "label": "THE GLOBAL NAME IS any (wrong calls read as fine)",
+    "files": ["builder/lovable/template/src/lib/site-functions.ts"],
+    "from": "declare global {\n  type SiteHelper = Site;\n}",
+    "to": "declare global {\n  type SiteHelper = any;\n}"
+  },
+  {
+    "label": "THE WRITER'S EXAMPLE IS any AGAIN",
+    "files": ["builder/page-gen.mjs"],
+    "from": "\"export default async function (request: Request, site: SiteHelper) {\\n\" +",
+    "to": "\"export default async function (request: Request, site: any) {\\n\" +"
+  },
+  {
+    "label": "THE WRITER'S REQUIRED SHAPE IS any AGAIN",
+    "files": ["builder/page-gen.mjs"],
+    "from": "\"export default async function (request: Request, site: SiteHelper): Promise<Response> { … }\\n\" +",
+    "to": "\"export default async function (request: Request, site: any): Promise<Response> { … }\\n\" +"
+  },
+  {
+    "label": "THE REPAIR RULES' SHAPE IS any AGAIN",
+    "files": ["builder/server-code.mjs"],
+    "from": "site: SiteHelper): Promise<Response>` (SiteHelper is declared for you; import nothing).",
+    "to": "site: any): Promise<Response>`."
+  }
+]

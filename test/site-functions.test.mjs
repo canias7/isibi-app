@@ -306,3 +306,61 @@ test("SF-practices the agent is told the Workers practices, credited, with site.
   const src = readFileSync(new URL("../builder/site-agent.mjs", import.meta.url), "utf8");
   assert.match(src, /Apache License 2\.0, © Cloudflare, Inc\./);
 });
+
+// THE `site` HELPER IS TYPED (2026-10-30): a server part's `site: SiteHelper`
+// is the route's own `makeSite` return type, declared globally by
+// `site-functions.ts`, so `tsc` reads a wrong call as an error, not as `any`.
+// Typechecked as the template's program would: `site-functions.ts` and the
+// part, with the template's compiler options; only the part's own diagnostics
+// are read (the template's other imports are not this test's).
+async function typecheckPart(source) {
+  const { createRequire } = await import("node:module");
+  const { existsSync } = await import("node:fs");
+  const path = await import("node:path");
+  const tpl = new URL("../builder/lovable/template/", import.meta.url).pathname;
+  const tsLocal = path.join(tpl, "node_modules/typescript/lib/typescript.js");
+  const ts = existsSync(tsLocal) ? createRequire(import.meta.url)(tsLocal) : createRequire(import.meta.url)("typescript");
+  const cfg = ts.parseJsonConfigFileContent(ts.readConfigFile(path.join(tpl, "tsconfig.json"), ts.sys.readFile).config, ts.sys, tpl);
+  const part = path.join(tpl, "src/routes/-parts/server-typed-check.tsx");
+  const host = ts.createCompilerHost({ ...cfg.options, types: [] });
+  const getSourceFile = host.getSourceFile.bind(host);
+  host.getSourceFile = (f, lang, ...rest) => (path.resolve(f) === part ? ts.createSourceFile(f, source, lang, true) : getSourceFile(f, lang, ...rest));
+  const fileExists = host.fileExists.bind(host);
+  host.fileExists = (f) => path.resolve(f) === part || fileExists(f);
+  const program = ts.createProgram([path.join(tpl, "src/lib/site-functions.ts"), part], { ...cfg.options, types: [], noEmit: true }, host);
+  const sf = program.getSourceFile(part);
+  assert.ok(sf, "the part is in the program");
+  return [...program.getSemanticDiagnostics(sf), ...program.getSyntacticDiagnostics(sf)].map((d) => ts.flattenDiagnosticMessageText(d.messageText, "\n"));
+}
+
+test("SF-typed a server part's `site` is the real helper's type: the prompt's own example checks clean, a wrong call is a type error", async () => {
+  const { SITE_PAGES_TOOL } = await import("../builder/page-gen.mjs");
+  const said = SITE_PAGES_TOOL.input_schema.properties.server;
+  const example = (said.description.split("Example — a chatbot:\n")[1] || "").split("\nTO RUN WHEN")[0];
+  assert.match(example, /^export const hosts = \["api\.openai\.com"\];\nexport default async function \(request: Request, site: SiteHelper\) \{/, "the example the writer is shown uses the type");
+  assert.match(said.items.properties.source.description, /site: SiteHelper\): Promise<Response>/);
+  const { SERVER_REPAIR_RULES } = await import("../builder/server-code.mjs");
+  assert.match(SERVER_REPAIR_RULES, /site: SiteHelper\): Promise<Response>/);
+  assert.deepEqual(await typecheckPart(example), [], "the writer's own example typechecks");
+  const webhook = `export const hosts = [];
+export default async function (request: Request, site: SiteHelper): Promise<Response> {
+  const raw = await request.text();
+  if (!(await site.verify("STRIPE_WEBHOOK_SECRET", raw, request.headers.get("stripe-signature") || "", { encoding: "hex" }))) return new Response("not signed", { status: 400 });
+  const rows = await site.sql("select id from orders where ref = ?", ["x"]);
+  await site.files.put("receipts/" + rows.length + ".txt", raw, "text/plain");
+  const f = await site.files.get("receipts/1.txt");
+  return f || Response.json({ ok: site.hasKey("STRIPE_WEBHOOK_SECRET"), slug: site.slug });
+}`;
+  assert.deepEqual(await typecheckPart(webhook), [], "every helper method, used rightly, typechecks");
+  for (const [wrong, why] of [
+    ["await site.fecth(\"https://x.example\")", /fecth/],
+    ["await site.sql(42)", /number.*string|string.*number/],
+    ["site.key(5)", /number.*string|string.*number/],
+    ["await site.verify(\"K\", \"x\")", /argument|Expected/i],
+    ["await site.files.put(\"a\", 1)", /number/],
+    ["await site.verify(\"K\", \"x\", \"y\", { algo: \"MD5\" })", /MD5/],
+  ]) {
+    const errs = await typecheckPart(`export const hosts = [];\nexport default async function (request: Request, site: SiteHelper): Promise<Response> {\n  ${wrong};\n  return new Response("");\n}`);
+    assert.ok(errs.some((e) => why.test(e)), wrong + " is a type error: " + JSON.stringify(errs));
+  }
+});

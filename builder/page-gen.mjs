@@ -1903,8 +1903,8 @@ export const SITE_PAGES_TOOL = {
               description:
                 "The complete TypeScript for the function. Exactly this shape, importing nothing:\n" +
                 "export const hosts = [\"api.example.com\"];   // every outside address it calls; [] when none\n" +
-                "export default async function (request: Request, site: any): Promise<Response> { … }\n" +
-                "Use only the `site` helper: site.fetch(url, init) for every outside call (only to the hosts listed), " +
+                "export default async function (request: Request, site: SiteHelper): Promise<Response> { … }\n" +
+                "Use only the `site` helper (its type, SiteHelper, is declared for you; the typecheck checks every call): site.fetch(url, init) for every outside call (only to the hosts listed), " +
                 "site.key(\"NAME\") where an owner's key belongs (a header or body value — it is filled in on the way out, " +
                 "never readable), site.hasKey(\"NAME\") to tell the visitor the feature is not set up yet, " +
                 "site.sql(text, params) for the site's own database (`?` placeholders). Never read env, process or " +
@@ -1921,7 +1921,7 @@ export const SITE_PAGES_TOOL = {
           "Name the key the owner must add (UPPER_SNAKE, e.g. OPENAI_KEY) in your notes so they can set it. " +
           "Example — a chatbot:\n" +
           "export const hosts = [\"api.openai.com\"];\n" +
-          "export default async function (request: Request, site: any) {\n" +
+          "export default async function (request: Request, site: SiteHelper) {\n" +
           "  if (!site.hasKey(\"OPENAI_KEY\")) return Response.json({ reply: \"The chat is not set up yet.\" }, { status: 503 });\n" +
           "  const { messages } = await request.json();\n" +
           "  const r = await site.fetch(\"https://api.openai.com/v1/chat/completions\", { method: \"POST\",\n" +
