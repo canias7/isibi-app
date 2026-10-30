@@ -1729,6 +1729,15 @@ missing site gets. The practical answer is unchanged — a session holding NO
 Supabase token reads neither — but *"owner-gated"* was wrong about the first
 and names the wrong person to go and ask.
 
+## Deploy 2291 — 2026-10-30 06:33 UTC (`bdbcc53e4`)
+
+A fast-forward of 27 commits from `cdb365078`, on the owner's word ("merge it to main"): the prebuilt site features removed (payments, row effects, outside connections, scheduled jobs, the site spam check) and their leftovers; the owner's `chris-testing-no-ai` (logo, landing, sign-in, legal pages, pricing) and `claude/nifty-hamilton-m8dnzw` (four server-code fixes). Required CI green on `bdbcc53e4` (unit 41013225565) and site build green on `816a58896` (41010407500; documents only since). One deploy run (41014430840), green, 06:30–06:33 UTC.
+
+- **SiteBuildContainer: built** `07e57e8e94531db4` (registry 404; 246 inputs). The Dockerfile changed (the 12 deleted modules no longer copied), so a rebuild was expected. The log masks each run of 1s as `***`; the id above restores them.
+- **AppBuildContainer: reused** `65022ce71e3d7274` (9 inputs).
+- `public/` changed (logo, icons, landing, legal pages, pricing).
+- **Deployed, not runtime-confirmed.** Owed: the owner's free canary press.
+
 ## Deploy 2285 — 2026-10-28 21:49 UTC (`fdfd1970b`)
 
 The model writes the site's own server code, on the owner's word "merge and
