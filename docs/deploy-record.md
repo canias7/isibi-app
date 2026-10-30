@@ -1734,7 +1734,7 @@ and names the wrong person to go and ask.
 A fast-forward from `cfb2bd39f`, on the owner's word ("fix all and then merge and deploy"): branch `final-combine` — projects-page delete fixes, the server-side project list, chats/settings/credits on the account, the agent's server tools, input tools (attachments, import, bulk rows), the old router steps ported to the agent, guardrails, fix-all (Stop, credit checks, charge after save, honest replies, safe rows, sort/media/site-address tools), the secure key card, and no fixed time limit (15-minute no-progress watchdog). Full suite locally 12,683 in two halves (3 known local failures); unit CI 41130673898 and site build 41130673994 green on `f02ef0f58`. One deploy run (41132375209), green, 21:37–21:40 UTC.
 
 - **SiteBuildContainer:** `441042c2acff30cb` (253 inputs, computed from the commit; predicted before the push).
-- **Deployed, not runtime-confirmed.** Owed: the owner's free canary press.
+- **Runtime-confirmed by canary run 41134795765** (the owner's free press, 21:57 UTC, spend `no`): both readers answered `f02ef0f588a9`, a cold container got `441042c2acff30cb`, runner and async on.
 
 ## Deploy 2293 — 2026-10-30 09:01 UTC (`cfb2bd39f`)
 
