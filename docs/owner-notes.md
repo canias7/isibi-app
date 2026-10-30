@@ -1,5 +1,17 @@
 # Owner Notes
 
+## 2026-10-30 — Prebuilt site features removed; your front end and the server-code fixes combined (you: "merge it to main")
+
+**What went:** the ready-made payments (Stripe checkout and basket), the after-submission effects (confirmation emails, texts, webhooks, owner notices), outside connections, scheduled jobs and the site spam check. The model writes any of these itself, as the site's own server code, when a customer asks; the site gets `site.verify` for signed messages and Cloudflare's Workers best practices (adapted, credited) in the agent's instructions. The platform's own billing is untouched.
+
+**Combined on `claude/nice-ramanujan-9ry8wy`:** the removal and its leftovers, your `chris-testing-no-ai` (logo, landing, sign-in, legal pages, pricing) and `claude/nifty-hamilton-m8dnzw` (the four server-code fixes).
+
+**Two bugs the removal left, fixed before merge:** the container's Dockerfile still copied the 12 deleted modules (the deploy would have failed), and the design step still listed jobs and outside connections.
+
+**Names table:** `isibi_slug` and `isibi-${slug}` (Stripe metadata and idempotency key for site payments) left the "Names that must not be renamed" table: site payments are gone, so nothing uses them.
+
+**Tests:** full unit suite 12,547; locally 2 fail, both not from this change (a timing-flaky browser test, and a secrets guard that sees the helper agents' scratch copies). Site build checks green on GitHub.
+
 ## 2026-10-30 — The landing and sign-in designs are on the real front end (branch only)
 
 **What you asked:** *"use that for the frontend"*. On `chris-testing-no-ai`
@@ -31882,9 +31894,7 @@ so adding a name here is what puts it under guard.
 | `isibi:meta` | the fence is already inside the HTML of every published site in R2 — rename the reader and no existing site's metadata can be found |
 | `$isibi$` | the Postgres dollar-quote tag wrapping model-written function bodies |
 | `isibi_` | the RLS policy name prefix on every table in every customer's Neon database |
-| `isibi_slug` | metadata on Stripe intents already in flight; rename it and their webhooks cannot be matched to an order |
 | `isibi-analytics-v1` | salt in a hash — change it and every returning visitor gets a new id, splitting every site's analytics at the deploy |
-| `isibi-${slug}` | the Stripe idempotency key; change it and a retried payment that was already taken is charged twice |
 | `isibi-app` | the deployed Worker script; renaming deploys a NEW one and orphans the live script with its routes, secrets and bindings |
 | `isibi-sites` | the R2 bucket every published site is served from |
 | `isibi-user-` | the Neon project name for every per-user project that already exists |
@@ -71650,9 +71660,7 @@ so adding a name here is what puts it under guard.
 | `isibi:meta` | the fence is already inside the HTML of every published site in R2 — rename the reader and no existing site's metadata can be found |
 | `$isibi$` | the Postgres dollar-quote tag wrapping model-written function bodies |
 | `isibi_` | the RLS policy name prefix on every table in every customer's Neon database |
-| `isibi_slug` | metadata on Stripe intents already in flight; rename it and their webhooks cannot be matched to an order |
 | `isibi-analytics-v1` | salt in a hash — change it and every returning visitor gets a new id, splitting every site's analytics at the deploy |
-| `isibi-${slug}` | the Stripe idempotency key; change it and a retried payment that was already taken is charged twice |
 | `isibi-app` | the deployed Worker script; renaming deploys a NEW one and orphans the live script with its routes, secrets and bindings |
 | `isibi-sites` | the R2 bucket every published site is served from |
 | `isibi-user-` | the Neon project name for every per-user project that already exists |
