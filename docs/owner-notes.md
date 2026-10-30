@@ -1,5 +1,13 @@
 # Owner Notes
 
+## 2026-10-30 — The landing's look across the whole signed-in app (you: "u see how with the new design colors looks better, please put this design in the entire platform please")
+
+**What changed:** the app now wears the signed-out landing's colours and type: warm paper (#fbfaf8) instead of plain white, navy ink (#0d1b2a) instead of black, soft beige lines (#e6e2db), white cards, and the Geist / Geist Mono faces (added to the app's Google Fonts link; the landing named Geist but the page never loaded it). The palette tokens at the top of `public/styles.css` hold the landing's values, the landing's own token names (`--ink`, `--card`, `--coral`, `--ok`, `--display`, `--mono`) are on `:root`, and one block at the end re-points the rules that wrote colours, faces or heavy black shadows out by hand: the header and credits pill, the start box, site cards, chat bubbles, the composer and send button, Share / device buttons, the profile menu, the slash and context pop-ups, the "are you sure?" dialog (its danger button is now a darker coral, #c4462e, white text 4.9:1), and the out-of-credits bar. Layout, sizes, wording and behaviour are unchanged; published customer sites are untouched.
+
+**Contrast:** ink on paper 16.7:1, muted text 6.1:1. The faintest grey (`--graphite-3`, #8b93a0) is 3.0:1, as the old one was below 4.5 too; it is only used for "barely there" marks.
+
+**Tests:** two guards pinned the old look and were re-anchored: the progress rail's monospace now allows Geist Mono first, and the out-of-credits bar's colour is the new ink. Three draft-first browser cases (DFU1–3, DFU4, DFU6) fail with and without this change.
+
 ## 2026-10-30 — Parallel agents: the router splits a message again, and each part is run by the site agent (you: "i still want parallel agents tho, so make it work how it used to work")
 
 **What changed:** a message on an existing site goes to the router again, which splits it into parts, exactly as before the one-big-agent switch: the same request record, the same side-by-side running (`PARALLEL_WRITES`), the same waits ("waiting for X"), the same draft saves, the same card and background-work panel. The difference is who does each part: **the site agent**, handed only that part's words (what the router held back for other parts is taken out first), instead of the old lanes. First builds are unchanged. Where the request flow cannot take a message (no message key, the flow off, edits not queued), the agent still takes the whole message with no routing call, as on 2026-10-28.

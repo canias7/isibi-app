@@ -13,30 +13,30 @@
          Declared ONCE here and consumed through the app's existing token names
          below — the alternative was editing several hundred rules, and two
          palettes would have drifted the first time either was touched. */
-      --paper: #ffffff;
-      --paper-2: #f4f4f4;
-      --graphite: #0d0d0d;      /* near-black ink */
-      --graphite-2: #5d5d5d;    /* secondary type */
-      --graphite-3: #8f8f8f;    /* barely there */
+      --paper: #fbfaf8;
+      --paper-2: #f3f1ed;
+      --graphite: #0d1b2a;      /* near-black ink */
+      --graphite-2: #55606d;    /* secondary type */
+      --graphite-3: #8b93a0;    /* barely there */
       /* graphite laid down at three pressures: hard enough to fill (a button),
          a light pass (a chip), barely a smudge (a rule) */
       /* flat fills now: no cross-hatch in black and white */
-      --gr-fill: linear-gradient(#0d0d0d, #0d0d0d);
-      --gr-wash: linear-gradient(#f4f4f4, #f4f4f4);
-      --gr-tint: linear-gradient(#f9f9f9, #f9f9f9);
+      --gr-fill: linear-gradient(#0d1b2a, #0d1b2a);
+      --gr-wash: linear-gradient(#f3f1ed, #f3f1ed);
+      --gr-tint: linear-gradient(#f7f5f1, #f7f5f1);
 
       /* ── the app's own token names, now pointing at the palette above ── */
       --bg: var(--paper);
-      --panel: rgba(0, 0, 0, 0.024);         /* a tint on the sheet: #f9f9f9 on white */
-      --panel-2: rgba(0, 0, 0, 0.06);        /* raised / active: #f0f0f0 on white */
-      --line: rgba(0, 0, 0, 0.10);           /* hairline rim */
-      --line-2: rgba(0, 0, 0, 0.15);         /* stronger rim */
+      --panel: rgba(13, 27, 42, 0.025);         /* a tint on the sheet: #f9f9f9 on white */
+      --panel-2: rgba(13, 27, 42, 0.06);        /* raised / active: #f0f0f0 on white */
+      --line: #e6e2db;           /* hairline rim */
+      --line-2: #d9d4cb;         /* stronger rim */
       --text: var(--graphite);
       --muted: var(--graphite-2);
-      --neon: #0d0d0d;
-      --neon-dim: #000000;
-      --purple: #0d0d0d;
-      --purple-dim: #000000;
+      --neon: #0d1b2a;
+      --neon-dim: #0a1521;
+      --purple: #0d1b2a;
+      --purple-dim: #0a1521;
       /* accent fill. NOT the cross-hatch: --split has 128 consumers and one of
          them clips it to TEXT (.hh-name), where a repeating hatch at label size
          reads as noise. Buttons that should look filled in take --gr-fill by
@@ -55,7 +55,15 @@
          rendered side by side (2026-09-09: "A, but the green color more live" →
          "G4"). */
       --wire-live: #00c853;
-      --halo: linear-gradient(#0d0d0d, #0d0d0d); /* the chatbox's ring, black now */
+      --halo: linear-gradient(#0d1b2a, #0d1b2a); /* the chatbox's ring, black now */
+      /* THE LANDING'S TOKENS (owner, 2026-10-30), by the landing's own names,
+         so a rule can say what gf-landing.css says. */
+      --ink: #0d1b2a;
+      --card: #ffffff;
+      --coral: #e2583e;
+      --ok: #11845b;
+      --display: "Geist", ui-sans-serif, system-ui, sans-serif;
+      --mono: "Geist Mono", ui-monospace, Menlo, monospace;
     }
     * { box-sizing: border-box; margin: 0; }
     html, body { height: 100%; }
@@ -218,7 +226,7 @@
       100% { box-shadow: 0 0 0 0 rgba(0,0,0, 0), 0 0 0 0 rgba(0, 0, 0, 0); }
     }
                 .hh-title {
-      position: relative; font-family: 'Space Grotesk', Inter, sans-serif;
+      position: relative; font-family: var(--display);
       font-size: 2.35rem; font-weight: 700; letter-spacing: -.02em; margin: 0 0 .65rem; line-height: 1.1;
       animation: hh-rise .6s cubic-bezier(.2, .8, .3, 1) both;
     }
@@ -529,7 +537,7 @@
 .cred-pill.show { display: inline-flex; }
 .cred-pill .cr-arc { display: none; } /* owner 2026-07-16: no gauge on the pill — just the balance */
 .cred-pill:hover { border-color: rgba(0, 0, 0, .5); transform: translateY(-1px); }
-.cred-n { font-family: 'Space Grotesk', Inter, sans-serif; font-weight: 700; font-size: .88rem; line-height: 1; }
+.cred-n { font-family: var(--display); font-weight: 700; font-size: .88rem; line-height: 1; }
 .cr-arc { width: 30px; height: 17px; flex: none; }
 .cr-arc-bg { fill: none; stroke: rgba(255, 255, 255, .12); stroke-width: 3; stroke-linecap: round; }
 .cr-arc-fg {
@@ -578,7 +586,7 @@
    there) — clicking it returns to the landing. Shown only in sites mode. */
 .st-home {
   display: none; align-items: center; gap: .5rem; cursor: pointer;
-  font-family: 'Space Grotesk', Inter, sans-serif; font-weight: 900;
+  font-family: var(--display); font-weight: 900;
   font-size: 1.15rem; letter-spacing: -.02em; color: var(--text);
   height: 40px; padding: 0 .5rem; border-radius: 11px;
   transition: opacity .12s ease, transform .12s ease;
@@ -636,7 +644,7 @@ body.in-sites .st-home { display: inline-flex; }
 .pp-bal:hover { border-color: rgba(255, 255, 255, .24); }
 .pp-bal-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .pp-bal-lbl { font-size: .66rem; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
-.pp-bal-n { font-family: 'Space Grotesk', Inter, sans-serif; font-weight: 600; font-size: 1.18rem; line-height: 1.2; }
+.pp-bal-n { font-family: var(--display); font-weight: 600; font-size: 1.18rem; line-height: 1.2; }
 .pp-bal-cta {
   margin-left: auto; flex-shrink: 0; background: none; color: var(--text);
   font-weight: 600; font-size: .78rem; padding: .34rem .72rem; border-radius: 999px;
@@ -1064,7 +1072,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   border: 1px solid var(--line-2); border-radius: 16px;
   /* THE CARD'S OWN GROUND, read from the same token rather than restated, so a
      palette change moves both and they cannot drift into two greys. */
-  background: var(--panel-2);
+  background: var(--card);
 }
 /* THE CORNERS ARE A PERCENTAGE, NOT A PIXEL COUNT, and that is what makes the
    switch work at every column count. MEASURED: this phone is 74.5px wide at
@@ -1127,7 +1135,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    does NOT clip its own overflow, which is the ordinary way a grid item starts
    pushing past its column. Kept, said out loud, and NOT claimed to be covered
    by a guard — a sweep mutant that removes it correctly survives. */
-.st-card { min-width: 0; position: relative; border: 1px solid var(--line-2); border-radius: 16px; background: var(--panel-2); overflow: hidden; cursor: pointer; transition: border-color .15s ease, transform .15s ease; }
+.st-card { min-width: 0; position: relative; border: 1px solid var(--line); border-radius: 16px; background: var(--card); box-shadow: 0 1px 2px rgba(13, 27, 42, .04); overflow: hidden; cursor: pointer; transition: border-color .15s ease, transform .15s ease; }
 .st-card:hover { border-color: rgba(0, 0, 0, .45); transform: translateY(-2px); }
 .st-card-prev { aspect-ratio: 16/10; overflow: hidden; background: var(--bg); pointer-events: none; }
 .st-card-prev iframe { width: 400%; height: 400%; transform: scale(.25); transform-origin: 0 0; border: 0; pointer-events: none; }
@@ -1223,7 +1231,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-pageitem.on .st-pi-name::after { content: ' ✓'; color: var(--text); }
 .st-pageitem:focus-visible { outline: 2px solid var(--text); outline-offset: -2px; }
 .st-pi-name { font-weight: 600; font-size: .85rem; white-space: nowrap; }
-.st-pi-path { font-size: .72rem; color: var(--muted); font-family: ui-monospace, Menlo, monospace;
+.st-pi-path { font-size: .72rem; color: var(--muted); font-family: "Geist Mono", ui-monospace, Menlo, monospace;
   white-space: nowrap; }
 /* Form-submissions inbox modal */
 .si-modal { position: fixed; inset: 0; z-index: 200; background: rgba(248, 248, 250, .84); backdrop-filter: blur(14px) saturate(120%); -webkit-backdrop-filter: blur(14px) saturate(120%); display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
@@ -1564,7 +1572,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    its own rather than widening the thread — a tsc line is longer than the
    column. Muted and small: it sits under the plain-English sentence, for the
    person who wants the detail, never instead of it. */
-.st-why { font-size: .72rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); line-height: 1.5; margin: .45rem 0 0; padding: .5rem .6rem; border-left: 2px solid var(--line); background: var(--sunk, rgba(0,0,0,.03)); border-radius: 0 6px 6px 0; white-space: pre-wrap; overflow-x: auto; }
+.st-why { font-size: .72rem; font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); line-height: 1.5; margin: .45rem 0 0; padding: .5rem .6rem; border-left: 2px solid var(--line); background: var(--sunk, rgba(0,0,0,.03)); border-radius: 0 6px 6px 0; white-space: pre-wrap; overflow-x: auto; }
 /* The answers to a question the builder asked before building (owner's pick,
    2026-08-08: the numbered treatment).
 
@@ -1748,7 +1756,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    silent on all three. */
 .st-steps {
   display: flex; flex-direction: column; gap: 0; margin-top: .5rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .st-step { border: 0; border-radius: 0; background: none; overflow: visible; }
 .st-step-h { display: flex; align-items: center; gap: 7px; padding: 3px 0; font-size: .78rem; color: var(--muted); }
@@ -1788,7 +1796,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    moment a message was sent, so typing "hey" claimed "Writing the code" for a
    build that never ran. This is what shows while the router decides; the steps
    appear only once it really is building. */
-.st-think { display: inline-flex; align-items: center; font-family: Inter, system-ui, sans-serif; font-size: .9rem; font-weight: 600; padding: .1rem 0;
+.st-think { display: inline-flex; align-items: center; font-family: var(--display); font-size: .9rem; font-weight: 600; padding: .1rem 0;
   /* THE SHIMMERING WORD (owner's pick B, 2026-10-21): a light sweeps across the
      words; no dot. */
   color: transparent; background: linear-gradient(90deg, var(--muted) 0%, var(--muted) 35%, var(--text) 50%, var(--muted) 65%, var(--muted) 100%);
@@ -1801,7 +1809,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 }
 @keyframes sbblink { 50% { opacity: 0; } }
 .st-fchips { display: flex; flex-wrap: wrap; gap: 5px; padding: 10px 11px; }
-.st-fchip { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .68rem; color: var(--muted); background: rgba(255,255,255,.04); border: 1px solid var(--line, #211d30); border-radius: 6px; padding: 3px 7px; }
+.st-fchip { font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .68rem; color: var(--muted); background: rgba(255,255,255,.04); border: 1px solid var(--line, #211d30); border-radius: 6px; padding: 3px 7px; }
 /* Multi-agent fan-out chips (one per parallel agent, with its model + running/done state). */
 .st-agents { display: flex; flex-wrap: wrap; gap: 5px; padding: 10px 11px 2px; }
 .st-ithumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 10px 11px; }
@@ -1819,7 +1827,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-datawrap { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
 .st-data-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line, #211d30); }
 .st-data-title { font-weight: 600; font-size: .95rem; }
-.st-data-count { color: var(--muted, #8b849e); font-size: .8rem; font-family: ui-monospace, Menlo, monospace; }
+.st-data-count { color: var(--muted, #8b849e); font-size: .8rem; font-family: "Geist Mono", ui-monospace, Menlo, monospace; }
 .st-data-head .st-icon { margin-left: auto; }
 .st-data-body { flex: 1; min-width: 0; display: flex; min-height: 0; }
 /* 240px is MEASURED, not chosen: the widest realistic pairing a schema produces
@@ -1841,7 +1849,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-data-tablewrap { overflow-x: auto; border: 1px solid var(--line, #211d30); border-radius: 10px; }
 .st-data-grid { border-collapse: collapse; width: 100%; font-size: .8rem; }
 .st-data-grid th, .st-data-grid td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line, #211d30); white-space: nowrap; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
-.st-data-grid th { color: var(--muted, #8b849e); font-weight: 600; font-family: ui-monospace, Menlo, monospace; font-size: .72rem; text-transform: uppercase; letter-spacing: .03em; background: rgba(255,255,255,.02); position: sticky; top: 0; }
+.st-data-grid th { color: var(--muted, #8b849e); font-weight: 600; font-family: "Geist Mono", ui-monospace, Menlo, monospace; font-size: .72rem; text-transform: uppercase; letter-spacing: .03em; background: rgba(255,255,255,.02); position: sticky; top: 0; }
 .st-data-grid td { color: var(--text); font-variant-numeric: tabular-nums; }
 .st-data-grid tr:last-child td { border-bottom: 0; }
 /* Owner content editor — add/edit row */
@@ -1857,7 +1865,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-data-form { border: 1px solid var(--line, #211d30); border-radius: 12px; padding: 14px; margin-bottom: 14px; background: rgba(255,255,255,.02); }
 .st-data-form-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
 .st-data-field { display: flex; flex-direction: column; gap: 4px; font-size: .72rem; color: var(--muted, #8b849e); }
-.st-data-field span { font-family: ui-monospace, Menlo, monospace; letter-spacing: .02em; }
+.st-data-field span { font-family: "Geist Mono", ui-monospace, Menlo, monospace; letter-spacing: .02em; }
 .st-data-in { background: var(--bg); border: 1px solid var(--line, #211d30); border-radius: 8px; padding: 8px 10px; color: var(--text, #ece9f5); font-size: .85rem; }
 .st-data-in:focus { outline: none; border-color: #1e1e22; }
 .st-data-form-actions { display: flex; gap: 8px; margin-top: 12px; }
@@ -1970,9 +1978,9 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    hint and the mode are bounded. Without min-width:0 the name refuses to shrink
    below its content and pushes its own row's siblings out — the same flex
    failure as the Data rail, and this row just gained two more of them. */
-.sk-name { font-family: ui-monospace, monospace; font-size: .85rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sk-name { font-family: "Geist Mono", ui-monospace, monospace; font-size: .85rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The hint, never the value: a public Stripe prefix and the last four. */
-.sk-hint { flex: none; font-family: ui-monospace, monospace; font-size: .74rem; color: var(--muted); letter-spacing: .02em; }
+.sk-hint { flex: none; font-family: "Geist Mono", ui-monospace, monospace; font-size: .74rem; color: var(--muted); letter-spacing: .02em; }
 /* Filled for live, outlined for test — the difference has to survive greyscale
    and anyone who cannot see colour, so it is carried by FILL and by the word,
    never by hue. This is the one badge on the platform where being wrong means
@@ -1984,7 +1992,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .sk-del:hover { color: #c62828; border-color: rgba(255, 120, 120, .4); }
 /* Edge-function cards (Cloud → Edge functions). */
 .fn-item { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: .7rem .85rem; margin-bottom: .6rem; }
-.fn-name { font-family: ui-monospace, monospace; font-size: .86rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fn-name { font-family: "Geist Mono", ui-monospace, monospace; font-size: .86rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The On/Paused switch on a scheduled job — a BUTTON wearing the badge's
    clothes, because the state and the control are the same thing here. Pushed
    to the row's right edge; the two states keep the badge pair's visual
@@ -2000,7 +2008,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    copy. Same fix and same reasoning as `.sd-rf code` in the Domains panel.
    (`.si-count` is the other `--dim` reference and is fine — it falls back to
    `var(--muted)`, which is a real token in this theme.) */
-.fn-hook-url { font-family: ui-monospace, monospace; font-size: .74rem; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: .22rem .45rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.fn-hook-url { font-family: "Geist Mono", ui-monospace, monospace; font-size: .74rem; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: .22rem .45rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
 .fn-hook-copy { flex: none; font: inherit; font-size: .72rem; font-weight: 600; color: var(--text, #e8e6ef); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 7px; padding: .2rem .6rem; cursor: pointer; }
 .fn-hook-copy:hover { border-color: var(--amber, #000000); color: #fff; }
 /* Domains panel (Cloud → Domains) — the owner's own web address.
@@ -2009,7 +2017,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .sd-item { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: .7rem .85rem; margin-bottom: .6rem; }
 .sd-top { display: flex; align-items: center; gap: .55rem; }
 .sd-top > svg { color: var(--muted); flex: none; }
-.sd-host { font-family: ui-monospace, monospace; font-size: .86rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sd-host { font-family: "Geist Mono", ui-monospace, monospace; font-size: .86rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sd-top .sk-del { margin-left: auto; }
 .sd-visit { font-size: .72rem; font-weight: 600; color: var(--text); text-decoration: none; border: 1px solid var(--line-2); border-radius: 7px; padding: .2rem .55rem; flex: none; }
 .sd-visit:hover { border-color: var(--ink, #000); }
@@ -2055,13 +2063,13 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    text — and these strings are the entire payload of the panel: the four values
    an owner has to retype into a form on another website. Caught by looking at
    the render; nothing in the markup says which colour a token resolves to. */
-.sd-rf code { flex: 1; min-width: 0; font-family: ui-monospace, monospace; font-size: .74rem; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: .22rem .45rem; overflow-x: auto; white-space: nowrap; }
+.sd-rf code { flex: 1; min-width: 0; font-family: "Geist Mono", ui-monospace, monospace; font-size: .74rem; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: .22rem .45rem; overflow-x: auto; white-space: nowrap; }
 .sd-note { font-size: .74rem; color: var(--muted); line-height: 1.45; }
 
 /* Files panel (Cloud → Files) */
 .fl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: .7rem; }
 .fl-item { position: relative; border: 1px solid var(--line); border-radius: 11px; overflow: hidden; background: var(--panel); }
-.fl-doc { width: 100%; height: 100%; display: grid; place-items: center; font-family: ui-monospace, monospace; font-size: .8rem; letter-spacing: .1em; color: var(--muted); }
+.fl-doc { width: 100%; height: 100%; display: grid; place-items: center; font-family: "Geist Mono", ui-monospace, monospace; font-size: .8rem; letter-spacing: .1em; color: var(--muted); }
 .fl-name { font-size: .74rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fl-size { font-size: .66rem; color: var(--muted); flex: none; }
 .fl-del { position: absolute; top: 5px; right: 5px; width: 24px; height: 24px; background: rgba(0,0,0,.62); }
@@ -2257,13 +2265,13 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-code-d, .st-file { padding-left: calc(.55rem + var(--d, 0) * .85rem); }
 .st-code-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .st-code-bar { display: flex; align-items: center; justify-content: space-between; padding: .5rem .8rem; border-bottom: 1px solid var(--line); }
-.st-code-fname { font-size: .8rem; color: var(--text); font-family: ui-monospace, monospace; }
+.st-code-fname { font-size: .8rem; color: var(--text); font-family: "Geist Mono", ui-monospace, monospace; }
 .st-code-dl { display: inline-flex; align-items: center; gap: .35rem; white-space: nowrap; font: inherit; font-size: .78rem; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .32rem .6rem; cursor: pointer; }
 .st-code-dl:hover { color: var(--text); }
 /* The editor's own scroller, and the same rule for the same reason: opening a
    long file after a short one is what makes ITS bar appear, and the code would
    shift sideways under the customer's eyes as they picked through the tree. */
-.st-code-scroll { flex: 1; min-height: 0; overflow: auto; scrollbar-gutter: stable; display: flex; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; line-height: 1.55; }
+.st-code-scroll { flex: 1; min-height: 0; overflow: auto; scrollbar-gutter: stable; display: flex; font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; line-height: 1.55; }
 .st-code-gutter { padding: .8rem .4rem .8rem .8rem; color: rgba(0,0,0,.3); text-align: right; user-select: none; margin: 0; white-space: pre; }
 .st-code-pre { padding: .8rem 1rem; margin: 0; color: var(--text); white-space: pre; }
 /* ── More view (Analytics / Cloud / Security / SEO) ── */
@@ -2282,7 +2290,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: .8rem; }
 .st-stat { border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); padding: .8rem .9rem; }
 .st-stat-l { display: block; font-size: .74rem; color: var(--muted); }
-.st-stat-v { display: block; font-size: 1.5rem; font-weight: 700; margin-top: .2rem; font-family: 'Space Grotesk', sans-serif; }
+.st-stat-v { display: block; font-size: 1.5rem; font-weight: 700; margin-top: .2rem; font-family: var(--display); }
 .st-chart { margin-top: 1rem; border: 1px solid var(--line); border-radius: 14px; background: var(--panel-2); height: 220px; display: grid; place-items: center; }
 .st-chart-empty { color: var(--muted); font-size: .88rem; max-width: 320px; text-align: center; }
 .an-bars { display: flex; align-items: flex-end; gap: .5rem; width: 100%; height: 100%; padding: 1.1rem 1rem .6rem; }
@@ -2427,9 +2435,9 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   background: var(--split); -webkit-background-clip: text; background-clip: text; color: transparent;
   filter: drop-shadow(0 6px 20px rgba(0,0,0, .45));
 }
-.wm-title { font-family: 'Space Grotesk', Inter, sans-serif; font-size: 1.55rem; font-weight: 700; letter-spacing: -.01em; margin: .65rem 0 .15rem; }
+.wm-title { font-family: var(--display); font-size: 1.55rem; font-weight: 700; letter-spacing: -.01em; margin: .65rem 0 .15rem; }
 .wm-grant {
-  font-family: 'Space Grotesk', Inter, sans-serif; font-size: 1.05rem; font-weight: 700;
+  font-family: var(--display); font-size: 1.05rem; font-weight: 700;
   background: var(--split); -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 .wm-sub { color: var(--muted); font-size: .88rem; line-height: 1.55; margin: .75rem auto 1.35rem; max-width: 330px; }
@@ -2733,7 +2741,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .sb-title { display: flex; align-items: center; justify-content: center; }
 .sb-titletext { color: #0b0b10; font-weight: 700; font-size: .78rem; padding: 0 .5rem; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; z-index: 2; }
 .preview-title { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
-.preview-title span { color: #0b0b10; font-family: 'Space Grotesk', Inter, sans-serif; font-weight: 700; font-size: 2.2rem; text-align: center; padding: 0 8%; line-height: 1.15; }
+.preview-title span { color: #0b0b10; font-family: var(--display); font-weight: 700; font-size: 2.2rem; text-align: center; padding: 0 8%; line-height: 1.15; }
 
 @media (max-width: 900px) {
   .view-studio.active { flex-direction: column; }
@@ -2781,7 +2789,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 /* Message timestamps — tight caption under each bubble. */
 .msg-time {
   font-size: .68rem; margin-top: -.35rem; padding: 0 .35rem;
-  font-family: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+  font-family: "Geist Mono", ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
   letter-spacing: .01em; color: rgba(140, 162, 156, .55);
 }
 .msg-time.user { align-self: flex-end; }
@@ -2794,7 +2802,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 }
 
 /* Space Grotesk on the wordmark + names, like the mockup. */
-.side-logo, .logo, .chat-head .cname, .auth-brand, .auth-title { font-family: 'Space Grotesk', Inter, sans-serif; }
+.side-logo, .logo, .chat-head .cname, .auth-brand, .auth-title { font-family: var(--display); }
 
 .view-home.active { position: relative; overflow: hidden; }
 
@@ -3001,7 +3009,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 }
 .presets-screen > * { position: relative; z-index: 1; }
 .presets-title {
-  font-family: 'Space Grotesk', Inter, sans-serif;
+  font-family: var(--display);
   font-size: 1.7rem; font-weight: 700; letter-spacing: -.02em; margin-top: .2rem;
 }
 
@@ -3077,7 +3085,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   margin-bottom: 1.2rem; padding-bottom: 1rem;
   border-bottom: 1px solid rgba(255, 255, 255, .09);
 }
-.gal-title { font-family: 'Space Grotesk', Inter, sans-serif; font-weight: 700; font-size: 1.25rem; letter-spacing: -.01em; }
+.gal-title { font-family: var(--display); font-weight: 700; font-size: 1.25rem; letter-spacing: -.01em; }
 .gal-close {
   margin-left: auto; align-self: center;
   width: 36px; height: 36px; border-radius: 50%;
@@ -3091,7 +3099,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 /* ── Gallery view: everything ever generated, newest first ── */
 .view-gallery.active { flex-direction: column; overflow-y: auto; padding: 1.5rem 2rem 2.5rem; }
 .gallery-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .55rem .8rem; margin-bottom: 1.3rem; }
-.gallery-title { font-family: 'Space Grotesk', Inter, sans-serif; font-weight: 700; font-size: 1.45rem; letter-spacing: -.02em; }
+.gallery-title { font-family: var(--display); font-weight: 700; font-size: 1.45rem; letter-spacing: -.02em; }
 .g-item {
   position: relative; border-radius: 14px; overflow: hidden;
   border: 1px solid var(--line-2); background: #101016;
@@ -3283,11 +3291,11 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   padding: .75rem 1.05rem; min-width: 92px; box-shadow: 0 8px 26px rgba(0, 0, 0, .35);
 }
 .up-seg b {
-  font-family: 'Space Grotesk', Inter, sans-serif; font-variant-numeric: tabular-nums;
+  font-family: var(--display); font-variant-numeric: tabular-nums;
   font-size: 2.9rem; font-weight: 700; line-height: 1; color: #fff;
 }
 .up-seg span { font-size: .6rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,255,255,.6); }
-.up-colon { font-family: 'Space Grotesk', Inter, sans-serif; font-size: 2.2rem; font-weight: 700; color: rgba(0, 0, 0, .55); padding-bottom: 1.4rem; }
+.up-colon { font-family: var(--display); font-size: 2.2rem; font-weight: 700; color: rgba(0, 0, 0, .55); padding-bottom: 1.4rem; }
 @media (max-width: 560px) {
   .up-seg { min-width: 68px; padding: .6rem .5rem; }
   .up-seg b { font-size: 2.1rem; }
@@ -3301,7 +3309,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   background: var(--split); -webkit-background-clip: text; background-clip: text; color: transparent;
   margin-bottom: .55rem;
 }
-.up-h1 { font-family: 'Space Grotesk', Inter, sans-serif; font-size: 2rem; font-weight: 700; letter-spacing: -.02em; margin: 0 0 .45rem; }
+.up-h1 { font-family: var(--display); font-size: 2rem; font-weight: 700; letter-spacing: -.02em; margin: 0 0 .45rem; }
 .up-sub { color: var(--muted); font-size: .95rem; margin: 0 auto; max-width: 560px; line-height: 1.5; }
 
 /* Cards — each tier carries its own color identity (Plus neutral, Pro amber, Max pink) */
@@ -3348,7 +3356,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   white-space: nowrap; box-shadow: 0 6px 18px rgba(0,0,0, .35); z-index: 1;
 }
 .up-namerow { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
-.up-pname { font-family: 'Space Grotesk', Inter, sans-serif; font-size: 1.45rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.up-pname { font-family: var(--display); font-size: 1.45rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .up-chip {
   font-size: .6rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
   padding: .24rem .5rem; border-radius: 6px; white-space: nowrap;
@@ -3363,7 +3371,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   margin-top: .95rem; border-radius: 14px; padding: .85rem .95rem;
   background: rgba(0, 0, 0, .04); border: 1px solid var(--line);
 }
-.up-credmain { font-family: 'Space Grotesk', Inter, sans-serif; font-size: 1.12rem; font-weight: 700; }
+.up-credmain { font-family: var(--display); font-size: 1.12rem; font-weight: 700; }
 .up-star { background: var(--split); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .up-credroll {
   margin-top: .65rem; padding-top: .6rem; border-top: 1px solid var(--line);
@@ -3372,13 +3380,13 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 /* Price + CTA + savings strip */
 .up-priceline { display: flex; align-items: baseline; gap: .5rem; margin: 1rem 0 .75rem; }
 .up-strike {
-  font-family: 'Space Grotesk', Inter, sans-serif; font-size: 1.1rem; font-weight: 700;
+  font-family: var(--display); font-size: 1.1rem; font-weight: 700;
   color: rgba(11, 11, 14, .35); text-decoration: line-through;
 }
 .t-plus .up-strike { color: rgba(0, 0, 0, .72); }
 .t-pro .up-strike { color: rgba(0,0,0, .75); }
 .t-max .up-strike { color: rgba(0,0,0, .78); }
-.up-pprice { font-family: 'Space Grotesk', Inter, sans-serif; font-size: 1.9rem; font-weight: 700; letter-spacing: -.01em; }
+.up-pprice { font-family: var(--display); font-size: 1.9rem; font-weight: 700; letter-spacing: -.01em; }
 .up-permo { font-size: .72rem; color: rgba(11, 11, 14, .62); }
 .up-buy {
   width: 100%; text-align: center; border-radius: 12px; padding: .8rem;
@@ -3449,7 +3457,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   100% { transform: rotate(0deg); }
 }
 .addon-badge-name {
-  font-family: 'Space Grotesk', Inter, sans-serif; font-weight: 700; font-size: 1.06rem;
+  font-family: var(--display); font-weight: 700; font-size: 1.06rem;
   letter-spacing: -.01em; display: flex; align-items: center; gap: .5rem;
 }
 .addon-badge-name { flex-wrap: wrap; }
@@ -3477,7 +3485,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    Media slots: /mkt/f1…f14.jpg (filmstrip) · /mkt/p1…p8.jpg (presets). */
 .mkt{position:fixed;inset:0;z-index:60;overflow-y:auto;overflow-x:hidden;
   background:var(--bg);color:var(--text);
-  font-family:Inter,system-ui,sans-serif;font-size:16px;line-height:1.55;
+  font-family:var(--display);font-size:16px;line-height:1.55;
   -webkit-font-smoothing:antialiased;scroll-behavior:smooth}
 .mkt *,.mkt *::before,.mkt *::after{box-sizing:border-box}
 .mkt img{max-width:100%}
@@ -3508,7 +3516,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    Nav
    ========================================================================== */
 .mkt-brand{display:flex;align-items:center;gap:.55rem;
-  font-family:'Space Grotesk',Inter,sans-serif;font-weight:700;font-size:1.25rem;letter-spacing:-.02em}
+  font-family:var(--display);font-weight:700;font-size:1.25rem;letter-spacing:-.02em}
 .mkt-brand .logo-mark{width:28px;height:28px;border-radius:8px}
 .mkt-links{display:flex;align-items:center;gap:clamp(.8rem,2.2vw,1.6rem)}
 .mkt-links a{color:var(--muted);font-size:.9rem;font-weight:500;transition:color .2s}
@@ -3672,7 +3680,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   mask-image:linear-gradient(180deg,transparent,#000 26%,#000 74%,transparent)}
 .mkt-wheel-item{position:absolute;left:0;right:0;top:50%;height:2.4rem;margin-top:-1.2rem;
   display:flex;align-items:center;
-  font-family:'Space Grotesk',Inter,sans-serif;font-weight:700;letter-spacing:-.02em;
+  font-family:var(--display);font-weight:700;letter-spacing:-.02em;
   font-size:clamp(1.15rem,2.3vw,1.55rem);line-height:1.1;white-space:nowrap;color:var(--text);
   transition:transform .8s cubic-bezier(.2,.8,.25,1),opacity .8s ease,filter .8s ease}
 @media (prefers-reduced-motion: reduce){
@@ -3770,7 +3778,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 
 /* laurel crest above the composer */
 .mkt-crest{display:flex;align-items:center;justify-content:center;gap:.55rem;margin:0 0 1rem}
-.mkt-crest-txt{font-family:'Space Grotesk',Inter,sans-serif;font-weight:700;
+.mkt-crest-txt{font-family:var(--display);font-weight:700;
   font-size:.92rem;letter-spacing:.16em;text-transform:uppercase;white-space:nowrap;
   background:var(--split);-webkit-background-clip:text;background-clip:text;color:transparent}
 .mkt-composer .composer{cursor:pointer}
@@ -3866,7 +3874,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   -webkit-mask-image:linear-gradient(90deg,#000 92%,transparent);
   mask-image:linear-gradient(90deg,#000 92%,transparent)}
 .mkt-rail::-webkit-scrollbar{display:none}
-.mkt-pname{font-family:'Space Grotesk',Inter,sans-serif;font-weight:700;font-size:.95rem;letter-spacing:-.01em}
+.mkt-pname{font-family:var(--display);font-weight:700;font-size:.95rem;letter-spacing:-.01em}
 
 /* ==========================================================================
    Pricing
@@ -3892,7 +3900,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .mkt-foot-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);
   gap:clamp(1.8rem,4.5vw,4.5rem);align-items:start;max-width:1180px;margin:0 auto;
   padding:clamp(2.8rem,7vh,4.4rem) clamp(1.1rem,4vw,3rem) clamp(2rem,5vh,3rem)}
-.mkt-foot-h{margin:0 0 1.7rem;font-family:'Space Grotesk',Inter,sans-serif;font-weight:700;
+.mkt-foot-h{margin:0 0 1.7rem;font-family:var(--display);font-weight:700;
   text-transform:uppercase;font-size:clamp(1.45rem,2.7vw,2.3rem);line-height:1.1;letter-spacing:-.01em;
   background:linear-gradient(135deg,var(--purple) 8%,var(--neon) 82%);
   -webkit-background-clip:text;background-clip:text;color:transparent;
@@ -3973,7 +3981,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
     radial-gradient(90% 70% at 50% 118%,rgba(255,150,80,.08),transparent 60%),
     radial-gradient(70% 60% at 50% -10%,rgba(151,120,255,.06),transparent 55%),
     #07060a;
-  font-family:ui-monospace,"SFMono-Regular",Menlo,"Roboto Mono",monospace}
+  font-family:"Geist Mono", ui-monospace,"SFMono-Regular",Menlo,"Roboto Mono",monospace}
 /* the set: wood cabinet holding just the screen */
 .crt-set{display:flex;gap:clamp(.8rem,2vw,1.4rem);width:min(840px,100%);
   padding:clamp(.9rem,2vw,1.5rem);border-radius:26px;
@@ -4056,7 +4064,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
      straight through the middle of it. The nav belongs above a decorative
      headline regardless. .crt-stage is 2, .crt-crest is 3. */
 }
-.crt-topbar .mkt-brand{font-family:'Space Grotesk',Inter,sans-serif;font-weight:700;font-size:1.05rem;
+.crt-topbar .mkt-brand{font-family:var(--display);font-weight:700;font-size:1.05rem;
   display:flex;align-items:center;gap:.5rem;color:var(--text)}
 .crt-topbar .mkt-brand .logo-mark{width:26px;height:26px}
 .crt-topbar .mkt-links{display:flex;align-items:center;gap:1.4rem}
@@ -4134,7 +4142,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 /* ---- CRT landing: crest (laurel + headline), preview stage, legal ---- */
 .crt-crest{position:absolute;top:clamp(4.6rem,9vh,6.2rem);left:0;right:0;z-index:3;
   display:flex;align-items:center;justify-content:center;gap:.7rem;pointer-events:none}
-.crt-crest-h{font-family:'Space Grotesk',Inter,sans-serif;font-weight:700;letter-spacing:-.02em;
+.crt-crest-h{font-family:var(--display);font-weight:700;letter-spacing:-.02em;
   font-size:clamp(1.5rem,3vw,2.4rem);line-height:1;text-align:center;color:var(--text);margin:0;white-space:nowrap}
 .crt-crest-h .mkt-grad{background:var(--split);-webkit-background-clip:text;background-clip:text;color:transparent}
 /* preview stage — right half of the screen, morphs per channel */
@@ -4168,12 +4176,12 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   background:repeating-linear-gradient(0deg,rgba(255,255,255,.05) 0 1px,transparent 1px 2px),
     repeating-linear-gradient(90deg,rgba(0,0,0,.4) 0 1px,transparent 1px 3px);
   animation:crt-flicker .2s steps(24) infinite}
-.lp-nosig-txt{position:relative;z-index:1;font-family:ui-monospace,Menlo,monospace;font-weight:700;
+.lp-nosig-txt{position:relative;z-index:1;font-family:"Geist Mono", ui-monospace,Menlo,monospace;font-weight:700;
   letter-spacing:.18em;color:#ff7a6a;text-align:center;font-size:1rem}
 .lp-nosig-txt small{display:block;margin-top:.4rem;font-size:.62rem;letter-spacing:.24em;color:var(--muted)}
 /* legal footer, bottom-right on the frame */
 .crt-legal{position:absolute;right:clamp(1.4rem,3vw,2.4rem);bottom:clamp(1rem,2.4vh,1.6rem);z-index:3;
-  display:flex;align-items:center;gap:1.1rem;font-family:Inter,system-ui,sans-serif;
+  display:flex;align-items:center;gap:1.1rem;font-family:var(--display);
   font-size:.78rem;letter-spacing:.01em;color:var(--muted)}
 /* channels clear the crest */
 .mkt-crt .crt-menu{padding-top:clamp(10rem,22vh,14rem)}
@@ -4383,7 +4391,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    strings and only one of them is the token, so naming the exact screen is
    what stops somebody pasting the wrong one and concluding this is broken. */
 .sv-hint{font-size:.68rem;color:var(--muted)}
-.sv-in{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.72rem}
+.sv-in{font-family:"Geist Mono", ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.72rem}
 .sv-save{display:flex;align-items:center;gap:.7rem;margin-top:.2rem;flex-wrap:wrap}
 .sv-msg{font-size:.72rem;color:var(--muted);flex:1 1 12rem;min-width:0}
 
@@ -5361,34 +5369,34 @@ html { background: #ffffff; background-image: none; }
 body { font-family: ui-sans-serif, -apple-system, system-ui, "Segoe UI", Inter, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
 body::after { display: none; }
 .st-msg { font-size: .94rem; line-height: 1.6; }
-.st-msg.u { background: #f4f4f4; color: #0d0d0d; border: none; border-radius: 18px; padding: .6rem 1rem; }
+.st-msg.u { background: #f4f4f4; color: #0d1b2a; border: none; border-radius: 18px; padding: .6rem 1rem; }
 .st-comp { background: #ffffff; border: 1px solid rgba(0,0,0,.1); border-radius: 26px; box-shadow: 0 2px 12px rgba(0,0,0,.06); padding: .7rem .85rem .6rem; }
-.st-sendc { background: #0d0d0d; color: #fff; box-shadow: none; border: none; }
+.st-sendc { background: #0d1b2a; color: #fff; box-shadow: none; border: none; }
 .st-sendc:hover { box-shadow: none; background: #333; }
 .st-sendc[disabled] { background: #d7d7d7; }
 .st-plus, .st-buildsel { border-color: rgba(0,0,0,.12); }
 .st-buildsel b { font-weight: 600; }
-.st-comp-price { background: none; color: #0d0d0d; -webkit-background-clip: border-box; background-clip: border-box; }
-.st-stopc { background: #0d0d0d; animation: none; box-shadow: none; }
+.st-comp-price { background: none; color: #0d1b2a; -webkit-background-clip: border-box; background-clip: border-box; }
+.st-stopc { background: #0d1b2a; animation: none; box-shadow: none; }
 .st-rail { background: var(--bg); border-color: rgba(0,0,0,.08); }
 /* landing: plain white, one sans face, clean hairlines (no pencil) */
-.mkt.mkt-crt { background: #ffffff; background-image: none; font-family: ui-sans-serif, -apple-system, system-ui, "Segoe UI", Inter, Helvetica, Arial, sans-serif; color: #0d0d0d; }
+.mkt.mkt-crt { background: #ffffff; background-image: none; font-family: ui-sans-serif, -apple-system, system-ui, "Segoe UI", Inter, Helvetica, Arial, sans-serif; color: #0d1b2a; }
 .mkt-crt *, .mkt-crt *::before, .mkt-crt *::after { filter: none !important; }
 .mkt-crt .mkt-ghost::after, .mkt-crt .crt-chatbox::after, .mkt-crt .crt-crest-h .mkt-grad::after, .mkt-crt .logo-mark .gf-pass-b { display: none; }
-.mkt-crt .crt-crest-h, .mkt-crt .crt-topbar .mkt-brand, .mkt-crt .mkt-foot-h { font-family: inherit; font-weight: 600; letter-spacing: -.02em; color: #0d0d0d; }
+.mkt-crt .crt-crest-h, .mkt-crt .crt-topbar .mkt-brand, .mkt-crt .mkt-foot-h { font-family: inherit; font-weight: 600; letter-spacing: -.02em; color: #0d1b2a; }
 .mkt-crt .crt-crest-h { font-size: clamp(1.9rem, 3.6vw, 2.6rem); }
 .mkt-crt .mkt-signin, .mkt-crt .mkt-cta, .mkt-crt .mkt-ghost { font-weight: 500; letter-spacing: 0; }
-.mkt-crt .mkt-cta { background: #0d0d0d; color: #fff; }
+.mkt-crt .mkt-cta { background: #0d1b2a; color: #fff; }
 .mkt-crt .mkt-cta::before { display: none; }
 .mkt-crt .mkt-cta:hover { background: #333; box-shadow: none; transform: none; }
-.mkt-crt .mkt-ghost { background: #fff; color: #0d0d0d; }
+.mkt-crt .mkt-ghost { background: #fff; color: #0d1b2a; }
 .mkt-crt .mkt-ghost::before { border: 1px solid rgba(0,0,0,.15); }
 .mkt-crt .mkt-ghost:hover { background: #f4f4f4; transform: none; }
 .mkt-crt .crt-chatbox { background: #fff; border-radius: 28px; box-shadow: 0 2px 16px rgba(0,0,0,.08); }
 .mkt-crt .crt-chatbox::before { border: 1px solid rgba(0,0,0,.12); }
 .mkt-crt .crt-chatbox-ico { background: none; }
 .mkt-crt .crt-chatbox-ico::before { border: 1px solid rgba(0,0,0,.15); }
-.mkt-crt .crt-chatbox-send { background: #0d0d0d; }
+.mkt-crt .crt-chatbox-send { background: #0d1b2a; }
 .mkt-crt .crt-chatbox-send::before { display: none; }
 .mkt-crt .mkt-foot::before { height: 1px; background: rgba(0,0,0,.1); opacity: 1; }
 
@@ -5400,7 +5408,7 @@ body::after { display: none; }
 .st-msg .md .md-h:first-child { margin-top: 0; }
 .st-msg .md ul, .st-msg .md ol { margin: 0 0 .65em; padding-left: 1.3em; }
 .st-msg .md li { margin: .2em 0; }
-.st-msg .md code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; background: var(--panel-2); padding: .05em .3em; border-radius: 4px; }
+.st-msg .md code { font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; background: var(--panel-2); padding: .05em .3em; border-radius: 4px; }
 
 /* VIDEO AND AUDIO IN THE FILES PANEL AND THE COMPOSER (2026-10-14): a video's
    first frame where a picture would be, a recording's format with a small
@@ -5433,7 +5441,7 @@ body::after { display: none; }
 
 /* OUR OWN "ARE YOU SURE?" (goConfirm, 2026-10-21), in place of the browser's. */
 .go-confirm { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: rgba(0,0,0,.28); padding: 16px; animation: gocfade .12s ease-out; }
-.go-confirm-box { width: min(420px, 100%); background: #fff; border-radius: 16px; box-shadow: 0 18px 50px rgba(0,0,0,.18); padding: 1.4rem 1.4rem 1.1rem; font-family: Inter, system-ui, sans-serif; }
+.go-confirm-box { width: min(420px, 100%); background: #fff; border-radius: 16px; box-shadow: 0 18px 50px rgba(0,0,0,.18); padding: 1.4rem 1.4rem 1.1rem; font-family: var(--display); }
 .go-confirm-title { display: block; font-size: 1.05rem; font-weight: 700; color: var(--text); margin-bottom: .45rem; }
 .go-confirm-text { font-size: .92rem; line-height: 1.5; color: var(--muted); }
 .go-confirm-acts { display: flex; justify-content: flex-end; gap: .6rem; margin-top: 1.3rem; }
@@ -5479,7 +5487,7 @@ body::after { display: none; }
 .st-slash { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); z-index: 30; background: var(--bg); border: 1px solid var(--line-2); border-radius: 14px; box-shadow: 0 6px 24px rgba(0,0,0,.12); padding: .3rem; max-height: 240px; overflow-y: auto; }
 .st-slash[hidden] { display: none; }
 .st-slash-it { display: flex; align-items: baseline; gap: .7rem; width: 100%; text-align: left; font: inherit; font-size: .86rem; color: var(--text); background: none; border: 0; border-radius: 9px; padding: .45rem .6rem; cursor: pointer; }
-.st-slash-it b { font-weight: 600; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .84rem; }
+.st-slash-it b { font-weight: 600; font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .84rem; }
 .st-slash-it span { color: var(--muted); font-size: .82rem; }
 .st-slash-it.on, .st-slash-it:hover { background: var(--panel-2); }
 .st-slash-none { font-size: .84rem; color: var(--muted); padding: .45rem .6rem; }
@@ -5510,3 +5518,41 @@ body::after { display: none; }
 .st-ctxr-pop .st-ctxl-car { display: none; }
 .st-ctxr-pop .st-ctx-bar { height: 5px; flex: none; width: 100%; }
 .st-ctxr-pop .st-ctx-bar-chat { position: relative; overflow: visible; }
+
+/* ── THE LANDING'S LOOK, ACROSS THE APP (owner, 2026-10-30: "u see how with the
+   new design colors looks better, please put this design in the entire
+   platform please"). The signed-out landing (public/gf-landing.css,
+   docs/design/landing.html) is warm paper, navy ink, white cards with soft
+   1px lines, and Geist. The palette tokens at the top of this file now hold
+   its values; this block re-points the few rules above that wrote their
+   colours, faces and shadows out by hand. Layout, sizes and wording are
+   untouched. ─────────────────────────────────────────────────────────────── */
+html { background: var(--paper); background-image: none; }
+body { font-family: var(--display); color: var(--ink); -webkit-font-smoothing: antialiased; }
+.top-nav, .st-rail { background: var(--paper); }
+.st-rail { border-color: var(--line); }
+.st-msg.u { background: var(--card); color: var(--ink); border: 1px solid var(--line); }
+.st-comp { background: var(--card); border: 1px solid var(--line); box-shadow: 0 1px 2px rgba(13, 27, 42, .04), 0 8px 24px -12px rgba(13, 27, 42, .12); }
+.st-comp:focus-within { border-color: rgba(13, 27, 42, .28); }
+.st-sendc, .st-stopc { background: var(--ink); }
+.st-sendc:hover { background: #1c2b3c; }
+.st-sendc[disabled] { background: #d9d4cb; }
+.st-plus, .st-buildsel { border-color: var(--line); }
+.st-comp-price { color: var(--ink); }
+.st-new { background: var(--card); border-color: var(--line); box-shadow: 0 24px 60px rgba(13, 27, 42, .14); }
+.st-new:focus-within { border-color: rgba(13, 27, 42, .32); box-shadow: 0 24px 60px rgba(13, 27, 42, .18), 0 0 0 3px rgba(13, 27, 42, .06); }
+.st-card:hover { border-color: rgba(13, 27, 42, .28); box-shadow: 0 12px 30px -16px rgba(13, 27, 42, .3); }
+.cred-pill, .st-share, .st-dev { background: var(--card); border-color: var(--line); }
+.cred-pill:hover, .st-share:hover { border-color: rgba(13, 27, 42, .32); }
+.st-dev.on { color: #fff; background: var(--ink); border: 1px solid var(--ink); }
+.st-publish:hover:not([disabled]) { box-shadow: 0 6px 20px -6px rgba(13, 27, 42, .5); }
+.profile-pop, .st-slash, .st-ctxr-pop { background: var(--card); border-color: var(--line); box-shadow: 0 24px 60px -20px rgba(13, 27, 42, .28); }
+.go-confirm { background: rgba(13, 27, 42, .28); }
+.go-confirm-box { font-family: var(--display); border: 1px solid var(--line); box-shadow: 0 24px 60px rgba(13, 27, 42, .2); }
+.go-confirm-no { background: var(--card); border-color: var(--line); }
+.go-confirm-yes { background: var(--ink); border-color: var(--ink); }
+.go-confirm-yes.danger { background: #c4462e; border-color: #c4462e; }
+.st-cred { background: var(--ink); }
+.st-cred-btn, .st-cred-box { color: var(--ink); }
+.st-sec-find, .st-sec-fixit, .st-mob-frame { background: var(--card); }
+.st-msg .md code, .st-slash-it b { font-family: var(--mono); }

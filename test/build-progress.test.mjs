@@ -222,7 +222,7 @@ test("the rail is one monospace column, and only the LABEL is lower-cased", () =
   assert.ok(end > at, "the rail block has no end landmark");
   const rail = css.slice(at, end);
 
-  assert.match(rail, /\.st-steps \{[^}]*font-family:\s*ui-monospace/, "the rail is no longer monospace — treatment E is all monospace");
+  assert.match(rail, /\.st-steps \{[^}]*font-family:\s*(?:"Geist Mono",\s*)?ui-monospace/, "the rail is no longer monospace — treatment E is all monospace");
   // THE BOXES ARE GONE. Three equal bordered cards said nothing about which step
   // mattered; E is flush left with no surface at all.
   assert.match(rail, /\.st-step \{[^}]*border:\s*0/, "the step boxes are back");

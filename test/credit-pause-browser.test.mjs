@@ -122,7 +122,7 @@ test("CREDIT PAUSE — the bar on top of the box, the pill, the stored tick (and
     const geo = await page.evaluate(() => { const a = document.querySelector(".st-cred").getBoundingClientRect(); const b = document.querySelector(".st-comp").getBoundingClientRect(); return { gap: b.top - a.bottom, w: Math.abs(a.width - b.width), bg: getComputedStyle(document.querySelector(".st-cred")).backgroundColor }; });
     assert.ok(Math.abs(geo.gap) <= 1, "the bar is not attached to the box: " + JSON.stringify(geo));
     assert.ok(geo.w <= 1, "the bar is not the box's width: " + JSON.stringify(geo));
-    assert.equal(geo.bg, "rgb(17, 17, 17)");
+    assert.equal(geo.bg, "rgb(13, 27, 42)"); // the landing's ink (owner, 2026-10-30), was #111
     assert.equal((await page.textContent(".st-bg-pill")).trim(), "4 tasks waiting for credits ▾");
     // THE CONTEXT LINE IS GONE; THE RING SITS JUST LEFT OF SEND.
     assert.equal(await page.$(".st-rail > .st-ctxl"), null, "the context line above the box is back");
