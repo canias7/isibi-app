@@ -31,7 +31,7 @@ test("the site delete's leftovers step removes everything kept under the site's 
   const b = src.indexOf('console.error("site leftovers delete failed:", dslug, e && e.message); }', a);
   assert.ok(a > 0 && b > a, "the leftovers step moved; this test checks nothing");
   const step = src.slice(a, b) + 'console.error("site leftovers delete failed:", dslug, e && e.message); }\nreturn leftoversRemoved;';
-  const run = new Function("env", "dslug", "uid", "srow", "siteScope", "cleanChatId", "CHAT_COLUMN", "chatStoreKey", "return (async () => {" + step + "})();");
+  const run = new Function("env", "dslug", "uid", "srow", "siteScope", "cleanChatId", "CHAT_COLUMN", "chatStoreKey", "chatSharedElsewhere", "return (async () => {" + step + "})();");
   const S = "sunday-kitchen", N = "sunday-kitchen-2", U = "uid-1", C = "site_1792_abcde";
   const mine = [
     "uploads/" + S + "/loaf.jpg", "uploads/" + S + "/a.mp4", "uploads/" + S + "/b.pdf",
@@ -45,7 +45,7 @@ test("the site delete's leftovers step removes everything kept under the site's 
   ];
   const theirs = mine.map((k) => k.split(S).join(N)).map((k) => k.replace("chat/" + U + "/" + C, "chat/" + U + "/site_other"));
   const B = bucket([...mine, ...theirs]);
-  const removed = await run({ SITES_BUCKET: B }, S, U, { uid: U, [CHAT_COLUMN]: C }, siteScope, cleanChatId, CHAT_COLUMN, (u, c) => "chat/" + u + "/" + c + ".json");
+  const removed = await run({ SITES_BUCKET: B }, S, U, { uid: U, [CHAT_COLUMN]: C }, siteScope, cleanChatId, CHAT_COLUMN, (u, c) => "chat/" + u + "/" + c + ".json", async () => false);
   const left = mine.filter((k) => B.store.has(k));
   assert.deepEqual(left, [], "still kept after the delete: " + left.join(", "));
   assert.deepEqual(theirs.filter((k) => !B.store.has(k)), [], "a neighbour's things were deleted");
