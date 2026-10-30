@@ -1729,6 +1729,14 @@ missing site gets. The practical answer is unchanged — a session holding NO
 Supabase token reads neither — but *"owner-gated"* was wrong about the first
 and names the wrong person to go and ask.
 
+## Deploy 2293 — 2026-10-30 09:01 UTC (`cfb2bd39f`)
+
+A fast-forward from `be6770957`, under the owner's word ("when all the helpers are done, merge and deploy"): the landing's look across the signed-in app (`b2e241494`) and the projects-page fixes (`projects-page-fixes`, merged as `cfb2bd39f`). Full suite locally 12,568 / 12,564 / 2 known local / 2 skipped; unit CI (41028683822) and site build (41028683858) green on `cfb2bd39f`. One deploy run (41029961632), green, 08:57–09:01 UTC.
+
+- **SiteBuildContainer:** `b59685ee209f5fa2` (246 inputs, computed from the commit; `worker.js` is an input and changed).
+- **Served files match the merged bytes** (read 09:12 UTC): `chat.js`, `styles.css`, `site-list.js`.
+- **Deployed, not runtime-confirmed.** Owed: the owner's free canary press.
+
 ## Deploy 2292 — 2026-10-30 08:15 UTC (`be6770957`)
 
 A fast-forward from `bdbcc53e4`, on the owner's word ("Merge and deploy"): parallel parts with the site agent (the router splits a site message again; each part is the agent with its own words), helper agents on new sites, sign-in never starts a build (the landing brief waits in the start box), the signed-in landing hides the new nav, "Your app framework". Unit CI green on `be6770957` (41023005813). One deploy run (41024385364), green, 08:07–08:16 UTC.
