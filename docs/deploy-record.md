@@ -1729,6 +1729,13 @@ missing site gets. The practical answer is unchanged — a session holding NO
 Supabase token reads neither — but *"owner-gated"* was wrong about the first
 and names the wrong person to go and ask.
 
+## Deploy 2294 — 2026-10-30 21:40 UTC (`f02ef0f58`)
+
+A fast-forward from `cfb2bd39f`, on the owner's word ("fix all and then merge and deploy"): branch `final-combine` — projects-page delete fixes, the server-side project list, chats/settings/credits on the account, the agent's server tools, input tools (attachments, import, bulk rows), the old router steps ported to the agent, guardrails, fix-all (Stop, credit checks, charge after save, honest replies, safe rows, sort/media/site-address tools), the secure key card, and no fixed time limit (15-minute no-progress watchdog). Full suite locally 12,683 in two halves (3 known local failures); unit CI 41130673898 and site build 41130673994 green on `f02ef0f58`. One deploy run (41132375209), green, 21:37–21:40 UTC.
+
+- **SiteBuildContainer:** `441042c2acff30cb` (253 inputs, computed from the commit; predicted before the push).
+- **Deployed, not runtime-confirmed.** Owed: the owner's free canary press.
+
 ## Deploy 2293 — 2026-10-30 09:01 UTC (`cfb2bd39f`)
 
 A fast-forward from `be6770957`, under the owner's word ("when all the helpers are done, merge and deploy"): the landing's look across the signed-in app (`b2e241494`) and the projects-page fixes (`projects-page-fixes`, merged as `cfb2bd39f`). Full suite locally 12,568 / 12,564 / 2 known local / 2 skipped; unit CI (41028683822) and site build (41028683858) green on `cfb2bd39f`. One deploy run (41029961632), green, 08:57–09:01 UTC.
