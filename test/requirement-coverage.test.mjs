@@ -618,7 +618,7 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   const madeAt = W.indexOf("const aMade = (failed = null) => {");
   assert.ok(madeAt > 0, "the evidence reader is gone");
   const made = W.slice(madeAt, W.indexOf("});", madeAt) + 3);
-  for (const list of ["tables: db ? aTables : []", "altered: db ? aAltered : []", "functions: db ? aFunctions : []", "apis: db ? aApis : []", "jobs: db ? aJobs : []", "fnErrors: db ? aFnErrors : []"]) {
+  for (const list of ["tables: db ? aTables : []", "altered: db ? aAltered : []", "functions: db ? aFunctions : []", "fnErrors: db ? aFnErrors : []"]) {
     assert.ok(made.includes(list), "the evidence does not read what this change really applied: no `" + list + "`");
   }
   assert.match(made, /const db = !failed \|\| failed\.database === "applied";/, "the database's results count where its apply did not go in");
@@ -1591,12 +1591,10 @@ test("the route validates the MODEL's tables, not the folded spec or the engine'
   // whose own comments record two earlier instances of it. The properties are
   // what the audit is HANDED and that its context is built from the proposal.
   assert.match(block, /auditTier\(\{ \[tier\]: mine \}, k, context, \{ sent \}\)/, "the per-tier audit is gone");
-  // RE-ANCHORED 2026-10-22 (decide-4b): a job's own functions join the
-  // proposal first; still the proposal this message has built.
-  assert.match(block, /const withMine = proposedSpec\((?:ownFns\.length \? proposedSpec\(aProposed, "function", ownFns\) : )?aProposed, k, clean\.value\);/,
+  // RE-ANCHORED 2026-10-30: the job tier is gone, so the context is the
+  // proposal this message has built, for every tier.
+  assert.match(block, /const context = proposedSpec\(aProposed, k, clean\.value\);/,
     "the audit's context is no longer the proposal this message has built");
-  assert.match(block, /const context = k === "job" \? withJobDeps\(withMine\) : withMine;/,
-    "a job is validated without the site's own functions, or another tier gained them");
   // …AND THE THIRD REPORT IS READ. A declared value the pipeline kept under a
   // DIFFERENT value is neither reached-for nor refused, and it is the one shape
   // where the customer is told the thing they asked for was done and it
@@ -1626,7 +1624,7 @@ test("the route validates the MODEL's tables, not the folded spec or the engine'
   // "Validate each item with its dependencies present"). A job normalised alone
   // vanishes — its function is absent — so the context is the ACCUMULATED
   // proposal with this kind's own items folded in, never the bare answer.
-  assert.match(block, /const withMine = proposedSpec\((?:ownFns\.length \? proposedSpec\(aProposed, "function", ownFns\) : )?aProposed, k, clean\.value\)/,
+  assert.match(block, /const context = proposedSpec\(aProposed, k, clean\.value\)/,
     "the item is validated without the schema its dependencies live in");
   // …AND AN ITEM THE ENGINE DROPS WHOLE IS RECORDED AND COUNTS AS A FAILURE.
   // Above the table tier there is no field to point at, so without this a

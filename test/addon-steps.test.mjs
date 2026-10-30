@@ -48,9 +48,9 @@ const BASE = () => normalizeSchema({
 // 1. EVERY TIER IS AUDITED, AND THE OLD READER COULD NOT SEE THREE OF THEM
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("the four tiers and their lists agree with the tools, in BOTH directions", () => {
-  assert.deepEqual(SPEC_TIERS, ["table", "function", "api", "job"]);
-  assert.deepEqual(TIER_LIST, { table: "tables", function: "functions", api: "apis", job: "jobs" });
+test("the tiers and their lists agree with the tools, in BOTH directions", () => {
+  assert.deepEqual(SPEC_TIERS, ["table", "function"]);
+  assert.deepEqual(TIER_LIST, { table: "tables", function: "functions" });
   // A COPY PLUS A CENSUS, which is the existing `TOOL_TABLE_FIELDS` bargain:
   // the shapes live in `builder/site-table.mjs` and `site-schema.mjs` does not
   // import them, so the census is what keeps the copy honest. A field added to
@@ -97,25 +97,25 @@ test("`scanned` is the observer, and every other field is a negative assertion",
   // is that the empty answer says every bucket is empty: deriving it from the
   // reader would make the assertion agree with whatever the reader does.
   const EMPTY = { scanned: 0, reached: [], refused: [], changed: [], unexpressed: [], unbuilt: [] };
-  assert.deepEqual(auditTier({}, "job", ctx), EMPTY);
+  assert.deepEqual(auditTier({}, "function", ctx), EMPTY);
   assert.deepEqual(auditTier(null, "table"), EMPTY);
   // …AND A REAL ANSWER CARRIES EXACTLY THOSE KEYS, so a bucket added next month
   // cannot be reported by the route and silently missing from the empty shape,
   // which is how a caller ends up reading an absent field as "nothing found".
   assert.deepEqual(
-    Object.keys(auditTier({ jobs: [{ name: "r", fn: "cancel_booking", everyMinutes: 1440 }] }, "job", ctx)).sort(),
+    Object.keys(auditTier({ functions: [{ name: "r", args: [], returns: "void", body: "select 1" }] }, "function", ctx)).sort(),
     Object.keys(EMPTY).sort(),
     "the reader answers a field the empty shape does not name",
   );
-  assert.deepEqual(auditTier({ jobs: [{}] }, "nonsense", ctx).scanned, 0, "an unknown tier scanned something");
-  const real = auditTier({ jobs: [{ name: "remind", fn: "cancel_booking", everyMinutes: 1440 }] }, "job", ctx);
+  assert.deepEqual(auditTier({ jobs: [{}] }, "job", ctx).scanned, 0, "a removed tier scanned something");
+  const real = auditTier({ functions: [{ name: "remind", args: [], returns: "void", body: "select 1" }] }, "function", ctx);
   assert.equal(real.scanned, 1, "a real declaration was not scanned");
   // ONE READING OF THE LIST, whatever shape it arrived in — including the
   // STRINGIFIED one measured at about 1 sample in 20 in `schema gen eval`.
-  assert.equal(declaredItems({ jobs: JSON.stringify([{ name: "a" }]) }, "job").length, 1);
-  assert.equal(declaredItems({ jobs: { a: { name: "a" } } }, "job").length, 1);
-  assert.equal(declaredItems({ jobs: [null, 5, [], "x", { name: "a" }] }, "job").length, 1, "junk was read as a declaration");
-  assert.equal(declaredItems({ jobs: "not json" }, "job").length, 0);
+  assert.equal(declaredItems({ functions: JSON.stringify([{ name: "a" }]) }, "function").length, 1);
+  assert.equal(declaredItems({ functions: { a: { name: "a" } } }, "function").length, 1);
+  assert.equal(declaredItems({ functions: [null, 5, [], "x", { name: "a" }] }, "function").length, 1, "junk was read as a declaration");
+  assert.equal(declaredItems({ functions: "not json" }, "function").length, 0);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -172,10 +172,6 @@ test("an item the engine drops WHOLE is named — the report that did not exist 
   // `_secrets` holds the owner's Stripe key. Correct, and until now silent.
   const peek = { name: "peek", args: [], returns: "void", body: "select * from _secrets" };
   assert.deepEqual(unbuiltItems({ functions: [peek] }, "function", ctx), ["peek"]);
-  // A JOB WHOSE FUNCTION IS PUBLIC is dropped too — only an internal one may
-  // be run on a timer.
-  const pub = proposedSpec(ctx, "function", [{ name: "lookup", args: [], returns: "void", body: "select 1", internal: false }]);
-  assert.deepEqual(unbuiltItems({ jobs: [{ name: "j", fn: "lookup", everyMinutes: 1440 }] }, "job", pub), ["j"]);
   // AN UNNAMED ITEM STILL GETS A ROW: silence is the thing being fixed.
   assert.deepEqual(unbuiltItems({ functions: [{ returns: "void", body: "x" }] }, "function", ctx), ["(unnamed)"]);
 });

@@ -14818,7 +14818,7 @@ function addonReplyText(a) {
   }
   // A KIND WHOSE DESIGNER DECLINED, beside the kinds that were added
   // (2026-10-03, MW6).
-  const KIND_SAID = { table: 'a list for the site to store', row: 'an entry in one of your lists', function: 'a function', api: 'a connection to an outside service', job: 'a scheduled job', page: 'a page', component: 'a section', words: 'a line of words', frame: 'a menu link, button or footer item', qr: 'a QR code', three: 'a 3D scene', photo: 'a photograph' };
+  const KIND_SAID = { table: 'a list for the site to store', row: 'an entry in one of your lists', function: 'a function', page: 'a page', component: 'a section', words: 'a line of words', frame: 'a menu link, button or footer item', qr: 'a QR code', three: 'a 3D scene', photo: 'a photograph' };
   for (const k of (Array.isArray(a.declined) ? a.declined : [])) {
     if (typeof k !== 'string' || !k) continue;
     out += ' I couldn’t design ' + (KIND_SAID[k] || 'one part of that') + ' from what you asked, so nothing was made for it — ask for it on its own, with a little more detail.';

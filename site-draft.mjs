@@ -843,12 +843,10 @@ export async function saveAsDraft(deps, { slug, version, build = "", base = "", 
 // preview as if it had been made, and applied to the live database and
 // library only by the owner's Publish of a revision that carries it. Before a
 // site's first publication nobody uses its database or library, so a task
-// writes them directly — except scheduled jobs, which would run by
-// themselves: those are always held until the first Publish.
+// writes them directly.
 //
 // An op is one of:
 //   { kind: "schema", spec }            the merged schema (the latest wins)
-//   { kind: "jobs", jobs }              the scheduled jobs (the latest wins)
 //   { kind: "seed", spec, seed }        starter rows for tables (seeded only when empty)
 //   { kind: "row", table, op: "insert", values, ref }
 //   { kind: "row", table, op: "update", id | ref, values }
@@ -860,7 +858,7 @@ export async function saveAsDraft(deps, { slug, version, build = "", base = "", 
 //   { kind: "alias", action: "forget", name }       an old address, let go
 const HELD_ID = /^[a-f0-9]{24}$/;
 const REF = /^[a-f0-9]{24}:\d{1,4}$/;
-export const HELD_KINDS = Object.freeze(["schema", "jobs", "seed", "row", "media-replace", "media-delete", "upload-delete", "alias"]);
+export const HELD_KINDS = Object.freeze(["schema", "seed", "row", "media-replace", "media-delete", "upload-delete", "alias"]);
 
 /**
  * One task's holding place: ops collected in memory, written once (`flush`)
@@ -1057,12 +1055,12 @@ export function heldTouches(ops, table) {
 }
 /**
  * TWO SPECS AS ONE, BY NAME (2026-10-18, audit A06-3 and A04-1): tables,
- * functions, outside connections and jobs keyed by lower-cased name, the
+ * and functions keyed by lower-cased name, the
  * later entry winning; every other key from `next`. A held change adds to the
  * schema the draft already has, never replaces it — so an empty later spec
  * keeps what came before. No `base` answers `next`.
  */
-export const SPEC_LISTS = ["tables", "functions", "apis", "jobs"];
+export const SPEC_LISTS = ["tables", "functions"];
 // A HELD REMOVAL OUTLIVES A LATER RE-DECLARATION (2026-10-22, audit A29-1):
 // a table's `cleared` fields carry over onto a later entry for the same table
 // that gives that field no value of its own, so Publish still turns it off.
@@ -1096,12 +1094,12 @@ export function mergeSpec(base, next) {
 /**
  * WHAT A REVISE BUILD HOLDS (2026-10-18, A06-3 writer): its own spec merged
  * by name over the draft's overlay, so the held op never names fewer tables
- * than the draft has; `null` when it declares no table, function or api,
+ * than the draft has; `null` when it declares no table or function,
  * because there is nothing to apply. No overlay readable: its spec as given.
  */
 export function reviseHeldSpec(overlay, spec) {
   const s = spec && typeof spec === "object" ? spec : {};
-  if (!["tables", "functions", "apis"].some((k) => Array.isArray(s[k]) && s[k].length)) return null;
+  if (!["tables", "functions"].some((k) => Array.isArray(s[k]) && s[k].length)) return null;
   return overlay && typeof overlay === "object" ? mergeSpec(overlay, s) : s;
 }
 
@@ -1126,14 +1124,13 @@ function forSeedRows(o, count, each) {
 
 /**
  * THE HELD OPS COMBINED, ONE FUNCTION FOR EVERY READER (2026-10-18): the
- * schema over `liveSpec` and the jobs, each merged by name in order, skipping
+ * schema over `liveSpec`, merged by name in order, skipping
  * any op whose `key` is in `setAside` (and every op after `upTo`, when given).
- * `spec` is `liveSpec` when no schema op is held; `jobs` is null when no jobs
- * op is held.
+ * `spec` is `liveSpec` when no schema op is held.
  */
 export function combineHeld(liveSpec, ops, { upTo, setAside = [] } = {}) {
   const aside = new Set(Array.isArray(setAside) ? setAside : []);
-  let spec = liveSpec, jobs = null, held = false, bad = "";
+  let spec = liveSpec, held = false, bad = "";
   const seedRefs = new Set(), seedCount = new Map();
   const list = Array.isArray(ops) ? ops : [];
   const end = Number.isInteger(upTo) ? Math.min(upTo, list.length) : list.length;
@@ -1141,7 +1138,6 @@ export function combineHeld(liveSpec, ops, { upTo, setAside = [] } = {}) {
     const o = list[i];
     if (!o || (o.key !== undefined && aside.has(o.key))) continue;
     if (o.kind === "schema" && o.spec && typeof o.spec === "object") { spec = held ? mergeSpec(spec, o.spec) : mergeSpec(liveSpec, o.spec); held = true; }
-    else if (o.kind === "jobs") jobs = byName(jobs, Array.isArray(o.jobs) ? o.jobs : []);
     else if (o.kind === "seed") forSeedRows(o, seedCount, (ref) => seedRefs.add(ref));
     // A ROW THAT CANNOT BE FOUND IS SAID, BUT THE SCHEMA IS STILL WORKED OUT
     // (2026-10-18, review): every reader of the draft's schema — the data
@@ -1149,7 +1145,7 @@ export function combineHeld(liveSpec, ops, { upTo, setAside = [] } = {}) {
     else if (o.kind === "row" && o.op !== "insert" && !o.ref && Number(o.id) < 0) bad = STARTER_MISSING;
     else if (o.kind === "row" && typeof o.ref === "string" && o.ref.startsWith("seed:") && !seedRefs.has(o.ref)) bad = STARTER_MISSING;
   }
-  return bad ? { ok: false, error: bad, spec, jobs, held } : { ok: true, spec, jobs, held };
+  return bad ? { ok: false, error: bad, spec, held } : { ok: true, spec, held };
 }
 
 /** The schema as the draft has it: the held schemas merged by name over the live one. */
@@ -1316,7 +1312,7 @@ export function applyRowQuery(rows, params) {
 
 /**
  * WHAT A PUBLICATION OF THESE OPS DOES, in the order it is done: the held
- * schemas and jobs merged by name, the starter rows, the row changes (updates and
+ * schemas merged by name, the starter rows, the row changes (updates and
  * removals of rows the live database has, by id; a change to a row held as
  * new folded into its insert, or — when that insert was published earlier —
  * to the id it was given, `refs`), the inserts, and the library changes.
@@ -1324,14 +1320,13 @@ export function applyRowQuery(rows, params) {
  * found.
  */
 export function publishPlan(ops, { refs = {} } = {}) {
-  const plan = { spec: null, jobs: null, seeds: [], changes: [], inserts: [], media: [], alias: [] };
+  const plan = { spec: null, seeds: [], changes: [], inserts: [], media: [], alias: [] };
   const inserts = new Map();
   const starters = new Map(), seedCount = new Map();
   for (const o of ops || []) {
-    // HELD SCHEMAS AND JOBS MERGE BY NAME (2026-10-18, A06-3, A04-1): a later
+    // HELD SCHEMAS MERGE BY NAME (2026-10-18, A06-3, A04-1): a later
     // op adds to the earlier ones, never replaces them.
     if (o.kind === "schema") plan.spec = plan.spec ? mergeSpec(plan.spec, o.spec) : o.spec;
-    else if (o.kind === "jobs") plan.jobs = byName(plan.jobs, Array.isArray(o.jobs) ? o.jobs : []);
     else if (o.kind === "seed") {
       // STARTER ROWS ARE COPIED SO A HELD CHANGE CAN FOLD INTO ONE (A28-3).
       const seed = {};
@@ -1435,28 +1430,7 @@ export const PUBLICATION_PHASES = Object.freeze(["start", "prepared", "switching
 /** Phases after which nothing remains to be done. */
 export const CLOSED_PHASES = Object.freeze(["finished", "retired"]);
 /** The steps after the switch, in order. */
-export const FINISH_STEPS = Object.freeze(["address", "schema", "jobs", "seeds", "changes", "inserts", "library"]);
-/**
- * A HELD JOB WHOSE NEW FUNCTION FAILED IS NOT REGISTERED AT PUBLISH (audit
- * A04-3, 2026-10-22): the owner's rule of 2026-09-14, which the add-on keeps
- * when it writes live, kept by the publication's schema step too. `functionErrors`
- * is what `applySiteSchema` answered; `prior` the function names stored before
- * it ran. Only a function the site did not already have counts (a failed
- * replacement leaves the old body running), and an unknown `prior` (null)
- * counts none: cannot-tell never takes a job off. Lower-cased names.
- */
-export function deadNewFunctions(functionErrors, prior) {
-  if (!Array.isArray(prior) || !Array.isArray(functionErrors)) return [];
-  const had = new Set(prior.map((n) => String(n || "").toLowerCase()));
-  return [...new Set(functionErrors.map((e) => String((e && e.name) || "").toLowerCase()).filter((n) => n && !had.has(n)))];
-}
-/** The held jobs split by `dead` (from `deadNewFunctions`): `{ jobs, blocked }`, each blocked one with the function it runs. */
-export function jobsWithoutDead(jobs, dead) {
-  const d = new Set(Array.isArray(dead) ? dead : []);
-  const list = Array.isArray(jobs) ? jobs : [];
-  const isDead = (j) => d.has(String((j && j.fn) || "").toLowerCase());
-  return { jobs: list.filter((j) => !isDead(j)), blocked: list.filter(isDead).map((j) => ({ name: String(j.name || ""), fn: String(j.fn || "") })) };
-}
+export const FINISH_STEPS = Object.freeze(["address", "schema", "seeds", "changes", "inserts", "library"]);
 /** A journal entry for the owner's click on revision `n` of `version`. */
 export function newJournal({ slug, n, version, uid = "", now = Date.now(), id }) {
   return { v: 1, slug, n, version, uid: String(uid || ""), id, running: true, at: now, phase: "start", from: null, done: [], refs: {}, error: null, attempts: 0 };

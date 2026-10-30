@@ -1738,9 +1738,11 @@ export async function applySiteSchema(uuid, spec) {
           // an absence that means two things.
           // An explicit removal (`cleared`, A29-1) is the exception: that
           // field stays off, and the marker itself is never stored.
+          // A stored `payment`, `confirm`, `sms` or `webhooks` belongs to the
+          // removed prebuilt features and is never carried back.
           const clearedHere = clearedOf(t);
           for (const k of Object.keys(prevT)) {
-            if (k === "cleared" || clearedHere.has(k)) continue;
+            if (k === "cleared" || clearedHere.has(k) || REMOVED_TABLE_KEYS.has(k)) continue;
             if (t[k] === undefined || t[k] === null) t[k] = prevT[k];
           }
           // COLUMNS UNION RATHER THAN OVERRIDE, because this is the data API's
@@ -2379,7 +2381,7 @@ export const TOOL_TABLE_FIELDS = new Set([
 ]);
 
 /**
- * THE FOUR TIERS `normalizeSchema` COVERS, AND WHICH SPEC KEY EACH LIVES UNDER.
+ * THE TIERS `normalizeSchema` COVERS, AND WHICH SPEC KEY EACH LIVES UNDER.
  *
  * The two diagnostics below read TABLES ONLY and always did — `declaredTables`
  * is their one reader — so `droppedFields({functions: [...]})` answered `[]` for
@@ -2391,19 +2393,21 @@ export const TOOL_TABLE_FIELDS = new Set([
  * observer is alive" trap in the shipped product: a clean sweep over nothing,
  * indistinguishable from a designer that stayed inside the tool.
  */
-export const SPEC_TIERS = Object.freeze(["table", "function", "api", "job"]);
+export const SPEC_TIERS = Object.freeze(["table", "function"]);
 
-export const TIER_LIST = Object.freeze({ table: "tables", function: "functions", api: "apis", job: "jobs" });
+export const TIER_LIST = Object.freeze({ table: "tables", function: "functions" });
+
+/** Table fields of the removed prebuilt features, never refilled from a stored schema. */
+const REMOVED_TABLE_KEYS = new Set(["payment", "confirm", "sms", "webhooks"]);
 
 /**
  * The per-item fields each add/design tool actually offers, by tier.
  *
  * A COPY, AND THE CENSUS IS THE DERIVATION. The shapes live in
- * `builder/site-table.mjs` (`TABLE_ITEM`, `FUNCTION_ITEM`, `API_ITEM`,
- * `JOB_ITEM`) and this module deliberately does not import them — the existing
+ * `builder/site-table.mjs` (`TABLE_ITEM`, `FUNCTION_ITEM`) and this module deliberately does not import them — the existing
  * `TOOL_TABLE_FIELDS` made that choice and `test/dropped-fields.test.mjs`
  * asserts the two agree in BOTH directions, which is what keeps a copy honest.
- * The census covers all four tiers now, for the same reason it covered one: a
+ * The census covers both tiers now, for the same reason it covered one: a
  * field added to a tool and forgotten here is reported as a missing capability
  * on every site that uses it.
  */
@@ -2414,19 +2418,6 @@ export const TOOL_FIELDS = Object.freeze({
   // a field the tool asks for and the pipeline really carries as one it never
   // heard of — the audit's own worst answer, about a working capability.
   function: new Set(["name", "args", "returns", "body", "internal", "language", "writes"]),
-  // `returns` and `credential` joined 2026-09-19. This set is what `auditTier`
-  // calls the OFFERED fields, so a property the tool asks for and this set does
-  // not name reads as one the pipeline never heard of — reported to the
-  // customer as "a setting the design asked for that this kind of change can't
-  // carry" about a field the connection really stores.
-  api: new Set(["name", "url", "method", "headers", "body", "params", "returns", "credential", "cacheSeconds"]),
-  // `on` joined 2026-09-19 with native one-time scheduling — the single date a
-  // job runs and then never again. The engine reads `spec.on` to select it at
-  // all, so leaving it out here would tell the customer that the date they
-  // asked for is "a setting this kind of change can't carry" about the one
-  // field the whole feature turns on. The census in `addon-steps` caught the
-  // omission the moment the tool gained the property, which is what it is for.
-  job: new Set(["name", "fn", "everyMinutes", "at", "on"]),
 });
 
 /**
@@ -2739,100 +2730,6 @@ export function auditTier(spec, tier = "table", context = null, { sent = null } 
 /** A value two readings can be compared as text: never an object or an array. */
 function scalar(v) {
   return typeof v === "string" || typeof v === "number" || typeof v === "boolean";
-}
-
-/**
- * The stand-in body a stored function is validated with. It is never applied —
- * see `withJobDeps` — and is deliberately not valid SQL anybody would want to
- * run, so a path that did apply it would fail loudly rather than quietly
- * replace a live function with a no-op.
- */
-const STORED_FN_STANDIN = "-- stored: body lives in the database, not in the spec";
-
-/**
- * THE INTERNAL FUNCTIONS A JOB MAY BE ATTACHED TO, by lowercased name.
- *
- * `normalizeSchema` keeps a job only when the function it runs is declared in
- * the SAME spec and is internal (`confirmFns.get(j.fn)`, and that map is built
- * from the functions that SURVIVED normalisation). This is the one reader of
- * "which functions satisfy that", so the audit and the apply cannot answer it
- * differently — which is exactly what they did until 2026-09-19.
- *
- * PUBLIC IS NOT ON THE LIST, and that is a guarantee rather than an omission: a
- * job on a public function is one a visitor could call, handing out every
- * recipient's address to anyone who asks, and the engine refuses it for that
- * reason. A name nobody declared is not on it either. Both stay reportable.
- */
-export function storedJobFns(spec) {
-  const out = new Set();
-  const fns = spec && typeof spec === "object" && Array.isArray(spec.functions) ? spec.functions : [];
-  for (const f of fns) {
-    if (!f || typeof f !== "object" || f.internal !== true) continue;
-    const name = String(f.name || "").trim().toLowerCase();
-    if (name) out.add(name);
-  }
-  return out;
-}
-
-/**
- * THE CONTEXT A JOB IS VALIDATED IN, WITH THE SITE'S OWN FUNCTIONS PRESENT.
- *
- * ── THE DEFECT THIS CLOSES, MEASURED (run 52, 2026-09-19) ───────────────────
- *
- * `applySiteSchema` persists a function as `{name, args, returns, internal}`
- * with NO BODY, and `normalizeSchema` drops a bodiless function — correctly,
- * since a body is what makes one. The job naming it is then dropped behind it.
- * Four shapes through the real engine:
- *
- *   job alone (no function at all)  -> fns []                 jobs []
- *   job + STORED fn (no body)       -> fns []                 jobs []   <- here
- *   job + fn WITH body, internal    -> fns ["nightly_count"]  jobs ["count_once"]
- *   job + fn with body, PUBLIC      -> fns ["nightly_count"]  jobs []
- *
- * So a job REUSING a function the site already has was audited as dropped
- * whole. The apply disagreed and was right: it re-attaches exactly such a job,
- * registers it, and the customer was nonetheless told "the <job> it needs could
- * not be created" about a job that is on the site and scheduled. One fact, two
- * readers, and only the wrong one reached the reply.
- *
- * The context's own comment already had the right argument — *"a job alone
- * normalises to nothing; in the proposal its function is there and it
- * survives"* — and it was true of a function designed in the same message,
- * which carries a body, and false of a stored one. The reasoning stopped one
- * case short.
- *
- * ── WHY A STAND-IN BODY, AND WHY IT IS SAFE ─────────────────────────────────
- *
- * The only question asked of the context here is whether the cross-reference
- * resolves. The live body is in Postgres, this Worker does not hold it, and it
- * is not needed to answer that. THE REPAIRED CONTEXT IS NEVER APPLIED: the
- * apply runs `normalizeSchema` over the real spec and re-sending a stored
- * function would `CREATE OR REPLACE` the live one with this stand-in — which is
- * the recorded reason `normalizeSchema` drops bodiless functions in the first
- * place, and it still does, everywhere but here.
- *
- * SCOPED TO THE JOB TIER BY ITS CALLER, deliberately. A table's `confirm.fn`
- * and `sms.fn` cross-reference the same map and are nulled for a stored
- * function — and the APPLY nulls them too, so the audit is already telling the
- * truth about those. Repairing them here would make the audit disagree with the
- * apply in the other direction, which is this defect wearing its own fix.
- */
-export function withJobDeps(context) {
-  const base = context && typeof context === "object" ? context : {};
-  const fns = Array.isArray(base.functions) ? base.functions : [];
-  if (!fns.length) return base;
-  let repaired = false;
-  const out = fns.map((f) => {
-    // ONLY A DECLARED INTERNAL FUNCTION WITH NOTHING TO NORMALISE. A function
-    // this message designed arrives with its real body and is left exactly as
-    // it is; a public one is left to be refused.
-    if (!f || typeof f !== "object" || f.internal !== true) return f;
-    if (typeof f.body === "string" && f.body.trim()) return f;
-    if (!String(f.name || "").trim()) return f;
-    repaired = true;
-    return { ...f, body: STORED_FN_STANDIN };
-  });
-  return repaired ? { ...base, functions: out } : base;
 }
 
 /**

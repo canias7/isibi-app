@@ -284,7 +284,7 @@ test("inside the closure: the record is filed pending before the first statement
   const apply = at(closure, "aMade = await applySiteSchema(adb, merged);", "the apply");
   assert.ok(filed < apply, "the record is not filed before the apply");
   const filing = closure.slice(filed, apply);
-  for (const needle of ["job: aMigJob, slug: ownerSlug, version,", "added: folded.added, altered: folded.altered.map((a) => a && a.table),", 'functions: aNamed("functions"), apis: aNamed("apis"), jobs: aNamed("jobs"),', "provisioned: aProvisioned,"]) {
+  for (const needle of ["job: aMigJob, slug: ownerSlug, version,", "added: folded.added, altered: folded.altered.map((a) => a && a.table),", 'functions: aNamed("functions"),', "provisioned: aProvisioned,"]) {
     assert.ok(filing.includes(needle), "the record is not filed with: " + needle);
   }
   const fail = between(closure, "} catch (e) {", "}\n", "the apply's catch");

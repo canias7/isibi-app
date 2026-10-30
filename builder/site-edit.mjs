@@ -504,9 +504,9 @@ export const EDIT_RULE =
   // it, which no later merge could tell from a real answer. `keepStoredAccess`
   // below is the implementation; obeying this sentence literally is what used to
   // publish a menu table to anonymous writers.
-  "YOU MAY NAME A TABLE THE SITE ALREADY HAS, for exactly two things: to add a column to it, and to make it take " +
-  "PAYMENTS or publish a read-only `publicView` of it. Those two need a page as well, which is why they come here. " +
-  "Anything else about an existing table — who may read it, who may write it, whether it emails, what it refuses — " +
+  "YOU MAY NAME A TABLE THE SITE ALREADY HAS, for exactly two things: to add a column to it, and to publish a " +
+  "read-only `publicView` of it. Those two need a page as well, which is why they come here. " +
+  "Anything else about an existing table — who may read it, who may write it, what it refuses — " +
   "is changed elsewhere and is IGNORED here, so the `access` you have to fill in for an existing table is discarded " +
   "and the site keeps its own.";
 

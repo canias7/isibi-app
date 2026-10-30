@@ -614,7 +614,7 @@ export function clearToPrepare(parts, n, ended) {
  * their targets say; one that writes neither shares nothing with them.
  */
 const CONFIG_LAYERS = ["look", "logo"];
-const SCHEMA_KINDS = ["new-data", "function", "new-function", "api", "new-api", "job", "new-job"];
+const SCHEMA_KINDS = ["new-data", "function", "new-function"];
 // AN ADDITION BY ITS TARGETS (2026-10-16): it used to count as a config AND a
 // schema writer whatever its router targets said, so two additions never
 // overlapped, nor an addition beside a rules or look step. Now an addition

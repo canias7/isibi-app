@@ -1551,7 +1551,7 @@ test("the designer is TOLD it may name an existing table, and told access is dis
   // feature shape this repo has recorded ten times. The access half matters
   // more: a designer that believes its compelled answer counts would write one.
   assert.match(EDIT_RULE, /table the site already has/i);
-  assert.match(EDIT_RULE, /PAYMENTS/);
+  assert.doesNotMatch(EDIT_RULE, /PAYMENT/, "payment is offered again (it went 2026-10-29)");
   assert.match(EDIT_RULE, /publicView/);
   assert.match(EDIT_RULE, /access[^.]*discarded/i);
   // AND THE ADD STEP'S OWN TABLE RULE SAYS THE SAME (2026-09-02): the addon

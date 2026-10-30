@@ -41,7 +41,7 @@ const MAX_COMPONENTS = 10;
 const NAME = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
 
 const READ_HOOKS = new Set(["useRows", "usePublicRows", "useRow"]);
-const WRITE_HOOKS = new Set(["useCreateRow", "useUpdateRow", "useDeleteRow", "useCart", "useCheckout", "useUploadFile"]);
+const WRITE_HOOKS = new Set(["useCreateRow", "useUpdateRow", "useDeleteRow", "useUploadFile"]);
 const HOOK = /\b(use(?:Rows|PublicRows|Row|CreateRow|UpdateRow|DeleteRow|Cart|Checkout|UploadFile))\s*(?:<[^()]*?>)?\s*\(\s*["'`]([A-Za-z_][A-Za-z0-9_]{0,62})["'`]/g;
 // The form and layout primitives every page uses say nothing about what the
 // page offers; the kit's sections (a gallery, a team grid, an availability

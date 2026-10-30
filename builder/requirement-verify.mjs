@@ -13,7 +13,7 @@
  *
  *   page:/p      the page's code was shipped and the browser drew the route;
  *                which tables its code writes (`useCreateRow`, `useUpdateRow`,
- *                `useUploadFile`, `useCart`, `useCheckout`) and reads
+ *                `useUploadFile`) and reads
  *                (`useRows`, `useRow`, `usePublicRows`), which functions it
  *                calls (`useRpc`, `useRpcAction`), and the forms the browser
  *                drew there (field names).

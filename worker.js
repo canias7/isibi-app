@@ -99,7 +99,7 @@ import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_
 import { siteMetaKey, SITE_LIVE_FILE, carryPanelFields, keepPanelDescription } from "./site-meta.mjs";
 import { publishedSiteCsp } from "./site-headers.mjs";
 import { siteBucketName, ensureSiteBucket, syncSiteBucket, restBucket, bindingBucket, deleteSiteBucket, RESYNC_PREFIX } from "./builder/site-bucket.mjs";
-import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, MAX_NEW_SLUG, capNewSlug, rebuildGoesLive, PUBLISH_KEEP_BUILDS, publishKeeps, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, applyRowQuery, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec, previousSidecar, heldMediaSource, heldStandIns, previewServed, ftsFilterOf, FTS_CATALOG_SQL, ftsJudgeSql, ftsJudgeParams, heldChangedIds, deadNewFunctions } from "./site-draft.mjs";
+import { DRAFT_KEY, HELD_KEY, PUBLISHING_KEY, draftFirst, readDraft, mintAfter, publishable, draftState, saveAsDraft, previewScriptName, previewLabel, previewOf, PREVIEW_HEADER, MAX_NEW_SLUG, capNewSlug, rebuildGoesLive, PUBLISH_KEEP_BUILDS, publishKeeps, newHold, sealHeldRevision, unpublishedOps, heldRange, specOverlay, rowsOverlay, applyRowQuery, publishPlan, chooseRevision, markApplied, PUBLISHING_PREFIX, readJournal, newJournal, journalLive, journalClosed, journalMayBeLive, clickPlan, journalBlocked, publishStopKind, publishNextTry, PUBLISH_MAX_ATTEMPTS, rebaseDraft, discardDraft, heldTouches, splitsStarterRows, PREVIEW_UP_KEY, addressOverlay, forgottenInDraft, savedRevision, revisionsTrimmed, unpublishedVersions, convergePreview, PREVIEW_TRIES, previewBackoff, PREVIEW_STATE_KEY, PREVIEW_LAND_MS, PREVIEW_UPLOAD_WINDOW_MS, claimPreview, previewClaims, dropClaims, readPreviewUp, markPreviewUp, previewReadiness, reviseHeldSpec, previousSidecar, heldMediaSource, heldStandIns, previewServed, ftsFilterOf, FTS_CATALOG_SQL, ftsJudgeSql, ftsJudgeParams, heldChangedIds } from "./site-draft.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
@@ -137,7 +137,7 @@ import { drainRebuild, BATCH as REBUILD_BATCH, BUSY_DEFER_SEC as REBUILD_BUSY_SE
 import { sweepJobObjects } from "./builder/job-retention.mjs";
 import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, sqlRehearse, sqlReadOnly, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite, projectNameForSite, findSiteProjects, siteProjectDetails, createRehearsalBranch, rehearsalConn, deleteRehearsalBranch, staleRehearsalBranches } from "./site-db.mjs";
 import { rehearseHeldSchema, heldFromRehearsal } from "./builder/addon-rehearse.mjs";
-import { applySiteSchema, loadSiteSchema, readSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, ERRORS_TABLE_SQL, HITS_TABLE_SQL, droppedFields, refusedFields, auditTier, withJobDeps, storedJobFns } from "./site-schema.mjs";
+import { applySiteSchema, loadSiteSchema, readSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, ERRORS_TABLE_SQL, HITS_TABLE_SQL, droppedFields, refusedFields, auditTier } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { pagesAgain as pagesAgainOf } from "./builder/page-gen.mjs";
@@ -13966,18 +13966,11 @@ async function runPublication(env, slug, j, etag, say = null) {
       }
       if (wantsDb && !db) { db = await siteDbFor(env, slug); if (!db) return keep("database", "the site's database could not be reached", "switched"); }
       if (!did("schema")) {
-        // A NEW FUNCTION THAT FAILED TO CREATE (audit A04-3): kept on the
-        // journal, so the jobs step leaves its jobs unregistered even after a stop.
-        let dead = [];
         if (plan.spec) {
-          try {
-            let prior = null;
-            try { const r = await readSiteSchema(db); if (r.ok) prior = ((r.spec && r.spec.functions) || []).map((f) => f && f.name); } catch { prior = null; }
-            const made = await live.applySiteSchema(db, normalizeSchema(plan.spec));
-            dead = deadNewFunctions(made && made.functionErrors, prior);
-          } catch (e) { if (asideOk(e)) aside("schema", e); else return keep("schema", errorClassForLog(e), "switched", e); }
+          try { await live.applySiteSchema(db, normalizeSchema(plan.spec)); }
+          catch (e) { if (asideOk(e)) aside("schema", e); else return keep("schema", errorClassForLog(e), "switched", e); }
         }
-        await mark("schema", dead.length ? { deadFns: dead } : {});
+        await mark("schema");
         if (plan.spec && !skipped.some((x) => x.stage === "schema")) tell("schema");
       }
       if (!did("seeds")) {
@@ -32894,8 +32887,8 @@ async function handleRequest(request, env, ctx) {
 
     // ── A VISITOR'S CALL TO A SITE IS THE SITE'S (2026-10-28) ────────────────
     //
-    // Its data, its sign-in, its connections and hooks, its error reports, its
-    // checkout and its visitors' uploads: all answered by the site's own Worker
+    // Its data, its sign-in, its error reports and its visitors' uploads, and
+    // whatever server code it has: all answered by the site's own Worker
     // with its own database login and its owner's own keys. The platform only
     // passes the call on. A site whose script cannot answer (one published
     // before it could) is told to republish; nothing of it is done here.
@@ -42084,7 +42077,7 @@ async function handleRequest(request, env, ctx) {
             // booking page" has none unless it is told where the site lives —
             // it answered nothing, honestly, for the site's own home page.
             // `publicUrlFor` is the one reader of the public address (the
-            // spine, the build, the resume reply, the checkout return); a read
+            // spine, the build, the resume reply); a read
             // that fails leaves it blank, and the note says so, rather than
             // refusing every other kind over an address.
             let aUrl = "";
@@ -43107,7 +43100,7 @@ async function handleRequest(request, env, ctx) {
             // So it is read off the APPLIED results — `aTables`/`aAltered` are
             // what the merge really added and changed, `aFunctions` the ones
             // the engine reports as CREATED (a failure is in `aFnErrors` and
-            // never here), `aApis` and `aJobs` what the merge kept — and it is
+            // never here) — and it is
             // EMPTY until `aApplyBackend` has run, which is the honest answer:
             // before the apply nothing is created, so nothing is evidence.
             //
@@ -43118,13 +43111,7 @@ async function handleRequest(request, env, ctx) {
             // composing the coverage would have thrown `ReferenceError` in a
             // place `node --check` cannot see and no source guard can either.
             // The recorded trap, met on the first draft of this change.
-            // …AND `aJobErrors` JOINS THEM FOR EXACTLY THAT REASON (2026-09-15).
-            // It sat four hundred lines below, which cost nothing while only the
-            // reply read it — and `aFailedItems()` reads it from inside
-            // `aCoverage()`, whose first possible call is a refusal in the kinds
-            // loop ABOVE that line. The same trap, in the same route, found by
-            // reading rather than by a throw this time.
-            let aTables = [], aAltered = [], aAccessDesigned = null, aFunctions = [], aApis = [], aJobs = [], aFnErrors = [], aJobErrors = [];
+            let aTables = [], aAltered = [], aAccessDesigned = null, aFunctions = [], aFnErrors = [];
             // WHAT THE DATABASE REFUSED OF THE TABLES (2026-10-07, the engine's
             // `refusedRules`): a rule it could not put in place, a column it
             // could not add. Read off the apply, so empty until it ran.
@@ -43229,7 +43216,7 @@ async function handleRequest(request, env, ctx) {
               const db = !failed || failed.database === "applied";
               return appliedFacts({
                 spec: aSpec, tables: db ? aTables : [], altered: db ? aAltered : [],
-                functions: db ? aFunctions : [], apis: db ? aApis : [], jobs: db ? aJobs : [], fnErrors: db ? aFnErrors : [],
+                functions: db ? aFunctions : [], fnErrors: db ? aFnErrors : [],
                 refused: db ? aRefused : [],
                 pages: failed ? [] : aShipped || [],
                 qrs: failed ? [] : (aLookMade && aLookMade.qrs) || [],
@@ -43345,7 +43332,6 @@ async function handleRequest(request, env, ctx) {
             // so a requirement that says what it depends on is judged on that.
             const aFailedItems = () => [
               ...aFnErrors.map((e) => ({ kind: "function", name: (e && e.name) || "" })),
-              ...aJobErrors.map((e) => ({ kind: "job", name: (e && e.name) || "" })),
               ...aMissing.map((r) => ({ kind: "page", name: r })),
               // ── AND A PHOTOGRAPH THAT WAS ASKED FOR AND IS NOT THERE ───────
               //
@@ -43709,7 +43695,7 @@ async function handleRequest(request, env, ctx) {
               await aProvSettle();
               const failed = failureOutcome({
                 database,
-                made: { tables: aTables, altered: aAltered.map((x) => x && x.table), functions: aFunctions, apis: aApis, jobs: aJobs.map((j) => j && j.name) },
+                made: { tables: aTables, altered: aAltered.map((x) => x && x.table), functions: aFunctions },
                 provisioned: aProvisioned, saved, photos, projectKept,
               });
               const told = aCoverage({ failed, said: body.msg });
@@ -44223,45 +44209,15 @@ async function handleRequest(request, env, ctx) {
                 // WHAT THE MODEL DECLARED, and what really goes into the engine
                 // keyed by NAME — never by position, because a cleaner that
                 // refuses one item shifts every index behind it.
-                // A JOB'S OWN `function` IS AUDITED AS A FUNCTION (below), not
-                // as an unknown key of the job.
                 const mine = (Array.isArray(ran.value) ? ran.value : [ran.value])
-                  .map(itemOf).filter((t) => t && typeof t === "object" && t.name)
-                  .map((t) => (k === "job" && Object.hasOwn(t, "function") ? (({ function: _f, ...rest }) => rest)(t) : t));
-                const ownFns = k === "job" && Array.isArray(clean.functions) ? clean.functions : [];
-                if (ownFns.length) {
-                  const names = new Set(ownFns.map((f) => f.name));
-                  const fMine = (Array.isArray(ran.value) ? ran.value : [ran.value])
-                    .map((t) => (t && typeof t === "object" ? t.function : null))
-                    .filter((f) => f && typeof f === "object" && typeof f.name === "string" && names.has(f.name.trim().toLowerCase()));
-                  const fAudit = auditTier({ functions: fMine }, "function", proposedSpec(aProposed, "function", ownFns),
-                    { sent: new Map(ownFns.map((f) => [String(f.name).toLowerCase(), f])) });
-                  for (const n of fAudit.reached) aBadProps.add(n);
-                  for (const n of fAudit.refused) aBadProps.add(n);
-                  for (const n of fAudit.unexpressed) aUnexpressed.add(n);
-                  for (const n of fAudit.changed) aChanged.add(n);
-                  if (fAudit.unbuilt.length) { aUnbuilt.function = [...(aUnbuilt.function || []), ...fAudit.unbuilt]; aFailedKinds.add("function"); }
-                }
+                  .map(itemOf).filter((t) => t && typeof t === "object" && t.name);
                 const sent = new Map((Array.isArray(clean.value) ? clean.value : [clean.value])
                   .map(itemOf).filter((t) => t && typeof t === "object" && t.name)
                   .map((t) => [String(t.name).toLowerCase(), t]));
                 if (mine.length) {
                   // The proposal WITH this kind's items in it, so a sibling
                   // designed earlier in the same message counts as present.
-                  //
-                  // …AND, FOR A JOB, WITH THE SITE'S OWN FUNCTIONS PRESENT TOO
-                  // (2026-09-19). The line above was right about a sibling and
-                  // silent about a STORED function: those are persisted with no
-                  // body, `normalizeSchema` drops a bodiless function, and the
-                  // job naming it was dropped behind it and reported `unbuilt`.
-                  // The apply disagreed — it re-attaches exactly such a job —
-                  // so run 52 registered `count_bookings_once` and told the
-                  // customer it "could not be created". `withJobDeps` is the
-                  // one rule both now read; a public function and a name nobody
-                  // declared are still dropped and still reported.
-                  // …WITH THE JOB'S OWN FUNCTIONS, so a job naming one is not dropped as unbuilt.
-                  const withMine = proposedSpec(ownFns.length ? proposedSpec(aProposed, "function", ownFns) : aProposed, k, clean.value);
-                  const context = k === "job" ? withJobDeps(withMine) : withMine;
+                  const context = proposedSpec(aProposed, k, clean.value);
                   const audit = auditTier({ [tier]: mine }, k, context, { sent });
                   for (const n of audit.reached) aBadProps.add(n);
                   for (const n of audit.refused) aBadProps.add(n);
@@ -44534,12 +44490,8 @@ async function handleRequest(request, env, ctx) {
             // table that already has rows, exactly as it does on a revise.
             const aBackend = backendDesigned(aDesigned);
             let aSeeded = null, aSeedUsage = null, aSeedTopUp = null;
-            // `aJobErrors` IS DECLARED WITH THE OTHER APPLIED RESULTS, above the
-            // kinds loop — `aFailedItems()` reads it and a refusal there can
-            // compose the coverage before this line ever runs.
             // `aProvisioned` IS DECLARED WITH THE OTHER APPLIED RESULTS, above the
-            // kinds loop, for `aJobErrors`' reason: a failure's outcome reads it.
-            let aSecrets = [];
+            // kinds loop: a failure's outcome reads it.
             // What sequence #1 reserved ahead of the schema apply, and whether it
             // did — see the block before `aApplyBackend`.
             let aFirst = 0, aFirstPlaced = false;
@@ -44705,7 +44657,7 @@ async function handleRequest(request, env, ctx) {
                 aMigration = await recordSiteMigration(env, ownerSlug, newMigration({
                   job: aMigJob, slug: ownerSlug, version,
                   added: folded.added, altered: folded.altered.map((a) => a && a.table),
-                  functions: aNamed("functions"), apis: aNamed("apis"), jobs: aNamed("jobs"),
+                  functions: aNamed("functions"),
                   provisioned: aProvisioned,
                 }));
                 aMark("schema", "start", { added: folded.added.length, altered: folded.altered.length, version: version || null });
@@ -44783,12 +44735,12 @@ async function handleRequest(request, env, ctx) {
                 // was refused, and nobody was told it starts empty.
                 try { aNoFill = missingPopulation({ spec: merged, seed: aSeeded ? aSeeded.seeded : {}, readers: readTables({ spec: merged }) }); }
                 catch (e) { aNoFill = []; }
-                aMark("schema", "ok", { tables: aTables.length, functions: aFunctions.length, jobs: aJobs.length });
+                aMark("schema", "ok", { tables: aTables.length, functions: aFunctions.length });
                 // WHAT THE DATABASE NOW HOLDS, AS A MILESTONE: the created
                 // tables, the changed ones, the functions and the timers — and,
                 // at the publish's seam (a version in hand), the publish still
                 // under way; nothing is said to come next (2026-10-07).
-                if (aJob && aJob.progress) aJob.progress.mark("schema", addonSchemaFacts({ tables: aTables, altered: aAltered, functions: aFunctions, jobs: aJobs }, { publishing: version != null, held: aWriter.holding, heldJobs: aWriter.on, draft: aWriter.on }));
+                if (aJob && aJob.progress) aJob.progress.mark("schema", addonSchemaFacts({ tables: aTables, altered: aAltered, functions: aFunctions }, { publishing: version != null, held: aWriter.holding, heldJobs: aWriter.on, draft: aWriter.on }));
                 // THE ENGINE'S OWN REPORT ON THE RECORD, still `pending`: what
                 // stands in the database is known now; whether the page comes
                 // is not, and the mark after the publish says which.
@@ -44892,12 +44844,11 @@ async function handleRequest(request, env, ctx) {
                 // page step ran. `ran` is the kinds that really produced work.
                 ...aCoverage(),
                 added: [], changed: [], removed: [], moved: [],
-                functions: aFunctions, jobs: aJobs,
+                functions: aFunctions,
                 functionErrors: aFnErrors.length ? aFnErrors : undefined,
                 // WHAT THE DATABASE REFUSED OF THE TABLES (2026-10-07), by
                 // table, rule and column; its reason stays on the record.
                 refusedRules: aRefused.length ? aRefused.map((r) => ({ table: r.table, feature: r.feature, rule: r.rule })) : undefined,
-                jobErrors: aJobErrors.length ? aJobErrors : undefined,
                 provisioned: aProvisioned || undefined,
                 migration: migrationSummary(aMigration),
                 cost: aCostNow,
@@ -47543,20 +47494,13 @@ async function handleRequest(request, env, ctx) {
               tables: aTables, altered: aAltered,
               // THE OTHER THREE TIERS (2026-09-03), what the engine really
               // made of each, a function that could not be created by name,
-              // the secrets a new connection needs pasted in, and whether
+              // and whether
               // this addition gave the site its database. Absent when the
               // addon declared none, so an ordinary page addon's response is
               // byte-identical to before.
               functions: aFunctions.length ? aFunctions : undefined,
-              apis: aApis.length ? aApis : undefined,
-              jobs: aJobs.length ? aJobs : undefined,
               functionErrors: aFnErrors.length ? aFnErrors : undefined,
               refusedRules: aRefused.length ? aRefused.map((r) => ({ table: r.table, feature: r.feature, rule: r.rule })) : undefined,
-              // A JOB THAT WOULD NOT REGISTER, said as plainly as a function
-              // that would not CREATE. Before this the reply said the job was
-              // scheduled and nothing anywhere would ever run it.
-              jobErrors: aJobErrors.length ? aJobErrors : undefined,
-              needsSecrets: aSecrets.length ? aSecrets : undefined,
               provisioned: aProvisioned || undefined,
               // THE MIGRATION RECORD (stage 8): which job made what, and that
               // the page it was made for is live. Absent when the addon

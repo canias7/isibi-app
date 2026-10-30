@@ -14,7 +14,7 @@ import fs from "node:fs";
 import {
   normalizeSchema, fillFromStored, seedSiteRows, checkSql, sqlIdent,
   derivedName, derivedIdent, MAX_PG_IDENT, INTERNAL_TABLES, INTERNAL_TABLE_RE,
-  refusedFields, droppedFields, withJobDeps, storedJobFns,
+  refusedFields, droppedFields,
 } from "../site-schema.mjs";
 
 const SRC = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");

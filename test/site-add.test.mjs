@@ -1495,13 +1495,13 @@ test("THE BACKEND HOPS: the site is described with its columns and tiers, design
   const pl = b.slice(pl0, gen);
   assert.ok(at(pl, "await aApplyBackend(null)", "the pageless path's own apply") < at(pl, "const aCostNow = ", "the pageless charge"), "the pageless path does not run the schema work before it answers");
   assert.match(pl, /added: \[\], changed: \[\], removed: \[\], moved: \[\],/, "the pageless answer is not in the page path's shape");
-  assert.match(pl, /functions: aFunctions, jobs: aJobs,/);
+  assert.match(pl, /functions: aFunctions,\n/);
   assert.match(pl, /provisioned: aProvisioned \|\| undefined,/);
   // THE REPLY ON THE PAGE PATH carries the tiers, the errors, the secrets and
   // the provision — absent when none, so an ordinary addon's reply is unchanged.
   const reply = b.slice(at(b, "tables: aTables, altered: aAltered,", "reply"), at(b, "unlinked: unlinkedPages(", "reply end"));
-  for (const line of ["functions: aFunctions.length ? aFunctions : undefined,", "apis: aApis.length ? aApis : undefined,", "jobs: aJobs.length ? aJobs : undefined,",
-    "functionErrors: aFnErrors.length ? aFnErrors : undefined,", "needsSecrets: aSecrets.length ? aSecrets : undefined,", "provisioned: aProvisioned || undefined,"]) {
+  for (const line of ["functions: aFunctions.length ? aFunctions : undefined,",
+    "functionErrors: aFnErrors.length ? aFnErrors : undefined,", "provisioned: aProvisioned || undefined,"]) {
     assert.ok(reply.includes(line), "the reply drops: " + line);
   }
 });

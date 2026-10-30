@@ -172,7 +172,7 @@ export const RULES_TOOL = {
 
 const RULES_SYSTEM =
   "You change the rules a small business's website applies to what it stores — who can see an entry, who can add " +
-  "one, whether the customer gets an email, and what the site refuses. You are given the site's tables, the " +
+  "one, and what the site refuses. You are given the site's tables, the " +
   "columns they really have, and one instruction from the owner.\n\n" +
   "CHANGE ONLY WHAT THEY ASKED FOR. Every rule already there is there because it was wanted. A rule you do not " +
   "mention keeps what it has, so there is never a need to restate one.\n\n" +

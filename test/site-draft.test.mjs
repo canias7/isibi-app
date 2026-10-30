@@ -99,7 +99,7 @@ test("a click's plan: none or finished starts; a fresh runner is busy; the same 
     assert.equal(journalClosed(j({ phase })), true, phase);
   }
   assert.deepEqual(["start", "prepared", "switching", "switched"].map((phase) => journalMayBeLive(j({ phase }))), [false, false, true, true]);
-  assert.deepEqual(FINISH_STEPS, ["address", "schema", "jobs", "seeds", "changes", "inserts", "library"]);
+  assert.deepEqual(FINISH_STEPS, ["address", "schema", "seeds", "changes", "inserts", "library"]);
 });
 
 test("a stored journal is read strictly — not one is null, never a guess", () => {
@@ -127,7 +127,7 @@ test("the draft's address: the last held rename wins; consecutive renames publis
   assert.deepEqual([...forgottenInDraft(f)], ["older"]);
 });
 
-// AUDIT BATCH 2, STEP 1 (2026-10-18, A06-3 and A04-1): held schema and jobs
+// AUDIT BATCH 2, STEP 1 (2026-10-18, A06-3 and A04-1): held schema
 // ops combine BY NAME — a later held change adds to the draft's schema, never
 // replaces it — the same for what later tasks read (`specOverlay`) and what
 // Publish applies (`publishPlan`).
@@ -150,27 +150,24 @@ test("A06-3: a later held spec with no tables keeps the live `loaves`; a held ne
   assert.equal(p.plan.inserts.length, 1);
 });
 
-test("A04-1: two add-ons held in one draft publish both functions and both jobs", () => {
+test("A04-1: two add-ons held in one draft publish both functions", () => {
   const live = { tables: [{ name: "orders", columns: [{ name: "total", type: "numeric" }] }] };
   const fnA = { name: "daily_summary", sql: "select 1" };
   const ops = [
-    { kind: "schema", spec: { tables: live.tables, functions: [fnA], jobs: [{ name: "daily", fn: "daily_summary" }] } },
-    { kind: "jobs", jobs: [{ name: "daily", fn: "daily_summary", cron: "0 8 * * *" }] },
+    { kind: "schema", spec: { tables: live.tables, functions: [fnA] } },
   ];
   // B is built the way worker.js builds it today: only the overlay's tables.
   const b = mergeAddonSchema(specOverlay(live, ops).tables, { tables: [{ name: "signups", columns: [{ name: "email", type: "text" }] }] });
-  ops.push({ kind: "schema", spec: b.spec }, { kind: "jobs", jobs: [{ name: "weekly_digest", fn: "daily_summary", cron: "0 9 * * 1" }] });
+  ops.push({ kind: "schema", spec: b.spec });
   const { plan } = publishPlan(ops);
   assert.deepEqual(plan.spec.functions.map((f) => f.name), ["daily_summary"]);
   assert.deepEqual(plan.spec.tables.map((t) => t.name).sort(), ["orders", "signups"]);
-  assert.deepEqual(plan.jobs.map((j) => j.name).sort(), ["daily", "weekly_digest"]);
   assert.deepEqual(specOverlay(live, ops).functions.map((f) => f.name), ["daily_summary"]);
   const c = combineHeld(live, ops);
   assert.equal(c.ok, true);
-  assert.deepEqual(c.jobs.map((j) => j.name).sort(), ["daily", "weekly_digest"]);
 });
 
-test("CONTROL: a later redefinition wins by name (case-insensitive); no schema or jobs op leaves the plan's null; set-aside ops are skipped", () => {
+test("CONTROL: a later redefinition wins by name (case-insensitive); no schema op leaves the plan's null; set-aside ops are skipped", () => {
   const wider = { name: "LOAVES", columns: [...LOAVES.columns, { name: "photo", type: "text" }] };
   const s = specOverlay({ tables: [LOAVES] }, [{ kind: "schema", spec: { tables: [wider] } }]);
   assert.equal(s.tables.length, 1);
@@ -181,9 +178,6 @@ test("CONTROL: a later redefinition wins by name (case-insensitive); no schema o
   assert.equal(specOverlay(live, []), live);
   const { plan } = publishPlan([{ kind: "row", table: "loaves", op: "update", id: 1, values: { price: 5 } }]);
   assert.equal(plan.spec, null);
-  assert.equal(plan.jobs, null);
-  const j2 = publishPlan([{ kind: "jobs", jobs: [{ name: "a", cron: "1" }] }, { kind: "jobs", jobs: [{ name: "A", cron: "2" }] }]).plan.jobs;
-  assert.deepEqual(j2, [{ name: "A", cron: "2" }]);
   const c = combineHeld(live, [{ kind: "schema", key: "k1", spec: { tables: [{ name: "gallery" }] } }], { setAside: ["k1"] });
   assert.deepEqual(c.spec.tables.map((t) => t.name), ["loaves"]);  const up = combineHeld(live, [{ kind: "schema", spec: { tables: [{ name: "gallery" }] } }, { kind: "schema", spec: { tables: [{ name: "menu" }] } }], { upTo: 1 });
   assert.deepEqual(up.spec.tables.map((t) => t.name), ["loaves", "gallery"]);
