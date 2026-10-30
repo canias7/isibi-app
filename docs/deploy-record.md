@@ -1736,7 +1736,8 @@ A fast-forward of 27 commits from `cdb365078`, on the owner's word ("merge it to
 - **SiteBuildContainer: built** `07e57e8e94531db4` (registry 404; 246 inputs). The Dockerfile changed (the 12 deleted modules no longer copied), so a rebuild was expected. The log masks each run of 1s as `***`; the id above restores them.
 - **AppBuildContainer: reused** `65022ce71e3d7274` (9 inputs).
 - `public/` changed (logo, icons, landing, legal pages, pricing).
-- **Deployed, not runtime-confirmed.** Owed: the owner's free canary press.
+- **Runtime-confirmed by canary run 41016673776** (the owner's free press, 06:52 UTC, spend `no`): both readers answered `bdbcc53e4d7f`, a cold container got `07e57e8e94531db4`, runner and async on.
+- **Served files match the merged bytes** (read 07:00 UTC): `/`, `/pricing`, `/terms`, `/privacy`, `/data-deletion`, `chat.js`, `gf-landing.css`, `gf-landing.js`, `logo.svg`, `favicon.svg`.
 
 ## Deploy 2285 — 2026-10-28 21:49 UTC (`fdfd1970b`)
 
