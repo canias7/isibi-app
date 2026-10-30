@@ -550,89 +550,65 @@ test("DRIVEN: the list selects the chat and hands it back, and an unbound site s
   assert.ok(!wire.includes("neon_db"), "the column name reached the browser");
 });
 
-test("the merge puts a site back in the workspace that built it", () => {
-  // THE BUG, EXACTLY. A build whose answer never came back leaves a local record
-  // with a thread, a name and NO slug; the server has the site with its chat on
-  // it. Matched by slug alone those are two cards -- the workspace still looking
-  // unfinished, and the finished site beside it as a stranger.
+// REWRITTEN 2026-10-30 for `SiteList.projects` (the server's list, no merge).
+// The workspace property stands: a site its chat built is that workspace's card.
+test("a site is the card of the workspace that built it", () => {
+  // A build whose answer never came back leaves a local record with a thread,
+  // a name and NO slug; the server has the site with its chat on it.
   const local = [{ id: "site_1757000000000_abcde", name: "Hearth Paper", slug: "", thread: [{ role: "user", text: "a stationery shop" }] }];
   const server = [{ slug: "hearth-paper", name: "hearth-paper", url: "https://hearth-paper.gofarther.app/", createdAt: 1, chat: "site_1757000000000_abcde" }];
 
-  const merged = SiteList.merge(local, server, true);
-  assert.equal(merged.length, 1, "the same workspace was shown twice -- once finished, once still spinning");
-  assert.equal(merged[0].id, "site_1757000000000_abcde", "the adopted record lost its own id, so the workspace stopped being the workspace");
-  assert.equal(merged[0].slug, "hearth-paper", "the server's slug did not reach the record");
-  assert.deepEqual(merged[0].thread, local[0].thread, "the conversation was dropped");
-  assert.equal(merged[0].name, "Hearth Paper", "the local name lost to the slug-ish server one");
+  const cards = SiteList.projects(server, local);
+  assert.equal(cards.length, 1, "the same workspace was shown twice -- once finished, once still spinning");
+  assert.equal(cards[0].id, "site_1757000000000_abcde", "the card is not the project's own id, its chat");
+  assert.equal(cards[0].localId, "site_1757000000000_abcde", "the card lost the record that is its workspace");
+  assert.equal(cards[0].slug, "hearth-paper", "the server's slug did not reach the card");
+  assert.deepEqual(cards[0].thread, local[0].thread, "the conversation was dropped");
+  assert.equal(cards[0].name, "Hearth Paper", "the local name lost to the slug-ish server one");
 });
 
-test("the merge is unchanged for every site that is not bound", () => {
-  // The 57 that exist, and every build that sends no chat. This is the control:
-  // without it a merge that matched EVERYTHING by chat would pass the case above.
+test("a site with no chat is matched by its slug, and nothing else", () => {
   const local = [
     { id: "site_A", name: "Fretwork", slug: "fretwork-1", thread: [1] },
-    { id: "site_B", name: "In flight", slug: "" },
+    { id: "site_B", name: "In flight", slug: "", srv: true },
   ];
   const server = [{ slug: "fretwork-1", name: "fretwork-1", url: "u", createdAt: 1 }];
-
-  const merged = SiteList.merge(local, server, true);
-  assert.equal(merged.length, 2, "the in-flight build was dropped or doubled");
-  assert.equal(merged[0].slug, "fretwork-1");
-  assert.equal(merged[0].name, "Fretwork", "the slug match stopped preferring the local record");
-  assert.equal(merged[1].id, "site_B", "a slugless record with no chat match is no longer kept as a build in flight");
+  const cards = SiteList.projects(server, local);
+  assert.equal(cards.length, 1, "a record the server does not list was drawn as its own card");
+  assert.equal(cards[0].slug, "fretwork-1");
+  assert.equal(cards[0].name, "Fretwork", "the slug match stopped preferring the local record");
 });
 
-test("both local indexes resolve a duplicate the same way — the first record wins", () => {
-  // `bySlug` and `byChat` are two indexes over one list, and they must agree
-  // about which record a duplicate resolves to, or the same server row lands on
-  // a different local record depending on which key matched it. Both keep the
-  // FIRST. Two lists of the same thing, asserted rather than left to match by
-  // reading alike.
+test("a duplicate local record dresses one card: the first", () => {
   const local = [
     { id: "site_DUP", name: "first", slug: "dup-1" },
     { id: "site_DUP", name: "second", slug: "dup-1" },
   ];
-  const bySlugWins = SiteList.merge(local, [{ slug: "dup-1", name: "dup-1", url: "u", createdAt: 1 }], true);
-  assert.equal(bySlugWins[0].name, "first", "the slug index stopped keeping the first record");
-  const byChatWins = SiteList.merge(
-    [{ id: "site_DUP", name: "first" }, { id: "site_DUP", name: "second" }],
-    [{ slug: "dup-1", name: "dup-1", url: "u", createdAt: 1, chat: "site_DUP" }], true);
-  assert.equal(byChatWins[0].name, "first", "the chat index keeps a different record from the slug index");
+  const bySlug = SiteList.projects([{ slug: "dup-1", name: "dup-1", url: "u", createdAt: 1 }], local);
+  assert.equal(bySlug[0].name, "first");
+  const byChat = SiteList.projects([{ slug: "dup-1", name: "dup-1", url: "u", createdAt: 1, chat: "site_DUP" }],
+    [{ id: "site_DUP", name: "first" }, { id: "site_DUP", name: "second" }]);
+  assert.equal(byChat[0].name, "first");
 });
 
-test("the merge prefers the slug, and never matches a chat the server did not name", () => {
-  // SLUG FIRST: it is what the two records are actually about. A workspace whose
-  // record already carries it needs nothing else, and a chat fallback that
-  // outranked it would move a site into the wrong workspace on a collision.
+test("the project's own id (its chat) finds its record before the slug, and an unbound row adopts nothing", () => {
   const local = [
-    { id: "site_A", name: "Right one", slug: "fretwork-1" },
-    { id: "site_B", name: "Wrong one", slug: "" },
+    { id: "site_A", name: "Slug match", slug: "fretwork-1" },
+    { id: "site_B", name: "Its own chat", slug: "" },
   ];
-  const server = [{ slug: "fretwork-1", name: "fretwork-1", url: "u", createdAt: 1, chat: "site_B" }];
-  const merged = SiteList.merge(local, server, true);
-  assert.equal(merged[0].name, "Right one", "the chat match outranked the slug match");
-
-  // AND AN UNBOUND SERVER ROW ADOPTS NOTHING. `made.chat` is `""` for every
-  // existing site, and `byChat[""]` must never be consulted -- a local record
-  // with no id would otherwise be adopted by the first unbound site listed.
-  const orphan = SiteList.merge(
-    [{ id: "", name: "No id", slug: "" }],
-    [{ slug: "hearth-paper", name: "hearth-paper", url: "u", createdAt: 1 }],
-    true,
-  );
-  assert.equal(orphan.length, 2, "an unbound server row adopted a record with no chat id");
+  const cards = SiteList.projects([{ slug: "fretwork-1", name: "fretwork-1", url: "u", createdAt: 1, chat: "site_B" }], local);
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0].name, "Its own chat", "the record of the chat that built it lost to a slug match");
+  const orphan = SiteList.projects([{ slug: "hearth-paper", name: "hearth-paper", url: "u", createdAt: 1 }], [{ id: "", name: "No id", slug: "" }]);
   assert.equal(orphan[0].name, "hearth-paper", "the server row lost its own identity to a stranger");
 });
 
-test("a server list that could not be read is still not an empty one", () => {
-  // The rule the start screen already keeps, re-asserted here because this
-  // change touched the same function: a blip, an outage or a signed-out visitor
-  // must leave the local list standing rather than emptying the screen.
-  const local = [{ id: "site_A", name: "Fretwork", slug: "fretwork-1" }];
-  // `ok` is the third argument: whether the server was actually asked AND
-  // answered. `false` is the blip; `[]` with `ok` is an account that owns
-  // nothing, and the two are spelled apart at every hop for exactly this reason.
-  assert.deepEqual(SiteList.merge(local, null, false), local, "an unreadable list emptied the screen");
-  assert.deepEqual(SiteList.merge(local, [], false), local, "a failed read was treated as an empty account");
-  assert.deepEqual(SiteList.merge(local, [], true), [], "an account that owns nothing is not the same as a list nobody could read");
+test("a server list that could not be read is not an empty one, and an empty one is", () => {
+  const local = [{ id: "site_A", name: "Fretwork", slug: "fretwork-1", srv: true }];
+  assert.deepEqual(SiteList.projects(null, local), [], "a site is drawn from this browser's record, not the server");
+  assert.deepEqual(SiteList.projects([], local), [], "an account that owns nothing still draws a site");
+  // the page paints the cached copy of the server's list until it answers
+  const c = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  assert.match(c, /if \(sitesRemote === null\) sitesRemote = sitesListCacheLoad\(\);/);
 });
+

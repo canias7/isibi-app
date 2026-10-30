@@ -32,59 +32,66 @@ const local = (id, over = {}) => ({ id, name: id, msgs: [{ r: "u", t: "hi" }], c
 
 // ── THE FAILURE DIRECTION ───────────────────────────────────────────────────
 
-test("a server list that could not be read leaves the local list untouched", () => {
-  const mine = [local("a", { slug: "one" }), local("b", { slug: "two" })];
-  const out = SiteList.merge(mine, null, false);
-  assert.equal(out.length, 2, "a failed read must not drop a single card");
-  assert.deepEqual(out.map((s) => s.slug), ["one", "two"]);
-  // And it must not be the SAME array, or a caller mutating the screen list
-  // would be mutating the store.
-  assert.notEqual(out, mine);
+// THE SERVER'S LIST, AND NOTHING ELSE (2026-10-30, the owner's decision):
+// `SiteList.projects` replaced `merge`. These cases were rewritten for it; the
+// property each guarded is said in its name.
+test("a server list that could not be read draws only what this browser has not saved yet", () => {
+  const mine = [local("a", { slug: "one", srv: true }), local("b", { slug: "two" }), local("c")];
+  const out = SiteList.projects(null, mine);
+  assert.deepEqual(out.map((s) => s.id), ["c"], "only the unsaved record; the sites come from the server or its cached copy");
+  assert.equal(out[0].localOnly, true);
+  assert.notEqual(out[0], mine[2], "the store's own record is never handed to the screen");
 });
 
-test("an EMPTY server list is a real answer and is not the same as a failed one", () => {
-  const mine = [local("a", { slug: "one" })];
-  assert.equal(SiteList.merge(mine, [], true).length, 0, "this account owns nothing");
-  assert.equal(SiteList.merge(mine, [], false).length, 1, "we could not ask");
+test("an EMPTY server list is a real answer: this account owns nothing", () => {
+  const mine = [local("a", { slug: "one", srv: true })];
+  assert.equal(SiteList.projects([], mine).length, 0, "this account owns nothing");
 });
 
-// ── WHAT EACH SIDE IS RIGHT ABOUT ───────────────────────────────────────────
-
-test("the server decides which sites exist; the local record keeps the thread", () => {
-  const mine = [local("a", { slug: "one", msgs: [{ r: "u", t: "make it blue" }] })];
-  const out = SiteList.merge(mine, [row("one"), row("two")], true);
+test("the server decides which projects exist; the local record dresses its own card", () => {
+  const mine = [local("site_a", { slug: "one", msgs: [{ r: "u", t: "make it blue" }] })];
+  const out = SiteList.projects([row("one", { id: "site_a", chat: "site_a" }), row("two")], mine);
   assert.equal(out.length, 2);
   const one = out.find((s) => s.slug === "one");
-  assert.equal(one.msgs.length, 1, "the thread this browser holds survives the merge");
+  assert.equal(one.msgs.length, 1, "the thread this browser holds is on its card");
   assert.equal(one.msgs[0].t, "make it blue");
-  assert.equal(one.id, "a", "and so does its local id, so an open workspace keeps working");
+  assert.equal(one.id, "site_a", "the card's id is the server's, which is this project's chat");
   const two = out.find((s) => s.slug === "two");
+  assert.equal(two.id, "srv_two", "a site with no chat on the server has the server's slug id");
   assert.deepEqual(two.msgs, [], "a site this browser never saw starts with no thread");
 });
 
 test("a renamed site shows the address it answers at, not its storage slug", () => {
-  const out = SiteList.merge([], [row("fretwork-1", { name: "crookes-guitar" })], true);
+  const out = SiteList.projects([row("fretwork-1", { name: "crookes-guitar" })], []);
   assert.equal(out[0].slug, "fretwork-1", "the storage key is what the API is called with");
   assert.equal(out[0].name, "crookes-guitar");
   assert.equal(out[0].url, "https://crookes-guitar.gofarther.app/",
     "the thumbnail and the name cannot disagree: both come off the alias");
 });
 
-test("a local site with NO slug is a build in flight and is never dropped", () => {
-  const mine = [local("fresh")]; // no slug yet — the design has not landed
-  const out = SiteList.merge(mine, [row("one")], true);
-  assert.equal(out.length, 2, "the card must not vanish while the customer watches it build");
-  assert.ok(out.some((s) => s.id === "fresh"));
+test("a project not built yet is the server's row, keyed by its chat, on every device", () => {
+  const srv = [{ id: "site_9_abc", chat: "site_9_abc", slug: "", state: "unbuilt", brief: "a bakery", updatedAt: 5000 }, row("one")];
+  const fresh = SiteList.projects(srv, []);
+  assert.deepEqual(fresh.map((s) => s.id), ["site_9_abc", "srv_one"]);
+  assert.equal(fresh[0].state, "unbuilt");
+  assert.equal(fresh[0].name, "New website");
+  // the browser that made it shows the same card, dressed with its thread
+  const here = SiteList.projects(srv, [local("site_9_abc", { name: "Bakery", srv: true })]);
+  assert.deepEqual(here.map((s) => s.id), ["site_9_abc", "srv_one"]);
+  assert.equal(here[0].name, "Bakery");
+  // a row with no slug must name its chat as its id, or it is refused
+  assert.equal(SiteList.fromRow({ id: "x", slug: "" }), null);
+  assert.equal(SiteList.fromRow({ id: "site_1_a", chat: "site_2_b", slug: "" }), null);
 });
 
-test("a local site the server did not list is not shown", () => {
-  // Deleted elsewhere, or another account is signed in on this browser.
-  const out = SiteList.merge([local("a", { slug: "gone" })], [row("one")], true);
-  assert.deepEqual(out.map((s) => s.slug), ["one"]);
+test("a local record the server did not list is not shown, unless it was never saved", () => {
+  const out = SiteList.projects([row("one")], [local("a", { slug: "gone" }), local("b", { srv: true }), local("c")]);
+  assert.deepEqual(out.map((s) => s.id).sort(), ["c", "srv_one"]);
+  assert.equal(out.find((s) => s.id === "c").localOnly, true);
 });
 
 test("newest first, and a duplicate server row is taken once", () => {
-  const out = SiteList.merge([], [row("old", { updatedAt: 10 }), row("new", { updatedAt: 99 }), row("old", { updatedAt: 10 })], true);
+  const out = SiteList.projects([row("old", { updatedAt: 10 }), row("new", { updatedAt: 99 }), row("old", { updatedAt: 10 })], []);
   assert.deepEqual(out.map((s) => s.slug), ["new", "old"]);
 });
 
@@ -213,7 +220,7 @@ test("only site_backends is load-bearing; a failed enrichment does not refuse th
   // LANDMARK TO LANDMARK, not a byte window. This case sliced 2600 bytes and
   // the route has grown twice since; a window measured in bytes is outrun by
   // the next comment, which is this repository's most-repeated own goal.
-  const end = w.indexOf("sites: backends.filter(", at);
+  const end = w.indexOf("const siteRows = backends.filter(", at);
   assert.ok(at > 0 && end > at, "the list route's own landmarks moved — re-derive this window");
   const body = w.slice(at, end);
   // The backends read is the one that can 503.
@@ -247,17 +254,18 @@ test("the cap is one number and headroom over the biggest real account", () => {
 
 // ── THE BROWSER'S HOPS ──────────────────────────────────────────────────────
 
-test("the start screen merges instead of reading localStorage alone", () => {
+test("the start screen draws the server's list (or its cached copy), never a merge", () => {
   const c = blankComments(read("../public/chat.js"));
-  assert.ok(/SiteList\.merge\(sitesLoad\(\), sitesRemote, sitesRemote !== null, sitesDeletedSlugs\)/.test(c),
-    "the grid is the merged list, and `null` is what marks a list never answered");
+  assert.ok(/if \(sitesRemote === null\) sitesRemote = sitesListCacheLoad\(\);\s*const sites = SiteList\.projects\(sitesRemote, sitesLoad\(\), sitesDeletedSlugs\);/.test(c),
+    "the grid is the server's list, painted first from the account's cached copy");
+  assert.ok(!/SiteList\.merge\(/.test(c), "the merge is back");
   assert.ok(/sitesFetchRemote\(\);/.test(c), "and the fetch is started from the render");
 });
 
 test("a failed fetch leaves the remote list as it was", () => {
   const c = blankComments(read("../public/chat.js"));
   const at = c.indexOf("async function sitesFetchRemote");
-  const body = c.slice(at, c.indexOf("function siteAdopt"));
+  const body = c.slice(at, c.indexOf("function sitesListCacheKey"));
   assert.ok(at > 0 && body.length > 100);
   // The ONLY assignment of `sitesRemote` inside the fetch is under the ok test.
   const assigns = body.match(/sitesRemote = /g) || [];
@@ -377,9 +385,9 @@ test("a row's `db` is read strictly — nothing but a real true is a yes, nothin
 });
 
 test("either side saying there is a database is a yes", () => {
-  const one = (srv, loc) => SiteList.merge(
-    [{ id: "x", slug: "s", backend: loc, updatedAt: 1 }],
-    [{ slug: "s", db: srv }], true)[0].backend;
+  const one = (srv, loc) => SiteList.projects(
+    [{ slug: "s", db: srv }],
+    [{ id: "x", slug: "s", backend: loc, updatedAt: 1 }])[0].backend;
   assert.equal(one(true, false), true, "the server knows");
   // A BUILD THAT JUST FINISHED sets this locally and the server list is a
   // minute stale; no path ever takes a database away, so a disagreement is the

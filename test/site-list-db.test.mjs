@@ -124,7 +124,7 @@ test("the browser keeps the three answers apart, and a failed lookup never becom
   assert.equal(SiteList.fromRow({ slug: "a", db: true }).backend, true);
   assert.equal(SiteList.fromRow({ slug: "a", db: false }).backend, false);
   assert.equal(SiteList.fromRow({ slug: "a", db: null }).backend, null);
-  const merged = (srv, loc) => SiteList.merge([{ id: "x", slug: "s", backend: loc, updatedAt: 1 }], [{ slug: "s", db: srv }], true)[0].backend;
+  const merged = (srv, loc) => SiteList.projects([{ slug: "s", db: srv }], [{ id: "x", slug: "s", backend: loc, updatedAt: 1 }])[0].backend;
   assert.equal(merged(null, undefined), null, "a server that could not tell became an answer");
   assert.equal(merged(null, true), true, "a database this browser knows of was forgotten");
   assert.equal(merged(true, undefined), true);
@@ -158,7 +158,7 @@ test("the card's Data button: live for a database, 'no database yet' only for a 
   const failed = await list({ backends: [INCOMPLETE], projects: () => new Response("down", { status: 503 }) });
   // The grid's own entries: the server's rows through the browser's own merge,
   // on a browser that holds nothing (a fresh one).
-  const grid = SiteList.merge([], r.body.sites, true).concat(SiteList.merge([], failed.body.sites, true).map((s) => ({ ...s, slug: "fretwork-1-down" })));
+  const grid = SiteList.projects(r.body.sites, []).concat(SiteList.projects(failed.body.sites, []).map((s) => ({ ...s, slug: "fretwork-1-down" })));
   const icon = dbIcon();
   const say = Object.fromEntries(grid.map((s) => [s.slug, icon(s)]));
   for (const slug of ["ready-site", "fretwork-1"]) {
@@ -237,7 +237,7 @@ async function rows(slug, { site = { uid: USER.id, neon_db: "" }, project = [{ u
 test("a fresh browser opens the Data panel of a blank-link site: adopted with its database, and the tables read through the four-state reader", async () => {
   // 1. The list, as a fresh browser gets it.
   const r = await list({ backends: [INCOMPLETE], projects: [{ slug: "fretwork-1" }] });
-  const entry = SiteList.merge([], r.body.sites, true)[0];
+  const entry = SiteList.projects(r.body.sites, [])[0];
   assert.equal(entry.backend, true);
   // 2. The card's click adopts the entry into a store that holds nothing.
   const a = adopter([]);

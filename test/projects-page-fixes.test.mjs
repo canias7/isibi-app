@@ -19,39 +19,44 @@ const CHAT = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf
 
 // ── 1. ONE CARD, ONE ID ─────────────────────────────────────────────────────
 
-test("two server rows carrying the same chat are two cards with two ids", () => {
-  const out = SiteList.merge([{ id: "site_1", slug: "bakery-1" }],
-    [{ slug: "bakery-1", chat: "site_1" }, { slug: "bakery-2", chat: "site_1" }], true);
+// Rewritten 2026-10-30 for `SiteList.projects` (the server's list, no merge):
+// the properties are the same — one card per id, one record per card, and a
+// deleted project never drawn again from a list read before the delete.
+test("two server rows are two cards with two ids, and one local record dresses only one", () => {
+  const out = SiteList.projects([{ slug: "bakery-1", chat: "site_1", id: "site_1" }, { slug: "bakery-2" }],
+    [{ id: "site_1", slug: "bakery-1", msgs: [1] }]);
   assert.equal(out.length, 2, "both sites are drawn");
   const ids = out.map((s) => s.id);
   assert.equal(new Set(ids).size, 2, "two cards share one id: " + ids.join(", "));
-  const bySlug = Object.fromEntries(out.map((s) => [s.slug, s.id]));
-  assert.equal(bySlug["bakery-1"], "site_1", "the slug match keeps the local record");
-  assert.equal(bySlug["bakery-2"], "srv_bakery-2", "the second row stands as itself");
+  const bySlug = Object.fromEntries(out.map((s) => [s.slug, s]));
+  assert.equal(bySlug["bakery-1"].id, "site_1");
+  assert.equal(bySlug["bakery-1"].localId, "site_1", "the card knows which record dresses it");
+  assert.equal(bySlug["bakery-2"].id, "srv_bakery-2", "the second row stands as itself");
+  assert.equal(bySlug["bakery-2"].localId, undefined);
 });
 
-test("the slug match wins even when the chat-only row is listed first", () => {
-  const out = SiteList.merge([{ id: "site_1", slug: "bakery-1" }],
-    [{ slug: "bakery-2", chat: "site_1" }, { slug: "bakery-1", chat: "site_1" }], true);
-  const bySlug = Object.fromEntries(out.map((s) => [s.slug, s.id]));
-  assert.equal(bySlug["bakery-1"], "site_1");
-  assert.equal(bySlug["bakery-2"], "srv_bakery-2");
+test("a record matched by slug dresses one card only, even with a second row naming its id", () => {
+  const out = SiteList.projects([{ slug: "bakery-2", id: "site_1", chat: "site_1" }, { slug: "bakery-1" }],
+    [{ id: "site_1", slug: "bakery-1", msgs: [1] }]);
+  const dressed = out.filter((s) => s.localId === "site_1");
+  assert.equal(dressed.length, 1, "one record dressed two cards");
+  assert.equal(new Set(out.map((s) => s.id)).size, 2);
 });
 
-test("a slugless workspace is adopted by one row only, and not drawn again as in flight", () => {
-  const out = SiteList.merge([{ id: "site_9", name: "Cafe" }],
-    [{ slug: "cafe-1", chat: "site_9" }, { slug: "cafe-2", chat: "site_9" }], true);
-  assert.deepEqual(out.map((s) => s.id).sort(), ["site_9", "srv_cafe-2"]);
+test("a slugless workspace is its server row once, never also drawn as its own card", () => {
+  const out = SiteList.projects([{ id: "site_9", chat: "site_9", slug: "" }], [{ id: "site_9", name: "Cafe", srv: true }]);
+  assert.deepEqual(out.map((s) => s.id), ["site_9"]);
+  // not yet saved (no `srv`): still one card, the server's
+  const out2 = SiteList.projects([{ id: "site_9", chat: "site_9", slug: "" }], [{ id: "site_9", name: "Cafe" }]);
+  assert.deepEqual(out2.map((s) => [s.id, !!s.localOnly]), [["site_9", false]]);
 });
 
-test("a slug deleted this session is never drawn from a list read before the delete", () => {
-  const gone = new Set(["bakery-1"]);
-  const out = SiteList.merge([{ id: "site_1", slug: "bakery-1" }], [{ slug: "bakery-1" }, { slug: "cafe-1" }], true, gone);
+test("a slug or id deleted this session is never drawn from a list read before the delete", () => {
+  const gone = new Set(["bakery-1", "site_7"]);
+  const out = SiteList.projects([{ slug: "bakery-1" }, { slug: "cafe-1" }, { id: "site_7", chat: "site_7", slug: "" }], [{ id: "site_1", slug: "bakery-1" }], gone);
   assert.deepEqual(out.map((s) => s.slug), ["cafe-1"]);
-  // and offline (no server answer) the local record stays off the screen too
-  assert.deepEqual(SiteList.merge([{ id: "site_1", slug: "bakery-1" }], null, false, gone), []);
-  // the observer is alive: without the set the site is drawn
-  assert.equal(SiteList.merge([{ id: "site_1", slug: "bakery-1" }], [{ slug: "bakery-1" }], true).length, 1);
+  // the observer is alive: without the set both are drawn
+  assert.equal(SiteList.projects([{ slug: "bakery-1" }, { id: "site_7", chat: "site_7", slug: "" }], []).length, 2);
 });
 
 // ── 3/4. THE THUMBNAIL ──────────────────────────────────────────────────────
@@ -105,8 +110,11 @@ test("the delete asks for an unfinished site too, finds its chat by slug, and re
   assert.ok(at > 0 && end > at, "the delete handler moved");
   const h = c.slice(at, end);
   assert.match(h, /if \(entry && !entry\.slug\) \{\s*if \(!\(await goConfirm\(/, "an unfinished site goes at one press");
+  // 2026-10-30: an unfinished project on the account is deleted ON THE SERVER, and the card waits for it.
+  assert.match(h, /apiFetch\('\/api\/site\/chat\/' \+ encodeURIComponent\(entry\.chat \|\| entry\.id\), \{ method: 'DELETE' \}\)/, "an unbuilt project is deleted only on this device");
+  assert.match(h, /if \(!cr \|\| !cr\.ok\) \{[^}]*return; \}/, "a failed server delete still drops the card");
   assert.doesNotMatch(h, /[^.\w]alert\(/, "the browser's alert is back in the delete");
-  assert.match(h, /x\.slug === goneSlug\) : null\); if \(gone\) chatDelete\(gone\)/, "the chat is looked up by the card's id alone");
+  assert.match(h, /x\.slug === goneSlug\) : null\); if \(gone && goneSlug\) chatDelete\(gone\)/, "the chat is looked up by the card's id alone");
   assert.match(h, /sitesDeletedSlugs\.add\(goneSlug\)/, "a deleted slug can be drawn again by a stale list");
   assert.match(h, /dr\.status === 409/, "a refusal over running work reads as 'still live'");
 });

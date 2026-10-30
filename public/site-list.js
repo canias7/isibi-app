@@ -1,4 +1,4 @@
-// Which sites are yours: the server's answer, merged with this browser's.
+// Which projects are yours: the server's answer (2026-10-30: no merging).
 //
 // ── WHY THIS IS ITS OWN FILE ───────────────────────────────────────────────
 //
@@ -84,13 +84,30 @@
   function fromRow(row) {
     if (!row || typeof row !== "object") return null;
     var slug = cleanSlug(row.slug);
-    if (!slug) return null;
+    // A PROJECT NOT BUILT YET HAS NO ADDRESS (2026-10-30): it is its chat on
+    // the server, and its `id` is that chat. Anything else needs a slug.
+    var rid = str(row.id);
+    var chatId = str(row.chat);
+    if (!slug) {
+      if (!/^[A-Za-z0-9_-]{4,80}$/.test(rid) || rid !== chatId) return null;
+      var t0 = str(row.title).trim().slice(0, 80);
+      var u = {
+        id: rid, slug: "", chat: chatId, name: t0 || (row.surface === "app" ? "New app" : "New website"), title: t0,
+        url: "", brief: str(row.brief).slice(0, 300), backend: false, offline: false, state: "unbuilt",
+        createdAt: Number(row.createdAt) || 0, updatedAt: Number(row.updatedAt) || Number(row.createdAt) || 0,
+        react: true, remote: true, msgs: []
+      };
+      if (row.surface === "app") u.surface = "app";
+      return u;
+    }
     var name = cleanSlug(row.name) || slug;
     // THE SITE'S OWN NAME, AS EVERY DEVICE SEES IT (2026-10-21): "The Table",
     // kept by the server; the address name when it has none.
     var title = str(row.title).trim().slice(0, 80);
     return {
-      id: "srv_" + slug,
+      // THE SERVER'S ID FOR THE PROJECT: its chat, else `srv_<slug>`.
+      id: /^[A-Za-z0-9_-]{4,80}$/.test(rid) ? rid : (/^[A-Za-z0-9_-]{4,80}$/.test(chatId) ? chatId : "srv_" + slug),
+      state: "built",
       slug: slug,
       name: title || name,
       title: title,
@@ -125,149 +142,108 @@
   }
 
   /**
-   * MERGE. `ok` is whether the server was actually asked and answered.
+   * THE PROJECTS PAGE'S CARDS: THE SERVER'S LIST, AND NOTHING ELSE (2026-10-30).
    *
-   * Returns newest first, by whatever the entry knows about when it last moved.
+   * Owner: "the projects page shows the SERVER's list. The browser keeps a copy
+   * only to paint instantly, and replaces it with the server's list as soon as
+   * it answers." So there is no merging any more: every card is one server row,
+   * keyed by the row's own `id` (the project's chat, or `srv_<slug>` for a site
+   * built before chats were bound) - never an id this browser made up.
+   *
+   * `local` is this browser's working copy of each project (its thread, the
+   * name typed, the stored pages a thumbnail can draw). It is ATTACHED to the
+   * row it belongs to - by the row's id, its chat, then its slug - and never
+   * adds a card of its own, with one exception: a record this browser made that
+   * has not reached the server yet (`srv !== true`, no address) is drawn and
+   * marked `localOnly`, so nobody's work vanishes while it is being saved up.
+   *
+   * `rows` null means the server has never answered (and no copy is cached):
+   * only those unsaved records are drawn. `gone` holds slugs and ids deleted in
+   * this page's life, never drawn again from a list read before the delete.
+   *
+   * Newest first, by the server's own time.
    */
-  function merge(local, server, ok, gone) {
-    // DELETED THIS SESSION (2026-10-30): a slug the owner has just deleted is
-    // never drawn again from a list read before the delete landed — an
-    // in-flight fetch or a cached answer cannot bring the card back.
-    var isGone = function (slug) {
-      var c = cleanSlug(slug);
-      if (!c || !gone) return false;
-      return typeof gone.has === "function" ? gone.has(c) : (Array.isArray(gone) && gone.indexOf(c) !== -1);
+  function projects(rows, local, gone) {
+    var isGone = function (v) {
+      if (!v || !gone) return false;
+      return typeof gone.has === "function" ? gone.has(v) : (Array.isArray(gone) && gone.indexOf(v) !== -1);
     };
-    var mine = (Array.isArray(local) ? local.slice() : []).filter(function (m) { return !isGone(m && m.slug); });
-    if (!ok) return mine;                       // the whole safety argument, above
-    var rows = (Array.isArray(server) ? server : []).filter(function (r) { return !(r && isGone(r.slug)); });
-
+    var mine = Array.isArray(local) ? local.filter(function (m) { return m && typeof m === "object"; }) : [];
+    var byId = Object.create(null);
     var bySlug = Object.create(null);
-    // AND BY THE CHAT THAT BUILT IT. A local record's `id` IS the chat id —
-    // `siteCreate` mints it per workspace — so this is the workspace a server
-    // row belongs to, when the row says.
-    var byChat = Object.create(null);
     for (var i = 0; i < mine.length; i++) {
-      var s = mine[i] && cleanSlug(mine[i].slug);
-      // `Object.hasOwn`-safe by construction: a null-prototype map cannot be
-      // reached through "constructor" (the recorded truthy-prototype trap).
-      if (s && !bySlug[s]) bySlug[s] = mine[i];
-      var c = str(mine[i] && mine[i].id);
-      if (c && !byChat[c]) byChat[c] = mine[i];
+      var id0 = str(mine[i].id);
+      if (id0 && !byId[id0]) byId[id0] = mine[i];
+      var s0 = cleanSlug(mine[i].slug);
+      if (s0 && !bySlug[s0]) bySlug[s0] = mine[i];
     }
-
-    // ONE LOCAL RECORD, ONE SERVER ROW (2026-10-30, the projects page's
-    // audit). Two rows carrying the same chat both matched its record and both
-    // kept its `id`, so two cards shared one id — and the page finds every
-    // thumbnail, open and delete by id, so pressing one acted on the other.
-    // The slug matches are settled FIRST, over every row, so a record whose
-    // own slug is listed is never taken by an earlier chat-only row; a chat
-    // match then takes only a record nobody has adopted, and a row that finds
-    // none stands as itself (`srv_<slug>`).
-    var made0 = [];
-    var seen = Object.create(null);
-    for (var j0 = 0; j0 < rows.length; j0++) {
-      var m0 = fromRow(rows[j0]);
-      if (!m0 || seen[m0.slug]) continue;
-      seen[m0.slug] = true;
-      made0.push(m0);
-    }
-    var taken = new Set();
-    var slugHave = made0.map(function (m) {
-      var h = bySlug[m.slug] || null;
-      if (h) taken.add(h);
-      return h;
-    });
-
     var out = [];
-    var adopted = Object.create(null);
-    for (var j = 0; j < made0.length; j++) {
-      var made = made0[j];
-      // SLUG FIRST, THEN THE CHAT. The slug is the stronger match: it is what
-      // the two records are actually about, and a workspace whose record
-      // already carries it needs nothing else.
-      //
-      // THE CHAT IS THE FALLBACK, AND IT IS THE ONE THAT FIXES THE REPORTED
-      // BUG. A build whose answer never came back leaves a local record with a
-      // thread, a name and NO slug; the server has the site with its chat on
-      // it. Matched by slug alone those are two cards — the workspace the
-      // customer typed in, still looking unfinished, and the finished site
-      // sitting beside it as a stranger. Matched by chat they are one, and the
-      // adopted record keeps its own `id`, so the workspace stays the workspace.
-      //
-      // The `made.chat ?` half is a BELT behind the loop above, which refuses to
-      // store an empty key — so neither wall is observable while the other
-      // stands, driven both ways rather than assumed. Said out loud instead of
-      // pretending a guard covers it: what it costs is nothing, and what it buys
-      // is that the read stays right if the store's rule ever loosens.
-      var have = slugHave[j];
-      if (!have && made.chat && byChat[made.chat] && !taken.has(byChat[made.chat])) {
-        have = byChat[made.chat];
-        taken.add(have);
-      }
-      // The local record WINS on everything it alone knows — the thread, the
-      // name the customer typed, the stored pages — and the server wins on
-      // existence and on the address, which only it can be right about.
-      if (have) adopted[str(have.id)] = true;
-      out.push(have ? Object.assign({}, have, {
-        slug: made.slug,
-        url: made.url,
+    var used = new Set();
+    var seen = Object.create(null);
+    var list = Array.isArray(rows) ? rows : [];
+    for (var j = 0; j < list.length; j++) {
+      var made = fromRow(list[j]);
+      if (!made || seen[made.id] || isGone(made.id) || (made.slug && isGone(made.slug))) continue;
+      seen[made.id] = true;
+      var have = byId[made.id] || (made.chat && byId[made.chat]) || (made.slug && bySlug[made.slug]) || null;
+      if (have && used.has(have)) have = null;       // one record, one card
+      if (have) used.add(have);
+      if (!have) { out.push(made); continue; }
+      var slug = made.slug || cleanSlug(have.slug);
+      out.push(Object.assign({}, have, {
+        id: made.id,
+        localId: str(have.id),
+        chat: made.chat,
+        slug: slug,
+        url: made.slug ? made.url : str(have.url),
         remote: true,
-        // THE SERVER'S NAME FIRST when it keeps one, so every device agrees.
-        name: made.title || str(have.name) || made.name,
-        // EITHER SIDE SAYING YES IS A YES, and the asymmetry is the point: a
-        // build that just finished sets this locally, the server list is a
-        // minute stale, and no path ever takes a database away — so a
-        // disagreement is the local record being AHEAD, never the server
-        // correcting it. Wrong toward "no" dims a button that works; wrong
-        // toward "yes" opens a Data view with nothing in it.
-        //
-        // AND A SERVER THAT COULD NOT TELL STAYS "COULD NOT TELL" (Lane 1c):
-        // with neither side saying yes, the server's own answer stands, `null`
-        // included, so a failed lookup never becomes a no here either.
+        state: made.state,
+        name: made.title || (made.slug ? (have.name && have.name !== "New website" ? str(have.name) : made.name) : (str(have.name) || made.name)),
+        brief: made.brief || str(have.brief),
+        // A DATABASE IS NEVER TAKEN AWAY: a build that just made one says yes
+        // here a minute before the list does; the server's cannot-tell stays.
         backend: (made.backend === true || have.backend === true) ? true : made.backend,
-        // AND THIS ONE IS THE OPPOSITE RULE, for a reason worth stating rather
-        // than pattern-matching off the line above. Offline moves in BOTH
-        // directions — a site goes off the web and comes back — so "either
-        // side's yes" would pin it offline for ever after one press. The
-        // server's answer IS the point of this field: it is the only one every
-        // machine shares, and the local flag was written by whichever browser
-        // last pressed the button.
-        //
-        // So the server wins where it can tell, and the local record stands
-        // only where it said `undefined` — cannot-tell reading as "live" would
-        // tell somebody their site is up while it is down, which is the one
-        // mistake this field exists to prevent. Read strictly on both sides.
         offline: offlineNow(made.offline, have.offline),
-        // THE SERVER'S TIME, NOT THIS BROWSER'S (2026-10-21, owner: "i have
-        // different sites in laptop and desktop"): each browser kept its own
-        // last-touched time, so the same account sorted differently on each
-        // machine. A row the server lists sorts by what the server says.
-        updatedAt: made.updatedAt || Number(have.updatedAt) || 0,
-      }) : made);
+        updatedAt: made.updatedAt || Number(have.updatedAt) || 0
+      }));
     }
-
-    // A LOCAL SITE WITH NO SLUG IS A BUILD IN FLIGHT. It is not on the server
-    // yet — the slug is claimed when the design lands — so dropping it would
-    // make the card vanish under the customer while they watch it build.
     for (var k = 0; k < mine.length; k++) {
-      if (cleanSlug(mine[k] && mine[k].slug)) continue;
-      // …UNLESS THE SERVER JUST CLAIMED IT BY CHAT. Without this the record
-      // adopted three lines up would ALSO be pushed here as an in-flight build,
-      // and the customer would see the same workspace twice — once finished and
-      // once still spinning. `adopted` is keyed by the chat id, which is the
-      // only thing the two halves have in common when there is no slug.
-      if (adopted[str(mine[k] && mine[k].id)]) continue;
-      out.push(mine[k]);
+      var m = mine[k];
+      if (used.has(m) || m.srv === true || cleanSlug(m.slug) || isGone(str(m.id))) continue;
+      out.push(Object.assign({}, m, { localOnly: true }));
     }
-
-    // A local site whose slug the server did NOT list is not shown: it is gone,
-    // or it belongs to another account signed in on this browser. Its local
-    // record is left alone — this decides the SCREEN, never the store.
     out.sort(function (a, b) {
       return (Number(b.updatedAt) || Number(b.createdAt) || 0)
            - (Number(a.updatedAt) || Number(a.createdAt) || 0);
     });
+    return out;
+  }
+
+  /**
+   * THE RECORDS THIS BROWSER HOLDS FOR PROJECTS THE SERVER NO LONGER HAS: a
+   * project deleted on another device. Only when the server's answer is
+   * `complete`, only records the server confirmed once (`srv`) before the list
+   * was asked for (`srvAt < askedAt`), so a project made a moment ago is never
+   * taken for one deleted. Returns their ids; the caller drops them.
+   */
+  function deletedElsewhere(rows, local, complete, askedAt) {
+    if (complete !== true || !Array.isArray(rows) || !Array.isArray(local)) return [];
+    var ids = Object.create(null);
+    var slugs = Object.create(null);
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      if (!r || typeof r !== "object") continue;
+      if (str(r.id)) ids[str(r.id)] = true;
+      if (str(r.chat)) ids[str(r.chat)] = true;
+      if (cleanSlug(r.slug)) slugs[cleanSlug(r.slug)] = true;
+    }
+    var out = [];
+    for (var j = 0; j < local.length; j++) {
+      var m = local[j];
+      if (!m || m.srv !== true || !(Number(m.srvAt) < Number(askedAt))) continue;
+      if (ids[str(m.id)] || (cleanSlug(m.slug) && slugs[cleanSlug(m.slug)])) continue;
+      out.push(str(m.id));
+    }
     return out;
   }
 
@@ -364,7 +340,7 @@
 
   var api = {
     cardThumb: cardThumb,
-    merge: merge, fromRow: fromRow, cleanSlug: cleanSlug, SITE_HOST: SITE_HOST, readDb: readDb,
+    projects: projects, deletedElsewhere: deletedElsewhere, fromRow: fromRow, cleanSlug: cleanSlug, SITE_HOST: SITE_HOST, readDb: readDb,
     offlineNow: offlineNow, offlineFor: offlineFor, markOffline: markOffline,
   };
 
