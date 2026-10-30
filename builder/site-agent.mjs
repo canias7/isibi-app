@@ -571,6 +571,12 @@ export function syncFromRun(st, files) {
   return moved;
 }
 
+/** ONLY THE PART ASKED FOR (2026-10-30): the caller's scope check (`deps.mayWrite`, `agent-guard.mjs`), or "" when there is none. */
+function outOfScope(deps, key) {
+  if (!deps || typeof deps.mayWrite !== "function") return "";
+  try { return String(deps.mayWrite(key) || ""); } catch { return ""; }
+}
+
 // ── THE TOOLS, RUN ───────────────────────────────────────────────────────────
 async function runTool(use, st, deps) {
   const input = use.input && typeof use.input === "object" ? use.input : {};
@@ -587,6 +593,7 @@ async function runTool(use, st, deps) {
       const w = writableKey(input.file, st.ws);
       if (!w.ok) return { error: w.why };
       if (st.onlyWrite && w.key !== st.onlyWrite) return { error: "a helper writes only its own page, " + st.onlyWrite };
+      { const why = outOfScope(deps, w.key); if (why) return { error: why }; }
       const src = typeof input.source === "string" ? input.source : "";
       if (!src.trim()) return { error: "the source is empty" };
       if (src.length > MAX_FILE_CHARS) return { error: "the file is over " + MAX_FILE_CHARS + " characters" };
@@ -607,6 +614,7 @@ async function runTool(use, st, deps) {
       if (!w.ok || w.key === CSS_KEY) return { error: "only a page or a component can be removed" };
       if (w.key === "index.tsx") return { error: "the home page cannot be removed" };
       if (!st.ws.has(w.key)) return { error: "no such file: " + w.key };
+      { const why = outOfScope(deps, w.key); if (why) return { error: why }; }
       st.ws.delete(w.key);
       st.dirty = true;
       st.written.add(w.key);
@@ -851,6 +859,15 @@ async function runTool(use, st, deps) {
       // WHY IT WAS SENT BACK, for the record (2026-10-29): which kinds of
       // finding, as counts; a label for us, never a message to the customer.
       if (st.mustFix && !st.heldOnce) { st.heldOnce = true; try { st.log({ event: "held", ...(st.mustFixKinds || {}) }); } catch { /* the record never costs the change */ } return { error: "the last check still found something marked FIX THIS: fix it, build, and finish again" }; }
+      // NOTHING ELSE CHANGED (2026-10-30, `agent-guard.mjs`): the caller's
+      // check of what this change took away that the request did not name,
+      // asked ONCE; finishing again is the agent's answer.
+      if (typeof deps.review === "function" && !st.reviewed) {
+        st.reviewed = true;
+        let note = "";
+        try { note = String(deps.review({ pages: st.ws.pages(), parts: st.ws.parts(), css: st.ws.css() }) || ""); } catch { note = ""; }
+        if (note) { try { st.log({ event: "review" }); } catch { /* never */ } return { error: note }; }
+      }
       st.done = true;
       st.summary = typeof input.summary === "string" ? input.summary.slice(0, 4000) : "";
       return { text: "Done." };

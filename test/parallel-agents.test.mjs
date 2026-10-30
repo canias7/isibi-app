@@ -106,7 +106,8 @@ test("PA1 a two-change message is split by the router and each part is run by th
     // THE ROUTER RAN (once per part); NO OLD LANE WAS ASKED.
     const tools = new Set(P.modelLog.map((m) => m.tool));
     assert.equal(P.modelLog.filter((m) => m.tool === T.route).length, 2);
-    for (const t of [T.text, T.pick, T.tweak, T.lane, T.pages, T.adds]) assert.ok(!tools.has(t), "an old lane was asked: " + t);
+    // the text rung (`T.text`) may be tried first on a `text` part (guardrail 5, 2026-10-30); the agent still does the work here
+    for (const t of [T.pick, T.tweak, T.lane, T.pages, T.adds]) assert.ok(!tools.has(t), "an old lane was asked: " + t);
   });
 });
 
@@ -194,7 +195,8 @@ test("PA3 two changes to the same page wait in order (never side by side); no ol
     assert.equal(seen.length, 2, "one agent per part");
     const tools = new Set(P.modelLog.map((m) => m.tool));
     assert.ok(P.modelLog.length > 2, "the observer saw no call");
-    for (const t of [T.text, T.pick, T.tweak, T.lane, T.pages, T.adds]) assert.ok(!tools.has(t), "an old lane was asked: " + t);
+    // the text rung (`T.text`) may be tried first on a `text` part (guardrail 5, 2026-10-30); the agent still does the work here
+    for (const t of [T.pick, T.tweak, T.lane, T.pages, T.adds]) assert.ok(!tools.has(t), "an old lane was asked: " + t);
   });
 });
 
@@ -221,7 +223,8 @@ test("PA4 one at a time (PARALLEL_WRITES off): the waiting part is prepared besi
     assert.ok(rec.parts.some((p) => p.prep || (p.prepPast && p.prepPast.length)), "no part was prepared: " + JSON.stringify(rec.parts.map((p) => p.prep || null)));
     assert.ok(prep, "part 1 was not prepared");
     const tools = new Set(P.modelLog.map((m) => m.tool));
-    for (const t of [T.text, T.pick, T.tweak, T.lane, T.pages, T.adds]) assert.ok(!tools.has(t), "an old lane was asked: " + t);
+    // the text rung (`T.text`) may be tried first on a `text` part (guardrail 5, 2026-10-30); the agent still does the work here
+    for (const t of [T.pick, T.tweak, T.lane, T.pages, T.adds]) assert.ok(!tools.has(t), "an old lane was asked: " + t);
     assert.equal(seen.length, 2, "one agent per part, and none in a preparation");
   });
 });

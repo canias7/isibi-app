@@ -226,6 +226,7 @@ import { writtenFrame, ownPartsSite, runFrameEdit, addFrameLinks, FRAME_PARTS, f
 import { runSiteAgent, stoppedFacts, agentTakes, historyText, asWriterAnswer, agentAttachments, agentAttachmentsFromBlocks } from "./builder/site-agent.mjs";
 import { mergeSchemaOps, keepsEverything } from "./builder/agent-server-tools.mjs";
 import { pdfText } from "./builder/pdf-text.mjs";
+import { fileMap, workspaceDiff, changeReport, reviewNote, reportFacts, scopeGuard, retryAfterStop, retryableSave, retryRequest as agentRetryRequest, versionName, undoFacts, undoSentence } from "./builder/agent-guard.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
 import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings, canWriteAccess } from "./site-access.mjs";
@@ -17262,7 +17263,7 @@ function agentInputDeps(env, slug) {
   };
 }
 
-async function runAgentChange(env, { slug, words, pages, parts, job = null, picker = "", trace = null, bill, billLang, charges = null, uid = "", chat = "", images = null, devices = null, context = null, canAsk = false }) {
+async function runAgentChange(env, { slug, words, pages, parts, job = null, picker = "", trace = null, bill, billLang, charges = null, uid = "", chat = "", images = null, devices = null, context = null, canAsk = false, scope = null, look = false }) {
   const tm = (phase, status, detail) => { try { if (trace) trace.mark(phase, status, detail); } catch { /* never */ } };
   if (!Array.isArray(parts)) return { status: 503, body: { ok: false, error: "agent-unread", layer: "agent", cost: 0, deferred: [], msg: "The site's components could not be read, so the site agent did not start. Nothing was changed and nothing was charged." } };
   tm("agent", "start", { pages: pages.length, parts: parts.length });
@@ -17301,7 +17302,14 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     const hit = uploads.find((o) => o && !o.visitor && o.key.split("/").pop() === name);
     return hit ? { ok: true, name, url: uploadUrl(slug, name) } : { ok: false, why: "that file is not one of the owner's uploads" };
   };
-  const ag = await runSiteAgent({
+  // THE GUARDRAILS (2026-10-30, `builder/agent-guard.mjs`): the files as
+  // they were, the one check before finishing, the write scope a part's
+  // answer names, and the version before the change for the undo facts.
+  const before = fileMap({ pages, parts, css });
+  const mayWrite = scopeGuard({ pages, parts, routes: scope, look });
+  let restoreTo = "";
+  try { const ptr = await readPointer(buildDeps(env), slug); restoreTo = ptr && typeof ptr.version === "string" ? ptr.version : ""; } catch { restoreTo = ""; }
+  const runOnce = (ask, from) => runSiteAgent({
     ...agentInputDeps(env, slug),
     ...(css !== null && env.SITES_BUCKET ? { saveSettings: () => true, checkUpload } : {}),
     ...(conn && spec ? { saveRules: () => true } : {}),
@@ -17325,19 +17333,36 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     callFunction: agentCall(env, slug),
     fetchDocs: agentFetchDocs,
     ...(conn ? { readErrors: agentReadErrors(env, slug), listKeys: agentListKeys(env, slug), applySchema: (ops) => applyAgentSchema(env, slug, conn, ops, job) } : {}),
+    review: (w) => reviewNote(changeReport(before, w, words)),
+    ...(mayWrite ? { mayWrite } : {}),
   }, {
-    request, pages, parts, css, history, map, spec,
+    request: ask, pages: from.pages, parts: from.parts, css: from.css, history, map, spec,
     attached: inFiles.files, unread: inFiles.skipped,
     ownParts: ownPartsSite(pages, parts), model: models.pages,
   });
-  tm("agent", ag.ok ? "ok" : "fail", { rounds: ag.rounds, builds: ag.builds, credits: ag.credits, stopped: ag.stopped, changed: ag.changed.length, rows: ag.rows.length });
-  const steps = { rounds: ag.rounds, builds: ag.builds, stopped: ag.stopped, changed: ag.changed, removed: ag.removed };
-  const files = ag.changed.filter((k) => k !== "styles.css");
+  // THE CHANGE IS ALWAYS MEASURED FROM THE SITE AS IT WAS, so a second run
+  // that started from the first one's files still saves the first one's work.
+  const settle = (r) => { const d = workspaceDiff(before, { pages: r.pages, parts: r.parts, css: r.css }); return { ...r, changed: d.changed, removed: d.removed, cssChanged: d.cssChanged }; };
+  let ag = settle(await runOnce(request, { pages, parts, css }));
+  // ONE AUTOMATIC RETRY (2026-10-30): a run that stopped short for a reason
+  // another run can get past goes once more, from the files it left, before
+  // the customer is told. Billed like any run (the stopped one never was).
+  let retried = "";
+  if (!ag.ok && retryAfterStop(ag.stopped)) {
+    retried = ag.stopped;
+    tm("agent:retry", "start", { why: retried });
+    ag = settle(await runOnce(agentRetryRequest(request, stoppedFacts(ag)), { pages: ag.pages, parts: ag.parts, css: ag.css }));
+    // A SECOND RUN THAT ONLY ANSWERED IN WORDS while the first one's files
+    // were never built has not finished the change: still a stop.
+    if (ag.ok && !ag.ask && ag.changed.length && !ag.builds) ag = { ...ag, ok: false, stopped: "no-tool" };
+  }
+  tm("agent", ag.ok ? "ok" : "fail", { rounds: ag.rounds, builds: ag.builds, credits: ag.credits, stopped: ag.stopped, changed: ag.changed.length, rows: ag.rows.length, retried });
+  const steps = { rounds: ag.rounds, builds: ag.builds, stopped: ag.stopped, changed: ag.changed, removed: ag.removed, ...(retried ? { retried } : {}) };
   if (!ag.ok) {
     return { status: 200, body: { ok: false, error: "agent-stopped", layer: "agent", cost: 0, agent: steps, deferred: [],
-      msg: stoppedFacts(ag) + " Nothing was charged." } };
+      msg: (retried ? "It was tried twice. " : "") + stoppedFacts(ag) + " Nothing was charged." } };
   }
-  const took = Number(await bill(ag.usage)) || 0;
+  let took = Number(await bill(ag.usage)) || 0;
   // A QUESTION FOR THE OWNER (`ask_owner`): nothing saved; the ending keeps it
   // as the site's live question (`askReport`) and their answer resumes the
   // agent with the question and the answer beside the request. Charged for
@@ -17347,7 +17372,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     return { status: 200, body: { ok: false, error: "clarify", layer: "agent", cost: took, unchanged: true, ask: ag.ask, msg: ag.ask.text, agent: steps, deferred: [] } };
   }
   const setKeys = Object.keys(ag.settings || {});
-  const renames = Object.entries(ag.redirects || {});
+  let renames = Object.entries(ag.redirects || {});
   // A QUESTION, OR NOTHING TO CHANGE: the agent's own answer, nothing saved.
   const schemaOps = Array.isArray(ag.schema) ? ag.schema : [];
   if (!ag.changed.length && !ag.rows.length && !schemaOps.length && !setKeys.length && !(ag.rules || []).length) {
@@ -17368,6 +17393,8 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     }
     if (sr.added.length) schemaFacts.push("Added to the database: " + sr.added.join(", ") + (sr.revision ? " (saved to your draft; it goes live when you publish)." : "."));
   }
+  // THE VERSION'S NAME (2026-10-30): the agent's own summary, first clause.
+  const label = versionName(ag.summary, words);
   let out = null;
   // THE SETTINGS, stored before the publish as the look step stores them (the
   // publish reads the name, the description, the marks, the share picture and
@@ -17388,37 +17415,64 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     }
   }
   const putBack = async () => { if (cfgBefore) { try { await patchSiteConfig(env, slug, cfgDb, cfgBefore, jobFence(env, job)); } catch { /* told below */ } } };
-  if (ag.changed.length || setKeys.length) {
-    // THE STYLESHEET FIRST, as the look step stores it: the publish reads it from the config.
+  const save = async (r) => {
+    const files = r.changed.filter((k) => k !== "styles.css");
     let cssBefore = null;
-    if (ag.cssChanged) {
+    // THE STYLESHEET FIRST, as the look step stores it: the publish reads it from the config.
+    if (r.cssChanged) {
       try {
         await mayWriteConfig(env, slug, job);
         cssBefore = css;
-        const w = await patchSiteConfig(env, slug, cfgDb, { css: ag.css }, jobFence(env, job));
+        const w = await patchSiteConfig(env, slug, cfgDb, { css: r.css }, jobFence(env, job));
         if (!w.ok) throw new Error(w.error);
-      } catch (e) {
-        await putBack();
-        return { status: 503, body: { ok: false, error: "agent-css", ours: true, layer: "agent", cost: took, agent: steps, deferred: [],
-          msg: "The site agent's stylesheet could not be stored, so nothing was saved." } };
-      }
+      } catch (e) { return { cssFailed: true }; }
     }
-    out = await recompileAndPublish(env, {
-      slug, pages: ag.pages, parts: ag.parts, label: "Changed by the site agent",
+    const o = await recompileAndPublish(env, {
+      slug, pages: r.pages, parts: r.parts, label,
       job, charge: billLang, charges, models, trace,
       touched: files.filter((k) => !k.startsWith("-parts/")),
       ...(renames.length ? { renamed: renames.map(([from, to]) => ({ from, to })) } : {}),
       ...(devScope ? { devices: devScope } : {}),
     });
+    if (!o.ok && cssBefore !== null) { try { await patchSiteConfig(env, slug, cfgDb, { css: cssBefore }, jobFence(env, job)); } catch { /* the stored sheet stays the agent's; told below */ } }
+    return o;
+  };
+  if (ag.changed.length || setKeys.length) {
+    out = await save(ag);
+    // A SAVE THAT FAILED ON THE AGENT'S OWN CODE gets the same one retry, with
+    // the compiler's words, from the files it tried to save. That second run
+    // is NOT billed: the failed save was, and a save is never charged twice.
+    // The first run's database additions and settings are already stored and
+    // stay; its queued entries, rules and page moves are kept unless the second
+    // run queued its own (combined 2026-10-30).
+    if (out && !out.cssFailed && !out.ok && !retried && retryableSave(out)) {
+      retried = "save";
+      steps.retried = retried;
+      tm("agent:retry", "start", { why: "save" });
+      const again = settle(await runOnce(agentRetryRequest(request, "its save did not compile: " + String(out.detail || out.error || "").slice(0, 1500)), { pages: ag.pages, parts: ag.parts, css: ag.css }));
+      if (again.ok && !again.ask && again.changed.length) {
+        const keep = (a, b) => (Array.isArray(a) && a.length ? a : b);
+        ag = { ...again, rows: keep(again.rows, ag.rows), rules: keep(again.rules, ag.rules || []),
+          redirects: Object.keys(again.redirects || {}).length ? again.redirects : (ag.redirects || {}), settings: ag.settings, schema: ag.schema };
+        renames = Object.entries(ag.redirects || {});
+        Object.assign(steps, { rounds: steps.rounds + again.rounds, builds: steps.builds + again.builds, changed: ag.changed, removed: ag.removed });
+        out = await save(ag);
+      }
+    }
+    if (out && out.cssFailed) {
+      await putBack();
+      return { status: 503, body: { ok: false, error: "agent-css", ours: true, layer: "agent", cost: took, agent: steps, deferred: [],
+        msg: "The site agent's stylesheet could not be stored, so nothing was saved." } };
+    }
     if (!out.ok) {
       await putBack();
-      if (cssBefore !== null) { try { await patchSiteConfig(env, slug, cfgDb, { css: cssBefore }, jobFence(env, job)); } catch { /* the stored sheet stays the agent's; told below */ } }
       return { status: 422, body: { ok: false, error: lostOr(out, "compile"), layer: "agent", cost: took, agent: steps, deferred: [],
         msg: compileMsg(out, "The site agent's change did not compile when it was saved, so the site is untouched."), detail: out.detail } };
     }
   }
   // THE TABLE ENTRIES, written last and to the live database, as the data step does.
   const rowFacts = [];
+  let rowsRemoved = 0;
   if (ag.rows.length) {
     const c = await ownerRowConn(env, slug).catch(() => null);
     for (const op of ag.rows) {
@@ -17438,6 +17492,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
           try { const r = await sqlExec(c, "delete from " + T + " where id = ?", [id]); if (r.changes) removed++; else failed++; } catch { failed++; }
         }
       }
+      rowsRemoved += removed;
       const did = [added && "added " + added, changed && "changed " + changed, removed && "removed " + removed].filter(Boolean);
       if (did.length) rowFacts.push("In the " + op.table + " table it " + did.join(", ") + (did.length === 1 && (added + changed + removed) === 1 ? " entry" : " entries") + ".");
       if (failed) rowFacts.push(failed + (failed === 1 ? " entry" : " entries") + " in the " + op.table + " table could not be saved.");
@@ -17453,7 +17508,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
       // AFTER change_schema's additions (combined 2026-10-30): the stored schema
       // as it now is, so the rules are merged onto the tables just added.
       if (schemaOps.length) { const rr = await readSiteSchema(conn); if (rr.ok) rSpec = rr.spec; }
-      if (wr.on) { const v = await draftView(env, slug); rSpec = specOverlay(spec, v.ops); }
+      if (wr.on) { const v = await draftView(env, slug); rSpec = specOverlay(rSpec, v.ops); }
       const merged = mergeRules(rSpec, ag.rules);
       const made = await wr.calls.applySiteSchema(conn, normalizeSchema(merged.spec));
       const done = withoutRefused(merged.applied, made && Array.isArray(made.refusedRules) ? made.refusedRules : [], []);
@@ -17466,12 +17521,20 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   }
   const setFacts = setKeys.length ? ["Saved the site's settings: " + setKeys.join(", ") + "."] : [];
   const moveFacts = renames.map(([a, b]) => "The page at " + a + " is now at " + b + "; the old address sends visitors there.");
-  const msg = [ag.summary || "The change was made.", ...setFacts, ...moveFacts, ...schemaFacts, ...rowFacts, ...ruleFacts].join(" ");
+  // WHAT ELSE CHANGED AND WHAT CAN BE UNDONE (2026-10-30), as facts.
+  const after = { pages: ag.pages, parts: ag.parts, css: ag.css };
+  const report = changeReport(before, after, words);
+  const undo = undoFacts({ before, after, version: out ? restoreTo : "", rowsRemoved });
+  const msg = [ag.summary || "The change was made.", ...setFacts, ...moveFacts, ...schemaFacts, ...rowFacts, ...ruleFacts, reportFacts(report), undoSentence(undo)].filter(Boolean).join(" ");
   return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg,
     // THE PAGES THE AGENT LOOKED AT (2026-10-29), so the reply says it looked.
     ...(out ? { files: out.files, render: out.render, renderNote: out.renderNote, checks: out.checks && ag.looked.length ? { ...out.checks, looked: ag.looked.slice(0, 12) } : out.checks, draft: out.draft } : {}),
     ...(setKeys.length ? { settings: setKeys } : {}), ...(renames.length ? { moved: Object.fromEntries(renames) } : {}),
     ...((ag.rules || []).length ? { applied: ag.rules.map((r) => ({ table: r.table })) } : {}),
+    preserved: { files: report.files, unasked: report.unasked.slice(0, 20) },
+    ...(Object.keys(undo).length ? { undo } : {}),
+    ...(undo.photosTakenOff ? { photosTakenOff: undo.photosTakenOff } : {}),
+    version: label,
     cost: took + (out ? Number(out.langCharged) || 0 : 0), agent: steps } };
 }
 
@@ -36496,9 +36559,53 @@ async function handleRequest(request, env, ctx) {
             // `builder/site-agent.mjs`.
             if (agentTakes() && !(eJob && eJob.prepare === true)) {
               const agParts = await editParts();
+              // CHEAP TINY EDITS (2026-10-30, the owner's guardrail 5): when the
+              // router or the part answered `text`, the old text rung (one quick
+              // call that rewrites only the words it numbers) tries first; any
+              // refusal, question or failed save falls through to the agent,
+              // with nothing published and nothing charged on the way.
+              let cheapCost = 0;
+              if (eLayer === "text" && agParts.ok) {
+                let tOut = null;
+                try {
+                  tOut = await runTextEdit({ send: eQuick(), seen: (x) => noteSeen(eJob, x) },
+                    { instruction: eRun, pages: editableFiles(eSrc, agParts.parts), scope: stepScopeOf(eb && eb.scope), model: modelsFor(eb && eb.picker).quick });
+                } catch { tOut = null; }
+                try { if (editTrace) editTrace.mark("agent:cheap-text", tOut && tOut.ok ? "ok" : "skip", { reason: String((tOut && tOut.reason) || (tOut && tOut.ask ? "ask" : "")) }); } catch { /* never */ }
+                if (tOut && tOut.ok && !tOut.ask) {
+                  const tMail = carryEmailChange(tOut.pages, tOut.edits, { keepLinks: tOut.keepLinks === true });
+                  const tSplit = splitEditable(tMail.pages);
+                  // CHARGED BEFORE THE SAVE, as the agent's own save is (a queued
+                  // job's reserve must stand before the publish's gate), and saved
+                  // through the same publish the agent uses (the old rung's
+                  // `publishStep` only defers to the lanes' merge, which this
+                  // door never reaches).
+                  const tCost = await eCharge(tOut.usage);
+                  const tPub = await recompileAndPublish(env, {
+                    slug: ownerSlug, pages: tSplit.pages, parts: tSplit.parts,
+                    label: versionName("", eRun, versionLabel({ revise: true, changeNote: eRun })),
+                    job: eJob, charge: (usage) => eCharge({ langUsage: usage }), charges: eCharges, models: modelsFor(eb && eb.picker), trace: editTrace,
+                    touched: writtenPaths(eSrc, tSplit.pages),
+                  });
+                  if (!tPub.ok) cheapCost = tCost;
+                  if (tPub.ok) {
+                    return Response.json({
+                      ok: true, layer: "text", cheap: true, applied: tOut.applied, files: tPub.files, render: tPub.render, renderNote: tPub.renderNote, checks: tPub.checks, draft: tPub.draft,
+                      changed: tOut.edits.map((e) => e.to).slice(0, 8),
+                      notDone: Array.isArray(tOut.notDone) && tOut.notDone.length ? tOut.notDone : undefined,
+                      deferred: [],
+                      msg: "Changed the wording: " + tOut.edits.slice(0, 8).map((e) => "\u201c" + e.from + "\u201d is now \u201c" + e.to + "\u201d").join("; ") + ".",
+                      cost: tCost + (Number(tPub.langCharged) || 0), usage: tOut.usage,
+                    });
+                  }
+                }
+              }
               // ONLY THIS TURN'S PART (2026-10-30, parallel agents): what the
               // router held back for another part is taken out (`eRun`), so a
-              // part's agent never does another part's work.
+              // part's agent never does another part's work. AND ONLY ITS
+              // PAGES (guardrail 2): a part's scope names its pages, and the
+              // agent's writes are held to them (the stylesheet on `look`).
+              const agScope = stepScopeOf(eb && eb.scope);
               const ag = await runAgentChange(env, {
                 slug: ownerSlug, words: eRun, pages: eSrc, parts: agParts.ok ? agParts.parts : null, job: eJob, picker: eb && eb.picker, trace: editTrace,
                 uid: ou && typeof ou.id === "string" ? ou.id : "", chat: eb && eb.chat, images: eb && eb.images,
@@ -36506,8 +36613,11 @@ async function handleRequest(request, env, ctx) {
                 // THE OLD STEPS' INPUTS (2026-10-30): the screen sizes, what the
                 // owner already answered, and a question kept by this ending.
                 devices: eDevices, context: eCtxAll, canAsk: !!eRun,
+                scope: agScope && agScope.pages ? agScope.pages : null, look: eLayer === "look",
               });
               if (ag.body && ag.body.ask) eAskOut.request = eRun;
+              // A CHEAP SAVE THAT FAILED AFTER ITS CHARGE is told, never hidden.
+              if (cheapCost && ag.body && typeof ag.body === "object") ag.body.cost = (Number(ag.body.cost) || 0) + cheapCost;
               return Response.json(ag.body, { status: ag.status });
             }
 
