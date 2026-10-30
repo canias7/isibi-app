@@ -10,37 +10,37 @@
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <meta name="theme-color" content="#ffffff" />
   <style>
-    /* Black-and-white platform (owner 2026-07-23). These pages carried the
-       retired dark theme and its pink→amber gradient for six weeks after the
-       call, because their styles are INLINE and self-contained — nothing about
-       them is token-driven, so changing styles.css never reached them and
-       reading the CSS never revealed it. The same shape as the sign-in gate
-       and the auth email. Values copied from styles.css :root. */
-    :root { --bg:#ffffff; --panel:rgba(0,0,0,.04); --line:rgba(0,0,0,.11); --text:#0b0b0e; --muted:rgba(11,11,14,.56); --purple:#1e1e22; --neon:#000000; --split:linear-gradient(120deg,var(--purple),var(--neon)); --on-accent:#ffffff; }
+    /* The legal pages, in the landing's look (docs/design/landing.html).
+       Inline and self-contained on purpose: nothing here depends on styles.css. */
+    :root { --paper:#fbfaf8; --ink:#0d1b2a; --muted:#55606d; --line:#e6e2db; --coral:#e2583e;
+      --display:"Geist",ui-sans-serif,system-ui,-apple-system,sans-serif; --mono:"Geist Mono",ui-monospace,Menlo,monospace; color-scheme:light; }
     * { box-sizing:border-box; margin:0; padding:0; }
-    body { background:var(--bg); color:var(--text); font-family:'Space Grotesk',system-ui,-apple-system,sans-serif; line-height:1.6; }
-    .wrap { max-width:720px; margin:0 auto; padding:3rem 1.5rem 4rem; }
-    .top { display:flex; align-items:center; gap:.6rem; margin-bottom:2rem; }
-    .mark { width:34px; height:34px; border-radius:9px; background:var(--split); color:var(--on-accent); font-weight:800; display:grid; place-items:center; }
-    .brand { font-weight:700; font-size:1.1rem; }
-    .back { margin-left:auto; color:var(--muted); text-decoration:none; font-size:.9rem; }
-    .back:hover { color:var(--text); }
-    h1 { font-size:1.9rem; font-weight:700; margin-bottom:.4rem; letter-spacing:-.01em; }
-    .updated { color:var(--muted); font-size:.85rem; margin-bottom:2rem; }
-    h2 { font-size:1.05rem; font-weight:700; margin:1.8rem 0 .5rem; }
-    p, li { color:var(--text); font-size:.95rem; }
-    ul { padding-left:1.2rem; margin:.3rem 0; }
-    li { margin:.25rem 0; }
-    a { color:var(--text); text-decoration:underline; text-underline-offset:2px; }
-    .foot { margin-top:2.5rem; padding-top:1.2rem; border-top:1px solid var(--line); color:var(--muted); font-size:.85rem; }
+    body { background:var(--paper); color:var(--ink); font:400 16px/1.65 var(--display); -webkit-font-smoothing:antialiased; }
+    .top { max-width:1240px; margin:0 auto; padding:20px 24px; display:flex; align-items:center; gap:10px; }
+    .brand { display:flex; align-items:center; gap:10px; font-weight:600; font-size:18px; letter-spacing:-.01em; color:var(--ink); text-decoration:none; }
+    .brand img { width:28px; height:28px; display:block; }
+    .back { margin-left:auto; color:var(--muted); text-decoration:none; font-size:14.5px; }
+    .back:hover { color:var(--ink); }
+    .wrap { max-width:720px; margin:0 auto; padding:56px 24px 80px; }
+    h1 { font-size:clamp(36px,6vw,52px); line-height:1.05; font-weight:700; letter-spacing:-.04em; margin-bottom:12px; }
+    .updated { font:400 12.5px var(--mono); color:var(--muted); letter-spacing:.02em; margin-bottom:40px; }
+    h2 { font-size:19px; font-weight:600; letter-spacing:-.01em; margin:40px 0 10px; }
+    p, li { color:#2c3742; font-size:16px; }
+    p + p { margin-top:12px; }
+    ol, ul { padding-left:1.25rem; margin:8px 0; }
+    li { margin:6px 0; }
+    li::marker { color:var(--muted); }
+    a { color:var(--ink); text-decoration:underline; text-decoration-color:var(--line); text-underline-offset:3px; }
+    a:hover { color:var(--coral); text-decoration-color:currentColor; }
+    .foot { margin-top:56px; padding-top:20px; border-top:1px solid var(--line); color:var(--muted); font:400 12.5px/1.6 var(--mono); }
+    .legal-nav { max-width:1240px; margin:0 auto; padding:20px 24px 32px; border-top:1px solid var(--line); display:flex; gap:20px; flex-wrap:wrap; font:400 12.5px var(--mono); color:var(--muted); }
+    .legal-nav a { color:var(--muted); text-decoration:none; } .legal-nav a:hover, .legal-nav a[aria-current] { color:var(--ink); }
+    .legal-nav span { margin-right:auto; }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="top">
-      <span class="mark">G</span><span class="brand">Go Farther</span>
-      <a class="back" href="/">← Back to app</a>
-    </div>
+  <header class="top"><a class="brand" href="/"><img src="/logo.svg" alt="" />Go Farther</a><a class="back" href="/">← Back to home</a></header>
+  <main class="wrap">
 
     <h1>Privacy Policy</h1>
     <div class="updated">Last updated July 2026</div>
@@ -81,6 +81,7 @@
     <p>Questions about privacy? Email <a href="mailto:support@gofarther.dev">support@gofarther.dev</a>.</p>
 
     <div class="foot">gofarther.dev · This policy is a general template and should be reviewed by a professional before you rely on it.</div>
-  </div>
+  </main>
+  <nav class="legal-nav" aria-label="Legal"><span>© 2026 gofarther.dev</span><a href="/privacy.html" aria-current="page">Privacy</a><a href="/terms.html">Terms</a><a href="/data-deletion.html">Deleting your data</a></nav>
 </body>
 </html>
