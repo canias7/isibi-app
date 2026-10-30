@@ -17480,6 +17480,10 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     request: ask, pages: from.pages, parts: from.parts, css: from.css, history, map, spec,
     attached: inFiles.files, unread: inFiles.skipped,
     ownParts: ownPartsSite(pages, parts), model: models.pages, unreadable,
+    // HELPERS ON AN EDIT TOO (2026-10-30, the owner: the parallel rule applies
+    // everywhere): a change with several independent pieces; each helper keeps
+    // this run's scope (`mayWrite`).
+    helpers: true,
   });
   const address = agentAddress(env, slug, uid, job);
   // THE CHANGE IS ALWAYS MEASURED FROM THE SITE AS IT WAS, so a second run

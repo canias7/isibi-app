@@ -69,6 +69,9 @@ const MAX_SHOTS = 2;
  *  (no limit since 2026-10-30: helpers run in parallel on copies and write
  *  only their own page, so a count adds no safety the watchdog lacks). */
 export const MAX_HELPERS = 6;
+/** Tasks in one helpers call (2026-10-30, helper-deps): MAX_HELPERS is how
+ *  many RUN AT ONCE; the rest wait their turn or their dependencies. */
+export const MAX_HELPER_TASKS = 24;
 export const HELPER_ROUNDS = Infinity;
 const PAGE_KEY = /^[a-z0-9][a-z0-9._$-]*(?:\/[a-z0-9._$-]+)*\.tsx$/i;
 const PART_KEY = /^-parts\/[a-z0-9][a-z0-9-]{0,62}$/i;
@@ -142,10 +145,10 @@ export const AGENT_TOOLS = Object.freeze([
   },
   {
     name: "helpers",
-    description: "Hand pages to helper agents that write them AT THE SAME TIME as each other, then come back to you with what they wrote. For a new site, once the shared files every page uses are written (the header, the footer, shared components): give each helper ONE page file that it alone writes, and a brief of what that page holds and which shared components it uses. A helper reads any file but writes only its own page; it cannot build. You then build, look and fix. Up to " + MAX_HELPERS + " pages in one call.",
+    description: "Hand independent pieces to helper agents, then come back to you with what they wrote. Once the shared files are written (the header, the footer, shared components): give each helper ONE file that it alone writes (a page, a component only one page uses, or a server function) and a brief of what it holds and which files it uses. A task that needs another task's file first names it in `after` (that task's file or id, or a file that must exist); it waits until those are written and then reads them. Every task with nothing to wait for starts right away; up to " + MAX_HELPERS + " run at once, up to " + MAX_HELPER_TASKS + " in one call. A helper reads any file but writes only its own; it cannot build. A task whose dependency was not written is skipped and told back to you. You then build, look and fix.",
     input_schema: {
       type: "object",
-      properties: { tasks: { type: "array", maxItems: MAX_HELPERS, items: { type: "object", properties: { file: { type: "string" }, brief: { type: "string" } }, required: ["file", "brief"] } } },
+      properties: { tasks: { type: "array", maxItems: MAX_HELPER_TASKS, items: { type: "object", properties: { id: { type: "string" }, file: { type: "string" }, brief: { type: "string" }, after: { type: "array", items: { type: "string" } } }, required: ["file", "brief"] } } },
       required: ["tasks"],
     },
   },
@@ -283,7 +286,7 @@ You change an existing website for its owner, with tools. Work like an engineer:
 - Every command is a round, and every round costs the owner money: put everything you want to look at in ONE command (join them with ;), never one look per round.
 - Plan first: work out every change, then write all the files, then build once. Fix what the build reports and build again.
 - Every round costs the owner money, so do as much as you can in each one: call several tools in the same answer. Write every file you already know in ONE answer (several write_file calls side by side), read every file you need in one read_files call, and never spend a round on one small file when more are ready.
-- When the helpers tool is offered (a new site): write the shared files first (header, footer, shared components) and the home page yourself, then hand every other page to helpers in ONE helpers call, so they are written at the same time. Then build, look and fix.
+- When the helpers tool is offered: write the shared files first (header, footer, shared components) yourself, then hand the independent pieces (each other page, a component only one page uses, a server function) to helpers in ONE helpers call. A task that needs another's file names it in "after"; everything else starts at once. Only real dependencies go in "after". On an edit, use helpers only when the change has several independent pieces. Then build, look and fix.
 - When the look of a page changed, look at it once the build passes, and fix anything that looks wrong.
 - When the build passes and every change is made, call finish with what you changed, as plain facts.
 - If a change cannot be done, make the rest, and say in finish what was not done and why.
@@ -639,6 +642,112 @@ function outOfScope(deps, key) {
   try { return String(deps.mayWrite(key) || ""); } catch { return ""; }
 }
 
+// ── HELPERS: DEPENDENCIES (2026-10-30, the owner: "a task that needs a
+// previous task waits; a task that doesn't need one starts right away") ──────
+/** The helpers call's tasks, checked: `{ tasks: [{ id, file, brief, after }] }` or `{ error }`. */
+export function helperPlan(raw, ws, deps = null) {
+  const list = Array.isArray(raw) ? raw : [];
+  if (!list.length) return { error: "name at least one file for a helper" };
+  if (list.length > MAX_HELPER_TASKS) return { error: "at most " + MAX_HELPER_TASKS + " tasks in one call" };
+  const tasks = [];
+  const byFile = new Map(), byId = new Map();
+  for (const t of list) {
+    const w = writableKey(t && t.file, ws);
+    const brief = t && typeof t.brief === "string" ? t.brief.trim() : "";
+    if (!w.ok || w.key === CSS_KEY) return { error: "a helper writes one page (\"about.tsx\"), component or server function (\"-parts/<name>\"), never the stylesheet: " + String(t && t.file).slice(0, 60) };
+    if (byFile.has(w.key)) return { error: "two helpers cannot write the same file: " + w.key };
+    if (!brief) return { error: "give the helper for " + w.key + " a brief" };
+    { const why = outOfScope(deps, w.key); if (why) return { error: w.key + ": " + why }; }
+    const id = t && typeof t.id === "string" && t.id.trim() ? t.id.trim().slice(0, 80) : w.key;
+    if (byId.has(id)) return { error: "two tasks share the id " + id };
+    if (t.after != null && !Array.isArray(t.after)) return { error: w.key + ": after is a list of files or task ids" };
+    const task = { id, file: w.key, brief: brief.slice(0, 4000), afterRaw: t.after || [] };
+    byFile.set(w.key, task); byId.set(id, task); tasks.push(task);
+  }
+  for (const task of tasks) {
+    const after = new Set();
+    for (const a of task.afterRaw) {
+      if (typeof a !== "string" || !a.trim()) return { error: task.file + ": after holds only files or task ids" };
+      const k = a.trim();
+      const f = writableKey(k);
+      const dep = byId.get(k) || byFile.get(k) || (f.ok ? byFile.get(f.key) : undefined);
+      if (dep) { if (dep === task) return { error: task.file + " cannot wait for itself" }; after.add(dep.id); continue; }
+      if (ws && (ws.has(k) || (f.ok && ws.has(f.key)))) continue; // already there
+      return { error: task.file + " waits for " + k.slice(0, 80) + ", which is neither a task in this call nor a file that exists" };
+    }
+    task.after = [...after];
+    delete task.afterRaw;
+  }
+  // A CYCLE IS REFUSED UP FRONT: it would wait forever.
+  const state = new Map();
+  const visit = (id, path) => {
+    if (state.get(id) === 2) return null;
+    if (state.get(id) === 1) return [...path.slice(path.indexOf(id)), id];
+    state.set(id, 1);
+    for (const d of byId.get(id).after) { const c = visit(d, [...path, id]); if (c) return c; }
+    state.set(id, 2);
+    return null;
+  };
+  for (const t of tasks) { const c = visit(t.id, []); if (c) return { error: "these tasks wait for each other in a circle: " + c.map((id) => byId.get(id).file).join(" -> ") }; }
+  return { tasks };
+}
+
+/**
+ * Run checked tasks as a graph: every task with nothing unmet starts at once
+ * (up to `max` running); a finished task's file `land`s before anything after
+ * it starts; a task after one that wrote nothing is skipped with why.
+ * `run(task)` -> `{ source, summary, why }`. Answers one result per task, in order.
+ */
+export async function runHelperPlan(tasks, run, { max = MAX_HELPERS, land = () => {}, event = () => {} } = {}) {
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  const out = new Map();
+  const running = new Set();
+  const told = new Set();
+  const emit = (e) => { try { event(e); } catch { /* never costs the run */ } };
+  let wake = null;
+  while (out.size < tasks.length) {
+    for (const t of tasks) {
+      if (out.has(t.id) || running.has(t.id)) continue;
+      const failed = t.after.find((d) => out.has(d) && !out.get(d).source);
+      if (failed) {
+        const d = out.get(failed);
+        out.set(t.id, { file: t.file, source: "", skipped: true, why: "skipped: it waits for " + byId.get(failed).file + ", which was not written" + (d.why ? " (" + d.why + ")" : "") });
+        emit({ state: "skipped", file: t.file, on: [byId.get(failed).file] });
+        continue;
+      }
+      const open = t.after.filter((d) => !out.has(d));
+      if (open.length || running.size >= max) {
+        if (!told.has(t.id)) { told.add(t.id); emit({ state: "waiting", file: t.file, on: open.map((d) => byId.get(d).file) }); }
+        continue;
+      }
+      running.add(t.id);
+      emit({ state: "started", file: t.file });
+      Promise.resolve().then(() => run(t)).catch((e) => ({ source: "", why: "the helper failed: " + String((e && e.message) || e).slice(0, 120) })).then((r) => {
+        const d = { file: t.file, source: (r && typeof r.source === "string" && r.source) || "", summary: (r && r.summary) || "", why: (r && r.why) || "" };
+        if (d.source) { try { land(d); } catch { /* the result still comes back */ } }
+        running.delete(t.id);
+        out.set(t.id, d);
+        emit(d.source ? { state: "done", file: t.file, chars: d.source.length } : { state: "failed", file: t.file });
+        if (wake) { const w = wake; wake = null; w(); }
+      });
+    }
+    if (out.size >= tasks.length || !running.size) break;
+    await new Promise((r) => { wake = r; });
+  }
+  return tasks.map((t) => out.get(t.id) || { file: t.file, source: "", why: "never started" });
+}
+
+/** A helper's progress line: file names and numbers only. */
+export function helperFact(e) {
+  const who = fileName(e.file);
+  const name = who.charAt(0).toUpperCase() + who.slice(1);
+  if (e.state === "waiting") return name + ": waiting for " + (e.on && e.on.length ? listed(e.on.map(fileName)) : "a free helper") + ".";
+  if (e.state === "started") return name + ": started.";
+  if (e.state === "done") return name + ": done (" + e.chars + " characters).";
+  if (e.state === "skipped") return name + ": skipped, " + listed((e.on || []).map(fileName)) + " was not written.";
+  return name + ": not written.";
+}
+
 // ── THE TOOLS, RUN ───────────────────────────────────────────────────────────
 async function runTool(use, st, deps) {
   const input = use.input && typeof use.input === "object" ? use.input : {};
@@ -764,29 +873,20 @@ async function runTool(use, st, deps) {
     }
     case "helpers": {
       if (typeof deps.helpers !== "function") return { error: "helpers cannot be used here" };
-      const raw = Array.isArray(input.tasks) ? input.tasks : [];
-      if (!raw.length) return { error: "name at least one page for a helper" };
-      if (raw.length > MAX_HELPERS) return { error: "at most " + MAX_HELPERS + " pages in one call" };
-      const tasks = [];
-      const seen = new Set();
-      for (const t of raw) {
-        const w = writableKey(t && t.file, st.ws);
-        const brief = t && typeof t.brief === "string" ? t.brief.trim() : "";
-        if (!w.ok || w.key === CSS_KEY || w.key.startsWith("-parts/")) return { error: "a helper writes one page (\"about.tsx\"), never a component or the stylesheet: " + String(t && t.file).slice(0, 60) };
-        if (seen.has(w.key)) return { error: "two helpers cannot write the same page: " + w.key };
-        if (!brief) return { error: "give the helper for " + w.key + " a brief" };
-        seen.add(w.key);
-        tasks.push({ file: w.key, brief: brief.slice(0, 4000) });
-      }
-      const done = await deps.helpers(tasks, st.ws);
+      const plan = helperPlan(input.tasks, st.ws, deps);
+      if (plan.error) return { error: plan.error };
+      const say = (text, state) => { try { if (typeof st.progress === "function") st.progress("agent", [fact(state, text)]); } catch { /* never costs the run */ } };
+      const done = await runHelperPlan(plan.tasks, (t) => deps.helpers(t, st.ws), {
+        max: MAX_HELPERS,
+        // A FINISHED HELPER'S FILE LANDS AT ONCE, so a task after it reads it.
+        land: (d) => { st.ws.set(d.file, d.source); st.dirty = true; st.written.add(d.file); },
+        event: (e) => say(helperFact(e), e.state === "done" ? "applied" : "doing"),
+      });
       const lines = [];
       for (const d of done) {
-        if (d.source) {
-          st.ws.set(d.file, d.source);
-          st.dirty = true;
-          st.written.add(d.file);
-          lines.push(d.file + ": written (" + d.source.length + " chars)" + (d.summary ? ". " + d.summary.slice(0, 600) : ""));
-        } else lines.push(d.file + ": NOT written (" + (d.why || "no answer") + ") — write it yourself");
+        if (d.source) lines.push(d.file + ": written (" + d.source.length + " chars)" + (d.summary ? ". " + d.summary.slice(0, 600) : ""));
+        else if (d.skipped) lines.push(d.file + ": SKIPPED (" + d.why + ") — decide: write it yourself or hand it again");
+        else lines.push(d.file + ": NOT written (" + (d.why || "no answer") + ") — write it yourself");
       }
       return { text: "The helpers are back:\n" + lines.join("\n") + "\nBuild next, then look and fix." };
     }
@@ -1080,7 +1180,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
   const files = (Array.isArray(attached) ? attached : []).filter((f) => f && typeof f.id === "string");
   if (files.length && !onlyWrite) deps = { ...deps, attachment: (id) => files.find((f) => f.id === id) || null };
   const st = { ws, tables, onlyWrite, rows: [], schema: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log, settings: {}, rules: [], redirects: {}, qrs: 0, ask: null, sorts: [], media: [], address: null, forget: [], keysAsked: [], unreadable: unreadable === true, request: String(request || ""),
-    ruleTables: spec && Array.isArray(spec.tables) ? spec.tables.filter((t) => t && typeof t.name === "string") : [] };
+    progress, ruleTables: spec && Array.isArray(spec.tables) ? spec.tables.filter((t) => t && typeof t.name === "string") : [] };
   const shown = headStart({ pages, parts, targets, picked });
   const system = [{ type: "text", text: agentSystem(spec, kind, { ownParts }), cache_control: { type: "ephemeral" } }];
   // THE TOOLS OFFERED ARE THE TOOLS WIRED (2026-10-29, the second live build:
@@ -1093,19 +1193,22 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
   // is this same agent on a copy of the workspace, allowed to write one page;
   // they run at the same time, and their cost joins this run's.
   if (helpers && !onlyWrite) {
-    deps = { ...deps, helpers: (tasks, cur) => Promise.all(tasks.map(async (t) => {
+    // ONE HELPER, ONE TASK: the helpers tool schedules them (`runHelperPlan`)
+    // and each starts from the workspace as it is THEN, with every finished
+    // dependency's file in it. A helper keeps the caller's scope (`mayWrite`).
+    deps = { ...deps, helpers: async (t, cur) => {
       try {
         const left = Math.max(60000, maxMs - (now() - started));
-        const r = await runSiteAgent({ send: deps.send, now: deps.now, readTable: deps.readTable, stopped: deps.stopped, alive: deps.alive, affords: deps.affords, beat: deps.beat, log: (e) => log({ ...e, helper: 1 }) }, {
-          request: "YOU ARE A HELPER. Another agent is building this site and has handed you ONE page to write: " + t.file + ". Write that page, complete, with write_file, and nothing else (you cannot build; the other agent builds after you). Read the shared files you use first. Then finish with one line on what the page holds.\n\nYOUR PAGE'S BRIEF\n" + t.brief + "\n\nTHE OWNER'S REQUEST FOR THE WHOLE SITE\n" + String(request || ""),
+        const r = await runSiteAgent({ send: deps.send, now: deps.now, readTable: deps.readTable, stopped: deps.stopped, alive: deps.alive, affords: deps.affords, beat: deps.beat, ...(typeof deps.mayWrite === "function" ? { mayWrite: deps.mayWrite } : {}), log: (e) => log({ ...e, helper: 1 }) }, {
+          request: "YOU ARE A HELPER. Another agent is working on this site and has handed you ONE file to write: " + t.file + ". Write that file, complete, with write_file, and nothing else (you cannot build; the other agent builds after you). Read the shared files you use first" + (t.after && t.after.length ? " (the files you waited for are written now)" : "") + ". Then finish with one line on what the file holds.\n\nYOUR BRIEF\n" + t.brief + "\n\nTHE OWNER'S REQUEST\n" + String(request || ""),
           pages: cur.pages(), parts: cur.parts(), css: cur.css(), map, spec, kind, ownParts, model, maxRounds: HELPER_ROUNDS, maxMs: left, onlyWrite: t.file,
         });
         for (const u of r.usage) usage.push(u);
-        const page = r.pages.find((p) => p.path === t.file);
-        const wrote = r.changed.includes(t.file) && page ? page.source : "";
+        const own = t.file.startsWith("-parts/") ? r.parts.find((p) => "-parts/" + p.name === t.file) : r.pages.find((p) => p.path === t.file);
+        const wrote = r.changed.includes(t.file) && own ? own.source : "";
         return { file: t.file, source: wrote, summary: r.summary, why: wrote ? "" : r.stopped ? "the helper stopped: " + r.stopped : "the helper wrote nothing" };
       } catch (e) { return { file: t.file, source: "", why: "the helper failed: " + String((e && e.message) || e).slice(0, 120) }; }
-    })) };
+    } };
   }
   const tools = onlyWrite ? toolsFor(deps).filter((t) => t.name !== "build") : toolsFor(deps);
   let messages = [{ role: "user", content: [{ type: "text", text: firstMessage({ request, map, ws, shown, history, tables, ownParts, attached: onlyWrite ? [] : files, unread: onlyWrite ? [] : unread, unreadable: st.unreadable }), cache_control: { type: "ephemeral" } }] }];

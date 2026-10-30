@@ -1,5 +1,20 @@
 # Owner Notes
 
+## 2026-10-30 — Helpers wait only for what they need (branch `helper-deps`, from `main` `f02ef0f58`; not merged, not deployed, nothing paid)
+
+**Your rule:** "a task that needs a previous task waits; a task that doesn't need one starts right away", everywhere, including inside a build.
+
+**What changed** (`builder/site-agent.mjs`, one line in `runAgentChange` in `worker.js`):
+1. **A helper task can say what it waits for** (`after`: another task in the same call, by its file or id, or a file that must exist). Every task with nothing to wait for starts at once; when a task finishes, its file goes into the shared workspace straight away and every task now free starts, reading that file.
+2. **Refused before anything runs:** tasks that wait for each other in a circle, a task waiting for itself, and a wait for something that is neither a task nor an existing file. The agent is told why.
+3. **A task whose dependency was not written is skipped**, and the agent is told which one and why, so it decides what to do. Unrelated tasks still run.
+4. **Six helpers run at once (as before), but one call can now hold 24 tasks**; the rest wait for a free helper.
+5. **Helpers may now write a component used by one page or a server function**, not only pages. Never the stylesheet.
+6. **Your live progress shows each helper:** "The /menu page: waiting for the "site-header" component.", "started.", "done (N characters).", or "skipped".
+7. **Edits get helpers too**, for a change with several independent pieces. A helper keeps the change's scope: a file outside the part asked for is refused both when the task is handed over and when the helper writes.
+
+**Tests:** `test/site-agent-helper-deps.test.mjs`, 8 cases (all fail on `main`): independent tasks run together, a dependent waits and reads its dependency's file, a chain runs in order, cycles and unknown names are refused, a failed dependency skips its dependents, the progress lines, at most six at once, and edits get helpers that obey the scope guard. One older case updated (components are now allowed). Mutation sweep 12 of 12 killed, comment-only control survived. **Nothing spent, no model calls.**
+
 ## 2026-10-30 — Fixes before the paid live test (branch `pretest-fixes`, from `main` `f02ef0f58`; not merged, not deployed, nothing paid)
 
 **What changed:**
