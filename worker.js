@@ -226,6 +226,7 @@ import { runLogoEdit } from "./builder/site-logo.mjs";
 import { writtenFrame, ownPartsSite, runFrameEdit, addFrameLinks, FRAME_PARTS, frameTables } from "./builder/site-frame.mjs";
 import { noteProgress } from "./builder/job-progress.mjs";
 import { runSiteAgent, stoppedFacts, agentTakes, historyText, asWriterAnswer, agentAttachments, agentAttachmentsFromBlocks } from "./builder/site-agent.mjs";
+import { TESTS_KEY, TEST_RUN_MS, cleanTests, sameTests } from "./builder/site-tests.mjs";
 import { mergeSchemaOps, keepsEverything } from "./builder/agent-server-tools.mjs";
 import { pdfText } from "./builder/pdf-text.mjs";
 import { fileMap, workspaceDiff, changeReport, reviewNote, reportFacts, scopeGuard, retryAfterStop, retryableSave, retryRequest as agentRetryRequest, versionName, undoFacts, undoSentence } from "./builder/agent-guard.mjs";
@@ -13014,6 +13015,26 @@ function qrPayload(qr) {
 
 const PARTS_KEY = (slug) => "source/" + String(slug).toLowerCase() + "/parts.json";
 
+// THE SITE'S OWN TESTS (2026-10-30, `run_tests`): `source/<slug>/tests.json`,
+// beside `parts.json`, read by the agent and saved when its change is. Never
+// handed to a publish or a compile: the published bundle cannot hold them.
+async function readSiteTests(env, slug) {
+  if (!env.SITES_BUCKET) return { ok: false, tests: [] };
+  try {
+    const o = await env.SITES_BUCKET.get(TESTS_KEY(slug));
+    if (!o) return { ok: true, tests: [] };
+    return { ok: true, tests: cleanTests(JSON.parse(await o.text())) };
+  } catch (e) { console.error("tests read failed:", slug, e && e.message); return { ok: false, tests: [] }; }
+}
+
+async function saveSiteTests(env, slug, tests) {
+  if (!env.SITES_BUCKET) return false;
+  try {
+    await env.SITES_BUCKET.put(TESTS_KEY(slug), JSON.stringify(cleanTests(tests)), { httpMetadata: { contentType: "application/json" } });
+    return true;
+  } catch (e) { console.error("tests save failed:", slug, e && e.message); return false; }
+}
+
 async function saveSiteParts(env, slug, parts, fence = null) {
   if (!env.SITES_BUCKET) return false;
   const list = (Array.isArray(parts) ? parts : [])
@@ -17177,6 +17198,29 @@ function agentCall(env, slug) {
   };
 }
 
+/**
+ * `run_tests` (2026-10-30): the site's tests, run in its container against a
+ * private copy of the workspace (`/agent-tests`, `builder/test-runner.mjs`): a
+ * throwaway database made from the site's tables, outside calls recorded and
+ * faked, no network. Never the live site, its database or the owner's keys.
+ */
+function agentTests(env, slug, spec = null) {
+  const tables = spec && Array.isArray(spec.tables) ? spec.tables.filter((t) => t && typeof t.name === "string").map((t) => ({ name: t.name, columns: Array.isArray(t.columns) ? t.columns.map((c) => (typeof c === "string" ? { name: c } : { name: c && c.name, type: c && c.type })).filter((c) => typeof c.name === "string") : [] })) : [];
+  return async (w, { files = [], only = "" } = {}) => {
+    if (!env.SITE_BUILD_CONTAINER) return { ran: false, why: "no build container" };
+    try {
+      const c = getContainer(env.SITE_BUILD_CONTAINER, laneName(slug));
+      const r = await c.fetch(new Request("http://build/agent-tests", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pages: w.pages, parts: w.parts, css: w.css, tests: w.tests, tables, files, only }),
+        signal: AbortSignal.timeout(TEST_RUN_MS + 30000),
+      }));
+      const j = await r.json().catch(() => null);
+      return j && typeof j === "object" ? j : { ran: false, why: "the container answered " + r.status };
+    } catch (e) { return { ran: false, why: String((e && e.message) || e).slice(0, 200) }; }
+  };
+}
+
 /** `read_docs`'s fetch, from the Worker (the container has no internet): the address is judged in the module before and after. */
 async function agentFetchDocs(url) {
   const r = await fetch(url, { headers: { accept: "text/html,text/plain;q=0.9", "user-agent": "GoFartherSiteAgent/1.0 (+https://gofarther.dev)" }, redirect: "follow", signal: AbortSignal.timeout(15000) });
@@ -17435,6 +17479,8 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   // answer names, and the version before the change for the undo facts.
   const before = fileMap({ pages, parts, css });
   const mayWrite = scopeGuard({ pages, parts, routes: scope, look });
+  // THE SITE'S OWN TESTS (2026-10-30): run again before every finish.
+  const storedTests = await readSiteTests(env, slug);
   let restoreTo = "";
   try { const ptr = await readPointer(buildDeps(env), slug); restoreTo = ptr && typeof ptr.version === "string" ? ptr.version : ""; } catch { restoreTo = ""; }
   const runOnce = (ask, from) => runSiteAgent({
@@ -17469,6 +17515,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     // site that has one.
     callFunction: agentCall(env, slug),
     fetchDocs: agentFetchDocs,
+    runTests: agentTests(env, slug, spec),
     ...(conn ? { readErrors: agentReadErrors(env, slug), listKeys: agentListKeys(env, slug), applySchema: (ops) => applyAgentSchema(env, slug, conn, ops, job) } : {}),
     // A SITE WITH NO DATABASE GETS ONE (fix-all, the add-on route's own
     // `ensureSiteBackend`): additions are offered, and the database is made
@@ -17480,6 +17527,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     request: ask, pages: from.pages, parts: from.parts, css: from.css, history, map, spec,
     attached: inFiles.files, unread: inFiles.skipped,
     ownParts: ownPartsSite(pages, parts), model: models.pages, unreadable,
+    tests: from.tests || storedTests.tests,
   });
   const address = agentAddress(env, slug, uid, job);
   // THE CHANGE IS ALWAYS MEASURED FROM THE SITE AS IT WAS, so a second run
@@ -17493,7 +17541,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   if (!ag.ok && retryAfterStop(ag.stopped)) {
     retried = ag.stopped;
     tm("agent:retry", "start", { why: retried });
-    ag = settle(await runOnce(agentRetryRequest(request, stoppedFacts(ag)), { pages: ag.pages, parts: ag.parts, css: ag.css }));
+    ag = settle(await runOnce(agentRetryRequest(request, stoppedFacts(ag)), { pages: ag.pages, parts: ag.parts, css: ag.css, tests: ag.tests }));
     // A SECOND RUN THAT ONLY ANSWERED IN WORDS while the first one's files
     // were never built has not finished the change: still a stop.
     if (ag.ok && !ag.ask && ag.changed.length && !ag.builds) ag = { ...ag, ok: false, stopped: "no-tool" };
@@ -17543,7 +17591,11 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   // A QUESTION, OR NOTHING TO CHANGE: the agent's own answer, nothing saved.
   const schemaOps = Array.isArray(ag.schema) ? ag.schema : [];
   const addressOps = [...(ag.address ? [ag.address] : []), ...(ag.forget || []).map((name) => ({ action: "forget", name }))];
+  // THE TESTS ARE KEPT WITH THE SITE when the agent changed them (a read that
+  // failed is never overwritten: its tests would be lost).
+  const keepTests = async () => { if (storedTests.ok && Array.isArray(ag.tests) && !sameTests(ag.tests, storedTests.tests)) await saveSiteTests(env, slug, ag.tests); };
   if (!ag.changed.length && !ag.rows.length && !schemaOps.length && !setKeys.length && !(ag.rules || []).length && !addressOps.length) {
+    await keepTests();
     // A KEY ASKED FOR WITH NOTHING ELSE TO DO ("add my Stripe key") still
     // shows the card (2026-10-30): the names asked, less those already set.
     let askedOnly = [];
@@ -17743,6 +17795,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     sorts: out ? ag.sorts || [] : [], media: out ? ag.media || [] : [], address: addressFacts, keys: keysOut, report: reportFacts(report), undo: undoSentence(undo), summary: ag.summary });
   if (talk) { try { job.progress.mark("applied", facts.slice(0, 6).map((text) => ({ state: "applied", text }))); } catch { /* never */ } }
   const partial = rowsOut.failed > 0 || addressFacts.some((f) => /could not/.test(f)) || ruleFacts.some((f) => /could not|refused/.test(f));
+  await keepTests();
   return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg: facts.join(" "), facts,
     ...(partial ? { partial: true } : {}),
     // THE PAGES THE AGENT LOOKED AT (2026-10-29), so the reply says it looked.
@@ -19662,6 +19715,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         // (2026-10-30); it has no error log, keys or stored schema to read yet.
         callFunction: agentCall(env, slug),
         fetchDocs: agentFetchDocs,
+        runTests: agentTests(env, slug, spec),
         progress: (stage, facts) => { try { if (typeof say === "function") say(stage, facts); } catch { /* the talk never costs the build */ } },
         log: (e) => { try { mark?.("agent:" + e.event, e); } catch { /* a trace must never break a build */ } },
         // STOP (2026-10-30, fix-all): the build's own stop read, at most every 10 s.
@@ -19680,6 +19734,8 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       try { mark?.("agent", { ok: ag.ok, rounds: ag.rounds, builds: ag.builds, stopped: ag.stopped }); } catch { /* a trace must never break a build */ }
       // A STOPPED AGENT STOPS THE BUILD, as the publish's own stop read does.
       if (ag.stopped === "cancelled") throw Object.assign(new Error("the build was stopped before it was published"), { stopped: true });
+      // THE TESTS IT WROTE ARE KEPT WITH THE NEW SITE (2026-10-30).
+      if (ag.ok && Array.isArray(ag.tests) && ag.tests.length) { try { await saveSiteTests(env, slug, ag.tests); } catch { /* the tests never cost the build */ } }
       return asWriterAnswer(ag, agModel);
     } : null,
     generate: async () => {

@@ -35,6 +35,7 @@ import { siteSlice } from "./site-map.mjs";
 import { checkServerPart, SERVER_PREFIX } from "./server-code.mjs";
 import { pageCost } from "./publish-pages.mjs";
 import { requiredFiles, partKey, overThreshold } from "./file-picker.mjs";
+import { TEST_KEY, TEST_PREFIX, TESTING_RULES, MAX_TEST_CHARS, cleanTests, testReport, testsFailed } from "./site-tests.mjs";
 import { keyAsk } from "./key-card.mjs";
 import { SERVER_TOOLS, readDocs, errorLines, errorsLimit, keyNames, schemaChange, callRequest, callAnswer } from "./agent-server-tools.mjs";
 import { attachments as sortAttachments } from "./site-context.mjs";
@@ -227,6 +228,14 @@ export const AGENT_TOOLS = Object.freeze([
     description: "Ask the owner ONE question when the request cannot be done right without a detail only they know, with two to four short answers they tap. This ends your turn: nothing you queued or wrote is saved, and you continue from their answer. Never ask what you can find out by reading the site.",
     input_schema: { type: "object", properties: { question: { type: "string" }, options: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 4 } }, required: ["question", "options"] },
   },
+  // THE SITE'S OWN TESTS (2026-10-30, the owner: a universal testing
+  // capability): run in the container against a private copy of the draft,
+  // a throwaway database and no network (`test-runner.mjs`).
+  {
+    name: "run_tests",
+    description: "Run the site's tests (\"-tests/<name>.test.ts\" files you wrote with write_file, and the ones already kept with the site) against a PRIVATE copy of your workspace: its server functions, its pages in a real browser, a throwaway database, outside calls recorded and faked, no network. `files`: only these test files; `only`: only the tests whose name contains this. Answers every test, passed or failed, with its message.",
+    input_schema: { type: "object", properties: { files: { type: "array", items: { type: "string" } }, only: { type: "string" } } },
+  },
   {
     name: "finish",
     description: "You are done. If you wrote or removed any file, only after a build that passed with nothing written since. `summary`: what you changed, as plain facts for the reply to the customer.",
@@ -302,8 +311,8 @@ FILES, OLD SITES AND LISTS THE OWNER GIVES YOU:
 - A LIST THE OWNER PASTES OR ATTACHES (products, a menu, prices, classes): read it, read the table it belongs in with read_table first (its columns, and its rows when some already exist), then map each line onto the table's columns and add or update the rows in ONE change_rows call. Never invent a value the list does not give: leave that column empty, and say in finish which values are missing and for which rows.`;
 
 /** The rules every round opens with, the same for every site of a kind (rule 4). */
-export function agentSystem(spec = null, kind = "", { ownParts = false } = {}) {
-  return pageRulesFor(spec, kind, { ownParts }) + AGENT_RULES + INPUT_RULES;
+export function agentSystem(spec = null, kind = "", { ownParts = false, testing = false } = {}) {
+  return pageRulesFor(spec, kind, { ownParts }) + AGENT_RULES + INPUT_RULES + (testing ? TESTING_RULES : "");
 }
 
 /** A CSV (or TSV) as numbered rows of column=value, for reading a pasted or attached list. */
@@ -372,14 +381,16 @@ const isPage = (p) => p && typeof p.path === "string" && typeof p.source === "st
 const isPart = (p) => p && typeof p.name === "string" && typeof p.source === "string";
 
 export const CSS_KEY = "styles.css";
-const isPageKey = (k) => k !== CSS_KEY && !k.startsWith("-parts/");
+const isPageKey = (k) => k !== CSS_KEY && !k.startsWith("-parts/") && !k.startsWith(TEST_PREFIX);
 
 /** The files the agent works on; `css` is the stored stylesheet, or null when it could not be read (then not offered). */
-export function makeWorkspace(pages = [], parts = [], css = null) {
+export function makeWorkspace(pages = [], parts = [], css = null, tests = []) {
   const files = new Map();
   for (const p of Array.isArray(pages) ? pages : []) if (isPage(p)) files.set(p.path, p.source);
   for (const p of Array.isArray(parts) ? parts : []) if (isPart(p)) files.set(partKey(p.name), p.source);
   if (typeof css === "string") files.set(CSS_KEY, css);
+  // THE SITE'S TESTS (2026-10-30): files of the workspace, never a page or a part.
+  for (const t of cleanTests(tests)) files.set(t.name, t.source);
   const original = new Map(files);
   return {
     files,
@@ -392,6 +403,7 @@ export function makeWorkspace(pages = [], parts = [], css = null) {
     removed: () => [...original.keys()].filter((k) => !files.has(k)),
     pages: () => [...files].filter(([k]) => isPageKey(k)).map(([path, source]) => ({ path, source })),
     parts: () => [...files].filter(([k]) => k.startsWith("-parts/")).map(([k, source]) => ({ name: k.slice(7), source })),
+    tests: () => [...files].filter(([k]) => k.startsWith(TEST_PREFIX)).map(([name, source]) => ({ name, source })),
     css: () => (files.has(CSS_KEY) ? files.get(CSS_KEY) : null),
     cssChanged: () => original.has(CSS_KEY) && original.get(CSS_KEY) !== files.get(CSS_KEY),
   };
@@ -403,7 +415,8 @@ export function writableKey(key, ws = null) {
   if (k === CSS_KEY) return ws && !ws.has(CSS_KEY) ? { ok: false, why: "the stylesheet could not be read, so it cannot be written this time" } : { ok: true, key: k };
   if (PAGE_KEY.test(k) && !k.startsWith("-parts/")) return { ok: true, key: k };
   if (PART_KEY.test(k)) return { ok: true, key: k };
-  return { ok: false, why: "a file key is a page (\"about.tsx\") or a component (\"-parts/<name>\")" };
+  if (TEST_KEY.test(k)) return { ok: true, key: k, test: true };
+  return { ok: false, why: "a file key is a page (\"about.tsx\"), a component (\"-parts/<name>\") or a test (\"-tests/<name>.test.ts\")" };
 }
 
 // ── RULE 1: THE HEAD START ───────────────────────────────────────────────────
@@ -531,7 +544,7 @@ export function compact(messages, { keep = KEEP_RECENT } = {}) {
 
 // ── THE TOOLS A CALLER HAS WIRED ────────────────────────────────────────────
 /** Which tool needs which dependency; a tool whose dependency is missing is never offered. */
-export const TOOL_NEEDS = Object.freeze({ look: "look", run: "run", read_table: "readTable", helpers: "helpers", call_function: "callFunction", read_errors: "readErrors", list_keys: "listKeys", change_schema: "applySchema", read_docs: "fetchDocs", read_attachment: "attachment", import_site: "importSite", set_site_settings: "saveSettings", set_logo: "checkUpload", set_languages: "saveSettings", set_table_rules: "saveRules", rename_page: "saveRedirects", make_qr: "siteUrl", ask_owner: "canAsk", sort_table: "sortTables", attach_media: "media", rename_site: "address", forget_old_address: "address" });
+export const TOOL_NEEDS = Object.freeze({ run_tests: "runTests", look: "look", run: "run", read_table: "readTable", helpers: "helpers", call_function: "callFunction", read_errors: "readErrors", list_keys: "listKeys", change_schema: "applySchema", read_docs: "fetchDocs", read_attachment: "attachment", import_site: "importSite", set_site_settings: "saveSettings", set_logo: "checkUpload", set_languages: "saveSettings", set_table_rules: "saveRules", rename_page: "saveRedirects", make_qr: "siteUrl", ask_owner: "canAsk", sort_table: "sortTables", attach_media: "media", rename_site: "address", forget_old_address: "address" });
 export function toolsFor(deps) {
   const d = deps || {};
   return AGENT_TOOLS.filter((t) => !Object.hasOwn(TOOL_NEEDS, t.name) || typeof d[TOOL_NEEDS[t.name]] === "function");
@@ -588,7 +601,7 @@ export function buildFailKind(r) {
 
 // ── WHAT A ROUND DID, AS NUMBERS ─────────────────────────────────────────────
 /** Each tool's uses in one round, as counts: the build trace keeps numbers only. */
-const TOOL_COUNT_KEYS = { write_file: "writes", read_files: "reads", delete_file: "deletes", change_rows: "rowChanges", read_table: "tableReads", run: "commands", look: "looks", build: "builds", finish: "finish", call_function: "fnCalls", read_errors: "errorReads", list_keys: "keyLists", change_schema: "schemaChanges", read_docs: "docReads", set_site_settings: "settings", set_logo: "logos", set_languages: "languages", set_table_rules: "ruleChanges", rename_page: "pageRenames", make_qr: "qrCodes", ask_owner: "asks", request_key: "keyAsks" };
+const TOOL_COUNT_KEYS = { run_tests: "testRuns", write_file: "writes", read_files: "reads", delete_file: "deletes", change_rows: "rowChanges", read_table: "tableReads", run: "commands", look: "looks", build: "builds", finish: "finish", call_function: "fnCalls", read_errors: "errorReads", list_keys: "keyLists", change_schema: "schemaChanges", read_docs: "docReads", set_site_settings: "settings", set_logo: "logos", set_languages: "languages", set_table_rules: "ruleChanges", rename_page: "pageRenames", make_qr: "qrCodes", ask_owner: "asks", request_key: "keyAsks" };
 export function toolCounts(uses) {
   const out = {};
   for (const b of Array.isArray(uses) ? uses : []) {
@@ -618,7 +631,7 @@ export function syncFromRun(st, files) {
   for (const p of files.pages) if (p && typeof p.path === "string" && typeof p.source === "string" && writableKey(p.path).ok) now.set(p.path, p.source);
   for (const p of files.parts) if (p && typeof p.name === "string" && typeof p.source === "string" && writableKey(partKey(p.name)).ok) now.set(partKey(p.name), p.source);
   for (const [k, v] of now) if (ws.get(k) !== v) { ws.set(k, v); moved.push(k); }
-  for (const k of ws.keys()) if (k !== CSS_KEY && !now.has(k)) { ws.delete(k); moved.push(k); }
+  for (const k of ws.keys()) if (k !== CSS_KEY && !k.startsWith(TEST_PREFIX) && !now.has(k)) { ws.delete(k); moved.push(k); }
   if (ws.has(CSS_KEY) && typeof files.css === "string" && files.css !== ws.get(CSS_KEY)) { ws.set(CSS_KEY, files.css); moved.push(CSS_KEY); }
   if (moved.length) { st.dirty = true; for (const k of moved) st.written.add(k); }
   return moved;
@@ -628,6 +641,20 @@ export function syncFromRun(st, files) {
 function outOfScope(deps, key) {
   if (!deps || typeof deps.mayWrite !== "function") return "";
   try { return String(deps.mayWrite(key) || ""); } catch { return ""; }
+}
+
+// ── THE SITE'S TESTS, RUN ────────────────────────────────────────────────────
+const workspaceSig = (ws) => JSON.stringify(ws.keys().sort().map((k) => [k, ws.get(k)]));
+/** One run of the tests over the workspace as it is; the outcome is kept on `st`. */
+async function runTestsNow(st, deps, { files = [], only = "" } = {}) {
+  let r;
+  try { r = await deps.runTests({ pages: st.ws.pages(), parts: st.ws.parts(), css: st.ws.css(), tests: st.ws.tests() }, { files, only }); }
+  catch (e) { r = { ran: false, why: String((e && e.message) || e).slice(0, 200) }; }
+  if (!files.length && !only) st.testedSig = workspaceSig(st.ws);
+  const list = r && Array.isArray(r.results) ? r.results : [];
+  st.testRun = { ran: !!(r && r.ran), passed: list.filter((x) => x.ok).length, failed: list.filter((x) => !x.ok).length };
+  try { st.log({ event: "tests", ...st.testRun }); } catch { /* never */ }
+  return r;
 }
 
 // ── THE TOOLS, RUN ───────────────────────────────────────────────────────────
@@ -646,6 +673,15 @@ async function runTool(use, st, deps) {
       const w = writableKey(input.file, st.ws);
       if (!w.ok) return { error: w.why };
       if (st.onlyWrite && w.key !== st.onlyWrite) return { error: "a helper writes only its own page, " + st.onlyWrite };
+      // A TEST IS NOT THE SITE: outside any page scope, and it needs no build.
+      if (w.test) {
+        const t = typeof input.source === "string" ? input.source : "";
+        if (!t.trim()) return { error: "the source is empty" };
+        if (t.length > MAX_TEST_CHARS) return { error: "a test file is over " + MAX_TEST_CHARS + " characters" };
+        st.ws.set(w.key, t);
+        st.written.add(w.key);
+        return { text: "Saved " + w.key + " (" + t.length + " chars). Run it with run_tests." };
+      }
       { const why = outOfScope(deps, w.key); if (why) return { error: why }; }
       const src = typeof input.source === "string" ? input.source : "";
       if (!src.trim()) return { error: "the source is empty" };
@@ -665,6 +701,12 @@ async function runTool(use, st, deps) {
       if (st.onlyWrite) return { error: "a helper writes only its own page, " + st.onlyWrite };
       const w = writableKey(input.file);
       if (!w.ok || w.key === CSS_KEY) return { error: "only a page or a component can be removed" };
+      if (w.test) {
+        if (!st.ws.has(w.key)) return { error: "no such file: " + w.key };
+        st.ws.delete(w.key);
+        st.written.add(w.key);
+        return { text: "Removed the test " + w.key + "." };
+      }
       if (w.key === "index.tsx") return { error: "the home page cannot be removed" };
       if (!st.ws.has(w.key)) return { error: "no such file: " + w.key };
       { const why = outOfScope(deps, w.key); if (why) return { error: why }; }
@@ -966,8 +1008,27 @@ async function runTool(use, st, deps) {
       st.done = true;
       return { text: "Asked. Your turn ends here." };
     }
+    case "run_tests": {
+      if (typeof deps.runTests !== "function") return { error: "tests cannot be run here" };
+      const files = (Array.isArray(input.files) ? input.files : []).filter((f) => typeof f === "string").slice(0, 40);
+      const r = await runTestsNow(st, deps, { files, only: typeof input.only === "string" ? input.only.slice(0, 120) : "" });
+      const text = testReport(r);
+      return testsFailed(r) ? { error: text, images: r && r.shots } : { text, images: r && r.shots };
+    }
     case "finish": {
       if (st.dirty && !st.onlyWrite) return { error: "build first: files were written since the last build that passed" };
+      // THE SITE'S TESTS RUN AGAIN BEFORE FINISH (2026-10-30): whenever the
+      // workspace changed since they last ran (a later edit, a new test), the
+      // whole set runs; a failure holds the finish ONCE. Finishing again is
+      // the agent's answer, and it must say why in its summary.
+      if (typeof deps.runTests === "function" && !st.onlyWrite && st.ws.tests().length && st.testedSig !== workspaceSig(st.ws)) {
+        const r = await runTestsNow(st, deps, {});
+        if (testsFailed(r) && !st.testsHeld) {
+          st.testsHeld = true;
+          try { st.log({ event: "tests-held", failed: st.testRun ? st.testRun.failed : 0 }); } catch { /* never */ }
+          return { error: "The site's tests ran before finishing and did not all pass. Fix the regression (or the test, if it is now wrong), run_tests, and finish again; if you cannot, finish and say exactly which test fails and why.\n" + testReport(r) };
+        }
+      }
       // A FINDING THAT MUST BE FIXED HOLDS THE FINISH ONCE: the agent is sent
       // back to fix it; if it finishes again it is let go (it may not be able to),
       // and the final reply says what the check still found.
@@ -1055,7 +1116,7 @@ export function roundFacts(outcomes) {
  * `{ ok, stopped, pages, parts, changed, summary, usage, credits, rounds, builds }`.
  * `ok` is true only when the agent finished on a passing build.
  */
-export async function runSiteAgent(deps, { request, pages, parts, css = null, history = "", map = null, spec = null, kind = "", ownParts = false, targets = [], picked = null, attached = [], unread = [], model, maxRounds = AGENT_MAX_ROUNDS, creditCap = AGENT_CREDIT_CAP, maxMs = AGENT_MAX_MS, helpers = false, onlyWrite = "", unreadable = false } = {}) {
+export async function runSiteAgent(deps, { request, pages, parts, css = null, history = "", map = null, spec = null, kind = "", ownParts = false, targets = [], picked = null, attached = [], unread = [], model, maxRounds = AGENT_MAX_ROUNDS, creditCap = AGENT_CREDIT_CAP, maxMs = AGENT_MAX_MS, helpers = false, onlyWrite = "", unreadable = false, tests = [] } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const log = typeof deps.log === "function" ? deps.log : () => {};
   const progress = typeof deps.progress === "function" ? deps.progress : () => {};
@@ -1063,7 +1124,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
   // watchdog stops a job only after NO_PROGRESS_MS without any.
   const alive = (what) => { try { noteProgress(what); if (typeof deps.alive === "function") deps.alive(what); } catch { /* never costs the run */ } };
   const started = now();
-  const ws = makeWorkspace(pages, parts, css);
+  const ws = makeWorkspace(pages, parts, css, tests);
   const tables = spec && Array.isArray(spec.tables)
     ? spec.tables.filter((t) => t && typeof t.name === "string" && Array.isArray(t.columns))
       .map((t) => ({ name: t.name, pk: tableKey(t), columns: t.columns.map((c) => (c && typeof c.name === "string" ? c.name : typeof c === "string" ? c : "")).filter(Boolean) }))
@@ -1073,7 +1134,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
   const st = { ws, tables, onlyWrite, rows: [], schema: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log, settings: {}, rules: [], redirects: {}, qrs: 0, ask: null, sorts: [], media: [], address: null, forget: [], keysAsked: [], unreadable: unreadable === true, request: String(request || ""),
     ruleTables: spec && Array.isArray(spec.tables) ? spec.tables.filter((t) => t && typeof t.name === "string") : [] };
   const shown = headStart({ pages, parts, targets, picked });
-  const system = [{ type: "text", text: agentSystem(spec, kind, { ownParts }), cache_control: { type: "ephemeral" } }];
+  const system = [{ type: "text", text: agentSystem(spec, kind, { ownParts, testing: typeof deps.runTests === "function" && !onlyWrite }), cache_control: { type: "ephemeral" } }];
   // THE TOOLS OFFERED ARE THE TOOLS WIRED (2026-10-29, the second live build:
   // a first build was offered `look` with nothing behind it, tried it, was told
   // "pages cannot be looked at here", and finished without ever seeing a page).
@@ -1188,9 +1249,10 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
 
   const credits = usage.length ? Math.max(1, Math.ceil(spent())) : 0;
   return {
-    ok: st.done && (onlyWrite || !!st.ask ? true : !st.dirty && (st.built || !st.written.size)),
+    ok: st.done && (onlyWrite || !!st.ask ? true : !st.dirty && (st.built || ![...st.written].some((k) => !k.startsWith(TEST_PREFIX)))),
     stopped: st.done ? "" : stopped,
     pages: ws.pages(), parts: ws.parts(),
+    tests: ws.tests(), ...(st.testRun ? { testRun: { ...st.testRun } } : {}),
     css: ws.css(), cssChanged: ws.cssChanged(),
     changed: ws.changed(), removed: ws.removed(),
     rows: st.rows,

@@ -42,6 +42,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { BUILD_KEYS } from "./build-keys.mjs";
 import { dryRunServerParts } from "./server-dryrun.mjs";
+import { runSiteTests, makePrivateSite } from "./test-runner.mjs";
 import { bundleCheckServerParts, mergeBundleResults } from "./server-bundle-check.mjs";
 import { sessionDir, prepareSandbox, writeSiteFiles, readSiteFiles, runCommand, sweepSessions, netCut, netProbe } from "./agent-shell.mjs";
 import { isServerPart } from "./server-code.mjs";
@@ -74,7 +75,7 @@ import { startSiteServer, renderAs } from "./site-ssr.mjs";
 import { spawn } from "node:child_process";
 import { readLaunch } from "./container-job.mjs";
 import { readDeadline, makeTerminator, makeWatchdog, NO_PROGRESS_MS, JOB_STOP_GRACE_MS } from "./job-clock.mjs";
-import { checkRender, screenshotHtml } from "./render-check.mjs";
+import { checkRender, screenshotHtml, serveDist } from "./render-check.mjs";
 import { cardHtml, cardColors, CARD_W, CARD_H } from "./site-card.mjs";
 import { routeOf, fileForRoute } from "./site-addon.mjs";
 import { readCss, aliasFonts, selectorsToJudge, LABEL_GUARD, SHELL_GUARD } from "./site-freecss.mjs";
@@ -2417,6 +2418,29 @@ const server = http.createServer((req, res) => {
         return send(res, 200, { ok: true, ...r });
       } catch (e) {
         return send(res, 200, { ok: false, error: String((e && e.message) || e).slice(0, 300) });
+      }
+    });
+    return;
+  }
+  // THE SITE'S OWN TESTS (2026-10-30, the site agent's `run_tests`): the
+  // tests and the server functions in a sandboxed child (`test-runner.mjs`:
+  // a throwaway database, outside calls recorded and faked, no network), the
+  // pages in Chromium against a PRIVATE copy built from the workspace in its
+  // own folder (never the shared build folder, never the live site). Capped.
+  if (req.method === "POST" && req.url === "/agent-tests") {
+    let tBody = "", tTooBig = false;
+    req.on("data", (c) => { tBody += c; if (tBody.length > MAX_BODY) { tTooBig = true; req.destroy(); } });
+    req.on("end", async () => {
+      if (tTooBig) return send(res, 413, { ran: false, why: "too large" });
+      let p; try { p = JSON.parse(tBody); } catch { return send(res, 400, { ran: false, why: "invalid json" }); }
+      try {
+        let tsc = null;
+        try { tsc = createRequire(path.join(APP, "package.json"))("typescript"); } catch { tsc = null; }
+        const serve = makePrivateSite({ app: APP, routesBase: ROUTES_BASE, stylesBase: STYLES_BASE, prepareSandbox, writeSiteFiles, serveDist });
+        const r = await runSiteTests({ pages: p.pages, parts: p.parts, css: p.css, tests: p.tests, tables: p.tables, files: p.files, only: p.only, ...(tsc ? { ts: tsc } : {}), serve });
+        return send(res, 200, r);
+      } catch (e) {
+        return send(res, 200, { ran: false, why: String((e && e.message) || e).slice(0, 300) });
       }
     });
     return;

@@ -1,5 +1,20 @@
 # Owner Notes
 
+## 2026-10-30 — The site agent tests what it builds (branch `agent-testing`, from `main` `f02ef0f58`; not merged, not deployed, nothing paid)
+
+**Your ask:** one universal way for the site agent to prove that what it builds works (functions, forms, data, schedules, webhooks, outside services), instead of a tester per service.
+
+**What changed:**
+1. **A testing rule** in the agent's instructions (only when tests can run): anything that behaves gets a test; the agent runs it, fixes failures, and finishes only when they pass — or says in its finish exactly what it could not test and why. Tests check meaning (status, stored row, the call made), not exact wording.
+2. **A new tool, `run_tests`.** The agent writes test files as `-tests/<name>.test.ts` (or `.js`). They run in the site's container against a **private copy** of the draft: server functions are called with any request; pages open in real headless Chromium (fill, click, read text, count, screenshot); a **throwaway in-memory database** made from the site's tables; **every outside call is recorded** (secret headers blanked) and answered by the test's fakes (default 200 `{}`), never sent; **webhooks** can be sent signed with a test secret (never your key); **scheduled jobs** (`tick`, `cron:`) run on demand. The browser can reach only the private copy; its calls to the site's functions land in the same sandbox. Each run is capped at 3 minutes (per call, not per task); each test at 30 seconds. Results come back per test, pass or fail, with the message and the time.
+3. **Tests stay with the site** (`source/<slug>/tests.json`, beside the components). They are never pages or components, so the publish and the compile never see them and the live site never serves them. **Every later change runs them again before finishing**; a failure sends the agent back once to fix it (or to explain).
+
+**The database choice:** the template has no in-process Postgres (no pglite), and adding one grows the image, so the test database is a small in-memory stand-in that answers the usual SQL (create, insert … returning, select with where / order / limit / count, update, delete). Anything else it refuses by name, and a test can answer such a query itself (`db.on`).
+
+**Tests:** `test/agent-testing.test.mjs`, 15 cases, including a real run of an agent-style test file (a booking function, the email call intercepted, a forged and a signed webhook, the tick) and a real Chromium run of a page whose form reaches the sandboxed function while an outside image is blocked. 7 of the wiring cases fail on `main`. Mutation sweep: 15 of 15 killed, both controls survived.
+
+**Changes the container image** (`builder/test-runner.mjs`, `test-runner-child.mjs`, `test-db.mjs`, `site-tests.mjs` added to the Dockerfile; `build-server.mjs` gains `/agent-tests`). **Not tried yet:** the private copy's real `vite build` inside the container (shown here with a stand-in page server). **Nothing spent, no model calls, no live writes.**
+
 ## 2026-10-30 — The final combination before deploy (branch `final-combine`, not merged, not deployed, nothing paid)
 
 **What it is:** `key-card` (which already holds `agent-fix-all` and `combine-agent-server`) with `no-time-limit` merged on top. Everything from each branch is kept:
