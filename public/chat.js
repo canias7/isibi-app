@@ -967,10 +967,15 @@ function enterApp() {
     // account and the marker moves on.
     if (settled) { try { localStorage.setItem('zephyr_owner_v1', uid); } catch {} }
   }
-  // A website brief typed on the landing kicks the first build. Run it only
-  // AFTER the account-switch wipe above, or it would land under the outgoing
-  // account and be discarded by the reset.
-  if (pendingSiteBrief) { const b = pendingSiteBrief; pendingSiteBrief = null; showView('sites'); siteCreate(b); }
+  // A website brief typed on the landing WAITS in the start box after sign-in
+  // (2026-10-30, the owner: signing in started a build by itself). Nothing is
+  // built or charged until they press send. Only AFTER the account-switch wipe
+  // above, or it would land under the outgoing account.
+  if (pendingSiteBrief) {
+    const b = pendingSiteBrief; pendingSiteBrief = null; showView('sites');
+    const ta = document.getElementById('stPrompt');
+    if (ta) { ta.value = b; try { ta.focus(); } catch (e) {} }
+  }
   fetchCredits();
   // Land back on the view the user was on before the refresh (the builder for a
   // fresh session or anything unknown).
@@ -18582,7 +18587,8 @@ const params = new URLSearchParams(location.search);
 const firstBrief = params.get('q');
 if (firstBrief) {
   window.history.replaceState({}, '', location.pathname);
-  if (window.Auth && Auth.isSignedIn()) { showView('sites'); siteCreate(firstBrief); }
+  // Signed in or not, it waits in the start box; nothing builds until they send.
+  if (window.Auth && Auth.isSignedIn()) { showView('sites'); const ta = document.getElementById('stPrompt'); if (ta) ta.value = firstBrief; }
   else pendingSiteBrief = firstBrief;
 }
 // ?auth=signin|start, from a page outside the app (the pricing page's
