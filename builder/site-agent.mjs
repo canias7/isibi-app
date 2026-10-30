@@ -36,6 +36,8 @@ import { checkServerPart, SERVER_PREFIX } from "./server-code.mjs";
 import { pageCost } from "./publish-pages.mjs";
 import { requiredFiles, partKey, overThreshold } from "./file-picker.mjs";
 import { SERVER_TOOLS, readDocs, errorLines, errorsLimit, keyNames, schemaChange, callRequest, callAnswer } from "./agent-server-tools.mjs";
+import { attachments as sortAttachments } from "./site-context.mjs";
+import { readImportSite, importBriefBlock, IMPORT_LOGO_ID } from "./site-import.mjs";
 
 /** A guard against a loop, not a spending limit: a first build writes many files. */
 export const AGENT_MAX_ROUNDS = 40;
@@ -60,6 +62,10 @@ export const HELPER_ROUNDS = 15;
 const PAGE_KEY = /^[a-z0-9][a-z0-9._$-]*(?:\/[a-z0-9._$-]+)*\.tsx$/i;
 const PART_KEY = /^-parts\/[a-z0-9][a-z0-9-]{0,62}$/i;
 const TABLE = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
+/** Rows `read_table` reads at most in one call (a pasted list of ~200 is updated from one read). */
+export const MAX_TABLE_READ = 500;
+/** Characters one attachment or import answer carries at most; the rest is read with `from`. */
+export const MAX_TOOL_TEXT = 40000;
 
 // ── THE TOOLS (frozen: rule 4) ───────────────────────────────────────────────
 export const AGENT_TOOLS = Object.freeze([
@@ -94,8 +100,8 @@ export const AGENT_TOOLS = Object.freeze([
   },
   {
     name: "read_table",
-    description: "Read up to 20 rows of one of the site's database tables, to see what it holds. Reading only.",
-    input_schema: { type: "object", properties: { table: { type: "string" } }, required: ["table"] },
+    description: "Read rows of one of the site's database tables, to see what it holds: 20 unless you ask for more (`limit`, up to " + MAX_TABLE_READ + ", e.g. before updating a long list). Reading only.",
+    input_schema: { type: "object", properties: { table: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: MAX_TABLE_READ } }, required: ["table"] },
   },
   {
     name: "build",
@@ -123,6 +129,16 @@ export const AGENT_TOOLS = Object.freeze([
   },
   // THE SERVER TOOLS (2026-10-30, the owner): each offered only when wired.
   ...SERVER_TOOLS,
+  {
+    name: "read_attachment",
+    description: "Read one file the owner attached to this message, by its id from the list in the first message. An image is shown to you; a PDF, a spreadsheet saved as CSV, or a text file comes back as text (long ones in pieces: pass `from` to read on). `place: true` on an image also stores it in the site's own files and answers its address, to use as an <img src> on a page.",
+    input_schema: { type: "object", properties: { id: { type: "string" }, from: { type: "integer", minimum: 0 }, place: { type: "boolean" } }, required: ["id"] },
+  },
+  {
+    name: "import_site",
+    description: "Read the owner's existing website (an address they gave in their message): its pages' headings and text, contact details, opening hours, colours, fonts, links, logo and photographs. The pictures come back as addresses in this site's own files, ready for <img src>. Reading only; nothing on this site changes.",
+    input_schema: { type: "object", properties: { url: { type: "string" } }, required: ["url"] },
+  },
   {
     name: "finish",
     description: "You are done. If you wrote or removed any file, only after a build that passed with nothing written since. `summary`: what you changed, as plain facts for the reply to the customer.",
@@ -187,9 +203,80 @@ You change an existing website for its owner, with tools. Work like an engineer:
 SERVER CODE is a component named "-parts/server-<name>":
 ` + SERVER_HOW + SERVER_PRACTICES + SERVER_RULES;
 
+// ── WHAT THE OWNER BRINGS IN (2026-10-30, the owner: attached files, their old
+// website, a pasted list) ─────────────────────────────────────────────────────
+const INPUT_RULES = `
+
+FILES, OLD SITES AND LISTS THE OWNER GIVES YOU:
+- Files attached to the message are listed in the first message with their ids. Read the ones the request is about with read_attachment before you use them; never guess what a file says.
+- An attached photo the owner wants on the site: read_attachment it with place: true and use the address it answers as the <img src>. Never stand a different picture in for it.
+- When the owner names their existing website and wants it rebuilt or refreshed, read it with import_site: keep their words, facts and pictures, and lay the pages out better.
+- A LIST THE OWNER PASTES OR ATTACHES (products, a menu, prices, classes): read it, read the table it belongs in with read_table first (its columns, and its rows when some already exist), then map each line onto the table's columns and add or update the rows in ONE change_rows call. Never invent a value the list does not give: leave that column empty, and say in finish which values are missing and for which rows.`;
+
 /** The rules every round opens with, the same for every site of a kind (rule 4). */
 export function agentSystem(spec = null, kind = "", { ownParts = false } = {}) {
-  return pageRulesFor(spec, kind, { ownParts }) + AGENT_RULES;
+  return pageRulesFor(spec, kind, { ownParts }) + AGENT_RULES + INPUT_RULES;
+}
+
+/** A CSV (or TSV) as numbered rows of column=value, for reading a pasted or attached list. */
+export function csvText(raw, sep = ",") {
+  const src = String(raw || "");
+  const rows = [];
+  let row = [], cell = "", q = false;
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (q) {
+      if (c === '"') { if (src[i + 1] === '"') { cell += '"'; i++; } else q = false; }
+      else cell += c;
+    } else if (c === '"' && !cell) q = true;
+    else if (c === sep) { row.push(cell); cell = ""; }
+    else if (c === "\n" || c === "\r") { if (c === "\r" && src[i + 1] === "\n") i++; row.push(cell); cell = ""; if (row.some((x) => x.trim())) rows.push(row); row = []; }
+    else cell += c;
+  }
+  row.push(cell);
+  if (row.some((x) => x.trim())) rows.push(row);
+  if (!rows.length) return "(no rows)";
+  const head = rows[0].map((h, i) => h.trim() || "column " + (i + 1));
+  const body = rows.slice(1);
+  return rows.length + " lines: a header and " + body.length + " rows. Columns: " + head.join(", ") + "\n" +
+    body.map((r, n) => "row " + (n + 1) + ": " + head.map((h, i) => h + "=" + (r[i] === undefined ? "" : r[i].trim())).join("; ")).join("\n");
+}
+
+const textKind = (name) => (/\.csv$/i.test(name) ? "csv" : /\.tsv$/i.test(name) ? "tsv" : "text");
+/**
+ * THE FILES ON ONE MESSAGE, AS THE AGENT IS GIVEN THEM: the composer's list
+ * (`body.images`) sorted by the same rule every other step uses
+ * (`attachments` in site-context.mjs: its caps, its ids `attachment-<n>`),
+ * then `{ id, name, kind, size, media_type?, data?, text? }`. What could not
+ * be read is listed with why, so the agent can say so.
+ */
+export function agentAttachments(list) {
+  const items = Array.isArray(list) ? list : [];
+  const sorted = sortAttachments(items);
+  const files = [];
+  let b = 0, t = 0;
+  for (const n of sorted.named) {
+    if (n.kind === "text") {
+      const one = sorted.texts[t++];
+      files.push({ id: n.id, name: n.name, kind: textKind(n.name), size: one ? one.text.length : 0, text: one ? one.text : "" });
+    } else {
+      const blk = sorted.blocks[b++];
+      if (!blk || !blk.source) continue;
+      files.push({ id: n.id, name: n.name, kind: n.kind === "image" ? "image" : "pdf", size: Math.floor(blk.source.data.length * 3 / 4), media_type: blk.source.media_type, data: blk.source.data });
+    }
+  }
+  return { files, skipped: sorted.skipped };
+}
+/** The same from a build's held blocks and their ids (text files are already in its brief). */
+export function agentAttachmentsFromBlocks(blocks, named) {
+  const bl = Array.isArray(blocks) ? blocks : [];
+  const ids = (Array.isArray(named) ? named : []).filter((n) => n && n.kind !== "text");
+  return bl.map((blk, i) => {
+    if (!blk || !blk.source || typeof blk.source.data !== "string") return null;
+    const n = ids[i] || {};
+    const image = blk.type === "image";
+    return { id: typeof n.id === "string" ? n.id : "attachment-" + (i + 1), name: typeof n.name === "string" && n.name ? n.name : (image ? "image " : "document ") + (i + 1), kind: image ? "image" : "pdf", size: Math.floor(blk.source.data.length * 3 / 4), media_type: blk.source.media_type, data: blk.source.data };
+  }).filter(Boolean);
 }
 
 // ── THE WORKSPACE ────────────────────────────────────────────────────────────
@@ -268,17 +355,30 @@ export function projectOverview(tables = [], { ownParts = false } = {}) {
     "Start writing. Use commands only for what this does not tell you.",
   ].join("\n");
 }
-export function firstMessage({ request, map = null, ws, shown = [], history = "", tables = null, ownParts = false }) {
+export function firstMessage({ request, map = null, ws, shown = [], history = "", tables = null, ownParts = false, attached = [], unread = [] }) {
   const index = !ws.keys().length ? "(none yet — this is a new site; write every page and the site's header and footer)" : ws.keys().map((k) => "- " + k + " (" + ws.get(k).length + " chars)" + (shown.includes(k) ? " [below]" : "")).join("\n");
   const mapText = map ? siteSlice(map, "site", { budget: 8000 }) : "";
   return [
     history ? "THE CONVERSATION SO FAR (for what the request refers to)\n" + history : "",
     "THE OWNER'S REQUEST\n" + String(request || ""),
+    attachedList(attached, unread),
     mapText,
     "EVERY FILE OF THE SITE\n" + index,
     !ws.keys().length ? projectOverview(tables || [], { ownParts }) : "",
     shown.length ? "THE FILES MOST LIKELY NEEDED, AS THEY ARE NOW\n" + shown.map((k) => fileBlock(k, ws.get(k))).join("\n\n") : "",
   ].filter(Boolean).join("\n\n");
+}
+
+/** The attached files, by id, name, kind and size — what read_attachment takes. */
+export function attachedList(attached = [], unread = []) {
+  const a = Array.isArray(attached) ? attached : [];
+  const u = Array.isArray(unread) ? unread : [];
+  if (!a.length && !u.length) return "";
+  const kb = (n) => (n >= 1024 * 1024 ? (Math.round(n / 104857.6) / 10) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB");
+  return ["FILES THE OWNER ATTACHED TO THIS MESSAGE (read one with read_attachment and its id)",
+    ...a.map((f) => "- " + f.id + ": " + String(f.name).slice(0, 120) + " (" + f.kind + ", " + kb(Number(f.size) || 0) + ")"),
+    ...u.slice(0, 6).map((f) => "- not readable: " + String((f && f.name) || "a file").slice(0, 80) + " (" + String((f && f.reason) || "it could not be used").slice(0, 120) + ")"),
+  ].join("\n");
 }
 
 // ── RULE 3: CLEARING THE DESK ────────────────────────────────────────────────
@@ -339,7 +439,7 @@ export function compact(messages, { keep = KEEP_RECENT } = {}) {
 
 // ── THE TOOLS A CALLER HAS WIRED ────────────────────────────────────────────
 /** Which tool needs which dependency; a tool whose dependency is missing is never offered. */
-export const TOOL_NEEDS = Object.freeze({ look: "look", run: "run", read_table: "readTable", helpers: "helpers", call_function: "callFunction", read_errors: "readErrors", list_keys: "listKeys", change_schema: "applySchema", read_docs: "fetchDocs" });
+export const TOOL_NEEDS = Object.freeze({ look: "look", run: "run", read_table: "readTable", helpers: "helpers", call_function: "callFunction", read_errors: "readErrors", list_keys: "listKeys", change_schema: "applySchema", read_docs: "fetchDocs", read_attachment: "attachment", import_site: "importSite" });
 export function toolsFor(deps) {
   const d = deps || {};
   return AGENT_TOOLS.filter((t) => !Object.hasOwn(TOOL_NEEDS, t.name) || typeof d[TOOL_NEEDS[t.name]] === "function");
@@ -499,8 +599,9 @@ async function runTool(use, st, deps) {
       if (!TABLE.test(t)) return { error: "not a table name" };
       if (typeof deps.readTable !== "function") return { error: "this site's tables cannot be read here" };
       try {
-        const rows = await deps.readTable(t, 20);
-        return { text: JSON.stringify(rows).slice(0, 12000) };
+        const n = Number.isInteger(input.limit) && input.limit > 0 ? Math.min(input.limit, MAX_TABLE_READ) : 20;
+        const rows = await deps.readTable(t, n);
+        return { text: JSON.stringify(rows).slice(0, n > 20 ? MAX_TOOL_TEXT : 12000) };
       } catch (e) { return { error: "could not read " + t + ": " + String((e && e.message) || e).slice(0, 200) }; }
     }
     case "build": {
@@ -613,6 +714,50 @@ async function runTool(use, st, deps) {
       if (typeof deps.fetchDocs !== "function") return { error: "documentation cannot be read here" };
       return readDocs(deps.fetchDocs, input.url);
     }
+    case "read_attachment": {
+      if (typeof deps.attachment !== "function") return { error: "no files were attached to this message" };
+      const id = typeof input.id === "string" ? input.id.trim() : "";
+      const f = deps.attachment(id);
+      if (!f) return { error: "no attached file has the id " + JSON.stringify(id.slice(0, 40)) + "; the ids are listed in the first message" };
+      if (f.kind === "image") {
+        let placed = "";
+        if (input.place === true) {
+          if (typeof deps.storeAttachment !== "function") placed = " It could not be stored in the site's files here.";
+          else {
+            let r;
+            try { r = await deps.storeAttachment(f); } catch (e) { r = { error: String((e && e.message) || e).slice(0, 120) }; }
+            placed = r && typeof r.url === "string" && r.url ? " Stored in the site's files: use src=\"" + r.url + "\"." : " It could not be stored: " + String((r && r.error) || "no answer").slice(0, 120) + ".";
+          }
+        }
+        return { text: "The image " + f.name + " follows." + placed, images: [{ label: "the attached " + f.name, png: f.data, media_type: f.media_type }] };
+      }
+      let text = "";
+      if (f.kind === "pdf") {
+        if (typeof deps.pdfText !== "function") return { error: "PDFs cannot be read here" };
+        try { text = String((await deps.pdfText(f.data)) || ""); } catch { text = ""; }
+        if (!text.trim()) return { error: "no readable text in " + f.name + " (it may be a scan, or use a font whose letters cannot be read); ask the owner to paste the words or attach a text or CSV version" };
+      } else if (f.kind === "csv" || f.kind === "tsv") text = csvText(f.text, f.kind === "tsv" ? "\t" : ",");
+      else if (f.kind === "text") text = String(f.text || "");
+      else return { error: f.name + " is a kind of file that cannot be read here (images, PDFs, CSV and text files can)" };
+      const from = Number.isInteger(input.from) && input.from > 0 ? input.from : 0;
+      const piece = text.slice(from, from + MAX_TOOL_TEXT);
+      const more = from + piece.length < text.length;
+      return { text: f.name + " (" + text.length + " characters" + (from ? ", from " + from : "") + "):\n" + piece + (more ? "\n[…cut at " + (from + piece.length) + " of " + text.length + " characters: read_attachment again with from=" + (from + piece.length) + "]" : "") };
+    }
+    case "import_site": {
+      if (typeof deps.importSite !== "function") return { error: "websites cannot be read here" };
+      const href = readImportSite(typeof input.url === "string" ? input.url : "", st.request);
+      if (!href) return { error: "only a public web address the owner wrote in their message can be read" };
+      let r;
+      try { r = await deps.importSite(href); } catch (e) { r = { ok: false, reason: "we couldn't reach it" }; }
+      if (!r || r.ok !== true || !r.extract) return { error: "the site could not be read: " + String((r && r.reason) || "no answer").slice(0, 200) };
+      const x = r.extract;
+      const block = importBriefBlock({ ...x, logo: null, photos: [] }).trim();
+      const links = [...new Set((x.pages || []).map((p) => p && p.url).filter((u) => typeof u === "string"))];
+      const pics = (Array.isArray(r.pictures) ? r.pictures : []).map((p) => "- " + (p.id === IMPORT_LOGO_ID ? "their logo" : "a photograph") + (p.alt ? " (\"" + String(p.alt).replace(/"/g, "'").slice(0, 120) + "\")" : "") + ": " + (p.url ? "src=\"" + p.url + "\"" : "not usable (" + String(p.why || "it could not be copied").slice(0, 80) + ")"));
+      const text = [block, links.length ? "PAGES READ: " + links.join(", ") : "", pics.length ? "THEIR PICTURES, copied into this site's files:\n" + pics.join("\n") : "No pictures could be copied."].filter(Boolean).join("\n\n");
+      return { text: text.slice(0, MAX_TOOL_TEXT) + (text.length > MAX_TOOL_TEXT ? "\n[…cut]" : "") };
+    }
     case "finish": {
       if (st.dirty && !st.onlyWrite) return { error: "build first: files were written since the last build that passed" };
       // A FINDING THAT MUST BE FIXED HOLDS THE FINISH ONCE: the agent is sent
@@ -684,7 +829,7 @@ export function roundFacts(outcomes) {
  * `{ ok, stopped, pages, parts, changed, summary, usage, credits, rounds, builds }`.
  * `ok` is true only when the agent finished on a passing build.
  */
-export async function runSiteAgent(deps, { request, pages, parts, css = null, history = "", map = null, spec = null, kind = "", ownParts = false, targets = [], picked = null, model, maxRounds = AGENT_MAX_ROUNDS, creditCap = AGENT_CREDIT_CAP, maxMs = AGENT_MAX_MS, helpers = false, onlyWrite = "" } = {}) {
+export async function runSiteAgent(deps, { request, pages, parts, css = null, history = "", map = null, spec = null, kind = "", ownParts = false, targets = [], picked = null, attached = [], unread = [], model, maxRounds = AGENT_MAX_ROUNDS, creditCap = AGENT_CREDIT_CAP, maxMs = AGENT_MAX_MS, helpers = false, onlyWrite = "" } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const log = typeof deps.log === "function" ? deps.log : () => {};
   const progress = typeof deps.progress === "function" ? deps.progress : () => {};
@@ -694,7 +839,9 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     ? spec.tables.filter((t) => t && typeof t.name === "string" && Array.isArray(t.columns))
       .map((t) => ({ name: t.name, columns: t.columns.map((c) => (c && typeof c.name === "string" ? c.name : typeof c === "string" ? c : "")).filter(Boolean) }))
     : [];
-  const st = { ws, tables, onlyWrite, rows: [], schema: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log };
+  const files = (Array.isArray(attached) ? attached : []).filter((f) => f && typeof f.id === "string");
+  if (files.length && !onlyWrite) deps = { ...deps, attachment: (id) => files.find((f) => f.id === id) || null };
+  const st = { ws, tables, onlyWrite, request: String(request || ""), rows: [], schema: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log };
   const shown = headStart({ pages, parts, targets, picked });
   const system = [{ type: "text", text: agentSystem(spec, kind, { ownParts }), cache_control: { type: "ephemeral" } }];
   // THE TOOLS OFFERED ARE THE TOOLS WIRED (2026-10-29, the second live build:
@@ -722,7 +869,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     })) };
   }
   const tools = onlyWrite ? toolsFor(deps).filter((t) => t.name !== "build") : toolsFor(deps);
-  let messages = [{ role: "user", content: [{ type: "text", text: firstMessage({ request, map, ws, shown, history, tables, ownParts }), cache_control: { type: "ephemeral" } }] }];
+  let messages = [{ role: "user", content: [{ type: "text", text: firstMessage({ request, map, ws, shown, history, tables, ownParts, attached: onlyWrite ? [] : files, unread: onlyWrite ? [] : unread }), cache_control: { type: "ephemeral" } }] }];
   const spent = () => usage.reduce((n, u) => n + pageCost(u), 0) / CREDIT_USD;
   let stopped = "";
   let rounds = 0;
@@ -780,7 +927,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
       outcomes.push({ use: uses[i], r });
       for (const im of Array.isArray(r.images) ? r.images : []) {
         images.push({ type: "text", text: "SCREENSHOT: " + im.label });
-        images.push({ type: "image", source: { type: "base64", media_type: "image/png", data: im.png } });
+        images.push({ type: "image", source: { type: "base64", media_type: im.media_type || "image/png", data: im.png } });
       }
     }
     messages.push({ role: "user", content: [...results, ...images] });
