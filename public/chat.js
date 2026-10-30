@@ -6210,7 +6210,7 @@ function renderSites() {
   const ta = document.getElementById('stPrompt');
   if (gen && ta) {
     // A VIDEO OR A RECORDING STILL SENDING holds the brief back (2026-10-14), said.
-    const go = () => { const t = ta.value.trim(); if (!t) { ta.focus(); return; } if ((siteNewDraft.media || []).some((m) => m.state === 'up' || m.state === 'unsure')) { if (typeof sbToast === 'function') sbToast('Your file is still uploading \u2014 send once it says ready.'); return; } siteCreate(t); };
+    const go = () => { const t = ta.value.trim(); if (!t) { ta.focus(); return; } if (typeof siteKeyShapedStop === 'function' && siteKeyShapedStop(null, ta)) return; if ((siteNewDraft.media || []).some((m) => m.state === 'up' || m.state === 'unsure')) { if (typeof sbToast === 'function') sbToast('Your file is still uploading \u2014 send once it says ready.'); return; } siteCreate(t); };
     gen.onclick = go;
     ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); go(); } };
   }
@@ -9651,6 +9651,8 @@ function renderSiteWorkspace(view, site) {
           : '<div class="st-msg a st-busy">Working</div>')
       : '');
     thread.scrollTop = thread.scrollHeight;
+    // THE KEY CARD, back under the redrawn thread with whatever was typed in it.
+    if (typeof siteKeyCardAttach === 'function') siteKeyCardAttach();
     thread.querySelectorAll('[data-copy]').forEach((b) => b.onclick = () => {
       const txt = (b.closest('.st-msg') || {}).textContent || '';
       try { navigator.clipboard.writeText(txt.replace(/⧉\s*$/, '').trim()); } catch (e) {}
@@ -10304,6 +10306,7 @@ function wireSiteComposer(site) {
       if (t && !siteBusy && slashSend(t, ta, site)) return;
       // A SITE STILL BEING BUILT (2026-10-24): the words stay in the box, and it says so.
       if (t && siteBusy && site.buildJob && (site.buildJob.state === 'run' || site.buildJob.state === 'stopping')) { if (typeof sbToast === 'function') sbToast('Your site is still being built \u2014 your message stays here. Send it once the build is done.'); return; }
+      if (t && typeof siteKeyShapedStop === 'function' && siteKeyShapedStop(site, ta)) return;
       if (!t || siteBusy) return; ta.value = ''; draft.t = ''; siteSend(t);
     };
     ta.onkeydown = (e) => { if (slashKey(e, ta, site)) return; if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendBtn.onclick(); } };
@@ -13826,6 +13829,8 @@ function applyEditResult(e, o) {
     // names what changed, what did not, what was put off and how to undo it.
     const doneText = EditPoll.modelReply(e) || (editReply(e) + renderTail(e) + alsoTail(e));
     finish(asked ? askReplyMsg(doneText, askFromReply(o.origin, asked, o.imgs)) : doneText);
+    // THE KEYS STILL TO ADD (2026-10-30): a secure card, never a message.
+    if (typeof siteKeyCardOffer === 'function') siteKeyCardOffer(o.origin, e.needKeys);
   } catch (err) {
     if (told) return;
     // NOTHING ESCAPES FROM THE FINISH. A throw out of this sentence's own
@@ -14868,6 +14873,7 @@ function applyAddonResult(a, o) {
     const aDraft = !!(a && ((a.draft && a.draft.published === false) || (a.checks && a.checks.draft === true && a.checks.published === false)));
     const doneText = EditPoll.modelReply(a) || (addonReplyText(a) + renderTail(a) + (aDraft ? ' Saved to your draft \u2014 your live site changes when you publish.' : '') + alsoTail(a));
     finish(asked ? askReplyMsg(doneText, askFromReply(o.origin, asked, o.imgs)) : doneText);
+    if (typeof siteKeyCardOffer === 'function') siteKeyCardOffer(o.origin, a.needKeys);
   } catch (err) {
     if (told) return;
     const shown = addonOutcomeMsg('shown') + alsoTail(a);
@@ -16620,6 +16626,7 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
       const fv = !firedJob && !built ? buildFailureView(d) : null;
       if (fv) siteFinishBuild(origin, fv.lead + alsoTail(heldSaid, false), build, fv.note || noteShown, buildWhy(d));
       else siteFinishBuild(origin, reply + alsoTail(heldSaid, !firedJob && built), build, noteShown, buildWhy(d));
+      if (!fv && typeof siteKeyCardOffer === 'function') siteKeyCardOffer(origin, d && d.needKeys);
     } else if (buildFailureView(d)) {
       // AN ORDINARY FAILURE carries its own account (2026-10-08): told, not canned.
       siteErr = buildErrOutcome(origin, d);
@@ -17983,6 +17990,144 @@ async function siteDatabase(site) {
       }).join('');
     }).join('');
   } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn’t load collections just now — try again.</div>'; }
+}
+
+
+// ── THE KEY CARD (2026-10-30, owner: "when the model says add key, in the chat
+// I want a server thing that pulls up and collects the key, WITHOUT THE MODEL
+// TOUCHING IT"). A reply's `needKeys` (names only) shows this card under the
+// thread. Each value goes from its password box to `/api/site/<slug>/secrets`
+// and nowhere else: never into `s.msgs`, `sitesSave`, localStorage, a toast,
+// the console or a message to the builder. The card lives in memory, outside
+// the stored thread, and is re-attached after each redraw so a half-typed key
+// is not lost.
+const siteKeyCards = new Map();
+function siteKeySlug(s) { return (s && (s.slug || (s.liveUrl || '').split('/s/')[1])) || ''; }
+function siteKeyCardOffer(siteId, list, extra) {
+  if (typeof KeyCard === 'undefined') return;
+  const keys = KeyCard.needKeys(list);
+  const s = siteById(siteId);
+  if (!s || !siteKeySlug(s) || (!keys.length && !extra)) return;
+  let c = siteKeyCards.get(siteId);
+  if (!c) { c = { keys: [], set: new Set(), el: null, draft: null }; siteKeyCards.set(siteId, c); }
+  for (const k of keys) if (!c.keys.some((x) => x.name === k.name)) c.keys.push(k);
+  if (extra && extra.name && !c.keys.some((x) => x.name === extra.name)) c.keys.push({ name: extra.name, service: extra.service || '', why: '' });
+  siteKeyCardDraw(siteId);
+  siteKeyCardAttach();
+  siteKeyCardRead(siteId);
+}
+// Which of the names are already set: the keys route's list, names only.
+async function siteKeyCardRead(siteId) {
+  const c = siteKeyCards.get(siteId); const s = siteById(siteId);
+  if (!c || !s) return;
+  try {
+    const r = await apiFetch('/api/site/' + encodeURIComponent(siteKeySlug(s)) + '/secrets');
+    const d = await r.json().catch(() => ({}));
+    for (const x of Array.isArray(d.secrets) ? d.secrets : []) if (x && typeof x.name === 'string') c.set.add(x.name);
+    siteKeyCardDraw(siteId);
+  } catch (e) { /* the card still saves; it just cannot say which are set */ }
+}
+function siteKeyCardDraw(siteId) {
+  const c = siteKeyCards.get(siteId);
+  if (!c) return;
+  if (!c.el) {
+    c.el = document.createElement('div');
+    c.el.className = 'st-msg a st-keycard';
+    c.el.setAttribute('data-keycard', '');
+    c.el.innerHTML = '<div class="kc-box"><div class="kc-head"><span class="kc-lock" aria-hidden="true"></span><b>Keys your site needs</b></div>' +
+      '<p class="kc-note">Saved straight to your site’s encrypted keys. The builder never sees them.</p>' +
+      '<div class="kc-rows"></div><div class="kc-err" role="alert" hidden></div>' +
+      '<div class="kc-foot"><button type="button" class="st-publish kc-save">Save</button></div></div>';
+    c.el.querySelector('.kc-save').onclick = () => siteKeyCardSave(siteId);
+  }
+  const rows = c.el.querySelector('.kc-rows');
+  for (const k of c.keys) {
+    let row = rows.querySelector('[data-kc-row="' + k.name + '"]');
+    if (!row) {
+      row = document.createElement('label');
+      row.className = 'kc-row';
+      row.setAttribute('data-kc-row', k.name);
+      row.innerHTML = '<span class="kc-label"><span class="kc-name">' + esc(k.name) + '</span>' + (k.service ? '<span class="kc-svc">' + esc(k.service) + '</span>' : '') + '</span>' +
+        (k.why ? '<span class="kc-why">' + esc(k.why) + '</span>' : '') +
+        '<input class="st-in kc-in" type="password" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" data-lpignore="true" data-1p-ignore placeholder="Paste the key">' +
+        '<span class="kc-done" hidden></span>';
+      rows.appendChild(row);
+      const inp = row.querySelector('input');
+      inp.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); siteKeyCardSave(siteId); } };
+      // A key moved here from the message box goes into its input, once, and the copy is dropped.
+      if (c.draft && c.draft.name === k.name) { inp.value = c.draft.value; c.draft = null; }
+    }
+    const isSet = c.set.has(k.name);
+    row.classList.toggle('is-set', isSet);
+    const done = row.querySelector('.kc-done');
+    done.hidden = !isSet; done.textContent = isSet ? k.name + ': set' : '';
+    row.querySelector('input').hidden = isSet;
+  }
+  const left = c.keys.filter((k) => !c.set.has(k.name)).length;
+  c.el.querySelector('.kc-save').hidden = !left;
+  c.el.classList.toggle('kc-all-set', !left);
+}
+function siteKeyCardAttach() {
+  const thread = document.getElementById('stThread');
+  const c = typeof siteOpenId === 'string' || typeof siteOpenId === 'number' ? siteKeyCards.get(siteOpenId) : null;
+  if (!thread || !c || !c.el) return;
+  if (c.el.parentNode !== thread || thread.lastElementChild !== c.el) thread.appendChild(c.el);
+  thread.scrollTop = thread.scrollHeight;
+}
+async function siteKeyCardSave(siteId) {
+  const c = siteKeyCards.get(siteId); const s = siteById(siteId);
+  if (!c || !c.el || !s) return;
+  const err = c.el.querySelector('.kc-err');
+  const btn = c.el.querySelector('.kc-save');
+  err.hidden = true; err.textContent = '';
+  const todo = c.keys.filter((k) => !c.set.has(k.name)).map((k) => ({ k, inp: c.el.querySelector('[data-kc-row="' + k.name + '"] input') })).filter((x) => x.inp && x.inp.value.trim());
+  if (!todo.length) { err.textContent = 'Paste a key first.'; err.hidden = false; return; }
+  btn.disabled = true;
+  const failed = [];
+  for (const { k, inp } of todo) {
+    const rq = KeyCard.saveRequest(siteKeySlug(s), k.name, inp.value);
+    try {
+      const r = await apiFetch(rq.url, rq.init);
+      const d = await r.json().catch(() => ({}));
+      // THE ANSWER NAMES THE KEY, NEVER ITS VALUE; only the server's own error
+      // sentence is shown, and it is about the key, not a copy of it.
+      if (d && d.ok) { c.set.add(k.name); inp.value = ''; }
+      else failed.push(k.name + ': ' + String((d && d.error) || 'couldn’t save it').slice(0, 120));
+    } catch (e) { failed.push(k.name + ': couldn’t reach the server'); }
+  }
+  btn.disabled = false;
+  siteKeyCardDraw(siteId);
+  if (failed.length) { err.textContent = failed.join(' · '); err.hidden = false; }
+}
+// A KEY TYPED INTO THE MESSAGE BOX (2026-10-30) is never sent to the builder:
+// the send stops, says so, and offers to move it into the key card.
+function siteKeyShapedStop(site, ta) {
+  if (typeof KeyCard === 'undefined' || !ta) return false;
+  const found = KeyCard.keyShaped(ta.value);
+  if (!found.length) return false;
+  const bar = document.getElementById('stKeyWarn') || (() => {
+    const b = document.createElement('div'); b.id = 'stKeyWarn'; b.className = 'kc-warn'; b.setAttribute('role', 'alert');
+    ta.parentNode.insertBefore(b, ta); return b;
+  })();
+  const canCard = !!(site && siteKeySlug(site));
+  bar.innerHTML = '<span>That looks like a secret key. It was not sent — keys never go to the builder.</span>' +
+    (canCard ? '<button type="button" class="kc-move">Put it in a key card</button>' : '<button type="button" class="kc-move">Take it out</button>') +
+    '<button type="button" class="kc-x" aria-label="Dismiss">×</button>';
+  bar.querySelector('.kc-x').onclick = () => bar.remove();
+  bar.querySelector('.kc-move').onclick = () => {
+    const first = found[0];
+    ta.value = KeyCard.withoutKeys(ta.value);
+    ta.dispatchEvent(new Event('input'));
+    bar.remove();
+    if (!canCard) return;
+    let c = siteKeyCards.get(site.id);
+    if (!c) { c = { keys: [], set: new Set(), el: null, draft: null }; siteKeyCards.set(site.id, c); }
+    c.set.delete(first.name);
+    const row = c.el && c.el.querySelector('[data-kc-row="' + first.name + '"] input');
+    if (row) row.value = first.value; else c.draft = { name: first.name, value: first.value };
+    siteKeyCardOffer(site.id, [], { name: first.name, service: first.service });
+  };
+  return true;
 }
 
 // Secrets — encrypted per-site vault. Values are never shown back (rotate = re-add,

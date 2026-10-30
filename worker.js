@@ -105,6 +105,7 @@ import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, red
 import { readJsonBody } from "./request-limits.mjs";
 import { handleAgentApi, makeAgentStore, AGENT_ROUTES, AGENT_POST_ROUTES, agentBodyMax } from "./agent-store.mjs";
 import { listSecrets, deleteSecret, readSecret, saveSiteKey, WORKER_HELD } from "./site-secrets.mjs";
+import { needKeysOf } from "./builder/key-card.mjs";
 
 /**
  * THE DOORBELL ON THE AGENT ENGINE'S QUEUE.
@@ -17192,6 +17193,14 @@ function agentReadErrors(env, slug) {
   };
 }
 
+/** The largest body the keys route reads: a 4 KB key, JSON-escaped, with room. */
+const SECRET_BODY_MAX = 16384;
+
+/** The publish answer's `needKeys`: what its server code reads, names only; absent when none. */
+function publishNeedKeys(parts) {
+  try { const ev = serverEvidence({ pages: [], parts: Array.isArray(parts) ? parts : [] }); const n = ev ? needKeysOf({ evidence: ev }) : []; return n.length ? n : undefined; } catch { return undefined; }
+}
+
 /** `list_keys`: the NAMES of the site's keys. Only the name column is selected: no cipher, no hint. */
 function agentListKeys(env, slug) {
   return async () => {
@@ -17532,7 +17541,15 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   const schemaOps = Array.isArray(ag.schema) ? ag.schema : [];
   const addressOps = [...(ag.address ? [ag.address] : []), ...(ag.forget || []).map((name) => ({ action: "forget", name }))];
   if (!ag.changed.length && !ag.rows.length && !schemaOps.length && !setKeys.length && !(ag.rules || []).length && !addressOps.length) {
-    return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg: (ag.summary || "Nothing needed changing.") + " Nothing on the site was changed.", facts: ["Nothing on the site was changed."], cost: await charge(), agent: steps } };
+    // A KEY ASKED FOR WITH NOTHING ELSE TO DO ("add my Stripe key") still
+    // shows the card (2026-10-30): the names asked, less those already set.
+    let askedOnly = [];
+    if (Array.isArray(ag.keysAsked) && ag.keysAsked.length) {
+      let names = null;
+      if (conn) { try { names = (await agentListKeys(env, slug)()).map((r) => r && r.name).filter((n) => typeof n === "string"); } catch { names = null; } }
+      askedOnly = needKeysOf({ asked: ag.keysAsked, keysSet: names });
+    }
+    return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg: (ag.summary || "Nothing needed changing.") + " Nothing on the site was changed.", facts: ["Nothing on the site was changed."], cost: await charge(), agent: steps, ...(askedOnly.length ? { needKeys: askedOnly } : {}) } };
   }
   if (talk) { try { job.progress.mark("plan", [{ state: "doing", text: "Saving the change: " + [ag.changed.length && ag.changed.length + " file" + (ag.changed.length === 1 ? "" : "s"), ag.rows.length && "table entries", schemaOps.length && "database additions", setKeys.length && "settings", addressOps.length && "the site's address"].filter(Boolean).join(", ") + "." }]); } catch { /* the record never costs the change */ } }
   // THE DATABASE'S ADDITIONS FIRST (2026-10-30, `change_schema`): the pages and
@@ -17698,10 +17715,16 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   }
   // THE KEYS THE FINISHED SERVER CODE NEEDS (fix-all), from `list_keys`' names.
   let keysOut = [];
-  if (ag.parts.some((p) => p && typeof p.name === "string" && p.name.startsWith("server-"))) {
+  // AND AS A FIELD (2026-10-30, the key card): `needKeys`, names only, which
+  // the chat turns into a secure box that saves straight to the site's keys.
+  let needKeys = [];
+  const hasServer = ag.parts.some((p) => p && typeof p.name === "string" && p.name.startsWith("server-"));
+  const keysAsked = Array.isArray(ag.keysAsked) ? ag.keysAsked : [];
+  if (hasServer || keysAsked.length) {
     let names = null;
     if (conn) { try { names = (await agentListKeys(env, slug)()).map((r) => r && r.name).filter((n) => typeof n === "string"); } catch { names = null; } }
-    keysOut = keyFacts(ag.parts, names);
+    if (hasServer) keysOut = keyFacts(ag.parts, names);
+    needKeys = needKeysOf({ evidence: hasServer ? serverEvidence({ pages: [], parts: ag.parts, keysSet: names }) : null, asked: keysAsked, keysSet: names });
   }
   const setFacts = setKeys.length ? ["Saved the site's settings: " + setKeys.join(", ") + "."] : [];
   const moveFacts = renames.map(([a, b]) => "The page at " + a + " is now at " + b + "; the old address sends visitors there.");
@@ -17727,6 +17750,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     preserved: { files: report.files, unasked: report.unasked.slice(0, 20) },
     ...(Object.keys(undo).length ? { undo } : {}),
     ...(undo.photosTakenOff ? { photosTakenOff: undo.photosTakenOff } : {}),
+    ...(needKeys.length ? { needKeys } : {}),
     version: label,
     cost: took + (out ? Number(out.langCharged) || 0 : 0), agent: steps } };
 }
@@ -19167,6 +19191,10 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // seen at its preview, live only when the owner presses Publish.
     draft: act.draft === true ? draftFacts(slug, version, act) : undefined,
     lookSoft: lookSoft.length ? lookSoft : undefined,
+    // THE KEYS ITS SERVER CODE READS (2026-10-30, the key card): names only.
+    // A publish reads no key list, so whether each is set is unknown here and
+    // the card itself shows a name already set as set.
+    needKeys: publishNeedKeys(siteParts),
     // ── WHAT THE TRANSLATION CALLS COST, so somebody can bill them ──────────
     //
     // `langUsage` was accumulated here and read by NOTHING: real Haiku spend on
@@ -30629,6 +30657,8 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // stored theme LATER REMOVED from the registry would make every
         // publish of that site ship the default look while reporting success.
         lookSoft: pages.lookSoft || undefined,
+        // THE KEY CARD (2026-10-30): the names the owner still has to add.
+        needKeys: Array.isArray(pages.needKeys) && pages.needKeys.length ? pages.needKeys : undefined,
         // WHY it fell back, when it did. publish-pages.mjs has returned these
         // since it was extracted and nothing passed them on, so a build that
         // published the placeholder said only "placeholder" — the caller (and
@@ -49047,7 +49077,12 @@ async function handleRequest(request, env, ctx) {
                 return Response.json(listed);
               }
               if (request.method === "POST") {
-                const sb = await request.json().catch(() => ({}));
+                // A BOUNDED BODY (2026-10-30, the key card): a key is at most
+                // MAX_SECRET_BYTES, so anything far larger is refused unread.
+                const sraw = await request.text().catch(() => "");
+                if (sraw.length > SECRET_BODY_MAX) return Response.json({ ok: false, error: "that is too long to be a key" }, { status: 413 });
+                let sb = {};
+                try { sb = JSON.parse(sraw || "{}") || {}; } catch { sb = {}; }
                 // THE KEY GOES TO THE SITE'S OWN WORKER (2026-10-27); only its
                 // name and hint are written here, never the value.
                 const r = await saveSiteKey(vault, { slug: sslug, name: sb.name, value: sb.value, push: (n, v) => pushSiteSecret(env, sslug, n, v) });

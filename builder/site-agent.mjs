@@ -35,6 +35,7 @@ import { siteSlice } from "./site-map.mjs";
 import { checkServerPart, SERVER_PREFIX } from "./server-code.mjs";
 import { pageCost } from "./publish-pages.mjs";
 import { requiredFiles, partKey, overThreshold } from "./file-picker.mjs";
+import { keyAsk } from "./key-card.mjs";
 import { SERVER_TOOLS, readDocs, errorLines, errorsLimit, keyNames, schemaChange, callRequest, callAnswer } from "./agent-server-tools.mjs";
 import { attachments as sortAttachments } from "./site-context.mjs";
 import { readImportSite, importBriefBlock, IMPORT_LOGO_ID } from "./site-import.mjs";
@@ -209,6 +210,11 @@ export const AGENT_TOOLS = Object.freeze([
     input_schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
   },
   {
+    name: "request_key",
+    description: "Ask the owner for a key (secret) the site needs, by NAME, e.g. STRIPE_SECRET_KEY. The chat shows the owner a secure box that saves the value straight into the site's keys: you never see, receive or handle the value, and you must never ask for it in words. Next time, list_keys shows the name as set.",
+    input_schema: { type: "object", properties: { name: { type: "string" }, service: { type: "string", description: "Whose key it is, e.g. Stripe." }, why: { type: "string", description: "One short line: what it is for." } }, required: ["name"] },
+  },
+  {
     name: "ask_owner",
     description: "Ask the owner ONE question when the request cannot be done right without a detail only they know, with two to four short answers they tap. This ends your turn: nothing you queued or wrote is saved, and you continue from their answer. Never ask what you can find out by reading the site.",
     input_schema: { type: "object", properties: { question: { type: "string" }, options: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 4 } }, required: ["question", "options"] },
@@ -251,7 +257,7 @@ export const SERVER_RULES = `
 
 SERVER CODE: THE OWNER'S RULES (these come first):
 1. SECURITY FIRST. Before a function writes or reveals anything, check who is calling: the signed-in visitor or the record they claim, looked up with site.sql, and answer 401 or 403 when they may not. Validate every input (each field's presence, type, size and allowed values) and answer 400 when it is wrong. Never put a key, token or secret in page code: only server code holds keys, through site.key. Every function is already limited per visitor per minute; a public endpoint that can be abused (a form, a sign-up, a booking) also limits itself: count recent requests from the caller's address (request.headers.get("cf-connecting-ip")) in a site table, and answer 429 past the limit.
-2. KEYS. An outside service (payments, email, text messages, AI and the rest) always runs on the owner's own key from the site's secrets: site.hasKey("NAME") first, then site.key("NAME"). When it is missing, the function answers 503 with a clear "not set up yet", and finish names exactly which key the owner must add. Never build something that fails silently. When list_keys is offered, use it to see which keys are set.
+2. KEYS. An outside service (payments, email, text messages, AI and the rest) always runs on the owner's own key from the site's secrets: site.hasKey("NAME") first, then site.key("NAME"). When it is missing, the function answers 503 with a clear "not set up yet", and finish names exactly which key the owner must add. Never build something that fails silently. When list_keys is offered, use it to see which keys are set. When the owner still has to add a key, call request_key with its name: the chat collects the value in a secure box you never see. Never ask the owner to type or paste a key into the chat.
 3. WEBHOOKS. Verify the signature with site.verify before trusting anything in the message. The same event can arrive twice: store each event's id in a site table (a unique column) and do nothing for one already stored, so the work is never done twice.
 4. DATABASE CHANGES ADD, NEVER DESTROY. Never drop, rename or change the type of a table or column, and never delete stored data to make a change fit. A change that could lose data is not made: say in finish what it would need.
 5. ERRORS. Every server function answers a failure with a clear status and a short message, and records it in the site's error log, where the owner sees it: an error it does not catch is recorded for you; one it catches, it records itself with site.sql("INSERT INTO _errors (at, message, route, source) VALUES (to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS'), ?, ?, 'server')", [message, "fn/<name>"]), never with a key or a visitor's private details in the message.
@@ -574,7 +580,7 @@ export function buildFailKind(r) {
 
 // ── WHAT A ROUND DID, AS NUMBERS ─────────────────────────────────────────────
 /** Each tool's uses in one round, as counts: the build trace keeps numbers only. */
-const TOOL_COUNT_KEYS = { write_file: "writes", read_files: "reads", delete_file: "deletes", change_rows: "rowChanges", read_table: "tableReads", run: "commands", look: "looks", build: "builds", finish: "finish", call_function: "fnCalls", read_errors: "errorReads", list_keys: "keyLists", change_schema: "schemaChanges", read_docs: "docReads", set_site_settings: "settings", set_logo: "logos", set_languages: "languages", set_table_rules: "ruleChanges", rename_page: "pageRenames", make_qr: "qrCodes", ask_owner: "asks" };
+const TOOL_COUNT_KEYS = { write_file: "writes", read_files: "reads", delete_file: "deletes", change_rows: "rowChanges", read_table: "tableReads", run: "commands", look: "looks", build: "builds", finish: "finish", call_function: "fnCalls", read_errors: "errorReads", list_keys: "keyLists", change_schema: "schemaChanges", read_docs: "docReads", set_site_settings: "settings", set_logo: "logos", set_languages: "languages", set_table_rules: "ruleChanges", rename_page: "pageRenames", make_qr: "qrCodes", ask_owner: "asks", request_key: "keyAsks" };
 export function toolCounts(uses) {
   const out = {};
   for (const b of Array.isArray(uses) ? uses : []) {
@@ -789,6 +795,14 @@ async function runTool(use, st, deps) {
         const names = keyNames(await deps.listKeys());
         return { text: names.length ? "The owner has set these keys (names only): " + names.join(", ") + "." : "The owner has set no keys for this site yet." };
       } catch (e) { return { error: "the keys could not be listed: " + String((e && e.message) || e).slice(0, 160) }; }
+    }
+    case "request_key": {
+      // A NAME ONLY (2026-10-30, the key card): it lands in the reply's
+      // `needKeys`, and the owner's browser sends the value to the site's keys.
+      const k = keyAsk(input);
+      if (!k.ok) return { error: k.why };
+      if (!st.keysAsked.some((x) => x.name === k.key.name)) st.keysAsked.push(k.key);
+      return { text: "The owner will be shown a secure box for " + k.key.name + " in the chat. You will not see its value. Make the code read it with site.hasKey/site.key, and carry on." };
     }
     case "change_schema": {
       if (st.onlyWrite) return { error: "a helper writes only its own page, " + st.onlyWrite };
@@ -1045,7 +1059,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     : [];
   const files = (Array.isArray(attached) ? attached : []).filter((f) => f && typeof f.id === "string");
   if (files.length && !onlyWrite) deps = { ...deps, attachment: (id) => files.find((f) => f.id === id) || null };
-  const st = { ws, tables, onlyWrite, rows: [], schema: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log, settings: {}, rules: [], redirects: {}, qrs: 0, ask: null, sorts: [], media: [], address: null, forget: [], unreadable: unreadable === true, request: String(request || ""),
+  const st = { ws, tables, onlyWrite, rows: [], schema: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log, settings: {}, rules: [], redirects: {}, qrs: 0, ask: null, sorts: [], media: [], address: null, forget: [], keysAsked: [], unreadable: unreadable === true, request: String(request || ""),
     ruleTables: spec && Array.isArray(spec.tables) ? spec.tables.filter((t) => t && typeof t.name === "string") : [] };
   const shown = headStart({ pages, parts, targets, picked });
   const system = [{ type: "text", text: agentSystem(spec, kind, { ownParts }), cache_control: { type: "ephemeral" } }];
@@ -1173,6 +1187,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     ask: st.ask,
     // THE ROUTER-ERA STEPS (fix-all): orders applied, media placed, the address.
     sorts: st.sorts.slice(), media: st.media.slice(), address: st.ask ? null : st.address, forget: st.ask ? [] : st.forget.slice(),
+    keysAsked: st.keysAsked.slice(),
     paused: st.paused === true,
     looked: [...st.looked],
     summary: st.summary,
@@ -1268,6 +1283,6 @@ export function asWriterAnswer(r, model) {
       notes: r.summary || "",
     },
     usage,
-    agent: { rounds: r.rounds, builds: r.builds, looked: Array.isArray(r.looked) ? r.looked : [] },
+    agent: { rounds: r.rounds, builds: r.builds, looked: Array.isArray(r.looked) ? r.looked : [], keysAsked: Array.isArray(r.keysAsked) ? r.keysAsked : [] },
   };
 }

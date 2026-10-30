@@ -41,6 +41,7 @@ import { picturesShown } from "./rendered-pictures.mjs";
 // What a stand-in is not charged (2026-10-24). A cycle (`change-salvage.mjs`
 // imports this module) that is safe: neither module calls the other at load.
 import { landedBill, partKey } from "./change-salvage.mjs";
+import { needKeysOf } from "./key-card.mjs";
 
 // List rates over the platform's $0.008/credit basis, PER MODEL.
 //
@@ -2116,6 +2117,9 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages, pr
   // THE PAGES THE SITE AGENT LOOKED AT (2026-10-29), for the reply: it saw
   // their screenshots, so "nobody looked" is no longer said of them.
   if (gen && gen.agent && Array.isArray(gen.agent.looked) && gen.agent.looked.length) out.looked = gen.agent.looked.slice(0, 12);
+  // THE KEYS THE OWNER STILL HAS TO ADD (2026-10-30, the key card): names
+  // only, from the server code's evidence and the agent's `request_key`.
+  { const nk = needKeysOf({ evidence: out.server, asked: gen && gen.agent && Array.isArray(gen.agent.keysAsked) ? gen.agent.keysAsked : [] }); if (nk.length) out.needKeys = nk; }
   if (built && built.ok && built.typeErrors) {
     const first = String(built.typeErrors).split("\n").find((l) => /error TS/.test(l)) || "";
     out.typeErrors = String(built.typeErrors).slice(0, 2000);
