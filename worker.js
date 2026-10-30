@@ -18056,7 +18056,18 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // came back first. The trace marks stay INSIDE the call, in completion order:
   // they are timestamped events and moving them to the fold would report every
   // language as having taken as long as the slowest.
+  // A COMPILE-ONLY RUN TRANSLATES NOTHING (2026-10-30, pretest-fixes): the
+  // agent's test build and look publish nothing, so no translation call, no
+  // charge and no config write; the variants compile from the cache as it is.
   const extras = siteLangs.filter((l) => !l.primary);
+  if (compileOnly === true) {
+    extras.length = 0;
+    for (const l of siteLangs) {
+      if (l.primary) continue;
+      const had = cache[l.tag] && typeof cache[l.tag] === "object" ? cache[l.tag] : {};
+      nextStrings[l.tag] = untranslated(had) ? {} : had;
+    }
+  }
   // ONE READ OF THE PAGES for all of them: `collectStrings` does not depend on
   // the tag, and the old loop re-ran it per language.
   const { strings, dropped } = collectStrings(pages || []);
@@ -18114,7 +18125,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   }
   // THE REMEMBERED FAILURES, beside the cache (audit #195): only this round's,
   // so words that changed are asked again and the list cannot grow.
-  {
+  if (!compileOnly) {
     const st = stuckAfter(stuckNow);
     if (st) nextStrings[STUCK_KEY] = st;
     langsChanged = langsChanged || JSON.stringify(st || null) !== JSON.stringify(cache[STUCK_KEY] || null);
@@ -18134,7 +18145,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     if (st.length) langStale[l.tag] = st;
   }
   const overrideFlags = flagStale(overrides, langStale);
-  if (overrideFlags.changed) {
+  if (overrideFlags.changed && !compileOnly) {
     const w = await patchSiteConfig(env, slug, db, { langOverrides: overrideFlags.next }, jobFence(env, job));
     if (!w.ok) console.error("lang override flags write failed", slug, w.error);
   }
@@ -18160,7 +18171,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // string is already known — costs no database write either. Best-effort: a
   // failed cache write means the next publish re-translates, which is slower
   // and never wrong, and is not a reason to fail an edit that has succeeded.
-  if (langsChanged) {
+  if (langsChanged) { // never on a compile-only run: nothing above changed it there
     // `db` IS ALREADY IN HAND from the config read above, so this no longer
     // re-resolves the backend — and on a site with none it is null, which is the
     // legacy reader being omitted rather than an error.
@@ -19666,6 +19677,11 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         log: (e) => { try { mark?.("agent:" + e.event, e); } catch { /* a trace must never break a build */ } },
         // STOP (2026-10-30, fix-all): the build's own stop read, at most every 10 s.
         ...(typeof stopCheck === "function" ? { stopped: throttledStop(stopCheck) } : {}),
+        // THE CREDIT BACKSTOP (2026-10-30, pretest-fixes): a first build is
+        // asked, as an edit is, whether the balance covers what it has spent;
+        // without it the agent's limits were Infinity. A queued build's bearer
+        // may have expired, so a job is read by uid, as the edits' jobs are.
+        affords: agentAffords(env, { uid: typeof uid === "string" ? uid : "", auth: jobId ? "" : (typeof auth === "string" ? auth : "") }),
       }, {
         request: briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief, media, devices: deviceWishes }),
         pages: revise && Array.isArray(priorPages) ? priorPages : [],
@@ -19680,6 +19696,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       try { mark?.("agent", { ok: ag.ok, rounds: ag.rounds, builds: ag.builds, stopped: ag.stopped }); } catch { /* a trace must never break a build */ }
       // A STOPPED AGENT STOPS THE BUILD, as the publish's own stop read does.
       if (ag.stopped === "cancelled") throw Object.assign(new Error("the build was stopped before it was published"), { stopped: true });
+      // OUT OF CREDITS MID-BUILD: nothing is compiled, published or billed for
+      // the pages; the route gives back what the build took and answers 402.
+      if (ag.stopped === "no-credits") throw Object.assign(new Error("the account ran out of credits while the pages were written"), { noCredits: true });
       return asWriterAnswer(ag, agModel);
     } : null,
     generate: async () => {
@@ -30099,6 +30118,16 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
           if (firstBuild && designed) buildArgs.plan = withNotBuilt(buildArgs.plan, designed.notBuilt);
           pages = await buildAndPublishPages(env, buildArgs);
         } catch (e) {
+          // THE AGENT'S CREDIT BACKSTOP STOPPED A FIRST BUILD (pretest-fixes):
+          // nothing was published, and every debit this build made is given
+          // back, as the deposit's own refusal does: a refusal, not a failure.
+          if (e && e.noCredits === true) {
+            const back = await refundFields();
+            return Response.json({
+              ok: false, stage: "pages", error: "not enough credits", need: "credits", detail: "insufficient", ...back,
+              msg: "Your account ran out of credits while I was writing your pages, so I stopped before publishing anything. Add credits and send it again.",
+            }, { status: 402 });
+          }
           console.error("page generation failed:", slug, (e && (e.detail || e.message)));
           // Returned, not only logged — the same lesson `publish-pages.mjs`
           // learned. Until 2026-07-29 this branch reported `stage:-, error:-`
@@ -36835,6 +36864,14 @@ async function handleRequest(request, env, ctx) {
                     touched: writtenPaths(eSrc, tSplit.pages),
                   });
                   if (!tPub.ok) cheapCost = tHeld;
+                  // A SAVE LOST TO ANOTHER PART'S TURN (pretest-fixes): answered
+                  // as the agent's own save answers it, so the request's overlap
+                  // re-run takes it, never the full agent on a lost turn. Under a
+                  // job its reserve is given back at the job's end.
+                  if (!tPub.ok && lostOr(tPub, "")) {
+                    return Response.json({ ok: false, error: tPub.error, ours: true, layer: "text", cheap: true, deferred: [], cost: 0, detail: tPub.detail,
+                      msg: compileMsg(tPub, "That wording change could not be saved, so the site is untouched.") }, { status: 422 });
+                  }
                   if (tPub.ok) {
                     const tCost = eJob ? tHeld : await eCharge(tOut.usage);
                     return Response.json({

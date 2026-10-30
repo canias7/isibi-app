@@ -142,7 +142,7 @@ export const AGENT_TOOLS = Object.freeze([
   },
   {
     name: "helpers",
-    description: "Hand pages to helper agents that write them AT THE SAME TIME as each other, then come back to you with what they wrote. For a new site, once the shared files every page uses are written (the header, the footer, the stylesheet, shared components): give each helper ONE page file that it alone writes, and a brief of what that page holds and which shared components it uses. A helper reads any file but writes only its own page; it cannot build. You then build, look and fix. Up to " + MAX_HELPERS + " pages in one call.",
+    description: "Hand pages to helper agents that write them AT THE SAME TIME as each other, then come back to you with what they wrote. For a new site, once the shared files every page uses are written (the header, the footer, shared components): give each helper ONE page file that it alone writes, and a brief of what that page holds and which shared components it uses. A helper reads any file but writes only its own page; it cannot build. You then build, look and fix. Up to " + MAX_HELPERS + " pages in one call.",
     input_schema: {
       type: "object",
       properties: { tasks: { type: "array", maxItems: MAX_HELPERS, items: { type: "object", properties: { file: { type: "string" }, brief: { type: "string" } }, required: ["file", "brief"] } } },
@@ -283,7 +283,7 @@ You change an existing website for its owner, with tools. Work like an engineer:
 - Every command is a round, and every round costs the owner money: put everything you want to look at in ONE command (join them with ;), never one look per round.
 - Plan first: work out every change, then write all the files, then build once. Fix what the build reports and build again.
 - Every round costs the owner money, so do as much as you can in each one: call several tools in the same answer. Write every file you already know in ONE answer (several write_file calls side by side), read every file you need in one read_files call, and never spend a round on one small file when more are ready.
-- When the helpers tool is offered (a new site): write the shared files first (header, footer, stylesheet, shared components) and the home page yourself, then hand every other page to helpers in ONE helpers call, so they are written at the same time. Then build, look and fix.
+- When the helpers tool is offered (a new site): write the shared files first (header, footer, shared components) and the home page yourself, then hand every other page to helpers in ONE helpers call, so they are written at the same time. Then build, look and fix.
 - When the look of a page changed, look at it once the build passes, and fix anything that looks wrong.
 - When the build passes and every change is made, call finish with what you changed, as plain facts.
 - If a change cannot be done, make the rest, and say in finish what was not done and why.
@@ -383,6 +383,9 @@ export function makeWorkspace(pages = [], parts = [], css = null) {
   const original = new Map(files);
   return {
     files,
+    // A NEW SITE (nothing handed in): it has no stylesheet to write, because
+    // the build makes it from the design (pretest-fixes, 2026-10-30).
+    fresh: original.size === 0,
     has: (k) => files.has(k),
     get: (k) => files.get(k),
     set: (k, v) => files.set(k, v),
@@ -397,10 +400,16 @@ export function makeWorkspace(pages = [], parts = [], css = null) {
   };
 }
 
+/** Why a new site's agent cannot write styles.css (the build makes it from the design). */
+export const NEW_SITE_CSS = "a new site has no stylesheet to write: the build makes it from the site's design (its colours and fonts). Style pages and components with classes instead";
+
 /** A key the agent may write, or why not. */
 export function writableKey(key, ws = null) {
   const k = typeof key === "string" ? key.trim() : "";
-  if (k === CSS_KEY) return ws && !ws.has(CSS_KEY) ? { ok: false, why: "the stylesheet could not be read, so it cannot be written this time" } : { ok: true, key: k };
+  if (k === CSS_KEY) {
+    if (!ws || ws.has(CSS_KEY)) return { ok: true, key: k };
+    return { ok: false, why: ws.fresh === true ? NEW_SITE_CSS : "the stylesheet could not be read, so it cannot be written this time" };
+  }
   if (PAGE_KEY.test(k) && !k.startsWith("-parts/")) return { ok: true, key: k };
   if (PART_KEY.test(k)) return { ok: true, key: k };
   return { ok: false, why: "a file key is a page (\"about.tsx\") or a component (\"-parts/<name>\")" };
@@ -438,7 +447,7 @@ export function projectOverview(tables = [], { ownParts = false, unreadable = fa
     ownParts
       ? "- This site writes its own parts: there is no kit to use, so there is nothing under @/components to look through."
       : "- The ready-made kit lives under @/components (ui, charts): use it as the rules above say; do not list or read its files.",
-    "- The stylesheet is \"styles.css\". Data is read and written with useRows / useCreateRow from \"@/lib/rows\", as the rules above say; do not open @/lib.",
+    "- There is no stylesheet to write: the build makes it from the site's design (its colours and fonts). Style with classes. Data is read and written with useRows / useCreateRow from \"@/lib/rows\", as the rules above say; do not open @/lib.",
     unreadable ? "- The site's tables could not be read just now: whether it has any is not known." : t.length ? "- The site's tables, already created: " + t.map((x) => x.name + " (" + (x.columns || []).join(", ") + ")").join("; ") + "." : "- The site has no tables.",
     "Start writing. Use commands only for what this does not tell you.",
   ].join("\n");
@@ -1087,7 +1096,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     deps = { ...deps, helpers: (tasks, cur) => Promise.all(tasks.map(async (t) => {
       try {
         const left = Math.max(60000, maxMs - (now() - started));
-        const r = await runSiteAgent({ send: deps.send, now: deps.now, readTable: deps.readTable, stopped: deps.stopped, alive: deps.alive, log: (e) => log({ ...e, helper: 1 }) }, {
+        const r = await runSiteAgent({ send: deps.send, now: deps.now, readTable: deps.readTable, stopped: deps.stopped, alive: deps.alive, affords: deps.affords, beat: deps.beat, log: (e) => log({ ...e, helper: 1 }) }, {
           request: "YOU ARE A HELPER. Another agent is building this site and has handed you ONE page to write: " + t.file + ". Write that page, complete, with write_file, and nothing else (you cannot build; the other agent builds after you). Read the shared files you use first. Then finish with one line on what the page holds.\n\nYOUR PAGE'S BRIEF\n" + t.brief + "\n\nTHE OWNER'S REQUEST FOR THE WHOLE SITE\n" + String(request || ""),
           pages: cur.pages(), parts: cur.parts(), css: cur.css(), map, spec, kind, ownParts, model, maxRounds: HELPER_ROUNDS, maxMs: left, onlyWrite: t.file,
         });

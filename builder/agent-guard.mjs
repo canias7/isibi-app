@@ -133,10 +133,21 @@ export function scopeGuard({ pages = [], parts = [], routes = null, look = false
   const partSrc = new Map((Array.isArray(parts) ? parts : []).filter((p) => p && typeof p.name === "string").map((p) => [p.name, String(p.source || "")]));
   const keys = new Set();
   const queue = [];
-  for (const r of want) {
-    const norm = r === "/" ? "/" : r.replace(/\/+$/, "").toLowerCase();
-    for (const [k, src] of files) if (routeOfKey(k).toLowerCase() === norm) { keys.add(k); queue.push([src, false]); }
+  const norms = new Set(want.map((r) => (r === "/" ? "/" : r.replace(/\/+$/, "").toLowerCase())));
+  for (const [k, src] of files) if (norms.has(routeOfKey(k).toLowerCase())) { keys.add(k); queue.push([src, false]); }
+  // THE SITE'S CHROME (pretest-fixes, 2026-10-30): the components the home
+  // page or the root layout imports, and any imported by two pages or more
+  // (the header, the footer, the menu), are writable from every part, so a
+  // menu or footer change beside a page's work is not refused.
+  const uses = new Map();
+  for (const [k, src] of files) {
+    const chrome = k === "index.tsx" || /^__root\.tsx$/i.test(k);
+    for (const n of importedParts(src, { inParts: false })) {
+      uses.set(n, (uses.get(n) || 0) + 1);
+      if (chrome && partSrc.has(n) && !keys.has(partKey(n))) { keys.add(partKey(n)); queue.push([partSrc.get(n), true]); }
+    }
   }
+  for (const [n, c] of uses) if (c >= 2 && partSrc.has(n) && !keys.has(partKey(n))) { keys.add(partKey(n)); queue.push([partSrc.get(n), true]); }
   while (queue.length) {
     const [src, inParts] = queue.shift();
     for (const n of importedParts(src, { inParts })) {
@@ -149,6 +160,9 @@ export function scopeGuard({ pages = [], parts = [], routes = null, look = false
   return (key) => {
     const k = typeof key === "string" ? key.trim() : "";
     if (keys.has(k)) return "";
+    // A NEW PAGE AT A SCOPED ROUTE (pretest-fixes): a page file the site does
+    // not have yet, whose address is one the part names.
+    if (k !== CSS_KEY && !k.startsWith("-parts/") && /\.tsx$/.test(k) && !files.has(k) && norms.has(routeOfKey(k).toLowerCase())) return "";
     if (k === CSS_KEY) return "this request is about " + want.join(", ") + ", not the site's look, so the stylesheet is not yours to change this time. If the change truly needs it, say so in your finish summary.";
     return "this part of the request is only about " + want.join(", ") + "; " + k + " is outside it. You may write: " + allowed.join(", ") + ". If the change truly needs another file, say so in your finish summary instead.";
   };

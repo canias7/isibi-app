@@ -1,5 +1,18 @@
 # Owner Notes
 
+## 2026-10-30 — Fixes before the paid live test (branch `pretest-fixes`, from `main` `f02ef0f58`; not merged, not deployed, nothing paid)
+
+**What changed:**
+1. **A first build now has a credit check.** The site agent writing a new site was never asked whether the balance covered it, so it had no spending stop at all. It is now asked before its first round and every 5 rounds, the same check edits use (by account under a queued job). Helpers get the same check. If the credits run out, the build stops: nothing is published, every credit the build took is given back, and the reply says the account ran out of credits (402).
+2. **The agent's test builds no longer translate or charge.** On a site with extra languages, each "build" or "look" the agent did while working translated the pages, charged for it and wrote the language cache, even though nothing was published. Now only the real save translates, charges and writes.
+3. **New sites: no stylesheet to write.** A new site's agent was told to write the stylesheet first, but a first build makes the stylesheet from the design and the agent could not write it ("could not be read"). The instructions no longer mention it for a new site, and the refusal now says plainly that the build makes it from the design and to style with classes. (Chosen over carrying the agent's stylesheet into the build, which would change the build's design and publish path.)
+4. **A part's scope is less strict.** A part limited to some pages may now also create a page at its own address that does not exist yet, and change the site's shared header, footer and menu components (those the home page imports, or that two or more pages import). Unrelated pages are still refused.
+5. **The cheap wording path** now hands back a save lost to another part's turn, so the request re-runs it, instead of starting the full agent on a lost turn.
+
+**Tests:** `test/pretest-fixes.test.mjs` (6 cases, red on `main`). Mutation sweep: 13 mutants, all killed; the comment-only control survived. Two source-reading tests were updated for the new refusal (the build route now has 14 refusals that give credits back).
+
+**Nothing spent, no model calls, no live writes.**
+
 ## 2026-10-30 — The final combination before deploy (branch `final-combine`, not merged, not deployed, nothing paid)
 
 **What it is:** `key-card` (which already holds `agent-fix-all` and `combine-agent-server`) with `no-time-limit` merged on top. Everything from each branch is kept:
