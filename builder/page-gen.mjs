@@ -1943,6 +1943,13 @@ export const SITE_PAGES_TOOL = {
           "FILES: site.files.put(name, body, contentType), site.files.get(name) (a Response, or null), " +
           "site.files.list(prefix), site.files.delete(name) — the site's own storage, up to 25 MB a file " +
           "(e.g. save a generated invoice, then return site.files.get(name) to download it).\n" +
+          "KEEP IT SAFE: check the request body before using it (the fields, their types and sizes) and answer 400 " +
+          "when it is wrong. Anyone can call a visitor's function with any body: never trust an id, role, price or " +
+          "owner flag it sends; look it up with site.sql and check this visitor may do it. A webhook: read the raw " +
+          "body (await request.text()), act only when site.verify(\"KEY_NAME\", signedText, signature) is true, refuse " +
+          "a timestamp over 5 minutes old, and record each event id so a replay does nothing. Use only the tables and " +
+          "columns the site's schema declares. site.fetch can fail or time out: check r.ok, catch the error, and " +
+          "answer 502 with a short, clear message.\n" +
           "Leave this out when the site needs no server code, which is most sites.",
       },
       remove: {

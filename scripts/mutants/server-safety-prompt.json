@@ -1,0 +1,69 @@
+[
+  {
+    "label": "CONTROL: a comment only, above the practices",
+    "control": true,
+    "files": ["builder/site-agent.mjs"],
+    "from": "// ── WORKERS BEST PRACTICES, ADAPTED (2026-10-29, the owner: \"lets use the",
+    "to": "// ── WORKERS BEST PRACTICES, ADAPTED. (2026-10-29, the owner: \"lets use the"
+  },
+  {
+    "label": "PAGE WRITER: no body check",
+    "files": ["builder/page-gen.mjs"],
+    "from": "\"KEEP IT SAFE: check the request body before using it (the fields, their types and sizes) and answer 400 \" +",
+    "to": "\"KEEP IT SAFE: \" +"
+  },
+  {
+    "label": "PAGE WRITER: client-sent ids trusted",
+    "files": ["builder/page-gen.mjs"],
+    "from": "\"when it is wrong. Anyone can call a visitor's function with any body: never trust an id, role, price or \" +\n          \"owner flag it sends; look it up with site.sql and check this visitor may do it. A webhook: read the raw \" +",
+    "to": "\"when it is wrong. A webhook: read the raw \" +"
+  },
+  {
+    "label": "PAGE WRITER: no stale-timestamp or replay rule",
+    "files": ["builder/page-gen.mjs"],
+    "from": "is true, refuse \" +\n          \"a timestamp over 5 minutes old, and record each event id so a replay does nothing. Use only the tables and \" +",
+    "to": "is true. Use only the tables and \" +"
+  },
+  {
+    "label": "PAGE WRITER: no schema rule",
+    "files": ["builder/page-gen.mjs"],
+    "from": "Use only the tables and \" +\n          \"columns the site's schema declares. site.fetch",
+    "to": "site.fetch"
+  },
+  {
+    "label": "PAGE WRITER: no fetch-failure rule",
+    "files": ["builder/page-gen.mjs"],
+    "from": "site.fetch can fail or time out: check r.ok, catch the error, and \" +\n          \"answer 502 with a short, clear message.\\n\" +",
+    "to": "\\n\" +"
+  },
+  {
+    "label": "AGENT: no stale-timestamp or replay rule",
+    "files": ["builder/site-agent.mjs"],
+    "from": " Then refuse a timestamp more than 5 minutes old, and record each event's id (site.sql) and do nothing for one already recorded: senders retry, and a captured message can be replayed.",
+    "to": ""
+  },
+  {
+    "label": "AGENT: no body check",
+    "files": ["builder/site-agent.mjs"],
+    "from": "- Check the request body before using it: the fields you need, their types and sizes. Answer 400 with a short message when it is wrong.\n",
+    "to": ""
+  },
+  {
+    "label": "AGENT: client-sent ids trusted",
+    "files": ["builder/site-agent.mjs"],
+    "from": "- A function a page calls can be called by anyone, with any body. Never trust an id, role, price or \"is owner\" flag it sends: look up what this visitor may do with site.sql and check it on every request. Hiding a button protects nothing.\n",
+    "to": ""
+  },
+  {
+    "label": "AGENT: no schema rule",
+    "files": ["builder/site-agent.mjs"],
+    "from": "- Use only the tables and columns the site's schema declares; a name you made up fails on the live site.\n",
+    "to": ""
+  },
+  {
+    "label": "AGENT: no fetch-failure rule",
+    "files": ["builder/site-agent.mjs"],
+    "from": "- site.fetch can fail, time out or answer an error: check r.ok, catch the throw, and answer 502 with a short, clear message (e.g. \"the payment service did not answer\").\n",
+    "to": ""
+  }
+]

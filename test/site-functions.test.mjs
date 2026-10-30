@@ -307,6 +307,30 @@ test("SF-practices the agent is told the Workers practices, credited, with site.
   assert.match(src, /Apache License 2\.0, © Cloudflare, Inc\./);
 });
 
+// THE SAFETY RULES REACH BOTH WRITERS (2026-10-30): the page writer through its
+// `server` field, the agent through SERVER_PRACTICES (and the same field, which
+// it is also handed). Each rule is read in each writer's own text.
+test("SF-safety both server writers are told: check the body, trust no client id or role, verify and de-duplicate webhooks, only the schema's tables, handle site.fetch failing", async () => {
+  const { SITE_PAGES_TOOL } = await import("../builder/page-gen.mjs");
+  const { agentSystem } = await import("../builder/site-agent.mjs");
+  const field = SITE_PAGES_TOOL.input_schema.properties.server.description;
+  const sys = agentSystem(null, "");
+  const practices = sys.slice(sys.indexOf("WRITING SERVER CODE THAT HOLDS UP"));
+  assert.ok(practices.length > 100, "the agent's practices are there to read");
+  for (const [text, who] of [[field, "the page writer's server field"], [practices, "the agent's practices"]]) {
+    assert.match(text, /check the request body before using it/i, who + ": validate the body");
+    assert.match(text, /answer 400/i, who + ": a bad body is a 400");
+    assert.match(text, /never trust an id, role, price or/i, who + ": no client-sent ids or roles");
+    assert.match(text, /this visitor may do/i, who + ": a per-visitor check");
+    assert.match(text, /site\.verify\("KEY_NAME", signedText, signature\)/, who + ": verify the signature");
+    assert.match(text, /timestamp (?:over|more than) 5 minutes old/, who + ": stale timestamps refused");
+    assert.match(text, /record each event('s)? id/, who + ": replays de-duplicated");
+    assert.match(text, /only the tables and columns the site's schema declares/, who + ": only declared tables");
+    assert.match(text, /site\.fetch can fail/, who + ": outside calls fail");
+    assert.match(text, /check r\.ok, catch the (?:error|throw), and answer 502/, who + ": a clear error when they do");
+  }
+});
+
 // THE `site` HELPER IS TYPED (2026-10-30): a server part's `site: SiteHelper`
 // is the route's own `makeSite` return type, declared globally by
 // `site-functions.ts`, so `tsc` reads a wrong call as an error, not as `any`.
