@@ -17174,6 +17174,14 @@ if (firstBrief) {
   if (window.Auth && Auth.isSignedIn()) { showView('sites'); siteCreate(firstBrief); }
   else pendingSiteBrief = firstBrief;
 }
+// ?auth=signin|start, from a page outside the app (the pricing page's
+// buttons): open the sign-in page straight away. Buying needs an account, so
+// a signed-out visitor who presses Buy lands here, not at a checkout.
+const authAsk = params.get('auth');
+if (authAsk === 'signin' || authAsk === 'start') {
+  window.history.replaceState({}, '', location.pathname);
+  if (!(window.Auth && Auth.isSignedIn())) openAuthFrom(authAsk, 'app');
+}
 // Back from Stripe: the webhook mints the credits — poll the balance so the
 // chip catches up even if the webhook lands a few seconds after we do. Said as
 // a toast rather than a message in a thread: the media side's chat thread was
