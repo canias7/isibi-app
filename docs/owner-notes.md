@@ -1,5 +1,18 @@
 # Owner Notes
 
+## 2026-10-30 — Every project lives on the server from the first second (your four points: create on send, show the server's list, no device-only cards, deletes on the server)
+
+**What changed:**
+- Pressing send on the start screen first creates the project in your account on the server (its chat, with the brief), and only then sends the build. A project is its chat: the chat store we already keep per account (`chat/<account>/<chat>.json`), so no new table and no database change.
+- The projects page shows the server's list. `/api/site/list` now names every project: built sites as before, plus every chat no site has claimed yet ("Not built yet": a build in flight, one that failed early, or one never started), each with one stable id that every device shares (the chat id; `srv_<slug>` for old sites built before chats were tied to sites). The browser keeps the last list per account only to paint at once, and replaces it whole when the server answers.
+- No more merging this browser's records with the server's, and no more "Not finished · only on this device" cards. The 20-record limit no longer drops a project: it only trims this browser's working copy of projects the server already holds, and never a record not yet saved to your account.
+- Deleting a project not built yet deletes its chat on the server; the card goes only after the server says so ("Couldn't delete that project just now" otherwise). Deleting a built site is unchanged (it already removed the chat). Another device drops the project on its next list read.
+- Existing unfinished projects kept only in a browser are saved to your account the first time that browser opens the projects page (thread included). An empty one (no messages) is not uploaded; it shows "Not saved to your account yet" until you delete it.
+
+**Limits:** a chat that cannot be read leaves that project out of that one answer, and the page is told the answer is incomplete, so nothing is dropped on it. If the first save fails (offline), the build still goes after at most 8 seconds and the project is saved on the next list read. Two accounts on one browser: an old unsaved record is saved into whichever account opens the page first (the same as the chat sync already did).
+
+**Tests:** `test/projects-server-side.test.mjs`, 13 cases: the real Worker's list and chat routes over an in-memory store, and the real page in Chromium as two devices (send creates the project before the build; a failed build stays listed; the second device sees and opens it; a delete on one is followed by the other; the cached list paints first and is replaced; old records are saved up). 12 of 13 fail on the old code. Guards that pinned the old merge were rewritten for the new rule (`site-list`, `site-list-db`, `site-list-devices`, `sites-kept`, `projects-page-fixes`). Sweep: 19 of 19 mutants killed, the comment-only control survived.
+
 ## 2026-10-30 — Deleting a site: a shared chat is kept, and a build running in the Worker blocks the delete (projects page, round 2)
 
 **What was wrong:** (1) two sites can carry the same chat; deleting one deleted that chat, so the other site lost its conversation. (2) The delete's "is something still running?" check only saw queued jobs. A build that runs inside the Worker itself has no job row, so a delete during it went through and the build then put the site back.

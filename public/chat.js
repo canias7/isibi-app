@@ -4898,10 +4898,15 @@ function sitesMerge(mine, theirs, now = Date.now()) {
  * list's own order. The first twenty by position dropped an open, active
  * older site, and with it its requests and undo offer, on the next reload.
  */
+// NO LONGER A WAY TO LOSE A PROJECT (2026-10-30): the projects are the
+// server's, so a record past the twenty is only this browser's working copy of
+// one, read back from the server when it is opened. A record the server has
+// not confirmed yet (`srv`) is never trimmed: it may be the only copy.
 function sitesKept(all, openId, max = 20) {
   if (all.length <= max) return all.slice();
-  const t = (s) => (s && openId && s.id === openId ? Infinity : Number(s && (s.updatedAt || s.createdAt)) || 0);
-  const keep = new Set(all.map((s, i) => i).sort((a, b) => t(all[b]) - t(all[a]) || a - b).slice(0, max));
+  const t = (s) => (s && ((openId && s.id === openId) || s.srv !== true) ? Infinity : Number(s && (s.updatedAt || s.createdAt)) || 0);
+  const order = all.map((s, i) => i).sort((a, b) => (t(all[b]) === t(all[a]) ? a - b : t(all[b]) > t(all[a]) ? 1 : -1));
+  const keep = new Set(order.filter((i, n) => n < max || t(all[i]) === Infinity));
   return all.filter((s, i) => keep.has(i));
 }
 function sitesSave() {
@@ -6108,7 +6113,12 @@ function renderSites() {
   // fetch is fire-and-forget and re-renders when it lands, so the first paint
   // is still the local list and nothing waits on the network.
   sitesFetchRemote();
-  const sites = SiteList.merge(sitesLoad(), sitesRemote, sitesRemote !== null, sitesDeletedSlugs);
+  // THE SERVER'S LIST, OR ITS LAST COPY (2026-10-30, owner: "the projects page
+  // shows the SERVER's list"): the copy kept for this account paints at once
+  // and the server's answer replaces it whole. This browser's records only
+  // dress the cards the server names (`SiteList.projects`).
+  if (sitesRemote === null) sitesRemote = sitesListCacheLoad();
+  const sites = SiteList.projects(sitesRemote, sitesLoad(), sitesDeletedSlugs);
   view.innerHTML =
     '<div class="st-page">' +
       '<div class="st-hero">' +
@@ -6162,7 +6172,10 @@ function renderSites() {
                     // NOT FINISHED (2026-10-21): a card with no address is a build
                     // this browser started that never reached the server, so no
                     // other device has it; it says so rather than looking like a site.
-                    '<span class="st-card-sub">' + (!s.slug && !(siteBusy && siteOpenId === s.id) ? 'Not finished \u00b7 only on this device \u00b7 ' : '') + esc(schWhen(new Date(s.updatedAt || s.createdAt).toISOString())) + '</span></div>' +
+                    // ONE LABEL PER STATE (2026-10-30): a project on the server
+                    // with no address yet is being built or was not finished; a
+                    // record not yet saved to the account says so until it is.
+                    '<span class="st-card-sub">' + (s.localOnly ? 'Not saved to your account yet \u00b7 ' : !s.slug ? ((siteBusy && (siteOpenId === s.id || siteOpenId === s.localId)) ? 'Building \u00b7 ' : 'Not built yet \u00b7 ') : '') + esc(schWhen(new Date(s.updatedAt || s.createdAt).toISOString())) + '</span></div>' +
                   cardActs(s) +
                 '</div>' +
                 '<button type="button" class="sch-del st-card-del" data-del="' + esc(s.id) + '" title="Delete" aria-label="Delete site">×</button>' +
@@ -6301,7 +6314,17 @@ function renderSites() {
     // AN UNFINISHED SITE IS ASKED ABOUT TOO (2026-10-30): it went at one
     // press, with no way back.
     if (entry && !entry.slug) {
-      if (!(await goConfirm('This unfinished site and its chat will be removed from this device.', { title: 'Delete \u201c' + (entry.name || 'Untitled') + '\u201d?', ok: 'Delete', danger: true }))) return;
+      // A PROJECT NOT BUILT YET IS DELETED ON THE SERVER (2026-10-30, owner:
+      // "deletes happen on the server; every device follows"): it is its chat
+      // there, so the chat goes, and the card leaves only once that is said.
+      // A record that never reached the account is this browser's alone.
+      if (!(await goConfirm(entry.localOnly ? 'This unfinished project was never saved to your account, so it will be removed from this device.' : 'This unfinished project and its chat will be deleted from your account on every device.', { title: 'Delete \u201c' + (entry.name || 'Untitled') + '\u201d?', ok: 'Delete', danger: true }))) return;
+      if (!entry.localOnly) {
+        if (siteBusy && (siteOpenId === entry.id || siteOpenId === entry.localId)) { if (typeof sbToast === 'function') sbToast('That project is still being built \u2014 delete it once that finishes.'); return; }
+        let cr;
+        try { cr = await apiFetch('/api/site/chat/' + encodeURIComponent(entry.chat || entry.id), { method: 'DELETE' }); } catch (e) { cr = null; }
+        if (!cr || !cr.ok) { if (typeof sbToast === 'function') sbToast("Couldn't delete that project just now \u2014 try again in a moment."); return; }
+      }
     }
     // A published/React site has a live page + (maybe) its own database — deleting
     // it is permanent, so confirm, then wipe it server-side before removing locally.
@@ -6355,15 +6378,17 @@ function renderSites() {
     // FOUND BY SLUG TOO (2026-10-30): a card the server named carries
     // `srv_<slug>`, which no local record has, so the chat was never cleared.
     const goneSlug = (s && s.slug) || (entry && entry.slug) || '';
+    const localId = (entry && entry.localId) || (s && s.id) || '';
     if (goneSlug) sitesDeletedSlugs.add(goneSlug);
-    try { const gone = sitesLoad().find((x) => x.id === id) || (goneSlug ? sitesLoad().find((x) => x.slug === goneSlug) : null); if (gone) chatDelete(gone); } catch (e) { /* the chat is the server's to clear */ }
+    sitesDeletedSlugs.add(id);
+    try { const gone = sitesLoad().find((x) => x.id === id || (localId && x.id === localId)) || (goneSlug ? sitesLoad().find((x) => x.slug === goneSlug) : null); if (gone && goneSlug) chatDelete(gone); } catch (e) { /* the chat is the server's to clear */ }
     // OFF THE SCREEN TOO (2026-10-21, owner: "after i click ok it stays
     // there"): the card is drawn from the server's list as last fetched, and a
     // card the server named has its own id (`srv_<slug>`), so dropping only the
     // local record by that id left it drawn until the next fetch. Both lists
     // lose the site, by slug.
-    sitesCache = sitesLoad().filter((x) => x.id !== id && !(goneSlug && x.slug === goneSlug));
-    if (goneSlug && Array.isArray(sitesRemote)) sitesRemote = sitesRemote.filter((r) => !(r && r.slug === goneSlug));
+    sitesCache = sitesLoad().filter((x) => x.id !== id && !(localId && x.id === localId) && !(goneSlug && x.slug === goneSlug));
+    if (Array.isArray(sitesRemote)) { sitesRemote = sitesRemote.filter((r) => !(r && (r.id === id || (goneSlug && r.slug === goneSlug)))); sitesListCacheSave(sitesRemote); }
     sitesSave(); renderSites();
   });
 }
@@ -6391,18 +6416,101 @@ async function sitesFetchRemote(force) {
   // on a page the visitor has not tried to do anything on yet.
   if (!window.Auth || !(await Auth.accessToken().catch(() => null))) return;
   sitesRemoteBusy = true;
+  const askedAt = Date.now();
   try {
     const r = await apiFetch('/api/site/list');
     const d = await r.json().catch(() => null);
     // ANY failure leaves `sitesRemote` exactly as it was: a blip must not blank
     // a customer's screen, and a stale list is better than an empty one.
     if (r.ok && d && d.ok && Array.isArray(d.sites)) {
+      // REPLACED WHOLE, AND KEPT AS THIS ACCOUNT'S COPY (2026-10-30).
       sitesRemote = d.sites;
       sitesRemoteAt = Date.now();
+      sitesListCacheSave(d.sites);
+      sitesReconcile(d.sites, d.complete === true, askedAt);
       renderSites();
     }
   } catch { /* offline: the local list stands */ }
   finally { sitesRemoteBusy = false; }
+}
+// ── THE LAST LIST THE SERVER GAVE, PER ACCOUNT (2026-10-30) ─────────────────
+// Only to paint the projects page at once; the server's answer replaces it.
+// Kept under the account's id, so another account signed in on this browser
+// never paints these cards.
+function sitesListCacheKey() {
+  const uid = window.Auth && typeof Auth.userId === 'function' ? Auth.userId() : '';
+  return uid ? 'gf_projects_v1:' + uid : '';
+}
+function sitesListCacheLoad() {
+  const k = sitesListCacheKey();
+  if (!k) return null;
+  try { const v = JSON.parse(localStorage.getItem(k) || 'null'); return Array.isArray(v) ? v : null; } catch (e) { return null; }
+}
+function sitesListCacheSave(rows) {
+  const k = sitesListCacheKey();
+  if (!k || !Array.isArray(rows)) return;
+  try { localStorage.setItem(k, JSON.stringify(rows)); } catch (e) { /* the server answers again next load */ }
+}
+/**
+ * WHAT THE SERVER'S ANSWER MEANS FOR THIS BROWSER'S RECORDS (2026-10-30):
+ * every record the server listed is marked as on the account (`srv`); a record
+ * it confirmed before and no longer lists was deleted on another device and
+ * goes here too (only on a `complete` answer, `SiteList.deletedElsewhere`);
+ * and a project this browser made that never reached the account is created
+ * there now (`projectCreate`), once per page — its chat, its name and its
+ * messages — so a phone sees it too. A record with nothing in it stays drawn,
+ * labelled, until its owner deletes it.
+ */
+const sitesMigrating = new Set();
+function sitesReconcile(rows, complete, askedAt) {
+  const all = sitesLoad();
+  const ids = new Set();
+  const slugs = new Set();
+  for (const r of rows) { if (r && typeof r.id === 'string') ids.add(r.id); if (r && typeof r.chat === 'string' && r.chat) ids.add(r.chat); if (r && typeof r.slug === 'string' && r.slug) slugs.add(r.slug); }
+  let changed = false;
+  for (const s of all) {
+    if (s && s.srv !== true && (ids.has(s.id) || (s.slug && slugs.has(s.slug)))) { s.srv = true; s.srvAt = Date.now(); changed = true; }
+  }
+  const gone = new Set(SiteList.deletedElsewhere(rows, all, complete, askedAt).filter((id) => id !== siteOpenId));
+  if (gone.size) { sitesCache = all.filter((s) => !gone.has(s.id)); changed = true; }
+  if (changed) sitesSave();
+  for (const s of sitesLoad()) {
+    if (!s || s.srv === true || s.slug || !chatKeyOf(s) || sitesMigrating.has(s.id)) continue;
+    if (!Array.isArray(s.msgs) || !s.msgs.length) continue;
+    sitesMigrating.add(s.id);
+    projectCreate(s).then((ok) => { if (ok) { sitesFetchRemote(true); } });
+  }
+}
+/**
+ * THE PROJECT, MADE ON THE SERVER (2026-10-30, owner: "pressing send on the
+ * start screen creates the project ON THE SERVER right away, in the owner's
+ * account, with its chat, before any building starts"). The chat is written
+ * over revision 0, so it is created and never written over; a chat the
+ * server already has (409) is that project already there. Answers whether the
+ * project is on the account now. The row it makes is laid into the list at
+ * once, so the page shows it before the next read.
+ */
+async function projectCreate(s, brief) {
+  const key = chatKeyOf(s);
+  if (!key) return false;
+  const body = { baseRev: 0, msgs: Array.isArray(s.msgs) ? s.msgs : [], name: s.name || '', slug: s.slug || '', brief: String(brief || '').slice(0, 300), clarify: s.clarify || null, jobCards: s.jobCards || null, ask: s.ask || null, surface: s.surface === 'app' ? 'app' : undefined, appOs: s.appOs === 'android' || s.appOs === 'ios' ? s.appOs : undefined };
+  let r = null, d = null;
+  try { r = await apiFetch('/api/site/chat/' + encodeURIComponent(key), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); d = await r.json().catch(() => null); } catch (e) { r = null; }
+  const live = sitesLoad().find((x) => chatKeyOf(x) === key);
+  if (r && r.ok && d && Number.isInteger(d.rev)) {
+    if (live) { live.chatRev = d.rev; live.srv = true; live.srvAt = Date.now(); chatPulled.add(key); chatSentSig.set(key, chatSig(live)); }
+  } else if (r && r.status === 409) {
+    // ALREADY THERE: read it like any opened chat, and this copy is written up after.
+    if (live) { live.srv = true; live.srvAt = Date.now(); }
+    try { if (live) await chatPull(live); } catch (e) { /* asked again on the next open */ }
+  } else return false;
+  if (Array.isArray(sitesRemote) && !sitesRemote.some((x) => x && (x.id === key || x.chat === key))) {
+    const now = Date.now();
+    sitesRemote = [{ id: key, chat: key, slug: '', title: '', brief: body.brief, state: 'unbuilt', db: false, offline: false, createdAt: now, updatedAt: now, ...(body.surface ? { surface: 'app' } : {}) }].concat(sitesRemote);
+    sitesListCacheSave(sitesRemote);
+  }
+  sitesSave();
+  return true;
 }
 // A CARD THE SERVER NAMED AND THIS BROWSER HAS NEVER SEEN HAS NO LOCAL RECORD,
 // and `siteById` only ever searches localStorage — so without this the card
@@ -6442,7 +6550,25 @@ function cardThumbDraft(slug) {
   }).catch(() => {}).finally(() => cardThumbBusy.delete(slug));
 }
 function siteAdopt(entry) {
-  if (!entry || !entry.slug) return entry && entry.id ? siteById(entry.id) : null;
+  if (!entry) return null;
+  // THE RECORD THE CARD WAS DRESSED FROM, when it was (2026-10-30).
+  if (entry.localId && siteById(entry.localId)) {
+    const h = siteById(entry.localId);
+    if (entry.backend === true && h.backend !== true) { h.backend = true; sitesSave(); }
+    return h;
+  }
+  if (!entry.slug) {
+    if (!entry.id) return null;
+    const own = siteById(entry.id);
+    if (own || entry.localOnly) return own;
+    // A PROJECT NOT BUILT YET, MADE ON ANOTHER DEVICE: its record here takes
+    // the project's own id, which is its chat, so opening it reads that chat.
+    if (!/^[A-Za-z0-9_-]{4,80}$/.test(entry.id)) return null;
+    const rec0 = { id: entry.id, name: entry.name || 'New website', createdAt: entry.createdAt || Date.now(), updatedAt: entry.updatedAt || Date.now(), html: '', msgs: [], srv: true, srvAt: Date.now(), ...(entry.surface === 'app' ? { surface: 'app' } : {}) };
+    sitesLoad().unshift(rec0);
+    sitesSave();
+    return rec0;
+  }
   const all = sitesLoad();
   const have = all.find((s) => s.slug === entry.slug);
   // THE SERVER'S YES REACHES THE RECORD THE WORKSPACE READS (Lane 1c,
@@ -6456,7 +6582,11 @@ function siteAdopt(entry) {
     return have;
   }
   const rec = {
-    id: 'site_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+    // THE PROJECT'S OWN ID WHEN THE SERVER GAVE ONE (its chat), so every
+    // device opens the same chat; a site built before chats were bound has none.
+    id: entry.chat && /^[A-Za-z0-9_-]{4,80}$/.test(entry.chat) && !siteById(entry.chat) ? entry.chat : 'site_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+    srv: true,
+    srvAt: Date.now(),
     name: entry.name || entry.slug,
     slug: entry.slug,
     url: entry.url || '',
@@ -6526,7 +6656,17 @@ function siteCreate(prompt) {
   // before there is a slug to name, and the customer can copy or reload that
   // URL for the whole build.
   openProject(id, 'push');
-  siteSend(prompt);
+  // THE PROJECT IS MADE ON THE SERVER FIRST (2026-10-30): its chat, in this
+  // account, before the build is sent, so it is on every device from the
+  // first second. Bounded: a create that has not answered in eight seconds
+  // lets the build go, and the record is saved up on the next list read.
+  const rec = siteById(id);
+  Promise.race([projectCreate(rec, prompt).catch(() => false), new Promise((res) => setTimeout(() => res(false), 8000))])
+    .then(() => {
+      // THE OWNER MOVED AWAY MEANWHILE: the words wait in that project's box, never sent into another.
+      if (siteOpenId === id) siteSend(prompt);
+      else { siteDraft(id).t = prompt; sitesSave(); }
+    });
 }
 // "Jul 18 at 9:58 PM" — the thread's session stamp (Lovable-style).
 function stStamp(ts) {

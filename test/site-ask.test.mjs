@@ -2326,7 +2326,7 @@ test("a deleted site leaves the screen: the server's list as fetched loses it to
   const end = src.indexOf("\n  });", at);
   assert.ok(at > 0 && end > at, "the site delete handler moved; this guard checks nothing");
   const block = src.slice(at, end);
-  assert.match(block, /sitesRemote = sitesRemote\.filter\(\(r\) => !\(r && r\.slug === goneSlug\)\)/, "the fetched server list keeps the deleted site, so its card stays");
+  assert.match(block, /sitesRemote = sitesRemote\.filter\(\(r\) => !\(r && \(r\.id === id \|\| \(goneSlug && r\.slug === goneSlug\)\)\)\)/, "the fetched server list keeps the deleted site, so its card stays");
   assert.match(block, /!\(goneSlug && x\.slug === goneSlug\)/, "the local record is only dropped by the card's id");
   assert.ok(block.indexOf("sitesRemote = sitesRemote.filter") < block.indexOf("renderSites()", block.indexOf("goneSlug")), "the list is redrawn before the site is taken out");
 });

@@ -172,6 +172,9 @@ const SRC = [
   CHAT.slice(CHAT.indexOf("// \u2500\u2500 SLASH COMMANDS BEGIN"), CHAT.indexOf("// \u2500\u2500 SLASH COMMANDS END \u2500\u2500")),
   cut("function wireSiteComposer("),
   cut("function siteCreate("),
+  // THE PROJECT IS MADE ON THE SERVER BEFORE THE BUILD (2026-10-30): its own
+  // case is test/projects-server-side.test.mjs; here it answers at once.
+  "async function projectCreate() { return true; }",
 ].join("\n");
 
 const tick = () => new Promise((r) => setTimeout(r, 0));

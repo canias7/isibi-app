@@ -957,7 +957,128 @@ function readChatPut(b) {
     // A PHONE APP'S PROJECT (2026-10-20), kept with its chat so every device opens it as one.
     surface: b.surface === "app" ? "app" : undefined,
     appOs: b.appOs === "android" || b.appOs === "ios" ? b.appOs : undefined,
+    // WHAT THE OWNER ASKED FOR, kept from the moment the project is made
+    // (2026-10-30): the start screen creates the chat before the build, with no
+    // messages yet, and the projects list shows this line on every device.
+    brief: typeof b.brief === "string" ? b.brief.slice(0, 300) : "",
   };
+}
+// ── EVERY PROJECT IS ON THE SERVER FROM ITS FIRST SECOND (2026-10-30) ─────────
+//
+// Owner: pressing send creates the project on the server, in the owner's
+// account, with its chat, before any building starts; the projects page shows
+// the server's list; deletes happen on the server and every device follows.
+//
+// A PROJECT IS ITS CHAT. The chat store (`chat/<uid>/<chat>.json`) already
+// holds one object per account and chat, written by the page through the
+// authenticated PUT below, so a project needs no new table: a chat whose build
+// has not claimed a site yet is a project with no address. Its list facts ride
+// on the object as R2 custom metadata (`chatListMeta`), so the list reads them
+// in one listing instead of opening every chat; a chat written before this
+// carries none and is opened once (`chatProjectsOf`).
+/** The facts the projects list needs, kept beside the chat. R2 holds strings only, 2 KB in all. */
+function chatListMeta(rec) {
+  const msgs = rec && Array.isArray(rec.msgs) ? rec.msgs : [];
+  const first = msgs.find((m) => m && m.r === "u" && typeof m.t === "string");
+  return {
+    slug: String((rec && rec.slug) || "").slice(0, 80),
+    name: String((rec && rec.name) || "").slice(0, 100),
+    brief: String(first ? first.t : ((rec && rec.brief) || "")).slice(0, 200),
+    at: String(Number(rec && rec.updatedAt) || 0),
+    created: String(Number(rec && rec.createdAt) || Number(rec && rec.updatedAt) || 0),
+    n: String(msgs.length),
+    ...(rec && rec.surface === "app" ? { surface: "app" } : {}),
+  };
+}
+const CHAT_ID_RE = /^[A-Za-z0-9_-]{4,80}$/;
+/**
+ * EVERY CHAT THIS ACCOUNT KEEPS, as `{ id, slug, name, brief, at, created, n }`;
+ * null when the store could not be listed (cannot-tell is never "no projects").
+ * A chat with no metadata is read (eight at a time, at most 200); one that
+ * cannot be read is left out of this answer and `partial` says so.
+ */
+async function chatProjectsOf(env, uid) {
+  if (!uid || !env.SITES_BUCKET || typeof env.SITES_BUCKET.list !== "function") return null;
+  const prefix = "chat/" + uid + "/";
+  const found = [];
+  const bare = [];
+  try {
+    let cursor;
+    for (let page = 0; page < 5; page++) {
+      const l = await env.SITES_BUCKET.list({ prefix, include: ["customMetadata"], limit: 1000, ...(cursor ? { cursor } : {}) });
+      for (const o of (l && l.objects) || []) {
+        const k = String((o && o.key) || "");
+        if (!k.startsWith(prefix) || !k.endsWith(".json")) continue;
+        const id = k.slice(prefix.length, -5);
+        if (!CHAT_ID_RE.test(id)) continue;
+        const m = o.customMetadata;
+        if (m && typeof m === "object" && typeof m.at === "string") found.push({ id, meta: m });
+        else bare.push(id);
+      }
+      if (!l || !l.truncated || !l.cursor) break;
+      cursor = l.cursor;
+    }
+  } catch { return null; }
+  let partial = false;
+  const todo = bare.slice(0, 200);
+  if (bare.length > todo.length) partial = true;
+  const one = async () => {
+    for (let id = todo.shift(); id; id = todo.shift()) {
+      const cur = await chatStoreRead(env, chatStoreKey(uid, id));
+      if (!cur.read) { partial = true; continue; }
+      if (cur.chat) found.push({ id, meta: chatListMeta(cur.chat) });
+    }
+  };
+  await Promise.all(Array.from({ length: 8 }, one));
+  return {
+    partial,
+    chats: found.map(({ id, meta }) => ({
+      id,
+      slug: typeof meta.slug === "string" ? meta.slug : "",
+      name: typeof meta.name === "string" ? meta.name : "",
+      brief: typeof meta.brief === "string" ? meta.brief : "",
+      surface: meta.surface === "app" ? "app" : "",
+      at: Number(meta.at) || 0,
+      created: Number(meta.created) || Number(meta.at) || 0,
+    })),
+  };
+}
+/**
+ * THE PROJECTS LIST: the account's sites (`site_backends`, already shaped) and
+ * its chats, one row per project, each with a stable `id` every device shares.
+ *
+ * - A site whose row names its chat is that chat's project (`id` = the chat).
+ * - A site built before the binding takes the newest chat that names its slug.
+ * - A chat no site claimed and that names no address is a project not built
+ *   yet (`state: "unbuilt"`): a build in flight, one that failed early, or one
+ *   never started. It is listed so the owner can open it or delete it.
+ * - A chat that names an address no site holds belonged to a deleted site and
+ *   is not a project.
+ */
+function projectRows(sites, chats) {
+  const out = [];
+  const bySlug = new Map(sites.map((r) => [r.slug, r]));
+  const claimed = new Set(sites.map((r) => r.chat).filter(Boolean));
+  const legacy = new Map();
+  for (const c of chats || []) {
+    if (claimed.has(c.id) || !c.slug || !bySlug.has(c.slug) || bySlug.get(c.slug).chat) continue;
+    const had = legacy.get(c.slug);
+    if (!had || c.at > had.at) legacy.set(c.slug, c);
+  }
+  for (const c of legacy.values()) claimed.add(c.id);
+  for (const r of sites) {
+    const chat = r.chat || (legacy.get(r.slug) ? legacy.get(r.slug).id : "");
+    out.push({ ...r, id: chat || "srv_" + r.slug, chat, state: "built" });
+  }
+  for (const c of chats || []) {
+    if (claimed.has(c.id) || c.slug) continue;
+    out.push({
+      id: c.id, slug: "", chat: c.id, name: "", title: c.name && c.name !== "New website" && c.name !== "New app" ? c.name : "",
+      brief: c.brief, db: false, offline: false, state: "unbuilt", ...(c.surface ? { surface: c.surface } : {}),
+      createdAt: c.created, updatedAt: c.at,
+    });
+  }
+  return out;
 }
 // ── THE ACCOUNT'S OWN SETTINGS AND WORK IN PROGRESS, ON THE SERVER (2026-10-20,
 // owner: "fix, do it server side") ───────────────────────────────────────────
@@ -1049,7 +1170,7 @@ async function chatWindowFor(env, uid, chatId, { model, fixedChars = 0, current 
       // KEPT ON THE CHAT, over the copy it was read from; a write that lost
       // the race leaves the summary for the next message to make again.
       try {
-        await env.SITES_BUCKET.put(key, JSON.stringify({ ...cur.chat, summary: c.summary }), { httpMetadata: { contentType: "application/json" }, onlyIf: cur.etag ? { etagMatches: cur.etag } : { etagDoesNotMatch: "*" } });
+        await env.SITES_BUCKET.put(key, JSON.stringify({ ...cur.chat, summary: c.summary }), { httpMetadata: { contentType: "application/json" }, customMetadata: chatListMeta(cur.chat), onlyIf: cur.etag ? { etagMatches: cur.etag } : { etagDoesNotMatch: "*" } });
       } catch (e) { console.error("chat summary not kept:", errorClassForLog(e)); }
       plan = planWindow({ msgs: cur.chat.msgs, summary: c.summary, window, fixedChars, current });
     } else console.error("compact failed:", c.stage);
@@ -1064,7 +1185,7 @@ async function chatRouterWindow(env, uid, chatId, current) {
   const plan = planWindow({ msgs: cur.chat.msgs, summary: cur.chat.summary, window: 0, current });
   return { turns: plan.turns.map((t) => ({ role: t.role, text: t.text })), summary: plan.summary };
 }
-export const chatStoreApi = { chatStoreKey, chatStoreRead, readChatPut, CHAT_MAX_BYTES, CHAT_MAX_MSGS, readAcctPut, mergeAcctState, ACCT_STATE_NAMES, readAskFilesPut, ASK_FILES_TTL_MS, chatWindowFor, tokensReport, chatRouterWindow, testWindowFor, siteAppFiles, appIdFor, writePhoneApp, setAppWait: (retry, wait) => { APP_RETRY_MS = retry; APP_WAIT_MS = wait; } };
+export const chatStoreApi = { chatListMeta, chatProjectsOf, projectRows, chatStoreKey, chatStoreRead, readChatPut, CHAT_MAX_BYTES, CHAT_MAX_MSGS, readAcctPut, mergeAcctState, ACCT_STATE_NAMES, readAskFilesPut, ASK_FILES_TTL_MS, chatWindowFor, tokensReport, chatRouterWindow, testWindowFor, siteAppFiles, appIdFor, writePhoneApp, setAppWait: (retry, wait) => { APP_RETRY_MS = retry; APP_WAIT_MS = wait; } };
 /** A button press's room: its own name space, so a press id can never be read as a job's room. */
 const actionRoom = (id) => "act:" + id;
 /** The room's pieces, for its tests. */
@@ -32067,9 +32188,9 @@ async function handleRequest(request, env, ctx) {
         // THE SUMMARY IS THE SERVER'S (2026-10-20): kept across the page's writes while
         // the messages it covers are still there.
         const keptSum = cur.chat && cur.chat.summary && Number.isInteger(cur.chat.summary.upTo) && cur.chat.summary.upTo <= next.msgs.length ? cur.chat.summary : undefined;
-        const rec = { v: 1, rev: have + 1, updatedAt: Date.now(), name: next.name, slug: next.slug, msgs: next.msgs, clarify: next.clarify, jobCards: next.jobCards, ask: next.ask, ...(next.surface ? { surface: next.surface } : {}), ...(next.appOs ? { appOs: next.appOs } : {}), ...(keptSum ? { summary: keptSum } : {}) };
+        const rec = { v: 1, rev: have + 1, updatedAt: Date.now(), createdAt: (cur.chat && Number(cur.chat.createdAt)) || Date.now(), brief: next.brief || (cur.chat && typeof cur.chat.brief === "string" ? cur.chat.brief : ""), name: next.name, slug: next.slug, msgs: next.msgs, clarify: next.clarify, jobCards: next.jobCards, ask: next.ask, ...(next.surface ? { surface: next.surface } : {}), ...(next.appOs ? { appOs: next.appOs } : {}), ...(keptSum ? { summary: keptSum } : {}) };
         try {
-          const put = await env.SITES_BUCKET.put(key, JSON.stringify(rec), { httpMetadata: { contentType: "application/json" }, onlyIf: cur.etag ? { etagMatches: cur.etag } : { etagDoesNotMatch: "*" } });
+          const put = await env.SITES_BUCKET.put(key, JSON.stringify(rec), { httpMetadata: { contentType: "application/json" }, customMetadata: chatListMeta(rec), onlyIf: cur.etag ? { etagMatches: cur.etag } : { etagDoesNotMatch: "*" } });
           if (!put) { const now = await chatStoreRead(env, key); return Response.json({ ok: false, conflict: true, chat: now.chat }, { status: 409 }); }
         } catch { return Response.json({ error: "not saved" }, { status: 503 }); }
         // THE SITE'S NAME, FOR EVERY DEVICE'S LIST (2026-10-21): the chat names
@@ -32778,9 +32899,12 @@ async function handleRequest(request, env, ctx) {
           try { offlineOf[r.slug] = !(await env.SITES_BUCKET.head("sites/" + r.slug + "/" + SITE_LIVE_FILE)); } catch { offlineOf[r.slug] = null; }
         }));
       }
-      return Response.json({
-        ok: true,
-        sites: backends.filter((r) => r && typeof r.slug === "string").map((r) => ({
+      // AND EVERY PROJECT NOT BUILT YET (2026-10-30): the account's chats.
+      // `complete` is whether this answer names every project — false when
+      // the chat store could not be listed or a chat could not be read, so a
+      // page never reads a project's absence from it as a delete.
+      const chatsRead = await chatProjectsOf(env, lu.id);
+      const siteRows = backends.filter((r) => r && typeof r.slug === "string").map((r) => ({
           slug: r.slug,
           // The site's CURRENT public address, which is not always its storage
           // slug: a renamed site answers at its alias, and printing the storage
@@ -32819,8 +32943,12 @@ async function handleRequest(request, env, ctx) {
           offline: Object.hasOwn(offlineOf, r.slug) ? offlineOf[r.slug] : siteOffline(r[OFFLINE_COLUMN], buildRows ? (stamp(builtBy[r.slug]) || 0) : undefined),
           createdAt: stamp(r.created_at),
           updatedAt: stamp(builtBy[r.slug]) || stamp(r.created_at),
-        })),
-      });
+        }));
+      return Response.json({
+        ok: true,
+        complete: !!chatsRead && !chatsRead.partial,
+        sites: projectRows(siteRows, chatsRead ? chatsRead.chats : []),
+      }, { headers: { "cache-control": "no-store" } });
     }
 
     // TAKE, AND WHICH CODE WOULD RUN IT (2026-09-06).

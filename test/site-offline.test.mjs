@@ -433,14 +433,13 @@ test("the server wins where it can tell, and only there", () => {
   assert.equal(SiteList.offlineNow(1, 1), false);
 });
 
-test("the merge takes the server's answer, and keeps the local one where it could not tell", () => {
+test("the cards take the server's answer, and keep the local one where it could not tell", () => {
   const localRec = (slug, offline) => ({ id: "c-" + slug, name: slug, slug, msgs: [], createdAt: 1, updatedAt: 1, offline });
   const srv = (slug, offline) => ({ slug, name: slug, brief: "", createdAt: 1, updatedAt: 2, offline });
 
-  const out = SiteList.merge(
-    [localRec("one", true), localRec("two", false), localRec("three", true)],
+  const out = SiteList.projects(
     [srv("one", false), srv("two", true), srv("three", null)],
-    true,
+    [localRec("one", true), localRec("two", false), localRec("three", true)],
   );
   const by = Object.fromEntries(out.map((s) => [s.slug, s]));
   assert.equal(by.one.offline, false, "the server put it back and the stale local flag won");
@@ -449,7 +448,7 @@ test("the merge takes the server's answer, and keeps the local one where it coul
 
   // A site the server named that this browser has never seen carries the
   // server's answer straight through.
-  const fresh = SiteList.merge([], [srv("new", true)], true);
+  const fresh = SiteList.projects([srv("new", true)], []);
   assert.equal(fresh[0].offline, true);
 });
 

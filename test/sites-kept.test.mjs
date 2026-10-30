@@ -21,7 +21,16 @@ function fnSource(head) {
 }
 const sitesKept = new Function(fnSource("function sitesKept(") + "\nreturn sitesKept;")();
 
-const sites = (n) => Array.from({ length: n }, (_, i) => ({ id: "s" + i, updatedAt: 1000 + (n - i) }));
+const sites = (n) => Array.from({ length: n }, (_, i) => ({ id: "s" + i, srv: true, updatedAt: 1000 + (n - i) }));
+
+test("a record the server has not confirmed is never trimmed: it may be the only copy (2026-10-30)", () => {
+  const all = sites(40);
+  for (let i = 15; i < 40; i++) { all[i].srv = undefined; all[i].updatedAt = 1; }
+  const kept = sitesKept(all, "s0");
+  assert.ok(kept.some((s) => s.id === "s39") && kept.some((s) => s.id === "s20"), "an unsaved project was trimmed away");
+  assert.equal(kept.length, 26, "every unsaved record and the open one are kept, past the twenty");
+  assert.ok(!kept.some((s) => s.id === "s14"), "the projects the server holds are still bounded");
+});
 
 test("an open site past the twentieth is kept, and so is a recently changed one", () => {
   const all = sites(25);
